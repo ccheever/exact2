@@ -1,3 +1,4 @@
+import { legacySidebarSnapshot } from './legacy-sidebar-view';
 import { timelineReadsNeeded } from './timeline-prepare';
 import { markdownSkills } from './r4-timeline-chips';
 import { workspaceValues } from './composer-workspace-snapshots';
@@ -152,6 +153,7 @@ export function snapshot(client: T3Client, now = 0) {
     ...diffSnapshot(client, now),
     projects: client.shell.projects.map(project => ({ id: str(project.id), name: str(project.title), path: str(project.workspaceRoot), selected: project.id === client.projectId })),
     ...sidebarSnapshot(client, now, { projectIdentity, providerBadge }),
+    legacy: legacySidebarSnapshot(client, now, { projectIdentity }), // legacy-sidebar
     timelineReadsNeeded: timelineReadsNeeded(client),
     markdownSkills: markdownSkills(workspaceValues(provider ?? {}, workspaceCwd(client), 'skills').map(skill => ({ name: str(skill.name), displayName: str(skill.displayName) }))),
     messages: timelineMessages(client, transcript, now), ...timelineSnapshot(client),
