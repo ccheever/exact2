@@ -137,6 +137,18 @@ describe('picker visibility and editors', () => {
     expect(remoteEditorsFrom(['idea'])).toEqual(['vscode']);
     expect(await remoteCapableEditors(fakeNative(() => ({ editors: [] })).native)).toEqual(['vscode']);
   });
+  test('adding an SSH alias before the first picker preserves previously saved tunnels', async () => {
+    const saved = client('http://127.0.0.1:41001');
+    const added = client('http://127.0.0.1:41002');
+    const { native, calls } = fakeNative(request => request.op === 'sshHosts'
+      ? { targets: { [saved.origin]: { alias: 'saved-box' } } } : {});
+    rememberSshAlias(added.origin, 'new-box');
+    expect(await openInView(saved, native, [], 'app')).toMatchObject({ mode: 'remote-links', editors: ['vscode'], empty: false });
+    expect(remoteOpenFor(saved).state).toEqual({ mode: 'remote-links', host: { kind: 'ssh-alias', host: 'saved-box' } });
+    expect(await openInView(added, native, [], 'app')).toMatchObject({ mode: 'remote-links', editors: ['vscode'] });
+    expect(remoteOpenFor(added).state).toEqual({ mode: 'remote-links', host: { kind: 'ssh-alias', host: 'new-box' } });
+    expect(calls.filter(call => call.op === 'sshHosts')).toHaveLength(1);
+  });
   test('an SSH environment opens over its alias; the hint shows until the first accepted open', async () => {
     const { native, calls } = fakeNative(request => request.op === 'sshHosts' ? { targets: { 'http://127.0.0.1:41001': { alias: 'devbox', hostname: 'devbox' } } }
       : request.op === 'remoteEditorsProbe' ? { editors: ['vscode', 'zed'] } : request.op === 'remoteEditorsOpen' ? { opened: true } : request.op === 'remoteEditorsHint' ? { seen: request.seen === true } : {});

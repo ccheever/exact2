@@ -101,7 +101,7 @@ export async function remoteCapableEditors(native: Native | null | undefined): P
   } catch { probed = REMOTE_FALLBACK_EDITORS; }
   return probed;
 }
-export function resetRemoteEditorsForTests(): void { probed = null; aliases = null; hintSeen = null; }
+export function resetRemoteEditorsForTests(): void { probed = null; aliases = { loaded: false, values: {} }; hintSeen = null; }
 
 // ── The one-time "Opens over SSH" hint (useRemoteOpenHint), kept by the module per device ──
 let hintSeen: boolean | null = null;
@@ -116,16 +116,18 @@ async function markRemoteHintSeen(native: Native): Promise<void> {
 }
 
 // ── The focused environment's target ──
-let aliases: Record<string, string> | null = null;
+let aliases: { loaded: boolean; values: Record<string, string> } = { loaded: false, values: {} };
 /** The saved SSH environments' aliases by loopback origin; read again after an SSH environment is added. */
 export async function loadSshAliases(native: Native | null | undefined, fresh = false): Promise<Record<string, string>> {
-  if (aliases && !fresh) return aliases;
+  if (aliases.loaded && !fresh) return aliases.values;
   const targets = await sshTargets(native);
-  aliases = Object.fromEntries(Object.entries(targets).map(([origin, target]) => [trimOrigin(origin), target.alias]));
-  return aliases;
+  const saved = Object.fromEntries(Object.entries(targets).map(([origin, target]) => [trimOrigin(origin), target.alias]));
+  aliases = { loaded: true, values: { ...saved, ...(!fresh ? aliases.values : {}) } };
+  return aliases.values;
 }
 export function rememberSshAlias(origin: string, alias: string): void {
-  aliases = { ...(aliases ?? {}), [trimOrigin(origin)]: alias };
+  // Adding one tunnel does not mean the previously saved tunnels have been loaded.
+  aliases.values[trimOrigin(origin)] = alias;
 }
 
 export type RemoteOpen = { state: RemoteOpenState; resolved: boolean; primary: boolean; label: string };
@@ -134,13 +136,13 @@ export function remoteOpenFor(client: T3Client): RemoteOpen {
   const origin = trimOrigin(str(client.origin));
   const saved = fleet.saved.find(entry => str(entry.environmentId) === client.environmentId);
   const sshRoute = saved ? savedRoutes(saved).find(route => route.kind === 'ssh') : undefined;
-  const alias = sshRoute?.ssh?.alias || (sshRoute ? aliases?.[trimOrigin(sshRoute.origin)] : null) || aliases?.[origin] || null;
+  const alias = sshRoute?.ssh?.alias || (sshRoute ? aliases.values[trimOrigin(sshRoute.origin)] : null) || aliases.values[origin] || null;
   const target: RemoteTarget | null = !client.environmentId || !origin ? null : alias ? { kind: 'ssh' } : isLoopback(origin) ? { kind: 'primary', httpBaseUrl: origin } : { kind: 'bearer' };
   const advertised = Array.isArray(obj(client.config).remoteOpenTargets)
     ? arr(obj(client.config).remoteOpenTargets).map(entry => ({ kind: str(entry.kind), host: str(entry.host).trim() })).filter(entry => entry.host) : undefined;
   const state = resolveRemoteOpenState({ target, sshAlias: alias, remoteOpenTargets: advertised, isDesktopRenderer: true });
   const label = str(obj(obj(client.config).environment).label).trim() || 'this machine';
-  return { state, resolved: aliases !== null && target !== null, primary: target?.kind === 'primary', label };
+  return { state, resolved: aliases.loaded && target !== null, primary: target?.kind === 'primary', label };
 }
 
 /** The editors Open offers here: the server's PATH probe on this machine, else this Mac's remote-capable ones. */
