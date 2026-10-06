@@ -2,7 +2,7 @@
 // reference: a 22pt-radius card with the Plan badge and title, a ⋯ menu of
 // plan actions, and long plans clipped to 416pt behind a fade until expanded.
 use ChatDocument from "./markdown.contract"
-use AnswerMarkdown from "./markdown.contract"
+use AnswerMarkdown, noUrls from "./markdown.contract"
 use Message from "./shapes.contract"
 use TimelineIcon from "./timeline-icons.contract"
 
@@ -36,7 +36,7 @@ component PlanCard
         column width="100%" margin-top=16
           column width="100%" position="relative" max-height=(message.collapsible and not expanded ? 416 : 100000) overflow="hidden"
             each document in filter(documents, (doc) => doc.id == (message.collapsible and not expanded ? `${message.id}#preview` : message.id)) key=document.id
-              AnswerMarkdown(document=document, local=local, code=message.code, diagrams=message.diagrams, scheme=scheme, copiedText=message.codeCopied, copiedNonce=message.codeCopyNonce, env=message.md, source="", cite=local("cite-none"))
+              AnswerMarkdown(document=document, local=local, code=message.code, diagrams=message.diagrams, scheme=scheme, copiedText=message.codeCopied, copiedNonce=message.codeCopyNonce, env=message.md, source="", cite=local("cite-none"), urls=noUrls())
             when message.collapsible and not expanded
               box position="absolute" left=0 right=0 bottom=0 height=96 pointer-events="none" background-color="light-dark(#fefefe, #121212)" mask-image="linear-gradient(to top, #000000f2 0%, #000000cc 50%, #00000000 100%)" aria-hidden=true
           when message.collapsible

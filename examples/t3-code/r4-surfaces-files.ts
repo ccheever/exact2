@@ -23,6 +23,7 @@ import { contentRevision, htmlPage, htmlToggleLabel, isHtmlPath } from './r10-de
 import { crumbsMounting, loadBegin, loadEnd, missingFolders, noteReveal, revealStale } from './r10-device-crumbs'; // lane r10-device: a mounting preview settles at the end
 import { canUseMarkdownFileShellActions, loadSshAliases, openInEditorHere, openInView, remoteOpenFor } from './remote-open'; // remote Open (OpenInPicker)
 import { fileComment, fileCommentLines, fileCommentOpen, type FileLine } from './diff-file-comments'; // diff-review: line comments on the preview
+import { filesMediaView, NO_MEDIA, type MediaView } from './media-views'; // media-actions: image and video files with their menu
 
 export type TreeRow = { id: string; path: string; name: string; depth: number; directory: boolean; expanded: boolean; selected: boolean; token: string; ignored: boolean; guides: { id: string; left: number }[] };
 export type Crumb = { id: string; label: string; path: string; current: boolean; directory: boolean };
@@ -38,7 +39,7 @@ export type FilesView = {
   gutter: number; wrap: boolean; truncatedNote: string; canRender: boolean; rendered: boolean; renderLabel: string; renderIcon: string;
   editable: boolean; pending: boolean; editorId: string; editorLabel: string; editorShow: boolean; editorHint: string; editorUnavailable: string; editors: EditorChoice[]; absolutePath: string;
   markdown: Document; code: never[]; table: { id: string; header: boolean; cells: CodeRun[] }[]; editing: boolean; editorText: string; editorsOpen: boolean; crumbMenu: CrumbMenu; crumbsMask: string; crumbsOffset: number;
-  url: string;
+  url: string; media: MediaView;
 };
 type Entry = { path: string; kind: 'file' | 'directory'; ignored: boolean };
 type Read = { contents: string; byteLength: number; truncated: boolean; error: string; notFile: boolean };
@@ -394,7 +395,7 @@ export const emptyFiles = (): FilesView => ({
   cwd: '', project: '', ready: false, loading: false, error: '', query: '', truncated: false, rows: [], hasDirectories: false, allExpanded: false,
   explorer: true, showExplorer: true, path: '', preview: '', previewError: '', crumbs: [], lines: [], commentOpen: false, text: '', textKey: '', gutter: 0, wrap: true,
   truncatedNote: '', canRender: false, rendered: false, renderLabel: '', renderIcon: '', editable: false, pending: false, editorId: '', editorLabel: '', editorShow: false, editorHint: '', editorUnavailable: '', editors: [], absolutePath: '',
-  markdown: { id: '', blocks: [] }, code: [], table: [], editing: false, editorText: '', editorsOpen: false, crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '',
+  markdown: { id: '', blocks: [] }, code: [], table: [], editing: false, editorText: '', editorsOpen: false, crumbMenu: closedCrumbs(), crumbsMask: 'none', crumbsOffset: -1, url: '', media: NO_MEDIA,
 });
 
 export async function filesView(client: T3Client, native: Native, active: Surface, now = 0): Promise<FilesView> {
@@ -414,9 +415,11 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
   const absolute = path ? (isAbsolute(path) ? path : `${cwd.replace(/\/+$/, '')}/${path}`) : '';
   // lane r10-device: a rendered page waits for its signed URL, not for the read.
   const page = html && rendered ? await htmlPage(client, native, cwd, absolute, previewPath, read && !read.error ? contentRevision(read.contents) : '', now) : { url: '', error: '' };
+  // media-actions: an image or video renders from its signed URL, never from the read (FilePreviewPanel isImage / isVideo).
+  const media = previewPath ? await filesMediaView(client, native, previewPath, absolute, cwd, '', now) : NO_MEDIA;
   const text = read?.contents ?? '';
   const lines = previewPath && read && !read.error ? codeLines(previewPath, text) : [];
-  const editable = !!previewPath && !!read && !read.error && !read.truncated && !isAbsolute(previewPath);
+  const editable = !!previewPath && !media.kind && !!read && !read.error && !read.truncated && !isAbsolute(previewPath);
   const rows = state.query.trim() && state.search ? searchRows(searchMatches(state.search.entries, state.query), path) : treeRows(state.dirs, state.expanded, path);
   const reachable = new Set(['', ...[...state.dirs.values()].flat().filter(entry => entry.kind === 'directory').map(entry => entry.path)]);
   const error = [...state.errors].find(([folderPath]) => reachable.has(folderPath))?.[1] ?? state.search?.error ?? '';
@@ -427,7 +430,7 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
     cwd, project: projectName, ready: state.dirs.has(''), loading: state.loading > 0, error, query: state.query,
     truncated: !!state.query.trim() && !!state.search?.truncated, rows, hasDirectories: [...state.dirs.values()].flat().some(entry => entry.kind === 'directory'),
     allExpanded: state.expandAll || allExpanded(state), explorer: preferences.explorer, showExplorer,
-    path, preview: !previewPath ? '' : html && rendered ? (page.error ? 'error' : page.url ? 'html' : 'loading') : read === undefined ? 'loading' : read.error ? 'error' : rendered ? (markdown ? 'markdown' : 'table') : 'code',
+    path, preview: !previewPath ? '' : media.kind ? 'media' : html && rendered ? (page.error ? 'error' : page.url ? 'html' : 'loading') : read === undefined ? 'loading' : read.error ? 'error' : rendered ? (markdown ? 'markdown' : 'table') : 'code',
     previewError: html && rendered ? page.error : read?.error && !folder ? read.error : '', crumbs: path ? crumbs(projectName, path) : [], lines: fileCommentLines(client, previewPath, text, lines, editable && state.editing === path), commentOpen: fileCommentOpen(client), text, textKey: `${path}:${active.reveal}`,
     gutter: sourceGutter(lines.length), wrap: client.local.clientSettings.wordWrap !== false,
     truncatedNote: previewPath && read?.truncated ? `Preview limited to the first 1 MB of a ${read.byteLength.toLocaleString('en-US')} byte file.`
@@ -439,6 +442,6 @@ export async function filesView(client: T3Client, native: Native, active: Surfac
     editing: editable && state.editing === path, editorText: state.editing === path ? state.editorText : '', editorsOpen: state.editorsOpen && !!path,
     crumbMenu: crumbMenu(state, projectName, path, client.presentation), crumbsMask: path ? crumbsMask(client.presentation) : 'none',
     crumbsOffset: path !== '' && previewPath !== '' && !!read && !read.error && !rendered ? crumbsOffset(client.presentation ?? {}, cold, true) : -1,
-    url: html && rendered ? page.url : '',
+    url: html && rendered ? page.url : '', media,
   };
 }

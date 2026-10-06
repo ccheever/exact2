@@ -28,7 +28,7 @@ source changed in the integration pass apart from this README and `AGENT-HANDOFF
   attach 3, composer 45, composer-files 4, contextmenu 6, fleet 8, intent 4, menus 10,
   notifications 4, r5-composer 3, r5-panels 5, r6-device 3 (loopback serve-sim peers),
   r6-media 5 (PDFKit, sandboxed WebKit; rendered HTML loads its siblings from the asset
-  token's directory only), r7-device 13 (H.264 over a loopback hub; with
+  token's directory and, as the reference's frame, external hosts), r7-device 13 (H.264 over a loopback hub; with
   `T3_DEVICE_GLB_DIR` set to a T3 server's `client/assets` the served-model renders run
   too), r8-keys 4, r8-pointer 3, r9-device 13 (the iPhone Duo viewer over loopback panel
   feeds and the served model, the foldable), r9-input 10, r10-connect 5 (select-on-open,
@@ -153,7 +153,9 @@ new version and shares that state with Settings › Connections (`server-update.
   rendered Markdown/CSV and an editor that writes back with `projects.writeFile`; opened
   from Go to file, content search and file chips; its explorer and rendered/source
   choices persist; an `.html` file opens rendered in the sandboxed WebKit body (its sibling stylesheets, scripts and
-  images load through the signed asset URL's token directory only, `R6MediaPreview.swift`, lane r11-misc)
+  images load through the signed asset URL's token directory, and the page may load stylesheets, scripts,
+  images, fonts and fetches from other hosts as the reference's sandboxed frame does (https, `http` to an IP
+  address; `http` to a named host only where App Transport Security allows it, see Known limits), `R6MediaPreview.swift`)
   from a signed asset URL, with the reference's Show HTML source / Show rendered page toggle,
   `r10-device-files-html.ts`; regex literals in its scripts are coloured as Shiki does,
   `r10-device-html-regex.ts`; every right-panel tab (Files, files, the
@@ -178,7 +180,7 @@ new version and shares that state with Settings › Connections (`server-update.
   +N and stack forms, `r7-handoff-strip.ts`), sent attachment
   previews (Markdown, table or numbered source, images, Copy contents and Save file;
   opened from a sent file chip; `r6-media-*`: PDFs in PDFKit, HTML rendered in a sandboxed
-  WebKit view that reaches only its asset URL's token directory or as source coloured by Shiki's html grammar under the
+  WebKit view that loads its token directory and external hosts as the reference's frame does, or as source coloured by Shiki's html grammar under the
   Pierre themes (`r7-polish-html-syntax.ts`), audio and video in AVKit players, "Unable to
   load audio/video." with Try again) and Device (the "Set up devices" wizard over
   `device.configure` / `subscribeDeviceState`; Escape closes it; after onboarding a row
@@ -274,8 +276,9 @@ terminal. This is renderer evidence; the drawer and PTY session integrations bel
 - Known in-app differences (round 11): during a row-action sweep the hover card or tooltip
   that was open at the press stays until release, and Escape does not cancel the sweep (the
   reference closes the card and cancels); a switched-off loopback environment stays listed under Environments (it stands
-  in for the reference's unlisted primary); rendered HTML loads only its asset token's
-  directory, not external hosts; the reference opens a thread's live device session as a
+  in for the reference's unlisted primary); in the app bundle, rendered HTML cannot load `http://` from a
+  named host (App Transport Security; `app.json` cannot set its keys, [#106](https://github.com/ccheever/exact2/issues/106));
+  https hosts, `http` IP addresses and the token directory load; the reference opens a thread's live device session as a
   floating player on load and this client does not; No project drafts cannot switch machine.
 - Framework limits worked around in-app: host text truncates at word boundaries and
   draws no placeholder colour; negative-spread shadows draw faint; popovers open below, above or centred on

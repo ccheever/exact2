@@ -12,7 +12,7 @@ use Overlay from "./shapes.contract"
 use WelcomeWizard from "./pages-welcome.contract"
 use WelcomeView from "./pages-welcome.contract"
 use RevertDialog from "./timeline.contract"
-use ImagePreviewDialog from "./timeline-attachments.contract"
+use ImagePreviewHost from "./timeline-attachments.contract"
 use DiagramPreviewDialog from "./timeline-mermaid.contract"
 use TimelineAttachmentUrls from "./timeline-attachments.contract"
 use PlanSaveDialog from "./timeline-plan.contract"
@@ -173,8 +173,7 @@ component WindowOverlays
     when data.revertPending != ""
       RevertDialog(busy=commandPending, answer=answerRevert)
     when data.imagePreviewId != ""
-      each preview in filter(attachmentUrls.items, (entry) => entry.id == data.imagePreviewId) key=preview.id
-        ImagePreviewDialog(url=preview.url, name=data.imagePreviewName, position=data.imagePreviewPosition, previous=data.imagePreviewPrevious, next=data.imagePreviewNext, video=data.imagePreviewVideo, windowWidth=viewport.width, windowHeight=viewport.height, local=chatLocal)
+      ImagePreviewHost(id=data.imagePreviewId, urls=attachmentUrls.items, name=data.imagePreviewName, position=data.imagePreviewPosition, previous=data.imagePreviewPrevious, next=data.imagePreviewNext, video=data.imagePreviewVideo, windowWidth=viewport.width, windowHeight=viewport.height, local=chatLocal)
     each diagram in data.diagramPreview key=diagram.id
       DiagramPreviewDialog(diagram=diagram, windowWidth=viewport.width, windowHeight=viewport.height, scheme=viewport.prefersColorScheme, local=chatLocal)
     // r4-composer: a shelf video's expanded preview (r4-composer.contract).
