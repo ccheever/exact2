@@ -1,4 +1,5 @@
 import { omitExpiredTerminalContexts } from './terminal-integrations';
+import { terminalOpen } from './terminal-drawer-view'; // terminal-layout: the real terminalOpen
 // The composer's client.command() ops (client-ops.ts): the draft and favorite
 // models, Send (a new thread's launch, a follow-up, a fan-out), the model,
 // option and mode pickers, Stop, approvals and the provider's questions, and
@@ -101,7 +102,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   if (!submission || submission.interactionMode === 'plan') this.local.drafts[this.draftKey] = text;
   const gesture = await this.call(native, { op: 'composerSendIntent' }).catch(() => ({}));
   const running = !!selection.threadId && threadPhase(this.projection) === 'running';
-  const intent = sendIntent(this.config, gesture, running, !selection.threadId);
+  const intent = sendIntent(this.config, gesture, running, !selection.threadId, terminalOpen(this));
   const provider = arr(this.config.providers).find(provider => provider.instanceId === this.providerId);
   if (!provider || !providerAvailable(provider)) throw new ClientError('This provider is unavailable. Configure it in T3 Code.');
   if (!arr(provider.models).some(model => model.slug === this.modelId)) throw new ClientError('Choose one of the models advertised by T3.');

@@ -12,6 +12,7 @@ import { attachOffered } from './composer-controls-attach';
 import { fanoutView } from './r3-composer-controls-fanout';
 import { chordGlyphs, optionValue, reportedSelection, resolvedCurrent, triggerModelName, type Selection } from './r3-composer-controls-model';
 import { sendChords } from './composer-editor-intent';
+import { terminalOpen } from './terminal-drawer-view'; // terminal-layout: ChatComposer passes the real terminalOpen
 import { measuredLabels } from './r5-composer-measure';
 import { composerMenus, effortMenuWidth, measured, probe } from './r5-composer-menus';
 import { environmentView } from './r4-git-env';
@@ -142,7 +143,8 @@ export function anchorsFrom(presentation: Obj) {
 
 // r5-composer: the last footer layout per client, for resolveRestingComposerControlsLayout's promotion slack.
 const footerSteps = new WeakMap<object, FooterSteps>();
-export function composerView(client: ComposerSource, requests: { approval: boolean; question: boolean; choiceOnly: boolean; planReady?: boolean }) {
+export function composerView(client: ComposerSource, requests: { approval: boolean; question: boolean; choiceOnly: boolean; planReady?: boolean; terminalOpen?: boolean }) {
+  const keyContext = { terminalOpen: requests.terminalOpen === true }; // ChatComposer: the real terminalOpen, terminalFocus false
   const providers = arr(client.config.providers);
   const provider = providers.find(entry => entry.instanceId === client.providerId);
   const model = arr(provider?.models).find(entry => entry.slug === client.modelId);
@@ -161,7 +163,7 @@ export function composerView(client: ComposerSource, requests: { approval: boole
   const anchors = anchorsFrom(client.presentation);
   const display = traitsDisplay(str(provider?.driver), descriptors, shown, selection, reported, ultra);
   // getTriggerDisplayModelName; the tooltip adds the picker's shortcut (ProviderModelPicker triggerTooltipContent).
-  const modelTitle = model ? triggerModelName(model) : client.modelId || 'Choose model', modelShortcut = chordGlyphs(commandChords(client.config, 'modelPicker.toggle', 'Meta+Shift+M').split(' ')[0] ?? '');
+  const modelTitle = model ? triggerModelName(model) : client.modelId || 'Choose model', modelShortcut = chordGlyphs(commandChords(client.config, 'modelPicker.toggle', 'Meta+Shift+M', false, keyContext).split(' ')[0] ?? '');
   const { steps, ...layout } = footerLayout({ model: modelTitle, traits: display.label, traitsIcon: !!display.speed,
     runtime: runtime.label, plan: planVisible ? (client.interactionMode === 'plan' ? 'Plan' : 'Build') : '', host: anchors.controls.width,
     measure: measuredLabels(client.presentation), previous: footerSteps.get(client) });
@@ -185,7 +187,7 @@ export function composerView(client: ComposerSource, requests: { approval: boole
     more: more.items, moreCount: more.count, restingMore: restingMore.items, restingMoreCount: restingMore.count,
     moreMenuWidth: effortMenuWidth(client.presentation, more.items), restingMoreMenuWidth: effortMenuWidth(client.presentation, restingMore.items), // composer-fidelity G9: the spectrum ring and the model icon's chroma
     traitsX: anchors.traits.x, traitsWidth: anchors.traits.width, runtimeX: anchors.runtime.x, runtimeWidth: anchors.runtime.width, moreX: anchors.more.x, moreWidth: anchors.more.width,
-    keyEffort: commandChords(client.config, 'composer.effort', 'Meta+Shift+E'), keyMode: commandChords(client.config, 'composer.mode', 'Meta+Shift+A'),
+    keyEffort: commandChords(client.config, 'composer.effort', 'Meta+Shift+E', false, keyContext), keyMode: commandChords(client.config, 'composer.mode', 'Meta+Shift+A', false, keyContext),
   };
 }
 
@@ -205,7 +207,7 @@ export function composerSnapshot(client: T3Client, now = 0) {
   const question = requests.questions[0];
   const phase = client.threadId ? threadPhase(client.projection) : 'disconnected';
   const view = composerView(client, { approval: requests.approvals.length > 0, question: !!question,
-    choiceOnly: !!question && !question.customAllowed, planReady: !!planFollowUp(client) && !question });
+    choiceOnly: !!question && !question.customAllowed, planReady: !!planFollowUp(client) && !question, terminalOpen: terminalOpen(client) });
   const tasks = tasksProgress(client), sync = syncStatus(client), anchors = anchorsFrom(client.presentation);
   // The activity row (sync, else the running turn's tasks unless a request blocks the drawer) leads the stack.
   const activity = sync ? 'sync' : tasks.tasksTotal > 0 && !requests.approvals.length && !question ? 'tasks' : '';
@@ -216,11 +218,11 @@ export function composerSnapshot(client: T3Client, now = 0) {
   // A provider-native subagent thread mounts no composer: the bar stands alone, without its dock.
   const bar = subagentBar(client, now);
   // Several models for a new thread: the trigger names them (allModelNames), with the picker's shortcut.
-  const fan = fanoutView(client), shortcut = chordGlyphs(commandChords(client.config, 'modelPicker.toggle', 'Meta+Shift+M').split(' ')[0] ?? '');
+  const fan = fanoutView(client), shortcut = chordGlyphs(commandChords(client.config, 'modelPicker.toggle', 'Meta+Shift+M', false, { terminalOpen: terminalOpen(client) }).split(' ')[0] ?? '');
   if (fan.fanout) view.modelTip = shortcut ? `${fan.fanoutAria} · ${shortcut}` : fan.fanoutAria;
   if (bar.subagent) { notices.length = 0; queue.queued = []; }
   return { ...view, ...action, ...fan, attach: !bar.subagent && !requests.approvals.length && attachOffered(client, question), ...providerControl(client), ...tasks, ...queue, ...bar, ...contextMeter(client, str(model?.name, client.modelId)), meterX: anchors.meter.x, meterWidth: anchors.meter.width, actionsX: anchors.actions.x, ...frameTops(client.presentation),
-    sendChords: sendChords(client.config, phase === 'running', !client.threadId), // composer-editor-intent.ts
+    sendChords: sendChords(client.config, phase === 'running', !client.threadId, terminalOpen(client)), // composer-editor-intent.ts
     // TooltipPopup: 12pt text inset 8pt plus its 1pt border, for the window-edge shift.
     sendTipWidth: Math.ceil(measured(client.presentation, action.sendTooltip, 12, 400) + 18),
     // r5-composer: menu widths from measured texts (r5-composer-menus.ts); Run on's labels join the probes.
