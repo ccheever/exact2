@@ -866,7 +866,7 @@ component QueuedRow
         else
           button press=command("cclocal:queued-edit", row.runId, "", 0) hover=hover("edit") disabled=busy testId=`queued-edit-${row.runId}` aria-label="Edit queued message" width=24 height=24 padding=0 border-radius=8 border-width=0 background-color=(over == "edit" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
             CcIcon(name="pencil", size=14, color=(over == "edit" ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"), weight=2)
-          button press=command("cc:queued-steer", row.runId, "", 0) hover=hover("steer") disabled=(busy or not data.composer.queueSteer) opacity=(busy or not data.composer.queueSteer ? 0.64 : 1) testId=`queued-steer-${row.runId}` aria-label=(data.composer.queueSteerReason != "" ? data.composer.queueSteerReason : "Send as a steer instead") aria-keyshortcuts=(row.index == 0 and data.composer.queueSteer ? "Meta+Shift+Enter" : "") height=24 padding-left=7 padding-right=7 gap=4 border-radius=8 border-width=0 background-color=(over == "steer" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" flex-shrink=0
+          button press=command("cc:queued-steer", row.runId, "", 0) hover=hover("steer") disabled=(busy or not data.composer.queueSteer) opacity=(busy or not data.composer.queueSteer ? 0.64 : 1) testId=`queued-steer-${row.runId}` aria-label=(data.composer.queueSteerReason != "" ? data.composer.queueSteerReason : "Send as a steer instead") height=24 padding-left=7 padding-right=7 gap=4 border-radius=8 border-width=0 background-color=(over == "steer" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" flex-shrink=0
             box display="flex" flex-shrink=0 margin-left=-2 margin-right=-2
               CcIcon(name="corner-up-right", size=14, color=(over == "steer" ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"), weight=2)
             text "Steer" font-size=12 font-weight=500 line-height="16px" color=(over == "steer" ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
@@ -910,7 +910,8 @@ component QueuedControl
         text `${count}` font-size=12 font-weight=500 line-height="16px" min-width=24 text-align="center" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" flex-shrink=0
         row width=24 height=24 align-items="center" justify-content="center" flex-shrink=0 aria-hidden=true
           CcIcon(name=(collapsed == data.threadId ? "chevron-up" : "chevron-down"), size=14, color="light-dark(#71717b, #818181)", weight=2)
-      when collapsed != data.threadId
+      // thread-commands-and-keys: ⌥↑ expands the queue as it starts the edit (QueuedRunsControl editLatest setExpanded).
+      when collapsed != data.threadId or data.composer.queueEditing != ""
         scroll max-height=128 width="100%"
           column width="100%" gap=1 role="list" testId="queued-list"
             each row in data.composer.queued key=row.runId

@@ -80,6 +80,14 @@ component ShortcutDispatch
           ShortcutButton(item=item, press=settings)
         when item.kind == "pr-copy"
           ShortcutButton(item=item, press=copy(item.target, item.extra))
+        // thread-commands-and-keys: a command whose argument is its value (composer.cycleHost → environment-run-on).
+        when item.kind == "command-value"
+          ShortcutButton(item=item, press=command(item.target, "", item.extra, 0))
+        // thread-commands-and-keys: ⌥↑ (thread.editQueuedMessage) is no menu chord; the native composer presses this
+        // button only with the caret at the very start (T3ComposerQueueKey.swift), so elsewhere the key moves the caret.
+        when item.kind == "composer-key"
+          button hook="t3-composer-key" data-anchor=`queued-edit|${item.chord}` press=command(item.target, item.extra, "", 0) aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true
+            text item.label font-size=1
 
 component ShortcutButton
   props
