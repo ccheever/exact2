@@ -1,0 +1,11 @@
+{
+  "name": "t3-code-grammar-generator",
+  "private": true,
+  "description": "Developer command: generates the clone's Shiki grammar data (see gen-grammar.mjs). The app build never runs it.",
+  "type": "module",
+  "dependencies": {
+    "@pierre/theme": "1.1.0",
+    "@shikijs/langs": "4.2.0",
+    "oniguruma-to-es": "4.3.6"
+  }
+}
