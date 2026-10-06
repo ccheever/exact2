@@ -111,6 +111,13 @@ pub(crate) fn shape_text<'a, B: Brush>(
     let mut char_range = 0..0;
     let mut text_range = 0..0;
 
+    // Common characters are itemized by their Script_Extensions, as Chrome's
+    // ScriptRunIterator does: one whose extensions exclude the current run's
+    // script (`「` after Latin) starts a run of those scripts, which the
+    // Common characters after it join and a real script among them settles.
+    let extensions = icu_properties::script::ScriptWithExtensions::new();
+    let mut pending: Option<icu_properties::script::ScriptExtensionsSet<'static>> = None;
+
     let mut inline_box_iter = inline_boxes.iter().enumerate();
     let mut current_box = inline_box_iter.next();
 
@@ -120,8 +127,21 @@ pub(crate) fn shape_text<'a, B: Brush>(
     {
         let mut break_run = false;
         let mut script = info.script;
-        if !real_script(script) {
+        let mut starts = None;
+        let mut settles = false;
+        if script == Script::Common {
+            let set = extensions.get_script_extensions_val(ch);
+            match set.iter().find(|&s| real_script(s)) {
+                Some(first) if !set.contains(&item.script) => {
+                    script = first;
+                    starts = Some(set);
+                }
+                _ => script = item.script,
+            }
+        } else if !real_script(script) {
             script = item.script;
+        } else if script != item.script && pending.as_ref().is_some_and(|p| p.contains(&script)) {
+            settles = true;
         }
         let level = levels.get(char_index).copied().unwrap_or(0);
         if item.style_index != *style_index {
@@ -138,7 +158,7 @@ pub(crate) fn shape_text<'a, B: Brush>(
             }
         }
 
-        if level != item.level || script != item.script {
+        if level != item.level || (script != item.script && !settles) {
             break_run = true;
         }
 
@@ -180,6 +200,7 @@ pub(crate) fn shape_text<'a, B: Brush>(
             item.size = style.font_size;
             item.level = level;
             item.script = script;
+            pending = starts.take();
             item.locale = style.locale;
             item.variations = style.font_variations;
             item.features = style.font_features;
@@ -187,6 +208,17 @@ pub(crate) fn shape_text<'a, B: Brush>(
             item.letter_spacing = style.letter_spacing;
             text_range.start = text_range.end;
             char_range.start = char_range.end;
+        }
+
+        if settles {
+            item.script = script;
+            pending = None;
+        } else if let Some(set) = starts {
+            // The first character of the text: no run to break.
+            if text_range.is_empty() {
+                item.script = script;
+                pending = Some(set);
+            }
         }
 
         if let Some(deferred_boxes) = deferred_boxes {
