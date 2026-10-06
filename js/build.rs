@@ -4,8 +4,10 @@
 //! owns the matching headers, compiler, archive selection, and native link
 //! lines; this build script consumes only the metadata those crates export.
 
+mod engine_os;
 mod package_tool;
 
+use engine_os::ENGINE_OS;
 use package_tool::package_tool;
 use std::env;
 use std::io::Read;
@@ -19,6 +21,7 @@ fn main() {
     }
     for source in [
         "package_tool.rs",
+        "engine_os.rs",
         "src/shim.cc",
         "src/pure.js",
         "src/standard.js",
@@ -33,7 +36,7 @@ fn main() {
     }
 
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
-    if !matches!(target_os.as_str(), "macos" | "ios" | "linux" | "windows") {
+    if !ENGINE_OS.contains(&target_os.as_str()) {
         return;
     }
 
