@@ -19,7 +19,8 @@
     "name": "T3 Code (Exact)"
   },
   "modules": [
-    "t3-key-recorder"
+    "t3-key-recorder",
+    "t3-ssh-password"
   ],
   "hooks": [
     "t3-composer",

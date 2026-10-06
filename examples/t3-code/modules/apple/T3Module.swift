@@ -34,7 +34,9 @@ final class T3Module: ExactModule {
     private let r9: R9Input // lane r9-input: composer focus and composing text, the transcript's remembered position (R9Input.swift).
     private let r10: R10Connect // lane r10-connect: wake, select on open, chords by physical key, hover under a still pointer (R10Connect.swift).
     // Settings → Keybindings capture field (T3KeyRecorder.swift).
-    override class var views: [String: ExactNativeFactory] { ["t3-key-recorder": ExactNativeFactory { props, events in T3KeyRecorder(props: props, events: events) }] }
+    // The SSH password dialog's secure field (T3SshAuth.swift).
+    override class var views: [String: ExactNativeFactory] { ["t3-key-recorder": ExactNativeFactory { props, events in T3KeyRecorder(props: props, events: events) },
+                                                              "t3-ssh-password": ExactNativeFactory { props, events in T3SshPasswordField(props: props, events: events) }] }
 
     required init(context: ExactModuleContext) {
         let gate = T3ReadGate(changed: context.changed); self.gate = gate
@@ -58,7 +60,7 @@ final class T3Module: ExactModule {
         transport = T3Transport(persistent: !context.agent, dataDirectory: T3Storage.dataRoot(agent: context.agent, contextData: context.data), credentials: credentials, savedEnvironments: saved, activity: activity, changed: gated)
         fleet = T3Fleet(persistent: !context.agent, credentials: credentials, saved: saved, activity: activity, changed: gated)
         devices = R6DeviceStreams(access: { [transport] done in transport.deviceHubAccess(done) }, changed: gated)
-        ssh = T3Ssh(agent: context.agent)
+        ssh = T3Ssh(agent: context.agent, promptsAvailable: true, changed: gated) // the window shows the SSH password dialog
         r9 = R9Input(agent: context.agent)
         r10 = R10Connect(agent: context.agent)
         exportsRoot = context.agent ? T3Storage.dataRoot(agent: true, contextData: context.data).appendingPathComponent("exports", isDirectory: true) : nil

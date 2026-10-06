@@ -41,6 +41,8 @@ pub fn mixed<J: DataSource>(javascript: J, placement: Placement) -> Data<J> {
             "connectionsPage",
             "settingsBPicker",
             "settingsBSshHosts",
+            "sshPrompt",
+            "sshPromptAnswer",
             "pairingFields",
             "integrationsPage",
             "keyboardDispatch",
