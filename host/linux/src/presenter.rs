@@ -139,8 +139,9 @@ pub struct Presenter<D: DataSource> {
     /// Unbound checkboxes' own states, as a browser keeps an uncontrolled
     /// control's (LLP 1069.001 D4); a bound one draws its `checked`.
     pub(crate) controls: BTreeMap<ViewId, bool>,
-    /// A date's, range's or select's choice since its bound value last
-    /// changed, beside that bound value (`paint::control::choice`).
+    /// A date's, range's or select's choice, or a field's typed text, since
+    /// its bound value last changed, beside that bound value
+    /// (`paint::control::choice`, `field_text`).
     pub(crate) chosen: BTreeMap<ViewId, (String, String)>,
     /// The select whose menu is open (LLP 1069.001 D7).
     pub(crate) menu: Option<ViewId>,
@@ -668,6 +669,7 @@ impl<D: DataSource> Presenter<D> {
             self.executor.resume_ordered();
         }
         self.cancel_removed_controls();
+        self.forget_replaced_choices();
         let admitted = self.host.grants();
         for r in self.host.take_requests() {
             if r.request.surface.is_some() {
@@ -1334,6 +1336,7 @@ impl<D: DataSource> Presenter<D> {
     /// Another host took over: it is measured as the last was, and counted.
     pub(crate) fn replaced(&mut self) {
         self.brush.paint_epoch = None; // A new kernel may have the same epoch.
+        self.chosen.clear(); // A new runner reuses view ids.
         self.hosts += 1;
         self.measure();
     }

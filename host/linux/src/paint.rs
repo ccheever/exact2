@@ -453,8 +453,8 @@ pub struct Scene<'a> {
     pub selection: Option<exact_runner::FieldSelection>,
     /// Unbound checkboxes' own states, which the host keeps (LLP 1069.001 D4).
     pub controls: &'a BTreeMap<ViewId, bool>,
-    /// Values chosen in a date, range or select since its bound value last
-    /// changed: (choice, bound).
+    /// Values chosen in a date, range or select, or typed into a field, since
+    /// its bound value last changed: (choice, bound).
     pub chosen: &'a BTreeMap<ViewId, (String, String)>,
     /// A select's open menu, painted over everything (LLP 1069.001 D7).
     pub menu: Option<control::MenuPaint>,
@@ -1028,7 +1028,9 @@ impl Painter {
             }
             NodeType::TextInput => {
                 self.row_refuse();
-                let value = node.props.str(PropId::Value).unwrap_or("");
+                // Typed text its bound value has not replaced (LLP 1069.001 D4).
+                let value = control::choice(node, walk.scene.chosen.get(&node.id))
+                    .unwrap_or_else(|| node.props.str(PropId::Value).unwrap_or(""));
                 let placeholder = value.is_empty();
                 // A password is masked, one bullet a character, as the web and
                 // Apple's secure fields draw it.

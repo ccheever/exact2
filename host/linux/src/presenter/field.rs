@@ -142,27 +142,22 @@ pub(super) fn moved(
 }
 
 impl<D: DataSource> Presenter<D> {
-    /// `id`'s value as the kernel holds it.
+    /// What `id` shows: typed text kept against its bound value, else that
+    /// value (LLP 1069.001 D4). A selection indexes this, not the prop a
+    /// later write replaced.
     fn field_value(&self, id: ViewId) -> String {
-        self.host
-            .kernel()
-            .node(id)
-            .and_then(|n| n.props.str(PropId::Value).map(str::to_owned))
-            .unwrap_or_default()
+        self.field_text(id)
     }
 
-    /// A text field's selection: the one kept for its value, else a caret
-    /// at its end (where a field the person has not moved in types).
+    /// A text field's selection: the one kept for the text it shows, else a
+    /// caret at its end (where a field the person has not moved in types).
+    /// A value rewritten since (an action that writes another) puts the
+    /// caret at the new text's end, as HTML's `value` setter does.
     pub(crate) fn field_selection(&self, id: ViewId) -> FieldSelection {
-        let value = self
-            .host
-            .kernel()
-            .node(id)
-            .and_then(|n| n.props.str(PropId::Value))
-            .unwrap_or("");
+        let value = self.field_value(id);
         match self.fields.get(&id) {
             Some(mark) if mark.value == value => mark.selection,
-            _ => FieldSelection::at_end(value),
+            _ => FieldSelection::at_end(&value),
         }
     }
 
@@ -313,17 +308,28 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// An edit's new value and the caret it leaves: kept, the field marked
-    /// typed into (its `change` waits for blur or Enter), and its `input`.
-    fn field_edit(&mut self, id: ViewId, next: String, after: FieldSelection, now_ms: f64) {
+    /// typed into (its `change` waits for blur or Enter), and its `input`,
+    /// which carries the selection. The watch is the bound value from before
+    /// the dispatch, so a write during the edit replaces the typed text and
+    /// one that writes nothing leaves it (LLP 1069.001 D4).
+    fn field_edit(
+        &mut self,
+        id: ViewId,
+        next: String,
+        after: FieldSelection,
+        bound: String,
+        now_ms: f64,
+    ) {
         self.edited = Some(id);
         self.mark_field(id, &next, after, false);
+        self.host.values.watch(id, Some(bound.clone()));
         if self
             .host
             .runner()
             .handlers_of(id)
             .contains(&EventKind::Input)
         {
-            let event = Event::Input(ControlValue::Field(next, after));
+            let event = Event::Input(ControlValue::Field(next.clone(), after));
             if let Some(e) = self.host.dispatch_at(id, event, now_ms) {
                 eprintln!("exact: {e}");
             }
@@ -331,6 +337,7 @@ impl<D: DataSource> Presenter<D> {
                 eprintln!("exact: {e}");
             }
         }
+        self.keep_typed(id, next, bound);
     }
 
     /// A key's default action in the focused text field: Enter submits an
@@ -339,16 +346,24 @@ impl<D: DataSource> Presenter<D> {
     /// firing `select` when it is a range), a character is typed — each
     /// edit at the selection.
     pub(crate) fn field_key(&mut self, id: ViewId, name: &str, now_ms: f64) {
-        let Some(node) = self.host.kernel().node(id) else {
-            return;
+        let (textarea, limit) = {
+            let Some(node) = self.host.kernel().node(id) else {
+                return;
+            };
+            if node.node_type != NodeType::TextInput
+                || node.props.bool(PropId::Editable) == Some(false)
+            {
+                return;
+            }
+            (
+                node.props.str(PropId::SemanticTag) == Some("textarea"),
+                exact_kernel::control::text_maxlength(node.props),
+            )
         };
-        if node.node_type != NodeType::TextInput || node.props.bool(PropId::Editable) == Some(false)
-        {
-            return;
-        }
-        let textarea = node.props.str(PropId::SemanticTag) == Some("textarea");
-        let limit = exact_kernel::control::text_maxlength(node.props);
-        let value = node.props.str(PropId::Value).unwrap_or("").to_owned();
+        let bound = self.bound_text(id);
+        // What earlier commits replaced goes first: this edit starts from what shows.
+        self.forget_replaced_choices();
+        let value = self.field_text(id);
         let selection = self.field_selection(id);
         // A Control or Meta chord types nothing, as in a browser.
         let chord = self.held & 0b1100_1100 != 0;
@@ -388,24 +403,28 @@ impl<D: DataSource> Presenter<D> {
         }) {
             return;
         }
-        self.field_edit(id, next, after, now_ms);
+        self.field_edit(id, next, after, bound, now_ms);
     }
 
     /// A paste's default action at an editable text field: the text in at
     /// its selection (a field's own paste still inserts, beside any `paste`
     /// handler), within its `maxlength`.
     pub(crate) fn paste_field(&mut self, id: ViewId, text: &str, now_ms: f64) {
-        let Some(node) = self.host.kernel().node(id) else {
-            return;
+        let limit = {
+            let Some(node) = self.host.kernel().node(id) else {
+                return;
+            };
+            if node.node_type != NodeType::TextInput
+                || node.props.bool(PropId::Editable) == Some(false)
+                || node.props.bool(PropId::Disabled) == Some(true)
+            {
+                return;
+            }
+            exact_kernel::control::text_maxlength(node.props)
         };
-        if node.node_type != NodeType::TextInput
-            || node.props.bool(PropId::Editable) == Some(false)
-            || node.props.bool(PropId::Disabled) == Some(true)
-        {
-            return;
-        }
-        let limit = exact_kernel::control::text_maxlength(node.props);
-        let value = node.props.str(PropId::Value).unwrap_or("").to_owned();
+        let bound = self.bound_text(id);
+        self.forget_replaced_choices();
+        let value = self.field_text(id);
         let selection = self.field_selection(id);
         let mut text = text.to_owned();
         if let Some(limit) = limit {
@@ -414,6 +433,6 @@ impl<D: DataSource> Presenter<D> {
             text.truncate(byte_at(&text, room));
         }
         let (next, after) = replace(&value, selection, &text);
-        self.field_edit(id, next, after, now_ms);
+        self.field_edit(id, next, after, bound, now_ms);
     }
 }

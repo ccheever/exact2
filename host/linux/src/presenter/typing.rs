@@ -58,27 +58,31 @@ impl<D: DataSource> Presenter<D> {
         let caret = exact_runner::FieldSelection::at_end(&text);
         self.mark_field(id, &text, caret, false);
         self.edited = Some(id);
+        // What earlier commits replaced goes first, and the watch is the
+        // bound value from before this edit's dispatch (LLP 1069.001 D4).
+        self.forget_replaced_choices();
+        let bound = self.bound_text(id);
+        self.host.values.watch(id, Some(bound.clone()));
         let error = if self
             .host
             .runner()
             .handlers_of(id)
             .contains(&EventKind::Input)
         {
-            self.host
-                .dispatch_at(id, Event::Input(ControlValue::Field(text, caret)), now)
+            self.host.dispatch_at(
+                id,
+                Event::Input(ControlValue::Field(text.clone(), caret)),
+                now,
+            )
         } else {
             None
         };
         let e = self.after_commit();
+        self.keep_typed(id, text, bound);
         if let Some(e) = error.or(e) {
             return Err(e);
         }
-        let value = self
-            .host
-            .kernel()
-            .node(id)
-            .and_then(|n| n.props.str(PropId::Value).map(str::to_string))
-            .unwrap_or_default();
+        let value = self.field_text(id);
         let mut s = format!("{{\"typed\":{id},\"value\":");
         quote(&value, &mut s);
         s.push('}');
@@ -474,6 +478,8 @@ impl<D: DataSource> Presenter<D> {
         if self.radio_key(id, name, now_ms) {
             return;
         }
+        // The field's own keys: the caret and selection, editing the text it
+        // shows (typed text kept against its bound value; LLP 1069.001 D4).
         self.field_key(id, name, now_ms);
     }
 
@@ -493,17 +499,63 @@ impl<D: DataSource> Presenter<D> {
         {
             return None;
         }
-        let value = self
-            .host
-            .kernel()
-            .node(id)
-            .and_then(|n| n.props.str(PropId::Value).map(str::to_string))
-            .unwrap_or_default();
+        let value = self.field_text(id);
         let selection = self.field_selection(id);
         Some(self.host.dispatch_at(
             id,
             Event::Change(ControlValue::Field(value, selection)),
             now_ms,
         ))
+    }
+
+    /// A choice or typed text whose bound value any commit since changed is
+    /// gone, as the web build's write of `value` replaces it (LLP 1069.001
+    /// D4): the value coming back does not bring it back.
+    pub(crate) fn forget_replaced_choices(&mut self) -> std::collections::BTreeSet<ViewId> {
+        let replaced = self.host.values.take_replaced();
+        for id in &replaced {
+            self.chosen.remove(id);
+        }
+        replaced
+    }
+
+    /// A field's committed `value`.
+    pub(crate) fn bound_text(&self, id: ViewId) -> String {
+        self.host
+            .kernel()
+            .node(id)
+            .and_then(|n| n.props.str(PropId::Value).map(str::to_string))
+            .unwrap_or_default()
+    }
+
+    /// What a field shows and commits: its typed text while its bound
+    /// value is the one it had then (`keep_typed`), else that value.
+    pub(crate) fn field_text(&self, id: ViewId) -> String {
+        let Some(node) = self.host.kernel().node(id) else {
+            return String::new();
+        };
+        crate::paint::control::choice(&node, self.chosen.get(&id))
+            .unwrap_or_else(|| node.props.str(PropId::Value).unwrap_or(""))
+            .to_string()
+    }
+
+    /// After an edit's dispatch: a field whose `value` the edit's action did
+    /// not write keeps the typed text, as the web's element keeps its own
+    /// value and the web build writes `value` only when the bound value
+    /// changes (LLP 1069.001 D4: an unbound field holds its own text).
+    pub(crate) fn keep_typed(&mut self, id: ViewId, typed: String, before: String) {
+        // No handler need hear an edit for it to show.
+        self.dirty = true;
+        // A commit since the edit began (the watch set before its dispatch) that changed the
+        // value replaces the typed text, whatever it reads now.
+        let written = self.forget_replaced_choices().contains(&id);
+        let bound = self.bound_text(id);
+        if !written && self.host.kernel().node(id).is_some() && bound == before && bound != typed {
+            self.host.values.watch(id, Some(bound.clone()));
+            self.chosen.insert(id, (typed, bound));
+        } else {
+            self.host.values.watch(id, None);
+            self.chosen.remove(&id);
+        }
     }
 }

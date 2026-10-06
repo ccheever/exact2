@@ -39,6 +39,8 @@ mod presence;
 mod press;
 #[path = "transform_binding.rs"]
 mod transform_binding;
+#[path = "value_watch.rs"]
+mod value_watch;
 
 /// Why the host refused to boot.
 #[allow(missing_docs)]
@@ -119,6 +121,8 @@ pub struct Host<D: DataSource> {
     renewed: Vec<ViewId>,
     /// The commit each media session claimant mounted in (LLP 1098 D9).
     media_mounts: crate::media_session::Mounts,
+    /// The `value`s the presenter keeps typed text against (LLP 1069.001 D4).
+    pub(crate) values: value_watch::ValueWatch,
 }
 
 impl<D: DataSource> Host<D> {
@@ -265,6 +269,7 @@ impl<D: DataSource> Host<D> {
             canvas2d: Default::default(),
             renewed: Vec::new(),
             media_mounts: Default::default(),
+            values: Default::default(),
         };
         host.runner
             .set_canvas_limits(exact_runner::Limits::native(physical_memory(), false));
@@ -1210,7 +1215,16 @@ impl<D: DataSource> Host<D> {
                 self.forget_transform_handle(*key);
                 if let Some(id) = self.keys.remove(key) {
                     self.presented.remove(&id);
+                    self.values.committed(id, None);
                 }
+            }
+            for node in r
+                .touched
+                .iter()
+                .filter_map(|k| self.runner.kernel().node_by_key(*k))
+            {
+                let value = node.props.str(exact_kernel::PropId::Value).unwrap_or("");
+                self.values.committed(node.id, Some(value));
             }
             for key in &r.created {
                 if let Some(node) = self.runner.kernel().node_by_key(*key) {
@@ -1224,6 +1238,7 @@ impl<D: DataSource> Host<D> {
                 if let Some(id) = self.keys.get(key).copied() {
                     self.presented.remove(&id);
                     self.renewed.push(id);
+                    self.values.committed(id, None);
                 }
             }
             self.media_mounts.commit(self.runner.kernel(), r);

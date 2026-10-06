@@ -616,3 +616,99 @@ fn agent_typing_commits_only_on_enter_or_blur() {
     p.tap(id(&p, "other")).unwrap();
     assert_eq!(committed(&p), "2:third");
 }
+
+#[test]
+fn an_unbound_field_holds_its_typed_text_until_its_bound_value_changes() {
+    // LLP 1069.001 D4: an unbound control holds its own state; the web
+    // build writes a field's `value` only when the bound value changes.
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(
+            r#"component App
+  state saved = ""
+  state kept = "kept"
+  state loud = ""
+  action save(next: string)
+    saved = next
+  action refuse(next: string)
+    saved = saved
+  action shout(next: string)
+    loud = next + "!"
+  action swap()
+    kept = kept == "kept" ? "other" : "kept"
+  view
+    column
+      input change=save testId="free"
+      input value="x" change=save testId="literal"
+      button "swap" press=swap testId="swap"
+      input value=kept input=refuse testId="refused"
+      input value=loud input=shout testId="loud"
+"#,
+        )
+        .unwrap()
+        .encode(),
+        Keeps,
+        (400., 400.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let saved = |p: &Presenter<Keeps>| p.host().runner().slot("saved").cloned();
+    let free = id(&p, "free");
+    let reply = p.type_text(free, "ab").unwrap();
+    assert!(reply.contains("\"value\":\"ab\""), "{reply}");
+    // Hardware keys edit the typed text, not the empty prop, and show it
+    // with no handler to hear them.
+    p.dirty = false;
+    p.key(Some('c'), false, 0.);
+    assert!(p.dirty);
+    assert_eq!(p.field_text(free), "abc");
+    p.key(None, true, 0.);
+    assert_eq!(p.field_text(free), "ab");
+    let tree = crate::agent::handle(&mut p, r#"{"op":"tree","target":"free","shallow":true}"#);
+    assert!(
+        tree.contains(r#""value":"ab""#),
+        "the agent's tree shows it: {tree}"
+    );
+    p.type_key(free, "Enter", "Enter", true, false).unwrap();
+    assert_eq!(
+        saved(&p),
+        Some(Value::str("ab")),
+        "change commits the typed text"
+    );
+    p.type_key(free, "Enter", "Enter", false, false).unwrap();
+    // A bound value its action did not write keeps the typed text, as the
+    // web's element does; one it wrote is shown.
+    let refused = id(&p, "refused");
+    p.type_text(refused, "mine").unwrap();
+    assert_eq!(p.field_text(refused), "mine");
+    // Its bound value changing replaces it, and coming back does not bring it back.
+    p.tap(id(&p, "swap")).unwrap();
+    assert_eq!(p.field_text(refused), "other");
+    p.tap(id(&p, "swap")).unwrap();
+    assert_eq!(p.field_text(refused), "kept");
+    // Two commits before the presenter looks: the one between still counts.
+    p.type_text(refused, "again").unwrap();
+    let swap = id(&p, "swap");
+    p.host_mut()
+        .dispatch_at(swap, exact_runner::Event::Press, 0.);
+    p.host_mut()
+        .dispatch_at(swap, exact_runner::Event::Press, 0.);
+    p.after_commit();
+    assert_eq!(p.field_text(refused), "kept");
+    // A key after a commit that replaced the typed text edits what shows.
+    p.type_text(refused, "mine").unwrap();
+    p.host_mut()
+        .dispatch_at(swap, exact_runner::Event::Press, 0.);
+    p.key(Some('q'), false, 0.);
+    assert_eq!(p.field_text(refused), "otherq");
+    let literal = id(&p, "literal");
+    p.type_text(literal, "y").unwrap();
+    assert_eq!(p.field_text(literal), "y", "a literal value is a default");
+    p.type_key(literal, "Enter", "Enter", true, false).unwrap();
+    assert_eq!(saved(&p), Some(Value::str("y")));
+    let loud = id(&p, "loud");
+    p.type_text(loud, "hi").unwrap();
+    assert_eq!(p.field_text(loud), "hi!");
+}
