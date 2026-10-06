@@ -5,7 +5,7 @@ import XCTest
 // T3ComposerStyler.swift) on a real AppKit text view behind the real
 // delegate proxy, driven by real key events through NSWindow.sendEvent.
 
-private var pressedNodes: [UInt32] = []
+var pressedNodes: [UInt32] = [] // queuekey.swift reads it too
 private let editorResolve: ExactHooks.ResolveFn = { _, _, _, _, _ in 0 }
 private let editorAct: ExactHooks.ActFn = { _, node, action in
     if action == 0 { pressedNodes.append(node) }

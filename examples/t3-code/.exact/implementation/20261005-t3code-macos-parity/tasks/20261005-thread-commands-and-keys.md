@@ -1,13 +1,13 @@
 ---
 name: 20261005-thread-commands-and-keys
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: implemented
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-thread-commands-and-keys
+pr_url: https://github.com/ccheever/exact2/pull/165
 verified_commit: null
 ---
 
@@ -166,14 +166,52 @@ Required environment: Xcode 27.0, pinned Bun 1.4.2, oracle desktop build, dispos
 
 ## Progress
 
-Planned. No branch.
+Implemented on `feat(example)/t3-code-thread-commands-and-keys` (base `9670b0723`), 2026-10-06. Verification: unverified.
+
+- G5 (`worktree-cleanup.ts`, `sidebar-delete-logic.ts`, `sidebar-commands.ts` `remove`/`deleteThreads`): ports of
+  getOrphanedWorktreePathForThread, formatWorktreePathForDisplay, deleteSelectedThreadEntries and
+  getFallbackThreadIdAfterDelete. The orphan check counts surviving, unarchived threads; Scratch projects and the
+  `worktreeOnDelete` rule (environment `storageCleanup` or the project's `worktreeCleanup` override) skip it. The
+  question is the sidebar dialog `delete-worktree` (SettingsConfirm, destructive; title "Delete the worktree too?",
+  text "This thread is the only one linked to this worktree:" and the last segment). Answers resume the paused run
+  (`sidebar:dialog-confirm` / `sidebar:dialog-cancel`); Cancel still deletes the thread. Order: provider-session.detach
+  per session (only with a runtime, projection fetched for a thread that is not open), the terminal hook
+  (`setCloseThreadTerminals`, no-op until 20261005-terminal-drawer), thread.delete, fallback navigation (top thread of
+  the project in the thread sort; with none left, the home route `/` as the reference does: a draft in the most
+  recently active project), then `vcs.removeWorktree{cwd: workspaceRoot, path, force: true}` and
+  `vcs.refreshStatus{cwd}`; failures are stacked toasts and never fail the deletion. Bulk deletes continue after a
+  failure (first failure toasted) and ask once per orphaned worktree. The legacy sidebar's direct deletes use the same path.
+- Keys (`thread-keys.ts`, one `MAIN_ROWS` entry): ⇧⌘↩ steers the first queued message only when the provider steers
+  (the row button's hard-coded chord is gone); ⌥↑ is a hidden `t3-composer-key` button the native composer presses
+  only with a collapsed caret at 0 (`T3ComposerQueueKey.swift`, one line in `T3Composer.handle`); the queue list
+  shows while an edit is open. ⇧⌘H opens the strip's "Run on" menu and `composer.cycleHost` (new in
+  `keybindingCommands`, label "Composer: Cycle Host") moves a draft to the next machine, wrapping. Repeats are
+  consumed and ignored by the host for every dispatch button.
+- `keyboard-dispatch.ts`: previous/next via resolveAdjacentThreadId (no wrap; none with an unlisted current thread or
+  the model picker open), ⌥⌘B on drafts, the palette provider's chords (⌘K ⌘P ⇧⌘F ⌥⌘A ⌥⇧⌘A ⌘U) in Settings,
+  Back/Forward over Usage and Pull Requests pages (`keyboardDispatch` gets `utilityPage`), last-used editor for ⌘O.
+- ⇧⌘C (`thread-reference.ts`): resolveThreadReferenceCopyTarget and resolveThreadCurrentPullRequestLink (stack
+  layering through `resolveChains`); the open PR surface's URL first; toasts "PR link copied" / "Thread ID copied"
+  with the value. The palette row is "Copy PR link" or "Copy thread ID".
+- Last editor: `shell.lastEditor` in t3-code.json (`shell-prefs.ts`), used only while still available.
+- Audit: the PR detail selection inside the Pull Requests page is not a history entry (the page is). Thread-jump
+  order is unchanged (pinned, active, working, snoozed, settled rows as the snapshot lists them); oracle comparison not run.
+
+Not run or left: oracle and trace-diff rows (not built); the worktree dialog in the app UI (its only entry is the
+native context menu, which the agent answers as dismissed: unverified (attended)); real chords ⌥↑, ⇧⌘↩, held keys and
+Korean 2-Set (unverified (attended)); queue keys live (no signed-in provider: unverified (needs sign-in, on hold));
+⇧⌘H / Cycle Host live (one machine in the lane); reduced-motion and focus-return rows of the dialog.
+
+Open question for the user: whether the agent may get a way to pick from the sidebar's native menu (test
+apparatus, needs approval), so the worktree dialog can be driven live.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 | `72bd6a8d8` | `bun test examples/t3-code` 1867 pass / 0 fail (base 1829); strict tsc clean; contract build 2324 slots, 43 resources; `cargo test -p t3-code-macos --lib` 10 pass; AppKit binaries 0 failures except r8-keys (2) and r9-input (4) focus tests, which pass on rerun and fail the same way at the base; mermaid not runnable (lane server has no web Mermaid build); caps and the five checks pass (cargo tests 2927 pass); macOS bundle builds | Live drive (one BEFORE on the base app, one AFTER): at the first thread the dispatch list has no `shortcut-thread.previous` and ⇧⌘[ keeps "Locked C" (base: wraps to "Plain notes"); ⌥⌘B on a draft opens "Open a surface"; ⌘K in Settings opens the palette above it; ⌘U leaves Settings for Usage with Back/Forward live. G5 against the lane server and real `git worktree`s through the clone's own sidebar path (menu pick stood in): Confirm → thread.delete, vcs.removeWorktree{force:true}, vcs.refreshStatus, feature-a gone from `git worktree list`; shared feature-b: first delete no dialog, last thread's Cancel keeps it; locked feature-c → "Failed to delete worktree" toast, thread deleted | attended rows above |
+| 2 | home route fix | Deleting a project's last open thread goes to the home route `/` (a draft in the most recently active project) as the reference does, not a draft in the deleted thread's project; `bun test examples/t3-code` 1868 pass / 0 fail; strict tsc clean; no live drive (coordinator) | Bun test "deleting a project's last open thread goes home" | — |
 
 ## Next action
 
-After dependencies merge: `prepare` (confirm the dialog's keyboard behavior in the oracle), then `implement`.
+Review the PR; attended session for the native-menu dialog, real chords and Korean 2-Set; then `verify`.

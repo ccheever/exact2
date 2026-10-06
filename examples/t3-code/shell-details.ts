@@ -7,7 +7,7 @@ import type { T3Client } from './client';
 import { arr, obj, str, num, type Obj } from './domain';
 import type { Native } from './protocol';
 import { lineageView } from './shell-lineage';
-import { inlineOpen } from './shell-prefs';
+import { inlineOpen, shellPrefs } from './shell-prefs';
 import { watchVcsStatus } from './shell-vcs';
 import { draftContext, previousWorktree } from './composer-controls-branch';
 import { isLoopback } from './settings-b-fleet';
@@ -83,8 +83,9 @@ const empty = { versionClient: '', versionServer: '', versionLabel: '', ready: f
   isGit: false, branch: '', actionLabel: 'Commit', actionKind: 'show_hint', actionDisabled: true, actionHint: '', insertions: 0, deletions: 0,
   envModeSelect: false, envMode: 'local', envIcon: 'folder', previousLabel: '', actionIcon: 'git-commit', changesEnabled: false, diffScheme: 'red-green',
   envShow: false, envLabel: '', envKind: 'server', automations: NO_AUTOMATIONS, git: EMPTY_GIT, prRows: emptyPrRows(), ...NO_SCRIPTS, ...noLineage };
-const lastEditors = new WeakMap<T3Client, string>();
-export function rememberEditor(client: T3Client, editor: string): void { lastEditors.set(client, editor); }
+/** usePreferredEditor's stored choice (thread-commands-and-keys: persisted in t3-code.json, shell-prefs.ts). */
+export function rememberEditor(client: T3Client, editor: string): void { shellPrefs(client).lastEditor = editor; }
+export const lastEditor = (client: T3Client): string => shellPrefs(client).lastEditor;
 
 /** The inline card's per-thread key (scopedThreadKey: a draft is keyed by its draft). */
 export const detailsKey = (client: T3Client) => client.draftKey;
@@ -110,7 +111,7 @@ export async function shellDetails(client: T3Client, native: Native | null | und
   const available = raw.filter((value): value is string => typeof value === 'string' && EDITORS.some(([id]) => id === value));
   // Remote mode ignores the server's PATH probe: what matters is what runs on this Mac (OpenInPicker effectiveEditors).
   const openIn = await openInView(client, native, available, str(project?.title));
-  const editor = preferredEditor(openIn.editors, lastEditors.get(client) ?? '');
+  const editor = preferredEditor(openIn.editors, lastEditor(client));
   const label = (id: string) => EDITORS.find(([candidate]) => candidate === id)?.[1] ?? id;
   // subscribeVcsStatus while the card is shown (shell-vcs.ts); a closed card ends the stream below.
   const { status, error } = await watchVcsStatus(client, native, cwd, now);

@@ -105,6 +105,7 @@ final class T3Composer {
 
     /// Internal so focused tests can exercise the actual window/focus guard.
     func handle(_ event: NSEvent) -> NSEvent? {
+        if queuedEditKey(event) { return nil } // thread-commands-and-keys: ⌥↑ with the caret at the start (T3ComposerQueueKey.swift)
         if let routed = editorKey(event) { return routed.event }
         switch action(for: event) {
         case .passThrough: return event
