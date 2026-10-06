@@ -556,7 +556,8 @@ final class ForgetOriginTests: XCTestCase {
 }
 
 // R3TransportTests (r3.swift): reconnect policy, read gate, stream retries. ForgetOriginTests: F5, removal leaves no origin.
-let suites = [TransportTests.defaultTestSuite, R3TransportTests.defaultTestSuite, ForgetOriginTests.defaultTestSuite]
+// RouteTests (routes.swift): one environment, several routes.
+let suites = [TransportTests.defaultTestSuite, R3TransportTests.defaultTestSuite, ForgetOriginTests.defaultTestSuite, RouteTests.defaultTestSuite]
 var executed = 0, failures = 0, succeeded = true
 for suite in suites {
     suite.run()

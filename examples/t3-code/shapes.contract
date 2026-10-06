@@ -217,6 +217,32 @@ shape DiffItem
   rightSegments: list<DiffSegment>
   label: string
   gutter: number
+  // diff-review: a line's side and number for selection and comments (split: left/right), file marks, gap expansion, comment entries.
+  side: string
+  line: number
+  selected: bool
+  leftLine: number
+  rightLine: number
+  leftSelected: bool
+  rightSelected: bool
+  error: bool
+  partial: bool
+  unavailable: bool
+  expandable: bool
+  entry: string
+  text: string
+// diff-review: one row of the Diff panel's file tree (diff-tree.ts).
+shape DiffTreeRow
+  id: string
+  kind: string
+  path: string
+  name: string
+  depth: number
+  status: string
+  letter: string
+  markdown: bool
+  expanded: bool
+  selected: bool
 shape SnapshotDraft
   id: string
   name: string
@@ -318,6 +344,11 @@ shape Snapshot
   diffAllCollapsed: bool
   diffFiles: list<DiffFile>
   diffItems: list<DiffItem>
+  diffTreeRows: list<DiffTreeRow>
+  diffTreeLabel: string
+  diffTreeFolders: bool
+  diffTreeAllOpen: bool
+  diffCommentOpen: bool
   diffLoadingLabel: string
   projects: list<Project>
   searchFirstId: string
@@ -374,6 +405,7 @@ style Surface
 style Edge
   border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #252525)"
 style Control
+  cursor="pointer"
   display="flex" flex-direction="row" align-items="center" justify-content="center"
   box-sizing="border-box"
   padding=7 gap=6 border-radius=8 border-width=0

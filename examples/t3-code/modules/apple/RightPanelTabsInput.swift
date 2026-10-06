@@ -11,7 +11,7 @@ final class RightPanelTabsInput {
             elements["tab-editor:" + String(element.id.dropFirst("tab-name-".count))] = Weak(element)
         } else {
             guard element.hook == .t3Anchor, let name = element.data[.anchor],
-                  ["r12-tab:", "tab-close:", "tab-rename:", "tab-cancel:", "tab-menu:", "tab-focus:"].contains(where: name.hasPrefix) else { return }
+                  ["r12-tab:", "tab-close:", "tab-rename:", "tab-cancel:", "tab-focus:"].contains(where: name.hasPrefix) else { return }
             elements[name] = Weak(element)
         }
         if monitor == nil {
@@ -47,13 +47,6 @@ final class RightPanelTabsInput {
                     return nil
                 }
                 return event
-            }
-            if event.keyCode == 109, event.modifierFlags.contains(.shift), let focused = window.firstResponder as? NSView {
-                for (name, item) in elements where name.hasPrefix("r12-tab:") {
-                    guard let view = item.element?.view, focused === view || focused.isDescendant(of: view) else { continue }
-                    elements["tab-menu:" + String(name.dropFirst("r12-tab:".count))]?.element?.click()
-                    return nil
-                }
             }
             return event
         }

@@ -36,7 +36,7 @@ component PlanCard
         column width="100%" margin-top=16
           column width="100%" position="relative" max-height=(message.collapsible and not expanded ? 416 : 100000) overflow="hidden"
             each document in filter(documents, (doc) => doc.id == (message.collapsible and not expanded ? `${message.id}#preview` : message.id)) key=document.id
-              AnswerMarkdown(document=document, local=local, code=message.code, diagrams=message.diagrams, scheme=scheme, copiedText=message.codeCopied, copiedNonce=message.codeCopyNonce, env=message.md)
+              AnswerMarkdown(document=document, local=local, code=message.code, diagrams=message.diagrams, scheme=scheme, copiedText=message.codeCopied, copiedNonce=message.codeCopyNonce, env=message.md, source="", cite=local("cite-none"))
             when message.collapsible and not expanded
               box position="absolute" left=0 right=0 bottom=0 height=96 pointer-events="none" background-color="light-dark(#fefefe, #121212)" mask-image="linear-gradient(to top, #000000f2 0%, #000000cc 50%, #00000000 100%)" aria-hidden=true
           when message.collapsible

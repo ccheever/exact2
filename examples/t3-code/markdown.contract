@@ -5,6 +5,7 @@ use Tip from "./shell-tip.contract"
 use AttachmentUrl from "./timeline-attachments.contract"
 use CodeTip from "./r4-timeline-tips.contract"
 use Icon from "./icons.contract"
+use CiteButton, CitePart from "./diff-cite.contract"
 shape ChatRun
   id: string
   text: string
@@ -150,6 +151,11 @@ shape MarkdownEnv
   wrap: bool
   chips: list<ChipView>
 fn noUrls(): list<AttachmentUrl> = []
+// diff-review (Cite): an answer's text as the reference reads it (readAssistantText: each block's
+// displayed text, a line break between blocks), and where a block starts in it.
+fn citeBlockText(b: ChatBlock): string = b.kind == "code" ? b.text : join(map(b.runs, (r) => r.text), "")
+fn citeStream(blocks: list<ChatBlock>): string = join(map(blocks, (b) => citeBlockText(b)), "\n")
+fn citeOffset(blocks: list<ChatBlock>, blockId: string): number = indexOf(map(blocks, (b) => b.id), blockId) <= 0 ? 0 : length(join(slice(map(blocks, (b) => citeBlockText(b)), 0, indexOf(map(blocks, (b) => b.id), blockId)), "\n")) + 1
 fn noChips(): list<ChipView> = []
 
 component ChatMarkdown
@@ -173,8 +179,27 @@ component AnswerMarkdown
     copiedText: string
     copiedNonce: number
     env: MarkdownEnv
+    // diff-review (Cite): the assistant message id ("" for no Cite) and the command the quote goes through.
+    source: string
+    cite: action
+  // The selected part of each prose block, in the message's text stream (AssistantSelectionToolbar).
+  state parts = filter([CitePart(block="", start=0, end=0)], (p) => p.end > 0)
+  state anchor = 0
+  action selected(blockId: string, s: Selection)
+    let offset = citeOffset(document.blocks, blockId)
+    let rest = filter(parts, (p) => p.block != blockId)
+    let row = frame(`cite-root-${source}`)
+    let block = frame(`cite-${source}-${blockId}`)
+    parts = s.text == "" ? rest : concat(rest, [CitePart(block=blockId, start=offset + s.start, end=offset + s.end)])
+    if s.text != "" and not row.unavailable and not block.unavailable
+      anchor = block.y + block.height - row.y + 4
+  action dismiss
+    parts = []
   view
-    DiagramBlocks(document=document, local=local, code=code, diagrams=diagrams, prose="light-dark(#27272acc, #f5f5f5cc)", fit=false, scheme=scheme, copiedText=copiedText, copiedNonce=copiedNonce, env=env, urls=noUrls())
+    column width="100%" position="relative" id=`cite-root-${source}`
+      DiagramBlocks(document=document, local=local, code=code, diagrams=diagrams, prose="light-dark(#27272acc, #f5f5f5cc)", fit=false, scheme=scheme, copiedText=copiedText, copiedNonce=copiedNonce, env=env, urls=noUrls(), source=source, cite=selected)
+      when source != "" and length(parts) > 0
+        CiteButton(parts=parts, stream=citeStream(document.blocks), source=source, top=anchor, cite=cite, dismiss=dismiss)
 
 // UserMessageBody: the same Markdown in the message's own ink, single
 // newlines kept as line breaks and context references drawn as chips.
@@ -190,8 +215,10 @@ component UserMarkdown
     copiedNonce: number
     env: MarkdownEnv
     urls: list<AttachmentUrl>
+  action noCite(blockId: string, s: Selection)
+    let ignored = blockId
   view
-    DiagramBlocks(document=document, local=local, code=code, diagrams=diagrams, prose=ink, fit=true, scheme=scheme, copiedText=copiedText, copiedNonce=copiedNonce, env=env, urls=urls)
+    DiagramBlocks(document=document, local=local, code=code, diagrams=diagrams, prose=ink, fit=true, scheme=scheme, copiedText=copiedText, copiedNonce=copiedNonce, env=env, urls=urls, source="", cite=noCite)
 
 // Markdown blocks at the stock settings (13pt code, wrapped), for a document
 // with no MarkdownEnv of its own.
@@ -202,6 +229,8 @@ component MarkdownBlocks
     code: list<CodeHighlight>
     prose: string
     fit: bool
+  action noCite(blockId: string, s: Selection)
+    let ignored = blockId
   view
     // A sent message's bubble fits its text (fit); an answer fills the lane.
     column width=(fit ? "auto" : "100%") max-width="100%" gap=0
@@ -210,7 +239,7 @@ component MarkdownBlocks
           when block.kind == "code"
             CodeBlock(block=block, local=local, code=code, copiedText="", copiedNonce=0, codeFont="ui-monospace", codeSize=13, wrapDefault=true)
           else
-            BlockBody(block=block, prose=prose, fit=fit, chips=noChips(), wrapDefault=true, urls=noUrls(), local=local, copiedText="", copiedNonce=0)
+            BlockBody(block=block, prose=prose, fit=fit, chips=noChips(), wrapDefault=true, urls=noUrls(), local=local, copiedText="", copiedNonce=0, source="", cite=noCite)
 
 // The same blocks under Settings → Appearance (MarkdownEnv).
 component EnvBlocks
@@ -221,6 +250,8 @@ component EnvBlocks
     prose: string
     fit: bool
     env: MarkdownEnv
+  action noCite(blockId: string, s: Selection)
+    let ignored = blockId
   view
     column width=(fit ? "auto" : "100%") max-width="100%" gap=0
       each block in document.blocks key=block.id
@@ -228,7 +259,7 @@ component EnvBlocks
           when block.kind == "code"
             CodeBlock(block=block, local=local, code=code, copiedText="", copiedNonce=0, codeFont=env.codeFont, codeSize=env.codeSize, wrapDefault=env.wrap)
           else
-            BlockBody(block=block, prose=prose, fit=fit, chips=env.chips, wrapDefault=env.wrap, urls=noUrls(), local=local, copiedText="", copiedNonce=0)
+            BlockBody(block=block, prose=prose, fit=fit, chips=env.chips, wrapDefault=env.wrap, urls=noUrls(), local=local, copiedText="", copiedNonce=0, source="", cite=noCite)
 
 // The transcript's blocks: a settled ```mermaid fence draws its diagram.
 component DiagramBlocks
@@ -244,6 +275,8 @@ component DiagramBlocks
     copiedNonce: number
     env: MarkdownEnv
     urls: list<AttachmentUrl>
+    source: string
+    cite: action
   view
     column width=(fit ? "auto" : "100%") max-width="100%" gap=0
       each block in document.blocks key=block.id
@@ -255,7 +288,7 @@ component DiagramBlocks
             else
               CodeBlock(block=block, local=local, code=code, copiedText=copiedText, copiedNonce=copiedNonce, codeFont=env.codeFont, codeSize=env.codeSize, wrapDefault=env.wrap)
           else
-            BlockBody(block=block, prose=prose, fit=fit, chips=env.chips, wrapDefault=env.wrap, urls=urls, local=local, copiedText=copiedText, copiedNonce=copiedNonce)
+            BlockBody(block=block, prose=prose, fit=fit, chips=env.chips, wrapDefault=env.wrap, urls=urls, local=local, copiedText=copiedText, copiedNonce=copiedNonce, source=source, cite=cite)
 
 // Every block but a code fence: headings, list items, rules, tables, images, quotes and prose.
 component BlockBody
@@ -269,13 +302,16 @@ component BlockBody
     local: action
     copiedText: string
     copiedNonce: number
+    // diff-review (Cite): a prose block's selection reports to the answer (`source` "" outside answers).
+    source: string
+    cite: action
   view
     when block.kind == "heading"
       when block.flow
         box role="heading" aria-level=block.depth width="100%"
           FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14), weight=600)
       else
-        text role="heading" aria-level=block.depth width="100%" font-size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14) line-height=1.3 color=(block.depth == 6 ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
+        text role="heading" aria-level=block.depth id=`cite-${source}-${block.id}` selectionchange=cite(block.id) width="100%" font-size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14) line-height=1.3 color=(block.depth == 6 ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
           ChatRuns(runs=block.runs, size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14), weight=600)
     else
       when block.kind == "item"
@@ -288,7 +324,7 @@ component BlockBody
           when block.flow
             FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400)
           else
-            text flex=1 min-width=0 font-size=14 line-height="22.75px" color=prose
+            text flex=1 min-width=0 id=`cite-${source}-${block.id}` selectionchange=cite(block.id) font-size=14 line-height="22.75px" color=prose
               ChatRuns(runs=block.runs, size=14, weight=400)
       else
         when block.kind == "rule"
@@ -311,13 +347,13 @@ component BlockBody
                     box width="100%" padding-left=12.8 box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)"
                       FlowRuns(runs=block.runs, color="light-dark(#71717b, #818181)", fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400)
                   else
-                    text width="100%" font-size=14 padding-left=12.8 box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" line-height="22.75px" color="light-dark(#71717b, #818181)"
+                    text width="100%" id=`cite-${source}-${block.id}` selectionchange=cite(block.id) font-size=14 padding-left=12.8 box-sizing="border-box" border-left-width=2 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" line-height="22.75px" color="light-dark(#71717b, #818181)"
                       ChatRuns(runs=block.runs, size=14, weight=400)
                 else
                   when block.flow
                     FlowRuns(runs=block.runs, color=prose, fit=fit, chips=chips, urls=urls, local=local, size=14, weight=400)
                   else
-                    text width=(fit ? "auto" : "100%") max-width="100%" font-size=14 line-height="22.75px" color=prose
+                    text width=(fit ? "auto" : "100%") max-width="100%" id=`cite-${source}-${block.id}` selectionchange=cite(block.id) font-size=14 line-height="22.75px" color=prose
                       ChatRuns(runs=block.runs, size=14, weight=400)
 
 // Inline runs in one text node; only a web link keeps its href (a chip's
