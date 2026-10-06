@@ -28,6 +28,9 @@ fn payload(event: &str, control: Option<&str>) -> Vec<(&'static str, &'static st
         ("timeupdate", _) => one("currentTime", "number", "the media's `currentTime`"),
         ("durationchange", _) => one("duration", "number", "the media's `duration`"),
         ("select", Some("field")) => one("event", "InputEvent", "the field's `InputEvent`"),
+        ("fullscreenchange", _) => {
+            one("fullscreen", "bool", "whether the media is now full screen")
+        }
         ("select", _) => one("selection", "MarkdownSelection", "the editor's `selection`"),
         ("navigate", _) => one("location", "string", "the location"),
         ("scroll", _) => numbers(&["scrollLeft", "scrollTop"]),

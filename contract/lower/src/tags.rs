@@ -384,6 +384,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "ratechange" => AttrTarget::Handler("ratechange"),
         "volumechange" => AttrTarget::Handler("volumechange"),
         "error" => AttrTarget::Handler("error"),
+        // A `video` entered or left full screen (`requestFullscreen`, the
+        // platform's own controls); the payload says which.
+        "fullscreenchange" => AttrTarget::Handler("fullscreenchange"),
         "canplay" => AttrTarget::Handler("canplay"),
         // @ref LLP 1098 D1, D2 — the media session: `metadata=` claims it,
         // the six actions by `setActionHandler`'s names, and the seconds a

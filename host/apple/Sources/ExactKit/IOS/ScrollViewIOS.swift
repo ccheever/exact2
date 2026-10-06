@@ -28,6 +28,12 @@ class ScrollView: UIScrollView {
 
     var scrollsX = true
     var scrollsY = true
+    #if os(tvOS)
+    /// The offset the remote's last step scrolls to, and when it began
+    /// (`RemoteTVOS.swift`): a step pressed during that animation goes on
+    /// from there.
+    var remoteStepTarget: (offset: CGPoint, at: CFTimeInterval)?
+    #endif
     /// A pan cancels a touch in progress, as it does a custom button's; UIKit
     /// would leave a `UIControl` its touch, so a native button (LLP 1069.011
     /// D4) is named. A canvas that owns its input keeps it.

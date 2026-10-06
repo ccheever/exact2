@@ -697,7 +697,7 @@ working fixture, not inferred from JavaScript's Event interface.
 | A string, then optionally a `KeyboardEvent` | `key`: the key's name; an action taking one more parameter also hears the [modifiers](#keys) |
 | Two numbers, then optionally a `ScrollEvent` | `scroll`: left and top; an action taking one more parameter also hears the scroller's extents (below) |
 | Two numbers, then optionally a `DOMRectReadOnly` | `resize` given an action: the content box's width and height; an action taking one more parameter also hears its `contentRect` (below). A string `resize` is CSS's property |
-| One boolean | `hover` |
+| One boolean | `hover`; `fullscreenchange` (whether the video is now full screen) |
 | One boolean, then optionally an `InputEvent` | `change`, `input` on a checkbox or `switch` |
 | One number | `timeupdate`, `durationchange` |
 | One number, then optionally an `InputEvent` | `change`, `input` on `type="range"` |
