@@ -1,7 +1,7 @@
 # LLP 1101: Terminal apps — a terminal host for apps authored for the terminal
 
 **Type:** RFC
-**Status:** Draft (r3, exploratory). Charlie, 2026-10-05: "we're just exploring here not committing to this." Nothing moves off `rules/DEFERRED.md` on this document's account until he says so. r2 records his answers to r1's §9 and Q9 (the todo list is terminal-only to start); r3 names the terminal I/O layer (D9: our own output, `vte` for input, `rustix`) and rejects Ink, crossterm and termwiz (§8): the consumers are a todo list and the LLP reader, not Caltrain, and the D9 rationale stands ("that rationale sounds right")
+**Status:** Draft (r4, exploratory). Charlie, 2026-10-05: "we're just exploring here not committing to this." Nothing moves off `rules/DEFERRED.md` on this document's account until he says so. r2 recorded his answers to r1's §9 (the consumers are a todo list and the LLP reader, not Caltrain; the D9 rationale stands: "that rationale sounds right") and Q9 (the todo list is terminal-only to start). r3 named the terminal I/O layer (D9: our own output, `vte` for input, `rustix`) and rejected Ink, crossterm and termwiz (§8). r4 folds in the spike on branch `terminal-spike` (§11): D3's cell is fixed in the kernel, a border's cell needs a kernel switch (§4), and D2's column is a `terminal` key the compiler alone reads
 **Systems:** A new host (`host/terminal`, `exact-terminal`: a painter host whose backend is a grid of character cells), Contract (a `terminal` compile profile and the `exact:terminal` module), the schema (`kernel/tables/schema.json` gains a per-row terminal admission), the kernel (the `ch` and `lh` units), the app manifest (`app.json` `host.terminal`), the agent API (`scripts/agent.mjs terminal`; no new operation), `rules/DEFERRED.md` (§Tooling "no TUI host"; §Authoring models)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-05
@@ -139,7 +139,9 @@ admission authority beside every other declaration there:
 - `refuse`: a bake error naming the row and why the terminal can't draw it.
 
 The terminal profile reads that column and nothing else. A row with no entry is
-refused. Admission is opt-in per row, and that is the difference from exact1's
+refused. (r4, from the spike: the column is a `terminal` key on the schema's
+style rows, read by the compiler alone, so it generates no code. `refuse` is
+spelled by absence. The spike marks 75 of 193 rows, §11.) Admission is opt-in per row, and that is the difference from exact1's
 r1–r13, which lowered everything and scored the wreckage.
 
 What the terminal genuinely adds is composition, not new primitives: an
@@ -167,11 +169,14 @@ terminal plan is a legal web page. Rendered in a browser in a monospace font at
 `line-height: 1lh`, it lays out on the same grid, which makes the web host a
 possible layout oracle for this host (§5).
 
-**Layout space stays isotropic.** The host tells the kernel what one `ch` and
-one `lh` are in its own pixels: the terminal's real cell size when it reports
-one (`CSI 16 t`, or `TIOCGWINSZ`'s pixel fields), otherwise 1:2. Taffy lays out
-in that space, so `aspect-ratio` and an image's intrinsic proportions come out
-right, and the painter snaps every box to the grid. Lengths in `ch`/`lh` land
+**Layout space stays isotropic, at a fixed cell.** One `ch` is 8 layout pixels
+and one `lh` is 16, whatever the physical terminal's cell (revised r4 from the
+spike, §11; r1 had the host report its real cell size to the kernel). A
+constant resolves the same way at bake and at run time with no host input, and
+a 1:2 cell keeps `aspect-ratio` close to square. Only an image needs the
+terminal's real cell size (`CSI 16 t`, or `TIOCGWINSZ`'s pixel fields), and only
+to choose the pixels it sends. Taffy lays out in that space, and the painter
+snaps every box to the grid. Lengths in `ch`/`lh` land
 exactly on cells. Percentages and flex distribution produce fractions, so the
 snap uses one deterministic tiling rule: round each edge to the nearest cell
 boundary, measured from the parent's snapped origin. Siblings then tile their
@@ -439,7 +444,7 @@ the same data.
 | `text-decoration-style` double / dotted / dashed / wavy; `text-decoration-color` | SGR 4:2…4:5, 58, where supported; otherwise a single underline in the text colour | quantize |
 | `font-size`, `font-family`, `letter-spacing`, `line-height` ≠ `1lh` | the terminal's face and grid are the user's | refuse |
 | `text-align`, `white-space`, `overflow-wrap`, `text-overflow: ellipsis`, `line-clamp` | on whole cells; `…` is one column | admit |
-| `border-style` solid / double / dashed / dotted; `border-width` thin / medium | one cell per side. Light `─│`, double `═║`, dashed `┄┆`, dotted `┈┊`; `medium` = heavy `━┃`. CSS's `thick` and px widths are refused | cell |
+| `border-style` solid / double / dashed / dotted; `border-width` thin / medium | one cell per side. Light `─│`, double `═║`, dashed `┄┆`, dotted `┈┊`; `medium` = heavy `━┃`. CSS's `thick` and px widths are refused. The cell is reserved by the kernel itself: under a process-wide terminal flag only the terminal host sets, a drawn side occupies a row (top, bottom) or a column (sides) in layout (r4, §11) | cell |
 | `border-radius` | > 0 draws rounded corners `╭╮╰╯` on a light solid border, and is refused otherwise | quantize |
 | adjacent borders | not joined in v1 (no `├┼┤`); `exact:terminal`'s table draws its own joins | — |
 | `overflow` hidden / auto / scroll | clips to cells; scrolls by whole rows and columns; a one-column indicator unless `scrollbar-width: none` | admit |
@@ -596,3 +601,52 @@ surfaces), driven headless by the ten operations.
   terminal only to start"):** terminal-only, with only `host.terminal` in
   `app.json`. The LLP reader covers D1's shared-data case. A web entry for the
   todo list can come later, over the same data module.
+
+## 11. What the spike found (2026-10-05)
+
+Branch `terminal-spike` (commits `a28990cdf`, `e93addd52`) built stages 1 and
+most of 2 (§6) to see whether D1–D9 hold up in code. They mostly do.
+
+**What runs.** `host/terminal` (`exact-terminal`, about 1,100 lines, outside
+`default-members`) boots a terminal entry, lays it out with the kernel at the
+fixed cell, paints the kernel tree into a cell grid, and either answers the
+agent's verbs headless (`tap`, `type`, `key`, `wheel`, `resize`, `tree`,
+`screenshot x.txt|x.ans`, `print`) or runs full screen. `apps/todo/terminal.contract`
+is the fixture: filters on `1`/`2`/`3`, a scrolling list in a rounded panel,
+`n` to the input, `x` to clear done. Drives and a test in a real
+pseudo-terminal show adding, toggling, filtering, Tab/Enter to every control,
+the field taking the terminal's cursor, the kitty-protocol Ctrl-C quitting,
+and the terminal restored. Updates after the first frame are about 140 bytes
+each.
+
+**Findings that changed this document.**
+
+- **D3: fix the cell in the kernel.** `ch`/`lh` are a few lines beside
+  `rem`/`em` in the generated `set_dynamic` (`kernel/src/style/cells.rs`).
+  Making them depend on the host's real cell size would have meant threading
+  host input through bake and runtime for no visible gain.
+- **§4: borders need a kernel switch.** The compiler lowers `border` to a
+  pixel number, so the kernel never sees `thin`. A border occupies a cell only
+  if the kernel knows it is laying out for a terminal. That is a process-wide
+  flag only the terminal host sets (`cells::set_terminal`), read in
+  `StyleProps::border_widths`. It is the one place the spike touches shared
+  kernel behaviour, and it is a declared deviation, as §4 already says.
+- **D2: the column needs no generated code.** The compiler reads the
+  schema's `terminal` key directly (`contract/cli/src/terminal.rs`) and
+  reports every refusal with its span (`terminal-length`, `terminal-refused`,
+  `terminal-tag`). The kernel never consults it.
+- **Writing for the terminal felt like writing Contract.** The fixture uses
+  the ordinary vocabulary in `ch`/`lh`. Its only terminal-specific choice is
+  `text-align="start"` on buttons, which CSS's button default centres. Nothing
+  new was needed in the vocabulary.
+
+**Confirmed as written:** the painter host with no mirror (D7), our own output
+with `vte` for input and `rustix` for the tty (D9), the diff inside
+synchronized updates, the kitty keyboard protocol and SGR mouse (D6),
+reverse-video focus, and the headless host as the agent's carrier (D8).
+
+**Not built:** the `app.json` `host.terminal` entry (the spike takes a
+`.contract` path), the minimum-size screen, capability negotiation and the
+web-named facts (D5), colour below truecolor, images, OSC 8, hover,
+`scripts/agent.mjs terminal`, the dev loop, and `exact:terminal`. The fixture
+keeps its todos in Contract state, with no data module or storage.
