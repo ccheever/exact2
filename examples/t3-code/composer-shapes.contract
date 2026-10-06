@@ -14,6 +14,8 @@ shape ComposerTrait
   selected: bool
   isDefault: bool
   index: number
+  // composer-fidelity G9: the primary effort's rows while "ultrathink" is in the prompt's body.
+  disabled: bool
 shape ComposerRuntime
   mode: string
   label: string
@@ -187,6 +189,8 @@ shape ComposerView
   runtimeMenuWidth: number
   planVisible: bool
   planActive: bool
+  // composer-fidelity G9: the prompt drives the ultrathink frame (composer-ultrathink.ts).
+  ultrathink: bool
   traitsX: number
   traitsWidth: number
   runtimeX: number

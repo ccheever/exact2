@@ -5,7 +5,7 @@
 // resolveComposerProviderSelection), threadWorkflows.ts (threadSupportsProviderHandoff),
 // TraitsPicker.tsx (option choice) and QueuedRunsControl.tsx.
 import { arr, obj, str, type Obj } from './domain';
-import { ClientError, activeRun, launchPayload, modelSelection, type Files, type Native } from './protocol';
+import { ClientError, activeRun, launchPayload, type Files, type Native } from './protocol';
 import { pushToast } from './toast';
 import { beginQueuedEdit, cancelQueuedEdit, queuedDrop, queueState } from './composer-controls-queue';
 import { branchMenu, selectBranch, setEnvMode } from './composer-controls-branch';
@@ -13,6 +13,7 @@ import { attachFiles } from './composer-controls-attach';
 import { openUsageLimits, closeUsageLimits, changeLimitRecovery } from './composer-controls-usage';
 import type { T3Client } from './client';
 import { dismissResumeCompaction } from './r3-composer-controls-resume';
+import { dispatchSelection } from './composer-ultrathink'; // composer-fidelity: modelOptionsForDispatch
 import { composerNow, clearStaged, nextTurnCommands, planFollowUp, proposedPlanTitle, requireProvider, resumeState, stagedFor,
   PLAN_IMPLEMENTATION_PROMPT_PREFIX, type ComposerControlsPrefs } from './composer-controls';
 
@@ -155,7 +156,7 @@ export async function composerCommand(client: T3Client, native: Native, storage:
     const title = (plan.title ? `Implement ${plan.title}` : 'Implement plan').slice(0, 100);
     const [commandId, messageId, threadId] = await access.ids(3);
     const payload = launchPayload(commandId, threadId, messageId, client.projectId, `${PLAN_IMPLEMENTATION_PROMPT_PREFIX}${plan.markdown.trim()}`,
-      modelSelection(client.providerId, client.modelId, client.modelOptions), runtimeMode, 'default');
+      dispatchSelection(client, client.providerId, client.modelId, client.modelOptions), runtimeMode, 'default');
     payload.title = title;
     if (str(source.worktreePath)) payload.workspaceStrategy = { type: 'existing_worktree', worktreePath: str(source.worktreePath), ...(str(source.branch) ? { branch: str(source.branch) } : {}) };
     else if (str(source.branch)) payload.workspaceStrategy = { type: 'root', branch: str(source.branch) };
@@ -183,7 +184,7 @@ export async function composerCommand(client: T3Client, native: Native, storage:
     }
     const [commandId, messageId] = await access.ids(2);
     await access.dispatch(storage, { type: 'message.dispatch', commandId, threadId, messageId, text: '/compact', attachments: [], createdBy: 'user', creationSource: 'web',
-      modelSelection: modelSelection(client.providerId, client.modelId, client.modelOptions), deliveryIntent: 'auto', dispatchMode: { type: 'start_immediately' } }, 'Compact context');
+      modelSelection: dispatchSelection(client, client.providerId, client.modelId, client.modelOptions), deliveryIntent: 'auto', dispatchMode: { type: 'start_immediately' } }, 'Compact context');
     clearStaged(client, key);
     return '';
   }

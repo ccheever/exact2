@@ -192,7 +192,9 @@ component ModelTrigger
             text `+${data.composer.fanoutMore}` font-size=9 line-height="16px" min-width=16 height=16 border-radius=8 text-align="center" border-width=2 border-style="solid" border-color="light-dark(#ffffff, #161616)" background-color="light-dark(#ffffff, #161616)" color="light-dark(#71717a, #818181)"
           box width=4
       else
-        ProviderInstanceMark(driver=data.providerDriver, size=(xs ? 14 : 16), color=(xs ? "light-dark(#71717ab3, #818181b3)" : "light-dark(#71717a, #818181)"), badge=data.providerBadge, accent=data.providerBadgeColor)
+        // composer-fidelity G9: ultrathink-chroma (saturate 1.2) on the model mark.
+        box display="flex" flex-shrink=0 filter=(data.composer.ultrathink ? "saturate(1.2)" : "none") testId=(data.composer.ultrathink ? "model-picker-ultrathink" : "model-picker-mark")
+          ProviderInstanceMark(driver=data.providerDriver, size=(xs ? 14 : 16), color=(xs ? "light-dark(#71717ab3, #818181b3)" : "light-dark(#71717a, #818181)"), badge=data.providerBadge, accent=data.providerBadgeColor)
       // The tooltip (label · ⇧⌘M) belongs to the label, 4pt above it (ProviderModelPicker TooltipTrigger).
       when label
         box position="relative" display="flex" flex-direction="row" min-width=0 flex-shrink=1
@@ -646,8 +648,11 @@ component ComposerMenus
               text item.label font-size=12 font-weight=500 line-height="16px" padding-left=8 padding-right=8 padding-top=6 padding-bottom=4 color="light-dark(#71717a, #818181)"
             when item.kind == "divider"
               box height=1 margin-left=8 margin-right=8 margin-top=4 margin-bottom=4 background-color="light-dark(#e4e4e7, #ffffff0f)"
+            // composer-fidelity G9: "ultrathink" in the prompt's body keeps the primary effort's rows visible but inert.
+            when item.kind == "note"
+              text item.label font-size=12 line-height="16px" max-width=224 padding-left=8 padding-right=8 padding-bottom=6 color="light-dark(#71717acc, #818181cc)" testId="effort-ultrathink-note"
             when item.kind == "option"
-              button press=chooseTrait(item.descriptor, item.value) hover=hover(item.index) focus=mark(item.index, true) blur=mark(item.index, false) key=move(item.index) id=`composer-menu-item-${item.index}` role="menuitemradio" aria-checked=item.selected testId=`effort-${item.value}` class=Control justify-content="flex-start" width="100%" min-height=28 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 gap=0 border-radius=6 background-color=(active == item.index or hovered == item.index ? "light-dark(#f4f4f5, #ffffff0a)" : item.selected ? "light-dark(#27272a14, #f5f5f514)" : "#00000000")
+              button press=chooseTrait(item.descriptor, item.value) disabled=item.disabled opacity=(item.disabled ? 0.64 : 1) hover=hover(item.index) focus=mark(item.index, true) blur=mark(item.index, false) key=move(item.index) id=`composer-menu-item-${item.index}` role="menuitemradio" aria-checked=item.selected testId=`effort-${item.value}` class=Control justify-content="flex-start" width="100%" min-height=28 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 gap=0 border-radius=6 background-color=(active == item.index or hovered == item.index ? "light-dark(#f4f4f5, #ffffff0a)" : item.selected ? "light-dark(#27272a14, #f5f5f514)" : "#00000000")
                 column flex=1 min-width=0 align-items="flex-start"
                   row min-width=0 max-width="100%" align-items="center"
                     text item.label font-size=14 line-height="20px" font-weight=400 color=(active == item.index or hovered == item.index ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#27272a, #f5f5f5)") line-clamp=1 min-width=0
