@@ -92,6 +92,8 @@ final class R3Socket: @unchecked Sendable {
         let metadata = NWProtocolWebSocket.Metadata(opcode: .text)
         target.send(content: data, contentContext: NWConnection.ContentContext(identifier: "frame", metadata: [metadata]), isComplete: true, completion: .idempotent)
     }
+    /// Every frame the client sent with this `_tag` (terminal-drawer: the attach streams' Acks).
+    func frames(tagged tag: String) -> [[String: Any]] { lock.lock(); defer { lock.unlock() }; return frames.filter { $0["_tag"] as? String == tag } }
     func requests(_ method: String) -> [[String: Any]] { lock.lock(); defer { lock.unlock() }; return frames.filter { $0["_tag"] as? String == "Request" && $0["tag"] as? String == method } }
     var connectionCount: Int { lock.lock(); defer { lock.unlock() }; return connections.count }
     /// A header of the `index`th WebSocket handshake, and the count of handshakes seen.
