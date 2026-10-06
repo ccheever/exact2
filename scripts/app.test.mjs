@@ -85,10 +85,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { basename, delimiter, dirname, resolve, sep } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
-import { resolveApp, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
-import { hermesIos, hermesLeanSysRoots } from './app.mjs';
+import { resolveApp, buildBake, bakeTarget, hermesBundle, hermesLeanSysRoots, pendingBuildInputs } from './app.mjs';
 import { useXcode } from '../host/apple/devices.mjs';
-import { HERMES_IOS_ARCHIVES, provisionHermesIos } from '../host/apple/hermes.mjs';
 import { iosAssets, infoPlist, macInfoPlist, documentTypes, importedTypes, exportedTypes, macReleaseEntitlements, writeUsageStrings, designCompatible, COMPATIBLE_SDK } from '../host/apple/build.mjs';
 import { snapshotOf, materializeSnapshot, disposeSnapshot } from './deploy.mjs';
 
@@ -1051,36 +1049,24 @@ test('a build env keeps the pinned toolchain and the checked Bun ahead of ambien
     assert.ok(Bun.which('cargo', {PATH:env.PATH}), 'the build inherits Cargo after spreading Windows Path');
     assert.equal(Object.keys(env).filter(key => key.toLowerCase() === 'path').length, 1);
     assert.equal(env.EXACT_UPDATE_TRUST, process.env.EXACT_UPDATE_TRUST ?? 'development');
+    assert.equal(env.HERMES_LEAN_SYS_OFFLINE, '1');
   } finally { if (previous === undefined) delete process.env.RUSTUP_TOOLCHAIN; else process.env.RUSTUP_TOOLCHAIN = previous; }
 });
 
-// @ref LLP 1036.001 D5 — no CMake build here: the refusals and the no-op paths.
-test('lean iOS Hermes provisions into its per-pin cache, only from the pinned pristine source', () => {
+test('iOS Hermes preflight selects the pinned digest and exact installer command', () => {
   const home = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-hermes-home-')));
   try {
-    const env = { ...process.env, HOME: home }; delete env.EXACT_HERMES_IOS_DIR;
-    const { pin, root, cached } = hermesIos(env);
-    assert.equal(cached, true);
-    assert.equal(root, resolve(home, '.cache/exact/hermes', `${pin.slice(0, 12)}-lean-ios`));
-    // Without CMake, one message says what to install, before anything is fetched (shop F19).
-    assert.throws(() => provisionHermesIos('ios-simulator', { ...env, PATH: '/usr/bin:/bin' }), /needs CMake, which is not installed\. Install it \(brew install cmake\)/);
-    assert.equal(existsSync(resolve(home, '.cache/exact/hermes/hermes-src')), false);
-    // A stand-in CMake: the source at another commit is refused before any build.
-    const bin = resolve(home, 'bin'); mkdirSync(bin);
-    writeFileSync(resolve(bin, 'cmake'), '#!/bin/sh\nexit 0\n'); chmodSync(resolve(bin, 'cmake'), 0o755);
-    env.PATH = `${bin}:${env.PATH}`;
-    const source = resolve(home, '.cache/exact/hermes/hermes-src');
-    spawnSync('git', ['init', '-q', source]);
-    spawnSync('git', ['-C', source, '-c', 'user.name=t', '-c', 'user.email=t@t.invalid', 'commit', '-q', '--allow-empty', '-m', 'other']);
-    assert.throws(() => provisionHermesIos('ios-simulator', env), new RegExp(`is at [0-9a-f]{40}; js/build.rs pins ${pin}`));
-    // Complete archives are used as they are; the source is not consulted.
-    for (const archive of HERMES_IOS_ARCHIVES) { mkdirSync(dirname(resolve(root, 'ios', archive)), { recursive: true }); writeFileSync(resolve(root, 'ios', archive), ''); }
-    provisionHermesIos('ios', env);
-    // Archives an override names are provisioned elsewhere; js/build.rs refuses missing ones.
-    const elsewhere = resolve(home, 'elsewhere');
-    assert.deepEqual(hermesIos({ ...env, EXACT_HERMES_IOS_DIR: elsewhere }), { pin, root: elsewhere, cached: false });
-    provisionHermesIos('ios-simulator', { ...env, EXACT_HERMES_IOS_DIR: elsewhere });
-    assert.equal(existsSync(elsewhere), false);
+    const env = { HOME: home };
+    const simulator = hermesBundle('aarch64-apple-ios-sim', env);
+    const intelSimulator = hermesBundle('x86_64-apple-ios', env);
+    assert.equal(simulator.installed, false);
+    assert.equal(simulator.root, intelSimulator.root, 'both simulator triples select the universal bundle');
+    assert.match(simulator.fix, /hermes-lean-sys-installer\/Cargo\.toml -- --target aarch64-apple-ios-sim$/);
+    mkdirSync(resolve(simulator.root, 'include'), { recursive: true });
+    mkdirSync(resolve(simulator.root, 'lib'), { recursive: true });
+    writeFileSync(simulator.lean, '');
+    writeFileSync(resolve(simulator.root, 'hermes-input-receipt.json'), '{}');
+    assert.equal(hermesBundle('aarch64-apple-ios-sim', env).installed, true);
   } finally { rmSync(home, { recursive: true, force: true }); }
 });
 

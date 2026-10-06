@@ -36,7 +36,7 @@ import { createHash } from 'node:crypto';
 import { BINARYEN } from '../host/web/stages.mjs';
 import { delimiter, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
+import { cargoEnvironment, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
 import { createApp, createGame } from '../game/new.mjs';
 import { sdkFetch } from '../game/app/shells.mjs';
 import { appleArtifacts, assertAppleIdentity, macReleaseEntitlements, stripForDistribution } from '../host/apple/build.mjs';
@@ -335,7 +335,7 @@ export function setup({check = false} = {}) {
   const binaryen = resolve(homedir(), '.cache/exact/binaryen', version);
   const run = (cmd, args) => {
     console.log([cmd, ...args].join(' '));
-    const result = spawnSync(cmd, args, {cwd: ROOT, stdio: 'inherit'});
+    const result = spawnSync(cmd, args, {cwd: ROOT, stdio: 'inherit', env: cargoEnvironment()});
     if (result.status !== 0) throw new Error(`${cmd} failed: ${result.error?.message ?? result.status}`);
   };
   const output = (cmd, args) => {
@@ -368,6 +368,9 @@ export function setup({check = false} = {}) {
       } finally { rmSync(stage, {recursive: true, force: true}); }
     }
     run(process.execPath, ['install', '--frozen-lockfile']);
+    const host = hermesTarget();
+    if (!host) throw new Error(`the pinned Hermes release has no host bundle for ${process.platform}/${process.arch}`);
+    run('cargo', [`+${pin.channel}`, 'run', '--manifest-path', resolve(ROOT, 'vendor/ibex/crates/hermes-lean-sys-installer/Cargo.toml'), '--', '--target', host]);
     // Every bake resolves offline and locked: the checkout's crates, and the game SDK's for a game's shell.
     run('cargo', [`+${pin.channel}`, 'fetch', '--locked', '--manifest-path', resolve(ROOT, 'Cargo.toml')]);
     console.log('cargo fetch (the game SDK lock, game/app/shells.lock)');
@@ -392,7 +395,7 @@ export function sdkReport(env = process.env) {
   const pin = Bun.TOML.parse(readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8')).toolchain;
   const bindgen = Bun.TOML.parse(readFileSync(resolve(ROOT, 'game/Cargo.toml'), 'utf8')).workspace.dependencies['wasm-bindgen'].replace(/^=/, '');
   const output = (cmd, args) => {
-    const result = spawnSync(cmd, args, {cwd: ROOT, encoding: 'utf8', env});
+    const result = spawnSync(cmd, args, {cwd: ROOT, encoding: 'utf8', env: cmd === 'cargo' ? cargoEnvironment(env) : env});
     return result.status === 0 ? result.stdout.trim() : '';
   };
   const row = (name, have, want, ok, fix, need = null) => ({name, have: have || 'missing', want, ok, fix, required: !need, need});
@@ -428,29 +431,31 @@ export function sdkReport(env = process.env) {
     const xcode = /\.app\/Contents\/Developer$/.test(developer);
     rows.push(row('Xcode', developer, 'Xcode.app', xcode, 'install Xcode, then sudo xcode-select -s /Applications/Xcode.app', 'macOS and iOS'));
   }
-  const hermes = hermesSources(env);
-  rows.push(row('hermesc', hermes.hermesc, 'Ibex Hermes 260318099.0.4', hermes.hermescOk, hermes.fix, 'TypeScript apps on native hosts; the web needs none'));
-  if (process.platform === 'darwin') rows.push(row('Hermes engine', hermes.engine, 'Ibex Hermes 260318099.0.4 lean', hermes.engineOk, hermes.fix, 'TypeScript on macOS'));
+  const hostTarget = hermesTarget();
+  if (hostTarget) {
+    const host = hermesBundle(hostTarget, env);
+    rows.push(row(`Hermes host bundle (${hostTarget})`, host.installed ? host.root : '', host.tag, host.installed, host.fix));
+  } else rows.push(row('Hermes host bundle', '', 'a supported Ibex bundle', false, `no pinned bundle exists for ${process.platform}/${process.arch}`));
+  if (process.platform === 'darwin') {
+    const simulatorTarget = process.arch === 'x64' ? 'x86_64-apple-ios' : 'aarch64-apple-ios-sim';
+    for (const [name, target, need] of [
+      ['Hermes iOS Simulator bundle', simulatorTarget, 'TypeScript on an iOS Simulator'],
+      ['Hermes iOS device bundle', 'aarch64-apple-ios', 'TypeScript on an iOS device'],
+    ]) {
+      const bundle = hermesBundle(target, env);
+      rows.push(row(`${name} (${target})`, bundle.installed ? bundle.root : '', bundle.tag, bundle.installed, bundle.fix, need));
+    }
+  }
   return rows;
 }
 
 /** The install-once, digest-addressed Ibex bundle selected by hermes-lean-sys. */
 export function hermesSources(env = process.env) {
-  const support = readFileSync(resolve(ROOT, 'vendor/ibex/crates/hermes-lean-sys/build_support.rs'), 'utf8');
-  const tag = /RELEASE_TAG: &str = "([^"]+)"/.exec(support)?.[1];
-  const os = process.platform === 'darwin' ? 'apple-darwin' : process.platform === 'linux' ? 'unknown-linux-gnu' : null;
-  const arch = process.arch === 'arm64' ? 'aarch64' : process.arch === 'x64' ? 'x86_64' : null;
-  const target = os && arch ? `${arch}-${os}` : '';
-  const block = new RegExp(`target: "${target.replaceAll('-', '\\-')}"[\\s\\S]*?sha256: "([0-9a-f]{64})"`).exec(support);
-  const cache = resolve(env.CARGO_HOME ?? resolve(env.HOME ?? homedir(), '.cargo'), 'hermes-lean-sys');
-  const engine = resolve(env.HERMES_LEAN_SYS_DIR ?? resolve(cache, tag ?? 'unresolved', block?.[1] ?? 'unresolved'));
-  const hermesc = resolve(engine, 'bin', process.platform === 'win32' ? 'hermesc.exe' : 'hermesc');
-  const lean = resolve(engine, 'lib', process.platform === 'win32' ? 'hermesvmlean_a.lib' : 'libhermesvmlean_a.a');
-  const receipt = existsSync(resolve(engine, 'hermes-input-receipt.json'));
+  const bundle = hermesBundle(hermesTarget(), env);
   return {
-    hermesc: existsSync(hermesc) ? hermesc : '', hermescOk: existsSync(hermesc),
-    engine: existsSync(lean) ? engine : '', engineOk: existsSync(lean) && receipt,
-    fix: `cargo run --manifest-path ${resolve(ROOT, 'vendor/ibex/crates/hermes-lean-sys-installer/Cargo.toml')} -- --target ${target || '<triple>'}`,
+    hermesc: existsSync(bundle.hermesc) ? bundle.hermesc : '', hermescOk: existsSync(bundle.hermesc),
+    engine: bundle.installed ? bundle.root : '', engineOk: bundle.installed,
+    fix: bundle.fix,
   };
 }
 
@@ -469,7 +474,7 @@ export function printReport(rows, {onlyMissing = false} = {}) {
  * (an app's, or another checkout's). */
 export function contract(args, env = process.env) {
   const pin = Bun.TOML.parse(readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8')).toolchain.channel;
-  const clean = {...env};
+  const clean = cargoEnvironment(env);
   delete clean.RUSTUP_TOOLCHAIN;
   delete clean.CARGO_TARGET_DIR;
   const binary = resolve(ROOT, 'target/debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
