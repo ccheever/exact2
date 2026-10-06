@@ -134,4 +134,27 @@ task leaves `restEditor` set until the next settings write.
 
 ## Next action
 
+### Evidence correction (2026-10-06)
+
+The earlier `succeeded` observation proves the scheduled-task status reached the UI,
+not that a provider completed the prompt. The retained lane-after provider log
+(`target/lane-after/t3-home/userdata/logs/provider/events.fa62d03f-0b88-408f-9fb2-a1ae6a85aec5.log`,
+lines 18–30) records the Codex run on `automations-demo` failing with HTTP 401,
+`Missing bearer or basic authentication in header`, followed by `turn/completed`
+with status `failed`. An authenticated provider completion and a timed interval
+execution remain unverified. The unit tests in `live-automations.test.ts` use a
+recording fake client, including its `authenticated` provider state; they require
+no connected provider account.
+
+Merge validation against `origin/feat(example)/t3-code`: both `projectCloneBlock`
+and `highlightPending` imports are retained in `presentation.ts`. With the pinned
+Bun 1.4.2 the app suite has 1421 passing tests, one skipped generator test and no
+failures. The initial run used PATH's Bun 1.3.14, which failed one HTML comment
+highlighting test on both this merge and an isolated export of the base branch;
+using the already installed pinned version resolves that failure.
+Strict TypeScript checking, Contract build, the five repository checks, 2928
+repository Rust tests and 10 macOS Rust tests pass. The macOS application bundle
+also builds. These merge checks do not add authenticated provider or timed-run
+coverage to the original evidence.
+
 `verify`: drive the tracked clone (palette › Git URL with the slow-pack hook) and a second environment; run the oracle rows once desktop-oracle-and-trace exists.

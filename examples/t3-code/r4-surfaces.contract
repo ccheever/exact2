@@ -10,6 +10,7 @@ use R4Tab from "./r4-surfaces-shapes.contract"
 use R4Prs from "./r4-surfaces-shapes.contract"
 use R4LinkedRow from "./r4-surfaces-shapes.contract"
 use R4Device from "./r4-surfaces-shapes.contract"
+use SimulatorSupportSection from "./device-support.contract"
 use R12TabScroll from "./r12-threads.contract"
 use ShellSurface from "./shell-shapes.contract"
 use ShellIcon from "./shell-icons.contract"
@@ -459,18 +460,10 @@ component R4DeviceDialog
             row gap=8 align-items="center" role="status"
               R4Icon(name=(device.hubReady ? "check" : "loader"), size=12, color=(device.hubReady ? "light-dark(#00a63e, #05df72)" : "light-dark(#71717b, #818181)"))
               text device.hubStatus font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
-        when device.step == 1
-          text "Check simulator support" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
-          each platform in device.platforms key=platform.id
-            row gap=8 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 border-radius=6 border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)"
-              box margin-top=2 flex-shrink=0
-                R4Icon(name=(platform.ready ? "check" : "circle-alert"), size=16, color=(platform.ready ? "light-dark(#00a63e, #05df72)" : "light-dark(#71717b, #818181)"))
-              column flex=1 min-width=0
-                text platform.platform font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
-                text platform.message font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
-          text "You can use either platform. Fixing a missing platform does not block the other one." font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
-          button press=command("shell:surface-device-list", "", "", 0) disabled=(not device.enabled or device.busy or device.pending != "") testId="device-check-again" align-self="flex-start" height=28 padding-left=9 padding-right=9 box-sizing="border-box" gap=6 border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" opacity=(not device.enabled or device.busy or device.pending != "" ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
-            text (device.pending == "check" ? "Checking…" : "Check again") font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
+        // 1e2ecbd975 (5318d054a5): step 0 also checks simulator support when the hub is on
+        // and a local host has no available platform (device-support.contract).
+        when device.step == 1 or (device.step == 0 and device.enabled and device.localPlatformsUnavailable)
+          SimulatorSupportSection(device=device, command=command)
         when device.step == 2
           text "Allow agent control" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
           row gap=16 align-items="flex-start" justify-content="space-between"

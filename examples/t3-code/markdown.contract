@@ -119,7 +119,10 @@ keyframes mdCopyB
   to opacity=1
 
 // pierre-light / pierre-dark, the reference's Shiki themes, by token class.
-fn synColor(cls: string): string = cls == "kw" ? "light-dark(#d32a61, #ff678d)" : cls == "decl" or cls == "type" ? "light-dark(#a631be, #d568ea)" : cls == "fn" ? "light-dark(#693acf, #9d6afb)" : cls == "var" ? "light-dark(#d47628, #ffa359)" : cls == "const" ? "light-dark(#d5901c, #ffab16)" : cls == "param" ? "light-dark(#636363, #a3a3a3)" : cls == "pyparam" or cls == "flag" or cls == "interp" or cls == "bold" ? "light-dark(#d5a910, #ffd452)" : cls == "str" ? "light-dark(#199f43, #5ecc71)" : cls == "esc" ? "light-dark(#16a994, #61d5c0)" : cls == "num" ? "light-dark(#1ca1c7, #68cdf2)" : cls == "nul" or cls == "op" or cls == "builtin" ? "#08c0ef" : cls == "punct" ? "#636363" : cls == "com" ? "#737373" : cls == "key" or cls == "tag" or cls == "heading" ? "light-dark(#d5512f, #ff855e)" : cls == "attr" ? "light-dark(#18a46c, #60d199)" : cls == "regex" ? "light-dark(#17a5af, #64d1db)" : cls == "deco" ? "light-dark(#1a85d4, #69b1ff)" : "light-dark(#0a0a0a, #fafafa)"
+// shiki-residuals: a class ends in "+i" where the pierre theme sets italic (r12-render-highlight.ts).
+fn synColor(cls: string): string = synInk(endsWith(cls, "+i") ? slice(cls, 0, -2) : cls)
+fn synSlant(cls: string): string = endsWith(cls, "+i") ? "italic" : "normal"
+fn synInk(cls: string): string = cls == "kw" ? "light-dark(#d32a61, #ff678d)" : cls == "decl" or cls == "type" ? "light-dark(#a631be, #d568ea)" : cls == "fn" ? "light-dark(#693acf, #9d6afb)" : cls == "var" ? "light-dark(#d47628, #ffa359)" : cls == "const" ? "light-dark(#d5901c, #ffab16)" : cls == "param" ? "light-dark(#636363, #a3a3a3)" : cls == "pyparam" or cls == "flag" or cls == "interp" or cls == "bold" ? "light-dark(#d5a910, #ffd452)" : cls == "str" ? "light-dark(#199f43, #5ecc71)" : cls == "esc" ? "light-dark(#16a994, #61d5c0)" : cls == "num" ? "light-dark(#1ca1c7, #68cdf2)" : cls == "nul" or cls == "op" or cls == "builtin" ? "#08c0ef" : cls == "punct" ? "#636363" : cls == "com" ? "#737373" : cls == "key" or cls == "tag" or cls == "heading" ? "light-dark(#d5512f, #ff855e)" : cls == "attr" ? "light-dark(#18a46c, #60d199)" : cls == "regex" ? "light-dark(#17a5af, #64d1db)" : cls == "deco" ? "light-dark(#1a85d4, #69b1ff)" : "light-dark(#0a0a0a, #fafafa)"
 
 shape TranscriptMarkdown
   documents: list<ChatDocument>
@@ -585,12 +588,12 @@ component CodeBlock
         when wrap
           text width="100%" padding-left=14.4 padding-right=14.4 padding-top=12.8 padding-bottom=12.8 box-sizing="border-box" font-family=(codeFont == "monospace" ? "monospace" : "ui-monospace") font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre-wrap" overflow-wrap="anywhere" color="light-dark(#0a0a0a, #fafafa)"
             each token in hl.tokens key=token.id
-              text token.text color=synColor(token.cls)
+              text token.text color=synColor(token.cls) font-style=synSlant(token.cls)
         else
           scroll width="100%" overflow-x="scroll" overflow-y="hidden"
             text padding-left=14.4 padding-right=14.4 padding-top=12.8 padding-bottom=12.8 font-family=(codeFont == "monospace" ? "monospace" : "ui-monospace") font-size=codeSize letter-spacing=-0.2 line-height=1.375 white-space="pre" color="light-dark(#0a0a0a, #fafafa)"
               each token in hl.tokens key=token.id
-                text token.text color=synColor(token.cls)
+                text token.text color=synColor(token.cls) font-style=synSlant(token.cls)
 // MarkdownMermaidCodeBlock: a settled ```mermaid fence draws its diagram with
 // no card, centred and fit to the lane, a "Show code" toggle and Copy beneath;
 // "Show code" turns it back into the code block, its toolbar led by "Show

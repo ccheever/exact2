@@ -99,6 +99,7 @@ shape ShellView
   panel: R4Panel
   // lane r9-connect: the branch picker's PullRequestThreadDialog (r9-connect-checkout.ts).
   prCheckout: R9Checkout
+  highlightPending: bool // shiki-residuals: a Files / attachment code text waits for its Shiki tokens
 shape CardScript
   id: string
   label: string

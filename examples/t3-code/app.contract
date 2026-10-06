@@ -1,4 +1,5 @@
 use WorkspaceDiscovery, WorkspaceRefresh, TimelineReadsResult, Time from "./app-shapes.contract" // first: the plan orders shapes by first use
+use HighlightStep from "./highlight.contract"
 use Snapshot from "./shapes.contract"
 use R10PairFields from "./r10-connect-shapes.contract" // lane r10-connect
 use TranscriptMarkdown from "./markdown.contract"
@@ -214,6 +215,21 @@ component T3Code
       liveNow = now()
   task liveClock mount
     every(1000, liveTick)
+  // shiki-residuals: long code texts finish their Shiki tokens in background turns (highlight.contract).
+  mutation highlightSliced as shape HighlightStep then highlightStepped
+  action highlightStep
+    if not pending(highlightSliced)
+      send highlightSliced = highlightSlice(wallTime.epochAtZero + now())
+  action highlightStepped
+    match highlightSliced
+      case some(step)
+        if step.finished or not step.pending
+          refresh data
+          refresh shell
+      case none
+        refresh data
+  task highlightPump when data.highlightPending or shell.highlightPending
+    every(16, highlightStep)
   resource viewport = exactViewport() as shape Viewport
   // Command palette (⌘K), file picker (⌘P), content search (⇧⌘F), Add project: palette.contract draws, palette*.ts serves.
   state paletteOpen = false
