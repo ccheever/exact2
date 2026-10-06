@@ -148,10 +148,13 @@ Implemented on `feat(example)/t3-code-auto-balance` (base 1a50d0df3); verificati
   Run on (strip, gitless strip, details panel) leads with "Auto balance" / "Checking machines…" /
   "Auto balance unavailable"; picking a machine is manual and clears the choice; picking Auto asks
   again; attachments warn "Keep attachments on this machine".
-- Port change (declared): the reference retargets the draft's project when the choice resolves. Here a
-  draft belongs to the focused connection and moving it refocuses the client, so resolution records the
-  machine only (text and focus stay); Send moves a resolved draft there, synchronizes, keeps its model,
-  then sends. A send in flight blocks the resolution.
+- The resolution moves the draft as the reference's effect retargets its projectRef
+  (setDraftThreadContext with `environmentSelection: "auto"` and `loadBalancedEnvironmentId`): the
+  Run on menu's `runOnEnvironment` with the auto selection; text, workspace context, model and modes go
+  with it; a keystroke that reaches the old key while the connection moves follows it; a failed connect
+  puts the draft back ("Could not switch machine"). The composer keeps its owner across the move
+  (`auto-balance-owner.ts`, snapshot `composerOwner`), so the field is not rewritten and keeps its text,
+  caret and focus. A send in flight blocks the resolution; a send waits for a move in flight.
 - `auto-balance-banner.ts` + `auto-balance.contract`: useAutoBalanceUpdateBanner (machine list, counts,
   title, "N needs/need a manual update", Update all / Update K machines / Retry, dismiss) and
   ServerUpdatesAction (eligible targets, one confirm for desktop apps through server-update-banner's
@@ -160,12 +163,13 @@ Implemented on `feat(example)/t3-code-auto-balance` (base 1a50d0df3); verificati
   (progress, failure, "Manual update required" + Copy command or the desktop sentence, "Ready to update
   to X", "Reconnect this machine to update"). It replaces the single-machine notice on an Auto draft.
 
-Not done / limits: real typing during resolution (attended); keyboard through Run on / popover and
-Escape (attended); reduced-motion film; 840×620 and dark shots; "Real servers" row (the drive used real
-reference servers behind a stub proxy, not bare); the resolved machine is not shown in the UI (the
-reference does not either), so the drive proves it by `balanceFetch` clearing after one request per
-candidate; the "stale 20 s" case cannot come from a server (receipt time is the client's), so the drive
-used a busy (0.96) machine and unit tests cover age; oracle and trace-diff not run (not built).
+Not done / limits: real typing during resolution (attended; the drive types and presses a key through
+the agent); keyboard through Run on / popover and Escape (attended); reduced-motion film; 840×620 and
+dark shots; "Real servers" row (the drive used real reference servers behind a stub proxy, not bare);
+the "stale 20 s" case cannot come from a server (receipt time is the client's), so the drive used a busy
+(0.96) machine and unit tests cover age; oracle and trace-diff not run (not built). The chosen machine
+shows as the reference shows it: the trigger and its tooltip read "Auto balance", and the draft is on
+the chosen machine (the details' version line names its server).
 
 ## Attempts and evidence
 
