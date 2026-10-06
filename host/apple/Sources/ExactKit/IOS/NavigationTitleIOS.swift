@@ -304,12 +304,23 @@ extension NavigationHost {
     /// UIKit reads it at the push and keeps the bar hidden for the routes
     /// above. The route the root names follows the tablist; routes pushed
     /// with it in one batch (a cold launch's) take the same. Written on
-    /// change, so a hook's own value stands till then.
+    /// change, so a hook's own value stands till then. The root itself
+    /// follows too (LLP 1075.003 §3.7, amended 2026-10-05): its tablist
+    /// hidden hides the bar, shown shows it, both with UIKit's own animated
+    /// `setTabBarHidden` (iOS 18), as Signal hides its tab bar for the chat
+    /// list's multi-select.
     func followTablist(_ routes: [RouteController], in nav: UINavigationController) {
-        guard !ExactEnv.authoredChrome, let key = container?.props["navigationKey"], let at = routes.indices.dropFirst().first(where: { routes[$0].key == key }),
+        guard !ExactEnv.authoredChrome, let key = container?.props["navigationKey"],
               let list = adoptedTablist.flatMap({ presenter.views[$0] }) ?? container.flatMap({ NavigationTabs.of($0, presenter)?.tablist })
         else { return }
         let hidden = list.style["display"]?.string == "none"
+        if let root = routes.first, root.key == key {
+            followTablistAtRoot(root, hidden: hidden, in: nav)
+            return
+        }
+        guard let at = routes.indices.dropFirst().first(where: { routes[$0].key == key }) else { return }
+        // A pushed route selected: the root, back on top later, arrives anew.
+        if nav.tabBarController === tabController { tablistRoot = nil }
         for (index, c) in routes.enumerated() where index > 0 && index <= at && (index == at || c.tablistHidden == nil) && c.tablistHidden != hidden {
             c.tablistHidden = hidden
             #if !os(tvOS)
@@ -319,8 +330,63 @@ extension NavigationHost {
             // pop with a guessed flag, or the tablist changing under it): the
             // bar follows now (iOS 18).
             guard c === nav.topViewController, nav.transitionCoordinator == nil, tabBarShows, let tabs = tabController, nav.tabBarController === tabs else { continue }
-            if #available(iOS 18.0, tvOS 18.0, *), tabs.isTabBarHidden != hidden { tabs.setTabBarHidden(hidden, animated: nav.view.window != nil) }
+            if #available(iOS 18.0, tvOS 18.0, *), tabs.isTabBarHidden != hidden {
+                tabs.setTabBarHidden(hidden, animated: nav.view.window != nil)
+                tablistHidBar = hidden
+            }
         }
+        // A bar Exact hid with `setTabBarHidden` (a root's hidden tablist, or
+        // a pushed route's changing in place) is the controller's stored
+        // state: a push of a route whose tablist shows does not clear it,
+        // only `hidesBottomBarWhenPushed` would. The selected route wanting
+        // it shown brings it back now, pushed or not yet.
+        if !hidden, tablistHidBar, nav.transitionCoordinator == nil, tabBarShows, let tabs = tabController, nav.tabBarController === tabs {
+            if #available(iOS 18.0, tvOS 18.0, *), tabs.isTabBarHidden { tabs.setTabBarHidden(false, animated: nav.view.window != nil) }
+            tablistHidBar = false
+        }
+    }
+
+    /// The root on top (LLP 1075.003 §3.7, amended 2026-10-05). Its wish is
+    /// recorded whenever it is the selected route or a transition settles on
+    /// it (`tablistHidden`), and the bar moves, animated
+    /// once the stack is on screen, when the wish changes or the root has
+    /// just arrived on top: a transition settled on it (`settleTablist`, from
+    /// `didShow`, after a pop UIKit may have brought the bar back for) or
+    /// another tab's root was selected. A hidden tablist hides the bar; a
+    /// shown one shows it only if Exact hid it (`tablistHidBar`), so a hook's
+    /// own hide stands, and between those moments nothing is written, so a
+    /// hook's own show stands too. Never mid-transition. A root first seen
+    /// with its tablist shown writes nothing. iOS 17 has no
+    /// `setTabBarHidden`: there the bar stays.
+    func followTablistAtRoot(_ root: RouteController, hidden: Bool, in nav: UINavigationController) {
+        let changed = root.tablistHidden != hidden
+        root.tablistHidden = hidden
+        guard root === nav.topViewController, nav.transitionCoordinator == nil, tabBarShows,
+              let tabs = tabController, nav.tabBarController === tabs else { return }
+        guard #available(iOS 18.0, tvOS 18.0, *) else { return }
+        // Arrived: the root on top at rest for the first time since another
+        // route or root was (a pushed route selected clears `tablistRoot`).
+        let arrived = tablistRoot !== root
+        tablistRoot = root
+        guard changed || arrived else { return }
+        let animated = nav.view.window != nil
+        if hidden {
+            // Exact owns the hide only if it made it: a hook's own stands.
+            if !tabs.isTabBarHidden { tabs.setTabBarHidden(true, animated: animated); tablistHidBar = true }
+        } else if tablistHidBar {
+            if tabs.isTabBarHidden { tabs.setTabBarHidden(false, animated: animated) }
+            tablistHidBar = false
+        }
+    }
+
+    /// A transition settled (`didShow`): the root, if it is on top now,
+    /// reconciles the bar with its tablist.
+    func settleTablist(_ nav: UINavigationController) {
+        guard !ExactEnv.authoredChrome, let key = container?.props["navigationKey"],
+              let root = nav.viewControllers.first as? RouteController, root.key == key, nav.topViewController === root,
+              let list = adoptedTablist.flatMap({ presenter.views[$0] }) ?? container.flatMap({ NavigationTabs.of($0, presenter)?.tablist })
+        else { return }
+        followTablistAtRoot(root, hidden: list.style["display"]?.string == "none", in: nav)
     }
 }
 #endif

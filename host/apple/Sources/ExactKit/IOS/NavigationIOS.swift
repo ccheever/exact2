@@ -103,6 +103,10 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// How many routes the selected stack declared at the last projection.
     private var selectedRouteCount = 0
     var adoptedTablist: UInt32?
+    /// The root whose tablist last decided the bar, and whether Exact hid the
+    /// bar for a root's hidden tablist (LLP 1075.003 §3.7, amended).
+    weak var tablistRoot: RouteController?
+    var tablistHidBar = false
     var tabItems: [String] = []
     /// The bar's tint as last written: the tablist's accent, light and dark.
     var tabTint: [[Double]?]?
@@ -725,6 +729,13 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             presenter.paintVisibleText()
             presenter.flushPendingFocus()
             recordPop(navigationController)
+            // Settled on a stack's root: once UIKit has finished the
+            // transition (its own bar restoration included), a root whose
+            // arrival no projection has handled yet reconciles the bar with
+            // its tablist (§3.7).
+            DispatchQueue.main.async { [weak self, weak navigationController] in
+                if let navigationController { self?.settleTablist(navigationController) }
+            }
             // At rest: a large title's insets are sampled now (§9.10).
             coversChanged()
         }

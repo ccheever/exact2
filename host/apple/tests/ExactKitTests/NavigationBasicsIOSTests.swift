@@ -157,6 +157,93 @@ final class NavigationBasicsIOSTests: XCTestCase {
         until("the tab bar came back") { abs(home.view.safeAreaInsets.bottom - shown) < 0.5 }
     }
 
+    /// LLP 1075.003 §3.7, amended 2026-10-05: the root's tablist hidden
+    /// hides the bar too, with UIKit's animated `setTabBarHidden`, and shown
+    /// brings it back (Signal's chat-list multi-select). Driven through the
+    /// fixture's own batches: a hide and a show at the root, a pop back to a
+    /// root still hidden (UIKit brings the bar back for its root; Exact
+    /// hides it again once the pop settles), another tab's root with its
+    /// tablist shown, and a hook's own value standing between those moments.
+    /// A tap on the bar's item for a tab, as UIKit asks before selecting.
+    private func tapTab(_ tabs: UITabBarController, _ index: Int) {
+        let target = tabs.viewControllers![index]
+        if tabs.delegate?.tabBarController?(tabs, shouldSelect: target) ?? true { tabs.selectedIndex = index }
+    }
+
+    func testTheRootsTablistHiddenHidesTheTabBarAndShownBringsItBack() throws {
+        guard #available(iOS 18.0, *) else { throw XCTSkip("setTabBarHidden is iOS 18") }
+        let session = try fixture("basics-roottabbar")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        let nav = try XCTUnwrap(tabs.selectedViewController as? UINavigationController)
+        let home = try XCTUnwrap(nav.topViewController as? RouteController)
+        let shown = home.view.safeAreaInsets.bottom
+        XCTAssertGreaterThan(shown, 40, "the tab bar insets the root")
+        let settled = { nav.transitionCoordinator == nil }
+        // Hidden over the root: the bar goes.
+        try tapNode(session, "toggle-choosing")
+        until("the bar left") { tabs.isTabBarHidden && home.view.safeAreaInsets.bottom < shown - 20 }
+        XCTAssertFalse(home.hidesBottomBarWhenPushed, "the root is never pushed: no flag")
+        // Shown again: it comes back.
+        try tapNode(session, "toggle-choosing")
+        until("the bar came back") { !tabs.isTabBarHidden && abs(home.view.safeAreaInsets.bottom - shown) < 0.5 }
+        // A hook's hide, with the tablist shown and unchanged, stands; and
+        // the tablist hidden and shown again over it leaves it standing too:
+        // Exact did not make that hide.
+        tabs.setTabBarHidden(true, animated: false)
+        try tapNode(session, "bump")
+        spin(0.3)
+        XCTAssertTrue(tabs.isTabBarHidden, "an unchanged tablist writes nothing")
+        try tapNode(session, "toggle-choosing")
+        spin(0.3)
+        try tapNode(session, "toggle-choosing")
+        spin(0.3)
+        XCTAssertTrue(tabs.isTabBarHidden, "the hook's hide stands")
+        tabs.setTabBarHidden(false, animated: false)
+        // Hidden at the root, Detail pushed (its tablist shown: the fixture
+        // hides it at Home only), then a pop back: UIKit brings the bar back
+        // for its root; settled there, Exact hides it again.
+        try tapNode(session, "toggle-choosing")
+        until("the bar left") { tabs.isTabBarHidden }
+        try tapNode(session, "detail")
+        until("Detail pushed") { nav.viewControllers.count == 2 && settled() }
+        until("Detail's tablist shows: so does the bar") { !tabs.isTabBarHidden }
+        nav.popViewController(animated: true)
+        until("back to Home (1)") { nav.viewControllers.count == 1 && settled() }
+        until("hidden again over the root") { tabs.isTabBarHidden }
+        // A hook's show between those moments stands.
+        tabs.setTabBarHidden(false, animated: false)
+        try tapNode(session, "bump")
+        spin(0.3)
+        XCTAssertFalse(tabs.isTabBarHidden, "an unchanged tablist writes nothing")
+        tabs.setTabBarHidden(true, animated: false)
+        // Another tab's root, its tablist shown: the bar Exact hid comes back.
+        tapTab(tabs, 1)
+        until("the second tab's root shows the bar") { !tabs.isTabBarHidden }
+        tapTab(tabs, 0)
+        until("Home, still hidden, hides it") { tabs.isTabBarHidden }
+        try tapNode(session, "toggle-choosing")
+        until("shown") { !tabs.isTabBarHidden }
+        // A pushed route's tablist hidden in place hides the bar
+        // (`setTabBarHidden`); a pop to a root whose tablist shows (the tab
+        // reselected) brings it back (a pop alone does not clear a stored
+        // hide).
+        let list = try node(session, "tabs")
+        try tapNode(session, "detail")
+        until("Detail pushed") { nav.viewControllers.count == 2 && settled() }
+        list.style["display"] = .string("none")
+        session.presenter.navigation.followTablist(nav.viewControllers.compactMap { $0 as? RouteController }, in: nav)
+        until("hidden over Detail") { tabs.isTabBarHidden }
+        list.style["display"] = .string("flex")
+        // Reselecting the tab pops it to its root: Exact's own pop.
+        tapTab(tabs, 0)
+        until("back to Home (2)") { nav.viewControllers.count == 1 && settled() }
+        until("the bar is back over Home") { !tabs.isTabBarHidden }
+        until("Home inset by it again") { abs(home.view.safeAreaInsets.bottom - shown) < 0.5 }
+        // The pushed-route rule stands.
+        let (_, _, chat) = try chat(session)
+        XCTAssertTrue(chat.hidesBottomBarWhenPushed, "the authored tablist is hidden over Chat")
+    }
+
     func testAnInlineTitlesScrollerGoesUnderTheBar() throws {
         let session = try fixture("basics-under")
         let (_, nav, chat) = try chat(session)

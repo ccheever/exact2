@@ -177,6 +177,8 @@ extension NavigationHost {
         }
         natives.tabsHook(container, event: 1)
         container.delegate = nil
+        tablistRoot = nil
+        tablistHidBar = false
         container.willMove(toParent: nil)
         container.view.removeFromSuperview()
         container.removeFromParent()
@@ -285,6 +287,9 @@ extension NavigationHost {
     /// What holds the tabs goes: its stacks are retired, the authored
     /// tablist paints again.
     func retireTabs() {
+        // The tablist's hold on the bar goes with its container (§3.7).
+        tablistRoot = nil
+        tablistHidBar = false
         for nav in tabPanels.compactMap({ tabNavigations[$0] }) {
             retireStack(nav)
             nav.delegate = nil

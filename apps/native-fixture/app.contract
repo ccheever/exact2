@@ -219,6 +219,11 @@ component NativeFixture
   state muted = false
   action toggleMuted
     muted = not muted
+  // The tablist hidden over the root, as Signal's chat-list multi-select
+  // hides its tab bar (LLP 1075.003 §3.7, amended 2026-10-05).
+  state choosing = false
+  action toggleChoosing
+    choosing = not choosing
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" testId="navigation" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#111111" font-family="system-ui"
       column testId="panels" flex=1 min-height=0 position="relative"
@@ -281,6 +286,8 @@ component NativeFixture
                     row gap=6 flex-wrap="wrap"
                       button press=detail testId="detail" padding=6 background-color="#e5e7eb"
                         text "Detail"
+                      button press=toggleChoosing testId="toggle-choosing" padding=6 background-color="#e5e7eb"
+                        text "Choose"
                       button press=showRows testId="rows" padding=6 background-color="#e5e7eb"
                         text "Rows"
                       button press=customTransition testId="transition" padding=6 background-color="#e5e7eb"
@@ -460,7 +467,7 @@ component NativeFixture
                       column testId="tall-second" height=1600 background-color="#eef2ff"
       // Hidden on Chat and Photo, so the tab bar hides for them (§9.10);
       // its accent tints the bar's selected item.
-      row role="tablist" aria-label="Tabs" testId="tabs" accent-color="#3838f5" display=(top(nav).name == "chat" or top(nav).name == "photo" ? "none" : "flex") flex-shrink=0 height=56 border-top-width=1 border-top-style="solid" border-color="#e5e7eb" align-items="stretch"
+      row role="tablist" aria-label="Tabs" testId="tabs" accent-color="#3838f5" display=((choosing and top(nav).name == "home") or top(nav).name == "chat" or top(nav).name == "photo" ? "none" : "flex") flex-shrink=0 height=56 border-top-width=1 border-top-style="solid" border-color="#e5e7eb" align-items="stretch"
         button role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=selectTab("home") testId="tab-home" flex=1 display="flex" flex-direction="column" align-items="center" justify-content="center" gap=2
           image (nav.tab == "home" ? "symbol:home-fill" : "symbol:home") width=22 height=22
           text "Home" font-size=11
