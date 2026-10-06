@@ -19,3 +19,14 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+Third-party marks drawn by this client
+
+The Microsoft Azure DevOps mark (settings-brands.contract, BrandAzureDevOps) is
+taken from selfhst/icons, https://github.com/selfhst/icons/blob/main/svg/azure-devops.svg,
+licensed under the Creative Commons Attribution 4.0 International License
+(CC BY 4.0, https://creativecommons.org/licenses/by/4.0/). T3 Code 1e2ecbd975
+(apps/web/src/components/Icons.tsx) uses the same mark. The mark is a trademark
+of Microsoft; its use here does not imply endorsement.

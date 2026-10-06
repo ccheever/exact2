@@ -100,6 +100,8 @@ shape ProjectsPage
   faviconSrc: string
   iconScope: string
   iconCwd: string
+  // desktop-shell-details: the picker footer's "Open in Finder", or "" where it is not offered.
+  iconPickExternal: string
 
 component ProjectsPanel
   props
