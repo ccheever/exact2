@@ -1,0 +1,8 @@
+[
+  "target/rsu-review/legacy-app.pid: stopped",
+  "target/rsu-review/16140/server.pid: stopped",
+  "target/rsu-review/16141/server.pid: stopped",
+  "fixture Keychain deletion exit 0",
+  "fixture Keychain deletion exit 0",
+  "fixture preferences deletion exit 0"
+]

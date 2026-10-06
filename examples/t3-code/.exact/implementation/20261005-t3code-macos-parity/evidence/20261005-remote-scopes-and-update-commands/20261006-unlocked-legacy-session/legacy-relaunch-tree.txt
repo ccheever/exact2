@@ -1,0 +1,88 @@
+App=com.exact.t3code.scope-review (pid 88845)
+Window: "T3 Code (Exact)", App: T3 Code (Exact).
+
+0 standard window T3 Code (Exact)
+	1 scroll area, Secondary Actions: scroll up, scroll down
+		2 button Toggle sidebar
+		3 button Go to threads
+		4 text Search
+		5 text field (settable) Search threads
+		6 button Filter threads by project
+		7 button Add project
+		8 button New thread
+		9 scroll area, Secondary Actions: scroll up, scroll down
+			10 button Legacy scope verification. Reply with LEGACY_SCOPE..., 16140
+			11 button New thread, 16140
+			12 button Toggle Settled
+		13 button Settings
+		14 button Pull Requests
+		15 button Usage
+		16 button New thread in 16140
+		17 text /
+		18 button Thread actions for Legacy scope verification. Reply with LEGACY_SCOPE...
+		19 button (expanded) Toggle thread details panel
+		20 button (disabled) Toggle terminal drawer
+		21 button Toggle right panel
+		22 scroll area, Secondary Actions: scroll up, scroll down
+			23 text Legacy scope verification. Reply with LEGACY_SCOPE_OK.
+			24 text 4:42 PM
+			25 button Copy message
+			26 text LEGACY_SCOPE_OK
+			27 button Fork from this response
+			28 button Copy message
+			29 text 4:42 PM
+		30 scroll area, Secondary Actions: scroll up, scroll down
+			31 text entry area (settable) Message
+			32 scroll bar (disabled) 0
+		33 button Choose provider and model
+		34 button Medium
+		35 button Runtime mode
+		36 button Attach files
+		37 button (disabled) Submit message
+		38 scroll area, Secondary Actions: scroll up, scroll down
+			39 text 16140
+			40 button Open in Cursor
+			41 button Choose editor
+			42 button Add project script
+			43 container Git actions
+				44 button Git action options
+				45 button (disabled) Commit
+			46 button Changes +0 -0
+			47 scroll bar 0
+				48 value indicator 0
+				49 increment arrow button
+				50 decrement arrow button
+				51 increment page button
+				52 decrement page button
+		53 button Settings
+		54 button Command Palette
+		55 button Go to File
+		56 button Search Project Contents
+		57 button Change Theme
+		58 button Open Usage
+		59 button Toggle Theme Editor
+		60 button New Thread
+		61 button New Thread
+		62 button New Local Thread
+		63 button Appearance: Light
+		64 button Previous Thread
+		65 button Next Thread
+		66 button Thread 1
+		67 button Thread 2
+		68 button Settle Thread
+		69 button Pin Thread
+		70 button Open in Editor
+		71 button Toggle Right Panel
+		72 button Toggle Diff
+		73 button Copy Thread ID
+		74 heading Nightly needs the beta mobile app
+		75 text Nightly uses the new orchestrator. The App Store and Google Play versions of T3 Code cannot connect to it.
+		76 button Dismiss
+		77 button Get the beta app
+		78 button Dismiss notification
+	79 toolbar
+	80 close button
+	81 full screen button, Secondary Actions: zoom the window
+	82 minimize button
+
+The focused UI element is 0 standard window T3 Code (Exact).

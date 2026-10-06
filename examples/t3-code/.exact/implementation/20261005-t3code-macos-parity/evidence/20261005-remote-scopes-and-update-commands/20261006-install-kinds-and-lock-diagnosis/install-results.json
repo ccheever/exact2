@@ -1,0 +1,34 @@
+[
+  {
+    "kind": "npm-global",
+    "port": 16142,
+    "label": "Copy update command",
+    "clipboard": "npm install --global --prefix '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/rsu-followup/npm prefix'\\''s' t3@0.0.46-nightly.20261004.1",
+    "title": "Update command copied",
+    "passed": true
+  },
+  {
+    "kind": "pnpm-dlx",
+    "port": 16143,
+    "label": "Copy relaunch command",
+    "clipboard": "pnpm dlx t3@0.0.46-nightly.20261004.1",
+    "title": "Relaunch command copied",
+    "passed": true
+  },
+  {
+    "kind": "bunx",
+    "port": 16144,
+    "label": "Copy relaunch command",
+    "clipboard": "bunx t3@0.0.46-nightly.20261004.1",
+    "title": "Relaunch command copied",
+    "passed": true
+  },
+  {
+    "kind": "npx",
+    "port": 16145,
+    "label": "Copy relaunch command",
+    "clipboard": "npx t3@0.0.46-nightly.20261004.1",
+    "title": "Relaunch command copied",
+    "passed": true
+  }
+]

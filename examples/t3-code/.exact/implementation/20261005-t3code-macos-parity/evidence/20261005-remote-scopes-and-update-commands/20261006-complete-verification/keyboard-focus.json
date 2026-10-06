@@ -1,0 +1,69 @@
+{
+  "id": "27538308-ec0c-429c-82a6-449ce0dfc47c",
+  "ok": true,
+  "result": {
+    "snapshot": {
+      "window": {
+        "x": 36,
+        "isMinimized": false,
+        "screenIndex": 0,
+        "height": 840,
+        "y": 38,
+        "platform": {
+          "layer": 0
+        },
+        "width": 1280,
+        "id": 162866,
+        "title": "T3 Code (Exact)",
+        "isOffscreen": false
+      },
+      "id": "5F619439-6363-4E88-8E70-411C0AE0CE0F",
+      "truncation": {
+        "maxDepth": 64,
+        "maxDepthReached": false,
+        "truncated": false,
+        "maxNodes": 1200
+      },
+      "focusedElementId": 89,
+      "coordinateSpace": "window",
+      "app": {
+        "pid": 88845,
+        "bundleId": "com.exact.t3code.scope-review",
+        "name": "T3 Code (Exact)"
+      },
+      "treeText": "App=com.exact.t3code.scope-review (pid 88845)\nWindow: \"T3 Code (Exact)\", App: T3 Code (Exact).\n\n0 standard window T3 Code (Exact)\n\t1 scroll area, Secondary Actions: scroll up, scroll down\n\t\t2 button Toggle sidebar\n\t\t3 button Go to threads\n\t\t4 text Search\n\t\t5 text field (disabled) Search threads\n\t\t6 button Filter threads by project\n\t\t7 button Add project\n\t\t8 button New thread\n\t\t9 scroll area, Secondary Actions: scroll up, scroll down\n\t\t\t10 button Legacy scope verification. Reply with LEGACY_SCOPE..., 16140\n\t\t\t11 button New thread, 16140\n\t\t\t12 button Toggle Settled\n\t\t13 button Settings\n\t\t14 button Pull Requests\n\t\t15 button Usage\n\t\t16 button New thread in 16140\n\t\t17 text /\n\t\t18 button Thread actions for Legacy scope verification. Reply with LEGACY_SCOPE...\n\t\t19 button (expanded) Toggle thread details panel\n\t\t20 button (disabled) Toggle terminal drawer\n\t\t21 button Toggle right panel\n\t\t22 scroll area, Secondary Actions: scroll up, scroll down\n\t\t\t23 text Legacy scope verification. Reply with LEGACY_SCOPE_OK.\n\t\t\t24 text 4:42\u202fPM\n\t\t\t25 button Copy message\n\t\t\t26 text LEGACY_SCOPE_OK\n\t\t\t27 button Fork from this response\n\t\t\t28 button Copy message\n\t\t\t29 text 4:42\u202fPM\n\t\t30 scroll area, Secondary Actions: scroll up, scroll down\n\t\t\t31 text entry area Message\n\t\t\t32 scroll bar (disabled) 0\n\t\t33 button Choose provider and model\n\t\t34 button Medium\n\t\t35 button Runtime mode\n\t\t36 button Attach files\n\t\t37 button (disabled) Submit message\n\t\t38 scroll area, Secondary Actions: scroll up, scroll down\n\t\t\t39 text 16140\n\t\t\t40 button Open in Cursor\n\t\t\t41 button Choose editor\n\t\t\t42 button Add project script\n\t\t\t43 button Branch: Select ref\n\t\t\t44 container Git actions\n\t\t\t\t45 button Git action options\n\t\t\t\t46 button Commit & push\n\t\t\t47 button Changes +24731 -54\n\t\t\t48 scroll bar 0\n\t\t\t\t49 value indicator 0\n\t\t\t\t50 increment arrow button\n\t\t\t\t51 decrement arrow button\n\t\t\t\t52 increment page button\n\t\t\t\t53 decrement page button\n\t\t\t54 scroll bar 0\n\t\t\t\t55 value indicator 0\n\t\t\t\t56 increment arrow button\n\t\t\t\t57 decrement arrow button\n\t\t\t\t58 increment page button\n\t\t\t\t59 decrement page button\n\t\t60 button Toggle sidebar\n\t\t61 button Go to threads\n\t\t62 text Search\n\t\t63 text field (settable) Search settings\n\t\t64 text /\n\t\t65 scroll area, Secondary Actions: scroll up, scroll down\n\t\t\t66 button General\n\t\t\t67 button Appearance\n\t\t\t68 button Keybindings\n\t\t\t69 button SnapShots\n\t\t\t70 button Providers\n\t\t\t71 button Integrations\n\t\t\t72 button Scheduled Tasks\n\t\t\t73 button Source Control\n\t\t\t74 button Storage\n\t\t\t75 button (selected) Connections\n\t\t\t76 button Archive\n\t\t77 button Back\n\t\t78 button Focus settings search\n\t\t79 text Settings\n\t\t80 text Connections\n\t\t81 scroll area, Secondary Actions: scroll up, scroll down\n\t\t\t82 heading This machine\n\t\t\t83 heading Administrative access\n\t\t\t84 text Pairing links and client-session management require the access:write scope for this backend.\n\t\t\t85 heading Environments\n\t\t\t86 button Add environment\n\t\t\t87 text Daehyeon\u2019s MacBook Pro\n\t\t\t88 text http://127.0.0.1:16140/ \u00b7 Connected \u00b7 0.0.45\n\t\t\t89 button Copy relaunch command for Daehyeon\u2019s MacBook Pro server\n\t\t\t90 switch Switch off Daehyeon\u2019s MacBook Pro, Value: 1\n\t\t\t91 button More actions for Daehyeon\u2019s MacBook Pro\n\t\t92 button Settings\n\t\t93 button Back\n\t\t94 button Toggle Theme Editor\n\t\t95 heading Nightly needs the beta mobile app\n\t\t96 text Nightly uses the new orchestrator. The App Store and Google Play versions of T3 Code cannot connect to it.\n\t\t97 button Dismiss\n\t\t98 button Get the beta app\n\t\t99 button Dismiss notification\n\t100 toolbar\n\t101 close button\n\t102 full screen button, Secondary Actions: zoom the window\n\t103 minimize button\n\nThe focused UI element is 89 button Copy relaunch command for Daehyeon\u2019s MacBook Pro server.",
+      "elementCount": 104
+    },
+    "screenshotStatus": {
+      "metadata": {
+        "engine": "screenCaptureKit",
+        "windowId": 162866
+      },
+      "state": "captured"
+    },
+    "screenshot": {
+      "width": 2560,
+      "height": 1680,
+      "scale": 2,
+      "format": "png",
+      "path": "/var/folders/br/htsmr3l906b37_3s3k_63n500000gn/T/orca-computer-use/27538308-ec0c-429c-82a6-449ce0dfc47c-screenshot.png",
+      "dataOmitted": true,
+      "expiresAt": "2026-10-07T07:52:34.348Z"
+    },
+    "action": {
+      "verification": {
+        "expected": null,
+        "state": "unverified",
+        "actualPreview": null,
+        "reason": "synthetic_input"
+      },
+      "targetWindowId": 162866,
+      "fallbackReason": null,
+      "path": "synthetic",
+      "actionName": "pressKey"
+    }
+  },
+  "_meta": {
+    "runtimeId": "defede84-9127-4520-9b9d-59e9b6cb89da"
+  }
+}

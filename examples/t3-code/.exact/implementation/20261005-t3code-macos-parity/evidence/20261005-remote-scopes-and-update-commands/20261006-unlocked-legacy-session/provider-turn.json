@@ -1,0 +1,11 @@
+{
+  "threadId": "019fcfd6-17bb-72f0-ae12-a1f2dee6e3e5",
+  "input": [
+    {
+      "text": "Legacy scope verification. Reply with LEGACY_SCOPE_OK.",
+      "type": "text"
+    }
+  ],
+  "model": "gpt-5.6-sol",
+  "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/rsu-review/16140"
+}

@@ -1,0 +1,91 @@
+[
+  {
+    "name": "cargo-build",
+    "argv": [
+      "cargo",
+      "build",
+      "--all-targets",
+      "--keep-going"
+    ],
+    "exitCode": 0
+  },
+  {
+    "name": "cargo-tests",
+    "argv": [
+      "cargo",
+      "test",
+      "--lib",
+      "--bins",
+      "--tests",
+      "--no-fail-fast"
+    ],
+    "exitCode": 101
+  },
+  {
+    "name": "clippy",
+    "argv": [
+      "cargo",
+      "clippy",
+      "--all-targets",
+      "--keep-going",
+      "--",
+      "-D",
+      "warnings"
+    ],
+    "exitCode": 0
+  },
+  {
+    "name": "fmt",
+    "argv": [
+      "cargo",
+      "fmt",
+      "--all",
+      "--",
+      "--check"
+    ],
+    "exitCode": 0
+  },
+  {
+    "name": "boot",
+    "argv": [
+      "/Users/daehyeonmun/.bun-1.4.2/bin/bun",
+      "scripts/boot.mjs"
+    ],
+    "exitCode": 0
+  },
+  {
+    "name": "caps",
+    "argv": [
+      "/Users/daehyeonmun/.bun-1.4.2/bin/bun",
+      "scripts/caps.mjs"
+    ],
+    "exitCode": 0
+  },
+  {
+    "name": "contract",
+    "argv": [
+      "cargo",
+      "run",
+      "-q",
+      "-p",
+      "contract",
+      "--",
+      "build",
+      "examples/t3-code/app.contract",
+      "-o",
+      "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/rsu-complete/t3-code.plan"
+    ],
+    "exitCode": 0
+  },
+  {
+    "name": "app-rust",
+    "argv": [
+      "cargo",
+      "test",
+      "-p",
+      "t3-code-macos",
+      "--lib"
+    ],
+    "exitCode": 101
+  }
+]

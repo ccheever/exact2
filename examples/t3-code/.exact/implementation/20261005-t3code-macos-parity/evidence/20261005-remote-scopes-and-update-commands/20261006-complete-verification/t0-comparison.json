@@ -1,0 +1,163 @@
+{
+  "oracle": {
+    "actions": [
+      {
+        "at": 1791274447394,
+        "kind": "ws-send",
+        "client": "oracle",
+        "tag": "Request",
+        "method": "orchestration.launchThread",
+        "payloadKeys": [
+          "commandId",
+          "creationSource",
+          "threadId",
+          "projectId",
+          "title",
+          "generateTitle",
+          "modelSelection",
+          "runtimeMode",
+          "interactionMode",
+          "workspaceStrategy",
+          "initialMessage"
+        ]
+      },
+      {
+        "at": 1791274447429,
+        "kind": "ws-send",
+        "client": "oracle",
+        "tag": "Request",
+        "method": "orchestration.dispatchCommand",
+        "commandType": "thread.visit",
+        "payloadKeys": [
+          "type",
+          "commandId",
+          "threadId",
+          "visitedAt"
+        ]
+      },
+      {
+        "at": 1791274451565,
+        "kind": "ws-send",
+        "client": "oracle",
+        "tag": "Request",
+        "method": "orchestration.dispatchCommand",
+        "commandType": "runtime-request.respond",
+        "decision": "accept",
+        "payloadKeys": [
+          "type",
+          "commandId",
+          "threadId",
+          "requestId",
+          "decision"
+        ]
+      },
+      {
+        "at": 1791274451868,
+        "kind": "ws-send",
+        "client": "oracle",
+        "tag": "Request",
+        "method": "orchestration.dispatchCommand",
+        "commandType": "thread.visit",
+        "payloadKeys": [
+          "type",
+          "commandId",
+          "threadId",
+          "visitedAt"
+        ]
+      },
+      {
+        "at": 1791274461854,
+        "kind": "ws-send",
+        "client": "oracle",
+        "tag": "Request",
+        "method": "orchestration.dispatchCommand",
+        "commandType": "thread.visit",
+        "payloadKeys": [
+          "type",
+          "commandId",
+          "threadId",
+          "visitedAt"
+        ]
+      }
+    ],
+    "rpcCounts": {
+      "orchestration.launchThread": 1,
+      "orchestration.dispatchCommand": 4,
+      "orchestration.subscribeThread": 1,
+      "subscribeVcsStatus": 2,
+      "server.reportClientActivity": 5
+    }
+  },
+  "native": {
+    "actions": [
+      {
+        "at": 1791274551250,
+        "kind": "ws-send",
+        "client": "native",
+        "tag": "Request",
+        "method": "orchestration.launchThread",
+        "payloadKeys": [
+          "projectId",
+          "interactionMode",
+          "workspaceStrategy",
+          "creationSource",
+          "title",
+          "initialMessage",
+          "runtimeMode",
+          "modelSelection",
+          "commandId",
+          "generateTitle",
+          "threadId"
+        ]
+      },
+      {
+        "at": 1791274559445,
+        "kind": "ws-send",
+        "client": "native",
+        "tag": "Request",
+        "method": "orchestration.dispatchCommand",
+        "commandType": "runtime-request.respond",
+        "decision": "accept",
+        "payloadKeys": [
+          "commandId",
+          "requestId",
+          "type",
+          "threadId",
+          "decision"
+        ]
+      }
+    ],
+    "rpcCounts": {
+      "server.probe": 8,
+      "orchestration.subscribeShell": 8,
+      "server.getConfig": 4,
+      "subscribeServerConfig": 4,
+      "server.reportClientActivity": 7,
+      "orchestration.launchThread": 1,
+      "orchestration.subscribeThread": 3,
+      "orchestration.dispatchCommand": 1
+    }
+  },
+  "sameFiveScopes": true,
+  "approvalReceipts": [
+    {
+      "id": 9000,
+      "result": {
+        "decision": "accept"
+      }
+    },
+    {
+      "id": 9000,
+      "result": {
+        "decision": "accept"
+      }
+    },
+    {
+      "id": 9000,
+      "result": {
+        "decision": "accept"
+      }
+    }
+  ],
+  "note": "Semantic T0 comparison: final exact native input matches oracle. Background subscriptions, thread.visit and VCS traffic differ; no byte-for-byte trace parity claim. No credentials or RPC payloads captured."
+}

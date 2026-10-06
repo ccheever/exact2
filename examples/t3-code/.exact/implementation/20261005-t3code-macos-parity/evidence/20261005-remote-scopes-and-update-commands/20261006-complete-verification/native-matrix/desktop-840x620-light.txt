@@ -1,0 +1,95 @@
+App=com.exact.t3code.scope-review (pid 88845)
+Window: "T3 Code (Exact)", App: T3 Code (Exact).
+
+0 standard window T3 Code (Exact)
+	1 scroll area, Secondary Actions: scroll up, scroll down
+		2 button Toggle sidebar
+		3 button Go to threads
+		4 text Search
+		5 text field (disabled) Search threads
+		6 button Filter threads by project
+		7 button Add project
+		8 button New thread
+		9 scroll area, Secondary Actions: scroll up, scroll down
+			10 button Legacy scope verification. Reply with LEGACY_SCOPE..., 16140
+			11 button Legacy scope verification. Reply with LEGACY_SCOPE..., 16140
+			12 button New thread, 16140
+			13 button New thread, 16140
+			14 button Toggle Settled
+		15 button Settings
+		16 button Pull Requests
+		17 button Usage
+		18 button New thread in 16140
+		19 text /
+		20 button Thread actions for Legacy scope verification. Reply with LEGACY_SCOPE...
+		21 button Toggle thread details panel
+		22 button (disabled) Toggle terminal drawer
+		23 button Toggle right panel
+		24 scroll area, Secondary Actions: scroll up, scroll down
+			25 text Legacy scope verification. Reply with LEGACY_SCOPE_OK.
+			26 text 4:42 PM
+			27 button Copy message
+			28 text LEGACY_SCOPE_OK
+			29 button Fork from this response
+			30 button Copy message
+			31 text 4:42 PM
+		32 scroll area, Secondary Actions: scroll up, scroll down
+			33 text entry area Message
+			34 scroll bar (disabled) 0
+		35 button Choose provider and model
+		36 button Medium
+		37 button Runtime mode
+		38 button Attach files
+		39 button (disabled) Submit message
+		40 button Toggle sidebar
+		41 button Go to threads
+		42 text Search
+		43 text field (settable) Search settings
+		44 text /
+		45 scroll area, Secondary Actions: scroll up, scroll down
+			46 button General
+			47 button Appearance
+			48 button Keybindings
+			49 button SnapShots
+			50 button Providers
+			51 button Integrations
+			52 button Scheduled Tasks
+			53 button Source Control
+			54 button Storage
+			55 button (selected) Connections
+			56 button Archive
+		57 button Back
+		58 button Focus settings search
+		59 text Settings
+		60 text Connections
+		61 scroll area, Secondary Actions: scroll up, scroll down
+			62 heading This machine
+			63 heading Administrative access
+			64 text Pairing links and client-session management require the access:write scope for this backend.
+			65 heading Environments
+			66 button Add environment
+			67 text Daehyeon’s MacBook Pro
+			68 text http://127.0.0.1:16140/ · Connected · 0.0.45
+			69 button Copy relaunch command for Daehyeon’s MacBook Pro server
+			70 switch Switch off Daehyeon’s MacBook Pro, Value: 1
+			71 button More actions for Daehyeon’s MacBook Pro
+			72 text Scope fixture
+			73 text http://127.0.0.1:16158/ · Connected · 0.0.44
+			74 text Update the desktop app on that machine to update this server.
+			75 switch Switch off Scope fixture, Value: 1
+			76 button More actions for Scope fixture
+			77 button Load balancing Off
+			78 switch Automatically balance load, Value: 0
+			79 button GitHub sharing Off
+		80 button Settings
+		81 button Back
+		82 button Toggle Theme Editor
+		83 heading Relaunch command copied
+		84 text Stop t3 on Scope fixture server, then relaunch with `npx t3@0.0.46-nightly.20261004.1` using the same subcommand and options. This does not update an installed t3 command.
+		85 button Dismiss notification
+	86 toolbar
+	87 close button
+	88 full screen button, Secondary Actions: zoom the window
+	89 minimize button
+
+The focused UI element is 0 standard window T3 Code (Exact).

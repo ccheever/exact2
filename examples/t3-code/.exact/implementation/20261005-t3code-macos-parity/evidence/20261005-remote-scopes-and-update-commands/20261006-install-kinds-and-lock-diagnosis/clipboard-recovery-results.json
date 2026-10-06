@@ -1,0 +1,10 @@
+[
+  {
+    "kind": "npm-global",
+    "port": 16142,
+    "label": "Copy update command",
+    "clipboard": "npm install --global --prefix '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-remote-scopes-and-update-commands/target/rsu-followup/npm prefix'\\''s' t3@0.0.46-nightly.20261004.1",
+    "title": "Update command copied",
+    "passed": true
+  }
+]
