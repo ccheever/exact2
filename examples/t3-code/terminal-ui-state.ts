@@ -853,7 +853,7 @@ export function terminalUiStore(owner: Holder): TerminalUiStore {
   const local = owner.local as Record<string, unknown>;
   const saved = obj(local[TERMINAL_UI_STATE_STORAGE_KEY_LOCAL]);
   const store = createTerminalUiStateStore();
-  store.setState({ terminalUiStateByThreadKey: obj(saved.terminalUiStateByThreadKey) as Record<string, ThreadTerminalUiState> });
+  store.setState({ terminalUiStateByThreadKey: obj(saved.terminalUiStateByThreadKey) as unknown as Record<string, ThreadTerminalUiState> });
   const write = (state: TerminalUiStateStoreState) => {
     local[TERMINAL_UI_STATE_STORAGE_KEY_LOCAL] = { terminalUiStateByThreadKey: state.terminalUiStateByThreadKey };
   };

@@ -1,40 +1,91 @@
 use Look from "./settings-appearance-look.contract"
-// The terminal surface spike's development harness (task 20261005-terminal-surface): a
-// `t3-terminal` view (T3TerminalView.swift: T3 Code's Ghostty surface in a web view) fed by the
-// native fixtures, so the agent and a person can check rendering, keys and the bridge without a
-// server session. ⌃⌥⇧T (or the 1-point button near the window's bottom edge, away from the
-// rounded corners, which take no click) opens and closes it. The drawer task replaces it with ThreadTerminalDrawer.
-component TerminalHarness
+use ShellIcon from "./shell-icons.contract"
+use TipBubble from "./shell-tip.contract"
+// The thread terminal drawer (task terminal-drawer): T3 Code 1e2ecbd975's ThreadTerminalDrawer in its
+// drawer mode (MIT reference, see LICENSE-T3: apps/web/src/components/ThreadTerminalDrawer.tsx), below
+// the chat column so the composer stays above it. One terminal until 20261005-terminal-layout: the
+// toolbar carries Close only (Split, Split vertically and New come with that ticket); the empty state
+// offers New Terminal. The `t3-terminal` view (T3TerminalView.swift) shows the server session named by
+// its props; the session itself is native (T3TerminalSessions.swift), the drawer's state is the client's
+// (terminal-drawer-view.ts, saved per thread).
+
+// terminal-drawer-view.ts TerminalDrawerView: the active thread's drawer.
+shape TerminalDrawerView
+  available: bool // an active server thread with a project (PanelLayoutControls terminalAvailable)
+  open: bool
+  threadKey: string // `${environmentId}:${threadId}`
+  environmentId: string
+  threadId: string
+  terminalId: string // the active terminal; "" shows the empty state
+  label: string
+  cwd: string
+  worktree: string
+  env: string // JSON: T3CODE_PROJECT_ROOT, T3CODE_WORKTREE_PATH
+  height: number // clamped: 180 to floor(75% of the window), 280 by default
+  focusRequest: number
+  closeTitle: string // `Close terminal "Terminal 1"?`
+  closeBody: string
+  closeLabel: string
+  newLabel: string
+  toggleLabel: string
+  sessionKey: string // JSON.stringify([environmentId, threadId, terminalId]): one view per session
+  mounted: number // mounted threads (reconcileMountedTerminalThreadIds)
+  metadata: string
+  failure: string
+
+// The drawer: `border-t border-border/80 bg-background`, a 6 pt `cursor-row-resize` separator on its top
+// edge (a `pan` gives deltas; the height commits at release and refits the grid), the toolbar 8 pt from the
+// right and top (`right-2 top-2`, the pinned source; 13 pt icons, `p-1`, `border border-border/80`,
+// `shadow-xs`, tooltips below with a 6 pt offset) and the terminal. Height and opening animate only when the
+// panel animation setting is above zero and motion is not reduced; a thread switch is a new drawer (no motion).
+component TerminalDrawer
   props
-    dark: bool
+    view: TerminalDrawerView
     look: Look
-  state open = false
-  state fixture = "render"
-  state lastMessage = ""
-  state messages = 0
-  state focused = false
-  action toggle
-    open = not open
-  action pick(name: string)
-    fixture = name
-  action heard(message: string)
-    lastMessage = message
-    messages = messages + 1
-  action focusIn
-    focused = true
-  action focusOut
-    focused = false
+    dark: bool
+    viewportHeight: number
+    reduced: bool
+    command: action // the root command(op, id, value, n)
+    confirm: action // titleMenuPick(op, target, value, askTitle, askBody, destructive): the app's confirm dialog
+  state dragKey = ""
+  state dragHeight = 0
+  state dragging = false
+  state hovered = ""
+  derive maxHeight = max(180, floor(viewportHeight * 0.75))
+  derive height = min(max(floor((dragKey == view.threadKey and dragHeight > 0 ? dragHeight : view.height) + 0.5), 180), maxHeight)
+  derive motion = look.panelMs > 0 and not reduced and not dragging
+  action hover(id: string, over: bool)
+    hovered = over ? id : (hovered == id ? "" : hovered)
+  // handleResizePointerMove: the height follows the pointer, clamped at every step.
+  action resize(dx: number, dy: number)
+    let current = height
+    dragging = true
+    dragKey = view.threadKey
+    dragHeight = min(max(current - dy, 180), maxHeight)
+  // handleResizePointerEnd → syncHeight: the store keeps the clamped height (saved per thread).
+  action release(vx: number, vy: number)
+    let committed = height
+    dragging = false
+    command("terminallocal:height", view.threadKey, `${committed}`, 0)
+  // onSessionExited: the view printed "[terminal] Process exited"; the tab closes without a confirmation.
+  action exited(message: string)
+    command("terminallocal:exited", view.threadKey, message, 0)
   view
-    button press=toggle aria-label="Terminal harness" aria-keyshortcuts="Control+Alt+Shift+T" testId="terminal-harness-toggle" position="absolute" left=240 bottom=6 z-index=70 width=1 height=1 padding=0 border-width=0 background-color="#00000000" opacity=0
-    when open
-      column position="absolute" left=0 right=0 bottom=0 height=340 z-index=70 background-color="light-dark(#ffffff, #0e1218)" border-top-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #252525)" testId="terminal-harness"
-        row align-items="center" gap=8 height=32 padding-left=12 padding-right=8 flex-shrink=0
-          text "Terminal harness (development)" font-size=12 font-weight=600 color="light-dark(#1c2129, #edf1f7)" flex=1 min-width=0
-          each name in ["render", "loopback", "flood"] key=name
-            button press=pick(name) aria-pressed=(fixture == name) testId=`terminal-harness-${name}` height=24 padding-left=8 padding-right=8 border-radius=6 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff1a)" background-color=(fixture == name ? "light-dark(#f4f4f5, #ffffff14)" : "#00000000")
-              text name font-size=12 color="light-dark(#1c2129, #edf1f7)"
-          button press=toggle aria-label="Close terminal harness" testId="terminal-harness-close" height=24 padding-left=8 padding-right=8 border-radius=6 border-width=0 background-color="#00000000"
-            text "×" font-size=16 color="light-dark(#1c2129, #edf1f7)"
-        t3-terminal terminal="harness" fixture=fixture scheme=(dark ? "dark" : "light") terminal-theme=(dark ? look.terminalDark : look.terminalLight) terminal-font=look.terminalFont terminal-font-size=look.terminalSize chords="Meta+K Meta+J Control+Alt+Shift+T" message=heard focus=focusIn blur=focusOut aria-label="Terminal" testId="terminal-harness-view" flex=1 min-height=0
-        row align-items="center" height=22 padding-left=12 padding-right=12 flex-shrink=0
-          text `${focused ? "focused" : "unfocused"} · ${messages} messages · ${lastMessage}` font-size=11 color="light-dark(#71717a, #9ca3af)" testId="terminal-harness-status" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" flex=1 min-width=0
+    each key in (view.available ? [view.threadKey] : []) key=key
+      column flex-shrink=0 height=(view.open ? height : 0) min-width=0 position="relative" overflow="hidden" box-sizing="border-box" border-top-width=(view.open ? 1 : 0) border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffffcc)" background-color="light-dark(#fcfcfc, #0a0a0a)" transition=(motion ? `height ${look.panelMs}ms ease-out` : "none") testId="terminal-drawer" aria-label="Terminal drawer"
+        when view.open
+          box position="absolute" left=0 right=0 top=0 height=6 z-index=20 cursor="row-resize" touch-action="none" pan=resize panrelease=release role="separator" aria-orientation="horizontal" aria-label="Resize terminal drawer" testId="terminal-drawer-resize"
+          when view.terminalId == ""
+            column flex=1 min-height=0 align-items="center" justify-content="center" gap=12 padding-left=16 padding-right=16 padding-top=24 padding-bottom=24 testId="terminal-drawer-empty"
+              text "No terminal sessions for this thread yet." font-size=14 line-height="20px" color="light-dark(#71717b, #818181)" text-align="center"
+              button press=command("terminallocal:new", view.threadKey, "", 0) hover=hover("new") aria-label=view.newLabel testId="terminal-drawer-new" height=24 padding-left=8 padding-right=8 border-radius=6 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff1a)" background-color=(hovered == "new" ? "light-dark(#f4f4f5, #ffffff0a)" : "light-dark(#ffffff, #ffffff05)") box-shadow="0 1px 2px #0000000d"
+                text view.newLabel font-size=12 font-weight=500 line-height="16px" color="light-dark(#27272a, #f5f5f5)"
+          else
+            box flex=1 min-height=0 display="flex" flex-direction="column" testId="terminal-drawer-surface"
+              each session in [view.sessionKey] key=session
+                t3-terminal terminal=view.terminalId environment=view.environmentId thread=view.threadId cwd=view.cwd worktree=view.worktree env=view.env focus-request=view.focusRequest scheme=(dark ? "dark" : "light") terminal-theme=(dark ? look.terminalDark : look.terminalLight) terminal-font=look.terminalFont terminal-font-size=look.terminalSize chords="Meta+J Meta+K" message=exited aria-label=(view.label == "" ? "Terminal" : view.label) testId="terminal-view" flex=1 min-height=0
+            row position="absolute" right=8 top=8 z-index=20 align-items="center" border-radius=6 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7cc, #ffffffcc)" background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow="0 1px 2px #0000000d" testId="terminal-drawer-toolbar"
+              box position="relative"
+                button press=confirm("ui:confirm", `${view.threadKey}|${view.terminalId}`, "terminallocal:close", view.closeTitle, view.closeBody, true) hover=hover("close") focus=hover("close", true) blur=hover("close", false) aria-label=view.closeLabel testId="terminal-close" padding=4 border-width=0 border-radius=5 display="flex" align-items="center" justify-content="center" background-color=(hovered == "close" ? "light-dark(#f4f4f5, #ffffff14)" : "#00000000")
+                  ShellIcon(name="trash", size=13, color="light-dark(#27272ae6, #f5f5f5e6)")
+                TipBubble(label=view.closeLabel, side="bottom", align="end", offset=27, inset=0, shown=(hovered == "close"))
