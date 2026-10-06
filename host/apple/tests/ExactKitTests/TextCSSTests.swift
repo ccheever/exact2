@@ -2,6 +2,7 @@
 // without `line-clamp`, and `tabular-nums`, as the browser renders them.
 import XCTest
 import CoreText
+import CExact
 @testable import ExactKit
 
 final class TextCSSTests: XCTestCase {
@@ -164,6 +165,32 @@ final class TextCSSTests: XCTestCase {
         let dejavu = try Data(contentsOf: fonts.appendingPathComponent("scripts/fixtures/fonts/assets/DejaVuSans.ttf").standardized)
         let plain = (CTFontManagerCreateFontDescriptorsFromData(dejavu as CFData) as! [CTFontDescriptor])[0]
         XCTAssertTrue(TextEngine.declaredFace(plain, weight: 700) === plain)
+        // Through registration: one file declared at 400 and 600, as an app's
+        // `font "Inter"` block does, draws each weight on the axis.
+        let engine = TextEngine(resolve: { _ in nil }, read: { _ in inter })
+        let family = Array("Inter".utf8), source = Array("inter.ttf".utf8)
+        family.withUnsafeBufferPointer { f in
+            source.withUnsafeBufferPointer { src in
+                var faces = [400, 600].map { w -> ExactFontFace in
+                    var face = ExactFontFace()
+                    face.family = f.baseAddress; face.family_len = f.count
+                    face.source = src.baseAddress; face.source_len = src.count
+                    face.stack = 8; face.weight = UInt16(w); face.italic = 0
+                    return face
+                }
+                faces.withUnsafeMutableBufferPointer { rows in
+                    var catalog = ExactFontCatalog()
+                    catalog.faces = UnsafePointer(rows.baseAddress); catalog.count = rows.count
+                    withUnsafePointer(to: &catalog) { engine.install($0) }
+                }
+            }
+        }
+        func drawn(_ weight: Int) -> Double? {
+            (CTFontCopyVariation(engine.font(size: 16, weight: weight, family: 8, italic: false) as CTFont) as? [NSNumber: NSNumber])?[0x77676874 as NSNumber]?.doubleValue
+        }
+        XCTAssertEqual(drawn(400) ?? 400, 400)
+        XCTAssertEqual(drawn(600), 600)
+        XCTAssertEqual(drawn(700), 600, "700 matches the 600 face, drawn at its declared weight")
     }
 
     func testEllipsisEndsAnOverWideLineOnlyWhereItPaints() {
