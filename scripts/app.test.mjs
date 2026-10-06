@@ -1266,13 +1266,36 @@ test('web remapping preserves game floating-point determinism on both web toolch
 test('simulator signing gives each app and embedded host a distinct Keychain identity', async () => {
   const {entitlements} = await import('../host/apple/build.mjs');
   const app = {id:'com.exact.test',manifest:{host:{ios:{}}}};
-  const sim = entitlements(app), host = entitlements({...app,id:app.id+'.host'});
-  assert.match(sim, /<key>application-identifier<\/key><string>com.exact.test<\/string>/);
-  assert.match(host, /<key>application-identifier<\/key><string>com.exact.test.host<\/string>/);
+  const simulator = {simulator:true};
+  const sim = entitlements(app, null, true, null, simulator), host = entitlements({...app,id:app.id+'.host'}, null, true, null, simulator);
+  // A Team ID's ten characters before the id (LLP 1069.008.000 D3), the bare id it had kept as a Keychain group.
+  assert.match(sim, /<key>application-identifier<\/key><string>SIMULATORX.com.exact.test<\/string>/);
+  assert.match(sim, /<key>keychain-access-groups<\/key><array><string>SIMULATORX.com.exact.test<\/string><string>com.exact.test<\/string><\/array>/);
+  assert.match(host, /<key>application-identifier<\/key><string>SIMULATORX.com.exact.test.host<\/string>/);
   assert.doesNotMatch(sim, /com.apple.developer.team-identifier/);
   const device = entitlements(app, 'TEAM', false);
   assert.match(device, /TEAM.com.exact.test/);
+  assert.doesNotMatch(device, /keychain-access-groups|SIMULATORX/);
   assert.match(device, /<key>get-task-allow<\/key><false\/>/);
+});
+
+test('a HealthKit grant signs with its entitlement, tvOS drops it, and a device build takes only a profile that allows it', async () => {
+  // LLP 1069.008.000 D2, D4, D5.
+  const {entitlements, tvReach} = await import('../host/apple/build.mjs');
+  const {allows} = await import('../host/apple/devices.mjs');
+  const app = {id:'com.exact.test',manifest:{host:{ios:{}}}};
+  const health = 'com.apple.developer.healthkit';
+  const reach = {base:'en', locales:['en'], entitlements:[health], tvOmits:['NSHealthShareUsageDescription','NSHealthUpdateUsageDescription',health],
+    usage:{NSHealthShareUsageDescription:{en:'Reads.'}, NSHealthUpdateUsageDescription:{en:'Reads.'}, NSMicrophoneUsageDescription:{en:'Hears.'}}};
+  for (const plist of [entitlements(app, null, true, reach, {simulator:true}), entitlements(app, 'TEAM', true, reach)]) assert.match(plist, /<key>com.apple.developer.healthkit<\/key><true\/>/);
+  const tv = tvReach(reach);
+  assert.deepEqual(tv.entitlements, []);
+  assert.deepEqual(Object.keys(tv.usage), ['NSMicrophoneUsageDescription']);
+  assert.doesNotMatch(entitlements(app, null, true, tv, {simulator:true}), /healthkit/);
+  assert.equal(tvReach({usage:{A:{en:'x'}}}).usage.A.en, 'x', 'nothing to omit leaves reach alone');
+  const wildcard = {entitlements:['application-identifier','get-task-allow','keychain-access-groups']}, explicit = {entitlements:[...wildcard.entitlements, health]};
+  assert.ok(allows(wildcard, []) && allows(explicit, [health]));
+  assert.ok(!allows(wildcard, [health]) && !allows(null, []));
 });
 
 test('setup accepts both official Binaryen release tags and package-manager version output', async () => {

@@ -757,8 +757,11 @@ impl<D: DataSource> Runner<D> {
         }
         let same_logic = carried.is_none_or(|c| c.data_revision.as_deref() == data.revision());
         data.bind(&plan);
-        // A cold boot forgets the kept answers no declared reader seeds.
+        // A cold boot forgets the kept answers no declared reader seeds; an
+        // app granting Health forgets them all, at every boot (LLP 1069.008.000 D7).
+        let private = crate::device::keeps_no_answers(data.grants());
         let obsolete_kept = match carried {
+            _ if private => kept::all(&snapshot),
             None => kept::obsolete(&plan, &snapshot),
             Some(_) => Vec::new(),
         };
@@ -781,7 +784,7 @@ impl<D: DataSource> Runner<D> {
                                 .iter()
                                 .any(|(n, s)| n == resource && s == plan.str(r.source))
                     });
-                if !compatible {
+                if private || !compatible {
                     store.forget_kept(name);
                 }
             }
@@ -937,7 +940,7 @@ impl<D: DataSource> Runner<D> {
         // empty-store placeholder is the fallback (settlement); either way
         // the resource is asked again at `data_ready`.
         let ready = runner.data.ready();
-        runner.keeps_answers = !ready || carried.is_some_and(|c| c.keeps_answers);
+        runner.keeps_answers = !private && (!ready || carried.is_some_and(|c| c.keeps_answers));
         runner.stale = vec![false; runner.plan.resources.len()];
         runner.entropy_readers = vec![false; runner.plan.resources.len()];
         runner.awaiting = vec![false; runner.plan.resources.len()];

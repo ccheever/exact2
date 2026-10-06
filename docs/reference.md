@@ -569,6 +569,30 @@ its older one, `closeNotification` removing it), so a drive reads a reminder
 without a permission prompt. Scheduling is one time per call: a daily
 reminder posts the next one when the app runs.
 
+### Apple Health
+
+Exact has no Health API: the app's own Swift module (LLP 1067) calls
+HealthKit. What Exact does is let the binary ask. The app's grants name
+`device.health-read purpose.<key>`, `device.health-write purpose.<key>`,
+or both, each with its own strings key (LLP 1069.008.000):
+
+- iOS gets `NSHealthShareUsageDescription` and
+  `NSHealthUpdateUsageDescription` (one direction granted writes both, the
+  other borrowing its text, which iOS never shows), and the
+  `com.apple.developer.healthkit` entitlement in the signature, on a
+  simulator too.
+- macOS gets the two keys and no entitlement (it is restricted there, and a
+  development build carrying it does not launch), so a module should treat
+  a Mac's request as unavailable. tvOS, the web, Linux and Windows get
+  nothing.
+- A phone build needs a development profile for the app's own id with
+  HealthKit turned on. A team wildcard never allows it, and the build
+  refuses (`grant-device-profile`) rather than sign one that fails at its
+  first request.
+- An app with a Health grant keeps no answers across launches: its first
+  frame never shows last launch's data from the store, and any kept answer
+  on disk is forgotten at boot.
+
 ### Sounds
 
 A declared WAV (`sound "assets/…wav"`) is played by `playSound(src, at=,

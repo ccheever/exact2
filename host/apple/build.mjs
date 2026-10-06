@@ -50,7 +50,7 @@ import { appIcon, iosAssets } from './assets.mjs';
 import { keptModules } from './modules.mjs';
 import { keptCrates } from './crates.mjs';
 export { appIcon, iosAssets };
-import { deviceLaunchArgs, developmentLaunchEnvironment, identity, macIdentity, phone, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
+import { allows, deviceLaunchArgs, developmentLaunchEnvironment, identity, macIdentity, phone, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const run = (cmd, args, opts = {}) => {
@@ -300,13 +300,23 @@ function openingLinks(app, platform, development) {
     ...(development ? { ExactDevelopmentURLScheme: development.scheme, ExactDevelopmentOrigins: development.origins, ExactDevelopmentToken: development.token } : {}) };
 }
 
+/** A simulator build's App ID prefix: ten characters, a Team ID's shape,
+ * which HealthKit splits the identifier by (LLP 1069.008.000 D3). */
+export const SIMULATOR_PREFIX = 'SIMULATORX';
+
 /** Device identity comes from the profile. Simulators need an app identity too:
- * Keychain's default access group is the application-identifier. */
-export const entitlements = (app, team = null, debuggable = true, reach = null) => {
+ * Keychain's default access group is the application-identifier. A
+ * simulator's is `SIMULATORX.<id>`, with the bare id it had before kept as a
+ * second Keychain group so items stored then still read and update in place
+ * (D3, measured). The grants' signing entitlements (`reach.entitlements`,
+ * D2) are each `true`. */
+export const entitlements = (app, team = null, debuggable = true, reach = null, { simulator = false } = {}) => {
   const ios = app.manifest.host?.ios ?? {};
+  const prefixed = `${SIMULATOR_PREFIX}.${app.id}`;
   const dict = {
-    'application-identifier': team ? `${team}.${app.id}` : app.id,
+    'application-identifier': team ? `${team}.${app.id}` : simulator ? prefixed : app.id,
     ...(team ? { 'com.apple.developer.team-identifier': team } : {}),
+    ...(simulator && !team ? { 'keychain-access-groups': [prefixed, app.id] } : {}),
     // A distribution profile grants no debugger; its entitlements must not ask.
     'get-task-allow': debuggable,
   };
@@ -316,7 +326,17 @@ export const entitlements = (app, team = null, debuggable = true, reach = null) 
   // (the bake's derivation from the `auth.callback` grants, LLP 1069.008).
   const all = [...new Set([...domains, ...(reach?.auth?.associatedDomains ?? [])])];
   if (all.length) dict['com.apple.developer.associated-domains'] = all;
+  for (const name of reach?.entitlements ?? []) dict[name] = true;
   return plistFile(dict);
+};
+
+/** `reach` as a tvOS build uses it: tvOS bakes the iOS plan, so the keys
+ * and entitlements of rows not on TV go (`reach.tvOmits`, LLP 1069.008.000 D5). */
+export const tvReach = (reach) => {
+  const omit = new Set(reach?.tvOmits ?? []);
+  if (!reach || !omit.size) return reach;
+  return { ...reach, usage: Object.fromEntries(Object.entries(reach.usage ?? {}).filter(([key]) => !omit.has(key))),
+    entitlements: (reach.entitlements ?? []).filter((name) => !omit.has(name)) };
 };
 
 /** The device grants' derivations (LLP 1069.008 D4), from the bake's
@@ -900,6 +920,8 @@ async function main(args) {
   } }));
   const libDir = paths.capture;
   const bakedCompat = buildReceipt.compat;
+  // What this Apple destination derives from the grants: the bake's, less what tvOS has not.
+  const appleReach = tv ? tvReach(bakedCompat.reach) : bakedCompat.reach;
   const level = bakedCompat.inputs?.store?.L;
   if (!['0', 'A'].includes(level)) throw new Error(`host/apple: unsupported baked store level ${level}`);
   const composition = level === '0' ? 'embedded' : 'updating';
@@ -1116,7 +1138,7 @@ async function main(args) {
       if (ios && !device) {
         // Simulator Security reads entitlements from the Mach-O text section.
         // Device-style entitlements in its ad-hoc signature can prevent launch.
-        entitled = entitlements({...app, id: p === 'ExactHostIOS' ? `${app.id}.host` : app.id}, null, true, bakedCompat.reach);
+        entitled = entitlements({...app, id: p === 'ExactHostIOS' ? `${app.id}.host` : app.id}, null, true, appleReach, { simulator: true });
         const ent = resolve(linkRoot, `${p}-entitlements.plist`);
         // Written only when it differs: the early build may be reading it.
         if (!existsSync(ent) || readFileSync(ent, 'utf8') !== entitled) writeFileSync(ent, entitled);
@@ -1292,14 +1314,14 @@ async function main(args) {
   const bundle = resolve(binDir, 'ExactIOS.app');
   mkdirSync(resolve(bundle, 'Frameworks'), { recursive: true });
   copyFileSync(bin, resolve(bundle, product));
-  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, reach: bakedCompat.reach, tv }));
+  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, reach: appleReach, tv }));
   // The GPU crate's shaders (LLP 1030 D8): files the presenter registers
   // with the module before a surface is created, never strings in the dylib.
   copyAppleStaticTrees(paths.capture, bundle);
   verifyBakeFiles(bakedCompat, bakedPlan, listAssets(bundle, true));
   // tvOS icons are layered brand assets, which actool's iPhone/iPad icon set does not make; tvOS builds have none yet.
-  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, reach: bakedCompat.reach, icon: tv ? {} : iosAssets(app, bundle, device, { catalog: !!ipa, kept: { dir: resolve(linkRoot, 'assets'), stamp: swiftc } }), distribution: ipa ? distributionKeys() : null, tv }));
-  writeUsageStrings(bakedCompat.reach, bundle);
+  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, reach: appleReach, icon: tv ? {} : iosAssets(app, bundle, device, { catalog: !!ipa, kept: { dir: resolve(linkRoot, 'assets'), stamp: swiftc } }), distribution: ipa ? distributionKeys() : null, tv }));
+  writeUsageStrings(appleReach, bundle);
   if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(bundle, 'Frameworks', loadName));
   for (const m of moduleDylibs) copyFileSync(resolve(libDir, m.built), resolve(bundle, 'Frameworks', m.load));
   if (hasWeb) copyFileSync(webBuilt, resolve(bundle, 'Frameworks', webLoadName));
@@ -1315,8 +1337,8 @@ async function main(args) {
     mkdirSync(resolve(hostBundle, 'Frameworks'), { recursive: true });
     copyFileSync(resolve(binDir, 'ExactHostIOS'), resolve(hostBundle, 'ExactHostIOS'));
     // The sample host takes no development link: it would share the scheme.
-    writeFileSync(resolve(hostBundle, 'Info.plist'), infoPlist(app, device, { executable: 'ExactHostIOS', id: `${app.id}.host`, name: 'Host (not Exact)', reach: bakedCompat.reach }));
-    writeUsageStrings(bakedCompat.reach, hostBundle);
+    writeFileSync(resolve(hostBundle, 'Info.plist'), infoPlist(app, device, { executable: 'ExactHostIOS', id: `${app.id}.host`, name: 'Host (not Exact)', reach: appleReach }));
+    writeUsageStrings(appleReach, hostBundle);
     copyAppleStaticTrees(paths.capture, hostBundle);
     for (const f of readdirSync(resolve(bundle, 'Frameworks'))) copyFileSync(resolve(bundle, 'Frameworks', f), resolve(hostBundle, 'Frameworks', f));
     if (svgFilterBuilt) copyFileSync(svgFilterBuilt, resolve(hostBundle, svgFilterLibraryName));
@@ -1324,12 +1346,15 @@ async function main(args) {
   }
   for (const [assembled, host] of bundles) {
     const id = host ? `${app.id}.host` : app.id;
-    const signingProfile = device && !unsigned ? (host ? profile(ph.udid, id) : prof) : null;
+    // A grant's signing entitlement needs a profile that allows it, which a
+    // team wildcard never does for HealthKit (LLP 1069.008.000 D4).
+    const required = appleReach?.entitlements ?? [];
+    const signingProfile = device && !unsigned ? (host || !allows(prof, required) ? profile(ph?.udid, id, required) : prof) : null;
     const signingIdentity = signingProfile ? identity(signingProfile.team) : sha1;
     const ent = resolve(binDir, host ? 'host-entitlements.plist' : 'entitlements.plist');
     if (signingProfile) copyFileSync(signingProfile.path, resolve(assembled, 'embedded.mobileprovision'));
     // Unsigned, the re-signer's profile decides; ask for no debugger, as a distribution profile grants none.
-    writeFileSync(ent, entitlements({ ...app, id }, signingProfile?.team, signingProfile?.dev ?? !unsigned, bakedCompat.reach));
+    writeFileSync(ent, entitlements({ ...app, id }, signingProfile?.team, signingProfile?.dev ?? !unsigned, appleReach));
     verifyBakeFiles(bakedCompat, bakedPlan, listAssets(assembled, true));
     assertAppleIdentity(app, resolve(assembled, host ? 'ExactHostIOS' : 'ExactIOS'), bakedCompat.id);
     const whole = receipt(app, { compatibilityId: bakedCompat.id, build: buildReceipt, composition,
