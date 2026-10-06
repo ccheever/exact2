@@ -611,7 +611,8 @@ a property's admitted value space; this does not add general union types.
 For scrolling, provide a bound and inspect measured layout. For virtualized
 lists, use `list virtualized=true` (no other tag takes it), one direct keyed
 `each`, and one flow root per row. A vertical list needs `height`, `max-height`
-or a growing `flex`, and takes `estimated-item-height`. A horizontal one needs a
+or a growing `flex`, which may be computed (`max-height=(narrow ? "320px" : "100%")`;
+the bake's measured layout checks a computed bound), and takes `estimated-item-height`. A horizontal one needs a
 literal `display="flex"` and a literal positive `height`, takes
 `estimated-item-width`, and refuses wrapping, reversed or right-to-left flow, a
 nonzero `gap`, main-axis padding, `justify-content` other than `flex-start`, and
