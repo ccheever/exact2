@@ -21,6 +21,7 @@ import { crumbsMask, crumbsShift } from './r7-polish-crumbs'; // lane r7-polish:
 import { crumbsOffset, noteFirstRead, settleCrumbs, settleMounted, sourceGutter } from './r9-device-crumbs'; // lane r9-device: where the trail settles
 import { contentRevision, htmlPage, htmlToggleLabel, isHtmlPath } from './r10-device-files-html'; // lane r10-device: rendered HTML
 import { crumbsMounting, loadBegin, loadEnd, missingFolders, noteReveal, revealStale } from './r10-device-crumbs'; // lane r10-device: a mounting preview settles at the end
+import { openInEditorHere } from './remote-open'; // remote Open (OpenInPicker)
 
 export type TreeRow = { id: string; path: string; name: string; depth: number; directory: boolean; expanded: boolean; selected: boolean; token: string; ignored: boolean; guides: { id: string; left: number }[] };
 export type Crumb = { id: string; label: string; path: string; current: boolean; directory: boolean };
@@ -246,8 +247,7 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
     state.editorsOpen = false;
     const editor = value || editorFor(client).editorId;
     if (!editor) { pushToast(client, { kind: 'error', title: 'Unable to open in editor', description: `No available editor can open ${id}.` }); return ''; }
-    await client.restAccess(native).request('shell.openInEditor', { cwd: id, editor });
-    rememberEditor(client, editor);
+    if (await openInEditorHere(client, native, id, editor)) rememberEditor(client, editor); // remote Open as the details card does (remote-open.ts)
     return '';
   }
   return '';
