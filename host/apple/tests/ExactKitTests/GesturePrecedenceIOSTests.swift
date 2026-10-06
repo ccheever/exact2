@@ -11,7 +11,8 @@ final class GesturePrecedenceIOSTests: XCTestCase {
 
     /// A pan whose movement the test sets.
     private final class Pan: UIPanGestureRecognizer {
-        var moved = CGPoint.zero, speed = CGPoint.zero
+        var moved = CGPoint.zero, speed = CGPoint.zero, at = CGPoint(x: 150, y: 100)
+        override func location(in view: UIView?) -> CGPoint { at }
         override func translation(in view: UIView?) -> CGPoint { moved }
         override func velocity(in view: UIView?) -> CGPoint { speed }
     }
@@ -183,7 +184,7 @@ final class GesturePrecedenceIOSTests: XCTestCase {
     /// (4) twice its width, `touchAction` on the handle, the clip and the
     /// pager; `room` false makes the pager exactly one page wide.
     private func pagedPhoto(handle: String, clip: String = "auto", pager: String = "auto", room: Bool = true,
-                            under: String? = nil) -> (Presenter, NodeView) {
+                            under: String? = nil, outer: String? = nil) -> (Presenter, NodeView) {
         var ops: [[String: Any]] = [
             ["op": "create", "id": 4, "kind": "view", "style": ["overflow_x": "scroll", "overflow_y": "hidden", "touch_action": pager]],
             ["op": "create", "id": 1, "kind": "view", "style": ["touch_action": clip]],
@@ -199,12 +200,22 @@ final class GesturePrecedenceIOSTests: XCTestCase {
             ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0],
             ["op": "transform-drag", "id": 3, "runtime": "1", "handleKey": "2", "target": 2, "targetKey": "4", "clip": 1, "clipKey": "6"]
         ]
-        // A pressable node inside the handle, under the finger, with its own
-        // touch-action (hit testing passes over a node that takes nothing).
+        // A node inside the handle with its own touch-action, observing the
+        // pointer so hit testing finds it (a node that takes nothing is
+        // passed over; a press would keep the drag from the photo outright).
+        // It hangs below the handle, under the finger at (150, 220).
         if let under {
-            ops.insert(["op": "create", "id": 5, "kind": "view", "handlers": ["press"], "style": ["touch_action": under]], at: 4)
+            ops.insert(["op": "create", "id": 5, "kind": "view", "handlers": ["pointerdown"], "style": ["touch_action": under]], at: 4)
             ops.append(["op": "children", "id": 3, "ids": [5]])
-            ops.append(["op": "frame", "id": 5, "x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0])
+            ops.append(["op": "frame", "id": 5, "x": 0.0, "y": 200.0, "w": 300.0, "h": 60.0])
+        }
+        // The pager as a page of an outer sideways pager (6) three pages wide.
+        if let outer {
+            ops.insert(["op": "create", "id": 6, "kind": "view", "style": ["overflow_x": "scroll", "overflow_y": "hidden", "touch_action": outer]], at: 0)
+            ops = ops.map { $0["op"] as? String == "roots" ? ["op": "roots", "ids": [6]] : $0 }
+            ops.append(["op": "children", "id": 6, "ids": [4]])
+            ops.append(["op": "frame", "id": 6, "x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0])
+            ops.append(["op": "content", "id": 6, "w": 900.0, "h": 200.0])
         }
         let p = host(ops)
         return (p, p.views[3]!)
@@ -250,7 +261,7 @@ final class GesturePrecedenceIOSTests: XCTestCase {
             ("a pan-y clip", { self.pagedPhoto(handle: "pan-x", clip: "pan-y") }, left),
             ("a none clip", { self.pagedPhoto(handle: "pan-x", clip: "none") }, left),
             ("a pan-y pager", { self.pagedPhoto(handle: "pan-x", pager: "pan-y") }, left),
-            ("a none node under the finger", { self.pagedPhoto(handle: "pan-x", under: "none") }, left),
+            ("a none node under the finger, outside the handle", { self.pagedPhoto(handle: "pan-x", under: "none") }, left),
             ("a one-page pager", { self.pagedPhoto(handle: "pan-x", room: false) }, left),
             ("a pager that does not scroll down", { self.pagedPhoto(handle: "pan-y") }, down),
             ("no pager", { self.photo(handle: "pan-x") }, left),
@@ -258,8 +269,49 @@ final class GesturePrecedenceIOSTests: XCTestCase {
             let (p, handle) = make()
             let pan = Pan()
             pan.speed = speed
+            pan.at = CGPoint(x: 150, y: 220)
             handle.transformRecognizer = pan
             XCTAssertEqual(handle.transformShouldBegin(pan), true, label)
+            withExtendedLifetime(p) {}
+        }
+    }
+
+    /// The scroller's range counts its insets, as `handsOff` does: a pager
+    /// one page wide with a leading inset still scrolls sideways, so the
+    /// photo yields. A pointer-observing node under the finger that allows
+    /// the axis does not stop the yield.
+    func testThePhotoYieldsToRangeTheInsetsMake() throws {
+        let (p, handle) = pagedPhoto(handle: "pan-x", room: false)
+        let pan = Pan()
+        pan.speed = CGPoint(x: -300, y: 0)
+        handle.transformRecognizer = pan
+        XCTAssertEqual(handle.transformShouldBegin(pan), true, "no range: the photo's")
+        try XCTUnwrap(p.views[4]?.scroll).contentInset = UIEdgeInsets(top: 0, left: 40, bottom: 0, right: 0)
+        XCTAssertEqual(handle.transformShouldBegin(pan), false, "an inset's range: the pager's")
+        let (q, under) = pagedPhoto(handle: "pan-x", under: "pan-x")
+        let pan2 = Pan()
+        pan2.speed = CGPoint(x: -300, y: 0)
+        pan2.at = CGPoint(x: 150, y: 220)
+        under.transformRecognizer = pan2
+        XCTAssertEqual(under.transformShouldBegin(pan2), false)
+        withExtendedLifetime((p, q)) {}
+    }
+
+    /// Scroll chaining: a pager at its trailing edge hands a drag on to an
+    /// outer pager that can take it, so the intersection runs on to that
+    /// one's owner — the photo yields when it allows the axis and keeps the
+    /// drag when it refuses, since then neither scroller would begin.
+    func testThePhotoFollowsAPagerAtItsEdgeToTheOneItChainsTo() throws {
+        for (outer, begins) in [("auto", false), ("none", true), ("pan-y", true)] {
+            let (p, handle) = pagedPhoto(handle: "pan-x", outer: outer)
+            try XCTUnwrap(p.views[4]?.scroll).contentOffset.x = 300
+            let pan = Pan()
+            pan.speed = CGPoint(x: -300, y: 0)
+            handle.transformRecognizer = pan
+            XCTAssertEqual(handle.transformShouldBegin(pan), begins, "outer \(outer)")
+            // Not at the edge, the inner pager takes it whatever the outer says.
+            try XCTUnwrap(p.views[4]?.scroll).contentOffset.x = 100
+            XCTAssertEqual(handle.transformShouldBegin(pan), false, "outer \(outer), mid-pager")
             withExtendedLifetime(p) {}
         }
     }

@@ -69,7 +69,15 @@ class ScrollView: UIScrollView {
         // axis this view scrolls under `none`.
         let still = { (axis: String) in owner.style["overscroll_behavior_\(axis)"]?.string == "none" }
         bounces = !(behavior == "none" || (scrollsX && still("x")) || (scrollsY && still("y")))
-        guard behavior == "auto" else { return false }
+        return chains(velocity)
+    }
+    /// `handsOff`'s answer without its side effect: whether a drag in
+    /// `velocity` begun now chains to an enclosing scroller (a descendant's
+    /// recognizer asks it, LLP 1057.001 rule 2).
+    func chains(_ velocity: CGPoint) -> Bool {
+        guard velocity != .zero, let owner = superview as? NodeView else { return false }
+        let horizontal = abs(velocity.x) > abs(velocity.y)
+        guard (owner.style[horizontal ? "overscroll_behavior_x" : "overscroll_behavior_y"]?.string ?? "auto") == "auto" else { return false }
         let i = adjustedContentInset
         let (at, low, high, scrolls) = horizontal
             ? (contentOffset.x, -i.left, contentSize.width + i.right - bounds.width, scrollsX)

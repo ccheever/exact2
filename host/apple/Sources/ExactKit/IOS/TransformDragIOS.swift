@@ -79,17 +79,22 @@ extension NodeView {
     }
     /// Whether the platform takes a drag in `direction` begun at `start`
     /// (this view's points): `touch-action` intersected from the node hit
-    /// there up through the nearest scroller that can move on that axis, its
-    /// owner included, as CSS and `ScrollView.gestureRecognizerShouldBegin`
-    /// decide. With no such scroller nothing would take it.
+    /// there up through the scroller that would move — the nearest that can
+    /// on that axis (its insets count), or past one at its edge to the
+    /// scroller it chains to — its owner included, as CSS and
+    /// `ScrollView.gestureRecognizerShouldBegin` decide. With no such
+    /// scroller nothing would take it.
     func platformPans(_ direction: CGPoint, from start: CGPoint) -> Bool {
         let horizontal = abs(direction.x) > abs(direction.y)
-        var view: UIView? = bounds.contains(start) ? hitTest(start, with: nil) ?? self : self
+        var view: UIView? = hitTest(start, with: nil) ?? self
         while let current = view {
             if let scroll = current as? ScrollView {
-                let room = horizontal ? scroll.contentSize.width - scroll.bounds.width : scroll.contentSize.height - scroll.bounds.height
+                let i = scroll.adjustedContentInset
+                let room = horizontal ? scroll.contentSize.width + i.left + i.right - scroll.bounds.width
+                                      : scroll.contentSize.height + i.top + i.bottom - scroll.bounds.height
                 if (horizontal ? scroll.scrollsX : scroll.scrollsY) && room > 0.5 {
-                    return (scroll.superview as? NodeView)?.allowsTouchPan(direction) ?? true
+                    if let owner = scroll.superview as? NodeView, !owner.allowsTouchPan(direction) { return false }
+                    if !scroll.chains(direction) { return true }
                 }
             } else if let node = current as? NodeView, !node.allowsTouchPan(direction) {
                 return false
