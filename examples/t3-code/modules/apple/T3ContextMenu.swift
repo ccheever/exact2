@@ -60,8 +60,13 @@ final class T3ContextMenu: NSObject {
 
     @objc private func pick(_ sender: NSMenuItem) { chosen = sender.representedObject as? String }
 
-    /// The module's `contextMenu` request on the main thread.
-    static func perform(_ request: [String: Any], reply: @escaping ([String: Any]) -> Void) {
+    /// The module's `contextMenu` request on the main thread. Under the agent no menu pops up:
+    /// its window is never key and has no pointer, so `popUp` would track until a real click
+    /// or Escape, leaving this request (and every main-queue turn and `clock settle` behind it)
+    /// pending. It answers dismissed, as Escape would, as T3Sidebar's menu does; menus the
+    /// agent must choose from are Contract `contextPopover`s (the right-panel tab menu).
+    static func perform(_ request: [String: Any], agent: Bool = false, reply: @escaping ([String: Any]) -> Void) {
+        if agent { return reply(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": ["clicked": NSNull(), "shown": false] as [String: Any]]) }
         DispatchQueue.main.async {
             let items = request["items"] as? [[String: Any]] ?? []
             // NSMenuItem.target is weak: keep the owner alive across the modal popUp.
