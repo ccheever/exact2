@@ -66,6 +66,15 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         appeared?()
+        #if os(iOS)
+        // Back after a cancelled drag or zoom dismissal, which no completion
+        // resolves: what landed during the gesture shows now (LLP 1105 D5).
+        if let coordinator = transitionCoordinator {
+            coordinator.animate(alongsideTransition: nil) { [weak self] _ in self?.host?.presenter.resolveStatusBar() }
+        } else {
+            host?.presenter.resolveStatusBar()
+        }
+        #endif
         guard backdropTap == nil, let container = presentationController?.containerView else { return }
         let tap = UITapGestureRecognizer(target: self, action: #selector(tappedBackdrop))
         tap.delegate = self
@@ -223,18 +232,19 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     /// The topmost presented route the status bar sits over (LLP 1105 D2): a
     /// full-screen one always; a sheet only at its large detent on a
     /// compact-width screen. Nil when the bar is over the screen behind.
-    /// The view holding everything the topmost covering presentation shows,
-    /// its pushed routes included; nil when the bar is over the primary
-    /// screen. And every presentation's view, which the primary screen's
-    /// scope leaves out.
-    var statusBarScope: (covering: UIView?, presented: [UIView]) {
+    /// The topmost covering presentation's navigation view (its routes and
+    /// their pushes, not the app's root nodes that ride along with the
+    /// viewport); nil when the bar is over the primary screen. Every
+    /// presentation's navigation view, which the primary screen's scope
+    /// leaves out; and every presentation's whole view, where a node may sit.
+    var statusBarScope: (covering: UIView?, presented: [UIView], views: [UIView]) {
         let covering = layers.last { layer in
             let c = layer.controller
             if c.modalPresentationStyle == .overFullScreen { return true }
             guard let sheet = c.sheetPresentationController, c.traitCollection.horizontalSizeClass == .compact else { return false }
             return (sheet.selectedDetentIdentifier ?? sheet.detents.first?.identifier) == .large
         }
-        return (covering?.controller.viewIfLoaded, layers.compactMap { $0.controller.viewIfLoaded })
+        return (covering?.navigation.viewIfLoaded, layers.compactMap { $0.navigation.viewIfLoaded }, layers.compactMap { $0.controller.viewIfLoaded })
     }
     /// Every presented controller re-reads the style with the root (D6):
     /// UIKit asks the topmost one that covers, which a sheet over it may hide.

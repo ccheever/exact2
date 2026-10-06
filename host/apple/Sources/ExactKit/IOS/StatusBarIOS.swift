@@ -39,7 +39,7 @@ extension Presenter {
         let scope = modals.statusBarScope
         // A node shown in a context menu's preview is UIKit's, not the screen's:
         // the scope is the session's view and the presentations.
-        let roots = [session?.view].compactMap { $0 } + scope.presented
+        let roots = [session?.view].compactMap { $0 } + scope.views
         let lifted = Set(navigation.controllers.values.compactMap { $0.lifted.map(ObjectIdentifier.init) })
         func shows(_ node: NodeView) -> Bool {
             // `visibility` is inherited and a child may show again: the node's own.
