@@ -15,7 +15,9 @@ import { connectedEnvironmentCount, simulatorSupportRows, type SimulatorSupportR
 type Choice = { value: string; label: string; selected: boolean };
 type Layer = { key: string; label: string; value: string; effective: boolean; set: boolean };
 export type ScopedRow = { key: string; kind: string; title: string; description: string; checked: boolean; value: string; valueLabel: string; options: Choice[]; placeholder: string;
-  disabled: boolean; first: boolean; summary: string; state: string; layers: Layer[]; reset: string; status: string; child: string };
+  disabled: boolean; first: boolean; summary: string; state: string; layers: Layer[]; reset: string; status: string; child: string;
+  /** ScopedSwitch's mixed state (D15). This page resolves one environment and one checkout, so it is false here; settings-core's rows compute it across targets. */
+  mixed: boolean };
 
 export const DEFAULTS: Obj = { defaultAutoPull: false, pullRequestMergeMethod: null, branchNamingMode: 'static', branchNamePrefix: 't3code', branchNameInstructions: '',
   sourceControlWritingStyle: { mode: 'repo_conventions', customInstructions: '', followChangeRequestTemplates: true }, sourceControlWriterModelSelection: null,
@@ -68,7 +70,7 @@ function effective(settings: Obj, projectId: string): Obj {
 
 function row(settings: Obj, projectId: string, environmentLabel: string, key: string, partial: Partial<ScopedRow>): ScopedRow {
   const info = inheritance(settings, projectId, key, environmentLabel);
-  return { key, kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: false, first: false, status: '', child: '', reset: '', ...info, ...partial };
+  return { key, kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: false, first: false, status: '', child: '', reset: '', mixed: false, ...info, ...partial };
 }
 
 /** Source-control route rows: Repositories and Text generation. */
@@ -275,5 +277,5 @@ export function toolVersion(value: unknown): string {
   return version ? `v${version}` : 'Not installed';
 }
 function blankRow(): ScopedRow {
-  return { key: '', kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], reset: '', status: '', child: '' };
+  return { key: '', kind: 'switch', title: '', description: '', checked: false, value: '', valueLabel: '', options: [], placeholder: '', disabled: true, first: false, summary: '', state: '', layers: [], reset: '', status: '', child: '', mixed: false };
 }

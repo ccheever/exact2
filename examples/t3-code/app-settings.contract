@@ -170,7 +170,7 @@ component SettingsWindow
               when settingsMenu != ""
                 button press=coreMenuClose position="absolute" left=0 top=0 width="100%" height="100%" z-index=40 background-color="#00000000" aria-label="Close menu" aria-keyshortcuts="Escape" testId="settings-menu-backdrop"
               when settingsCore.showScope or settingsRoute == "general" or settingsRoute == "appearance"
-                SettingsCoreBody(core=settingsCore, route=settingsRoute, busy=commandPending, menu=settingsMenu, legacyOpen=settingsLegacyOpen, toggleLegacy=coreLegacy, openMenu=coreMenu, closeMenu=coreMenuClose, change=coreChange, slide=coreSlide, navigate=coreNavigate, choose=coreScope, dialog=coreThemeDialog)
+                SettingsCoreBody(reduced=viewport.prefersReducedMotion, core=settingsCore, route=settingsRoute, busy=commandPending, menu=settingsMenu, legacyOpen=settingsLegacyOpen, toggleLegacy=coreLegacy, openMenu=coreMenu, closeMenu=coreMenuClose, change=coreChange, slide=coreSlide, navigate=coreNavigate, choose=coreScope, dialog=coreThemeDialog)
               when settingsRoute == "source-control"
                 SourceControlPanel(data=sourceControl, busy=commandPending, error=modalError, rest=rest, restInput=restInput, restLocal=restLocal)
               when settingsRoute == "integrations"

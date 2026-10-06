@@ -43,6 +43,7 @@ shape CoreRow
   resetLabel: string
   disabled: bool
   inert: bool
+  mixed: bool
   note: string
   min: number
   max: number
