@@ -1,6 +1,5 @@
 // @ref llp/1106.011-responsive-workspace.decision.md#composition-decision
-// Authored header controls remain the source of native navigation items.
-use MobilePreviewButton, MobilePreviewColors from "./browser-mobile.contract"
+// Thread uses its owned native menu coordinator; other routes keep authored controls.
 component MobileRootHeader
   props
     routeName: string
@@ -11,13 +10,9 @@ component MobileRootHeader
     scheduledCanCreate: bool
     browserMenuConfiguration: string
     iconColor: string
-    previewColors: MobilePreviewColors
-    browserCount: number
-    devicesCount: number
     inspectorAvailable: bool
     inspectorVisible: bool
     toggleInspector: action
-    openGit: action
     sidebarAvailable: bool
     sidebarVisible: bool
     back: action
@@ -27,19 +22,13 @@ component MobileRootHeader
     automationAction: action
     browserMenu: action
     terminalMenu: action
-    openBrowser: action
-    openDevices: action
-    openTerminal: action
-    openReview: action
-    openFiles: action
-    openAgents: action
     toggleSidebar: action
   view
     header height=44 flex-shrink=0 align-items="center" justify-content="space-between"
-      when sidebarAvailable and routeName != "home" and routeName != "threadQueue"
+      when sidebarAvailable and routeName != "home" and routeName != "threadQueue" and routeName != "thread"
         button id="workspace-sidebar-toggle" press=toggleSidebar aria-label=(sidebarVisible ? "Hide sidebar" : "Show sidebar") aria-pressed=sidebarVisible
           t3-symbol symbol-name="sidebar.left" point-size=20 symbol-tint=iconColor width=20 height=20
-      when routeName != "home" and routeName != "threadQueue"
+      when routeName != "home" and routeName != "threadQueue" and routeName != "thread"
         button id="back" press=back aria-label="Back" testId=`back-${routeName}`
           image "symbol:back" width=20 height=20
       text title
@@ -71,19 +60,6 @@ component MobileRootHeader
       when routeName == "threadTerminal"
         button press=terminalMenu aria-label="Terminal options" testId="terminal-options"
           t3-symbol symbol-name="terminal" point-size=20 symbol-tint=iconColor width=20 height=20
-      when inspectorAvailable and (routeName == "thread" or routeName == "threadFile" or routeName == "threadReview")
+      when inspectorAvailable and (routeName == "threadFile" or routeName == "threadReview")
         button press=toggleInspector aria-label=(inspectorVisible ? "Hide inspector" : "Show inspector") aria-pressed=inspectorVisible
           t3-symbol symbol-name="sidebar.right" point-size=20 symbol-tint=iconColor width=20 height=20
-      when routeName == "thread"
-        button press=openGit aria-label="Git" testId="thread-git"
-          t3-symbol symbol-name="arrow.triangle.branch" point-size=20 symbol-tint=iconColor width=20 height=20
-        MobilePreviewButton(count=browserCount, devices=false, colors=previewColors, action=openBrowser)
-        MobilePreviewButton(count=devicesCount, devices=true, colors=previewColors, action=openDevices)
-        button press=openTerminal aria-label="Terminal" testId="thread-terminal"
-          t3-symbol symbol-name="terminal" point-size=20 symbol-tint=iconColor width=20 height=20
-        button press=openReview aria-label="Review changes" testId="thread-review"
-          t3-symbol symbol-name="plus.forwardslash.minus" point-size=20 symbol-tint=iconColor width=20 height=20
-        button press=openFiles aria-label="Files" testId="thread-files"
-          t3-symbol symbol-name="folder" point-size=20 symbol-tint=iconColor width=20 height=20
-        button press=openAgents aria-label="Agents" testId="thread-agents"
-          t3-symbol symbol-name="person.2" point-size=20 symbol-tint=iconColor width=20 height=20

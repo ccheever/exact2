@@ -1,3 +1,6 @@
+import { mobileThreadHeaderSnapshot, mobileThreadHeaderPrepare, mobileThreadHeaderAction } from './thread-header';
+import { mobileThreadHeaderLaunch } from './thread-header-terminal';
+import { mobileWorkingControl } from './working-control';
 import type { Sources, Answer } from './app.contract.d.ts';
 import { mobileComposerTarget } from './composer-target';
 import { mobileQueueSnapshot, mobileQueueCommand } from './queue';
@@ -57,6 +60,14 @@ export const grants = 'device.camera purpose.camera\ndevice.microphone purpose.m
 
 // Each generated source has its own checked result type; no union assertion crosses the ABI.
 const sources: Sources = {
+  threadHeader: args => mobileThreadHeaderSnapshot(args[0]),
+  threadHeaderPrepare: (args, _store, _storage, native) => mobileThreadHeaderPrepare(args[0], native, args[1]),
+  threadHeaderAction: (args, _store, storage, native) => mobileThreadHeaderAction(args[0], args[1], args[2], native, storage!),
+  threadHeaderLaunch: async (args, _store, _storage, native) => ({
+    ...await mobileThreadHeaderLaunch(args[0], args[1], native), requestRoute: args[2],
+    navigation: '', location: '', sourceAction: '', key: '', pendingLaunch: '',
+  }),
+  workingControl: args => mobileWorkingControl(args[0], args[1], args[2]),
   inspectorState: (args, _store, storage, nativeInput) => {
     const native = nativeInput;
     return workspaceInspectorSnapshot(str(args[0]));

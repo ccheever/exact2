@@ -17,7 +17,7 @@ function fixture() {
     hasUpstream: true, hasPrimaryRemote: true, aheadCount: 2, behindCount: 0, pr: null, workingTree: { files: [] } };
   const refs: Obj[] = [{ name: 'main', isRemote: false, isDefault: true, current: true, worktreePath: null },
     { name: 'other', isRemote: false, worktreePath: '/occupied' }, { name: 'origin/remote', isRemote: true, worktreePath: null }];
-  const calls: Obj[] = []; let grants = ['source-control:read', 'source-control:write', 'orchestration:operate'], count = 0;
+  const calls: Obj[] = []; let grants = ['orchestration:read', 'source-control:write', 'orchestration:operate'], count = 0;
   let hook: ((request: Obj) => unknown) | undefined;
   const native: Native = { available: true, watch() {}, async later(input) {
     const request = obj(input); calls.push(request); const custom = hook?.(request); if (custom !== undefined) return await custom;
@@ -67,13 +67,13 @@ test('commit respects shared exclusions, trimmed message and branch-operation sc
   const f = fixture(); f.status.hasWorkingTreeChanges = true; f.status.workingTree = { files: [{ path: 'a', insertions: 3, deletions: 2 }, { path: 'b', insertions: 1, deletions: 0 }] };
   await read(f); await action(f, 'select', 'commit'); await action(f, 'file', 'b');
   expect(mobileGitSnapshot(10, f.client)).toMatchObject({ selectedCount: 1, selectedInsertions: 3, selectedDeletions: 2 });
-  f.grant(['source-control:read', 'source-control:write']); expect((await action(f, 'commit', 'feature', ' no ')).message).toContain("thread's branch");
+  f.grant(['orchestration:read', 'source-control:write']); expect((await action(f, 'commit', 'feature', ' no ')).message).toContain("thread's branch");
   expect(f.calls.some(call => call.method === 'git.runStackedAction')).toBe(false);
   expect((await action(f, 'commit', 'continue', '  actual message  ')).message).toBe('');
   expect(obj(f.calls.find(call => call.method === 'git.runStackedAction')!.payload)).toMatchObject({ action: 'commit', commitMessage: 'actual message', filePaths: ['a'] });
 });
 test('fresh write denial prevents an enabled stale action and cached host status is hidden on read denial', async () => {
-  const f = fixture(); await read(f); f.grant(['source-control:read']);
+  const f = fixture(); await read(f); f.grant(['orchestration:read']);
   expect((await action(f, 'select', 'push')).message).toContain('cannot change');
   expect(f.calls.some(call => call.method === 'git.runStackedAction')).toBe(false);
   f.grant([]); const denied = await read(f); expect(denied.ready).toBe(false); expect(denied.files).toEqual([]); expect(denied.groups).toEqual([]);
@@ -84,7 +84,7 @@ test('late authorization rejects owner change before any Git request', async () 
   const gate = new Promise(resolve => release = resolve), begun = new Promise<void>(resolve => started = resolve);
   f.hook(request => { if (request.path === '/api/auth/session') { started(); return gate; } });
   const pending = read(f); await begun; f.client.threadId = 'other'; f.client.threadEpoch++;
-  release({ ok: true, generation: 9, value: { authenticated: true, permissions: ['source-control:read', 'source-control:write'] } });
+  release({ ok: true, generation: 9, value: { authenticated: true, permissions: ['orchestration:read', 'source-control:write'] } });
   await expect(pending).rejects.toMatchObject({ kind: 'superseded' }); expect(f.calls.some(call => call.method)).toBe(false);
 });
 test('native action rejection is surfaced even though shared stream helper records a toast', async () => {
@@ -197,7 +197,7 @@ test('overview and branch preparations may authorize concurrently without starvi
   f.hook(request => { if (request.path === '/api/auth/session' && ++auth === 1) { started(); return gate; } });
   const pending = read(f); await begun;
   await mobileGitBranchesRead(f.owner(), 10, f.native, f.client);
-  release({ ok: true, generation: 9, value: { authenticated: true, permissions: ['source-control:read', 'source-control:write', 'orchestration:operate'] } });
+  release({ ok: true, generation: 9, value: { authenticated: true, permissions: ['orchestration:read', 'source-control:write', 'orchestration:operate'] } });
   const data = await pending; expect(data.branchLabel).toBe('main'); expect(data.loading).toBe(false);
   expect(mobileGitBranchesSnapshot(10, f.client).rows).toHaveLength(2);
 });

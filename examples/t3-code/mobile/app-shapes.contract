@@ -154,3 +154,8 @@ shape SettingsWrite
   requestRoute: string
   message: string
   saved: bool
+
+shape AccountEntry
+  kind: string
+  route: string
+  requestRoute: string

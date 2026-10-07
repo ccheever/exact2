@@ -1,3 +1,4 @@
+import { mobileThreadHeaderEvents } from './thread-header';
 import { mobileGrantRequest } from './mobile-grants';
 import { mobileComposerTargetRequire } from './composer-target';
 import { mobileQueuedEditSave, mobileQueuedEditCancel, mobileQueuedEditRetry, mobileQueuedEditRefresh } from './queued-edit';
@@ -77,6 +78,7 @@ export function mobileNative(native: Native): Native {
         mobileBrowserEvents(obj(response.value).events, mobileClient);
         mobileDevicesEvents(obj(response.value).events, mobileClient);
         mobileGitEvents(obj(response.value).events, mobileClient);
+        mobileThreadHeaderEvents(obj(response.value).events, mobileClient);
       }
       return response;
     });

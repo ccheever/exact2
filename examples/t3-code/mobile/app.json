@@ -67,7 +67,8 @@
     "t3-preview-menu",
     "t3-workspace-layout",
     "t3-inspector-chrome",
-    "t3-review-viewport"
+    "t3-review-viewport",
+    "t3-thread-header"
   ],
   "data": [
     "mobile-form-sheet",
