@@ -214,6 +214,13 @@ test('exact hatch writes each target\'s stub, wires it in, and declares the word
     assert.ok(readFileSync(resolve(dir, 'modules/apple/Hatches.swift'), 'utf8').includes('        windowHatch(window)\n        // exact:window\n'));
     assert.ok(readFileSync(resolve(dir, 'modules/web/index.js'), 'utf8').includes('export function window(x) { windowHatch.built(x); }'));
     assert.throws(() => hatch(['Not A Word'], () => {}), /name a word/);
+    // A Linux crate gets one hatches file, each word an arm and its functions, and is told what its build.rs owes.
+    mkdirSync(resolve(dir, 'linux'));
+    const linux = hatch(['unread-dot'], () => {});
+    assert.ok(linux.platforms.includes('linux') && linux.todo.some(line => line.includes('rust_hatches')));
+    const rust = readFileSync(resolve(dir, 'modules/linux/hatches.rs'), 'utf8');
+    assert.ok(rust.includes('"unread-dot" => unread_dot_hatch(element, context),') && rust.includes('fn unread_dot_hatch_ended<H: Hatches>'));
+    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).hatches['unread-dot'], ['ios', 'web', 'linux']);
     // In a module of the app's own, with no marker, the lines to add are shown, not written.
     rmSync(resolve(dir, 'modules/apple'), { recursive: true });
     mkdirSync(resolve(dir, 'modules/apple'));

@@ -496,6 +496,11 @@ impl<D: DataSource> Host<D> {
         self.runner.kernel()
     }
 
+    /// Whether the plan gives `platform` the hatch `word` (LLP 1075.003.000.001 §4.3).
+    pub(crate) fn plan_gives_hatch(&self, word: &str, platform: &str) -> bool {
+        self.runner.plan().handles_hatch(word, platform)
+    }
+
     /// The commit each media session claimant mounted in (LLP 1098 D9).
     pub(crate) fn media_mounts(&self) -> &crate::media_session::Mounts {
         &self.media_mounts

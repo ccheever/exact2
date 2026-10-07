@@ -726,7 +726,78 @@ export function ended(${scope[0]}) {
       mark(main, '// exact:hatches', `import * as ${scope}Hatch from './${file}';\nexport function ${scope}(x) { ${scope}Hatch.built(x); }\nexport function ${scope}Ended(x) { ${scope}Hatch.ended(x); }`, `import it and export ${scope} and ${scope}Ended from yours`);
     }
   }
-  if (!platforms.length) throw new Error(`hatch: ${app.name} builds no target a hatch can be written for yet (apple/ or web/)`);
+  if (existsSync(resolve(dir, 'linux'))) {
+    // Linux, and Windows over the same presenter: one file the app's Linux crate includes (its build.rs, as
+    // apps/native-fixture/linux/build.rs: contract::native::rust_hatches and run_with_hatches).
+    platforms.push('linux');
+    const main = resolve(dir, 'modules/linux/hatches.rs'), snake = (word ?? scope).replaceAll('-', '_');
+    if (write(main, `// ${title}'s hatches on a painting host (Linux, and Windows over the same presenter). Written by
+// \`exact hatch\`; yours from here. There is no platform object here: a hatch draws into its node's overlay
+// (a whole recording that replaces the last), observes the input that lands in its box, and changes Contract
+// state only by acting on authored nodes: click(), focus(), blur(), input(text).
+use exact_linux::hatches::{App, Context, Element, Hatches, Window};
+
+#[derive(Default)]
+pub struct AppHatches;
+
+impl Hatches for AppHatches {
+    fn element(&mut self, element: &Element, context: &mut Context<'_, Self>) {
+        match element.hatch() {
+            // exact:element (exact hatch adds a word's arm above this one)
+            _ => {}
+        }
+    }
+
+    fn element_ended(&mut self, element: &Element, context: &mut Context<'_, Self>) {
+        match element.hatch() {
+            // exact:elementEnded
+            _ => {}
+        }
+    }
+
+    fn app(&mut self, app: &App, context: &mut Context<'_, Self>) {
+        // exact:app
+        let _ = (app, context);
+    }
+
+    fn app_ended(&mut self, app: &App, context: &mut Context<'_, Self>) {
+        // exact:appEnded
+        let _ = (app, context);
+    }
+
+    fn window(&mut self, window: &Window, context: &mut Context<'_, Self>) {
+        // exact:window
+        let _ = (window, context);
+    }
+
+    fn window_ended(&mut self, window: &Window, context: &mut Context<'_, Self>) {
+        // exact:windowEnded
+        let _ = (window, context);
+    }
+}
+
+pub type ExactHatches = AppHatches;
+
+// exact:functions (exact hatch adds a word's functions above this line)
+`)) todo.push(`${resolve(dir, 'linux/build.rs')}: include the hatches in the app's Linux crate, as apps/native-fixture/linux/build.rs does\n    contract::native::rust_hatches(&app_dir, &manifest, "linux") and run_with_hatches::<AppData, hatches::ExactHatches>(PLAN, COMPAT, HatchKey::WORDS)`);
+    if (scope === 'element') {
+      mark(main, '// exact:functions', `/// The \`${word}\` hatch: built (\`element.is_new()\`) and changed (a \`data-*\` word or the box's size moved).
+/// What it gives up here: nothing beyond the call.
+fn ${snake}_hatch<H: Hatches>(element: &Element, _context: &mut Context<'_, H>) {
+    if element.is_new() {
+        // element.overlay().draw(|c, w, h| { c.set_fill_style_str("#f59e0b"); c.fill_rect(0.0, 0.0, w, h); });
+        element.diagnostics().log("built");
+    }
+}
+
+/// The node has left: stop what the hatch started for it.
+fn ${snake}_hatch_ended<H: Hatches>(_element: &Element, _context: &mut Context<'_, H>) {}
+`, 'add its functions to your hatches file');
+      mark(main, '// exact:elementEnded', `            ${JSON.stringify(word)} => ${snake}_hatch_ended(element, context),`, 'call it from your element_ended');
+      mark(main, '// exact:element ', `            ${JSON.stringify(word)} => ${snake}_hatch(element, context),`, 'call it from your element');
+    }
+  }
+  if (!platforms.length) throw new Error(`hatch: ${app.name} builds no target a hatch can be written for (apple/, web/ or linux/)`);
   if (scope === 'element') {
     // The declaration (§5): the word, with the platforms a stub was written for. A list means every platform.
     const had = manifest.hatches;

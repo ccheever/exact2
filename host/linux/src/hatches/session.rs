@@ -452,7 +452,9 @@ pub(crate) struct Session {
     calls: BTreeMap<String, BTreeMap<&'static str, u64>>,
     said: BTreeSet<String>,
     warned: BTreeSet<String>,
-    unhandled: BTreeSet<String>,
+    /// Each word met and not called, with why: the plan does not give it to
+    /// this platform, or the module was not built to handle it.
+    unhandled: std::collections::BTreeMap<String, &'static str>,
     overlaid: BTreeMap<String, OverlayCounts>,
     /// What the painter shows over each node.
     pub(crate) overlays: BTreeMap<u32, Shown>,
@@ -577,8 +579,8 @@ impl Session {
     }
 
     /// The first time a word the module does not handle is met.
-    pub(crate) fn first_unhandled(&mut self, word: &str) -> bool {
-        self.unhandled.insert(word.to_owned())
+    pub(crate) fn first_unhandled(&mut self, word: &str, reason: &'static str) -> bool {
+        self.unhandled.insert(word.to_owned(), reason).is_none()
     }
 
     /// A recording was shown (`dropped` false) or dropped at a new size.
@@ -681,7 +683,7 @@ impl Session {
         let unhandled: Vec<Value> = self
             .unhandled
             .iter()
-            .map(|word| json!({ "word": word, "reason": "module" }))
+            .map(|(word, reason)| json!({ "word": word, "reason": reason }))
             .collect();
         reply.insert("unhandled".into(), unhandled.into());
         reply.insert("refused".into(), refused.into());
