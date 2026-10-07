@@ -122,10 +122,10 @@ describe('sent videos in the transcript (lane r6-media)', () => {
   test('a video opens alone in the media dialog; images step among the images only', () => {
     const c = timeline();
     imagePreviewAction(c, 'image-open', 'v1', messageId);
-    expect(imagePreviewView(c)).toEqual({ imagePreviewId: 'v1', imagePreviewName: 'clip.mp4', imagePreviewPosition: '', imagePreviewPrevious: false, imagePreviewNext: false, imagePreviewVideo: true });
+    expect(imagePreviewView(c)).toEqual({ imagePreviewId: 'v1', imagePreviewName: 'clip.mp4', imagePreviewPosition: '', imagePreviewPrevious: false, imagePreviewNext: false, imagePreviewVideo: true, imagePreviewSource: 'attachment:v1' });
     imagePreviewAction(c, 'image-open', 'i2', messageId);
     imagePreviewAction(c, 'image-step', '', 'next');
-    expect(imagePreviewView(c)).toEqual({ imagePreviewId: 'i1', imagePreviewName: 'a.png', imagePreviewPosition: '(1/2)', imagePreviewPrevious: true, imagePreviewNext: true, imagePreviewVideo: false });
+    expect(imagePreviewView(c)).toEqual({ imagePreviewId: 'i1', imagePreviewName: 'a.png', imagePreviewPosition: '(1/2)', imagePreviewPrevious: true, imagePreviewNext: true, imagePreviewVideo: false, imagePreviewSource: 'attachment:i1' });
     imagePreviewAction(c, 'image-close', '', '');
     expect(imagePreviewView(c).imagePreviewId).toBe('');
   });
