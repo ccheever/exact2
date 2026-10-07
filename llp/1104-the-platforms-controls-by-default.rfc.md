@@ -1,192 +1,351 @@
 # LLP 1104: The platform's controls by default — text fields and buttons
 
 **Type:** RFC
-**Status:** Draft r6, 2026-10-06. Not built, not yet reviewed in this form. r1–r4 (built: e97afa5af, aeb69b382, 3b904632d) gave fields compiled default rows and Exact-drawn focus rings. r5 replaced that design with the platform's controls. r6 builds on James's LLP 1069.011.001 r3 for the button and makes devolving CSS's rule, decided at compile time.
+**Status:** Draft r7, 2026-10-06. Not built. r1–r4 (built: e97afa5af, aeb69b382, 3b904632d) gave fields compiled default rows and Exact-drawn focus rings. r5 replaced that design with the platform's controls. r6 built on James's LLP 1069.011.001 r3 and made devolving CSS's rule. r6 was reviewed blind by Astra (max) and Grok 4.7 (xhigh); both said NOT READY. r7 folds both reviews (§7).
 **Direction (Charlie, r5):** text fields and buttons default to the platform's look; hosts measure and draw it; author rows customise the native control where they can; hosts differ on purpose; the OS draws focus; fields and buttons share one switch whose default is `auto`.
 **Systems:**
-- Contract lowering (`contract/lower/src/fields.rs`, `controls.rs`, `tags.rs`): the default, the devolve rule, one `lower-appearance` error, the codemod.
-- The kernel (`schema.json`'s `appearance` default per tag; `kernel/src/kernel/intrinsic.rs`; `layout.rs`'s `TextInput` measure; LLP 1069.011.001 D11's `ControlMeasurer`, extended to fields).
-- The Apple hosts, iOS and tvOS on the UIKit presenter (`IOS/NodeViewIOS.swift`, `TextAreaIOS.swift`, `NativeButtonsIOS.swift`, `ControlsIOS.swift`) and macOS (`NodeViewMac.swift`, `TextAreaMac.swift`, `BoxLayerMac.swift`, `FieldEditingMac.swift`, `FocusMac.swift`, `NativeButtonsMac.swift`).
-- The web host's reset (`host/web/index.html`, which both web targets ship) and the JS target.
-- The painted hosts: Linux (`paint.rs`, `paint/control.rs`, `paint/caret.rs`), the terminal, Windows.
+- Contract lowering (`contract/lower/src/controls.rs`, `fields.rs`, `tags.rs`, `class.rs`): the default, the admission rule, one `lower-appearance` error, the codemod.
+- The kernel:
+  - the `button` tag's fixed `appearance: none` row goes (`tags.rs:118-125`); `Appearance`'s schema default is already `auto`;
+  - `Env` gains the controls' text styles (D4);
+  - the non-inheriting rows on a native control (D4);
+  - the single-line field's baseline (D5);
+  - the field side of LLP 1069.011.001 D11's `ControlMeasurer` (D5).
+- The Apple hosts:
+  - iOS and tvOS on the UIKit presenter: `IOS/NodeViewIOS.swift`, `TextAreaIOS.swift`, `NativeButtonsIOS.swift`, `ControlsIOS.swift`, `FocusSearchIOS.swift`, `PresenterIOS.swift`, `RemoteTVOS.swift`;
+  - macOS: `NodeViewMac.swift`, `TextAreaMac.swift`, `BoxLayerMac.swift`, `FieldEditingMac.swift`, `FocusMac.swift`, `NativeButtonsMac.swift`.
+- The web host's stylesheet (`host/web/index.html`, which both web targets ship) and the JS target.
+- The painted hosts: Linux (`paint.rs`, `paint/control.rs`, `paint/caret.rs`, `presenter/control.rs`), which Windows reuses, and the terminal (`host/terminal/src/paint.rs`).
 - Conformance, docs, the repo's apps.
 
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-06
-**Builds on:** LLP 1069.011.001 r3 (James Ide: native buttons that look like the platform's own). A native button's face, its rows and its first-frame measure are that RFC's. This one makes the platform's control the default, adds text fields, and says when a control is the bare box instead.
+**Builds on:** LLP 1069.011.001 r3 (James Ide: native buttons that look like the platform's own). A native button's face, its rows and its first-frame measure are that RFC's. This one:
+- makes the platform's control the default;
+- adds text fields;
+- says when a control is the bare box instead;
+- moves focus to the native control.
+
+This RFC's work starts after 1069.011.001's build order steps 1–5 (§6).
 **Amends:**
 - LLP 1069.011: D1 (a button's default `appearance`), D4 (focus).
-- LLP 1069.011.001: D12's refusals hold where the author wrote `appearance="auto"`; under the default, CSS's disabling rows make the bare box instead (D2).
+- LLP 1069.011.001: under the default, a button its D12 would refuse is the bare box (D2).
+- LLP 1101.002 P7: the terminal's field becomes the terminal host's look, not a sheet chosen in lowering.
 - LLP 1102 §0's row for §3.15: restores "a field draws the platform's field".
 
-**Related:** LLP 1069.001 (checkbox, radio, range, date: already `auto` by default, the model this follows); LLP 1069.011.000 (one press face); LLP 1075.003 §9.6 (iOS header search); LLP 1101.002 P7 (the terminal's field); LLP 1081 (the `-exact-` rule); CSS UI 4 §7.2.1 (properties disabling native appearance); `CLAUDE.md` ("the web is the standard")
+**Related:**
+- LLP 1069.001 (checkbox, radio, range, date: already `auto` by default, the model this follows)
+- LLP 1069.011.000 (one press face)
+- LLP 1075.003 §9.6 (iOS header search)
+- LLP 1081 (the `-exact-` rule)
+- CSS UI 4 §7.2.1 (properties disabling native appearance)
+- Chromium's UA stylesheet (`third_party/blink/renderer/core/html/resources/html.css`)
+- `CLAUDE.md` ("the web is the standard")
 
 ## 1. Summary
 
-A text field (`input` of a text type, `textarea`) and a `button` are the platform's own control unless the author says `appearance="none"`. The host builds the native control (`UITextField`, `NSTextField`, `UIButton`, `NSButton`, the browser's `<input>` and `<button>`), measures it before the first frame and draws it.
+A text field (`input` of a text type, `textarea`) and a `button` are the platform's own control unless the author says `appearance="none"`. The host builds the native control (`UITextField`, `NSTextField`, `UIButton`, `NSButton`, the browser's `<input>`, `<textarea>` and `<button>`). It measures the control before the first frame and draws it.
 
-Which rows keep the control native is CSS's rule, not Exact's. A background, a border, a border radius or a border image written by the author makes a control the bare box (CSS UI 4 §7.2.1), and it does so the same way on every host, decided when the plan compiles. Every other row customises the native control as LLP 1069.011.001 maps it. Where a host can't express one, the agent reports a stand-in. Typography and colour stop at the control, as the browser's UA sheet makes them do. The OS draws focus.
+**When a control is native.** Under the default, a control is native exactly when `appearance="auto"` would compile for it and the author wrote none of CSS's appearance-disabling rows. Otherwise it is the bare box. The decision is made once, in the plan, the same on every host.
+
+**Typography and colour** start from the platform's control font and colours rather than inheriting, as the browser's UA sheet makes them do. Hosts supply that font to the kernel before layout.
+
+**Focus.** On a native control the OS draws focus. On the bare box Exact keeps the ring it draws today.
 
 This is CSS's own default. In the browser's UA stylesheet `input`, `textarea` and `button` are `appearance: auto`, and Exact's `all: unset` departs from it.
 
 ## 2. What exists
 
 - **Fields** (r4, built):
-  - Contract adds a sheet of rows under the author's: a 1px solid `light-dark(#c6c6c8, #48484a)` border, radius 6, padding 6/8, a fill and an ink (`fields.rs:114-127`).
+  - Contract adds a sheet of rows under the author's: a 1px solid `light-dark(#c6c6c8, #48484a)` border, radius 6, padding 6/8, a fill, and an ink in `color` (`fields.rs:114-127`).
+  - A field's font inherits from its ancestors. Its colour does not, because the sheet writes it.
   - The field is marked with `fieldStyle="default"` (prop 253). Disabled fields dim to opacity 0.5.
-  - The native chrome is off on every host: iOS `borderStyle = .none` (`NodeViewIOS.swift:566-574`), macOS `isBezeled = false`, `focusRingType = .none` (`NodeViewMac.swift:768-783`), the web `all: unset` (`index.html:36`).
-  - Focus rings are Exact's: the web restores the outline for `[data-fieldstyle]`, macOS draws a 2pt `keyboardFocusIndicatorColor` border in `boxPlan`, Linux draws `field_ring` in `accent-color`.
-  - A field's font and colour inherit from its ancestors, on every host.
+  - The native chrome is off on every host: iOS `borderStyle = .none` (`NodeViewIOS.swift:566-574`), macOS `isBezeled = false` and `focusRingType = .none` (`NodeViewMac.swift:768-775`), the web `all: unset` (`index.html:36`).
+  - Password fields are `isSecureTextEntry` (`NodeViewIOS.swift:1100`) and `NSSecureTextField` (`NodeViewMac.swift:768-769`). Email, URL, number and search set the keyboard (`NodeViewIOS.swift:1111-1118`).
+  - Focus rings are Exact's: the web restores the outline for `[data-fieldstyle]`, macOS draws a 2pt `keyboardFocusIndicatorColor` border in `boxPlan` (`BoxLayerMac.swift:83-91`), Linux draws `field_ring`.
+  - On tvOS a textarea is a read-only text view (`TextAreaIOS.swift:109`).
   - `appearance="auto"` on a field is refused (`lower-field-appearance`).
-- **Buttons** (LLP 1069.011, 1069.011.000, built; 1069.011.001 r3, drafted):
-  - A bare `button` is a `Pressable` with a fixed `appearance: none` row (`tags.rs:118-125`).
-  - A literal `appearance="auto"` makes it a `Control` of type `button`. The host builds it and reports its size after the batch through `onIntrinsic` → `set_intrinsic_size`. Until then it lays out at `ControlKind::default_size` (`control.rs:66`), so frame two moves.
-  - Its face is one `text` and/or one `image "symbol:…"`; `buttonStyle` picks one of twelve styles; D6 refuses every row outside a layout allowlist.
-  - 1069.011.001 r3 (James) widens that: a subtitle and image placement, `gap`, `font-size`/`font-weight`, wrapping, `text-align`, `color`, `-exact-control-size`, `-exact-corner-style`, `border-radius` and `padding` as content fields, invokers, the symbol's own rows, disabled, `pointer-events`, and a first layout measured by the OS (D11). Background, border, shadow and material stay refused.
-  - The node keeps focus and Exact draws the ring: a `CAShapeLayer` on iOS (`NodeViewIOS.swift:331-354`), AppKit's ring on the node on macOS, the browser's outline on the web, none on Linux.
-  - On the web a native button is tiny until it is given a size (QUEUE, "Authoring-bench iOS round 13 polish").
+- **Buttons** (LLP 1069.011 and 1069.011.000 built; 1069.011.001 r3 drafted, not built):
+  - A bare `button` is a `Pressable` with a fixed `appearance: none` row (`tags.rs:118-125`). `buttonStyle` on it is refused (`controls.rs:77-90`).
+  - A literal `appearance="auto"` makes it a `Control` of type `button`, `border-box`, whose children are face data the kernel does not lay out (`node.rs:135`). The host reports its size after the batch through `onIntrinsic` → `set_intrinsic_size`. Until then it lays out at `ControlKind::default_size`, 64×34 (`control.rs:66-77`), so frame two moves.
+  - Today: one `text` and/or one `symbol:` image; twelve `buttonStyle`s; every row outside a layout allowlist refused (1069.011 D6).
+  - 1069.011.001 r3 adds a subtitle and image placement, title typography, wrapping, `color`, `-exact-control-size`, `-exact-corner-style`, `border-radius` and `padding` as content fields, invokers, the symbol's own rows, disabled, `pointer-events`, and a first layout measured by the OS (D11). D12 still refuses background, border, shadow, `filter`, `backdrop-filter`, `font-family`, `direction`, `press-scale`, and an image's size rows.
+- **Focus:**
+  - The node owns focus, and Exact draws the ring for a native button too.
+  - **iOS:** Tab moves first responder and the presenter draws a ring (`PresenterIOS.swift:448`, `NodeViewIOS.swift:331-354`). UIKit's focus search skips `NodeView` and native buttons (`FocusSearchIOS.swift:31-36`).
+  - **tvOS:** the node is the focus stop (`NodeViewIOS.swift:302`, `RemoteTVOS.swift:20-24`), and the `UIButton` says `canBecomeFocused = false` (`NativeButtonsIOS.swift:44`).
+  - **macOS:** the node is the key view even when Keyboard navigation is off (`FocusMac.swift:22-27`), and the `NSButton` refuses first responder (`NativeButtonsMac.swift:120`).
+  - **Web:** `button:focus-visible` puts the outline back after the reset (`index.html:48`).
+  - **Linux:** no ring for buttons.
+- **The terminal** paints no `Control` (`host/terminal/src/paint.rs:195`): a native button has no look there.
+- **Windows** is the Linux presenter in a winit window (`host/windows/src/window.rs`).
+- **The web's size gap:** a native button is tiny until it is given a size (QUEUE, "Authoring-bench iOS round 13 polish"). The cause is unmeasured.
 - **Counts** (rough grep, classes not expanded):
-  - Buttons: `apps/` 530 (5 native today; 416 style themselves inline, 18 by class only, 96 not at all); `contract/corpus` 93; `examples/` 27. About 100 have children other than one `text` and one `image`.
-  - Fields: 43 in apps and 3 in the corpus already say `appearance="none"` (r4).
+  - Buttons: `apps/` 530, of which 4 are native today (two `appearance="auto"` and two through `class=NativeGlass`, all in Messages), 416 style themselves inline, 18 by class only and 96 not at all. `contract/corpus` has 93, `examples/` 27. About 100 have children other than one `text` and one `image`.
+  - Fields: 42 in apps and 3 in the corpus say `appearance="none"`.
 
 ## 3. Decisions
 
 ### D1 — One switch, default `auto`, on fields and buttons alike
 
-- **What the default covers:** `textarea` (except the Markdown editor); an `input` whose type is absent or one of `text`, `email`, `password`, `search`, `tel`, `url`, `number`; and `button`. `hidden`, `color`, `month` and `week` are unchanged.
+- **What the default covers:** `textarea` (except the Markdown editor); an `input` whose type is absent or one of `text`, `email`, `password`, `search`, `tel`, `url`, `number`; and `button`. Every other input type and the Markdown editor are unchanged, on every host and in the web stylesheet (D8).
 - **The two values:** `auto` is the platform's control. `none` is the bare box Exact lays out and paints, as `button` is today and fields were before r4.
 - **A literal:** the switch is resolved class then own attribute, as 1069.011 D1 has it. A bound or one-sided-class `appearance` is refused, and the error says to write `when` with two nodes. `lower-field-appearance` and `lower-button-appearance` become one error, `lower-appearance`.
-- **Fixed rows:** the `button` tag's fixed `appearance: none` row goes. Fields gain no fixed rows: r4's sheet goes from lowering.
-- **`buttonStyle`:** unchanged. With no style a native button is `bordered`. Fields get no style vocabulary in this RFC (§5 Q3).
+- **Fixed rows:** the `button` tag's fixed `appearance: none` row goes. The schema default is already `auto`. Fields gain no fixed rows: r4's sheet goes from lowering.
+- **`buttonStyle`:** with no style a native button is `bordered`. Fields get no style vocabulary in this RFC (§5 Q4).
 
-### D2 — Devolving is CSS's rule, decided when the plan compiles
+### D2 — Which controls are native: one rule, decided in the plan
 
-CSS UI 4 §7.2.1 names the properties that, written by the author, make a devolvable widget its primitive self: `background-*`, the `border-*` widths, styles and colours, `border-*-radius` and `border-image-*`. Exact follows that list on every host, and lowering applies it:
+**CSS's disabling rows.** CSS UI 4 §7.2.1: a widget whose author origin has a cascaded value for any appearance-disabling property is devolved. Any value counts, initial ones included. The properties Contract has are:
+- `background-color` and `background-image`;
+- the `border-{top,right,bottom,left}-{width,style,color}` longhands;
+- the four `border-*-radius` longhands;
+- the shorthands that set them (`background`, `border`, `border-radius`, …).
 
-- **Under the default** (no `appearance` written), a field or button with any of those rows, from its own attributes or a resolved class, is the bare box: lowering writes `appearance: none` for it. That is what a browser draws for `<button style="background: …">`. No error and no lint: it is the web's behaviour, and the agent's `layout` reports it ("bare: `background-color`").
-- **With `appearance="auto"` written**, those rows are refused (`lower-appearance`, naming the row), as LLP 1069.011.001 D12 refuses them. The author asked for the platform's control and for chrome the platform owns. One exception, declared: on a button, `border-radius` is UIKit's `cornerStyle = .fixed` (1069.011.001 D15), because UIKit names it as a content field and the style keeps its chrome. CSS would devolve it.
-- **A disabling row present only under a condition** (a one-sided class, a `when` that adds it) would flip the control between native and bare at runtime. It is refused, and the error says to write `appearance="none"` or two nodes. A bound value on such a row (`background-color=(on ? a : b)`) is always present, so it devolves statically.
-- **Content devolves too:** under the default, a button whose children don't fit 1069.011.001 D3's face (a third child, a non-symbol image, `svg`, nested boxes) is the bare box. With `appearance="auto"` written, they are refused (1069.011.001 D12).
-- **The web's bare box is Exact's bare box.** Lowering's decision reaches the web as the same `appearance="none"`, so the reset (D8) applies. A browser's own devolved button keeps UA padding and a 2px outset border under the author's rows; Exact's bare box has neither, as `button` has had since 1069.011 D1. Declared deviation: one bare box on every host.
+`background-clip` and `background-attachment` are not on CSS's list. Contract has no `border-image`.
 
-Because the decision is in the plan, it is one decision for every host. No host decides at runtime whether a control is native, and the kernel never learns it from a report.
+**The rule, in order:**
+1. **`appearance="none"` written:** the bare box. `buttonStyle` is refused, as today.
+2. **`appearance="auto"` written:** native. Lowering refuses, naming the row or child:
+   - every disabling row;
+   - everything LLP 1069.011.001 D12 refuses;
+   - every attribute or context LLP 1069.011 and 1069.011.000 refuse on a native button;
+   - children that don't fit 1069.011.001 D3's face (walked through `when` and `match` as 1069.011 D5 does; `each` refused).
+
+   One declared exception: on a button, `border-radius` is UIKit's `cornerStyle = .fixed` (1069.011.001 D15). CSS would devolve it.
+3. **Neither written (the default):** native exactly when rule 2 would admit the node **and** no disabling row is written, `border-radius` included. Otherwise the bare box. Under the default nothing is refused that compiles today.
+
+**What counts as written** is decided on the node's rows after classes are merged (`class.rs`) and shorthands expanded. A row present on any arm counts: a one-sided class, a bound value with a `none` arm, a `when` that adds it. A face child that doesn't fit on any arm of a `when` or `match` counts too.
+
+**Declared deviation:** CSS re-decides as rows come and go, so a conditional background flips a browser's button between native and devolved. Exact decides once, so that a node never changes type (`Control` against `Pressable`) at runtime. A control whose disabling row is present only sometimes is always the bare box, with or without that row's value.
+
+**`buttonStyle` under the default** names a native button. On a node that rule 3 makes bare it is refused (`lower-button-style`). The error names the row or child that made it bare, and says to remove it or write `appearance="none"` without `buttonStyle`.
+
+**Reported:** the agent's `layout` says "bare: `background-color`" (the first reason) for a default control that came out bare.
+
+**The web's bare box is Exact's.** A browser's own devolved button keeps the UA padding and a 2px outset border under the author's rows. Exact's bare box has neither on any host, as `button` has had since 1069.011 D1. Declared deviation: one bare box everywhere.
 
 ### D3 — Other rows customise the native control
 
-A row that doesn't devolve the control goes to it. The host applies it to the control, lays it out around the control (margin, size, position, transforms, opacity, as every host does today), or, where the platform can't express it, draws the nearest thing and reports a stand-in through the agent's `layout`. This is 1069.011.001's rule ("NSButton as is"), extended to fields.
+Rows rule 2 admits go to the control. The host does one of three things with each:
+- **applies** it to the control;
+- **lays it out** around the control: margin, size, position, transforms, opacity, as every host does today;
+- **reports a stand-in** through the agent's `layout` where the platform can't express it, drawing the nearest thing. This is 1069.011.001's rule ("NSButton as is").
 
-**Buttons:** LLP 1069.011.001 D2–D9 and D13–D17, unchanged: `color`, `font-size`, `font-weight`, `white-space`, `line-clamp`, `text-align`, `gap`, `flex-direction`, `padding` as `contentInsets`, `border-radius` (D2's exception), `-exact-control-size`, `-exact-corner-style`, the symbol's `tint-color` and size, `accent-color` as the tint, invokers, disabled, `pointer-events`.
+**Buttons:** LLP 1069.011.001 D2–D9 and D13–D17, unchanged. That includes D5: absent `white-space`, a button's title wraps, as UIKit's does and as Chromium's `button` does (its UA sheet sets no `white-space` on `button`). `font-family` stays refused (D12).
 
 **Fields:**
 
-| Row | iOS / tvOS (`UITextField .roundedRect`) | macOS (bezeled `NSTextField`) | Web |
+| Row | iOS (`UITextField .roundedRect`) | macOS (bezeled `NSTextField`) | Web |
 |---|---|---|---|
 | `color` | `textColor` | `textColor` | applies |
-| `font-size`, `font-weight`, `font-family`, `letter-spacing` | `font`, `defaultTextAttributes` | `font` | applies |
+| `font-size`, `font-weight`, `font-style`, `font-family` | `font` | `font` | applies |
+| `letter-spacing` | `defaultTextAttributes[.kern]` | the value's `.kern` and the field editor's `typingAttributes`; a stand-in if that does not hold while editing | applies |
 | `text-align` | `textAlignment` | `alignment` | applies |
 | `accent-color`, `caret-color` | `tintColor` | `insertionPointColor` (field editor) | applies |
 | `padding-*` | text-rect insets added to the chrome's | added inside the bezel (cell subclass) | applies |
 | `-exact-control-size` | stand-in (UIKit has no field sizes) | `controlSize` | CSS's absolute `font-size` keyword, as 1069.011.001 D8 |
 
-The build fills each cell from a measured fixture (§4). A cell that doesn't hold becomes a reported stand-in, never a devolve.
+The table is a starting point. The build fills in each cell from a measured fixture (§4). A cell that doesn't hold becomes a reported stand-in, never a devolve.
 
+- **What the hosts specialise today stays:** a password field is `isSecureTextEntry` / `NSSecureTextField`; email, URL, number and search keep their keyboards and content types. Each is in the fixture.
+- **tvOS:** a field is UIKit's `UITextField` with tvOS's own look; editing opens the system's keyboard screen. Rows apply where tvOS's UIKit honours them, and stand-ins are reported. A textarea stays as today, a read-only text view; editable multi-line text on tvOS is out of scope.
 - **Disabled:** the platform's own disabled look (`isEnabled = false`, the browser's `:disabled`). r4's opacity 0.5 row goes. An authored `color` is kept when disabled, as 1069.011.001 D16 and the browser do.
-- **Placeholder:** the platform's own. iOS uses `UIColor.placeholderText` on the field and the textarea, which fixes the field's 30%-of-ink rule that disagreed with the textarea. macOS uses `placeholderAttributedString` with the system's colour, and the web uses the UA's (the `::placeholder` colour rule at `index.html:89` goes for native fields). An authored `::placeholder` colour is not in Contract and stays out of scope.
+- **Placeholder:** the platform's own:
+  - iOS uses `UIColor.placeholderText` on the field and the textarea. That fixes the field's 30%-of-ink rule, which disagreed with the textarea.
+  - macOS uses `placeholderAttributedString` with the system's colour.
+  - The web uses the UA's (the `::placeholder` rule at `index.html:89` stops reaching native fields).
 
-### D4 — Typography and colour stop at the control
+  An authored `::placeholder` colour is not in Contract and stays out of scope.
 
-The browser's UA sheet sets `font`, `color`, `letter-spacing`, `text-align` and friends on `input`, `textarea` and `button`, so an ancestor's typography does not reach them. LLP 1069.011.001 D2 makes a native button do the same. This RFC extends it to native fields:
-- A native field's or button's font, colour, letter spacing and alignment come only from rows written on it (or, for a button, on its face's children, 1069.011.001 D2), each with its class.
-- **Absent, the platform's:** the host leaves the control's own default (UIKit's and AppKit's field font, the label colour), so a future OS's default shows through. On the web it is the UA sheet's control font (13.33px in Chrome, `font: -webkit-small-control`), as a bare `<input>` has.
-- **The kernel measures with what the host draws.** A field's text is still measured by the kernel (D5), so the host's measure answer includes the resolved default font for that control.
-- **A bare box inherits, as today.** `appearance="none"`, written or by devolving, keeps Exact's reset: font and colour inherit. Declared deviation: a browser's devolved control still has the UA's font.
+### D4 — A native control's text starts from the platform's, before layout
 
-This changes what every unstyled field in the repo looks like on the web (§5 Q2).
+The browser's UA sheet gives `input`, `textarea` and `button` their own text style instead of the inherited one. In Chromium: `font: -webkit-small-control`, `color: FieldText`, `letter-spacing: normal`, `word-spacing: normal`, `line-height: normal`, `text-transform: none`, `text-indent: 0`, `text-shadow: none`, `text-align: start`. A `textarea` is also `font-family: monospace`.
+
+A native field or button in Exact does the same:
+- **The rows that stop:** of those, the ones Contract has. They do not inherit into a native control. Each starts from the control's value, and an authored row (on the control, its class, or for a button its face's children, 1069.011.001 D2) replaces it. Clearing an authored row restores the control's value.
+- **The exception:** a native button's `text-align` keeps 1069.011.001 D6 (centred).
+- **A bare box inherits, as today.** `appearance="none"`, written or by D2, keeps Exact's reset. Declared deviation: a browser's devolved control keeps the UA's font.
+
+**The control's text style is an environment fact.** The host supplies it to the kernel in `Env` before the first layout, as it supplies the safe-area insets. There is one style per control kind (field, secure field, textarea, button) and `-exact-control-size`. It is asked of the platform at runtime and never written down:
+- **iOS:** fields and textareas use `UIFont.preferredFont(forTextStyle: .body)`, which follows Dynamic Type. The host sets `adjustsFontForContentSizeCategory`, so the font drawn is the font measured. The button's style is the title font `UIButton.Configuration` uses at that size, read from a configured button.
+- **macOS:** `NSFont.systemFont(ofSize: NSFont.systemFontSize(for: controlSize))`, and the control's text colour.
+- **Web:** the computed style of probe `<input>`, `<textarea>` and `<button>` elements under the page's UA sheet. The wasm oracle's kernel and the JS target's page then agree. A textarea is monospace there, as in a browser.
+- **Painted hosts:** their own look (D7).
+
+Because the style is part of computed style:
+- `em` lengths on the control resolve against it;
+- the kernel's text measure uses it;
+- the Apple hosts receive it as computed rows, as they receive inherited rows today (`host/apple/src/style.rs:823`), so they draw the font that was measured.
+
+A change (Dynamic Type, legibility weight, control size) goes through `set_env`. It re-derives the styles that read it and invalidates their text and layout caches, as an `env()` length's change does.
+
+This changes what every unstyled field and button in the repo looks like on the web (§5 Q2).
 
 ### D5 — The host measures before the first frame
 
-**Buttons:** LLP 1069.011.001 D11: a `ControlMeasurer` hook beside `TextMeasurer`, height-for-width, answered from a cache of real `UIButton.systemLayoutSizeFitting` (macOS `NSButton.fittingSize`) results. On a miss the presenter measures on the main thread before it presents that batch and asks for a relayout. A screen that adds no new face pays nothing, and nothing moves after the first frame.
+**Buttons:** LLP 1069.011.001 D11: a `ControlMeasurer` hook beside `TextMeasurer`, height-for-width. It is answered from a cache of real `UIButton.systemLayoutSizeFitting` (macOS `NSButton.fittingSize`) results. On a miss the presenter measures on the main thread before it presents that batch, and asks for a relayout.
 
-**Fields** keep the kernel's text measure: `field-sizing`, `rows`, `MaxContent` width and the first baseline (`arena.rs:619-664`, `layout.rs:930-1037`). A field is not a `Control`: that path drops the baseline and can't follow a value whose size changes. The same hook answers, for a field, its **chrome**:
-- **Insets:** four lengths the layout adds as it adds padding and border. The kernel keeps them apart from the `padding-*` and `border-*` rows.
+**Fields** keep the kernel's text measure: `field-sizing`, `rows`, `MaxContent` width and the first baseline (`arena.rs:619-664`, `layout.rs:930-1037`). A field is not a `Control`, because that path drops the baseline (`layout.rs:911-928`) and can't follow a value whose size changes. The same hook answers, for a field, its chrome:
+- **Insets:** four lengths the layout adds outside the content box, where padding and border go. They are kept apart from the `padding-*` and `border-*` rows.
 - **Minimum height:** for a single-line field (UIKit's rounded-rect field is taller than its text).
-- **Default font** (D4).
 
-The answer depends only on the control kind, `-exact-control-size`, the content-size category, the legibility weight and the scale, not on the node, so the cache is a handful of entries per session. It is filled the way buttons fill theirs: on a miss, measured on the main thread before the batch is presented. No per-platform guess is written into the schema, and r5's `set_field_chrome` entry is not added.
+**The box model is the UA's.**
+- A native field is `content-box`: an authored `width` or `height` is the text area. The chrome insets and authored padding are added outside it.
+- A native button is `border-box`, as today (`controls.rs:471-474`) and in Chromium.
+- `min-*` and `max-*` apply as CSS says, to the same box.
 
-- **Where the field's text goes:** the host places the text editor inside the chrome. The node's box is the control's frame. The content box is that frame minus the chrome insets and any authored padding.
-- **Again:** a change of content-size category, legibility weight or `-exact-control-size` invalidates the entries it keys.
-- **Web:** the browser lays out the native `<input>`, `<textarea>` and `<button>`, as it lays out a native button today.
-- **Linux, the terminal, Windows:** answer synchronously from their own look (D7).
+**A single-line field centres its line.** When the used height exceeds the line (a minimum height, or an authored `height`), the text is centred vertically in the content box. UIKit, AppKit and browsers all do this. The field's baseline is that centred line's: content top + (content height − line height) / 2 + ascent. Today the kernel takes the top of the content box plus the ascent (`layout.rs:1030-1037`), and that changes for single-line native fields. A textarea's text starts at the top, as today.
 
-### D6 — The OS draws focus
+**The cache key** for a field's chrome is:
+- the control kind (secure and search fields included);
+- `-exact-control-size`;
+- the resolved font (family, size, weight);
+- the content-size category, legibility weight and scale.
 
-- **The control is the focus owner.** For a field this is already true. For a native button it reverses 1069.011 D4: the native control becomes the first responder or focus candidate, and the node relays `focus`, `blur` and `key` from it. The agent's `tap` and focus operations address the node as today. The build proves that with `scripts/agent.mjs` on iOS and macOS, not by reading code.
-- **iOS:** fields show the caret. Buttons use the focus system (`canBecomeFocused`, the system halo under a hardware keyboard and Full Keyboard Access). Bare pressables replace Exact's `CAShapeLayer` ring with `focusEffect = UIFocusHaloEffect(roundedRect:…)` from the node's shape.
-- **tvOS:** the focus engine is the only input, and a focused `UIButton` lifts and highlights by itself. Native buttons and fields become focus candidates there as on iOS, and bare pressables keep their tvOS treatment as today. The tvOS build and its smoke are in this RFC's checks (`build.mjs --tvos`).
-- **macOS:** fields use `focusRingType = .default`; textareas the scroll view's `drawFocusRingMask` while the text view is first responder; buttons `focusRingType = .default`, shown when `NSApp.isFullKeyboardAccessEnabled`, the OS's rule. Bare pressables keep AppKit's ring on the node. The `pressable` gap (a button relying on an ancestor's handler shows no ring, `NodeViewMac.swift:205`) is fixed in passing. r4's `fieldFocused` border in `boxPlan` and `showFieldFocus` go.
-- **Web:** the UA's `:focus-visible` outline. The reset no longer reaches native controls, so `outline: auto` is the browser's own. The `[data-fieldstyle]` and `button:focus-visible` rules go.
-- **Painted hosts:** no OS ring, so each paints one as part of its look (D7): `field_ring` for fields on Linux, and a new ring for buttons, which have none today.
+Phase 1 probes the chrome across fonts from 11 to 34pt, two families and constrained heights. The font comes out of the key only if the probes show the insets don't depend on it. A miss is measured on the main thread with a real configured control before the batch is presented, as for buttons. No per-platform guess is written into the schema.
+
+- **Where the text goes:** the host places the text editor in the content box. The node's frame is the control's frame.
+- **Web:** the browser lays out its own `<input>`, `<textarea>` and `<button>`.
+- **Painted hosts:** answer synchronously from their look (D7).
+- **No provisional frame:** each host counts batches it presented while any control's measure was provisional (`state.layout.provisional`). The checks assert zero (§4).
+
+### D6 — The OS draws a native control's focus; Exact draws the bare box's
+
+- **One focus owner per node.** A native field's or button's owner is the native view. Anything else's owner is the node. Every focus path uses that one mapping: Tab traversal, programmatic `focus()`/`blur()`, `autofocus`, `retainFocus`, collection pinning of a focused row, activation, and the routing of `focus`, `blur` and `key`. The node relays events from its owner. The agent's `tap` and focus operations address the node, as today.
+- **A focusable button doesn't need a handler of its own.** A `button` is focusable and shows a ring with no press handler of its own. That fixes the `pressable` gap at `NodeViewMac.swift:205` and the ring mask at `FocusMac.swift:50`.
+- **Native controls:**
+  - **macOS:** the `NSButton` and the field accept first responder and stay in the key view loop whether or not Keyboard navigation is on, as the node does today (`FocusMac.swift:22-27`). The OS's setting doesn't decide whether Tab reaches a button. AppKit draws the ring (`focusRingType = .default`). A textarea's ring is the scroll view's `drawFocusRingMask` while the text view is first responder. r4's `fieldFocused` border in `boxPlan` and `showFieldFocus` go.
+  - **iOS:** a field shows the caret. A native button's ring is UIKit's focus effect, which UIKit draws only on a UIKit focus item that its focus system has focused. Exact's Tab moves first responder, and its focus search skips native buttons today (`FocusSearchIOS.swift:31-36`). So the build first probes whether Exact's traversal can hand UIKit focus to a `UIButton` (it joins the focus search, `canBecomeFocused`, and the focus system is moved to it) under a hardware keyboard and Full Keyboard Access. If it can, that is the path. If not, iOS keeps Exact's ring on a native button as a declared stand-in (§5 Q3).
+  - **tvOS:** the `UIButton` is the only focus stop. The node leaves the focus engine for a native button (`canBecomeFocused` false on the node, true on the button), so there are no double stops and no Exact ring over UIKit's lift.
+  - **Web:** the UA's `:focus-visible` on the browser's own control.
+- **The bare box keeps today's ring on every host:**
+  - the web's restore (`button:focus-visible`, `index.html:48`) stays, scoped to the reset controls;
+  - iOS keeps its first-responder ring;
+  - tvOS and macOS keep theirs;
+  - a bare field draws its own focus, as today.
+
+  This is what a browser does after `all: unset` with a focus restore (CSS UI 4 §7.2.2).
+- **Painted hosts** have no OS ring and paint one as part of their look (D7): `field_ring` for fields on Linux, and a new ring for buttons there and in the terminal.
 - **Retired:** `fieldStyle` (prop 253) and its `data-fieldstyle` mark. Prop numbers aren't reused.
 
 ### D7 — The painted hosts have a look of their own
 
-- **Linux** has no platform controls. Its painter draws a field and a button that read as one set, as it already draws a select or date frame (`paint/control.rs:86-126`). r4's colours, radius and padding become Linux's field look, painted by the host and not compiled into rows. The look is Linux's to tune. It answers D5's hook synchronously.
-- **The terminal** keeps LLP 1101.002 P7's field (a fill and an ink), as the terminal host's look rather than compiled rows.
-- **Windows** (`host/windows`, a painter today) takes Linux's look until it has native controls of its own.
+- **Linux** has no platform controls. Its painter draws a field and a button that read as one set, as it already draws a select or date frame (`paint/control.rs:86-126`). r4's colours, radius and padding become Linux's field look, painted by the host rather than compiled into rows, and Linux's to tune. It answers D5's hook and D4's text style synchronously.
+- **Windows** is the Linux presenter (`host/windows/src/window.rs`) and gets Linux's look with no work of its own.
+- **The terminal:**
+  - Its field keeps LLP 1101.002 P7's look (a fill and an ink), as the host's paint rather than compiled rows. 1101.002 P7 is amended.
+  - A native button gets a look and a measure, which it has none of today. The terminal paints the face's title from the button's face data, since the kernel does not lay out a `Control`'s children (`node.rs:135`). The look is reverse video with one cell of padding each side, and the symbol is dropped. A focused button is drawn in bold.
+  - It answers `ControlMeasurer` in cells. Enter and Space activate the button.
+  - The terminal's apps (Todo, Harness) are driven before and after.
 
 ### D8 — The web
 
-- **The reset splits:** `all: unset` applies to `button`, `input` and `textarea` with `appearance="none"` (written or by D2, reaching the element as a data attribute) and no longer to native ones. Native ones are the browser's own `<input>`, `<textarea>` and `<button>`, with the authored rows as inline style.
-- **Sizes are the browser's.** Conformance compares the JS target against the wasm oracle in Chrome, both with the UA's metrics.
-- **Button looks:** `buttonStyle`'s web looks (`index.html:62-76`) apply as today; `bordered`, the default, is the UA button itself.
-- **The size gap:** a native button on the web is tiny until it is given a size. Every unstyled button now hits it, so phase 1 fixes it.
+- **The reset stays and native controls step out of it.** `button, input, textarea { all: unset; … }` (`index.html:36`) stays as it is, so excluded input types, the Markdown editor (which starts as a `textarea`, `markup-editor.js:99`) and every bare control are unchanged.
+  - **The marker:** lowering marks a native control in D1's domain (`data-native`).
+  - **The new rule:** `#exact-root [data-native] { all: revert; display: block; }` gives the control back the whole UA sheet, keeping Exact's block display.
+  - **The box:** `box-sizing` is the UA's, content-box for fields and border-box for buttons (D5).
+  - **The authored rows** arrive as inline style, as today.
+- **Button looks:** `buttonStyle`'s web looks (`index.html:62-76`) are 1069.011.001's to change in its step 3. Its D5, for one, lifts line 62's `nowrap`. `bordered`, the default, is the UA button: line 62's `revert` rows already give it the UA's padding, border and font.
+- **The size gap:** the cause of the tiny native button is unmeasured. Phase 1 traces it first, with the JS target and the wasm oracle side by side, and fixes it before any app's buttons turn native.
+- **Sizes are the browser's.** Conformance compares the JS target against the wasm oracle in Chrome, and both pages ship this stylesheet. So §4 also compares them with a plain page of the same elements and no Exact stylesheet.
 
 ### D9 — The repo's apps
 
-- **Fields:** the 43 + 3 `appearance="none"` fields stay. A field with its own background or border now devolves by D2, so most could drop the attribute, and the codemod leaves them. Fields with no styling of their own take the platform's field. `visible_fields.rs` is rewritten around the default, D2 and the refusals.
-- **Buttons:** D2 does most of the migration. A self-styled button that sets a background or border (most of the 434) is the bare box with no change to its source. A codemod adds `appearance="none"` to the rest that style themselves without one (colour, font or padding only: links, text actions), so they look as before. Its dry run prints the count. Bare unstyled buttons (about 96 + 79 + 4) take the platform's button. Converting a self-styled button to a customised native one is a per-app design decision, made app by app.
-- **Docs:** both guides' control sections (`contract-for-agents.md:1605`, `contract-for-humans.md:949`), the pitfall about invisible fields, an `agent-pitfalls.md` entry for "a background makes it the bare box", and LLP 1102 §0's §3.15 row. Also the misattribution at LLP 1102:377, which r4's header repeated: LLP 1064 D6 is about `text-transform` and never said a field is a bare box. The bare box is LLP 1007's reset.
+- **Fields:**
+  - The 42 + 3 `appearance="none"` fields stay.
+  - A field with its own background or border is the bare box by D2 with no edit. The codemod leaves its `appearance="none"` in place.
+  - Fields with no disabling rows take the platform's field. `visible_fields.rs` is rewritten around D2's rule and refusals.
+- **Buttons:**
+  - D2 does most of the migration. A button with a background, a border, a radius, non-face children, or any row 1069.011.001 D12 refuses is the bare box with no change to its source.
+  - A codemod adds `appearance="none"` to every button that rule 3 would make native and that has any row beyond layout rows (margin, size, position, flex item rows), so it looks as before: colour, font, padding, `gap`, `text-align` or `flex-direction`. Its dry run prints the list and the count.
+  - Bare unstyled buttons (about 96 + 79 + 4) take the platform's button.
+  - Converting a self-styled button to a customised native one is a per-app design decision, made app by app.
+- **Docs:**
+  - Both guides' control sections (`contract-for-agents.md:1597-1608`, `contract-for-humans.md:946-950`).
+  - The pitfall about invisible fields.
+  - A new `agent-pitfalls.md` entry: "a background, border or radius makes a button the bare box; `buttonStyle` then refuses and says why".
+  - LLP 1102 §0's §3.15 row.
+  - The misattribution at LLP 1102:377, which r4's header repeated: LLP 1064 D6 is about `text-transform` and never said a field is a bare box. The bare box is LLP 1007's reset.
 
 ## 4. Verification
 
-- **A fixture page** (`scripts/fixtures/native-controls.contract`, beside 1069.011.001's `native-buttons.contract`), screenshotted light and dark on iOS (iPhone 17 simulator), tvOS, macOS, the web and Linux:
-  - a bare field and textarea; a password, search and number field; a disabled field;
-  - a field with each D3 row on its own, and with each D2 row on its own (bare);
-  - a button with each D2 row (bare), with rich children (bare), and with each `buttonStyle`;
-  - `appearance="none"` on each, and an unstyled field and button inside a parent that sets font and colour (D4).
-- **Lowering:** each D2 row devolves under the default and is refused with `appearance="auto"`; `border-radius` on a native button is admitted; a one-sided disabling row is refused; content devolves.
-- **Native geometry:** each host's chrome answer per control size; the text rect and baseline of a single-line field inside the chrome; a `field-sizing: content` textarea growing with its value; a content-size-category change remeasuring; a filmed `screenshot … over 300 every 16` from launch with no frame moving after the first.
-- **Focus:** Tab through fields and buttons with the OS ring on macOS (Keyboard navigation on and off) and the web; a hardware-keyboard halo on iPad; tvOS focus moving across a row of native buttons and a field; Linux's ring; no Exact ring drawn on Apple or the web.
+- **A fixture page** (`scripts/fixtures/native-controls.contract`, beside 1069.011.001's `native-buttons.contract`), screenshotted light and dark on iOS (iPhone 17 simulator), tvOS, macOS, the web and Linux, and printed by the terminal. It holds:
+  - a bare field and textarea; password, search, email and number fields; a disabled field;
+  - a field with each D3 row on its own;
+  - a field and a button with each disabling row on its own (bare);
+  - a button with each `buttonStyle`, with rich children (bare), and with a conditional background (bare on both arms);
+  - `appearance="none"` on each;
+  - an unstyled field and button inside a parent that sets `font-size`, `font-style: italic`, `line-height: 2`, `letter-spacing` and `color` (D4);
+  - a native field with `padding="1em"` (D4's `em`).
+- **Against the platform itself:**
+  - each native field and button beside a `UITextField`, `NSTextField`, `UIButton` and `NSButton` configured by hand in Swift for the same intent, pixel-diffed, as 1069.011.001 §4 does for buttons;
+  - on the web, the same elements in a plain page without Exact's stylesheet.
+- **Lowering tests:** D2's rule in order for each disabling row and each 1069.011.001 D12 refusal, under `none`, `auto` and the default. Also:
+  - a one-sided class, a bound `none` arm and a `when`-added row (bare under the default, refused under `auto`);
+  - `border-radius` admitted on an `auto` button and bare under the default;
+  - a face child on one arm of a `when`;
+  - `buttonStyle` on a node the default made bare, refused with its reason.
+- **Native geometry:**
+  - each host's chrome per control size and per font across the probe range;
+  - the baseline of a single-line field beside a `text` under `align-items: baseline` with an authored height;
+  - a `field-sizing: content` textarea growing with its value;
+  - a content-size-category change remeasuring and re-deriving `em` lengths.
+- **No provisional frame:** `state.layout.provisional` is zero after a cold launch with an empty cache, and after a screen that adds a new control kind and font after launch.
+- **Focus**, each with keyboard navigation on and off:
+  - Tab reaches every native and bare field and button on macOS and the web;
+  - the OS ring shows on native controls and Exact's ring on bare ones;
+  - `tabindex`, programmatic `focus()`/`blur()`, `retainFocus`, removing a focused control, and a cancelled key activation each run exactly once;
+  - a hardware-keyboard Tab on iPad (D6's probe);
+  - tvOS focus moves across a row of native buttons and a field, one stop each;
+  - Linux's and the terminal's rings.
+- **Excluded controls:** checkbox, radio, range, file and date inputs, and the Markdown editor (load, edit, source mode), unchanged before and after on the web.
 - **Conformance:** the JS target against the oracle on the fixture.
-- **Apps:** each app with changed controls is driven on iOS and the web (`scripts/agent.mjs`), screenshotted before and after.
+- **Apps:** each app with changed controls is driven on iOS and the web (`scripts/agent.mjs`), screenshotted before and after the codemod. The terminal drives Todo and Harness.
 
 ## 5. Open questions
 
-1. **iOS textarea.** UIKit has no bordered `UITextView`. Options: a hosted SwiftUI `TextField(axis: .vertical)` with `.roundedBorder`, the closest native multi-line field; or a `UITextView` with the system's separator stroke and the rounded field's radius, drawn by the host to match `UITextField`. Proposed: the second, because hosting SwiftUI for a text view brings its own focus and measurement paths.
-2. **The web's field font.** D4 gives an unstyled native field the UA's control font on the web (13.33px in Chrome) and the platform's on Apple. It is what a bare `<input>` does, and it is the most visible change this RFC makes on the web. Proposed: keep it. An app that wants its own font writes it on the field or in a class.
-3. **Field styles.** Should fields get a vocabulary like `buttonStyle` (macOS `borderShape` capsule, a plain borderless platform field)? Proposed: not now.
-4. **`select`** is a `Control` already drawn natively. Should D2–D4 cover it? Proposed: yes, as a follow-up.
+1. **iOS textarea.** UIKit has no bordered `UITextView`. Options:
+   - a hosted SwiftUI `TextField(axis: .vertical)` with `.roundedBorder`, the closest native multi-line field;
+   - a `UITextView` with the system's separator stroke and the rounded field's radius, drawn by the host to match `UITextField`.
 
-**Settled since r5:**
-- r5 Q2 (codemod or not): D2 makes most self-styled buttons bare with no edit, and the codemod covers the rest.
-- r5 Q3 (native chrome around arbitrary children): not planned. A button whose children don't fit the face is the bare box (D2). Hit testing, pressed dimming of Exact children and a title-less button's accessible name cost more than the look is worth.
+   Proposed: the second, because hosting SwiftUI for a text view brings its own focus and measurement paths.
+2. **The web's control font.** D4 gives an unstyled native field and button the UA's control font on the web: 13.33px in Chrome, and monospace for a textarea. On Apple they get the platform's. That is what bare `<input>` and `<textarea>` elements do, and it is the most visible change on the web. Proposed: keep it. An app that wants its own font writes it in a class.
+3. **iOS native-button focus.** If D6's probe shows Exact's traversal can't drive UIKit's focus system reliably, iOS keeps Exact's ring on native buttons as a stand-in. Proposed: probe first, decide on the result.
+4. **Field styles.** Should fields get a vocabulary like `buttonStyle` (macOS `borderShape` capsule, a plain borderless platform field)? Proposed: not now.
+5. **`select`** is a `Control` already drawn natively. Should D2–D4 cover it? Proposed: yes, as a follow-up.
+6. **The `border-radius` exception** (D2 rule 2) is James's D15. It keeps Lexy's rounded native buttons, at the price of one CSS deviation under `appearance="auto"`. Proposed: keep it. James to confirm.
 
 ## 6. Cost
 
+This RFC's work starts after LLP 1069.011.001's build order steps 1–5 (James's, unbuilt), and the estimate below does not include them: D3 consumes all of them.
+
 | Part | Estimate |
 |---|---|
-| Lowering: the default, D2's devolve rule and refusals, one `lower-appearance`, r4's sheet and mark removed, the codemod, tests | a lane-day |
-| Kernel: the field side of 1069.011.001's `ControlMeasurer` (chrome insets, minimum height, default font) | half a lane-day |
-| Apple: native field chrome, D3's field mapping, the iOS textarea, D4's typography stop, focus moving to native controls, the halo, tvOS focus, ring code removed | two lane-days |
-| Web: the reset split, the UA focus, the button-size gap, conformance | a lane-day |
-| Painted hosts: Linux field and button looks, the button ring, the terminal, Windows | half a lane-day |
-| Fixture, screenshots on five hosts, geometry checks, app drives, docs | a lane-day |
+| Lowering: the default, D2's ordered rule, one `lower-appearance`, `data-native`, r4's sheet and mark removed, the codemod and its dry run, tests | a lane-day |
+| Kernel: control text styles in `Env` and the non-inheriting rows, invalidation, the single-line baseline, the field side of `ControlMeasurer`, the provisional counter | a lane-day and a half |
+| Apple: native field chrome and the D3 mapping, secure and typed fields, the iOS textarea, D4's text style from the OS, focus ownership on iOS (the probe), tvOS and macOS, ring code removed | three lane-days |
+| Web: the `data-native` rule, the size-gap trace and fix, probes for D4, conformance and the plain-page comparison | a lane-day |
+| Painted hosts: Linux field and button looks and the button ring; the terminal's button look, measure and keys | a lane-day |
+| Fixture, hand-configured comparisons, screenshots on five hosts, geometry, focus and app drives, docs | a lane-day and a half |
 
-About six lane-days. 1069.011.001's build order steps 1–2 (the hook and iOS buttons) come first, and this RFC builds on them.
+About nine lane-days after 1069.011.001.
 
 ## 7. Revisions
 
 - r1–r4, 2026-10-06: visible fields by compiled default rows (border, radius, padding, fill, ink), a literal `appearance="none"`, the conditional-class fallback, a `fieldStyle` mark for Exact-drawn focus rings, disabled dimming. Reviewed blind by Astra and Grok each round and built (e97afa5af, aeb69b382, 3b904632d). §2 records what that build left in the code.
 - r5, 2026-10-06: Charlie disagreed with r1–r4's D1 ("we should default to the platform's look"): the platform's control by default for fields and buttons alike, hosts measure and draw, author rows customise the native control, hosts differ on purpose, the OS draws focus. Rewritten in place.
-- r6, 2026-10-06: folds in James's LLP 1069.011.001 r3 (a button's face, rows and first-frame measure are its). Devolving follows CSS UI 4 §7.2.1's list and is decided in lowering for every host (D2), replacing r5's per-host runtime devolve and its lint. That makes most of the button codemod unnecessary. Typography and colour stop at a native control, as the UA sheet makes them (D4). Fields are measured before the first frame through the same hook, replacing r5's guessed chrome. tvOS and Windows are added, and r5's phase 2 is dropped.
+- r6, 2026-10-06: built on James's LLP 1069.011.001 r3. Devolving follows CSS UI 4 §7.2.1, decided in lowering. Typography stops at a native control. Fields measured through the same hook. tvOS and Windows added, and r5's phase 2 dropped.
+- r7, 2026-10-06: folds the blind reviews of r6 by Astra max (`llp/reviews/1104-platforms-controls-r6.astra.md`) and Grok 4.7 xhigh (`…r6.grok.md`), both NOT READY. Disposition:
+  - **Accepted, D2:** the conditional-devolve contradiction (Astra 2, Grok 1) and D3 against 1069.011.001 D12 (Astra 3). D2 is now one ordered rule: under the default, native when `auto` would compile and no disabling row is written. A row on any arm counts, and nothing that compiles today is refused. `buttonStyle` on a node that came out bare is refused with its reason.
+  - **Accepted, D2 and D3:** CSS's exact list (Astra 11, Grok 4), with `background-clip` and `-attachment` out. Conditional faces (Grok 6).
+  - **Accepted, D3:** secure and typed fields, tvOS's own cell, macOS `letter-spacing` (Grok 7, Astra 11).
+  - **Accepted, D4:** the control's text style enters computed style through `Env` before layout, with `em`, invalidation and the full UA list including `line-height` and `font-style` (Astra 1, Grok 2 and 5).
+  - **Accepted, D5:** the box model, the centred single-line baseline, and a chrome key that includes the font until probes say otherwise (Astra 4, Grok 2).
+  - **Accepted, D6:** one focus owner, the web restore kept for bare controls, tvOS single stops, macOS Tab regardless of Keyboard navigation, ring eligibility without a handler (Astra 5 and 6, Grok 3). r6's iOS halo for bare pressables is dropped: a halo needs a UIKit focus item. Bare controls keep Exact's ring everywhere, and iOS native-button focus is a probe (§5 Q3).
+  - **Accepted, D7:** the terminal's button and tvOS's textarea (Astra 8). Windows is the Linux presenter (Grok 10).
+  - **Accepted, D8:** the reset is scoped by `data-native` and `all: revert`, leaving excluded controls and the Markdown editor alone (Astra 7, Grok 8).
+  - **Accepted, §4 and §6:** a provisional-frame counter instead of a film, the hand-configured and plain-page comparisons, the missing cases (Astra 9, Grok 9). The cost is incremental to 1069.011.001 steps 1–5 and re-estimated (Astra 10, Grok 9).
+  - **Accepted, minor (Grok 10, Astra 11):** counts (4 native, 42 `none`), the schema line, 1101.002 P7 amended, §2's colour premise corrected.
+  - **Not taken, Grok 4's trigger:** Grok said only a non-initial value devolves. CSS UI 4 §7.2.1 says a cascaded author value devolves, any value. Messages' transparent-background fields already say `appearance="none"`.
+  - **Not taken, Grok 5's `nowrap`:** Grok said browsers make a button `nowrap`. Chromium's UA sheet sets no `white-space` on `button` (only `pre` on `input[type=button]`), so 1069.011.001 D5's wrapping stands. `index.html:62`'s `nowrap` is Exact's own, from 1069.011, and 1069.011.001 lifts it.
