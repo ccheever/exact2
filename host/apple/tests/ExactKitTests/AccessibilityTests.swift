@@ -347,6 +347,8 @@ final class AccessibilityTests: XCTestCase {
             spin { ran }
         }
         XCTAssertNil(p.focusedNode)
+        p.syncAccessibility() // a later batch's sync: the restarted tree's autofocus stays consumed
+        XCTAssertNil(p.focusedNode)
         withExtendedLifetime(w) {}
     }
     /// Runs the main run loop until `done` holds, for at most `timeout` seconds.
