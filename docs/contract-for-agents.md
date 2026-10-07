@@ -1386,6 +1386,15 @@ test "the list shows an error, then retries and loads"
   expect tree has "recipes"
 ```
 
+A slow server is bounded in the source, not the view: `fetch(url, {
+exactTimeout: 10000 })` cancels the exchange after 10 s (headers and body) and
+rejects with a `FetchError` of kind `"Timeout"`, which the source catches and
+answers as any failure (a Rust source's request takes `Request::timeout(ms)`).
+Without it a stalled fetch waits the platform's limit (60 s without data on
+Apple). Test the error state with `fail fetch`, as above; a timeout itself is
+tested against a stand-in server that never answers (the reference's
+"exactTimeout").
+
 A test whose text depends on the date names its `epoch`; without one it runs at
 the driver's 2026-01-01 UTC. The steps are `tap "id" [hover|dblclick|contextmenu]`,
 `tap "id" modifiers "Shift+Meta"` (a press with keys held),

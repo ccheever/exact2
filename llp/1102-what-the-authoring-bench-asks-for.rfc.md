@@ -17,6 +17,7 @@
 | §3.4 | `calendarDiff` | **Accepted, narrowly:** whole years and months between two ISO dates, `option<number>`. "Nice to have; let's try adding it for now." **Built e6e9ea5e7**: counted as Temporal's `PlainDate.until` counts (a Feb 29 start completes a year on Mar 1 of a common year, a Jan 31 start a month on Mar 1). |
 | §3.3 | Source faults (`fail`, `hold`) as a failed host request | **Accepted** as recommended: a small RFC, resources first, then build. |
 | §3.15 | Text fields: visible by default, or opt in | **Visible by default.** A field draws the platform's field; `appearance="none"` keeps the bare box. Buttons keep their rule. **Built e97afa5af** (LLP 1104: default rows, not native chrome; focus states deferred). |
+| §3.5 | A timeout on a fetch | **Superseded by a feature:** `fetch(url, { exactTimeout })` and `Request::timeout(ms)` landed (f0f7bc865, another session, LLP 1016 D4 amended), ending in a `Timeout` `FetchError` on every host; the agents' guide points at it beside `fail fetch`. |
 | §3.16 | The editing contract instead of write-back | **Accepted.** Docs and a recipe; no automatic write-back. **Built:** the guide's "Editing a value: the field's contract", its example run on the web (half-typed `-` survives; Enter commits and normalizes). |
 | §3.18 | Reorder | **Keep D8's hold; cut the landing short** when a new drag starts. |
 | §4.1, §4.2, §4.4 | Graders, new tasks and coverage, cadence | **Accepted.** Fix the two graders, add two or three tasks and the coverage checks, then one round a day. |
