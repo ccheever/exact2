@@ -1,0 +1,6 @@
+// X05: a custom-scheme URL opened by the OS; the app has no navigation root.
+component X05UrlScheme
+  state got = "none"
+  view
+    main testId="root" padding=24
+      text `received: ${got}` testId="got"
