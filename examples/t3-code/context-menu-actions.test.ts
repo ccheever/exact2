@@ -9,8 +9,7 @@ import { toasts } from './toast';
 import { filesTreeMenu, pullRequestLinkMenu } from './context-menu-actions';
 import { filesState, markdownFileMenu } from './r4-surfaces-files';
 import { resetRemoteEditorsForTests } from './remote-open';
-import { imagePreviewAction, imagePreviewView } from './timeline-attachments';
-import { markdownMediaUrls } from './media-views';
+import { attachmentUrls, forgetMediaPreviewUrl, imagePreviewAction, imagePreviewView } from './timeline-attachments';
 
 function fixture(config: Obj = {}) {
   resetRemoteEditorsForTests();
@@ -31,8 +30,13 @@ function fixture(config: Obj = {}) {
   } };
   owner.restAccess = ((n: Native) => ({ call: (request: Obj) => owner.call(n, request), request: async (method: string, body: Obj) => { requests.push({ method, ...body }); return {}; } })) as unknown as T3Client['restAccess'];
   filesState(owner).dirs.set('', []);
+  // assets.createUrl for the linked media (resolveMarkdownMediaPreview); `refuse` makes the environment refuse it.
+  const signed: Obj[] = [];
+  let refuse = false;
+  owner.connection = 'connected';
+  owner.rpc = (async (_native: Native, method: string, payload: Obj) => { signed.push({ method, ...payload }); if (refuse) throw new Error('not found'); return { relativeUrl: `/api/assets/${signed.length}` }; }) as T3Client['rpc'];
   const menu = () => calls.find(call => call.op === 'contextMenu');
-  return { owner, native, calls, requests, menu, pick: (value: string) => { picked = value; }, composer: (value: Obj) => { editor = value; } };
+  return { owner, native, calls, requests, menu, signed, refuseSigning: () => { refuse = true; }, pick: (value: string) => { picked = value; }, composer: (value: Obj) => { editor = value; } };
 }
 
 describe('Files tree row menu', () => {
@@ -110,19 +114,39 @@ describe('Chat file link menu', () => {
       { id: 'copy-relative', label: 'Copy relative path' }, { id: 'copy-full', label: 'Copy full path' }]);
   });
 
-  test('Preview media opens the expanded media dialog with the link\'s media, as a media-file of the thread', async () => {
-    const { owner, native, pick } = fixture();
+  test('Preview media signs the link\'s media as a media-file of the thread, then opens the expanded media dialog with it alone', async () => {
+    const { owner, native, pick, signed } = fixture();
     pick('preview-media');
     await markdownFileMenu(owner, native, '/srv/project/shots/a.png');
+    expect(signed).toEqual([{ method: 'assets.createUrl', resource: { _tag: 'media-file', path: '/srv/project/shots/a.png', threadId: 't' } }]);
     const view = imagePreviewView(owner);
     expect(view).toMatchObject({ imagePreviewId: 'media:/srv/project/shots/a.png', imagePreviewName: 'a.png', imagePreviewVideo: false, imagePreviewPrevious: false, imagePreviewNext: false, imagePreviewPosition: '' });
     expect(JSON.parse(view.imagePreviewSource)).toMatchObject({ kind: 'image', name: 'a.png', asset: { resource: { _tag: 'media-file', path: '/srv/project/shots/a.png' } }, reference: { kind: 'file', relativePath: 'shots/a.png' } });
+    // The dialog's URL list carries the signed URL under the dialog's id; Retry video signs it again.
+    expect((await attachmentUrls(owner, native, 0)).items.filter(item => item.id.includes('a.png')).map(item => [item.id, item.url])).toEqual([['media:/srv/project/shots/a.png', 'http://127.0.0.1:41857/api/assets/1']]);
+    expect(forgetMediaPreviewUrl(owner, 'media:/srv/project/shots/a.png')).toBe(true);
+    await attachmentUrls(owner, native, 0);
+    expect(signed).toHaveLength(2);
+    // Leaving the thread drops the preview.
+    owner.threadId = 'other';
+    expect(imagePreviewView(owner).imagePreviewId).toBe('');
+    owner.threadId = 't';
+    expect(imagePreviewView(owner).imagePreviewId).toBe('');
     const video = fixture();
     video.pick('preview-media');
     await markdownFileMenu(video.owner, video.native, '/srv/project/clips/b.mp4');
     expect(imagePreviewView(video.owner)).toMatchObject({ imagePreviewId: 'media:/srv/project/clips/b.mp4', imagePreviewVideo: true });
     imagePreviewAction(video.owner, 'image-close', '', '');
     expect(imagePreviewView(video.owner).imagePreviewId).toBe('');
+  });
+
+  test('a refused media opens no dialog and says Media unavailable', async () => {
+    const { owner, native, pick, refuseSigning } = fixture();
+    refuseSigning();
+    pick('preview-media');
+    await markdownFileMenu(owner, native, '/srv/project/shots/a.png');
+    expect(imagePreviewView(owner).imagePreviewId).toBe('');
+    expect(toasts(owner).map(toast => [toast.title, toast.description])).toEqual([['Media unavailable', 'not found']]);
   });
 
   test('reveal strips the line and asks the file manager to reveal', async () => {
@@ -133,13 +157,3 @@ describe('Chat file link menu', () => {
   });
 });
 
-// resolveMarkdownMediaPreview: the dialog's media is signed on the owning environment as a `media-file` of the thread.
-test('the previewed link is signed as a media-file of the thread', async () => {
-  const requests: Obj[] = [];
-  const client = { threadId: 't', environmentId: 'env', origin: 'http://127.0.0.1:41857', ready: true, connection: 'connected', projection: { visibleTurnItems: [] },
-    rpc: async (_native: unknown, method: string, payload: Obj) => { requests.push({ method, ...payload }); return { relativeUrl: '/api/assets/x?sig=1' }; } };
-  const native = { available: true } as unknown as Native;
-  const urls = await markdownMediaUrls(client as never, native, '/srv/project', 1, ['/srv/project/shots/a.png']);
-  expect(requests).toEqual([{ method: 'assets.createUrl', resource: { _tag: 'media-file', path: '/srv/project/shots/a.png', threadId: 't' } }]);
-  expect(urls.map(entry => entry.id)).toEqual(['media:/srv/project/shots/a.png']);
-});

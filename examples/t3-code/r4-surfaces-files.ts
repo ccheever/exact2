@@ -287,8 +287,8 @@ export async function markdownFileMenu(client: T3Client, native: Native, target:
   if (!picked || client.environmentId !== environment || client.origin !== origin) return;
   // openMarkdownMedia: the expanded media dialog with the link's media (timeline-attachments.ts).
   if (picked === 'preview-media') {
-    try { openMarkdownMediaPreview(client, target, workspaceOf(client).cwd); }
-    catch (error) { pushToast(client, { kind: 'error', title: 'Media unavailable', description: error instanceof Error ? error.message : 'The file could not be loaded. It may have been moved or deleted.', stacked: true }); }
+    try { await openMarkdownMediaPreview(client, native, target, workspaceOf(client).cwd); }
+    catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: 'Media unavailable', description: error instanceof Error ? error.message : 'The file could not be loaded. It may have been moved or deleted.', stacked: true }); }
     return;
   }
   // Recheck after the native menu closes; a menu from another route cannot execute there.
