@@ -117,3 +117,5 @@ verifies those rows.
 ## Status and next action
 
 Filed as #133 and closed. Main #178 fixed the macOS agent's hover on inline runs (enter, leave, hit test at a point). task `20261007-adopt-main-fixes-input`: the clone has no inline-link hover card and no workaround to remove. Unblocked for `20261005-pr-links-previews-and-routing`: an inline link's hover can be built and driven by the agent on macOS. Still missing on main: `frame()` of an inline run and inline runs in agent `layout`, so the card has no rectangle to anchor to.
+
+Re-checked 2026-10-07 on main `cff90b364` (task [20261007-adopt-main-fixes-r3](../tasks/20261007-adopt-main-fixes-r3.md)): `frame()` of an inline run and inline runs in agent `layout` are still missing; nothing to adopt.

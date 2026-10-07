@@ -1,10 +1,10 @@
 ---
 name: 20261005-x08-agent-pointer-native-views
 plan: 20261005-t3code-macos-parity
-status: fix-built
+status: closed-upstream
 kind: framework-gap
 blocks: [20261005-browser-surface, 20261005-diff-review-engine, 20261005-floating-device-player, 20261005-right-panel-tab-menu, 20261005-settings-scoped-controls-and-theme-editor, 20261005-sign-in-terminals, 20261005-terminal-drawer, 20261005-terminal-integrations, 20261005-terminal-layout, 20261005-terminal-surface]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/107
 reproduced_on: null
 ---
 
@@ -99,3 +99,22 @@ Correction: the draft's premise was wrong. On exact2 main the agent already send
 - New `tap` forms: `auxclick [at x y]` (middle button), `clicks <1-3> [at x y]`, `at x y` for `contextmenu` and `wheel`, `modifiers` held through `down`/`drag`; wheel and pinch carry the window and point. The parser refuses words it would drop. iOS, Linux and Windows answer `delivery: "unsupported"`.
 - Known: a mouse-up an AppKit tracking loop takes does not reach the monitors, as with a real mouse, so an open popover may stay open (QUEUE.md names MenusMac and CollectionMac).
 - Evidence: the five checks; macOS XCTests (689); `smoke.mjs macos --app native-fixture` 103/103; `smoke.mjs web --app native-fixture` 57/57 with the router; two independent reviews, their findings fixed. No DEFERRED change needed (forms of `tap`).
+
+## Merged upstream; partly adopted (2026-10-07)
+
+The fix landed as main PR #186 (#107 closed) and reached the feature branch with main `cff90b364` in task [20261007-adopt-main-fixes-r3](../tasks/20261007-adopt-main-fixes-r3.md). Adopted there:
+
+- The right-panel tab's middle click (`RightPanelTabsInput.swift`, a local monitor) is an agent row: `tap panel-tab-<id> auxclick`. Driving it showed a clone bug: the monitor tested `view.visibleRect`, which an unclipped NSView reports beyond its bounds, so every tab matched and the first one in the dictionary closed (a middle click on Files closed Diff). The hit test is now `bounds ∩ visibleRect`; `macos/tests/contextmenu/tab-input.swift` has a two-tab case that fails on the old test. Live: BEFORE (base driver, no `auxclick`) the tap is a plain left press and both tabs stay; AFTER the Files tab closes and Diff stays.
+- Comments in `T3Sidebar.swift`, `T3Timeline.swift` and `T3PanelsNative.swift` say which agent forms their monitors now see (`tap … mouse modifiers`, `tap … wheel`, `tap … mouse at x y`).
+
+Still to convert (attended until their tasks re-drive them, now possible with `tap … mouse`, `clicks 1-3`, `wheel … at`, `drag … modifiers`): terminal selection, links and scrollbar (terminal-surface, terminal-integrations), device drag (floating-device-player), panel resize (settings-scoped-controls-and-theme-editor), diff drag-to-comment and Cite selection (diff-review-engine), sign-in terminal links. A mouse-up an AppKit tracking loop takes still does not reach monitors (as with a real mouse).
+
+## Attended rows converted (2026-10-07, adopt-main-fixes-r3 follow-up)
+
+Each pointer row is now an agent row, proved first in AppKit with the agent's event shapes (window never key):
+- Terminal (`macos/tests/terminal/pointer.swift`): drag select, double and triple click, right-click menu, a file link and a ⌘-click URL (link messages), scrollbar thumb drag and wheel. Two clone bugs found and fixed: the terminal's web view swallowed the first click in a window that is not key (`acceptsFirstMouse`), and its selection popup / right-click menu ran a modal `NSMenu.popUp` that blocks an agent (now reported as `selectionMenu` under the agent, as `T3ContextMenu` does).
+- Device stream (`macos/tests/r7-device`): an agent mouse drag sends begin/move/end touches.
+- Theme editor panel drag and grip, diff Shift-range and drag over line numbers, pinned headers under the wheel, Cite: agent recipes written into their task rows.
+- Live drive: not yet run successfully for these rows (see the task record); the tab middle click was driven live.
+
+Still not agent rows, with reasons: Korean 2-Set and IME (input method, not pointer), ⌘C/⌘V (shared real pasteboard), following a link (opens the user's browser or editor), a drag outside the window and back (`agent-drag.mjs` refuses points outside the viewport), cursor shapes (no cursor readback), sign-in terminal links (user hold on sign-in tasks).

@@ -28,7 +28,6 @@ final class T3Module: ExactModule {
     let menus = T3Menus() // Menu bar items, zoom and the ⌘Q hold (T3Menus.swift).
     let notifications: T3Notifications // Thread notifications, sound, Dock badge (T3Notifications.swift).
     let sidebar: T3Sidebar // Thread menu, modifier reads and jump hints (T3Sidebar.swift).
-    let gate: T3ReadGate // Holds the snapshot read's topics until its last reply (T3ReadGate.swift).
     private let launcher = R8KeysLauncher() // lane r8-keys: the surface launcher's focus and letters (R8KeysLauncher.swift).
     let measure = R8KeysMeasure() // lane r8-keys: drawn frames for window-level popups (R8KeysMeasure.swift).
     private let r9: R9Input // lane r9-input: composer focus and composing text, the transcript's remembered position (R9Input.swift).
@@ -40,39 +39,39 @@ final class T3Module: ExactModule {
                                                               "t3-terminal": T3TerminalView.factory] }
 
     required init(context: ExactModuleContext) {
-        let gate = T3ReadGate(changed: context.changed); self.gate = gate
-        let gated: (String) -> Void = { gate.changed($0) }
-        notifications = T3Notifications(agent: context.agent, changed: gated)
-        sidebar = T3Sidebar(agent: context.agent, changed: gated)
-        snapShot = T3SnapShot(directory: T3Storage.dataRoot(agent: context.agent, contextData: context.data), agent: context.agent, changed: gated)
-        timeline = T3Timeline(changed: gated)
-        turns = T3TimelineTurns(changed: gated)
-        mermaid = T3TimelineMermaid(changed: gated)
-        composer = T3Composer(changed: gated)
+        // A topic announced while the snapshot read is in flight lets its reply land, then asks once
+        // more (exact2 #183, #109); the app no longer holds topics during a read.
+        let changed: (String) -> Void = context.changed
+        notifications = T3Notifications(agent: context.agent, changed: changed)
+        sidebar = T3Sidebar(agent: context.agent, changed: changed)
+        snapShot = T3SnapShot(directory: T3Storage.dataRoot(agent: context.agent, contextData: context.data), agent: context.agent, changed: changed)
+        timeline = T3Timeline(changed: changed)
+        turns = T3TimelineTurns(changed: changed)
+        mermaid = T3TimelineMermaid(changed: changed)
+        composer = T3Composer(changed: changed)
         composer.editor.styler.imageDirectory = T3Storage.dataRoot(agent: context.agent, contextData: context.data).appendingPathComponent("snapshots/drafts", isDirectory: true) // image chips (T3ComposerImageChip.swift)
-        intent = T3ComposerIntent(changed: gated)
-        frames = T3ComposerFrames(changed: gated)
-        scrollEnds = R5ComposerScroll(changed: gated)
+        intent = T3ComposerIntent(changed: changed)
+        frames = T3ComposerFrames(changed: changed)
+        scrollEnds = R5ComposerScroll(changed: changed)
         attach = T3ComposerAttach(dataRoot: T3Storage.dataRoot(agent: context.agent, contextData: context.data), agent: context.agent)
         video = T3ComposerVideo(dataRoot: T3Storage.dataRoot(agent: context.agent, contextData: context.data), muted: context.agent)
         media = R6MediaPreview(agent: context.agent)
         let credentials = T3Credentials(persistent: !context.agent), saved = T3SavedEnvironments(persistent: !context.agent)
         activity = T3ActivityReporter(persistent: !context.agent, dataDirectory: T3Storage.dataRoot(agent: context.agent, contextData: context.data))
-        transport = T3Transport(persistent: !context.agent, dataDirectory: T3Storage.dataRoot(agent: context.agent, contextData: context.data), credentials: credentials, savedEnvironments: saved, activity: activity, changed: gated)
-        fleet = T3Fleet(persistent: !context.agent, credentials: credentials, saved: saved, activity: activity, changed: gated)
-        devices = R6DeviceStreams(access: { [transport] done in transport.deviceHubAccess(done) }, changed: gated)
-        ssh = T3Ssh(agent: context.agent, promptsAvailable: true, changed: gated) // the window shows the SSH password dialog
+        transport = T3Transport(persistent: !context.agent, dataDirectory: T3Storage.dataRoot(agent: context.agent, contextData: context.data), credentials: credentials, savedEnvironments: saved, activity: activity, changed: changed)
+        fleet = T3Fleet(persistent: !context.agent, credentials: credentials, saved: saved, activity: activity, changed: changed)
+        devices = R6DeviceStreams(access: { [transport] done in transport.deviceHubAccess(done) }, changed: changed)
+        ssh = T3Ssh(agent: context.agent, promptsAvailable: true, changed: changed) // the window shows the SSH password dialog
         r9 = R9Input(agent: context.agent)
         r10 = R10Connect(agent: context.agent)
         exportsRoot = context.agent ? T3Storage.dataRoot(agent: true, contextData: context.data).appendingPathComponent("exports", isDirectory: true) : nil
         super.init(context: context)
         composer.launcher = launcher
-        chrome.changed = gated // desktop-shell-details: full screen publishes t3.status (T3FullScreen.swift)
+        chrome.changed = changed // desktop-shell-details: full screen publishes t3.status (T3FullScreen.swift)
         DispatchQueue.main.async { [sidebar] in sidebar.install() }
     }
     override func later(_ request: [String: Any], reply: ExactReply) {
-        if gate.began(request, answer: { reply.send($0) }) { return }
-        if let key = request["fleet"] as? String { gate.sent(request); return fleet.perform(key, request) { [gate] in gate.answered(request); reply.send($0) } }
+        if let key = request["fleet"] as? String { return fleet.perform(key, request) { reply.send($0) } }
         route(request, reply: reply, from: 0)
     }
     /// Each area's ops (T3Module+<Area>.swift), in turn: an area answers the ops it owns and
@@ -85,9 +84,7 @@ final class T3Module: ExactModule {
     }
     /// The authenticated connection's ops (T3Transport.swift); a status read gains the presentation state.
     private func forward(_ request: [String: Any], reply: ExactReply) {
-        gate.sent(request)
-        transport.perform(request) { [weak self, gate] response in
-            gate.answered(request)
+        transport.perform(request) { [weak self] response in
             if request["op"] as? String == "status" {
                 DispatchQueue.main.async {
                     var result = response

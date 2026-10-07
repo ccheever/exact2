@@ -55,7 +55,7 @@ Included:
    result changed. Watch the SnapShot `shift+shift` chord against modifier-only keydown.
 6. **Parked native call (X14).** Reproduce, without the framework edit, the reply that a
    let-go answer loses (`EXACT2-GAPS.md` X14), and write the result into
-   [issue X14](../issues/20261005-x14-parked-native-reply.md): the steps and output, or "not
+   [issue X14](../issues/closed/20261005-x14-parked-native-reply.md): the steps and output, or "not
    reproduced on the pin". Keep the app-side `T3ReadGate.swift` workaround either way; it goes
    only when X14 is resolved upstream and adopted (`issue-close`) or closed by a user decision.
    The plan files no framework PR. The framework change (`js/src/parking.rs` and

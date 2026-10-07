@@ -54,7 +54,8 @@ final class T3Sidebar: NSObject {
     }
     /// The modifiers a row press reads: the click's own when one ended within
     /// the last two seconds (the press it caused), else the keyboard's now
-    /// (an agent's synthetic press never passes the monitor). Read once.
+    /// (an agent's plain `tap` is no mouse event and never passes the monitor; its `tap … mouse
+    /// modifiers <M>` click does, through NSApp.sendEvent, since exact2 #186). Read once.
     func pressModifiers(at time: TimeInterval = ProcessInfo.processInfo.systemUptime) -> NSEvent.ModifierFlags {
         defer { click = nil }
         if let click, time - click.at >= 0, time - click.at <= 2 { return click.flags }

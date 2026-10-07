@@ -59,7 +59,8 @@ final class T3Timeline {
     var status: [String: Any] { ["owner": owner, "resting": resting, "atEnd": atEnd, "transcriptPulls": pulls] }
 
     // Programmatic scroll-follow/history restoration never arms this gate.
-    // Agent wheel dispatch bypasses NSApp and must not stand in for this path.
+    // The agent's `tap … wheel` goes through NSApp.sendEvent since exact2 #186, so it reaches this
+    // monitor at its point as a hand's wheel does.
     func handle(_ event: NSEvent, at now: TimeInterval = ProcessInfo.processInfo.systemUptime) {
         guard let scroll = element?.scrollView, let window = scroll.window,
               event.windowNumber == window.windowNumber else { return }
