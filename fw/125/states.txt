@@ -1,0 +1,13 @@
+# macOS (Edit-menu actions through the responder chain; pasteboard = CLIP)
+before:
+"slots":{"body":"","line":"one lineCLIP","log":"","blocked":0}
+pasteboard after: [CLIPsee @a.ts now]
+after:
+"slots":{"body":"","line":"one line","log":"paste[CLIP] copy cut ","blocked":1}
+pasteboard after: [CLIPsee @a.ts now]
+
+# Chrome (agent web: type editor paste PASTED, copy, cut, type line paste BLOCK)
+before:
+{"body":"see @a.ts nowPASTED","line":"one lineBLOCK","log":"paste[PASTED] copy cut ","blocked":1}
+after:
+"slots":{"body":"see @a.ts nowPASTED","line":"one line","log":"paste[PASTED] copy cut ","blocked":1}
