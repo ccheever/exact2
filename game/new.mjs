@@ -165,10 +165,14 @@ component ${title.replaceAll(' ', '')}
   resource greeting = greeting("${title}") as shape Greeting
   view
     main testId="root"
+      viewport-fit="cover"
       width="100%"
       height="100%"
       box-sizing="border-box"
-      padding=24
+      padding-top="calc(env(safe-area-inset-top) + 24px)"
+      padding-right="calc(env(safe-area-inset-right) + 24px)"
+      padding-bottom="calc(env(safe-area-inset-bottom) + 24px)"
+      padding-left="calc(env(safe-area-inset-left) + 24px)"
       background-color="light-dark(#ffffff, #111111)"
       text greeting.text font-size=28 color="light-dark(#111111, #eeeeee)" testId="greeting"
 `,

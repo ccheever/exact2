@@ -471,6 +471,12 @@ guide's rules don't make obvious.
 
 ## Driving and testing
 
+- **`xcrun simctl io booted screenshot` can capture the wrong simulator.** With
+  several simulators booted, `booted` names any one of them, not the one the
+  app runs on. Fix: use the UDID the build prints (`… on iPhone 17 <UDID>`), or
+  the agent's own `screenshot`, which targets the app's simulator. (Authoring
+  bench, LLP 1087, t9-profile, 2026-10-07.)
+
 - **A screenshot right after a state change shows a transition's start.** A
   `transition` (a background colour, an opacity) is held by the driver's clock,
   so the frame and the computed style still read the old value: the toggle
