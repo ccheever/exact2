@@ -457,7 +457,7 @@ export class T3Client {
     const generation = this.generation;
     for (;;) {
       const batch = await this.call(native, { op: 'events', after: this.lastEvent }, generation);
-      if (batch.reset === true) this.needsFreshSnapshot = true;
+      if (batch.reset === true && (this.lastEvent > 0 || this.synchronizedGeneration !== generation)) this.needsFreshSnapshot = true; // a new generation's first read after its synchronize sees only the reset at its start
       let through = this.lastEvent;
       let awaitingRegistration = false;
       for (const entry of arr(batch.events)) {
