@@ -299,7 +299,9 @@ public final class Agent {
             var forward = req
             forward.removeValue(forKey: "session")
             let json = (try? JSONSerialization.data(withJSONObject: forward)).map { String(decoding: $0, as: UTF8.self) } ?? line
-            Agent.raw(session.agent(json))
+            let reply = session.agent(json)
+            // A hatched site's row names its hatch's calls and time (LLP 1075.003.000.001 §3.1).
+            Agent.raw(op == "perf" ? session.hatchDiagnostics.joined(perf: reply) : reply)
         }
     }
 

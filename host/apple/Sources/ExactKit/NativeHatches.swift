@@ -191,17 +191,18 @@ extension NativeViews {
 
     /// One hatch call: under the crash breadcrumb, production included (§4.4),
     /// and timed by the session's store in a development build (§3.1).
-    func timedHatch<T>(_ scope: String, _ moment: String, counts: Bool = true, _ body: () -> T) -> T {
+    func timedHatch<T>(_ scope: String, _ moment: String, site: Int? = nil, counts: Bool = true, _ body: () -> T) -> T {
         if let crumbSlot { HatchBreadcrumb.shared?.push(crumbSlot, name: scope, moment: moment, incarnation: hatchIncarnation) }
         defer { if let crumbSlot { HatchBreadcrumb.shared?.pop(crumbSlot) } }
         guard let store = session?.hatchDiagnostics else { return body() }
-        return store.timed(scope, moment, counts: counts, body)
+        return store.timed(scope, moment, site: site, counts: counts, body)
     }
 
     /// This session's slot in the process's breadcrumb, taken as its hatches
     /// first connect; what earlier runs left is said by the first to connect.
     private func takeBreadcrumb() {
         hatchIncarnation &+= 1
+        hatchSites = [:]
         guard crumbSlot == nil, let crumbs = HatchBreadcrumb.shared else { return }
         crumbSlot = crumbs.take(label: session?.label ?? "")
         if crumbSlot == nil { session?.log("hatch: 8 sessions hold the crash breadcrumb's slots; this one runs without one") }
@@ -233,6 +234,20 @@ extension NativeViews {
     /// `{"hatch", "node", "id", "kind", "data"}`. `quiet` leaves the call out
     /// of the journal (a list row's after the first; `state` counts them).
     /// True when the hatch set `reusable` (LLP 1075.003.000.000 §8).
+    /// A node's plan site, by which its hatch's calls are timed (§3.1): asked
+    /// of the runner once a node, and only where calls are timed at all. A
+    /// node's last call finds what its first kept, the runner's node being
+    /// gone by then.
+    private func planSite(_ id: UInt32, ended: Bool) -> Int? {
+        guard HatchDiagnostics.measuring, let session else { return nil }
+        if ended { return hatchSites.removeValue(forKey: id) ?? nil }
+        if let known = hatchSites[id] { return known }
+        let reply = try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"node\",\"id\":\(id)}").utf8)) as? [String: Any]
+        let site = (reply?["site"] as? NSNumber)?.intValue
+        hatchSites[id] = .some(site)
+        return site
+    }
+
     @discardableResult
     func elementHatch(_ node: NodeView, event: UInt32, platform: AnyObject?, quiet: Bool = false) -> Bool {
         guard hatchesConnected, let instance, let call = elementCall else { return false }
@@ -243,7 +258,7 @@ extension NativeViews {
         let word = node.props["hatch"] ?? ""
         if !quiet { session?.log("hatch element \(word) #\(node.id): \(["built", "changed", "ended"][Int(min(event, 2))])") }
         // ElementHatches counts a node's calls; the store times them.
-        let flags = timedHatch("element \(word)", ["built", "changed", "ended"][Int(min(event, 2))], counts: false) {
+        let flags = timedHatch("element \(word)", ["built", "changed", "ended"][Int(min(event, 2))], site: planSite(node.id, ended: event == 2), counts: false) {
             json.withUnsafeBytes { j in
                 call(instance, event, Unmanaged.passUnretained(node).toOpaque(), platform.map { Unmanaged.passUnretained($0).toOpaque() },
                      j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count))
