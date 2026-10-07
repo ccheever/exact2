@@ -24,10 +24,14 @@ export function appleComposition(graph, fixedPlan) {
 /** The SDK the linker recorded in an executable (`LC_BUILD_VERSION`) is the
  * one asked for: AppKit draws its design by that number, so a link that
  * records another (as SwiftPM's did, LLP 1069.011 §7) changes every app's
- * look without a word. Compared to major.minor. */
+ * look without a word. Compared to major.minor. Read by `vtool`, which
+ * takes any path as a file: the executable is named for its app, and
+ * `otool` takes a path ending in `name(member)`, such as "T3 Code (Exact)",
+ * for an archive's member (#234). */
 export function assertLinkedSdk(executable, expected) {
-  const loads = spawnSync('otool', ['-l', executable], { encoding: 'utf8' }).stdout ?? '';
-  const recorded = /cmd LC_BUILD_VERSION[\s\S]*?\n\s*sdk (\S+)/.exec(loads)?.[1];
+  const shown = spawnSync('xcrun', ['vtool', '-show-build', executable], { encoding: 'utf8' });
+  if (shown.status !== 0) throw new Error(`host/apple: xcrun vtool -show-build failed (${shown.status ?? shown.signal ?? shown.error?.message}) on ${executable}${shown.stderr?.trim() ? ': ' + shown.stderr.trim() : ''}`);
+  const recorded = /cmd LC_BUILD_VERSION[\s\S]*?\n\s*sdk (\S+)/.exec(shown.stdout)?.[1];
   const majorMinor = (v) => String(v).split('.').slice(0, 2).map(Number).join('.');
   if (!recorded || majorMinor(recorded) !== majorMinor(expected)) {
     throw new Error(`host/apple: ${basename(executable)} records SDK ${recorded ?? '(none)'}, not ${expected}: AppKit would draw it in another design`);
