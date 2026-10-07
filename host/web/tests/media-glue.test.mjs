@@ -21,7 +21,7 @@ function audio(props, { readyState = 4, error = null, handlers = ['error', 'seek
     fire(name) { for (const f of listeners[name] ?? []) f(); },
   };
   const sent = [];
-  globalThis.exact.installMedia(el, text => sent.push(text), later);
+  globalThis.exact.installMedia(el, text => { sent.push(text); el.reply?.(text); }, later);
   el.sent = sent;
   return el;
 }
@@ -102,33 +102,71 @@ test('a player with metadata but no data yet makes its opening seek on attaching
   expect(audio({ src: 'a.mp3' }, { readyState: 1 }).seeks).toEqual([]);
 });
 
-test('a report before the host can take it waits, in order, and a new load drops what the old source said', async () => {
-  // The wasm page takes reports once its data executor is ready, which may
-  // come after the opening durationchange (lost under load: duration 0 and
-  // remaining -0:00 for the session, Video Player).
+// The wasm page takes reports once its data executor is ready, which may come
+// after the opening durationchange (lost under load: duration 0 and remaining
+// -0:00 for the session, Video Player).
+function waiting(props, handlers = ['durationchange', 'timeupdate', 'loadedmetadata']) {
   let open, ready = false;
   const when = new Promise(r => { open = r; });
-  const el = audio({ src: 'a.mp4' }, { readyState: 0, handlers: ['durationchange', 'timeupdate'], later: () => ready ? null : when });
+  const el = audio(props, { readyState: 0, handlers, later: () => ready ? null : when });
+  el.open = async () => { ready = true; open(); await when; };
+  return el;
+}
+
+test('a report before the host can take it waits, and is sent in order once it can', async () => {
+  const el = waiting({ src: 'a.mp4' });
   el.duration = 10; el.fire('durationchange'); el.fire('timeupdate');
   expect(el.sent).toEqual([]);
-  ready = true; open(); await when;
+  await el.open();
   expect(el.sent).toEqual(['durationchange\n10', 'timeupdate\n0']);
   el.fire('timeupdate');
   expect(el.sent.at(-1)).toEqual('timeupdate\n0');
+});
 
-  // The source changes before readiness: the old one's reports are dropped,
-  // the new one's kept. A reload (`emptied`) and a removal drop them too.
-  let open2, ready2 = false;
-  const when2 = new Promise(r => { open2 = r; });
-  const b = audio({ src: 'a.mp4' }, { readyState: 0, handlers: ['durationchange', 'timeupdate'], later: () => ready2 ? null : when2 });
-  b.duration = 10; b.fire('durationchange');
-  b.exactMedia.props.src = 'b.mp4'; globalThis.exact.installMedia(b);
-  b.duration = 20; b.fire('durationchange');
-  b.fire('timeupdate'); b.fire('emptied');
-  b.duration = 30; b.fire('durationchange');
-  const c = audio({ src: 'a.mp4' }, { readyState: 0, handlers: ['durationchange'], later: () => ready2 ? null : when2 });
-  c.duration = 10; c.fire('durationchange'); globalThis.exact.removeMedia(c);
-  ready2 = true; open2(); await when2;
-  expect(b.sent).toEqual(['durationchange\n30']);
-  expect(c.sent).toEqual([]);
+test('a new source, a reload or a load command drops what the old source said; the new one is kept', async () => {
+  const src = waiting({ src: 'a.mp4' });
+  src.duration = 10; src.fire('durationchange');
+  src.exactMedia.props.src = 'b.mp4'; globalThis.exact.installMedia(src);
+  src.duration = 20; src.fire('durationchange');
+  await src.open();
+  expect(src.sent).toEqual(['durationchange\n20']);
+
+  const emptied = waiting({ src: 'a.mp4' });
+  emptied.duration = 10; emptied.fire('durationchange'); emptied.fire('emptied');
+  await emptied.open();
+  expect(emptied.sent).toEqual([]);
+
+  const load = waiting({ src: 'a.mp4' });
+  load.duration = 10; load.fire('durationchange'); command(load, 'load');
+  await load.open();
+  expect([load.loads, load.sent]).toEqual([1, []]);
+
+  const removed = waiting({ src: 'a.mp4' });
+  removed.duration = 10; removed.fire('durationchange'); globalThis.exact.removeMedia(removed);
+  await removed.open();
+  expect(removed.sent).toEqual([]);
+});
+
+test('a waiting report is dropped as soon as the host writes a new source, before the glue applies it', async () => {
+  // A replayed report's handler changes the source: the host's write lands in
+  // `props` at once and the glue applies it a microtask later, after the next
+  // waiting report would have gone.
+  const el = waiting({ src: 'a.mp4' });
+  el.reply = text => { if (text.startsWith('loadedmetadata')) el.exactMedia.props.src = 'missing.mp4'; };
+  el.fire('loadedmetadata'); el.duration = 10; el.fire('durationchange');
+  await el.open();
+  expect(el.sent).toEqual(['loadedmetadata\n']);
+});
+
+test('a seek drops a waiting time, but not a waiting duration', async () => {
+  const bound = waiting({ src: 'a.mp4' });
+  bound.seeks.push(4); bound.fire('timeupdate'); bound.duration = 30; bound.fire('durationchange');
+  bound.exactMedia.props.currentTime = '20'; globalThis.exact.installMedia(bound);
+  await bound.open();
+  expect(bound.sent).toEqual(['durationchange\n30']);
+
+  const fast = waiting({ src: 'a.mp4' });
+  fast.seeks.push(4); fast.fire('timeupdate'); command(fast, 'fastSeek', 20);
+  await fast.open();
+  expect(fast.sent).toEqual([]);
 });
