@@ -40,5 +40,4 @@ Verdict: PASS, no blocking findings.
 | 6 | The hookup test's contract half reads source strings | Kept with the stronger half: the ops sent through `T3Client.command` reach the native `contextMenu` op |
 
 Runner: attempt 5 passed with `source_unchanged: true` (`attempt5-report.json`); attempt 2's report (kept) is
-superseded. The live capture of Preview media (drive 2) ran on `6281fd187`, before fixes 1–4; its
-success path (sign, then the dialog) shows the same dialog, and the changed paths are unit-tested.
+superseded. Drive 2 ran on `6281fd187`, before fixes 1–4; drive 3 (on `aae76ee0c`) drove each of them live (task record).
