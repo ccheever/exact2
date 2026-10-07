@@ -194,8 +194,6 @@ component App
         sidebarPreferredVisible = not sidebarPreferredVisible
   action openNewTask
     nav = push(nav, path("newTask"))
-  action workspaceTab
-    sidebarPreferredVisible = sidebarPreferredVisible
   mutation workspaceNavigation as shape WorkspaceNavigation then didWorkspaceNavigation
   action didWorkspaceNavigation
     match workspaceNavigation
@@ -1486,12 +1484,13 @@ component App
             text inspectorPresentation.title role="heading" aria-level=2
           MobileInspectorContent(gitColors=gitLook, state=inspectorState, data=inspectorPresentation, visible=workspace.inspectorVisible, gitBottomInset=(max(layout.safeBottom, 18) + 18), colors=reviewLook, toggleDirectory=toggleDirectory, openFile=openFile, refreshFiles=refreshFiles, reviewFile=reviewFile, gitAction=gitAction, refreshGit=refreshGit)
           t3-inspector-chrome inspector-configuration=inspectorPresentation.configuration change=inspectorEvent width=0 height=0 aria-hidden=true
+      // GAP 007: hidden panel markers carry native stacks; they are not controls.
       row role="tablist" display="none"
-        button role="tab" aria-controls="sidebar-panel" aria-selected=false press=workspaceTab
+        view role="tab" aria-controls="sidebar-panel" aria-selected=false
           text "Sidebar"
-        button role="tab" aria-controls="workspace-panel" aria-selected=true press=workspaceTab
+        view role="tab" aria-controls="workspace-panel" aria-selected=true
           text "Workspace"
-        button role="tab" aria-controls="inspector-panel" aria-selected=false press=workspaceTab
+        view role="tab" aria-controls="inspector-panel" aria-selected=false
           text "Inspector"
       t3-workspace-layout workspace-configuration=workspace.configuration change=inspectorEvent position="absolute" width=0 height=0 aria-hidden=true
       t3-layout-facts change=layoutChanged position="absolute" inset=0 aria-hidden=true
