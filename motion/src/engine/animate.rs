@@ -131,9 +131,29 @@ impl Engine {
         }
         plays.reverse();
         joins.reverse();
-        for play in old.iter().chain(&plays) {
-            for p in play.animation.keyframes.properties() {
-                self.dirty.insert((node, p));
+        // A resume from where it was held (an animation that waited for its
+        // list row, LLP 1055 D13) shows what it showed: nothing to present.
+        let resumed = !bound
+            && old.len() == plays.len()
+            && old
+                .iter()
+                .zip(&plays)
+                .any(|(o, n)| o.hold.is_some() && n.hold.is_none())
+            && old.iter().zip(&plays).all(|(o, n)| {
+                o.local(now) == n.local(now)
+                    && o.dark == n.dark
+                    && o.animation.name == n.animation.name
+                    && {
+                        let mut was = o.animation.clone();
+                        was.paused = n.animation.paused;
+                        was == n.animation
+                    }
+            });
+        if !resumed {
+            for play in old.iter().chain(&plays) {
+                for p in play.animation.keyframes.properties() {
+                    self.dirty.insert((node, p));
+                }
             }
         }
         if plays.is_empty() {
