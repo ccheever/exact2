@@ -376,6 +376,7 @@ public final class ExactSession {
     #endif
     var text: TextEngine
     let presenter: Presenter
+    var launchLocation: String? // a pre-boot `openURL`'s location, until the first frame (LaunchURL.swift)
     private var textPressure: DispatchSourceMemoryPressure?
     let canvases: Canvases
     let webviews: WebViews
@@ -825,7 +826,7 @@ public final class ExactSession {
             AppFiles.learn(runtime) // before the first frame's `app:/` images load (LLP 1069.002 D7)
         }
         apply(batch)
-        if batch.error == nil { tellTime() }
+        if batch.error == nil { tellTime(); refuseUnheardLaunch() }
         // A fresh runner must receive the view's current viewport and insets.
         if batch.error == nil { view?.rebooted() }
         applyMs = (CACurrentMediaTime() - tApply) * 1000
@@ -910,6 +911,7 @@ public final class ExactSession {
         AppFiles.learn(runtime)
         apply(batch)
         tellTime()
+        refuseUnheardLaunch()
         view?.rebooted()
         autofocusHeld = false
         if restart { presenter.restoreFocus(kept, tree: agent("{\"op\":\"tree\"}")) }
@@ -1401,7 +1403,7 @@ public final class ExactSession {
     @discardableResult public func openURL(_ url: URL) -> Bool {
         guard state != .destroyed else { return false }
         let location = runtime.location(of: url.absoluteString)
-        if !booted { runtime.launch(location); return true }
+        if !booted { runtime.launch(location); launchLocation = location; return true }
         return navigate(location)
     }
     /// A link the reader followed — a `link href`, a text run's `href`, a
@@ -1417,10 +1419,7 @@ public final class ExactSession {
     }
     @discardableResult public func navigate(_ location: String) -> Bool {
         guard state != .destroyed, booted else { return false }
-        guard let node = presenter.views.values.first(where: { $0.props["navigationBack"] != nil && $0.handlers.contains("navigate") }) else {
-            log("navigate refused: no navigation root handler")
-            return false
-        }
+        guard let node = navigationRoot else { log("navigate refused: no navigation root handler"); return false }
         let batch = runtime.navigate(node.id, location, now: now())
         apply(batch)
         return batch.error == nil
