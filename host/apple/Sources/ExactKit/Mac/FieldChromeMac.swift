@@ -79,6 +79,13 @@ final class FieldChromeCache: @unchecked Sendable {
     static func platformField(kind: UInt8) -> NSTextField {
         kind == 1 ? NSSecureTextField(frame: .zero) : NSTextField(frame: .zero)
     }
+    /// Preserve NSTextView's standard space around glyphs while the kernel
+    /// owns the wrapping width (and Exact keeps lineFragmentPadding at zero).
+    static var textareaInset: NSSize {
+        let editor = NSTextView(usingTextLayoutManager: true)
+        let inset = editor.textContainerInset
+        return NSSize(width: inset.width + (editor.textContainer?.lineFragmentPadding ?? 0), height: inset.height)
+    }
     func measure(_ key: Key, font: NSFont) -> ExactFieldChrome {
         precondition(Thread.isMainThread)
         lock.lock(); let current = appearance; lock.unlock()
@@ -87,7 +94,7 @@ final class FieldChromeCache: @unchecked Sendable {
             if key.kind == 3 {
                 let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 320, height: 100))
                 scroll.borderType = .bezelBorder
-                let rect = scroll.contentView.frame
+                let rect = scroll.contentView.frame.insetBy(dx: Self.textareaInset.width, dy: Self.textareaInset.height)
                 result = ExactFieldChrome(top: Float(rect.minY), right: Float(320 - rect.maxX),
                     bottom: Float(100 - rect.maxY), left: Float(rect.minX), minimum_height: 0, provisional: 0)
                 return

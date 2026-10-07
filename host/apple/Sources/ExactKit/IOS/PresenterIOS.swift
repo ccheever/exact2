@@ -719,8 +719,6 @@ final class Presenter {
     }
 
     func apply(_ batch: Batch) {
-        // A failed cache cannot put stand-in geometry on screen.
-        guard !batch.layoutProvisional else { return }
         session?.fieldChrome.presented(batch.layoutProvisional)
         defer { applyLanguage(batch) }
         if applySnapshots(batch) { return }

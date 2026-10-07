@@ -851,9 +851,7 @@ public final class ExactSession {
         let candidate = TextEngine.pair(resolve: { resolver.url($0) }, read: { resolver.bytes($0) }, bundled: { resolver.bundledURL($0) })
         runtime.setMeasure(TextEngine.measureText, ctx: candidate.measuring.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: candidate.measuring.opaque)
-        #if os(macOS)
         installControlText(on: candidate)
-        #endif
         let viewport = size ?? presenter.viewportSize
         let batch: Batch
         if let module { batch = runtime.prepareModule(bytes, module: module, token: token, width: viewport.width, height: viewport.height) }

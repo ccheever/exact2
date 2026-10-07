@@ -31,7 +31,7 @@ pub struct Batch {
     /// select's options), which put no op on any view: the presenter
     /// configures its controls (LLP 1069.011 §9).
     pub controls: bool,
-    /// The last layout still used provisional field chrome; UIKit refuses to present it.
+    /// Whether the batch used provisional field chrome; presenters count these batches.
     pub layout_provisional: bool,
     /// Image handles a 2D canvas asked for (LLP 1056 D9): the presenter
     /// decodes each and answers `exact_canvas_image`.
@@ -84,6 +84,17 @@ impl Batch {
         quote(dir, &mut s);
         s.push('}');
         self.ops.push(s);
+    }
+
+    /// The editor box inside a field, or an explicit clear after appearance changes.
+    pub(crate) fn field_content(&mut self, id: u32, rect: Option<exact_kernel::Frame>) {
+        let value = rect.map_or_else(
+            || "null".into(),
+            |r| format!("[{},{},{},{}]", r.x, r.y, r.width, r.height),
+        );
+        self.push_op(format!(
+            "{{\"op\":\"fieldContent\",\"id\":{id},\"rect\":{value}}}"
+        ));
     }
 
     /// One paragraph's complete inline identity/style table, replacing its old runs.

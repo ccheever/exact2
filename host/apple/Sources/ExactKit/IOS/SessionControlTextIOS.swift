@@ -3,9 +3,10 @@
 import UIKit
 import CExact
 extension ExactSession {
-    func installControlText() {
-        text.fieldChrome = fieldChrome
-        Owner.shared.sync { text.measuring.fieldChrome = fieldChrome }
+    func installControlText() { installControlText(on: text) }
+    func installControlText(on engine: TextEngine) {
+        engine.fieldChrome = fieldChrome
+        Owner.shared.sync { engine.measuring.fieldChrome = fieldChrome }
         runtime.on { exact_set_control_text(runtime.rt, TextEngine.controlText, TextEngine.fieldChromeMeasure) }
     }
     func primeControlText() {
