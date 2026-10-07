@@ -25,6 +25,9 @@
 //! - [`host`] — the runner wrapped: commits → layout → motion.
 //! - [`image`] — sources under the asset root, PNG decoded off-thread.
 //! - [`presenter`] — scroll, focus, hit-testing, the host-side operations.
+//! - [`hatches`] — access hatches: an app's own code at its nodes' boxes,
+//!   their overlays and the input that lands there (LLP 1075.003.000.001).
+
 //! - [`agent`] — the agent API on stdio (`Agent.swift`'s twin).
 //! - [`executor`] — `ibex2::host` on a worker thread for a request that
 //!   leaves the process (LLP 1016 D2), its wake a socketpair the loop polls.
@@ -55,6 +58,7 @@ pub mod fetch;
 mod file;
 pub mod frames;
 pub mod gpu;
+pub mod hatches;
 pub mod host;
 pub mod image;
 #[cfg(target_os = "linux")]
@@ -84,7 +88,8 @@ pub fn set_event_waker(waker: Option<std::sync::Arc<dyn Fn() + Send + Sync>>) {
     wake::install(waker);
 }
 
-pub use app::run;
+pub use app::{run, run_with_hatches};
+pub use hatches::Hatches;
 pub use host::{Host, HostError};
 pub use presenter::Presenter;
 

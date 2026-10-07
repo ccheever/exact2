@@ -230,6 +230,8 @@ pub fn save_trace<D: DataSource>(
         "journal": read(r#"{"op":"logs","since":0}"#),
         "frames": frames.reply(LATE, true),
         "perf": perf,
+        // Read in this same turn, so the sections agree (LLP 1075.003.000.001 §3.3).
+        "hatches": p.hatch_state().map(|state| json!({ "state": state, "perf": p.hatch_perf() })),
     });
     let path = std::env::temp_dir().join(format!("trace-{wall}.json"));
     std::fs::write(&path, trace.to_string()).map_err(|e| format!("trace refused: {e}"))?;

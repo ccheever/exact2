@@ -87,6 +87,63 @@ pub fn hatch_rows(manifest: &Manifest) -> Result<Vec<(String, u16)>, String> {
     Ok(rows)
 }
 
+/// A painting host's hatches for an app's own crate (LLP 1075.003.000.001
+/// §5): Rust for its generated entry, or `None` when the app has no
+/// `modules/linux/*.rs`. The text is the typed `HatchKey`, with only the
+/// words `platform` (`linux` or `windows`) handles, so module code that
+/// names another platform's word does not compile; then a module `hatches`
+/// that includes each file, in name order. The files name their one type
+/// once (`pub type ExactHatches = App;`), and the entry hands the host
+/// `hatches::ExactHatches` and `HatchKey::WORDS`. Nothing here constructs it.
+pub fn rust_hatches(
+    app_root: &Path,
+    manifest: &Manifest,
+    platform: &str,
+) -> Result<Option<String>, String> {
+    let directory = app_root.join("modules/linux");
+    let mut files: Vec<_> = std::fs::read_dir(&directory)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().is_some_and(|e| e == "rs"))
+        .collect();
+    if files.is_empty() {
+        return Ok(None);
+    }
+    files.sort();
+    let words = hatches_on(manifest, platform)?;
+    let variant = |word: &str| {
+        let name: String = word
+            .split('-')
+            .map(|part| part[..1].to_ascii_uppercase() + &part[1..])
+            .collect();
+        match name.as_str() {
+            "Self" => "Self_".to_owned(),
+            _ => name,
+        }
+    };
+    let list = |each: &dyn Fn(&String) -> String| words.iter().map(each).collect::<String>();
+    let mut text = String::from(
+        "/// One of the app's `hatch` words this platform handles (app.json `hatches`).\n#[allow(dead_code)]\n#[derive(Clone, Copy, Debug, PartialEq, Eq)]\npub enum HatchKey {\n",
+    );
+    text += &list(&|w| format!("    /// `hatch=\"{w}\"`.\n    {},\n", variant(w)));
+    text += "}\n#[allow(dead_code)]\nimpl HatchKey {\n    /// The words this platform's hatches were built to handle.\n    pub const WORDS: &'static [&'static str] = &[";
+    text += &list(&|w| format!("{w:?}, "));
+    text += "];\n    /// The key of a node's word (`HatchKey::of(element.hatch())`).\n    pub fn of(word: &str) -> Option<HatchKey> {\n        match word {\n";
+    text += &list(&|w| format!("            {w:?} => Some(HatchKey::{}),\n", variant(w)));
+    text += "            _ => None,\n        }\n    }\n    /// The word as the Contract writes it.\n    pub fn word(self) -> &'static str {\n        match self {\n";
+    text += &list(&|w| format!("            HatchKey::{} => {w:?},\n", variant(w)));
+    text += "        }\n    }\n}\n/// The app's hatches: `modules/linux/*.rs`.\n#[allow(dead_code, missing_docs)]\nmod hatches {\n    #[allow(unused_imports)]\n    use super::HatchKey;\n";
+    for file in &files {
+        println!("cargo:rerun-if-changed={}", file.display());
+        text += &format!("    include!({:?});\n", file.display().to_string());
+    }
+    println!("cargo:rerun-if-changed={}", directory.display());
+    text += "}\n";
+    Ok(Some(text))
+}
+
 /// A hatch word and the platforms that handle it; `None` is every platform.
 type HatchRow = (String, Option<Vec<String>>);
 
