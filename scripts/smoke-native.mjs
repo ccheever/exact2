@@ -471,6 +471,28 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
   } catch (error) {
     check(false, `${host} native: the fixture drive stopped: ${error.stack ?? error.message}`);
   } finally { await s.close(); }
+  // Two drives of the same steps agree on what the hatches did (LLP
+  // 1075.003.000.001 §4.6, §8 stage 1): every call's count, every counter,
+  // each span's count and time on the session clock, and the journal's
+  // hatch lines. Measured milliseconds are the wall's and are left out.
+  {
+    const drive = async () => {
+      const d = await open({ host });
+      try {
+        await d.clock('settle');
+        await d.tap('rows'); await settle(d); await d.clock('settle');
+        await d.tap('hatched-list', { wheel: [0, 4000] }); await settle(d); await d.clock('settle');
+        await d.clock('+1000'); await d.clock('settle');
+        const perf = await d.op({ op: 'perf', hatches: true });
+        const calls = perf.calls.map((c) => `${c.hatch} ${c.site ?? ''} ${c.moment} ${c.calls}`).sort();
+        const spans = Object.entries(perf.timings).flatMap(([scope, names]) => Object.entries(names).filter(([, t]) => !t.measured).map(([name, t]) => `${scope} ${name} ${t.count} ${t.sum}`)).sort();
+        const said = (await d.op({ op: 'logs', since: 0 })).lines.filter((l) => / hatch /.test(l));
+        return JSON.stringify({ calls, counters: Object.entries(perf.counters).map(([scope, names]) => [scope, Object.entries(names).sort()]).sort(), spans, said });
+      } finally { await d.close(); }
+    };
+    const first = await drive(), second = await drive();
+    check(first === second && JSON.parse(first).calls.length > 0, `${host} native: two drives agree on every hatch call, counter, span and line: ${first === second ? first.slice(0, 200) : `${first}\n  then ${second}`}`);
+  }
 
   // The failure family's load failures: a session each.
   const failing = async (name, options, pattern, cleanup = () => {}) => {

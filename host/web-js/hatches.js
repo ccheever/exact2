@@ -27,7 +27,7 @@ const counted = word => stats[word] ??= { live: 0, reusable: 0, lost: [], calls:
 const publish = () => {
   const x = globalThis.exact;
   if (!x || x.hatchState) return;
-  x.hatchState = state; x.hatchPerf = { reply: perfReply, site: perfSite }; x.diagnostics = diagnostics("module");
+  x.hatchState = state; x.hatchPerf = { reply: perfReply, site: perfSite, window: perfWindow }; x.diagnostics = diagnostics("module");
 };
 
 // What Exact measures by itself, and what hatch code adds (@ref LLP
@@ -207,6 +207,23 @@ function perfReply(tags) {
   const reply = { ...tags, seq: clock.epoch, plan: globalThis.exact?.plan ?? null, measuring: dev(), hatches: by, calls, tickets: 0,
     counters: grouped(D.counters, c => c.n), timings, rejected: D.rejected, abandoned: D.abandoned, limited: D.limited };
   return fit(reply, [[reply, "calls"], [reply, "hatches"], [reply, "counters"], [reply, "timings"]]);
+}
+/** A late frame's `hatches` (§3.1): the calls that overlapped its window
+ * `(from, to]` on `performance.now()`'s clock, each charged its overlap;
+ * `coverage: partial` when the window reaches past the oldest call kept.
+ * Null when none did. A join by window, not a causal trace. */
+function perfWindow(from, to) {
+  const by = new Map();
+  let oldest = Infinity;
+  for (const [t0, t1, hatch] of Calls) {
+    if (t0 < oldest) oldest = t0;
+    if (!(t1 > from && t0 <= to)) continue;
+    const w = by.get(hatch) ?? { hatch, calls: 0, ms: 0 };
+    w.calls++; w.ms += Math.max(0, Math.min(t1, to) - Math.max(t0, from));
+    by.set(hatch, w);
+  }
+  if (!by.size) return null;
+  return { hatches: [...by.values()].map(w => ({ ...w, ms: Math.round(w.ms * 100) / 100 })), ...(Calls.length === 1024 && oldest > from ? { coverage: "partial" } : {}) };
 }
 /** `perf <target>`'s row for a hatched site: its hatch's calls and time. */
 function perfSite(site) {

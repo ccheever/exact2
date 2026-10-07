@@ -52,7 +52,11 @@ export function createFrameSampler({ origin, log, gather, covers, target }) {
   }
   function classify(record, period) {
     record.missed = Math.max(0, Math.round(record.interval / period) - 1);
+    // A late frame names the hatch calls that ran in it (LLP 1075.003.000.001 §3.1), read when it was sampled.
+    const ran = record.ran;
+    delete record.ran;
     if (!record.missed) return;
+    if (ran) Object.assign(record, ran);
     lifetime.late++; lifetime.missed += record.missed;
     late.push(record);
     if (late.length > LATE) late.shift();
@@ -63,6 +67,8 @@ export function createFrameSampler({ origin, log, gather, covers, target }) {
     if (recent.length > 8) recent.shift();
     if (recent.length === 8) floor = Math.min(floor, [...recent].sort((a, b) => a - b)[4]);
     const p = pending, record = { t: r2(ts - origin()), interval: r2(interval), missed: null, seq: p.first == null ? null : [p.first, p.last], batches: p.batches, apply: r2(p.apply) };
+    const ran = globalThis.exact?.hatchPerf?.window(ts - interval, ts);
+    if (ran) record.ran = ran;
     pending = empty();
     ring.push(record);
     if (ring.length > RING) { ring.shift(); dropped++; }

@@ -82,6 +82,23 @@ final class HatchDiagnostics {
         return out
     }
 
+    /// A late frame's `hatches` (§3.1): the calls that overlapped its window
+    /// `(from, to]`, seconds on the media clock, each charged its overlap;
+    /// `coverage: partial` when the window reaches past the oldest call kept.
+    /// Nil when none did. A join by window, not a causal trace.
+    func window(from: Double, to: Double) -> [String: Any]? {
+        var by: [String: (calls: Int, ms: Double)] = [:], order: [String] = []
+        for call in recent where call.end > from && call.start <= to {
+            if by[call.hatch] == nil { order.append(call.hatch) }
+            by[call.hatch, default: (0, 0)].calls += 1
+            by[call.hatch]!.ms += max(0, min(call.end, to) - max(call.start, from)) * 1000
+        }
+        guard !order.isEmpty else { return nil }
+        var out: [String: Any] = ["hatches": order.map { ["hatch": $0, "calls": by[$0]!.calls, "ms": (by[$0]!.ms * 100).rounded() / 100] as [String: Any] }]
+        if recent.count == Self.recentCalls, let oldest = recent.map(\.start).min(), oldest > from { out["coverage"] = "partial" }
+        return out
+    }
+
     // MARK: What hatch code records (§3.2)
 
     private struct Timing { var count = 0, sum = 0.0, max = 0.0, ring: [Double] = [], at = 0, dropped = 0, measured = false }

@@ -110,6 +110,12 @@ test('a call is timed by site and moment, and a nested call is charged to itself
   expect(perf.hatches['element outer']).toMatchObject({ calls: 1 });
   expect(globalThis.exact.hatchPerf.site(12)).toMatchObject({ hatch: { calls: 1 } });
   expect(globalThis.exact.hatchPerf.site(99)).toBe(null);
+  // A late frame's join: the calls that overlapped a window, each charged its overlap.
+  const now = performance.now(), ran = globalThis.exact.hatchPerf.window(now - 1000, now);
+  expect(ran.hatches.find(h => h.hatch === 'element outer')).toMatchObject({ calls: 1 });
+  expect(ran.hatches.find(h => h.hatch === 'element outer').ms).toBeGreaterThanOrEqual(3);
+  expect(ran.coverage).toBeUndefined();
+  expect(globalThis.exact.hatchPerf.window(now + 1000, now + 2000)).toBe(null);
 });
 
 test("a throw stops that node's hatch, and its end is still called", async () => {
