@@ -1,7 +1,7 @@
 # LLP 1104: The platform's controls by default — text fields and buttons
 
 **Type:** RFC
-**Status:** Draft r8, 2026-10-06. Not built. r1–r4 (built: e97afa5af, aeb69b382, 3b904632d) gave fields compiled default rows and Exact-drawn focus rings. r5 replaced that design with the platform's controls. r6 built on James's LLP 1069.011.001 r3 and made devolving CSS's rule. r6 was reviewed blind by Astra (max) and Grok 4.7 (xhigh); both said NOT READY, and r7 folded both reviews. r8 records Charlie's rulings on r7.
+**Status:** Draft r9, 2026-10-07. Steps 1–2 (fields) built on `lane/1104-k` and under review fixes; steps 3–4 (buttons) not built. r1–r4 (built: e97afa5af, aeb69b382, 3b904632d) gave fields compiled default rows and Exact-drawn focus rings. r5 replaced that design with the platform's controls. r6 built on James's LLP 1069.011.001 r3. r6 was reviewed blind by Astra and Grok (both NOT READY); r7 folded both. r8 recorded Charlie's rulings and the iOS focus probe. r9 records what building fields settled.
 **Direction (Charlie, r5):** text fields and buttons default to the platform's look; hosts measure and draw it; author rows customise the native control where they can; hosts differ on purpose; the OS draws focus; fields and buttons share one switch whose default is `auto`.
 **Rulings (Charlie, on r7):**
 - On the web, a native control inherits the page's font and colour, as the common reset does (D4). `AGENTS.md`'s "the web is the standard" is amended to match. The other platforms keep their own control fonts.
@@ -251,7 +251,7 @@ Phase 1 probes the chrome across fonts from 11 to 34pt, two families and constra
   - the web's restore (`button:focus-visible`, `index.html:48`) stays, scoped to the reset controls;
   - iOS keeps its first-responder ring;
   - tvOS and macOS keep theirs;
-  - a bare field draws its own focus, as today.
+  - a bare field keeps Exact's ring, as a bare button does: on the web the `:focus-visible` restore covers bare `input` and `textarea`, and macOS and Linux ring the node. Before r9 this said a bare field draws its own focus; the code review showed that fields D2 makes bare had a ring under r4 and would lose it.
 
   This is what a browser does after `all: unset` with a focus restore (CSS UI 4 §7.2.2).
 - **Painted hosts** have no OS ring and paint one as part of their look (D7): `field_ring` for fields on Linux, and a new ring for buttons there and in the terminal.
@@ -399,3 +399,10 @@ About nine lane-days for this RFC. LLP 1069.011.001 is unestimated in its text; 
   - D2 and the `border-radius` exception stand.
   - The iOS focus probe ran (2026-10-07): UIKit's focus system can't be driven from Exact's traversal, so a native iOS button keeps the node as focus owner and Exact's ring as a stand-in (D6).
   - One program builds 1069.011.001 and this RFC, fields first (§6).
+- r9, 2026-10-07: what building steps 1–2 settled.
+  - **Built:** lanes K (kernel), L (lowering), W (web), P (Linux, terminal), A1 (iOS, tvOS), A2 (macOS), K2 and K3 (field content rects through retained regions, kept out of every region frame), merged on `lane/1104-k` and verified (3,371 root tests; Apple, web, Linux, terminal suites; conformance 102 of 102; zero provisional frames presented on a cold launch on iOS and macOS).
+  - **The hook:** D5's chrome hook is `TextMeasurer::field_chrome` (a defaulted method), not a separate `ControlMeasurer`; buttons' measure (1069.011.001 D11) joins it at step 3.
+  - **Platform facts found:** a default `NSTextField` on macOS 27.0.1 reports `.squareBezel`, which macOS uses. UIKit exposes no rounded-field bezel values, so the iOS textarea's border is a 5pt radius and a 0.5pt separator stroke, matched against a real field.
+  - **D6:** a bare field keeps Exact's ring (above).
+  - **Painted hosts:** Linux and the terminal supply their own control text style (D4, D7). An orchestration call to let them inherit like the web was reversed after both code reviews showed white text on Linux's white field.
+  - **Code reviews** of the merged build by Astra max (`llp/reviews/1104-fields-code.astra.md`, DO NOT LAND, 8 findings) and Grok 4.7 xhigh (`…code.grok.md`, LAND WITH FIXES, 6 findings): all but Grok 6 (one font for every control kind, deferred to step 3) went to three fix lanes.
