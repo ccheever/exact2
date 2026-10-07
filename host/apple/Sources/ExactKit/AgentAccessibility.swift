@@ -153,6 +153,9 @@ extension Presenter {
         #endif
         if !w.limits.isEmpty { coverage["excluded"] = w.limits }
         var elements = w.elements
+        // Each part, and whether the platform exposes an element for it: no finding either way (§3.5).
+        let parts = self.elements.regions.coverage(joined: Set(elements.compactMap { $0["part"] as? String }))
+        if !parts.isEmpty { coverage["parts"] = parts }
         var ancestors: [[String: Any]] = []
         if let scope {
             let kept = w.elements.indices.filter { k in (w.elements[k]["id"] as? UInt32).map(scope.contains) ?? false }
@@ -362,6 +365,8 @@ extension Presenter {
         let (id, via) = axOwner(obj)
         e["id"] = id ?? NSNull()
         e["via"] = via
+        // A hatch's part, joined by its bound view (LLP 1075.003.000.001 §3.5).
+        if let part = elements.regions.part(owning: obj) { e["part"] = part }
         var states: [String: Any] = [:]
         var native: [String: Any] = ["class": String(describing: type(of: obj))]
         if Self.underSegments(obj) { w.segments = true }

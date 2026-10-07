@@ -338,6 +338,7 @@ Commands, from this directory:
 | \`bun exact.mjs agent web --storage s1 tree "tap <id>" "screenshot out.png"\` | drive the app as a person would; \`--storage <name>\` gives its storage sources a scratch store (without it their writes are refused; \`logs\` has the detail) |
 | \`bun exact.mjs agent ios tree "tap <testId>" "screenshot s.png"\` | the same on an iOS simulator; drive by \`testId\`, never by coordinates |
 | \`bun exact.mjs mac --run\`, \`bun exact.mjs ios --run\` | build and launch natively |
+| \`bun exact.mjs hatch <word>\` | an access hatch: a stub for each target the app builds, and its \`app.json\` entry (\`--app\`, \`--window\` for those scopes) |
 | \`bun exact.mjs update\` | after exact2 moves or changes its patches; it rewrites \`exact.mjs\` |
 | app.json \`"commands": {"verify": ["bun", "verify.mjs"]}\` | the app's own verbs: \`bun exact.mjs verify web\` runs \`bun verify.mjs web\` here; \`update\` keeps them |
 
@@ -372,6 +373,21 @@ authored header and tablist stand in for the native bars and take the same taps.
 Match a reference's structure, controls and hierarchy, not its pixels: native
 controls set their own metrics. Don't measure sub-point positions; stop when it
 reads as the same app.
+
+Access hatches, for what only the platform's own object can do: mark a node
+\`hatch="word"\` and the app's native code (Swift in \`modules/apple\`, the page
+module in \`modules/web/index.js\`) is handed the view or element Exact built,
+at defined moments. \`bun exact.mjs hatch <word>\` writes the stubs. A hatch
+configures what Exact made; it changes Contract state only by acting on an
+authored node, as a person would: \`click()\`, \`focus()\`, \`blur()\`, and
+\`input(text)\` for a field's whole value. It reads state only through
+\`data-*\` words the Contract puts on the node. The app must work without it:
+\`EXACT_HATCHES=off\` (\`?hatches=off\` on the web) runs a development build
+with no hatch connected. Make a hatch say what it does, so the agent can see
+it: \`diagnostics.log/count/measure/publish\` show in \`logs\`, \`state\`
+(\`state.hatches\`) and \`agent … "perf hatches"\`; \`owns(view, "what")\` puts
+what it added in \`tree\` under its node, and \`parts\` names a control it drew
+so \`tap <testId>/<part>\` can reach it as a real click.
 
 Contract libraries: \`use Card from "@scope/ui"\` reads an installed package's
 \`.contract\` files (\`bun add @scope/ui\`, or \`"@me/ui": "file:../ui"\` in
@@ -494,6 +510,7 @@ const verbs = {
   mac: ['host/apple/build.mjs', '${name}-apple'],
   update: ['scripts/exact.mjs', 'new', import.meta.dir, '--update'],
   contract: ['scripts/exact.mjs', 'contract'],
+  hatch: ['scripts/exact.mjs', 'hatch'],
   feedback: ['scripts/feedback.mjs'],${game ? `
   // A game's own: its hostless Rust tests and its proof's baseline (exact2's game/README.md).
   'test-rust': ['game/app/shells.mjs', import.meta.dir, '--test'],

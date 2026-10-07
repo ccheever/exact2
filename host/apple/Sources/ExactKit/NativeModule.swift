@@ -131,6 +131,8 @@ private final class NativeTable {
     var elementHatch: HatchElementFn?, toolbarHatch: HatchToolbarFn?
     /// The app and window scopes (LLP 1075.003.000.001 §2.1), in a table of 200 bytes or more.
     var appHatch: HatchAppFn?, windowHatch: HatchWindowFn?
+    /// The frame clock's callback (§2.4), in a table of 208 bytes or more.
+    var tickHatch: HatchTickFn?
     var agentInput: SetFn?
     var focusTarget: ViewFn?
 
@@ -204,6 +206,7 @@ private final class NativeTable {
             loaded.appHatch = pointer(184).map { unsafeBitCast($0, to: HatchAppFn.self) }
             loaded.windowHatch = pointer(192).map { unsafeBitCast($0, to: HatchWindowFn.self) }
         }
+        if size >= 208 { loaded.tickHatch = pointer(200).map { unsafeBitCast($0, to: HatchTickFn.self) } }
         return .success(loaded)
     }
 }
@@ -360,6 +363,8 @@ final class NativeViews {
     var crumbSlot: Int?, hatchIncarnation: UInt32 = 0
     /// The app and window scopes: the embedder's grants and what each was told (ScopeHatches.swift).
     let scopes = HatchScopes()
+    /// The hatches' frame tickets and `after`s on the session clock (HatchClock.swift).
+    let hatchClock = HatchClock()
     /// `EXACT_HATCHES=off` (a development build only, §2.6): the module loads
     /// and its views and calls work; no hatch is connected or called.
     static let hatchesOff = !ExactEnv.productionBake && ExactEnv.environment["EXACT_HATCHES"] == "off"
@@ -513,6 +518,8 @@ final class NativeViews {
         if !Self.hatchesOff, let connect = table.connect, let navigation = table.navigationHatch, let route = table.routeHatch {
             let tabs = table.tabsHatch.flatMap { tabs in table.tabContainerHatch.map { (tabs, $0) } }
             connectHatches(connect, navigation, route, tabs, table.elementHatch, table.toolbarHatch, made)
+            hatchClock.natives = self
+            hatchClock.call = table.tickHatch
             connectScopes(app: table.appHatch, window: table.windowHatch)
         }
         return .success(made)
@@ -601,6 +608,7 @@ final class NativeViews {
         drainParked()
         #endif
         endScopes()
+        hatchClock.reset()
         guard let instance, case .success(let table)? = NativeProcess.table else { return }
         self.instance = nil
         hatchesConnected = false

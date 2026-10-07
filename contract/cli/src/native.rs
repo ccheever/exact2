@@ -66,6 +66,27 @@ pub fn hatches_on(manifest: &Manifest, platform: &str) -> Result<Vec<String>, St
     Ok(words)
 }
 
+/// The plan's `hatches` rows (LLP 1075.003.000.001 §4.3): each declared
+/// word with the mask of the platforms that handle it.
+pub fn hatch_rows(manifest: &Manifest) -> Result<Vec<(String, u16)>, String> {
+    let mut rows: Vec<(String, u16)> = hatch_table(manifest)?
+        .into_iter()
+        .map(|(word, on)| {
+            let mask = match on {
+                None => HATCH_PLATFORMS
+                    .iter()
+                    .fold(0, |m, p| m | exact_plan::Plan::hatch_platform_bit(p)),
+                Some(on) => on
+                    .iter()
+                    .fold(0, |m, p| m | exact_plan::Plan::hatch_platform_bit(p)),
+            };
+            (word, mask)
+        })
+        .collect();
+    rows.sort();
+    Ok(rows)
+}
+
 /// A hatch word and the platforms that handle it; `None` is every platform.
 type HatchRow = (String, Option<Vec<String>>);
 

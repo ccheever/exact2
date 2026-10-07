@@ -75,12 +75,58 @@ export function element(e) {
   // every change while looping.
   if (e.hatch === 'feed' && !e.isNew && e.data.feed) e.input(e.data.feed);
   if (e.hatch === 'presser' && !e.isNew && (e.data.loop !== 'off' || e.data.armed === 'true')) e.click();
+  // The frame clock (§2.4): a ticket while the node says to run.
+  if (e.hatch === 'clock') {
+    const run = e.data.run === 'true';
+    if (run && !clockStop) startClock(e);
+    if (!run && clockStop) { clockStop(); clockStop = null; }
+    if (!e.isNew && e.data.presses === '65') e.click();
+  }
   if (e.hatch !== 'badge') return;
+  // Regions and parts (§3.4, §3.5): the badge draws a seal over itself and
+  // says so; with `data-tone` busy the seal goes, and its region stays a
+  // while as a tombstone.
+  let seal = e.element.querySelector('[data-fixture-seal]');
+  if (e.data.tone === 'busy') { seal?.remove(); e.parts = []; }
+  else if (!seal) {
+    seal = document.createElement('div');
+    seal.setAttribute('data-fixture-seal', '');
+    seal.setAttribute('role', 'button');
+    seal.setAttribute('aria-label', 'Verified');
+    // In the badge's own flow, at (4, 4): a hatch leaves the node's own box and position to Exact.
+    seal.style.cssText = 'width:12px;height:12px;margin:4px;background:#fff;flex:none';
+    // What the seal does when pressed is the hatch's own code: here it counts the press.
+    seal.addEventListener('click', () => globalThis.exact.diagnostics.count('seal.presses'));
+    e.element.append(seal);
+    e.owns(seal, 'seal: a white square the hatch draws on the badge');
+    e.parts = [{ id: 'seal', element: seal, role: 'button', label: 'Verified' }];
+  }
   e.diagnostics.log(`${moment}, tone ${e.data.tone}`);
   e.diagnostics.publish('tone', { tone: e.data.tone, moment });
   if (!e.isNew) return;
   shown.set(e, e.diagnostics.begin('shown'));
   e.element.addEventListener('contextmenu', (event) => event.preventDefault());
+}
+
+// The frame clock (LLP 1075.003.000.001 §2.4), as the Swift module's: each
+// tick counts itself and whether the node's `data-frames`, which a frame task
+// advances, is the tick's own number; the first chains `after`s; the third
+// presses the node 65 times.
+let clockStop = null;
+function startClock(e) {
+  const { frames, after, diagnostics: d } = globalThis.exact.hatches;
+  let ticks = 0, agreed = 0;
+  clockStop = frames((frame) => {
+    ticks++;
+    if (e.data.frames === String(ticks)) agreed++;
+    d.count('clock.ticks');
+    if (ticks === 1) {
+      after(0, () => { d.count('clock.after0'); after(20, () => d.count('clock.after20')); });
+      after(30, () => d.count('clock.stopped'))();
+    }
+    if (ticks === 3) for (let i = 0; i < 65; i++) e.click();
+    d.publish('clock', { ticks, agreed, now: frame.now });
+  });
 }
 
 export function elementEnded(e) {

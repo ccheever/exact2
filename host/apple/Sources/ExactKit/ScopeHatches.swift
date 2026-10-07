@@ -90,6 +90,7 @@ extension NativeViews {
                 call(instance, event, application.map { Unmanaged.passUnretained($0).toOpaque() }, j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count))
             }
         }
+        if event == 2 { session?.presenter.elements.regions.ended(scope: "app") }
     }
 
     private func windowJSON(_ view: ExactView, _ window: FocusWindow) -> Data {
@@ -118,6 +119,7 @@ extension NativeViews {
                 call(instance, event, raw(scopes.windowExclusive ? window : nil), raw(scene), j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count))
             }
         }
+        if event == 2 { session?.presenter.elements.regions.ended(scope: "window") }
     }
 
     /// As the hatches connect: `app`, then `window` for the surface there
@@ -165,6 +167,8 @@ extension NativeViews {
     /// reset, so a hatch takes back what it added to a window that survives.
     /// After a reload both are built again, on the next turn, with new handles.
     func scopesReset() {
+        // What the old incarnation registered on the clock goes with it (§2.1.2).
+        hatchClock.reset()
         guard hatchesConnected, scopes.appTold != nil || scopes.windowTold != nil else { return }
         if scopes.windowTold != nil { windowHatch(2) }
         if scopes.appTold != nil { appHatch(2) }

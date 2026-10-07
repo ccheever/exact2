@@ -130,6 +130,23 @@ component NativeFixture
     looping = true
   action stopLoop
     looping = false
+  // The hatches' frame clock (§2.4): while clocking, a frame task counts
+  // frames, and the `clock` hatch's ticket reads the count at each tick. Its
+  // third tick presses the node 65 times; the 65th press changes its words,
+  // and its `changed` presses once more.
+  state clocking = false
+  state frameCount = 0
+  state clockPresses = 0
+  action startClock
+    clocking = true
+  action stopClock
+    clocking = false
+  action countFrame
+    frameCount = frameCount + 1
+  action clockPress
+    clockPresses = clockPresses + 1
+  task framer when clocking
+    every(frame, countFrame)
   action unbump
     count = 0
   action fire
@@ -448,6 +465,11 @@ component NativeFixture
                       text "Loop"
                     button press=stopLoop testId="stop-loop" padding=6 background-color="#e5e7eb"
                       text "Stop"
+                    column hatch="clock" data-frames=toString(frameCount) data-run=(clocking ? "true" : "false") data-presses=toString(clockPresses) press=clockPress testId="hatch-clock" width=24 height=24 background-color="#10b981"
+                    button press=startClock testId="clock-start" padding=6 background-color="#e5e7eb"
+                      text "Clock"
+                    button press=stopClock testId="clock-stop" padding=6 background-color="#e5e7eb"
+                      text "Halt"
                 when e.name == "detail"
                   scroll id="list-detail" hatch="detail-list" data-violate=violate testId="list-detail" flex=1 min-height=0 scrollTop=top
                     column padding=12 gap=8

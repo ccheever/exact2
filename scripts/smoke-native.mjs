@@ -206,10 +206,10 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
       // alone, so elsewhere its node is shown, never called, and listed.
       {
         const st = (await s.state()).hatches, all = (await s.op({ op: 'logs', since: 0 })).lines.join('\n');
-        const here = host === 'ios' ? ['badge', 'detail-list', 'dot', 'feed', 'presser'] : ['badge', 'dot', 'feed', 'presser'];
+        const here = host === 'ios' ? ['badge', 'clock', 'detail-list', 'dot', 'feed', 'presser'] : ['badge', 'clock', 'dot', 'feed', 'presser'];
         check(JSON.stringify(st?.platform) === JSON.stringify(here), `${host} native: state.hatches names the words this platform handles: ${JSON.stringify(st?.platform)}`);
         if (host === 'ios') check(st?.unhandled?.length === 0 && st.words?.['detail-list']?.calls?.built === 1, `${host} native: iOS handles detail-list: ${JSON.stringify(st?.unhandled)}`);
-        else check(st?.unhandled?.length === 1 && st.unhandled[0].word === 'detail-list' && !st.words?.['detail-list'] && /hatch element detail-list: not handled/.test(all) && byTestId(await s.tree(), 'list-detail')?.props.hatch === 'detail-list',
+        else check(st?.unhandled?.length === 1 && st.unhandled[0].word === 'detail-list' && !st.words?.['detail-list'] && /hatch element detail-list: (not handled|the plan does not give it to this platform)/.test(all) && byTestId(await s.tree(), 'list-detail')?.props.hatch === 'detail-list',
           `${host} native: a word this platform does not handle is shown, never called, and listed: ${JSON.stringify(st?.unhandled)}`);
       }
       if (host === 'ios') {
@@ -535,6 +535,38 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
       check(sc.app?.calls?.changed === 1, `${host} native: one change is one call: ${JSON.stringify(sc.app)}`);
       await d.prefer({ 'prefers-color-scheme': 'light' });
       await waited('the fact changing back is told too', (sc) => sc.module?.published?.scopes?.scheme === 'light');
+      // Regions and parts (LLP 1075.003.000.001 §3.4, §3.5, §8 stage 3): the
+      // badge's hatch draws a seal and says so. `tree` shows the declaration
+      // beside what the host observes, and the part under its node; when the
+      // seal goes its region stays as a tombstone that every read sees alike.
+      {
+        const badge = () => d.tree().then((t) => byTestId(t, 'hatched-badge'));
+        let b = await badge();
+        const own = b?.owns?.[0], part = b?.parts?.[0];
+        check(b?.owns?.length === (host === 'web' ? 1 : 2) && own.by === 'element badge' && own.kind === 'view' && /^seal: /.test(own.what) && own.observed?.live === true && own.observed.frame?.w === 12 && own.observed.frame.h === 12 && !!own.observed.class,
+          `${host} native: tree shows a region's declaration and what the host observes of it: ${JSON.stringify(b?.owns)}`);
+        check(b?.parts?.length === 1 && part.id === 'seal' && part.role === 'button' && part.label === 'Verified' && part.live === true && part.frame?.w === 12,
+          `${host} native: tree lists a part under its node, by id, with its observed frame: ${JSON.stringify(b?.parts)}`);
+        const hs = (await d.state()).hatches;
+        check(hs?.owns?.some((o) => o.by === 'element badge' && o.kind === 'view'), `${host} native: state.hatches lists the regions: ${JSON.stringify(hs?.owns)}`);
+        // `tap <node>/<part>` reaches the seal as a real pointer event at its place (§3.5): it lands
+        // on the part, and the hatch's own code counts the press. A part that is not there is refused
+        // by name. The simulator's agent taps are not real touches, so there it is `unsupported`.
+        const tapped = await d.tap('hatched-badge/seal').catch((error) => ({ error: error.message }));
+        await settle(d);
+        const presses = (await d.state()).hatches?.scopes?.module?.counters?.['seal.presses'];
+        if (host === 'ios') check(tapped.delivery === 'unsupported' && presses === undefined, `${host} native: a part takes a real touch, so an agent tap is unsupported: ${JSON.stringify(tapped)}`);
+        else check(tapped.landed === 'part' && tapped.delivery === 'platform' && presses === 1, `${host} native: tap <node>/<part> lands a real pointer event on the part: ${JSON.stringify(tapped)}, ${presses} presses`);
+        const absent = await d.tap('hatched-badge/nope').catch((error) => ({ error: error.message }));
+        check(host === 'ios' ? absent.delivery === 'unsupported' : /part nope: view \d+ has no live part of that id/.test(absent.error ?? ''), `${host} native: a part that is not there is refused by name: ${JSON.stringify(absent)}`);
+        const moved = own.observed.frame;
+        // The badge's tone turns busy: its hatch takes the seal away.
+        await d.tap('compose-home'); await settle(d); await d.clock('settle');
+        b = await badge();
+        const tomb = b?.owns?.[0], again = (await badge())?.owns?.[0];
+        check(b?.owns?.length === (host === 'web' ? 1 : 2) && b.owns.every((o) => o.observed?.live === false) && tomb.observed?.live === false && typeof tomb.observed.ended === 'number' && !b.parts && again?.observed?.live === false && again.observed.ended === tomb.observed.ended && again.what === tomb.what && moved.w === 12,
+          `${host} native: a region whose view is gone stays as one tombstone, the same at each read: ${JSON.stringify(b?.owns)} parts ${JSON.stringify(b?.parts)}`);
+      }
       if (host !== 'ios') {
         const [w, h] = told.scopes.frame;
         await d.resize(w - 40, h - 40);
@@ -546,10 +578,64 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     } finally { await d.close(); }
   }
 
+  // The frame clock (LLP 1075.003.000.001 §2.4, §8 stage 2), a session a
+  // drive: a ticket ticks 60 times for `clock +1000`, tick k seeing the count
+  // a frame task made at the same instant; an `after` chained in a tick fires
+  // inside the seek and a stopped one never; 65 acts a tick asks, and the one
+  // their `changed` asks, all land at that tick's instant; and one seek of a
+  // second is ten of a tenth, line for line.
+  {
+    const clockDrive = async (steps) => {
+      const d = await open({ host });
+      try {
+        await d.clock('settle');
+        await d.tap('detail'); await settle(d);
+        await until(d, 'the detail route is pushed', (t) => !!byTestId(t, 'route-detail'));
+        await d.clock('settle');
+        const from = (await d.op({ op: 'logs', since: 0 })).next;
+        await d.tap('clock-start');
+        for (const step of steps) await d.clock(`+${step}`);
+        const st = await d.state(), counters = st.hatches?.scopes?.module?.counters ?? {}, told = st.hatches?.scopes?.module?.published?.clock ?? {};
+        const lines = (await d.op({ op: 'logs', since: from })).lines.filter((l) => / hatch /.test(l));
+        return { counters, told, frameCount: st.slots.frameCount, presses: st.slots.clockPresses, lines, d: null };
+      } finally { await d.close(); }
+    };
+    try {
+      const whole = await clockDrive([1000]), stepped = await clockDrive([100, 100, 100, 100, 100, 100, 100, 100, 100, 100]);
+      check(whole.counters['clock.ticks'] === 60 && whole.frameCount === 60 && whole.told.ticks === 60, `${host} native: a frame ticket ticks 60 times for clock +1000: ${JSON.stringify({ counters: whole.counters, told: whole.told, frames: whole.frameCount })}`);
+      check(whole.told.agreed === 60, `${host} native: tick k sees the count the frame task made at the same instant: ${JSON.stringify(whole.told)}`);
+      check(whole.counters['clock.after0'] === 1 && whole.counters['clock.after20'] === 1 && whole.counters['clock.stopped'] === undefined, `${host} native: a chained after fires inside the seek, and a stopped one never: ${JSON.stringify(whole.counters)}`);
+      const acts = whole.lines.filter((l) => /hatch element clock #\d+: click \(delivery: hatch\)/.test(l));
+      check(whole.presses === 66 && acts.length === 66 && new Set(acts.map((l) => l.split(' ')[0])).size === 1, `${host} native: 65 acts a tick asks, and the one their changed asks, land at that tick's instant: ${whole.presses} presses, ${acts.length} lines at ${[...new Set(acts.map((l) => l.split(' ')[0]))].join(', ')}`);
+      // By value: a native host's JSON orders an object's keys as it likes.
+      const sorted = (v) => JSON.stringify(v, (_, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x));
+      const a = sorted([whole.counters, whole.told, whole.frameCount, whole.presses]), b = sorted([stepped.counters, stepped.told, stepped.frameCount, stepped.presses]);
+      const same = a === b && JSON.stringify(whole.lines) === JSON.stringify(stepped.lines);
+      check(same, `${host} native: clock +1000 is ten clock +100, line for line${same ? '' : `: ${a} then ${b}; ${whole.lines.length} lines, then ${stepped.lines.length}; first difference ${JSON.stringify(whole.lines.find((l, i) => l !== stepped.lines[i]))} / ${JSON.stringify(stepped.lines.find((l, i) => l !== whole.lines[i]))}`}`);
+    } catch (error) {
+      check(false, `${host} native: the clock drive stopped: ${error.stack ?? error.message}`);
+    }
+  }
+
   // The crash breadcrumb and the switch its line names (LLP 1075.003.000.001
   // §4.4, §2.6; Apple): a run that dies inside the badge's hatch is named by
   // the next launch, once; with `EXACT_HATCHES=off` the module's views and
   // calls work and no hatch is connected.
+  // With hatches off (§2.6) the web's page module still serves its views; no hatch is called.
+  if (host === 'web') {
+    const off = await open({ host, env: { EXACT_HATCHES: 'off' } });
+    try {
+      await until(off, 'the module loads with hatches off', (t) => module(t, 'box')?.state === 'ready');
+      await off.clock('settle');
+      const lines = (await off.op({ op: 'logs', since: 0 })).lines;
+      check(lines.some((l) => /hatches: off/.test(l)) && !lines.some((l) => /hatch (element|app|window|navigation|route|tabs)/.test(l)) && Object.keys((await off.state()).hatches?.words ?? {}).length === 0,
+        `${host} native: ?hatches=off connects no hatch: ${lines.filter((l) => / hatch/.test(l)).join(' | ')}`);
+      await off.tap('bump'); await off.clock('+50');
+      check((await off.state()).slots.count === 1, `${host} native: with hatches off the app works`);
+    } catch (error) {
+      check(false, `${host} native: the hatches-off drive stopped: ${error.stack ?? error.message}`);
+    } finally { await off.close(); }
+  }
   if (host === 'macos') {
     // The journal, once a line matching `pattern` is in it (or as it stands after 5 s).
     const journal = async (d, pattern) => {

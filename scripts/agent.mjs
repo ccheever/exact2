@@ -22,7 +22,7 @@
 // only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
 import { Cdp, closePage, exclusiveIOS, copyCdpFailureContext, chromium, closeWindowsBrowser, retainCleanupError, removeBrowserProfile, driveStore, traceLocators, parseFlags, launchFacts, launchEnvironment, withFaults, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, receiptChanges, webChanges, bakedPlans, parityScript } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
-import { sourceMapReaders, identifyInspectedNode, render, perfOp, readTrace, renderTrace, layoutArgs, tapRefusal, worldView, phoneTrace } from './agent-inspect.mjs';
+import { sourceMapReaders, identifyInspectedNode, render, perfOp, partTap, readTrace, renderTrace, layoutArgs, tapRefusal, worldView, phoneTrace } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
 import { axTree } from './agent-ax.mjs';
 export { sourceMapReader, identifyInspectedNode, render, tapRefusal, worldView } from './agent-inspect.mjs';
@@ -256,7 +256,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     const page = pageURL ? new URL(pageURL) : new URL(`http://127.0.0.1:${port}/`);
     page.searchParams.set('agent', '1');
     for (const [key, value] of Object.entries(facts)) page.searchParams.set(key, value);
-    if (storage !== undefined) page.searchParams.set('storage', storage);
+    if (storage !== undefined) page.searchParams.set('storage', storage); if ((env?.EXACT_HATCHES ?? process.env.EXACT_HATCHES) === 'off') page.searchParams.set('hatches', 'off'); // the second: LLP 1075.003.000.001 §2.6
     // Display preferences are the agent's from launch, never the machine's (LLP 1069.007 D2); `prefer` changes them.
     const emulated = { ...LAUNCH_MEDIA };
     await call('Emulation.setEmulatedMedia', { features: Object.entries(emulated).map(([name, value]) => ({ name, value })) });
@@ -928,7 +928,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (r.error) throw Object.assign(new Error(`${req.op}: ${r.error}`), {reply:r});
       // A web page's own tap or type acts only for an iframe guest, history, a list's row or a control's value:
       // the carrier's browser input is the rest, which only the methods reach.
-      if (input && carrier.host === 'web' && req.resize === undefined && !['tapped', 'typed', 'handled', 'history', 'into', 'resized', 'guest', 'value', 'delivery', 'phase'].some((k) => r[k] != null && r[k] !== false))
+      if (input && carrier.host === 'web' && req.resize === undefined && !['tapped', 'typed', 'handled', 'history', 'into', 'resized', 'guest', 'value', 'delivery', 'phase', 'aimed'].some((k) => r[k] != null && r[k] !== false))
         throw Object.assign(new Error(`op: the web page's ${req.op} delivered nothing to view ${req.id}; s.${req.op}(…) delivers browser input`), {reply:r});
       return r;
     },
@@ -1039,7 +1039,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     async tap(target, opts = {}) {
       if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
       if (holdOf(target)) return s.answer('tap', target, opts.choice);
-      let node;
+      let node, part = await partTap({ s, host, touch }, target, opts); if (part) return part; // `tap <node>/<part>` (agent-inspect.mjs)
       try { node = await s.target(target); }
       catch (error) { throw await tapRefusal(s, target, error); }
       // @ref LLP 1098 D10 — a media element's session action, as the platform's handler: no reveal, no box, never a press.

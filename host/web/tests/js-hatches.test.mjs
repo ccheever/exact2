@@ -10,11 +10,11 @@ import { resolve } from 'node:path';
 
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-hatches-'));
 copyFileSync(resolve(new URL('../../web-js/hatches.js', import.meta.url).pathname), resolve(dir, 'hatches.js'));
-writeFileSync(resolve(dir, 'rt.js'), 'export const { onEnd, journal, clock, viewId, inflight, painted } = globalThis.rtStandIn;\n');
+writeFileSync(resolve(dir, 'rt.js'), 'export const { onEnd, journal, clock, viewId, inflight, painted, time, paint, drive } = globalThis.rtStandIn;\n');
 writeFileSync(resolve(dir, 'native.js'), 'export const pageTable = () => globalThis.pageModule;\n');
 
-const ends = [], journal = [], clock = { now: 0, epoch: 1 };
-const rt = globalThis.rtStandIn = { onEnd: f => ends.push(f), journal, clock, viewId: e => e.id, inflight: { n: 0 }, painted: () => Promise.resolve() };
+const ends = [], journal = [], clock = { now: 0, epoch: 1, timers: [], agent: true };
+const rt = globalThis.rtStandIn = { onEnd: f => ends.push(f), journal, clock, viewId: e => e.id, inflight: { n: 0 }, painted: () => Promise.resolve(), time() {}, paint() {}, drive() {} };
 globalThis.requestAnimationFrame = f => setTimeout(f);
 // A development page: its plan's digest is there (web-js/build.mjs).
 globalThis.exact = { plan: 'digest' };
@@ -207,4 +207,127 @@ test('acts are queued, bounded, drained 64 at a time, and never run inside the h
   end();
   live.click(); await settled();
   expect(button.clicks).toBe(256);
+});
+
+// The runtime's seek, as rt.js `advance` treats a hatch's entries: the
+// earliest due first, a hatch's instant after any other timer due at the same
+// time, its next time its own to set. A refusal ends the seek with its line.
+const seek = (to) => {
+  for (;;) {
+    let next = null;
+    for (const t of clock.timers) if (t.due <= to && (!next || t.due < next.due || t.due === next.due && next.hatch && !t.hatch)) next = t;
+    if (!next) break;
+    clock.now = next.due;
+    if (!next.hatch) next.due = next.base + ++next.k * 1000 / 60; // the product first, as rt.js `vf`
+    if (next.action() !== true) return journal.at(-1);
+  }
+  clock.now = Math.max(clock.now, to);
+  return null;
+};
+
+test('a frame ticket ticks at the virtual display\'s instants, after the frame\'s tasks, and a seek is its steps', async () => {
+  await import(resolve(dir, 'hatches.js'));
+  const { frames, after } = globalThis.exact.hatches;
+  const run = (steps) => {
+    clock.now = 1000; clock.timers.length = 0; globalThis.exact.hatchActs.command();
+    // A plan's frame task at the same instants: it counts frames.
+    let count = 0;
+    clock.timers.push({ base: 1000, k: 1, due: 1000 + 1000 / 60, action: () => { count++; return true; } });
+    const log = [];
+    let n = 0, stopped = null;
+    const stop = frames((frame) => {
+      n++;
+      log.push(`tick ${n} sees ${count} at ${frame.now.toFixed(3)}`);
+      if (n === 1) {
+        after(0, () => { log.push(`after0 at ${clock.now.toFixed(3)} tick ${n}`); after(20, () => log.push(`after20 at ${clock.now.toFixed(3)}`)); });
+        stopped = after(30, () => log.push('stopped ran'));
+        stopped();
+      }
+    });
+    for (const to of steps) expect(seek(to)).toBe(null);
+    stop();
+    expect(clock.timers.some(t => t.hatch)).toBe(false);
+    return { log, n, count };
+  };
+  const whole = run([2000]), stepped = run(Array.from({ length: 10 }, (_, i) => 1100 + i * 100));
+  expect(whole.n).toBe(60);
+  // Tick k sees the count the frame task made at the same instant.
+  for (let k = 1; k <= 60; k++) expect(whole.log.some(l => l.startsWith(`tick ${k} sees ${k} at`))).toBe(true);
+  // after(0) in the first tick runs at that instant, before the second tick; its after(20) later in the seek; the stopped one never.
+  expect(whole.log.indexOf(whole.log.find(l => l.startsWith('after0')))).toBe(1);
+  expect(whole.log.some(l => l === `after20 at ${(1000 + 1000 / 60 + 20).toFixed(3)}`)).toBe(true);
+  expect(whole.log).not.toContain('stopped ran');
+  expect(stepped.log).toEqual(whole.log);
+});
+
+test('what a tick asks is drained at its instant, with the moments it causes, under the command\'s caps', async () => {
+  const hatches = await import(resolve(dir, 'hatches.js'));
+  const { frames } = globalThis.exact.hatches;
+  clock.now = 5000; clock.timers.length = 0; globalThis.exact.hatchActs.command();
+  // A button whose 65th click changes its words: its `changed` clicks once more.
+  let handle = null;
+  const button = field('clocked', { onHatch: e => { handle = e; if (!e.isNew && button.clicks === 65) e.click(); } });
+  button.click = function () { this.clicks++; if (this.clicks === 65) this.$ht(); };
+  await mount(hatches, button);
+  let ticks = 0;
+  const stop = frames(() => { if (++ticks === 3) for (let i = 0; i < 65; i++) handle.click(); });
+  expect(seek(5000 + 3 * 1000 / 60)).toBe(null);
+  // All 66 ran inside the seek, at the third tick's instant: none waited for a microtask.
+  expect(button.clicks).toBe(66);
+  expect(globalThis.exact.hatchActs.queued()).toBe(0);
+  // 4,096 ticks are the most one command runs; the next names the limit.
+  globalThis.exact.hatchActs.command();
+  ticks = 100;
+  expect(seek(clock.now + 4096 * 1000 / 60)).toBe(null);
+  expect(seek(clock.now + 2 * 1000 / 60)).toMatch(/refused advance: HatchFireLimit/);
+  stop();
+  await settled();
+});
+
+test('regions and parts are bounded, bound to their elements, and end as tombstones', async () => {
+  const hatches = await import(resolve(dir, 'hatches.js'));
+  clock.now = 9000;
+  const el = (connected = true) => ({ isConnected: connected, localName: 'div', getBoundingClientRect: () => ({ x: 4, y: 4, width: 12, height: 12 }) });
+  let handle = null;
+  const n = node('owner');
+  n.onHatch = e => { handle = e; };
+  const end = await mount(hatches, n);
+  const of = () => globalThis.exact.hatchRegions.of(n), refused = () => globalThis.exact.hatchState().regionsRefused ?? 0;
+  const seal = el();
+  expect(handle.owns(seal, 'seal: drawn by the hatch')).toBe(true);
+  expect(of().owns).toEqual([{ by: 'element owner', kind: 'view', what: 'seal: drawn by the hatch', observed: { live: true, frame: { x: 4, y: 4, w: 12, h: 12 }, class: 'div' } }]);
+  // The same element again replaces its region; a sentence over 120 bytes, or none, is refused.
+  handle.owns(seal, 'seal, said again', { surface: true });
+  expect(of().owns.length).toBe(1);
+  expect(of().owns[0]).toMatchObject({ what: 'seal, said again', surface: true });
+  expect(handle.owns(el(), 'x'.repeat(121))).toBe(false);
+  expect(handle.owns(el(), '')).toBe(false);
+  expect(refused()).toBe(2);
+  // 32 regions a scope.
+  for (let i = 0; i < 40; i++) handle.owns(el(), `region ${i}`);
+  expect(of().owns.length).toBe(32);
+  expect(refused()).toBe(2 + 9);
+  // Parts: a list replaces the last; one that breaks a bound is refused whole and the last stays.
+  handle.parts = [{ id: 'seal', element: seal, role: 'button', label: 'Verified' }];
+  handle.parts = [{ id: 'a', element: seal }, { id: 'a', element: seal }];
+  handle.parts = Array.from({ length: 33 }, (_, i) => ({ id: `p${i}`, element: seal }));
+  handle.parts = [{ id: 'x'.repeat(65), element: seal }];
+  handle.parts = [{ id: 'long', element: seal, label: 'l'.repeat(121) }];
+  expect(of().parts).toEqual([{ id: 'seal', role: 'button', label: 'Verified', live: true, frame: { x: 4, y: 4, w: 12, h: 12 } }]);
+  expect(globalThis.exact.hatchRegions.part(n, 'seal')).toBe(seal);
+  expect(refused()).toBe(2 + 9 + 4);
+  expect(journal.some(l => /hatch element owner: parts refused: `a` is listed twice/.test(l))).toBe(true);
+  // The seal leaves the page: its region is a tombstone, the same at each read, for 5 s of session clock.
+  seal.isConnected = false;
+  const tomb = of().owns.find(o => o.what === 'seal, said again');
+  expect(tomb.observed).toEqual({ live: false, ended: 9000 });
+  expect(of().parts[0].live).toBe(false);
+  expect(globalThis.exact.hatchRegions.part(n, 'seal')).toBe(null);
+  clock.now = 9100;
+  expect(of().owns.find(o => o.what === 'seal, said again')).toEqual(tomb);
+  clock.now = 14000;
+  expect(of().owns.some(o => o.what === 'seal, said again')).toBe(false);
+  // The node's end takes what it registered.
+  end();
+  expect(globalThis.exact.hatchRegions.of(n)).toBe(null);
 });

@@ -184,12 +184,13 @@ public final class Agent {
         }
         switch op {
         case "tree" where req["ax"] as? Bool == true: Agent.reply(accessibilityElementsTree(req)) // LLP 1080.002
-        case "tree": Agent.reply(session.canvases.decorate(req, decorateTree(session.natives.decorate(session.webviews.tree(line)))))
+        case "tree": Agent.reply(session.canvases.decorate(req, decorateTree(presenter.elements.regions.decorate(session.natives.decorate(session.webviews.tree(line))))))
         case "layout": Agent.reply(tagged(inspectLayout(req) ?? layout(req))) // LLP 1080.001: `native`, `agree`
         // A call that moved something settles the canvases before it
         // replies (LLP 1012's fixed point; LLP 1014 D5 reads placements
         // after a frame, so the frame is rendered here, not left to the
         // display link to get to between two calls).
+        case "tap" where req["part"] != nil: Agent.reply(tagged(partTap(req))) // a hatch's part: the aim and the landing (AgentParts.swift)
         case "tap":
             var r: [String: Any]
             #if os(macOS)
@@ -475,6 +476,7 @@ public final class Agent {
     }
 
     func clock(_ req: [String: Any]) -> [String: Any] {
+        session.natives.hatchClock.beginCommand()
         // @ref LLP 1080.000 §12 — platform timing, before any `clock`: the
         // host has run on the wall's time (motion and holds included) while
         // the runner's clock stood behind it. The clock is taken over at the
@@ -622,6 +624,21 @@ public final class Agent {
     /// one is returned.
     /// `floor`: the host's clock is never set behind it while the runner catches up (LLP 1080.000 §12).
     func advanceStepped(to: Double, deadline: Date, floor: Double = -.infinity) -> Batch {
+        // A seek stops at each hatch instant on the way (LLP 1075.003.000.001
+        // §2.4): the runner is brought there, the ticks and `after`s due are
+        // called on that instant's state, and what they asked is drained.
+        let clock = session.natives.hatchClock
+        while let instant = clock.nextInstant, instant <= to {
+            let batch = advanceRunner(to: max(instant, session.clock ?? instant), deadline: deadline, floor: floor)
+            if batch.error != nil { return batch }
+            if let limit = clock.fire(at: session.clock ?? instant) {
+                return Batch(ops: [], timers: batch.timers, motion: batch.motion, clock: session.clock, error: limit)
+            }
+        }
+        return advanceRunner(to: to, deadline: deadline, floor: floor)
+    }
+
+    private func advanceRunner(to: Double, deadline: Date, floor: Double) -> Batch {
         var steps = 0
         // The agent's clock is a seek: frame tasks fire virtual frames (LLP 1073 D3).
         session.runtime.presentFrames(false)

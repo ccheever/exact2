@@ -8,6 +8,7 @@ mod controls;
 mod development;
 mod flights;
 mod glass;
+mod hatches;
 mod header_box;
 mod height_drag;
 mod holds;

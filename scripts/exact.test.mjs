@@ -182,3 +182,48 @@ test.skipIf(!tools)('an executable whose name ends in parentheses is read as a f
   assert.ok(saved > 0, 'strip took symbols off');
   assertLinkedSdk(executable, '15.0');
 }));
+
+// LLP 1075.003.000.001 §5: `exact hatch` writes a stub a target, wires it into a module it wrote, and declares the word.
+test('exact hatch writes each target\'s stub, wires it in, and declares the word with its platforms', async () => {
+  const { hatch } = await import('./exact.mjs');
+  const { readFileSync } = await import('node:fs');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-hatch-'));
+  const was = process.env.EXACT_APP_DIR;
+  try {
+    for (const d of ['apple', 'web']) mkdirSync(resolve(dir, d));
+    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  view\n    column hatch="avatar"\n');
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Scratch', app: { id: 'com.example.scratch', name: 'Scratch' }, host: { ios: {}, web: {} } }));
+    process.env.EXACT_APP_DIR = dir;
+    const said = [];
+    const first = hatch(['avatar'], line => said.push(line));
+    assert.deepEqual(first.platforms, ['ios', 'web']);
+    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).hatches, { avatar: ['ios', 'web'] });
+    const swift = readFileSync(resolve(dir, 'modules/apple/Hatches.swift'), 'utf8');
+    assert.ok(swift.includes('if element.hatch == .avatar { avatarHatch(element) }') && swift.includes('if element.hatch == .avatar { avatarHatchEnded(element) }'));
+    assert.ok(readFileSync(resolve(dir, 'modules/apple/AvatarHatch.swift'), 'utf8').includes('func avatarHatch(_ element: ExactElement)'));
+    const page = readFileSync(resolve(dir, 'modules/web/index.js'), 'utf8');
+    assert.ok(page.includes("import * as avatarHatch from './hatch-avatar.js';") && page.includes('hatches["avatar"] = avatarHatch;'));
+    assert.ok(readFileSync(resolve(dir, 'modules/web/hatch-avatar.js'), 'utf8').includes('export function elementEnded(e)'));
+    // A second word joins the first; the same word again changes nothing; the scopes take no word.
+    hatch(['unread-dot'], () => {});
+    const again = hatch(['avatar'], () => {});
+    assert.deepEqual(again.wrote, []);
+    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).hatches, { avatar: ['ios', 'web'], 'unread-dot': ['ios', 'web'] });
+    assert.ok(readFileSync(resolve(dir, 'modules/apple/Hatches.swift'), 'utf8').includes('if element.hatch == .unreadDot { unreadDotHatch(element) }'));
+    hatch(['--window'], () => {});
+    assert.ok(readFileSync(resolve(dir, 'modules/apple/Hatches.swift'), 'utf8').includes('        windowHatch(window)\n        // exact:window\n'));
+    assert.ok(readFileSync(resolve(dir, 'modules/web/index.js'), 'utf8').includes('export function window(x) { windowHatch.built(x); }'));
+    assert.throws(() => hatch(['Not A Word'], () => {}), /name a word/);
+    // In a module of the app's own, with no marker, the lines to add are shown, not written.
+    rmSync(resolve(dir, 'modules/apple'), { recursive: true });
+    mkdirSync(resolve(dir, 'modules/apple'));
+    writeFileSync(resolve(dir, 'modules/apple/Mine.swift'), 'final class Mine: ExactModule {}\nlet exactModule: ExactModule.Type = Mine.self\n');
+    const mine = hatch(['seal'], () => {});
+    assert.equal(mine.todo.length, 2);
+    assert.ok(mine.todo.some(line => line.includes('if element.hatch == .seal { sealHatch(element) }')));
+    assert.equal(readFileSync(resolve(dir, 'modules/apple/Mine.swift'), 'utf8').includes('sealHatch'), false);
+  } finally {
+    if (was === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = was;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

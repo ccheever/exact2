@@ -13,7 +13,7 @@
 // first paint, as a module view's does (rt.js `painted`), and a node mounted before
 // then is told once it has. rt.js re-exports `ht`: only a plan that marks a
 // node bundles this.
-import { onEnd, journal, clock, viewId, inflight, painted } from "./rt.js";
+import { onEnd, journal, clock, viewId, inflight, painted, time, paint, drive } from "./rt.js";
 
 let Page = null;
 const said = new Set(), warned = new Set();
@@ -27,14 +27,30 @@ const counted = word => stats[word] ??= { live: 0, reusable: 0, lost: [], calls:
 const publish = () => {
   const x = globalThis.exact;
   if (!x || x.hatchState) return;
-  x.hatchState = state; x.hatchPerf = { reply: perfReply, site: perfSite, window: perfWindow }; x.hatchActs = { drains: () => A.drains, queued: () => Acts.length }; x.diagnostics = diagnostics("module");
+  x.hatchState = state; x.hatchPerf = { reply: perfReply, site: perfSite, window: perfWindow };
+  x.hatchActs = { drains: () => A.drains, queued: () => Acts.length, command() { K.fires = K.acts = 0; } };
+  x.hatchRegions = { of: regionsOf, part: partOf };
+  // What a page module reaches: its diagnostics and the frame clock (§2.4).
+  x.diagnostics = diagnostics("module"); x.hatches = { ...hatchClock, diagnostics: x.diagnostics };
 };
 
 // What Exact measures by itself, and what hatch code adds (@ref LLP
 // 1075.003.000.001 §3.1–3.2): development only, as `perf` is (LLP 1079 D1);
 // a production page keeps nothing and each call returns on this one flag.
 let Dev = null;
-const dev = () => Dev ??= globalThis.exact?.plan != null;
+// Asked again until it is so: the page names its plan once it has started.
+const dev = () => Dev ||= globalThis.exact?.plan != null;
+// `EXACT_HATCHES=off`, on the web `?hatches=off` (§2.6): a development page
+// connects no hatch and says so once; the module's views and calls work. A
+// production page does not read the name.
+let Off = null;
+const off = () => {
+  if (Off == null && dev()) {
+    Off = typeof location !== "undefined" && new URLSearchParams(location.search).get("hatches") === "off";
+    if (Off) say("hatches: off (?hatches=off); no hatch is connected or called");
+  }
+  return Off === true;
+};
 
 // Every call, timed: a node's by plan site and moment, another scope's by its
 // hatch. Times are exclusive: a call nested in another is charged to itself.
@@ -191,7 +207,9 @@ function state() {
   const reply = { words, scopes: others, ...(globalThis.exact?.hatchWords ? { platform: globalThis.exact.hatchWords } : {}),
     unhandled: [...Unhandled].map(([word, reason]) => ({ word, reason })), refused: A.refused, inFlight: Acts.length,
     measuring: dev(), rejected: D.rejected, abandoned: D.abandoned, limited: D.limited };
-  return fit(reply, [[reply, "words"], [reply, "scopes"], [reply, "unhandled"]]);
+  sweepRegions();
+  if (Regions.length || Tombs.length || G.rejected) Object.assign(reply, { owns: [...Regions.map(regionJson), ...Tombs.map(tombJson)], surfaces: Regions.filter(r => r.surface).map(r => ({ by: r.scope, what: r.what })), regionsRefused: G.rejected });
+  return fit(reply, [[reply, "words"], [reply, "scopes"], [reply, "unhandled"], [reply, "owns"]]);
 }
 
 const quantile = (sorted, q) => sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] : 0;
@@ -205,7 +223,7 @@ function perfReply(tags) {
     const sorted = [...t.ring].sort((a, b) => a - b);
     return { count: t.count, sum: t.sum, max: t.max, p50: quantile(sorted, 0.5), p95: quantile(sorted, 0.95), samples: sorted.length, dropped: t.dropped, ...(t.measured ? { measured: true } : {}) };
   });
-  const reply = { ...tags, seq: clock.epoch, plan: globalThis.exact?.plan ?? null, measuring: dev(), hatches: by, calls, tickets: 0,
+  const reply = { ...tags, seq: clock.epoch, plan: globalThis.exact?.plan ?? null, measuring: dev(), hatches: by, calls, tickets: Tickets.length,
     counters: grouped(D.counters, c => c.n), timings, rejected: D.rejected, abandoned: D.abandoned, limited: D.limited };
   return fit(reply, [[reply, "calls"], [reply, "hatches"], [reply, "counters"], [reply, "timings"]]);
 }
@@ -257,13 +275,16 @@ function ask(h, what, kind, text) {
   A.scheduled = true;
   queueMicrotask(drain);
 }
-function drain() {
-  A.scheduled = false;
+function drain(now) {
+  if (now !== true) A.scheduled = false;
+  if (!Acts.length) return;
   A.drains++;
   for (const act of Acts.splice(0, 64)) {
     A.bytes -= act.size;
     try { run(act); } catch (error) { say(`${act.what}: ${act.kind} threw ${error?.message ?? error}`); } finally { inflight.n--; }
   }
+  // Inside a seek's instant the caller drains on (`instant`).
+  if (now === true) return;
   // What these acts queued (a `changed` that clicks again) waits for a task;
   // a task that finds nothing queued gives the next act its microtask back.
   if (typeof MessageChannel !== "function") { A.tasks = false; if (Acts.length && !A.scheduled) { A.scheduled = true; setTimeout(drain); } return; }
@@ -292,6 +313,152 @@ if (typeof document !== "undefined" && document.addEventListener) {
   document.addEventListener("compositionend", () => { A.composing = null; }, true);
 }
 
+// The frame clock (@ref LLP 1075.003.000.001 §2.4): logical time, for what
+// keeps step with the app. `exact.hatches.frames(frame => …)` is a ticket:
+// it ticks at the instants LLP 1073's frame tasks fire, after that frame's
+// tasks and timers, with `frame.now` the session clock and `frame.seq` the
+// commit the instant's state ends at; each presented frame on the wall, and
+// under the agent the virtual display, `base + k·1000/60`.
+// `exact.hatches.after(ms, f)` waits on the session clock. Each returns its
+// stop. The runtime's clock holds two entries of ours while they are wanted,
+// the ticks' and the afters'; its seek fires them in their turn (rt.js
+// `advance`), so under the agent a callback sees its own instant's state and
+// `clock +1000` is ten `clock +100`. There what a callback asks is drained at
+// that instant, with the moments those commits cause, until nothing is
+// queued. Ticks and afters are not commits: 4,096 of them, and 4,096 drained
+// acts, are the most one agent command runs.
+const Tickets = [], Afters = [], Changed = new Set();
+const K = { frame: null, after: null, order: 0, fires: 0, acts: 0 };
+function arm() {
+  const T = clock.timers;
+  for (const e of [K.frame, K.after]) { const i = e ? T.indexOf(e) : -1; if (i >= 0) T.splice(i, 1); }
+  // The ticks' entry before the afters': at one instant the ticks go first.
+  if (Tickets.length) { K.frame ??= { hatch: true, frame: true, base: clock.now, k: 1, due: clock.now + 1000 / 60, action: tick }; T.push(K.frame); } else K.frame = null;
+  if (Afters.length) { K.after ??= { hatch: true, action: afters }; K.after.due = Math.min(...Afters.map(a => a.due)); T.push(K.after); } else K.after = null;
+  if (clock.agent) return;
+  if (K.frame) paint();
+  if (K.after) drive();
+}
+const fired = () => ++K.fires <= 4096 || !clock.agent;
+const limit = name => { say(`refused advance: ${name} (4096 in one command)`); return false; };
+function tick() {
+  const e = K.frame;
+  // The seek leaves our next instant to us; a presented frame has set it.
+  if (e && clock.now >= e.due) { e.k++; e.due = e.base + e.k * 1000 / 60; }
+  const frame = { now: clock.now, seq: clock.epoch };
+  for (const t of [...Tickets]) if (Tickets.includes(t)) { if (!fired()) return limit("HatchFireLimit"); timed("frames", null, "tick", () => { try { t(frame); } catch (error) { say(`frames threw ${error?.message ?? error}`); } }); }
+  return instant();
+}
+function afters() { return due() && instant(); }
+// Each due `after`, in due order, ties by registration.
+function due() {
+  for (const a of Afters.filter(a => a.due <= clock.now).sort((a, b) => a.due - b.due || a.i - b.i)) {
+    const i = Afters.indexOf(a);
+    if (i < 0) continue;
+    Afters.splice(i, 1);
+    if (!fired()) return limit("HatchFireLimit");
+    timed("after", null, "fired", () => { try { a.f(); } catch (error) { say(`after threw ${error?.message ?? error}`); } });
+  }
+  return true;
+}
+// What an instant's callbacks asked, under the agent's seek: drained now.
+function instant() {
+  if (clock.agent) for (;;) {
+    for (const run of [...Changed]) run();
+    if (Acts.length) { K.acts += Math.min(64, Acts.length); if (K.acts > 4096) return limit("HatchActLimit"); drain(true); continue; }
+    if (Afters.some(a => a.due <= clock.now)) { if (!due()) return false; continue; }
+    break;
+  }
+  arm();
+  return true;
+}
+const hatchClock = {
+  frames(f) {
+    if (typeof f !== "function") return () => {};
+    time();
+    Tickets.push(f); arm();
+    const stop = () => { const i = Tickets.indexOf(f); if (i >= 0) { Tickets.splice(i, 1); arm(); } };
+    return Object.assign(stop, { stop });
+  },
+  after(ms, f) {
+    if (typeof f !== "function") return () => {};
+    time();
+    const a = { due: clock.now + Math.max(0, Number(ms) || 0), f, i: K.order++ };
+    Afters.push(a); arm();
+    const stop = () => { const i = Afters.indexOf(a); if (i >= 0) { Afters.splice(i, 1); arm(); } };
+    return Object.assign(stop, { stop });
+  },
+  now() { time(); return clock.now; },
+};
+
+// Regions and parts (@ref LLP 1075.003.000.001 §3.4, §3.5): what a hatch
+// tells the agent it cannot otherwise see. `e.owns(element, "what")` binds a
+// sentence, weakly, to an element the hatch made (`a.owns("what")` on the app
+// binds an appearance to nothing); `e.parts = [{ id, element, role, label }]`
+// names the controls it drew. `tree` shows both under the node, with what
+// the page observes of each element (live, its frame, its tag), and
+// `state.hatches` every region whatever its scope. A region whose element has
+// gone stays as a tombstone for 5 s of session clock, at most 16. Bounds: 32
+// regions a scope and 1,024 a page, a sentence of 120 bytes, 16 appearances,
+// 32 parts a node with ids of 64 bytes, unique in the node, and labels of
+// 120; past one the registration is refused by name, whole.
+const Regions = [], Tombs = [], Parts = new WeakMap(), PartNodes = new Set();
+const G = { rejected: 0 };
+const refused = (scope, why) => { G.rejected++; say(`${scope}: ${why}`); return false; };
+function owns(scope, node, target, what, options) {
+  what = String(what ?? "");
+  const size = enc.encode(what).length, kind = target && typeof target === "object" ? "view" : "appearance";
+  if (!size || size > 120) return refused(scope, `owns refused: its sentence is ${size} bytes, over 120`);
+  // An appearance is keyed by its sentence, and an element by itself: saying it again replaces it.
+  for (let i = Regions.length - 1; i >= 0; i--) if (kind === "appearance" ? Regions[i].kind === kind && Regions[i].what === what : Regions[i].ref?.deref() === target) Regions.splice(i, 1);
+  if (kind === "appearance" && Regions.filter(r => r.kind === kind).length >= 16) return refused(scope, "owns refused: 16 appearance regions a page");
+  if (Regions.filter(r => r.scope === scope && r.node === node).length >= 32) return refused(scope, "owns refused: 32 regions a scope");
+  if (Regions.length >= 1024) return refused(scope, "owns refused: 1,024 regions a page");
+  Regions.push({ scope, node, kind, what, surface: !!options?.surface, ref: kind === "view" ? new WeakRef(target) : null });
+  return true;
+}
+function setParts(scope, node, list) {
+  if (!Array.isArray(list)) return refused(scope, "parts refused: a list of { id, element, role, label }");
+  if (list.length > 32) return refused(scope, `parts refused: ${list.length} parts, over 32 a node`);
+  const ids = new Set();
+  for (const p of list) {
+    const id = String(p?.id ?? ""), n = enc.encode(id).length;
+    if (!n || n > 64) return refused(scope, `parts refused: an id of ${n} bytes (1 to 64)`);
+    if (ids.has(id)) return refused(scope, `parts refused: \`${id}\` is listed twice`);
+    if (enc.encode(String(p.label ?? "")).length > 120) return refused(scope, `parts refused: \`${id}\`'s label is over 120 bytes`);
+    ids.add(id);
+  }
+  if (list.length) { Parts.set(node, list.map(p => ({ id: String(p.id), role: String(p.role ?? ""), label: String(p.label ?? ""), ref: p.element ? new WeakRef(p.element) : null }))); PartNodes.add(new WeakRef(node)); }
+  else Parts.delete(node);
+  return true;
+}
+// What a scope registered goes with it.
+const regionsEnded = (scope, node) => { for (let i = Regions.length - 1; i >= 0; i--) if (Regions[i].scope === scope && Regions[i].node === node) Regions.splice(i, 1); if (node) Parts.delete(node); };
+const regionLive = r => r.kind === "appearance" || r.ref.deref()?.isConnected === true;
+// A region whose element is gone is retired here, before a read: with nothing
+// changed since, a second read sees the same tombstone.
+function sweepRegions() {
+  for (let i = 0; i < Regions.length; i++) if (!regionLive(Regions[i])) { const r = Regions.splice(i--, 1)[0]; Tombs.push({ scope: r.scope, node: r.node, kind: r.kind, what: r.what, ended: clock.now }); }
+  for (let i = Tombs.length - 1; i >= 0; i--) if (clock.now - Tombs[i].ended >= 5000) Tombs.splice(i, 1);
+  if (Tombs.length > 16) Tombs.splice(0, Tombs.length - 16);
+}
+const rect = el => { const b = el.getBoundingClientRect(), r = v => Math.round(v * 100) / 100; return { x: r(b.x), y: r(b.y), w: r(b.width), h: r(b.height) }; };
+const regionJson = r => {
+  const el = r.ref?.deref();
+  return { by: r.scope, kind: r.kind, what: r.what, ...(r.surface ? { surface: true } : {}), observed: { live: true, ...(el ? { frame: rect(el), class: el.localName } : {}) } };
+};
+const tombJson = t => ({ by: t.scope, kind: t.kind, what: t.what, observed: { live: false, ended: t.ended } });
+const partJson = p => { const el = p.ref?.deref(), live = el?.isConnected === true; return { id: p.id, role: p.role, label: p.label, live, ...(live ? { frame: rect(el) } : {}) }; };
+/** `tree`: a node's regions (and their tombstones) and parts, to lay over its row. */
+function regionsOf(node) {
+  if (!Regions.length && !Tombs.length && !Parts.has(node)) return null;
+  sweepRegions();
+  const owned = [...Regions.filter(r => r.node === node).map(regionJson), ...Tombs.filter(t => t.node === node).map(tombJson)], parts = Parts.get(node);
+  return owned.length || parts ? { ...(owned.length ? { owns: owned } : {}), ...(parts ? { parts: parts.map(partJson) } : {}) } : null;
+}
+/** The element a node's part `id` is bound to, if it is live. */
+const partOf = (node, id) => { const el = Parts.get(node)?.find(p => p.id === id)?.ref?.deref(); return el?.isConnected ? el : null; };
+
 // The words this platform handles, when the app's manifest gives words their
 // platforms (web-js/build.mjs; LLP 1075.003.000.001 §4.3): a word it leaves
 // out is shown and never called, journaled once and listed in `state`.
@@ -314,6 +481,9 @@ export function ht(e) {
   const h = {
     hatch: word, element: e, data: e.dataset, isNew: true, isLive: true,
     click() { ask(h, what, "click"); }, focus() { ask(h, what, "focus"); }, blur() { ask(h, what, "blur"); }, input(text) { ask(h, what, "input", text); },
+    owns(target, sentence, options) { return h.isLive && owns(`element ${word}`, e, target, sentence, options); },
+    get parts() { return (Parts.get(e) ?? []).map(p => ({ id: p.id, role: p.role, label: p.label, element: p.ref?.deref() ?? null })); },
+    set parts(list) { if (h.isLive) setParts(`element ${word}`, e, list); },
     diagnostics: diagnostics(`element ${word}`, spans),
   };
   // A throw is caught and journaled (LLP 1075.003.000.001 §4.4): this node's
@@ -331,7 +501,8 @@ export function ht(e) {
   };
   inflight.n++;
   page().then(m => {
-    if (!h.isLive) return;
+    // The switch is read here, once the page has started and says what it is.
+    if (!h.isLive || off()) return;
     module = m;
     publish();
     counted(word).live++;
@@ -349,10 +520,13 @@ export function ht(e) {
     // click) is then an ordinary update, not one inside the running effect.
     // Installed before `built`, so what `built` itself causes is heard too.
     let due = false;
+    // Told in a microtask; a seek's hatch instant tells it there and then (`instant`).
+    const tell = () => { if (!due) return; due = false; Changed.delete(tell); if (h.isLive) { h.isNew = false; call("element", "changed"); } };
     e.$ht = () => {
       if (due) return;
       due = true;
-      queueMicrotask(() => { due = false; if (h.isLive) { h.isNew = false; call("element", "changed"); } });
+      Changed.add(tell);
+      queueMicrotask(tell);
     };
     call("element", "built");
   }, error => say(`element ${word} #${id}: no page module: ${error?.message ?? error}`))
@@ -366,6 +540,7 @@ export function ht(e) {
     h.isLive = false;
     if (told) { counted(word).live--; call("elementEnded", "ended"); }
     abandon(spans);
+    regionsEnded(`element ${word}`, e);
     h.data = { ...e.dataset };
     h.element = null;
   });
@@ -402,8 +577,8 @@ function scopesOf(m) {
     calls[moment] = (calls[moment] ?? 0) + 1;
     try { timed(scope, null, moment, () => m[name](arg)); } catch (error) { say(`${name} threw ${error?.message ?? error}`); }
   };
-  const app = { ...facts(), processOwner: true, isNew: true, isLive: true };
-  const win = { window: globalThis, document, exclusive: true, frame: frame(), isNew: true, isLive: true };
+  const app = { ...facts(), processOwner: true, isNew: true, isLive: true, owns: (sentence, options) => owns("app", null, null, sentence, options) };
+  const win = { window: globalThis, document, exclusive: true, frame: frame(), isNew: true, isLive: true, owns: (target, sentence, options) => owns("window", null, target, sentence, options) };
   call("app", "app", "built", app);
   call("window", "window", "built", win);
   let due = false, ended = false;
@@ -424,8 +599,8 @@ function scopesOf(m) {
   globalThis.addEventListener?.("pagehide", () => {
     if (ended) return;
     ended = true;
-    call("windowEnded", "window", "ended", win); win.isLive = false;
-    call("appEnded", "app", "ended", app); app.isLive = false;
+    call("windowEnded", "window", "ended", win); win.isLive = false; regionsEnded("window", null);
+    call("appEnded", "app", "ended", app); app.isLive = false; regionsEnded("app", null);
   });
 }
 
@@ -443,6 +618,7 @@ const roots = new WeakSet(), lists = new WeakSet(), routes = new Map();
 export function containers() {
   publish();
   return page().then(m => {
+    if (off()) return;
     const project = root => {
       if (!root) return;
       const live = new Set();
@@ -468,7 +644,8 @@ export function containers() {
             || element.closest("[data-exiting]")) continue;
           live.add(element);
           if (routes.has(element)) continue;
-          const r = { key: element.getAttribute("navigationKey"), data: element.dataset, element, navigation: nav, isNew: true, isLive: true };
+          const key = element.getAttribute("navigationKey");
+          const r = { key, data: element.dataset, element, navigation: nav, isNew: true, isLive: true, owns: (target, sentence, options) => owns(`route ${key}`, null, target, sentence, options) };
           routes.set(element, r);
           call("route", `route ${r.key}: built`, r);
         }
@@ -478,6 +655,7 @@ export function containers() {
         routes.delete(element);
         call("routeEnded", `route ${r.key}: ended`, r);
         r.isLive = false;
+        regionsEnded(`route ${r.key}`, null);
       }
     };
     scopesOf(m);

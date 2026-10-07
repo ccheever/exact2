@@ -145,8 +145,8 @@ pub struct Host<D: DataSource> {
     mirror: IdMap<ViewId, Mirror>,
     keys: IdMap<NodeKey, ViewId>,
     inline_runs: IdMap<ViewId, (ViewId, Vec<EventKind>)>,
-    /// Hatch words journaled as having no view here (an inline run's).
-    viewless_hatches: std::collections::BTreeSet<String>,
+    /// Hatch words: those journaled as viewless here, and those the plan does not give this platform.
+    hatches: paragraph::HatchWords,
     /// SVG scenes and lowered CSS animations (LLP 1055 D4, D7).
     svg: svg::SvgState,
     /// 2D canvases whose replays the presenter has not caught up with: a
@@ -441,11 +441,11 @@ impl<D: DataSource> Host<D> {
             head_title: None,
             head_edited: false,
             language: None,
+            hatches: paragraph::HatchWords::of(runner.plan()),
             runner,
             mirror: IdMap::default(),
             keys: IdMap::default(),
             inline_runs: IdMap::default(),
-            viewless_hatches: Default::default(),
             svg: svg::SvgState::new(cfg!(any(target_os = "ios", target_os = "tvos"))),
             canvas_held: IdSet::default(),
             canvas_kept: Default::default(),
