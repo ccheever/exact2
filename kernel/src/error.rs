@@ -319,7 +319,7 @@ pub enum LayoutError {
     NotAnImage(ViewId),
     /// An intrinsic size that is not finite and positive on both axes.
     InvalidIntrinsicSize(ViewId),
-    /// An environment with a non-finite inset.
+    /// An environment with a non-finite inset or invalid control font size.
     InvalidEnv,
     /// A segment grid with a count that is not `cols × rows` (or any
     /// segment on a 1 × 1 grid), a zero count, or a non-finite rect
@@ -329,6 +329,8 @@ pub enum LayoutError {
     InvalidRootFontSize,
     /// A host text callback returned a non-finite or negative metric.
     InvalidTextMetrics(ViewId),
+    /// A host returned non-finite or negative field chrome.
+    InvalidFieldChrome(ViewId),
     /// A sampled CSS height is non-finite or negative.
     InvalidPresentedHeight,
     /// More than one sample supplies the same generational node.

@@ -27,6 +27,7 @@ mod height_binding;
 mod image;
 mod layout_equality;
 mod motion;
+mod native_fields;
 mod no_panic;
 mod paint;
 mod paragraph_stamp;

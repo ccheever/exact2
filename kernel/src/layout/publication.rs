@@ -80,6 +80,7 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
         let inline = arena.is_inline_run(slot);
         let old = arena.frame(slot);
         let old_content = arena.content(slot);
+        let old_field_content = arena.field_content_rect(slot);
         let placement = arena
             .frag
             .placements
@@ -95,6 +96,7 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
         };
         let frame = if hidden {
             arena.set_content(slot, (0.0, 0.0));
+            arena.field_content.remove(&slot);
             Frame {
                 x: ox,
                 y: oy,
@@ -107,6 +109,20 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
                 continue;
             };
             let l = tree.layout(node);
+            if arena.is_native_text_control(slot) {
+                let inset = l.border + l.padding;
+                arena.field_content.insert(
+                    slot,
+                    Frame {
+                        x: inset.left,
+                        y: inset.top,
+                        width: (l.size.width - inset.left - inset.right).max(0.0),
+                        height: (l.size.height - inset.top - inset.bottom).max(0.0),
+                    },
+                );
+            } else {
+                arena.field_content.remove(&slot);
+            }
             // A multi-column container's overflow is its columns' (D7), which
             // a multi-column `text`, a leaf to the engine, never reports.
             let o = arena
@@ -160,7 +176,12 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
             arena.mark_geometry_changed(slot, root);
             changed.push(arena.key(slot));
         }
-        if !inline && (moved || parent_moved || old_content != arena.content(slot)) {
+        if !inline
+            && (moved
+                || parent_moved
+                || old_content != arena.content(slot)
+                || old_field_content != arena.field_content_rect(slot))
+        {
             updated.push(arena.key(slot));
         }
         if descend_all {

@@ -8,7 +8,7 @@ use crate::generated::StyleProps;
 use crate::style::relative::{Unit, MEDIUM};
 use crate::StyleId;
 
-pub(super) fn resolve(
+pub(crate) fn resolve(
     arena: &mut NodeArena,
     layout: &mut dyn LayoutMirror,
     touched: &mut Vec<NodeKey>,
@@ -28,7 +28,9 @@ pub(super) fn resolve(
             let rows = StyleMask::of(StyleId::FontSize);
             let slots: Vec<u32> = arena.iter_live().collect();
             for slot in slots {
-                if arena.inherited_source(slot, StyleId::FontSize).is_none() {
+                if arena.inherited_source(slot, StyleId::FontSize).is_none()
+                    && arena.control_text_start(slot).is_none()
+                {
                     inherited_changed(arena, layout, slot, rows, receipt);
                     touched.push(arena.key(slot));
                 }
@@ -54,17 +56,19 @@ pub(super) fn resolve(
     slots.sort_unstable();
     let root = arena.document_style.font_size;
     for (_, slot) in slots {
-        let font_of = |slot: u32| {
-            arena
-                .inherited_source(slot, StyleId::FontSize)
-                .map_or(root, |s| arena.style(s).font_size)
-        };
-        let parent = arena.parent(slot).map_or(root, font_of);
+        let parent = arena.control_text_start(slot).map_or_else(
+            || {
+                arena.parent(slot).map_or(root, |s| {
+                    arena.computed_source(s, StyleId::FontSize).font_size
+                })
+            },
+            |s| s.font_size,
+        );
         let mut next = StyleProps::clone(arena.style(slot));
         let mut changed = StyleMask::EMPTY;
         let relative: Vec<_> = next.relative.iter().collect();
         // `font-size` first: an `em` elsewhere on the node is its font size.
-        let mut font = parent;
+        let mut font = arena.computed_source(slot, StyleId::FontSize).font_size;
         for (id, unit, n) in relative.iter().copied() {
             if id != StyleId::FontSize {
                 continue;

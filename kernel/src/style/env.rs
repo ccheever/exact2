@@ -177,6 +177,8 @@ pub struct Env {
     /// side occupies one cell. Set by the terminal host on its own kernel;
     /// no other host sees it.
     pub cell_borders: bool,
+    /// Platform control fonts (LLP 1104 D4). None preserves page inheritance.
+    pub control_text_styles: Option<crate::ControlTextStyles>,
 }
 
 impl Default for Env {
@@ -199,6 +201,7 @@ impl Env {
             viewport_width: 0.0,
             viewport_height: 0.0,
             cell_borders: false,
+            control_text_styles: None,
         }
     }
 
@@ -216,6 +219,10 @@ impl Env {
     pub fn is_finite(&self) -> bool {
         Edge::ALL.iter().all(|e| self.inset(*e).is_finite())
             && self.segments.iter().all(Rect::is_finite)
+            && self
+                .control_text_styles
+                .as_ref()
+                .is_none_or(crate::ControlTextStyles::is_valid)
     }
 
     /// Whether the grid is well formed: both counts at least 1, and exactly
