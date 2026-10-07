@@ -203,12 +203,9 @@ export function groupController({ views, collections, request, applyBatch, now, 
     doc.addEventListener('click', stop, { capture: true, once: true });
     setTimeout(() => doc.removeEventListener('click', stop, { capture: true }), 0);
   }
-  // A drag refused while the last drop's session holds, said once a session (LLP 1102 §3.17):
-  // a drive's reply reads like a success otherwise.
-  let refusedFor = null;
+  // A drag refused while the last drop's session holds, said once a contact (a press, a Space)
+  // (LLP 1102 §3.17): a drive's reply reads like a success otherwise.
   const refused = () => {
-    if (refusedFor === cur) return;
-    refusedFor = cur;
     log('reorder: a drag refused: the last drop is held until its move shows (LLP 1094 D8); a person waits for the card to land; a drive waits with `clock settle` before the next drag');
   };
   // The scroll container under the contact, short of the grip, where `touch-action` stops.

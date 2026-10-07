@@ -205,7 +205,7 @@ export function commit(f, what = "commit") {
     for (const f of Before) f();
     Pres?.before({ ops: [] }, Views); // presence measures what it tracks before the tree changes (LLP 1063)
     try { flush(); } catch (e) { Poisoned = true; say(`poisoned: ${e.pc != null ? `Instance(${e.message})` : e.message}`); console.error(e); Sched?.forget(); return false; } // a trap as the runner's InstanceError (LLP 1090 D6)
-    settled(); if (!ok) return Sched?.scan(false), false;
+    settled(true); if (!ok) return Sched?.scan(false), false;
     clock.epoch++; Store.persist();
     for (const go of out) go(); if (Open.size) closeLetGo(); for (const c of cmds) command(...c); Sounds.apply?.(cmds); if (!Booting) autofocus(); // after its focus commands, as the wasm host (focus.js)
     // An answer's `then` is armed, due now, once however many land: the next advance runs it as its own commit (LLP 1016.001 D3).
@@ -224,7 +224,7 @@ export const After = [], Before = [], Clocked = [];
 const Scrolls = new Map(), Selects = new Set();
 /** What a commit does once its tree is in place: authored scrolls, then the
  * loaded pieces' publications (also after a list's report, list.js). */
-export function settled() { drain(); markDocument(); Paint?.flush(); Present?.(); for (const f of After) f(); }
+export function settled(inCommit) { drain(); markDocument(); Paint?.flush(); Present?.(); for (const f of After) f(); if (!inCommit && !Booting) autofocus(); } // a list's own mounts (list.js); a commit's scan follows its commands
 let Booting = false; // the boot's own offsets are no reader's scroll (the web host hears none: its input opens after them): `scroll` skips one
 function drain() {
   for (const [e, o] of Scrolls) for (const name in o) {

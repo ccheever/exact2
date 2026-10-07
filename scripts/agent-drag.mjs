@@ -49,7 +49,7 @@ async function reorderNotes(s, since) {
   const j = await quick(s.op({ op: 'logs', since }));
   return (Array.isArray(j?.lines) ? j.lines : []).map((l) => (typeof l === 'string' ? l : JSON.stringify(l)).replace(/^t=\S+ /, '')).filter((l) => l.startsWith('reorder: '));
 }
-const noted = (r, notes) => (notes.length ? { ...r, note: notes.join('; ') } : r);
+const noted = (r, notes) => (notes.length ? { ...r, note: [r.note, ...notes].filter(Boolean).join('; ') } : r);
 
 export async function dragTap({ s, carrier, node, target, host, timing, tapRefusal, scrolled }, opts) {
   // `drag to B [at x y]` (LLP 1094 D12): the delta from both boxes at the press, to B's middle or to (x, y) from its
@@ -80,7 +80,7 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
     let r;
     try { r = await carrier.input(node.id, 'drag', { at: from ? start : undefined, drag: { ...drag, during: during.map(held) } }); }
     catch (error) { throw await tapRefusal(s, target, error); }
-    return noted(s.landed({ ...r, target, ...(scrolled ? { scrolled } : {}), carrier: host, mode: timing }), await reorderNotes(s, mark));
+    return noted(await s.landed({ ...r, target, ...(scrolled ? { scrolled } : {}), carrier: host, mode: timing }), await reorderNotes(s, mark));
   }
   // The carrier's phases, each reply checked: an error or a refusal releases the contact and throws.
   let down, done = [], up;
@@ -132,7 +132,7 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
     if (s.contact) error.message += '; the contact could not be released (tap cancel, or close the session)';
     throw error;
   }
-  return noted(s.tagged({ tapped: node.id, target, ...(scrolled ? { scrolled } : {}), at: down.at, drag: said, lifted: up.at, ...(done.length ? { during: done } : {}), delivery: down.delivery, carrier: host, mode: timing }), await reorderNotes(s, mark));
+  return noted(await s.tagged({ tapped: node.id, target, ...(scrolled ? { scrolled } : {}), at: down.at, drag: said, lifted: up.at, ...(done.length ? { during: done } : {}), delivery: down.delivery, carrier: host, mode: timing }), await reorderNotes(s, mark));
 }
 
 /** `drag to`'s delta: from the start (`from`, else the middle) to B's middle, or `at` from B's top left. */
