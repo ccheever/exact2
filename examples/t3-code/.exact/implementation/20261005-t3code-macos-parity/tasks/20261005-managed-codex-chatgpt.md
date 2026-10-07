@@ -115,3 +115,21 @@ Planned. No branch.
 ## Next action
 
 Starts when the user lifts the sign-in hold: `prepare` from `feat(example)/t3-code`, covering sign-in rows with lane fixtures (fake provider, seeded data).
+
+## Desktop audit observation, 2026-10-07
+
+The [desktop clickthrough](../reviews/20261007-desktop-clickthrough.md) reached Welcome >
+Agents in both clients against the same isolated reference backend. Electron showed the
+existing Codex account as signed in (identity masked) and `Ready`. Exact instead showed
+`Use existing CLI` and `Continue with ChatGPT`. Reference revision:
+`1e2ecbd9758830669684b494d4398f626b0576e0`; Exact:
+`fbce02624d2e33449ee2cde34497083d6fd47457`.
+
+Reproduce by pairing a fresh client with a backend whose Codex instance is already ready,
+then continue from Connect to Agents without starting a new sign-in. Compare the readiness
+card and available next actions. Local captures are
+`target/desktop-audit/evidence/ref-04-agents.{png,txt}` and
+`target/desktop-audit/native/native-05-agents.{png,json}`. No authentication was initiated.
+This belongs to the existing Welcome/setup presentation scope; it does not create a second
+provider task or lift the sign-in hold. Include already-authenticated existing instances
+when verifying the eventual implementation.

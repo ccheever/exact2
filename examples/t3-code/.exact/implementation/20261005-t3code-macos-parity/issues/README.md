@@ -66,6 +66,18 @@ acceptance rows wait for the issue or carry its difference until it is resolved.
 | [X44](20261005-x44-remote-image-policy.md) | Remote `image` loading policy (credentials, referrer, redirects, size cap, cache, load state) and remote SVG | framework-gap (unconfirmed) | provider-settings-upkeep | fixed upstream (main #177: load/error, fetch policy documented), adopted by adopt-main-fixes-shell (PR #181); SVG on Apple still an error |
 | [X45](20261005-x45-app-relaunch.md) | An app cannot relaunch itself | framework-gap (unconfirmed) | local-primary-environment, this-machine-network-access | not fixed: main #170 only moves reload()'s log to stderr; no process relaunch (U4 rows stay blocked) |
 
+## Desktop audit addition, 2026-10-07
+
+| Issue | Capability | Kind | Blocks | Status |
+| --- | --- | --- | --- | --- |
+| [X48](20261007-x48-runtime-font-family.md) | Apply an installed font family supplied by state/data at runtime | framework-gap | [installed-font-picker](../tasks/20261007-installed-font-picker.md) | reproduced locally on `fbce02624d2e33449ee2cde34497083d6fd47457`; draft, not published |
+
+X48 includes a minimal compiler reproduction and successful literal-family controls.
+Installed families already render when named as literals; enumeration can be supplied by
+the example's native module. The blocker is applying an arbitrary runtime-selected family,
+which is distinct from X10's text-rendering differences. No upstream duplicate search or
+publication was performed during this local audit.
+
 ## Upstream issues (filed 2026-10-06)
 
 Each was reproduced on exact2 `4c893fef6` before filing. Not filed: X13 (unverified on macOS; the web behavior is designed), X42 (already supported on main), X38–X41 (product scope, not framework gaps).
