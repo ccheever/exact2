@@ -570,7 +570,7 @@ public final class ExactSession {
         DispatchQueue.main.async {
             guard let s = ExactSession.live[rt]?.session else { return }
             s.whenIdle { [weak s] in guard let s else { return }; s.apply(s.runtime.pump(now: s.now()))
-                if let p = s.pendingActivation { s.pendingActivation = nil; s.firstDrawn(generation: p.generation, token: p.token) }
+                if let p = s.pendingActivation { s.pendingActivation = nil; if p.generation == s.generation { s.activatedGeneration = nil; s.firstDrawn(generation: p.generation, token: p.token) } } // a redraw never retries it
             }
         }
     }
@@ -823,7 +823,7 @@ public final class ExactSession {
             // replaced its host.
             routerOp = nil
             generation += 1
-            if booted { presenter.reset(); forgetAppearances() }
+            if booted { presenter.reset(); forgetAppearances(); presenter.launchAutofocusReleased = false } // a fresh boot's autofocus waits again
             booted = true
             text.commitFonts()
             AppFiles.learn(runtime) // before the first frame's `app:/` images load (LLP 1069.002 D7)
@@ -1173,11 +1173,10 @@ public final class ExactSession {
             guard let self, state != .destroyed, generation == drawnGeneration else { return }
             // The app module is ready before any source can call it: its load
             // never lands inside a `native.call`'s budget (LLP 1067.000 D8).
-            natives.prepareAppModule()
+            natives.prepareAppModule(); presenter.releaseLaunchAutofocus() // the next turn, never waiting on a loading source
             let batch = runtime.dataReady()
             if batch.pending {
-                activatedGeneration = nil
-                pendingActivation = (drawnGeneration, token) // the source wakes the session when ready
+                pendingActivation = (drawnGeneration, token) // the generation stays activated: only the source's wake retries
                 return
             }
             AppFiles.learn(runtime) // the roots storage configured
@@ -1189,7 +1188,7 @@ public final class ExactSession {
             }
             canvases.loadIfNeeded()
             natives.activateAfterCommit { [weak self] in self.map { $0.state != .destroyed && $0.generation == drawnGeneration } ?? false } // @ref LLP 1024 D3
-            drainSurfaceWork(); presenter.releaseLaunchAutofocus()
+            drainSurfaceWork()
             frames.run(frames.motion || canvases.wantsFrames)
             frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
         }

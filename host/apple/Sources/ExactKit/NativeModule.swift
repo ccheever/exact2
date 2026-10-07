@@ -419,7 +419,13 @@ final class NativeViews {
     func activateAfterCommit(_ live: @escaping () -> Bool) {
         queuedActivations += 1
         let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue, false, 2_000_001) { [weak self] _, _ in
-            DispatchQueue.main.async { [weak self] in guard let self else { return }; queuedActivations -= 1; if live() { activated() } }
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if live() { activated() }
+                // A view's events are main-queue blocks its creation queued (`load`):
+                // the count drops after them, so the agent's settle sees their handlers.
+                DispatchQueue.main.async { [weak self] in self?.queuedActivations -= 1 }
+            }
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
     }

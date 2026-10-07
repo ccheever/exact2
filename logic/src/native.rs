@@ -50,7 +50,12 @@ struct Native {
 
 pub(crate) fn load(bytes: &[u8]) -> Result<Box<dyn Executor>, String> {
     let (entry, _) = reserve(bytes, false)?.expect("unconditional reservation");
-    let symbols = entry.get_or_init(|| load_symbols(bytes)).clone()?;
+    let symbols = entry.get_or_init(|| load_symbols(bytes)).clone();
+    // A pending activation that saw this image reserved waits for it too.
+    if !WAITERS.lock().unwrap_or_else(|e| e.into_inner()).is_empty() {
+        loaded(&format!("{:x}", Sha256::digest(bytes)));
+    }
+    let symbols = symbols?;
     // A content identity shares code, never mutable app session state.
     let session = unsafe { (symbols.create)() };
     if session == 0 {
