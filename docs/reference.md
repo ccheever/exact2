@@ -800,7 +800,8 @@ bun scripts/exact.mjs hatch --app <app>      # the app scope; --window for the w
 ```
 
 The verb writes a stub for each target the app builds (Swift in
-`modules/apple/`, the page module in `modules/web/`), adds the word to
+`modules/apple/`, the page module in `modules/web/`, Rust in
+`modules/linux/`), adds the word to
 `app.json` `hatches` with those platforms, and tells you the node to mark:
 
 ```
@@ -820,6 +821,22 @@ called again when one changes.
 | The window toolbar (macOS) | `toolbar(_:)` | none |
 | The app: its facts, by the web's names | `app(_:)`, `appEnded(_:)` | `app(a)`, `appEnded(a)` |
 | The window the session presents into | `window(_:)`, `windowEnded(_:)` | `window(w)`, `windowEnded(w)` |
+
+**Linux, Windows and Android paint their own pixels**, so there is no platform
+object to hand over. A hatch there is Rust: one type that implements
+`exact_linux::Hatches` in `modules/linux/*.rs` (or `modules/android/`,
+`modules/windows/`), named once with `pub type ExactHatches = App;` and
+included by the app's Linux crate (`contract::native::rust_hatches` in its
+`build.rs`, as `apps/native-fixture/linux/build.rs`). Its handle carries the
+node's box and words, the same acts, and two things in place of a view:
+`element.overlay().draw(|c, w, h| …)`, a Canvas 2D recording that replaces the
+last one whole, clipped to the node and painted over it; and
+`context.observe(&element, |me, input, cx| …)`, the pointer and key input that
+lands in the box, after Exact has handled it, to read only. It has the app and
+window scopes, `context.frames` and `context.after`, and `diagnostics`. There
+`changed` is also called when the node's size alone changes, and `ended` after
+the commit that removed the node. An Android build is the same crate built for
+Android; its words are the ones `app.json` gives `android`.
 
 No hatch runs before first pixel. A node's end runs while its view is still
 there, so take back there whatever the hatch added. On iOS a hatched node is a
