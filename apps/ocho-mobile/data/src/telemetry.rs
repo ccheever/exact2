@@ -82,6 +82,9 @@ struct Event {
 pub struct Telemetry {
     /// This install's random id, once loaded or made.
     pub install: String,
+    /// This model's random id: two at once in one install would be two
+    /// copies of the app's logic running side by side.
+    pub instance: String,
     queue: Vec<Event>,
     /// Events out in the request now.
     sending: Vec<Event>,
@@ -136,6 +139,7 @@ impl Telemetry {
                     kv("service.name", &Attr::from("ocho-ios")),
                     kv("service.version", &Attr::from(version)),
                     kv("install.id", &Attr::Text(self.install.clone())),
+                    kv("instance.id", &Attr::Text(self.instance.clone())),
                 ]},
                 "scopeLogs": [{ "scope": { "name": "ocho" }, "logRecords": records }],
             }]})

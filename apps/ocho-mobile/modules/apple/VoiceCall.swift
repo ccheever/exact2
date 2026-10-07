@@ -53,7 +53,10 @@ final class VoiceCall: ExactNativeInstance {
 
     private func apply(_ props: [String: String]) {
         let url = props["url"] ?? ""
-        guard url != loaded, let target = URL(string: url), ["https", "http"].contains(target.scheme ?? "") else { return }
+        // One call per view: the address names the machine answering for the
+        // phone, which can change mid-call (a failover, the Mac coming back),
+        // and loading it again would hang up.
+        guard loaded.isEmpty, let target = URL(string: url), ["https", "http"].contains(target.scheme ?? "") else { return }
         loaded = url
         origin = target
         var request = URLRequest(url: target)

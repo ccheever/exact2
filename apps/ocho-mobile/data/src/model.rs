@@ -352,6 +352,9 @@ impl Model {
             return;
         }
         self.loaded = true;
+        self.telemetry.instance =
+            crate::telemetry::new_install_id(self.now + 1.0, std::ptr::from_ref(self) as u64)[..12]
+                .to_string();
         match install.filter(|id| id.len() == 32) {
             Some(id) => self.telemetry.install = id.to_string(),
             None => {
