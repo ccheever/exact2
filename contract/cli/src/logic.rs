@@ -190,24 +190,25 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
 /// archive links is `exact_bake::apple_link`'s to say.
 pub fn apple_linked(uses: exact_runner::Uses, host: &str) -> String {
     use exact_runner::Capability;
-    let link = if host == "exact_apple" {
-        "::exact_apple::link".to_owned()
+    let apple = if host == "exact_apple" {
+        "::exact_apple".to_owned()
     } else {
-        format!("::{host}::exact_apple::link")
+        format!("::{host}::exact_apple")
     };
+    let link = format!("{apple}::link");
     let mut set = format!("{link}::Uses::NONE");
     for capability in uses.iter() {
         set.push_str(&format!(".with({link}::Capability::{capability:?})"));
     }
     let mut entry = format!("/// What this archive links beyond the core (LLP 1047.001 D2).\nconst EXACT_LINKED: {link}::Uses = {set};\n");
     // A capability's export group, where it has one on Apple.
-    if uses.has(Capability::GroupedLists) {
-        let apple = if host == "exact_apple" {
-            "::exact_apple".to_owned()
-        } else {
-            format!("::{host}::exact_apple")
-        };
-        entry.push_str(&format!("{apple}::grouped_list_exports!();\n"));
+    for (capability, group) in [
+        (Capability::GroupedLists, "grouped_list_exports"),
+        (Capability::Markdown, "markup_exports"),
+    ] {
+        if uses.has(capability) {
+            entry.push_str(&format!("{apple}::{group}!();\n"));
+        }
     }
     entry
 }
@@ -237,6 +238,11 @@ mod tests {
             "{update}"
         );
         assert!(!super::apple_linked(Uses::NONE, "exact_apple").contains("exports!"));
+        let markdown = super::apple_linked(Uses::NONE.with(Capability::Markdown), "exact_apple");
+        assert!(
+            markdown.contains("::exact_apple::markup_exports!();"),
+            "{markdown}"
+        );
     }
 
     #[test]

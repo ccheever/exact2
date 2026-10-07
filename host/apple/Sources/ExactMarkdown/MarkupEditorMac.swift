@@ -1,10 +1,11 @@
 // @ref LLP 1045 D5, D6 — AppKit editing stays on TextKit 2 and native undo.
 #if os(macOS)
 import AppKit
+import ExactKit
 
 extension NodeView {
-    func restyleMarkup() {
-        guard props["markup"] == "markdown", let f = textArea as? TextArea, let editor = f.markup, let t = text,
+    func markdownRestyle() {
+        guard props["markup"] == "markdown", let f = textArea as? TextArea, let editor = f.markup as? MarkupEditor, let t = text,
               !f.hasMarkedText(), let storage = f.textStorage else { return }
         let look = MarkupEditor.Look(
             font: { size, weight, family, italic in t.font(size: size, weight: weight, family: family, italic: italic) },
@@ -14,8 +15,8 @@ extension NodeView {
         f.typingAttributes = editor.baseAttributes(look)
     }
 
-    @discardableResult func formatMarkup(_ command: String, argument: String = "") -> Bool {
-        guard props["markup"] == "markdown", let f = textArea as? TextArea, let editor = f.markup, f.isEditable, !disabled,
+    @discardableResult func markdownFormat(_ command: String, argument: String = "") -> Bool {
+        guard props["markup"] == "markdown", let f = textArea as? TextArea, let editor = f.markup as? MarkupEditor, f.isEditable, !disabled,
               !f.hasMarkedText(), !editor.applying else { return false }
         let selection = f.window?.firstResponder === f ? f.selectedRange() : (editor.bookmark ?? f.selectedRange())
         // A link field can own the responder when its format arrives.
@@ -37,21 +38,21 @@ extension NodeView {
         editor.applying = false
         f.breakUndoCoalescing()
         if edit != nil { textDidChange(Notification(name: NSText.didChangeNotification, object: f)) }
-        else { restyleMarkup(); publishMarkupSelection() }
+        else { markdownRestyle(); markdownPublishSelection() }
         f.scrollRangeToVisible(f.selectedRange())
         return true
     }
 
-    func publishMarkupSelection(force: Bool = false) {
-        guard handlers.contains("select"), let f = textArea as? TextArea, let editor = f.markup,
+    func markdownPublishSelection(force: Bool = false) {
+        guard handlers.contains("select"), let f = textArea as? TextArea, let editor = f.markup as? MarkupEditor,
               !editor.applying, !editor.styling, !f.hasMarkedText(),
               let state = MarkupCommands.selection(f.string, range: f.selectedRange()), force || editor.lastSelectionState != state else { return }
         editor.lastSelectionState = state
         presenter?.session?.selection(node: id, json: state)
     }
 
-    func editMarkupLink() {
-        guard props["markup"] == "markdown", let f = textArea as? TextArea, let editor = f.markup, f.isEditable, !f.hasMarkedText(), let window = f.window else { return }
+    func markdownEditLink() {
+        guard props["markup"] == "markdown", let f = textArea as? TextArea, let editor = f.markup as? MarkupEditor, f.isEditable, !f.hasMarkedText(), let window = f.window else { return }
         editor.bookmark = f.selectedRange()
         let alert = NSAlert()
         alert.messageText = "Link URL"
@@ -65,7 +66,7 @@ extension NodeView {
         alert.window.initialFirstResponder = input
         alert.beginSheetModal(for: window) { [weak self, weak f] response in
             guard let self, let f else { return }
-            if response == .alertFirstButtonReturn, !input.stringValue.isEmpty { self.formatMarkup("link", argument: input.stringValue) }
+            if response == .alertFirstButtonReturn, !input.stringValue.isEmpty { self.markdownFormat("link", argument: input.stringValue) }
             window.makeFirstResponder(f)
         }
     }

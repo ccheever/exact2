@@ -1388,7 +1388,7 @@ public final class ExactSession {
     /// no such field, or its action refused the value (studio diary R14).
     public private(set) var changeRefusal: String?
     /// Deliver toolbar facts only when the authored editor has a select handler.
-    func selection(node: UInt32, json: String) {
+    package func selection(node: UInt32, json: String) {
         guard booted, state != .destroyed,
               presenter.views[node]?.handlers.contains("select") == true,
               let batch = runtime.selection(node, json: json, now: now()) else { return }

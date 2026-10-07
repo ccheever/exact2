@@ -70,7 +70,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             super.isHidden = hostHidden || css
         }
     }
-    var handlers: Set<String> = [] {
+    package var handlers: Set<String> = [] {
         didSet {
             updateContextGestures()
             updateSwipeGesture()
@@ -235,7 +235,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             else { presenter?.contextNodes.insert(id) }
         }
     }
-    weak var presenter: Presenter?
+    weak package var presenter: Presenter?
     /// The scroll view a capability module sees (LLP 1047.001 D4).
     package var scrollView: UIScrollView? { scroll }
     package var scrollsVertically: Bool { scroll?.scrollsY ?? true }
@@ -288,7 +288,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     }
     /// Images loaded since launch (smoke reporting).
     /// The session's text engine (LLP 1031 D12: the catalog is the session's).
-    var text: TextEngine? { presenter?.session?.text }
+    package var text: TextEngine? { presenter?.session?.text }
     var canvases: Canvases? { presenter?.session?.canvases }
 
     /// A node with focus, blur, or key handlers takes the focus (an input's
@@ -842,9 +842,9 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         style[key].flatMap { $0.channels(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0)) }
     }
     func textChannels(_ key: String, dark: Bool? = nil) -> [Double]? { style[key].flatMap { $0.textChannels(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0)) } }
-    func color(_ key: String, _ fallback: UIColor) -> UIColor { cgColor(key).map { UIColor(cgColor: $0) } ?? fallback }
+    package func color(_ key: String, _ fallback: UIColor) -> UIColor { cgColor(key).map { UIColor(cgColor: $0) } ?? fallback }
     func cgColor(_ key: String, dark: Bool? = nil) -> CGColor? { style[key].flatMap { $0.cgColor(dark: dark ?? drawsDark, contrast: drawsHighContrast, elevated: drawsElevated, tint: ownTint(for: $0)) } }
-    func number(_ key: String, _ fallback: CGFloat = 0) -> CGFloat {
+    package func number(_ key: String, _ fallback: CGFloat = 0) -> CGFloat {
         if let n = style[key]?.number { return CGFloat(n) }
         return fallback
     }

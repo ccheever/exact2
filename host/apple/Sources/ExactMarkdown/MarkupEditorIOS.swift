@@ -1,14 +1,26 @@
 // @ref LLP 1045 D5, D6 — source replacements through UIKit's own input path.
 #if os(iOS) || os(tvOS)
 import UIKit
+import ExactKit
 
 extension NodeView {
-    @discardableResult func formatMarkup(_ command: String, argument: String = "", selection override: NSRange? = nil) -> Bool {
+    /// Restyle a Markdown editor's storage for its text and selection.
+    func markdownRestyle() {
+        guard props["markup"] == "markdown", let f = textArea as? TextArea, let t = text, let editor = f.markup as? MarkupEditor, f.markedTextRange == nil else { return }
+        let look = MarkupEditor.Look(
+            font: { size, weight, family, italic in t.font(size: size, weight: weight, family: family, italic: italic) },
+            size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")),
+            italic: (style["font_style"]?.string) == "italic", lineHeight: usedLineHeight, ink: color("text_color", SystemColor.canvasText))
+        editor.restyle(f.textStorage, selection: f.selectedRange, look: look)
+        f.typingAttributes = editor.baseAttributes(look)
+    }
+
+    @discardableResult func markdownFormat(_ command: String, argument: String = "", selection override: NSRange? = nil) -> Bool {
         #if os(tvOS)
         // tvOS text views do not edit.
         return false
         #else
-        guard props["markup"] == "markdown", let f = textArea as? TextArea, let editor = f.markup, f.isEditable, !disabled,
+        guard props["markup"] == "markdown", let f = textArea as? TextArea, let editor = f.markup as? MarkupEditor, f.isEditable, !disabled,
               f.markedTextRange == nil, !editor.applying else { return false }
         let selection = override ?? (f.isFirstResponder ? f.selectedRange : (editor.bookmark ?? f.selectedRange))
         // Restore native editing ownership after capturing the bookmark:
@@ -30,23 +42,23 @@ extension NodeView {
         editor.bookmark = f.selectedRange
         editor.applying = false
         if edit != nil { textViewDidChange(f) }
-        else { restyleMarkup(); publishMarkupSelection() }
+        else { markdownRestyle(); markdownPublishSelection() }
         f.scrollRangeToVisible(f.selectedRange)
         return true
         #endif
     }
 
-    func publishMarkupSelection(force: Bool = false) {
-        guard handlers.contains("select"), let f = textArea as? TextArea, let editor = f.markup,
+    func markdownPublishSelection(force: Bool = false) {
+        guard handlers.contains("select"), let f = textArea as? TextArea, let editor = f.markup as? MarkupEditor,
               !editor.applying, !editor.styling, f.markedTextRange == nil,
               let state = MarkupCommands.selection(f.text ?? "", range: f.selectedRange), force || editor.lastSelectionState != state else { return }
         editor.lastSelectionState = state
         presenter?.session?.selection(node: id, json: state)
     }
 
-    func editMarkupLink() {
+    func markdownEditLink() {
         #if !os(tvOS)
-        guard props["markup"] == "markdown", let f = textArea as? TextArea, let editor = f.markup, f.isEditable, f.markedTextRange == nil,
+        guard props["markup"] == "markdown", let f = textArea as? TextArea, let editor = f.markup as? MarkupEditor, f.isEditable, f.markedTextRange == nil,
               var controller = f.window?.rootViewController else { return }
         while let presented = controller.presentedViewController { controller = presented }
         editor.bookmark = f.selectedRange
@@ -60,22 +72,22 @@ extension NodeView {
         alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak f] _ in f?.becomeFirstResponder() })
         alert.addAction(UIAlertAction(title: "Apply Link", style: .default) { [weak self, weak f, weak alert] _ in
             guard let self, let f, let url = alert?.textFields?.first?.text, !url.isEmpty else { return }
-            self.formatMarkup("link", argument: url)
+            self.markdownFormat("link", argument: url)
             f.becomeFirstResponder()
         })
         controller.present(alert, animated: true)
         #endif
     }
 
-    package func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
-        guard let f = textView as? TextArea, f.markup != nil else { return nil }
+    func markdownMenu(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
+        guard let f = textView as? TextArea, (f.markup is MarkupEditor) else { return nil }
         var actions: [UIMenuElement] = []
         #if !os(tvOS)
         if f.isEditable, f.markedTextRange == nil {
             for (title, command) in [("Bold", "bold"), ("Italic", "italic"), ("Code", "code"), ("Strikethrough", "strike")] {
-                actions.append(UIAction(title: title) { [weak self] _ in self?.formatMarkup(command) })
+                actions.append(UIAction(title: title) { [weak self] _ in self?.markdownFormat(command) })
             }
-            actions.append(UIAction(title: "Link…") { [weak self] _ in self?.editMarkupLink() })
+            actions.append(UIAction(title: "Link…") { [weak self] _ in self?.markdownEditLink() })
         }
         #endif
         if range.length > 0 { actions.append(UIAction(title: "Copy Plain Text") { [weak f] _ in f?.copyPlainText() }) }

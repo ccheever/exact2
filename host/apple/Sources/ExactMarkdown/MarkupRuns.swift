@@ -10,6 +10,7 @@
 import Foundation
 import CoreGraphics
 import CExact
+import ExactKit
 
 enum MarkupRuns {
     /// The monospace system family, as the kernel's font table numbers it.

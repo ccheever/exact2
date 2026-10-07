@@ -84,7 +84,7 @@ extension NodeView {
         #endif
     }
     @discardableResult
-    func control(_ phase: String, id contact: Int = 1, point: CGPoint = .zero, timestamp: Double? = nil) -> Bool {
+    package func control(_ phase: String, id contact: Int = 1, point: CGPoint = .zero, timestamp: Double? = nil) -> Bool {
         guard let c = presenter?.session?.canvases, !c.modules.isEmpty else { return false }
         let entry: Canvases.Entry?
         if phase == "down" {

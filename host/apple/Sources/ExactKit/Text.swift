@@ -14,31 +14,31 @@
 // font and color classes, and the same CoreText answers the kernel on both.
 #if canImport(UIKit)
 import UIKit
-typealias PlatformFont = UIFont
+package typealias PlatformFont = UIFont
 package typealias PlatformColor = UIColor
 #else
 import AppKit
-typealias PlatformFont = NSFont
+package typealias PlatformFont = NSFont
 package typealias PlatformColor = NSColor
 #endif
 import CExact
 import CoreText
 
 /// One styled run: what changes glyph metrics.
-struct Run: Hashable {
-    var text: String
-    var size: CGFloat
-    var weight: Int
-    var family: Int
-    var italic: Bool
-    var lineHeight: CGFloat?
+package struct Run: Hashable {
+    package var text: String
+    package var size: CGFloat
+    package var weight: Int
+    package var family: Int
+    package var italic: Bool
+    package var lineHeight: CGFloat?
     var letterSpacing: CGFloat
     /// CSS `font-variant-numeric` bits: 1 is `tabular-nums`, the face's own
     /// `tnum` feature. It changes advances: a metric (LLP 1053 G4).
     var numeric: Int = 0
-    var color: [Double]? = nil
-    var decoration: String = ""
-    var href: String = ""
+    package var color: [Double]? = nil
+    package var decoration: String = ""
+    package var href: String = ""
     /// The inline box's `background-color`: paint, never metrics.
     var background: [Double]? = nil
     /// CSS visibility hides ink without changing shaping or descendant visibility.
@@ -50,10 +50,10 @@ struct Run: Hashable {
     var stroke: [Double]? = nil
     /// A Markdown list item's head indent and hung marker (LLP 1045 D4,
     /// `LineInsets`): where its paragraph's lines start, so a metric.
-    var indent: CGFloat = 0
-    var hang = false
+    package var indent: CGFloat = 0
+    package var hang = false
 
-    static func == (lhs: Run, rhs: Run) -> Bool {
+    package static func == (lhs: Run, rhs: Run) -> Bool {
         guard lhs.size == rhs.size, lhs.weight == rhs.weight, lhs.family == rhs.family,
               lhs.italic == rhs.italic, lhs.lineHeight == rhs.lineHeight,
               lhs.letterSpacing == rhs.letterSpacing, lhs.numeric == rhs.numeric, lhs.color == rhs.color,
@@ -67,7 +67,7 @@ struct Run: Hashable {
         return a.withUTF8 { left in b.withUTF8 { right in left.elementsEqual(right) } }
     }
 
-    func hash(into hasher: inout Hasher) {
+    package func hash(into hasher: inout Hasher) {
         // Native Strings expose their existing storage; no byte-array key or
         // full-text copy is created for each lookup. Foreign Strings may need
         // UTF8 materialization, but use the identical byte/hash contract.
@@ -663,13 +663,13 @@ package final class TextEngine {
         return resolve(source)
     }
 
-    func font(_ run: Run) -> PlatformFont {
+    package func font(_ run: Run) -> PlatformFont {
         font(size: run.size, weight: run.weight, family: run.family, italic: run.italic, numeric: run.numeric)
     }
 
     /// CSS `tabular-nums` is the chosen face's own OpenType `tnum` feature,
     /// never a substitute monospaced face; a face without it is unchanged.
-    func font(size: CGFloat, weight: Int, family: Int, italic: Bool, numeric: Int) -> PlatformFont {
+    package func font(size: CGFloat, weight: Int, family: Int, italic: Bool, numeric: Int) -> PlatformFont {
         let base = font(size: size, weight: weight, family: family, italic: italic)
         guard numeric & 1 != 0 else { return base }
         let key = "\(family)/\(size)/\(weight)/\(italic)/tnum"
@@ -681,7 +681,7 @@ package final class TextEngine {
         return f
     }
 
-    func font(size: CGFloat, weight: Int, family: Int, italic: Bool) -> PlatformFont {
+    package func font(size: CGFloat, weight: Int, family: Int, italic: Bool) -> PlatformFont {
         let key = "\(family)/\(size)/\(weight)/\(italic)"
         if let f = fonts[key] { return f }
         if let faces = catalog[family], !faces.isEmpty {
@@ -1345,7 +1345,7 @@ package final class TextEngine {
         var runs = UnsafeBufferPointer(start: request.runs, count: request.count).map(run)
         // Markdown source arrives as one run; the archive expands it the
         // same way the presenter paints it (LLP 1045 D3).
-        if request.markup != 0, let source = runs.first { runs = MarkupRuns.expand(source.text, base: source, color: nil) }
+        if request.markup != 0, let source = runs.first { runs = MarkdownLink.installed?.expand(source.text, base: source, color: nil) ?? runs }
         // Metric-only keys match the geometry used by the colored presenter.
         var made = Spec(runs: runs, align: Int(request.align), lineClamp: Int(request.line_clamp), color: [0, 0, 0, 255], overflowWrap: Int(request.overflow_wrap), direction: Int(request.direction), whiteSpace: Int(request.white_space), strut: run(request.strut))
         made.textIndent = CGFloat(request.text_indent); made.hyphens = Int(request.hyphens)

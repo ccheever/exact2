@@ -3,6 +3,7 @@
 // compact toolbar state, never a range or attributed document.
 import Foundation
 import CExact
+import ExactKit
 
 struct MarkupEdit {
     let source: String
@@ -75,7 +76,7 @@ enum MarkupCommands {
 
 extension Presenter {
     /// A link sheet may have moved focus; the editor keeps its own bookmark.
-    func formatElement(_ args: [Any]) {
+    func markdownFormatElement(_ args: [Any]) {
         guard (2...3).contains(args.count), let name = args[0] as? String, let command = args[1] as? String,
               args.count == 2 || args[2] is String,
               let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }),
@@ -87,6 +88,6 @@ extension Presenter {
             if view.isHidden || (view as? NodeView)?.props["inert"] == "true" { return }
             ancestor = view.superview
         }
-        target.formatMarkup(command, argument: args.count == 3 ? (args[2] as! String) : "")
+        target.markdownFormat(command, argument: args.count == 3 ? (args[2] as! String) : "")
     }
 }

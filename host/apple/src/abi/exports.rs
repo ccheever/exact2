@@ -23,12 +23,12 @@ macro_rules! host {
     };
     ($data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr, $region:expr) => {
         $crate::grouped_list_exports!();
+        $crate::markup_exports!();
         $crate::host!(@core $data, $plan, $compat, $delivery, $api, $new, $region, $crate::link::ALL);
     };
     (@core $data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr, $region:expr, $linked:expr) => {
         $crate::raster_exports!();
         $crate::textflow_exports!();
-        $crate::markup_exports!();
         $crate::collapse_exports!();
         $crate::app_module_exports!();
         $crate::material_exports!();

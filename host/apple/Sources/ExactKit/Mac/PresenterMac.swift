@@ -10,7 +10,7 @@ import os
 /// Which live views carry the few props the chrome passes look for.
 ///
 
-final class Presenter {
+package final class Presenter {
     var documentLanguage = ""
     var documentDirection = "ltr"
     /// Intervals a trace can lay beside its frames (Instruments' os_signpost):
@@ -24,7 +24,7 @@ final class Presenter {
     /// The document: the roots live here, content-sized like a page.
     let root = FlippedView(frame: .zero)
     /// The viewport over it: the window's content view, scrolling like a browser's.
-    package let viewport = PageScrollView(frame: .zero)
+    let viewport = PageScrollView(frame: .zero)
     package var views: [UInt32: NodeView] = [:]
     var inlineOwners: [UInt32: (owner: UInt32, index: Int)] = [:]
     private(set) var chrome = ChromeIndex()

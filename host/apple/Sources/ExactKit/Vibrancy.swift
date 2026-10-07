@@ -44,6 +44,6 @@ extension NodeView {
     var materialBlurs: Bool { materialView is NSVisualEffectView }
 
     /// AppKit draws this view vibrantly inside its material when it says so.
-    override var allowsVibrancy: Bool { vibrantColor != nil && enclosingBlur != nil }
+    package override var allowsVibrancy: Bool { vibrantColor != nil && enclosingBlur != nil }
 }
 #endif
