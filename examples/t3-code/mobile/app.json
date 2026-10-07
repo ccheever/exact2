@@ -30,7 +30,12 @@
   },
   "modules": [
     "t3-symbol",
-    "t3-qr-scanner"
+    "t3-qr-scanner",
+    "t3-home-chrome",
+    "t3-layout-facts",
+    "t3-archive-spinner",
+    "t3-settings-slider",
+    "t3-settings-header"
   ],
   "data": [
     "mobile-form-sheet",

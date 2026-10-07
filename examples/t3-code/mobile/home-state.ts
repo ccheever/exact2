@@ -27,9 +27,10 @@ export async function mobileToggleShelf(section: string, native?: Native | null)
 
 /** Select only the declared Contract shape; the full projection also has internal counts. */
 export function mobileHomeView(args: unknown[]) {
-  const [_revision, now, query, settledCount, loaded, workingEnabled, workingExpanded, snoozedExpanded, settledExpanded] = args;
+  const [_revision, now, query, settledCount, loaded, workingEnabled, workingExpanded, snoozedExpanded, settledExpanded, environmentId, projectKey, selectedThreadKey, groupingMode] = args;
   const result = mobileHome(Number(now), { query: String(query ?? ''), settledVisibleCount: Number(settledCount) || 10,
-    preferencesLoaded: loaded === true, workingEnabled: workingEnabled === true, workingExpanded: workingExpanded === true,
+    environmentId: String(environmentId ?? ''), projectKey: String(projectKey ?? ''), selectedThreadKey: String(selectedThreadKey ?? ''),
+    groupingMode: String(groupingMode ?? 'repository'), preferencesLoaded: loaded === true, workingEnabled: workingEnabled === true, workingExpanded: workingExpanded === true,
     snoozedExpanded: snoozedExpanded === true, settledExpanded: settledExpanded === true });
   return { items: result.items, emptyTitle: result.emptyTitle, emptyDetail: result.emptyDetail,
     loading: result.loading, addEnvironment: result.addEnvironment };

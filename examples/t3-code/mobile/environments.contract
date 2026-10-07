@@ -4,6 +4,9 @@
 use ConnectionColors, ConnectionField from "./connect.contract"
 
 shape EnvironmentRow
+  environmentId: string
+  state: string
+  machine: string
   id: string
   label: string
   url: string

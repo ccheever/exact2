@@ -4,19 +4,32 @@ import UIKit
 
 /// The shared transport owns I/O and credentials; mobile supplies UIKit presentation and lifecycle.
 final class T3MobileModule: ExactModule {
-    override class var views: [String: ExactNativeFactory] { ["t3-symbol": T3SymbolView.factory, "t3-qr-scanner": T3QRScanner.factory] }
+    override class var views: [String: ExactNativeFactory] { ["t3-symbol": T3SymbolView.factory, "t3-qr-scanner": T3QRScanner.factory,
+        "t3-layout-facts": T3LayoutFacts.factory,
+        "t3-archive-spinner": T3ArchiveSpinner.factory,
+        "t3-settings-slider": T3SettingsSlider.factory,
+        "t3-settings-header": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
+            try module.settingsNavigation.makeView(props: props, events: events)
+        },
+        "t3-home-chrome": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
+            try module.homeChrome.makeView(props: props, events: events)
+        }] }
     private let transport: T3Transport
     private let fleet: T3Fleet
     private let activity: T3ActivityReporter
     private var alive = true
+    let homeChrome = T3HomeChrome()
+    let settingsNavigation = T3SettingsNavigation()
     private let alerts = T3MobileAlerts()
     private let releases = T3ReleasePages()
-    private let homePreferences: T3HomePreferences
+    private let attachments: T3MobileAttachments
+    private let homePreferences: T3MobilePreferences
 
     required init(context: ExactModuleContext) {
         T3MobileIdentity.configure()
         let directory = T3Storage.dataRoot(agent: context.agent, contextData: context.data)
-        homePreferences = T3HomePreferences(directory: directory)
+        attachments = T3MobileAttachments(dataRoot: directory, agent: context.agent)
+        homePreferences = T3MobilePreferences(directory: directory, changed: { context.changed("t3.mobile-preferences") })
         let credentials = T3Credentials(persistent: !context.agent)
         let saved = T3SavedEnvironments(persistent: !context.agent)
         activity = T3ActivityReporter(persistent: !context.agent)
@@ -34,7 +47,10 @@ final class T3MobileModule: ExactModule {
         T3MobileNavigation.configure(route, formSheet: route.data[.mobileFormSheet] == "true",
             scanActionID: route.data[.mobileScanAction], scannerOpen: route.data[.mobileScannerOpen] == "true",
             tint: route.controller.traitCollection.userInterfaceStyle == .dark ? .white : .black)
+        homeChrome.configure(route)
+        settingsNavigation.configure(route)
     }
+    override func routeEnded(_ route: ExactRoute) { homeChrome.end(route); settingsNavigation.end(route) }
 
     override func later(_ request: [String: Any], reply: ExactReply) {
         guard alive else { reply.fail("The mobile session was closed."); return }
@@ -42,8 +58,15 @@ final class T3MobileModule: ExactModule {
         let generation = request["generation"] as? Int ?? 0
         func answer(_ value: [String: Any] = [:]) { reply.send(["ok": true, "generation": generation, "value": value]) }
         switch request["op"] as? String {
-        case "mobileHomePreferences", "mobileToggleShelf":
+        case "mobileHomePreferences", "mobileToggleShelf", "mobilePreferences", "mobilePreferencesPatch":
             homePreferences.perform(request, reply: reply)
+        case "mobileAttachmentSource", "composerAttachPick", "composerAttachRead", "composerAttachRemove", "snapshotDraftRead", "snapshotDraftRemove", "mobileAttachmentPreview":
+            attachments.perform(request) { reply.send($0) }
+        case "uploadAttachment":
+            guard let normalized = T3MobileAttachments.uploadRequest(request) else {
+                reply.fail("The attachment image is invalid or exceeds 10 MB."); return
+            }
+            transport.perform(normalized) { reply.send($0) }
         case "mobileReleasePage":
             releases.perform(request, reply: reply)
         case "mobileCameraPermission":
@@ -54,6 +77,8 @@ final class T3MobileModule: ExactModule {
             let kind = request["kind"] as? String ?? "info"
             let buttons: [(String, String, UIAlertAction.Style)] = kind == "remove"
                 ? [("cancel", "Cancel", .cancel), ("remove", "Remove", .destructive)]
+                : kind == "delete"
+                    ? [("cancel", "Cancel", .cancel), ("delete", "Delete", .destructive)]
                 : kind == "update"
                     ? [("cancel", "Cancel", .cancel), ("update", "Update", .default)]
                 : kind == "camera-settings"
@@ -94,6 +119,7 @@ final class T3MobileModule: ExactModule {
 
     override func destroy() {
         alive = false
+        attachments.destroy()
         alerts.destroy()
         releases.destroy()
         fleet.destroy(); transport.destroy(); activity.destroy()
@@ -106,8 +132,13 @@ final class T3MobileModule: ExactModule {
 import Foundation
 final class T3MobileModule: ExactModule {
     override class var views: [String: ExactNativeFactory] {
-        ["t3-symbol": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
-         "t3-qr-scanner": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") }]
+        ["t3-settings-slider": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
+         "t3-settings-header": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
+         "t3-archive-spinner": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
+         "t3-symbol": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
+         "t3-qr-scanner": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
+         "t3-layout-facts": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
+         "t3-home-chrome": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") }]
     }
 }
 #endif

@@ -91,3 +91,33 @@ export function mobileThreadColors(scheme: string, palette = 't3-code') {
     userCodeBackground: token('md-user-code-bg'), userCodeForeground: token('md-user-code-text'),
   };
 }
+
+export function mobileComposerColors(scheme: string, palette = 't3-code') {
+  const dark = scheme === 'dark';
+  const variant = `${palette === 't3-code' ? '' : `${palette}-`}${dark ? 'dark' : 'light'}`;
+  const tokens = themes[variant] ?? themes[dark ? 'dark' : 'light'];
+  const token = (name: string) => tokens[`--color-${name}`];
+  return {
+    sheet: token('sheet-solid'), groupedCard: token('grouped-card'), foreground: token('foreground'),
+    secondary: token('foreground-secondary'), muted: token('foreground-muted'), icon: token('icon'),
+    iconSubtle: token('icon-subtle'), borderSubtle: token('border-subtle'), subtle: token('subtle'),
+    primary: token('primary'), danger: token('danger-foreground'),
+  };
+}
+
+export function mobileArchiveColors(scheme: string, palette = 't3-code') {
+  const tokens = themes[`${palette === 't3-code' ? '' : `${palette}-`}${scheme === 'dark' ? 'dark' : 'light'}`] ?? themes.light;
+  const token = (name: string) => tokens[`--color-${name}`];
+  return { foreground: token('foreground'), muted: token('foreground-muted'), tertiary: token('foreground-tertiary'),
+    card: token('card'), border: token('border'), groupedCard: token('grouped-card'), subtle: token('subtle'),
+    separator: token('separator'), icon: token('icon'), iconSubtle: token('icon-subtle'), iconMuted: token('icon-muted'),
+    danger: token('danger'), dangerBorder: token('danger-border'), dangerForeground: token('danger-foreground'),
+    primary: token('primary'), primaryForeground: token('primary-foreground') };
+}
+export function mobileAgentColors(scheme: string, palette = 't3-code') {
+  const tokens = themes[`${palette === 't3-code' ? '' : `${palette}-`}${scheme === 'dark' ? 'dark' : 'light'}`] ?? themes.light;
+  const token = (name: string) => tokens[`--color-${name}`];
+  return { foreground: token('foreground'), muted: token('foreground-muted'), iconSubtle: token('icon-subtle'),
+    iconMuted: token('icon-muted'), border: token('border'), working: token('adaptive-sky-600-400'),
+    completed: token('adaptive-emerald-600-400'), failed: token('adaptive-rose-600-400') };
+}
