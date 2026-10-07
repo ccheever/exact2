@@ -281,7 +281,7 @@ fn build_sources(
     }
     let manifest = contract::Manifest::read(app)?;
     let target = std::env::var("TARGET").map_err(|e| e.to_string())?;
-    let mut compat = exact_bake::compatibility_id_sources(
+    let compat = exact_bake::compatibility_id_sources(
         app,
         platform,
         &target,
@@ -292,18 +292,8 @@ fn build_sources(
     if compat.inputs["store"]["L"] != "0" {
         return Err("module clients currently require deploy.store.<platform> = 0; signed module delivery is not implemented".into());
     }
-    // What an Apple archive links, into its compatibility id too (LLP 1047.001 D2).
-    let linked = if platform == "web" {
-        None
-    } else {
-        let plan = exact_plan::Plan::decode(&baked.plan).map_err(|e| format!("{e:?}"))?;
-        Some(exact_bake::apple_link(
-            &mut compat,
-            &plan,
-            &manifest,
-            "exact_apple",
-        )?)
-    };
+    // What an Apple archive links, as its compatibility inputs name it (LLP 1047.001 D2).
+    let linked = (platform != "web").then(|| exact_bake::apple_link(&compat, "exact_apple"));
     std::fs::write(out.join("compat.json"), compat.to_json()).map_err(|e| e.to_string())?;
     let rust_updates = compat.inputs["rustMode"] != "off"
         && compat.inputs["rustModule"]

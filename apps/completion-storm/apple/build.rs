@@ -28,7 +28,7 @@ fn main() {
     } else {
         "macos"
     };
-    let mut compat = exact_bake::compatibility_id(
+    let compat = exact_bake::compatibility_id(
         &app,
         platform,
         &std::env::var("TARGET").unwrap(),
@@ -36,9 +36,8 @@ fn main() {
         Some(completion_storm_data::Storm::default().grants()),
     )
     .expect("compatibility receipt");
-    // What the archive links, into its compatibility id too (LLP 1047.001 D2).
-    let linked = exact_bake::apple_link(&mut compat, &baked, &manifest, "exact_apple")
-        .unwrap_or_else(|e| panic!("{e}"));
+    // What the archive links, as its compatibility inputs name it (LLP 1047.001 D2).
+    let linked = exact_bake::apple_link(&compat, "exact_apple");
     std::fs::write(out.join("compat.json"), compat.to_json()).unwrap();
     std::fs::write(out.join("linked.rs"), linked).unwrap();
 }

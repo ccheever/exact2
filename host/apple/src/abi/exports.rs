@@ -36,6 +36,9 @@ macro_rules! host {
         thread_local! {
             static EXACT_RUNTIMES: ::std::cell::RefCell<$crate::abi::Registry<$data>> = ::std::cell::RefCell::new($crate::abi::Registry::default());
         }
+        /// What every boot links, made from the entry's set in a `const` so
+        /// the linker sees nothing else (LLP 1047.001 D3).
+        const EXACT_LINKS: $crate::link::Links<$data> = $crate::link::Links::of($linked);
         $crate::pan_velocity_exports!();
 
         /// Create a runtime; returns its handle (never 0). Its callbacks are
@@ -44,7 +47,7 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_create() -> u32 {
             $crate::link::set($linked);
-            let id = EXACT_RUNTIMES.with(|r| r.borrow_mut().create());
+            let id = EXACT_RUNTIMES.with(|r| r.borrow_mut().create_linked(EXACT_LINKS));
             $crate::abi::with_entry(&EXACT_RUNTIMES, id, |e| e.bridge.set_content_region($region));
             id
         }

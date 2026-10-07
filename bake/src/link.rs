@@ -8,33 +8,50 @@
 use crate::compat::{compatibility_digest, Compat};
 use exact_runner::{Capability, Uses};
 
-/// The capabilities an Apple archive links, named into `compat`'s inputs
-/// (`linked`, which moves its id), and the entry's text for them
-/// ([`contract::apple_linked`]).
+/// Name what an Apple archive links into `compat`'s inputs (`linked`), from
+/// the plan its build script baked into `out`, before the id is taken and
+/// everything that binds it (the GPU module's card, the receipts) is written.
 ///
 /// A production build (`host/apple/build.mjs` says `EXACT_APPLE_LINK=plan`)
 /// links what the plan uses and what the manifest's `link` names ahead of
 /// use; every other build, and a build `build.mjs` does not drive, links
 /// every capability (LLP 1047.001 D6). A bundle whose plan uses a capability
 /// this binary lacks is then another compatibility id: a binary change.
-pub fn apple_link(
+pub(crate) fn name_into(
     compat: &mut Compat,
-    plan: &exact_plan::Plan,
     manifest: &contract::Manifest,
-    host: &str,
-) -> Result<String, String> {
+    out: &std::path::Path,
+) -> Result<(), String> {
     println!("cargo:rerun-if-env-changed=EXACT_APPLE_LINK");
     let uses = if std::env::var("EXACT_APPLE_LINK").is_ok_and(|v| v == "plan") {
+        let bytes = std::fs::read(out.join("app.plan")).map_err(|e| {
+            format!("the app bake must write OUT_DIR/app.plan before compatibility_id: {e}")
+        })?;
+        let plan = exact_plan::Plan::decode(&bytes)
+            .map_err(|e| format!("the baked plan is invalid: {e:?}"))?;
         ahead(manifest)?
             .into_iter()
-            .fold(exact_runner::uses(plan), Uses::with)
+            .fold(exact_runner::uses(&plan), Uses::with)
     } else {
         Capability::ALL.into_iter().fold(Uses::NONE, Uses::with)
     };
     let names: Vec<&str> = uses.iter().map(Capability::name).collect();
     compat.inputs["linked"] = serde_json::json!(names);
     compat.id = compatibility_digest(&compat.inputs);
-    Ok(contract::apple_linked(uses, host))
+    Ok(())
+}
+
+/// The Apple entry's text for what `compat` says the archive links
+/// ([`contract::apple_linked`]); every capability where it says nothing.
+pub fn apple_link(compat: &Compat, host: &str) -> String {
+    let uses = match compat.inputs["linked"].as_array() {
+        Some(names) => names
+            .iter()
+            .filter_map(|n| n.as_str().and_then(Capability::from_name))
+            .fold(Uses::NONE, Uses::with),
+        None => Capability::ALL.into_iter().fold(Uses::NONE, Uses::with),
+    };
+    contract::apple_linked(uses, host)
 }
 
 /// The manifest's `link`: capabilities by name, linked before any plan uses
