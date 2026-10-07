@@ -4,7 +4,8 @@
 // exists under `launch_handler` `navigate-new` (LLP 1069.010 D4), Open… ⌘O
 // when the app declares documents it opens (LLP 1033);
 // Edit always (the field editor's command keys — ⌘A/X/C/V/Z — are menu
-// equivalents, not key bindings; without this they are dead); Develop —
+// equivalents, not key bindings; without this they are dead), with
+// Speech ▸ Start Speaking / Stop Speaking; Develop —
 // Reload ⌘R, Open Project… ⇧⌘O behind a document app, App Info… ⌘D —
 // unless EXACT_DEV_MENU=0. Native AppKit above the presenter, so it is
 // alive even when the plan is broken; reload re-fetches a live connection,
@@ -153,6 +154,14 @@ public enum DevMenu {
         edit.addItem(withTitle: "Delete", action: #selector(NSText.delete(_:)), keyEquivalent: "")
         let selectAll = edit.addItem(withTitle: "Select All", action: #selector(EditMenuTarget.selectAll(_:)), keyEquivalent: "a")
         selectAll.target = editTarget
+        // Speech, as Apple's HIG and every AppKit text app have it (#141):
+        // the responder chain's own actions, a field's `NSTextView` reading
+        // its selection or its text, the session's view the selected text.
+        edit.addItem(.separator())
+        let speech = NSMenu(title: "Speech")
+        speech.addItem(withTitle: "Start Speaking", action: #selector(NSTextView.startSpeaking(_:)), keyEquivalent: "")
+        speech.addItem(withTitle: "Stop Speaking", action: #selector(NSTextView.stopSpeaking(_:)), keyEquivalent: "")
+        edit.addItem(withTitle: "Speech", action: nil, keyEquivalent: "").submenu = speech
         editItem.submenu = edit
         let view = ShortcutMenu(title: "View")
         let fullScreen = view.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
