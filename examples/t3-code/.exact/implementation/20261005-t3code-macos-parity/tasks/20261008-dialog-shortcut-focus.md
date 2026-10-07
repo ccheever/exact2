@@ -21,7 +21,7 @@ buttons. Preserve working keyboard shortcuts, Escape cancellation and focus retu
 ## Evidence and scope
 
 Reported during PR #238's attended session on 2026-10-07/08:
-[provider sign-in task](20261005-provider-sign-in-and-install.md#attempts-and-evidence).
+[provider sign-in task](closed/20261005-provider-sign-in-and-install.md#attempts-and-evidence).
 Tab from a dialog's last button reached `settings-shortcuts.contract`'s `keyboard-dispatch`
 buttons. The original report describes this as app-wide and pre-existing. It has not been
 reproduced again on `29dbc5dbf`; the root cause and framework/app ownership remain unconfirmed.
