@@ -11,6 +11,7 @@ import { emptyPrices, presentPrices } from './pages-usage-prices';
 import { checkMenu, uniqueProbes, type Probe } from './r5-composer-menus';
 import { emptyDetail, modelDetail, modelKey, modelRows, openModel, pageShares, setOpenModel, type ModelRowView, type ShareBarView } from './pages-usage-detail';
 import { letGo } from './let-go';
+import { usesChatGptSharing } from './chatgpt-plan'; // managed-codex-chatgpt
 
 export const USAGE_CONTRACT_VERSION = 6;
 const MERGE_COMPATIBLE_SINCE = 4;
@@ -397,6 +398,7 @@ async function usageView(client: T3Client, native: Native | null | undefined, st
   }
   if (!cached.summary) { page.error = cached.error; page.environmentStatus = 'Unavailable'; page.empty = `${page.environmentName} could not report usage.`; return page; }
   const environment = { id: client.environmentId, label: page.environmentName, summary: cached.summary };
+  page.chatgptShared = arr(client.config.providers).some(usesChatGptSharing); // the selected environment shares a ChatGPT plan
   const merged = mergeUsage([environment]);
   presentUsage(page, merged, cached.window, cached.summary);
   // UsageModelDialog for the row the person opened, while it is still in the window.
@@ -411,7 +413,7 @@ export function windowPeriods(window: UsageWindow): string[] {
 
 export function emptyUsage(metric: string, windowDays: number, breakdown: string, width: number) {
   return {
-    metric, windowDays, breakdown, plotWidth: width, menuWidth: 224, menuProbes: [] as Probe[], empty: '', error: '', environmentLabel: 'All environments', environmentName: '', environmentStatus: 'Scanning…',
+    chatgptShared: false, metric, windowDays, breakdown, plotWidth: width, menuWidth: 224, menuProbes: [] as Probe[], empty: '', error: '', environmentLabel: 'All environments', environmentName: '', environmentStatus: 'Scanning…',
     environmentSelected: true, environmentCount: 0, windowLabel: '', total: '', sessions: '', unpriced: '', notices: [] as { key: string; text: string }[],
     providers: [] as { key: string; driver: string; label: string; light: string; dark: string; sessions: string; value: string; detail: string }[],
     chartTitle: '', chart: { ticks: [], series: [], start: '', middle: '', end: '' } as Chart,

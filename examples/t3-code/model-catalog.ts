@@ -8,6 +8,7 @@ import { applyPickerPrefs } from './settings-b-models'; // settings-b: hidden mo
 import { fanoutSelections } from './r3-composer-controls-fanout';
 import type { T3Client } from './client';
 import { pickerReady, pickerOptions, pickerSetupEntries, shouldOfferModelPickerSetup } from './provider-picker-setup'; // provider-sign-in-and-install
+import { usesChatGptSharing } from './chatgpt-plan';
 
 type Badge = (provider: Obj | undefined, providers: Obj[]) => { providerBadge: string; providerBadgeColor: string };
 type Item = { id: string; name: string; shortName: string; subProvider: string; providerId: string; providerName: string;
@@ -137,5 +138,7 @@ export function pickerCatalog(client: { config: Obj; local: { favoriteModels: st
     restCount: rest.length + (restLegacy ? 1 : 0), restLegacyCount: restLegacy,
     highlight: -1, highlightKind: '', highlightId: '', highlightProvider: '', models: rows, providers: rail,
     railIndex: selected === 'favorites' ? 0 : at < 0 ? -1 : at + 1,
-    setup: pickerSetupEntries(enabled.filter(provider => matchesLock(provider, lock)), selected, searching, list.length) };
+    setup: pickerSetupEntries(enabled.filter(provider => matchesLock(provider, lock)), selected, searching, list.length),
+    // ChatGptSharingControl: the active instance (the composer's) shares a ChatGPT plan (managed-codex-chatgpt).
+    chatgptSharing: usesChatGptSharing(providers.find(provider => provider.instanceId === client.providerId)) };
 }

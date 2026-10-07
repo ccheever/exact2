@@ -8,6 +8,7 @@ use MessageFile from "./timeline-attachments.contract"
 use ComposerView from "./composer-shapes.contract"
 use SnoozePreset from "./sidebar-shapes.contract"
 use Thread from "./sidebar-shapes.contract"
+use ChatGptPlanNotice from "./codex-setup.contract"
 use SidebarView from "./sidebar-shapes.contract"
 use LegacySidebarView from "./legacy-sidebar-shapes.contract"
 use Look from "./settings-appearance-look.contract"
@@ -273,6 +274,8 @@ shape Snapshot
   alertClip: string
   snapshotDrafts: list<SnapshotDraft>
   snapshotOwner: string
+  // managed-codex-chatgpt: ChatGptWelcomeCoordinator's next "Your ChatGPT plan is connected" (chatgpt-plan.ts).
+  chatgptPlan: list<ChatGptPlanNotice>
   revision: number
   available: bool
   connected: bool

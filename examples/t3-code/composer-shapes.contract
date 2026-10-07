@@ -305,3 +305,4 @@ shape PickerCatalog
   providers: list<PickerRail>
   railIndex: number
   setup: list<PickerSetup>
+  chatgptSharing: bool
