@@ -308,9 +308,12 @@ extension RouteController {
 final class SegmentPress: NSObject {
     weak var host: NavigationHost?
     var tabs: [UInt32] = []
+    /// The selection last reported or applied (`ExactSegmentedControl.settled`).
+    var settled = UISegmentedControl.noSegment
     init(host: NavigationHost) { self.host = host }
     @objc func changed(_ control: UISegmentedControl) {
         let i = control.selectedSegmentIndex
+        settled = i
         guard tabs.indices.contains(i) else { return }
         _ = host?.act(tabs[i], 0)
     }
@@ -510,12 +513,16 @@ extension NavigationHost {
         let titles = tabs.map(\.accessibleName)
         if control.numberOfSegments != titles.count {
             control.removeAllSegments()
+            segments.press.settled = UISegmentedControl.noSegment
             for (i, t) in titles.enumerated() { control.insertSegment(withTitle: t, at: i, animated: false) }
         } else {
             for (i, t) in titles.enumerated() where control.titleForSegment(at: i) != t { control.setTitle(t, forSegmentAt: i) }
         }
         let selected = tabs.firstIndex { $0.props["accessibilitySelected"] == "true" } ?? UISegmentedControl.noSegment
-        if control.selectedSegmentIndex != selected { control.selectedSegmentIndex = selected }
+        // A finger's choice not yet reported stays, as in the content's segments (`SegmentHost.sync`).
+        let pending = control.isTracking || control.selectedSegmentIndex != segments.press.settled
+        if control.selectedSegmentIndex != selected, !pending { control.selectedSegmentIndex = selected }
+        if control.selectedSegmentIndex == selected { segments.press.settled = selected }
         control.accessibilityIdentifier = list?.props["testId"]
         segments.fit(titles)
         if c.navigationItem.titleView !== control { c.navigationItem.titleView = control }
