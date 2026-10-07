@@ -12,6 +12,19 @@ struct T3ThreadHeaderConfiguration: Decodable, Equatable {
     let canGoBack: Bool; let returnToChat: Bool; let canOpenFiles: Bool; let canOpenTerminal: Bool
     let foreground: String; let gitItems: [T3ThreadHeaderItem]; let terminalItems: [T3ThreadHeaderItem]
 
+    func presentation(nativeGlass: Bool) -> T3ThreadHeaderPresentation {
+        // The compact pre26 fallback's later layout effect replaces the right
+        // factory. Its direct Files/auxiliary controls both require split layout.
+        if !nativeGlass && !split {
+            return T3ThreadHeaderPresentation(groups: [["terminal"], ["git"]], nativeGlass: false,
+                gitTitle: "Git controls", gitLabel: "Git controls", terminalTitle: "",
+                gitItems: gitItems.filter { ["git:branch", "git:quick", "git:review", "git:more"].contains($0.id) })
+        }
+        let controls = split ? ["files", "git", "terminal"] : ["git", "files", "terminal"]
+        return T3ThreadHeaderPresentation(groups: T3ThreadHeaderPresentation.group(controls, nativeGlass: nativeGlass), nativeGlass: nativeGlass,
+            gitTitle: "Git", gitLabel: "Git actions", terminalTitle: "Terminal", gitItems: gitItems)
+    }
+
     func allows(_ id: String) -> Bool {
         guard focused, !id.isEmpty, !owner.isEmpty, !routeKey.isEmpty else { return false }
         switch id {
@@ -29,6 +42,17 @@ struct T3ThreadHeaderConfiguration: Decodable, Equatable {
         owner == captured.owner && routeKey == captured.routeKey && version == captured.version
             && allows(itemID) && captured.allows(itemID)
     }
+}
+
+struct T3ThreadHeaderPresentation {
+    let groups: [[String]]; let nativeGlass: Bool
+    // The pinned native screens patch enables background sharing only on iOS 26+.
+    static func group<T>(_ controls: [T], nativeGlass: Bool) -> [[T]] {
+        guard !controls.isEmpty else { return [] }
+        return nativeGlass ? [controls] : controls.map { [$0] }
+    }
+    let gitTitle: String; let gitLabel: String; let terminalTitle: String
+    let gitItems: [T3ThreadHeaderItem]
 }
 
 final class T3MobileThreadHeader {
@@ -72,7 +96,7 @@ private final class T3ThreadHeaderView: ExactNativeInstance {
     private weak var route: ExactRoute?
     private var config: T3ThreadHeaderConfiguration?
     private var active = true
-    private var trailing: UIBarButtonItemGroup?
+    private var trailing: [UIBarButtonItemGroup] = []
     private var leading: [UIBarButtonItemGroup] = []
     private var appearance: UINavigationBarAppearance?
     private var rendered: T3ThreadHeaderConfiguration?
@@ -114,7 +138,7 @@ private final class T3ThreadHeaderView: ExactNativeInstance {
         return item
     }
     private func menu(_ items: [T3ThreadHeaderItem], title: String, symbol: String,
-                      label: String, enabled: Bool, captured: T3ThreadHeaderConfiguration) -> UIBarButtonItem {
+                      label: String, identifier: String, enabled: Bool, captured: T3ThreadHeaderConfiguration) -> UIBarButtonItem {
         let children = items.map { row -> UIAction in
             let action = UIAction(title: row.title, image: UIImage(systemName: row.symbol),
                                   identifier: UIAction.Identifier(row.id), attributes: row.disabled ? [.disabled] : []) { [weak self] _ in
@@ -125,7 +149,7 @@ private final class T3ThreadHeaderView: ExactNativeInstance {
         }
         let item = UIBarButtonItem(title: title, image: UIImage(systemName: symbol), primaryAction: nil,
                                   menu: UIMenu(title: title, children: children))
-        item.accessibilityLabel = label; item.accessibilityIdentifier = "thread-right-\(title.lowercased())"
+        item.accessibilityLabel = label; item.accessibilityIdentifier = identifier
         item.isEnabled = enabled && captured.focused; item.tintColor = color(captured.foreground)
         return item
     }
@@ -146,13 +170,20 @@ private final class T3ThreadHeaderView: ExactNativeInstance {
             }
             style.titleTextAttributes[.foregroundColor] = color(config.foreground); style.shadowColor = .clear
             appearance = style; item.standardAppearance = style; item.scrollEdgeAppearance = style; item.compactAppearance = style
-            let git = menu(config.gitItems, title: "Git", symbol: "point.topleft.down.curvedto.point.bottomright.up",
-                           label: "Git actions", enabled: true, captured: config)
+            let presentation: T3ThreadHeaderPresentation
+            if #available(iOS 26.0, *) { presentation = config.presentation(nativeGlass: true) }
+            else { presentation = config.presentation(nativeGlass: false) }
+            let git = menu(presentation.gitItems, title: presentation.gitTitle,
+                           symbol: "point.topleft.down.curvedto.point.bottomright.up", label: presentation.gitLabel,
+                           identifier: "thread-right-git", enabled: true, captured: config)
             let files = action("files", title: "Open files", symbol: "folder", captured: config)
-            let terminal = menu(config.terminalItems, title: "Terminal", symbol: "terminal", label: "Open terminal",
-                                enabled: config.canOpenTerminal, captured: config)
-            let group = UIBarButtonItemGroup.fixedGroup(representativeItem: nil, items: config.split ? [files, git, terminal] : [git, files, terminal])
-            trailing = group
+            let terminal = menu(config.terminalItems, title: presentation.terminalTitle, symbol: "terminal", label: "Open terminal",
+                                identifier: "thread-right-terminal", enabled: config.canOpenTerminal, captured: config)
+            let buttons = ["git": git, "files": files, "terminal": terminal]
+            trailing = presentation.groups.compactMap { ids in
+                let items = ids.compactMap { buttons[$0] }
+                return items.isEmpty ? nil : .fixedGroup(representativeItem: nil, items: items)
+            }
             var left: [UIBarButtonItemGroup] = []
             if config.split {
                 let spacing = UIBarButtonItem(barButtonSystemItem: .fixedSpace, target: nil, action: nil); spacing.width = 18
@@ -162,7 +193,8 @@ private final class T3ThreadHeaderView: ExactNativeInstance {
                 controls.append(action("sidebar", title: config.sidebarVisible ? "Maximize content" : "Show thread sidebar",
                     symbol: config.sidebarVisible ? "arrow.up.left.and.arrow.down.right" : "sidebar.left", captured: config))
                 controls.append(action("new-task", title: "New task", symbol: "square.and.pencil", captured: config))
-                left.append(.fixedGroup(representativeItem: nil, items: controls))
+                left.append(contentsOf: T3ThreadHeaderPresentation.group(controls, nativeGlass: presentation.nativeGlass)
+                    .map { .fixedGroup(representativeItem: nil, items: $0) })
             } else if !config.canGoBack {
                 left.append(.fixedGroup(representativeItem: nil, items: [action("home", title: "Go to threads list", symbol: "list.bullet", captured: config)]))
             }
@@ -170,8 +202,7 @@ private final class T3ThreadHeaderView: ExactNativeInstance {
         }
         if #available(iOS 26.0, *) { item.style = .editor; item.subtitle = config.subtitle.isEmpty ? nil : config.subtitle }
         item.standardAppearance = appearance; item.scrollEdgeAppearance = appearance; item.compactAppearance = appearance
-        let right = trailing.map { [$0] } ?? []
-        if !sameGroups(item.trailingItemGroups, right) { item.trailingItemGroups = right }
+        if !sameGroups(item.trailingItemGroups, trailing) { item.trailingItemGroups = trailing }
         if !sameGroups(item.leadingItemGroups, leading) { item.leadingItemGroups = leading }
     }
     private func sameGroups(_ lhs: [UIBarButtonItemGroup], _ rhs: [UIBarButtonItemGroup]) -> Bool {
@@ -179,13 +210,13 @@ private final class T3ThreadHeaderView: ExactNativeInstance {
     }
     fileprivate func detach() {
         if let item = route?.controller.navigationItem {
-            if let trailing, item.trailingItemGroups.contains(where: { $0 === trailing }) { item.trailingItemGroups = [] }
+            if item.trailingItemGroups.contains(where: { current in trailing.contains(where: { $0 === current }) }) { item.trailingItemGroups = [] }
             if item.leadingItemGroups.contains(where: { current in leading.contains(where: { $0 === current }) }) { item.leadingItemGroups = [] }
             if let appearance, item.standardAppearance === appearance {
                 item.standardAppearance = nil; item.scrollEdgeAppearance = nil; item.compactAppearance = nil
             }
         }
-        trailing = nil; leading = []; appearance = nil; rendered = nil; route = nil
+        trailing = []; leading = []; appearance = nil; rendered = nil; route = nil
     }
     override func destroy() {
         active = false; detach(); owner?.unbind(self, key: config?.routeKey ?? ""); config = nil
