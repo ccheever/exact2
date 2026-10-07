@@ -39,7 +39,6 @@ font "DM Sans"
   400 = "assets/fonts/DMSans_400Regular.ttf"
   500 = "assets/fonts/DMSans_500Medium.ttf"
   700 = "assets/fonts/DMSans_700Bold.ttf"
-
 routes nav
   home "/"
     thread "/threads/:threadEnvironment/:threadId"
@@ -102,7 +101,6 @@ routes nav
     environments "/settings/environments"
     environmentDetail "/settings/environments/:environmentKey"
     notfound
-
 shape AccountEntry
   kind: string
   route: string
@@ -343,6 +341,9 @@ component App
         send automationBranchRead = automationCommand(op, id, value, extra, wallTime.epochAtZero + now(), `${top(nav).id}`)
     else if not pending(automationChanged)
       send automationChanged = automationCommand(op, id, value, extra, wallTime.epochAtZero + now(), `${top(nav).id}`)
+  state automationBranchVersion = 0
+  task automationBranchDebounce when top(nav).name == "settingsScheduledBranch" and automationBranchVersion > 0 key=automationBranchVersion
+    after(150, automationBranchFetch)
   action automationBranchFetch
     automationAction("branch-fetch", "", "", "")
   action didAutomationBranchRead
@@ -361,7 +362,7 @@ component App
           if result.refresh
             automationRefresh = automationRefresh + 1
           if result.debounce
-            after(150, automationBranchFetch)
+            automationBranchVersion = automationBranchVersion + 1
       case none
         automationRefresh = automationRefresh
   action didAutomationChange
@@ -487,7 +488,7 @@ component App
   state homeEnvironment = ""
   state homeProject = ""
   derive homeRouteKey = match first(filter(stack(nav), route => route.name == "home")) { case some(route) => `${route.id}`, case none => "home" }
-  resource chrome = homeChrome(homeRouteKey, homeQuery, homeEnvironment, homeProject, appearance.scheme, layout.safeBottom, layout.liquidGlass, data.revision, data.environments, appearance.groupingMode) as shape HomeChromeView
+  resource chrome = homeChrome(homeRouteKey, homeQuery, homeEnvironment, homeProject, appearance.scheme, layout.safeBottom, layout.liquidGlass, data.revision, data.environments, appearance.groupingMode, "compact") as shape HomeChromeView
   state sidebarQuery = ""
   state sidebarEnvironment = ""
   state sidebarProject = ""
@@ -632,10 +633,10 @@ component App
   resource previewOwner = previewOwner(workspaceRouteReady and startsWith(top(nav).name, "thread"), data.revision) as shape PreviewOwner
   resource previewPrepared = previewPrepare(previewOwner.owner) as shape InformationRead
   resource previewLook = previewColors(appearance.scheme, appearance.themeId) as shape MobilePreviewColors
-  resource browserData = previewStatus("browser", previewOwner.owner, top(nav).name == "threadBrowser", previewPrepared, data.revision) as shape MobileBrowserSnapshot
-  resource devicesData = previewStatus("devices", previewOwner.owner, top(nav).name == "threadDevices", previewPrepared, data.revision) as shape MobileDevicesSnapshot
-  resource browserMenus = previewMenus("browser", browserData) as shape PreviewMenus
-  resource devicesMenus = previewMenus("devices", devicesData) as shape PreviewMenus
+  resource browserData = browserStatus("browser", previewOwner.owner, top(nav).name == "threadBrowser", previewPrepared, data.revision) as shape MobileBrowserSnapshot
+  resource devicesData = devicesStatus("devices", previewOwner.owner, top(nav).name == "threadDevices", previewPrepared, data.revision) as shape MobileDevicesSnapshot
+  resource browserMenus = browserMenus("browser", browserData) as shape PreviewMenus
+  resource devicesMenus = devicesMenus("devices", devicesData) as shape PreviewMenus
   mutation previewChanged as shape InformationChange refreshes browserData, devicesData, data then didPreviewChange
   action browserAction(op: string, value: string)
     if not pending(previewChanged)
@@ -681,7 +682,7 @@ component App
   resource terminalData = terminalView(terminalId, appearance.scheme, appearance.themeId, appearance.terminalFontSize, wallTime.epochAtZero + elapsed, (top(nav).name == "threadTerminal" or top(nav).name == "threadTerminalCapture") and workspaceRouteReady, data.revision) as shape MobileTerminalSnapshot
   resource terminalCapture = terminalCapture(terminalCaptureText, terminalRangeStart, terminalRangeEnd) as shape MobileTerminalCapture
   mutation terminalChanged as shape MobileTerminalResult refreshes terminalData, data then didTerminalChange
-  mutation terminalEvent as shape MobileTerminalEvent then didTerminalEvent
+  mutation terminalReceived as shape MobileTerminalEvent then didTerminalEvent
   mutation terminalAttached as shape Change refreshes data then didTerminalAttach
   action openTerminal
     terminalId = ""
@@ -689,6 +690,10 @@ component App
   action terminalAction(op: string, value: string)
     if workspaceRouteReady
       send terminalChanged = terminalAction(op, terminalData.terminalId, value)
+  task createTerminal when top(nav).name == "threadTerminal" and workspaceRouteReady and (match terminalChanged { case some(result) => result.choice == "new" and result.environmentId == data.environmentId and result.threadId == data.threadId, case none => false })
+    after(1, createTerminal)
+  action createTerminal
+    terminalAction("new", "")
   action terminalMenu
     if workspaceRouteReady and terminalData.ready
       send terminalChanged = terminalMenu(terminalData.terminalId, terminalData.tabs, terminalData.readOnly, appearance.terminalFontSize)
@@ -702,8 +707,6 @@ component App
             changePreference("terminalFontSize", `${max(6, appearance.terminalFontSize - 0.5)}`)
           else if result.choice == "font-increase"
             changePreference("terminalFontSize", `${min(14, appearance.terminalFontSize + 0.5)}`)
-          else if result.choice == "new"
-            terminalAction("new", "")
           else if result.choice == "select"
             terminalId = result.terminalId
           else if result.closed
@@ -713,9 +716,9 @@ component App
       case none
         terminalId = terminalId
   action terminalEvent(value: string)
-    send terminalEvent = terminalEvent(value, terminalData.sessionKey)
+    send terminalReceived = terminalEvent(value, terminalData.sessionKey)
   action didTerminalEvent
-    match terminalEvent
+    match terminalReceived
       case some(result)
         if top(nav).name == "threadTerminal" and result.key == terminalData.sessionKey
           if result.type == "capture"
@@ -1259,7 +1262,6 @@ component App
   mutation notice as shape Notice
   mutation removal as shape Notice then didConfirmRemove
   mutation scanned as shape PairingFields then didScan
-  resource parsed = pairingFields(host) as shape PairingFields
   mutation changed as shape Change refreshes data, threadData, queueData then didChange
   task rem mount
     after(1, rootFont)
@@ -1348,8 +1350,6 @@ component App
           send changed = command("forget", pendingRemove, "", "0", taskGuardOwner, taskGuardRoute)
       case none
         pendingRemove = ""
-  action openConnections
-    nav = push(nav, path("connections"))
   action addEnvironment
     targetEnvironment = ""
     formError = ""

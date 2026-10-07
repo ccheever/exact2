@@ -37,7 +37,8 @@ export async function mobileAutomationPrepare(name:string,scopeJSON:string,accou
   return {revision:++revision};
 }
 export function mobileAutomationSnapshot(){
-  return {revision,route,error,days,tab,selection,now:anchor,scheduled:tasks,editor:mobileScheduledEditor(),usage:usageRoute(route)?mobileUsageSnapshot(selection,tab,metric):mobileUsagePresentation(null),account:mobileUsageAccount(account.key,account.window,account.kind,account.now)};
+  const {taskId: _taskId, ...editor} = mobileScheduledEditor();
+  return {revision,route,error,days,tab,selection,now:anchor,scheduled:tasks,editor,usage:usageRoute(route)?mobileUsageSnapshot(selection,tab,metric):mobileUsagePresentation(null),account:mobileUsageAccount(account.key,account.window,account.kind,account.now)};
 }
 /** The root only navigates/reloads when this result explicitly says so. */
 export async function mobileAutomationCommand(op:string,id:string,value:string,extra:string,now:number,native:Native|null|undefined){

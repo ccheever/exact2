@@ -206,7 +206,7 @@ export function workspaceInspectorSnapshot(serialized: string) {
 }
 function project(state: State, serialized: string) {
   const result = state.content;
-  return { serialized, changed: false, focusOwner: workspaceInspectorFocusOwner(state.focus), mode: currentMode(state, state.focus),
+  return { serialized, focusOwner: workspaceInspectorFocusOwner(state.focus), mode: currentMode(state, state.focus),
     roleJSON: state.role ? JSON.stringify(state.role) : '', registrationJSON: result ? JSON.stringify(result.registration) : '',
     contentOwner: result?.owner ?? '', contentRouteId: result?.registration.routeId ?? '', contentMode: result?.mode ?? '',
     contentEnvironmentId: result?.registration.environmentId ?? '', contentThreadId: result?.registration.threadId ?? '',
@@ -216,5 +216,5 @@ function project(state: State, serialized: string) {
     mountedFiles: !!result?.mounted && result.visited.includes('files'), mountedGit: !!result?.mounted && result.visited.includes('git'),
     mountedRoute: !!result?.mounted && result.visited.includes('route'),
     exitToken: result?.exitToken ?? '', exitAt: result?.exitAt ?? 0,
-    prewarmToken: result?.prewarmToken ?? '', prewarmAt: result?.prewarmAt ?? 0, revealInspector: false };
+    prewarmToken: result?.prewarmToken ?? '', prewarmAt: result?.prewarmAt ?? 0 };
 }

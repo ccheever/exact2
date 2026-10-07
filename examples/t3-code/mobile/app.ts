@@ -1,3 +1,4 @@
+import type { Sources, Answer } from './app.contract.d.ts';
 import { mobileComposerTarget } from './composer-target';
 import { mobileQueueSnapshot, mobileQueueCommand } from './queue';
 import { mobileQueuePrepare } from './queue-read';
@@ -16,7 +17,7 @@ import { mobileProjectOverview, mobileProjectRename } from './settings-project';
 import { mobileAccountRouteEntry } from './settings-account';
 import { mobileNotificationsSettings } from './settings-notifications';
 import { mobileAppLink } from './navigation-links';
-import { mobilePreviewOwner, mobilePreviewPrepare, mobilePreviewStatus, mobilePreviewAction, mobilePreviewMenus, mobilePreviewMenuAction } from './mobile-preview-flow';
+import { mobilePreviewOwner, mobilePreviewPrepare, mobileBrowserPreviewStatus, mobileDevicesPreviewStatus, mobilePreviewAction, mobilePreviewMenus, mobilePreviewMenuAction } from './mobile-preview-flow';
 import { mobilePreviewColors } from './browser-mobile-colors';
 import { MOBILE_INFORMATION_ROUTES, mobileInformationPrepare, mobileInformationSnapshot, mobileInformationCommand, mobileInformationLegalConfiguration } from './settings-information';
 import { mobileAudioStatus, mobileAudioAction } from './attachment-audio';
@@ -31,7 +32,7 @@ import { mobileReviewRead, mobileReviewSnapshot, mobileReviewAction } from './re
 import { mobileFilesRead, mobileFilesSnapshot, mobileFilesAction, mobileFileRead, mobileFileSnapshot } from './file-data';
 import { MOBILE_SERVER_ROUTES, mobileServerSettings, mobileServerSettingsCommand } from './settings-server';
 import { settingsProviderNative, mobileProviderAccounts, mobileProviderAccountsSnapshot, mobileProviderCommand, mobileProviderField } from './settings-provider';
-import { mobileMediaPrepare, mobileMediaShare, mobileMediaForget } from './media-preview';
+import { mobileMediaPrepare, mobileMediaForget } from './media-preview';
 import { mobileComposerAttachmentAction, mobileComposerAttachments, mobileComposerAttachmentPreviews } from './composer-attachments';
 // @ref llp/1106.003-pairing-and-transport.decision.md#decision
 import { mobileClient, mobileNative, mobileSnapshot, mobileCommand, mobilePairingFields } from './client';
@@ -54,196 +55,519 @@ import { bridgeReply, ClientError, nativeFiles, type Files, type Native } from '
 export const appId = 'com.exact.t3code.ios';
 export const grants = 'device.camera purpose.camera device.microphone purpose.microphone';
 
-export function answer(source: string, args: unknown[], _store?: unknown, storage?: Files, native?: Native | null) {
-  if (source === 'inspectorState') return workspaceInspectorSnapshot(str(args[0]));
-  if (source === 'inspectorContext') return mobileInspectorContext(args[0], args[1] === true, args[2] === true, Number(args[3]), args[4] === true, args[5] === true, args[6] === 'dark');
-  if (source === 'inspectorTransition') return mobileInspectorTransition(str(args[0]), str(args[1]), str(args[2]), str(args[3]), Number(args[4]), str(args[5]), args[6] === 'dark');
-  if (source === 'inspectorPresentation') return mobileInspectorPresentation(str(args[0]), str(args[1]), args[2] === true, str(args[3]), str(args[4]), str(args[5]), mobileClient, Number(args[6]));
-  if (source === 'workspaceEvent') return mobileWorkspaceEvent(str(args[0]), str(args[1]), str(args[2]), args[3] === true, Number(args[4]));
-  if (source === 'gitColors') return mobileGitColors(str(args[0]), str(args[1]));
-  if (source === 'gitSnapshot') return mobileGitSnapshot(Number(args[0]));
-  if (source === 'gitRead') return mobileGitRead(str(args[0]), Number(args[1]), native);
-  if (source === 'gitBranchesSnapshot') return mobileGitBranchesSnapshot();
-  if (source === 'gitBranchesRead') return mobileGitBranchesRead(str(args[0]), Number(args[1]), native);
-  if (source === 'gitAction') return mobileGitAction(str(args[0]), str(args[1]), str(args[2]), str(args[3]), Number(args[4]), native).then(result => ({ ...result, requestRoute: str(args[5]) }));
-  if (source === 'gitBranchAction') return mobileGitBranchAction(str(args[0]), str(args[1]), str(args[2]), str(args[3]), Number(args[4]), native).then(result => ({ ...result, requestRoute: str(args[5]) }));
-  if (source === 'workspace') return workspace(args);
-  if (source === 'workspaceThreadSelection') return mobileWorkspaceThreadSelection(args[0], args[1] === true, str(args[2]), str(args[3]));
-  if (source === 'workspaceFileSelection') return mobileWorkspaceFileSelection(args[0], args[1] === true, str(args[2]), str(args[3]), str(args[4]));
-  if (source === 'newTaskFlow') return newTaskFlow(args, native);
-  if (native) native = settingsProviderNative(native);
-  const guarded = newTaskGuard(source, args);
-  if (guarded && !guarded()) return unavailableTaskSource(source, args);
-  if (guarded && native) {
-    const base = native;
-    native = { available: base.available, watch: topic => base.watch(topic), later: async input => {
-      if (!guarded()) throw new ClientError('The new task route changed.', 'superseded');
-      const result = await base.later(input);
-      if (!guarded()) throw new ClientError('The new task route changed.', 'superseded'); return result;
-    } };
-  }
-  if (source === 'newTaskAction') return mobileNewTaskFlowAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), String(args[4]), native, storage!);
-  if (source === 'threadPreferences') return mobileThreadPreferences(String(args[1]), args[2], args[3] === true, args[0] === true ? native : null);
-  if (source === 'threadPreferencesChange') {
+// Each generated source has its own checked result type; no union assertion crosses the ABI.
+const sources: Sources = {
+  inspectorState: (args, _store, storage, nativeInput) => {
+    const native = nativeInput;
+    return workspaceInspectorSnapshot(str(args[0]));
+  },
+  inspectorContext: (args, _store, storage, nativeInput) => {
+    const native = nativeInput;
+    return mobileInspectorContext(args[0], args[1] === true, args[2] === true, Number(args[3]), args[4] === true, args[5] === true, args[6] === 'dark');
+  },
+  inspectorTransition: (args, _store, storage, nativeInput) => {
+    const native = nativeInput;
+    return mobileInspectorTransition(str(args[0]), str(args[1]), str(args[2]), str(args[3]), Number(args[4]), str(args[5]), args[6] === 'dark');
+  },
+  inspectorPresentation: (args, _store, storage, nativeInput) => {
+    const native = nativeInput;
+    return mobileInspectorPresentation(str(args[0]), str(args[1]), args[2] === true, str(args[3]), str(args[4]), str(args[5]), mobileClient, Number(args[6]));
+  },
+  workspaceEvent: (args, _store, storage, nativeInput) => {
+    const native = nativeInput;
+    return mobileWorkspaceEvent(str(args[0]), str(args[1]), str(args[2]), args[3] === true, Number(args[4]));
+  },
+  gitColors: (args, _store, storage, nativeInput) => {
+    const native = nativeInput;
+    return mobileGitColors(str(args[0]), str(args[1]));
+  },
+  gitSnapshot: (args, _store, storage, nativeInput) => {
+    const native = nativeInput;
+    return mobileGitSnapshot(Number(args[0]));
+  },
+  gitRead: (args, _store, storage, nativeInput) => {
+    const native = nativeInput;
+    return mobileGitRead(str(args[0]), Number(args[1]), native);
+  },
+  gitBranchesSnapshot: (args, _store, storage, nativeInput) => {
+    const native = nativeInput;
+    return mobileGitBranchesSnapshot();
+  },
+  gitBranchesRead: (args, _store, storage, nativeInput) => {
+    const native = nativeInput;
+    return mobileGitBranchesRead(str(args[0]), Number(args[1]), native);
+  },
+  gitAction: (args, _store, storage, nativeInput) => {
+    const native = nativeInput;
+    return mobileGitAction(str(args[0]), str(args[1]), str(args[2]), str(args[3]), Number(args[4]), native).then(result => ({ ...result, requestRoute: str(args[5]) }));
+  },
+  gitBranchAction: (args, _store, storage, nativeInput) => {
+    const native = nativeInput;
+    return mobileGitBranchAction(str(args[0]), str(args[1]), str(args[2]), str(args[3]), Number(args[4]), native).then(result => ({ ...result, requestRoute: str(args[5]) }));
+  },
+  workspace: (args, _store, storage, nativeInput) => {
+    const native = nativeInput;
+    return workspace(args);
+  },
+  workspaceThreadSelection: (args, _store, storage, nativeInput) => {
+    const native = nativeInput;
+    return mobileWorkspaceThreadSelection(args[0], args[1] === true, str(args[2]), str(args[3]));
+  },
+  workspaceFileSelection: (args, _store, storage, nativeInput) => {
+    const native = nativeInput;
+    return mobileWorkspaceFileSelection(args[0], args[1] === true, str(args[2]), str(args[3]), str(args[4]));
+  },
+  newTaskFlow: (args, _store, storage, nativeInput) => {
+    const native = nativeInput;
+    return newTaskFlow(args, native);
+  },
+  newTaskAction: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('newTaskAction', args, nativeInput);
+    return mobileNewTaskFlowAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), String(args[4]), native, storage!);
+  },
+  threadPreferences: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('threadPreferences', args, nativeInput);
+    return mobileThreadPreferences(String(args[1]), args[2], args[3] === true, args[0] === true ? native : null);
+  },
+  threadPreferencesChange: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('threadPreferencesChange', args, nativeInput);
     const requestRoute = String(args[3]);
     return mobileThreadPreferencesCommand(String(args[0]), String(args[1]), String(args[2]), native).then(result => ({ ...result, requestRoute, saved: false }));
-  }
-  if (source === 'projectOverview') return mobileProjectOverview(String(args[1]), args[0] === true ? native : null);
-  if (source === 'projectRename') {
+  },
+  projectOverview: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('projectOverview', args, nativeInput);
+    return mobileProjectOverview(String(args[1]), args[0] === true ? native : null);
+  },
+  projectRename: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('projectRename', args, nativeInput);
     const requestRoute = String(args[3]);
     return mobileProjectRename(String(args[0]), String(args[1]), String(args[2]), native).then(result => ({ ...result, requestRoute }));
-  }
-  if (source === 'streamingAssistant') return mobileStreamingDescriptor(String(args[1]), String(args[2]), String(args[3]), mobileClient);
-  if (source === 'notificationSettings') return mobileNotificationsSettings();
-  if (source === 'accountEntry') {
+  },
+  streamingAssistant: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('streamingAssistant', args, nativeInput);
+    return mobileStreamingDescriptor(String(args[1]), String(args[2]), String(args[3]), mobileClient);
+  },
+  notificationSettings: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('notificationSettings', args, nativeInput);
+    return mobileNotificationsSettings();
+  },
+  accountEntry: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('accountEntry', args, nativeInput);
     const entry = mobileAccountRouteEntry(String(args[0]), args[1] === true);
     return { kind: entry?.kind ?? '', route: entry?.kind === 'replace' ? entry.route : '', requestRoute: String(args[2]) };
-  }
-  if (source === 'appLink') return mobileAppLink(String(args[0]), String(args[1]), args[2] === true);
-  if (source === 'previewOwner') return mobilePreviewOwner(args[0] === true);
-  if (source === 'previewPrepare') return mobilePreviewPrepare(String(args[0]), native);
-  if (source === 'previewColors') return mobilePreviewColors(String(args[0]), String(args[1]));
-  if (source === 'previewStatus') return mobilePreviewStatus(String(args[0]), String(args[1]), args[2] === true, native);
-  if (source === 'previewMenus') return mobilePreviewMenus(String(args[0]), args[1]);
-  if (source === 'previewAction') return mobilePreviewAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), native).then(result => ({ ...result, requestRoute: String(args[4]) }));
-  if (source === 'previewMenuAction') return mobilePreviewMenuAction(String(args[0]), String(args[1]), String(args[2]), native).then(result => ({ ...result, requestRoute: String(args[3]) }));
-  if (source === 'informationPrepare') return mobileInformationPrepare(String(args[0]), native);
-  if (source === 'informationSnapshot') return mobileInformationSnapshot(String(args[0] ?? ''), String(args[1] ?? ''));
-  if (source === 'informationCommand') return mobileInformationCommand(String(args[0]), String(args[1]), native).then(result => ({ ...result, requestRoute: String(args[2]) }));
-  if (source === 'informationLegal') return { configuration: mobileInformationLegalConfiguration(String(args[0]), String(args[1]), args[2]) };
-  if (source === 'informationRoute') return { active: MOBILE_INFORMATION_ROUTES.includes(String(args[0])), title: ({ settingsAbout: 'About T3 Code', settingsClientStorage: 'Client Storage', settingsDiagnostics: 'Diagnostics', settingsOpenSourceLicenses: 'Open source licenses', settingsOpenSourceLicense: 'License notice', settingsLegal: 'Legal' } as Record<string, string>)[String(args[0])] ?? '' };
-  if (source === 'audioStatus') return mobileAudioStatus(String(args[0] ?? ''), String(args[1] ?? ''));
-  if (source === 'audioAction') return mobileAudioAction(String(args[0] ?? ''), String(args[1] ?? ''), native);
-  if (source === 'automationPrepare') return mobileAutomationPrepare(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? ''), String(args[4] ?? ''), Number(args[5]), native);
-  if (source === 'automationSnapshot') {
+  },
+  appLink: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('appLink', args, nativeInput);
+    return mobileAppLink(String(args[0]), String(args[1]), args[2] === true);
+  },
+  previewOwner: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('previewOwner', args, nativeInput);
+    return mobilePreviewOwner(args[0] === true);
+  },
+  previewPrepare: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('previewPrepare', args, nativeInput);
+    return mobilePreviewPrepare(String(args[0]), native);
+  },
+  previewColors: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('previewColors', args, nativeInput);
+    return mobilePreviewColors(String(args[0]), String(args[1]));
+  },
+  browserStatus: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('browserStatus', args, nativeInput);
+    return mobileBrowserPreviewStatus(String(args[1]), args[2] === true, native);
+  },
+  devicesStatus: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('devicesStatus', args, nativeInput);
+    return mobileDevicesPreviewStatus(String(args[1]), args[2] === true, native);
+  },
+  browserMenus: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('browserMenus', args, nativeInput);
+    return mobilePreviewMenus(String(args[0]), args[1]);
+  },
+  devicesMenus: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('devicesMenus', args, nativeInput);
+    return mobilePreviewMenus(String(args[0]), args[1]);
+  },
+  previewAction: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('previewAction', args, nativeInput);
+    return mobilePreviewAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), native).then(result => ({ ...result, requestRoute: String(args[4]) }));
+  },
+  previewMenuAction: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('previewMenuAction', args, nativeInput);
+    return mobilePreviewMenuAction(String(args[0]), String(args[1]), String(args[2]), native).then(result => ({ ...result, requestRoute: String(args[3]) }));
+  },
+  informationPrepare: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('informationPrepare', args, nativeInput);
+    return mobileInformationPrepare(String(args[0]), native);
+  },
+  informationSnapshot: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('informationSnapshot', args, nativeInput);
+    return mobileInformationSnapshot(String(args[0] ?? ''), String(args[1] ?? ''));
+  },
+  informationCommand: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('informationCommand', args, nativeInput);
+    return mobileInformationCommand(String(args[0]), String(args[1]), native).then(result => ({ ...result, requestRoute: String(args[2]) }));
+  },
+  informationLegal: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('informationLegal', args, nativeInput);
+    return { configuration: mobileInformationLegalConfiguration(String(args[0]), String(args[1]), args[2]) };
+  },
+  informationRoute: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('informationRoute', args, nativeInput);
+    return { active: MOBILE_INFORMATION_ROUTES.includes(String(args[0])), title: ({ settingsAbout: 'About T3 Code', settingsClientStorage: 'Client Storage', settingsDiagnostics: 'Diagnostics', settingsOpenSourceLicenses: 'Open source licenses', settingsOpenSourceLicense: 'License notice', settingsLegal: 'Legal' } as Record<string, string>)[String(args[0])] ?? '' };
+  },
+  audioStatus: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('audioStatus', args, nativeInput);
+    return mobileAudioStatus(String(args[0] ?? ''), String(args[1] ?? ''));
+  },
+  audioAction: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('audioAction', args, nativeInput);
+    return mobileAudioAction(String(args[0] ?? ''), String(args[1] ?? ''), native);
+  },
+  automationPrepare: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('automationPrepare', args, nativeInput);
+    return mobileAutomationPrepare(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? ''), String(args[4] ?? ''), Number(args[5]), native);
+  },
+  automationSnapshot: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('automationSnapshot', args, nativeInput);
     const snapshot = mobileAutomationSnapshot();
     return args[1] === true ? { ...snapshot, editor: { ...snapshot.editor, busy: true, canSave: false, webhookCopyable: false } } : snapshot;
-  }
-  if (source === 'automationCommand') return mobileAutomationCommand(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? ''), Number(args[4]), native).then(result => ({ ...result, requestRoute: String(args[5] ?? '') }));
-  if (source === 'scheduledHeader') return mobileScheduledHeader(args);
-  if (source === 'voiceFocus') return { owner: args[0] === true ? mobileComposerTarget(mobileClient).editorOwner : '', label: String(args[1] || 'Draft') };
-  if (source === 'voiceColors') return mobileVoiceColors(String(args[0]), String(args[1]));
-  if (source === 'voiceStatus') return native?.available ? mobileVoiceStatus(mobileNative(native)) : { available: false, locale: '', reason: '', session: '', event: 0, eventKind: '', error: '', uri: '', elapsed: 0, levels: [], phase: 'idle' };
-  if (source === 'voiceSnapshot') {
+  },
+  automationCommand: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('automationCommand', args, nativeInput);
+    return mobileAutomationCommand(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? ''), Number(args[4]), native).then(result => ({ ...result, requestRoute: String(args[5] ?? '') }));
+  },
+  scheduledHeader: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('scheduledHeader', args, nativeInput);
+    return mobileScheduledHeader(args);
+  },
+  voiceFocus: (args, _store, storage, nativeInput) => {
+    if (newTaskGuard('voiceFocus', args)?.() === false) return { owner: '', label: String(args[1] || 'Draft') };
+    const native = sourceNative('voiceFocus', args, nativeInput);
+    return { owner: args[0] === true ? mobileComposerTarget(mobileClient).editorOwner : '', label: String(args[1] || 'Draft') };
+  },
+  voiceColors: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('voiceColors', args, nativeInput);
+    return mobileVoiceColors(String(args[0]), String(args[1]));
+  },
+  voiceStatus: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('voiceStatus', args, nativeInput);
+    return native?.available ? mobileVoiceStatus(mobileNative(native)) : { available: false, locale: '', reason: '', session: '', event: 0, eventKind: '', error: '', uri: '', elapsed: 0, levels: [], phase: 'idle' };
+  },
+  voiceSnapshot: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('voiceSnapshot', args, nativeInput);
     const snapshot = mobileVoiceSnapshot(String(args[0]), mobileClient, Number(args[1]));
     return args[4] === true ? { ...snapshot, confirmationEnabled: false } : snapshot;
-  }
-  if (source === 'voiceAction') {
+  },
+  voiceAction: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('voiceAction', args, nativeInput);
     if (!native?.available) return { revision: mobileClient.revision, message: 'Voice input is unavailable.', data: mobileVoiceSnapshot(String(args[2])) };
     const handle = mobileNative(native);
     return mobileVoiceAction(String(args[0]), -1, -1, String(args[1]), String(args[2]), handle, nativeFiles(handle));
-  }
-  if (source === 'terminalView') return mobileTerminalPrepare(String(args[0] ?? ''), String(args[1]), String(args[2]), Number(args[3]), Number(args[4]), args[5] === true ? native : null);
-  if (source === 'terminalAction') return mobileTerminalAction(String(args[0]), String(args[1]), String(args[2] ?? ''), native, storage!);
-  if (source === 'terminalMenu') return mobileTerminalAction('menu', String(args[0]), JSON.stringify({ tabs: args[1], readOnly: args[2] === true, fontSize: Number(args[3]) }), native, storage!);
-  if (source === 'terminalEvent') return mobileTerminalEvent(String(args[0]), String(args[1]));
-  if (source === 'terminalCapture') return mobileTerminalCapture(String(args[0]), Number(args[1]), Number(args[2]));
-  if (source === 'terminalAttach') return mobileTerminalAttachOutput(String(args[0]), String(args[1]), Number(args[2]), Number(args[3]), Number(args[4]), native, storage!);
-  if (source === 'reviewColors') return mobileReviewColors(String(args[0]), String(args[1]));
-  if (source === 'reviewSnapshot') return mobileReviewSnapshot(args[0] === 'dark', mobileClient, args[1] === true);
-  if (source === 'reviewPrepare') return mobileReviewRead(native, String(args[0] ?? ''), args[1] === 'dark');
-  if (source === 'reviewAction') return mobileReviewAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), Number(args[4]), native, storage!, args[5] === 'dark').then(result => ({ ...result, requestRoute: str(args[6]) }));
-  if (source === 'filesSnapshot') return mobileFilesSnapshot(String(args[0] ?? ''));
-  if (source === 'filesPrepare') return mobileFilesRead(String(args[0] ?? ''), String(args[1] ?? ''), native);
-  if (source === 'filesAction') return mobileFilesAction(String(args[0]), String(args[1]), String(args[2]), String(args[3] ?? ''), native);
-  if (source === 'fileSnapshot') return mobileFileSnapshot(String(args[0] ?? ''), args[1] === 'dark', Number(args[2] ?? 0));
-  if (source === 'filePrepare') return mobileFileRead(String(args[0] ?? ''), native, args[1] === 'dark', Number(args[2] ?? 0), args[3] === true);
-  if (source === 'serverSettings') return mobileServerSettings(MOBILE_SERVER_ROUTES[String(args[0])] ?? 'new-threads', String(args[1]), args[2] === true ? native : null);
-  if (source === 'serverSettingChange') return mobileServerSettingsCommand(MOBILE_SERVER_ROUTES[String(args[0])] ?? 'new-threads', String(args[1]), String(args[2]), String(args[3]), native);
-  if (source === 'providerSnapshot') {
+  },
+  terminalView: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('terminalView', args, nativeInput);
+    return mobileTerminalPrepare(String(args[0] ?? ''), String(args[1]), String(args[2]), Number(args[3]), Number(args[4]), args[5] === true ? native : null);
+  },
+  terminalAction: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('terminalAction', args, nativeInput);
+    return mobileTerminalAction(String(args[0]), String(args[1]), String(args[2] ?? ''), native, storage!);
+  },
+  terminalMenu: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('terminalMenu', args, nativeInput);
+    return mobileTerminalAction('menu', String(args[0]), JSON.stringify({ tabs: args[1], readOnly: args[2] === true, fontSize: Number(args[3]) }), native, storage!);
+  },
+  terminalEvent: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('terminalEvent', args, nativeInput);
+    return mobileTerminalEvent(String(args[0]), String(args[1]));
+  },
+  terminalCapture: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('terminalCapture', args, nativeInput);
+    return mobileTerminalCapture(String(args[0]), Number(args[1]), Number(args[2]));
+  },
+  terminalAttach: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('terminalAttach', args, nativeInput);
+    return mobileTerminalAttachOutput(String(args[0]), String(args[1]), Number(args[2]), Number(args[3]), Number(args[4]), native, storage!);
+  },
+  reviewColors: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('reviewColors', args, nativeInput);
+    return mobileReviewColors(String(args[0]), String(args[1]));
+  },
+  reviewSnapshot: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('reviewSnapshot', args, nativeInput);
+    return mobileReviewSnapshot(args[0] === 'dark', mobileClient, args[1] === true);
+  },
+  reviewPrepare: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('reviewPrepare', args, nativeInput);
+    return mobileReviewRead(native, String(args[0] ?? ''), args[1] === 'dark');
+  },
+  reviewAction: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('reviewAction', args, nativeInput);
+    return mobileReviewAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), Number(args[4]), native, storage!, args[5] === 'dark').then(result => ({ ...result, requestRoute: str(args[6]) }));
+  },
+  filesSnapshot: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('filesSnapshot', args, nativeInput);
+    return mobileFilesSnapshot(String(args[0] ?? ''));
+  },
+  filesPrepare: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('filesPrepare', args, nativeInput);
+    return mobileFilesRead(String(args[0] ?? ''), String(args[1] ?? ''), native);
+  },
+  filesAction: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('filesAction', args, nativeInput);
+    return mobileFilesAction(String(args[0]), String(args[1]), String(args[2]), String(args[3] ?? ''), native);
+  },
+  fileSnapshot: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('fileSnapshot', args, nativeInput);
+    return mobileFileSnapshot(String(args[0] ?? ''), args[1] === 'dark', Number(args[2] ?? 0));
+  },
+  filePrepare: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('filePrepare', args, nativeInput);
+    return mobileFileRead(String(args[0] ?? ''), native, args[1] === 'dark', Number(args[2] ?? 0), args[3] === true);
+  },
+  serverSettings: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('serverSettings', args, nativeInput);
+    return mobileServerSettings(MOBILE_SERVER_ROUTES[String(args[0])] ?? 'new-threads', String(args[1]), args[2] === true ? native : null);
+  },
+  serverSettingChange: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('serverSettingChange', args, nativeInput);
+    return mobileServerSettingsCommand(MOBILE_SERVER_ROUTES[String(args[0])] ?? 'new-threads', String(args[1]), String(args[2]), String(args[3]), native);
+  },
+  providerSnapshot: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('providerSnapshot', args, nativeInput);
     const snapshot = mobileProviderAccountsSnapshot(String(args[0]), args[1] === true);
-    return snapshot.ready || !obj(args[2]).error ? snapshot : args[2];
-  }
-  if (source === 'providerAccounts') return mobileProviderAccounts(String(args[0]), args[1] === true, native, native?.available === true);
-  if (source === 'providerAction') return mobileProviderCommand(String(args[0]), String(args[1]), String(args[2]), native);
-  if (source === 'providerField') return mobileProviderField(String(args[0]), String(args[1]), String(args[2]));
-  if (source === 'attachmentDocument') {
+    return snapshot.ready || !obj(args[2]).error ? snapshot : { ...snapshot, error: str(obj(args[2]).error) };
+  },
+  providerAccounts: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('providerAccounts', args, nativeInput);
+    return mobileProviderAccounts(String(args[0]), args[1] === true, native, native?.available === true);
+  },
+  providerAction: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('providerAction', args, nativeInput);
+    return mobileProviderCommand(String(args[0]), String(args[1]), String(args[2]), native);
+  },
+  providerField: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('providerField', args, nativeInput);
+    return mobileProviderField(String(args[0]), String(args[1]), String(args[2]));
+  },
+  attachmentDocument: (args, _store, storage, nativeInput) => {
+    if (newTaskGuard('attachmentDocument', args)?.() === false) return EMPTY_ATTACHMENT_DOCUMENT;
+    const native = sourceNative('attachmentDocument', args, nativeInput);
     if (args[5] !== true || !args[6]) return EMPTY_ATTACHMENT_DOCUMENT;
     return mobileAttachmentDocument(String(args[0]), String(args[1]), String(args[2]), args[3] === true, args[4] === 'dark', Number(args[7]), false, native);
-  }
-  if (source === 'attachmentNativePreview') {
+  },
+  attachmentNativePreview: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('attachmentNativePreview', args, nativeInput);
     let value; try { value = obj(JSON.parse(String(args[0]))); } catch { value = {}; }
     return { identifier: String(value.identifier ?? ''), name: String(value.name ?? ''), kind: String(value.kind ?? ''), sourceJSON: String(args[0]), ready: !!value.identifier, error: '' };
-  }
-  if (source === 'attachmentNativeEvent') {
+  },
+  attachmentNativeEvent: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('attachmentNativeEvent', args, nativeInput);
     let value; try { value = obj(JSON.parse(String(args[0]))); } catch { value = {}; }
     return { identifier: value.identifier === args[1] ? String(value.identifier) : '', message: String(value.message ?? ''), operation: 'native-error', removed: false, sourceJSON: '' };
-  }
-  if (source === 'attachmentMenu') return mobileAttachmentMenu(args[0] as AttachmentDocumentSnapshot, args[1] === true);
-  if (source === 'attachmentDocumentAction') return mobileAttachmentDocumentAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), args[4] as AttachmentDocumentSnapshot, native, storage!);
-  if (source === 'mediaPreview') {
+  },
+  attachmentMenu: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('attachmentMenu', args, nativeInput);
+    return mobileAttachmentMenu(args[0] as AttachmentDocumentSnapshot, args[1] === true);
+  },
+  attachmentDocumentAction: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('attachmentDocumentAction', args, nativeInput);
+    return mobileAttachmentDocumentAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), args[4] as AttachmentDocumentSnapshot, native, storage!);
+  },
+  mediaPreview: (args, _store, storage, nativeInput) => {
+    if (newTaskGuard('mediaPreview', args)?.() === false) return { identifier: '', name: '', kind: '', sourceJSON: '', ready: false, error: '' };
+    const native = sourceNative('mediaPreview', args, nativeInput);
     if (args[5] !== true) return { identifier: '', name: '', kind: '', sourceJSON: '', ready: false, error: '' };
     return mobileMediaPrepare(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), native, mobileClient, String(args[3] ?? ''), String(args[4] ?? ''), String(args[11] ?? ''));
-  }
-  if (source === 'mediaCompletion') {
+  },
+  mediaCompletion: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('mediaCompletion', args, nativeInput);
     let value: Record<string, unknown> = {};
     try { value = obj(JSON.parse(String(args[0] ?? ''))); } catch { /* Ignore malformed or stale native events. */ }
     const identifier = String(value.identifier ?? '');
     if (!identifier || identifier !== args[1]) return { identifier: '', message: '' };
     mobileMediaForget(identifier);
     return { identifier, message: String(value.message ?? '') };
-  }
-  if (source === 'shareMedia') return mobileMediaShare(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), native);
-  if (source === 'attachmentAction') return mobileComposerAttachmentAction(String(args[0] ?? 'menu'), String(args[1] ?? ''), native, storage!, mobileClient, str(args[4]));
-  if (source === 'composerAttachments') return mobileComposerAttachments(mobileClient, Number(args[3]));
-  if (source === 'composerPreviewsPrepare') return mobileComposerAttachmentPreviews(native, mobileClient, Number(args[2]), str(args[0]), str(args[1]));
-  if (source === 'preferences') return mobilePreferencesResource(native);
-  if (source === 'preferenceChange') return mobileSavePreference(String(args[0] ?? ''), String(args[1] ?? ''), native);
-  if (source === 'applyAppearance') return mobileApplyAppearance(args[0], native);
-  if (source === 'appearance') {
+  },
+  attachmentAction: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('attachmentAction', args, nativeInput);
+    return mobileComposerAttachmentAction(String(args[0] ?? 'menu'), String(args[1] ?? ''), native, storage!, mobileClient, str(args[4]));
+  },
+  composerAttachments: (args, _store, storage, nativeInput) => {
+    if (newTaskGuard('composerAttachments', args)?.() === false) return { contentOwner: '', previewRequest: '', items: [], canPick: false, supportsFiles: false, remaining: 0, error: '' };
+    const native = sourceNative('composerAttachments', args, nativeInput);
+    return mobileComposerAttachments(mobileClient, Number(args[3]));
+  },
+  composerPreviewsPrepare: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('composerPreviewsPrepare', args, nativeInput);
+    return mobileComposerAttachmentPreviews(native, mobileClient, Number(args[2]), str(args[0]), str(args[1]));
+  },
+  preferences: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('preferences', args, nativeInput);
+    return mobilePreferencesResource(native);
+  },
+  preferenceChange: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('preferenceChange', args, nativeInput);
+    return mobileSavePreference(String(args[0] ?? ''), String(args[1] ?? ''), native);
+  },
+  applyAppearance: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('applyAppearance', args, nativeInput);
+    return mobileApplyAppearance(args[0], native);
+  },
+  appearance: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('appearance', args, nativeInput);
     const preferences = normalizeMobilePreferences(args[0]);
     const resolved = resolveMobileAppearance(preferences, String(args[1] ?? 'light'));
     return { scheme: resolved.scheme, themeId: resolved.themeId, baseFontSize: resolved.baseFontSize, terminalFontSize: resolved.terminalFontSize,
       themeMode: preferences.themeMode, enterBehavior: preferences.composerEnterBehavior, groupingMode: preferences.projectGroupingMode };
-  }
-  if (source === 'settingsRoot') return settingsRoot(args);
-  if (source === 'settingsScopeEvent') return settingsScopeEvent(args);
-  if (source === 'settingsAppearance') return settingsAppearanceView(args[0], String(args[1] ?? 'light'), args[2] === true, Number(args[3]));
-  if (source === 'settingsChoices') return settingsChoices(String(args[0] ?? ''), normalizeMobilePreferences(args[1]), args[2] === true);
-  if (source === 'pairingFields') return mobilePairingFields(String(args[0] ?? ''));
-  if (source === 'theme') return mobileTheme(String(args[0] ?? 'light'), String(args[1] ?? 't3-code'));
-  if (source === 'environmentDetail') return mobileEnvironmentDetail(String(args[0] ?? ''), native, storage);
-  if (source === 'environmentDetailCommand') return mobileEnvironmentDetailCommand(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), native, storage);
-  if (source === 'layoutFacts') return mobileLayoutFacts(String(args[0] ?? ''));
-  if (source === 'homeChromeEvent') return homeChromeEvent(String(args[0] ?? ''));
-  if (source === 'homeChrome') return homeChromeView(args);
-  if (source === 'archiveColors') return mobileArchiveColors(String(args[0] ?? 'light'), String(args[1] ?? 't3-code'));
-  if (source === 'agentColors') return mobileAgentColors(String(args[0] ?? 'light'), String(args[1] ?? 't3-code'));
-  if (source === 'archiveView') return mobileArchive(Number(args[0]), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? 'newest'), args[4] === true ? native : null);
-  if (source === 'archiveAction') return mobileArchiveCommand(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? ''), native, storage);
-  if (source === 'agentActivity') return mobileAgentActivity(String(args[0] ?? ''), String(args[1] ?? ''), Number(args[2]));
-  if (source === 'composerColors') return mobileComposerColors(String(args[0] ?? 'light'), String(args[1] ?? 't3-code'));
-  if (source === 'composerSettings') return mobileComposerSettings(String(args[0] ?? ''), String(args[1] ?? ''), args[2] === true);
-  if (source === 'composerAction') {
+  },
+  settingsRoot: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('settingsRoot', args, nativeInput);
+    return settingsRoot(args);
+  },
+  settingsScopeEvent: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('settingsScopeEvent', args, nativeInput);
+    return settingsScopeEvent(args);
+  },
+  settingsAppearance: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('settingsAppearance', args, nativeInput);
+    return settingsAppearanceView(args[0], String(args[1] ?? 'light'), args[2] === true, Number(args[3]));
+  },
+  settingsChoices: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('settingsChoices', args, nativeInput);
+    return settingsChoices(String(args[0] ?? ''), normalizeMobilePreferences(args[1]), args[2] === true);
+  },
+  pairingFields: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('pairingFields', args, nativeInput);
+    return mobilePairingFields(String(args[0] ?? ''));
+  },
+  theme: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('theme', args, nativeInput);
+    return mobileTheme(String(args[0] ?? 'light'), String(args[1] ?? 't3-code'));
+  },
+  environmentDetail: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('environmentDetail', args, nativeInput);
+    return mobileEnvironmentDetail(String(args[0] ?? ''), native, storage);
+  },
+  environmentDetailCommand: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('environmentDetailCommand', args, nativeInput);
+    return mobileEnvironmentDetailCommand(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), native, storage);
+  },
+  layoutFacts: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('layoutFacts', args, nativeInput);
+    return mobileLayoutFacts(String(args[0] ?? ''));
+  },
+  homeChromeEvent: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('homeChromeEvent', args, nativeInput);
+    return homeChromeEvent(String(args[0] ?? ''));
+  },
+  homeChrome: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('homeChrome', args, nativeInput);
+    return homeChromeView(args);
+  },
+  archiveColors: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('archiveColors', args, nativeInput);
+    return mobileArchiveColors(String(args[0] ?? 'light'), String(args[1] ?? 't3-code'));
+  },
+  agentColors: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('agentColors', args, nativeInput);
+    return mobileAgentColors(String(args[0] ?? 'light'), String(args[1] ?? 't3-code'));
+  },
+  archiveView: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('archiveView', args, nativeInput);
+    return mobileArchive(Number(args[0]), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? 'newest'), args[4] === true ? native : null);
+  },
+  archiveAction: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('archiveAction', args, nativeInput);
+    return mobileArchiveCommand(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? ''), native, storage);
+  },
+  agentActivity: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('agentActivity', args, nativeInput);
+    return mobileAgentActivity(String(args[0] ?? ''), String(args[1] ?? ''), Number(args[2]));
+  },
+  composerColors: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('composerColors', args, nativeInput);
+    return mobileComposerColors(String(args[0] ?? 'light'), String(args[1] ?? 't3-code'));
+  },
+  composerSettings: (args, _store, storage, nativeInput) => {
+    if (newTaskGuard('composerSettings', args)?.() === false) return { ...mobileComposerSettings('', '', false), open: false, canEdit: false, canSave: false, models: [], filters: [], options: [], runtimes: [], error: '' };
+    const native = sourceNative('composerSettings', args, nativeInput);
+    return mobileComposerSettings(String(args[0] ?? ''), String(args[1] ?? ''), args[2] === true);
+  },
+  composerAction: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('composerAction', args, nativeInput);
     const requestRoute = String(args[5] ?? '');
     return mobileComposerSettingsAction(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), native, storage!).then(result => ({ ...result, requestRoute }));
-  }
-  if (source === 'newTaskView') return args[4] === true ? mobileNewTaskChooser(String(args[0] ?? ''), String(args[5] ?? 'repository')) : mobileNewTask(String(args[0] ?? ''));
-  if (source === 'newTaskPrepare') return args[1] === true ? mobileNewTaskPrepare(String(args[0] ?? ''), native) : {revision: mobileClient.revision, loaded: false};
-  if (source === 'threadColors') return mobileThreadColors(String(args[0] ?? 'light'), String(args[1] ?? 't3-code'));
-  if (source === 'selectThread') return mobileCommand(['select-thread', String(args[0] ?? ''), '', 0], native, storage!).then(change =>
+  },
+  newTaskView: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('newTaskView', args, nativeInput);
+    return args[4] === true ? mobileNewTaskChooser(String(args[0] ?? ''), String(args[5] ?? 'repository')) : mobileNewTask(String(args[0] ?? ''));
+  },
+  newTaskPrepare: (args, _store, storage, nativeInput) => {
+    if (newTaskGuard('newTaskPrepare', args)?.() === false) return { revision: mobileClient.revision, loaded: false };
+    const native = sourceNative('newTaskPrepare', args, nativeInput);
+    return args[1] === true ? mobileNewTaskPrepare(String(args[0] ?? ''), native) : {revision: mobileClient.revision, loaded: false};
+  },
+  threadColors: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('threadColors', args, nativeInput);
+    return mobileThreadColors(String(args[0] ?? 'light'), String(args[1] ?? 't3-code'));
+  },
+  selectThread: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('selectThread', args, nativeInput);
+    return mobileCommand(['select-thread', String(args[0] ?? ''), '', 0], native, storage!).then(change =>
     ({ ...change, environmentId: mobileClient.environmentId, threadId: mobileClient.threadId, requestRoute: String(args[1] ?? '') }));
-  if (source === 'threadView') return threadView(args, native);
-  if (source === 'answerFilesPrepare') return mobileThreadAnswerFilesPrepare(str(args[0]), str(args[1]), Number(args[2]), native);
-  if (source === 'homeColors') return mobileHomeColors(String(args[0] ?? 'light'), String(args[1] ?? 't3-code'));
-  if (source === 'homePreferences') return mobileShelves(native);
-  if (source === 'toggleShelf') return mobileToggleShelf(String(args[0] ?? ''), native);
-  if (source === 'homeView') return mobileHomeView(args);
-  if (source === 'snapshot') return mobileSnapshot(native, storage!).then(snapshot => connectionView(snapshot, String(args[0] ?? 'light'), String(args[1] ?? 't3-code')));
-  if (source === 'cameraPermission') {
+  },
+  threadView: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('threadView', args, nativeInput);
+    return threadView(args, native);
+  },
+  answerFilesPrepare: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('answerFilesPrepare', args, nativeInput);
+    return mobileThreadAnswerFilesPrepare(str(args[0]), str(args[1]), Number(args[2]), native);
+  },
+  homeColors: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('homeColors', args, nativeInput);
+    return mobileHomeColors(String(args[0] ?? 'light'), String(args[1] ?? 't3-code'));
+  },
+  homePreferences: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('homePreferences', args, nativeInput);
+    return mobileShelves(native);
+  },
+  toggleShelf: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('toggleShelf', args, nativeInput);
+    return mobileToggleShelf(String(args[0] ?? ''), native);
+  },
+  homeView: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('homeView', args, nativeInput);
+    return mobileHomeView(args);
+  },
+  snapshot: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('snapshot', args, nativeInput);
+    return mobileSnapshot(native, storage!).then(snapshot => connectionView(snapshot, String(args[0] ?? 'light'), String(args[1] ?? 't3-code')));
+  },
+  cameraPermission: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('cameraPermission', args, nativeInput);
     if (!native?.available) return { status: 'unavailable' };
     return bridgeReply(native, { op: 'mobileCameraPermission' }).then(reply =>
       ({ status: reply.ok ? String(obj(reply.value).status ?? 'unavailable') : 'error:Camera access could not be checked.' }));
-  }
-  if (source === 'alert') {
+  },
+  alert: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('alert', args, nativeInput);
     if (!native?.available) return { choice: 'cancel' };
     return bridgeReply(native, { op: 'mobileAlert', kind: String(args[0] ?? 'info'),
       title: String(args[1] ?? ''), message: String(args[2] ?? '') }).then(reply =>
       ({ choice: reply.ok ? String(obj(reply.value).choice ?? 'cancel') : 'cancel' }));
-  }
-  if (source === 'queueSnapshot') return mobileQueueSnapshot(str(args[0]), args[1] === true, Number(args[2]));
-  if (source === 'queuePrepare') return mobileQueuePrepare(str(args[0]), str(args[1]), str(args[2]), Number(args[3]), native);
-  if (source === 'command') {
+  },
+  queueSnapshot: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('queueSnapshot', args, nativeInput);
+    return mobileQueueSnapshot(str(args[0]), args[1] === true, Number(args[2]));
+  },
+  queuePrepare: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('queuePrepare', args, nativeInput);
+    return mobileQueuePrepare(str(args[0]), str(args[1]), str(args[2]), Number(args[3]), native);
+  },
+  command: (args, _store, storage, nativeInput) => {
+    const native = sourceNative('command', args, nativeInput);
     const operation = String(args[0] ?? ''), key = String(args[1] ?? '');
     if (operation.startsWith('queue:')) return mobileQueueCommand(args, native, storage!);
     const separator = key.indexOf('\n');
@@ -253,13 +577,29 @@ export function answer(source: string, args: unknown[], _store?: unknown, storag
     if (operation === 'save-environment') return mobileCommand([operation, environmentId,
       JSON.stringify({ label: String(args[2] ?? ''), url: String(args[3] ?? '') }), 0], native, storage!);
     return mobileCommand(args, native, storage!);
-  }
-  throw new Error(`Unknown mobile source: ${source}`);
+  },
+};
+export const answer: Answer = (source, args, store, storage, native) => {
+  if (!Object.prototype.hasOwnProperty.call(sources, source)) throw new Error(`Unknown mobile source: ${source}`);
+  return sources[source](args, store, storage, native);
+};
+
+function sourceNative(source: string, args: unknown[], nativeInput?: Native | null): Native | null | undefined {
+  const native = nativeInput ? settingsProviderNative(nativeInput) : nativeInput;
+  const guarded = newTaskGuard(source, args);
+  if (guarded && !guarded()) throw new ClientError('Choose a project in the current new task before continuing.', 'superseded');
+  if (!guarded || !native) return native;
+  return { available: native.available, watch: topic => native.watch(topic), later: async input => {
+    if (!guarded()) throw new ClientError('The new task route changed.', 'superseded');
+    const result = await native.later(input);
+    if (!guarded()) throw new ClientError('The new task route changed.', 'superseded');
+    return result;
+  } };
 }
 
 const taskGuardIndices: Record<string, number> = { command: 4, composerAction: 3, composerSettings: 4,
   attachmentAction: 2, composerAttachments: 1, voiceFocus: 3, voiceAction: 3,
-  mediaPreview: 9, attachmentDocument: 8, attachmentDocumentAction: 5, shareMedia: 3, newTaskPrepare: 8 };
+  mediaPreview: 9, attachmentDocument: 8, attachmentDocumentAction: 5, newTaskPrepare: 8 };
 function newTaskGuard(source: string, args: unknown[]): (() => boolean) | null {
   // Existing recordings retain their captured draft and cleanup owner offscreen.
   if (source === 'voiceAction' && args[0] !== 'start') return null;
@@ -267,16 +607,6 @@ function newTaskGuard(source: string, args: unknown[]): (() => boolean) | null {
   if (index === undefined || !args[index]) return null;
   const owner = String(args[index]), route = String(args[index + 1] ?? '');
   return () => mobileNewTaskFlowOwns(owner, route);
-}
-function unavailableTaskSource(source: string, args: unknown[]) {
-  if (source === 'voiceFocus') return { owner: '', label: String(args[1] || 'Draft') };
-  if (source === 'composerAttachments') return { contentOwner: '', previewRequest: '', items: [], canPick: false, supportsFiles: false, remaining: 0, error: '' };
-  if (source === 'newTaskPrepare') return { revision: mobileClient.revision, loaded: false };
-  if (source === 'mediaPreview') return { identifier: '', name: '', kind: '', sourceJSON: '', ready: false, error: '' };
-  if (source === 'attachmentDocument') return EMPTY_ATTACHMENT_DOCUMENT;
-  if (source === 'composerSettings') return { ...mobileComposerSettings('', '', false), open: false, canEdit: false, canSave: false,
-    models: [], filters: [], options: [], runtimes: [], error: '' };
-  throw new ClientError('Choose a project in the current new task before continuing.', 'superseded');
 }
 
 async function newTaskFlow(args: unknown[], native?: Native | null) {

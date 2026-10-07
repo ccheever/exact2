@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import { workspaceInspectorFocusOwner, workspaceInspectorSnapshot, workspaceInspectorTransition,
   type WorkspaceInspectorFocus, type WorkspaceInspectorInput } from './workspace-inspector';
 
@@ -19,7 +20,10 @@ test('plain chat has a focus role but no invented content; committed snapshot is
   expect(first).toMatchObject({ mode: '', active: false, mounted: false, registrationJSON: '', revealInspector: false });
   expect(JSON.parse(first.roleJSON)).toMatchObject({ routeId: '7', value: 'inspector' });
   expect(workspaceInspectorTransition(first.serialized, input(chat, 10000))).toMatchObject({ serialized: first.serialized, changed: false });
-  expect(workspaceInspectorSnapshot(first.serialized)).toEqual({ ...first, changed: false, revealInspector: false });
+  const { changed, revealInspector, ...snapshot } = first;
+  expect(changed).toBe(true);
+  expect(revealInspector).toBe(false);
+  expect(workspaceInspectorSnapshot(first.serialized)).toEqual(snapshot);
 });
 
 test('Files opens only for its captured available workspace and has a350ms alternate deadline', () => {
@@ -206,4 +210,21 @@ test('ending resize while inactive restarts source close completion', () => {
   expect(ended.exitToken).not.toBe(blurred.exitToken);
   expect(workspaceInspectorTransition(ended.serialized, input(overlay, 360),
     { kind: 'end-exit', token: blurred.exitToken }).contentOwner).toBe(ended.contentOwner);
+});
+
+// Exact rejects extra producer fields even when structural TypeScript accepts them.
+test('inspector producer snapshots match declared Contract keys without transition flags', () => {
+  const contract = readFileSync(new URL('./workspace-inspector.contract', import.meta.url), 'utf8');
+  const declaration = contract.split('shape InspectorState\n')[1]?.split('shape InspectorContext')[0] ?? '';
+  const expected = [...declaration.matchAll(/^  (\w+):/gm)].map(match => match[1]).sort();
+  expect(expected.length).toBe(23);
+  const opened = open();
+  const exiting = workspaceInspectorTransition(opened.serialized, input(overlay, 100));
+  for (const serialized of ['', 'not JSON', opened.serialized, exiting.serialized]) {
+    const snapshot = workspaceInspectorSnapshot(serialized);
+    expect(Object.keys(snapshot).sort()).toEqual(expected);
+    expect(workspaceInspectorSnapshot(snapshot.serialized)).toEqual(snapshot);
+  }
+  expect(opened).toMatchObject({ changed: true, revealInspector: true });
+  expect(exiting).toMatchObject({ changed: true, revealInspector: false, exitAt: 360 });
 });
