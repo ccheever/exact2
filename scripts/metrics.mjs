@@ -823,7 +823,12 @@ const WEB_CORE_KIB = { realworld: 304, 'video-player': 249, caltrain: 310 };
 // by real features (browser-side grant checks, media, commands, pointer events, the
 // router, paint order, its TV screens); a cut lane follows. RealWorld (38.5 KiB) and the
 // video player (18.7 KiB) are over and stay over until Charlie rules or a cut lands.
-const JS_TARGET_KIB = { realworld: 30, 'video-player': 9, caltrain: 28 };
+// Caltrain lowered 28 → 25 the same day (lane/web-size: the grant admission, media and the event families link by use;
+// 22.7 KiB shipped). RealWorld raised 30 → 38 and the video player 9 → 17 (Charlie,
+// 2026-10-06): 36.0 and 15.6 KiB shipped after that cut. RealWorld's bulk is its own
+// generated module (~8 KB), the runtime core (~11.6 KB) and the TypeScript data layer
+// (~2.9 KB); the video player grew with its media session, controls and full screen.
+const JS_TARGET_KIB = { realworld: 38, 'video-player': 17, caltrain: 25 };
 
 // 8. Long: web bytes by capability (LLP 1047 D9), for the three apps the
 // size work tracks. Each app's app.wasm as shipped (raw, gzip, brotli-11),

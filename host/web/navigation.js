@@ -273,7 +273,7 @@ export function afterPaintPieces(load, o) {
   const queue = [];
   const start = () => loading ??= Promise.all([load('./collection-glue.js', 'collectionGlue'), load('./motion-glue.js', 'motionGlue'), load('./group-glue.js', 'groupGlue')])
     .then(([c, m, g]) => {
-      const common = { views: o.views, now: o.now, generation: o.generation, inert: o.inert, applyBatch: o.applyBatch, ready: o.ready };
+      const common = { views: o.views, now: o.now, generation: o.generation, inert: o.inert, applyBatch: o.applyBatch, ready: o.ready, log: o.log };
       const request = facts => o.wasm('exact_motion', m.motionBytes(facts)) ?? { accepted: false };
       const collections = c.collectionController({ root: o.root, views: o.views, agent: !!o.agent?.(), settled: () => arrange.commit(), report(bytes) {
         const batch = o.wasm('exact_collection_feedback', bytes);
@@ -1142,6 +1142,8 @@ export function grantOrigins(memory) {
   } };
 }
 
+// grant admission: begin — self-contained; the JS target's build (host/web-js/build.mjs) moves these lines into a module of
+// their own, so a page that admits nothing before a lazy chunk does not carry them; the wasm host keeps them here (boot.mjs).
 // Match only the sealed, typed output of exact-runner's Rust grant parser.
 // App code is the page, so this is parity admission rather than a sandbox.
 const INVALID_GRANTS = 'the grant set was not validated';
@@ -1373,6 +1375,7 @@ export function coversPath(set, capability, path) {
   const target = grantPathParts(path), kind = ({ 'fs.read': 'fs-read', 'fs.write': 'fs-write', 'sqlite.open': 'sqlite-open' })[capability];
   return !!target && set.entries.some(([, , grant]) => grant?.[0] === kind && grant.slice(1).every((part, index) => target[index] === part));
 }
+// grant admission: end
 
 // `selectionchange` on a `text` (the reader diary), on both web targets: its
 // part of the page's selection, reported as the text and its UTF-16 start and

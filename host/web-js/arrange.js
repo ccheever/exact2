@@ -158,7 +158,8 @@ export function arrangeDrags({ w, views, viewId, api, lower, ops, now, applyBatc
     return reply(certified, !!dispatched, [...extra, ...lower()]);
   }
   const controller = arrangeController({ views, collections: new Proxy({}, { get: (_, k) => L()?.controller()?.[k] }), motion: api, request, applyBatch, now, generation: () => 0, inert: el => !!el.closest('[inert]'),
-    grouped: groupController, root: document.getElementById('exact-root'), viewOf: viewId });
+    grouped: groupController, root: document.getElementById('exact-root'), viewOf: viewId,
+    log: line => globalThis.exact?.journal?.push(`t=${globalThis.exact.clock?.now ?? 0} ${line}`) });
   // A grip's group, and whether the keys may drive it (LLP 1094 D9: no `press`, `key`, `pan` or `pointerdown` of its own).
   const groupOf = (h, b) => {
     const group = b ? views.get(b.list)?.dataset.reordergroup || null : null;
