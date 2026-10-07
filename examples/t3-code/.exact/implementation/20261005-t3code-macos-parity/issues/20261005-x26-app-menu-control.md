@@ -86,7 +86,7 @@ Next: `issue-open` (reproduce, search for duplicates, prepare the report for the
 ## Merged upstream in part (2026-10-07, adopt-main-fixes-r5)
 
 Filed as [#141](https://github.com/ccheever/exact2/issues/141), still open for an app-declared menu bar. Two parts
-landed (in the feature branch since main `261dd4e10`, [adopt-main-fixes-r5](../tasks/20261007-adopt-main-fixes-r5.md)):
+landed (in the feature branch since main `261dd4e10`, [adopt-main-fixes-r5](../tasks/closed/20261007-adopt-main-fixes-r5.md)):
 - **#223 (`d988e318b`): context-menu submenus.** A menu row whose `popovertarget` names another menu popover is a
   submenu `NSMenuItem` on macOS and a nested popover under the agent. Adopted: the sidebar's thread-row and draft-row
   right-click menus are context popovers (`sidebar-row.contract` ThreadMenu, DraftMenu). Each row carries its

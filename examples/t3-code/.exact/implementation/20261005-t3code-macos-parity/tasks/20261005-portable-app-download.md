@@ -79,7 +79,7 @@ Edge cases to cover: a quarantined app is run from a randomized read-only locati
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | merged task PR | [20261005-embedded-server-runtime](closed/20261005-embedded-server-runtime.md) | pending | Merged; spike go | pending |
 | merged task PR | [20261005-terminal-surface](closed/20261005-terminal-surface.md) (vendored terminal assets enter the bundle) | pending | Merged | pending |
-| merged task PR | [20261005-local-primary-environment](20261005-local-primary-environment.md) | pending | Merged: without it nothing in the UI connects to the unpacked server, so the clean-account run cannot show "This machine" | pending |
+| merged task PR | [20261005-local-primary-environment](closed/20261005-local-primary-environment.md) | pending | Merged: without it nothing in the UI connects to the unpacked server, so the clean-account run cannot show "This machine" | pending |
 | recorded decision | Signing and clean environment (U11, decided: ad-hoc, zip, clean macOS 14 VM); apparatus approval (U2, open) | none | U2 answered at `prepare` | U11: user 2026-10-05 |
 
 Re-run the audit and the clean-account test as the last step of the plan, because later tickets add bundled files (terminal fonts, sounds, icons).
