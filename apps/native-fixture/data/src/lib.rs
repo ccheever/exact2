@@ -1,5 +1,5 @@
 //! The native-module fixture's data source (LLP 1024 D8): two lists, the
-//! rows of the hooked list (LLP 1075.003.000) and the map providers an
+//! rows of the hatched list (LLP 1075.003.000) and the map providers an
 //! "Open in…" chooser offers (LLP 1021); everything else the smoke drives
 //! is literal Contract over the module seam.
 

@@ -183,12 +183,12 @@ component R6DeviceWorkspaceView
     local: action
     command: action
   view
-    row flex=1 min-height=0 width="100%" position="relative" hook="t3-frame" data-frame="r7-device-area"
-      column flex=1 min-height=0 min-width=0 height="100%" position="relative" hook="t3-frame" data-frame="r6-device" testId="device-workspace"
+    row flex=1 min-height=0 width="100%" position="relative" hatch="t3-frame" data-frame="r7-device-area"
+      column flex=1 min-height=0 min-width=0 height="100%" position="relative" hatch="t3-frame" data-frame="r6-device" testId="device-workspace"
         when ws.alert != ""
           text ws.alert flex-shrink=0 padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" font-size="0.75rem" line-height="1rem" color=r6devDestructive() role="alert"
         box flex=1 min-height=0 width="100%" position="relative" background-color=r6devBackground()
-          box hook="t3-media" data-media-kind=`device-${ws.platform}` data-device-id=ws.deviceId data-device-host=ws.hostId data-media-name=ws.name data-device-view=ws.r7.rail.view data-device-ax=ws.r7.rail.ax position="absolute" left=0 top=0 bottom=0 right=(ws.r7.rail.phone ? "0px" : "3.5rem") role="application" aria-label=ws.screenLabel testId="device-screen"
+          box hatch="t3-media" data-media-kind=`device-${ws.platform}` data-device-id=ws.deviceId data-device-host=ws.hostId data-media-name=ws.name data-device-view=ws.r7.rail.view data-device-ax=ws.r7.rail.ax position="absolute" left=0 top=0 bottom=0 right=(ws.r7.rail.phone ? "0px" : "3.5rem") role="application" aria-label=ws.screenLabel testId="device-screen"
           when ws.stream.inputNotice != "" or ws.r7.rail.waiting != ""
             row position="absolute" left=0 right=(ws.r7.rail.phone ? "0px" : "3.5rem") bottom=0 padding="0.5rem" box-sizing="border-box" justify-content="center" pointer-events="none"
               text (ws.stream.inputNotice != "" ? ws.stream.inputNotice : ws.r7.rail.waiting) padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.375rem" background-color="light-dark(#fcfcfcd9, #0a0a0ad9)" font-size="0.75rem" line-height="1rem" color=r6devMuted()
@@ -202,17 +202,17 @@ component R6DeviceWorkspaceView
               when ws.platform == "android"
                 R7DevRailButton(icon="back", label="Back", disabled=(not ws.rail.inputConnected), pressed=false, press=local("surface-r6dev-back", "", ws.key), testId="device-back")
                 R7DevRailButton(icon="square", label="Recents", disabled=(not ws.rail.inputConnected), pressed=false, press=local("surface-r6dev-recents", "", ws.key), testId="device-recents")
-                box hook="t3-frame" data-frame="r6-device-rotate"
+                box hatch="t3-frame" data-frame="r6-device-rotate"
                   R6RailButton(icon="rotate", label="Rotate device", title="", disabled=ws.r7.rail.rotateDisabled, pressed=(ws.rail.menu == "rotate"), press=local("surface-r6dev-menu", "", "rotate"), testId="device-rotate")
               else
                 R6RailButton(icon="rotate", label="Rotate device", title="", disabled=ws.r7.rail.rotateDisabled, pressed=false, press=local("surface-r6dev-rotate", "", ws.key), testId="device-rotate")
               R6RailDivider()
               R6RailButton(icon=ws.rail.appearanceIcon, label=ws.rail.appearanceLabel, title="", disabled=ws.rail.appearanceDisabled, pressed=false, press=command("shell:surface-r6dev-appearance", "", "", 0), testId="device-appearance")
-              box hook="t3-frame" data-frame="r6-device-text"
+              box hatch="t3-frame" data-frame="r6-device-text"
                 R6RailButton(icon="type", label="Device text size", title="Device text size", disabled=ws.rail.textSizeDisabled, pressed=(ws.rail.menu == "text"), press=local("surface-r6dev-menu", "", "text"), testId="device-text-size")
               R7DevRailButton(icon="sliders", label="Device tools", disabled=false, pressed=ws.r7.rail.toolsOpen, press=local("surface-r6dev-tools-toggle", "", ""), testId="device-tools-toggle")
               R6RailButton(icon="camera", label=ws.rail.screenshotLabel, title="", disabled=ws.rail.screenshotDisabled, pressed=false, press=command("shell:surface-r6dev-screenshot", "", "", 0), testId="device-screenshot")
-              box hook="t3-frame" data-frame="r6-device-more"
+              box hatch="t3-frame" data-frame="r6-device-more"
                 R6RailButton(icon="more", label="More device actions", title="More device actions", disabled=false, pressed=(ws.rail.menu == "more"), press=local("surface-r6dev-menu", "", "more"), testId="device-more")
               R6RailDivider()
               R7DevRailButton(icon="box", label="3D view", disabled=ws.r7.rail.phoneDisabled, pressed=ws.r7.rail.phone, press=local("surface-r6dev-tools-view", "", "phone"), testId="device-view-3d")
@@ -303,7 +303,7 @@ component R6DeviceMiniPlayer
   view
     box position="absolute" left=frame.x top=frame.top width=frame.width height=frame.height z-index=40 role="region" aria-label="Floating device preview" testId="device-mini-player"
       column position="absolute" left=0 top=0 right=0 bottom=0 border-radius=frame.radius overflow="hidden" background-color="light-dark(#f4f4f5, #1a1a1a)" box-shadow="0 25px 50px -12px #00000059"
-        box hook="t3-media" data-media-kind=`device-${mini.platform}` data-device-id=mini.deviceId data-device-host=mini.hostId position="absolute" left=0 top=0 right=0 bottom=0 role="application" aria-label=(mini.platform == "ios" ? "iOS Simulator screen" : "Android Emulator screen") testId="device-mini-screen"
+        box hatch="t3-media" data-media-kind=`device-${mini.platform}` data-device-id=mini.deviceId data-device-host=mini.hostId position="absolute" left=0 top=0 right=0 bottom=0 role="application" aria-label=(mini.platform == "ios" ? "iOS Simulator screen" : "Android Emulator screen") testId="device-mini-screen"
         when mini.stream.status != "streaming"
           box position="absolute" left=0 top=0 right=0 bottom=0
             R6DeviceLoading(name=mini.name, description=mini.description, message=mini.stream.message, stage="stream", error=mini.stream.error, reconnect=local("surface-r6dev-reconnect", "", mini.key))

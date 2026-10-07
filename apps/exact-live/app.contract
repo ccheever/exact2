@@ -505,7 +505,7 @@ component ExactLive
               button press=toggleSheet testId="open-crew-sheet" height=44 flex-shrink=0 border-width=0 background-color=theme.wash
                 text "Open crew notes ↑" font-size=(13 * k) color=theme.accent
           when crewSheet and pane != "crew"
-            column id="crew-sheet" testId="crew-sheet" position="absolute" left=0 right=0 bottom=0 height=sheetPx max-height="100%" min-height=120 box-sizing="border-box" overflow="hidden" background-color=theme.card border-radius=16 transition="height spring(300, 30, 1)" z-index=10
+            column id="crew-sheet" testId="crew-sheet" position="absolute" left=0 right=0 bottom=0 height=sheetPx max-height="100%" min-height=120 box-sizing="border-box" overflow="hidden" background-color=theme.card border-radius=16 transition="height -exact-spring(300, 30, 1)" z-index=10
               row height=48 flex-shrink=0 align-items="center" gap=8 padding-left=12 padding-right=12
                 box heightDragFor="crew-sheet" heightrelease=snapSheet touch-action="none" flex=1 height=44 testId="crew-sheet-grip" aria-label="Resize crew notes"
                   text "──  Crew notes" font-size=(13 * k) color=theme.muted
@@ -618,7 +618,7 @@ component CrewPanel
       list virtualized=true scrollFollowEnd=true testId="crew-transcript" flex=1 min-height=60 width="100%" overflow-x="hidden" overscroll-behavior="contain" background-color=theme.page
         each m in history.rows key=m.id
           column width="100%" box-sizing="border-box" padding-left=12 padding-right=12 padding-top=7 padding-bottom=7
-            box swiperight=reply(m.id) testId=`crew-swipe-${m.id}` touch-action="pan-y" retainFocus=true transition="translate spring(300, 30, 1)" width="100%" padding=0 border-width=0 background-color="#00000000" text-align="left"
+            box swiperight=reply(m.id) testId=`crew-swipe-${m.id}` touch-action="pan-y" retainFocus=true transition="translate -exact-spring(300, 30, 1)" width="100%" padding=0 border-width=0 background-color="#00000000" text-align="left"
               column testId=`message-${m.id}` width="100%" align-items=(m.outgoing ? "flex-end" : "flex-start") gap=5
                 text m.sender font-size=(11 * k) font-weight=600 color=theme.muted
                 column max-width="95%" padding=11 gap=6 box-sizing="border-box" border-radius=10 background-color=(m.outgoing ? theme.wash : theme.card)
@@ -735,7 +735,7 @@ component Viewer
           button press=resetPhoto testId="viewer-reset" aria-label="Reset photo position and zoom" padding=8 border-width=0 border-radius=6 background-color=theme.card
             text "Center and fit" font-size=(12 * k) color=theme.ink
         box testId="viewer-clip" width="100%" height=410 flex-shrink=0 position="relative" overflow="hidden" padding=0 border-width=0 box-sizing="border-box" border-radius=12 background-color="#172521"
-          box id="viewer-transform" testId="viewer-transform" width="100%" height="100%" position="relative" padding=0 border-width=0 margin=0 box-sizing="border-box" translate=`${panX}px ${panY}px` scale=zoom transition="translate spring(300, 30, 1), scale spring(300, 30, 1)"
+          box id="viewer-transform" testId="viewer-transform" width="100%" height="100%" position="relative" padding=0 border-width=0 margin=0 box-sizing="border-box" translate=`${panX}px ${panY}px` scale=zoom transition="translate -exact-spring(300, 30, 1), scale -exact-spring(300, 30, 1)"
             image viewer.photo.asset aria-label=viewer.photo.alt position="absolute" left=0 top=0 width="100%" height="100%" object-fit="contain" testId="viewer-image"
             box transformDragFor="viewer-transform" transformgeometry=photoGeometry transformrelease=releasePhoto touch-action="none" position="absolute" left=0 top=0 width="100%" height="100%" testId="viewer-handle" aria-label=`Pan ${viewer.photo.title}`
         column width="100%" max-width=740 gap=7

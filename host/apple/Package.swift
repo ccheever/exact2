@@ -16,6 +16,19 @@ let libName = ProcessInfo.processInfo.environment["EXACT_LIB"] ?? "caltrain_appl
 let composition = ProcessInfo.processInfo.environment["EXACT_APP_COMPOSITION"] ?? "embedded"
 precondition(["embedded", "updating"].contains(composition), "EXACT_APP_COMPOSITION must be embedded or updating")
 
+// The linked capabilities with a Swift half (LLP 1047.001 D4): each is its
+// own target, which the composition depends on, and installs, only when the
+// app links it. `build.mjs` names the app's (`EXACT_APPLE_LINK`, the
+// capabilities' names, comma-separated, or `all`); a build it doesn't drive
+// links them all, as development does.
+let linkNames = ProcessInfo.processInfo.environment["EXACT_APPLE_LINK"] ?? "all"
+func links(_ capability: String) -> Bool {
+    linkNames == "all" || linkNames.split(separator: ",").contains { $0 == Substring(capability) }
+}
+let capabilities: [(name: String, target: String, define: String)] = [
+    ("grouped_lists", "ExactGroupedLists", "EXACT_LINK_GROUPED_LISTS"),
+].filter { links($0.name) }
+
 // `swift test` builds every target a package declares, and the two UIKit
 // executables cannot build for macOS. EXACT_TESTS=1 narrows the package to
 // what the tests need — the same environment-driven shape the composition
@@ -32,8 +45,11 @@ let core: [Target] = [
         linkerSettings: [.unsafeFlags(["-L", libDir]), .linkedLibrary(libName), .linkedLibrary("c++")]
     ),
     .target(name: "ExactUpdates", dependencies: ["ExactKit", "CExact"], path: "Sources/ExactUpdates"),
-    .target(name: "ExactComposition", dependencies: [.target(name: "ExactKit")] + (composition == "updating" ? [.target(name: "ExactUpdates")] : []),
-            path: composition == "updating" ? "Sources/ExactUpdating" : "Sources/ExactEmbedded"),
+    .target(name: "ExactGroupedLists", dependencies: ["ExactKit", "CExact"], path: "Sources/ExactGroupedLists"),
+    .target(name: "ExactComposition", dependencies: [.target(name: "ExactKit")] + (composition == "updating" ? [.target(name: "ExactUpdates")] : [])
+                + capabilities.map { .target(name: $0.target) },
+            path: composition == "updating" ? "Sources/ExactUpdating" : "Sources/ExactEmbedded",
+            swiftSettings: capabilities.map { .define($0.define) }),
 ]
 
 let executables: [Target] = [
@@ -53,7 +69,7 @@ let tests: [Target] = [
     // The video arm's media session coordinator (LLP 1098 D7), driven by the
     // tests over stand-in players; the arm itself is build.mjs's dylib.
     .target(name: "ExactNowPlaying", path: "videoarm", exclude: ["VideoArm.swift"], sources: ["NowPlaying.swift"]),
-    .testTarget(name: "ExactKitTests", dependencies: ["ExactKit", "ExactSoundRender", "ExactNowPlaying"], path: "Tests/ExactKitTests"),
+    .testTarget(name: "ExactKitTests", dependencies: ["ExactKit", "ExactGroupedLists", "ExactSoundRender", "ExactNowPlaying"], path: "Tests/ExactKitTests"),
 ]
 
 let package = Package(
@@ -62,6 +78,7 @@ let package = Package(
     products: testing ? [.library(name: "ExactKit", targets: ["ExactKit"])] : [
         .library(name: "ExactKit", targets: ["ExactKit"]),
         .library(name: "ExactUpdates", targets: ["ExactUpdates"]),
+        .library(name: "ExactGroupedLists", targets: ["ExactGroupedLists"]),
         .executable(name: "ExactMac", targets: ["ExactMac"]),
         .executable(name: "ExactIOS", targets: ["ExactIOS"]),
         .executable(name: "ExactHostMac", targets: ["ExactHostMac"]),

@@ -3,16 +3,16 @@ import XCTest
 
 // r5-composer: the ref lists' next-page signal (R5ComposerScroll.swift) and the
 // citation jump to an assistant row (T3TimelineTurns.swift `cite:` rows).
-private let resolve: ExactHooks.ResolveFn = { _, _, _, _, _ in 0 }
-private let act: ExactHooks.ActFn = { _, _, _ in 0 }
-private let log: ExactHooks.LogFn = { _, _, _ in }
-private let delegate: ExactHooks.DelegateFn = { _, _, _ in }
+private let resolve: ExactHatches.ResolveFn = { _, _, _, _, _ in 0 }
+private let act: ExactHatches.ActFn = { _, _, _ in 0 }
+private let log: ExactHatches.LogFn = { _, _, _ in }
+private let delegate: ExactHatches.DelegateFn = { _, _, _ in }
 private final class Flipped: NSView { override var isFlipped: Bool { true } }
 
 private final class Fixture {
     let table = UnsafeMutableRawPointer.allocate(byteCount: 40, alignment: 8)
     let host = UnsafeMutablePointer<Int>.allocate(capacity: 1)
-    let hooks: ExactHooks
+    let hooks: ExactHatches
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
     init() {
         _ = NSApplication.shared
@@ -23,7 +23,7 @@ private final class Fixture {
         table.storeBytes(of: unsafeBitCast(act, to: UnsafeRawPointer.self), toByteOffset: 16, as: UnsafeRawPointer.self)
         table.storeBytes(of: unsafeBitCast(log, to: UnsafeRawPointer.self), toByteOffset: 24, as: UnsafeRawPointer.self)
         table.storeBytes(of: unsafeBitCast(delegate, to: UnsafeRawPointer.self), toByteOffset: 32, as: UnsafeRawPointer.self)
-        hooks = ExactHooks(host: UnsafeMutableRawPointer(host), table: UnsafeRawPointer(table))!
+        hooks = ExactHatches(host: UnsafeMutableRawPointer(host), table: UnsafeRawPointer(table))!
         window.isReleasedWhenClosed = false
     }
     func scroll(height: CGFloat, content: CGFloat) -> NSScrollView {
@@ -38,7 +38,7 @@ final class R5ComposerTests: XCTestCase {
     func testScrollTowardTheEndCountsOncePerPage() {
         let fixture = Fixture()
         let scroll = fixture.scroll(height: 224, content: 2800)
-        let element = ExactElement(hook: .t3Anchor, id: "refs", node: 3, hooks: fixture.hooks)
+        let element = ExactElement(hatch: .t3Anchor, id: "refs", node: 3, hatches: fixture.hooks)
         element.view = scroll; element.platform = scroll
         element.data = ExactData(["anchor": "scroll:details-refs"])
         var changes = 0
@@ -76,7 +76,7 @@ final class R5ComposerTests: XCTestCase {
         let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 224))
         scroll.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 10))
         fixture.window.contentView?.addSubview(scroll)
-        let element = ExactElement(hook: .t3Anchor, id: "refs", node: 4, hooks: fixture.hooks)
+        let element = ExactElement(hatch: .t3Anchor, id: "refs", node: 4, hatches: fixture.hooks)
         element.view = scroll; element.platform = scroll
         element.data = ExactData(["anchor": "scroll:strip-refs"])
         let ends = R5ComposerScroll()
@@ -88,7 +88,7 @@ final class R5ComposerTests: XCTestCase {
         scroll.contentView.scroll(to: NSPoint(x: 0, y: 2800 - 224)); NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: scroll.contentView)
         scroll.contentView.scroll(to: NSPoint(x: 0, y: 40)); NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: scroll.contentView)
         XCTAssertEqual(ends.ends["scroll:strip-refs"], 1, "a scroll toward the end of an unflipped list counts too")
-        let other = ExactElement(hook: .t3Anchor, id: "other", node: 5, hooks: fixture.hooks)
+        let other = ExactElement(hatch: .t3Anchor, id: "other", node: 5, hatches: fixture.hooks)
         other.view = scroll; other.platform = scroll; other.data = ExactData(["anchor": "traits"])
         ends.install(other)
         XCTAssertEqual(ends.ends.count, 1, "plain anchors are not lists")
@@ -97,12 +97,12 @@ final class R5ComposerTests: XCTestCase {
     func testCitationJumpPlacesTheAssistantRowAndKeepsItOffTheMinimap() {
         let fixture = Fixture()
         let scroll = fixture.scroll(height: 300, content: 3000)
-        let transcript = ExactElement(hook: .t3Transcript, id: "transcript", node: 6, hooks: fixture.hooks)
+        let transcript = ExactElement(hatch: .t3Transcript, id: "transcript", node: 6, hatches: fixture.hooks)
         transcript.view = scroll; transcript.platform = scroll
         let user = NSView(frame: NSRect(x: 0, y: 100, width: 300, height: 40)), answer = NSView(frame: NSRect(x: 0, y: 1800, width: 300, height: 400))
         scroll.documentView!.addSubview(user); scroll.documentView!.addSubview(answer)
         let rows = [(7, "u1", user), (8, "cite:a1", answer)].map { (node: UInt32, id: String, view: NSView) -> ExactElement in
-            let row = ExactElement(hook: .t3Turn, id: id, node: node, hooks: fixture.hooks)
+            let row = ExactElement(hatch: .t3Turn, id: id, node: node, hatches: fixture.hooks)
             row.view = view; row.data = ExactData(["turn": id]); return row
         }
         let turns = T3TimelineTurns(changed: { _ in })

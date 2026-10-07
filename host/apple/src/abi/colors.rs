@@ -6,7 +6,7 @@ use exact_kernel::style::{roles, Color, ColorValue};
 use exact_runner::DataSource;
 
 /// `[[kind, id, "name"], …]`: every reference the presenter may resolve
-/// (kind 0 a role, 1 a `platform-color()`), with its name on this platform.
+/// (kind 0 a role, 1 a `-exact-platform-color()`), with its name on this platform.
 fn references_json() -> String {
     let mut out = String::from("[");
     for (i, (c, name)) in roles::references(cfg!(target_os = "macos"))
@@ -29,7 +29,7 @@ fn references_json() -> String {
 
 /// The presenter's report: LE records of (u8 kind, u8 dark, u16 id, u8 r,
 /// g, b, a). `None` when the bytes are not whole records; a record naming
-/// no role or interned `platform-color()` is dropped.
+/// no role or interned `-exact-platform-color()` is dropped.
 pub(crate) fn parse_report(bytes: &[u8]) -> Option<Vec<(ColorValue, bool, Color)>> {
     if !bytes.len().is_multiple_of(8) {
         return None;

@@ -130,8 +130,10 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
                 .is_some_and(|module| !module.is_empty()));
     // Inspection is linked by policy, not by use: in production too, so the
     // smoked artifact is the shipped one (LLP 1047 §10, Q3).
+    // A grouped list is its authored nodes on the web (LLP 1047.001 D2).
     let names: Vec<&str> = uses
         .iter()
+        .filter(|c| *c != Capability::GroupedLists)
         .map(|c| c.name())
         .chain(["inspection"])
         // A colour row's text, literal or a template's piece, names one in
@@ -174,8 +176,49 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
             | Capability::Segments
             | Capability::Dataset
             | Capability::Tabs
-            | Capability::Notifications => {}
+            | Capability::Notifications
+            | Capability::GroupedLists => {}
         }
+    }
+    entry
+}
+
+/// The Apple entry's `EXACT_LINKED` (LLP 1047.001 D2, D3), which the entry
+/// passes as `host!(…; linked = EXACT_LINKED)`, and the export groups of what
+/// it names. `host` is the crate whose `host!` the entry calls
+/// (`exact_apple`, or `exact_apple_update` above it).
+///
+/// A build whose plan is fixed (production, store level 0) links the
+/// capabilities `plan` uses, which `host/apple/build.mjs` says with
+/// `EXACT_APPLE_LINK=plan`; every other build links them all (LLP 1047.001
+/// D6), and so does a build it doesn't drive.
+pub fn apple_linked(plan: &exact_plan::Plan, host: &str) -> String {
+    use exact_runner::{Capability, Uses};
+    println!("cargo:rerun-if-env-changed=EXACT_APPLE_LINK");
+    let all = std::env::var("EXACT_APPLE_LINK").map_or(true, |v| v != "plan");
+    let uses = if all {
+        Capability::ALL.into_iter().fold(Uses::NONE, Uses::with)
+    } else {
+        exact_runner::uses(plan)
+    };
+    let link = if host == "exact_apple" {
+        "::exact_apple::link".to_owned()
+    } else {
+        format!("::{host}::exact_apple::link")
+    };
+    let mut set = format!("{link}::Uses::NONE");
+    for capability in uses.iter() {
+        set.push_str(&format!(".with({link}::Capability::{capability:?})"));
+    }
+    let mut entry = format!("/// What this archive links beyond the core (LLP 1047.001 D2).\nconst EXACT_LINKED: {link}::Uses = {set};\n");
+    // A capability's export group, where it has one on Apple.
+    if uses.has(Capability::GroupedLists) {
+        let apple = if host == "exact_apple" {
+            "::exact_apple".to_owned()
+        } else {
+            format!("::{host}::exact_apple")
+        };
+        entry.push_str(&format!("{apple}::grouped_list_exports!();\n"));
     }
     entry
 }
@@ -183,6 +226,31 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
 #[cfg(test)]
 mod tests {
     use super::web_rust_mode;
+
+    /// LLP 1047.001 D3: a build `build.mjs` doesn't drive links everything,
+    /// each export group included, through whichever host crate the entry
+    /// calls.
+    #[test]
+    fn an_undriven_apple_entry_links_every_capability() {
+        if std::env::var_os("EXACT_APPLE_LINK").is_some() {
+            return;
+        }
+        let plan = crate::compile("component A\n  view\n    text \"a\"\n").unwrap();
+        let entry = super::apple_linked(&plan, "exact_apple");
+        assert!(
+            entry.contains("::exact_apple::link::Capability::GroupedLists"),
+            "{entry}"
+        );
+        assert!(
+            entry.contains("::exact_apple::grouped_list_exports!();"),
+            "{entry}"
+        );
+        let update = super::apple_linked(&plan, "exact_apple_update");
+        assert!(
+            update.contains("::exact_apple_update::exact_apple::grouped_list_exports!();"),
+            "{update}"
+        );
+    }
 
     #[test]
     fn a_web_entry_links_a_rust_executor_only_for_a_declared_module() {

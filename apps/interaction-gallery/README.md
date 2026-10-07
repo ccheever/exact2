@@ -86,7 +86,7 @@ and `galleryAction("sheet", ...)` is removed.
 The host must apply the final pointer sample, dispatch this synchronous release
 action and apply its resulting target while the hold is active, then end that
 hold once with release velocity. Cancellation sends no snap action. The declared
-transition is `height spring(300, 30, 1)`; projection changes the actual nested
+transition is `height -exact-spring(300, 30, 1)`; projection changes the actual nested
 List port on every presentation sample, without writing sampled height back into
 `sheetPx`. The header's binding uses an authored IDREF, never `testId` inference.
 
@@ -124,7 +124,7 @@ The host validates the complete terminal tuple, applies the final paired sample,
 dispatches this action while both holds are live, then ends each surviving owned
 token once. Velocities go to the shared spring; the app does not project another
 zoom target or issue a data request. Cancellation dispatches no release action.
-Both declarations use `spring(300, 30, 1)`; there is no app timer or frame loop.
+Both declarations use `-exact-spring(300, 30, 1)`; there is no app timer or frame loop.
 
 Each windowed row owns its spacing; the shared list receives the actual nested
 scrollport and measured row heights. The sheet changes that port's height.

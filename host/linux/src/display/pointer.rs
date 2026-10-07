@@ -98,7 +98,7 @@ mod tests {
     count = count + 1
   view
     column
-      box testId="row" width=400 height=100 swiperight=reply touch-action="pan-y" transition="translate spring(300, 30, 1)"
+      box testId="row" width=400 height=100 swiperight=reply touch-action="pan-y" transition="translate -exact-spring(300, 30, 1)"
         text "swipe"
       text `${count}` testId="count"
 "#).unwrap();
@@ -291,7 +291,7 @@ mod tests {
     target = 360
   view
     box width=400 height=500
-      column id="panel" testId="panel" position="absolute" bottom=0 width=400 height=target max-height="100%" box-sizing="border-box" transition="height spring(300,30,1)"
+      column id="panel" testId="panel" position="absolute" bottom=0 width=400 height=target max-height="100%" box-sizing="border-box" transition="height -exact-spring(300,30,1)"
         box heightDragFor="panel" heightrelease=release height=40
           text "drag header"
       text `${count}` testId="count"

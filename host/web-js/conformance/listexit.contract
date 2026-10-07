@@ -1,6 +1,6 @@
 // data: sparkline
 // Synthetic conformance plan: a virtualized list's row whose item leaves
-// the data plays its root's `exit-animation` as its wrapper, where the
+// the data plays its root's `-exact-exit-animation` as its wrapper, where the
 // window placed it (kernel `leaving_with`, LLP 1063), on Sparkline's sources
 // and wasm (it links collections and the animation grammars): one in view,
 // and one the window built below the port.
@@ -21,7 +21,7 @@ keyframes leave
   to opacity=0 translate="-40px 0px"
 
 style Row
-  exit-animation="leave 240ms ease-in both"
+  -exact-exit-animation="leave 240ms ease-in both"
   height=56 box-sizing="border-box" padding-left=12 display="flex" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color="#e5e7eb"
 
 component ListExit

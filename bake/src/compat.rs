@@ -242,7 +242,18 @@ fn compatibility_with_trust(
         return Err("production updater requires deploy.signing.keys with at least one verification key; use EXACT_UPDATE_TRUST=development only for a development artifact".into());
     }
     let host = manifest.host(platform);
-    let rust_mode = manifest.rust_mode(platform, trust == "development")?;
+    let rust_module = manifest
+        .json
+        .pointer("/rust/module/package")
+        .and_then(Value::as_str);
+    // An executor runs a replacement of the module the manifest names; an
+    // app that names none has nothing to replace, so it links none
+    // (LLP 1047.001 D7, as `web_rust_mode` already does on the web). The
+    // policy is still validated.
+    let rust_mode = match manifest.rust_mode(platform, trust == "development")? {
+        _ if rust_module.is_none() => "off",
+        mode => mode,
+    };
     let mut executors = executors(app_dir, platform);
     let rust_target = match rust_mode {
         "tiered" => {
@@ -266,10 +277,6 @@ fn compatibility_with_trust(
     };
     executors.sort();
     executors.dedup();
-    let rust_module = manifest
-        .json
-        .pointer("/rust/module/package")
-        .and_then(Value::as_str);
     let hermes = executors.iter().any(|e| e == "hermes");
     let wasmtime = executors.iter().any(|e| e == "wasmtime");
     let mut kinds = vec!["plan", "assets"];
@@ -330,6 +337,12 @@ fn compatibility_with_trust(
         "nativeModules": match contract::native::roster(manifest)? {
             tags if tags.is_empty() => Value::Null,
             tags => json!({ "appleAbi": 3, "webAbi": 1, "tags": tags }),
+        },
+        // @ref LLP 1075.003.000.001 §4.3 — the hatch words this platform's
+        // module is built to handle, from app.json: the cohort's capability.
+        "hatches": match contract::native::hatches_on(manifest, platform)? {
+            words if words.is_empty() => Value::Null,
+            words => json!(words),
         },
         "icons": icons,
         "capabilities": {
@@ -885,6 +898,7 @@ mod tests {
             "dataCrate",
             "gpuSurfaces",
             "nativeModules",
+            "hatches",
             "icons",
             "capabilities",
             "keys",
@@ -899,11 +913,12 @@ mod tests {
             assert!(i.get(key).is_some(), "missing {key}: {i}");
         }
         assert_eq!(i["abi"]["c"], super::abi_version().unwrap());
-        assert_eq!(i["rustMode"], "wasm");
-        assert_eq!(i["rustAbi"], super::RUST_ABI);
-        assert_eq!(i["rustTarget"], "wasm32-unknown-unknown");
+        // No `rust.module`: nothing to replace, so no executor (LLP 1047.001 D7).
+        assert_eq!(i["rustMode"], "off");
+        assert!(i["rustAbi"].is_null());
+        assert!(i["rustTarget"].is_null());
         assert!(i["rustModule"].is_null());
-        assert_eq!(i["executors"], serde_json::json!(["native", "wasmi"]));
+        assert_eq!(i["executors"], serde_json::json!(["native"]));
         assert_eq!(i["arch"], "aarch64");
         assert_eq!(i["minimumOS"], "17.0");
         assert_eq!(
@@ -939,6 +954,34 @@ mod tests {
         assert!(m.name.starts_with("Exact-compat-fields-"), "{}", m.name);
         let _ = std::fs::remove_dir_all(&dir);
     }
+    #[test]
+    fn an_executor_is_linked_only_for_a_named_module() {
+        // LLP 1047.001 D7: iOS defaults to the interpreter (LLP 1029.000),
+        // but only an app that names a module has anything for it to run.
+        let dir = app("rust-module-gate");
+        let mut manifest = Manifest::read(&dir).unwrap();
+        for (policy, mode) in [
+            (serde_json::json!(true), "off"),
+            (serde_json::json!("wasm"), "off"),
+            (
+                serde_json::json!({"module":{"package":"app-logic"}}),
+                "wasm",
+            ),
+        ] {
+            manifest.json["rust"] = policy.clone();
+            let receipt = compatibility_with_trust(
+                &dir,
+                "ios",
+                "aarch64-apple-ios",
+                &manifest,
+                Some(""),
+                "development",
+            )
+            .unwrap();
+            assert_eq!(receipt.inputs["rustMode"], mode, "{policy}");
+        }
+    }
+
     #[test]
     fn rust_capability_receipts_bind_executor_abi_target_and_module() {
         let dir = app("rust-capabilities");
@@ -999,9 +1042,10 @@ mod tests {
                 compatibility_with_trust(&dir, "web", "wasm32", &manifest, None, "production")
                     .unwrap();
             assert_eq!(plain.inputs["store"]["L"], "0");
+            // No `rust.module`, so no Rust executor (LLP 1047.001 D7).
             assert_eq!(
                 plain.inputs["executors"],
-                serde_json::json!(["browser", "browser-wasm", "native"])
+                serde_json::json!(["browser", "native"])
             );
             assert_eq!(
                 plain.inputs["store"]["acceptedKinds"],

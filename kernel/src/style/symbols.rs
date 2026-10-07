@@ -5,8 +5,8 @@
 use super::{Color, ColorValue};
 use crate::gradient::ColorText;
 
-/// `symbol-palette`: `none`, or one to three colours for a symbol drawn
-/// with `symbol-rendering: palette`.
+/// `-exact-symbol-palette`: `none`, or one to three colours for a symbol drawn
+/// with `-exact-symbol-rendering: palette`.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SymbolPalette(pub Vec<ColorValue>);
 
@@ -85,7 +85,7 @@ mod tests {
         assert!(SymbolPalette::parse("bogus").is_none());
         // WebKit's names are roles now (LLP 1095 D2), not copied pairs.
         let label = ColorValue::parse_light_dark("-apple-system-label").unwrap();
-        assert_eq!(label, ColorValue::parse_light_dark("label").unwrap());
+        assert_eq!(label, ColorValue::parse_light_dark("-exact-label").unwrap());
         assert_eq!(label.resolve(true), Color(0xffff_ffff));
     }
 }

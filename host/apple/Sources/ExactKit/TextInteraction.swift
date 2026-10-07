@@ -98,7 +98,7 @@ extension NodeView {
 #if os(macOS)
 private final class InlineAccessibility: NSAccessibilityElement, AgentOwned {
     weak var owner: NodeView?
-    let id: UInt32
+    package let id: UInt32
     var agentViewId: UInt32? { id } // the run's own view (LLP 1080.002 D5)
     init(owner: NodeView, run: InlineText, text: NSString) {
         self.owner = owner; id = run.id
@@ -126,7 +126,7 @@ private final class InlineAccessibility: NSAccessibilityElement, AgentOwned {
 #else
 private final class InlineAccessibility: UIAccessibilityElement, AgentOwned {
     weak var owner: NodeView?
-    let id: UInt32
+    package let id: UInt32
     var agentViewId: UInt32? { id } // the run's own view (LLP 1080.002 D5)
     init(owner: NodeView, run: InlineText, text: NSString) {
         self.owner = owner; id = run.id

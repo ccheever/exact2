@@ -28,7 +28,7 @@ final class R5ComposerScroll {
     var status: [String: Any] { ["scrollEnds": ends] }
 
     func install(_ element: ExactElement) {
-        guard element.hook == .t3Anchor, let name = element.data[.anchor], name.hasPrefix("scroll:"),
+        guard element.hatch == .t3Anchor, let name = element.data[.anchor], name.hasPrefix("scroll:"),
               let scroll = element.scrollView else { return }
         if entries[name]?.element === element { return }
         detach(name)

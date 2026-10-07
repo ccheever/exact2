@@ -1,6 +1,6 @@
 //! Drag timelines on Linux (LLP 1057.003 D2, D4): the painter presents what
 //! the engine's frame gives, so a backdrop bound to a photo's
-//! `drag-timeline` follows the presenter's contact and the release spring,
+//! `-exact-drag-timeline` follows the presenter's contact and the release spring,
 //! at f(photo) in every frame, with nothing Linux-specific; and in a list of
 //! cards that each drive `--swipe`, each row's label follows its own card.
 use exact_linux::{presenter::PainterChoice, Presenter};
@@ -32,7 +32,7 @@ component App
     box width="100%" height="100%"
       box testId="clip" timeline-scope="--dismiss" position="absolute" left=0 top=0 width=300 height=400 overflow="hidden" box-sizing="border-box" padding=0 border-width=0
         box testId="backdrop" position="absolute" left=0 top=0 width="100%" height="100%" background-color="#172521" animation="fade 1s linear both" animation-timeline="--dismiss" animation-range="0px 300px"
-        box id="photo" testId="photo" width="100%" height="100%" box-sizing="border-box" margin=0 padding=0 border-width=0 translate=`0px ${y}px` transition="translate spring(300, 30, 1)" drag-timeline="--dismiss y"
+        box id="photo" testId="photo" width="100%" height="100%" box-sizing="border-box" margin=0 padding=0 border-width=0 translate=`0px ${y}px` transition="translate -exact-spring(300, 30, 1)" -exact-drag-timeline="--dismiss y"
           box testId="handle" position="absolute" left=0 top=0 width="100%" height="100%" transformDragFor="photo" transformgeometry=geometry transformrelease=release touch-action="none"
 "##;
 
@@ -119,7 +119,7 @@ component Row
   view
     box testId=`row-${n}` timeline-scope="--swipe" width=300 height=56 flex-shrink=0 position="relative" overflow="hidden" box-sizing="border-box" padding=0 border-width=0
       box testId=`label-${n}` position="absolute" left=0 top=0 width=64 height="100%" animation="reveal 1s linear both" animation-timeline="--swipe" animation-range="0px 64px"
-      box testId=`card-${n}` swiperight=keep touch-action="pan-y" width="100%" height="100%" position="relative" box-sizing="border-box" margin=0 padding=0 border-width=0 transition="translate spring(300, 30, 1)" drag-timeline="--swipe x"
+      box testId=`card-${n}` swiperight=keep touch-action="pan-y" width="100%" height="100%" position="relative" box-sizing="border-box" margin=0 padding=0 border-width=0 transition="translate -exact-spring(300, 30, 1)" -exact-drag-timeline="--swipe x"
         text (kept ? "kept" : "") testId=`kept-${n}`
 "##;
 
@@ -232,13 +232,13 @@ component App
       box testId="flip" press=flip width=300 height=40 flex-shrink=0
       box testId="m-row" width=300 height=40 position="relative" flex-shrink=0
         box testId="m-label" position="absolute" left=0 top=0 width=64 height=40 opacity=0.55 animation="fade 1s linear both" animation-timeline="--t" animation-range="0px 64px"
-        box testId="m-card" swiperight=noop touch-action="pan-y" width="100%" height="100%" position="relative" transition="translate spring(300, 30, 1)" drag-timeline="--t x"
+        box testId="m-card" swiperight=noop touch-action="pan-y" width="100%" height="100%" position="relative" transition="translate -exact-spring(300, 30, 1)" -exact-drag-timeline="--t x"
       box testId="z-row" timeline-scope="--t" width=300 height=40 position="relative" flex-shrink=0
         box testId="z-label" position="absolute" left=0 top=0 width=64 height=40 opacity=0.55 animation="fade 1s linear both" animation-timeline="--t" animation-range="0px 64px"
       box testId="t-row" timeline-scope="--t" width=300 height=80 position="relative" flex-shrink=0
         box testId="t-label" position="absolute" left=0 top=0 width=64 height=40 opacity=0.55 animation="fade 1s linear both" animation-timeline="--t" animation-range="0px 64px"
-        box testId="t-card-a" swiperight=noop touch-action="pan-y" width="100%" height=40 position="relative" transition="translate spring(300, 30, 1)" drag-timeline="--t x"
-        box testId="t-card-b" width="100%" height=40 position="relative" drag-timeline=(two ? "--t x" : "none")
+        box testId="t-card-a" swiperight=noop touch-action="pan-y" width="100%" height=40 position="relative" transition="translate -exact-spring(300, 30, 1)" -exact-drag-timeline="--t x"
+        box testId="t-card-b" width="100%" height=40 position="relative" -exact-drag-timeline=(two ? "--t x" : "none")
 "##;
 
 /// What Chrome 154 shows (the phase 3 probe): a name no element in scope
@@ -327,7 +327,7 @@ component App
     box width="100%" height="100%"
       box testId="clip" timeline-scope="--fling" position="absolute" left=0 top=0 width=300 height=400 overflow="hidden" box-sizing="border-box" padding=0 border-width=0
         box testId="next" position="absolute" left=40 top=20 width=220 height=280 animation="rise 1s linear both" animation-timeline="--fling" animation-range="-300px 300px"
-        box id="top" testId="top" width="100%" height="100%" box-sizing="border-box" margin=0 padding=0 border-width=0 translate=`${x}px 0px` transition="translate spring(300, 30, 1)" drag-timeline="--fling x"
+        box id="top" testId="top" width="100%" height="100%" box-sizing="border-box" margin=0 padding=0 border-width=0 translate=`${x}px 0px` transition="translate -exact-spring(300, 30, 1)" -exact-drag-timeline="--fling x"
           box testId="face" position="absolute" left=40 top=20 width=220 height=280 transform-origin="50% 100%" animation="tilt 1s linear both" animation-timeline="--fling" animation-range="-300px 300px"
           box testId="handle" position="absolute" left=0 top=0 width="100%" height="100%" transformDragFor="top" transformgeometry=geometry transformrelease=release touch-action="none"
 "##;

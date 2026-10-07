@@ -87,8 +87,8 @@ component R4FileHeader
   view
     row height=(sheet ? "2.5rem" : "1.75rem") flex-shrink=0 margin-bottom=(sheet ? "0px" : "0.75rem") padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" gap="0.5rem" align-items="center" position="relative" z-index=5 border-bottom-width=(sheet ? 1 : 0) border-bottom-style="solid" border-color="light-dark(#0000001b, #ffffff1f)" background-color=(sheet ? "light-dark(#ffffff, #0a0a0a)" : "#00000000") testId="file-subheader"
       // lane r7-polish: a clip whose `w-max min-w-full` trail is end-justified (r7-polish-crumbs.ts), faded on its left while it overflows.
-      row hook="t3-anchor" data-anchor="crumbs-clip" flex=1 min-width=0 align-items="center" justify-content=(files.crumbsOffset >= 0 ? "flex-start" : "flex-end") overflow="hidden" mask-image=files.crumbsMask aria-label="Breadcrumbs" testId="file-breadcrumbs"
-        row hook="t3-anchor" data-anchor="crumbs" flex-shrink=0 min-width="100%" margin-left=(files.crumbsOffset > 0 ? 0 - files.crumbsOffset : 0) align-items="center"
+      row hatch="t3-anchor" data-anchor="crumbs-clip" flex=1 min-width=0 align-items="center" justify-content=(files.crumbsOffset >= 0 ? "flex-start" : "flex-end") overflow="hidden" mask-image=files.crumbsMask aria-label="Breadcrumbs" testId="file-breadcrumbs"
+        row hatch="t3-anchor" data-anchor="crumbs" flex-shrink=0 min-width="100%" margin-left=(files.crumbsOffset > 0 ? 0 - files.crumbsOffset : 0) align-items="center"
           each crumb in files.crumbs key=crumb.id
             R4CrumbView(crumb=crumb, open=(files.crumbMenu.open and files.crumbMenu.root == crumb.id), local=local)
       when files.absolutePath != "" and files.editorShow
@@ -164,7 +164,7 @@ component R4CrumbView
     over = value
   view
     // r6-polish: hooked so the folder menu opens under the crumb as laid out (r4-surfaces-files.ts crumbMenu).
-    box hook="t3-anchor" data-anchor=`crumb:${crumb.id}` display="flex" flex-direction="row" flex-shrink=0 min-width=0 align-items="center"
+    box hatch="t3-anchor" data-anchor=`crumb:${crumb.id}` display="flex" flex-direction="row" flex-shrink=0 min-width=0 align-items="center"
       when crumb.id != "."
         box margin-left="0.25rem" margin-right="0.25rem" flex-shrink=0 display="flex"
           ShellIcon(name="chevron-right", size=14, color="light-dark(#71717b99, #81818199)")
@@ -218,7 +218,7 @@ component R4FilePreview
       FilesMedia(media=files.media, local=local)
     // lane r10-device: a rendered HTML page in the app module's sandboxed, network-less web view (BrowserDocumentFrame).
     when files.preview == "html"
-      box hook="t3-media" data-media-url=files.url data-media-kind="html" data-media-name=files.path flex=1 min-height=0 width="100%" background-color="#ffffff" aria-label=files.path testId="file-html"
+      box hatch="t3-media" data-media-url=files.url data-media-kind="html" data-media-name=files.path flex=1 min-height=0 width="100%" background-color="#ffffff" aria-label=files.path testId="file-html"
     when files.preview == "code"
       scroll flex=1 min-height=0 width="100%" testId="file-code"
         // r8-pointer: the editor fills the pane, so a click below the last line lands in it (focus, caret at the end).
@@ -232,7 +232,7 @@ component R4FilePreview
               DiffDraftCard(rangeLabel=line.label, text=draftText, edit=editDraft, cancel=cancelComment, save=saveComment)
           // Editing keeps the coloured, numbered lines: the editor's own text is clear over them, its caret and selection visible.
           when files.editing
-            textarea id="file-editor" hook="t3-file-editor" value=files.editorText input=local("surface-files-edit", files.path) blur=local("surface-files-end-edit", files.path, "") autofocus=true aria-label=files.path testId="file-editor" position="absolute" left=files.gutter top="0.4375rem" right=0 bottom="0.5625rem" padding-left=7.8 padding-right=7.8 padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-family="ui-monospace" font-size=13 line-height="20px" color="#00000000" caret-color="light-dark(#0a0a0a, #fafafa)" white-space=(files.wrap ? "pre-wrap" : "pre") overflow-wrap=(files.wrap ? "break-word" : "normal") autocorrect="off" spellcheck="false"
+            textarea id="file-editor" hatch="t3-file-editor" value=files.editorText input=local("surface-files-edit", files.path) blur=local("surface-files-end-edit", files.path, "") autofocus=true aria-label=files.path testId="file-editor" position="absolute" left=files.gutter top="0.4375rem" right=0 bottom="0.5625rem" padding-left=7.8 padding-right=7.8 padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-family="ui-monospace" font-size=13 line-height="20px" color="#00000000" caret-color="light-dark(#0a0a0a, #fafafa)" white-space=(files.wrap ? "pre-wrap" : "pre") overflow-wrap=(files.wrap ? "break-word" : "normal") autocorrect="off" spellcheck="false"
 
 // A press on the number selects the line (Shift extends); the gutter's "+" comments on the selection or the line.
 component R4CodeRow

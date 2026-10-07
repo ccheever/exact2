@@ -35,9 +35,9 @@ final class R9Input {
     // MARK: Elements
 
     func install(_ element: ExactElement) {
-        if element.hook == .t3Composer, let view = element.textView { attachComposer(view) }
-        if element.hook == .t3Transcript { installTranscript(element) }
-        if element.hook == .t3Turn, let id = element.data[.turn], !id.isEmpty {
+        if element.hatch == .t3Composer, let view = element.textView { attachComposer(view) }
+        if element.hatch == .t3Transcript { installTranscript(element) }
+        if element.hatch == .t3Turn, let id = element.data[.turn], !id.isEmpty {
             turns = turns.filter { $0.value.element != nil && $0.value.element !== element }
             turns[id] = Weak(element: element)
         }
@@ -45,7 +45,7 @@ final class R9Input {
     }
     func remove(_ element: ExactElement) {
         if element === transcript { stopTranscript() }
-        if element.hook == .t3Turn { turns = turns.filter { $0.value.element != nil && $0.value.element !== element } }
+        if element.hatch == .t3Turn { turns = turns.filter { $0.value.element != nil && $0.value.element !== element } }
     }
     func destroy() {
         responder = nil; observedWindow = nil

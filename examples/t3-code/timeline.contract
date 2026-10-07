@@ -117,7 +117,7 @@ component UserRow
   action toggleBody
     expanded = not expanded
   view
-    column hook="t3-turn" data-turn=message.id width="100%" align-items="flex-end" gap="0.25rem"
+    column hatch="t3-turn" data-turn=message.id width="100%" align-items="flex-end" gap="0.25rem"
       when message.attribution != ""
         when message.attribution == "agent" and message.targetId != ""
           button press=command("select-thread", message.targetId, "", 0) aria-label="Open sending thread" margin-right="0.25rem" padding=0 border-width=0 background-color="#00000000"
@@ -312,7 +312,7 @@ component TimelineContent
     column width="100%"
       when message.kind == "assistant"
         // r5-composer: the answer registers as a citation's jump target (T3TimelineTurns.swift, `cite:` rows).
-        column hook="t3-turn" data-turn=`cite:${message.id}` width="100%" padding-left="0.25rem" padding-right="0.25rem" padding-top="0.125rem" padding-bottom="0.125rem" box-sizing="border-box"
+        column hatch="t3-turn" data-turn=`cite:${message.id}` width="100%" padding-left="0.25rem" padding-right="0.25rem" padding-top="0.125rem" padding-bottom="0.125rem" box-sizing="border-box"
           each document in filter(documents, (doc) => doc.id == message.id) key=document.id
             AnswerMarkdown(document=document, local=local, code=message.code, diagrams=message.diagrams, scheme=scheme, copiedText=message.codeCopied, copiedNonce=message.codeCopyNonce, env=message.md, source=message.id, cite=citeQuote, urls=attachments)
       else

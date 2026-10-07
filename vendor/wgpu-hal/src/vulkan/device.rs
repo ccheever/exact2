@@ -668,6 +668,98 @@ impl super::Device {
         Ok(memory)
     }
 
+    /// EXACT (EXACT-PATCHES.md, 8). A texture over an `AHardwareBuffer`'s
+    /// memory: a render target another API (the platform's own renderer)
+    /// samples. One mip, one layer, a format the buffer was allocated with.
+    ///
+    /// # Safety
+    ///
+    /// - `buffer` is a live `AHardwareBuffer*` of `desc`'s size and format,
+    ///   allocated with the GPU usages `desc.usage` needs. Vulkan takes its
+    ///   own reference; the caller keeps (and releases) its own.
+    #[cfg(target_os = "android")]
+    pub unsafe fn texture_from_hardware_buffer(
+        &self,
+        buffer: *mut core::ffi::c_void,
+        desc: &crate::TextureDescriptor,
+    ) -> Result<super::Texture, crate::DeviceError> {
+        use ash::android::external_memory_android_hardware_buffer as ahb;
+        if !self.shared.enabled_extensions.contains(&ahb::NAME) {
+            log::error!(
+                "Vulkan driver does not support VK_ANDROID_external_memory_android_hardware_buffer"
+            );
+            return Err(crate::DeviceError::Unexpected);
+        }
+        let functions = ahb::Device::new(&self.shared.instance.raw, &self.shared.raw);
+        let mut properties = vk::AndroidHardwareBufferPropertiesANDROID::default();
+        unsafe { functions.get_android_hardware_buffer_properties(buffer.cast(), &mut properties) }
+            .map_err(super::map_host_device_oom_err)?;
+
+        let mut external = vk::ExternalMemoryImageCreateInfo::default()
+            .handle_types(vk::ExternalMemoryHandleTypeFlags::ANDROID_HARDWARE_BUFFER_ANDROID);
+        // Not `create_image_without_memory`: an image of this handle type
+        // has no memory requirements to ask for until it is bound.
+        let info = vk::ImageCreateInfo::default()
+            .image_type(vk::ImageType::TYPE_2D)
+            .format(self.shared.private_caps.map_texture_format(desc.format))
+            .extent(conv::map_copy_extent(&desc.copy_extent()))
+            .mip_levels(1)
+            .array_layers(1)
+            .samples(vk::SampleCountFlags::TYPE_1)
+            .tiling(vk::ImageTiling::OPTIMAL)
+            .usage(conv::map_texture_usage(desc.usage))
+            .sharing_mode(vk::SharingMode::EXCLUSIVE)
+            .initial_layout(vk::ImageLayout::UNDEFINED)
+            .push_next(&mut external);
+        let image = unsafe { self.shared.raw.create_image(&info, None) }
+            .map_err(super::map_host_device_oom_and_ioca_err)?;
+
+        let memory = (|| {
+            let index = self
+                .find_memory_type_index(
+                    properties.memory_type_bits,
+                    vk::MemoryPropertyFlags::empty(),
+                )
+                .ok_or(crate::DeviceError::Unexpected)?;
+            let mut dedicated = vk::MemoryDedicatedAllocateInfo::default().image(image);
+            let mut import =
+                vk::ImportAndroidHardwareBufferInfoANDROID::default().buffer(buffer.cast());
+            let allocate = vk::MemoryAllocateInfo::default()
+                .allocation_size(properties.allocation_size)
+                .memory_type_index(index as _)
+                .push_next(&mut import)
+                .push_next(&mut dedicated);
+            let memory = unsafe { self.shared.raw.allocate_memory(&allocate, None) }
+                .map_err(super::map_host_device_oom_err)?;
+            unsafe { self.shared.raw.bind_image_memory(image, memory, 0) }.map_err(|e| {
+                unsafe { self.shared.raw.free_memory(memory, None) };
+                super::map_host_device_oom_err(e)
+            })?;
+            Ok(memory)
+        })();
+        match memory {
+            Ok(memory) => {
+                let mut texture = unsafe {
+                    self.texture_from_raw(
+                        image,
+                        desc,
+                        None,
+                        super::TextureMemory::Dedicated(memory),
+                    )
+                };
+                // Rendered into every frame, as a swapchain image is: its
+                // views and framebuffers are the device's (patch 6), until
+                // `destroy_texture`.
+                texture.surface_image = true;
+                Ok(texture)
+            }
+            Err(e) => {
+                unsafe { self.shared.raw.destroy_image(image, None) };
+                Err(e)
+            }
+        }
+    }
+
     fn create_shader_module_impl(
         &self,
         spv: &[u32],
@@ -1231,6 +1323,12 @@ impl crate::Device for super::Device {
     }
 
     unsafe fn destroy_texture(&self, texture: super::Texture) {
+        // EXACT (EXACT-PATCHES.md, 8): a hardware-buffer texture's cached
+        // views and framebuffers go with it (a swapchain's go with the
+        // swapchain; its images are not this device's memory).
+        if texture.surface_image && matches!(texture.memory, super::TextureMemory::Dedicated(_)) {
+            self.shared.forget_surface_images(&[texture.identity]);
+        }
         if texture.drop_guard.is_none() {
             unsafe { self.shared.raw.destroy_image(texture.raw, None) };
         }

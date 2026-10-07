@@ -228,7 +228,7 @@ platform widget without a host change or a new node type. Take: LLP 1024 §7's
 (§Components loses no line; `terminal` and friends stay out as built-in tags).
 
 **Expanded (Charlie Cheever, 2026-10-01: asked for LLP 1075.003 implemented,
-its recommended rulings):** native platform control on Apple: hooks on an
+its recommended rulings):** native platform control on Apple: hatches on an
 app's module that receive Exact's own UIKit objects, `data-*` attributes
 declared in `app.json`, a public route-content seam, and Exact's own navigation
 bar and retained tab container built on it. James's app is the consumer, and
@@ -262,28 +262,33 @@ VoiceOver rows in a settings screen without a module. Take: none offered;
 waived by Charlie's approval. No sidebar styles, no virtualized grouped list,
 no grouped swipe actions.
 **Expanded (Charlie, 2026-10-06, via the lead: "Recs seem good. Approve and
-push"):** hooks on every platform and what the agent sees of them (LLP
+push"):** hatches on every platform and what the agent sees of them (LLP
 1075.003.000.001). The changes:
 - app and window scopes;
 - a frame clock and timers on the session clock;
 - `input(text)` on an authored field;
-- Linux and Windows hooks: an overlay the hook replaces whole, and input it
+- Linux and Windows hatches: an overlay the hatch replaces whole, and input it
   only observes;
 - development-only diagnostics (`log`, `count`, `measure`, spans, `publish`)
   and Exact's own timing of each call;
 - owned regions and parts in `tree`;
 - a crash breadcrumb;
-- per-platform hook words checked by the delivery classifier.
+- per-platform hatch words checked by the delivery classifier.
 
-`perf hooks` is a form of `perf`. Tapping a part is a form of `tap`, by real
+`perf hatches` is a form of `perf`. Tapping a part is a form of `tap`, by real
 platform input only. Neither is a new operation. The consumers are the Signal
 Clone and `apps/native-fixture`. The ruling admits three pieces of
-apparatus: `exact.mjs hook <word>`, `EXACT_HOOKS=off` and the template's
-`AGENTS.md` hooks section. Take: none offered; waived by Charlie's approval.
+apparatus: `exact.mjs hatch <word>`, `EXACT_HATCHES=off` and the template's
+`AGENTS.md` hatches section. Take: none offered; waived by Charlie's approval.
 Still refused: claiming input on a painting host (a gesture arena), a tap that
-runs hook code by name, a hook that writes Contract state or dispatches, a
+runs hatch code by name, a hatch that writes Contract state or dispatches, a
 node-scoped frame ticket, diagnostics collected in production, and JavaScript
-above the data seam on native. Android stays below, named but not built.
+above the data seam on native. Android's hatches are named but not built
+(Android itself is admitted, 2026-10-07, §Surfaces).
+**Renamed (Charlie, 2026-10-06: "ok access hatches it is"):** hooks are
+access hatches, and the code word is `hatch` (`hatch="word"`, `app.json`
+`hatches`; LLP 1075.003.000.001 §Rulings). The entries above use the new
+word; nothing is admitted or taken by the rename.
 
 ## Surfaces
 
@@ -335,7 +340,18 @@ waiver until Charlie names one.
   using Contract and an app-local Win32 control presenter. General Windows
   control parity remains behind these two consumers; no additional showcase
   or framework is admitted by this example.
-- **Android.** Same.
+- **Android.** Same, until 2026-10-07. **Admitted (Charlie, 2026-10-07,
+  waiver):** "admit android. we are working on android now -- it's becoming
+  real. amend that." Unblocks Android as a supported host instead of work
+  below the line:
+  - **Its host work:** the Canvas host (LLP 1076 §3.3) and the GPU painter.
+    Most of it is already merged into main from `android/explore`; the
+    branch keeps landing.
+  - **Parley's Android arm** (`text/parley-android`, LLP 1085.000).
+  - **A place in the sweep.**
+
+  No take was named; the ruling stands as its own waiver until Charlie names
+  one.
 
 Every surface multiplies the sweep, the presenter count, and the number of ways one
 change can break.
@@ -494,7 +510,7 @@ reading. Nothing that isn't HTML is added by it.
   Unblocks native-looking corners, edge fades and text over imagery without an
   SVG island. Also admitted ("do all of them"), LLP 1077 §5: SF Symbol rendering
   modes, variable values and effects; vibrancy; press haptics; rolling numerals; the
-  scroll edge effect; iPad pointer effects; smart-invert opt-out. Still out:
+  scroll edge effect; iPad pointer effects; -exact-smart-invert opt-out. Still out:
   `mix-blend-mode` on boxes (LLP 1077 D9).
 - No virtualList v2 (cert wires, extent demand, proxy lanes). **Admitted 2026-09-14
   (Charlie: "ok do what you think"):** a straightforward windowed list with bounded
@@ -543,14 +559,14 @@ passed as an argument.
 are kernel style rows (`translate`, `scale`, `rotate`, `opacity`); a `transition`
 row on the node says how they get there; the web host emits it as CSS and does
 nothing per frame; every other host runs `exact-motion`, which is held to the
-browser by fixtures. One declared deviation, `spring()`, lowered to keyframes on
+browser by fixtures. One declared deviation, `-exact-spring()`, lowered to keyframes on
 the web. Gestures are in as follow-and-release: the platform recognizes, the
 engine holds a value and springs it back with the release velocity. The seekable
 clock is in, and it is the reason motion is testable: an agent advances time to
 `settle_time()` and reads; it never waits.
 
 **Expanded (Charlie, 2026-10-05, via the lead: approved LLP 1099's design,
-"move to code"):** `spring()` takes UIKit's parameterisations: duration and
+"move to code"):** `-exact-spring()` takes UIKit's parameterisations: duration and
 damping ratio, duration and bounce, response, and a labelled `velocity` and an
 end time on the physical spring, each lowered to the spring UIKit builds and
 cut where Core Animation cuts it. One implementation in `exact-motion`; the
@@ -636,9 +652,9 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   Take: other animated layout properties and decorative effects remain behind
   that consumer. The first increment accepts several numeric samples; automatic
   content-height measurement and host adoption remain unfinished.
-  **Expanded (Seth Webster, 2026-09-26, for grnl; LLP 1063):** `layout-transition`
+  **Expanded (Seth Webster, 2026-09-26, for grnl; LLP 1063):** `-exact-layout-transition`
   (a box's laid-out position and surface size, moved by the engine natively and by
-  a measured offset on the web) and `exit-animation` (a removed node stays, out of
+  a measured offset on the web) and `-exact-exit-animation` (a removed node stays, out of
   layout, until its keyframes end). Unblocks siblings that slide when content
   around them changes, and things that leave instead of vanishing. **Ruled
   (Charlie, 2026-09-27, "we can try (a) for now"; take waived):** both rows stay
@@ -646,8 +662,8 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   layout move without snapshots, so the web runs them by FLIP, the technique web
   libraries use; there is no browser oracle for them, and parity is held by one
   recorded timeline compared across hosts. If the emulation's bug rate stays
-  high, the fallback is dropping `layout-transition` and keeping
-  `exit-animation`. Still out: animating any other layout property, and laying
+  high, the fallback is dropping `-exact-layout-transition` and keeping
+  `-exact-exit-animation`. Still out: animating any other layout property, and laying
   out per frame.
 - **Decay and sequence drivers.** A spring carries release velocity; nothing
   else needs a driver. (`@keyframes` and repeat came off; see below.)
@@ -689,15 +705,15 @@ path exists after than before. Still refused: a drawing language in Contract
 `toBlob`), `ctx.filter`, and an app-visible `OffscreenCanvas`.
 **Expanded (Seth Webster, 2026-09-26, for grnl; LLP 1061–1064):** paint motion
 on boxes — `transition` and keyframes on `background-color`, `color`, borders,
-`tint-color` and `box-shadow`, `light-dark()` pairs moving with the appearance —
+`-exact-tint-color` and `box-shadow`, `light-dark()` pairs moving with the appearance —
 through the kernel seam and Apple mechanism SVG's colours use (LLP 1055.000 D6);
-press feedback (`press-scale`) and motion at a ProMotion panel's rate; the user's
+press feedback (`-exact-press-scale`) and motion at a ProMotion panel's rate; the user's
 motion and transparency preferences as `exactViewport` fields, which the app
 reads (still no engine policy, above). Unblocks grnl's design as drawn. Take:
 the branch's own `path` node, `marker` declaration and block keyframes syntax
 were removed at the merge for main's SVG and keyframes; nothing is off main's
 list. **Ratified (Charlie, 2026-09-27; take waived):** paint transitions as CSS
-names them. `press-scale` stays as a declared non-CSS host-feedback row (LLP
+names them. `-exact-press-scale` stays as a declared non-CSS host-feedback row (LLP
 1001): the press composes through CSS's `scale` property and never writes
 `transform`, and it is kept under reduced motion, as a native button's
 highlight is (a shrink is feedback, not motion).
@@ -779,7 +795,7 @@ This half matters more than the feature half.
 ## Deliberately worse
 
 - No backwards compatibility, at all, before 1.0.
-- No public API stability. Names change. (One exception, LLP 1075.003's hook
+- No public API stability. Names change. (One exception, LLP 1075.003's hatch
   surface: its breaks are deliberate, below.)
 - No migration guides.
 - Generated files are built, never committed.

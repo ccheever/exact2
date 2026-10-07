@@ -577,7 +577,7 @@ final class CollectionMacTests: XCTestCase {
         XCTAssertFalse(window.firstResponder === paragraph)
     }
 
-    /// A row playing `exit-animation` is a subview but no longer a child;
+    /// A row playing `-exact-exit-animation` is a subview but no longer a child;
     /// ordering the rows keeps it, a paint ghost at its old place that paints
     /// over them (its paint rank), instead of trapping (mail F22).
     func testAnExitingRowKeepsARankWhileTheRowsReorder() throws {

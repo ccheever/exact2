@@ -127,12 +127,12 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertTrue(line.string.contains("Muted") && line.string.contains("1w"))
         try tapNode(session, "toggle-muted")
         until("back to no subtitle (it was toggled off)") { view.accessibilityValue == nil && view.subtitle.isHidden }
-        // A title view a hook sets stays: Exact draws only its own.
-        let hooks = UILabel()
-        item.titleView = hooks
+        // A title view a hatch sets stays: Exact draws only its own.
+        let hatches = UILabel()
+        item.titleView = hatches
         try tapNode(session, "toggle-subtitle")
         until("the subtitle came back") { !view.subtitle.isHidden }
-        XCTAssertTrue(item.titleView === hooks, "the hook's title view is left alone")
+        XCTAssertTrue(item.titleView === hatches, "the hatch's title view is left alone")
     }
 
     func testARoutePushedWhileTheTablistIsHiddenHidesTheTabBar() throws {
@@ -163,7 +163,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
     /// fixture's own batches: a hide and a show at the root, a pop back to a
     /// root still hidden (UIKit brings the bar back for its root; Exact
     /// hides it again once the pop settles), another tab's root with its
-    /// tablist shown, and a hook's own value standing between those moments.
+    /// tablist shown, and a hatch's own value standing between those moments.
     /// A tap on the bar's item for a tab, as UIKit asks before selecting.
     private func tapTab(_ tabs: UITabBarController, _ index: Int) {
         let target = tabs.viewControllers![index]
@@ -186,7 +186,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         // Shown again: it comes back.
         try tapNode(session, "toggle-choosing")
         until("the bar came back") { !tabs.isTabBarHidden && abs(home.view.safeAreaInsets.bottom - shown) < 0.5 }
-        // A hook's hide, with the tablist shown and unchanged, stands; and
+        // A hatch's hide, with the tablist shown and unchanged, stands; and
         // the tablist hidden and shown again over it leaves it standing too:
         // Exact did not make that hide.
         tabs.setTabBarHidden(true, animated: false)
@@ -197,7 +197,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         spin(0.3)
         try tapNode(session, "toggle-choosing")
         spin(0.3)
-        XCTAssertTrue(tabs.isTabBarHidden, "the hook's hide stands")
+        XCTAssertTrue(tabs.isTabBarHidden, "the hatch's hide stands")
         tabs.setTabBarHidden(false, animated: false)
         // Hidden at the root, Detail pushed (its tablist shown: the fixture
         // hides it at Home only), then a pop back: UIKit brings the bar back
@@ -210,7 +210,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         nav.popViewController(animated: true)
         until("back to Home (1)") { nav.viewControllers.count == 1 && settled() }
         until("hidden again over the root") { tabs.isTabBarHidden }
-        // A hook's show between those moments stands.
+        // A hatch's show between those moments stands.
         tabs.setTabBarHidden(false, animated: false)
         try tapNode(session, "bump")
         spin(0.3)

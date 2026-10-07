@@ -220,7 +220,7 @@ describe('timeline Tab order', () => {
   const source = (file: string) => Bun.file(new URL(`./${file}`, import.meta.url)).text();
   test('hidden native hook boxes are never Tab stops', async () => {
     for (const file of ['shell-tip.contract', 'r8-pointer-tips.contract', 'timeline-icons.contract']) {
-      const hooks = (await source(file)).split('\n').filter(line => /hook="t3-(timeline-tip|tool-icon)"/.test(line));
+      const hooks = (await source(file)).split('\n').filter(line => /hatch="t3-(timeline-tip|tool-icon)"/.test(line));
       expect(hooks.length).toBeGreaterThan(0);
       for (const line of hooks) expect(line).toContain('tabindex=-1');
     }

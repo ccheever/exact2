@@ -36,7 +36,7 @@ extension NodeView {
         if !disabled { presenter?.typed(id, field?.text ?? "", input: handlers.contains("input")) }
         if let f = field, f.markedTextRange == nil, let held = pendingValue { writeValue(held, into: f) }
     }
-    @objc func textFieldDidBeginEditing(_ textField: UITextField) {
+    @objc package func textFieldDidBeginEditing(_ textField: UITextField) {
         presenter?.collections.pinsChanged()
         presenter?.editing = self
         // The keyboard is already up (another field had it): it will not
@@ -53,8 +53,8 @@ extension NodeView {
     }
     /// The selection moved: a person's non-collapsed one is a `select`
     /// (x2apps codeedit #2, `FieldSelections`).
-    @objc func textFieldDidChangeSelection(_ textField: UITextField) { presenter?.fieldSelections.changed(self) }
-    @objc func textFieldDidEndEditing(_ textField: UITextField) {
+    @objc package func textFieldDidChangeSelection(_ textField: UITextField) { presenter?.fieldSelections.changed(self) }
+    @objc package func textFieldDidEndEditing(_ textField: UITextField) {
         presenter?.collections.pinsChanged()
         if presenter?.editing === self { presenter?.editing = nil }
         presenter?.commitEdit(id, textField.text ?? "", change: handlers.contains("change"))

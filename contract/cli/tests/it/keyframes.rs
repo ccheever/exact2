@@ -107,7 +107,7 @@ fn what_cannot_animate_or_resolve_is_refused_at_compile_time() {
         ),
         (
             app(
-                "keyframes k\n  to animation-timing-function=\"spring(1, 2, 3)\"\n",
+                "keyframes k\n  to animation-timing-function=\"-exact-spring(1, 2, 3)\"\n",
                 "",
             ),
             "lower-keyframes",
@@ -438,10 +438,10 @@ fn keyframe_folding_matches_the_vms_operators_and_number_text() {
 }
 
 /// Computed times are not only `animation`'s: a `transition` and an
-/// `exit-animation` template compute theirs too (LLP 1062 D7).
+/// `-exact-exit-animation` template compute theirs too (LLP 1062 D7).
 #[test]
 fn transition_and_exit_templates_compute_their_times() {
-    let source = "keyframes leave\n  to opacity=0\ncomponent App\n  state n = 2\n  view\n    text \"a\" testId=\"a\" transition=`opacity ${n * 100}ms ease ${n}ms, color ${n}s` exit-animation=`leave ${n * 80}ms linear ${n * 10}ms both`\n";
+    let source = "keyframes leave\n  to opacity=0\ncomponent App\n  state n = 2\n  view\n    text \"a\" testId=\"a\" transition=`opacity ${n * 100}ms ease ${n}ms, color ${n}s` -exact-exit-animation=`leave ${n * 80}ms linear ${n * 10}ms both`\n";
     let r = booted(source);
     let k = r.kernel();
     let style = k.node_by_key(k.find_by_test_id("a")[0]).unwrap().style;

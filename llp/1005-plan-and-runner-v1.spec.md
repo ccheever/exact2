@@ -270,7 +270,7 @@ kernel's parent chain, crossing only the arms and rows on that path, and
 reconstructs their frames for curried arguments.
 
 **Events.** `dispatch(view, Press | Change(text) | Hover(over) | Focus | Blur
-| Key(name) | Submit | Load | Message(text) | Contextmenu | Dblclick | Swiperight | Scroll(left, top) | Navigate(location))` finds the site and the frames in force at that view, evaluates
+| Key(record) | Keyup(record) | Submit | Load | Message(text) | Contextmenu | Dblclick | Swiperight | Scroll(left, top) | Navigate(location))` finds the site and the frames in force at that view, evaluates
 the handler's curried arguments there at dispatch time, appends the event
 payload — a change's text, a hover's `over` (in or out: one kind, one handler,
 one action), a key's web name (`Enter`, `Escape`, `ArrowDown`, `a` — the
@@ -281,9 +281,10 @@ form, so an action need not branch on a key. `Contextmenu` and `Dblclick`
 (2026-09-09, Messages) carry no payload: the platform recognizes secondary
 activation / a long press and a double click / tap. The `EventKind`s are
 `plan/tables/format.json`'s. Not events
-(2026-08-30, the minimal set first): pointer coordinates and moves (a drag),
-`keyup`, and a wheel's offsets reaching the runner (a scroll
-container's position is the host's, LLP 1007 §6).
+(2026-08-30, the minimal set first): pointer coordinates and moves (a drag)
+and a wheel's offsets reaching the runner (a scroll
+container's position is the host's, LLP 1007 §6); `keyup` became one on
+2026-10-07 (§9).
 `Scroll` (2026-09-09, Messages) appends two number arguments, `scrollLeft`
 and `scrollTop`, in CSS pixels, after the authored arguments. It reports the
 host's changed position, including programmatic changes, and does not bubble.
@@ -521,6 +522,83 @@ Tests: `contract/cli/tests/it/pointer.rs` (the runner and DOM's order),
 `testPointerDownAndUpReachTheNearestPointerNodeAroundThePress` (macOS), and
 `host/web/tests/pointer.test.mjs` (Chrome: order, a lift elsewhere, the
 secondary button, a disabled node).
+
+**`keyup`, and `KeyboardEvent.code` and `.repeat`** (2026-10-07, #140: a
+coding-agent desktop app's ⌘-held hints, a held ⌘W that closes one panel,
+shortcuts by physical key under a non-Latin layout; admitting `keyup` to
+`rules/DEFERRED.md` is the owner's call, as `pointerdown`/`pointerup` were).
+`keyup` is DOM's: a key's release at the focus, bubbling to every `keyup`
+handler from the focus out, as `key` (keydown) does, `stopPropagation()`
+included, with the same payload (the key's name) and record. A modifier's
+release is one (`"Meta"`), and DOM's flags hold: a modifier's own keydown
+holds it, its keyup no longer does, so an app knows ⌘ was released. A keyup
+reaches the focus whatever took the keydown (a shortcut, a
+`preventDefault()`); it has no default on a native host. The record
+(`exact_runner::KeyboardEvent`) gains `code`, the physical key
+(`KeyB`, `Digit1`, `MetaLeft`; "" where the host cannot tell), and
+`repeat`, true on the keydowns the platform repeats while a key is held
+(never on a keyup). An element with a `keyup` handler takes the focus, as
+one with `key` does.
+- **ABI:** kind 6 (`key`) and 43 (`keyup`), one wire for both
+  (`KeyboardEvent::parse`): the chord the hosts already wrote
+  (`Shift+Meta+b`), then, where the host knows them, `\n` and the code,
+  `\n` and `true` or `false`. A chord alone is code "" and no repeat (the
+  terminal host's, a native module's); anything else is refused by name.
+- **Web** (`glue.js` `keyChord`, `document-glue.js`'s early queue; the JS
+  target's `onKey`): the element's own `keyup`, and `event.code` and
+  `event.repeat` as Chrome reports them.
+- **macOS** (`KeyEvents.swift`): the session's local monitor routes AppKit's
+  keyUp and a flags change that releases a modifier (the NX_DEVICE bits tell
+  the sides apart) through `Presenter.keyUp`; `code` is the virtual key's
+  (`KeyCodes.mac`, the game canvas's map) and `repeat` `isARepeat`. An input
+  method's composition keeps its keys, keydowns and keyups, but for a
+  modifier's own (Chrome forwards every flags change to the page) and a ⌘
+  chord, whose keydown commits the composition first
+  (`Presenter.passesComposition`, `endComposition`; iOS's
+  `NodeView.passesComposition` the same).
+- **iOS** (`pressesEnded` on a node, a field, a textarea): `code` from the
+  press's HID usage; UIKit's presses carry no auto-repeat, so `repeat` is
+  false.
+- **Linux** (`presenter/events.rs` `key_event`, `key_up`): the evdev and VNC
+  keyboards' edges and the agent's, with their code and repeat.
+- **Agent:** `type X key K up` delivers the keyup; a lone modifier's down
+  holds it on every carrier; `key K for <ms>` repeats the key while held, a
+  keydown with `repeat` at macOS's default rate on the virtual clock (500 ms,
+  then every 83 ms; a modifier alone none), LLP 1012 §1.
+
+Tests: `contract/cli/tests/it/keyup.rs` (the wire, the record, the
+refusals), `runner/src/runner/event/keyboard.rs`, `KeyUpMacTests` (AppKit's
+keyUp and a modifier's flags change), Linux's
+`keyup_hears_a_release_and_both_carry_code_and_repeat`, and the JS target's
+`keys` conformance plan (Chrome, against the wasm runner). Not here: a
+capture-phase handler and a reserved held-modifier fact (#140, the owner's to
+decide).
+
+**A chord during an input method's composition, and held modifiers**
+(2026-10-07, #140). Chrome hands the page a ⌘ chord's keydown while the text
+is still composed (`isComposing`; CDP's `Input.imeSetComposition` then the
+chord, and `RenderWidgetHostViewCocoa`, which forwards the keydown before the
+input method's result), with the composed text already in the field and
+reported to `input`. AppKit reports composed text only once committed, so on
+macOS (and iOS with a hardware keyboard) the chord's keydown commits the
+composition first: the field's `input` hears the text, then the chord's
+`key` handlers, which read the value Chrome's would, and a value one writes
+lands (a composer's ⌘Enter sends what was typed and clears the field). On
+macOS such a chord presses no `aria-keyshortcuts` button, by key or menu
+item, as the web's listener skips a composing keydown (iOS's key commands are
+UIKit's, unchanged). The input method is asked to let go of the text first
+(`discardMarkedText`, which it answers by inserting it) and what it leaves
+marked is committed (Firefox's order), so no syllable is inserted twice. The
+web host is unchanged: Chrome hands `key` handlers every key while composing. A modifier's own press and release
+pass a composition untouched, so a Shift let go mid-syllable is a keyup and
+no held-Shift state sticks. Any other key stays the input method's. Held
+modifiers are the web's: keydown and keyup say what is held, and a key let go
+while another app or window has the focus sends none (Chrome, the web host and
+macOS alike, checked with a real ⌘ held while TextEdit came forward), so an
+app forgets them when `exactPage().hasFocus` turns false (a gated task, the
+page's `window` `blur`). Tests: `KeyUpMacTests` (the chord, ⌘Enter and the
+Send button, Shift's release), `FieldCompositionIOSTests`, and
+`contract/cli/tests/it/keyup.rs`'s held-modifier reset.
 
 `swiperight` is the next EventKind after `dblclick`: a recognized, payload-free
 host event. It preserves authored action arguments and journals once on a

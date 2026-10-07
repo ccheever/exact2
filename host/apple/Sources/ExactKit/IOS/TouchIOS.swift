@@ -58,7 +58,7 @@ enum TouchLog {
         out["node"] = (at as? NodeView).map { Int($0.id) } ?? NSNull()
         // In a grouped list's cell, which row and which part of it: the
         // node alone is the list's for every row (LLP 1084).
-        if let projected = GroupedListHost.part(view) { out["projected"] = projected }
+        if let projected = GroupedListsLink.part?(view) { out["projected"] = projected }
         if let v = view {
             for (label, session) in Agent.routes where v.isDescendant(of: session.presenter.viewport) || session.view.map({ v.isDescendant(of: $0) }) == true {
                 out["session"] = label
@@ -163,7 +163,7 @@ extension Agent {
         // control (LLP 1084 D5): the finger aims at UIKit's cell or
         // accessory, never the hidden authored node beneath it.
         var target: UIView = v, port: UIScrollView?
-        switch presenter.groupedLists.shown(v) {
+        switch presenter.groupedLists?.shown(v) {
         case .refused(let why): return ["error": "tap #\(v.id): \(why)"]
         case .view(let drawn, let list): target = drawn; port = list
         case nil: break
