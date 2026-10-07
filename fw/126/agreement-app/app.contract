@@ -1,0 +1,25 @@
+// X21 (#126): a data module hears a WebSocket, and its own I/O globals refuse.
+shape Feed
+  text: string
+  canSend: string
+
+shape Probe
+  text: string
+
+shape Kinds
+  kinds: string
+  xhr: string
+  eventSource: string
+
+component X21WebsocketSend
+  resource feed = feed("ws://127.0.0.1:28791/ws") as shape Feed else empty(text="waiting", canSend="?")
+  resource direct = direct("ws://127.0.0.1:28791/direct") as shape Probe else empty(text="waiting")
+  resource kinds = kinds("http://127.0.0.1:28791/events") as shape Kinds else empty(kinds="waiting", xhr="waiting", eventSource="waiting")
+  view
+    main testId="root" padding=24 gap=8 display="flex" flex-direction="column"
+      text feed.text testId="text"
+      text feed.canSend testId="can-send"
+      text direct.text testId="direct"
+      text kinds.kinds testId="kinds"
+      text kinds.xhr testId="xhr"
+      text kinds.eventSource testId="event-source"
