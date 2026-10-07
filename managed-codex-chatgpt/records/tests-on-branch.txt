@@ -1,0 +1,4 @@
+The same four test files on the branch:
+ 32 pass
+ 0 fail
+Ran 32 tests across 4 files. [17.00ms]
