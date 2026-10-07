@@ -83,7 +83,7 @@ publication was performed during this local audit.
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
 | [X49](20261007-x49-progress-value-accessibility.md) | A progress value for assistive technology (`progress`, `aria-valuenow`) | framework-gap | [provider-sign-in-and-install](../tasks/closed/20261005-provider-sign-in-and-install.md) (nonblocking: the status text carries the numbers) | reproduced with `contract vocab` on the feature branch's framework (main `7fa3fa5b7`); no upstream match by title; draft, not published |
-| [X50](20261008-x50-popover-click-passthrough.md) | A click inside an open popover also reaching the page under it (macOS) | framework-gap (unconfirmed) | [theme-color-picker](../tasks/20261007-theme-color-picker.md) (nonblocking: `press` + `retainFocus` on the popover) | seen in the clone with the agent (`454daaff3`); not reproduced in a one-file app; not searched upstream, not published |
+| [X51](20261008-x51-popover-click-passthrough.md) | A click inside an open popover also reaching the page under it (macOS) | framework-gap (unconfirmed) | [theme-color-picker](../tasks/20261007-theme-color-picker.md) (nonblocking: `press` + `retainFocus` on the popover) | seen in the clone with the agent (`454daaff3`); not reproduced in a one-file app; not searched upstream, not published |
 
 ## Upstream issues (filed 2026-10-06)
 

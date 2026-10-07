@@ -102,7 +102,7 @@ commits `454daaff3` (picker) and `b2074c7a1` (independent-review fixes). Referen
 | Alpha | `updateFamily` keeps an alpha suffix in the chosen role and composites it over the canvas (the sidebar for the selection) for the roles it derives, as `updateThemeColorFamily` does; the plane, the slider and RGB re-attach the suffix | `settings-appearance-editor.ts` |
 | Placement | Below the swatch 10 apart, or above when the window has no room below (Base UI's flip); left-aligned and clamped into the window by the host (no `span-left`, no `position-try`: X17, #112) | `theme-color-picker.contract` `open` |
 | Escape layering | The popover is `aria-modal`, so Settings' Back (an Escape shortcut) no longer takes the popover's Escape. The editor's own Escape shortcut stays (D16), **provisional, user decision pending**: the reference's panel has no Escape close (`ThemeEditorPanel.tsx:692` only cancels Inspect) | `settings-appearance-editor.contract` |
-| Click pass-through | The popover box takes `press` and `retainFocus=true` so a click on the plane does not also reach the editor control under the popover (seen in the clone: the Dark toggle pressed, the name field focused) | X50 (local draft, unconfirmed: not reproduced in a one-file app) |
+| Click pass-through | The popover box takes `press` and `retainFocus=true` so a click on the plane does not also reach the editor control under the popover (seen in the clone: the Dark toggle pressed, the name field focused) | X51 (local draft, unconfirmed: not reproduced in a one-file app) |
 
 Accessibility gaps kept: a stop's value is its `aria-description` (`"53%"`), not `aria-valuenow`/`aria-valuetext` (X49);
 the HEX/RGB labels are text beside the fields, not `<label>`s (a click on "HEX" does not focus the field).
@@ -123,7 +123,7 @@ the HEX/RGB labels are text beside the fields, not `<label>`s (a click on "HEX" 
 
 | Attempt | Revision | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| 1 | `454daaff3` | Agent drives found: a hue drag highlighted the whole window's text (fixed with `user-select: none`); Escape with the popover open closed Settings instead (fixed with `aria-modal`); a click on the plane also pressed the Dark toggle or focused the name field under the popover (fixed with `press` + `retainFocus` on the popover; X50); the popover cut at the window's bottom (fixed: it flips above) | lane notes (not committed), X50 | — |
+| 1 | `454daaff3` | Agent drives found: a hue drag highlighted the whole window's text (fixed with `user-select: none`); Escape with the popover open closed Settings instead (fixed with `aria-modal`); a click on the plane also pressed the Dark toggle or focused the name field under the popover (fixed with `press` + `retainFocus` on the popover; X51); the popover cut at the window's bottom (fixed: it flips above) | lane notes (not committed), X51 | — |
 | 2 | `b2074c7a1` | Independent review (a separate agent): two blocking findings (the marker snapping back mid-drag; the editor's Escape removed against D16) and four medium ones (Light/Dark leak, equal stamps, release offsets, shared mutation), all fixed; drives re-run on the rebuilt bundle | [record](https://raw.githubusercontent.com/ccheever/exact2/7ba5e1b01365b57521150b27d7cad76a9b7998f9/theme-color-picker/agent-drives.txt) | real-input rows (screen locked), relaunch, user decision on the editor's Escape |
 
 Re-review of `b2074c7a1` (the same reviewer): nothing blocking. Non-blocking, kept: the landing tracker journals
@@ -151,7 +151,7 @@ Deferred to the real-input batch — screen locked (user away). One session, rea
 5. `orca computer drag` on the plane from (60,100) to (140,70) in plane points (read the plane's window position from the capture): read back the HEX field (`#743636`), the swatch and the window background (the preview) from `screencapture -l`.
 6. Pause mid-drag: press at one point, drag, hold still 1 s (no release), capture: the window's background must already show the colour under the marker; then release.
 7. Drag on the hue slider from x 30 to x 150: HEX `#365a74`.
-8. Click on the plane where the editor's Light/Dark toggle lies under it: the editor stays Light and the name field does not take the focus (X50 workaround).
+8. Click on the plane where the editor's Light/Dark toggle lies under it: the editor stays Light and the name field does not take the focus (X51 workaround).
 9. Keys: Tab (ring + "Brightness N%"), ↑/↓ with and without Shift, Home/End, Shift+→ on the slider; Escape: the popover closes, the swatch shows the focus ring, Settings stays; Escape again: Settings closes, the editor stays.
 10. Paste `12, 34, 56` into RGB (⌘A first): HEX `#0c2238`. Name "Real input", Create theme; quit (⌘Q hold), relaunch the same copy: the theme card is there and Edit theme shows Background `#0c2238`.
 11. Release the lock; kill only the recorded pid if it is still running.
@@ -159,4 +159,4 @@ Deferred to the real-input batch — screen locked (user away). One session, rea
 ## Next action
 
 Review the draft PR. User decisions: keep or drop the editor's Escape close (D16 vs the reference). Run the
-real-input batch steps above when the screen is unlocked. X50 stays a local draft until reproduced outside the clone.
+real-input batch steps above when the screen is unlocked. X51 stays a local draft until reproduced outside the clone.

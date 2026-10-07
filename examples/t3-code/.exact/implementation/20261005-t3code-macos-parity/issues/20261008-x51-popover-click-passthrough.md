@@ -1,5 +1,5 @@
 ---
-name: 20261008-x50-popover-click-passthrough
+name: 20261008-x51-popover-click-passthrough
 plan: 20261005-t3code-macos-parity
 status: draft
 kind: framework-gap (unconfirmed)
@@ -8,7 +8,7 @@ upstream_url: null
 reproduced_on: d82fb6a47 (feature branch on main 1f19b2400's framework)
 ---
 
-# X50: a click inside an open popover also reaches the page under it (macOS, unconfirmed)
+# X51: a click inside an open popover also reaches the page under it (macOS, unconfirmed)
 
 ## Summary
 

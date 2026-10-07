@@ -113,7 +113,7 @@ component ThemeColorSwatch
       focus(`theme-editor-swatch-${row.id}`)
   // A press anywhere in the popover ends there (`press` plus `retainFocus`): without it the macOS host
   // passes a click on a control without a press of its own (the plane, the slider) on to the page
-  // under the popover, so the editor's field or button beneath took it too (EXACT2-GAPS X50).
+  // under the popover, so the editor's field or button beneath took it too (EXACT2-GAPS X51).
   action popPress
     mouse = true
   // One colour to the draft; `force` sends even while an earlier one is in flight (a release, a key).
