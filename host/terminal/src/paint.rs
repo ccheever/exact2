@@ -586,15 +586,6 @@ fn field(
     let focused = scene.focus == Some(n.id);
     let multiline = n.props.str(PropId::SemanticTag) == Some("textarea");
     let mut style = base_style(scene, n, current);
-    if n.style.appearance == exact_kernel::Appearance::Auto
-        && !n.style.mask.has(exact_kernel::StyleId::TextColor)
-    {
-        style.fg = Some(if scene.dark {
-            Rgb(255, 255, 255)
-        } else {
-            Rgb(0, 0, 0)
-        });
-    }
     let placeholder = value.is_empty();
     let shown = if placeholder {
         style.faint = true;

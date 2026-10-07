@@ -16,6 +16,40 @@ const FIELD_BORDER: f32 = 1.0;
 const FIELD_RADIUS: f32 = 6.0;
 const FIELD_PADDING: (f32, f32) = (6.0, 8.0);
 
+// The existing system-ui stack selects the host's installed sans-serif face.
+// Linux's own control size is the page's initial 16px, independent of ancestors.
+pub(crate) fn control_text_styles() -> exact_kernel::ControlTextStyles {
+    let font = exact_kernel::ControlFont {
+        family: "system-ui".into(),
+        family_id: 0,
+        size: 16.0,
+        weight: 400,
+        style: exact_kernel::FontStyle::Normal,
+    };
+    exact_kernel::ControlTextStyles {
+        field: font.clone(),
+        textarea: font.clone(),
+        button: font,
+    }
+}
+
+fn field_fill(dark: bool) -> [u8; 4] {
+    if dark {
+        [0x1c, 0x1c, 0x1e, 0xff]
+    } else {
+        [0xff; 4]
+    }
+}
+
+// Keep the fill opaque; disabled border and unauthored ink approach that fill.
+pub(super) fn disabled_field_ink(mut ink: [u8; 4], dark: bool) -> [u8; 4] {
+    let fill = field_fill(dark);
+    for i in 0..3 {
+        ink[i] = ((ink[i] as u16 + fill[i] as u16) / 2) as u8;
+    }
+    ink
+}
+
 pub(crate) fn field_chrome() -> FieldChrome {
     FieldChrome {
         top: FIELD_BORDER + FIELD_PADDING.0,
@@ -98,13 +132,22 @@ pub const MENU_PAD: f32 = 4.0;
 
 impl super::Painter {
     /// Native text field chrome; text uses the kernel's published content rect.
-    pub(super) fn text_field_chrome(&mut self, rect: Rect4, ts: Transform) -> Shape {
+    pub(super) fn text_field_chrome(
+        &mut self,
+        rect: Rect4,
+        disabled: bool,
+        ts: Transform,
+    ) -> Shape {
         let shape = Shape::new(rect, [FIELD_RADIUS; 4]);
-        let (line, fill) = if self.dark {
-            ([0x48, 0x48, 0x4a, 0xff], [0x1c, 0x1c, 0x1e, 0xff])
+        let fill = field_fill(self.dark);
+        let mut line = if self.dark {
+            [0x48, 0x48, 0x4a, 0xff]
         } else {
-            ([0xc6, 0xc6, 0xc8, 0xff], [0xff, 0xff, 0xff, 0xff])
+            [0xc6, 0xc6, 0xc8, 0xff]
         };
+        if disabled {
+            line = disabled_field_ink(line, self.dark);
+        }
         self.backend.fill(&shape, line, ts);
         self.backend.fill(&shape.inset(FIELD_BORDER), fill, ts);
         shape
