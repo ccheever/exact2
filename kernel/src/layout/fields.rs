@@ -89,9 +89,26 @@ impl LayoutTree {
             .iter()
             .any(|(_, _, c)| c.is_some_and(|c| c.provisional));
         for (node, slot, chrome) in answers {
+            // Keep engine-only overrides, such as an auto-height measurement.
+            // Only border insets and the field floor belong to this derivation.
+            let authored = crate::style::taffy_style(arena, slot);
+            let mut style = self.taffy.style(node).expect("field node").clone();
+            style.border = authored.border;
+            style.min_size.height = authored.min_size.height;
             if let Some(chrome) = chrome {
-                self.field_chrome.insert(node, chrome);
-                let mut style = crate::style::taffy_style(arena, slot);
+                let previous = self.field_chrome.insert(node, chrome);
+                if previous.map(|mut c| {
+                    c.provisional = false;
+                    c
+                }) != Some(crate::FieldChrome {
+                    provisional: false,
+                    ..chrome
+                }) {
+                    // A minimum-only change may leave the engine style equal.
+                    // Drop its resolved floor and force a new measure probe.
+                    self.field_minima.remove(&node);
+                    self.mark_dirty(node);
+                }
                 add_chrome(&mut style, chrome);
                 if chrome.minimum_height == 0.0
                     || crate::FieldKind::from_props(arena.props(slot)) == crate::FieldKind::Textarea
@@ -105,7 +122,7 @@ impl LayoutTree {
             } else {
                 self.field_chrome.remove(&node);
                 self.field_minima.remove(&node);
-                self.set_style(node, crate::style::taffy_style(arena, slot));
+                self.set_style(node, style);
             }
         }
         Ok(())

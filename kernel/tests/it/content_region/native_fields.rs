@@ -203,3 +203,124 @@ fn hidden_region_and_shell_fields_clear_and_restore_the_published_content_rect()
         }
     }
 }
+
+#[test]
+fn cold_pending_field_chrome_counts_and_settles_without_shell_fields() {
+    use std::{cell::Cell, rc::Rc};
+    struct Cold(Rc<Cell<bool>>);
+    impl TextMeasurer for Cold {
+        fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
+            MonospaceMeasurer::default().measure(request)
+        }
+        fn field_chrome(&mut self, _: &FieldChromeRequest) -> FieldChrome {
+            FieldChrome {
+                minimum_height: if self.0.get() { 34.0 } else { 44.0 },
+                provisional: self.0.get(),
+                ..Default::default()
+            }
+        }
+    }
+    let cold = Rc::new(Cell::new(true));
+    let mut k = fixture_with(Box::new(Cold(cold.clone())));
+    k.apply(
+        0,
+        0,
+        &[
+            Op::CreateView {
+                id: 7,
+                node_type: NodeType::TextInput,
+            },
+            Op::SetChildren {
+                id: 2,
+                children: vec![3, 7],
+            },
+        ],
+    )
+    .unwrap();
+    k.set_content_region(Some(ContentRegion {
+        owner: key(&k, 2),
+        content: key(&k, 3),
+        pending: key(&k, 7),
+    }))
+    .unwrap();
+    assert!(!pass(&mut k, 400.0, 1).current);
+    assert_eq!(k.node(7).unwrap().frame.height, 34.0);
+    assert_eq!(k.provisional_layouts(), 1);
+    cold.set(false);
+    assert!(!pass(&mut k, 400.0, 1).current);
+    assert_eq!(k.node(7).unwrap().frame.height, 44.0);
+    assert_eq!(k.provisional_layouts(), 1);
+}
+
+#[test]
+fn candidate_and_retained_field_chrome_stay_provisional_until_exact_publication() {
+    use std::{cell::Cell, rc::Rc};
+    struct Cold(Rc<Cell<bool>>);
+    impl TextMeasurer for Cold {
+        fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
+            MonospaceMeasurer::default().measure(request)
+        }
+        fn field_chrome(&mut self, _: &FieldChromeRequest) -> FieldChrome {
+            FieldChrome {
+                minimum_height: if self.0.get() { 34.0 } else { 44.0 },
+                provisional: self.0.get(),
+                ..Default::default()
+            }
+        }
+    }
+    let cold = Rc::new(Cell::new(true));
+    let mut k = fixture_with(Box::new(Cold(cold.clone())));
+    k.apply(
+        0,
+        0,
+        &[
+            Op::CreateView {
+                id: 7,
+                node_type: NodeType::TextInput,
+            },
+            Op::SetChildren {
+                id: 3,
+                children: vec![4, 7],
+            },
+        ],
+    )
+    .unwrap();
+    register(&mut k);
+    assert!(!pass(&mut k, 400.0, 1).current);
+    assert_eq!(
+        k.provisional_layouts(),
+        1,
+        "candidate guess counts even before acceptance"
+    );
+    ready(&mut k, 400.0, 1);
+    assert_eq!(k.node(7).unwrap().frame.height, 34.0);
+    cold.set(false);
+    // Force a new text offer so the prior guessed geometry contributes while
+    // its replacement waits, rather than reusing the accepted text artifacts.
+    k.apply(
+        0,
+        0,
+        &[Op::SetProp {
+            id: 7,
+            prop: PropId::Value,
+            value: "new candidate text".into(),
+        }],
+    )
+    .unwrap();
+    let before = k.provisional_layouts();
+    let retained = pass(&mut k, 400.0, 1);
+    assert!(
+        !retained.current,
+        "a guessed publication must be remeasured"
+    );
+    assert_eq!(
+        k.provisional_layouts(),
+        before + 1,
+        "retained guess still counts"
+    );
+    ready(&mut k, 400.0, 1);
+    assert_eq!(k.node(7).unwrap().frame.height, 44.0);
+    let settled = k.provisional_layouts();
+    assert!(pass(&mut k, 400.0, 1).current);
+    assert_eq!(k.provisional_layouts(), settled);
+}

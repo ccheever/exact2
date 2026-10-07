@@ -1095,7 +1095,7 @@ impl LayoutTree {
                 crate::FieldKind::from_props(arena.props(slot)) != crate::FieldKind::Textarea
             });
             let offset = if centered {
-                ((output.size.height - inset.top - inset.bottom - line_height) / 2.0).max(0.0)
+                (output.size.height - inset.top - inset.bottom - line_height) / 2.0
             } else {
                 0.0
             };

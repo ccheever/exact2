@@ -28,6 +28,7 @@ pub(crate) struct RegionState {
     facts: Arc<FactSet>,
     provisional: Option<Provisional>,
     accepted: Option<Rc<RegionPublication>>,
+    pub provisional_chrome: bool,
 }
 impl RegionState {
     pub fn new(
@@ -53,6 +54,7 @@ impl RegionState {
             facts: Arc::new(FactSet::default()),
             provisional: None,
             accepted: None,
+            provisional_chrome: false,
         })
     }
     pub fn retention(&self) -> RegionRetention {
@@ -226,6 +228,18 @@ impl RegionState {
         inputs: RegionInputs,
         epoch: u64,
     ) -> Result<RegionLayoutReceipt, LayoutError> {
+        self.provisional_chrome = false;
+        // Re-probe a retained guess on the host's silent settlement pass.
+        if self
+            .provisional
+            .as_ref()
+            .is_some_and(|p| p.geometry.provisional_chrome)
+            || self.accepted.as_ref().is_some_and(|p| {
+                p.geometry.provisional_chrome && self.ticket.as_ref() == Some(&p.ticket)
+            })
+        {
+            self.invalidate();
+        }
         let (root, outer) = root_offer;
         validate(arena, self.binding)?;
         if root != self.binding.owner.index && !arena.is_ancestor(root, self.binding.owner.index) {
@@ -266,6 +280,7 @@ impl RegionState {
         }
         // One common ordinary-shell path, including reservation saturation.
         let shell_geometry = super::tree::shell(arena, tree, measurer, root, b.owner.index, outer)?;
+        self.provisional_chrome = tree.provisional_chrome();
         let shell_frames = &shell_geometry.frames;
         let origin = shell_frames
             .iter()
@@ -330,6 +345,7 @@ impl RegionState {
             )?;
             pending.constrain_owner(arena, b.owner.index, origin);
             pending.compute(arena, measurer, offer)?;
+            self.provisional_chrome |= pending.provisional_chrome();
             pending.frames(
                 arena,
                 b.owner.index,
@@ -343,6 +359,7 @@ impl RegionState {
         let geometry = selected
             .map(|p| p.geometry.as_ref())
             .unwrap_or(&pending_geometry);
+        self.provisional_chrome |= geometry.provisional_chrome;
         let frames = geometry.project(origin)?;
         let selection = match selected {
             Some(p) => RegionSelection::Accepted(p.clone()),
@@ -431,6 +448,7 @@ impl RegionState {
                 refused: None,
             };
             candidate.compute(arena, &mut latch, offer)?;
+            self.provisional_chrome |= candidate.provisional_chrome();
             let mut paints = Vec::new();
             if latch.missing.is_none() && latch.refused.is_none() {
                 if self.profile == RegionProfile::SplitFacts {

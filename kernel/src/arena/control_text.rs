@@ -37,6 +37,21 @@ fn starting_style(font: &ControlFont) -> StyleProps {
     s
 }
 
+// The web reset inherits font/spacing/colour, but all: revert restores these
+// four UA rows. This boundary also applies before any environment update.
+static WEB_START: std::sync::LazyLock<StyleProps> = std::sync::LazyLock::new(|| {
+    let mut start = StyleProps::default();
+    for row in [
+        StyleId::TextAlign,
+        StyleId::TextIndent,
+        StyleId::TextShadow,
+        StyleId::TextTransform,
+    ] {
+        start.mask.set(row);
+    }
+    start
+});
+
 impl NodeArena {
     /// Native text controls have exactly this predicate (LLP 1104 D1).
     pub fn is_native_text_control(&self, slot: u32) -> bool {
@@ -73,7 +88,11 @@ impl NodeArena {
             return None;
         }
         let index = usize::from(FieldKind::from_props(self.props(slot)) == FieldKind::Textarea);
-        self.control_styles.as_ref().map(|s| &s[index])
+        Some(
+            self.control_styles
+                .as_ref()
+                .map_or(&*WEB_START, |s| &s[index]),
+        )
     }
 
     /// Content box in the field's local frame, including no chrome/padding/border.
