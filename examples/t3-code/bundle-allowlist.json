@@ -1,4 +1,5 @@
 {
+  "comment": "audit-bundle.mjs's allowlist (20261005-portable-app-download): `files` are the patterns every file of the packaged .app must match (the file list), `allow` the build-shaped paths that may appear, each with its reason. This machine's own paths (home, checkout, ~/.bun, ~/.t3, the temporary folder, every --forbid) are never allowed.",
   "minimumOS": "14.0",
   "bundleId": "com.exact.t3code.macos",
   "files": [
@@ -9,10 +10,24 @@
     "Contents/Resources/AppIcon.icns",
     "Contents/Resources/receipt.json",
     "Contents/Resources/distribution.json",
+    "Contents/Resources/LICENSE-T3",
     "Contents/Resources/assets/**",
     "Contents/Resources/t3-runtime/runtime-pin.json",
     "Contents/Resources/t3-runtime/runtime-manifest.json",
     "Contents/Resources/t3-runtime/t3-*-darwin-arm64.tar.gz"
   ],
-  "allow": []
+  "allow": [
+    {
+      "scope": "bundle",
+      "file": "Contents/MacOS/T3 Code (Exact)",
+      "text": "^/Users/(api/auth/session[-A-Za-z]*)?$",
+      "reason": "Not a path: the template literal `/Users/${user}` of terminal-links.ts (a terminal link's home-folder form), which the Hermes string table stores beside the next literal, /api/auth/session."
+    },
+    {
+      "scope": "bundle",
+      "file": "Contents/MacOS/T3 Code (Exact)",
+      "text": "^(/private)?/tmp/t3-code-package/exact2/(vendor/ibex/crates/ibex2/src/bindings/[a-z_]+\\.js|target/aarch64-apple-darwin/host-dev/build/exact-js-[0-9a-f]+/out/prelude\\.js)",
+      "reason": "package-app.mjs's fixed export folder, the same on every machine (no user, checkout or home path): exact2's ibex2 build.rs and js/build.rs give hermesc absolute source paths, and Hermes keeps them as the bytecode's file names (EXACT2-GAPS X50). Rust paths are remapped and Swift's are stripped; these two cannot be from the app."
+    }
+  ]
 }

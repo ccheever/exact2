@@ -123,6 +123,98 @@ new version and shares that state with Settings › Connections (`server-update.
 4. Choose a model and send. New threads use the project override or the server
    default for permissions, workspace and interaction mode.
 
+## Distribution
+
+A downloadable build for another person's Mac: `T3-Code-<version>-arm64.zip` and its
+`SHA256SUMS` (20261005-portable-app-download). No store, update feed or hosted page is
+involved; the zip is the whole delivery.
+
+**Requirements.** An Apple Silicon Mac on macOS 14 or later. Intel Macs are not supported:
+the embedded server is the release's `darwin-arm64` archive and T3 Code publishes no Intel
+one. Nothing else is needed on that Mac: no Bun, Node, T3 Code, Xcode or this repository.
+
+**Making it.** From the repository root, with the build tools above, on a committed tree:
+
+```sh
+bun examples/t3-code/package-app.mjs          # outputs in target/t3-package/
+```
+
+`package-app.mjs` exports the commit with `git archive` into a folder outside every checkout
+(`$TMPDIR/t3-code-package`), builds it there under `sandbox-exec` (`sandbox.sb`: the build may not
+read or write this checkout, `~/.t3` or any `--deny <path>`), runs the stage step (the only
+network use, cached beside the export), builds `host/apple/build.mjs t3-code-macos --bundle
+--distribution` ad hoc signed with Rust's source paths remapped, strips the executable's
+local symbols, writes `Contents/Resources/distribution.json` (`{"flavor":"packaged"}`, which makes
+the app use `~/.t3` and the port scan from 3773 as T3 Code does) and `LICENSE-T3`, signs the
+bundle ad hoc inside out, zips it with `ditto -c -k --keepParent` and writes `SHA256SUMS`. It then
+runs `audit-bundle.mjs` over the packaged app (see "Source and checks") and fails on any
+finding.
+
+**Opening it the first time.** The app is signed ad hoc and not notarized (decision U11), so
+macOS refuses the first open of a downloaded copy. Check the download, unzip it and move the
+app to Applications:
+
+```sh
+shasum -a 256 -c SHA256SUMS
+ditto -x -k T3-Code-*-arm64.zip . && mv "T3 Code (Exact).app" /Applications/
+```
+
+Then approve it once, either way:
+
+- macOS 15 and later: open the app, choose **Done** in the "Apple could not verify…" alert, open
+  **System Settings › Privacy & Security**, choose **Open Anyway** beside "T3 Code (Exact)" and
+  confirm with your password. On macOS 14, Control-click the app, choose **Open**, then **Open**.
+- Or remove the download mark in Terminal: `xattr -dr com.apple.quarantine "/Applications/T3 Code (Exact).app"`.
+
+Every new zip is a new code identity: macOS asks again, Keychain items the previous build saved
+ask before they are read, and SnapShot's Screen Recording and Accessibility permissions are
+asked again.
+
+**First launch.** The window shows "Setting up T3 Code…" while the app unpacks its server
+(about 260 MB, a few seconds) into `~/.t3/runtime/versions/<version>`; then "This machine"
+connects. If the unpack fails (not enough disk space, a damaged download) the window says why,
+with **Retry** and **Quit**; an interrupted unpack starts over cleanly at the next launch.
+
+**Providers are your own.** The app runs the provider command-line tools installed on your Mac,
+as T3 Code does. Neither of these needs Node or npm:
+
+```sh
+curl -fsSL https://claude.ai/install.sh | bash          # Claude
+curl -fsSL https://chatgpt.com/codex/install.sh | sh    # Codex
+```
+
+Then sign in to them (Settings › Providers shows each one's state) and press refresh.
+
+**Where its data lives.**
+
+| What | Where |
+| --- | --- |
+| Projects, threads, settings, the server's own data (shared with T3 Code) | `~/.t3` |
+| The unpacked server | `~/.t3/runtime/versions/<version>` |
+| This app's own files (its settings file `t3-code.json`, the server pid record) | `~/Library/Application Support/exact/com.exact.t3code.macos` |
+| Caches | `~/Library/Caches/exact/com.exact.t3code.macos` |
+| Preferences (paired environments, window) | `~/Library/Preferences/com.exact.t3code.macos.plist` |
+| Saved environment credentials | the login Keychain, service `com.exact.t3code.macos.access-token` |
+
+T3 Code (or T3 Code Nightly) and this app both use `~/.t3`: run only one of them at a time.
+
+**Removing it.** Quit the app, then:
+
+```sh
+rm -rf "/Applications/T3 Code (Exact).app" ~/.t3/runtime/versions/<version> \
+  ~/Library/Application\ Support/exact/com.exact.t3code.macos ~/Library/Caches/exact/com.exact.t3code.macos
+defaults delete com.exact.t3code.macos
+while security delete-generic-password -s com.exact.t3code.macos.access-token >/dev/null 2>&1; do :; done
+```
+
+This leaves your projects, threads and settings in `~/.t3` (and any other `runtime/versions`
+folder T3 Code uses) alone.
+
+**Licenses.** T3 Code is MIT licensed (`LICENSE-T3`, also inside the app as
+`Contents/Resources/LICENSE-T3`); this client ports parts of its interface and logic. The
+embedded server is T3 Code's own release, unmodified; its third-party notices ship inside it
+(`client/third-party-licenses.json`) and Settings › Licenses lists them once the server runs.
+
 ## Supported workflows
 
 - Sidebar: grouped projects, Working/active/Settled/Snoozed shelves, search, pin,

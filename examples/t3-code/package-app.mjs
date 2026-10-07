@@ -6,27 +6,27 @@
 //                                        [--deny <path>]… [--no-sandbox]
 //
 // 1. Export: `git archive <ref>` (default HEAD; uncommitted changes are not part of it) into
-//    `<work>/exact2`, a fresh folder outside every checkout (default `$TMPDIR/t3-code-package`).
+//    `<work>/exact2`, a fresh folder outside every checkout (default `/tmp/t3-code-package`).
 // 2. Build there, under `sandbox-exec` with a profile that denies reading and writing this checkout,
 //    `~/.t3` and every --deny (the reference checkout, another tree): `bun install`, the pinned stage
 //    step (stage-runtime.mjs, its cache `<work>/runtime-cache` — the only network use, once), the
 //    terminal page, and `host/apple/build.mjs t3-code-macos --bundle --distribution` ad hoc signed
 //    (`EXACT_IDENTITY=-`; decision U11), with Rust's source paths remapped (the checkout to ``, Cargo's
 //    home to `cargo`, std to `/rustc/<commit>`) so no build-machine path is compiled in.
-// 3. Package: a copy of the bundle with the main executable's local symbols stripped (`strip -x`), the
-//    absolute LC_RPATHs and build-path install names of its own dylibs removed, and
-//    `Contents/Resources/distribution.json` `{"flavor":"packaged"}` (the marker that makes it use
-//    `~/.t3` and the port scan from 3773: T3LocalBackend.swift), then signed ad hoc inside out, checked
+// 3. Package: a copy of the bundle with every Mach-O file's local symbols stripped (`strip -x`), the
+//    toolchain's absolute LC_RPATHs and the build-path install names of its own dylibs removed,
+//    `LICENSE-T3`, and `Contents/Resources/distribution.json` `{"flavor":"packaged"}` (the marker that
+//    makes it use `~/.t3` and the port scan from 3773: T3LocalBackend.swift), then signed ad hoc inside out, checked
 //    with `codesign --verify --deep --strict`, zipped with `ditto -c -k --keepParent` (modes and links
 //    kept) and hashed into `SHA256SUMS`.
-// 4. Audit: audit-bundle.mjs over the packaged `.app`, with the export folder and every --deny as this
-//    machine's paths; a finding fails the package.
+// 4. Audit: audit-bundle.mjs over the packaged `.app`, with every --deny as this machine's paths and
+//    the export folder as a build root; a finding fails the package.
 //
 // Outputs go to `<out>` (default `target/t3-package` in this checkout): the zip, `SHA256SUMS`,
 // `build.log`, `audit.txt`, `sandbox.sb`. No private key is read: an ad hoc signature names none.
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir, tmpdir } from 'node:os';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
@@ -93,12 +93,18 @@ async function inside(work) {
   mkdirSync(dirname(packaged), { recursive: true });
   run('/usr/bin/ditto', [bundle, packaged]);
   const contents = join(packaged, 'Contents'), executables = join(contents, 'MacOS');
-  // Local symbols (and the debug map's object paths) stay on the build machine.
-  run('strip', ['-x', join(executables, APP_NAME)]);
   for (const name of readdirSync(executables)) {
     const file = join(executables, name);
-    const loads = spawnSync('otool', ['-l', file], { encoding: 'utf8' }).stdout ?? '';
-    // SwiftPM's own build-folder rpaths (Products/<config>/PackageFrameworks) and a dylib's build-path id.
+    // Local symbols and the debug map's object and rlib paths stay on the build machine.
+    run('strip', ['-x', file]);
+    // otool reads `name(member)` as an archive member: "T3 Code (Exact)" is read through a plain link.
+    const plain = join(work, 'otool-subject');
+    rmSync(plain, { force: true });
+    symlinkSync(file, plain);
+    const loads = spawnSync('otool', ['-l', plain], { encoding: 'utf8' }).stdout ?? '';
+    rmSync(plain, { force: true });
+    // The toolchain's back-deployment rpaths (…/usr/lib/swift-6.2/macosx in Xcode and the Metal
+    // toolchain: nothing here loads from them) and a dylib's build-path install name.
     for (const [, rpath] of loads.matchAll(/cmd LC_RPATH\n\s+cmdsize \d+\n\s+path (.+?) \(offset/g)) {
       if (rpath.startsWith('/') && !rpath.startsWith('/usr/lib/') && !rpath.startsWith('/System/')) run('install_name_tool', ['-delete_rpath', rpath, file]);
     }
@@ -106,6 +112,8 @@ async function inside(work) {
     if (id && id.startsWith('/')) run('install_name_tool', ['-id', `@rpath/${name}`, file]);
   }
   writeFileSync(join(contents, 'Resources/distribution.json'), `${JSON.stringify({ flavor: 'packaged' })}\n`);
+  // T3 Code's MIT notice travels with the code ported from it.
+  copyFileSync(join(here, 'LICENSE-T3'), join(contents, 'Resources/LICENSE-T3'));
   run('xattr', ['-cr', packaged]);
   const { signingOrder } = await import('../../host/apple/assets.mjs');
   for (const path of signingOrder(packaged)) {
@@ -124,7 +132,9 @@ async function outside(args) {
   const take = (flag) => { const values = []; for (let i = 0; i < args.length; i++) if (args[i] === flag) values.push(args[++i]); return values; };
   const ref = take('--ref')[0] ?? 'HEAD';
   const out = resolve(take('--out')[0] ?? join(root, 'target/t3-package'));
-  const work = resolve(take('--work')[0] ?? join(tmpdir(), 't3-code-package'));
+  // A fixed folder that names no user or checkout: two framework build scripts compile their
+  // JavaScript with absolute source names, which stay in the binary (see bundle-allowlist.json).
+  const work = resolve(take('--work')[0] ?? '/tmp/t3-code-package');
   const sandboxed = !args.includes('--no-sandbox');
   const git = (...rest) => spawnSync('git', ['-C', root, ...rest], { encoding: 'utf8' });
   const sha = git('rev-parse', '--verify', `${ref}^{commit}`).stdout.trim();
@@ -159,7 +169,7 @@ async function outside(args) {
   writeFileSync(join(out, 'build.log'), `\nexported ${sha}; built in ${seconds} s${sandboxed ? ' under sandbox-exec (sandbox.sb)' : ' without a sandbox (--no-sandbox)'}\n`, { flag: 'a' });
 
   const { audit, formatReport } = await import('./audit-bundle.mjs');
-  const report = audit(join(work, 'package', `${APP_NAME}.app`), { forbid: [exportRoot, work, ...denied] });
+  const report = audit(join(work, 'package', `${APP_NAME}.app`), { forbid: denied, buildRoots: [exportRoot] });
   const text = formatReport(report);
   writeFileSync(join(out, 'audit.txt'), `${text}\n`);
   console.log(text);

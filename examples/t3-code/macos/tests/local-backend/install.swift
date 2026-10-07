@@ -159,6 +159,81 @@ final class LocalRuntimeInstallTests: XCTestCase {
     }
 }
 
+// 20261005-portable-app-download: what the first-launch view shows on a failure, the development hold
+// that lets it be looked at, and its Retry.
+final class LocalFirstLaunchTests: XCTestCase {
+    private final class Owner {}
+    private let owner = Owner()
+
+    func testNotEnoughDiskSpaceFailsBeforeUnpackingAndSaysHowMuch() {
+        let fixture = Fixture()
+        let runtime = fixture.runtime()
+        runtime.freeSpace = { _ in 10 }
+        guard case let .failed(reason) = runtime.ensure() else { return XCTFail("a full disk must fail") }
+        XCTAssertTrue(reason.hasPrefix("There is not enough disk space to set up T3 Code: it needs "), reason)
+        XCTAssertTrue(reason.contains(fixture.versions.path) && reason.hasSuffix("is free."), reason)
+        XCTAssertEqual(((try? FileManager.default.contentsOfDirectory(atPath: fixture.versions.path)) ?? []).filter { $0.hasPrefix(".staging-") }, [])
+        XCTAssertNil(T3LocalRuntime.spaceShortfall(needed: 100, free: 100, folder: fixture.versions))
+        XCTAssertNil(T3LocalRuntime.spaceShortfall(needed: 100, free: nil, folder: fixture.versions))
+    }
+
+    func testATarFailureIsSaidByTarsLastErrorLine() {
+        XCTAssertEqual(T3LocalRuntime.tarFailure(status: 1, output: "x t3\nx node_modules/\ntar: Error opening archive: Unrecognized archive format\n"),
+                       "The server files could not be unpacked (tar exited 1): Error opening archive: Unrecognized archive format")
+        XCTAssertEqual(T3LocalRuntime.tarFailure(status: 2, output: "x t3\n"), "The server files could not be unpacked (tar exited 2).")
+    }
+
+    func testTheDevelopmentHoldStopsAtEachStage() {
+        let fixture = Fixture()
+        let runtime = fixture.runtime()
+        runtime.stageHold = 0.2
+        var seen: [String] = []
+        runtime.progress = { phase, fraction in
+            let mark = "\(phase) \(fraction)"
+            if [0.0, 0.5].contains(fraction), seen.last != mark { seen.append(mark) }
+        }
+        let started = Date()
+        guard case .ready = runtime.ensure() else { return XCTFail("the hold must not fail the install") }
+        XCTAssertGreaterThanOrEqual(Date().timeIntervalSince(started), 0.6, "checking, unpacking at 0 % and at 50 % are each held")
+        XCTAssertEqual(seen, ["verify 0.0", "extract 0.0", "extract 0.5"])
+    }
+
+    func testRetryAfterADamagedArchiveInstallsAgainAndStartsTheServer() {
+        let fixture = Fixture()
+        let good = try! Data(contentsOf: fixture.archive)
+        var damaged = good; damaged[24] ^= 0xff
+        try! damaged.write(to: fixture.archive)
+        let backend = T3LocalBackend()
+        backend.environment = { ["T3_LOCAL_HOME": fixture.home.path, "T3_LOCAL_PORT": "16896", "PATH": "/usr/bin:/bin"] }
+        backend.resources = { fixture.bundleDir.deletingLastPathComponent() }
+        backend.serverEnvironment = { $0 }
+        backend.makeProber = { FakeProber() }
+        backend.fatal = { stage, message in XCTFail("unexpected fatal \(stage): \(message)") }
+        backend.attach(owner, dataRoot: scratch("data"), changed: { _ in })
+        defer { backend.detach(owner) }
+        let until = { (seconds: TimeInterval, condition: () -> Bool) -> Bool in
+            let end = Date().addingTimeInterval(seconds)
+            while Date() < end { if condition() { return true }; Thread.sleep(forTimeInterval: 0.02) }
+            return condition()
+        }
+        XCTAssertTrue(until(10) { backend.statusValue()["state"] as? String == "failed" }, "\(backend.statusValue())")
+        XCTAssertTrue(((backend.statusValue()["install"] as? [String: Any])?["reason"] as? String ?? "").contains("SHA-256"))
+        try! good.write(to: fixture.archive)
+        let done = DispatchSemaphore(value: 0)
+        var failure: String? = "unanswered"
+        backend.retryInstall { failure = $0; done.signal() }
+        XCTAssertEqual(done.wait(timeout: .now() + 10), .success)
+        XCTAssertNil(failure)
+        let paths = T3LocalRuntime.paths(home: fixture.home, version: "1.2.3")
+        XCTAssertTrue(T3LocalRuntime.installed(paths, version: "1.2.3"), "the retry installed the runtime")
+        XCTAssertTrue(until(10) { ["starting", "ready", "restarting"].contains(backend.statusValue()["state"] as? String ?? "") }, "\(backend.statusValue())")
+        // A Retry with nothing failed changes nothing.
+        let again = DispatchSemaphore(value: 0)
+        backend.retryInstall { _ in again.signal() }
+        XCTAssertEqual(again.wait(timeout: .now() + 10), .success)
+    }
+}
+
 final class LocalPolicyTests: XCTestCase {
     func testADevelopmentBuildWithoutItsVariablesIsRefused() {
         let home = scratch("home").path

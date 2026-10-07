@@ -4,19 +4,20 @@
 // scratch home, and fails on anything that would tie the app to the machine that built it:
 //
 //   bun examples/t3-code/audit-bundle.mjs <T3 Code (Exact).app> [--t3-home <scratch>/.t3]
-//       [--forbid <path>]… [--allowlist <file>] [--json <report.json>]
+//       [--forbid <path>]… [--build-root <path>]… [--allowlist <file>] [--json <report.json>]
 //
 //   arch          a Mach-O file that is not exactly arm64 (`lipo -archs`)
 //   minos         a Mach-O file whose minimum macOS is above the stated minimum (`vtool -show-build`)
 //   dylib         a dependent library outside /usr/lib and /System that is not inside the bundle (`otool -L`),
 //                 or a dylib whose own install name is an absolute path
 //   rpath         an absolute LC_RPATH outside /usr/lib and /System (`otool -l`)
-//   machine-path  this machine's paths in any file: the home folder, the repository, the export folder,
-//                 ~/.bun, ~/.t3, and every --forbid (the reference checkout, the mc-orch tree). Never
+//   machine-path  this machine's paths in any file: the home folder, the repository, ~/.bun, ~/.t3, the
+//                 temporary folder, and every --forbid (the reference checkout, the mc-orch tree). Never
 //                 allowed, whatever the allowlist says
 //   build-path    a path shaped like a build machine's (/Users/, /private/var/folders, /opt/homebrew,
-//                 /Volumes/, /.bun/, DerivedData): a finding unless bundle-allowlist.json lists it with
-//                 its reason (the release runtime's own bytes carry its CI machine's and its libraries')
+//                 /Volumes/, /.bun/, DerivedData) or under a --build-root (package-app.mjs's fixed export
+//                 folder): a finding unless bundle-allowlist.json lists it with its reason (the release
+//                 runtime's own bytes carry its CI machine's and its libraries' paths)
 //   dev-file      a leftover development file (source maps, app.contract.d.ts, UI-PARITY-TODO.tmp.md,
 //                 tests and fixtures, .git, .DS_Store)
 //   unexpected    a bundle file that no `files` pattern of the allowlist covers (the file-list diff)
@@ -31,8 +32,8 @@
 //
 // Exit 0 with no findings, 1 with any. Reads only the paths it is given (and runs Xcode's tools).
 import { spawnSync } from 'node:child_process';
-import { existsSync, lstatSync, readFileSync, readdirSync, readlinkSync, realpathSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isMachO, sha256File } from './stage-runtime.mjs';
@@ -43,9 +44,9 @@ export const defaultAllowlist = join(here, 'bundle-allowlist.json');
 /** The generic shapes of a build machine's paths (allowlistable with a reason). */
 export const BUILD_PATTERNS = ['/Users/', '/private/var/folders', '/var/folders/', '/opt/homebrew', '/Volumes/', '/.bun/', '/.bun-', 'DerivedData'];
 
-/** This machine's own paths: the home folder, this checkout, ~/.bun, ~/.t3, plus `extra` (each also as its real path). */
-export function machinePaths(extra = [], { home = homedir(), repo = resolve(here, '../..') } = {}) {
-  const paths = [home, repo, join(home, '.bun'), join(home, '.t3'), ...extra].filter(Boolean).map(path => resolve(path));
+/** This machine's own paths: the home folder, this checkout, ~/.bun, ~/.t3, its temporary folder, plus `extra` (each also as its real path). */
+export function machinePaths(extra = [], { home = homedir(), repo = resolve(here, '../..'), temporary = tmpdir() } = {}) {
+  const paths = [home, repo, join(home, '.bun'), join(home, '.t3'), temporary, ...extra].filter(Boolean).map(path => resolve(path));
   const real = paths.flatMap(path => { try { return [realpathSync(path)]; } catch { return []; } });
   // Longest first, so a hit is named by the most specific path; never the bare root.
   return [...new Set([...paths, ...real])].filter(path => path.length > 1).sort((a, b) => b.length - a.length);
@@ -101,13 +102,20 @@ export function versionAbove(version, minimum) {
 export function machOFacts(path) {
   const archs = run('lipo', ['-archs', path]).stdout.trim().split(/\s+/).filter(Boolean);
   const minos = [...run('vtool', ['-show-build', path]).stdout.matchAll(/^\s*minos\s+(\S+)/gm)].map(match => match[1]);
+  // otool reads `name(member)` as an archive member, so "T3 Code (Exact)" is read through a plain link.
+  let link = null;
+  if (/[()]/.test(path)) { link = join(mkdtempSync(join(tmpdir(), 'audit-otool-')), 'macho'); symlinkSync(path, link); }
+  try { return { archs, minos, ...otoolFacts(link ?? path) }; } finally { if (link) rmSync(dirname(link), { recursive: true, force: true }); }
+}
+
+function otoolFacts(path) {
   const loads = run('otool', ['-l', path]).stdout;
   // `otool -L` lists a dylib's own install name first; only what it loads counts.
   const id = /cmd LC_ID_DYLIB\n\s+cmdsize \d+\n\s+name (.+?) \(offset/.exec(loads)?.[1] ?? null;
   const listed = run('otool', ['-L', path]).stdout.split('\n').slice(1).map(line => /^\s+(\S.*?) \(compatibility/.exec(line)?.[1]).filter(Boolean);
   const libraries = id && listed[0] === id ? listed.slice(1) : listed;
   const rpaths = [...loads.matchAll(/cmd LC_RPATH\n\s+cmdsize \d+\n\s+path (.+?) \(offset/g)].map(match => match[1]);
-  return { archs, minos, id, libraries, rpaths };
+  return { id, libraries, rpaths };
 }
 
 /** A dependency is the system's (/usr/lib, /System) or resolves to a file inside the bundle. */
@@ -141,7 +149,7 @@ function plist(path) {
 }
 
 /** Scans one tree's files for machine and build paths. */
-function scanTree(root, scope, { machine, allowlist, findings, allowed, totals }) {
+function scanTree(root, scope, { machine, build = BUILD_PATTERNS, allowlist, findings, allowed, totals }) {
   for (const entry of walk(root)) {
     if (!entry.stat.isFile()) continue;
     const buffer = readFileSync(entry.abs);
@@ -151,8 +159,10 @@ function scanTree(root, scope, { machine, allowlist, findings, allowed, totals }
       if (machine.some(path => path.length > hit.pattern.length && hit.text.startsWith(path))) continue;
       findings.push({ rule: 'machine-path', scope, file: entry.path, detail: `${hit.text} (${hit.count}×)` });
     }
-    for (const hit of scanBytes(buffer, BUILD_PATTERNS)) {
+    for (const hit of scanBytes(buffer, build)) {
       if (machine.some(path => hit.text.startsWith(path))) continue; // already a machine-path finding
+      // One hit, one finding: a /private/tmp/… export path is not also its /tmp/… tail.
+      if (build.some(pattern => pattern.length > hit.pattern.length && pattern.startsWith('/') && hit.text.startsWith(pattern))) continue;
       const by = allowedBy(allowlist, scope, entry.path, hit.text);
       if (by) allowed.push({ scope, file: entry.path, text: hit.text, count: hit.count, reason: by.reason });
       else findings.push({ rule: 'build-path', scope, file: entry.path, detail: `${hit.text} (${hit.count}×)` });
@@ -180,8 +190,12 @@ function checkMachO(file, rel, scope, { bundle, minimumOS, findings, totals }) {
   return facts;
 }
 
-export function audit(app, { t3Home = null, forbid = [], allowlistPath = defaultAllowlist, machine = machinePaths(forbid) } = {}) {
+export function audit(app, { t3Home = null, forbid = [], buildRoots = [], allowlistPath = defaultAllowlist, machine = machinePaths(forbid) } = {}) {
   const bundle = resolve(app), findings = [], allowed = [], totals = { files: 0, bytes: 0, machO: 0, runtimeFiles: 0 };
+  // A build folder outside this machine's own paths (package-app.mjs's fixed export) is a build path:
+  // a finding unless the allowlist names it, as /Users/ and the rest are.
+  const roots = buildRoots.flatMap(path => { const out = [resolve(path)]; try { out.push(realpathSync(path)); } catch {} return out; });
+  const build = [...new Set([...roots.sort((a, b) => b.length - a.length), ...BUILD_PATTERNS])];
   const allowlist = readAllowlist(allowlistPath);
   const minimumOS = allowlist.minimumOS;
   const facts = { bundle, minimumOS, findings, totals };
@@ -196,7 +210,7 @@ export function audit(app, { t3Home = null, forbid = [], allowlistPath = default
     if (!allowlist.files.some(pattern => new Bun.Glob(pattern).match(entry.path))) findings.push({ rule: 'unexpected', scope: 'bundle', file: entry.path, detail: 'no `files` pattern covers it' });
     if (entry.stat.isFile() && isMachO(entry.abs)) checkMachO(entry.abs, entry.path, 'bundle', facts);
   }
-  scanTree(bundle, 'bundle', { machine, allowlist, findings, allowed, totals });
+  scanTree(bundle, 'bundle', { machine, build, allowlist, findings, allowed, totals });
 
   // The app: signature, Info.plist, the packaged marker.
   const verify = run('codesign', ['--verify', '--deep', '--strict', bundle]);
@@ -258,7 +272,7 @@ export function audit(app, { t3Home = null, forbid = [], allowlistPath = default
     for (const entry of existsSync(versionDir) ? walk(versionDir) : []) {
       if (entry.path !== '.install-complete' && !expected.has(entry.path)) findings.push({ rule: 'runtime-tree', scope: 'runtime', file: entry.path, detail: 'not in the manifest' });
     }
-    if (existsSync(versionDir)) scanTree(versionDir, 'runtime', { machine, allowlist, findings, allowed, totals });
+    if (existsSync(versionDir)) scanTree(versionDir, 'runtime', { machine, build, allowlist, findings, allowed, totals });
   }
 
   return {
@@ -301,9 +315,9 @@ export function formatReport(report, redact = []) {
 if (import.meta.main) {
   const args = process.argv.slice(2);
   const take = (flag) => { const values = []; for (let i = 0; i < args.length; i++) if (args[i] === flag) values.push(args[++i]); return values; };
-  const app = args.find((arg, i) => !arg.startsWith('--') && !['--t3-home', '--forbid', '--allowlist', '--json'].includes(args[i - 1]));
-  if (!app) { console.error('usage: bun audit-bundle.mjs <App.app> [--t3-home <dir>] [--forbid <path>]… [--allowlist <file>] [--json <out>]'); process.exit(2); }
-  const report = audit(app, { t3Home: take('--t3-home')[0] ?? null, forbid: take('--forbid'), allowlistPath: take('--allowlist')[0] ?? defaultAllowlist });
+  const app = args.find((arg, i) => !arg.startsWith('--') && !['--t3-home', '--forbid', '--build-root', '--allowlist', '--json'].includes(args[i - 1]));
+  if (!app) { console.error('usage: bun audit-bundle.mjs <App.app> [--t3-home <dir>] [--forbid <path>]… [--build-root <path>]… [--allowlist <file>] [--json <out>]'); process.exit(2); }
+  const report = audit(app, { t3Home: take('--t3-home')[0] ?? null, forbid: take('--forbid'), buildRoots: take('--build-root'), allowlistPath: take('--allowlist')[0] ?? defaultAllowlist });
   console.log(formatReport(report));
   const out = take('--json')[0];
   if (out) writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`);
