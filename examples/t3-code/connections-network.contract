@@ -138,7 +138,7 @@ component NetSwitch
     button id=switchId press=toggle role="switch" aria-checked=checked aria-label=label disabled=disabled testId=switchId width="1.875rem" height="1.125rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(checked ? "flex-end" : "flex-start") flex-shrink=0 opacity=(disabled ? 0.64 : 1) background-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)")
       box width="0.875rem" height="0.875rem" border-radius="624.9375rem" background-color="light-dark(#fcfcfc, #0a0a0a)"
 
-// Button size xs (h-6 px-2 text-xs): outline, destructive-outline and default.
+// Button size xs (h-6 px-2 text-xs): outline, destructive-outline, ghost and default.
 component NetXs
   props
     label: string
@@ -148,11 +148,7 @@ component NetXs
     press: action
   view
     button press=press disabled=disabled testId=test display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.25rem" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" flex-shrink=0 opacity=(disabled ? 0.64 : 1) border-color=(tone == "default" ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") background-color=(tone == "default" ? "light-dark(#1b4ed8, #346bf1)" : tone == "ghost" ? "#00000000" : "light-dark(#ffffff, #ffffff07)") box-shadow=(tone == "ghost" or tone == "default" ? "none" : "0 1px 2px #0000000d")
-      when tone == "share"
-        NetQrGlyph(size=14, color="light-dark(#71717b, #818181)")
-      when tone == "create"
-        CnGlyph(name="plus", size=12, color="#ffffff")
-      text label font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=(tone == "destructive" ? "light-dark(#e7000b, #ff6467)" : tone == "default" or tone == "create" ? "#ffffff" : "light-dark(#27272a, #f5f5f5)")
+      text label font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=(tone == "destructive" ? "light-dark(#e7000b, #ff6467)" : tone == "default" ? "#ffffff" : "light-dark(#27272a, #f5f5f5)")
 
 // Lucide QrCodeIcon.
 component NetQrGlyph

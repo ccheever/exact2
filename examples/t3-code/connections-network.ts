@@ -315,9 +315,10 @@ export async function runNetworkOp(client: T3Client, native: Native, op: string,
   if (op === 'network-access') {
     // handleDesktopServerExposureChange: the dialog closes either way; a failure is the row's red text and a toast.
     networkUi.exposureError = '';
-    const previous = exposure.getState().mode;
+    let previous: DesktopServerExposureMode = 'local-only';
     try {
       if (live.port !== primary.status.port && primary.status.port) { await exposure.configureFromSettings({ port: primary.status.port }); live.port = primary.status.port; }
+      previous = exposure.getState().mode;
       const change = await exposure.setMode(value === 'on' ? 'network-accessible' : 'local-only');
       if (!change.requiresRelaunch) return none;
       try { return await restart(client, native); }
