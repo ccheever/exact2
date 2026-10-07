@@ -67,6 +67,8 @@ wrapper refuses to run unless that dir holds its own token, so the keyring is ne
 | recorded decision | The sandbox: `daehyeonmun2021/playground`, public, neutral playground content (user, 2026-10-07) | none | — | decided; created by the seed |
 | user action | The user signs both accounts in to the lane config dirs | none | `gh api user -q .login`: primary `daehyeonmun2021`, second `daehyeon-mun` | done 2026-10-07 |
 | merged task PR | [20261005-embedded-server-runtime](closed/20261005-embedded-server-runtime.md) | #222 | the staged release runs as the lane server | merged |
+| open task PR | adopt main's fixes, round 5 (the composer strip on a normal launch; the "native.watch outside an answer" banner) | #236 | the strip renders and the banner is gone on a normal launch; this branch carries no fix of its own | verified on a local integration of this branch with #236 at `1ae9fab49` (2026-10-08); #236 open |
+| recorded decision | The hand-off send uses the provider lane's signed-in Claude (coordinator, 2026-10-08) | none | the lane server's Claude instance gets only `HOME` and that lane's `CLAUDE_CONFIG_DIR` | decided; used once |
 
 ## Implementation notes
 
@@ -320,22 +322,92 @@ Cleanup: the app quit by its recorded pid; the lock released; the lane Keychain 
 (`com.exact.t3code.macos.access-token`, the lane origin and environment) deleted; the copy's preferences
 domain removed; the step screenshots that showed the pairing link deleted.
 
+**Why the strip did not render, and the banner (found offline, 2026-10-08).** On a normal launch the
+window's 500 ms `shellTick` advances `shellClock` while `shell.ticking` holds, and `ticking` holds while
+any request is being timed (`shell-slow.ts` `tracking`). The composer's `branches` resource takes
+`shellClock` as an argument, and its `load()` sends `vcs.refreshStatus`, which takes about 1 s against
+real GitHub. That request keeps the clock ticking, so every tick replaces the answer that is still
+waiting for it. Exact lets go of the replaced answer, which never gets its replies. The strip waits for
+that answer, so it never renders: a livelock. The agent drive freezes the clock, and the fake `gh`
+answered at once, so neither showed it.
+
+The banner comes from the same let-go. `letGoAware` (`let-go.ts`) passed a let-go answer's
+`native.watch` through. The JS prelude refused it with a plain Error, "native.watch outside an
+answer", and the refresh's catch wrote that Error into `client.error`, which shows as the banner. This
+is the cause #236 found. #236 fixes both, so this branch carries no second fix:
+- `2525124ca` and `3373f7919`: git status comes from the stream (`peekVcsStatus` and
+  `vcsStreamFollows`), not a refresh per tick, and the strip assumes Git;
+- `3e939ecaa`: the transport keeps reads shared instead of resending them on a clock;
+- `cf7b15baf`: a let-go answer's watch is refused as superseded, not surfaced.
+
+A fix written here first (the strip's status from the stream) matched #236's change, so it was reverted
+before commit.
+
+**Follow-up real-input session** (approved by the coordinator; 2026-10-08, one normal launch). The
+bundle was a local integration of this branch with #236 at `1ae9fab49`, not pushed; its tree has no
+app change of this branch's own. Two other things differed from a run of this branch alone:
+- Main's linked-SDK check, which #236 carries, reads "T3 Code (Exact)" as an archive member (#234,
+  fixed on main by #240 after #236's base). That build ran with a local workaround that was not kept.
+- The lane server's Claude instance got only `HOME` and the provider lane's `CLAUDE_CONFIG_DIR`, as
+  the coordinator decided. Its `claude` was a symlink in a lane `bin/` to the user's CLI, and
+  `~/.local/bin` was not put on PATH. The lane's own HOME, XDG_* and T3CODE_HOME stayed isolated. No
+  credential was read, printed or copied.
+
+The default model was Claude Sonnet 5.5 in Supervised mode (approval required). Each item was driven
+the same way as the first session: the copy, `orca computer` on its pid, and the shared lock taken when
+free and released after. Text went in with `set-value` (the Mac's Korean input source turns Latin keys
+into Hangul).
+
+- **Composer strip on a normal launch:** after the Pull Requests page, Back and New thread, the strip
+  shows "Current checkout" and `main`. No banner appeared.
+- **Fix hand-off:** Fix on `#111` created the `fix-text-helpers` worktree, and the draft's strip shows
+  "Current worktree", the `#111` chip and `fix/text-helpers`. The setup script ran once for the
+  draft's thread `be7abebc-7545-4819-8531-d80501804d73` (setup terminal log).
+- **Chip hover and press:** with the real pointer on the chip, the hover card showed "#111 Speed up the
+  text helpers". A real click on the chip opened `#111` in the right panel: Summary, the `bug` label,
+  "1 of 2 failing", and `gh pr checkout 111`.
+- **Hand-off send:** the app quit (the bundle's quit; quit-hold ignores a synthetic ⌘Q pair) and was
+  relaunched. The draft, its worktree and its chip were restored. The prompt was replaced with a
+  harmless one ("Reply with the single word READY. Do not use any tools and do not change any files.")
+  and sent with a real click. Claude replied "READY".
+- **Read back from the server:** the thread that ran is `be7abebc…`, the setup terminal's thread, on
+  worktree `fix-text-helpers` and branch `fix/text-helpers`. Its model is
+  `{instanceId: claudeAgent, model: claude-sonnet-5-5}`, its messages are the user prompt and the
+  assistant's "READY", and run 1 completed at 16:03:33 UTC.
+
+Evidence:
+- the new thread on a normal launch, before (this branch alone) and after (with #236):
+  ![new thread](https://raw.githubusercontent.com/ccheever/exact2/2800e07295dd7c6af1a1653a9721e8d6b806b748/real-github-lane/03-new-thread-normal-launch-before-after.png)
+- the chip, before (no strip) and after (strip, hover card, press):
+  ![chip](https://raw.githubusercontent.com/ccheever/exact2/2800e07295dd7c6af1a1653a9721e8d6b806b748/real-github-lane/04-composer-chip-before-after.png)
+- the hand-off send, before (no signed-in provider) and after (relaunch, then the reply):
+  ![send](https://raw.githubusercontent.com/ccheever/exact2/2800e07295dd7c6af1a1653a9721e8d6b806b748/real-github-lane/05-handoff-send-claude-before-after.png)
+
+Cleanup:
+- the app quit, and the lock was released;
+- the lane Keychain item, the copy's preferences and the pairing-link file were deleted;
+- the lane server stopped;
+- the integration branch and the build workaround were discarded.
+
+The provider lane's Claude login was not touched.
+
 **Not verified, with blockers:**
 
 | Item | Done instead | Blocker |
 | --- | --- | --- |
 | Pull Requests list paging past 99 rows in the UI | 99 rows of real data; the server's cursors page (probe R3/R4) | not built in the clone: "Load more pull requests" belongs to `20261005-pr-links-previews-and-routing` (Paging) |
-| Composer chip hover and press | the chip showed `#111` in the agent drive | in the normal launch the composer context strip never rendered for drafts, and a "native.watch outside an answer" banner appeared once; needs a follow-up investigation and another approved app session |
-| Hand-off: quit, relaunch and send the draft into the setup terminal's thread | the setup script runs once for the draft's thread (RPC, and in the session's worktree checkout) | sending needs a signed-in provider (the lane's Codex is unauthenticated; the coordinator will pair it with `provider-sign-in-and-install`) |
 | Workflow approval with a run to approve | the RPC decodes; nothing awaits approval | GitHub asks approval only for outside or first-time contributors' fork runs; the only other account is a collaborator |
+| The composer strip, chip and banner on this branch alone | verified on a local integration with #236 (above) | the fix is #236's; it reaches this branch when #236 merges into the feature branch |
 
 ## Progress
 
 2026-10-07: lane, seed, probe, unit fallbacks; the user signed both accounts in; the playground
 created and seeded; three probe runs; one drive and one retry; the let-go fix; records moved off the
 fake `gh`. 2026-10-08: one approved real-input session (number menus, checkout dialog verified; the
-composer chip not reached). The repository, its fork and both lane logins stay in place for the later pull request
-tasks.
+composer chip not reached). 2026-10-08, later: the strip's livelock and the banner traced to causes
+#236 fixes (recorded as fixed by #236, no second fix); a second approved session on a local integration
+with #236 verified the strip, the chip's hover card and press, and the hand-off send on Claude. The
+repository, its fork and both lane logins stay in place for the later pull request tasks.
 
 ## Attempts and evidence
 
@@ -344,10 +416,10 @@ tasks.
 | 1 (pre-login) | `cee18d42d` | `lane.test.ts` 11/0, `pr-profiles-injection.test.ts` 11/0; lane server smoke without a login (wrapper refused, nothing sent) | this record | the user's login |
 | 2 (after login) | `e2dcb007d` | seed ×5, probe ×3, drive ×2, RPC re-checks; checks in the PR body | Results above, before/after image | the rows in "Not verified" |
 | 3 (real input) | `e2dcb007d` bundle copy | one normal launch with real input: Pull Requests page, both number menus, the checkout dialog | session image | the composer chip, Load more |
+| 4 (real input, with #236) | this branch at `7150ca328` merged locally with #236 at `1ae9fab49` (not pushed) | one normal launch: strip, no banner, Fix hand-off, chip hover card and press, quit and relaunch, send on Claude ("READY"), thread read back | images 03, 04, 05 | Load more, workflow approval; #236 to merge |
 
 ## Next action
 
-Review. Follow-ups: why the composer context strip does not render for drafts on a normal launch
-(and the "native.watch outside an answer" banner); "Load more" with `pr-links-previews-and-routing`;
-the hand-off send once a provider is signed in. The repository, its fork and both lane logins stay
-in place.
+Review. The strip and banner fixes arrive with #236; "Load more" stays with
+`pr-links-previews-and-routing`; workflow approval needs an outside contributor's fork run. The
+repository, its fork and both lane logins stay in place.

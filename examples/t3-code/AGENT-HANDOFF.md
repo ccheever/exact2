@@ -108,8 +108,16 @@ project scripts from settings. Re-run `bun seed.mjs` after a drive that merged o
 pull request. Probe results and the drive: task `20261007-real-github-lane`. A normal launch for
 real input: copy the bundle with its own bundle id, launch it by path with `CFFIXED_USER_HOME` in the
 lane dir, click by window coordinates (the AX press only hovers Exact's buttons) and send single keys
-(`orca type-text` doubles text in Exact fields); delete the copy's Keychain item
+(`orca type-text` doubles text in Exact fields; this Mac's Korean input source turns Latin keys into
+Hangul, so put text in with `set-value`); delete the copy's Keychain item
 (`com.exact.t3code.macos.access-token`, account `<origin>\n<environment id>`) and preferences after.
+The agent drive freezes the window clock, so a resource that takes `shellClock` and sends a read slower
+than a tick livelocks only on a normal launch: each tick lets go of the answer still waiting. The
+composer strip did this on real GitHub until #236. To send a message from a lane server, give its Claude
+instance (`server.updateSettings` `providerInstanceMutation`, `environment`) only `HOME` and the
+provider lane's `CLAUDE_CONFIG_DIR`. Its Keychain item is derived from that path, so the CLI needs the
+real HOME. Symlink `~/.local/bin/claude` into a lane `bin/`, and keep `~/.local/bin` off PATH (its
+`codex` is a wrapper). Never log that login out, and never read or print its credentials.
 
 ## Interface font size
 
@@ -415,7 +423,7 @@ Recipe (one session, one lane copy; the tools are in `lanes/r9-input/tools` and
 | 2 | Code-line wrap break positions (fixed by exact2 #208, 2026-10-07); word-boundary truncation (sweep's settled rows "fixture…"); agent mode stores a 1970 onboarding time (virtual clock); dialog and popover shadows faint or missing; tooltip offsets; Send tooltip shifted; PR pending labels; flipped hover card overhang; open-state tint; AVKit chrome; `text-wrap: balance`; placeholder colour; opaque composer; textarea sizing; heavier text (pill crops 3.9 / 7.2); no cursor property; WebKit's default form controls in rendered HTML | framework |
 | 3 | R1–R11 above: chords under Korean 2-Set outside the composer, the re-hover after a real ⌘Z, select-on-open and real-key debounce timing, ⌘B after a click and while composing, the first click after composing, a real wheel then a thread switch, Connections with real pairings and a relaunch, Duo pinch / orbit / flick, the sweep with a real drag, the draft row's right-click menu, the 3D phone's cold first open; ⌘1 (Raycast); IME marked text; ⌘Q hold; drags; physical keys into a device screen; Files editor caret after a press below the last line | physical-input |
 | 4 | Open in editor (no `cursor` CLI); notifications; SnapShot capture; Save screenshot's NSSavePanel | os-grant |
-| 5 | Live on real GitHub since 2026-10-07 (real-github-lane): the row's merge (sheet, toast, merged on GitHub), ready, checks popover, Fix hand-off into a worktree, linked PR snapshots, Local PR checkout (`gh pr checkout`, by RPC). Since 2026-10-08 (one real-input session): the Pull Requests page with real data, both number menus (real right-click, Copy link read back) and the checkout dialog (select-on-open with real keys, resolve, Worktree). Still owed: "Load more" past 99 rows (not built; pr-links-previews-and-routing), the composer chip (its strip did not render for drafts on a normal launch; a "native.watch outside an answer" banner appeared once), publish and PR creation | live drive |
+| 5 | Live on real GitHub since 2026-10-07 (real-github-lane): the row's merge (sheet, toast, merged on GitHub), ready, checks popover, Fix hand-off into a worktree, linked PR snapshots, Local PR checkout (`gh pr checkout`, by RPC). Since 2026-10-08 (one real-input session): the Pull Requests page with real data, both number menus (real right-click, Copy link read back) and the checkout dialog (select-on-open with real keys, resolve, Worktree). Since 2026-10-08 (a second session, on a local integration with #236): the composer strip on a normal launch, the chip's hover card and press, and the Fix hand-off sent on Claude into the setup terminal's thread after a relaunch. The strip's livelock and the "native.watch outside an answer" banner are fixed by #236. Still owed: "Load more" past 99 rows (not built; pr-links-previews-and-routing), publish and PR creation | live drive |
 | 6 | A real device hub (serve-sim iPhone Duo with physical orientation, serve-emu foldable); a live setup-script run for the PR checkout's Worktree thread id; the reference's own Resolve/Fix press; subagents; terminal/element/review chips; provider update pill tooltips; Usage share by metric on real usage data (unit tests only) | fixture-cannot-produce |
 
 ## Lane tooling (`target/t3-ui-parity/`, ignored apparatus)
