@@ -1,7 +1,7 @@
 ---
 name: 20261005-provider-settings-upkeep
 plan: 20261005-t3code-macos-parity
-implementation: blocked
+implementation: planned
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
@@ -28,6 +28,11 @@ Included (missing or partial; sources in "Context"):
 5. **ACP icons:** drop `registryIconUrl` and the agent-id URL into every instance icon (9 `DriverMark` sites in 5 Contract files; `registryIconUrl` is saved at `providers.ts:459` but never drawn).
 
 Excluded: sign-in and install (`20261005-provider-sign-in-and-install`), Codex managed flow (`20261005-managed-codex-chatgpt`), the WSL per-environment update rows (`ProviderUpdateEnvironmentRows`, `ProviderUpdateLaunchNotification.environments.ts`), the sidebar update pill (done: `sidebar-provider-pill.ts`; its reference tests are mapped by `20261005-reference-logic-tests-done-areas`), email redaction (`20261005-provider-sign-in-and-install`), the ChatGPT account instance id and the Add ChatGPT account dialog (`20261005-managed-codex-chatgpt`).
+
+PR #238 handoff (2026-10-08): the reference
+`ProviderSettingsPanel.environment.test.tsx:584` URL-auth action case was excluded from
+provider-sign-in-and-install. It remains owned here by the URL auth acceptance row below;
+see [verification follow-up](20261008-provider-sign-in-verification-followup.md).
 
 ## Context and guidance
 
@@ -91,7 +96,7 @@ Required environment: Xcode 27.0, pinned Bun and Hermes, oracle build, isolated 
 
 ## Progress
 
-2026-10-06: on hold (user decision). Tasks that need a sign-in (GitHub, provider accounts, T3 Connect) do not start until the user lifts the hold.
+2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold. Rows that need a real account are signed in by the user in person on the lane build; every other sign-in row uses lane fixtures.
 
 Planned. No branch.
 
@@ -103,4 +108,4 @@ Planned. No branch.
 
 ## Next action
 
-Starts when the user lifts the sign-in hold: `prepare` from `feat(example)/t3-code`, covering sign-in rows with lane fixtures (fake provider, seeded data).
+`prepare` from `feat(example)/t3-code` once the prerequisite task PRs above have merged into it; sign-in rows use lane fixtures, and real-account rows wait for the user to sign in.

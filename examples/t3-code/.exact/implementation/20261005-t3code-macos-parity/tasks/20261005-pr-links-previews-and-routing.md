@@ -1,7 +1,7 @@
 ---
 name: 20261005-pr-links-previews-and-routing
 plan: 20261005-t3code-macos-parity
-implementation: blocked
+implementation: planned
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
@@ -102,7 +102,7 @@ Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, two lane backends, th
 
 ## Progress
 
-2026-10-06: on hold (user decision). Tasks that need a sign-in (GitHub, provider accounts, T3 Connect) do not start until the user lifts the hold.
+2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold. Rows that need a real account are signed in by the user in person on the lane build; every other sign-in row uses lane fixtures.
 
 Planned. No branch.
 

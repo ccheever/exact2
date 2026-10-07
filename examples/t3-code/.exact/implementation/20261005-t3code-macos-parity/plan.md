@@ -16,6 +16,14 @@ last missing-route UI fixture. Implementation commit: `762f501cb`.
 The PR remains unmerged. Feature acceptance does not close the parent's separate
 generic oracle/trace infrastructure or full T0 matrix.
 
+## Provider sign-in follow-ups, 2026-10-08
+
+PR #238's unverified rows and deferred decisions are preserved in
+[provider sign-in verification follow-up](tasks/20261008-provider-sign-in-verification-followup.md).
+The remaining app-wide focus finding is [dialog shortcut focus](tasks/20261008-dialog-shortcut-focus.md).
+These stay separate from merging the provider implementation; existing ownership of URL auth
+(provider-settings-upkeep) and progress accessibility (X49) is unchanged.
+
 ## Knowledge snapshot
 
 Library revision: `20261005-platforms-v3` (platforms, performance, testing-and-debugging
@@ -58,9 +66,11 @@ these user decisions have changed the tickets:
   prerequisites under "Implementation order".
 - `reference-logic-tests-done-areas` (the user closed #151 as unnecessary) and
   `reference-logic-test-ports` are dropped (2026-10-06).
-- The tasks that need a sign-in are on hold until the user lifts it (2026-10-06):
-  `provider-sign-in-and-install`, `managed-codex-chatgpt`, `provider-settings-upkeep`,
-  `usage-reset-and-feedback`, `usage-pooled-view` and the six pull request tasks.
+- The tasks that need a sign-in were on hold from 2026-10-06 until the user lifted the hold on
+  2026-10-07: `provider-sign-in-and-install` (started first), `managed-codex-chatgpt`,
+  `provider-settings-upkeep`, `usage-reset-and-feedback`, `usage-pooled-view` and
+  the six pull request tasks. The user signs in to real accounts in
+  person on the lane build; every other sign-in row uses lane fixtures.
 - Real GitHub replaces the fake `gh` (2026-10-07: "The work that used a fake GitHub now connects
   to the real GitHub"; the user signs in personally, with a second account too).
   `fake-github-fixture` is blocked as superseded; `real-github-lane` builds the lane (isolated

@@ -8,6 +8,7 @@ use ProjectMark from "./icons.contract"
 use ShellView from "./shell-shapes.contract"
 use ShellIcon from "./shell-icons.contract"
 use TipBubble from "./shell-tip.contract"
+use ProviderSetupLink from "./providers-setup.contract"
 
 // ChatHeader + PanelLayoutControls: the project crumb is a button that opens
 // a new draft in its project; a server thread's title opens the thread action
@@ -99,18 +100,23 @@ component AlertStack
     busy: bool
     dismissProvider: action
     command: action
+    openSetup: action
   view
     // r6-polish: hooked and clipped to its banners' span, so the side gutters leave presses to the transcript (r6-polish-measure.ts alertClip).
     column position="absolute" top="3.25rem" left=0 right=0 align-items="center" z-index=10 pointer-events="none" hatch="t3-anchor" data-anchor="alerts" clip-path=data.alertClip
       when data.providerBannerKey != "" and data.providerBannerKey != dismissed
         column max-width="calc(100% - 32px)" padding-top="0.75rem" pointer-events="auto" hatch="t3-anchor" data-anchor="alert:provider"
-          row padding-left="0.875rem" padding-right="0.875rem" padding-top="0.75rem" padding-bottom="0.75rem" box-sizing="border-box" gap="0.5rem" align-items="flex-start" border-radius="0.875rem" border-style="solid" border-width=1 border-color=(data.providerBannerWarning ? "light-dark(#fe9a0052, #fe9a0052)" : "light-dark(#fb2c3652, #fb414a52)") background-color=(data.providerBannerWarning ? "light-dark(#fcf8f2, #14100a)" : "light-dark(#fcf4f4, #140c0d)") testId="provider-status-banner" role=(data.providerBannerWarning ? "status" : "alert")
+          row padding-left="0.875rem" padding-right="0.875rem" padding-top="0.75rem" padding-bottom="0.75rem" box-sizing="border-box" gap="0.5rem" align-items="flex-start" border-radius="0.875rem" border-style="solid" border-width=1 border-color=(data.providerBannerWarning ? "light-dark(#fe9a0052, #fe9a0052)" : "light-dark(#fb2c3652, #fb414a52)") background-color=(data.providerBannerWarning ? "light-dark(#fcf8f2, #14100a)" : "light-dark(#fcf4f4, #140c0d)") testId="provider-status-banner" role=(data.providerBannerAlert ? "alert" : "status")
             row width="1rem" height="1.25rem" margin-top="0.125rem" align-items="center" justify-content="center" flex-shrink=0
               Icon(name="info", size=16, color=(data.providerBannerWarning ? "#fe9a00" : "light-dark(#fb2c36, #fb414a)"))
             column flex-shrink=1 min-width=0 gap="0.125rem" padding-top="0.125rem"
               text data.providerBannerTitle font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(data.providerBannerWarning ? "light-dark(#bb4d00, #ffb900)" : "light-dark(#c10007, #ff6467)")
-              text data.providerBannerMessage font-size="0.875rem" line-height="1.25rem" line-clamp=3 color=(data.providerBannerWarning ? "light-dark(#bb4d00cc, #ffb900cc)" : "light-dark(#c10007cc, #ff6467cc)")
-            button press=dismissProvider width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Dismiss provider warning" testId="dismiss-provider-warning"
+              // AlertDescription (flex column, gap 2.5): the message, then ProviderStatusBanner's InlineButton when the provider has in-app setup.
+              column gap="0.625rem" align-items="flex-start"
+                text data.providerBannerMessage font-size="0.875rem" line-height="1.25rem" line-clamp=3 color=(data.providerBannerWarning ? "light-dark(#bb4d00cc, #ffb900cc)" : "light-dark(#c10007cc, #ff6467cc)")
+                when data.providerBannerSetup != ""
+                  ProviderSetupLink(label="Open provider setup", fontSize="0.875rem", lineHeight="1.25rem", testId="provider-banner-setup", press=openSetup(data.providerBannerSetup))
+            button press=dismissProvider width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label=data.providerBannerDismiss testId="dismiss-provider-warning"
               Icon(name="x", size=14, color="light-dark(#71717b, #818181)")
       when data.error != ""
         column max-width="calc(100% - 32px)" padding-top="0.75rem" pointer-events="auto" hatch="t3-anchor" data-anchor="alert:error"
