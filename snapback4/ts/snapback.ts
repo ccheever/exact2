@@ -32,8 +32,10 @@ export type Write =
   | { id: string; state: 'failed'; why: Refusal };
 
 /** A write the server refused, kept in the partition until dismissed: what
- * it was (`op`, `args`, so its input is not lost), why, and when written. */
-export interface Refused { id: string; op: string; args: Json; why: Refusal; at: number }
+ * it was (`op`, `args`, so its input is not lost), why, and when written.
+ * A refusal too large to store (over 8 MiB once encoded) keeps all but its
+ * `args`, which are then null and `argsOmitted` is true. */
+export interface Refused { id: string; op: string; args: Json; argsOmitted?: boolean; why: Refusal; at: number }
 
 /** What became of a write. `result` is the server's, while remembered. */
 export interface Outcome { id: string; state: 'pending' | 'sent' | 'failed' | 'unknown'; seq?: number; result?: Json; why?: Refusal }

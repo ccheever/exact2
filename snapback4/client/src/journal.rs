@@ -46,23 +46,36 @@ pub(crate) fn segment(kept: &Json) -> Vec<Json> {
         .unwrap_or_default()
 }
 
-/// Whether `entry` still fits in a segment holding `list`.
-pub(crate) fn fits(list: &[Json], entry: &Json) -> bool {
-    let bytes: usize = list.iter().map(|item| item.to_string().len() + 1).sum();
-    list.len() < SEGMENT_ENTRIES && bytes + entry.to_string().len() < SEGMENT_BYTES
+/// What a value costs where a host stores it: its JSON text, escaped again
+/// as a string inside the host's own change (the web's commit parameter).
+pub(crate) fn encoded(value: &Json) -> usize {
+    Json::String(value.to_string()).to_string().len()
 }
 
-/// The most one refusal may take in a segment of its own, under the web's
-/// 16 MiB statement bound with room for the segment's own JSON.
-const ENTRY_BYTES: usize = 15 << 20;
+/// Whether `entry` still fits in a segment holding `list`.
+pub(crate) fn fits(list: &[Json], entry: &Json) -> bool {
+    let bytes: usize = list.iter().map(|item| encoded(item) + 1).sum();
+    list.len() < SEGMENT_ENTRIES && bytes + encoded(entry) < SEGMENT_BYTES
+}
+
+/// The most one refusal may cost ([`encoded`]) in a segment of its own: half
+/// the web's 16 MiB statement bound, so a host's own wrapping still fits.
+const ENTRY_BYTES: usize = 8 << 20;
 
 /// A refusal as journaled: whole, or — past [`ENTRY_BYTES`] — without its
-/// `args` (`argsOmitted` says so), so one oversized input never stops the
+/// `args` (`argsOmitted` says so) and, if still too large, with only the
+/// refusal's code and family, so one oversized refusal never stops the
 /// journal from saving. Its `input` digest still names what it carried.
 pub(crate) fn stored(mut refused: Json) -> Json {
-    if refused.to_string().len() > ENTRY_BYTES {
+    if encoded(&refused) > ENTRY_BYTES {
         refused["args"] = Json::Null;
         refused["argsOmitted"] = json!(true);
+    }
+    if encoded(&refused) > ENTRY_BYTES {
+        let why = &refused["why"];
+        refused["why"] = json!({"code": why["code"].as_str().filter(|c| c.len() <= 64).unwrap_or("E_REFUSED"),
+            "family": why["family"].as_str().filter(|f| f.len() <= 64).unwrap_or("input"),
+            "message": "the server's refusal was too large to keep"});
     }
     refused
 }
@@ -75,11 +88,19 @@ mod tests {
     fn a_refusal_too_large_to_store_keeps_all_but_its_args() {
         let small = json!({"id": "a", "args": {"body": "hi"}, "input": "D"});
         assert_eq!(stored(small.clone()), small);
-        let large =
-            stored(json!({"id": "b", "args": {"body": "x".repeat(ENTRY_BYTES)}, "input": "D"}));
+        // Escapes count twice: 5 MiB of backslashes costs 20 once stored.
+        let large = stored(
+            json!({"id": "b", "args": {"body": "\\".repeat(5 << 20)}, "input": "D", "why": {"code": "TAKEN"}}),
+        );
         assert_eq!(large["args"], Json::Null);
         assert_eq!(large["argsOmitted"], true);
         assert_eq!(large["input"], "D");
+        assert_eq!(large["why"]["code"], "TAKEN");
+        let why = stored(
+            json!({"id": "c", "args": {}, "why": {"code": "TAKEN", "message": "\\".repeat(5 << 20)}}),
+        );
+        assert_eq!(why["why"]["code"], "TAKEN");
+        assert!(encoded(&why) < ENTRY_BYTES);
         assert!(!fits(&[], &json!({"body": "x".repeat(SEGMENT_BYTES)})));
     }
 }
