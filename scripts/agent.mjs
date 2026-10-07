@@ -276,9 +276,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
       await evaluate(`fetch('/__plan').then((r) => r.arrayBuffer()).then((b) => { ${carry} return exact.reload(new Uint8Array(b), true); })`);
     }
     const frame = () => waitAtMost(evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(true))))'), 250);
-    // The one contact this carrier may hold (LLP 1035.003 D1), and whether
-    // Chrome's touch emulation is on — switched on by the first contact.
-    let touch = false;
+    // The one contact this carrier may hold (LLP 1035.003 D1).
     let contact = null;
     const ask = async (req) => {
       // The existing resize input uses Chrome's real viewport and resize event.
@@ -310,8 +308,6 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
         else if (contact) await call('Input.dispatchTouchEvent', {type:'touchCancel', touchPoints:[]});
         await frame();
         contact = null;
-        if (touch) await call('Emulation.setTouchEmulationEnabled', {enabled:false});
-        touch = false;
         await evaluate('sessionStorage.clear()');
         if (!keep) await call('Storage.clearDataForOrigin', {origin:page.origin, storageTypes:'all'});
         const destination = withFaults(keep ? await evaluate('location.href') : page.href, failFetch);
@@ -378,21 +374,21 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
         if (kind === 'mouse' && !await evaluate(`exact.views.get(${id})?.localName === 'canvas' || !!exact.views.get(${id})?.querySelector('canvas')`)) throw new Error('mouse requires a canvas target');
         if (kind === 'down' || kind === 'move' || kind === 'hold' || kind === 'up' || kind === 'cancel') {
           // A held contact (LLP 1035.003 D1) is a finger here: CDP touch
-          // events under touch emulation, enabled the first time a contact
-          // is used. Chrome recognizes, scrolls and flings from them exactly
+          // events. Chrome recognizes, scrolls and flings from them exactly
           // as it would from a hand; a timed move is delivered as steps on
           // real time so its velocity is real too. Each event carries the
           // contact's own timestamp (LLP 1057 §10.6): a lift follows the last
           // move by one frame, as a finger's does, however long the driver
           // takes between ops; `tap hold <ms>` is how a pause is said.
-          // `mouse` (a drag's, files diary F10): the left button instead, with
-          // touch emulation off, so the page's pointer is `fine` and a
+          // `mouse` (a drag's, files diary F10): the left button instead, so a
           // desktop path is what runs — and nothing scrolls by the contact.
           const mouse = kind === 'down' ? !!opts.mouse : !!contact?.mouse;
           // The modifiers held through the contact (#107): its down's, until a move or an up names others.
           const held = kind === 'down' || opts.modifiers !== undefined ? modifiers : contact?.modifiers ?? 0;
-          if (mouse && touch) { await call('Emulation.setTouchEmulationEnabled', { enabled: false }); touch = false; await frame(); }
-          if (!mouse && !touch) { await call('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 2 }); touch = true; }
+          // A finger is injected as touch input without Chrome's touch emulation, which would flip
+          // the page's `(pointer)` to coarse and `(hover)` to none for the rest of the drive: a
+          // simulated finger does not change the device (Charlie, 2026-10-07; a real touch device,
+          // `--touch platform` or iOS, stays coarse).
           const button = (type, at, t, buttons) => call('Input.dispatchMouseEvent', { type, x: at.x, y: at.y, button: 'left', buttons, clickCount: type === 'mouseMoved' ? 0 : 1, timestamp: t, modifiers: held });
           const finger = (type, touchPoints, timestamp) => call('Input.dispatchTouchEvent', { type, touchPoints, timestamp, modifiers: held });
           if (kind === 'down') {
@@ -435,7 +431,6 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
           return { phase: kind, at, delivery: 'platform' };
         }
         if (kind === 'pinch') { // two fingers spread from d to d·scale about the middle (LLP 1057.001 §5)
-          if (!touch) { await call('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 2 }); touch = true; }
           const [cx, cy] = opts.at ? [r.x + opts.at[0], r.y + opts.at[1]] : [x, y], d = Math.max(8, Math.min(r.w, r.h) * 0.3), fingers = (k) => [0, 1].map((i) => ({ x: cx + (i ? 1 : -1) * d * k / 2, y: cy, id: i }));
           await call('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: fingers(1) });
           for (let i = 1; i <= 8; i++) { await call('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: fingers(1 + (opts.pinch - 1) * i / 8) }); await sleep(16); }
@@ -472,7 +467,6 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
         else if (kind === 'press' && await evaluate(`(() => { const hit = document.elementFromPoint(${x}, ${y}), host = hit?.closest('[data-gpu-input]'), el = ${id == null ? 'null' : `exact.views.get(${id})`}; return !!host && (hit === host || hit.localName === 'canvas') && (!el || el === host || el.contains(host) || host.contains(el)); })()`)) {
           // A tap on a world's canvas is a finger, as a held contact is here and
           // every tap is on iOS and Linux, so a proof leaves one world everywhere.
-          if (!touch) { await call('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 2 }); touch = true; }
           await call('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
           await call('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
         }

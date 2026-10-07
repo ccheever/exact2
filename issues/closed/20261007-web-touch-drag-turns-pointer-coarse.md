@@ -1,6 +1,7 @@
 # Conformance: a web finger drag turns the page's pointer coarse; Linux stays fine
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The web agent injects a finger without Chrome's touch emulation, so the page's (pointer) and (hover) stay the device's (Charlie, 2026-10-07); interaction-gallery's Linux reference is 6 / 6 equal, JS vs wasm 18 / 18.
 **Systems:** scripts/agent.mjs, host/linux, host/web-js/conform.mjs
 **Author:** Claude (Opus 5.5), split from 20261007-conformance-video-player-plays-in-real-time
 **Date:** 2026-10-07
