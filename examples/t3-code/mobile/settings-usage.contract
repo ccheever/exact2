@@ -1,0 +1,284 @@
+// @ref llp/1106.002-design-system-parity.spec.md#typography-and-font-assets
+use SettingsColors, SettingsTextRoles, SettingsSectionLabel from "./settings.contract"
+shape UsageEnvironment
+  id: string
+  label: string
+  status: string
+  connected: bool
+shape UsageNotice
+  id: string
+  text: string
+shape UsageLink
+  label: string
+  url: string
+  accounts: string
+  message: string
+  disabled: bool
+shape UsageCursor
+  id: string
+  label: string
+  disabled: bool
+shape UsageColumn
+  key: string
+  label: string
+  present: bool
+  remaining: number
+  email: string
+shape UsageReset
+  key: string
+  text: string
+shape UsagePoolWindow
+  id: string
+  windowId: string
+  kind: string
+  label: string
+  remaining: number
+  pace: string
+  columns: list<UsageColumn>
+  resets: list<UsageReset>
+shape UsagePool
+  id: string
+  label: string
+  light: string
+  dark: string
+  windows: list<UsagePoolWindow>
+shape UsageBand
+  id: string
+  light: string
+  dark: string
+  height: number
+  value: string
+shape UsageBar
+  id: string
+  label: string
+  showLabel: bool
+  bands: list<UsageBand>
+shape UsageProvider
+  id: string
+  label: string
+  light: string
+  dark: string
+  value: string
+  share: string
+  detail: string
+shape UsageValue
+  id: string
+  label: string
+  value: string
+shape UsageModel
+  id: string
+  label: string
+  provider: string
+  value: string
+  detail: string
+  unpriced: string
+shape MobileUsageData
+  ready: bool
+  error: string
+  tab: string
+  metric: string
+  hasUsage: bool
+  emptyMessage: string
+  environments: list<UsageEnvironment>
+  notices: list<UsageNotice>
+  duplicateMessage: string
+  links: list<UsageLink>
+  cursor: list<UsageCursor>
+  pools: list<UsagePool>
+  limitsEmpty: string
+  total: string
+  chartTitle: string
+  chart: list<UsageBar>
+  providers: list<UsageProvider>
+  totals: list<UsageValue>
+  costs: list<UsageValue>
+  models: list<UsageModel>
+shape MobileUsageAccountData
+  present: bool
+  error: string
+  key: string
+  label: string
+  email: string
+  hasEmail: bool
+  revealed: bool
+  plan: string
+  windowLabel: string
+  remaining: string
+  resets: string
+  restores: string
+  source: string
+  credits: string
+  canRedeem: bool
+  environmentId: string
+  light: string
+  dark: string
+component SettingsUsage
+  props
+    data: MobileUsageData
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    danger: string
+    bottom: number
+    dark: bool
+    days: number
+    local: action
+    command: action
+    account: action
+  view
+    scroll flex=1 min-height=0 background-color=colors.sheet id="settings-usage-scroll"
+      column padding-left=17.5 padding-right=17.5 padding-top=14 padding-bottom=bottom gap=17.5 font-family="DM Sans"
+        row padding=2 border-radius=7 background-color=colors.subtle
+          button press=local("tab", "limits") flex=1 min-height=32 border-radius=6 background-color=(data.tab == "limits" ? colors.grouped : "transparent")
+            text "Limits" color=colors.foreground font-size=roles.footnote.size
+          button press=local("tab", "usage") flex=1 min-height=32 border-radius=6 background-color=(data.tab == "usage" ? colors.grouped : "transparent")
+            text "Usage" color=colors.foreground font-size=roles.footnote.size
+        when length(data.error) > 0
+          text data.error color=danger role="alert" font-size=roles.footnote.size
+        each environment in data.environments key=environment.id
+          when length(environment.status) > 0
+            text `${environment.label}: ${environment.status}` color=colors.muted font-size=roles.footnote.size
+        each notice in data.notices key=notice.id
+          text notice.text color=colors.muted font-size=roles.footnote.size
+        each link in data.links key=link.url
+          column padding=14 gap=7 border-radius=24 background-color=colors.grouped
+            button press=command("open-link", "", link.url) disabled=link.disabled min-height=44
+              row align-items="center" gap=10.5
+                text link.label flex=1 text-align="left" color=colors.link font-size=roles.body.size
+                t3-symbol symbol-name="arrow.up.right" point-size=16 symbol-tint=colors.link width=16 height=16
+            text link.accounts color=colors.muted font-size=roles.footnote.size
+            when length(link.message) > 0
+              text link.message color=colors.muted font-size=roles.footnote.size
+        each cursor in data.cursor key=cursor.id
+          column padding=14 gap=7 border-radius=24 background-color=colors.grouped
+            text `Cursor account usage · ${cursor.label}` color=colors.foreground font-size=roles.body.size
+            text "Allow access to Cursor's login in macOS Keychain on this environment to read account usage." color=colors.muted font-size=roles.footnote.size
+            button press=command("enable-cursor", cursor.id, "") disabled=cursor.disabled min-height=44
+              text "Enable" color=colors.link font-size=roles.body.size
+        when length(data.emptyMessage) > 0
+          text data.emptyMessage padding-top=56 padding-bottom=56 text-align="center" color=colors.muted font-size=roles.body.size
+        when data.tab == "limits"
+          when length(data.limitsEmpty) > 0
+            text data.limitsEmpty color=colors.muted font-size=roles.body.size
+          each pool in data.pools key=pool.id
+            column gap=10.5
+              SettingsSectionLabel(title=pool.label, colors=colors, roles=roles)
+              column background-color=colors.grouped border-radius=24 padding=14 gap=17.5
+                each window in pool.windows key=window.id
+                  column gap=7
+                    row align-items="baseline" gap=7
+                      text window.label flex=1 color=colors.foreground font-size=roles.body.size font-weight=500
+                      text `${window.remaining}% remaining` color=colors.foreground font-size=roles.footnote.size
+                    row gap=3.5
+                      each item in window.columns key=item.key
+                        button press=account(item.key, window.windowId, window.kind) disabled=(not item.present) flex=1 min-width=0 padding=0 aria-label=`${item.label}, ${item.remaining}% remaining`
+                          column gap=3.5
+                            view height=7 border-radius=4 background-color=colors.subtle overflow="hidden"
+                              view width=`${item.remaining}%` height=7 background-color=(dark ? pool.dark : pool.light)
+                            text item.label color=colors.muted font-size=roles.caption.size line-clamp=1
+                    when length(window.pace) > 0
+                      text window.pace color=colors.muted font-size=roles.footnote.size
+                    each reset in window.resets key=reset.key
+                      text reset.text color=colors.muted font-size=roles.caption.size
+        else
+          row gap=7 align-items="center"
+            row flex=1 border-radius=7 background-color=colors.subtle padding=2
+              button press=local("days", "1") flex=1 min-height=32 border-radius=6 background-color=(days == 1 ? colors.grouped : "transparent")
+                text "24h" color=colors.foreground font-size=roles.caption.size
+              button press=local("days", "7") flex=1 min-height=32 border-radius=6 background-color=(days == 7 ? colors.grouped : "transparent")
+                text "7d" color=colors.foreground font-size=roles.caption.size
+              button press=local("days", "30") flex=1 min-height=32 border-radius=6 background-color=(days == 30 ? colors.grouped : "transparent")
+                text "30d" color=colors.foreground font-size=roles.caption.size
+              button press=local("days", "90") flex=1 min-height=32 border-radius=6 background-color=(days == 90 ? colors.grouped : "transparent")
+                text "90d" color=colors.foreground font-size=roles.caption.size
+            row border-radius=7 background-color=colors.subtle padding=2
+              button press=local("metric", "cost") min-height=32 padding-left=7 padding-right=7 border-radius=6 background-color=(data.metric == "cost" ? colors.grouped : "transparent")
+                text "Cost" color=colors.foreground font-size=roles.caption.size
+              button press=local("metric", "tokens") min-height=32 padding-left=7 padding-right=7 border-radius=6 background-color=(data.metric == "tokens" ? colors.grouped : "transparent")
+                text "Tokens" color=colors.foreground font-size=roles.caption.size
+          when length(data.duplicateMessage) > 0
+            text data.duplicateMessage color=colors.muted font-size=roles.footnote.size
+          when data.hasUsage
+            column background-color=colors.grouped border-radius=24 padding=14 gap=14
+              text data.chartTitle color=colors.muted font-size=roles.footnote.size
+              text data.total color=colors.foreground font-size=roles.largeTitle.size font-weight=500
+              row gap=2 height=180 align-items="flex-end" aria-label=data.chartTitle
+                each bar in data.chart key=bar.id
+                  column flex=1 min-width=0 height=180 justify-content="flex-end" aria-label=bar.label
+                    each band in bar.bands key=band.id
+                      view height=band.height background-color=(dark ? band.dark : band.light) aria-label=`${band.id}: ${band.value}`
+              row justify-content="space-between"
+                each bar in data.chart key=bar.id
+                  when bar.showLabel
+                    text bar.label color=colors.muted font-size=roles.caption.size
+            column gap=7
+              SettingsSectionLabel(title="Providers", colors=colors, roles=roles)
+              column background-color=colors.grouped border-radius=24 overflow="hidden"
+                each provider in data.providers key=provider.id
+                  row padding=14 gap=14 align-items="center"
+                    view width=7 height=7 border-radius=4 background-color=(dark ? provider.dark : provider.light)
+                    column flex=1 gap=3.5
+                      text provider.label color=colors.foreground font-size=roles.body.size
+                      text `${provider.share} · ${provider.detail}` color=colors.muted font-size=roles.footnote.size
+                    text provider.value color=colors.foreground font-size=roles.body.size
+            UsageValues(title="Totals", items=data.totals, colors=colors, roles=roles)
+            UsageValues(title="Cost", items=data.costs, colors=colors, roles=roles)
+            column gap=7
+              SettingsSectionLabel(title="Models", colors=colors, roles=roles)
+              column background-color=colors.grouped border-radius=24 overflow="hidden"
+                each model in data.models key=model.id
+                  column padding=14 gap=3.5
+                    row gap=10.5 align-items="baseline"
+                      text model.label flex=1 color=colors.foreground font-size=roles.body.size line-clamp=2
+                      text model.value color=colors.foreground font-size=roles.body.size
+                    text `${model.provider} · ${model.detail}` color=colors.muted font-size=roles.footnote.size
+                    when length(model.unpriced) > 0
+                      text model.unpriced color=colors.muted font-size=roles.caption.size
+component UsageValues
+  props
+    title: string
+    items: list<UsageValue>
+    colors: SettingsColors
+    roles: SettingsTextRoles
+  view
+    column gap=7
+      SettingsSectionLabel(title=title, colors=colors, roles=roles)
+      column background-color=colors.grouped border-radius=24 overflow="hidden"
+        each item in items key=item.id
+          row padding=14 gap=14
+            text item.label flex=1 color=colors.muted font-size=roles.body.size
+            text item.value color=colors.foreground font-size=roles.body.size
+component SettingsUsageAccount
+  props
+    data: MobileUsageAccountData
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    danger: string
+    bottom: number
+    reveal: action
+    redeem: action
+  view
+    scroll flex=1 min-height=0 background-color=colors.sheet
+      column padding=17.5 padding-bottom=bottom gap=17.5 font-family="DM Sans"
+        when not data.present
+          text data.error color=colors.muted font-size=roles.body.size
+        else
+          column background-color=colors.grouped border-radius=24 padding=14 gap=10.5
+            text data.label color=colors.foreground font-size=roles.title.size font-weight=500
+            when data.hasEmail
+              button press=reveal(data.key) min-height=44 aria-label=(data.revealed ? "Hide email" : "Show email")
+                text data.email color=colors.muted font-size=roles.body.size
+            when length(data.plan) > 0
+              text data.plan color=colors.muted font-size=roles.footnote.size
+            text data.windowLabel color=colors.foreground font-size=roles.body.size
+            text data.remaining color=colors.foreground font-size=roles.largeTitle.size
+            when length(data.resets) > 0
+              text `Resets ${data.resets}` color=colors.muted font-size=roles.body.size
+            when length(data.restores) > 0
+              text data.restores color=colors.muted font-size=roles.footnote.size
+            text data.source color=colors.muted font-size=roles.footnote.size
+          when length(data.credits) > 0
+            column background-color=colors.grouped border-radius=24 padding=14 gap=7
+              text data.credits color=colors.muted font-size=roles.footnote.size
+              when data.canRedeem
+                button press=redeem(data.environmentId, data.key) min-height=44 border-radius=22 background-color=colors.subtle
+                  text "Use reset credit" color=colors.foreground font-size=roles.footnote.size font-weight=500

@@ -62,6 +62,7 @@ final class T3MobileTerminalSessions {
     private weak var transport: T3Transport?
     private var connectedEnvironment = ""
     private(set) var sessions: [String: T3MobileTerminalSession] = [:]
+    private var readableEnvironments: Set<String> = []
     private var retainedKeys: Set<String> = []
     private static var attachGeneration = 0
     /// Seconds an unretained session keeps its stream after its last view goes (a thread switch's remount).
@@ -91,6 +92,22 @@ final class T3MobileTerminalSessions {
         transport.terminalCall("provider.auth.respond", payload: payload) { error in
             DispatchQueue.main.async { done(error) }
         }
+    }
+
+    func permissions(environment: String, read: Bool, operate: Bool) {
+        if read { readableEnvironments.insert(environment) } else { readableEnvironments.remove(environment) }
+        for session in Array(sessions.values) where environmentOf(session.key) == environment {
+            if !read { drop(session) } else { setReadOnly(!operate, session: session); attach(session) }
+        }
+    }
+    func setReadOnly(_ readOnly: Bool, session: T3MobileTerminalSession) {
+        guard session.readOnly != readOnly else { return }
+        session.readOnly = readOnly
+        if let id = session.streamId { transport?.terminalDetach(id) }
+        Self.attachGeneration += 1; session.output.generation = Self.attachGeneration
+        session.streamId = nil; session.attaching = false; session.failed = false
+        session.pendingSize = nil; session.resizing = false
+        attach(session)
     }
 
     // MARK: Views
@@ -141,7 +158,16 @@ final class T3MobileTerminalSessions {
     // MARK: Stream
 
     private func connectionChanged(_ connected: Bool, environment: String) {
-        guard connected else { connectedEnvironment = ""; return }
+        guard connected else {
+            connectedEnvironment = ""; readableEnvironments.removeAll()
+            for session in sessions.values {
+                Self.attachGeneration += 1; session.output.generation = Self.attachGeneration
+                session.streamId = nil; session.attaching = false; session.pendingSize = nil; session.resizing = false; session.failed = false
+                session.readOnly = true
+                for view in session.liveViews { view.permissions(environment: environmentOf(session.key), read: true, operate: false) }
+            }
+            return
+        }
         connectedEnvironment = environment
         // Reconnecting another saved environment must never reattach the preceding server's PTYs.
         for session in Array(sessions.values) where environmentOf(session.key) != environment { drop(session) }
@@ -149,7 +175,7 @@ final class T3MobileTerminalSessions {
     }
 
     private func attach(_ session: T3MobileTerminalSession) {
-        guard let transport, !connectedEnvironment.isEmpty, environmentOf(session.key) == connectedEnvironment, session.streamId == nil, !session.attaching, !session.failed, (session.readOnly || !session.cwd.isEmpty) else { return }
+        guard let transport, readableEnvironments.contains(connectedEnvironment), !connectedEnvironment.isEmpty, environmentOf(session.key) == connectedEnvironment, session.streamId == nil, !session.attaching, !session.failed, (session.readOnly || !session.cwd.isEmpty) else { return }
         session.attaching = true
         // nextTerminalAttachSeedState: a reinstalled stream never reuses an old renderer's cursor.
         Self.attachGeneration += 1
@@ -159,6 +185,7 @@ final class T3MobileTerminalSessions {
         session.attaches += 1
         var payload: [String: Any] = ["threadId": session.threadId, "terminalId": session.terminalId, "cwd": session.cwd,
                                       "worktreePath": session.worktreePath.isEmpty ? NSNull() : session.worktreePath]
+        if !session.readOnly { payload["cols"] = session.desiredSize?.cols ?? 80; payload["rows"] = session.desiredSize?.rows ?? 24 }
         if session.readOnly { payload = ["threadId": session.threadId, "terminalId": session.terminalId] }
         if !session.readOnly && !session.env.isEmpty { payload["env"] = session.env }
         if !session.providerInstance.isEmpty { payload["providerInstanceId"] = session.providerInstance }
@@ -286,7 +313,7 @@ final class T3MobileTerminalSessions {
     }
     func destroy() {
         for session in Array(sessions.values) { drop(session) }
-        retainedKeys.removeAll(); connectedEnvironment = ""
+        retainedKeys.removeAll(); readableEnvironments.removeAll(); connectedEnvironment = ""
         transport?.terminalConnection = nil
         if let transport { Self.registries.removeValue(forKey: ObjectIdentifier(transport)) }
     }

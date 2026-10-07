@@ -17,7 +17,21 @@
         "iphone",
         "ipad"
       ],
-      "localNetworking": true
+      "localNetworking": true,
+      "link": [
+        "-lc++",
+        "-lz",
+        "-framework",
+        "IOSurface",
+        "-framework",
+        "Metal",
+        "-framework",
+        "MetalKit",
+        "-framework",
+        "QuartzCore",
+        "-framework",
+        "UIKit"
+      ]
     }
   },
   "deploy": {
@@ -36,11 +50,20 @@
     "t3-archive-spinner",
     "t3-settings-slider",
     "t3-settings-header",
-    "t3-media-presenter"
+    "t3-media-presenter",
+    "t3-mobile-terminal",
+    "t3-document-menu",
+    "t3-document-html"
   ],
   "data": [
     "mobile-form-sheet",
     "mobile-scan-action",
-    "mobile-scanner-open"
+    "mobile-scanner-open",
+    "mobile-voice-owner",
+    "mobile-voice-selection-revision",
+    "mobile-scheduled-editor"
+  ],
+  "hooks": [
+    "mobile-voice-editor"
   ]
 }

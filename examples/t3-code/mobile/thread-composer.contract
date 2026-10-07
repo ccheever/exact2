@@ -1,7 +1,9 @@
 // ThreadComposer compact/expanded geometry and ComposerActionButton, upstream365aa87982.
 // @ref llp/1106.002-design-system-parity.spec.md#typography-and-font-assets
+// @ref llp/1106.008-mobile-voice.decision.md#presentation
 use ThreadComposerState, ThreadColors from "./thread-shapes.contract"
 use ProviderIcon from "./provider-icon.contract"
+use VoiceSnapshot, VoiceColors, VoiceStartAction, VoiceDictationToolbar, VoiceErrorStatus from "./voice-controls.contract"
 component ThreadComposer
   props
     data: ThreadComposerState
@@ -16,15 +18,25 @@ component ThreadComposer
     pickAttachments: action
     openModelSettings: action
     colors: ThreadColors
-  // Source applies these shortcuts to hardware keyboards; software Return stays a newline.
+    voice: VoiceSnapshot
+    voiceColors: VoiceColors
+    voiceOwner: string
+    voiceAction: action
+    voiceDisabled: bool
+  derive dictating = voice.busy and voice.owner == voiceOwner
+  derive voicePresented = voice.owner == voiceOwner and voice.phase != "idle"
+  action typedDraft(value: string)
+    if not dictating
+      editDraft(value)
+  // Software Return remains a newline; every hardware Send also observes the voice lock.
   action typedKey(key: string)
     if (enterBehavior == "send" and key == "Enter") or (enterBehavior == "newline" and key == "Meta+Enter")
       preventDefault()
-      if data.canSend
+      if data.canSend and not dictating
         action("send", "", "")
     else if (enterBehavior == "send" and key == "Meta+Enter") or (enterBehavior == "newline" and key == "Shift+Meta+Enter")
       preventDefault()
-      if data.canSend
+      if data.canSend and not dictating
         action("send-alternate", "", "")
   view
     column padding-left=12 padding-right=12 padding-top=(expanded ? 8 : 6) padding-bottom=(bottomInset + (expanded ? 8 : 6)) font-family="DM Sans"
@@ -35,31 +47,50 @@ component ThreadComposer
         column border-radius=(expanded ? 26 : 27) min-height=(expanded ? 140 : 48)
           overflow="hidden" box-sizing="border-box" padding-top=(expanded ? 14 : 2) padding-bottom=(expanded ? 6 : 2)
           background-color=colors.composerSurface border-width=1 border-style="solid" border-color=colors.composerBorder
-          row flex-direction=(expanded ? "column" : "row") align-items=(expanded ? "stretch" : "center")
-            when not expanded
+          row position="relative" min-height=44 flex-direction=(expanded ? "column" : "row") align-items=(expanded ? "stretch" : "center")
+            when not expanded and not voicePresented
               button press=pickAttachments width=44 height=44 padding=0 aria-label="Add attachment"
                 column width=44 height=44 align-items="center" justify-content="center"
                   t3-symbol symbol-name="plus" point-size=20 symbol-weight="regular" symbol-tint=colors.iconSubtle width=20 height=20
-            // Keep one editor plan site while focus changes compact geometry.
-            textarea value=data.draft input=editDraft key=typedKey focus=focusChanged(true) blur=focusChanged(false) placeholder=data.placeholder
+            // Keep the native editor at one plan site while the compact toolbar covers it.
+            textarea value=data.draft input=typedDraft key=typedKey focus=focusChanged(true) blur=focusChanged(false) placeholder=data.placeholder
+              readonly=dictating hook="mobile-voice-editor" data-mobile-voice-owner=voiceOwner
+              data-mobile-voice-selection-revision=(voice.selectionOwner == voiceOwner ? voice.selectionRevision : 0)
+              opacity=(voicePresented and not expanded ? 0 : 1) pointer-events=(voicePresented and not expanded ? "none" : "auto")
+              aria-hidden=(voicePresented and not expanded)
               height=(expanded ? 72 : 36) max-height=160 flex=(expanded ? 0 : 1) min-width=0
               padding-left=(expanded ? 14 : 4) padding-right=(expanded ? 14 : 4) padding-top=(expanded ? 4 : 6) padding-bottom=(expanded ? 4 : 6)
               box-sizing="border-box" font-family="DM Sans" font-size=16 line-height="23px" color=colors.foreground
               border-width=0 background-color="transparent" testId="thread-composer"
             when expanded
               view height=3.5
-              row align-items="center" gap=0
-                button press=pickAttachments width=44 height=44 padding=0 aria-label="Add attachment"
-                  column width=44 height=44 align-items="center" justify-content="center"
-                    t3-symbol symbol-name="plus" point-size=20 symbol-weight="regular" symbol-tint=colors.iconSubtle width=20 height=20
-                button press=openModelSettings flex=1 min-width=0 height=38.5 padding-left=7 padding-right=7 aria-label="Model and reasoning settings"
-                  row min-width=0 align-items="center" gap=7 justify-content="flex-end"
-                    ProviderIcon(driver=data.providerDriver, size=14, dark=dark, iconUrl=data.providerIconURL)
-                    text data.modelLabel min-width=0 flex-shrink=1 line-clamp=1 text-overflow="ellipsis" font-size=14 line-height="19px" font-weight=500 color=colors.foreground
-                    t3-symbol symbol-name="chevron.down" point-size=10 symbol-weight="regular" symbol-tint=colors.iconSubtle width=10 height=10
-                ThreadSendButton(data=data, action=action, colors=colors)
-            else
+              when not voicePresented
+                row align-items="center" gap=0
+                  button press=pickAttachments width=44 height=44 padding=0 aria-label="Add attachment"
+                    column width=44 height=44 align-items="center" justify-content="center"
+                      t3-symbol symbol-name="plus" point-size=20 symbol-weight="regular" symbol-tint=colors.iconSubtle width=20 height=20
+                  button press=openModelSettings flex=1 min-width=0 height=38.5 padding-left=7 padding-right=7 aria-label="Model and reasoning settings"
+                    row min-width=0 align-items="center" gap=7 justify-content="flex-end"
+                      ProviderIcon(driver=data.providerDriver, size=14, dark=dark, iconUrl=data.providerIconURL)
+                      text data.modelLabel min-width=0 flex-shrink=1 line-clamp=1 text-overflow="ellipsis" font-size=14 line-height="19px" font-weight=500 color=colors.foreground
+                      t3-symbol symbol-name="chevron.down" point-size=10 symbol-weight="regular" symbol-tint=colors.iconSubtle width=10 height=10
+                  VoiceStartAction(data=voice, colors=voiceColors, disabled=voiceDisabled, action=voiceAction)
+                  ThreadSendButton(data=data, action=action, colors=colors)
+            else when not voicePresented
+              VoiceStartAction(data=voice, colors=voiceColors, disabled=voiceDisabled, action=voiceAction)
               ThreadSendButton(data=data, action=action, colors=colors)
+            when voicePresented
+              row position=(expanded ? "relative" : "absolute") left=0 right=0 bottom=0 height=44 align-items="center"
+                when dictating
+                  column flex=1 min-width=0
+                    VoiceDictationToolbar(data=voice, colors=voiceColors, action=voiceAction)
+                  when data.showStop
+                    ThreadSendButton(data=data, action=action, colors=colors)
+                else
+                  column flex=1 min-width=0
+                    VoiceErrorStatus(data=voice, colors=voiceColors, action=voiceAction)
+                  VoiceStartAction(data=voice, colors=voiceColors, disabled=voiceDisabled, action=voiceAction)
+                  ThreadSendButton(data=data, action=action, colors=colors)
         when data.showReadOnlyNotice
           text "This connection cannot control this task. You can still edit your draft." padding-top=7 font-size=13 line-height="17px" color=colors.muted
 

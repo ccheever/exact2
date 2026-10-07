@@ -44,7 +44,7 @@ export function settingsRoot(args: unknown[]) {
   const appearance = resolveMobileAppearance(preferences, str(systemScheme));
   const scope = settingsScope(rows, selectionJSON, preferences.projectGroupingMode);
   return { root: settingsRootView({ savedEnvironmentCount: arr(rows).length,
-    enabledRoutes: ['SettingsEnvironments', 'SettingsAppearance', 'SettingsKeyboard', 'SettingsFollowUp', 'SettingsOrganization', 'SettingsArchive', 'SettingsProviderAccounts', ...Object.keys(MOBILE_SERVER_ROUTES)],
+    enabledRoutes: ['SettingsEnvironments', 'SettingsAppearance', 'SettingsKeyboard', 'SettingsFollowUp', 'SettingsOrganization', 'SettingsArchive', 'SettingsProviderAccounts', 'SettingsScheduledTasks', 'SettingsUsage', ...Object.keys(MOBILE_SERVER_ROUTES)],
     scope, preferences, scheme: appearance.scheme, themeId: appearance.themeId, safeBottom: Number(safeBottom) || 0 }),
     header: settingsHeaderConfiguration(str(routeKey), true, scope),
     environmentIds: JSON.stringify(scope.selected.map(environment => environment.environmentId)),
@@ -73,4 +73,12 @@ export function settingsScopeEvent(args: unknown[]) {
   else if (event?.kind === 'environment') selection = toggleSettingsEnvironment(selection, scope.available, event.value);
   else if (event?.kind === 'project') selection = { ...selection, projectKey: event.value };
   return { selection: JSON.stringify(selection), close: event?.kind === 'close' || event?.kind === 'back' };
+}
+
+export function mobileScheduledHeader(args: unknown[]) {
+  const [serialized, rows, routeKey, selectionJSON, canCreate] = args;
+  const preferences = normalizeMobilePreferences(serialized);
+  const scope = settingsScope(rows, selectionJSON, preferences.projectGroupingMode);
+  return { configuration: JSON.stringify({ ...obj(JSON.parse(settingsHeaderConfiguration(str(routeKey), false, scope))),
+    addActionID: 'scheduled-new', addEnabled: canCreate === true }) };
 }

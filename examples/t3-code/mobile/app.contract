@@ -1,3 +1,7 @@
+use SettingsAutomation, AutomationPrepared, AutomationData, AutomationResult from "./settings-scheduled-flow.contract"
+use VoiceGlobalPill, VoiceSnapshot, VoiceStatus, VoiceResult, VoiceColors from "./voice-controls.contract"
+use MobileAttachmentDocument, AttachmentDocumentSnapshot, AttachmentDocumentMenu, AttachmentDocumentAction from "./attachment-document.contract"
+use MobileTerminal, MobileTerminalCaptureView, MobileTerminalSnapshot, MobileTerminalResult, MobileTerminalEvent, MobileTerminalCapture from "./terminal-mobile.contract"
 use ReviewView, ReviewCommentComposer from "./review-view.contract"
 use ReviewSnapshot, ReviewResult, ReviewColors from "./review-shapes.contract"
 use MobileFileTree, FileTreeSnapshot, FileTreeResult from "./file-tree.contract"
@@ -34,6 +38,8 @@ font "DM Sans"
 routes nav
   home "/"
   thread "/threads/:threadEnvironment/:threadId"
+  threadTerminal "/threads/:threadEnvironment/:threadId/terminal"
+  threadTerminalCapture "/threads/:threadEnvironment/:threadId/terminal/output"
   threadReview "/threads/:threadEnvironment/:threadId/review"
   threadReviewComment "/threads/:threadEnvironment/:threadId/review/comment"
   threadFiles "/threads/:threadEnvironment/:threadId/files"
@@ -52,6 +58,13 @@ routes nav
   settingsProviders "/settings/provider-accounts"
   settingsAppearance "/settings/appearance"
   settingsChoice "/settings/preferences/:settingsChoice"
+  settingsScheduledTasks "/settings/scheduled"
+  settingsScheduledNew "/settings/scheduled/new"
+  settingsScheduledEdit "/settings/scheduled/edit"
+  settingsScheduledModel "/settings/scheduled/model"
+  settingsScheduledBranch "/settings/scheduled/branch"
+  settingsUsage "/settings/usage"
+  settingsUsageAccount "/settings/usage/account/:usageAccount/:usageWindow/:usageKind"
   newTask "/new"
   newTaskProjects "/new/projects"
   newTaskEnvironments "/new/environments"
@@ -75,6 +88,7 @@ shape Appearance
   themeId: string
   themeMode: string
   baseFontSize: number
+  terminalFontSize: number
   groupingMode: string
 shape SettingsView
   serverScope: string
@@ -153,12 +167,61 @@ shape Snapshot
   threadCount: number
   environments: list<EnvironmentRow>
   routing: list<GitHubRoutingRow>
+shape ScheduledHeader
+  configuration: string
+shape AutomationChange
+  revision: number
+  message: string
+  route: string
+  closed: bool
+  refresh: bool
+  debounce: bool
+  accountKey: string
+  windowId: string
+  windowKind: string
+  requestRoute: string
+shape VoiceFocus
+  owner: string
+  label: string
 shape Change
   revision: number
   message: string
 
 component App
   resource viewport = exactViewport() as shape Viewport
+  resource voiceFocus = voiceFocus((top(nav).name == "thread" and workspaceRouteReady) or top(nav).name == "newTask", top(nav).name == "thread" ? threadData.title : "New task", data.revision) as shape VoiceFocus
+  resource voiceStatus = voiceStatus(data.revision) as shape VoiceStatus
+  resource voiceData = voiceSnapshot(voiceFocus.owner, max(30, viewport.width - 150), voiceStatus, data.revision, pending(voiceChanged)) as shape VoiceSnapshot
+  resource voiceLook = voiceColors(appearance.scheme, appearance.themeId) as shape VoiceColors
+  state voicePillExpanded = false
+  mutation voiceChanged as shape VoiceResult refreshes data, voiceStatus, voiceData then didVoiceChange
+  mutation voiceCancelled as shape VoiceResult refreshes data, voiceStatus, voiceData then didVoiceCancel
+  mutation voiceReconciled as shape VoiceResult refreshes data, voiceStatus, voiceData
+  task voiceEvent when (voiceStatus.eventKind == "finished" or voiceStatus.eventKind == "interrupted" or voiceStatus.eventKind == "background") and not pending(voiceChanged) and not pending(voiceCancelled) key=`${voiceStatus.session}:${voiceStatus.event}`
+    reconcileVoice
+  action reconcileVoice
+    send voiceReconciled = voiceAction("reconcile", voiceFocus.label, voiceFocus.owner)
+  action voiceAction(op: string)
+    if op == "cancel"
+      send voiceCancelled = voiceAction(op, voiceFocus.label, voiceFocus.owner)
+    else if not pending(voiceChanged)
+      send voiceChanged = voiceAction(op, voiceFocus.label, voiceFocus.owner)
+  action didVoiceChange
+    match voiceChanged
+      case some(result)
+        if result.message != ""
+          send notice = alert("info", "Voice input", result.message)
+      case none
+        voicePillExpanded = voicePillExpanded
+  action didVoiceCancel
+    match voiceCancelled
+      case some(result)
+        if result.message != ""
+          send notice = alert("info", "Voice input", result.message)
+      case none
+        voicePillExpanded = voicePillExpanded
+  action expandVoicePill(value: bool)
+    voicePillExpanded = value
   resource preferences = preferences() as shape MobilePreferencesResource
   resource appearance = appearance(preferences.serialized, viewport.prefersColorScheme) as shape Appearance
   resource look = theme(appearance.scheme, appearance.themeId) as shape Theme
@@ -176,6 +239,70 @@ component App
   mutation serverSettingChanged as shape Change refreshes serverSettings, data then didServerSettingChange
   mutation providerChanged as shape Change refreshes providerPrepared, providerAccounts then didProviderChange
   mutation providerFieldChanged as shape Change refreshes providerAccounts
+  state automationRefresh = 0
+  state automationElapsed = 0
+  derive automationNow = wallTime.epochAtZero + max(elapsed, automationElapsed)
+  resource automationPrepared = automationPrepare(top(nav).name, settingsData.serverScope, top(nav).params.usageAccount, top(nav).params.usageWindow, top(nav).params.usageKind, automationNow, data.revision, automationRefresh) as shape AutomationPrepared
+  resource automationData = automationSnapshot(automationPrepared, pending(automationChanged)) as shape AutomationData
+  resource scheduledHeader = scheduledHeader(preferences.serialized, data.environments, `${top(nav).id}`, settingsSelection, automationData.scheduled.canCreate) as shape ScheduledHeader
+  mutation automationChanged as shape AutomationChange refreshes automationData then didAutomationChange
+  mutation automationEdited as shape AutomationChange refreshes automationData then didAutomationEdit
+  mutation automationBranchRead as shape AutomationChange refreshes automationData then didAutomationBranchRead
+  task automationClock when top(nav).name == "settingsScheduledTasks"
+    every(60000, tickAutomation)
+  action tickAutomation
+    automationElapsed = now()
+  action automationAction(op: string, id: string, value: string, extra: string)
+    if op == "field" or op == "branch-query" or op == "usage-local" or op == "usage-reveal"
+      send automationEdited = automationCommand(op, id, value, extra, wallTime.epochAtZero + now(), `${top(nav).id}`)
+    else if op == "branch-fetch" or op == "branch-more"
+      if top(nav).name == "settingsScheduledBranch"
+        send automationBranchRead = automationCommand(op, id, value, extra, wallTime.epochAtZero + now(), `${top(nav).id}`)
+    else if not pending(automationChanged)
+      send automationChanged = automationCommand(op, id, value, extra, wallTime.epochAtZero + now(), `${top(nav).id}`)
+  action automationBranchFetch
+    automationAction("branch-fetch", "", "", "")
+  action didAutomationBranchRead
+    match automationBranchRead
+      case some(result)
+        if result.requestRoute == `${top(nav).id}` and result.message != ""
+          send notice = alert("info", "Branches", result.message)
+      case none
+        automationRefresh = automationRefresh
+  action didAutomationEdit
+    match automationEdited
+      case some(result)
+        if result.requestRoute == `${top(nav).id}`
+          if result.message != ""
+            send notice = alert("info", "T3 Code", result.message)
+          if result.refresh
+            automationRefresh = automationRefresh + 1
+          if result.debounce
+            after(150, automationBranchFetch)
+      case none
+        automationRefresh = automationRefresh
+  action didAutomationChange
+    match automationChanged
+      case some(result)
+        if result.requestRoute == `${top(nav).id}`
+          if result.message != ""
+            send notice = alert("info", "T3 Code", result.message)
+          if result.refresh
+            automationRefresh = automationRefresh + 1
+          if result.closed
+            nav = back(nav)
+          else if result.route == "settingsScheduledNew"
+            nav = push(nav, path("settingsScheduledNew"))
+          else if result.route == "settingsScheduledEdit"
+            nav = push(nav, path("settingsScheduledEdit"))
+          else if result.route == "settingsScheduledModel"
+            nav = push(nav, path("settingsScheduledModel"))
+          else if result.route == "settingsScheduledBranch"
+            nav = push(nav, path("settingsScheduledBranch"))
+          else if result.route == "settingsUsageAccount"
+            nav = push(nav, path("settingsUsageAccount", result.accountKey, result.windowId, result.windowKind))
+      case none
+        automationRefresh = automationRefresh
   state providerLogoutKey = ""
   mutation providerLogoutConfirmation as shape Notice then didConfirmProviderLogout
   action serverSettingChange(key: string, value: string)
@@ -244,6 +371,10 @@ component App
       openEnvironments()
     else if target == "SettingsAppearance"
       nav = push(nav, path("settingsAppearance"))
+    else if target == "SettingsScheduledTasks"
+      nav = push(nav, path("settingsScheduledTasks"))
+    else if target == "SettingsUsage"
+      nav = push(nav, path("settingsUsage"))
     else if target == "SettingsProviderAccounts"
       nav = push(nav, path("settingsProviders"))
     else if target == "SettingsEnvironmentNewThreads" or target == "SettingsEnvironmentSourceControl" or target == "SettingsEnvironmentAgentBehavior" or target == "SettingsEnvironmentMaintenance"
@@ -326,6 +457,87 @@ component App
       lastOperation = "thread-action"
       send changed = command(op, id, value, `${wallTime.epochAtZero + now()}`)
   derive workspaceRouteReady = data.ready and top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
+  state terminalId = ""
+  state terminalCaptureText = ""
+  state terminalCaptureKey = ""
+  state terminalRangeStart = 0
+  state terminalRangeEnd = -1
+  state terminalAnchor = -1
+  resource terminalData = terminalView(terminalId, appearance.scheme, appearance.themeId, appearance.terminalFontSize, wallTime.epochAtZero + elapsed, (top(nav).name == "threadTerminal" or top(nav).name == "threadTerminalCapture") and workspaceRouteReady, data.revision) as shape MobileTerminalSnapshot
+  resource terminalCapture = terminalCapture(terminalCaptureText, terminalRangeStart, terminalRangeEnd) as shape MobileTerminalCapture
+  mutation terminalChanged as shape MobileTerminalResult refreshes terminalData, data then didTerminalChange
+  mutation terminalEvent as shape MobileTerminalEvent then didTerminalEvent
+  mutation terminalAttached as shape Change refreshes data then didTerminalAttach
+  action openTerminal
+    terminalId = ""
+    nav = push(nav, path("threadTerminal", data.environmentId, data.threadId))
+  action terminalAction(op: string, value: string)
+    if workspaceRouteReady
+      send terminalChanged = terminalAction(op, terminalData.terminalId, value)
+  action terminalMenu
+    if workspaceRouteReady and terminalData.ready
+      send terminalChanged = terminalMenu(terminalData.terminalId, terminalData.tabs, terminalData.readOnly, appearance.terminalFontSize)
+  action didTerminalChange
+    match terminalChanged
+      case some(result)
+        if result.environmentId == data.environmentId and result.threadId == data.threadId and top(nav).name == "threadTerminal"
+          if result.message != ""
+            send notice = alert("info", "Terminal", result.message)
+          else if result.choice == "font-decrease"
+            changePreference("terminalFontSize", `${max(6, appearance.terminalFontSize - 0.5)}`)
+          else if result.choice == "font-increase"
+            changePreference("terminalFontSize", `${min(14, appearance.terminalFontSize + 0.5)}`)
+          else if result.choice == "new"
+            terminalAction("new", "")
+          else if result.choice == "select"
+            terminalId = result.terminalId
+          else if result.closed
+            nav = back(nav)
+          else
+            terminalId = result.terminalId
+      case none
+        terminalId = terminalId
+  action terminalEvent(value: string)
+    send terminalEvent = terminalEvent(value, terminalData.sessionKey)
+  action didTerminalEvent
+    match terminalEvent
+      case some(result)
+        if top(nav).name == "threadTerminal" and result.key == terminalData.sessionKey
+          if result.type == "capture"
+            terminalCaptureText = result.text
+            terminalCaptureKey = result.key
+            terminalRangeStart = 0
+            terminalRangeEnd = -1
+            terminalAnchor = -1
+            nav = push(nav, path("threadTerminalCapture", data.environmentId, data.threadId))
+          else if result.message != ""
+            send notice = alert("info", "Terminal", result.message)
+          else if result.type == "action"
+            terminalAction(result.action, "")
+      case none
+        terminalId = terminalId
+  action selectTerminalLine(index: number)
+    if terminalAnchor < 0
+      terminalAnchor = index
+      terminalRangeStart = index
+      terminalRangeEnd = index
+    else
+      terminalRangeStart = min(terminalAnchor, index)
+      terminalRangeEnd = max(terminalAnchor, index)
+      terminalAnchor = -1
+  action attachTerminalOutput
+    send terminalAttached = terminalAttach(terminalCaptureKey, terminalCaptureText, terminalRangeStart, terminalRangeEnd, wallTime.epochAtZero + now())
+  action didTerminalAttach
+    match terminalAttached
+      case some(result)
+        if result.message != ""
+          send notice = alert("info", "Could not attach output", result.message)
+        else if top(nav).name == "threadTerminalCapture"
+          terminalCaptureText = ""
+          terminalCaptureKey = ""
+          nav = back(back(nav))
+      case none
+        terminalCaptureText = terminalCaptureText
   resource reviewLook = reviewColors(appearance.scheme, appearance.themeId) as shape ReviewColors
   resource reviewData = reviewSnapshot(appearance.scheme, top(nav).name == "threadReview" or top(nav).name == "threadReviewComment", data.revision) as shape ReviewSnapshot
   mutation reviewPrepared as shape ReviewSnapshot refreshes reviewData
@@ -427,7 +639,52 @@ component App
     filePreview = not filePreview
   derive mediaActive = top(nav).name == "threadMedia" or top(nav).name == "threadDraftMedia" or top(nav).name == "newTaskMedia"
   derive mediaScope = top(nav).name == "threadMedia" ? "transcript" : "composer"
-  resource mediaData = mediaPreview(mediaScope, top(nav).params.attachmentId, `${top(nav).id}`, top(nav).params.threadEnvironment, top(nav).params.threadId, mediaActive, data.environmentId, data.threadId, data.generation) as shape MediaPreviewSnapshot
+  state mediaReadAt = 0
+  state mediaReadVersion = 0
+  state mediaRendered = true
+  state mediaNativeOpen = false
+  state mediaNativeError = ""
+  state mediaNativeSource = ""
+  resource mediaViewerData = attachmentNativePreview(mediaNativeSource) as shape MediaPreviewSnapshot
+  derive mediaRouteKey = `${top(nav).id}:${mediaReadVersion}`
+  resource documentData = attachmentDocument(mediaScope, top(nav).params.attachmentId, mediaRouteKey, mediaRendered, appearance.scheme, mediaActive and mediaData.kind == "file", mediaData.identifier, mediaReadAt > 0 ? mediaReadAt : wallTime.epochAtZero) as shape AttachmentDocumentSnapshot
+  resource documentMenu = attachmentMenu(documentData, settingsAppearance.codeWordBreak) as shape AttachmentDocumentMenu
+  mutation documentChanged as shape AttachmentDocumentAction refreshes data then didDocumentAction
+  action documentAction(value: string)
+    send documentChanged = attachmentDocumentAction(value, mediaScope, top(nav).params.attachmentId, mediaRouteKey, documentData)
+  action documentNativeEvent(value: string)
+    send documentChanged = attachmentNativeEvent(value, documentData.identifier)
+  action didDocumentAction
+    match documentChanged
+      case some(result)
+        if mediaActive and result.identifier == documentData.identifier
+          if result.operation == "native-error"
+            mediaNativeError = result.message
+          else if result.message != ""
+            send notice = alert("info", "File", result.message)
+          else if result.removed
+            nav = back(nav)
+          else if result.operation == "preview"
+            mediaNativeError = ""
+            mediaReadAt = wallTime.epochAtZero + now()
+            mediaRendered = true
+          else if result.operation == "source"
+            mediaNativeError = ""
+            mediaReadAt = wallTime.epochAtZero + now()
+            mediaRendered = false
+          else if result.operation == "word-wrap"
+            send preferenceChanged = preferenceChange("codeWordBreak", settingsAppearance.codeWordBreak ? "false" : "true")
+          else if result.operation == "open-viewer"
+            mediaNativeSource = result.sourceJSON
+            mediaNativeOpen = true
+      case none
+        mediaNativeOpen = mediaNativeOpen
+  action retryDocument
+    mediaNativeError = ""
+    mediaNativeOpen = false
+    mediaReadAt = wallTime.epochAtZero + now()
+    mediaReadVersion = mediaReadVersion + 1
+  resource mediaData = mediaPreview(mediaScope, top(nav).params.attachmentId, mediaRouteKey, top(nav).params.threadEnvironment, top(nav).params.threadId, mediaActive, data.environmentId, data.threadId, data.generation) as shape MediaPreviewSnapshot
   mutation mediaCompleted as shape MediaCompletion then didMediaComplete
   action mediaComplete(value: string)
     send mediaCompleted = mediaCompletion(value, mediaData.identifier)
@@ -435,14 +692,31 @@ component App
     match mediaCompleted
       case some(result)
         if mediaActive and result.identifier != "" and result.identifier == mediaData.identifier
-          if result.message != ""
-            send notice = alert("info", "Could not preview file", result.message)
-          nav = back(nav)
+          if mediaNativeOpen
+            mediaNativeOpen = false
+            if result.message != ""
+              send notice = alert("info", "Could not open document", result.message)
+          else if result.message != ""
+            mediaNativeError = result.message
+          else
+            nav = back(nav)
       case none
         composerFocused = false
   action openDraftMedia(id: string)
+    mediaReadAt = wallTime.epochAtZero + now()
+    mediaRendered = true
+    mediaNativeError = ""
+    mediaNativeSource = ""
+    mediaNativeOpen = false
+    mediaReadVersion = 0
     nav = push(nav, startsWith(top(nav).name, "newTask") ? path("newTaskMedia", data.environmentId, id) : path("threadDraftMedia", data.environmentId, data.threadId, id))
   action openMedia(id: string)
+    mediaReadAt = wallTime.epochAtZero + now()
+    mediaRendered = true
+    mediaNativeError = ""
+    mediaNativeSource = ""
+    mediaNativeOpen = false
+    mediaReadVersion = 0
     nav = push(nav, path("threadMedia", data.environmentId, data.threadId, id))
   resource composerAttachments = composerAttachments(data.revision) as shape ComposerAttachmentsSnapshot
   action removeAttachment(kind: string, id: string)
@@ -696,7 +970,10 @@ component App
   action openEnvironments
     nav = push(nav, path("environments"))
   action back
-    nav = back(nav)
+    if top(nav).name == "settingsScheduledNew" or top(nav).name == "settingsScheduledEdit"
+      automationAction("close", "", "", "")
+    else
+      nav = back(nav)
   action toggle(id: string)
     if top(nav).name == "environments"
       nav = push(nav, path("environmentDetail", id))
@@ -757,11 +1034,12 @@ component App
       testId="mobile-root"
       each entry in stack(nav) key = entry.id
         column navigationKey=`${entry.id}`
+          data-mobile-scheduled-editor=(entry.name == "settingsScheduledNew" or entry.name == "settingsScheduledEdit")
           data-mobile-form-sheet=(entry.name == "connections" or entry.name == "connect")
           data-mobile-scan-action=(entry.name == "connect" ? "scan-qr" : "")
           data-mobile-scanner-open=scannerOpen
-          navigationScroll=(entry.name == "home" ? (length(home.items) > 0 ? "home-list" : "") : entry.name == "thread" ? (length(threadData.rows) > 0 ? "thread-feed" : "") : entry.name == "threadReview" ? "review-diff" : entry.name == "threadFiles" ? "workspace-files" : entry.name == "threadFile" ? "file-source" : entry.name == "settings" ? "settings-scroll" : entry.name == "settingsServer" ? "settings-server-scroll" : entry.name == "settingsProviders" ? "settings-provider-scroll" : entry.name == "settingsAppearance" ? "settings-appearance-scroll" : entry.name == "settingsChoice" ? "settings-choice-scroll" : entry.name == "archive" ? (length(archiveData.items) > 0 ? "archive-list" : "") : `scroll-${entry.id}`)
-          navigationPresentation=(entry.name == "connections" or entry.name == "connect" ? "modal" : "")
+          navigationScroll=(entry.name == "home" ? (length(home.items) > 0 ? "home-list" : "") : entry.name == "thread" ? (length(threadData.rows) > 0 ? "thread-feed" : "") : entry.name == "threadReview" ? "review-diff" : entry.name == "threadFiles" ? "workspace-files" : entry.name == "threadFile" ? "file-source" : entry.name == "settingsScheduledTasks" ? "scheduled-tasks-scroll" : entry.name == "settingsScheduledNew" or entry.name == "settingsScheduledEdit" ? "scheduled-editor-scroll" : entry.name == "settingsUsage" ? "settings-usage-scroll" : startsWith(entry.name, "settingsScheduled") or entry.name == "settingsUsageAccount" ? "" : entry.name == "settings" ? "settings-scroll" : entry.name == "settingsServer" ? "settings-server-scroll" : entry.name == "settingsProviders" ? "settings-provider-scroll" : entry.name == "settingsAppearance" ? "settings-appearance-scroll" : entry.name == "settingsChoice" ? "settings-choice-scroll" : entry.name == "archive" ? (length(archiveData.items) > 0 ? "archive-list" : "") : `scroll-${entry.id}`)
+          navigationPresentation=(entry.name == "connections" or entry.name == "connect" or entry.name == "threadTerminalCapture" ? "modal" : "")
           position="absolute"
           inset=0
           background-color=look.sheet
@@ -770,7 +1048,7 @@ component App
           header height=44 flex-shrink=0 align-items="center" justify-content="space-between"
             button id="back" press=back aria-label="Back" testId=`back-${entry.name}`
               image "symbol:back" width=20 height=20
-            text (entry.name == "connect" ? "Add environment" : entry.name == "home" ? "T3 Code" : entry.name == "environmentDetail" ? detail.title : entry.name == "threadReview" ? "Review changes" : entry.name == "threadReviewComment" ? "Leave a comment" : entry.name == "threadFiles" ? filesData.title : entry.name == "threadFile" ? fileData.title : entry.name == "thread" ? threadData.title : entry.name == "settings" ? "Settings" : entry.name == "settingsServer" ? serverSettings.title : entry.name == "settingsProviders" ? "Provider accounts" : entry.name == "settingsAppearance" ? "Appearance" : entry.name == "settingsChoice" ? settingsChoice.title : entry.name == "archive" ? "Archived Threads" : entry.name == "threadAgents" ? "Agents" : entry.name == "newTaskProjects" ? "Project" : entry.name == "newTaskEnvironments" ? "Environment" : entry.name == "newTaskBranches" ? "Branch" : entry.name == "threadModel" or entry.name == "newTaskModel" ? "Model" : entry.name == "threadRuntime" or entry.name == "newTaskRuntime" ? "Runtime" : entry.name == "threadModelFilter" or entry.name == "newTaskModelFilter" ? "Providers" : entry.name == "threadModelOption" or entry.name == "newTaskModelOption" ? "Model options" : entry.name == "newTask" ? "New task" : "Environments")
+            text (entry.name == "threadMedia" or entry.name == "threadDraftMedia" or entry.name == "newTaskMedia" ? mediaData.name : entry.name == "connect" ? "Add environment" : entry.name == "home" ? "T3 Code" : entry.name == "environmentDetail" ? detail.title : entry.name == "threadTerminal" ? "Terminal" : entry.name == "threadTerminalCapture" ? "Visible terminal output" : entry.name == "threadReview" ? "Review changes" : entry.name == "threadReviewComment" ? "Leave a comment" : entry.name == "threadFiles" ? filesData.title : entry.name == "threadFile" ? fileData.title : entry.name == "thread" ? threadData.title : entry.name == "settingsScheduledTasks" ? "Scheduled Tasks" : entry.name == "settingsScheduledNew" ? "New scheduled task" : entry.name == "settingsScheduledEdit" ? "Edit scheduled task" : entry.name == "settingsScheduledModel" ? "Model" : entry.name == "settingsScheduledBranch" ? "Base branch" : entry.name == "settingsUsage" ? "Usage" : entry.name == "settingsUsageAccount" ? automationData.account.label : entry.name == "settings" ? "Settings" : entry.name == "settingsServer" ? serverSettings.title : entry.name == "settingsProviders" ? "Provider accounts" : entry.name == "settingsAppearance" ? "Appearance" : entry.name == "settingsChoice" ? settingsChoice.title : entry.name == "archive" ? "Archived Threads" : entry.name == "threadAgents" ? "Agents" : entry.name == "newTaskProjects" ? "Project" : entry.name == "newTaskEnvironments" ? "Environment" : entry.name == "newTaskBranches" ? "Branch" : entry.name == "threadModel" or entry.name == "newTaskModel" ? "Model" : entry.name == "threadRuntime" or entry.name == "newTaskRuntime" ? "Runtime" : entry.name == "threadModelFilter" or entry.name == "newTaskModelFilter" ? "Providers" : entry.name == "threadModelOption" or entry.name == "newTaskModelOption" ? "Model options" : entry.name == "newTask" ? "New task" : "Environments")
               role="heading"
               aria-level=2
               font-size=18
@@ -781,7 +1059,22 @@ component App
             when entry.name == "connections" or entry.name == "environments"
               button press=addEnvironment aria-label="Add environment" testId="add-environment"
                 image "symbol:add" width=20 height=20
+            when entry.name == "threadMedia" or entry.name == "threadDraftMedia" or entry.name == "newTaskMedia"
+              t3-document-menu document-menu=documentMenu.configuration change=documentAction width=32 height=32
+            when entry.name == "settingsScheduledTasks"
+              button id="scheduled-new" press=automationAction("new", "", "", "") disabled=(not automationData.scheduled.canCreate or pending(automationChanged)) aria-label="New scheduled task"
+                t3-symbol symbol-name="plus" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
+            when entry.name == "settingsUsage"
+              button press=automationAction("usage-environments", "", "", "") disabled=pending(automationChanged) aria-label="Filter usage environments"
+                t3-symbol symbol-name="line.3.horizontal.decrease" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
+              button press=automationAction("usage-refresh", "", "", "") disabled=pending(automationChanged) aria-label="Refresh usage"
+                t3-symbol symbol-name="arrow.clockwise" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
+            when entry.name == "threadTerminal"
+              button press=terminalMenu aria-label="Terminal options" testId="terminal-options"
+                t3-symbol symbol-name="terminal" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
             when entry.name == "thread"
+              button press=openTerminal aria-label="Terminal" testId="thread-terminal"
+                t3-symbol symbol-name="terminal" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
               button press=openReview aria-label="Review changes" testId="thread-review"
                 t3-symbol symbol-name="plus.forwardslash.minus" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
               button press=openFiles aria-label="Files" testId="thread-files"
@@ -795,7 +1088,11 @@ component App
             ThreadFeed(data=threadData, horizontalPadding=16, userBubbleMaxWidth=max(0, (viewport.width - 32) * 0.85), bottomClearance=14, action=threadAction, openMedia=openMedia, colors=threadLook)
             ThreadApprovals(data=threadData, action=threadAction, colors=threadLook)
             ComposerAttachmentStrip(data=composerAttachments, open=openDraftMedia, remove=removeAttachment, colors=threadLook)
-            ThreadComposer(enterBehavior=appearance.enterBehavior, data=threadData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=(composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)), contentMaxWidth=viewport.width, focusChanged=composerFocus, editDraft=editDraft, action=threadAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
+            ThreadComposer(voiceDisabled=(data.busy or pending(changed) or pending(taskChanged)), voice=voiceData, voiceOwner=(entry.id == top(nav).id ? voiceFocus.owner : ""), voiceColors=voiceLook, voiceAction=voiceAction, enterBehavior=appearance.enterBehavior, data=threadData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=(composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)), contentMaxWidth=viewport.width, focusChanged=composerFocus, editDraft=editDraft, action=threadAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
+          else when entry.name == "threadTerminal"
+            MobileTerminal(data=terminalData, event=terminalEvent, action=terminalAction)
+          else when entry.name == "threadTerminalCapture"
+            MobileTerminalCaptureView(data=terminalCapture, colors=terminalData.colors, select=selectTerminalLine, attach=attachTerminalOutput)
           else when entry.name == "threadReview"
             row gap=10 padding=14
               select value=reviewData.sectionId change=reviewSection aria-label="Diff section" flex=1 min-width=0
@@ -826,7 +1123,20 @@ component App
           else when entry.name == "threadMedia" or entry.name == "threadDraftMedia" or entry.name == "newTaskMedia"
             when entry.id == top(nav).id
               when mediaData.ready
-                MediaPreview(data=mediaData, completed=mediaComplete)
+                when mediaData.kind == "file" and (documentData.error != "" or documentData.kind == "text" or documentData.kind == "markdown" or documentData.kind == "html")
+                  MobileAttachmentDocument(data=documentData, colors=reviewLook, wrap=settingsAppearance.codeWordBreak, retry=retryDocument, nativeEvent=documentNativeEvent, nativeError=mediaNativeError)
+                  when mediaNativeOpen
+                    MediaPreview(data=mediaViewerData, completed=mediaComplete)
+                else when mediaNativeError != ""
+                  column flex=1 align-items="center" justify-content="center" padding=21 gap=7
+                    text "No preview for this file" font-size=18 font-weight=700 color=threadLook.foreground
+                    text mediaNativeError font-size=14 text-align="center" color=threadLook.muted
+                    button press=retryDocument min-height=44
+                      text "Try again" color=threadLook.foreground
+                else when mediaData.kind != "file" or documentData.ready
+                  MediaPreview(data=mediaData, completed=mediaComplete)
+                else
+                  text "Loading file..." padding=21 color=threadLook.muted
               else when mediaData.error != ""
                 text mediaData.error padding=21 color=look.colors.dangerForeground
               else
@@ -834,6 +1144,11 @@ component App
           else when entry.name == "settings"
             SettingsRoot(data=settingsData.root, navigate=openSetting)
             SettingsHeader(configuration=settingsData.header, event=settingsHeaderEvent)
+          else when startsWith(entry.name, "settingsScheduled") or entry.name == "settingsUsage" or entry.name == "settingsUsageAccount"
+            when entry.id == top(nav).id
+              SettingsAutomation(data=automationData, colors=settingsData.root.colors, roles=settingsData.root.roles, danger=look.colors.dangerForeground, bottom=settingsData.root.bottom, dark=(appearance.scheme == "dark"), command=automationAction)
+              when entry.name == "settingsScheduledTasks"
+                SettingsHeader(configuration=scheduledHeader.configuration, event=settingsHeaderEvent)
           else when entry.name == "settingsServer"
             SettingsServer(data=serverSettings, colors=settingsData.root.colors, roles=settingsData.root.roles, danger=look.colors.dangerForeground, bottom=settingsData.root.bottom, change=serverSettingChange, environment=settingsEnvironment)
           else when entry.name == "settingsProviders"
@@ -882,7 +1197,7 @@ component App
             NewTaskHero(data=newTaskData, chooseProject=chooseNewProject, chooseEnvironment=chooseNewEnvironment, colors=composerLook)
             NewTaskWorkspace(data=newTaskData, action=taskAction, chooseBranch=chooseNewBranch, colors=composerLook)
             ComposerAttachmentStrip(data=composerAttachments, open=openDraftMedia, remove=removeAttachment, colors=threadLook)
-            ThreadComposer(enterBehavior=appearance.enterBehavior, data=newTaskData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=(composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)), contentMaxWidth=viewport.width, focusChanged=composerFocus, editDraft=editNewDraft, action=taskAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
+            ThreadComposer(voiceDisabled=(data.busy or pending(changed) or pending(taskChanged)), voice=voiceData, voiceOwner=(entry.id == top(nav).id ? voiceFocus.owner : ""), voiceColors=voiceLook, voiceAction=voiceAction, enterBehavior=appearance.enterBehavior, data=newTaskData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=(composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)), contentMaxWidth=viewport.width, focusChanged=composerFocus, editDraft=editNewDraft, action=taskAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
           else when entry.name == "newTask" or entry.name == "newTaskProjects"
             input value=newTaskQuery input=editNewQuery placeholder="Search projects" margin=16 aria-label="Search projects"
             NewTaskProjects(data=newTaskData, action=taskAction, colors=composerLook)
@@ -932,3 +1247,6 @@ component App
                 when entry.name == "notfound"
                   text "Page not found"
       t3-layout-facts change=layoutChanged position="absolute" inset=0 aria-hidden=true
+      when voiceData.globalVisible
+        column position="absolute" right=0 bottom=(max(layout.safeBottom, 12) + 64)
+          VoiceGlobalPill(data=voiceData, colors=voiceLook, expanded=voicePillExpanded, width=min(320, viewport.width - 24), action=voiceAction, expand=expandVoicePill)

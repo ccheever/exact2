@@ -1,6 +1,7 @@
 #if os(iOS)
 // Adapted from T3 Code (MIT), 365aa87982 apps/mobile/modules/t3-terminal/ios/T3TerminalView.swift.
-// Only Expo ownership/events become UIKit callbacks; the pinned Ghostty input/rendering implementation remains.
+// Expo ownership/events become UIKit callbacks; an accessory setter exposes the pinned input field.
+// The pinned Ghostty input/rendering implementation remains.
 // @ref llp/1106.007-mobile-terminal.decision.md#native-renderer
 import Foundation
 import GhosttyKit
@@ -386,6 +387,7 @@ public final class T3MobileTerminalSurface: UIView, UITextFieldDelegate {
   public required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
   func dispose() { inputField.resignFirstResponder(); destroySurface() }
+  func setKeyboardAccessory(_ accessory: UIView?) { guard inputField.inputAccessoryView !== accessory else { return }; inputField.inputAccessoryView = accessory; inputField.reloadInputViews() }
   func dismissKeyboard() { inputField.resignFirstResponder() }
 
   deinit { destroySurface() }

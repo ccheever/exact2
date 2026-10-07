@@ -3,6 +3,7 @@ import type { T3Client } from './shared/client';
 import { composerOps } from './shared/client-ops-composer';
 import { letGo } from './shared/let-go';
 import type { Files, Native } from './shared/protocol';
+import { mobileVoiceObserveDraft } from './voice-data';
 
 /** Apply the shared input reducer to its current owner before any promise can change focus.
  * Native preferences writes are serialized by T3Transport.queue. Do not cache a resource
@@ -13,7 +14,9 @@ export async function mobileDraftChanged(client: T3Client, value: string, native
   try {
     // Calling the async reducer executes its draft branch synchronously; it does not load,
     // refresh presentation, or select another thread before reading the current draftKey.
-    await composerOps.call(client, 'draft', '', value, 0, native, storage, { message: '', id: '', value });
+    const reduction = composerOps.call(client, 'draft', '', value, 0, native, storage, { message: '', id: '', value });
+    mobileVoiceObserveDraft(client);
+    await reduction;
     await client.persist(storage);
   } catch (error) {
     if (letGo(error)) throw error;

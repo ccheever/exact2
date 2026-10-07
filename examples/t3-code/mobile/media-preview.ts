@@ -10,7 +10,7 @@ import { videoMimeType } from './shared/r4-composer-video';
 import { assetUrl } from './shared/settings-b-icons';
 
 export interface MediaPreviewSnapshot { identifier: string; name: string; kind: string; sourceJSON: string; ready: boolean; error: string; }
-interface MediaSource { identifier: string; name: string; kind: string; source: string; id: string; url: string; mimeType: string; }
+interface MediaSource { identifier: string; name: string; kind: string; source: string; id: string; url: string; mimeType: string; sizeBytes: number; }
 const resolved = new WeakMap<T3Client, Map<string, MediaPreviewSnapshot>>();
 function selected(client: T3Client, scope: string, id: string): { attachment: Obj; source: string } | undefined {
   if (scope === 'composer') {
@@ -29,6 +29,11 @@ function selected(client: T3Client, scope: string, id: string): { attachment: Ob
 function owner(client: T3Client, scope: string) {
   return JSON.stringify([client.generation, client.environmentId, client.threadId, scope === 'composer' ? client.draftKey : '']);
 }
+/** Recheck after asynchronous file work, including removal without a route change. */
+export function mobileMediaOwned(scope: string, id: string, client: T3Client = mobileClient): boolean {
+  return selected(client, scope, id) !== undefined;
+}
+
 /** Only server-issued http(s) URLs enter the native downloader; local paths stay below the seam. */
 export function mobileMediaURL(origin: string, relative: string): string {
   if (!relative) throw new ClientError('The environment returned an invalid media URL.');
@@ -65,7 +70,7 @@ export async function mobileMediaPrepare(scope: string, id: string, routeKey: st
       if (scopeOwner !== owner(client, scope) || !selected(client, scope, id)) throw new ClientError('The selected conversation changed.');
       url = mobileMediaURL(client.origin, str(reply.relativeUrl));
     }
-    const value: MediaSource = { identifier, name, kind, source, id, url, mimeType };
+    const value: MediaSource = { identifier, name, kind, source, id, url, mimeType, sizeBytes: Number(attachment.sizeBytes) || 0 };
     const snapshot = { identifier, name, kind, sourceJSON: JSON.stringify(value), ready: true, error: '' };
     cache.set(identifier, snapshot); if (cache.size > 16) cache.delete(cache.keys().next().value!);
     return snapshot;
