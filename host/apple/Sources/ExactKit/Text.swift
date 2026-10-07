@@ -15,11 +15,11 @@
 #if canImport(UIKit)
 import UIKit
 typealias PlatformFont = UIFont
-typealias PlatformColor = UIColor
+package typealias PlatformColor = UIColor
 #else
 import AppKit
 typealias PlatformFont = NSFont
-typealias PlatformColor = NSColor
+package typealias PlatformColor = NSColor
 #endif
 import CExact
 import CoreText
@@ -454,7 +454,7 @@ enum FontRegistry {
 /// measurements on the owner thread. Each keeps its own fonts, shaped text
 /// and caches; what painting reuses from measuring crosses as plain values
 /// (`TextAnswers`): each measured paragraph's metrics and line breaks.
-final class TextEngine {
+package final class TextEngine {
     #if os(macOS)
     var readerParagraphs: [UInt32: RegionReaderParagraph] = [:] {
         didSet { readerLock.lock(); readerViews = Set(readerParagraphs.keys); readerLock.unlock() }
@@ -757,7 +757,7 @@ final class TextEngine {
 
     /// A color from the style dictionary's `[r,g,b,a]` bytes (sRGB), or
     /// `textChannels`' nine, in the colour's own space (LLP 1100 D2).
-    static func color(_ c: [Double]) -> PlatformColor {
+    package static func color(_ c: [Double]) -> PlatformColor {
         if c.count == 9, (0...2).contains(Int(c[4])), case let name = [CGColorSpace.extendedSRGB, CGColorSpace.extendedDisplayP3, CGColorSpace.extendedLinearSRGB][Int(c[4])],
            let space = CGColorSpace(name: name), let made = CGColor(colorSpace: space, components: c[5...].map { CGFloat($0) }),
            let color = PlatformColor(cgColor: ColorRange.tagged(made)) as PlatformColor? { return color }

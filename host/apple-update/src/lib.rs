@@ -19,7 +19,7 @@ pub static HOOKS: exact_apple::delivery::Hooks = exact_apple::delivery::Hooks {
 /// Instantiate an app with the update adapter linked into its archive.
 #[macro_export]
 macro_rules! host {
-    ($data:ty, $plan:expr, $compat:expr) => {
+    ($data:ty, $plan:expr, $compat:expr $(; linked = $linked:expr)?) => {
         mod exact_delivery_adapter {
             use super::*;
             extern "C" fn input(n: usize) -> *mut u8 {
@@ -87,6 +87,7 @@ macro_rules! host {
             $compat,
             Some(&$crate::HOOKS),
             &exact_delivery_adapter::API
+            $(; linked = $linked)?
         );
     };
 }

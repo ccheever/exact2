@@ -315,13 +315,17 @@ public final class ExactView: UIView {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in self?.setNeedsLayout() }
         }
         if !session.booted {
+            // A refused boot is terminal (LLP 1031 D8): the session says why
+            // in `bootError`, and a layout does not ask again.
+            if case .failed = session.state { return }
             lastSize = size
             lastInsets = insets
             lastFold = fold.fold
             session.boot(size: size)
             // The first batch made the roots: one that covers the screen is
-            // framed to it now, before anything is drawn.
-            fit()
+            // framed to it now, before anything is drawn. A refused boot made
+            // none, and fitting it again would boot again, without end.
+            if session.booted { fit() }
             return
         }
         if insets != lastInsets {

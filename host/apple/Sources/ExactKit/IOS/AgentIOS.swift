@@ -388,7 +388,7 @@ extension Agent {
         host.glassAgentFields(&native)
         if presenter.leaves.isPending(host) { native["pending"] = true }
         if let segment = presenter.segments.observation(host) { native["segmentedControl"] = segment }
-        if let grouped = presenter.groupedLists.observation(host) { native["groupedList"] = grouped }
+        if let grouped = presenter.groupedLists?.observation(host) { native["groupedList"] = grouped }
         if let control = presenter.controls.observation(host) { native["control"] = control }
         var responder: UIResponder? = host
         while let current = responder {
@@ -447,7 +447,7 @@ extension Agent {
         if let reply = touchForm(req) { return reply }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil,
-           let node = view(req), node.isDescendant(of: presenter.viewport), !presenter.groupedLists.draws(node.id),
+           let node = view(req), node.isDescendant(of: presenter.viewport), presenter.groupedLists?.draws(node.id) != true,
            // A swipe action's control sits past its row's edge until a swipe
            // reveals it; its tap is the action's (below), wherever it sits.
            !presenter.swipeActions.ownsAction(node.id) {
@@ -492,7 +492,7 @@ extension Agent {
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
-           let reply = presenter.groupedLists.activate(node) {
+           let reply = presenter.groupedLists?.activate(node) {
             return reply
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
@@ -534,7 +534,7 @@ extension Agent {
         // A wheel on what a grouped list draws scrolls that list, even when
         // the node is a custom row's view its cell's reuse took off screen.
         if let wheel = req["wheel"] as? [Double], wheel.count == 2, wheel.allSatisfy(\.isFinite),
-           let id = req["id"] as? Int, let list = presenter.groupedLists.scroller(for: UInt32(id)), presenter.views[UInt32(id)]?.window == nil {
+           let id = req["id"] as? Int, let list = presenter.groupedLists?.scroller(for: UInt32(id)), presenter.views[UInt32(id)]?.window == nil {
             Agent.scroll(from: list, dx: CGFloat(wheel[0]), dy: CGFloat(wheel[1]))
             return ["tapped": id, "wheel": wheel]
         }
@@ -604,7 +604,7 @@ extension Agent {
             guard wheel.allSatisfy(\.isFinite) else { return ["error": "wheel deltas must be finite"] }
             // A row a grouped list draws scrolls that list, wherever its
             // hidden node lies (LLP 1084 D8).
-            Agent.scroll(from: presenter.groupedLists.scroller(for: v.id) ?? hit, dx: CGFloat(wheel[0]), dy: CGFloat(wheel[1]))
+            Agent.scroll(from: presenter.groupedLists?.scroller(for: v.id) ?? hit, dx: CGFloat(wheel[0]), dy: CGFloat(wheel[1]))
             if ExactEnv.agentFreezes { presenter.settlePump() }
             return ["tapped": Int(v.id), "wheel": wheel, "at": at]
         }
@@ -688,7 +688,7 @@ extension Agent {
             var target: UIScrollView? = cur as? ScrollView
             if let waiting = cur as? NodeView, waiting.scrollDormant { waiting.needScroll(); target = waiting.scroll }
             // A grouped list's collection view scrolls in its place (LLP 1084 D8).
-            if target == nil, cur is GroupedCollectionView { target = cur as? UIScrollView }
+            if target == nil, cur is GroupedScroller { target = cur as? UIScrollView }
             if let sv = target {
                 let scrollsX = (sv as? ScrollView)?.scrollsX ?? false, scrollsY = (sv as? ScrollView)?.scrollsY ?? true
                 // Native bars and keyboard avoidance can make the resting

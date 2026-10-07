@@ -220,7 +220,7 @@ extension NodeView {
 
     /// "Move earlier", "Move later", "Move to previous list", "Move to next
     /// list" on a grouped grip (D9).
-    override var accessibilityCustomActions: [UIAccessibilityCustomAction]? {
+    package override var accessibilityCustomActions: [UIAccessibilityCustomAction]? {
         get {
             guard reorderGroupList != nil else { return super.accessibilityCustomActions }
             return ReorderGroupStep.actions.map { name, step in

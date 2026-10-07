@@ -370,7 +370,7 @@ public final class ExactSession {
     private var pendingActivation: (generation: Int, token: UInt64)? // retried on the session's wake
     private var updateToken: UInt64 = 0
 
-    let runtime: Runtime
+    package let runtime: Runtime
     let rasters = RasterLoader()
     #if os(macOS)
     lazy var regions = RegionController(self)
@@ -398,7 +398,7 @@ public final class ExactSession {
     /// The runner's soonest timer, from the last batch (absent without timers).
     var timerDue: Double?
     /// The view presenting this session, while one is mounted (D1).
-    weak var view: ExactView?
+    weak package var view: ExactView?
     #if os(iOS) || os(tvOS)
     private var systemDark = false
     #endif
@@ -722,9 +722,6 @@ public final class ExactSession {
         presenter.controls.radioGroup = { [unowned self] id in runtime.radioGroup(id) }
         presenter.buttonFace = { [unowned self] id in runtime.buttonFace(id) }
         presenter.onIntrinsic = { [unowned self] sizes in whenIdle { [unowned self] in apply(runtime.intrinsics(sizes)) } }
-        #if os(iOS)
-        presenter.groupedList = { [unowned self] id in runtime.groupedList(id) }
-        #endif
         #if os(iOS) || os(tvOS)
         // @ref LLP 1075.003 §3.5, Q3 (c) — what a bar covers reaches layout
         // as an intrinsic size does; the hatches replay once the module connects.

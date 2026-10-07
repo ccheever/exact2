@@ -8,7 +8,7 @@ import UIKit
 import CoreText
 import os
 
-final class Presenter {
+package final class Presenter {
     var documentLanguage = ""
     var documentDirection = "ltr"
     static let signposts = OSSignposter(subsystem: "com.exact.host", category: "scroll")
@@ -34,7 +34,7 @@ final class Presenter {
             // first responder or a touch in it) out of its cell. Lists mount
             // first, so a segment or control in a carried row is judged
             // where it shows.
-            groupedLists.sync(changed: [])
+            groupedLists?.sync(changed: [])
             segments.sync()
             controls.sync()
         }
@@ -46,19 +46,19 @@ final class Presenter {
     static var postScreenChanged: (Any?) -> Void = { UIAccessibility.post(notification: .screenChanged, argument: $0) }
     let modalViews = NSHashTable<NodeView>.weakObjects()
     /// The session this presenter shows (LLP 1031 D1).
-    weak var session: ExactSession?
+    weak package var session: ExactSession?
     /// The document: the roots live here, content-sized like a page.
     let root = PlainView(frame: .zero)
     /// The viewport over it: the window's content, scrolling like a browser's.
     let viewport: ScrollView = Viewport(frame: .zero)
-    var views: [UInt32: NodeView] = [:]
+    package var views: [UInt32: NodeView] = [:]
     /// Views leaving with their exit, by id (LLP 1063, `PresenceIOS.swift`).
     var leaving: [UInt32: Leaving] = [:]
     /// Shared elements in flight, by the arriver's id (LLP 1013.000, `FlightsIOS.swift`).
     var flights: [UInt32: Flight] = [:]
     private(set) var chrome = ChromeIndex()
     func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props); view.updateReorderGesture(); view.updateRefresh() }
-    func carrying(_ key: String) -> [NodeView] { chrome.ids(key).sorted().compactMap { views[$0] } }
+    package func carrying(_ key: String) -> [NodeView] { chrome.ids(key).sorted().compactMap { views[$0] } }
     func takeChangedNames() -> Set<String> { chrome.takeChangedNames() }
     var scrollers: Set<UInt32> = []
     var pendingScrolls: Set<UInt32> = []
@@ -96,7 +96,8 @@ final class Presenter {
     lazy var menus = MenuHost(presenter: self)
     lazy var keyboardToolbars = KeyboardToolbars(self)
     lazy var segments = SegmentHost(self)
-    lazy var groupedLists = GroupedListHost(self)
+    /// Present only when the composition links them (LLP 1047.001 D4).
+    package lazy var groupedLists: GroupedLists? = GroupedListsLink.make?(self)
     lazy var controls = ControlHost(self)
     lazy var fieldSelections = FieldSelections(self)
     /// Nodes marked `hatch="word"` (LLP 1075.003.000).
@@ -110,6 +111,10 @@ final class Presenter {
     var focusKey: String?
     #endif
     lazy var modals = ModalHost(presenter: self)
+    /// What a capability module sees of the viewport and the keyboard's
+    /// container (LLP 1047.001 D4): UIKit's types, not the core's.
+    package var viewportScroll: UIScrollView { viewport }
+    package var keyboardContainer: UIView? { modals.coordinateView ?? session?.view }
     /// SVG scenes and CSS animations (LLP 1055 D4, D7).
     let svg = SvgHost()
     /// Boxes under CSS `filter`, drawn again after each batch (LLP 1055.000 D14).
@@ -170,7 +175,7 @@ final class Presenter {
     /// A notification describes the keyboard's target, not its current
     /// presence: UIKit announces hiding even during a cancelled sideways pop.
     /// The guide observes the keyboard in its owning container's coordinates.
-    func keyboardGuideTop(in container: UIView) -> CGFloat? {
+    package func keyboardGuideTop(in container: UIView) -> CGFloat? {
         #if os(tvOS)
         // tvOS has no keyboard layout guide.
         return nil
@@ -361,7 +366,7 @@ final class Presenter {
         collections.reset()
         autofocusProcessed.removeAll()
         segments.reset()
-        groupedLists.reset()
+        groupedLists?.reset()
         controls.reset()
         fieldSelections.reset()
         edited = nil
@@ -593,7 +598,7 @@ final class Presenter {
 
     /// The modifiers held for the press being sent (its `MouseEvent`'s; gallery F20).
     private(set) var pressHeld = ""
-    func press(_ id: UInt32, held: String = "") {
+    package func press(_ id: UInt32, held: String = "") {
         pressHeld = held; defer { pressHeld = "" }
         if let node = views[id], let url = node.defaultLink, node.activateLink(url) { return }
         onPress?(id)
@@ -615,7 +620,7 @@ final class Presenter {
         edited = nil
         if change { onChange?(id, value) }
     }
-    func checked(_ id: UInt32, _ on: Bool) { onChecked?(id, on) }
+    package func checked(_ id: UInt32, _ on: Bool) { onChecked?(id, on) }
     /// A select's, range's or date's new value (LLP 1069.001 D4): HTML's
     /// `input` as it moves, `change` as it is committed.
     var onControlValue: ((UInt32, String, Bool, Bool) -> Void)?
@@ -623,8 +628,6 @@ final class Presenter {
     /// A select's options and the one it shows, read from the kernel.
     var selectOptions: ((UInt32) -> SelectMenu)?
     var buttonFace: ((UInt32) -> ButtonFace)?
-    /// A grouped list's sections and rows (LLP 1084 D4).
-    var groupedList: ((UInt32) -> GroupedListModel?)?
 
     /// An event a view reports: sent only while the presenter still has the
     /// view (the platform fires editing-ended as a destroyed field leaves the
@@ -729,7 +732,7 @@ final class Presenter {
         if !applying { flats.begin(batch) }
         pool.begin(batch)
         swipeActions.prepare()
-        groupedLists.prepare()
+        groupedLists?.prepare()
         prepareContexts(batch)
         modals.prepare(batch)
         navigation.prepare(batch)
@@ -976,7 +979,7 @@ final class Presenter {
         glassGroups.reconcile()
         let changed = touchedAndAbove(touchedIDs)
         swipeActions.sync(changed: changed)
-        groupedLists.sync(changed: changed)
+        groupedLists?.sync(changed: changed)
         positionContexts()
         syncAccessibility(changed: changed)
     }
@@ -1051,7 +1054,7 @@ final class Presenter {
         // rows go back to their authored parents first, as before a batch,
         // so the new box is theirs; the projections remount on the next turn.
         if !applying {
-            groupedLists.prepare()
+            groupedLists?.prepare()
             requestProjectionSync()
         }
         let id = op.id

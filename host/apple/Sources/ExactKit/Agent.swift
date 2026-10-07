@@ -333,7 +333,7 @@ public final class Agent {
         out.write(Data((json + "\n").utf8))
     }
 
-    static func r2(_ x: CGFloat) -> Double { (Double(x) * 100).rounded() / 100 }
+    package static func r2(_ x: CGFloat) -> Double { (Double(x) * 100).rounded() / 100 }
 
     // Whole logical points, with an area ceiling to keep this diagnostic
     // from asking the software painter for arbitrarily large allocations.

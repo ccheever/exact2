@@ -151,6 +151,9 @@ public final class ExactView: NSView {
             session.rasters.displayChanged()
         }
         if !session.booted {
+            // A refused boot is terminal (LLP 1031 D8): the session says why
+            // in `bootError`, and a layout does not ask again.
+            if case .failed = session.state { return }
             // An embedder's view boots the session at its first real size;
             // the standalone adapter booted it before the window showed.
             lastSize = size

@@ -581,8 +581,11 @@ fn artifact_graph(
                 && b.id == exact_kernel::PropId::MediaTitle as u16
         })
     });
+    // The linked tier the plan uses (LLP 1047 D2), by name: a native build
+    // whose plan is fixed links these and no other (LLP 1047.001 D2).
+    let uses: Vec<&str> = exact_runner::uses(plan).iter().map(|c| c.name()).collect();
     Ok(
-        json!({"version":1,"sources":sources,"surfaceCalls":calls,"loads":loads,"mediaSession":media_session,"artifacts":artifacts}),
+        json!({"version":1,"sources":sources,"surfaceCalls":calls,"loads":loads,"uses":uses,"mediaSession":media_session,"artifacts":artifacts}),
     )
 }
 

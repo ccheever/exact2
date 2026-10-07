@@ -5,8 +5,39 @@
 // dynamic type and dark mode are the platform's. The authored scroll stays
 // beneath, hidden: the kernel still lays it out, a custom row's views are
 // carried into their cell, and every batch sees the authored hierarchy.
+import ExactKit
+
+/// The grouped lists capability (LLP 1047.001 D4): an app's composition
+/// links this module only when its plan has a grouped list, and installs it
+/// before any session is made. On macOS a grouped list is its authored
+/// nodes, and installing it does nothing.
+public enum ExactGroupedLists {
+    public static func install() {
+        #if os(iOS) || os(tvOS)
+        GroupedListsLink.make = { GroupedListHost($0) }
+        GroupedListsLink.part = GroupedListHost.part
+        #endif
+    }
+}
+
 #if os(iOS) || os(tvOS)
+import CExact
 import UIKit
+
+extension Runtime {
+    /// A grouped list's sections and rows (LLP 1084 D4). The model is read
+    /// on iOS; tvOS shows a grouped list's authored nodes.
+    func groupedList(_ view: UInt32) -> GroupedListModel? {
+        #if os(iOS)
+        return on(busy: nil) {
+            let len = exact_grouped_list(rt, view)
+            return GroupedListModel(json: Data(bytes: exact_out(rt), count: Int(len)))
+        }
+        #else
+        return nil
+        #endif
+    }
+}
 
 /// A grouped list as the kernel reads it (`Kernel::grouped_list`).
 struct GroupedListModel: Equatable {
@@ -71,9 +102,11 @@ struct GroupedListModel: Equatable {
     }
 }
 
-final class GroupedListHost {
+final class GroupedListHost: GroupedLists {
     unowned let presenter: Presenter
     private(set) var lists: [UInt32: GroupedListView] = [:]
+    /// A list's model: the kernel's, through the runtime; a test's own.
+    lazy var model: (UInt32) -> GroupedListModel? = { [unowned self] id in presenter.session?.runtime.groupedList(id) }
     init(_ presenter: Presenter) { self.presenter = presenter }
 
     /// Before a batch: every carried row back where the presenter put it.
@@ -89,7 +122,7 @@ final class GroupedListHost {
                 list.mount()
                 continue
             }
-            guard let model = presenter.groupedList?(owner.id) else { continue }
+            guard let model = model(owner.id) else { continue }
             if let old = lists[owner.id], old.owner !== owner { old.remove(); lists[owner.id] = nil }
             let list = lists[owner.id] ?? GroupedListView(owner: owner, host: self)
             lists[owner.id] = list
@@ -145,8 +178,7 @@ final class GroupedListHost {
     /// view whose port the point must be in. A refusal when the cell is off
     /// that port or the accessory is not shown; nil for any node this host
     /// does not draw, which the ordinary aim takes.
-    enum Aim { case view(UIView, port: UIScrollView), refused(String) }
-    func shown(_ node: NodeView) -> Aim? {
+    func shown(_ node: NodeView) -> GroupedAim? {
         guard let (list, row) = list(drawing: node.id) else { return nil }
         guard let cell = list.cell(row.view), list.collection.bounds.intersects(cell.frame) else {
             return .refused("its cell is outside the list's port; scroll it into view first")
@@ -195,12 +227,12 @@ final class GroupedListHost {
         }
         // The software keyboard is a window of its own, which the app's hit
         // test never sees (`Agent.obscured`).
-        if let container = presenter.modals.coordinateView ?? presenter.session?.view,
+        if let container = presenter.keyboardContainer,
            let top = presenter.keyboardGuideTop(in: container), middle.y >= container.convert(CGPoint(x: 0, y: top), to: nil).y {
             return ["error": "tap #\(id): its cell's middle is under the software keyboard; dismiss it or scroll the row above it first"]
         }
-        let at = presenter.viewport.convert(middle, from: nil)
-        let reply: [String: Any] = ["tapped": id, "at": [Agent.r2(at.x), Agent.r2(at.y - presenter.viewport.contentOffset.y)],
+        let at = presenter.viewportScroll.convert(middle, from: nil)
+        let reply: [String: Any] = ["tapped": id, "at": [Agent.r2(at.x), Agent.r2(at.y - presenter.viewportScroll.contentOffset.y)],
                                     "delivery": "host-activation", "native": "grouped-list"]
         if row.view != node.id, row.accessory == "toggle" {
             guard list.toggle(row.view) else { return ["error": "tap #\(id): the switch is disabled"] }
@@ -225,15 +257,15 @@ final class GroupedListHost {
         guard let (list, row) = list(drawing: node.id), row.view == node.id else { return nil }
         var seen: [String: Any] = ["view": "UICollectionViewListCell", "accessory": row.accessory, "custom": row.custom]
         if let cell = list.cell(row.view) {
-            let r = cell.convert(cell.bounds, to: presenter.viewport)
-            seen["frame"] = [Agent.r2(r.minX), Agent.r2(r.minY - presenter.viewport.contentOffset.y), Agent.r2(r.width), Agent.r2(r.height)]
+            let r = cell.convert(cell.bounds, to: presenter.viewportScroll)
+            seen["frame"] = [Agent.r2(r.minX), Agent.r2(r.minY - presenter.viewportScroll.contentOffset.y), Agent.r2(r.width), Agent.r2(r.height)]
         }
         return seen
     }
 
     // LLP 1080.001 D3: what the inspection walk accounts for.
     func inspectionOwns(_ view: UIView) -> Bool { lists.values.contains { $0.collection === view } }
-    func hides(_ node: NodeView) -> Bool { lists.values.contains { $0.owner.scroll.map { node.isDescendant(of: $0) } ?? false } }
+    func hides(_ node: NodeView) -> Bool { lists.values.contains { $0.owner.scrollView.map { node.isDescendant(of: $0) } ?? false } }
     func projects(_ view: UIView) -> Bool { lists.values.contains { $0.carried.keys.contains((view as? NodeView)?.id ?? 0) } }
 }
 
@@ -393,7 +425,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     /// that scroll's; custom rows carried into their cells.
     func mount() {
         if collection.superview !== owner { owner.addSubview(collection) }
-        if let scroll = owner.scroll {
+        if let scroll = owner.scrollView {
             if !scroll.isHidden { scrollWasHidden = false; scroll.isHidden = true }
             assign(collection, \.contentInsetAdjustmentBehavior, scroll.contentInsetAdjustmentBehavior)
             // An authored space under a last section with a footer is under
@@ -404,7 +436,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             assign(collection, \.verticalScrollIndicatorInsets, scroll.verticalScrollIndicatorInsets)
             // A short list bounces, as Settings does; UICollectionView's own
             // default would not.
-            assign(collection, \.alwaysBounceVertical, scroll.scrollsY)
+            assign(collection, \.alwaysBounceVertical, owner.scrollsVertically)
             assign(collection, \.bounces, owner.style["overscroll_behavior_y"]?.string != "none")
         }
         assign(collection, \.frame, owner.bounds)
@@ -632,7 +664,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     func remove() {
         restore()
         collection.removeFromSuperview()
-        owner.scroll?.isHidden = scrollWasHidden
+        owner.scrollView?.isHidden = scrollWasHidden
     }
 
     /// A tap: UIKit's highlight, then the row's press.
@@ -666,13 +698,13 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     func collectionView(_ view: UICollectionView, didSelectItemAt path: IndexPath) {
         view.deselectItem(at: path, animated: !ExactEnv.agentFreezes)
         guard let id = source.itemIdentifier(for: path), pressable(id) else { return }
-        host.presenter.viewport.endEditing(true)
+        host.presenter.viewportScroll.endEditing(true)
         host.presenter.press(id)
     }
 }
 
 /// A grouped list's collection view, by type, for the agent's wheel.
-final class GroupedCollectionView: UICollectionView {}
+final class GroupedCollectionView: UICollectionView, GroupedScroller {}
 
 /// A list cell; a custom row's is as tall as its carried views.
 final class GroupedCell: UICollectionViewListCell {

@@ -114,7 +114,7 @@ extension Presenter {
             if sub === controls.controls[id] { return ("control", id) }
             if segments.inspectionOwns(sub) { return ("segment", id) }
             if swipeActions.inspectionOwns(sub) { return ("swipe", id) }
-            if groupedLists.inspectionOwns(sub) { return ("grouped-list", id) }
+            if groupedLists?.inspectionOwns(sub) == true { return ("grouped-list", id) }
             if Self.platformKinds.contains(o.kind) || o.props["hatch"] != nil { return ("platform", id) }
         }
         if menus.inspectionOwns(sub) { return ("menu", owner?.id) }
@@ -147,7 +147,7 @@ extension Presenter {
         if menus.hides(n) { return "menus" }
         if navigation.controllers.values.contains(where: { $0.lifted === n }) { return "navigation" }
         if swipeActions.hides(n) { return "swipe" }
-        if groupedLists.hides(n) { return "grouped-list" }
+        if groupedLists?.hides(n) == true { return "grouped-list" }
         return nil
     }
 
@@ -336,7 +336,7 @@ extension Presenter {
             guard seen[id] === v, v.window != nil else { report.skip("offWindow"); continue }
             if modals.holdsGeometry(id) { report.skip("deferred"); continue }
             if v.placedAncestor != nil { report.skip("placed"); continue }
-            if menus.projects(v) || swipeActions.projects(v) || groupedLists.projects(v) { report.skip("projected"); continue }
+            if menus.projects(v) || swipeActions.projects(v) || groupedLists?.projects(v) == true { report.skip("projected"); continue }
             if navigation.controllers[id]?.node === v { report.skip("route"); continue }
             if f.transformed || !CATransform3DIsIdentity(v.layer.transform) { report.skip("transformed"); continue }
             if geometryAnimating(v.layer) { report.skip("animating"); continue }

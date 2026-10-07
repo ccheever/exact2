@@ -325,3 +325,16 @@ fn svg_islands_are_a_mask_a_filter_element_or_a_filter_on_an_svg_element() {
         "component A\n  view\n    box filter=\"blur(2px)\"\n"
     ));
 }
+
+/// LLP 1047.001 D2: a grouped list (`list appearance="auto"`, which Contract
+/// marks with `listStyle`) is a native capability; a plain list is not.
+#[test]
+fn a_grouped_list_is_a_list_whose_appearance_is_auto() {
+    let plain = used("component A\n  view\n    list\n      text \"a\"\n");
+    assert!(!plain.has(Capability::GroupedLists));
+    let grouped = used(
+        "component A\n  view\n    list appearance=\"auto\"\n      section\n        text \"a\"\n",
+    );
+    assert!(grouped.has(Capability::GroupedLists));
+    assert_eq!(grouped.to_string(), "grouped_lists");
+}

@@ -88,11 +88,16 @@ pub enum Capability {
     /// `showNotification` and `closeNotification` (rules/DEFERRED.md,
     /// 2026-10-04): a plan whose code runs one.
     Notifications,
+    /// A native grouped list: a `list` whose appearance is `auto`, which
+    /// Contract marks with `listStyle` (LLP 1084 D2). A native host draws it
+    /// with the platform's list; the web draws its authored nodes, so the web
+    /// links nothing for it (LLP 1047.001 D2).
+    GroupedLists,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 23] = [
+    pub const ALL: [Capability; 24] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -116,6 +121,7 @@ impl Capability {
         Capability::Dataset,
         Capability::Tabs,
         Capability::Notifications,
+        Capability::GroupedLists,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -144,6 +150,7 @@ impl Capability {
             Capability::Dataset => "dataset",
             Capability::Tabs => "tabs",
             Capability::Notifications => "notifications",
+            Capability::GroupedLists => "grouped_lists",
         }
     }
 
@@ -240,6 +247,7 @@ pub fn uses(plan: &Plan) -> Uses {
                     uses = uses.with(Capability::Collections);
                 }
                 Some(PropId::BackgroundMaterial) => uses = uses.with(Capability::Materials),
+                Some(PropId::ListStyle) => uses = uses.with(Capability::GroupedLists),
                 Some(PropId::Dataset) => uses = uses.with(Capability::Dataset),
                 Some(PropId::AccessibilityControls) => uses = uses.with(Capability::Tabs),
                 Some(PropId::Type) if can_be(binding, &|v| v == "file") => {

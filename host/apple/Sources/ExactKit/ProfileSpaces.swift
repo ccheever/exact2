@@ -4,13 +4,13 @@ import CoreGraphics
 import Foundation
 import CryptoKit
 
-enum ProfileSpaces {
+package enum ProfileSpaces {
     /// A decoded value owns its immutable profile beyond cache eviction.
-    final class Handle: Equatable {
+    package final class Handle: Equatable {
         let key: String
         let space: CGColorSpace
         init(key: String, space: CGColorSpace) { self.key = key; self.space = space }
-        static func == (a: Handle, b: Handle) -> Bool { a.key == b.key }
+        package static func == (a: Handle, b: Handle) -> Bool { a.key == b.key }
     }
     nonisolated(unsafe) private static var cache: [String: Handle] = [:]
     nonisolated(unsafe) private static var order: [String] = []

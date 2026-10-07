@@ -20,12 +20,12 @@ final class Presenter {
     /// Set the turn after the session's first activation. A booted session's autofocus waits for it.
     var launchAutofocusReleased = false
     /// The session this presenter shows (LLP 1031 D1).
-    weak var session: ExactSession?
+    weak package var session: ExactSession?
     /// The document: the roots live here, content-sized like a page.
     let root = FlippedView(frame: .zero)
     /// The viewport over it: the window's content view, scrolling like a browser's.
-    let viewport = PageScrollView(frame: .zero)
-    var views: [UInt32: NodeView] = [:]
+    package let viewport = PageScrollView(frame: .zero)
+    package var views: [UInt32: NodeView] = [:]
     var inlineOwners: [UInt32: (owner: UInt32, index: Int)] = [:]
     private(set) var chrome = ChromeIndex()
     /// Views leaving with their exit, by id (LLP 1063, `PresenceMac.swift`).
@@ -41,7 +41,7 @@ final class Presenter {
     }
     /// Views carrying an indexed prop, in id order (the passes' old order was
     /// a dictionary's, which is none).
-    func carrying(_ key: String) -> [NodeView] {
+    package func carrying(_ key: String) -> [NodeView] {
         chrome.ids(key).sorted().compactMap { views[$0] }
     }
     /// Reparenting into/out of the top layer changes text's paint/selection walk.
@@ -782,7 +782,7 @@ final class Presenter {
 
     /// The modifiers held for the press being sent (its `MouseEvent`'s; gallery F20).
     var pressHeld = ""
-    func press(_ id: UInt32, fromNativeMenu: Bool = false, held: String = "") {
+    package func press(_ id: UInt32, fromNativeMenu: Bool = false, held: String = "") {
         pressHeld = held; defer { pressHeld = "" }
         guard let node = textHost(id), !node.inert, !node.disabled,
               fromNativeMenu || (segments.shown(node) ?? !node.isHiddenOrHasHiddenAncestor) || toolbar.contains(node) else { return }
@@ -810,7 +810,7 @@ final class Presenter {
         edited = nil
         if change { onChange?(id, value) }
     }
-    func checked(_ id: UInt32, _ on: Bool) { onChecked?(id, on) }
+    package func checked(_ id: UInt32, _ on: Bool) { onChecked?(id, on) }
     /// A select's, range's or date's new value (LLP 1069.001 D4): HTML's
     /// `input` as it moves, `change` as it is committed.
     var onControlValue: ((UInt32, String, Bool, Bool) -> Void)?
