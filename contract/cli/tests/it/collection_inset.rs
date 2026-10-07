@@ -81,7 +81,8 @@ fn end_of(r: &Runner<Data>) -> f64 {
     k.resolved_padding(node.key).unwrap().3 as f64
 }
 /// A host: its `scrollTop` (`top`) counts from the padding's top, as a
-/// browser's does; it reports the offset from the first row's start, moves
+/// browser's does; it reports the offset from the first row's start
+/// (negative in the padding before it), moves
 /// where a correction says (plus the padding), clamped to its range, and
 /// measures every mounted row, until the list asks for nothing more. The
 /// `scrollTop` it ends at.
@@ -101,7 +102,7 @@ fn host(r: &mut Runner<Data>, mut top: f64) -> f64 {
                 view: c.view,
                 revision: c.revision,
                 scroll_sequence: sequence,
-                offset: (top - TOP).max(0.0),
+                offset: top - TOP,
                 port_main: PORT,
                 port_cross: 400.0,
                 cross: 400.0,
@@ -335,4 +336,89 @@ fn without_scroll_padding_start_is_the_ports_top_edge() {
     assert_eq!(top, TOP);
     let top = into(&mut r, "center", 1.0, top);
     assert_eq!(top, 0.0, "row 1's centre is above the port's: the very top");
+}
+
+/// A request before the list's first report, when the runner knows no
+/// padding yet, still lands at the very top once a report brings it (Grok's
+/// first scroll-padding review: a report of 0 for the whole padding finished
+/// it a padding's height down).
+#[test]
+fn the_soft_reset_before_any_report_still_reaches_the_top() {
+    let mut r = boot(SNAP);
+    r.act("start", vec![Value::Number(0.0)]).unwrap();
+    let top = host(&mut r, 0.0);
+    assert_eq!(top, 0.0);
+    assert!(exact_runner::agent::state(&r).contains("\"status\":\"done\""));
+}
+
+/// `nearest` at `scrollTop` 0: a row inside the snapport stays, and the port
+/// stays at the very top (it once moved down to the first row).
+#[test]
+fn nearest_at_the_top_leaves_the_port_there() {
+    let mut r = boot(SNAP);
+    host(&mut r, 0.0);
+    let top = into(&mut r, "nearest", 1.0, 0.0);
+    assert_eq!(top, 0.0);
+}
+
+/// `nearest` on a row taller than the snapport that covers it stays, as
+/// CSSOM View says; one partly above aligns its end, the nearer edge.
+#[test]
+fn nearest_keeps_a_row_that_covers_the_snapport() {
+    let mut r = boot(&SNAP.replace(
+        "text `${x}` height=100",
+        "text `${x}` height=(x == 3 ? 700 : 100)",
+    ));
+    let tall = |i: usize| if i == 3 { 700.0 } else { ROW };
+    // A host that measures row 3 at 700.
+    let mut host_tall = |r: &mut Runner<Data>, mut top: f64| {
+        let mut sequence = 0;
+        for _ in 0..12 {
+            layout(r);
+            let c = list(r);
+            if let Some(correction) = c.correction {
+                top = correction.offset + TOP;
+            }
+            top = top.clamp(0.0, max_top_with(&c, end_of(r)));
+            sequence = sequence.max(c.scroll_sequence) + 1;
+            let changed = r
+                .collection_feedback(CollectionFeedback {
+                    view: c.view,
+                    revision: c.revision,
+                    scroll_sequence: sequence,
+                    offset: top - TOP,
+                    port_main: PORT,
+                    port_cross: 400.0,
+                    cross: 400.0,
+                    measurements: c
+                        .rows
+                        .iter()
+                        .map(|row| RowMeasurement {
+                            view: row.view,
+                            epoch: row.epoch,
+                            size: tall(row.index),
+                        })
+                        .collect(),
+                    focus_view: None,
+                    interaction_view: None,
+                })
+                .unwrap();
+            if list(r).correction.is_none() && changed.receipts.is_empty() {
+                break;
+            }
+        }
+        top
+    };
+    host_tall(&mut r, 0.0);
+    // Row 3 runs 300..1000 in rows; at scrollTop 92 + 250 the snapport
+    // (342..767 in rows) is inside it.
+    let at = TOP + 250.0;
+    host_tall(&mut r, at);
+    r.act("nearest", vec![Value::Number(3.0)]).unwrap();
+    assert_eq!(host_tall(&mut r, at), at, "covering: stays");
+    // From the top its start is inside the snapport and its end below it:
+    // a row taller than the snapport aligns its start.
+    host_tall(&mut r, 0.0);
+    r.act("nearest", vec![Value::Number(3.0)]).unwrap();
+    assert_eq!(host_tall(&mut r, 0.0), TOP + 300.0 - TOP);
 }

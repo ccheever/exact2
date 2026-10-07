@@ -149,15 +149,20 @@ impl Collection {
             Align::Start => start - low,
             Align::Center => start + size / 2.0 - (low + high) / 2.0,
             Align::End => start + size - high,
-            Align::Nearest if start < current + low => start - low,
-            Align::Nearest if start + size > current + high => {
-                if size > view {
+            // CSSOM View's "nearest": a row that covers the snapport, or
+            // fits inside it, stays; else the nearer edge aligns.
+            Align::Nearest => {
+                let (top, bottom) = (start - current, start + size - current);
+                let above = top < low;
+                let below = bottom > high;
+                if above == below {
+                    current
+                } else if above == (size <= view) {
                     start - low
                 } else {
                     start + size - high
                 }
             }
-            Align::Nearest => current,
         };
         at.clamp(-self.leading, self.index.max_offset(port))
     }
@@ -193,8 +198,7 @@ impl Collection {
         ));
         match &mut self.geometry {
             Some(g) => {
-                // A report counts from the first row and stops at it.
-                g.offset = offset.max(0.0);
+                g.offset = offset;
                 self.correction = Some(AnchorCorrection {
                     scroll_sequence: g.scroll_sequence,
                     offset,
@@ -273,8 +277,7 @@ impl Collection {
             .map_or(position, |m| m.position)
             .min(position);
         let measured = self.index.range_measured(first..position + 1);
-        // A host reports an offset short of the first row as 0.
-        if (desired.max(0.0) - reported).abs() <= 0.5 {
+        if (desired - reported).abs() <= 0.5 {
             // Done when it holds for two reports: filling around it measures
             // rows that can still move it.
             // And not before the window is whole: a row mounted later above
@@ -302,7 +305,7 @@ impl Collection {
         }
         let sequence = g.scroll_sequence;
         if let Some(g) = &mut self.geometry {
-            g.offset = desired.max(0.0);
+            g.offset = desired;
         }
         self.correction = Some(AnchorCorrection {
             scroll_sequence: sequence,

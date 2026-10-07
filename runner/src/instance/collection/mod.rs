@@ -731,7 +731,8 @@ impl Collection {
                 .index
                 .restore_anchor(&anchor, g.port_main)
                 .map_err(index_error)?;
-            if !start::at_target(&anchor, corrected, g.offset, self.end_sent) {
+            // A port in the padding before the first row is at its start.
+            if !start::at_target(&anchor, corrected, g.offset.max(0.0), self.end_sent) {
                 if index::SizeIndex::follows_end(&anchor) {
                     self.end_sent = corrected;
                 }

@@ -594,9 +594,16 @@ fn invalid_numbers_and_duplicates_leave_index_unchanged() {
         assert_eq!(index.total_height(), 30.0);
         assert_eq!(index.measurement_token("k0"), Some(token));
         assert!(index.row_at(bad).is_err());
-        assert!(index.window(bad, 10.0, [None; 2]).is_err());
+        // A negative offset is a port in the padding before the first row
+        // (LLP 1010 §6.9): at the rows' start.
+        if bad < 0.0 && bad.is_finite() {
+            assert_eq!(index.window(bad, 10.0, [None; 2]).unwrap().offset, 0.0);
+            assert!(index.capture_anchor(bad, 10.0, false).is_ok());
+        } else {
+            assert!(index.window(bad, 10.0, [None; 2]).is_err());
+            assert!(index.capture_anchor(bad, 10.0, false).is_err());
+        }
         assert!(index.window(0.0, bad, [None; 2]).is_err());
-        assert!(index.capture_anchor(bad, 10.0, false).is_err());
         assert!(index.capture_anchor(0.0, bad, false).is_err());
         let anchor = index.capture_anchor(0.0, 10.0, false).unwrap();
         assert!(index.restore_anchor(&anchor, bad).is_err());

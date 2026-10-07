@@ -633,8 +633,12 @@ impl SizeIndex {
         (self.total_height() + self.trailing - viewport).max(0.0)
     }
 
+    /// A port in the padding before the first row (a negative offset, LLP
+    /// 1010 §6.9) is at the rows' start.
     fn clamp_offset(&self, offset: f64, viewport: f64) -> Result<f64, IndexError> {
-        valid_geometry(offset)?;
+        if !offset.is_finite() {
+            return Err(IndexError::InvalidGeometry);
+        }
         valid_geometry(viewport)?;
         Ok(offset.min(self.max_offset(viewport)).max(0.0))
     }

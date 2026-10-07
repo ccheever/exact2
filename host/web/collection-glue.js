@@ -10,7 +10,9 @@ export function collectionBytes(facts, fill = {}) {
   const id = n => Number.isInteger(n) && n > 0 && n <= 0xffffffff;
   const u64 = n => { if (typeof n === 'number' && !Number.isSafeInteger(n)) throw Error('unsafe collection identity'); const v = BigInt(n); if (v < 0n || v > 0xffffffffffffffffn) throw Error('invalid collection identity'); return v; };
   const rows = facts.measurements, seen = new Set();
-  if (!id(facts.view) || ![facts.offset, facts.port_main, facts.port_cross, facts.cross].every(valid)
+  // The offset counts from the first row: negative in the padding before it (LLP 1010 §6.9).
+  if (!id(facts.view) || !(Number.isFinite(facts.offset) && Math.abs(facts.offset) <= 3.4028234663852886e38)
+      || ![facts.port_main, facts.port_cross, facts.cross].every(valid)
       || [facts.focus_view, facts.interaction_view].some(n => n != null && !id(n))) throw Error('invalid collection geometry');
   for (const row of rows) {
     if (!id(row.view) || seen.has(row.view) || !valid(row.size)) throw Error('invalid collection row');
@@ -276,7 +278,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
       if (s.dimensions !== null && dimensions !== s.dimensions) { s.sequence++; s.jumpedAt = s.sequence; }
       s.dimensions = dimensions;
       const facts = { view: s.snapshot.view, revision: s.snapshot.revision, scroll_sequence: s.sequence,
-        offset: Math.max(0, g.raw + (s.animating != null ? (s.owed ?? s.animating) - s.port[A.offset] : s.clamp?.at === s.port[A.offset] ? s.clamp.from - s.clamp.at : 0)), port_main: g.portMain, port_cross: g.portCross, cross: g.cross,
+        offset: Math.max(-g.leading, g.raw + (s.animating != null ? (s.owed ?? s.animating) - s.port[A.offset] : s.clamp?.at === s.port[A.offset] ? s.clamp.from - s.clamp.at : 0)), port_main: g.portMain, port_cross: g.portCross, cross: g.cross,
         focus_view: pins[0], interaction_view: pins[1], measurements, trailing: g.trailing, leading: g.leading, scrollPadding: g.scrollPadding };
       const signature = [facts.offset, facts.scroll_sequence, dimensions, facts.trailing, facts.leading, ...(facts.scrollPadding ?? []), ...pins,
         ...measurements.flatMap(r => [r.view, r.epoch, r.size])].join('|');
@@ -379,7 +381,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
       if(scrollChanged(s))enqueue(s,true);
       enqueue(s);if(!delivering)flush(true);
       const g=geometry(s),f=s.lastFacts,p=viewport(s.port,AXES.y);
-      if(!g||!f||f.offset!==Math.max(0,g.raw)||f.port_cross!==g.portCross||f.port_main!==g.portMain
+      if(!g||!f||f.offset!==Math.max(-g.leading,g.raw)||f.port_cross!==g.portCross||f.port_main!==g.portMain
         ||f.cross!==g.cross||BigInt(f.scroll_sequence)!==s.sequence)return undefined;
       return {revision:s.snapshot.revision,scrollSequence:String(s.sequence),scrollTop:f.offset,
         portWidth:g.portCross,portHeight:g.portMain,rowWidth:g.cross,totalExtent:s.snapshot.totalExtent,
@@ -405,7 +407,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
       if (!lease || interaction?.lease !== lease || delivering || reportsLeft <= 0) return null;
       const s=lease.state,view=liveView(s,element),g=geometry(s),old=s.lastFacts;
       if (!states.has(s.snapshot.view)||!lease.wrapper.isConnected||!lease.wrapper.contains(element)||view==null
-        ||!g||old?.interaction_view!==lease.view||old.offset!==Math.max(0,g.raw)
+        ||!g||old?.interaction_view!==lease.view||old.offset!==Math.max(-g.leading,g.raw)
         ||old.port_cross!==g.portCross||old.port_main!==g.portMain||old.cross!==g.cross
         ||s.port[AXES[s.axis].offset]!==s.offset) return null;
       const facts={...old,revision:s.snapshot.revision,interaction_view:view,measurements:[]};

@@ -264,14 +264,16 @@ extension CollectionHost {
             let available = max(0, bounds.height - content.minY - (node.bounds.height - content.maxY))
             let cross = measured ?? available
             guard cross.isFinite else { return nil }
-            return CollectionFacts(offset: Double(max(0, at.x - content.minX)),
+            // From the first item: negative in the padding before it, down
+            // to that padding (LLP 1010 §6.9).
+            return CollectionFacts(offset: Double(max(-node.number("padding_left"), at.x - content.minX)),
                 portMain: Double(max(0, bounds.width)), portCross: Double(max(0, bounds.height)),
                 cross: Double(cross), measurements: [], focus: nil, interaction: nil)
         }
         let available = max(0, bounds.width - content.minX - (node.bounds.width - content.maxX))
         let width = measured ?? available
         guard width.isFinite else { return nil }
-        return CollectionFacts(offset: Double(max(0, at.y - content.minY)),
+        return CollectionFacts(offset: Double(max(-node.number("padding_top"), at.y - content.minY)),
             portMain: Double(max(0, bounds.height)), portCross: Double(max(0, bounds.width)),
             cross: Double(width), measurements: [], focus: nil, interaction: nil)
     }

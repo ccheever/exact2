@@ -900,7 +900,9 @@ impl<D: DataSource> Presenter<D> {
                 view,
                 revision: snapshot.revision,
                 scroll_sequence: cursor.sequence,
-                offset: (feedback_main as f64 - g.origin).max(0.),
+                // From the first row: negative in the padding before it, down
+                // to that padding (LLP 1010 §6.9).
+                offset: (feedback_main as f64 - g.origin).max(-g.origin),
                 port_main: g.main(),
                 port_cross: g.port_cross(),
                 cross: g.cross,

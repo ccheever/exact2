@@ -23,8 +23,10 @@ pub struct CollectionFeedback {
     pub revision: u64,
     /// Monotonically increasing host scroll/layout sequence.
     pub scroll_sequence: u64,
-    /// Actual content-relative offset on the main axis, clamped past
-    /// rubber-banding: `scrollTop` for a vertical list.
+    /// Actual offset on the main axis from the first row's start, clamped
+    /// past rubber-banding: `scrollTop` less the padding before the rows for
+    /// a vertical list. Negative while the port is in that padding, down to
+    /// it (`scrollTop` 0, LLP 1010 §6.9).
     pub offset: f64,
     /// Actual inner scrollport size on the main axis.
     pub port_main: f64,
@@ -283,7 +285,8 @@ impl CollectionFeedback {
         if self.view == 0
             || self.focus_view == Some(0)
             || self.interaction_view == Some(0)
-            || ![self.offset, self.port_main, self.port_cross, self.cross]
+            || !(self.offset.is_finite() && self.offset.abs() <= f32::MAX as f64)
+            || ![self.port_main, self.port_cross, self.cross]
                 .into_iter()
                 .all(valid)
         {

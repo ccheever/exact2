@@ -81,7 +81,7 @@ impl Collection {
             .index
             .restore_anchor(&anchor, g.port_main)
             .map_err(index_error)?;
-        if !start::at_target(&anchor, corrected, feedback.offset, self.end_sent) {
+        if !start::at_target(&anchor, corrected, feedback.offset.max(0.0), self.end_sent) {
             return Ok(None);
         }
         let pins = self.pins();

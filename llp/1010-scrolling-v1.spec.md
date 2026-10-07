@@ -1140,14 +1140,27 @@ clamps at minus the padding before the first row, so a correction's offset
 may now be negative, down to that padding: `scrollTop` 0. Hosts already
 added the padding to a correction; Apple's snapshot parser refused a
 negative offset and the web browser half ignored one, and both now take it.
-A host still reports offsets from the first row, never below 0, so a request
-whose destination is in the padding before the first row is at it when the
-host reports 0 (a reader who scrolls cancels it first).
+A host's report is negative too while its port is in that padding, down to
+it (Apple `max(-padding, …)`, Linux `max(-origin)`, the browser half
+`max(-leading, …)`; `CollectionFeedback::validate`, the wire and the
+reorder geometry take a negative offset). r1 kept reports at 0 there, and
+Grok's review found a request into the padding finished a padding's height
+down (every port in the padding reported 0) and `nearest` at `scrollTop` 0
+moved the port to the first row. The size index takes any port short of the
+first row as at its start, so the window, anchors and edges are unchanged.
+`nearest` is CSSOM View's: a row that covers the snapport, or lies inside
+it, stays; else the nearer edge aligns (a row taller than the snapport,
+partly above it, aligns its end). On Apple a bordered list's very top is its
+border's width down: its offsets count from the content box, its reports
+stop at minus the padding.
 
 Tests: `collection_inset.rs` `scroll_into_view_aligns_within_the_scroll_padding`
 (start, end, centre and nearest within the scroll padding, the clamp at the
 true end, the first row's start and end at `scrollTop` 0) and
-`without_scroll_padding_start_is_the_ports_top_edge`; `collection_bounds.rs`
+`without_scroll_padding_start_is_the_ports_top_edge`,
+`the_soft_reset_before_any_report_still_reaches_the_top`,
+`nearest_at_the_top_leaves_the_port_there` and
+`nearest_keeps_a_row_that_covers_the_snapport`; `collection_bounds.rs`
 `scroll_padding_is_a_virtualized_lists_and_takes_lengths`; the web host's
 `style_rows_lower_to_css_by_their_names` (the CSS); `CollectionTests`
 (Apple's parser takes a negative correction; type-checked, not run here).

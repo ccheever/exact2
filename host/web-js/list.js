@@ -281,7 +281,7 @@ class Collection {
     const g = this.geometry;
     if (!a || !g) return;
     const c = this.index.restoreAnchor(a, g.port_main);
-    if (!atTarget(a, c, g.offset, this.endSent)) {
+    if (!atTarget(a, c, Math.max(0, g.offset), this.endSent)) {
       if (a.follows) this.endSent = c;
       // An anchor's correction is relative where its row stayed put
       // (mod.rs `restore`): from where the anchor was taken, or from where
@@ -579,7 +579,7 @@ class Collection {
     };
     if (f.measurements.some(remeasures) || this.restoredAt || this.atEnd || this.target || this.pending || this.correction || !this.dims(f)) return undefined;
     const a = this.index.anchor(f.offset, g.port_main, this.followEnd);
-    if (!atTarget(a, this.index.restoreAnchor(a, g.port_main), f.offset, this.endSent)) return undefined;
+    if (!atTarget(a, this.index.restoreAnchor(a, g.port_main), Math.max(0, f.offset), this.endSent)) return undefined;
     const pins = this.pins();
     const w = this.index.window(f.offset, f.port_main, lead(f.port_main, fill.velocity ?? 0), [this.pin(pins[0]), this.pin(pins[1])]);
     let k = 0;
@@ -615,8 +615,13 @@ class Collection {
     const start = this.index.prefix(p) + before, size = Math.max(0, this.index.h[p] - before - after), port = this.geometry?.port_main ?? 0;
     const [i0, i1] = this.scrollPadding, low = i0, high = Math.max(i0, port - i1), view = high - low;
     const at = align === "start" ? start - low : align === "center" ? start + size / 2 - (low + high) / 2 : align === "end" ? start + size - high
-      : start < current + low ? start - low : start + size > current + high ? (size > view ? start - low : start + size - high) : current;
+      : this.nearest(start, size, current, low, high);
     return Math.min(Math.max(at, -this.leading), this.index.maxOffset(port));
+  }
+  /** CSSOM View's "nearest" (into_view.rs): a row covering the snapport, or inside it, stays; else the nearer edge aligns. */
+  nearest(start, size, current, low, high) {
+    const above = start - current < low, below = start + size - current > high;
+    return above === below ? current : above === (size <= high - low) ? start - low : start + size - high;
   }
   /** Start a request: its window is built at the destination now, and the
    * host told to move there before it paints (the correction). */
@@ -626,7 +631,7 @@ class Collection {
     this.restoredAt = null; this.atEnd = false;
     this.target = { key, align, reports: 0, travelling: 0, aligned: 0 };
     this.status = [key, "pending"];
-    if (g) { g.offset = Math.max(0, offset); this.correction = { scrollSequence: g.scroll_sequence, offset }; }
+    if (g) { g.offset = offset; this.correction = { scrollSequence: g.scroll_sequence, offset }; }
     else { this.startOffset = Math.max(0, offset); this.correction = { scrollSequence: 0, offset }; }
     this.realize(false, {});
     this.revision++;
@@ -650,15 +655,14 @@ class Collection {
     if (!g) return;
     const desired = this.aligned(p, t.align, reported);
     const first = Math.min(this.mounted[0]?.position ?? p, p);
-    // A host reports an offset short of the first row as 0.
-    if (Math.abs(Math.max(0, desired) - reported) <= 0.5) {
+    if (Math.abs(desired - reported) <= 0.5) {
       t.aligned = this.index.rangeMeasured(first, p + 1) && !this.pending ? t.aligned + 1 : 0;
       if (t.aligned >= 2) this.end("done");
       return;
     }
     t.aligned = 0;
     if (t.reports >= 6) return this.end("unconverged");
-    g.offset = Math.max(0, desired);
+    g.offset = desired;
     this.correction = { scrollSequence: g.scroll_sequence, offset: desired };
     t.reports++;
   }
