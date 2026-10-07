@@ -164,7 +164,7 @@ impl Collection {
                 }
             }
         };
-        at.clamp(-self.leading, self.index.max_offset(port))
+        at.clamp(-self.index.leading(), self.index.max_offset(port))
     }
     /// Start a request for the row keyed `key`: its window is built at the
     /// destination now, and the host is told to move there before it paints.

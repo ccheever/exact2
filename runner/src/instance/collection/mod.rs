@@ -195,11 +195,10 @@ pub(crate) struct Collection {
     /// What a retiring row may be rebound to another item under (LLP 1078):
     /// `None` when no row of this list can be.
     reuse: Option<Rc<reuse::Reuse>>,
-    /// The end padding the next report brings ([`Collection::set_insets`]).
-    trailing_next: Option<f64>,
-    /// The padding before the first row, and the scroll padding at each
-    /// end, along the axis (@ref LLP 1010 §6.9).
-    leading: f64,
+    /// The padding before the first row and after the last that the next
+    /// report brings ([`Collection::set_insets`]).
+    padding_next: Option<[f64; 2]>,
+    /// The scroll padding at each end, along the axis (@ref LLP 1010 §6.9).
     scroll_padding: [f64; 2],
 }
 fn index_error(e: index::IndexError) -> InstanceError {
@@ -467,8 +466,7 @@ impl Collection {
             end_travel: 0,
             end_sent: f64::NAN,
             reuse,
-            trailing_next: None,
-            leading: 0.0,
+            padding_next: None,
             scroll_padding: [0.0; 2],
         });
         this.update_data(u, frames, true)?;
@@ -731,8 +729,7 @@ impl Collection {
                 .index
                 .restore_anchor(&anchor, g.port_main)
                 .map_err(index_error)?;
-            // A port in the padding before the first row is at its start.
-            if !start::at_target(&anchor, corrected, g.offset.max(0.0), self.end_sent) {
+            if !start::at_target(&anchor, corrected, g.offset, self.end_sent) {
                 if index::SizeIndex::follows_end(&anchor) {
                     self.end_sent = corrected;
                 }
@@ -1233,11 +1230,11 @@ impl Collection {
         {
             return Err(InstanceError::InvalidCollectionFeedback);
         }
-        // @ref LLP 1010 §6.9 — a new end padding (a rotation's safe area)
-        // is no travel: the anchor is taken on the old range and restored
-        // on the new, so a followed end follows it.
-        let trailing = self.trailing_next.take().unwrap_or(self.index.trailing());
-        if trailing == self.index.trailing() {
+        // @ref LLP 1010 §6.9 — a new padding (a rotation's safe area) is no
+        // travel: the anchor is taken on the old range and restored on the
+        // new, so a followed end follows it.
+        let padding = self.padding_next.take().unwrap_or(self.padding());
+        if padding == self.padding() {
             if let Some(edge) = self.travel_within(u, &feedback, by_view, fill)? {
                 self.reveal_shown(u);
                 return Ok((false, edge));
@@ -1308,9 +1305,9 @@ impl Collection {
         let extent = self.index.total_height();
         let anchor = Some(match self.restoring(&feedback) {
             Some(anchor) => anchor,
-            None => self.report_anchor(feedback.offset, anchor_height, trailing)?,
+            None => self.report_anchor(feedback.offset, anchor_height, padding)?,
         });
-        self.index.set_trailing(trailing);
+        self.set_padding(padding);
         self.set_geometry(CollectionFeedback {
             measurements: Vec::new(),
             ..feedback.clone()

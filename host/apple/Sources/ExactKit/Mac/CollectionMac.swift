@@ -268,14 +268,16 @@ extension CollectionHost {
             // to that padding (LLP 1010 §6.9).
             return CollectionFacts(offset: Double(max(-node.number("padding_left"), at.x - content.minX)),
                 portMain: Double(max(0, bounds.width)), portCross: Double(max(0, bounds.height)),
-                cross: Double(cross), measurements: [], focus: nil, interaction: nil)
+                cross: Double(cross), measurements: [], focus: nil, interaction: nil,
+                padding: [Double(node.number("padding_left")), Double(node.number("padding_right"))])
         }
         let available = max(0, bounds.width - content.minX - (node.bounds.width - content.maxX))
         let width = measured ?? available
         guard width.isFinite else { return nil }
         return CollectionFacts(offset: Double(max(-node.number("padding_top"), at.y - content.minY)),
             portMain: Double(max(0, bounds.height)), portCross: Double(max(0, bounds.width)),
-            cross: Double(width), measurements: [], focus: nil, interaction: nil)
+            cross: Double(width), measurements: [], focus: nil, interaction: nil,
+            padding: [Double(node.number("padding_top")), Double(node.number("padding_bottom"))])
     }
     /// A row wrapper's size across the list.
     func crossSize(_ id: UInt32, horizontal: Bool) -> Double? {

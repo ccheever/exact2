@@ -7,7 +7,7 @@
 use exact_kernel::{Env, Kernel, Offer};
 use exact_plan::Value;
 use exact_runner::{
-    CollectionFeedback, CollectionSnapshot, DataError, DataSource, RowMeasurement, Runner,
+    CollectionFeedback, CollectionSnapshot, DataError, DataSource, ListAxis, RowMeasurement, Runner,
 };
 
 const APP: &str = r#"component App
@@ -74,35 +74,53 @@ fn max_top_with(c: &CollectionSnapshot, end: f64) -> f64 {
 fn max_top(c: &CollectionSnapshot) -> f64 {
     max_top_with(c, END)
 }
-/// The padding after the rows as laid out now.
-fn end_of(r: &Runner<Data>) -> f64 {
+/// The padding before the rows and after them, along the list's axis, as
+/// laid out now.
+fn pads(r: &Runner<Data>) -> (f64, f64) {
     let k = r.kernel();
-    let node = k.node(list(r).view).unwrap();
-    k.resolved_padding(node.key).unwrap().3 as f64
+    let c = list(r);
+    let (left, top, right, bottom) = k.resolved_padding(k.node(c.view).unwrap().key).unwrap();
+    match c.axis {
+        ListAxis::Vertical => (top as f64, bottom as f64),
+        ListAxis::Horizontal => (left as f64, right as f64),
+    }
 }
-/// A host: its `scrollTop` (`top`) counts from the padding's top, as a
-/// browser's does; it reports the offset from the first row's start
-/// (negative in the padding before it), moves
-/// where a correction says (plus the padding), clamped to its range, and
-/// measures every mounted row, until the list asks for nothing more. The
-/// `scrollTop` it ends at.
-fn host(r: &mut Runner<Data>, mut top: f64) -> f64 {
+fn end_of(r: &Runner<Data>) -> f64 {
+    pads(r).1
+}
+/// The farthest a padded scroller's `scrollTop` goes now.
+fn max_top_now(r: &Runner<Data>) -> f64 {
+    let (lead, end) = pads(r);
+    (lead + list(r).total_extent + end - PORT).max(0.0)
+}
+/// A host: its `scrollTop` (`top`, `scrollLeft` on a row list) counts from
+/// the padding's top, as a browser's does; it reports the offset from the
+/// first row's start (negative in the padding before it), moves where a
+/// correction says (plus the padding), clamped to its range, and measures
+/// every mounted row, until the list asks for nothing more. The `scrollTop`
+/// it ends at.
+fn host(r: &mut Runner<Data>, top: f64) -> f64 {
+    host_by(r, top, |_| ROW)
+}
+/// [`host`], measuring row `i` at `size(i)`.
+fn host_by(r: &mut Runner<Data>, mut top: f64, size: impl Fn(usize) -> f64) -> f64 {
     let mut sequence = 0;
     for _ in 0..12 {
         layout(r);
         let c = list(r);
+        let lead = pads(r).0;
         if let Some(correction) = c.correction {
-            top = correction.offset + TOP;
+            top = correction.offset + lead;
         }
         // A scroll view keeps its offset inside its range.
-        top = top.clamp(0.0, max_top_with(&c, end_of(r)));
+        top = top.clamp(0.0, max_top_now(r));
         sequence = sequence.max(c.scroll_sequence) + 1;
         let changed = r
             .collection_feedback(CollectionFeedback {
                 view: c.view,
                 revision: c.revision,
                 scroll_sequence: sequence,
-                offset: top - TOP,
+                offset: top - lead,
                 port_main: PORT,
                 port_cross: 400.0,
                 cross: 400.0,
@@ -112,7 +130,7 @@ fn host(r: &mut Runner<Data>, mut top: f64) -> f64 {
                     .map(|row| RowMeasurement {
                         view: row.view,
                         epoch: row.epoch,
-                        size: ROW,
+                        size: size(row.index),
                     })
                     .collect(),
                 focus_view: None,
@@ -371,44 +389,7 @@ fn nearest_keeps_a_row_that_covers_the_snapport() {
     ));
     let tall = |i: usize| if i == 3 { 700.0 } else { ROW };
     // A host that measures row 3 at 700.
-    let mut host_tall = |r: &mut Runner<Data>, mut top: f64| {
-        let mut sequence = 0;
-        for _ in 0..12 {
-            layout(r);
-            let c = list(r);
-            if let Some(correction) = c.correction {
-                top = correction.offset + TOP;
-            }
-            top = top.clamp(0.0, max_top_with(&c, end_of(r)));
-            sequence = sequence.max(c.scroll_sequence) + 1;
-            let changed = r
-                .collection_feedback(CollectionFeedback {
-                    view: c.view,
-                    revision: c.revision,
-                    scroll_sequence: sequence,
-                    offset: top - TOP,
-                    port_main: PORT,
-                    port_cross: 400.0,
-                    cross: 400.0,
-                    measurements: c
-                        .rows
-                        .iter()
-                        .map(|row| RowMeasurement {
-                            view: row.view,
-                            epoch: row.epoch,
-                            size: tall(row.index),
-                        })
-                        .collect(),
-                    focus_view: None,
-                    interaction_view: None,
-                })
-                .unwrap();
-            if list(r).correction.is_none() && changed.receipts.is_empty() {
-                break;
-            }
-        }
-        top
-    };
+    let host_tall = |r: &mut Runner<Data>, top: f64| host_by(r, top, tall);
     host_tall(&mut r, 0.0);
     // Row 3 runs 300..1000 in rows; at scrollTop 92 + 250 the snapport
     // (342..767 in rows) is inside it.
@@ -421,4 +402,114 @@ fn nearest_keeps_a_row_that_covers_the_snapport() {
     host_tall(&mut r, 0.0);
     r.act("nearest", vec![Value::Number(3.0)]).unwrap();
     assert_eq!(host_tall(&mut r, 0.0), TOP + 300.0 - TOP);
+    // Partly above the snapport, its end inside: a row taller than the
+    // snapport aligns its end, the nearer edge.
+    let at = TOP + 700.0;
+    host_tall(&mut r, at);
+    r.act("nearest", vec![Value::Number(3.0)]).unwrap();
+    assert_eq!(host_tall(&mut r, at), TOP + 1000.0 - (PORT - END));
+}
+
+/// A list of `n` rows on `axis`: `lead` before its rows (92, or the state
+/// `grow` adds to) and 83 after, its scroll padding 92 and 83, and `attrs`.
+fn padded(n: usize, axis: ListAxis, lead: &str, attrs: &str) -> String {
+    let (list, row) = match axis {
+        ListAxis::Vertical => (
+            format!(
+                r#"list id="feed" virtualized=true height=600 width=400 overflow-x="hidden" estimated-item-height=100 padding-top={lead} padding-bottom=83 scroll-padding="92 0 83""#
+            ),
+            r#"text `${x}` height=100 width="100%""#,
+        ),
+        ListAxis::Horizontal => (
+            format!(
+                r#"list id="feed" virtualized=true display="flex" width=600 height=400 overflow-x="scroll" overflow-y="hidden" estimated-item-width=100 padding-left={lead} padding-right=83 scroll-padding="0 83 0 92""#
+            ),
+            "text `${x}` width=100",
+        ),
+    };
+    format!(
+        r#"component App
+  state count = {n}
+  state lead = 92
+  resource rows = rows(count) as shape list<number>
+  action more(k: number)
+    count = count + k
+  action grow
+    lead = lead + 26
+  action start(i: number)
+    scrollIntoView("feed", i, block="start", inline="start")
+  action center(i: number)
+    scrollIntoView("feed", i, block="center", inline="center")
+  view
+    column testId="root"
+      {list} {attrs}
+        each x in rows key=x
+          {row}
+"#
+    )
+}
+const AXES: [ListAxis; 2] = [ListAxis::Vertical, ListAxis::Horizontal];
+
+/// A list shorter than its port and paddings ends in the padding before its
+/// rows: four rows (600 points of port hold all of them and both paddings,
+/// so the only offset is `scrollTop` 0) and five (`scrollTop` 0 to 75). A
+/// request for the last row clamps there and settles (Astra's review: it
+/// clamped at the first row's start, which the host cannot reach).
+#[test]
+fn a_short_list_ends_in_the_padding_before_its_rows() {
+    for axis in AXES {
+        for n in [4, 5] {
+            let mut r = boot(&padded(n, axis, "92", ""));
+            host(&mut r, 0.0);
+            let end = max_top_now(&r);
+            assert_eq!(end, (TOP + n as f64 * ROW + END - PORT).max(0.0));
+            for action in ["start", "center"] {
+                let top = into(&mut r, action, (n - 1) as f64, 0.0);
+                assert_eq!(top, end, "{axis:?}, {n} rows: {action} at the end");
+            }
+        }
+    }
+}
+
+/// `scroll-start: end` on a short list opens at its end and then lets go,
+/// as on a long one: rows added later do not take the reader to the new end
+/// (it stayed armed, its end out of reach).
+#[test]
+fn scroll_start_end_on_a_short_list_opens_and_lets_go() {
+    for axis in AXES {
+        for n in [4, 5] {
+            let mut r = boot(&padded(n, axis, "92", r#"scroll-start="end""#));
+            let top = host(&mut r, 0.0);
+            assert_eq!(
+                top,
+                max_top_now(&r),
+                "{axis:?}, {n} rows: opened at the end"
+            );
+            r.act("more", vec![Value::Number(3.0)]).unwrap();
+            assert_eq!(host(&mut r, top), top, "{axis:?}, {n} rows: let go");
+        }
+    }
+}
+
+/// The padding before the rows grows under a followed end: the host's port
+/// stays where it was on the page, which is now short of the end, and the
+/// list moves it to the new end (Astra's review: the shorter offset from
+/// the first row read as the reader leaving the end). A reader among the
+/// rows keeps them where they were on screen, as the end padding keeps them.
+#[test]
+fn a_followed_end_follows_the_padding_before_the_rows_as_it_grows() {
+    for axis in AXES {
+        let mut r = boot(&padded(100, axis, "lead", "scrollFollowEnd=true"));
+        host(&mut r, 0.0);
+        let end = max_top_now(&r);
+        host(&mut r, end);
+        r.act("grow", vec![]).unwrap();
+        let top = host(&mut r, end);
+        assert_eq!(pads(&r).0, TOP + 26.0);
+        assert_eq!(top, end + 26.0, "{axis:?}: moved to the grown end");
+        assert_eq!(top, max_top_now(&r));
+        let top = host(&mut r, 5000.0);
+        r.act("grow", vec![]).unwrap();
+        assert_eq!(host(&mut r, top), top + 26.0, "{axis:?}: the rows stay put");
+    }
 }

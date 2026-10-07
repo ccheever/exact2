@@ -100,6 +100,9 @@ pub(crate) struct SizeIndex {
     /// The list's main-axis padding after its last row (@ref LLP 1010
     /// §6.9): the scroll range runs this far past the rows' end.
     trailing: f64,
+    /// And before its first row: the range starts this far before the
+    /// rows' start, so a short list's end can be there.
+    leading: f64,
     #[cfg(test)]
     rebuilds: usize,
 }
@@ -126,6 +129,7 @@ impl SizeIndex {
             epoch: 1,
             next_generation: 0,
             trailing: 0.0,
+            leading: 0.0,
             #[cfg(test)]
             rebuilds: 0,
         })
@@ -344,6 +348,19 @@ impl SizeIndex {
         self.trailing
     }
 
+    /// The padding before the first row, as the list's style resolved it.
+    pub(crate) fn set_leading(&mut self, leading: f64) {
+        self.leading = if leading.is_finite() {
+            leading.max(0.0)
+        } else {
+            0.0
+        };
+    }
+
+    pub(crate) fn leading(&self) -> f64 {
+        self.leading
+    }
+
     /// First row whose bottom is strictly after `offset`; zero-height prefixes
     /// are skipped in O(log N). At/past total height there is no containing row.
     pub(crate) fn row_at(&self, offset: f64) -> Result<Option<usize>, IndexError> {
@@ -551,13 +568,16 @@ impl SizeIndex {
     /// show (mail F8: a mail list's newest message, a row Undo puts back).
     pub(crate) fn capture_anchor(
         &self,
-        offset: f64,
+        raw: f64,
         viewport: f64,
         follow_end: bool,
     ) -> Result<Anchor, IndexError> {
-        let offset = self.clamp_offset(offset, viewport)?;
-        let follows_end =
-            follow_end && viewport > 0.0 && self.max_offset(viewport) - offset < END_SLACK;
+        let offset = self.clamp_offset(raw, viewport)?;
+        // The end is judged where the port is, padding before the rows
+        // included: a short list's end is in it (LLP 1010 §6.9).
+        let max = self.max_offset(viewport);
+        let at = raw.min(max).max(-self.leading);
+        let follows_end = follow_end && viewport > 0.0 && max - at < END_SLACK;
         // An end it follows wins: a short transcript is at both edges.
         let row = if offset <= 0.0 && !follows_end {
             None
@@ -629,8 +649,10 @@ impl SizeIndex {
 
     /// The farthest a port of `viewport` scrolls: the rows and the padding
     /// after them, less the port (offsets count from the first row's start).
+    /// A list shorter than that ends in the padding before its first row,
+    /// down to `scrollTop` 0 (LLP 1010 §6.9).
     pub(crate) fn max_offset(&self, viewport: f64) -> f64 {
-        (self.total_height() + self.trailing - viewport).max(0.0)
+        (self.total_height() + self.trailing - viewport).max(-self.leading)
     }
 
     /// A port in the padding before the first row (a negative offset, LLP

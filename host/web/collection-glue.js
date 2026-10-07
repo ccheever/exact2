@@ -571,6 +571,17 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
       }
       if (!dirty.size && frame !== null && !delivering) { cancelFrame(frame); frame = null; }
     },
+    // After a commit that changed no snapshot: a list whose padding changed
+    // and nothing the browser observes (a border-box list keeps its size)
+    // reports it, so the runner's end follows (LLP 1010 §6.9).
+    restyled() {
+      for (const s of states.values()) {
+        const f = s.lastFacts, A = AXES[s.axis];
+        if (!f || !s.valid || !s.el.isConnected) continue;
+        const css = getComputedStyle(s.el);
+        if (number(css[A.padStart]) !== f.leading || number(css[A.padEnd]) !== f.trailing) enqueue(s, true);
+      }
+    },
     // An authored offset on a collection (glue.js): on the list's own axis
     // (`scrollTop` for y, `scrollLeft` for x) its rows are built at the
     // target, then the port moves, in this task (LLP 1050.000 §6); the other

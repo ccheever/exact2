@@ -59,14 +59,16 @@ extension CollectionHost {
             // to that padding (LLP 1010 §6.9).
             return CollectionFacts(offset: Double(max(-node.number("padding_left"), at.x + insets.left - content.minX)),
                 portMain: Double(portWidth), portCross: Double(portHeight), cross: Double(cross),
-                measurements: [], focus: nil, interaction: nil)
+                measurements: [], focus: nil, interaction: nil,
+                padding: [Double(node.number("padding_left")), Double(node.number("padding_right"))])
         }
         let available = max(0, portWidth - content.minX - (node.bounds.width - content.maxX))
         let width = measured ?? available
         guard width.isFinite else { return nil }
         return CollectionFacts(offset: Double(max(-node.number("padding_top"), at.y + insets.top - content.minY)),
             portMain: Double(portHeight), portCross: Double(portWidth), cross: Double(width),
-            measurements: [], focus: nil, interaction: nil)
+            measurements: [], focus: nil, interaction: nil,
+            padding: [Double(node.number("padding_top")), Double(node.number("padding_bottom"))])
     }
     /// A row wrapper's size across the list: a vertical list's row width,
     /// a row list's item height.

@@ -16,7 +16,8 @@ const BOOTSTRAP_ROWS = 16, ESTIMATED = 32, LEAD_SECONDS = 0.25, FAR_VIEWPORTS = 
 // How far short of a fractional end a port at its end may report (index.rs `END_SLACK`): Chrome
 // rounds a scroll range to whole pixels, WebKit floors it (210.72 - 140 scrolls to 71 in one, 70 in the other).
 const END_SLACK = 1;
-const atTarget = (a, c, offset, sent) => { const gap = Math.abs(c - offset); return gap <= 0.01 || (a.follows && gap < END_SLACK && Math.abs(c - sent) <= 0.01); };
+// A port in the padding before the first row is at the rows' start, unless the target is there too (start.rs).
+const atTarget = (a, c, offset, sent) => { if (c >= 0) offset = Math.max(0, offset); const gap = Math.abs(c - offset); return gap <= 0.01 || (a.follows && gap < END_SLACK && Math.abs(c - sent) <= 0.01); };
 const lead = (port, v) => { const extra = Math.min(Math.abs(v) * LEAD_SECONDS, port * 2); return v > 0 ? [port, port + extra] : [port + extra, port]; };
 const same = Object.is;
 // A row remeasured within this of the height it already has keeps that
@@ -78,7 +79,7 @@ function positive(t, band, out, n = 1, s = 0, e = t.base) {
 }
 
 class SizeIndex {
-  constructor(est) { this.est = est; this.order = []; this.pos = new Map(); this.h = []; this.gen = []; this.me = []; this.epoch = 1; this.next = 0; this.t = tree([], []); this.trailing = 0; }
+  constructor(est) { this.est = est; this.order = []; this.pos = new Map(); this.h = []; this.gen = []; this.me = []; this.epoch = 1; this.next = 0; this.t = tree([], []); this.trailing = 0; this.leading = 0; }
   get len() { return this.h.length; }
   replace(keys) {
     if (keys.length === this.order.length && keys.every((k, i) => k === this.order[i])) return;
@@ -116,9 +117,10 @@ class SizeIndex {
     setT(this.t, i, h); this.h[i] = h; this.me[i] = this.epoch; setEpoch(this.t, i, this.epoch);
     return true;
   }
-  // The padding after the last row (LLP 1010 §6.9) runs the range past the rows' end.
+  // The padding after the last row (LLP 1010 §6.9) runs the range past the rows' end;
+  // a list shorter than the port ends in the padding before its first row.
   get extent() { return this.total + this.trailing; }
-  maxOffset(port) { return Math.max(0, this.extent - port); }
+  maxOffset(port) { return Math.max(-this.leading, this.extent - port); }
   clamp(offset, port) { return Math.max(0, Math.min(offset, this.maxOffset(port))); }
   band(s, e) {
     const first = find(this.t, s, false) ?? this.len;
@@ -138,8 +140,10 @@ class SizeIndex {
     return { offset, visible, overscan, segments };
   }
   anchor(offset, port, follow) {
-    offset = this.clamp(offset, port);
-    const follows = follow && port > 0 && this.maxOffset(port) - offset < END_SLACK;
+    // The end is judged where the port is, the padding before the rows included (index.rs).
+    const max = this.maxOffset(port), at = Math.max(-this.leading, Math.min(offset, max));
+    offset = Math.max(0, at);
+    const follows = follow && port > 0 && max - at < END_SLACK;
     // At the start, no anchor unless it follows the end (index.rs
     // `capture_anchor`): CSS scroll anchoring selects none at a zero offset.
     const row = offset <= 0 && !follows ? null : find(this.t, offset, false);
@@ -186,7 +190,7 @@ const Held = new Set(); // collections whose edge waits for their covered route 
 class Collection {
   constructor(el, o, own) {
     this.el = el; this.view = viewId(el); this.axis = o.x ? "x" : "y"; this.own = own; this.o = o;
-    this.leading = 0; this.scrollPadding = [0, 0];
+    this.scrollPadding = [0, 0];
     this.est = o.est ?? ESTIMATED;
     if (!(isFinite(this.est) && this.est > 0)) throw new Refusal("estimated item height must be positive and finite");
     this.index = new SizeIndex(this.est);
@@ -281,7 +285,7 @@ class Collection {
     const g = this.geometry;
     if (!a || !g) return;
     const c = this.index.restoreAnchor(a, g.port_main);
-    if (!atTarget(a, c, Math.max(0, g.offset), this.endSent)) {
+    if (!atTarget(a, c, g.offset, this.endSent)) {
       if (a.follows) this.endSent = c;
       // An anchor's correction is relative where its row stayed put
       // (mod.rs `restore`): from where the anchor was taken, or from where
@@ -455,7 +459,7 @@ class Collection {
       const i = this.index.pos.get(this.restoredAt[0]);
       return i === undefined ? null : [this.restoredAt[0], this.restoredAt[1], this.index.prefix(i)];
     }
-    const offset = Math.min(Math.max(g.offset, 0), this.index.maxOffset(g.port_main));
+    const offset = Math.max(0, Math.min(g.offset, this.index.maxOffset(g.port_main)));
     if (offset <= 0) return null;
     const row = this.index.rowAt(offset);
     if (row === null) return null;
@@ -522,10 +526,10 @@ class Collection {
     if (r.size === 0) this.zeros.add(key); else this.zeros.delete(key);
   }
   feedback(f, byView, fill) {
-    // A new end padding is no travel (inset.rs): the anchor is taken on the old range.
-    const trailing = this.trailingNext ?? this.index.trailing;
-    this.trailingNext = null;
-    const within = trailing === this.index.trailing ? this.travelWithin(f, byView, fill) : undefined;
+    // A new padding is no travel (inset.rs): the anchor is taken on the old range.
+    const was = [this.index.leading, this.index.trailing], padding = this.paddingNext ?? was;
+    this.paddingNext = null;
+    const within = padding[0] === was[0] && padding[1] === was[1] ? this.travelWithin(f, byView, fill) : undefined;
     if (within !== undefined) return [false, within];
     const changedWidth = !this.geometry || this.geometry.cross !== f.cross;
     // Arrange's preview (reorder.js, loaded with the motion piece) ends with
@@ -545,8 +549,8 @@ class Collection {
     const height = this.geometry ? this.geometry.port_main : f.port_main;
     this.leaveEndIfMoved(fill.velocity ?? 0);
     const extent = this.index.total;
-    const anchor = this.restoring(f) ?? this.reportAnchor(f.offset, height, trailing);
-    this.index.trailing = trailing;
+    const anchor = this.restoring(f) ?? this.reportAnchor(f.offset, height, padding);
+    [this.index.leading, this.index.trailing] = padding;
     this.geometry = { ...f, measurements: [] };
     this.correction = null;
     if (changedWidth) this.invalidateEstimates();
@@ -562,12 +566,14 @@ class Collection {
     if (changed) this.revision++;
     return [changed, this.edge()];
   }
-  /** inset.rs `report_anchor`: on the old range, or on the new one when only that follows the end. */
-  reportAnchor(offset, port, trailing) {
-    let a = this.index.anchor(this.anchorOffset(offset), port, this.follows());
-    const moved = trailing !== this.index.trailing;
-    this.index.trailing = trailing;
-    if (moved && this.follows() && !a.follows) { const b = this.index.anchor(this.anchorOffset(offset), port, this.follows()); if (b.follows) a = b; }
+  /** inset.rs `report_anchor`: on the old range, where the port is as far down as a grown padding
+   * before the rows moved them (none before a first report), or on the new one when only that follows the end. */
+  reportAnchor(offset, port, padding) {
+    const i = this.index, down = this.geometry ? padding[0] - i.leading : 0;
+    let a = i.anchor(this.anchorOffset(offset + down), port, this.follows());
+    const moved = padding[0] !== i.leading || padding[1] !== i.trailing;
+    [i.leading, i.trailing] = padding;
+    if (moved && this.follows() && !a.follows) { const b = i.anchor(this.anchorOffset(offset), port, this.follows()); if (b.follows) a = b; }
     return a;
   }
   travelWithin(f, byView, fill) {
@@ -579,7 +585,7 @@ class Collection {
     };
     if (f.measurements.some(remeasures) || this.restoredAt || this.atEnd || this.target || this.pending || this.correction || !this.dims(f)) return undefined;
     const a = this.index.anchor(f.offset, g.port_main, this.followEnd);
-    if (!atTarget(a, this.index.restoreAnchor(a, g.port_main), Math.max(0, f.offset), this.endSent)) return undefined;
+    if (!atTarget(a, this.index.restoreAnchor(a, g.port_main), f.offset, this.endSent)) return undefined;
     const pins = this.pins();
     const w = this.index.window(f.offset, f.port_main, lead(f.port_main, fill.velocity ?? 0), [this.pin(pins[0]), this.pin(pins[1])]);
     let k = 0;
@@ -616,7 +622,7 @@ class Collection {
     const [i0, i1] = this.scrollPadding, low = i0, high = Math.max(i0, port - i1), view = high - low;
     const at = align === "start" ? start - low : align === "center" ? start + size / 2 - (low + high) / 2 : align === "end" ? start + size - high
       : this.nearest(start, size, current, low, high);
-    return Math.min(Math.max(at, -this.leading), this.index.maxOffset(port));
+    return Math.min(Math.max(at, -this.index.leading), this.index.maxOffset(port));
   }
   /** CSSOM View's "nearest" (into_view.rs): a row covering the snapport, or inside it, stays; else the nearer edge aligns. */
   nearest(start, size, current, low, high) {
@@ -754,6 +760,7 @@ function publish() {
   const snapshots = [...Lists.values()].sort((a, b) => a.view - b.view).map(c => c.snapshot());
   const text = JSON.stringify(snapshots);
   if (text !== Published) { Published = text; Controller?.commit(snapshots); }
+  else Controller?.restyled(); // a padding change alone (LLP 1010 §6.9)
   if (Controller && jumps) for (const [view, at, name] of jumps.splice(0)) Controller.jump(view, at, name);
 }
 // After each commit: wake an end edge whose first edge's requests landed,
@@ -792,10 +799,9 @@ function report(bytes, f, fill) {
   f = { ...f, revision: Number(f.revision), scroll_sequence: Number(f.scroll_sequence), focus_view: f.focus_view ?? null, interaction_view: f.interaction_view ?? null };
   fill = { velocity: fill?.velocity ?? 0, limit: Number.isInteger(fill?.limit) ? fill.limit : null, ancestorMoving: !!fill?.ancestorMoving };
   const c = Lists.get(f.view);
-  // The list's resolved padding after its rows, which the browser half reads.
-  if (c && Number.isFinite(f.trailing)) c.trailingNext = Math.max(0, f.trailing);
-  // The padding before the first row and the scroll padding (inset.rs `set_insets`).
-  if (c && Number.isFinite(f.leading)) c.leading = Math.max(0, f.leading);
+  // The list's resolved padding before its rows and after them, and its scroll
+  // padding, which the browser half reads (inset.rs `set_insets`).
+  if (c && Number.isFinite(f.leading) && Number.isFinite(f.trailing)) c.paddingNext = [Math.max(0, f.leading), Math.max(0, f.trailing)];
   if (c && Array.isArray(f.scrollPadding)) c.scrollPadding = f.scrollPadding.map(n => Number.isFinite(n) ? Math.max(0, n) : 0);
   const byView = c?.prepare(f);
   if (!byView) return true;

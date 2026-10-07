@@ -96,13 +96,20 @@ impl Collection {
 /// (`sent`) is reached within `END_SLACK`,
 /// else the same unreachable end went out with every commit and an opening
 /// never settled (LLP 1010 §6.8). An end that moved is sent once; a row
-/// anchor keeps 0.01, since its moves add up report on report.
+/// anchor keeps 0.01, since its moves add up report on report. A port in
+/// the padding before the first row is at the rows' start, unless the
+/// target is in that padding too (a short list's end, LLP 1010 §6.9).
 pub(super) fn at_target(
     anchor: &super::index::Anchor,
     corrected: f64,
     offset: f64,
     sent: f64,
 ) -> bool {
+    let offset = if corrected < 0.0 {
+        offset
+    } else {
+        offset.max(0.0)
+    };
     let gap = (corrected - offset).abs();
     gap <= 0.01
         || (super::index::SizeIndex::follows_end(anchor)

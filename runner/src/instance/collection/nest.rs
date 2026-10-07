@@ -204,7 +204,7 @@ impl Collection {
             return Some((key, within, start));
         };
         let max = self.index.max_offset(g.port_main);
-        let offset = g.offset.clamp(0.0, max);
+        let offset = g.offset.min(max).max(0.0);
         if offset <= 0.0 {
             return None;
         }

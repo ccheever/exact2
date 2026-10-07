@@ -920,3 +920,25 @@ fn trailing_padding_extends_the_range_past_the_rows() {
     i.set_trailing(f64::NAN);
     near(i.max_offset(600.), 400.);
 }
+
+/// A list shorter than its port and paddings ends in the padding before its
+/// first row (LLP 1010 §6.9): the range's end is negative, down to that
+/// padding; a port there follows the end, one above it does not, and the
+/// window still starts at the first row.
+#[test]
+fn a_short_list_ends_in_the_padding_before_its_rows() {
+    let mut i = index(&[100.; 5]);
+    i.set_leading(92.);
+    i.set_trailing(83.);
+    near(i.max_offset(600.), -17.);
+    let end = i.capture_anchor(-17., 600., true).unwrap();
+    assert!(SizeIndex::follows_end(&end));
+    near(i.restore_anchor(&end, 600.).unwrap(), -17.);
+    let top = i.capture_anchor(-92., 600., true).unwrap();
+    assert!(!SizeIndex::follows_end(&top));
+    assert_eq!(i.window(-17., 600., [None, None]).unwrap().offset, 0.0);
+    let mut i = index(&[100.; 4]);
+    i.set_leading(92.);
+    i.set_trailing(83.);
+    near(i.max_offset(600.), -92.);
+}
