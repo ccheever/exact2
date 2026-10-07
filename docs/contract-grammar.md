@@ -988,8 +988,17 @@ macOS, iOS and iPadOS with a hardware keyboard, Linux):
   included (`"a"`, `"A"`, `"7"`, `" "`, `"/"`), or the key's name (`"Enter"`,
   `"Escape"`, `"Tab"`, `"Backspace"`, `"Delete"`, `"ArrowUp"`…, `"Home"`,
   `"End"`, `"PageUp"`, `"PageDown"`, `"F1"`…, `"Shift"`). Every key is heard,
-  printable ones in a field included. Keys an input method is composing are
-  its own.
+  printable ones in a field included. On macOS and iOS, keys an input
+  method is composing are its own, but for two: a modifier's own press and
+  release (so a Shift let go mid-syllable is still a keyup), and a ⌘ chord,
+  whose keydown commits the composed text first: the field's `input` hears
+  the text, then the chord's `key` handlers run and read the value Chrome's
+  would (there the page's value already holds the composed text). A
+  composer's ⌘Enter `key` action sends what was typed. On macOS such a chord
+  presses no `aria-keyshortcuts` button, as the web's skip a key that came
+  composing. On the web, Chrome hands the `key` handlers every key while
+  composing (`isComposing`, which Contract does not carry) and commits
+  nothing first.
 - **Modifiers.** An action that takes one more parameter, typed
   `KeyboardEvent`, hears the event too: the record `{ key: string, shiftKey:
   bool, ctrlKey: bool, altKey: bool, metaKey: bool, code: string, repeat:
@@ -1052,24 +1061,34 @@ Mac and elsewhere. The driver presses chords in Playwright's spelling (`type
 "composer" key "Shift+Enter"`, `key "Meta+s"`).
 
 Hints while ⌘ is held, and a held ⌘W that closes one panel, not one per
-repeat, by the physical key whatever the layout types:
+repeat, by the physical key whatever the layout types. Held modifiers are
+tracked as a page tracks them: every keydown and keyup says what is held,
+and losing the window's focus forgets it, since a key let go while another
+app or window has the focus sends no keyup, here as in Chrome. A page's
+`window` `blur` listener is `exactPage().hasFocus` turning false, the gate of
+a task that clears the flag:
 
 ```text
 action down(k: string, e: KeyboardEvent)
-  if k == "Meta"
-    hints = true
+  hints = e.metaKey
   if e.metaKey and e.code == "KeyW" and not e.repeat
     closed = closed + 1
     preventDefault()
-action up(k: string)
-  if k == "Meta"
-    hints = false
+action up(k: string, e: KeyboardEvent)
+  hints = e.metaKey
+action forget()
+  hints = false
+task release when hints and not page.hasFocus
+  after(1, forget)
 ```
 
-`column key=down keyup=up`. The driver holds and releases a key with `type
-"list" key "Meta" down` and `key "Meta" up`, and `key "a" for 1200` repeats it
-while held, as a keyboard does (the first repeat 500 ms after the down, then
-every 83 ms, on the virtual clock).
+`resource page = exactPage() as shape Page` (`hasFocus: bool`), `column
+key=down keyup=up`, and `when hints and page.hasFocus` around the hints. The
+driver holds and releases a key with `type "list" key "Meta" down` and `key
+"Meta" up`, takes the focus away with `prefer has-focus false` (then `clock
++1` for the task), and `key "a" for 1200` repeats a key while held, as a
+keyboard does (the first repeat 500 ms after the down, then every 83 ms, on
+the virtual clock).
 
 - **A game's canvas.** A key at a canvas whose world takes input, or at a
   node inside one, goes the same way first: a shortcut takes it, then the
