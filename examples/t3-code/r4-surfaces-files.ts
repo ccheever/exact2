@@ -12,7 +12,7 @@ import { pushToast } from './toast';
 import { fileIconToken } from './timeline-files';
 import { lineTokens } from './timeline-diff-syntax';
 import { EDITORS, lastEditor, preferredEditor, rememberEditor } from './shell-details';
-import { openFileSurface, workspaceOf, panelState, type Surface, type PanelState } from './r4-surfaces-panel';
+import { workspaceOf, panelState, type Surface, type PanelState } from './r4-surfaces-panel';
 import { markdownDocument, tableRows, type Document } from './r4-surfaces-render';
 import { textWidth } from './pages-text-width';
 import { filesPrefs, type FilesPrefs } from './r5-panels-prefs';
@@ -28,6 +28,7 @@ import { letGo } from './let-go';
 import { filesTreeMenu, showContextMenu } from './context-menu-actions'; // context-menu-gaps
 import { availableEditorIds, markdownFileMenuItems, revealLabelFor } from './context-menus';
 import { mediaMimeTypeFromExtension } from './media-source';
+import { openMarkdownMediaPreview } from './timeline-attachments';
 
 export type TreeRow = { id: string; path: string; name: string; depth: number; directory: boolean; expanded: boolean; selected: boolean; token: string; ignored: boolean; guides: { id: string; left: number }[] };
 export type Crumb = { id: string; label: string; path: string; current: boolean; directory: boolean };
@@ -284,8 +285,12 @@ export async function markdownFileMenu(client: T3Client, native: Native, target:
   const items = markdownFileMenuItems({ canPreviewMedia, canOpen, preferredEditor: editor, revealLabel: revealLabelFor(client.config, environment || null) });
   const picked = await showContextMenu(client, native, items);
   if (!picked || client.environmentId !== environment || client.origin !== origin) return;
-  // The clone has no expanded media dialog for a reply's file links: the media opens where a click on the link opens it, the Files surface's preview.
-  if (picked === 'preview-media') { await openFileSurface(client, native, target, 0); return; }
+  // openMarkdownMedia: the expanded media dialog with the link's media (timeline-attachments.ts).
+  if (picked === 'preview-media') {
+    try { openMarkdownMediaPreview(client, target, workspaceOf(client).cwd); }
+    catch (error) { pushToast(client, { kind: 'error', title: 'Media unavailable', description: error instanceof Error ? error.message : 'The file could not be loaded. It may have been moved or deleted.', stacked: true }); }
+    return;
+  }
   // Recheck after the native menu closes; a menu from another route cannot execute there.
   const current = remoteOpenFor(client);
   if (picked === 'open' || picked === 'reveal') {

@@ -11,7 +11,8 @@ import { fileIconToken } from './timeline-files';
 import { assetUrl } from './settings-b-icons';
 import { imageChipInks } from './r4-timeline-chips';
 import { videoMimeType } from './r4-composer-video'; // lane r6-media: sent videos (UserVideoAttachment)
-import { markdownMediaUrls } from './media-views'; // media-actions: the transcript's host-path media
+import { markdownMedia, markdownMediaUrls } from './media-views'; // media-actions: the transcript's host-path media
+import { encodeMediaSource } from './media-actions';
 
 export interface MessageImage { id: string; name: string; snapshot: boolean; appName: string; appInitial: string; windowTitle: string; accessible: boolean; video: boolean }
 export interface MessageFile { id: string; name: string; icon: string }
@@ -70,7 +71,10 @@ export async function attachmentUrls(client: T3Client, native: Native | null | u
   // media-actions: the visible messages' Markdown media on host paths (`media:<path>`, `media-failed:<path>`).
   const thread = obj(client.projection.thread), project = (client.shell?.projects ?? []).find(entry => entry.id === (thread.projectId ?? client.projectId));
   const root = str(thread.worktreePath) || str(project?.workspaceRoot);
-  const media = (await markdownMediaUrls(client, native, root, now)).map(item => ({ ...item, ...NO_INKS }));
+  const preview = activeMediaPreview(client);
+  const media = (await markdownMediaUrls(client, native, root, now, preview ? [preview.path] : [])).flatMap(item =>
+    // the dialog reads a refused signature as `failed:<id>`
+    item.id.startsWith('media-failed:') ? [{ ...item, ...NO_INKS }, { id: `failed:media:${item.id.slice('media-failed:'.length)}`, url: '', ...NO_INKS }] : [{ ...item, ...NO_INKS }]);
   return { items: [...await withAccents(client, native, items, videoIds), ...failed.map(item => ({ ...item, ...NO_INKS })), ...media] };
 }
 
@@ -92,7 +96,7 @@ function messageImages(client: T3Client, messageId: string, selected = ''): Mess
 /** ExpandedImageDialog: open on an image, step to its neighbours, close. */
 export function imagePreviewAction(client: T3Client, op: string, id: string, value: string): string {
   const current = previews.get(client);
-  if (op === 'image-close') { previews.set(client, null); return ''; }
+  if (op === 'image-close') { previews.set(client, null); mediaPreviews.set(client, null); return ''; }
   if (op === 'image-open') {
     if (!messageImages(client, value, id).some(image => image.id === id)) throw new ClientError('That image is no longer available.');
     previews.set(client, { threadId: client.threadId, messageId: value, imageId: id });
@@ -107,13 +111,35 @@ export function imagePreviewAction(client: T3Client, op: string, id: string, val
   }
   throw new ClientError(`Unknown image action: ${op}`);
 }
+// context-menu-gaps: ChatMarkdown's "Preview media" on a file link (resolveMarkdownMediaPreview): the
+// same dialog with the one media item, signed as a `media-file` of the shown thread
+// (markdownImageGallery finds no inline image for a link, so it is the only item).
+type MediaPreview = { threadId: string; path: string; key: string; name: string; video: boolean; root: string };
+const mediaPreviews = new WeakMap<T3Client, MediaPreview | null>();
+export function openMarkdownMediaPreview(client: T3Client, filePath: string, root: string): void {
+  const path = filePath.replace(/:\d+(?::\d+)?$/, '');
+  const media = markdownMedia('', path, '', root);
+  if (media.access !== 'environment' || !media.source) throw new ClientError('Reconnect to this environment and open the media again.');
+  previews.set(client, null);
+  mediaPreviews.set(client, { threadId: client.threadId, path, key: media.key, name: path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1), video: media.kind === 'video', root });
+}
+const activeMediaPreview = (client: T3Client): MediaPreview | null => {
+  const media = mediaPreviews.get(client);
+  return media && media.threadId === client.threadId ? media : null;
+};
 export function imagePreviewView(client: T3Client) {
+  const media = activeMediaPreview(client);
+  if (media) {
+    const source = markdownMedia(media.name, media.path, '', media.root).source;
+    return { imagePreviewId: media.key, imagePreviewName: media.name, imagePreviewPosition: '', imagePreviewPrevious: false, imagePreviewNext: false,
+      imagePreviewVideo: media.video, imagePreviewSource: source ? encodeMediaSource({ ...source, name: media.name }) : '' };
+  }
   const current = previews.get(client);
   const images = current && current.threadId === client.threadId ? messageImages(client, current.messageId, current.imageId) : [];
   const index = current ? images.findIndex(image => image.id === current.imageId) : -1;
   const image = index >= 0 ? images[index]! : null;
   return { imagePreviewId: image?.id ?? '', imagePreviewName: image?.name ?? '', imagePreviewPosition: image && images.length > 1 ? `(${index + 1}/${images.length})` : '',
-    imagePreviewPrevious: !!image && images.length > 1, imagePreviewNext: !!image && images.length > 1, imagePreviewVideo: !!image?.video };
+    imagePreviewPrevious: !!image && images.length > 1, imagePreviewNext: !!image && images.length > 1, imagePreviewVideo: !!image?.video, imagePreviewSource: image ? `attachment:${image.id}` : '' };
 }
 
 // ImageChipButton tints its chip with the picture's average colour (lane r4-timeline).
