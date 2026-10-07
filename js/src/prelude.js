@@ -772,8 +772,10 @@
     // A BufferSource body goes as its bytes, in base64 beside the text body
     // (LLP 1069.002 D4: `readFile`'s bytes as an upload's body). Anything
     // else is a string, as before.
-    var raw = init ? init.body : undefined;
-    var bytes = raw instanceof ArrayBuffer || ArrayBuffer.isView(raw) ? new Uint8Array(copyBytes(raw, "fetch")) : null;
+    var raw = init ? init.body : undefined, bytes = null;
+    // A detached buffer is the fetch's rejection, not a throw out of `fetch`.
+    try { if (raw instanceof ArrayBuffer || ArrayBuffer.isView(raw)) bytes = new Uint8Array(copyBytes(raw, "fetch")); }
+    catch (e) { return Promise.reject(e); }
     var body = bytes || raw == null ? "" : String(raw);
     // LLP 1041 §8.4: an explicit promise about both operation and settlement.
     // Browsers ignore this native scheduling hint; their admission is unchanged.
