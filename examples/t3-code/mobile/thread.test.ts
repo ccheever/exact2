@@ -6,6 +6,7 @@ import { chatLocal } from './shared/timeline-presentation';
 import type { Native } from './shared/protocol';
 import { mobileThread, mobileThreadRows, mobileThreadComposer, mobileThreadBlocks } from './thread';
 import { mobileCodeTokens } from './thread-highlight';
+import { mobileModelSelectionReady, mobileModelSelectionUnavailable } from './model-availability';
 
 const now = Date.parse('2026-10-07T12:00:00Z');
 const at = (seconds: number) => new Date(now + seconds * 1000).toISOString();
@@ -69,6 +70,7 @@ describe('mobile V2 transcript presentation', () => {
     client.connection = 'connected'; client.scopes = [];
     expect(mobileThreadComposer(client)).toMatchObject({ canSend: false, showReadOnlyNotice: true });
     client.scopes = ['orchestration:operate']; client.modelId = 'missing';
+    arr(client.config.providers)[0]!.driver = 'antigravity';
     expect(mobileThreadComposer(client)).toMatchObject({ canSend: false, modelUnavailable: true });
   });
   test('fenced blocks retain literal content and unknown languages remain readable', () => {
@@ -104,6 +106,27 @@ test('queued composer projects dedicated text and never offers ordinary Stop', (
   queuedEditState(client).sessions.set(edit.owner, { ...edit, saving: true });
   expect(mobileThreadComposer(client)).toMatchObject({ saving: true, canSend: false, canCancel: false, blockedReason: 'Saving…' });
   queuedEditState(client).sessions.set(edit.owner, edit); client.modelId = 'unavailable';
+  arr(client.config.providers)[0]!.driver = 'antigravity';
   expect(mobileThreadComposer(client)).toMatchObject({ canSend: false, modelUnavailable: true });
   expect(client.draft).toBe('ordinary draft');
+});
+
+
+test('mobile unavailable notice follows the pinned Antigravity driver, including configured instances absent from catalog', () => {
+  const selection = { instanceId: 'custom-instance', model: 'retained-model' };
+  const provider = { instanceId: 'custom-instance', driver: 'antigravity', enabled: true, installed: true, auth: { status: 'authenticated' }, models: [{ slug: 'retained-model' }] };
+  expect(mobileModelSelectionUnavailable(null, selection)).toBe(false);
+  expect(mobileModelSelectionUnavailable({}, null)).toBe(false);
+  expect(mobileModelSelectionUnavailable({ providers: [provider] }, selection)).toBe(false);
+  expect(mobileModelSelectionReady({ providers: [provider] }, selection)).toBe(true);
+  for (const patch of [{ enabled: false }, { installed: false }, { auth: { status: 'unauthenticated' } }, { availability: 'unavailable' }, { models: [] }]) {
+    expect(mobileModelSelectionUnavailable({ providers: [{ ...provider, ...patch }] }, selection)).toBe(true);
+    expect(mobileModelSelectionReady({ providers: [{ ...provider, ...patch }] }, selection)).toBe(false);
+  }
+  expect(mobileModelSelectionUnavailable({ providers: [], settings: { providerInstances: { 'custom-instance': { driver: 'antigravity' } } } }, selection)).toBe(true);
+  expect(mobileModelSelectionUnavailable({ providers: [], settings: { providerInstances: { 'custom-instance': { driver: 'codex' } } } }, selection)).toBe(false);
+  expect(mobileModelSelectionReady({ providers: [provider] }, { ...selection, model: '' })).toBe(false);
+  // Source's notice does not test status:error. The transport still refuses it.
+  expect(mobileModelSelectionUnavailable({ providers: [{ ...provider, status: 'error' }] }, selection)).toBe(false);
+  expect(mobileModelSelectionReady({ providers: [{ ...provider, status: 'error' }] }, selection)).toBe(false);
 });

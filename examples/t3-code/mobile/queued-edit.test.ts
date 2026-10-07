@@ -216,3 +216,24 @@ test('acknowledgment recovered from native read cleans its captured record once 
   expect(response.message).toBe(''); expect(f.records.size).toBe(0); expect(f.operations.size).toBe(0);
   expect(f.calls.filter(call => call.action === 'cleanup')).toHaveLength(1);
 });
+
+
+test('queued edit preserves a non-catalog Codex selection through durable save', async () => {
+  const f = fixture(), edit = await f.begin();
+  Object.assign((f.client.config.providers as Obj[])[0]!, { driver: 'codex', auth: { status: 'authenticated' }, status: 'ready', models: [{ slug: 'gpt-6.1-sol' }] });
+  f.client.modelId = 'gpt-5.4';
+  expect(mobileQueuedEditPresentation(f.client).canSave).toBe(true);
+  expect((await mobileQueuedEditSave(edit.owner, f.native, f.client)).saved).toBe(true);
+  expect(f.sent[0]).toMatchObject({ type: 'queued-run.edit', threadId: 't', runId: 'q', text: 'Original' });
+  expect(f.client.modelId).toBe('gpt-5.4'); expect(f.operations.size).toBe(0);
+});
+test('queued edit refuses Antigravity or lost provider auth before attachment or journal work', async () => {
+  for (const patch of [{ driver: 'antigravity' }, { driver: 'codex', auth: { status: 'unauthenticated' } }]) {
+    const f = fixture(), edit = await f.begin();
+    Object.assign((f.client.config.providers as Obj[])[0]!, { status: 'ready', models: [], ...patch });
+    f.client.modelId = 'gpt-5.4'; f.calls.length = 0;
+    expect(mobileQueuedEditPresentation(f.client).canSave).toBe(false);
+    await expect(mobileQueuedEditSave(edit.owner, f.native, f.client)).rejects.toThrow('Model unavailable. Open model settings.');
+    expect(f.calls).toHaveLength(0); expect(f.sent).toHaveLength(0);
+  }
+});

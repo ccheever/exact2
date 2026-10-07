@@ -1,5 +1,8 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
-// Unchanged body from examples/t3-code/client-ops-composer.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Adapted body from examples/t3-code/client-ops-composer.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Mobile 365aa87982: send admission and retained model options differ from this desktop copy.
+import { mobileModelSelectionUnavailable } from '../model-availability';
+import { mobileDispatchSelection as dispatchSelection } from '../model-send-selection';
 import { omitExpiredTerminalContexts } from './terminal-integrations';
 import { terminalOpen } from './terminal-drawer-view'; // terminal-layout: the real terminalOpen
 // The composer's client.command() ops (client-ops.ts): the draft and favorite
@@ -13,7 +16,7 @@ import { forgetDraftThreadId, launchThreadId } from './r7-handoff-thread';
 import { composerNow, stagesChanges, stage, rememberModel, rememberOptions, stagedFor, clearStaged, nextTurnCommands, resolveDispatchMode, followUpBehavior, withDispatchMode, planFollowUp, resolvePlanSubmission } from './composer-controls';
 import { additiveGesture, fanoutSelections, sendFanout, setFanout, toggleFanout } from './r3-composer-controls-fanout';
 import { acknowledgeWoke, lockedProviderReason, applyOptionChoice, backgroundStarted } from './composer-controls-commands';
-import { dispatchSelection, promptForSend, ultrathinkChoice } from './composer-ultrathink'; // composer-fidelity G9
+import { promptForSend, ultrathinkChoice } from './composer-ultrathink'; // composer-fidelity G9
 import { queuedEdit, saveQueuedEdit } from './composer-controls-queue';
 import { fanoutBase, workspaceStrategy } from './composer-controls-branch';
 import { isUsageLimitsCommand, usageLimitsOffered, openUsageLimits } from './composer-controls-usage';
@@ -108,7 +111,7 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   const intent = sendIntent(this.config, gesture, running, !selection.threadId, terminalOpen(this));
   const provider = arr(this.config.providers).find(provider => provider.instanceId === this.providerId);
   if (!provider || !providerAvailable(provider)) throw new ClientError('This provider is unavailable. Configure it in T3 Code.');
-  if (!arr(provider.models).some(model => model.slug === this.modelId)) throw new ClientError('Choose one of the models advertised by T3.');
+  if (!this.modelId || mobileModelSelectionUnavailable(this.config, { instanceId: this.providerId, model: this.modelId })) throw new ClientError('Model unavailable. Open model settings.');
   if (Array.isArray(provider.supportedRuntimeModes) && !provider.supportedRuntimeModes.includes(this.runtimeMode)) {
     throw new ClientError('Choose a permission mode supported by this provider.');
   }
