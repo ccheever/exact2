@@ -62,3 +62,14 @@ attempt 1: 2026-10-07T19:17:23.432Z [session] closed; this process's kept file: 
 2026-10-07T19:22:00.492Z [motion] reduced: shots at +0, +50, +100, +200 ms after pressing Checks
 2026-10-07T19:22:01.352Z [motion] log lines 1995; errors: 0
 2026-10-07T19:22:01.369Z [motion] closed; this process's kept file: $TMPDIR/exact-agent-20720-2/data/t3-code.json
+
+# Note on "tooltips shown []" above: the drive's tree query looked for role=tooltip nodes not aria-hidden and matched
+# none; the shown tooltips were read from the screenshots (image 13). Image 13 also showed the Labels row painted over
+# the reviewer's tooltip (z-index orders siblings in Exact, docs/agent-pitfalls.md). Fixed by raising the Summary's top
+# column and its Reviewers row (position relative, z-index 1); the same agent hover after the fix (image 17):
+2026-10-07T19:33:49.716Z [tip] app pid 85617
+2026-10-07T19:34:18.678Z [tip] shot tip-reviewer-fixed
+2026-10-07T19:34:18.712Z [tip] reviewer face {"x":757,"y":248,"w":16,"h":16}
+2026-10-07T19:34:18.714Z [tip] log lines 2175; errors: 0
+2026-10-07T19:34:18.729Z [tip] closed; this process's kept file: $TMPDIR/exact-agent-85617-2/data/t3-code.json
+(the tooltip is on top of the Labels row in tip-reviewer-fixed: image 17, right)
