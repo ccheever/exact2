@@ -165,6 +165,8 @@ extension NativeViews {
     /// reset, so a hatch takes back what it added to a window that survives.
     /// After a reload both are built again, on the next turn, with new handles.
     func scopesReset() {
+        // What the old incarnation registered on the clock goes with it (§2.1.2).
+        hatchClock.reset()
         guard hatchesConnected, scopes.appTold != nil || scopes.windowTold != nil else { return }
         if scopes.windowTold != nil { windowHatch(2) }
         if scopes.appTold != nil { appHatch(2) }

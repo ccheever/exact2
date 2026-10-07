@@ -273,6 +273,7 @@ export function install(exact) {
         return perf.reply(el, tags());
       }
       case 'clock': {
+        exact.hatchActs?.command(); // a command's hatch caps start at nothing (LLP 1075.003.000.001 §2.4)
         // The end of an input (LLP 1012 §2): the `then`s of the answers it
         // settled land, the clock unmoved and no timer fired (Runner::land_then).
         if (req.land) {

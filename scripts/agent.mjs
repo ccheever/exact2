@@ -256,7 +256,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     const page = pageURL ? new URL(pageURL) : new URL(`http://127.0.0.1:${port}/`);
     page.searchParams.set('agent', '1');
     for (const [key, value] of Object.entries(facts)) page.searchParams.set(key, value);
-    if (storage !== undefined) page.searchParams.set('storage', storage);
+    if (storage !== undefined) page.searchParams.set('storage', storage); if ((env?.EXACT_HATCHES ?? process.env.EXACT_HATCHES) === 'off') page.searchParams.set('hatches', 'off'); // the second: LLP 1075.003.000.001 §2.6
     // Display preferences are the agent's from launch, never the machine's (LLP 1069.007 D2); `prefer` changes them.
     const emulated = { ...LAUNCH_MEDIA };
     await call('Emulation.setEmulatedMedia', { features: Object.entries(emulated).map(([name, value]) => ({ name, value })) });

@@ -12,8 +12,8 @@
     "name": "Native Fixture"
   },
   "modules": ["exact-fixture", "exact-plain", "exact-absent", "exact-screen"],
-  "data": ["armed", "feed", "loop", "menu", "reuse", "screen", "tone", "transition", "violate"],
-  "hatches": { "badge": ["ios", "macos", "web"], "detail-list": ["ios"], "dot": ["ios", "macos", "web"], "feed": ["ios", "macos", "web"], "presser": ["ios", "macos", "web"] },
+  "data": ["armed", "feed", "frames", "loop", "menu", "presses", "reuse", "run", "screen", "tone", "transition", "violate"],
+  "hatches": { "badge": ["ios", "macos", "web"], "detail-list": ["ios"], "dot": ["ios", "macos", "web"], "feed": ["ios", "macos", "web"], "presser": ["ios", "macos", "web"], "clock": ["ios", "macos", "web"] },
   "host": {
     "ios": {
       "minimumOS": "17.0",

@@ -75,12 +75,40 @@ export function element(e) {
   // every change while looping.
   if (e.hatch === 'feed' && !e.isNew && e.data.feed) e.input(e.data.feed);
   if (e.hatch === 'presser' && !e.isNew && (e.data.loop !== 'off' || e.data.armed === 'true')) e.click();
+  // The frame clock (§2.4): a ticket while the node says to run.
+  if (e.hatch === 'clock') {
+    const run = e.data.run === 'true';
+    if (run && !clockStop) startClock(e);
+    if (!run && clockStop) { clockStop(); clockStop = null; }
+    if (!e.isNew && e.data.presses === '65') e.click();
+  }
   if (e.hatch !== 'badge') return;
   e.diagnostics.log(`${moment}, tone ${e.data.tone}`);
   e.diagnostics.publish('tone', { tone: e.data.tone, moment });
   if (!e.isNew) return;
   shown.set(e, e.diagnostics.begin('shown'));
   e.element.addEventListener('contextmenu', (event) => event.preventDefault());
+}
+
+// The frame clock (LLP 1075.003.000.001 §2.4), as the Swift module's: each
+// tick counts itself and whether the node's `data-frames`, which a frame task
+// advances, is the tick's own number; the first chains `after`s; the third
+// presses the node 65 times.
+let clockStop = null;
+function startClock(e) {
+  const { frames, after, diagnostics: d } = globalThis.exact.hatches;
+  let ticks = 0, agreed = 0;
+  clockStop = frames((frame) => {
+    ticks++;
+    if (e.data.frames === String(ticks)) agreed++;
+    d.count('clock.ticks');
+    if (ticks === 1) {
+      after(0, () => { d.count('clock.after0'); after(20, () => d.count('clock.after20')); });
+      after(30, () => d.count('clock.stopped'))();
+    }
+    if (ticks === 3) for (let i = 0; i < 65; i++) e.click();
+    d.publish('clock', { ticks, agreed, now: frame.now });
+  });
 }
 
 export function elementEnded(e) {

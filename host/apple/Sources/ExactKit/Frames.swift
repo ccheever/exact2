@@ -26,6 +26,8 @@ final class Frames: NSObject {
     var timerSoon = false
     /// A frame task (LLP 1073 D5): each tick is the runtime's frame at the tick's target time.
     var tasks = false
+    /// A hatch's frame ticket is live (LLP 1075.003.000.001 §2.4): each tick calls it, after the frame's tasks.
+    var hatches = false
     private var canvasRequested = false
 
     /// Input and reads ask for one frame; an agent-owned clock never self-reschedules.
@@ -73,13 +75,14 @@ final class Frames: NSObject {
                 }
             }
         }
+        if hatches, s.clock == nil { s.natives.hatchClock.presented(frameNow) }
         let more = s.canvases.tick(now: frameNow)
         run(motion || canvas2d || timerSoon || more || s.canvases.wantsFrames || s.canvases.lifecycle.needsRetry)
     }
 
     func run(_ wanted: Bool) {
         if wanted, session?.clock != nil { requestCanvas() }
-        let on = wanted && session?.clock == nil
+        let on = (wanted || hatches) && session?.clock == nil
         #if canImport(UIKit)
         guard on else { FrameClock.shared.drop(self); return }
         // Motion that changes place or size asks for the panel's full

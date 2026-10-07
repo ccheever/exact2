@@ -72,6 +72,34 @@ final class FixtureModule: ExactModule {
         publishScopes("window-ended")
     }
 
+    // The frame clock (LLP 1075.003.000.001 §2.4). Each tick counts itself
+    // and whether the node's `data-frames`, which a frame task advances, is
+    // the tick's own number. The first tick chains `after`s: one for now, one
+    // for 20 ms on, and one stopped before it can run. The third presses the
+    // node 65 times.
+    private var clockTicket: ExactTicket?
+    private var ticks = 0, agreed = 0
+
+    private func startClock(_ element: ExactElement) {
+        ticks = 0; agreed = 0
+        let d = context.diagnostics
+        clockTicket = context.frames { [weak self, weak element] frame in
+            guard let self, let element else { return }
+            self.ticks += 1
+            if element.data[.frames] == String(self.ticks) { self.agreed += 1 }
+            d.count("clock.ticks")
+            if self.ticks == 1 {
+                self.context.after(0) {
+                    d.count("clock.after0")
+                    self.context.after(20) { d.count("clock.after20") }
+                }
+                self.context.after(30) { d.count("clock.stopped") }.stop()
+            }
+            if self.ticks == 3 { for _ in 0..<65 { element.click() } }
+            d.publish("clock", ["ticks": self.ticks, "agreed": self.agreed, "now": frame.now])
+        }
+    }
+
     /// Each badge's span, from its mount to its end.
     private var shown: [ObjectIdentifier: ExactSpan] = [:]
 
@@ -90,6 +118,13 @@ final class FixtureModule: ExactModule {
         // when armed and on every change while looping.
         if element.hatch == .feed, !element.isNew, let text = element.data[.feed], !text.isEmpty { element.input(text) }
         if element.hatch == .presser, !element.isNew, element.data[.loop] != "off" || element.data[.armed] == "true" { element.click() }
+        // The frame clock (§2.4): a ticket while the node says to run.
+        if element.hatch == .clock {
+            let run = element.data[.run] == "true"
+            if run, clockTicket == nil { startClock(element) }
+            if !run { clockTicket?.stop(); clockTicket = nil }
+            if !element.isNew, element.data[.presses] == "65" { element.click() }
+        }
         if element.hatch == .badge {
             let tone = element.data[.tone] ?? ""
             element.diagnostics.log("\(moment), tone \(tone)")

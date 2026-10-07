@@ -89,6 +89,13 @@ public final class ExactModuleContext: @unchecked Sendable {
     /// scoped `module`. It records once the hatches have connected, in a
     /// development build; before that, and in production, each call returns.
     public let diagnostics: ExactDiagnostics
+    // The frame clock (§2.4): the host's entries, there once the hatches
+    // connect, and what each token calls.
+    typealias FramesFn = @convention(c) (UnsafeMutableRawPointer?, UInt64, Int32) -> Void
+    typealias AfterFn = @convention(c) (UnsafeMutableRawPointer?, UInt64, Double) -> Void
+    var framesFn: FramesFn?, afterFn: AfterFn?
+    var ticks: [UInt64: (ExactFrame) -> Void] = [:], afters: [UInt64: () -> Void] = [:]
+    private var nextToken: UInt64 = 1
 
     init(json: [String: Any], host: UnsafeMutableRawPointer?, changed: @escaping ExactModuleChangedFn, now: @escaping ExactModuleNowFn) {
         diagnostics = ExactDiagnostics(host: host, scope: "module", node: 0)
@@ -102,12 +109,62 @@ public final class ExactModuleContext: @unchecked Sendable {
     /// so what a view draws from it repeats. Main thread.
     public func now() -> Double { nowFn(host) }
 
+    /// A frame ticket (LLP 1075.003.000.001 §2.4): `body` at each frame, after
+    /// that frame's tasks and timers, with the session clock's time. Logical
+    /// time, for behaviour that keeps step with the app (an indicator that
+    /// follows an animation): each presented frame on the wall, and under the
+    /// agent the virtual 60 Hz display, where a seek stops at each tick, so
+    /// the callback sees that instant's state and a drive repeats. Not for
+    /// measuring the display: `perf frames` and `diagnostics.measure` are.
+    /// Main thread. `stop()` ends it; a reload drops it.
+    @discardableResult
+    public func frames(_ body: @escaping (ExactFrame) -> Void) -> ExactTicket {
+        let token = nextToken
+        nextToken += 1
+        guard let framesFn else { return ExactTicket {} }
+        ticks[token] = body
+        framesFn(host, token, 1)
+        return ExactTicket { [weak self] in
+            guard let self, self.ticks.removeValue(forKey: token) != nil else { return }
+            framesFn(self.host, token, 0)
+        }
+    }
+
+    /// `body` once, `ms` later on the session clock: the agent's under the
+    /// agent, where a seek fires it at its own instant. `stop()` before then
+    /// and it never runs. Main thread.
+    @discardableResult
+    public func after(_ ms: Double, _ body: @escaping () -> Void) -> ExactTicket {
+        let token = nextToken
+        nextToken += 1
+        guard let afterFn else { return ExactTicket {} }
+        afters[token] = body
+        afterFn(host, token, max(0, ms))
+        return ExactTicket { [weak self] in
+            guard let self, self.afters.removeValue(forKey: token) != nil else { return }
+            afterFn(self.host, token, -1)
+        }
+    }
+
     /// Say a device topic changed: every TypeScript answer that called
     /// `native.watch(topic)` is asked again (LLP 1016.002). Any thread.
     public func changed(_ topic: String) {
         let bytes = Array(topic.utf8)
         bytes.withUnsafeBufferPointer { changedFn(host, $0.baseAddress, UInt32($0.count)) }
     }
+}
+
+/// One frame of a `frames` ticket: the session clock's time in milliseconds,
+/// and the commit the frame's state ends at.
+public struct ExactFrame: Sendable {
+    public let now: Double, seq: UInt64
+}
+
+/// What `frames` and `after` return: `stop()` ends the ticket or cancels the wait.
+public final class ExactTicket {
+    private var end: (() -> Void)?
+    init(_ end: @escaping () -> Void) { self.end = end }
+    public func stop() { end?(); end = nil }
 }
 
 /// The answer to one `native.later` call. Only the first `send` or `fail`
@@ -380,6 +437,8 @@ final class ExactHatches {
     /// One of 64 or more: `input(text)` on an authored field.
     typealias InputFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, UInt32) -> Int32
     let inputFn: InputFn?
+    /// One of 80 or more: the frame clock's two entries.
+    let framesFn: ExactModuleContext.FramesFn?, afterFn: ExactModuleContext.AfterFn?
     #if os(iOS) || os(tvOS)
     var navigations: [ObjectIdentifier: ExactNavigation] = [:]
     var routes: [String: ExactRoute] = [:]
@@ -407,6 +466,9 @@ final class ExactHatches {
             .map { unsafeBitCast($0, to: ExactDiagnostics.RecordFn.self) }
         inputFn = table.load(as: UInt32.self) >= 64
             ? table.load(fromByteOffset: 56, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: InputFn.self) } : nil
+        let clock = table.load(as: UInt32.self) >= 80
+        framesFn = clock ? table.load(fromByteOffset: 64, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: ExactModuleContext.FramesFn.self) } : nil
+        afterFn = clock ? table.load(fromByteOffset: 72, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: ExactModuleContext.AfterFn.self) } : nil
     }
 
     func log(_ line: String) {
@@ -938,6 +1000,17 @@ private let moduleConnect: @convention(c) (UnsafeMutableRawPointer?, UnsafeRawPo
     guard let m = module(raw), let table else { return }
     m.hatches = ExactHatches(host: m.context.host, table: table)
     m.context.diagnostics.recordFn = m.hatches?.recordFn
+    m.context.framesFn = m.hatches?.framesFn
+    m.context.afterFn = m.hatches?.afterFn
+}
+
+/// `tick(module, kind, token, now, seq)`: a frame ticket's tick (0) or an
+/// `after` that came due (1). A token the module no longer holds is one it
+/// stopped inside an earlier callback of this instant: nothing runs.
+private let moduleTick: @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt64, Double, UInt64) -> Void = { raw, kind, token, now, seq in
+    guard let m = module(raw) else { return }
+    if kind == 0 { m.context.ticks[token]?(ExactFrame(now: now, seq: seq)) }
+    else { m.context.afters.removeValue(forKey: token)?() }
 }
 
 /// `navigation(module, event, controller, flags) → flags`: event 0 built (the
@@ -1160,7 +1233,7 @@ private let table: UnsafeMutableRawPointer = {
     let text = "{" + (roster.keys.sorted().map { tag in
         "\"\(tag)\":{\"snapshot\":\(roster[tag]!.snapshot),\"reuse\":\(roster[tag]!.reuse)}"
     } + [words]).joined(separator: ",") + "}"
-    let size = 200
+    let size = 208
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: major, as: UInt32.self)
@@ -1188,6 +1261,7 @@ private let table: UnsafeMutableRawPointer = {
     t.storeBytes(of: unsafeBitCast(moduleToolbar, to: UnsafeRawPointer.self), toByteOffset: 176, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleApp, to: UnsafeRawPointer.self), toByteOffset: 184, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleWindow, to: UnsafeRawPointer.self), toByteOffset: 192, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleTick, to: UnsafeRawPointer.self), toByteOffset: 200, as: UnsafeRawPointer.self)
     return t
 }()
 

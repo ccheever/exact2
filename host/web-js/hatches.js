@@ -13,7 +13,7 @@
 // first paint, as a module view's does (rt.js `painted`), and a node mounted before
 // then is told once it has. rt.js re-exports `ht`: only a plan that marks a
 // node bundles this.
-import { onEnd, journal, clock, viewId, inflight, painted } from "./rt.js";
+import { onEnd, journal, clock, viewId, inflight, painted, time, paint, drive } from "./rt.js";
 
 let Page = null;
 const said = new Set(), warned = new Set();
@@ -27,14 +27,29 @@ const counted = word => stats[word] ??= { live: 0, reusable: 0, lost: [], calls:
 const publish = () => {
   const x = globalThis.exact;
   if (!x || x.hatchState) return;
-  x.hatchState = state; x.hatchPerf = { reply: perfReply, site: perfSite, window: perfWindow }; x.hatchActs = { drains: () => A.drains, queued: () => Acts.length }; x.diagnostics = diagnostics("module");
+  x.hatchState = state; x.hatchPerf = { reply: perfReply, site: perfSite, window: perfWindow };
+  x.hatchActs = { drains: () => A.drains, queued: () => Acts.length, command() { K.fires = K.acts = 0; } };
+  // What a page module reaches: its diagnostics and the frame clock (§2.4).
+  x.diagnostics = diagnostics("module"); x.hatches = { ...hatchClock, diagnostics: x.diagnostics };
 };
 
 // What Exact measures by itself, and what hatch code adds (@ref LLP
 // 1075.003.000.001 §3.1–3.2): development only, as `perf` is (LLP 1079 D1);
 // a production page keeps nothing and each call returns on this one flag.
 let Dev = null;
-const dev = () => Dev ??= globalThis.exact?.plan != null;
+// Asked again until it is so: the page names its plan once it has started.
+const dev = () => Dev ||= globalThis.exact?.plan != null;
+// `EXACT_HATCHES=off`, on the web `?hatches=off` (§2.6): a development page
+// connects no hatch and says so once; the module's views and calls work. A
+// production page does not read the name.
+let Off = null;
+const off = () => {
+  if (Off == null && dev()) {
+    Off = typeof location !== "undefined" && new URLSearchParams(location.search).get("hatches") === "off";
+    if (Off) say("hatches: off (?hatches=off); no hatch is connected or called");
+  }
+  return Off === true;
+};
 
 // Every call, timed: a node's by plan site and moment, another scope's by its
 // hatch. Times are exclusive: a call nested in another is charged to itself.
@@ -205,7 +220,7 @@ function perfReply(tags) {
     const sorted = [...t.ring].sort((a, b) => a - b);
     return { count: t.count, sum: t.sum, max: t.max, p50: quantile(sorted, 0.5), p95: quantile(sorted, 0.95), samples: sorted.length, dropped: t.dropped, ...(t.measured ? { measured: true } : {}) };
   });
-  const reply = { ...tags, seq: clock.epoch, plan: globalThis.exact?.plan ?? null, measuring: dev(), hatches: by, calls, tickets: 0,
+  const reply = { ...tags, seq: clock.epoch, plan: globalThis.exact?.plan ?? null, measuring: dev(), hatches: by, calls, tickets: Tickets.length,
     counters: grouped(D.counters, c => c.n), timings, rejected: D.rejected, abandoned: D.abandoned, limited: D.limited };
   return fit(reply, [[reply, "calls"], [reply, "hatches"], [reply, "counters"], [reply, "timings"]]);
 }
@@ -257,13 +272,16 @@ function ask(h, what, kind, text) {
   A.scheduled = true;
   queueMicrotask(drain);
 }
-function drain() {
-  A.scheduled = false;
+function drain(now) {
+  if (now !== true) A.scheduled = false;
+  if (!Acts.length) return;
   A.drains++;
   for (const act of Acts.splice(0, 64)) {
     A.bytes -= act.size;
     try { run(act); } catch (error) { say(`${act.what}: ${act.kind} threw ${error?.message ?? error}`); } finally { inflight.n--; }
   }
+  // Inside a seek's instant the caller drains on (`instant`).
+  if (now === true) return;
   // What these acts queued (a `changed` that clicks again) waits for a task;
   // a task that finds nothing queued gives the next act its microtask back.
   if (typeof MessageChannel !== "function") { A.tasks = false; if (Acts.length && !A.scheduled) { A.scheduled = true; setTimeout(drain); } return; }
@@ -291,6 +309,84 @@ if (typeof document !== "undefined" && document.addEventListener) {
   document.addEventListener("compositionstart", ev => { A.composing = ev.target; }, true);
   document.addEventListener("compositionend", () => { A.composing = null; }, true);
 }
+
+// The frame clock (@ref LLP 1075.003.000.001 §2.4): logical time, for what
+// keeps step with the app. `exact.hatches.frames(frame => …)` is a ticket:
+// it ticks at the instants LLP 1073's frame tasks fire, after that frame's
+// tasks and timers, with `frame.now` the session clock and `frame.seq` the
+// commit the instant's state ends at; each presented frame on the wall, and
+// under the agent the virtual display, `base + k·1000/60`.
+// `exact.hatches.after(ms, f)` waits on the session clock. Each returns its
+// stop. The runtime's clock holds two entries of ours while they are wanted,
+// the ticks' and the afters'; its seek fires them in their turn (rt.js
+// `advance`), so under the agent a callback sees its own instant's state and
+// `clock +1000` is ten `clock +100`. There what a callback asks is drained at
+// that instant, with the moments those commits cause, until nothing is
+// queued. Ticks and afters are not commits: 4,096 of them, and 4,096 drained
+// acts, are the most one agent command runs.
+const Tickets = [], Afters = [], Changed = new Set();
+const K = { frame: null, after: null, order: 0, fires: 0, acts: 0 };
+function arm() {
+  const T = clock.timers;
+  for (const e of [K.frame, K.after]) { const i = e ? T.indexOf(e) : -1; if (i >= 0) T.splice(i, 1); }
+  // The ticks' entry before the afters': at one instant the ticks go first.
+  if (Tickets.length) { K.frame ??= { hatch: true, frame: true, base: clock.now, k: 1, due: clock.now + 1000 / 60, action: tick }; T.push(K.frame); } else K.frame = null;
+  if (Afters.length) { K.after ??= { hatch: true, action: afters }; K.after.due = Math.min(...Afters.map(a => a.due)); T.push(K.after); } else K.after = null;
+  if (clock.agent) return;
+  if (K.frame) paint();
+  if (K.after) drive();
+}
+const fired = () => ++K.fires <= 4096 || !clock.agent;
+const limit = name => { say(`refused advance: ${name} (4096 in one command)`); return false; };
+function tick() {
+  const e = K.frame;
+  // The seek leaves our next instant to us; a presented frame has set it.
+  if (e && clock.now >= e.due) { e.k++; e.due = e.base + e.k * 1000 / 60; }
+  const frame = { now: clock.now, seq: clock.epoch };
+  for (const t of [...Tickets]) if (Tickets.includes(t)) { if (!fired()) return limit("HatchFireLimit"); timed("frames", null, "tick", () => { try { t(frame); } catch (error) { say(`frames threw ${error?.message ?? error}`); } }); }
+  return instant();
+}
+function afters() { return due() && instant(); }
+// Each due `after`, in due order, ties by registration.
+function due() {
+  for (const a of Afters.filter(a => a.due <= clock.now).sort((a, b) => a.due - b.due || a.i - b.i)) {
+    const i = Afters.indexOf(a);
+    if (i < 0) continue;
+    Afters.splice(i, 1);
+    if (!fired()) return limit("HatchFireLimit");
+    timed("after", null, "fired", () => { try { a.f(); } catch (error) { say(`after threw ${error?.message ?? error}`); } });
+  }
+  return true;
+}
+// What an instant's callbacks asked, under the agent's seek: drained now.
+function instant() {
+  if (clock.agent) for (;;) {
+    for (const run of [...Changed]) run();
+    if (Acts.length) { K.acts += Math.min(64, Acts.length); if (K.acts > 4096) return limit("HatchActLimit"); drain(true); continue; }
+    if (Afters.some(a => a.due <= clock.now)) { if (!due()) return false; continue; }
+    break;
+  }
+  arm();
+  return true;
+}
+const hatchClock = {
+  frames(f) {
+    if (typeof f !== "function") return () => {};
+    time();
+    Tickets.push(f); arm();
+    const stop = () => { const i = Tickets.indexOf(f); if (i >= 0) { Tickets.splice(i, 1); arm(); } };
+    return Object.assign(stop, { stop });
+  },
+  after(ms, f) {
+    if (typeof f !== "function") return () => {};
+    time();
+    const a = { due: clock.now + Math.max(0, Number(ms) || 0), f, i: K.order++ };
+    Afters.push(a); arm();
+    const stop = () => { const i = Afters.indexOf(a); if (i >= 0) { Afters.splice(i, 1); arm(); } };
+    return Object.assign(stop, { stop });
+  },
+  now() { time(); return clock.now; },
+};
 
 // The words this platform handles, when the app's manifest gives words their
 // platforms (web-js/build.mjs; LLP 1075.003.000.001 §4.3): a word it leaves
@@ -331,7 +427,8 @@ export function ht(e) {
   };
   inflight.n++;
   page().then(m => {
-    if (!h.isLive) return;
+    // The switch is read here, once the page has started and says what it is.
+    if (!h.isLive || off()) return;
     module = m;
     publish();
     counted(word).live++;
@@ -349,10 +446,13 @@ export function ht(e) {
     // click) is then an ordinary update, not one inside the running effect.
     // Installed before `built`, so what `built` itself causes is heard too.
     let due = false;
+    // Told in a microtask; a seek's hatch instant tells it there and then (`instant`).
+    const tell = () => { if (!due) return; due = false; Changed.delete(tell); if (h.isLive) { h.isNew = false; call("element", "changed"); } };
     e.$ht = () => {
       if (due) return;
       due = true;
-      queueMicrotask(() => { due = false; if (h.isLive) { h.isNew = false; call("element", "changed"); } });
+      Changed.add(tell);
+      queueMicrotask(tell);
     };
     call("element", "built");
   }, error => say(`element ${word} #${id}: no page module: ${error?.message ?? error}`))
@@ -443,6 +543,7 @@ const roots = new WeakSet(), lists = new WeakSet(), routes = new Map();
 export function containers() {
   publish();
   return page().then(m => {
+    if (off()) return;
     const project = root => {
       if (!root) return;
       const live = new Set();
