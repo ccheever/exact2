@@ -104,6 +104,15 @@ bun host/android/build.mjs android-core --run --serial <device>
 bun host/android/build.mjs android-core --compare --serial <device>
 ```
 
+`apps/android-native` exercises SDK controls, toolbar and tab navigation, and a
+1,000-row virtualized vertical list with interactive row buttons. It reuses the
+core example's immutable row source. Run it with:
+
+```sh
+bun host/android/build.mjs android-native --run --serial <device>
+bun host/web/dev.mjs --app android-native
+```
+
 Set `ANDROID_HOME` and `JAVA_HOME`; the build requires JDK 17, Gradle 9.3.1,
 SDK platform 37.0, build tools 36.0.0 and NDK 28.2.13676358. `EXACT_GRADLE`
 can select the Gradle executable. APKs use Rust release, R8 and resource shrinking;

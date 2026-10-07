@@ -1,0 +1,10 @@
+[package]
+name = "android-native-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The native-controls example reuses the core example's immutable rows"
+publish = false
+
+[dependencies]
+android-core-data = { path = "../../android-core/data" }
