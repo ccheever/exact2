@@ -365,7 +365,7 @@ guide's rules don't make obvious.
   the web (both targets) a text field is re-set only when what its binding reads
   changes, so an unchanged binding does not overwrite the edit. Fix: bind the field to draft state that `edit` always writes, and on commit
   (`change`, Enter, `blur`) write the accepted value or reset the draft to it, which
-  changes the bound value and redraws the field. (Authoring bench, LLP 1087, t2-todo:
+  changes the bound value and redraws the field; the guide's "Editing a value: the field's contract" has the recipe. (Authoring bench, LLP 1087, t2-todo:
   two builders, about 10 minutes each, 2026-10-04; t1-tip, a normalized count,
   2026-10-05.)
 

@@ -420,6 +420,50 @@ read the starting cell, and the last write wins. Calls in exclusive branches
 A derive is not mutable storage, an async effect, or a timer. Derive cycles are
 refused. Avoid unnecessary state that can be calculated from existing values.
 
+### Editing a value: the field's contract
+
+A text field is re-set only when what its `value` binding reads changes, never
+after each keystroke (React writes the bound value back; Exact does not, so a
+half-typed `-` or `1.` survives). That makes the contract:
+
+- **while editing**, the field is bound to raw text in state that `input`
+  always writes;
+- **validation** reads the parsed value (`parseNumber`, a trim, a length) and
+  shows a hint, without touching the text;
+- **on commit** (`change`, which a text field fires on Enter and on blur), the
+  action writes the accepted value and writes the normalized text back into the
+  draft, which changes the binding and redraws the field.
+
+A field bound straight to the accepted value breaks this: an action that
+normalizes `-2` to the `0` it already held leaves the binding unchanged, so the
+field keeps showing `-2`.
+
+```contract
+component Quantity
+  state count = 1
+  state draft = "1"
+  action edit(text: string)
+    draft = text
+  action commit(text: string)
+    match parseNumber(text)
+      case some(n)
+        count = max(0, round(n))
+        draft = `${max(0, round(n))}`
+      case none
+        draft = `${count}`
+  view
+    column gap=8
+      input value=draft input=edit change=commit inputmode="numeric" aria-label="Quantity" testId="qty"
+      text (match parseNumber(draft) { case some(n) => (n < 0 ? "Must be 0 or more" : ""), case none => "Enter a number" }) testId="qty-hint"
+      text `Ordered: ${count}` testId="qty-count"
+```
+
+`type "qty" "-2"` leaves `-2` in the field with the hint; `type "qty" key
+"Enter"` commits, and the field reads `0`. A checkbox bound to a resource's
+field follows the same rule from the other side: it shows the resource's value,
+so it snaps back until the save answers and the resource is read again (LLP 1102
+§3.16).
+
 ## Composition and lifetime
 
 The first component is the root. Each component use is `Name(prop=value, …)`.
