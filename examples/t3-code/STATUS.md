@@ -33,7 +33,7 @@ IDs follow the plan.
 - **D. Providers and settings:** provider sign-in and runtime install, managed Codex with ChatGPT, ACP sign-in and session management, ChatGPT plan notices, reset credits, `/feedback`, thread Automations and live scheduled tasks, tracked project clone, custom model options, Update all.
 - **E. Desktop:** embedded local T3 server, "This machine" (Local environment, Network access, Tailscale HTTPS, authorized clients, pairing links), `t3 app` activation, `t3code://` deep links, SSH password prompt, keep-awake, small menu and quit-hold differences.
 - **G. Chat, composer, diff:** `server.reportClientActivity` every 25 s (G1, highest impact), diff and Files line comments, Cite from a reply, large-diff loading and expandable lines, "Delete the worktree too?", composer server-update banner, Auto balance, media actions, ultrathink frame and Cursor `fastMode:false`, legacy sidebar, compact composer menu, keybinding gaps.
-- **Verification still owed:** real-input sessions, real device hub, reference Electron app as desktop oracle, protocol-trace comparison; GitHub writes later with disposable accounts.
+- **Verification still owed:** real-input sessions, real device hub, reference Electron app as desktop oracle, protocol-trace comparison. GitHub: since 2026-10-07 the real-GitHub lane (`tools/github-lane`, task `20261007-real-github-lane`) replaces the fake `gh`: pull request reads and writes run against a disposable sandbox repository through the real `gh` the server spawns, signed in by the user (two accounts).
 
 ## 3. Framework level (exact2) — see `EXACT2-GAPS.md`
 

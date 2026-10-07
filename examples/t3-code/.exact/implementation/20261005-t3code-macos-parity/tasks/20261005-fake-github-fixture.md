@@ -146,6 +146,8 @@ Required environment: Bun 1.4.2, the pinned reference runtime copy, no network.
 
 ## Progress
 
+2026-10-07: replaced by real GitHub (user decision); see [20261007-real-github-lane](20261007-real-github-lane.md).
+
 2026-10-06: on hold (user decision). Tasks that need a sign-in (GitHub, provider accounts, T3 Connect) do not start until the user lifts the hold.
 
 Planned. No branch.
@@ -158,4 +160,5 @@ Planned. No branch.
 
 ## Next action
 
-Starts when the user lifts the sign-in hold: `prepare` from `feat(example)/t3-code`, covering sign-in rows with lane fixtures (fake provider, seeded data).
+None: superseded by [20261007-real-github-lane](20261007-real-github-lane.md). Its verb table remains the
+coverage list the real lane's probe proves.
