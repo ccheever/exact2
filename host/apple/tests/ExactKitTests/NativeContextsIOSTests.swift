@@ -121,6 +121,13 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(pressed, [4])
     }
 
+    /// What UIKit does for a control's change, without the application a test bundle has none of.
+    private func report(_ control: UIControl) {
+        for target in control.allTargets {
+            for name in control.actions(forTarget: target, forControlEvent: .valueChanged) ?? [] { _ = (target as? NSObject)?.perform(Selector(name), with: control) }
+        }
+    }
+
     /// UIKit reports a segment's tap after the finger lifts, as the selection
     /// settles (iOS 26); a sync in between keeps the finger's choice.
     func testASegmentKeepsAFingersChoiceUntilItIsReported() throws {
@@ -132,17 +139,18 @@ final class NativeContextsIOSTests: XCTestCase {
         segments.selectedSegmentIndex = 2
         p.segments.sync()
         XCTAssertEqual(segments.selectedSegmentIndex, 2, "a sync before the report keeps the finger's choice")
-        segments.sendActions(for: .valueChanged)
+        report(segments)
         XCTAssertEqual(pressed, [4], "the report names the segment the finger chose")
         // The app kept Day selected: once reported, the next sync shows it.
         p.segments.sync()
         XCTAssertEqual(segments.selectedSegmentIndex, 0)
-        // A tablist that gains a tab is rebuilt and still shows its selection.
+        // A tablist that gains a tab gets a new control, which shows the selection.
         p.buttonFace = { [unowned self] id in self.face(["Day", "Week", "Month", "Year"][Int(id) - 2]) }
         p.apply(wireBatch(native(5, ["accessibilityRole": "tab"], x: 300, w: 100) + [["op": "children", "id": 1, "ids": [2, 3, 4, 5]]]))
         p.segments.sync()
-        XCTAssertEqual(segments.numberOfSegments, 4)
-        XCTAssertEqual(segments.selectedSegmentIndex, 0, "a rebuilt control shows the selection again")
+        let rebuilt = try XCTUnwrap(p.views[1]?.subviews.compactMap { $0 as? UISegmentedControl }.first)
+        XCTAssertEqual(rebuilt.numberOfSegments, 4)
+        XCTAssertEqual(rebuilt.selectedSegmentIndex, 0, "a rebuilt control shows the selection")
     }
 
     func testAMenuRowsSymbolIsItsItemsImageNativeOrCustom() throws {
