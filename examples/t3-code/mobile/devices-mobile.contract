@@ -1,0 +1,67 @@
+use MobilePreviewMenu, MobilePreviewColors from "./browser-mobile.contract"
+shape MobileDevicesSnapshot
+  owner: string
+  revision: number
+  title: string
+  source: string
+  count: number
+  loaded: bool
+  loading: bool
+  error: string
+  close: bool
+  selected: string
+  devices: list<MobilePreviewMenu>
+  menu: list<MobilePreviewMenu>
+  inputConnected: bool
+  controlsVisible: bool
+  status: string
+  detail: string
+  toolVersions: string
+  operating: bool
+  needsRefresh: bool
+
+// Root supplies safeAreaTop. Full-screen presentation and hidden system bars remain unimplemented.
+component MobileDevices
+  props
+    data: MobileDevicesSnapshot
+    colors: MobilePreviewColors
+    active: bool
+    safeAreaTop: number
+    action: action
+    close: action
+    menuConfiguration: string
+    menuEvent: action
+  view
+    view flex=1 min-height=0 position="relative" background-color=colors.background font-family="DM Sans"
+      when data.source != ""
+        t3-mobile-devices stream-source=data.source stream-background=colors.background stream-colors=colors.stream stream-active=active width="100%" height="100%"
+        when data.status != "streaming"
+          column position="absolute" top=0 right=0 bottom=0 left=0 align-items="center" justify-content="center" gap=14 padding=21 background-color=colors.background
+            when data.status == "connecting"
+              t3-archive-spinner spinner-tint=colors.icon width=20 height=20
+            text (data.status == "error" ? data.detail : "Connecting to device...") font-size=12.25 text-align="center" color=colors.muted
+            when data.status == "error"
+              button press=action("reload", "") padding-left=21 padding-right=21 padding-top=10.5 padding-bottom=10.5 border-radius=24 background-color=colors.secondary border-width=1 border-style="solid" border-color=colors.border
+                text "Reconnect" color=colors.secondaryForeground
+      else
+        column position="absolute" top=0 right=0 bottom=0 left=0 align-items="center" justify-content="center" gap=14 padding=21
+          when data.error != ""
+            text data.error font-size=12.25 text-align="center" color=colors.muted
+            button press=action("refresh", "")
+              text "Retry" color=colors.foreground
+          else
+            t3-archive-spinner spinner-tint=colors.icon width=20 height=20
+      when data.controlsVisible
+        when data.inputConnected
+          button position="absolute" top=0 right=0 bottom=0 left=0 background-color="rgba(0,0,0,0.3)" press=action("controls", "") aria-label="Hide device controls"
+        row position="absolute" top=max(safeAreaTop,12) left=10.5 right=10.5 gap=3.5 padding=3.5 border-radius=25 background-color=colors.secondary align-items="center"
+          button width=38.5 height=38.5 padding=0 press=close() aria-label="Close device preview"
+            t3-symbol symbol-name="xmark" point-size=18 symbol-weight="regular" symbol-tint=colors.icon width=18 height=18
+          text data.title flex=1 min-width=0 text-align="center" font-size=14 font-weight=500 color=colors.foreground line-clamp=1
+          button width=38.5 height=38.5 padding=0 disabled=(not data.inputConnected) press=action("home", "") aria-label="Home"
+            t3-symbol symbol-name="house" point-size=18 symbol-weight="regular" symbol-tint=colors.icon width=18 height=18
+          t3-preview-menu configuration=menuConfiguration change=menuEvent width=38.5 height=38.5
+      else
+        button position="absolute" top=max(safeAreaTop - 18,4) align-self="center" width=56 height=21 padding=0 press=action("controls", "") aria-label="Show device controls"
+          column width=56 height=21 align-items="center" justify-content="center"
+            view width=35 height=5.25 border-radius=3 background-color="rgba(255,255,255,0.4)"

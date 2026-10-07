@@ -11,7 +11,7 @@ import { mobileHomeChrome, decodeHomeChromeEvent } from './home-chrome';
 export function mobileLayoutFacts(input: string) {
   let value: Record<string, unknown> = {};
   try { value = obj(JSON.parse(input)); } catch { /* Bake has no UIKit geometry. */ }
-  return { safeBottom: typeof value.safeBottom === 'number' && Number.isFinite(value.safeBottom)
+  return { safeTop: typeof value.safeTop === 'number' && Number.isFinite(value.safeTop) ? Math.max(0, value.safeTop) : 0, safeBottom: typeof value.safeBottom === 'number' && Number.isFinite(value.safeBottom)
     ? Math.max(0, value.safeBottom) : 0, liquidGlass: value.liquidGlass === true };
 }
 
@@ -44,7 +44,7 @@ export function settingsRoot(args: unknown[]) {
   const appearance = resolveMobileAppearance(preferences, str(systemScheme));
   const scope = settingsScope(rows, selectionJSON, preferences.projectGroupingMode);
   return { root: settingsRootView({ savedEnvironmentCount: arr(rows).length,
-    enabledRoutes: ['SettingsEnvironments', 'SettingsAppearance', 'SettingsKeyboard', 'SettingsFollowUp', 'SettingsOrganization', 'SettingsArchive', 'SettingsProviderAccounts', 'SettingsScheduledTasks', 'SettingsUsage', ...Object.keys(MOBILE_SERVER_ROUTES)],
+    enabledRoutes: ['SettingsEnvironments', 'SettingsAppearance', 'SettingsKeyboard', 'SettingsFollowUp', 'SettingsOrganization', 'SettingsArchive', 'SettingsProviderAccounts', 'SettingsScheduledTasks', 'SettingsUsage', 'SettingsAbout', ...Object.keys(MOBILE_SERVER_ROUTES)],
     scope, preferences, scheme: appearance.scheme, themeId: appearance.themeId, safeBottom: Number(safeBottom) || 0 }),
     header: settingsHeaderConfiguration(str(routeKey), true, scope),
     environmentIds: JSON.stringify(scope.selected.map(environment => environment.environmentId)),

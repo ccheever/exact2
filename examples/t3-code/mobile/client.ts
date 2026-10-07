@@ -1,3 +1,5 @@
+import { mobileDevicesEvents } from './devices-mobile-data';
+import { mobileBrowserEvents } from './browser-mobile-data';
 import { mobileVoiceObserveDraft } from './voice-data';
 // upstream 365aa87982 mobile pairing.ts and connection/platform.ts; shared reducers remain unchanged.
 // @ref llp/1106.003-pairing-and-transport.decision.md#mobile-adaptations
@@ -65,6 +67,13 @@ export function mobileNative(native: Native): Native {
   return { available: native.available, watch: topic => native.watch(topic), later: request => {
     mobileVoiceObserveDraft(mobileClient);
     const operation = obj(request), payload = obj(operation.payload);
+    if (operation.op === 'events') return bridgeReply(native, request).then(response => {
+      if (response.ok) {
+        mobileBrowserEvents(obj(response.value).events, mobileClient);
+        mobileDevicesEvents(obj(response.value).events, mobileClient);
+      }
+      return response;
+    });
     const mobileWrite = operation.op === 'request' && payload.creationSource === 'web'
       && (operation.method === 'orchestration.launchThread'
         || (operation.method === 'orchestration.dispatchCommand'

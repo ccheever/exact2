@@ -25,6 +25,12 @@ function read(f: ReturnType<typeof fixture>, rendered = true, retry = false, now
   return mobileAttachmentDocument('transcript', 'file', 'route', rendered, false, now, retry, f.native, f.client);
 }
 describe('attachment document reads', () => {
+  test('audio uses signed original bytes without a text read', async () => {
+    const f = fixture('note.m4a', 'audio/mp4'), preview = await read(f);
+    expect(preview).toMatchObject({ kind: 'audio', ready: true, hasContent: false, error: '' });
+    expect(f.calls.map(call => call.op)).toEqual(['request']);
+    expect(JSON.parse(preview.sourceJSON).url).toContain('/signed?');
+  });
   test('Markdown and source share one bounded native read; MIME wins and size rounds up', async () => {
     const f = fixture(), preview = await read(f);
     expect(preview).toMatchObject({ ready: true, activeMode: 'markdown', text: '# A note', subtitle: 'Attachment · 2 KB' });

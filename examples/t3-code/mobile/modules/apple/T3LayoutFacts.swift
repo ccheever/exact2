@@ -27,7 +27,7 @@ final class T3LayoutFacts: ExactNativeInstance {
         guard alive, let window = root.window else { return }
         let glass: Bool
         if #available(iOS 26.0, *) { glass = true } else { glass = false }
-        let value: [String: Any] = ["safeBottom": Double(window.safeAreaInsets.bottom), "liquidGlass": glass]
+        let value: [String: Any] = ["safeTop": Double(window.safeAreaInsets.top), "safeBottom": Double(window.safeAreaInsets.bottom), "liquidGlass": glass]
         guard let data = try? JSONSerialization.data(withJSONObject: value, options: .sortedKeys) else { return }
         let text = String(decoding: data, as: UTF8.self)
         guard text != previous else { return }

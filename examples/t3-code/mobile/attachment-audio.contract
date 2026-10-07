@@ -1,0 +1,34 @@
+// AudioFilePreview365aa87982. Layout stays Contract; native owns only playback.
+// @ref llp/1106.005-composer-and-transcript.decision.md#media-presentation
+use ReviewColors from "./review-shapes.contract"
+shape AttachmentAudioStatus
+  identifier: string
+  loaded: bool
+  playing: bool
+  position: string
+  error: string
+component MobileAttachmentAudio
+  props
+    data: AttachmentAudioStatus
+    source: string
+    active: bool
+    colors: ReviewColors
+    command: action
+    status: action
+    retry: action
+  view
+    column flex=1 min-height=0 align-items="center" justify-content="center" gap=17.5 padding=21 background-color=colors.sheet font-family="DM Sans"
+      t3-document-audio media-source=source audio-active=active change=status width=0 height=0
+      text data.position font-size=14 color=colors.muted
+      row align-items="center" gap=14
+        button aria-label="Back 15 seconds" disabled=(not data.loaded) press=command("back") padding=14
+          text "−15s" font-size=14 color=colors.foreground
+        button disabled=(not data.loaded) press=command("toggle") padding-left=21 padding-right=21 padding-top=14 padding-bottom=14 border-radius=10.5 background-color=colors.subtle
+          text (not data.loaded ? "Loading…" : data.playing ? "Pause" : "Play") font-size=14 color=colors.foreground
+        button aria-label="Forward 15 seconds" disabled=(not data.loaded) press=command("forward") padding=14
+          text "+15s" font-size=14 color=colors.foreground
+      when data.error != ""
+        column align-items="center" gap=10.5
+          text "This audio could not be played. Try again or save it to open in another app." font-size=14 text-align="center" color=colors.foreground
+          button press=retry padding=10.5
+            text "Try again" font-size=14 color=colors.foreground

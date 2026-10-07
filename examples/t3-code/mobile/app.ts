@@ -1,3 +1,7 @@
+import { mobilePreviewOwner, mobilePreviewPrepare, mobilePreviewStatus, mobilePreviewAction, mobilePreviewMenus, mobilePreviewMenuAction } from './mobile-preview-flow';
+import { mobilePreviewColors } from './browser-mobile-colors';
+import { MOBILE_INFORMATION_ROUTES, mobileInformationPrepare, mobileInformationSnapshot, mobileInformationCommand, mobileInformationLegalConfiguration } from './settings-information';
+import { mobileAudioStatus, mobileAudioAction } from './attachment-audio';
 import { mobileAutomationPrepare, mobileAutomationSnapshot, mobileAutomationCommand } from './settings-scheduled-flow';
 import { mobileVoiceAction, mobileVoiceSnapshot, mobileVoiceStatus } from './voice-data';
 import { mobileVoiceColors } from './voice-colors';
@@ -33,6 +37,20 @@ export const grants = 'device.camera purpose.camera device.microphone purpose.mi
 
 export function answer(source: string, args: unknown[], _store?: unknown, storage?: Files, native?: Native | null) {
   if (native) native = settingsProviderNative(native);
+  if (source === 'previewOwner') return mobilePreviewOwner(args[0] === true);
+  if (source === 'previewPrepare') return mobilePreviewPrepare(String(args[0]), native);
+  if (source === 'previewColors') return mobilePreviewColors(String(args[0]), String(args[1]));
+  if (source === 'previewStatus') return mobilePreviewStatus(String(args[0]), String(args[1]), args[2] === true, native);
+  if (source === 'previewMenus') return mobilePreviewMenus(String(args[0]), args[1]);
+  if (source === 'previewAction') return mobilePreviewAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), native).then(result => ({ ...result, requestRoute: String(args[4]) }));
+  if (source === 'previewMenuAction') return mobilePreviewMenuAction(String(args[0]), String(args[1]), String(args[2]), native).then(result => ({ ...result, requestRoute: String(args[3]) }));
+  if (source === 'informationPrepare') return mobileInformationPrepare(String(args[0]), native);
+  if (source === 'informationSnapshot') return mobileInformationSnapshot(String(args[0] ?? ''), String(args[1] ?? ''));
+  if (source === 'informationCommand') return mobileInformationCommand(String(args[0]), String(args[1]), native).then(result => ({ ...result, requestRoute: String(args[2]) }));
+  if (source === 'informationLegal') return { configuration: mobileInformationLegalConfiguration(String(args[0]), String(args[1]), args[2]) };
+  if (source === 'informationRoute') return { active: MOBILE_INFORMATION_ROUTES.includes(String(args[0])), title: ({ settingsAbout: 'About T3 Code', settingsClientStorage: 'Client Storage', settingsDiagnostics: 'Diagnostics', settingsOpenSourceLicenses: 'Open source licenses', settingsOpenSourceLicense: 'License notice', settingsLegal: 'Legal' } as Record<string, string>)[String(args[0])] ?? '' };
+  if (source === 'audioStatus') return mobileAudioStatus(String(args[0] ?? ''), String(args[1] ?? ''));
+  if (source === 'audioAction') return mobileAudioAction(String(args[0] ?? ''), String(args[1] ?? ''), native);
   if (source === 'automationPrepare') return mobileAutomationPrepare(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? ''), String(args[4] ?? ''), Number(args[5]), native);
   if (source === 'automationSnapshot') {
     const snapshot = mobileAutomationSnapshot();

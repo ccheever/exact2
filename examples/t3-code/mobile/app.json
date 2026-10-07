@@ -53,7 +53,14 @@
     "t3-media-presenter",
     "t3-mobile-terminal",
     "t3-document-menu",
-    "t3-document-html"
+    "t3-document-html",
+    "t3-document-audio",
+    "t3-information-legal",
+    "t3-information-search",
+    "t3-information-notice",
+    "t3-mobile-browser",
+    "t3-mobile-devices",
+    "t3-preview-menu"
   ],
   "data": [
     "mobile-form-sheet",
