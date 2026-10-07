@@ -471,6 +471,13 @@ impl StyleValue {
         style: StyleId,
         admits_auto: bool,
     ) -> Result<Dimension, StyleValueError> {
+        let radius = matches!(
+            style,
+            StyleId::BorderRadiusTopLeft
+                | StyleId::BorderRadiusTopRight
+                | StyleId::BorderRadiusBottomRight
+                | StyleId::BorderRadiusBottomLeft
+        );
         let value = match self {
             StyleValue::Number(n) if (*n as f32).is_finite() => Ok(Dimension::Points(*n as f32)),
             StyleValue::Percent(p) if (*p as f32).is_finite() => Ok(Dimension::Percent(*p as f32)),
@@ -486,6 +493,10 @@ impl StyleValue {
             }
             StyleValue::Text(t) => match (compare::parse(t), env::parse(t)) {
                 (Err(reason), _) => Err(StyleValueError::BadComparison { style, reason }),
+                // CSS clamps a math function to the row's range: a radius at 0.
+                (Ok(Some(d)), _) if radius => compare::at_least_zero(d)
+                    .map(Some)
+                    .map_err(|reason| StyleValueError::BadComparison { style, reason }),
                 (Ok(Some(d)), _) => Ok(Some(d)),
                 (Ok(None), Err(refusal)) => Err(StyleValueError::BadEnv { style, refusal }),
                 (Ok(None), Ok(parsed)) => Ok(parsed),
@@ -508,13 +519,6 @@ impl StyleValue {
                 expected: "number, percent, auto, calc(<percent> ± <px>), env(safe-area-inset-*), env(viewport-segment-* x y), or min()/max()/clamp()",
             }),
         }?;
-        let radius = matches!(
-            style,
-            StyleId::BorderRadiusTopLeft
-                | StyleId::BorderRadiusTopRight
-                | StyleId::BorderRadiusBottomRight
-                | StyleId::BorderRadiusBottomLeft
-        );
         if radius
             && (!value.is_finite()
                 || matches!(value, Dimension::Points(n) | Dimension::Percent(n) if n < 0.0))
@@ -524,11 +528,7 @@ impl StyleValue {
                 expected: "nonnegative finite length or percentage",
             });
         }
-        // CSS clamps a math function to the property's range: a radius at 0.
-        Ok(match value {
-            Dimension::Compare(c) if radius => Dimension::Compare(c.at_least_zero()),
-            value => value,
-        })
+        Ok(value)
     }
 
     /// A colour as a row holds it. `light-dark(a, b)` is the one text a

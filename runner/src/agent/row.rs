@@ -1,7 +1,7 @@
 //! A style row as the agent prints it: CSS text, the same words the web writes.
 //!
 //! A length is a number of CSS pixels, `"auto"`, `"50%"`, or
-//! `"env(safe-area-inset-top)"`, or `"clamp(env(safe-area-inset-bottom), 15px,
+//! `"env(safe-area-inset-top)"`, or `"clamp(15px, env(safe-area-inset-bottom),
 //! 60px)"`. A colour is `"#rrggbb"` (`"#rrggbbaa"` when
 //! translucent), `"light-dark(#…, #…)"`, or the CSS text of a wide or profiled
 //! colour. An enum is its CSS name, a vector is `[x, y]`, and a clip path is

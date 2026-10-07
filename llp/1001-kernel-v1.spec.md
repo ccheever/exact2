@@ -807,8 +807,10 @@ the frame once more per backdrop node. The measured bounds are LLP 1053.000 §3.
   dirty its node; every host that reads a resolved length (Apple's style
   JSON, the Linux painter, both hosts' content sizes) sees points (their
   matches name the variant only as resolved away). On a border radius, which
-  refuses a negative length, the tree is held as `max(0px, …)`, as CSS
-  clamps a math function to the property's range. A replaced header padded
+  refuses a negative length, the tree is held as `max(0px, …)` and folded
+  points at 0 or more, as CSS clamps a math function to the property's
+  range (a tree with no room left for the wrap under the limits below is
+  refused). A replaced header padded
   by a comparison that reads the top inset hands that inset to the bar, as
   one padded by `env(safe-area-inset-top)` does (`kernel/cover.rs`). The
   readers that never resolved `env()` or viewport lengths (SVG geometry, the

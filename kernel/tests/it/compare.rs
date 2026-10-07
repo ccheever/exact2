@@ -235,6 +235,27 @@ fn a_radius_comparison_never_resolves_below_zero() {
         Ok(r),
         "not wrapped twice"
     );
+    // Folded points: clamped too, where a literal `-4px` is refused.
+    assert_eq!(
+        text(StyleId::BorderRadiusTopLeft, "max(-8px, -2px)"),
+        Ok(Dimension::Points(0.0))
+    );
+    assert!(text(StyleId::BorderRadiusTopLeft, "-4px").is_err());
+    // A tree with no room left for the wrap is refused, never held negative.
+    let deep = format!(
+        "{}-4px, env(safe-area-inset-top){}",
+        "min(".repeat(8),
+        ")".repeat(8)
+    );
+    assert!(
+        text(StyleId::MarginTop, &deep).is_ok(),
+        "{:?}",
+        text(StyleId::MarginTop, &deep)
+    );
+    match text(StyleId::BorderRadiusTopLeft, &deep) {
+        Err(StyleValueError::BadComparison { reason, .. }) => assert!(reason.contains("7 deep")),
+        other => panic!("{other:?}"),
+    }
     // Another row keeps CSS's negative margin.
     let m = text(StyleId::MarginTop, "min(-4px, env(safe-area-inset-top))").unwrap();
     assert_eq!(

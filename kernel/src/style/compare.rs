@@ -287,25 +287,6 @@ impl Comparison {
         self.with(|e| walk(e, edge))
     }
 
-    /// This, never below zero: `max(0px, …)`, as CSS clamps a math function
-    /// to a property's range (CSS Values 4 §10.12) on a row that refuses a
-    /// negative length. Itself when it is already that.
-    pub(crate) fn at_least_zero(self) -> Comparison {
-        let zero = Expr::Term(Base::Points, 0.0);
-        let expr = self.expr();
-        if let Expr::Pick(Op::Max, args, plus) = &expr {
-            if *plus == 0.0 && args.first() == Some(&zero) {
-                return self;
-            }
-        }
-        let wrapped = Expr::Pick(Op::Max, vec![zero, expr], 0.0);
-        if wrapped.well_formed() {
-            Comparison::intern(wrapped)
-        } else {
-            self
-        }
-    }
-
     /// Append the wire form ([`Expr::encode`]).
     pub(crate) fn encode(self, w: &mut Writer) {
         self.with(|e| e.encode(w));
@@ -355,6 +336,7 @@ pub(crate) mod refusal {
     pub(crate) const DEPTH: &str =
         "min(), max(), clamp() and calc() nest at most 8 deep in one length";
     pub(crate) const SIZE: &str = "one length holds at most 64 terms and functions";
+    pub(crate) const RADIUS: &str = "a radius's comparison is held as max(0px, …), never below zero, and that takes one level and two terms more than it: at most 7 deep and 62 terms";
     pub(crate) const NONFINITE: &str =
         "a length inside min(), max() or clamp() is not a finite number";
 }
@@ -459,6 +441,9 @@ impl Parser<'_> {
         if let Some(name_len) = open.filter(|&n| rest.as_bytes()[n] == b'(') {
             let name = &rest[..name_len];
             self.at += name_len + 1;
+            if name == "env" {
+                return self.env(rest, name_len);
+            }
             self.depth += 1;
             if self.depth > MAX_DEPTH {
                 return Err(refusal::DEPTH);
@@ -472,7 +457,6 @@ impl Parser<'_> {
                 "min" => self.pick(Op::Min)?,
                 "max" => self.pick(Op::Max)?,
                 "clamp" => self.pick(Op::Clamp)?,
-                "env" => self.env(rest, name_len)?,
                 _ => return Err(refusal::FUNCTION),
             };
             self.depth -= 1;
@@ -568,6 +552,31 @@ fn token_length(token: &str) -> Result<Val, &'static str> {
         return Err(refusal::UNITLESS);
     }
     Err(refusal::NOT_A_LENGTH)
+}
+
+/// A comparison's length on a row that refuses a negative one (a border
+/// radius), never below zero, as CSS clamps a math function to the
+/// property's range (CSS Values 4 §10.12): folded points at 0 or more, a
+/// tree held as `max(0px, …)` (itself when it is already that), refused
+/// when that wrap passes [`MAX_DEPTH`] or [`MAX_TERMS`].
+pub(super) fn at_least_zero(d: Dimension) -> Result<Dimension, &'static str> {
+    let c = match d {
+        Dimension::Points(p) => return Ok(Dimension::Points(p.max(0.0))),
+        Dimension::Compare(c) => c,
+        other => return Ok(other),
+    };
+    let zero = Expr::Term(Base::Points, 0.0);
+    let expr = c.expr();
+    if let Expr::Pick(Op::Max, args, plus) = &expr {
+        if *plus == 0.0 && args.first() == Some(&zero) {
+            return Ok(d);
+        }
+    }
+    let wrapped = Expr::Pick(Op::Max, vec![zero, expr], 0.0);
+    if !wrapped.well_formed() {
+        return Err(refusal::RADIUS);
+    }
+    Ok(Dimension::Compare(Comparison::intern(wrapped)))
 }
 
 /// Whether a length text names a comparison function, so [`parse`] reads it.
