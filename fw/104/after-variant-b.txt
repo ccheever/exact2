@@ -1,0 +1,12 @@
+epoch 1 · incarnation 1 · clock 0 ms · 7 nodes
+View#1 [root] (navigate)
+  View#2 [inactive]
+    Text#3 [got] "received: none" [inactive]
+    Text#4 [route] "route: home /" [inactive]
+  View#5
+    Text#6 [got] "received: none"
+    Text#7 [route] "route: notfound /auth/x?request=1"
+t=0 boot: 7 nodes, epoch 1
+  app: 2026-10-07 10:40:48.466 ExactMac[8697:121053805] ApplePersistence=NO
+AESendMessage pid 8770: 0 
+logs ["t=0 boot: 4 nodes, epoch 1","t=0 navigate view 1 (follow) → epoch 2 (+0 −0 ~1)"]
