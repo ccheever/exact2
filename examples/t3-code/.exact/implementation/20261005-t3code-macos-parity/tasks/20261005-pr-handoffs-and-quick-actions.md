@@ -58,7 +58,7 @@ Reference rules to keep: one hand-off at a time whatever the surface; the thread
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | merged task PR | [20261005-pr-conversation-and-refresh](20261005-pr-conversation-and-refresh.md) | pending | Merged (Summary model, refresh) | pending |
 | merged task PR | [20261005-pr-header-actions-and-stacks](20261005-pr-header-actions-and-stacks.md) | pending | Merged (action runner, list overrides, `pullRequests.stack` read, Resolve conflicts button) | pending |
-| merged task PR | [20261005-fake-github-fixture](20261005-fake-github-fixture.md) | pending | Search, stats and stack-membership verbs served | pending |
+| merged task PR | [20261007-real-github-lane](20261007-real-github-lane.md) | pending | Sandbox seeded; probe rows for list search, `listStats` and `stack` decoded | pending |
 | merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | scheduling preference | [20261005-main-fix-adoption](closed/20261005-main-fix-adoption.md) | pending | Merged first (popover/tooltip Contract) | pending |
 
@@ -88,8 +88,8 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and the
 
 | Criterion | Setup/reset and fixture | Action or command | Expected result | Required platform | Proof |
 | --- | --- | --- | --- | --- | --- |
-| Hand-offs | Project with worktree support; fake gh | `bun scripts/agent.mjs macos --json "tap pr-row-102" "tap pull-request-more"` then Ask, Explain, Fix findings, Check out (both modes) | New draft holds the ported prompt and PR chip, nothing sent; `git worktree list` and branch effects; toasts as listed; a typed prompt survives a second hand-off | macOS 1280×840 | draft state, git output |
-| Hand-off failures | `failNext` on `git.preparePullRequestThread`; branch already checked out | Repeat | Error toast with the server sentence; no draft change; menu usable again | macOS | shots |
+| Hand-offs | The sandbox clone as the project (lane gh), worktree support | `bun scripts/agent.mjs macos --json "tap pr-row-102" "tap pull-request-more"` then Ask, Explain, Fix findings, Check out (both modes) | New draft holds the ported prompt and PR chip, nothing sent; `git worktree list` and branch effects; toasts as listed; a typed prompt survives a second hand-off | macOS 1280×840 | draft state, git output |
+| Hand-off failures | Branch already checked out (live); other server failures by unit test with an injected failure | Repeat | Error toast with the server sentence; no draft change; menu usable again | macOS | shots |
 | Per-finding Fix | PR with a failing check and a review comment | Press Fix on each | Prompt from `buildFixFindingHandoff`; one hand-off at a time (second press ignored) | macOS | draft state |
 | Quick actions | List of open, draft, closed, stacked rows | AppKit test for the flag predicate; `(attended session)` hold Shift alone | Buttons for Shift alone only (not ⌘/⌃/⌥ combos, not while the search field has focus); stacked Merge disabled with tooltip; effects as the header ticket's runner | macOS, real keyboard; lane build with `T3_LOCAL_HOME=<lane>/t3-home`, `T3_LOCAL_PORT=<lane port 16xxx>` | AppKit binary, recorded steps |
 | Row menu and popovers | Row with checks and a stack | `(attended session)` right-click the number; open checks and stack popovers with the agent | "Copy link", "Open on GitHub"; checks headline and "Show all"; stack layers and "↳ main" | macOS; same lane build | shots |
@@ -100,7 +100,7 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and the
 | Gates | `git add -A` | Clone checks (`bun test`, strict `tsc`, contract build, `cargo test -p t3-code-macos --lib`, affected AppKit binaries); `bun scripts/caps.mjs`; the five repository checks | Green; every moved cell is fixed, or declared in `EXACT2-GAPS.md` with an issue link | macOS | logs |
 
 Task-owned source paths: `examples/t3-code/pages-pr-detail.*`, new `pages-pr-handoffs.*`, `pages-pr-quick.*`, `pages-prs.*` (row), `r6-pr-actions.ts`, `r6-pr-logic.ts`, `modules/apple/T3Sidebar.swift` or a new modifier module with `macos/tests/`, `AGENT-HANDOFF.md`.
-Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, git, fake gh, reference oracle. Attended and normal-launch rows use a lane build with `T3_LOCAL_HOME=<lane>/t3-home` and `T3_LOCAL_PORT=<lane port 16xxx>` (see `20261005-embedded-server-runtime`).
+Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, git, the real-GitHub lane (sandbox, shared lane config dirs, two accounts; `tools/github-lane`), reference oracle. Attended and normal-launch rows use a lane build with `T3_LOCAL_HOME=<lane>/t3-home` and `T3_LOCAL_PORT=<lane port 16xxx>` (see `20261005-embedded-server-runtime`).
 
 ## Progress
 
@@ -116,4 +116,4 @@ Planned. No branch.
 
 ## Next action
 
-Starts when the user lifts the sign-in hold: `prepare` from `feat(example)/t3-code`, covering sign-in rows with lane fixtures (fake provider, seeded data).
+Starts after [20261007-real-github-lane](20261007-real-github-lane.md) merges: `prepare` from `feat(example)/t3-code` on its shared lane login and sandbox (`examples/t3-code/tools/github-lane/README.md`), with a unit-test fallback for injected failures and delays and for the read, triage and read-only-author profiles.

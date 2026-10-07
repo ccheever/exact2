@@ -60,16 +60,24 @@ these user decisions have changed the tickets:
   `reference-logic-test-ports` are dropped (2026-10-06).
 - The tasks that need a sign-in are on hold until the user lifts it (2026-10-06):
   `provider-sign-in-and-install`, `managed-codex-chatgpt`, `provider-settings-upkeep`,
-  `usage-reset-and-feedback`, `usage-pooled-view`, `fake-github-fixture` and the six pull
-  request tasks.
+  `usage-reset-and-feedback`, `usage-pooled-view` and the six pull request tasks.
+- Real GitHub replaces the fake `gh` (2026-10-07: "The work that used a fake GitHub now connects
+  to the real GitHub"; the user signs in personally, with a second account too).
+  `fake-github-fixture` is blocked as superseded; `real-github-lane` builds the lane (isolated
+  servers whose `gh` is the real CLI on shared lane config dirs), the sandbox repository, its seed
+  and the RPC probe, and re-verifies the pull request behaviors already built. The six pull
+  request tasks depend on it instead and reuse its login and sandbox (`daehyeonmun2021/playground`,
+  public, neutral playground content; the second account `daehyeon-mun` collaborates and forks);
+  injected failures and delays and the read, triage and read-only-author profiles stay unit tests.
+  Its live drive found and fixed a pull request row read that never settled on real GitHub.
 - `round12-wrapup` is superseded and `clone-on-exact2-main`'s import is done. The clone
   reaches `main` through #99, which stays a draft until the cleanup the user scheduled for the end.
 - These are blocked on an issue decision: `browser-surface` (X1), `app-developer-tools` (X2),
   `t3-connect-sign-in` (X38), `telemetry` (X39), `app-update-feed` (X40) and
   `wsl-environments` (X41).
-- In progress: `adopt-main-fixes-r5` (main's #219, #220, #221, #223 and #226) and
-  `local-primary-environment`. After `local-primary-environment` come `app-activation`,
-  `this-machine-network-access` and `portable-app-download`.
+- In progress: `adopt-main-fixes-r5` (main's #219, #220, #221, #223 and #226),
+  `local-primary-environment` and `real-github-lane`. After `local-primary-environment` come
+  `app-activation`, `this-machine-network-access` and `portable-app-download`.
 
 ## Parallel implementation, 2026-10-06
 
@@ -129,7 +137,7 @@ Common prerequisites, not repeated per row: every feature ticket (group 2 and la
 | 2 | [20261005-diff-review-engine](tasks/closed/20261005-diff-review-engine.md) | Diff tree, large diffs, line comments, Cite | exact2 | common | No gh needed; the PR Code tab reuses it | ported tests, oracle pairs |
 | 2 | [20261005-embedded-server-runtime](tasks/closed/20261005-embedded-server-runtime.md) | Official server runtime fetched at build, bundled, launched and supervised | exact2 | common; U3 decided (CLI archive); issues X4, X6 | Highest technical risk; desktop work and the portable build depend on it | process/port/readiness/restart/quit checks |
 | 2 | [20261005-environment-routes](tasks/closed/20261005-environment-routes.md) | Multi-route environments, learned routes, no duplicate saved rows | exact2 | common | Changes the saved-environment model; PR routing and server update build on it | ported routes tests, trace, relaunch |
-| 2 | [20261005-fake-github-fixture](tasks/20261005-fake-github-fixture.md) | Fake gh supports every read/write the server uses, with permission variants | exact2 (tools in `target/` or `tools/`, U23) | common; apparatus approval | All PR tickets verify against it; one owner avoids `gh.mjs` conflicts | server-driven calls log + state diffs |
+| 2 | [20261007-real-github-lane](tasks/20261007-real-github-lane.md) (replaces [20261005-fake-github-fixture](tasks/20261005-fake-github-fixture.md), blocked: superseded 2026-10-07) | Real-GitHub lane: isolated servers on the real `gh` and shared lane logins (two accounts), sandbox and idempotent seed, RPC probe with GitHub read-back; the built pull request rows re-verified live | exact2 (`examples/t3-code/tools/github-lane/`, U23) | common; the user's sign-in and sandbox approval | All PR tickets verify against it; the user chose real GitHub over the fake `gh` (2026-10-07) | probe table (gh log + read-back), unit fallback for injection and profiles, one live drive |
 | 2 | [20261005-floating-device-player](tasks/closed/20261005-floating-device-player.md) | Floating player drag, resize, avoidance | exact2 | common | Independent surface | ported layout tests, attended drag |
 | 2 | [20261005-legacy-sidebar](tasks/closed/20261005-legacy-sidebar.md) | "Sidebar (legacy)" switch works as the reference | exact2 | common | Large, separate surface | oracle pairs |
 | 2 | [20261005-live-automations-and-clones](tasks/closed/20261005-live-automations-and-clones.md) | Live automations and tracked project clones | exact2 | common | Two streams; independent | trace, effect checks |
@@ -153,7 +161,7 @@ Common prerequisites, not repeated per row: every feature ticket (group 2 and la
 | 3 | [20261005-local-primary-environment](tasks/20261005-local-primary-environment.md) | Embedded server is the primary "This machine" environment | exact2 | embedded-server-runtime | Needs the running server | relaunch, trace, oracle pairs |
 | 3 | [20261005-managed-codex-chatgpt](tasks/20261005-managed-codex-chatgpt.md) | Managed Codex with ChatGPT sign-in and plan notices | exact2 | provider-sign-in-and-install | Reuses the auth flow | loopback XCTest, attended real account |
 | 3 | [20261005-media-actions](tasks/closed/20261005-media-actions.md) | Media context menus, copy/save, failure fallbacks, HTML preview assets | exact2 | main-fix-adoption; issue X7 for external hosts | One surface (media) | attended right-click, effect checks |
-| 3 | [20261005-pr-conversation-and-refresh](tasks/20261005-pr-conversation-and-refresh.md) | PR activity, skeletons, live refresh | exact2 | fake-github-fixture | Base model for all PR tickets | fake gh calls, trace, oracle pairs |
+| 3 | [20261005-pr-conversation-and-refresh](tasks/20261005-pr-conversation-and-refresh.md) | PR activity, skeletons, live refresh | exact2 | real-github-lane | Base model for all PR tickets | lane gh log, GitHub read-back, trace, oracle pairs |
 | 3 | [20261005-provider-settings-upkeep](tasks/20261005-provider-settings-upkeep.md) | Provider settings remainder (ACP sessions, Update all, model editor, icons) | exact2 | provider-sign-in-and-install | Shares the provider card | trace, oracle pairs |
 | 3 | [20261005-reference-logic-test-ports](tasks/20261005-reference-logic-test-ports.md) | Reference `port` tests pass against the done areas (split per area at prepare) | exact2 | reference-logic-tests-done-areas | Proves the same logic as T3 Code; needs the map | ported tests, map diff |
 | 3 | [20261005-server-update-banner](tasks/closed/20261005-server-update-banner.md) | Server update banner, offline banner grace and "Disconnect server", version-differ card | exact2 | remote-scopes-and-update-commands | Uses install-aware update commands | stub-server trace, oracle pairs |
@@ -163,16 +171,16 @@ Common prerequisites, not repeated per row: every feature ticket (group 2 and la
 | 4 | [20261005-app-activation](tasks/20261005-app-activation.md) | `t3 app <dir>` opens a project and thread | exact2 | local-primary-environment; E4 decision | Needs the primary environment | socket test, effect |
 | 4 | [20261005-auto-balance](tasks/closed/20261005-auto-balance.md) | Auto balance and the multi-machine update banner | exact2 | server-update-banner | Reuses the update store of the banner ticket | trace, oracle pairs |
 | 4 | [20261005-portable-app-download](tasks/20261005-portable-app-download.md) | Downloadable `.app` archive that runs on a clean Mac account | exact2 | embedded-server-runtime, local-primary-environment, terminal-surface; U11 decided (ad-hoc, zip, macOS 14 VM) | Proves the self-contained requirement once the server connects and the large assets exist | clean-account run |
-| 4 | [20261005-pr-header-actions-and-stacks](tasks/20261005-pr-header-actions-and-stacks.md) | PR primary control, More menu, dialogs, failure hints, freshness popover, stacks | exact2 | fake-github-fixture, pr-conversation-and-refresh | Needs the PR model | fake gh calls, oracle pairs |
-| 4 | [20261005-pr-writing-and-metadata](tasks/20261005-pr-writing-and-metadata.md) | Comments, reviews, edits, reviewers, labels, reactions | exact2 | fake-github-fixture, pr-conversation-and-refresh | Needs the PR model | fake gh calls, oracle pairs |
+| 4 | [20261005-pr-header-actions-and-stacks](tasks/20261005-pr-header-actions-and-stacks.md) | PR primary control, More menu, dialogs, failure hints, freshness popover, stacks | exact2 | real-github-lane, pr-conversation-and-refresh | Needs the PR model | lane gh log, GitHub read-back, oracle pairs |
+| 4 | [20261005-pr-writing-and-metadata](tasks/20261005-pr-writing-and-metadata.md) | Comments, reviews, edits, reviewers, labels, reactions | exact2 | real-github-lane, pr-conversation-and-refresh | Needs the PR model | lane gh log, GitHub read-back, oracle pairs |
 | 4 | [20261005-sign-in-terminals](tasks/closed/20261005-sign-in-terminals.md) | Terminal sign-in for ACP agents and onboarding | exact2 | provider-sign-in-and-install, terminal-drawer | Joins both | attended |
 | 4 | [20261005-terminal-layout](tasks/closed/20261005-terminal-layout.md) | Terminal tabs, splits, panel surface, keys, sidebar indicator, terminal close behavior | exact2 | right-panel-tab-menu, terminal-drawer | Builds on the drawer; split from integrations for size | ported tests, attended |
 | 4 | [20261005-this-machine-network-access](tasks/20261005-this-machine-network-access.md) | Network access, Tailscale HTTPS, authorized clients, pairing links | exact2 | local-primary-environment; U4 decided (relaunch, X45); Tailscale decision U9 | Needs the primary environment | effect (LISTEN, pairing), attended firewall |
 | 4 | [20261005-usage-pooled-view](tasks/20261005-usage-pooled-view.md) | Pooled Usage page across connected environments, account popover with redeem, Cursor keychain enable prompt | exact2 | usage-reset-and-feedback | Reuses the redeem machinery and bars from usage-reset-and-feedback | trace, oracle pairs |
-| 5 | [20261005-pr-handoffs-and-quick-actions](tasks/20261005-pr-handoffs-and-quick-actions.md) | PR panel hand-offs (Ask, Explain, Fix findings, Check out), header fold, Shift quick actions, row menu and popovers | exact2 | fake-github-fixture, pr-conversation-and-refresh, pr-header-actions-and-stacks | Split from the header ticket for size; the Code tab and links reuse the hand-offs and row menus | fake gh calls, oracle pairs, attended Shift |
+| 5 | [20261005-pr-handoffs-and-quick-actions](tasks/20261005-pr-handoffs-and-quick-actions.md) | PR panel hand-offs (Ask, Explain, Fix findings, Check out), header fold, Shift quick actions, row menu and popovers | exact2 | real-github-lane, pr-conversation-and-refresh, pr-header-actions-and-stacks | Split from the header ticket for size; the Code tab and links reuse the hand-offs and row menus | lane gh log, GitHub read-back, oracle pairs, attended Shift |
 | 5 | [20261005-terminal-integrations](tasks/closed/20261005-terminal-integrations.md) | Selection actions, Add to chat, terminal menus, links, scripts, Run in terminal, Open terminal | exact2 | terminal-drawer, terminal-layout | Needs tabs and the panel surface | ported tests, attended |
-| 6 | [20261005-pr-code-tab](tasks/20261005-pr-code-tab.md) | PR Code tab with review threads | exact2 | diff-review-engine, fake-github-fixture, pr-conversation-and-refresh, pr-handoffs-and-quick-actions, pr-writing-and-metadata | Reuses the diff engine, the writes, and the hand-off functions of pr-handoffs-and-quick-actions | fake gh, oracle pairs |
-| 6 | [20261005-pr-links-previews-and-routing](tasks/20261005-pr-links-previews-and-routing.md) | Thread links, `#N` hover cards, cross-environment routing | exact2 | environment-routes, fake-github-fixture, pr-conversation-and-refresh, pr-handoffs-and-quick-actions, pr-header-actions-and-stacks | Routing trust depends on routes; row menus from pr-handoffs-and-quick-actions | fake gh, trace |
+| 6 | [20261005-pr-code-tab](tasks/20261005-pr-code-tab.md) | PR Code tab with review threads | exact2 | diff-review-engine, real-github-lane, pr-conversation-and-refresh, pr-handoffs-and-quick-actions, pr-writing-and-metadata | Reuses the diff engine, the writes, and the hand-off functions of pr-handoffs-and-quick-actions | real-GitHub lane, oracle pairs |
+| 6 | [20261005-pr-links-previews-and-routing](tasks/20261005-pr-links-previews-and-routing.md) | Thread links, `#N` hover cards, cross-environment routing | exact2 | environment-routes, real-github-lane, pr-conversation-and-refresh, pr-handoffs-and-quick-actions, pr-header-actions-and-stacks | Routing trust depends on routes; row menus from pr-handoffs-and-quick-actions | real-GitHub lane, trace |
 | 7 (last) | [20261005-interface-font-size](tasks/closed/20261005-interface-font-size.md) | Root font size foundation: `rem` check, size map, shared style classes (per-area conversion tickets follow) | exact2 | resolved framework issue X3 (if reproduced); preference: after all UI tickets | Converts every UI size; last to avoid churn | matrix at 16 px unchanged; 12/20 px pairs |
 | 8 (last) | [20261005-interface-font-size-conversion](tasks/closed/20261005-interface-font-size-conversion.md) | Every surface scales with the interface font size (split per area at prepare) | exact2 | interface-font-size; resolved framework issue X3 (if reproduced); preference: after the area's last UI ticket | Needs the root size and the size map | matrix at 16 unchanged; 12/20 pairs |
 | blocked (X2) | [20261005-app-developer-tools](tasks/20261005-app-developer-tools.md) | View › Toggle Developer Tools | exact2 | issue X2 resolved or decided | DEFERRED refuses a devtools UI; waits for X2 | blocked |
@@ -202,7 +210,7 @@ Task files own mutable status. Links must be updated when a task closes or reope
 - **Edges are acyclic.** The table is generated from each ticket's `merged task PR` rows;
   a group's number is its longest path from the start, so no ticket depends on its own or a
   later group (checked by script). Longest chain: round12-wrapup → clone-on-exact2-main →
-  desktop-oracle-and-trace → fake-github-fixture → pr-conversation-and-refresh →
+  desktop-oracle-and-trace → real-github-lane → pr-conversation-and-refresh →
   pr-header-actions-and-stacks → pr-handoffs-and-quick-actions → pr-code-tab. Other chains:
   embedded-server-runtime → local-primary-environment → this-machine-network-access /
   app-activation / portable-app-download; terminal-surface + remote-scopes-and-update-commands
@@ -251,7 +259,7 @@ Task files own mutable status. Links must be updated when a task closes or reope
 | Protocol parity | Scenario set from `desktop-oracle-and-trace` | macOS | Trace diff clean or allow-listed with reasons; RPC tally: every method the reference desktop calls in a scenario is called by the clone, except excluded features | trace reports, RPC tally |
 | Local server lifecycle | Embedded server running | macOS | Crash → restart with backoff; settings change → restart/reconnect per decision; ⌘Q → no orphan process | `ps`, `lsof`, logs |
 | Remote environments | Two isolated lane servers; SSH host fixture | macOS | Pair, multiple routes, fallback, SSH (password prompt), relaunch; credentials only in Keychain | state, Keychain item presence by service/account |
-| Pull requests (fake gh) | Fake gh state per scenario | macOS | Comment, review, edit, labels, reviewers, reactions, merge, stack, Code tab threads; failure and permission states | `calls.ndjson`, state diffs, oracle pairs |
+| Pull requests (real GitHub) | The lane sandbox seeded per scenario; lane servers on both accounts | macOS | Comment, review, edit, labels, reviewers, reactions, merge, stack (where GitHub offers it to the account), Code tab threads; permission states the two accounts hold live, the rest and failure states by unit test | lane gh log, GitHub read-back, oracle pairs |
 | Providers | Fixture streams; attended real accounts | macOS | Sign-in, install, managed Codex, ACP sessions; failure/cancel paths | trace, attended notes |
 | Terminal | Embedded server | macOS | Drawer, tabs, splits, scripts, links, Add to chat, IME, clipboard | AppKit, attended session |
 | Failure states | Fault injection (server stop, slow reply, refused write) | macOS | Reference wording and recovery for lost connection, uncertain write, slow request, missing provider, server crash | agent transcripts |
@@ -281,7 +289,7 @@ approve these; approve them per item.
 | Lane tool copies (decision #1; location per U23) | clone-on-exact2-main | `examples/t3-code/tools/` (U23) |
 | `ref-build.sh`, `electron-oracle.mjs`, `trace-proxy.mjs`, `trace-diff.mjs` + `scenarios/`, RPC tally | desktop-oracle-and-trace | `examples/t3-code/tools/` (U23) |
 | Network installs: pnpm (reference-pinned), `vp`, Electron (reference-pinned), playwright-core | desktop-oracle-and-trace | worktree `target/` |
-| Fake gh write verbs, state model, stdin logging, error injection | fake-github-fixture | `examples/t3-code/tools/fakegh/` (U23) |
+| Real-GitHub lane: gh wrappers, lane homes, sandbox seed, RPC probe (approved by the user's request for real GitHub, 2026-10-07; replaces the fake `gh` row) | real-github-lane | `examples/t3-code/tools/github-lane/` (U23) |
 | Build-time fetch + verification of the official server runtime; its committed hash; an `app.json` command for staging | embedded-server-runtime | example directory |
 | Fake server for the local-backend AppKit tests | embedded-server-runtime | `macos/tests/local-backend/` |
 | Vendored Ghostty terminal files + `VENDOR.json` check | terminal-surface | `terminal-host/` in the example |
@@ -328,7 +336,7 @@ User decisions (product scope, approvals, environments). Plan-wide ones are also
 | U18 | Theme editor "Inspect app colors" | settings-scoped-controls-and-theme-editor | keep the row blocked on issue X30 / waive the row |
 | U19 | Paste over 65,536 characters into a terminal | terminal-drawer | match the reference (it fails) / chunk |
 | U20 | Script `autoOpenPreview` (reference opens the in-app Browser) | terminal-integrations | system browser / skip |
-| U21 | Fakes for other source-control CLIs (`glab`, `az`, `fj`/`tea`) | fake-github-fixture | capability-driven unit tests only / build fakes |
+| U21 | Fakes for other source-control CLIs (`glab`, `az`, `fj`/`tea`) | real-github-lane (was fake-github-fixture) | capability-driven unit tests only / build fakes |
 | U22 | Full "Sidebar (legacy)" (about 3,800 reference lines) | legacy-sidebar | build it in full (spec: every feature) / defer |
 | U23 | Location of the verification tools | every ticket's acceptance | **Decided 2026-10-05:** commit them under `examples/t3-code/tools/` (same relative paths as the lane tools), so a fresh clone can run every acceptance command; no absolute user paths or credentials in the committed files |
 
