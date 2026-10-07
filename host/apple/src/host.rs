@@ -189,7 +189,7 @@ pub struct Host<D: DataSource> {
     /// Where the app's kept secrets, and the runner's kept answers, go after
     /// a commit (LLP 1018 D6); `None` keeps them in the runner only (a test,
     /// or grants that do not parse).
-    secrets: Option<Platform>,
+    secrets: Option<Box<dyn crate::store::KeptStore>>,
     data_activated: bool,
     /// The session's wake (`listen`), which a pending activation leaves
     /// with the data source.
@@ -289,7 +289,7 @@ impl<D: DataSource> Host<D> {
             exact_runner::Viewport::sized(width as f64, height as f64),
             carried,
             snapshot,
-            secrets,
+            secrets.map(|p| Box::new(p) as Box<dyn crate::store::KeptStore>),
             None,
             None,
             None,
@@ -313,7 +313,7 @@ impl<D: DataSource> Host<D> {
         viewport: exact_runner::Viewport,
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
-        secrets: Option<Platform>,
+        secrets: Option<Box<dyn crate::store::KeptStore>>,
         compat: Option<&str>,
         delivery: Option<&'static crate::delivery::Hooks>,
         candidate_delivery: Option<exact_runner::Delivery>,
@@ -349,7 +349,7 @@ impl<D: DataSource> Host<D> {
         viewport: exact_runner::Viewport,
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
-        secrets: Option<Platform>,
+        secrets: Option<Box<dyn crate::store::KeptStore>>,
         compat: Option<&str>,
         delivery: Option<&'static crate::delivery::Hooks>,
         candidate_delivery: Option<exact_runner::Delivery>,
@@ -724,7 +724,7 @@ impl<D: DataSource> Host<D> {
     pub fn kept_failures(&self) -> Vec<String> {
         self.secrets
             .as_ref()
-            .map(Platform::kept_failures)
+            .map(|s| s.kept_failures())
             .unwrap_or_default()
     }
 

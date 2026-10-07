@@ -25,9 +25,26 @@ impl<'a> Grants<'a> {
     }
 }
 
+/// How the runner reads an I/O grant line (`net.fetch …`, `secret.keep …`),
+/// when an archive links I/O (LLP 1047.001): its own lines (devices, auth)
+/// it reads itself. An archive without I/O names no grant grammar, and the
+/// URL parsing an origin needs with it.
+pub type GrantsLink = Option<fn(&str) -> Result<(), String>>;
+
+/// Read one I/O grant line: [`GrantsLink`]'s linked value.
+pub fn validate(line: &str) -> Result<(), String> {
+    exact_grants::GrantSet::parse(line).map(|_| ())
+}
+
 /// Parse `spec` whole: its grants, or every line that is not one, each as
 /// `line N: why` (ibex2's wording where the rule is ibex2's).
 pub fn parse(spec: &str) -> Result<Grants<'_>, Vec<String>> {
+    parse_with(spec, Some(validate))
+}
+
+/// [`parse`] with the I/O grammar `link` names; without one, an I/O line is
+/// refused by name.
+pub fn parse_with(spec: &str, link: GrantsLink) -> Result<Grants<'_>, Vec<String>> {
     let (mut lines, mut errors) = (Vec::new(), Vec::new());
     for (index, line) in spec.lines().map(str::trim).enumerate() {
         if line.is_empty() || line.starts_with('#') {
@@ -36,8 +53,12 @@ pub fn parse(spec: &str) -> Result<Grants<'_>, Vec<String>> {
         if own(line) {
             lines.push(line);
         } else {
-            match exact_grants::GrantSet::parse(line) {
-                Ok(_) => lines.push(line),
+            let read = match link {
+                Some(validate) => validate(line),
+                None => Err(format!("`{line}` is I/O, which this archive does not link")),
+            };
+            match read {
+                Ok(()) => lines.push(line),
                 Err(error) => errors.push(format!(
                     "line {}: {}",
                     index + 1,

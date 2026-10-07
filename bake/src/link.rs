@@ -29,9 +29,19 @@ pub(crate) fn name_into(
         })?;
         let plan = exact_plan::Plan::decode(&bytes)
             .map_err(|e| format!("the baked plan is invalid: {e:?}"))?;
-        ahead(manifest)?
+        // The app's I/O grants link the host's I/O whatever the plan says:
+        // a data source's requests are the source's, not the plan's.
+        let io = compat.inputs["grantCeiling"]
+            .as_str()
+            .is_some_and(|ceiling| !exact_runner::io_grants(ceiling).is_empty());
+        let uses = ahead(manifest)?
             .into_iter()
-            .fold(exact_runner::uses(&plan), Uses::with)
+            .fold(exact_runner::uses(&plan), Uses::with);
+        if io {
+            uses.with(Capability::Io)
+        } else {
+            uses
+        }
     } else {
         Capability::ALL.into_iter().fold(Uses::NONE, Uses::with)
     };

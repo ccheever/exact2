@@ -16,7 +16,6 @@
 
 use crate::host::{Host, PlanBytes};
 use crate::measure::{install_fonts, CallbackMeasurer, FontsFn, MeasureFn};
-use crate::store::{endow_bound, snapshot_of, Platform};
 use exact_kernel::{MonospaceMeasurer, TextMeasurer};
 use exact_runner::{
     DataSource, Event, FailureKind, Outcome, SurfaceOutcome, SurfaceRequest, MAX_HOST_WORK_BYTES,
@@ -64,7 +63,7 @@ pub struct Bridge<D: DataSource> {
     region: Option<crate::content_region::ContentRegionRegistration>,
     prepared: Option<PreparedHost<D>>,
     painted: bool,
-    executor: Option<crate::executor::Executor>,
+    executor: Option<Box<dyn crate::executor::Io>>,
     refusal_turn: bool,
     fonts: Option<FontsFn>,
     fonts_ctx: *mut c_void,
@@ -235,8 +234,8 @@ impl<D: DataSource> Bridge<D> {
             parked,
             ..
         } = self;
-        if let (Some(h), Some(x)) = (host.as_mut(), executor.as_ref()) {
-            x.forget(|ticket| h.runner().holds(ticket));
+        if let (Some(h), Some(x)) = (host.as_mut(), executor.as_deref()) {
+            x.forget(&|ticket| h.runner().holds(ticket));
             if !h.has_ordered_request_refusals() {
                 x.resume_ordered();
             }
@@ -283,7 +282,7 @@ impl<D: DataSource> Bridge<D> {
 
     fn run_dispatch(
         h: &mut Host<D>,
-        x: &crate::executor::Executor,
+        x: &dyn crate::executor::Io,
         parked: &mut std::collections::BTreeMap<u64, exact_runner::RequestOut>,
         r: exact_runner::RequestOut,
         dispatch: exact_runner::Dispatch,
@@ -311,7 +310,7 @@ impl<D: DataSource> Bridge<D> {
     /// batch of every reply's commit.
     pub fn pump(&mut self, now_ms: f64) -> u32 {
         self.refusal_turn = !self.refusal_turn;
-        let outcomes = match (self.host.as_mut(), self.executor.as_ref()) {
+        let outcomes = match (self.host.as_mut(), self.executor.as_deref()) {
             (Some(host), Some(executor)) => {
                 executor.begin_pump();
                 let mut outcomes = if self.refusal_turn {
@@ -474,9 +473,16 @@ impl<D: DataSource> Bridge<D> {
         // bindings for its requests. Build beside any running host: the dev
         // menu may use this fresh-state path to reload the baked plan.
         // A fresh named drive empties leftover secrets before that read.
-        let (bindings, unbound) = endow_bound(data.grants(), data.app_id(), true);
-        let snapshot = snapshot_of(bindings.as_ref());
-        let secrets = bindings.as_ref().map(Platform::of);
+        // An archive that links no I/O binds nothing (LLP 1047.001).
+        let crate::store::Endowed {
+            bindings,
+            snapshot,
+            secrets,
+            unbound,
+        } = match self.links.io {
+            Some(io) => (io.endow)(data.grants(), data.app_id(), true),
+            None => crate::store::Endowed::none(),
+        };
         let fonts = self.fonts;
         let fonts_ctx = self.fonts_ctx;
         match Host::boot_stored_after_decode(
@@ -504,14 +510,18 @@ impl<D: DataSource> Bridge<D> {
                     host.log(&format!("{why}; every request is refused"));
                 }
                 host.commit_boot();
-                let executor = crate::executor::Executor::start(
-                    bindings,
-                    &host.grants(),
-                    hooks.wake.map(|w| (w, hooks.wake_ctx)),
-                );
-                host.listen(executor.waker());
+                let executor = self.links.io.map(|io| {
+                    (io.start)(
+                        bindings,
+                        &host.grants(),
+                        hooks.wake.map(|w| (w, hooks.wake_ctx)),
+                    )
+                });
+                if let Some(executor) = &executor {
+                    host.listen(executor.waker());
+                }
                 self.canvas_hooks(&mut host, &hooks);
-                self.executor = Some(executor);
+                self.executor = executor;
                 self.host = Some(host);
                 self.parked.clear();
                 Ok(batch)
@@ -741,13 +751,15 @@ impl<D: DataSource> Bridge<D> {
         // A reload carries the running store (`Carried::store`). A fresh
         // session takes the granted platform snapshot before its first query,
         // just like boot_fresh; neither path releases effects until commit.
-        let (bindings, unbound) = endow_bound(data.grants(), data.app_id(), carried.is_none());
-        let snapshot = if carried.is_none() {
-            snapshot_of(bindings.as_ref())
-        } else {
-            Vec::new()
+        let crate::store::Endowed {
+            bindings,
+            snapshot,
+            secrets,
+            unbound,
+        } = match self.links.io {
+            Some(io) => (io.endow)(data.grants(), data.app_id(), carried.is_none()),
+            None => crate::store::Endowed::none(),
         };
-        let secrets = bindings.as_ref().map(Platform::of);
         let fonts = self.fonts;
         let fonts_ctx = self.fonts_ctx;
         match Host::boot_stored_after_decode(
@@ -833,14 +845,18 @@ impl<D: DataSource> Bridge<D> {
             return self.prepare_error("{\"ops\":[],\"error\":\"no prepared plan\"}".into());
         };
         candidate.host.commit_boot();
-        let executor = crate::executor::Executor::start(
-            candidate.bindings,
-            &candidate.host.grants(),
-            candidate.hooks.wake.map(|w| (w, candidate.hooks.wake_ctx)),
-        );
-        candidate.host.listen(executor.waker());
+        let executor = self.links.io.map(|io| {
+            (io.start)(
+                candidate.bindings,
+                &candidate.host.grants(),
+                candidate.hooks.wake.map(|w| (w, candidate.hooks.wake_ctx)),
+            )
+        });
+        if let Some(executor) = &executor {
+            candidate.host.listen(executor.waker());
+        }
         self.canvas_hooks(&mut candidate.host, &candidate.hooks);
-        self.executor = Some(executor);
+        self.executor = executor;
         self.host = Some(candidate.host);
         self.adopt_app_module();
         self.parked.clear();
@@ -1309,7 +1325,7 @@ impl<D: DataSource> Bridge<D> {
         };
         // An answered auth hold is delivered by the next pump (LLP 1069.006 D7).
         if out.contains("\"capability\":\"auth\"") {
-            self.executor.as_ref().inspect(|x| x.notify());
+            self.executor.as_deref().inspect(|x| x.notify());
         }
         self.emit(out)
     }
