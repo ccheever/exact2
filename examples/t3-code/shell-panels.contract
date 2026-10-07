@@ -8,7 +8,7 @@ use ShellSurface from "./shell-shapes.contract"
 use ShellMenuItem from "./shell-shapes.contract"
 use ShellIcon from "./shell-icons.contract"
 use TipBubble from "./shell-tip.contract"
-use MorphPair from "./shell-morph.contract"
+use MorphMaximize from "./shell-morph.contract"
 use R4PanelHeader from "./r4-surfaces.contract"
 use R4SurfaceBody from "./r4-surfaces.contract"
 use R5PrSurfaceBody from "./r5-panels.contract"
@@ -67,7 +67,7 @@ component SurfacePanel
               TipBubble(label=(shell.keyThreadPanel == "" ? "Toggle thread details" : `Toggle thread details (${shell.keyThreadPanel})`), side="bottom", align="center", offset=32, inset=0, shown=(hovered == "details"))
           box position="relative" flex-shrink=0 display=(sheet ? "none" : "flex")
             button press=ui("maximize", "") hover=hover("maximize") aria-label=(maximized ? "Restore panel size" : "Maximize panel") testId="maximize-right-panel" width=28 height=28 padding=0 border-radius=10 border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(maximized or hovered == "maximize" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
-              MorphPair(first="maximize", second="minimize", on=maximized, size=16, color="light-dark(#27272acc, #f5f5f5cc)", onColor="light-dark(#27272acc, #f5f5f5cc)", still=still)
+              MorphMaximize(on=maximized, size=16, color="light-dark(#27272acc, #f5f5f5cc)", weight=2, still=still)
             TipBubble(label=(maximized ? "Restore panel size" : "Maximize panel"), side="bottom", align="center", offset=32, inset=0, shown=(hovered == "maximize"))
           box position="relative" flex-shrink=0 hover=hover("terminal")
             button press=ui("terminal", "") disabled=(not shell.terminalAvailable) aria-label="Toggle terminal drawer" aria-pressed=shell.terminalOpen testId="panel-toggle-terminal" width=28 height=28 padding=0 border-radius=10 border-width=0 opacity=(shell.terminalAvailable ? 1 : 0.64) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(shell.terminalAvailable and (shell.terminalOpen or hovered == "terminal") ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")

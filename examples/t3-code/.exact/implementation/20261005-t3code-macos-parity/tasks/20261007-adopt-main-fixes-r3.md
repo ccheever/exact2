@@ -111,3 +111,27 @@ Evidence image: `https://raw.githubusercontent.com/ccheever/exact2/t3-code-evide
 ## Next action
 
 Review the PR. Later tasks re-drive their attended pointer rows with #186's forms (X8 file).
+
+## Follow-up (coordinator, 2026-10-07): close the not-done and not-verified items
+
+| Item | Result |
+| --- | --- |
+| X18 (#188) | **Partly adopted.** Toast copy, panel maximize (both sites), provider lock, composer steer/queue and Markdown table expand now morph as T3 Code's morphicons 1.7.1 does: one box per matched subpath that drifts and turns about its pivot on `spring(420, 30, 1)`, holding a `path` whose `d` moves between same-structure 64-point polylines (#188 interpolates it). End shapes equal morphicons' to 0.0001 units. Not converted: code-block and welcome copy (their Check → Copy return is keyframed because data sources have no timers, X19 #124, and keyframed `d` is still refused). The issue stays open in the plan (`closed-upstream`). |
+| X47 (#189) | No clone workaround existed. Agent: Tab from the composer moves focus (`focus.logical` 149 → next). The ring itself was **not seen**: the agent window is never key (main's own note in `docs/agent-pitfalls.md`), and real input is blocked (below). |
+| X8 rows | Terminal, device, panel and diff rows converted to agent forms and proved in AppKit (`macos/tests/terminal/pointer.swift`, `r7-device`); two clone bugs fixed (`T3TerminalView` `acceptsFirstMouse`; the terminal popup/menu reported instead of a modal `NSMenu.popUp` under the agent). Task rows updated in terminal-surface, terminal-integrations, settings-scoped-controls-and-theme-editor, floating-device-player, diff-review-engine. Live: not yet (below). X8 stays `closed-upstream`. |
+| Lane Diff showed the worktree | **Not a clone bug.** The lane server ran with cwd `target/lane-r3/empty`, so the project at `projects/alpha` was outside its workspace root; `review.getDiffPreview` refused it and the clone retried at the server's cwd, exactly as the reference's `DiffPanel.shouldRetryBranchDiffAtEnvironmentCwd` does. That cwd sits inside this git worktree, so git showed the worktree's own changes. Fixed in the lane: the server now runs with cwd `projects/` (the Files/Diff of the second drive show `a.ts`, `long.ts`, README). |
+| X14 15 turns | Lane fake provider built: real Codex 0.160.1 with `model_provider = "fake"` pointing at a local Responses API (`target/lane-r3/fakeai`), API-key login in the lane's CODEX_HOME, and the lane home's `.zprofile` putting Codex 0.160.1 first (Homebrew's 0.151.0 is refused as unsupported). A server-side turn completes (`Fake reply 2 to: probe turn`). The app drive sent **no** turn: the agent's `type composer key Enter` does not reach the composer's native send path; the next drive must press `send-message`. |
+| Real middle click / real Tab | **Blocked:** `orca computer` returns `permission_denied: … AX reads stayed blocked for 1500ms … macOS Accessibility may need Orca Computer Use toggled off and on again` for every app, Finder included (checked 2026-10-07 12:10). Needs the user to toggle Orca Computer Use in System Settings › Privacy › Accessibility. |
+| 840×620, dark | Agent: at 840×620 in dark, `tap panel-tab-files auxclick` leaves `panel-tab-diff` (record below); the before pair and the morph film in dark were not captured. |
+
+Drives in this follow-up: two AFTER sessions (the authorised one and its retry), no BEFORE. Both lost most rows to drive-script errors, not app failures: Enter did not send (above); the terminal state key was not `terminals` at the top level and `toggle-terminal` exists only with the right panel closed; ⌘K typed into the composer opened no palette (same key path as Enter), so the theme editor and the steps after it ran with an overlay or missing targets. Records that did land:
+
+```
+AFTER  agent auxclick panel-tab-files (1280×840) → tabs: panel-tab-diff
+AFTER  840×620 dark, agent auxclick panel-tab-files → tabs: panel-tab-diff
+AFTER  focus after Tab from composer: {"logical":149,"editor":149,"responder":"TextArea"}
+AFTER  journal: forget request 6 (data 6); lands first 8
+AFTER  orca probe: ok=false, AX reads stayed blocked
+```
+
+Next drive (needs the coordinator's allowance): send with `tap send-message`; open the palette with its toolbar trigger; read terminal state from `presentation.terminals`; then the same script on the base for BEFORE.
