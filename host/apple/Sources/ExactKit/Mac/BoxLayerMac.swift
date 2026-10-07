@@ -80,16 +80,6 @@ extension NodeView {
         } else {
             p.colors = Array(repeating: CGColor(gray: 0, alpha: 0), count: 4)
         }
-        // @ref LLP 1104 D4 — a focused field in the default look: its border
-        // two points wide in the focus colour, on whichever path paints it.
-        if fieldFocused {
-            var ring = CGColor(gray: 0, alpha: 1)
-            effectiveAppearance.performAsCurrentDrawingAppearance {
-                ring = NSColor.keyboardFocusIndicatorColor.withAlphaComponent(1).cgColor
-            }
-            p.widths = p.widths.map { max($0, 2) }
-            p.colors = Array(repeating: ring, count: 4)
-        }
         let width = p.widths[0]
         p.oneBorder = p.widths.allSatisfy { $0 == width } && (width == 0 || p.colors.allSatisfy { $0 == p.colors[0] })
         // One radius over the corners that have one; CSS's reduction first,

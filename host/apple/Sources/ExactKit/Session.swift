@@ -361,9 +361,7 @@ public final class ExactSession {
     lazy var regions = RegionController(self)
     #endif
     var text: TextEngine
-    #if canImport(UIKit)
     let fieldChrome = FieldChromeCache()
-    #endif
     let presenter: Presenter
     var launchLocation: String? // a pre-boot `openURL`'s location, until the first frame (LaunchURL.swift)
     private var textPressure: DispatchSourceMemoryPressure?
@@ -476,9 +474,7 @@ public final class ExactSession {
         sampler = FrameSampler.measured ? FrameSampler(session: self) : nil
         runtime.setMeasure(TextEngine.measureText, ctx: text.measuring.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: text.measuring.opaque)
-        #if canImport(UIKit)
         installControlText()
-        #endif
         // LLP 1056 D8, D9: Canvas 2D measures with this engine and draws the
         // handles this session decodes.
         runtime.setCanvasText(CanvasText.measureRun)
@@ -526,6 +522,7 @@ public final class ExactSession {
         // applies its colours again.
         colorObserver = NotificationCenter.default.addObserver(forName: NSColor.systemColorsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self, state != .destroyed else { return }
+            controlTextChanged()
             SystemColor.invalidate()
             reportColors()
             presenter.views.values.forEach { $0.systemColorsChanged() }
@@ -854,15 +851,16 @@ public final class ExactSession {
         let candidate = TextEngine.pair(resolve: { resolver.url($0) }, read: { resolver.bytes($0) }, bundled: { resolver.bundledURL($0) })
         runtime.setMeasure(TextEngine.measureText, ctx: candidate.measuring.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: candidate.measuring.opaque)
+        #if os(macOS)
+        installControlText(on: candidate)
+        #endif
         let viewport = size ?? presenter.viewportSize
         let batch: Batch
         if let module { batch = runtime.prepareModule(bytes, module: module, token: token, width: viewport.width, height: viewport.height) }
         else { batch = runtime.preparePlan(bytes, width: viewport.width, height: viewport.height, token: token) }
         runtime.setMeasure(TextEngine.measureText, ctx: text.measuring.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: text.measuring.opaque)
-        #if canImport(UIKit)
         installControlText()
-        #endif
         if batch.pending { modulePending = true; return nil }
         // Resolve initially used local payloads before first pixel, without
         // applying a presenter batch or starting an image/web/GPU operation.
@@ -888,9 +886,7 @@ public final class ExactSession {
         updateToken = candidate.token
         runtime.setMeasure(TextEngine.measureText, ctx: text.measuring.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: text.measuring.opaque)
-        #if canImport(UIKit)
         installControlText()
-        #endif
         text.commitFonts()
         let batch = runtime.commitPlan()
         precondition(batch.error == nil, "an accepted session candidate must remain commit-ready")
@@ -1263,15 +1259,16 @@ public final class ExactSession {
         apply(runtime.setPreferences(preferenceBits()))
         // Increased Contrast changes what every platform colour resolves to.
         reportColors()
+        #if os(macOS)
+        controlTextChanged()
+        #endif
     }
     /// Before a first boot the runtime keeps them, so the first frame is laid
     /// out with the device's preferences rather than a mouse's and then again
     /// (`pointer: none` on tvOS sets a different layout).
     private func primePreferences() {
         guard !booted, state != .destroyed else { return }
-        #if canImport(UIKit)
         primeControlText()
-        #endif
         _ = runtime.setPreferences(preferenceBits())
     }
     private func preferenceBits() -> UInt32 {

@@ -35,7 +35,6 @@ final class Presenter {
     /// A view's props were written (`NodeView.props`' own observer).
     func propsChanged(_ view: NodeView) {
         chrome.note(view.id, props: view.props)
-        if view.fieldFocused, view.disabled || view.props["fieldStyle"] == nil { view.fieldFocused = false }
         // HTML's `title`: the platform's tooltip (studio diary R24).
         if view.toolTip != view.props["title"] { view.toolTip = view.props["title"] }
     }
@@ -890,6 +889,7 @@ final class Presenter {
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?([(id, size)]) }
 
     func apply(_ batch: Batch) {
+        session?.fieldChrome.presented(batch.layoutProvisional)
         defer { applyLanguage(batch) }
         PaintOrder.begin()
         let post = Self.signposts.beginInterval("apply", "\(batch.ops.count) ops")
@@ -1070,7 +1070,7 @@ final class Presenter {
                 v.arrangeShift = .zero
                 v.textRasterGeometryChanged()
                 v.scroll?.frame = v.bounds
-                v.field?.frame = v.contentBox()
+                v.layoutField()
                 v.layoutTextArea()
                 v.metal?.frame = v.bounds
                 v.overlay?.frame = v.bounds
@@ -1078,6 +1078,8 @@ final class Presenter {
                 v.applyShadow()
                 v.fitScroll()
                 v.applyTransform()
+            case .fieldContent:
+                views[id]?.applyFieldContent(op.payload)
             case .content:
                 if let v = views[id] {
                     v.content = CGSize(width: op.w, height: op.h)

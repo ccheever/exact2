@@ -18,6 +18,23 @@ final class TextArea: NSTextView {
 
     weak var owner: NodeView?
     var markup: MarkupEditor?
+    var nativeOrigin: NSPoint?
+    // AppKit asks the first responder for the mask. Forward the textarea's
+    // mask to its scroll view, so the ring encloses the bezel, not the text.
+    override var focusRingMaskBounds: NSRect {
+        guard owner?.isNativeTextControl == true, let scroll = owner?.textAreaScroll else { return super.focusRingMaskBounds }
+        return convert(scroll.bounds, from: scroll)
+    }
+    override func drawFocusRingMask() {
+        guard owner?.isNativeTextControl == true, let scroll = owner?.textAreaScroll else { super.drawFocusRingMask(); return }
+        NSGraphicsContext.saveGraphicsState()
+        let origin = convert(NSPoint.zero, from: scroll)
+        let transform = AffineTransform(translationByX: origin.x, byY: origin.y)
+        (transform as NSAffineTransform).concat()
+        scroll.drawFocusRingMask()
+        NSGraphicsContext.restoreGraphicsState()
+    }
+    override var textContainerOrigin: NSPoint { nativeOrigin ?? super.textContainerOrigin }
 
     // The ARIA states AppKit has no property for (`NodeView.ariaAttribute`).
     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
@@ -29,7 +46,9 @@ final class TextArea: NSTextView {
 
     override func resignFirstResponder() -> Bool {
         if let markup, !hasMarkedText() { markup.bookmark = selectedRange() }
-        return super.resignFirstResponder()
+        let ok = super.resignFirstResponder()
+        if ok { noteFocusRingMaskChanged(); owner?.textAreaScroll?.noteFocusRingMaskChanged() }
+        return ok
     }
     /// `focus` as the web fires it: when the editor takes the focus, not at
     /// its first edit (`textDidBeginEditing`; jukebox F23). `blur` is
@@ -38,9 +57,16 @@ final class TextArea: NSTextView {
         let ok = super.becomeFirstResponder()
         // A selection a script set while it had no focus (x2apps codeedit #2).
         if ok, let owner { owner.presenter?.fieldSelections.focused(owner) }
-        if ok { owner?.showFieldFocus(true) }
+        if ok { noteFocusRingMaskChanged(); owner?.textAreaScroll?.noteFocusRingMaskChanged() }
         if ok, let owner, owner.handlers.contains("focus") { owner.presenter?.focus(owner.id) }
         return ok
+    }
+
+    override func insertTab(_ sender: Any?) {
+        if markup != nil { super.insertTab(sender) } else { window?.selectNextKeyView(self) }
+    }
+    override func insertBacktab(_ sender: Any?) {
+        if markup != nil { super.insertBacktab(sender) } else { window?.selectPreviousKeyView(self) }
     }
 
     override func insertNewline(_ sender: Any?) {
@@ -97,16 +123,20 @@ final class TextArea: NSTextView {
     override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         if string.isEmpty, !placeholder.isEmpty {
-            (placeholder as NSString).draw(in: bounds, withAttributes: [
+            let origin = textContainerOrigin
+            let rect = NSRect(x: origin.x, y: origin.y, width: textContainer?.containerSize.width ?? bounds.width, height: bounds.height - origin.y)
+            (placeholder as NSString).draw(in: rect, withAttributes: [
                 .font: font ?? NSFont.systemFont(ofSize: 16),
-                .foregroundColor: (textColor ?? SystemColor.canvasText).withAlphaComponent(0.3),
+                .foregroundColor: owner?.isNativeTextControl == true ? NSColor.placeholderTextColor : (textColor ?? SystemColor.canvasText).withAlphaComponent(0.3),
             ])
         }
     }
 }
 
 extension NodeView {
-    var caretColor: NSColor { color("caret_color", color("text_color", .textColor)) }
+    var caretColor: NSColor {
+        color("caret_color", isNativeTextControl ? color("accent_color", .controlAccentColor) : color("text_color", .textColor))
+    }
 
     var allowsInputCorrection: Bool {
         if textArea == nil, ["email", "url", "password"].contains((props["type"] ?? "").lowercased()) { return false }
@@ -137,9 +167,11 @@ extension NodeView {
         f.autoresizingMask = [.width]
         f.textContainer?.widthTracksTextView = true
         f.delegate = self
-        let scroller = NSScrollView(frame: .zero)
+        let scroller = TextAreaScroll(frame: .zero)
+        scroller.owner = self
         scroller.drawsBackground = false
         scroller.hasVerticalScroller = true
+        scroller.autohidesScrollers = true
         scroller.documentView = f
         addSubview(scroller)
         textArea = f
@@ -196,6 +228,12 @@ extension NodeView {
         f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
         f.textColor = color("text_color", SystemColor.canvasText)
         f.insertionPointColor = caretColor
+        let native = isNativeTextControl
+        textAreaScroll?.borderType = native ? .bezelBorder : .noBorder
+        textAreaScroll?.focusRingType = native ? .default : .none
+        textAreaScroll?.drawsBackground = native
+        f.drawsBackground = native
+        f.focusRingType = native ? .exterior : .default
         let paragraph = NSMutableParagraphStyle()
         if let height = usedLineHeight {
             paragraph.minimumLineHeight = height
@@ -203,7 +241,9 @@ extension NodeView {
             if height == 0 { paragraph.lineHeightMultiple = .leastNormalMagnitude }
         }
         f.defaultParagraphStyle = paragraph
-        let attributes: [NSAttributedString.Key: Any] = [.paragraphStyle: paragraph]
+        if isNativeTextControl { paragraph.alignment = fieldAlignment }
+        var attributes: [NSAttributedString.Key: Any] = [.paragraphStyle: paragraph]
+        if isNativeTextControl { attributes[.kern] = number("letter_spacing") }
         f.textStorage?.addAttributes(attributes, range: NSRange(location: 0, length: (f.string as NSString).length))
         f.typingAttributes.merge(attributes) { _, authored in authored }
         restyleMarkup()
@@ -211,7 +251,18 @@ extension NodeView {
     }
     func layoutTextArea() {
         guard let f = textArea, let scroller = textAreaScroll else { return }
-        scroller.frame = contentBox()
+        scroller.frame = isNativeTextControl ? bounds : contentBox()
+        if let f = f as? TextArea {
+            if isNativeTextControl, let rect = nativeFieldContent {
+                let clip = scroller.contentView.frame
+                f.nativeOrigin = NSPoint(x: max(0, rect.minX - clip.minX), y: max(0, rect.minY - clip.minY))
+                f.textContainer?.widthTracksTextView = false
+                f.textContainer?.containerSize.width = rect.width
+            } else {
+                f.nativeOrigin = nil
+                f.textContainer?.widthTracksTextView = true
+            }
+        }
         f.minSize = NSSize(width: 0, height: scroller.contentSize.height)
         f.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         f.setFrameSize(NSSize(width: scroller.contentSize.width, height: max(f.frame.height, scroller.contentSize.height)))
@@ -241,7 +292,7 @@ extension NodeView {
     }
     func textDidEndEditing(_ notification: Notification) {
         presenter?.collections.pinsChanged()
-        showFieldFocus(false)
+        textAreaScroll?.noteFocusRingMaskChanged()
         presenter?.commitEdit(id, textArea?.string ?? "", change: handlers.contains("change"))
         if handlers.contains("blur") { presenter?.blur(id) }
     }
@@ -301,9 +352,8 @@ private func focused(_ delegate: NSTextFieldDelegate?, _ become: () -> Bool) -> 
     let owner = delegate as? NodeView, selections = owner?.presenter?.fieldSelections
     let ok = selections?.quietly(become) ?? become()
     if ok, let owner { selections?.focused(owner) }
-    if ok { owner?.showFieldFocus(true) }
     // The window's one field editor still has the last field's checking.
-    if ok, let owner, let editor = owner.field?.currentEditor() as? NSTextView { owner.applyTextChecking(editor) }
+    if ok, let owner, let editor = owner.field?.currentEditor() as? NSTextView { owner.styleFieldEditor(editor) }
     if ok, let owner, owner.handlers.contains("focus") { owner.presenter?.focus(owner.id) }
     return ok
 }
