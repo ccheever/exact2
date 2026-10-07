@@ -78,6 +78,26 @@ final class RasterLoaderTests: XCTestCase {
         XCTAssertNil(node.raster)
         XCTAssertEqual(loader.loadingOnScreen, 0)
     }
+    /// A decode that failed for good is let go of: a second view of the same
+    /// source and size decodes it again rather than taking the cached failure.
+    func testAViewAfterAFailedDeclineDecodesAgain() throws {
+        let (root, resolver, presenter, node, loader, window) = try fixture()
+        let second = NodeView(id: 2, kind: "image", presenter: presenter)
+        presenter.views[2] = second; presenter.viewport.addSubview(second)
+        second.frame = node.frame
+        defer { loader.shutdown(); node.raster = nil; second.raster = nil; window.close(); try? FileManager.default.removeItem(at: root); withExtendedLifetime(presenter) {} }
+        try png(root, "busy.png", width: 120, height: 80, identity: 11)
+        loader.testDecline(next: RasterLoader.declineDelays.count + 1)
+        node.loadGeneration = 1
+        XCTAssertTrue(loader.load(node, source: "busy.png", resolver: resolver))
+        settle { images(loader).first { $0["view"] as? UInt32 == 1 }?["failure"] as? String == "decode failed" }
+        second.loadGeneration = 1
+        XCTAssertTrue(loader.load(second, source: "busy.png", resolver: resolver))
+        settle { second.raster != nil }
+        let view2 = images(loader).first { $0["view"] as? UInt32 == 2 }
+        XCTAssertEqual(view2?["declines"] as? Int, 0)
+        XCTAssertNil(node.raster, "the first view keeps its error")
+    }
     private func images(_ loader: RasterLoader) -> [[String: Any]] { loader.diagnostics["images"] as? [[String: Any]] ?? [] }
     private func declines(_ loader: RasterLoader) -> Int? { images(loader).first?["declines"] as? Int }
     /// One decoder while any owner's list travels fast; both once none does.
