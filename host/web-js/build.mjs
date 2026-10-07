@@ -93,6 +93,14 @@ for (const [i, [a, aDir]] of tsMounts.entries()) for (const [b, bDir] of tsMount
     process.exit(1);
   }
 }
+// Bun's runtime transpiler cache keys a module by its text and keeps the
+// imports this build's resolver gave it, so the same file at another place
+// (a second checkout, a moved mount) would resolve back into the first. A
+// build through mounts runs without that cache.
+if (tsMounts.length && process.env.BUN_RUNTIME_TRANSPILER_CACHE_PATH !== '0') {
+  const again = spawnSync(process.execPath, process.argv.slice(1), { stdio: 'inherit', env: { ...process.env, BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0' } });
+  process.exit(again.status ?? 1);
+}
 const appRoots = [...new Set([resolve(appDir), realpathSync(appDir)])];
 const within = (path, dir) => path === dir || path.startsWith(dir + sep);
 // Where a file sits in the captured layout (the app at the root, each mount

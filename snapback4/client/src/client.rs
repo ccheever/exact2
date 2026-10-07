@@ -269,6 +269,8 @@ pub struct Client {
     /// The change poll awaiting its reply: a newer poll supersedes it, and a
     /// reply is consumed when delivered.
     poll: Option<String>,
+    /// The session refresh awaiting its reply, as `poll` is for the poll.
+    refresh: Option<String>,
 }
 
 static INCARNATIONS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -311,6 +313,7 @@ impl Client {
             incarnation: INCARNATIONS.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
             exchanges: 0,
             poll: None,
+            refresh: None,
         }
     }
 
@@ -744,6 +747,62 @@ impl Client {
                 },
             }
         }
+    }
+
+    /// Ask for a replacement session (`POST /auth/refresh`), sent with the
+    /// host's current bearer like every exchange. Deliver the reply to
+    /// [`Client::refreshed`]. The server retires the presented token before
+    /// it answers, so the host keeps the session that comes back before it
+    /// uses the link again; a reply lost on the way leaves the member to sign
+    /// in again, as Snapback's own client does.
+    pub fn refresh(&mut self) -> Fetch {
+        let mut fetch = Fetch {
+            method: "POST",
+            path: "/auth/refresh".into(),
+            body: None,
+            exchange: String::new(),
+        };
+        self.exchanges += 1;
+        fetch.exchange = format!("{}.refresh{}", self.incarnation, self.exchanges);
+        self.refresh = Some(fetch.exchange.clone());
+        fetch
+    }
+
+    /// The refresh's answer: `{ok:true, session:{principal, kind, token,
+    /// expiresAt}}`, or `{ok:false, denied}` — `E_AUTH` when the session
+    /// cannot be refreshed (the member signs in again), `offline: true` when
+    /// the server was not reached. A session for another principal, or one
+    /// already expired at `now`, is refused.
+    pub fn refreshed(&mut self, exchange: &str, reply: Reply, now: i64) -> Json {
+        if self.refresh.as_deref() != Some(exchange) {
+            return json!({"ok": false, "denied": refusal("E_STALE", "client", "this refresh was superseded or already answered")});
+        }
+        self.refresh = None;
+        let (status, body) = match reply {
+            Reply::Failed(error) => {
+                lock(&self.shared).online = Some(false);
+                return json!({"ok": false, "offline": true, "denied": refusal("E_TRANSPORT", "link", error)});
+            }
+            Reply::Http { status, body } => (status, body),
+        };
+        if let Some(why) = body.get("denied").filter(|why| why.is_object()) {
+            return json!({"ok": false, "denied": why});
+        }
+        let session = &body["session"];
+        let valid = (200..300).contains(&status)
+            && session["token"].as_str().is_some_and(|t| !t.is_empty())
+            && session["kind"].is_string()
+            && session["expiresAt"]
+                .as_f64()
+                .is_some_and(|at| at > now as f64);
+        if !valid {
+            return json!({"ok": false, "denied": refusal("E_HTTP_RESPONSE", "link",
+                format!("/auth/refresh: HTTP {status} without a live session; sign in again if this persists"))});
+        }
+        if session["principal"] != self.config.viewer.as_str() {
+            return json!({"ok": false, "denied": refusal("E_AUTH", "auth", "a refreshed session changed principal")});
+        }
+        json!({"ok": true, "session": session})
     }
 
     /// The change poll: `GET /changes` from the partition's watermark. Deliver

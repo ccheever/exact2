@@ -16,6 +16,8 @@
 //!   retry?, denied?}}` ends the round. `cancel {exchange}` abandons it. A
 //!   reply or cancel naming another exchange is refused (`done.stale`).
 //! - `changes {wait}` → `{fetch}`; `changed {exchange, reply}` → whether to sync.
+//! - `refresh` → `{fetch}`; `refreshed {exchange, reply, now}` → the
+//!   replacement session, or why not.
 //!
 //! `now` is milliseconds since the epoch, fractions allowed (floored); a
 //! write requires it.
@@ -120,6 +122,8 @@ pub fn dispatch(
             json!({"fetch": client.changes(core, wait)?.to_json()})
         }
         "changed" => json!(client.changed(core, exchange()?, reply("reply")?)?),
+        "refresh" => json!({"fetch": client.refresh().to_json()}),
+        "refreshed" => client.refreshed(exchange()?, reply("reply")?, now(true)?),
         _ => return core.call(request.clone()),
     };
     Ok(json!({"ok": answer}))

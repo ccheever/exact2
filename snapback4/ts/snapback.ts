@@ -40,6 +40,12 @@ export interface Refused { id: string; op: string; args: Json; argsOmitted?: boo
 /** What became of a write. `result` is the server's, while remembered. */
 export interface Outcome { id: string; state: 'pending' | 'sent' | 'failed' | 'unknown'; seq?: number; result?: Json; why?: Refusal }
 
+/** A session as Snapback mints it; `expiresAt` in milliseconds. */
+export interface Session { principal: string; kind: string; token: string; expiresAt: number }
+
+/** What a refresh came to: the replacement session, or why not. */
+export type Refreshed = { ok: true; session: Session } | { ok: false; offline?: boolean; denied: Refusal };
+
 /** A round's end: caught up, or why not. `offline`: the server was not
  * reached; `retry`: it asked to be asked again; `busy`: a round is already
  * running; `stale`: this round was replaced (the client was reopened). */
@@ -208,6 +214,17 @@ export class Snapback {
     const request = ok<{ fetch: Request }>(await this.call({ op: 'changes', wait }));
     const reply = await this.exchange(request.fetch);
     return ok<boolean>(await this.call({ op: 'changed', exchange: request.fetch.exchange, reply }));
+  }
+
+  /** Trade the session `headers()` sends for a fresh one (`POST
+   * /auth/refresh`). The server retires the presented token before it
+   * answers: keep the returned session at once and send its token from then
+   * on. `E_AUTH` means the member signs in again; `offline` that the server
+   * was not reached (the old token still works). */
+  async refreshSession(now: number): Promise<Refreshed> {
+    const request = ok<{ fetch: Request }>(await this.call({ op: 'refresh' }));
+    const reply = await this.exchange(request.fetch);
+    return ok<Refreshed>(await this.call({ op: 'refreshed', exchange: request.fetch.exchange, reply, now: clock(now) }));
   }
 
   /** Close the partition. The client refuses every call from now on, and

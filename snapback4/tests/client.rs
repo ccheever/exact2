@@ -100,11 +100,16 @@ impl Server {
 
     /// One exchange, as a driver performs a `Step::Fetch`.
     fn fetch(&self, persona: &str, fetch: &Value) -> Value {
+        self.fetch_with(&format!("x-snapback-persona: {persona}"), fetch)
+    }
+
+    /// One exchange with this credential header (a persona or a bearer).
+    fn fetch_with(&self, credential: &str, fetch: &Value) -> Value {
         let method = fetch["method"].as_str().unwrap();
         let path = fetch["path"].as_str().unwrap();
         let body = fetch.get("body").map(Value::to_string).unwrap_or_default();
         let mut stream = TcpStream::connect(("127.0.0.1", self.port)).unwrap();
-        write!(stream, "{method} {path} HTTP/1.1\r\nhost: 127.0.0.1\r\nx-snapback-persona: {persona}\r\nconnection: close\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}", body.len()).unwrap();
+        write!(stream, "{method} {path} HTTP/1.1\r\nhost: 127.0.0.1\r\n{credential}\r\nconnection: close\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}", body.len()).unwrap();
         let mut raw = Vec::new();
         stream.read_to_end(&mut raw).unwrap();
         let text = String::from_utf8(raw).unwrap();
@@ -826,4 +831,62 @@ fn a_refusal_outlives_its_receipt() {
             .len(),
         1
     );
+}
+
+/// A session refresh hands back a replacement for the bearer it was sent
+/// with, retires the old one, and is refused when it names someone else.
+#[test]
+fn a_session_refreshes_once_and_only_as_its_own_principal() {
+    let server = Server::start();
+    let guest = server.fetch_with(
+        "x-snapback-guest: 1",
+        &json!({"method": "POST", "path": "/auth/guest"}),
+    );
+    let session = guest["body"]["session"].clone();
+    let token = session["token"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{guest}"))
+        .to_owned();
+    let principal = session["principal"].as_str().unwrap().to_owned();
+    let mut rae = Device::new("rae");
+    rae.call(json!({"op": "open", "path": "app:/data/inbox.sqlite",
+        "origin": format!("http://127.0.0.1:{}", server.port), "viewer": principal}));
+    let bearer = |token: &str| format!("authorization: Bearer {token}");
+    let refresh = rae.call(json!({"op": "refresh"}))["fetch"].clone();
+    assert_eq!(refresh["path"], "/auth/refresh");
+    let reply = server.fetch_with(&bearer(&token), &refresh);
+    let done = rae.call(
+        json!({"op": "refreshed", "exchange": refresh["exchange"], "reply": reply, "now": now()}),
+    );
+    assert_eq!(done["ok"], true, "{done}");
+    let fresh = done["session"]["token"].as_str().unwrap().to_owned();
+    assert_ne!(fresh, token);
+    assert_eq!(done["session"]["principal"], principal.as_str());
+    let schema = json!({"method": "GET", "path": "/schema"});
+    assert_eq!(
+        server.fetch_with(&bearer(&token), &schema)["status"],
+        401,
+        "the old bearer is retired"
+    );
+    assert_eq!(server.fetch_with(&bearer(&fresh), &schema)["status"], 200);
+    // The same reply twice is stale; a session for another principal is refused.
+    let again = rae.call(
+        json!({"op": "refreshed", "exchange": refresh["exchange"], "reply": reply, "now": now()}),
+    );
+    assert_eq!(again["denied"]["code"], "E_STALE");
+    let mut sam = Device::new("sam");
+    sam.open(server.port);
+    let refresh = sam.call(json!({"op": "refresh"}))["fetch"].clone();
+    let reply = server.fetch_with(&bearer(&fresh), &refresh);
+    let other = sam.call(
+        json!({"op": "refreshed", "exchange": refresh["exchange"], "reply": reply, "now": now()}),
+    );
+    assert_eq!(other["denied"]["code"], "E_AUTH", "{other}");
+    // A retired bearer cannot refresh.
+    let refresh = rae.call(json!({"op": "refresh"}))["fetch"].clone();
+    let reply = server.fetch_with(&bearer(&token), &refresh);
+    let dead = rae.call(
+        json!({"op": "refreshed", "exchange": refresh["exchange"], "reply": reply, "now": now()}),
+    );
+    assert_eq!(dead["denied"]["code"], "E_AUTH", "{dead}");
 }
