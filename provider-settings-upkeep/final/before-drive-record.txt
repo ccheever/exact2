@@ -1,0 +1,83 @@
+2026-10-07T19:14:23.908Z == pair Mac Studio; the launch prompt, its Update and the outcome
+2026-10-07T19:14:39.916Z toasts after connect: ["toast-title-2: Updates Available: 2 providers","toast-description-2: Install the update now or review provider settings."]
+2026-10-07T19:14:40.425Z shot launch-prompt
+2026-10-07T19:14:40.435Z prompt toast 2: Updates Available: 2 providers; action Update; secondary Settings
+2026-10-07T19:14:51.507Z toasts while running: ["toast-title-5: Provider updates finished","toast-description-5: New sessions will use the updated providers."]
+2026-10-07T19:14:52.006Z shot launch-running
+2026-10-07T19:15:05.022Z toasts after: ["toast-title-1: Nightly needs the beta mobile app","toast-description-1: Nightly uses the new orchestrator. The App Store and Google Play versions of T3 Code cannot connect to it."]
+2026-10-07T19:15:05.517Z shot launch-outcome
+2026-10-07T19:15:05.518Z fixture reset
+2026-10-07T19:15:07.031Z == add Laptop
+2026-10-07T19:15:19.966Z connected: ["http://127.0.0.1:16020/ · Connected","http://127.0.0.1:16021/ · Connected"]
+2026-10-07T19:15:19.966Z == providers list, Update all tooltip (toasts dismissed)
+2026-10-07T19:15:23.715Z header: update-all=null; triggers []
+2026-10-07T19:15:24.213Z shot providers-list
+2026-10-07T19:15:24.219Z == list popover: hover tooltip, open, Escape keeps Settings and returns focus
+2026-10-07T19:15:26.004Z shot popover-list-codex
+2026-10-07T19:15:26.004Z == editor popover (Claude: compatibility warning, Install vX)
+2026-10-07T19:15:27.694Z   (no provider-advisory-editor-claudeAgent)
+2026-10-07T19:15:28.338Z editor popover: "Unsupported version Claude 2.1.110 is not supported by this T3 Code release. Install v2.1.120. Install v2.1.120"
+2026-10-07T19:15:28.841Z shot popover-editor-claude
+2026-10-07T19:15:28.857Z open: null
+2026-10-07T19:15:28.886Z after Escape: settings=true popover=null focus=provider-advisory
+2026-10-07T19:15:28.886Z == Copy update command (Codex, editor)
+2026-10-07T19:15:30.577Z   (no provider-advisory-editor-codex)
+2026-10-07T19:15:31.220Z   (no provider-advisory-editor-codex-copy)
+2026-10-07T19:15:32.683Z toasts: ["toast-title-7: Codex update command copied","toast-description-7: Run it in a terminal when you are ready to update."] clipboard="npm install -g @openai/codex@latest"
+2026-10-07T19:15:33.185Z shot copy-command-toast
+2026-10-07T19:15:33.191Z == Update now (Codex on Mac Studio)
+2026-10-07T19:15:35.391Z   (no provider-advisory-editor-codex)
+2026-10-07T19:15:35.407Z action label: "Update now"
+2026-10-07T19:15:35.412Z   (no provider-advisory-editor-codex-action)
+2026-10-07T19:15:43.006Z while updating: null
+2026-10-07T19:15:43.508Z shot update-now-running
+2026-10-07T19:15:49.540Z after: version="v0.151.0" triggers=[] toasts=[]
+2026-10-07T19:15:50.049Z shot update-now-after
+2026-10-07T19:15:50.050Z fixture reset
+2026-10-07T19:15:52.064Z == Update all on both machines (toasts dismissed first)
+2026-10-07T19:15:52.909Z before: null
+2026-10-07T19:15:52.914Z   (no providers-update-all)
+2026-10-07T19:15:53.424Z shot update-all-running
+2026-10-07T19:15:53.425Z fixture reset
+2026-10-07T19:15:54.942Z == ACP: icon, URL auth (link recorded, accepted, then expired)
+2026-10-07T19:15:56.648Z icons: []
+2026-10-07T19:15:56.653Z url auth: null
+2026-10-07T19:15:57.157Z shot acp-editor-top
+2026-10-07T19:15:57.163Z   (no provider-url-auth-continue-acpRegistry_gemini)
+2026-10-07T19:15:58.693Z after continue: toasts=[] log lines naming the URL=[]
+2026-10-07T19:15:58.698Z   (no provider-url-auth-continue-acpRegistry_gemini)
+2026-10-07T19:16:00.220Z after second continue: []
+2026-10-07T19:16:00.723Z shot acp-url-auth-expired
+2026-10-07T19:16:00.723Z == ACP native sessions: list, more, import, delete (Escape keeps it, Confirm deletes), log out
+2026-10-07T19:16:02.393Z   (no acp-list-acpRegistry_gemini)
+2026-10-07T19:16:02.897Z shot acp-sessions
+2026-10-07T19:16:02.897Z == ACP agent providers: list, invalid headers, save, disable
+2026-10-07T19:16:04.571Z   (no acp-list-providers-acpRegistry_gemini)
+2026-10-07T19:16:04.572Z == custom model options editor
+2026-10-07T19:16:06.908Z editor: []
+2026-10-07T19:16:07.413Z shot cm-editor-open
+2026-10-07T19:16:07.413Z == the composer offers the saved options
+2026-10-07T19:16:10.550Z picker rows naming the custom model: ["model-gpt-5.5-lane"]
+2026-10-07T19:16:12.699Z shot composer-model
+2026-10-07T19:16:14.154Z composer options: ["effort-low","effort-medium","effort-high","effort-default","effort-fast"] label="Lane GPT Lane GPT · ⇧⌘M"
+2026-10-07T19:16:14.652Z shot composer-options
+2026-10-07T19:16:15.283Z == narrow 840x620 and dark
+2026-10-07T19:16:16.818Z   (no close-connection)
+2026-10-07T19:16:23.134Z shot providers-narrow
+2026-10-07T19:16:23.139Z   (no provider-advisory-list-codex)
+2026-10-07T19:16:24.243Z shot popover-narrow
+2026-10-07T19:16:28.439Z   (no provider-advisory-list-claudeAgent)
+2026-10-07T19:16:29.572Z shot popover-dark
+2026-10-07T19:16:30.473Z == keyboard: Tab to the icon, Return opens, Escape returns; reduced motion
+2026-10-07T19:16:33.907Z Tab from the Codex row: ["provider-enable-codex","settings-provider-claudeAgent","provider-enable-claudeAgent","settings-provider-acpRegistry_gemini"]
+2026-10-07T19:16:33.913Z trigger button id undefined
+2026-10-07T19:16:36.584Z focus before Return: provider-field-binaryPath
+2026-10-07T19:16:36.590Z   (key Return at 5882 refused: key: unsupported key Return)
+2026-10-07T19:16:37.021Z after Return: popover=null focus=provider-field-binaryPath
+2026-10-07T19:16:37.461Z Tab inside: provider-field-homePath
+2026-10-07T19:16:37.466Z   (no popover: Escape not sent)
+2026-10-07T19:16:37.488Z after Escape: settings=true popover=null focus=provider-field-homePath
+2026-10-07T19:16:38.010Z   (no provider-advisory-list-codex)
+2026-10-07T19:16:38.326Z == wizard registry icons
+2026-10-07T19:16:46.224Z wizard icons: [] agents=["acp-agent-list","acp-agent-agoragentic-acp","acp-agent-amp-acp","acp-agent-auggie","acp-agent-autohand","acp-agent-claude-acp"]
+2026-10-07T19:16:46.749Z shot wizard-acp
