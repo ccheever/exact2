@@ -100,7 +100,7 @@ final class TerminalStreamTests: XCTestCase {
 
     /// Round 5: a shared read joins an identical one still pending, as the reference's query atoms share
     /// one request per input. One request reaches the server and every caller gets its reply. Another
-    /// payload, or a request that is not shared, is sent on its own.
+    /// payload is sent on its own, and a request that is not shared ends the sharing for its workspace.
     func testSharedReadsJoinAnIdenticalPendingOne() throws {
         let socket = try R3Socket()
         socket.answer = { _ in [] } // the server holds every reply
@@ -113,10 +113,17 @@ final class TerminalStreamTests: XCTestCase {
             transport.perform(["op": "request", "method": "vcs.listRefs", "payload": ["cwd": "/repo", "limit": 50], "generation": generation, "share": true], completion: note)
         }
         transport.perform(["op": "request", "method": "vcs.listRefs", "payload": ["cwd": "/other", "limit": 50], "generation": generation, "share": true], completion: note)
-        transport.perform(["op": "request", "method": "vcs.listRefs", "payload": ["limit": 50, "cwd": "/repo"], "generation": generation], completion: note)
+        XCTAssertTrue(until(3) { socket.requests("vcs.listRefs").count >= 2 })
+        wait(0.3)
+        XCTAssertEqual(socket.requests("vcs.listRefs").count, 2, "five identical shared reads are one request")
+        // A request that is not shared, naming /repo (as a branch switch does): a later shared read of
+        // /repo is sent anew, and /other's still joins.
+        transport.perform(["op": "request", "method": "vcs.switchRef", "payload": ["cwd": "/repo", "refName": "feature"], "generation": generation], completion: { _ in })
+        transport.perform(["op": "request", "method": "vcs.listRefs", "payload": ["limit": 50, "cwd": "/repo"], "generation": generation, "share": true], completion: { _ in })
+        transport.perform(["op": "request", "method": "vcs.listRefs", "payload": ["cwd": "/other", "limit": 50], "generation": generation, "share": true], completion: { _ in })
         XCTAssertTrue(until(3) { socket.requests("vcs.listRefs").count >= 3 })
         wait(0.3)
-        XCTAssertEqual(socket.requests("vcs.listRefs").count, 3, "five identical shared reads are one request")
+        XCTAssertEqual(socket.requests("vcs.listRefs").count, 3, "after the write, /repo is read again; /other still joins")
         let first = try XCTUnwrap(socket.requests("vcs.listRefs").first?["id"] as? String)
         socket.send(["_tag": "Exit", "requestId": first, "exit": ["_tag": "Success", "value": ["refs": [] as [Any], "totalCount": 0]]])
         XCTAssertTrue(until(3) { lock.lock(); defer { lock.unlock() }; return replies.filter { $0["ok"] as? Bool == true }.count == 5 },

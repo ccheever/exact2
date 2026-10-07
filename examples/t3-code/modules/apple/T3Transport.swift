@@ -29,7 +29,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     private var httpTasks: [Int: URLSessionDataTask] = [:]
     private var pending: [String: Pending] = [:]
     /// Shared reads still pending, by method and payload (`share`): an identical read joins one.
-    private var sharedReads: [String: String] = [:]
+    private var sharedReads: [String: (id: String, cwd: String?)] = [:]
     private let activity: T3ActivityReporter?
     private let activityID = UUID()
     private var activityScopes: [String: UUID] = [:]
@@ -521,9 +521,10 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         // the reference's query atoms share one request per input: an answer Exact asked again before
         // the reply sends nothing new (round 5: vcs.refreshStatus four times a second).
         let shareKey = request["share"] as? Bool == true ? Self.shareKey(method, request["payload"]) : nil
-        // A request that is not shared may write (a branch switch): no later read joins one sent before it.
-        if shareKey == nil { sharedReads.removeAll() }
-        if let shareKey, let id = sharedReads[shareKey], let joined = pending[id] {
+        // A request that is not shared may write (a branch switch): no later read of its workspace joins one sent before it.
+        let cwd = (request["payload"] as? [String: Any])?["cwd"] as? String
+        if shareKey == nil, let cwd { sharedReads = sharedReads.filter { $0.value.cwd != cwd } }
+        if let shareKey, let id = sharedReads[shareKey]?.id, let joined = pending[id] {
             pending[id]?.completion = { response in joined.completion(response); completion(response) }
             if let trace = request["trace"] as? Int { pending[id]?.joinedTraces.append(trace) }
             return
@@ -534,8 +535,8 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         let wait = min(30, max(1, (request["timeout"] as? NSNumber)?.doubleValue ?? 30))
         pending[id] = Pending(completion: completion, deadline: Date().addingTimeInterval(wait), trace: request["trace"] as? Int)
         if let shareKey {
-            sharedReads = sharedReads.filter { pending[$0.value] != nil } // ended reads leave
-            sharedReads[shareKey] = id
+            sharedReads = sharedReads.filter { pending[$0.value.id] != nil } // ended reads leave
+            sharedReads[shareKey] = (id, cwd)
         }
         send(text, epoch: generation)
     }
