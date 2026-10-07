@@ -29,6 +29,7 @@ use R4PublishDialog from "./r4-git-publish.contract"
 use CommandPalette from "./palette.contract"
 use PaletteView from "./palette.contract"
 use VideoPreviewDialog from "./r4-composer.contract"
+use ResetCreditDialog from "./usage-bars.contract" // usage-reset-and-feedback
 use R8TableMenu from "./r8-keys-table-menu.contract"
 use R9CheckoutDialog from "./r9-connect.contract" // lane r9-connect
 
@@ -190,6 +191,9 @@ component WindowOverlays
     // server-update-banner: requestConfirmDialog before a desktop-managed server's app updates (server-update-notices.ts).
     when data.serverUpdate.confirmTitle != ""
       AppConfirm(title=data.serverUpdate.confirmTitle, body=data.serverUpdate.confirmBody, destructive=false, busy=commandPending, cancel=command("su:cancel", "", "", 0), confirm=command("su:confirm", "", "", 0))
+    // usage-reset-and-feedback: the /usage-limits banner's reset credit confirm (ResetCreditDialog, outside the banner).
+    when data.composer.resetConfirm != ""
+      ResetCreditDialog(target=data.composer.resetConfirm, busy=commandPending, command=command)
     when confirmOp != ""
       AppConfirm(title=confirmTitle, body=confirmBody, destructive=confirmDestructive, busy=commandPending, cancel=confirmUi(false), confirm=confirmUi(true))
     when viewport.prefersColorScheme == "dark"

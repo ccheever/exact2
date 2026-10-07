@@ -566,6 +566,18 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         let text = try T3Wire.encode(wire)
         // auto-balance: a request may ask for a shorter deadline (server.getHostResources waits 5 s).
         let wait = min(30, max(1, (request["timeout"] as? NSNumber)?.doubleValue ?? 30))
+        // usage-reset-and-feedback (composer-replies.ts): a request whose reply joins the inbox under
+        // `deliver`, so no data-source answer waits on a long write (a /feedback upload, a redeem).
+        if let deliver = request["deliver"] as? String, !deliver.isEmpty, shareKey == nil {
+            let epoch = generation
+            pending[id] = Pending(completion: { [weak self] response in
+                guard let self, self.generation == epoch else { return }
+                let value: [String: Any] = response["ok"] as? Bool == true ? ["_reply": response["value"] ?? NSNull()] : ["_replyError": response["error"] ?? [String: Any]()]
+                if (try? self.inbox.append(generation: epoch, key: deliver, subscriptionId: id, value: value)) == true { self.changed("t3.events") }
+            }, deadline: Date().addingTimeInterval(wait), trace: request["trace"] as? Int)
+            send(text, epoch: generation)
+            return finish(completion, value: ["id": id])
+        }
         pending[id] = Pending(completion: completion, deadline: Date().addingTimeInterval(wait), trace: request["trace"] as? Int)
         if let shareKey {
             sharedReads = sharedReads.filter { pending[$0.value.id] != nil } // ended reads leave
