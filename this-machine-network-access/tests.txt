@@ -1,0 +1,106 @@
+# New tests (20261005-this-machine-network-access)
+# Every file is new: on base da4f4512f each fails to load (its module does not exist); on the branch all pass.
+# The describes DesktopServerExposure, tailscale, tailscale endpoint provider, settings pairing URL helpers, isQrShareableEndpoint, selectQrEndpointOption and applyAuthAccessStreamEvent keep the reference's test names (1e2ecbd975).
+
+## examples/t3-code/server-exposure.test.ts — 12pass 0fail
+### DesktopServerExposure
+  - falls back to local-only without losing the requested network preference
+  - returns a typed error when network access is explicitly unavailable
+  - persists network-accessible mode and updates backend binding state
+  - persists tailscale serve preferences atomically and reports no-op updates
+  - preserves persistence request context and the settings failure chain
+  - keeps LAN and Tailscale endpoints distinct when Tailscale is enumerated first
+  - keeps Tailscale-only hosts network-accessible
+  - does not spawn the tailscale CLI while server exposure is local-only
+  - preserves explicit Tailscale exposure overrides
+  - advertises loopback, LAN, and configured manual endpoints from runtime state
+### t3-code.json exposure keys (DesktopAppSettings decoding)
+  - decodes the three keys with the reference defaults and carries them on load
+  - asks for a relaunch only when the port, bind host or local URL changes
+
+## examples/t3-code/tailscale.test.ts — 9pass 0fail
+### tailscale
+  - detects Tailnet IPv4 addresses
+  - parses MagicDNS names from tailscale status
+  - parses status facts
+  - preserves status decoding failures without exposing cause text
+  - builds clean HTTPS base URLs
+### tailscale endpoint provider
+  - parses MagicDNS names from tailscale status
+  - resolves Tailscale endpoints as add-on advertised endpoints
+  - uses an injected magic DNS name reader instead of spawning tailscale
+  - marks the Tailscale HTTPS endpoint available after Serve is enabled and reachable
+
+## examples/t3-code/pairing-urls.test.ts — 11pass 0fail
+### settings pairing URL helpers
+  - uses direct backend pairing URLs for HTTP endpoints
+  - uses hosted pairing URLs for HTTPS endpoints
+### isQrShareableEndpoint
+  - excludes loopback endpoints so a scanned phone never dials itself
+  - excludes unavailable endpoints and keeps reachable ones
+### selectQrEndpointOption
+  - resolves an explicit selection by unique endpoint id, not the shared preference key
+  - falls back to the saved default preference key when nothing is selected
+  - skips non-QR-shareable options in the fallback so the panel never opens on loopback
+  - returns the first option when nothing is QR-shareable, and null when empty
+### the share panel’s endpoints (ConnectionsSettings.tsx helpers)
+  - keys defaults by endpoint type and picks the saved default, the marked default, then a non-loopback one
+  - pairs HTTPS endpoints through the hosted app and names each route
+  - is read back by this app's own pairing (protocol.ts parsePairing, remote.ts)
+
+## examples/t3-code/auth-access.test.ts — 9pass 0fail
+### applyAuthAccessStreamEvent
+  - accumulates rapid pairing-link and client updates into one snapshot
+  - applies removals without disturbing unrelated access state
+### the access stream (subscribeAuthAccess on this machine)
+  - subscribes only while wanted and only on this machine, then unsubscribes when the page closes
+  - reduces the focused primary’s events, redraws, and ignores other generations and machines
+  - follows the primary on its fleet transport
+  - decodes the wire events and drops malformed ones
+### Authorized clients helpers (ConnectionsSettings.tsx)
+  - lists this device first, then connected ones, newest first, and summarizes the fold
+### the six /api/auth calls (EnvironmentAuthHttpApi through the embedded server)
+  - sends the reference payloads and returns the credential once
+  - names the operation and status of a failure, never the server text
+
+## examples/t3-code/connections-network.test.ts — 22pass 0fail
+### This machine › Network access and Tailscale HTTPS rows
+  - says Loading… before the first read, and nothing without access:write
+  - is limited to this machine while local-only, and never lists endpoints or clients then
+  - is reachable at the default endpoint with +N for the others, and the rail marks the default
+  - falls back to the exposure text without a network endpoint
+  - shows Tailscale HTTPS as on with its URL once Serve answers, which alone makes the clients reachable
+  - shows the last failure as the row’s red text
+### Authorized clients
+  - lists pairing links with their expiry, scopes and share options, and drops an expired one
+  - pairs HTTPS endpoints through the hosted app and offers it first when it is the default
+  - lists this device first with its tag and the others with their device, live dot and Revoke
+  - is empty only once the stream answered, and carries its failure
+  - formats the countdown and the connected time as timestampFormat.ts
+### Network access and Tailscale HTTPS commands (applyLocalSetting restarts the server in place)
+  - refuses network access without a reachable address: the row’s error, the toast, local-only kept, the dialog closed
+  - turns network access on: persists the mode and restarts the server bound to 0.0.0.0, then reconnects this machine
+  - puts the mode back when the server cannot come back with it
+  - sets up Tailscale HTTPS on the chosen port and closes its dialog; a bad port keeps it open with the toast
+  - keeps the chosen default endpoint in the preference file
+### pairing links and client commands
+  - creates a link with the chosen scopes, keeps its credential in memory and closes the dialog
+  - keeps the create dialog open with the reference toast when the server refuses
+  - revokes others with the count toast and names a failed revoke
+  - copies the chosen URL or the code, and reveals exactly the failed value when the pasteboard refuses
+### the Connections page carries the section
+  - routes every network op through Connections, and a closed page stops the access stream
+  - says Loading… while Tailscale’s first read is pending, then shows its endpoint
+
+## examples/t3-code/macos/tests/local-backend (XCTest, README recipe) — 61 tests, 0 failures; LocalNetworkTests (10) is new
+  - test_reads_network_interfaces_through_the_service
+  - test_preserves_network_interface_read_failures_as_structured_defects
+  - test_reads_tailscale_status_through_the_process_spawner_service
+  - test_preserves_tailscale_spawn_failures_as_causes
+  - test_keeps_nonzero_exit_diagnostics_structured
+  - test_classifies_unrecognized_stderr_without_quoting_it
+  - test_times_out_tailscale_status_after_1500ms
+  - testTheLaunchBindHostFollowsTheSettingAndTheInterfaces
+  - testFactsAnswerFromTheCacheAndReadTailscaleOnlyWhenAskedAndOnceAMinute
+  - testARestartStartsANewServerWithTheNewEnvelope
+  (the first seven follow the reference's names: DesktopNetworkInterfaces.test.ts 2 and tailscale.test.ts's process half 5; the timeout runs on the real clock, not TestClock)
