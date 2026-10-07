@@ -2,7 +2,7 @@
 name: 20261007-real-input-checks
 plan: 20261005-t3code-macos-parity
 implementation: verified
-verification: passed-with-open-findings
+verification: passed
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
@@ -70,23 +70,19 @@ are screenshot pixels × 0.5, and a displayed-image coordinate must be scaled fi
 | 4a | Cursor shapes (`screencapture -C` under a real pointer): terminal I-beam, drawer edge up-down resize, chat arrow, theme editor header open hand, grip crosshair | Same five | **pass** (parity) |
 | 4b | Theme editor header dragged to a point left of and above the window, released outside: the panel follows and stays inside the window (top 8 pt) | Same | **pass** (parity) |
 | 4c | Terminal: real double-click selects "73" with the Add to chat / Copy popup; right-click opens Add to chat / Copy / Paste; Escape closes | Same | **pass** |
-| 4d | Terminal: a real drag (in the terminal, out of the window and back; `cliclick` and `orca computer drag`) selects nothing | Same; ⌘C after it leaves the clipboard empty | **fail, pre-existing** (open finding below) |
+| 4d | Terminal: a real drag (in the terminal, out of the window and back; `cliclick` and `orca computer drag`) selects nothing | Same; ⌘C after it leaves the clipboard empty | first run: fail; **re-run: pass** in both builds ([terminal-real-drag](../20261007-terminal-real-drag.md)): the drive left a native popup open |
 | 4e | — (not driven) | Sidebar rail dragged with a real pointer resized the sidebar; a real double-click on the rail reset it | pass |
 | 5 | Held ⌘ for 1.5 s over the send button while a turn runs: queue → steer → queue, two icons cross-fade mid-way | The same swap morphs one path (morphicons) | **pass** |
 
-Open findings, with their exact state:
+Findings, both closed by [20261007-terminal-real-drag](../20261007-terminal-real-drag.md):
 
-- **Terminal drag selection does not work with a real pointer, in both builds** (4d). The agent's drag
-  (`macos/tests/terminal/pointer.swift` `testDragSelectsText`, #207's live agent drag) selects; a real
-  drag does not, while a real double-click and right-click on the same view do. Not a regression of this
-  branch. Cause not found in this task: a recognizer or a host node taking `mouseDragged` before the web
-  view is the first suspect (`NodeViewMac.mouseDragged`'s mouse chain); the next step is a real-pointer
-  session that logs the page's pointer events (`t3Terminal.debug()`). Recorded in `QUEUE.md`.
-- **After a relaunch the After build showed "Environment disconnected" for about 30 s** (the Before
-  relaunches reconnected within 8 s), and the snapshot (so the 20 px layout) arrived with the connection:
-  the data source's first answer waits for the transport's `status`, which runs on the transport's queue.
-  Seen once; whether the reconnect delay belongs to this build is not established. A seeded launch with no
-  server showed the same in #206 ("did not read the saved preferences in the unpaired state").
+- **Terminal drag selection with a real pointer** (4d) is not an app bug. The failing drags started while the
+  selection popup (a native menu, as T3 Code's Electron menu) was still open, because `cliclick kp:esc` had not
+  closed it, so the press went to the menu; the first Before drags started at x 215, in the sidebar. Re-run with no
+  menu open, a drag inside the terminal and one out of the window and back select in both builds.
+- **The ~30 s "Environment disconnected" after a relaunch** was a macOS Keychain prompt: the lane copies share one
+  Keychain item but have different ad-hoc signatures (SecurityAgent spawned at the relaunch second). With the copies
+  allowed, both builds reconnect in about 1 s, three relaunches each.
 
 Toast copy morph (an error toast's Copy button) was not filmed: no error toast with a description was
 reachable in the lane without an outside effect (Pull Requests with no `gh` shows an empty state, not a
@@ -111,4 +107,4 @@ round restored, and its real-input rows), `issues/README.md` (X8, X47), the X8 i
 
 ## Next action
 
-Review the PR. Debug the terminal's real-pointer drag selection (QUEUE.md).
+Merged as PR #213; the findings closed in terminal-real-drag.
