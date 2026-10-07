@@ -115,7 +115,7 @@ describe('reset credits', () => {
     await command('cclocal:usage-reset-ask', 'codex');
     native.replies.push({ ok: true, value: { outcome: 'reset' } });
     const started = await command('cclocal:usage-reset-confirm', 'codex');
-    expect(started.message).toBe('');
+    expect(started.message).toBe('focus:usage-reset-0'); // the focus goes back to Use reset
     expect(view().resetConfirm).toBe('');
     expect(usage().usage[0]).toMatchObject({ busy: true, status: '' });
     // Asking again while busy does nothing (the button is disabled).

@@ -7,6 +7,10 @@ import { snapshot, transcriptPresentation } from './presentation';
 import { toasts } from './toast';
 import { Fake, connected, opened } from './composer-controls-fixture';
 import { composerBranches } from './composer-controls-branch';
+import { settleLostReplies, settleStaleReplies } from './composer-replies';
+import { feedbackCommandFor } from './composer-feedback';
+import { fileChipLink, stageFold } from './composer-editor-files';
+import { contextLink, contextId } from './composer-editor-menu';
 
 type Reply = { ok: true; value: Obj } | { ok: false; error: Obj };
 /**
@@ -104,10 +108,23 @@ describe('/feedback in a Codex thread', () => {
     const before = notices(client).length;
     await command('send', '', '/feedback fourth');
     expect(notices(client)[0]).toMatchObject({ title: 'Sending feedback to OpenAI...', priority: 0 });
-    client.generation += 1;
-    notices(client); await settle();
+    client.generation += 1; settleStaleReplies(client); // adoptStatus does this when the connection changes
+    await settle();
     expect(notices(client)).toHaveLength(before);
     expect(snapshot(client, Date.parse('2026-10-08T03:00:00.000Z')).composer.sendStatus).toBe('');
+  });
+
+  test('a reply the inbox dropped, or a disconnected socket, ends as a failure the user sees', async () => {
+    const { client, native, command, disk } = await codexThread();
+    await command('send', '', '/feedback lost');
+    settleLostReplies(client); await settle(); // client.ts drain: the inbox reset within this connection
+    expect(notices(client)).toMatchObject([{ title: 'Could not send feedback to OpenAI', description: 'The server reply was lost. The request may already have been applied.' }]);
+    expect(snapshot(client, Date.parse('2026-10-08T03:00:00.000Z')).composer.sendStatus).toBe('');
+    native.keys.shift();
+    await command('send', '', '/feedback again');
+    native.reply({ ok: false, error: { kind: 'Disconnected', message: 'Disconnected from the server.' } });
+    await client.refresh(native, disk); await settle();
+    expect(notices(client).map(notice => notice.description)).toContain('Disconnected from the server.');
   });
 
   test('without a started Codex thread it warns and keeps the draft', async () => {
@@ -128,17 +145,24 @@ describe('/feedback in a Codex thread', () => {
 });
 
 describe('/feedback is an ordinary message elsewhere', () => {
-  test('a non-Codex provider, an attached image or a context sends it as a turn', async () => {
-    const { client, native, command } = await codexThread();
+  test('a non-Codex provider sends it as a turn', async () => {
+    const { native, command } = await codexThread();
     await command('model', 'model-a', 'claude');
     await command('send', '', '/feedback broken diff');
     expect(native.committed.at(-1)).toMatchObject({ type: 'message.dispatch', text: '/feedback broken diff' });
-    await command('model', 'model-a', 'codex');
-    client.local.snapshotDrafts[client.draftKey] = [{ id: '00000000-0000-0000-0000-000000000001', mimeType: 'image/png', sizeBytes: 1, name: 'shot.png' }];
-    const count = native.committed.length;
-    await command('send', '', '/feedback with image').catch(() => undefined);
     expect(native.uploads).toEqual([]);
-    expect(native.committed.length).toBeGreaterThanOrEqual(count);
+  });
+  test('an attached image, a staged file or folded paste, or any context chip makes it an ordinary prompt', async () => {
+    const { client } = await codexThread();
+    expect(feedbackCommandFor(client, '/feedback broken diff')).toEqual({ reason: 'broken diff' });
+    // A folded paste stays staged until Send (composer-editor-files.ts); its chip still counts, as composerFiles does.
+    const fold = stageFold(client.local, client.draftKey, client.environmentId, 'pasted', 'fold-1');
+    expect(fold.status).toBe('staged');
+    expect(feedbackCommandFor(client, `/feedback see ${fileChipLink(fold)}`)).toBeNull();
+    expect(feedbackCommandFor(client, `/feedback ${contextLink('thread', contextId('thread', 't2'), 'Thread t2')}`)).toBeNull();
+    expect(feedbackCommandFor(client, `/feedback ${contextLink('terminal', contextId('terminal', 'term-1'), 'Terminal 1')}`)).toBeNull();
+    client.local.snapshotDrafts[client.draftKey] = [{ id: '00000000-0000-0000-0000-000000000001', mimeType: 'image/png', sizeBytes: 1, name: 'shot.png' }];
+    expect(feedbackCommandFor(client, '/feedback with image')).toBeNull();
   });
   test('a several-model draft sends it to every model', async () => {
     const context = await connected();

@@ -66,7 +66,7 @@ export async function composerWrites(this: T3Client, op: string, id: string, val
   try {
     if (op === 'send' && pendingRequests(this.projection).approvals.length) throw new ClientError('Resolve this approval request to continue.');
     else if (op === 'send' && activeInput(this)) await submitAnswers.call(this, native, storage, '', value);
-    else if (op === 'send') await autoBalanceSend(this, native, async () => { resultMessage = (await send.call(this, native, storage, value)) || ''; }); // auto-balance: onSend's guard (a move in flight finishes first); a /feedback upload answers its job id
+    else if (op === 'send') await autoBalanceSend(this, native, async () => { resultMessage = (await send.call(this, native, storage, value)) || ''; }); // auto-balance: onSend's guard (a move in flight finishes first)
     else if (op === 'provider' || op === 'model') await changeModel.call(this, native, storage, op, id, value);
     else if (op === 'model-option') await changeModelOption.call(this, native, storage, id, value);
     else if (op === 'runtime' || op === 'interaction') await changeMode.call(this, native, storage, op, value);
@@ -88,10 +88,10 @@ async function send(this: T3Client, native: Native, storage: Files, value: strin
   const assertOwner = () => {
     if (selection.generation !== this.generation || selection.environmentId !== this.environmentId || selection.origin !== this.origin || selection.projectId !== this.projectId || selection.threadId !== this.threadId || selection.providerId !== this.providerId || selection.modelId !== this.modelId || selection.options !== JSON.stringify(this.modelOptions) || selection.runtimeMode !== this.runtimeMode || selection.interactionMode !== this.interactionMode) throw new ClientError('The draft or model changed before sending. Your original draft is preserved.');
   };
-  if (feedbackInFlight(this)) return; // feedbackUploadsInFlightRef: this thread's /feedback upload runs (composer-feedback.ts)
-  if (queuedEdit(this)) return saveQueuedEdit(this, native, storage, value, () => this.uploadSnapshots(native, storage)); // composer-fidelity G12a: new SnapShot images upload
   // "/usage-limits" is answered locally from the provider snapshots; the agent never sees it.
   if (isUsageLimitsCommand(value || this.draft) && !this.snapshotDrafts.length && usageLimitsOffered(this)) { if (openUsageLimits(this, composerNow(this))) this.local.drafts[this.draftKey] = ''; return; }
+  if (feedbackInFlight(this)) return; // feedbackUploadsInFlightRef: this thread's /feedback upload runs (composer-feedback.ts); onSend checks /usage-limits first
+  if (queuedEdit(this)) return saveQueuedEdit(this, native, storage, value, () => this.uploadSnapshots(native, storage)); // composer-fidelity G12a: new SnapShot images upload
   const feedback = feedbackCommandFor(this, value || this.draft); // Codex /feedback uploads the thread instead of sending a turn
   if (feedback) return sendFeedback(this, native, value || this.draft, feedback);
   const plan = planFollowUp(this);

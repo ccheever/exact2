@@ -6,8 +6,9 @@
 // Here the command only starts the request: T3Transport sends it and files the reply in the
 // inbox under `composer-reply:<id>` (the rpc `deliver` key, T3Transport.swift) and wakes
 // `t3.events`; the next snapshot's drain hands it to the waiting promise. A reply from an older
-// connection never comes (the inbox resets), so a waiter of an older generation settles as
-// interrupted the next time the composer is drawn.
+// connection never comes (the inbox resets), so a connection change settles the older waiters as
+// interrupted (client.ts adoptStatus), and an inbox that overflowed settles this connection's
+// waiters as lost: the request may have been applied, as a dropped atom command's may.
 import type { T3Client } from './client';
 import { ClientError, type Native } from './protocol';
 import { obj, str, type Obj } from './domain';
@@ -16,7 +17,6 @@ export type DetachedReply = { ok: true; value: Obj } | { ok: false; error: Clien
 type Waiter = { generation: number; resolve: (reply: DetachedReply) => void };
 const waiters = new WeakMap<object, Map<string, Waiter>>();
 const KEY = 'composer-reply:';
-let serial = 0;
 const table = (client: object) => { let map = waiters.get(client); if (!map) waiters.set(client, map = new Map()); return map; };
 
 /**
@@ -25,15 +25,19 @@ const table = (client: object) => { let map = waiters.get(client); if (!map) wai
  * connected) settles the promise as that failure, as an atom command's failure would.
  */
 export async function startDetached(client: T3Client, native: Native, method: string, payload: Obj): Promise<{ reply: Promise<DetachedReply> }> {
-  const key = `${KEY}${++serial}`, generation = client.generation;
-  const reply = new Promise<DetachedReply>(resolve => table(client).set(key, { generation, resolve }));
-  // The reference's command has no deadline; the transport keeps a delivered request up to five minutes.
-  try { await client.call(native, { op: 'request', method, payload, deliver: key, timeout: 300 }, generation, true); }
-  catch (error) {
-    const waiter = table(client).get(key);
+  const generation = client.generation;
+  let key = '', resolveReply: (reply: DetachedReply) => void = () => {};
+  const reply = new Promise<DetachedReply>(resolve => { resolveReply = resolve; });
+  try {
+    // A fresh id per request: a reply filed for a request of a reloaded module can never match a new one.
+    key = `${KEY}${(await client.ids(native, 1))[0]}`;
+    table(client).set(key, { generation, resolve: resolveReply });
+    // The reference's command has no deadline; the transport keeps a delivered request up to five minutes.
+    await client.call(native, { op: 'request', method, payload, deliver: key, timeout: 300 }, generation, true);
+  } catch (error) {
     table(client).delete(key);
     const failure = error instanceof ClientError ? error : new ClientError(error instanceof Error ? error.message : String(error));
-    waiter?.resolve({ ok: false, error: failure, interrupted: failure.kind === 'superseded' || failure.kind === 'stale' });
+    resolveReply({ ok: false, error: failure, interrupted: failure.kind === 'superseded' || failure.kind === 'stale' });
   }
   return { reply };
 }
@@ -50,8 +54,17 @@ export function composerReplyEvent(client: T3Client, entry: Obj): boolean {
   const error = obj(item._replyError);
   const kind = str(error.kind, 'RPC');
   waiter.resolve({ ok: false, error: new ClientError(str(error.message, 'The server request failed.'), kind, error.uncertain === true, { reason: str(error.reason), detail: str(error.detail) }),
-    interrupted: kind === 'Interrupt' || kind === 'Disconnected' });
+    interrupted: kind === 'Interrupt' });
   return true;
+}
+
+/** This connection's waiters after the inbox dropped entries: a reply may be gone, so each ends as a failure the request may have outlived. */
+export function settleLostReplies(client: T3Client): void {
+  for (const [key, waiter] of table(client)) {
+    if (waiter.generation !== client.generation) continue;
+    table(client).delete(key);
+    waiter.resolve({ ok: false, error: new ClientError('The server reply was lost. The request may already have been applied.', 'Lost', true), interrupted: false });
+  }
 }
 
 /** Waiters of an older connection: their replies never come, so they end as interrupted. */

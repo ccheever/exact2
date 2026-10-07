@@ -19,8 +19,9 @@ import { pushToast } from './toast';
 import { letGo } from './let-go';
 import { composerNow } from './composer-controls';
 import { messageContext } from './composer-editor';
+import { contextReferences } from './composer-editor-menu';
 import { fanoutSelections } from './r3-composer-controls-fanout';
-import { settleStaleReplies, startDetached, type DetachedReply } from './composer-replies';
+import { startDetached, type DetachedReply } from './composer-replies';
 import {
   beginCodexFeedbackSubmission, codexFeedbackMessage, codexFeedbackNotice, commandFailure, commandInterrupted, commandSuccess,
   parseCodexFeedbackCommand, submitCodexFeedback, type CodexFeedbackSubmission, type CommandResult, type ProviderUploadFeedbackResult,
@@ -52,7 +53,9 @@ export function feedbackInFlight(client: T3Client): boolean {
  */
 export function feedbackCommandFor(client: T3Client, text: string): { readonly reason?: string } | null {
   const provider = arr(client.config.providers).find(entry => entry.instanceId === client.providerId);
-  if (str(provider?.driver) !== 'codex' || client.snapshotDrafts.length > 0 || messageContext(client, text)) return null;
+  // Any chip in the prompt (a file or folded paste, staged or uploaded, an image, a thread, a terminal or review context)
+  // is an attachment or context the reference counts (composerFiles, composerImages, …), whatever its upload state.
+  if (str(provider?.driver) !== 'codex' || client.snapshotDrafts.length > 0 || contextReferences(text).length > 0 || messageContext(client, text)) return null;
   const command = parseCodexFeedbackCommand(text);
   return command && !fanoutSelections(client) ? command : null;
 }
@@ -101,7 +104,6 @@ function uploadResult(reply: DetachedReply, threadId: string): CommandResult<Pro
 
 /** feedbackBannerItem for each of this thread's submissions (none for an interrupted one). */
 export function feedbackNotices(client: T3Client) {
-  settleStaleReplies(client);
   return submissions(client).flatMap(submission => {
     const notice = codexFeedbackNotice(submission);
     if (!notice) return [];

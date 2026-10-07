@@ -19,7 +19,7 @@ import { PACE_LABEL, barColor, collectProviderUsageLimits, elapsedShare, formatR
   paceOf, remainingPercent, type ResetCreditInput, type UsageLimitsAccount, type UsageLimitsReport } from './usage-limits';
 import { REDEEM_IDLE, redeemStep, resetCreditsShown, resetCreditsSummary, type RedeemEvent, type RedeemState } from './reset-credits';
 import { redactedValue } from './redacted-text';
-import { settleStaleReplies, startDetached, type DetachedReply } from './composer-replies';
+import { startDetached, type DetachedReply } from './composer-replies';
 import { letGo } from './let-go';
 
 export { isUsageLimitsCommand };
@@ -65,7 +65,6 @@ function windowView(window: Obj, now: number, format: string) {
 const creditInput = (account: UsageLimitsAccount): ResetCreditInput | undefined => account.resetCreditInput ?? (account.instanceId ? { instanceId: account.instanceId } : undefined);
 /** UsageLimitsBannerBody, one entry per account. */
 function accountViews(client: T3Client, report: UsageLimitsReport, panel: Panel) {
-  settleStaleReplies(client);
   const format = client.local.deviceSettings.timestampFormat, now = panel.now;
   return report.accounts.map((account, index) => {
     const limits = account.limits, notice = limitsNotice(limits), credits = obj(limits.resetCredits), redeem = panel.redeems.get(account.id) ?? REDEEM_IDLE;
@@ -181,7 +180,9 @@ export async function usageLocal(client: T3Client, native: Native, op: string, i
     // Detached (composer-replies.ts): "Using…" shows now and the window stays usable until the reply.
     const { reply } = await startDetached(client, native, 'provider.consumeResetCredit', input);
     void reply.then(result => { panel.redeems.set(id, redeemStep(panel.redeems.get(id) ?? REDEEM_IDLE, redeemEvent(result))); });
-    return '';
+    // The AlertDialog hands the focus back to its trigger as it closes.
+    const slot = usageReport(client, panel.now)?.accounts.findIndex(entry => entry.id === id) ?? -1;
+    return slot >= 0 ? `focus:usage-reset-${slot}` : '';
   }
   throw new ClientError(`Unknown composer action: ${op}`);
 }

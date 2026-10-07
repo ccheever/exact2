@@ -39,7 +39,7 @@ import { GIT_ACTION_KEY, gitActionEvent } from './r4-git-actions';
 import { TERMINAL_METADATA_KEY, terminalMetadataEvent } from './terminal-drawer-view'; // terminal-drawer
 import { adoptTerminalContexts } from './terminal-integrations';
 import { providerSetupEvent } from './provider-setup'; // provider-sign-in-and-install: the auth and install streams
-import { composerReplyEvent } from './composer-replies'; // usage-reset-and-feedback: detached requests' replies
+import { composerReplyEvent, settleLostReplies, settleStaleReplies } from './composer-replies'; // usage-reset-and-feedback: detached requests' replies
 import { adoptTerminalPrefs } from './terminal-ui-state'; // terminal-drawer
 import { obj, str, num, arr, initialShell, applyShell, threadSnapshot, applyThread, mergeHistory,
   readyCheckpoint, type Obj, type Shell, type ThreadState } from './domain';
@@ -282,6 +282,7 @@ export class T3Client {
       this.synchronizedGeneration = -1; this.threadSubscription = '';
       this.subscriptions = {};
       this.lastEvent = 0;
+      settleStaleReplies(this); // composer-replies.ts: a reply of the old connection never comes
     }
     if (this.connection !== 'connected') {
       this.shellLive = false; this.threadLive = false; this.configLive = false;
@@ -459,6 +460,7 @@ export class T3Client {
     for (;;) {
       const batch = await this.call(native, { op: 'events', after: this.lastEvent }, generation);
       if (batch.reset === true && (this.lastEvent > 0 || this.synchronizedGeneration !== generation)) this.needsFreshSnapshot = true; // a new generation's first read after its synchronize sees only the reset at its start
+      if (batch.reset === true && this.lastEvent > 0) settleLostReplies(this); // composer-replies.ts: an overflowed inbox may have dropped a reply
       let through = this.lastEvent;
       let awaitingRegistration = false;
       for (const entry of arr(batch.events)) {
