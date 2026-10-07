@@ -112,7 +112,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var clipBox: NSView?
     /// The box's border, gradient and image pixels as sublayers (`BoxLayerMac.swift`).
     var boxBorder: CALayer?
-    var fieldFocused = false { didSet { if fieldFocused != oldValue { applyBoxLayer(); needsDisplay = true } } } // LLP 1104 D4
+    var nativeFieldContent: NSRect?
     var boxFill: CALayer?
     /// `drawsPaint`, kept: AppKit asks `wantsUpdateLayer` of every view as it
     /// builds the layer tree each display cycle, and the decision reads
@@ -807,7 +807,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // a white field in a dark app (the night) paints a light placeholder
         // and it vanishes. Mute this field's text color — the web's
         // `input::placeholder` (`#3c3c434c` on black type).
-        let ink = (f.textColor ?? SystemColor.canvasText).withAlphaComponent(0.30)
+        let ink = isNativeTextControl ? NSColor.placeholderTextColor : (f.textColor ?? SystemColor.canvasText).withAlphaComponent(0.30)
         f.placeholderAttributedString = NSAttributedString(string: text, attributes: [
             .font: font,
             .foregroundColor: ink,
@@ -904,7 +904,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             f.contentType = Autofill.contentType(props["autocomplete"], fallback: nil) // LLP 1102 §3.6
             f.isEnabled = !disabled
             f.isEditable = !disabled && props["editable"] != "false"
-            if let editor = f.currentEditor() as? NSTextView { applyTextChecking(editor) }
+            styleNativeField()
         }
         // Each AppKit accessibility write posts a notification, changed or
         // not: write only what differs from the last write (a new view's
@@ -1091,7 +1091,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
             f.textColor = color("text_color", SystemColor.canvasText)
             applyPlaceholder(f)
-            f.frame = contentBox()
+            styleNativeField()
         }
         updateMaterial()
         needsDisplay = true
@@ -1197,7 +1197,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         presenter?.collections.changed(id)
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
-        if field != nil { field?.frame = contentBox() }
+        layoutField()
         video?.layout()
         if kind == "native" { presenter?.session?.natives.laidOut(self) }
         layoutTextArea()

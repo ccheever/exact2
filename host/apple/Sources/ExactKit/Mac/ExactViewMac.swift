@@ -153,6 +153,7 @@ public final class ExactView: NSView {
 
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
+        session.controlTextChanged()
         fit()
     }
 
@@ -222,6 +223,7 @@ public final class ExactView: NSView {
     /// Paint motion resolves `light-dark()` by this view's appearance (LLP 1062).
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        session.controlTextChanged()
         session.scheme(dark: effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
     }
 }
