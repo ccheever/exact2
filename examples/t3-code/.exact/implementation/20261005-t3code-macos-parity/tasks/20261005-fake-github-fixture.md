@@ -146,7 +146,7 @@ Required environment: Bun 1.4.2, the pinned reference runtime copy, no network.
 
 ## Progress
 
-2026-10-07: replaced by real GitHub (user decision); see [20261007-real-github-lane](20261007-real-github-lane.md).
+2026-10-07: replaced by real GitHub (user decision); see [20261007-real-github-lane](closed/20261007-real-github-lane.md).
 
 2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold. Rows that need a real account are signed in by the user in person on the lane build; every other sign-in row uses lane fixtures.
 
@@ -160,5 +160,5 @@ Planned. No branch.
 
 ## Next action
 
-None: superseded by [20261007-real-github-lane](20261007-real-github-lane.md). Its verb table remains the
+None: superseded by [20261007-real-github-lane](closed/20261007-real-github-lane.md). Its verb table remains the
 coverage list the real lane's probe proves.

@@ -3,7 +3,7 @@ name: 20261005-provider-sign-in-and-install
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-unverified-rows
-delivery: draft
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-provider-sign-in-and-install
@@ -34,7 +34,7 @@ Excluded: Codex managed install and ChatGPT sign-in (`20261005-managed-codex-cha
 
 ## Context and guidance
 
-Parent specification: [spec](../spec.md). Paths: `C/` = `examples/t3-code/`; `W/` = `apps/web/src/components/` at T3 Code `1e2ecbd975`. Line numbers are from the mc-orch tree on 2026-10-05; `20261005-hot-file-split` moves code, so find it by symbol. Tools are named by their `target/t3-ui-parity/…` path (committed under `examples/t3-code/tools/` with the same relative paths, decision U23).
+Parent specification: [spec](../../spec.md). Paths: `C/` = `examples/t3-code/`; `W/` = `apps/web/src/components/` at T3 Code `1e2ecbd975`. Line numbers are from the mc-orch tree on 2026-10-05; `20261005-hot-file-split` moves code, so find it by symbol. Tools are named by their `target/t3-ui-parity/…` path (committed under `examples/t3-code/tools/` with the same relative paths, decision U23).
 Source behavior: `W/settings/ProviderAuthenticationSection.tsx:31-475`, `W/settings/ProviderSetupSection.tsx:95-328`, `W/settings/ProviderWizardAuthenticationStep.tsx`, `W/settings/ProviderSettingsPanel.tsx:1043-1118`, `W/chat/ProviderStatusBanner.tsx:12-140`, `W/chat/ModelPickerContent.tsx:103-114, 1051-1076`, `packages/contracts/src/providerSetup.ts`, `packages/contracts/src/rpc.ts:366-381`, `packages/client-runtime/src/state/server.ts:989-1060`, `W/settings/RedactedSensitiveText.tsx:6-61`, `W/settings/ProviderInstanceCard.tsx:188-200, 752-762`, `W/settings/SourceControlSettings.tsx:160-168`.
 Library revision: `20261005-platforms-v3`. Selected topics: state-and-data (a long flow is a stream plus short commands; keep text drafts apart from committed values), accessibility (icon buttons need `aria-label`; status text is announced), design (all states), layout-and-interaction (native inputs), testing-and-debugging (`--json` drives; static evidence is not runtime evidence), platforms (macOS). Unknown in the library: app-local Swift modules, the module op that opens a URL, stream handling in the Swift transport. The clone's runtime evidence on the pinned main (from `20261005-clone-on-exact2-main`) is the basis.
 Consumer framework revision and toolchain: the main pin chosen in `20261005-clone-on-exact2-main`; Xcode 27.0; pinned Bun 1.4.2.
@@ -46,14 +46,14 @@ Scheduling preference (not a prerequisite): after `20261005-main-fix-adoption` (
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged into `daehyeon/t3-code` | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged (oracle, trace proxy, diff, RPC tally) | pending |
-| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged (area files and registration points exist) | pending |
+| merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged into `daehyeon/t3-code` | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](../20261005-desktop-oracle-and-trace.md) | pending | Merged (oracle, trace proxy, diff, RPC tally) | pending |
+| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged (area files and registration points exist) | pending |
 | recorded decision | Plan decision U2 / U23 (apparatus): provider-setup stream fixture `target/t3-ui-parity/provider-setup-fixture.mjs` (a scripted responder in the lane kit that answers `provider.auth.*` / `provider.install.*` with scripted state sequences on ports 16000–16999; reused by `20261005-managed-codex-chatgpt`, `20261005-provider-settings-upkeep` and `20261005-usage-reset-and-feedback`) | none | User approves at `prepare` | pending |
 
 ## Issue assessment at preparation
 
-Checked sources and time: plan `issues/` drafts (local, unpublished) read 2026-10-05; no upstream search (no network); library topics above. Issue records: [X21](../issues/20261005-x21-two-way-websocket.md), [X9](../issues/20261005-x09-root-component-across-files.md), [X17](../issues/20261005-x17-popover-position-try.md), [X5](../issues/20261005-x05-url-scheme-delivery.md), [X35](../issues/closed/20261005-x35-secure-text-entry.md), [X42](../issues/20261005-x42-text-blur-filter.md).
+Checked sources and time: plan `issues/` drafts (local, unpublished) read 2026-10-05; no upstream search (no network); library topics above. Issue records: [X21](../../issues/20261005-x21-two-way-websocket.md), [X9](../../issues/20261005-x09-root-component-across-files.md), [X17](../../issues/20261005-x17-popover-position-try.md), [X5](../../issues/20261005-x05-url-scheme-delivery.md), [X35](../../issues/closed/20261005-x35-secure-text-entry.md), [X42](../../issues/20261005-x42-text-blur-filter.md).
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
@@ -63,7 +63,7 @@ Checked sources and time: plan `issues/` drafts (local, unpublished) read 2026-1
 | X17 | Popover flips | The picker footer lives inside the existing picker popover; no flip needed | nonblocking | none |
 | X5 | URL scheme delivery | Not used: the `t3code://` handler serves hosted web only | not applicable | none |
 | X11 | Tooltip and popover shadow | Redaction tooltip, confirm dialogs | nonblocking (visible difference declared) | Cite in the matrix |
-| [X42](../issues/20261005-x42-text-blur-filter.md) | `filter: blur()` on text and boxes | The reference blurs the hidden placeholder (`blur-xs`, `RedactedSensitiveText.tsx:48`); the only `filter` precedent in the clone is on SVG groups (`settings-a-collections.contract:110`) | unknown until checked; if absent, nonblocking only when the user waives the blur (the placeholder text still hides the value) | Check `filter` on a text node at `prepare`; apply the X42 adoption steps when it lands |
+| [X42](../../issues/20261005-x42-text-blur-filter.md) | `filter: blur()` on text and boxes | The reference blurs the hidden placeholder (`blur-xs`, `RedactedSensitiveText.tsx:48`); the only `filter` precedent in the clone is on SVG groups (`settings-a-collections.contract:110`) | unknown until checked; if absent, nonblocking only when the user waives the blur (the placeholder text still hides the value) | Check `filter` on a text node at `prepare`; apply the X42 adoption steps when it lands |
 | open an external URL from app code | App-local Swift op (`NSWorkspace.shared.open`; precedent `C/modules/apple/R6MediaPreview.swift:248-250`) | Not an exact2 gap; unknown in the library | nonblocking (workaround matches the reference result) | Confirm the reference's scheme rules in `ElectronShell.openExternal` at implementation |
 
 ## Implementation notes
@@ -130,7 +130,7 @@ eight scope items. What was built and where:
 - Deviation kept: terminal-type sign-in methods are not offered (scope of
   `20261005-sign-in-terminals`). The Runtime row's bar has `role="progressbar"` with its
   percentage as `aria-description`: Contract has no progress value (local draft
-  [X49](../issues/20261007-x49-progress-value-accessibility.md)).
+  [X49](../../issues/20261007-x49-progress-value-accessibility.md)).
 
 Attended row (2026-10-07/08, real input through `orca computer` under the real-input lock, lane
 copy `T3 Code (Lane PSI).app` with its own bundle id, lane server `t3` 0.0.46-nightly on port
@@ -214,9 +214,9 @@ buttons (`settings-shortcuts.contract` `keyboard-dispatch`), in every dialog, no
 ## Next action
 
 Review and merge PR #238 into `feat(example)/t3-code`. The remaining verification and each
-item's disposition are tracked in [provider sign-in verification follow-up](20261008-provider-sign-in-verification-followup.md).
-The app-wide focus finding has its own [dialog shortcut focus task](20261008-dialog-shortcut-focus.md).
+item's disposition are tracked in [provider sign-in verification follow-up](../20261008-provider-sign-in-verification-followup.md).
+The app-wide focus finding has its own [dialog shortcut focus task](../20261008-dialog-shortcut-focus.md).
 Cursor remains unverified until tested with a Pro account; Google/ACP and real-account
-sign-out/change also remain unverified. Publishing [X49](../issues/20261007-x49-progress-value-accessibility.md)
+sign-out/change also remain unverified. Publishing [X49](../../issues/20261007-x49-progress-value-accessibility.md)
 upstream still needs the user's approval. Merging this implementation does not complete
 these follow-ups.

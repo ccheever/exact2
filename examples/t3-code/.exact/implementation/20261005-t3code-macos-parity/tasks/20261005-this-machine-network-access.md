@@ -84,7 +84,7 @@ Do not grow `app.contract` or `client.ts`; put the section in a new `.contract` 
 | merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
-| merged task PR | [20261005-local-primary-environment](20261005-local-primary-environment.md) | pending | Merged | pending |
+| merged task PR | [20261005-local-primary-environment](closed/20261005-local-primary-environment.md) | pending | Merged | pending |
 | recorded decision | U4 decided (relaunch); U8 (hosted link), U9 (Tailscale verification) | none | U8 and U9 answered at `prepare` | U4: user 2026-10-05 |
 
 ## Issue assessment at preparation

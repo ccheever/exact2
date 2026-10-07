@@ -106,7 +106,7 @@ Filed as [#140](https://github.com/ccheever/exact2/issues/140), still open for a
 held-modifier fact. Main #220 (`5a20af1cf`) adds DOM's `keyup`, `KeyboardEvent.code` and `.repeat` on every host
 (macOS: AppKit's keyUp and a released modifier, `code` from the key code, `repeat` from `isARepeat`); a ⌘ chord
 during a composition commits it first (main's QUEUE). `#140` also notes that `press` already takes a `MouseEvent`
-with modifiers. In the feature branch since main `261dd4e10` ([adopt-main-fixes-r5](../tasks/20261007-adopt-main-fixes-r5.md)).
+with modifiers. In the feature branch since main `261dd4e10` ([adopt-main-fixes-r5](../tasks/closed/20261007-adopt-main-fixes-r5.md)).
 
 Nothing to remove. Every clone monitor needs what is still missing, or lives where Contract key handlers do not reach:
 - held ⌘ for the sidebar's jump hints (`T3Sidebar.swift`) and the Send button's alternate label

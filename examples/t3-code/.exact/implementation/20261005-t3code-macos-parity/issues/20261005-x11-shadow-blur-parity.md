@@ -119,7 +119,7 @@ Filed as [#129](https://github.com/ccheever/exact2/issues/129) (the negative-spr
 that is a sibling of what it covers), the chain mirrors the box before the blur, as Chrome does, so the edges no
 longer read past the box. A backdrop beyond the parent's subtree (case B) and `saturate()` continue in
 [#225](https://github.com/ccheever/exact2/issues/225). In the feature branch since main `261dd4e10`
-([adopt-main-fixes-r5](../tasks/20261007-adopt-main-fixes-r5.md)).
+([adopt-main-fixes-r5](../tasks/closed/20261007-adopt-main-fixes-r5.md)).
 
 Nothing to remove; the clone's real backdrops changed with no clone edit. The composer command drawer
 (`ComposerDrawerLayer`, `blur(16px)` over the chat column) had a dark band at its bottom edge before (the blur read the

@@ -106,7 +106,7 @@ Checked sources and time: plan issue drafts in [issues](../issues/README.md), 20
 | [X21](../issues/20261005-x21-two-way-websocket.md) | Two-way WebSocket | LLP 1016.000 receive-only | nonblocking (workaround: Swift transport) | Add the preview RPCs and the `previewAutomation.*` stream to `T3Transport.swift` |
 | [X22](../issues/20261005-x22-reactive-layout-facts.md) | Slot rect of the guest view | `t3-frame` hooks | nonblocking (workaround exists) | Report the slot's rect to the native view |
 | [X25](../issues/20261005-x25-keyboard-keyup-code-capture.md) | Key facts and the `previewFocus` context | native key monitors | nonblocking | The guest swallows keys; forward ⌘R, ⌘L, ⌘= ⌘- ⌘0 as `PreviewKeyboard.ts` does |
-| [X26](../issues/20261005-x26-app-menu-control.md) | Native context menus | `T3ContextMenu.swift` | nonblocking | Tab menu rows reuse the native menu; since #223 a context popover can carry submenus ([adopt-main-fixes-r5](20261007-adopt-main-fixes-r5.md)) |
+| [X26](../issues/20261005-x26-app-menu-control.md) | Native context menus | `T3ContextMenu.swift` | nonblocking | Tab menu rows reuse the native menu; since #223 a context popover can carry submenus ([adopt-main-fixes-r5](closed/20261007-adopt-main-fixes-r5.md)) |
 
 ## Implementation notes
 

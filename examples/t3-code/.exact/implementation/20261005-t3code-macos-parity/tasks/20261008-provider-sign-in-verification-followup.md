@@ -20,7 +20,7 @@ Keep every item in [PR #238](https://github.com/ccheever/exact2/pull/238)'s
 This task records remaining verification, existing ownership and explicit user decisions;
 it does not claim fresh live testing. The user clarified on 2026-10-08 that Cursor must
 remain pending until a Pro account is available, superseding the earlier closed disposition.
-Source: [original task and attended evidence](20261005-provider-sign-in-and-install.md#attempts-and-evidence),
+Source: [original task and attended evidence](closed/20261005-provider-sign-in-and-install.md#attempts-and-evidence),
 reconciled 2026-10-08 at `29dbc5dbf`. No implementer is assigned yet.
 
 ## Disposition and resumption

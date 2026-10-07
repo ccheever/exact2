@@ -48,7 +48,7 @@ Scheduling preference (not a prerequisite): after `20261005-main-fix-adoption` (
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged (area files and registration points exist) | pending |
-| merged task PR | [20261005-provider-sign-in-and-install](20261005-provider-sign-in-and-install.md) | pending | Merged (streams, open-URL op, setup fixture, `RedactedText`) | pending |
+| merged task PR | [20261005-provider-sign-in-and-install](closed/20261005-provider-sign-in-and-install.md) | pending | Merged (streams, open-URL op, setup fixture, `RedactedText`) | pending |
 | recorded decision | Plan decision U2 / U23 (apparatus): the provider-setup fixture `target/t3-ui-parity/provider-setup-fixture.mjs` introduced by `20261005-provider-sign-in-and-install` is reused | none | Approved there | pending |
 | recorded decision | A real ChatGPT test account and an isolated server for the attended session | none | User provides at `prepare` | pending |
 

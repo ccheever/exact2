@@ -3,7 +3,7 @@ name: 20261007-adopt-main-fixes-r5
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: passed
-delivery: none
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-adopt-main-fixes-r5
@@ -45,8 +45,8 @@ Brief: coordinator's round-5 adoption task. The fixes were confirmed on main by 
 #219, `5a20af1cf` #220, `846a844da` #221, `d988e318b` #223 and `dfcf8e9cf` #226. PR bodies and issue comments
 were read too: #140, #141 and #225 are open, #224 is open, #113 is closed with no comment. Main's vocabulary was
 checked for X27: `env()` names, `host.macos.window`, `exactViewport()` and `exactPage()` fields. Earlier rounds:
-[adopt-main-fixes-r4](closed/20261007-adopt-main-fixes-r4.md) (#218),
-[adopt-main-fixes-r3](closed/20261007-adopt-main-fixes-r3.md) (#207).
+[adopt-main-fixes-r4](20261007-adopt-main-fixes-r4.md) (#218),
+[adopt-main-fixes-r3](20261007-adopt-main-fixes-r3.md) (#207).
 
 ## Dependencies
 
@@ -103,10 +103,10 @@ stall, and the 64-pending cap), with one real-input session on the after build: 
 transfer (60ada7142), and main `1f19b2400` was merged (#240 fixes #234, so the bundle builds with no shim; no clone
 change needed). Verification: passed. Every check that runs here passes on `35197a341`, the merge that holds both (runner
 attempt 8, `source_unchanged: true`, source digest `f2b0db9f`:
-[`attempt8-report.json`](../evidence/20261007-adopt-main-fixes-r5/attempt8-report.json); attempts 1-7 are kept; recipe and
+[`attempt8-report.json`](../../evidence/20261007-adopt-main-fixes-r5/attempt8-report.json); attempts 1-7 are kept; recipe and
 `swift-tests.sh` beside them). The live checks were run by hand on `e4087409d` (records 07 and 08), before the transfer fix
 and the main merge; those two are covered by tests and builds, not by another session.
-Independent reviews: [`review.md`](../evidence/20261007-adopt-main-fixes-r5/review.md) (the watch fix PASS; the storm fix
+Independent reviews: [`review.md`](../../evidence/20261007-adopt-main-fixes-r5/review.md) (the watch fix PASS; the storm fix
 PASS, then FAIL on 3373f7919, then PASS on the shared reads). The task stays under `tasks/` for the coordinator's records
 sync; the PR stays a draft.
 
@@ -229,7 +229,7 @@ Findings for follow-ups (not this task):
   `T3PanelsNative.swift`, `R6DeviceStream.swift`) stall the main queue the same way while open. A shared reply over 512 KB
   handed every joined caller one native transfer, which the first reader released (fixed in 60ada7142). A never-seen non-Git checkout shows
   the assumed-Git strip until its status arrives, as ChatView does.
-- From the follow-up's independent review ([`review.md`](../evidence/20261007-adopt-main-fixes-r5/review.md)), none of
+- From the follow-up's independent review ([`review.md`](../../evidence/20261007-adopt-main-fixes-r5/review.md)), none of
   them observed. Other let-go paths still show something or lose state. `auto-balance.ts` `retargetDraft` toasts "Could
   not switch machine" for a let-go. `settings-b-outdated.ts` `probeDescriptors` caches a let-go probe as no descriptor
   until the page closes. Prelude calls outside `native` (crypto, a plain `fetch`) throw a plain "outside an answer"

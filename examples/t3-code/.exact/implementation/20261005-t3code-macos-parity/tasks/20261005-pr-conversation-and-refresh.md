@@ -68,7 +68,7 @@ is "Nothing has happened…" (`contract:489`), the reference says "No activity y
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged (oracle shots, trace diff) | pending |
-| merged task PR | [20261007-real-github-lane](20261007-real-github-lane.md) | pending | Sandbox seeded (`second-review` conversation); probe rows for `activity`, `threadComments` and `subscribeRefreshes` decoded; injection by unit tests | pending |
+| merged task PR | [20261007-real-github-lane](closed/20261007-real-github-lane.md) | pending | Sandbox seeded (`second-review` conversation); probe rows for `activity`, `threadComments` and `subscribeRefreshes` decoded; injection by unit tests | pending |
 | scheduling preference | [20261005-main-fix-adoption](closed/20261005-main-fix-adoption.md) | pending | Merged first if popover/tooltip Contract is edited | pending |
 | merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 
@@ -141,4 +141,4 @@ Planned. No branch.
 
 ## Next action
 
-Starts after [20261007-real-github-lane](20261007-real-github-lane.md) merges: `prepare` from `feat(example)/t3-code` on its shared lane login and sandbox (`examples/t3-code/tools/github-lane/README.md`), with a unit-test fallback for injected failures and delays and for the read, triage and read-only-author profiles.
+Starts after [20261007-real-github-lane](closed/20261007-real-github-lane.md) merges: `prepare` from `feat(example)/t3-code` on its shared lane login and sandbox (`examples/t3-code/tools/github-lane/README.md`), with a unit-test fallback for injected failures and delays and for the read, triage and read-only-author profiles.

@@ -3,7 +3,7 @@ name: 20261007-real-github-lane
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: verified-with-unverified-rows
-delivery: draft
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-real-github-lane
@@ -18,7 +18,7 @@ verified_commit: null
 The user's decision (2026-10-07): "The work that used a fake GitHub now connects to the real GitHub."
 Pull request features are verified against real GitHub through the real GitHub CLI that the T3
 server spawns, signed in by the user personally into lane-only config dirs. This task replaces
-[20261005-fake-github-fixture](20261005-fake-github-fixture.md) (now `blocked`, superseded) with:
+[20261005-fake-github-fixture](../20261005-fake-github-fixture.md) (now `blocked`, superseded) with:
 
 1. a lane recipe: isolated T3 servers whose `gh` is the real CLI on a lane config dir, two accounts;
 2. a disposable sandbox repository the user approves, and an idempotent seed that fills it with
@@ -45,7 +45,7 @@ The apparatus is approved by the user's request to use real GitHub ("keep it sma
 
 ## Context and guidance
 
-Parent specification: [spec](../spec.md). Reference server: T3 Code `1e2ecbd975`
+Parent specification: [spec](../../spec.md). Reference server: T3 Code `1e2ecbd975`
 `apps/server/src/pullRequest/GitHubPullRequestCli.ts`, `githubStackActions.ts`,
 `gitHubPullRequestJson.ts`, `GitHubPullRequestProvider.ts` (`gitHubViewerPermissions`). The lane
 server is the official release the app embeds (`server-runtime/runtime-pin.json`,
@@ -66,7 +66,7 @@ wrapper refuses to run unless that dir holds its own token, so the keyring is ne
 | recorded decision | Two accounts: the user signs in a second account too (user, 2026-10-07) | none | — | decided |
 | recorded decision | The sandbox: `daehyeonmun2021/playground`, public, neutral playground content (user, 2026-10-07) | none | — | decided; created by the seed |
 | user action | The user signs both accounts in to the lane config dirs | none | `gh api user -q .login`: primary `daehyeonmun2021`, second `daehyeon-mun` | done 2026-10-07 |
-| merged task PR | [20261005-embedded-server-runtime](closed/20261005-embedded-server-runtime.md) | #222 | the staged release runs as the lane server | merged |
+| merged task PR | [20261005-embedded-server-runtime](20261005-embedded-server-runtime.md) | #222 | the staged release runs as the lane server | merged |
 | open task PR | adopt main's fixes, round 5 (the composer strip on a normal launch; the "native.watch outside an answer" banner) | #236 | the strip renders and the banner is gone on a normal launch; this branch carries no fix of its own | verified on a local integration of this branch with #236 at `1ae9fab49` (2026-10-08); #236 open |
 | recorded decision | The hand-off send uses the provider lane's signed-in Claude (coordinator, 2026-10-08) | none | the lane server's Claude instance gets only `HOME` and that lane's `CLAUDE_CONFIG_DIR` | decided; used once |
 

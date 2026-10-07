@@ -76,7 +76,7 @@ Edge cases to test: `$TMPDIR` differs between the CLI's shell and the app (the r
 | merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
-| merged task PR | [20261005-local-primary-environment](20261005-local-primary-environment.md) | pending | Merged | pending |
+| merged task PR | [20261005-local-primary-environment](closed/20261005-local-primary-environment.md) | pending | Merged | pending |
 | recorded decision | U10 (hosted-web deep link kept or dropped; command-line install action) | none | Answered at `prepare` | pending |
 
 ## Issue assessment at preparation
