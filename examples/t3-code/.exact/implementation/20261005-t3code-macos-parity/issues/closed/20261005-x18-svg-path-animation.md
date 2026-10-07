@@ -1,10 +1,10 @@
 ---
 name: 20261005-x18-svg-path-animation
 plan: 20261005-t3code-macos-parity
-status: draft
+status: closed-upstream
 kind: framework-gap
 blocks: [20261005-composer-fidelity]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/123
 reproduced_on: null
 ---
 
@@ -109,6 +109,12 @@ found by the call-site check go into a follow-up ticket `20261005-adopt-x18-svg-
 `issue-close` creates when the fix lands (planned plan revision).
 
 ## Status and next action
-Draft; not reproduced on the pinned `main`; not searched upstream; not published.
-Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval;
-publication only after approval).
+
+Filed as #123; closed 2026-10-07 by main #188 (`74affc099`, merged in `c46c96bda`). `d` is a transition
+property: `transition="d …"` compiles, `contract vocab transition` lists `d`, `all` covers `d`, and macOS,
+iOS and Linux morph a path the web morphs (PR #188's films and Linux ink test). As in Chrome, a pair with
+different commands changes at once rather than flipping at the midpoint. Still missing upstream: keyframed
+`d` (LLP 1055.000 stage 10b). Not verified here: the issue's reproduction was not rerun.
+**Not adopted**: `feat(example)/t3-code` does not yet contain `74affc099`. Next: merge main into the feature
+branch, then the adoption above (`MorphPair` → one `path` with a `d` transition where the shapes share
+structure; the Send icon first) under `20261005-composer-fidelity`'s row or `20261005-adopt-x18-svg-morph`.

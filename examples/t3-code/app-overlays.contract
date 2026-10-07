@@ -176,7 +176,7 @@ component WindowOverlays
     when data.revertPending != ""
       RevertDialog(busy=commandPending, answer=answerRevert)
     when data.imagePreviewId != ""
-      ImagePreviewHost(id=data.imagePreviewId, urls=attachmentUrls.items, name=data.imagePreviewName, position=data.imagePreviewPosition, previous=data.imagePreviewPrevious, next=data.imagePreviewNext, video=data.imagePreviewVideo, windowWidth=viewport.width, windowHeight=viewport.height, local=chatLocal)
+      ImagePreviewHost(id=data.imagePreviewId, urls=attachmentUrls.items, name=data.imagePreviewName, position=data.imagePreviewPosition, previous=data.imagePreviewPrevious, next=data.imagePreviewNext, video=data.imagePreviewVideo, source=data.imagePreviewSource, windowWidth=viewport.width, windowHeight=viewport.height, local=chatLocal)
     each diagram in data.diagramPreview key=diagram.id
       DiagramPreviewDialog(diagram=diagram, windowWidth=viewport.width, windowHeight=viewport.height, scheme=viewport.prefersColorScheme, local=chatLocal)
     // r4-composer: a shelf video's expanded preview (r4-composer.contract).

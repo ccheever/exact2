@@ -379,6 +379,7 @@ shape Snapshot
   imagePreviewPrevious: bool
   imagePreviewNext: bool
   imagePreviewVideo: bool
+  imagePreviewSource: string
   diagramPreview: list<MermaidDiagram>
   planSaveOpen: bool
   planSavePath: string

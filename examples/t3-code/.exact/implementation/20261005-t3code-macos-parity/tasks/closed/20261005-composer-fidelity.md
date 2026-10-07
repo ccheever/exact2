@@ -91,7 +91,7 @@ Checked sources and time: {{at prepare}}; draft records only.
 | [X17](../../issues/20261005-x17-popover-position-try.md) | Menu flips near edges | X17 | nonblocking (workaround: fixed placement; differs near edges) | Declare |
 | [X30](../../issues/20261005-x30-ts-announce-readback-picker.md) | Attachment bytes in queue edit | X30 | nonblocking (workaround: native modules, `T3ComposerAttach.swift`) | Reuse `uploadAttachment` (`T3Transport.swift:470`) |
 | [X9](../../issues/20261005-x09-root-component-across-files.md) | `app.contract` cap | 1,327 of 1,500 | nonblocking until the cap | Child components for new views |
-| [X18](../../issues/20261005-x18-svg-path-animation.md) | Morphing icons (the Send / Stop icon swap) | X18 | nonblocking (workaround: cross-fade; a visible difference until X18 is adopted) | add the morph when X18 is adopted |
+| [X18](../../issues/closed/20261005-x18-svg-path-animation.md) | Morphing icons (the Send / Stop icon swap) | X18 | nonblocking (workaround: cross-fade; a visible difference until X18 is adopted) | add the morph when X18 is adopted |
 
 ## Implementation notes
 
