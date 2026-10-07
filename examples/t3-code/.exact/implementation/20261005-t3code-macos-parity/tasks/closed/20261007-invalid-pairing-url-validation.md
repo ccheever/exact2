@@ -3,11 +3,11 @@ name: 20261007-invalid-pairing-url-validation
 plan: 20261005-t3code-macos-parity
 implementation: verified
 verification: passed
-delivery: none
+delivery: open
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-invalid-pairing-url
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/242
 verified_commit: fd638f9a4251d9ebd007eecfb4c58d9d539788ef
 ---
 
@@ -96,8 +96,8 @@ No existing task explicitly tracks this mismatch.
 
 ## Next action
 
-Publish the verified task PR into `feat(example)/t3-code` with accessible
-before/after screenshots, then record its URL and delivery status.
+Run `pr-review` for [PR #242](https://github.com/ccheever/exact2/pull/242), targeting
+`feat(example)/t3-code`. Its body contains the before/after evidence and check outcomes.
 
 ## Scope and exclusions
 
@@ -203,3 +203,9 @@ to the reviewed credential-free before/after and recovery screenshots.
 Verified implementation commit: `fd638f9a4251d9ebd007eecfb4c58d9d539788ef`.
 An exact `git archive` of that revision matched the passing source fingerprint and
 recipe. Local comparison: `target/pairing-validation/committed-source-compare.json`.
+
+
+Published PR: https://github.com/ccheever/exact2/pull/242 (open, ready for `pr-review`).
+The before/after screenshots are pinned to evidence commit
+`0daf6f35c0d444f60bebaeafeff8cb6a98436ea1`; all four downloaded image hashes match
+the local originals. PR base, head, body and open state were read back after creation.
