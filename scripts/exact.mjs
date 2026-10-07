@@ -30,7 +30,7 @@
 // second executable path for the same binary, and macOS gives it the bundle
 // identity of whatever the *symlink* is beside — which is not the app.
 import { spawn, spawnSync } from 'node:child_process';
-import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { accessSync, chmodSync, closeSync, constants, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, readlinkSync, readSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { BINARYEN } from '../host/web/stages.mjs';
@@ -216,20 +216,70 @@ function developerID() {
   return /\b([0-9A-F]{40})\s+"Developer ID Application: /.exec(found)?.[1] ?? null;
 }
 
-/** Everything in a bundle that carries its own signature, innermost first.
- *  A bundle is sealed over its contents, so a nested library re-signed after
- *  its container invalidates the container. */
-function signingOrder(bundle) {
-  const inner = [];
-  const walk = (dir) => {
+/** The directory suffixes that are code bundles: each carries its own seal. */
+const NESTED_BUNDLE = /\.(app|appex|bundle|framework|plugin|xpc|systemextension)$/;
+
+/** Whether a file is Mach-O code, by its magic and not its name: a helper
+ *  executable or a `.node` addon has no `.dylib` to go by. Thin 32- and 64-bit,
+ *  either byte order, and universal (fat) files. A fat magic is also a Java
+ *  class file's, told apart by what follows it: a fat header's architecture
+ *  count is small, a class file's version is not. */
+function machO(path) {
+  const head = Buffer.alloc(8);
+  let fd;
+  try {
+    fd = openSync(path, 'r');
+    if (readSync(fd, head, 0, 8, 0) < 8) return false;
+  } catch { return false; } finally { if (fd !== undefined) closeSync(fd); }
+  const magic = head.readUInt32BE(0);
+  if ([0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe].includes(magic)) return true;
+  if (magic === 0xcafebabe || magic === 0xcafebabf) return head.readUInt32BE(4) < 32;
+  if (magic === 0xbebafeca || magic === 0xbfbafeca) return head.readUInt32LE(4) < 32;
+  return false;
+}
+
+/** A bundle's main executable, which codesign signs when it signs the bundle
+ *  (and signing that path alone seals the bundle, before what it holds): an
+ *  app's `Contents/MacOS/<name>`, a versioned framework's `Versions/<current>/<name>`
+ *  as the walk reaches it (not through the `Current` link), a shallow bundle's
+ *  `<name>`. The plist is XML or, through `plutil`, binary. */
+function bundleExecutable(bundle) {
+  const executable = (plist) => {
+    if (!existsSync(plist)) return null;
+    const xml = /<key>CFBundleExecutable<\/key>\s*<string>([^<]+)<\/string>/.exec(readFileSync(plist, 'latin1'))?.[1];
+    if (xml) return xml;
+    const read = spawnSync('plutil', ['-extract', 'CFBundleExecutable', 'raw', '-o', '-', plist], { encoding: 'utf8' });
+    return read.status === 0 ? read.stdout.trim() || null : null;
+  };
+  let version = null;
+  try { version = readlinkSync(resolve(bundle, 'Versions/Current')); } catch {}
+  for (const [plist, dir] of [['Contents/Info.plist', 'Contents/MacOS'], ...(version ? [[`Versions/${version}/Resources/Info.plist`, `Versions/${version}`]] : []), ['Info.plist', '.']]) {
+    const name = executable(resolve(bundle, plist));
+    if (name) return resolve(bundle, dir, name);
+  }
+  return null;
+}
+
+/** Everything in a bundle that carries its own signature, innermost first:
+ *  every Mach-O file (an executable, a library, an addon — wherever it sits)
+ *  and every nested bundle after what it holds. A bundle is sealed over its
+ *  contents, so code re-signed after its container invalidates the container.
+ *  Symlinks are skipped: a framework's `Versions/Current` names what is signed
+ *  through its real path. */
+export function signingOrder(bundle) {
+  const order = [];
+  const walk = (dir, main) => {
     for (const name of readdirSync(dir, { withFileTypes: true })) {
       const path = resolve(dir, name.name);
-      if (name.isDirectory()) walk(path);
-      else if (name.name.endsWith('.dylib')) inner.push(path);
+      if (name.isDirectory() && NESTED_BUNDLE.test(name.name)) {
+        walk(path, bundleExecutable(path));
+        order.push(path);
+      } else if (name.isDirectory()) walk(path, main);
+      else if (name.isFile() && path !== main && machO(path)) order.push(path);
     }
   };
-  walk(resolve(bundle, 'Contents'));
-  return [...inner, bundle];
+  walk(resolve(bundle, 'Contents'), bundleExecutable(bundle));
+  return [...order, bundle];
 }
 
 /** `exact release` — the build a teammate can actually open.
@@ -270,7 +320,7 @@ function release(app) {
   // notarisation's requirements, not preferences: a build without them is
   // rejected at submission rather than at launch. The app itself carries the
   // entitlements its `device.*` grants derive (LLP 1069.008 D4), read from the
-  // bake receipt inside the bundle; the libraries inside carry none.
+  // bake receipt inside the bundle; the code nested inside carries none.
   const built = JSON.parse(readFileSync(resolve(bundle, 'Contents/Resources/receipt.json'), 'utf8'));
   const entitled = macReleaseEntitlements(built.build?.compat);
   const entitlements = resolve(out, 'entitlements.plist');
