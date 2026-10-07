@@ -109,6 +109,22 @@ pub(crate) fn directory(app_id: &str, agent: bool) -> PathBuf {
         .join(id)
 }
 
+/// Take the file's lock without waiting, for as long as it stays open: true
+/// when this process now holds it. `flock` on Unix, which Android has and the
+/// standard library's lock does not cover there; elsewhere the library's.
+fn lock(file: &std::fs::File) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::fd::AsRawFd;
+        // SAFETY: the descriptor is this open file's, valid for the call.
+        unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) == 0 }
+    }
+    #[cfg(not(unix))]
+    {
+        file.try_lock().is_ok()
+    }
+}
+
 fn u32_at(bytes: &[u8], at: usize) -> u32 {
     u32::from_le_bytes([bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]])
 }
@@ -138,7 +154,9 @@ impl Breadcrumb {
         std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
         let file = options.open(&path).ok()?;
         file.set_len((SLOTS * SLOT_BYTES) as u64).ok()?;
-        file.try_lock().ok()?;
+        if !lock(&file) {
+            return None;
+        }
         // Shared, so what is stored outlives the process in the page cache.
         let map = unsafe { memmap2::MmapMut::map_mut(&file) }.ok()?;
         Some(Breadcrumb {
@@ -248,7 +266,7 @@ impl Breadcrumb {
                 continue;
             };
             // Its process still holds it: that run has not ended.
-            if file.try_lock().is_err() {
+            if !lock(&file) {
                 continue;
             }
             let mut bytes = Vec::new();
