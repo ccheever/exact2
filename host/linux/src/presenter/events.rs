@@ -307,13 +307,27 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// A secondary mouse click on a canvas, through the device input path.
-    /// Other native context menus remain unsupported, never a primary press.
+    /// Other native context menus remain unsupported, never a primary press:
+    /// one a node names with `contextPopover` (LLP 1021 §5.1, its submenus
+    /// §5.2) is refused as a popover, which Linux does not present.
     pub(crate) fn contextmenu(
         &mut self,
         id: ViewId,
         at: Option<(f32, f32)>,
     ) -> Result<String, String> {
-        self.mouse_click(id, at, true)
+        let names_popover = self
+            .host
+            .kernel()
+            .node(id)
+            .is_some_and(|node| node.props.str(PropId::ContextPopover).is_some());
+        self.mouse_click(id, at, true).map_err(|refusal| {
+            if names_popover && refusal.contains("canvas") {
+                self.host.log(crate::navigation::POPOVER_UNSUPPORTED);
+                crate::navigation::POPOVER_UNSUPPORTED.into()
+            } else {
+                refusal
+            }
+        })
     }
 
     /// An explicit primary mouse click; ordinary agent taps remain fingers.

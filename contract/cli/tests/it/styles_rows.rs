@@ -113,11 +113,15 @@ fn position_area_places_a_popover_in_the_admitted_subset_only() {
         "top span-right",
         "top span-all",
         "center",
+        "right span-bottom",
     ] {
         contract::compile(&popover(value)).unwrap_or_else(|e| panic!("{value}: {e}"));
     }
     for value in [
         "left",
+        "right",
+        "right span-top",
+        "span-bottom right",
         "top left",
         "span-all top",
         "top span-left",
