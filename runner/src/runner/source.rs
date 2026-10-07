@@ -344,7 +344,8 @@ pub trait DataSource {
 
     /// Call `wake`, from any thread, once a pending [`DataSource::preload`]
     /// would no longer answer false. A source whose `preload` can answer
-    /// false overrides this; the default wakes at once.
+    /// false overrides this; the default wakes at once, so a wrapper that
+    /// forwards `preload` forwards this too, or its host retries unpaced.
     fn when_preloaded(&self, wake: Box<dyn FnOnce() + Send>) {
         wake()
     }
