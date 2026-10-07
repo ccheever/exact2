@@ -387,6 +387,42 @@ macro_rules! canvas_jni {
                 window as jlong
             }
 
+            /// A GPU canvas without a window: it renders into buffers the
+            /// reader draws itself (`canvasFrame`, `canvasBuffer`).
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_attachBuffers(
+                _env: *mut JNIEnv,
+                _class: jclass,
+                view: jint,
+                width: jint,
+                height: jint,
+            ) {
+                with(|h| h.attach_window(view as u32, 0, (width as u32, height as u32)));
+            }
+
+            /// A buffered canvas's newest frame, from any thread: its ring's
+            /// generation (24 bits), the buffer's slot (8) and the frame's
+            /// serial (32); -1 before the first, -2 when this device has no
+            /// buffers for it (give it a window).
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_canvasFrame(
+                _env: *mut JNIEnv,
+                _class: jclass,
+                view: jint,
+            ) -> jlong {
+                $crate::canvas::jni::canvas_frame(view as u32)
+            }
+
+            /// That frame's buffer as a `HardwareBuffer` to wrap, or null.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_canvasBuffer(
+                env: *mut JNIEnv,
+                _class: jclass,
+                view: jint,
+            ) -> jobject {
+                $crate::canvas::jni::canvas_buffer(env, view as u32)
+            }
+
             /// The canvas's window is going: no more presenting into it.
             #[no_mangle]
             pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_detachSurface(
@@ -646,6 +682,7 @@ extern "C" {
     fn ANativeWindow_release(window: *mut c_void);
     fn AHardwareBuffer_fromHardwareBuffer(env: *mut JNIEnv, buffer: jobject) -> *mut c_void;
     fn AHardwareBuffer_toHardwareBuffer(env: *mut JNIEnv, buffer: *mut c_void) -> jobject;
+    fn AHardwareBuffer_release(buffer: *mut c_void);
     fn AHardwareBuffer_describe(buffer: *const c_void, desc: *mut BufferDesc);
     fn AHardwareBuffer_lock(
         buffer: *mut c_void,
@@ -707,6 +744,33 @@ pub unsafe fn copy_bitmap(env: *mut JNIEnv, id: u32, bitmap: jobject) -> bool {
     );
     AndroidBitmap_unlockPixels(env, bitmap);
     true
+}
+
+/// [`crate::surfaces::buffer_frame`] as one word for a reader.
+pub fn canvas_frame(view: u32) -> i64 {
+    match crate::surfaces::buffer_frame(view, false) {
+        Ok(([generation, slot, serial], _)) => {
+            (i64::from(generation & 0xff_ffff) << 40)
+                | (i64::from(slot & 0xff) << 32)
+                | i64::from(serial)
+        }
+        Err(false) => -1,
+        Err(true) => -2,
+    }
+}
+
+/// A buffered canvas's newest frame's buffer as a Java `HardwareBuffer`
+/// (which holds its own reference), or null.
+///
+/// # Safety
+/// `env` is the JNI call's.
+pub unsafe fn canvas_buffer(env: *mut JNIEnv, view: u32) -> jobject {
+    let Ok((_, buffer)) = crate::surfaces::buffer_frame(view, true) else {
+        return std::ptr::null_mut();
+    };
+    let object = AHardwareBuffer_toHardwareBuffer(env, buffer as *mut c_void);
+    AHardwareBuffer_release(buffer as *mut c_void);
+    object
 }
 
 /// Picture `id`'s own GPU buffer as a Java `HardwareBuffer` (which holds its

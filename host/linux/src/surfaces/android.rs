@@ -111,11 +111,59 @@ pub(crate) fn device_pending() -> bool {
 }
 
 /// A window a reader gave a canvas's view: the `ANativeWindow`, its pixel
-/// size, and whether the canvas has it.
+/// size, and whether the canvas has it. No window (0) is a canvas that
+/// renders into buffers the reader draws itself ([`frames`]).
 pub(crate) struct Window {
     window: usize,
     size: (u32, u32),
     attached: bool,
+}
+
+/// A canvas's newest finished frame, for a reader on another thread: the
+/// module's `[generation, slot, serial]` and a reference to the buffer.
+struct BufferFrame {
+    words: [u32; 3],
+    buffer: usize,
+}
+
+impl Drop for BufferFrame {
+    fn drop(&mut self) {
+        // SAFETY: the reference `publish` acquired.
+        unsafe { AHardwareBuffer_release(self.buffer as *mut _) };
+    }
+}
+
+#[link(name = "android")]
+extern "C" {
+    fn AHardwareBuffer_acquire(buffer: *mut std::ffi::c_void);
+    fn AHardwareBuffer_release(buffer: *mut std::ffi::c_void);
+}
+
+/// By canvas view: `None` once the module refused buffers (the reader gives
+/// the canvas a window instead).
+static FRAMES: std::sync::Mutex<BTreeMap<u32, Option<BufferFrame>>> =
+    std::sync::Mutex::new(BTreeMap::new());
+
+fn frames() -> std::sync::MutexGuard<'static, BTreeMap<u32, Option<BufferFrame>>> {
+    FRAMES.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// What canvas `view` has to draw, from any thread: `Ok` its newest frame's
+/// words and its buffer (an `AHardwareBuffer*` the caller now holds a
+/// reference to when `take`, else null), `Err(false)` nothing yet,
+/// `Err(true)` no buffers on this device.
+pub fn buffer_frame(view: u32, take: bool) -> Result<([u32; 3], usize), bool> {
+    match frames().get(&view) {
+        Some(Some(f)) => {
+            if take {
+                // SAFETY: the map's own reference keeps it alive here.
+                unsafe { AHardwareBuffer_acquire(f.buffer as *mut _) };
+            }
+            Ok((f.words, if take { f.buffer } else { 0 }))
+        }
+        Some(None) => Err(true),
+        None => Err(false),
+    }
 }
 
 impl Surfaces {
@@ -126,6 +174,22 @@ impl Surfaces {
                 continue;
             };
             let abi = &self.abis[&c.artifact];
+            if w.window == 0 {
+                // A module built before buffers, or a device without them:
+                // the reader hears, and gives the canvas a window.
+                let made = unsafe {
+                    abi.library
+                        .get::<unsafe extern "C" fn(u32, u32, u32) -> u32>(b"gpu_attach_buffers")
+                }
+                .is_ok_and(|attach| unsafe { attach(c.id, w.size.0, w.size.1) } == 0);
+                if made {
+                    w.attached = true;
+                } else {
+                    let _ = abi.error();
+                    frames().insert(*view, None);
+                }
+                continue;
+            }
             let attach = unsafe {
                 abi.symbol::<unsafe extern "C" fn(u32, *mut std::ffi::c_void, u32, u32) -> u32>(
                     b"gpu_attach",
@@ -139,7 +203,48 @@ impl Surfaces {
         }
     }
 
+    /// Each buffered canvas's newest finished frame, where a reader on
+    /// another thread finds it ([`buffer_frame`]).
+    fn publish_buffers(&mut self) {
+        for (view, w) in &self.windows {
+            if w.window != 0 || !w.attached {
+                continue;
+            }
+            let Some(c) = self.canvases.get(view) else {
+                continue;
+            };
+            let abi = &self.abis[&c.artifact];
+            let mut words = [0u32; 3];
+            let buffer = unsafe {
+                abi.symbol::<unsafe extern "C" fn(u32, *mut u32) -> *mut std::ffi::c_void>(
+                    b"gpu_buffer",
+                )(c.id, words.as_mut_ptr())
+            };
+            if buffer.is_null() {
+                continue;
+            }
+            let mut frames = frames();
+            if frames
+                .get(view)
+                .is_some_and(|f| f.as_ref().is_some_and(|f| f.words == words))
+            {
+                continue;
+            }
+            // SAFETY: the module's ring keeps the buffer alive on this
+            // thread; the map takes a reference of its own.
+            unsafe { AHardwareBuffer_acquire(buffer) };
+            frames.insert(
+                *view,
+                Some(BufferFrame {
+                    words,
+                    buffer: buffer as usize,
+                }),
+            );
+        }
+    }
+
     fn detach(&mut self, view: u32) {
+        frames().remove(&view);
         if let (Some(w), Some(c)) = (self.windows.remove(&view), self.canvases.get(&view)) {
             if w.attached {
                 let abi = &self.abis[&c.artifact];
@@ -178,17 +283,28 @@ impl<D: DataSource> Presenter<D> {
         let scale = self.brush.scale;
         let mut wants = false;
         let mut flush = BTreeSet::new();
-        let views: Vec<u32> = self
+        let views: Vec<(u32, bool)> = self
             .surfaces
             .windows
             .iter()
             .filter(|(_, w)| w.attached)
-            .map(|(v, _)| *v)
+            .map(|(v, w)| (*v, w.window == 0))
             .collect();
-        for view in views {
-            let Some((_, _, w, h)) = self.rect_of(view) else {
+        let (vw, vh) = self.viewport();
+        for (view, buffered) in views {
+            let Some((x, y, w, h)) = self.rect_of(view) else {
                 continue;
             };
+            // A canvas with a window stops when its view is not drawn (the
+            // compositor takes no frame, so none can be acquired). One with
+            // buffers has no such word: it draws while it is in the viewport,
+            // or just outside (its box is the last paint's, which a scroll
+            // has moved since).
+            if buffered
+                && (y + h < -0.05 * vh || y > 1.05 * vh || x + w < -0.05 * vw || x > 1.05 * vw)
+            {
+                continue;
+            }
             let Some(c) = self.surfaces.canvases.get(&view) else {
                 continue;
             };
@@ -209,6 +325,7 @@ impl<D: DataSource> Presenter<D> {
                 self.surfaces.error = abi.error();
             }
         }
+        self.surfaces.publish_buffers();
         wants
     }
 }
