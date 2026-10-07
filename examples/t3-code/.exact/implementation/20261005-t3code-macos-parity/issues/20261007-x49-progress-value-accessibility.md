@@ -1,5 +1,5 @@
 ---
-name: 20261007-x48-progress-value-accessibility
+name: 20261007-x49-progress-value-accessibility
 plan: 20261005-t3code-macos-parity
 status: draft
 kind: framework-gap
@@ -8,7 +8,7 @@ upstream_url: null
 reproduced_on: 7d3a9d654 (feature branch on main 7fa3fa5b7's framework)
 ---
 
-# X48: a progress value for assistive technology (`progress`, `aria-valuenow`)
+# X49: a progress value for assistive technology (`progress`, `aria-valuenow`)
 
 ## Summary
 
