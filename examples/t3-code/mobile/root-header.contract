@@ -14,6 +14,10 @@ component MobileRootHeader
     previewColors: MobilePreviewColors
     browserCount: number
     devicesCount: number
+    inspectorAvailable: bool
+    inspectorVisible: bool
+    toggleInspector: action
+    openGit: action
     sidebarAvailable: bool
     sidebarVisible: bool
     back: action
@@ -66,7 +70,12 @@ component MobileRootHeader
       when routeName == "threadTerminal"
         button press=terminalMenu aria-label="Terminal options" testId="terminal-options"
           t3-symbol symbol-name="terminal" point-size=20 symbol-tint=iconColor width=20 height=20
+      when inspectorAvailable and (routeName == "thread" or routeName == "threadFile" or routeName == "threadReview")
+        button press=toggleInspector aria-label=(inspectorVisible ? "Hide inspector" : "Show inspector") aria-pressed=inspectorVisible
+          t3-symbol symbol-name="sidebar.right" point-size=20 symbol-tint=iconColor width=20 height=20
       when routeName == "thread"
+        button press=openGit aria-label="Git" testId="thread-git"
+          t3-symbol symbol-name="arrow.triangle.branch" point-size=20 symbol-tint=iconColor width=20 height=20
         MobilePreviewButton(count=browserCount, devices=false, colors=previewColors, action=openBrowser)
         MobilePreviewButton(count=devicesCount, devices=true, colors=previewColors, action=openDevices)
         button press=openTerminal aria-label="Terminal" testId="thread-terminal"

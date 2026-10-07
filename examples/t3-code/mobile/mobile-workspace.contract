@@ -31,6 +31,8 @@ shape MobileWorkspace
   environmentId: string
   threadId: string
   overlayCount: number
+  inspectorRouteKey: string
+  inspectorContentWidth: number
   sidebarRouteKey: string
   configuration: string
   inspectorToken: string
@@ -60,6 +62,13 @@ shape WorkspaceOptions
   reducedMotion: bool
   appearance: string
   background: string
+  fileInspectorPreferredWidth: number
+  inspectorRegistration: string
+  inspectorRole: string
+  inspectorExitToken: string
+  inspectorResizing: bool
+  dividerColor: string
+  dividerActiveColor: string
 shape WorkspaceNavigation
   operation: string
   sourceAction: string

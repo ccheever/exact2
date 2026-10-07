@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { mobileWorkspace, mobileWorkspaceEntries, mobileWorkspaceLocation, mobileWorkspaceThreadSelection,
+import { mobileWorkspaceEvent, mobileWorkspace, mobileWorkspaceEntries, mobileWorkspaceLocation, mobileWorkspaceThreadSelection,
   mobileWorkspaceFileSelection, mobileWorkspaceOverlay, type MobileWorkspaceOptions } from './mobile-workspace';
 const home = { id: 0, name: 'home', url: '/', params: {} };
 const thread = { id: 7, name: 'thread', url: '/threads/env/a', params: { threadEnvironment: 'env', threadId: 'a' } };
@@ -32,7 +32,7 @@ test('actual native geometry JSON matches scalar panes and reserves no invented 
   const projected = mobileWorkspace([home, thread], options), config = JSON.parse(projected.configuration);
   expect(projected).toMatchObject({ usesSplitView: true, sidebarTargetWidth: 328, contentSettledWidth: 696,
     workspaceRouteId: '7', environmentId: 'env', threadId: 'a', inspectorTargetWidth: 0 });
-  expect(config).toEqual({ sidebarRouteKey: 't3-workspace-sidebar', viewportWidth: 1024, viewportHeight: 768, usesSplitView: true, sidebarVisible: true,
+  expect(config).toEqual({ inspectorRouteKey: 't3-workspace-inspector', inspectorOwner: '', inspectorExitToken: '', inspectorContentWidth: 0, inspectorVisible: false, inspectorResizing: false, dividerColor: '#808080', dividerActiveColor: '#808080', sidebarRouteKey: 't3-workspace-sidebar', viewportWidth: 1024, viewportHeight: 768, usesSplitView: true, sidebarVisible: true,
     sidebarContentWidth: 328, sidebarTargetWidth: 328, contentSettledWidth: 696, inspectorTargetWidth: 0,
     reducedMotion: false, appearance: 'dark', background: '#111111' });
   expect(mobileWorkspace([home], { ...options, primarySidebarPreferredVisible: false })).toMatchObject({ sidebarVisible: true, emptyWorkspaceDetail: true });
@@ -110,4 +110,18 @@ test('Files opened from plain chat retain chat, while a current file preview upd
   expect(mobileWorkspaceFileSelection([home, thread], true, 'env', 'a', 'src/a.ts').operation).toBe('push');
   const file = { ...files, name: 'threadFile', url: '/threads/env/a/files/src%2Fa.ts' };
   expect(mobileWorkspaceFileSelection([home, thread, file], false, 'env', 'a', 'src/b.ts')).toMatchObject({ operation: 'replace', anchorRouteId: '12' });
+});
+
+
+test('inspector chrome and divider events belong to the current visible registration', () => {
+  const send = (event: object, visible = true) => mobileWorkspaceEvent(JSON.stringify(event), 'pane:4', 'exit:8', visible, 1100);
+  expect(send({ kind: 'search', owner: 'pane:old', value: 'secret' }).kind).toBe('');
+  expect(send({ kind: 'search', owner: 'pane:4', value: 'src' }, false).kind).toBe('');
+  expect(send({ kind: 'search', owner: 'pane:4', value: 'src' }).value).toBe('src');
+  expect(send({ kind: 'resize', owner: 'pane:4', phase: 'update', startWidth: 300, translationX: -40 }).width).toBe(340);
+  expect(send({ kind: 'resize', owner: 'pane:4', phase: 'step', startWidth: 300, translationX: 24 }).width).toBe(276);
+  expect(send({ kind: 'resize', owner: 'pane:4', phase: 'end', startWidth: 300, translationX: 0 }).phase).toBe('end');
+  expect(send({ kind: 'inspector-closed', owner: 'pane:4', exitToken: 'exit:7' }, false).kind).toBe('');
+  expect(send({ kind: 'inspector-closed', owner: 'pane:4', exitToken: 'exit:8' }).kind).toBe('');
+  expect(send({ kind: 'inspector-closed', owner: 'pane:4', exitToken: 'exit:8' }, false).kind).toBe('end-exit');
 });

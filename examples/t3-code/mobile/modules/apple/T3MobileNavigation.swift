@@ -26,7 +26,7 @@ enum T3MobileNavigation {
         // Custom symbol views paint the authored header; Exact's bar projection
         // accepts its built-in image vocabulary. Decorate the public bar items
         // by their authored accessibility labels, retaining their targets/actions.
-        let symbols = ["Show sidebar": "sidebar.left", "Hide sidebar": "sidebar.left",
+        let symbols = ["Show inspector": "sidebar.right", "Hide inspector": "sidebar.right", "Git": "arrow.triangle.branch", "Show sidebar": "sidebar.left", "Hide sidebar": "sidebar.left",
                        "New task": "square.and.pencil", "Terminal": "terminal",
                        "Review changes": "plus.forwardslash.minus", "Files": "folder",
                        "Agents": "person.2", "Terminal options": "terminal",

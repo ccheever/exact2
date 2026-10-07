@@ -1,4 +1,9 @@
-import { mobileWorkspace, mobileWorkspaceThreadSelection, mobileWorkspaceFileSelection, type MobileWorkspaceOptions } from './mobile-workspace';
+import { mobileGitColors } from './git-colors';
+import { mobileGitSnapshot, mobileGitRead, mobileGitAction } from './git-overview';
+import { mobileGitBranchesSnapshot, mobileGitBranchesRead, mobileGitBranchAction } from './git-branches';
+import { workspaceInspectorSnapshot } from './workspace-inspector';
+import { mobileInspectorContext, mobileInspectorTransition, mobileInspectorPresentation } from './workspace-inspector-adapter';
+import { mobileWorkspaceEvent, mobileWorkspace, mobileWorkspaceThreadSelection, mobileWorkspaceFileSelection, type MobileWorkspaceOptions } from './mobile-workspace';
 import { workspaceOf } from './shared/r4-surfaces-panel';
 import { mobileStreamingDescriptor } from './haptics';
 import { mobileNewTaskFlowView, mobileNewTaskFlowAction, mobileNewTaskFlowOwns, mobileNewTaskFlowCurrent } from './new-task-flow';
@@ -46,6 +51,18 @@ export const appId = 'com.exact.t3code.ios';
 export const grants = 'device.camera purpose.camera device.microphone purpose.microphone';
 
 export function answer(source: string, args: unknown[], _store?: unknown, storage?: Files, native?: Native | null) {
+  if (source === 'inspectorState') return workspaceInspectorSnapshot(str(args[0]));
+  if (source === 'inspectorContext') return mobileInspectorContext(args[0], args[1] === true, args[2] === true, Number(args[3]), args[4] === true, args[5] === true, args[6] === 'dark');
+  if (source === 'inspectorTransition') return mobileInspectorTransition(str(args[0]), str(args[1]), str(args[2]), str(args[3]), Number(args[4]), str(args[5]), args[6] === 'dark');
+  if (source === 'inspectorPresentation') return mobileInspectorPresentation(str(args[0]), str(args[1]), args[2] === true, str(args[3]), str(args[4]), str(args[5]));
+  if (source === 'workspaceEvent') return mobileWorkspaceEvent(str(args[0]), str(args[1]), str(args[2]), args[3] === true, Number(args[4]));
+  if (source === 'gitColors') return mobileGitColors(str(args[0]), str(args[1]));
+  if (source === 'gitSnapshot') return mobileGitSnapshot(Number(args[0]));
+  if (source === 'gitRead') return mobileGitRead(str(args[0]), Number(args[1]), native);
+  if (source === 'gitBranchesSnapshot') return mobileGitBranchesSnapshot();
+  if (source === 'gitBranchesRead') return mobileGitBranchesRead(str(args[0]), Number(args[1]), native);
+  if (source === 'gitAction') return mobileGitAction(str(args[0]), str(args[1]), str(args[2]), str(args[3]), Number(args[4]), native).then(result => ({ ...result, requestRoute: str(args[5]) }));
+  if (source === 'gitBranchAction') return mobileGitBranchAction(str(args[0]), str(args[1]), str(args[2]), str(args[3]), Number(args[4]), native).then(result => ({ ...result, requestRoute: str(args[5]) }));
   if (source === 'workspace') return workspace(args);
   if (source === 'workspaceThreadSelection') return mobileWorkspaceThreadSelection(args[0], args[1] === true, str(args[2]), str(args[3]));
   if (source === 'workspaceFileSelection') return mobileWorkspaceFileSelection(args[0], args[1] === true, str(args[2]), str(args[3]), str(args[4]));
@@ -288,7 +305,9 @@ async function threadView(args: unknown[], native?: Native | null) {
  * the actual shared client's, so stale or fabricated option fields cannot
  * establish an inspector owner. No read or native handle is retained here. */
 function workspace(args: unknown[]) {
-  const raw = obj(args[1]), pane = obj(raw.inspector), role = obj(raw.role);
+  const raw = obj(args[1]);
+  const record = (value: unknown) => { try { return typeof value === 'string' ? obj(JSON.parse(value)) : obj(value); } catch { return {}; } };
+  const pane = record(raw.inspectorRegistration ?? raw.inspector), role = record(raw.inspectorRole ?? raw.role);
   const dimension = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 0;
   const preference = (value: unknown) => typeof value === 'boolean' ? value : true;
   const appearance = raw.appearance === 'dark' ? 'dark' : 'light';
@@ -310,5 +329,7 @@ function workspace(args: unknown[]) {
     threadMode: raw.threadMode === 'files' || raw.threadMode === 'git' ? raw.threadMode : '', threadModeOwner: str(raw.threadModeOwner),
     inspector, role: str(role.token) && str(role.routeId) && (role.value === 'inspector' || role.value === 'supplementary')
       ? { token: str(role.token), routeId: str(role.routeId), value: role.value } : null,
+    inspectorExitToken: str(raw.inspectorExitToken), inspectorResizing: raw.inspectorResizing === true,
+    dividerColor: str(raw.dividerColor), dividerActiveColor: str(raw.dividerActiveColor),
     reducedMotion: raw.reducedMotion === true, appearance, background: str(raw.background) || mobileTheme(appearance).screen });
 }

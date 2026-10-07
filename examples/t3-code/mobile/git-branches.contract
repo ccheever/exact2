@@ -1,0 +1,63 @@
+// GitBranchesSheet365aa87982 (MIT). Form values are route-owned root state.
+// @ref llp/1106.011-responsive-workspace.decision.md#navigation-and-data-ownership
+use GitColors, MobileGitActionButton from "./git-overview.contract"
+shape MobileGitBranch
+  name: string
+  current: bool
+  subtitle: string
+  disabled: bool
+shape MobileGitBranchesSnapshot
+  owner: string
+  revision: number
+  readRevision: number
+  branchLabel: string
+  worktree: string
+  initialBase: string
+  loading: bool
+  busy: bool
+  canChange: bool
+  error: string
+  rows: list<MobileGitBranch>
+shape MobileGitBranchResult
+  requestRoute: string
+  message: string
+  changed: bool
+  data: MobileGitBranchesSnapshot
+component MobileGitBranches
+  props
+    data: MobileGitBranchesSnapshot
+    newBranch: string
+    worktreeBase: string
+    worktreeBranch: string
+    editBranch: action
+    editBase: action
+    editWorktree: action
+    action: action
+    bottomInset: number
+    colors: GitColors
+  view
+    scroll id="git-branches-scroll" flex=1 min-height=0 background-color=colors.sheet
+      column padding-left=20 padding-right=20 padding-top=8 padding-bottom=bottomInset gap=14 font-family="DM Sans"
+        when data.error != ""
+          text data.error font-size=12 color=colors.warningForeground
+        column gap=7 padding=14 border-radius=18 border-width=1 border-style="solid" border-color=colors.border background-color=colors.card
+          text "NEW BRANCH" font-size=10.5 font-weight=700 letter-spacing="1px" color=colors.secondary
+          input value=newBranch input=editBranch placeholder="feature/mobile-polish" aria-label="New branch name" border-radius=18 color=colors.foreground font-size=14
+          MobileGitActionButton(label="Create & checkout", symbol="plus", primary=true, disabled=(not data.canChange or data.busy or newBranch == ""), press=action("create", newBranch, ""), colors=colors)
+        column gap=7 padding=14 border-radius=18 border-width=1 border-style="solid" border-color=colors.border background-color=colors.card
+          text "NEW WORKTREE" font-size=10.5 font-weight=700 letter-spacing="1px" color=colors.secondary
+          input value=worktreeBase input=editBase placeholder="main" aria-label="Worktree base branch" border-radius=18 color=colors.foreground font-size=14
+          input value=worktreeBranch input=editWorktree placeholder="feature/mobile-thread" aria-label="Worktree branch name" border-radius=18 color=colors.foreground font-size=14
+          MobileGitActionButton(label="Create worktree", symbol="square.split.2x1", primary=true, disabled=(not data.canChange or data.busy or worktreeBase == "" or worktreeBranch == ""), press=action("worktree", worktreeBranch, worktreeBase), colors=colors)
+        column gap=7
+          text "EXISTING BRANCHES" font-size=10.5 font-weight=700 letter-spacing="1px" color=colors.secondary
+          when data.loading
+            text "Loading branches..." font-size=14 font-weight=500 color=colors.secondary
+          else when length(data.rows) == 0
+            text "No local branches found." font-size=14 font-weight=500 color=colors.secondary
+          each branch in data.rows key=branch.name
+            button press=action("checkout", branch.name, "") disabled=branch.disabled opacity=(branch.disabled ? 0.45 : 1) aria-pressed=branch.current
+              text-align="left" padding-left=14 padding-right=14 padding-top=10.5 padding-bottom=10.5 border-radius=18 border-width=1 border-style="solid" border-color=(branch.current ? colors.subtleStrong : colors.border) background-color=colors.card
+              column gap=3.5
+                text branch.name font-size=16 font-weight=700 color=colors.foreground
+                text branch.subtitle font-size=12 font-weight=500 color=colors.secondary

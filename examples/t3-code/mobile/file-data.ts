@@ -97,6 +97,13 @@ export async function mobileFilesRead(query: string, selectedPath: string, nativ
     const native = await allow(client, nativeInput, owner, 'tree');
     await ensureTree(client, native);
     native.assertCurrent();
+    // A file deep link must reveal and load its ancestry in the persistent tree.
+    const parts = selectedPath.split('/').filter(Boolean);
+    for (let index = 1; index < parts.length; index++) {
+      const directory = parts.slice(0, index).join('/');
+      if (!filesState(client).expanded.has(directory)) await filesLocal(client, native, 'toggle', directory, '');
+      native.assertCurrent();
+    }
     if (query !== filesState(client).query || query.trim() && !filesState(client).search) await filesLocal(client, native, 'search', '', query);
     native.assertCurrent();
   } catch (error) { if (letGo(error)) throw error; if (accessOf(client) === access) access.tree.error = message(error); }

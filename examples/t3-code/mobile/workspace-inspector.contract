@@ -1,0 +1,87 @@
+// @ref llp/1106.011-responsive-workspace.decision.md#navigation-and-data-ownership
+use FileTreeSnapshot, MobileFileTree from "./file-tree.contract"
+use ReviewFile, ReviewColors from "./review-shapes.contract"
+use GitColors, MobileGitSnapshot, MobileGitOverview from "./git-overview.contract"
+shape InspectorState
+  serialized: string
+  focusOwner: string
+  mode: string
+  roleJSON: string
+  registrationJSON: string
+  contentOwner: string
+  contentRouteId: string
+  contentMode: string
+  contentEnvironmentId: string
+  contentThreadId: string
+  contentGeneration: number
+  kind: string
+  cwd: string
+  selectedPath: string
+  active: bool
+  mounted: bool
+  mountedFiles: bool
+  mountedGit: bool
+  mountedRoute: bool
+  exitToken: string
+  exitAt: number
+  prewarmToken: string
+  prewarmAt: number
+shape InspectorContext
+  focusOwner: string
+  serialized: string
+  key: string
+  hasWorkspace: bool
+shape InspectorChange
+  before: string
+  contextKey: string
+  serialized: string
+  content: string
+  revealInspector: bool
+shape WorkspaceEvent
+  kind: string
+  owner: string
+  token: string
+  phase: string
+  value: string
+  width: number
+shape InspectorPresentation
+  title: string
+  files: FileTreeSnapshot
+  reviewFiles: list<ReviewFile>
+  reviewSelected: string
+  git: MobileGitSnapshot
+  showFiles: bool
+  showChanges: bool
+  showGit: bool
+  configuration: string
+component MobileInspectorContent
+  props
+    gitColors: GitColors
+    state: InspectorState
+    data: InspectorPresentation
+    visible: bool
+    gitBottomInset: number
+    colors: ReviewColors
+    toggleDirectory: action
+    openFile: action
+    refreshFiles: action
+    reviewFile: action
+    gitAction: action
+    refreshGit: action
+  view
+    column flex=1 min-height=0 position="relative"
+      when state.mountedFiles or (state.mountedRoute and state.kind != "changed-files")
+        column position="absolute" inset=0 visibility=(data.showFiles ? "visible" : "hidden") pointer-events=(data.showFiles and visible ? "auto" : "none") aria-hidden=(not data.showFiles or not visible)
+          MobileFileTree(listId="inspector-files", data=data.files, colors=colors, toggle=toggleDirectory, select=openFile, refresh=refreshFiles)
+      when state.mountedGit
+        column position="absolute" inset=0 visibility=(data.showGit ? "visible" : "hidden") pointer-events=(data.showGit and visible ? "auto" : "none") aria-hidden=(not data.showGit or not visible)
+          MobileGitOverview(data=data.git, inspector=true, bottomInset=gitBottomInset, action=gitAction, refresh=refreshGit, colors=gitColors)
+      when state.mountedRoute and state.kind == "changed-files"
+        scroll id="inspector-changes" flex=1 min-height=0 aria-hidden=(not visible) pointer-events=(visible ? "auto" : "none")
+          column padding=7 gap=2
+            each file in data.reviewFiles key=file.id
+              button press=reviewFile(file.path) min-height=44 border-radius=10 padding=10 aria-label=file.path background-color=(file.path == data.reviewSelected ? colors.subtleStrong : "transparent")
+                row gap=7 align-items="center"
+                  text file.path flex=1 min-width=0 line-clamp=2 color=colors.foreground font-size=12.25
+                  text `+${file.additions}` color=colors.addition font-family="Menlo" font-size=11
+                  text `-${file.deletions}` color=colors.deletion font-family="Menlo" font-size=11
