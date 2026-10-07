@@ -251,12 +251,10 @@ defines the custom elements for the roster’s tags.
 module node in the first frame arrives while the first batch is applying —
 loading there is code before first pixel. Creates during the initial batch
 make the empty box and queue; loading starts at the established post-paint
-gate (Apple: the next turn after first draw, the GPU precedent at
-`Presenter.swift:573-580`; web: the injected script from the frame after
+gate (Apple: the main-queue turn after activation's Core Animation commit,
+so activation's frame, and input already queued when activation returns,
+come before any module view; web: the injected script from the frame after
 the paint stamp). A node created after the gate opens attaches immediately.
-On Apple the gate opens on the main-queue turn after activation's Core
-Animation commit, so activation's frame and pending input come before any
-module view.
 “First use” is this paragraph, not a phrase.
 
 **iOS device / App Store.** The artifact is in the signed `.app` at
