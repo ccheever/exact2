@@ -4,11 +4,11 @@
 // the footer's trailing action opens the native picker for one image in the project's workspace
 // root; a pick closes the dialog and selects that absolute path, a failure toasts "Could not open
 // image picker" and keeps the dialog open. Offered only when every member is a project of the
-// primary environment (here the loopback stand-in, settings-b-fleet.ts isLoopback, until
-// local-primary-environment lands) whose path the Mac can open (canPickExternalProjectFavicon).
+// primary environment (local-primary.ts, the embedded server on this Mac) whose path the Mac
+// can open (canPickExternalProjectFavicon).
 import { obj, str, type Obj } from './domain';
 import { ClientError, type Native } from './protocol';
-import { isLoopback } from './settings-b-fleet';
+import { isPrimaryOrigin } from './local-primary';
 import { pushToast } from './toast';
 import type { T3Client } from './client';
 import { letGo } from './let-go';
@@ -30,7 +30,7 @@ export const PLATFORM = 'MacIntel';
 
 /** The footer action's label, or '' when it is not offered for these members. */
 export function faviconPickLabel(origin: string, members: Obj[]): string {
-  const offered = members.length > 0 && isLoopback(origin) && members.every(member => canPickExternalProjectFavicon(str(member.workspaceRoot), PLATFORM));
+  const offered = members.length > 0 && isPrimaryOrigin(origin) && members.every(member => canPickExternalProjectFavicon(str(member.workspaceRoot), PLATFORM));
   return offered ? `Open in ${localFileManagerName(PLATFORM)}` : '';
 }
 

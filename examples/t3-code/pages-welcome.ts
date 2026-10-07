@@ -1,8 +1,13 @@
 // The first-run gate and the "Set up T3 Code" wizard (lane "pages"): which
 // computers to set up, each one's agents, and the projects to import from
-// Claude Code and Codex history. This client has no primary server, so it
-// decides as the reference's hosted client does: a fresh install with no
-// saved environment gets the wizard. Sources: T3 Code (MIT, see LICENSE-T3)
+// Claude Code and Codex history. With a primary environment (the embedded
+// server, local-primary.ts) the gate decides as the desktop's FirstRunGate:
+// resolveFirstRunDecision over the primary's live shell, its config and its
+// welcome (first-run.ts, local-lifecycle.ts), and the wizard preselects "This
+// machine" (listed first). With the Local environment switched off, or no
+// primary at all (a refused development build), it decides as the hosted client
+// does (resolveHostedFirstRunDecision): no saved environment, the wizard.
+// Sources: T3 Code (MIT, see LICENSE-T3)
 // apps/web/src/components/onboarding/{FirstRunGate,WelcomeWizard}.tsx,
 // onboarding/{firstRun.logic,providerReadiness.logic,projectImport.logic}.ts,
 // components/settings/{providerStatus,CodexSetupSection.logic}.ts.
@@ -17,6 +22,10 @@ import { wallEpoch, wallIso } from './r8-pointer-clock';
 import type { T3Client } from './client';
 import { OnboardingTerminal, resolveOnboardingProviderInstallCommand, resolveOnboardingProviderLoginCommand } from './onboarding-terminal';
 import { letGo } from './let-go';
+import { isFirstRunWorkspaceProvenanceAuthoritative, isFreshFirstRunWorkspace, resolveFirstRunDecision, resolveHostedFirstRunDecision } from './first-run';
+import { focusedOnPrimary, isPrimaryEnvironment, primary, withoutPrimaryDuplicates } from './local-primary';
+import { primaryWelcome } from './local-lifecycle';
+import type { Shell } from './domain';
 const terminals = new WeakMap<T3Client, Map<string, OnboardingTerminal>>();
 function setupTerminal(client: T3Client, native: Native, environmentId: string): OnboardingTerminal {
   let byEnvironment = terminals.get(client);
@@ -53,12 +62,56 @@ const stateOf = (client: object): State => {
   return state;
 };
 
-/** resolveHostedFirstRunDecision: no saved environment and setup never finished → the wizard. */
-export function hostedDecision(input: { hydrated: boolean; completed: boolean; catalogReady: boolean; environmentCount: number }): { decision: Decision; persistCompletion: boolean } {
-  if (!input.hydrated) return { decision: 'pending', persistCompletion: false };
-  if (input.completed) return { decision: 'app', persistCompletion: false };
-  if (!input.catalogReady) return { decision: 'pending', persistCompletion: false };
-  return input.environmentCount === 0 ? { decision: 'wizard', persistCompletion: false } : { decision: 'app', persistCompletion: true };
+/** resolveHostedFirstRunDecision (first-run.ts): no saved environment and setup never finished → the wizard. */
+export function hostedDecision(input: { hydrated: boolean; completed: boolean; catalogReady: boolean; environmentCount: number; localEnvironmentDisabled?: boolean }): { decision: Decision; persistCompletion: boolean } {
+  return resolveHostedFirstRunDecision(input);
+}
+
+type Workspace = { environmentId: string; shell: Shell; live: boolean; config: Obj };
+/** Every environment's workspace evidence: the focused connection and each background one. */
+function workspaces(client: T3Client): Workspace[] {
+  const out: Workspace[] = [];
+  if (client.environmentId && client.connection === 'connected') out.push({ environmentId: client.environmentId, shell: client.shell, live: client.ready, config: client.config });
+  for (const entry of fleet.entries.values()) {
+    if (out.some(workspace => workspace.environmentId === entry.environmentId)) continue;
+    out.push({ environmentId: entry.environmentId, shell: entry.shell, live: entry.phase === 'connected' && entry.synchronized === entry.generation, config: entry.config });
+  }
+  return out;
+}
+/**
+ * FirstRunGate for the desktop's primary: resolveFirstRunDecision over the primary's shell, config
+ * and welcome. `bootstrapped` waits for every environment's shell (useAllEnvironmentShellsBootstrapped).
+ */
+export function primaryDecision(client: T3Client, input: { hydrated: boolean; completed: boolean; catalogReady: boolean; saved: Obj[] }): { decision: Decision; persistCompletion: boolean } {
+  const all = workspaces(client);
+  const local = all.find(workspace => isPrimaryEnvironment(workspace.environmentId)) ?? (focusedOnPrimary(client) && client.connection === 'connected' ? all[0] : undefined);
+  const welcome = primaryWelcome();
+  const projects = all.flatMap(workspace => workspace.shell.projects.map(project => ({ id: str(project.id), environmentId: workspace.environmentId, workspaceRoot: str(project.workspaceRoot) })));
+  const threads = all.flatMap(workspace => workspace.shell.threads.map(thread => ({ id: str(thread.id), projectId: str(thread.projectId), environmentId: workspace.environmentId,
+    latestRun: thread.latestRun ?? null, latestUserMessageAt: typeof thread.latestUserMessageAt === 'string' ? thread.latestUserMessageAt : null, runtime: thread.runtime ?? null })));
+  const evidence = new Set([...projects.map(project => project.environmentId), ...threads.map(thread => thread.environmentId)]);
+  const workspaceFresh = isFreshFirstRunWorkspace({
+    primaryEnvironmentId: local?.environmentId ?? null, serverCwd: local && str(local.config.cwd) ? str(local.config.cwd) : null,
+    bootstrapProjectId: welcome ? str(welcome.bootstrapProjectId) || undefined : undefined, bootstrapThreadId: welcome ? str(welcome.bootstrapThreadId) || undefined : undefined,
+    bootstrapProjectCreated: welcome?.bootstrapProjectCreated === true ? true : undefined, bootstrapThreadCreated: welcome?.bootstrapThreadCreated === true ? true : undefined,
+    projects, threads,
+  });
+  return resolveFirstRunDecision({
+    enabled: true, hydrated: input.hydrated, completed: input.completed,
+    // allEnvironmentShellsBootstrappedAtom: every switched-on environment has its shell, or has stopped trying for now.
+    bootstrapped: !!local?.live && input.saved.filter(entry => entry.enabled !== false).every(entry => {
+      const id = str(entry.environmentId);
+      if (id === client.environmentId && client.connection !== 'disconnected') return client.ready || ['error', 'reconnecting'].includes(client.connection);
+      const live = [...fleet.entries.values()].find(candidate => candidate.environmentId === id);
+      return !!live && ((live.phase === 'connected' && live.synchronized === live.generation) || ['error', 'unsupported', 'reconnecting'].includes(live.phase));
+    }),
+    authoritative: !!local?.live,
+    workspaceAuthoritative: all.filter(workspace => evidence.has(workspace.environmentId)).every(workspace => workspace.live),
+    workspaceProvenanceAuthoritative: isFirstRunWorkspaceProvenanceAuthoritative({ welcomeReceived: welcome !== null,
+      bootstrapStatus: welcome?.bootstrapStatus === 'pending' || welcome?.bootstrapStatus === 'complete' ? welcome.bootstrapStatus : null }),
+    catalogReady: input.catalogReady, serverConfigAvailable: !!local && Object.keys(local.config).length > 0,
+    workspaceFresh, projectCount: projects.length, threadCount: threads.length,
+  });
 }
 /** transitionFirstRunGateState: a wizard stays until it finishes; an app never falls back to pending. */
 export function transition(current: Decision, next: Decision): Decision {
@@ -165,13 +218,16 @@ export async function welcomeView(client: T3Client, native: Native | null | unde
   try {
     const reply = await bridgeReply(native, { op: 'environments' });
     catalogReady = reply.ok;
-    saved = reply.ok ? arr(obj(reply.value).saved).filter(entry => str(entry.origin) && str(entry.environmentId)) : [];
+    saved = reply.ok ? withoutPrimaryDuplicates(arr(obj(reply.value).saved)).filter(entry => str(entry.origin) && str(entry.environmentId)) : [];
   } catch { /* the catalog stays unknown */ }
   const prefs = pagesPrefs(client);
   // r4-polish: the settings store is hydrated once the saved preferences are read (useClientSettingsHydrationStatus);
   // before that a relaunch would see no completion and lock into the wizard.
   const hydrated = (client as { preferencesLoaded?: boolean }).preferencesLoaded !== false;
-  const next = hostedDecision({ hydrated, completed: !!prefs.onboardingCompletedAt, catalogReady, environmentCount: saved.length });
+  // The desktop has a primary unless its Local environment is off or no server can run here (hosted rules then).
+  const hosted = primary.disabled || primary.unavailable;
+  const next = hosted ? hostedDecision({ hydrated, completed: !!prefs.onboardingCompletedAt, catalogReady, environmentCount: saved.length, localEnvironmentDisabled: primary.disabled })
+    : primaryDecision(client, { hydrated, completed: !!prefs.onboardingCompletedAt, catalogReady, saved });
   // Persisted only with a known instant (FirstRunGate stores `new Date().toISOString()`): with none yet it waits for
   // the next ask, which exactTime's arrival triggers, instead of writing 1970.
   if (next.persistCompletion && !prefs.onboardingCompletedAt) prefs.onboardingCompletedAt = wallIso(state.now);
@@ -181,9 +237,10 @@ export async function welcomeView(client: T3Client, native: Native | null | unde
   if (!view.show) return view;
   // A failed pairing registers nothing (PairingForm): the link this client tried
   // and never reached stays out of the list rather than "Connecting…" forever.
+  // The primary leads the list ("This machine", preselected); a pairing still connecting is listed once it connected.
   const sources = environmentSources(client, saved, fleet.entries).filter(source => {
     if (source.phase === 'connected') state.seen.add(source.key);
-    return !source.focused || state.seen.has(source.key) || saved.some(entry => str(entry.environmentId) === source.environmentId && str(entry.origin) === source.origin);
+    return source.primary || !source.focused || state.seen.has(source.key) || saved.some(entry => str(entry.environmentId) === source.environmentId && str(entry.origin) === source.origin);
   });
   for (const source of sources) if (!state.auto.has(source.key)) {
     state.auto.add(source.key);

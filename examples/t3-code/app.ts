@@ -42,7 +42,9 @@ import { terminalDrawerView, terminalOpen } from './terminal-drawer-view';
 import { terminalFocused } from './terminal-focus';
 import { watchProviderSetup, providerSetupOp } from './provider-setup'; // provider-sign-in-and-install: the Account and Runtime rows' streams and commands
 import { autoBalancePrepare } from './auto-balance'; // auto-balance: Settings › Load balancing, read for the composer
-import { letGoAware } from './let-go'; // a let-go answer's native calls reject as 'superseded', never as an error
+import { letGoAware } from './let-go';
+import { keepAlivePrepare } from './keep-alive'; // local-primary-environment: running threads' detail streams
+import { migrationToast } from './local-lifecycle'; // a let-go answer's native calls reject as 'superseded', never as an error
 
 export const appId = 'com.exact.t3code.macos';
 export const grants = '';
@@ -61,6 +63,7 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
     await client.refresh(native, storage);
     await prepareTimeline(client, native); // Mermaid layouts and the worktree setup stream (timeline-prepare.ts).
     await autoBalancePrepare(client, native); // auto-balance.ts
+    await keepAlivePrepare(client, native); migrationToast(client); // keep-alive.ts, local-lifecycle.ts: running threads stay live; "Restoring your threads…"
     return snapshot(client, Number(args[0]) || 0);
   }
   if (source === 'composerBranches') return composerBranches(client, native, args[0] === true, String(args[1] || ''));

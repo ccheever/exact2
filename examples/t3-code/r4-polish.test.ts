@@ -1,7 +1,11 @@
 // Lane r4-polish: relaunch persistence through the preference file, the
 // palette's project order, the sidebar width fixed at load, the welcome gate's
 // hydration, and the SnapShot shortcut-conflict label.
-import { describe, test, expect } from 'bun:test';
+import { afterEach, beforeEach, describe, test, expect } from 'bun:test';
+import { noPrimary, resetPrimary } from './local-primary-fixture';
+// These cases are the hosted rules (resolveHostedFirstRunDecision): no embedded server runs on this Mac.
+beforeEach(noPrimary);
+afterEach(resetPrimary);
 import { T3Client } from './client';
 import type { Obj } from './domain';
 import type { Files, Native } from './protocol';

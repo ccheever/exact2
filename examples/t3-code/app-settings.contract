@@ -39,6 +39,7 @@ use ConnectionsPanel from "./connections.contract"
 use ConnectionsPage from "./connections.contract"
 use AddEnvironmentDialog from "./connections.contract"
 use EnvironmentRemoveDialog from "./connections.contract"
+use LocalEnvironmentDialog from "./this-machine.contract" // local-primary-environment
 use RouteRemoveDialog from "./connections-routes.contract"
 use ProjectsPanel from "./settings-projects.contract"
 use ProjectsPage from "./settings-projects.contract"
@@ -283,6 +284,8 @@ component SettingsModals
     connectionAskRemove: action
     routeTarget: string
     routeLabel: string
+    // local-primary-environment: the Local environment switch's command (settingsCommand: the dialog stays open while it runs).
+    localCommand: action
   view
     when snapshotSetupOpen
       SnapshotSetup(data=snapshotSettings, busy=commandPending, error=modalError, wasEnabled=snapshotSetupWasEnabled, close=showSnapshotSetup(false), toggle=toggleSnapshots, change=changeSnapshot, record=recordSnapshotShortcut, saveShortcut=saveSnapshotShortcut)
@@ -309,6 +312,9 @@ component SettingsModals
             ProviderSetupConfirm(what=providerDialog, instanceId=editor.id, title=account.signOutTitle, body=account.signOutBody, busy=setupBusy, op=providerOp, ui=providerUi)
           each runtime in (providerDialog == "setup-remove" ? editor.setup.runtime : []) key=runtime.key
             ProviderSetupConfirm(what=providerDialog, instanceId=editor.id, title=runtime.removeTitle, body=runtime.removeBody, busy=setupBusy, op=providerOp, ui=providerUi)
+    // "Turn off/on local environment?" (this-machine.contract): open until the switch reads the new value.
+    when (connectionRemove == "local-environment:off" and connectionsPage.thisMachine.enabled) or (connectionRemove == "local-environment:on" and not connectionsPage.thisMachine.enabled)
+      LocalEnvironmentDialog(title=connectionsPage.thisMachine.dialogTitle, body=connectionsPage.thisMachine.dialogBody, confirmLabel=connectionsPage.thisMachine.dialogConfirm, destructive=connectionsPage.thisMachine.enabled, busy=commandPending, error=connectionsPage.thisMachine.error, still=viewport.prefersReducedMotion, cancel=connectionAskRemove(""), confirm=localCommand("local-environment", "", connectionsPage.thisMachine.enabled ? "off" : "on"))
     when connectionRemove != ""
       each environment in connectionsPage.environments key=environment.key
         when environment.key == connectionRemove

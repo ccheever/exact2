@@ -1,4 +1,6 @@
-import { test, expect, describe, beforeEach } from 'bun:test';
+import { afterEach, test, expect, describe, beforeEach } from 'bun:test';
+import { primaryAt, resetPrimary } from './local-primary-fixture';
+afterEach(resetPrimary);
 import { resolveRemoteOpenState, shouldShowOpenInPicker, canUseMarkdownFileShellActions, parseSafeExternalUrl, remoteEditorsFrom, remoteCapableEditors,
   resetRemoteEditorsForTests, openInView, openInEditorHere, rememberSshAlias, remoteOpenFor, openFavoriteEnabled } from './remote-open';
 import { buildRemoteOpenUrl, REMOTE_CAPABLE_EDITOR_IDS } from './editors';
@@ -163,10 +165,12 @@ describe('picker visibility and editors', () => {
   });
   test('a loopback primary runs the server editor; a remote one with no route opens nothing', async () => {
     const { native, calls } = fakeNative(request => request.op === 'sshHosts' ? { targets: {} } : {});
+    primaryAt('http://127.0.0.1:3774', 'env-1'); // this Mac's embedded server
     const local = client('http://127.0.0.1:3774');
     expect(await openInView(local, native, ['cursor', 'idea'], 'app')).toMatchObject({ mode: 'local-exec', show: true, editors: ['cursor', 'idea'], hint: '' });
     expect(await openInEditorHere(local, native, '/w', 'cursor')).toBe(true);
     expect(rest).toEqual([{ method: 'shell.openInEditor', cwd: '/w', editor: 'cursor' }]);
+    resetPrimary(); // the rest are remote machines (the same environment id stands for another server here)
     const far = client('https://far.example.com');
     expect(await openInView(far, native, ['cursor'], 'app')).toMatchObject({ mode: 'remote-unavailable', show: true, unavailable: 'No SSH route to devbox' });
     expect(await openInEditorHere(far, native, '/w', 'vscode')).toBe(false);
@@ -228,6 +232,7 @@ describe('Files and Markdown use the focused environment route', () => {
     expect(calls.some(call => call.op === 'remoteEditorsOpen')).toBe(false);
   });
   test('Files retains the server editor list on the local environment', async () => {
+    primaryAt('http://127.0.0.1:41857', 'env');
     const { owner, native } = fixture('http://127.0.0.1:41857', false);
     const view = await filesView(owner, native, file);
     expect(view.editors.map(editor => editor.id)).toEqual(['idea', 'cursor', 'file-manager']);
@@ -236,6 +241,7 @@ describe('Files and Markdown use the focused environment route', () => {
   test('Markdown offers local editor/reveal actions but never remote shell actions', async () => {
     for (const remote of [false, true]) {
       resetRemoteEditorsForTests();
+      primaryAt('http://127.0.0.1:41857', 'env');
       const { owner, native, calls } = fixture('http://127.0.0.1:41857', remote);
       await markdownFileMenu(owner, native, '/srv/project/README.md');
       const items = obj(calls.find(call => call.op === 'contextMenu')).items;

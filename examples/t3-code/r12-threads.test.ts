@@ -1,4 +1,6 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
+import { primaryAt, resetPrimary } from './local-primary-fixture';
+afterEach(resetPrimary);
 import type { T3Client } from './client';
 import type { Obj } from './domain';
 import type { Native } from './protocol';
@@ -28,6 +30,7 @@ function scratchDraft(threadId = ''): T3Client {
 
 describe('No project drafts switch machine (c47f4263f9, 845ddd9354)', () => {
   test('every connected machine with a "No project" folder is a choice; one not created yet has no project', () => {
+    primaryAt('http://127.0.0.1:1', 'a'); // the draft's machine is this Mac's embedded server
     const source = new EnvironmentFleet();
     const b = entry('b', { shell: { projects: [{ id: 'sb', workspaceRoot: `${scratchRoot('b')}/` }], threads: [], sequence: 0 } as unknown as FleetEntry['shell'] });
     const c = entry('c'), d = entry('d', { config: { environment: { label: 'No scratch' } } }), e = entry('e', { phase: 'error' });
