@@ -1,0 +1,30 @@
+{"clock":0,"settled":true,"epoch":4,"incarnation":1}
+{"clock":500,"epoch":4,"incarnation":1,"real":502}
+epoch 4 · incarnation 1 · clock 500 ms · 7 nodes
+View#1 [root]
+  Text#2 "feed: fetch exactStream, granted ws://127.0.0.1:8791"
+  Text#3 [feed] "message: hello from server"
+  Text#4 "direct: new WebSocket + send, granted ws://127.0.0.1:8791"
+  Text#5 [direct] "threw: TypeError: globalThis.WebSocket is not a constructor"
+  Text#6 "other: new WebSocket + send, NOT granted ws://127.0.0.1:8792"
+  Text#7 [other] "threw: TypeError: globalThis.WebSocket is not a constructor"
+t=0 boot: 7 nodes, epoch 1
+t=0 direct shows its build-time answer until its source answers
+t=0 other shows its build-time answer until its source answers
+t=0 query feed: feed
+t=0 query direct: direct
+t=0 query other: other
+t=0 continuation 1 (feed): executor token 1
+t=0 continuation 2 (direct): executor token 2
+t=0 continuation 3 (other): executor token 3
+t=0 data_ready (3 asked again) → epoch 1 (+0 −0 ~0)
+t=0 feed: the reply asks for one more request
+t=0 request 4 (feed): GET ws://127.0.0.1:8791/ws
+t=0 fulfil 1 (feed) [HTTP 200, 225 bytes] → epoch 1 (+0 −0 ~0)
+t=0 direct answered: replaces its build-time answer
+t=0 fulfil 2 (direct) [HTTP 200, 160 bytes] → epoch 2 (+0 −0 ~1)
+t=0 other answered: replaces its build-time answer
+t=0 fulfil 3 (other) [HTTP 200, 160 bytes] → epoch 3 (+0 −0 ~1)
+t=0 fulfil 4 (feed) [message, 17 bytes] → epoch 4 (+0 −0 ~1)
+  chrome: Trying to load the allocator multiple times. This is *not* supported.
+{"epoch":4,"incarnation":1,"clock":500,"screenshot":"/private/tmp/claude-501/-Users-daehyeonmun-Documents-work-0-projects-exact2/757dc7ec-2ea0-42a2-9546-f333365cf393/scratchpad/probe126/.exact/wasm.png","w":420,"h":900}
