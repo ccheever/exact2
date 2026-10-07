@@ -83,6 +83,7 @@ final class ElementHatches {
 
     /// A hatched node's props changed: its hatch hears new `data-*` words.
     func propsChanged(_ id: UInt32) {
+        presenter.session?.natives.rootPropsChanged(id)   // a root's words are the app hatch's (ScopeHatches.swift)
         guard var entry = nodes[id], entry.node.props["dataset"] ?? "" != entry.data else { return }
         entry.data = entry.node.props["dataset"] ?? ""
         nodes[id] = entry

@@ -13,7 +13,7 @@
 // The module's entries (NativeModule.swift reads them from its table):
 //
 //   184  app(module, event, application, json, len)
-//          event 0 built, 1 changed, 2 ended; json {"facts": {…}, "processOwner"}
+//          event 0 built, 1 changed, 2 ended; json {"facts": {…}, "data": {…}, "processOwner"}
 //   192  window(module, event, window, scene, json, len)
 //          event 0 built, 1 changed, 2 ended; json {"frame", "safeArea", "exclusive"}
 //
@@ -69,6 +69,20 @@ extension NativeViews {
                 "prefersReducedMotion": DisplayPreferences.reducedMotion, "prefersReducedTransparency": DisplayPreferences.reducedTransparency]
     }
 
+    /// The first root node's `data-*` words (§2.5): how Contract tells the
+    /// app hatch what it should know.
+    private var rootData: [String: Any] {
+        let node = session?.presenter.root.subviews.lazy.compactMap { $0 as? NodeView }.first
+        guard let json = node?.props["dataset"], let words = try? JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any] else { return [:] }
+        return words
+    }
+
+    /// A root node's props changed: its words may have, and `app` hears it.
+    func rootPropsChanged(_ id: UInt32) {
+        guard scopes.appCall != nil, let presenter = session?.presenter, presenter.views[id]?.superview === presenter.root else { return }
+        scopesChanged()
+    }
+
     private func encoded(_ object: [String: Any]) -> Data {
         (try? JSONSerialization.data(withJSONObject: object, options: .sortedKeys)) ?? Data("{}".utf8)
     }
@@ -76,7 +90,7 @@ extension NativeViews {
     /// `app`: built, changed (a fact moved) or ended.
     func appHatch(_ event: UInt32) {
         guard hatchesConnected, let instance, let call = scopes.appCall else { return }
-        let json = encoded(["facts": appFacts, "processOwner": scopes.processOwner])
+        let json = encoded(["facts": appFacts, "data": rootData, "processOwner": scopes.processOwner])
         scopes.appTold = event == 2 ? nil : String(decoding: json, as: UTF8.self)
         let moment = ["built", "changed", "ended"][Int(min(event, 2))]
         session?.log("hatch app: \(moment)")
@@ -145,7 +159,7 @@ extension NativeViews {
             guard let self else { return }
             self.scopes.pending = false
             guard self.hatchesConnected else { return }
-            if let told = self.scopes.appTold, told != String(decoding: self.encoded(["facts": self.appFacts, "processOwner": self.scopes.processOwner]), as: UTF8.self) { self.appHatch(1) }
+            if let told = self.scopes.appTold, told != String(decoding: self.encoded(["facts": self.appFacts, "data": self.rootData, "processOwner": self.scopes.processOwner]), as: UTF8.self) { self.appHatch(1) }
             guard let view = self.session?.view else { return }
             switch (self.scopes.windowTold, view.window) {
             case (nil, .some): self.windowHatch(0)

@@ -562,6 +562,9 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
         const moved = own.observed.frame;
         // The badge's tone turns busy: its hatch takes the seal away.
         await d.tap('compose-home'); await settle(d); await d.clock('settle');
+        // The same press changes the root's `data-mood`: the root's words are the app hatch's (§2.5).
+        sc = await waited('a root data word reaches the app hatch, and its change is a changed moment', (sc) => sc.module?.published?.app?.mood === 'busy');
+        check(told.app?.mood === 'calm', `${host} native: the app hatch reads the root's data words: ${JSON.stringify(told.app)}`);
         b = await badge();
         const tomb = b?.owns?.[0], again = (await badge())?.owns?.[0];
         check(b?.owns?.length === (host === 'web' ? 1 : 2) && b.owns.every((o) => o.observed?.live === false) && tomb.observed?.live === false && typeof tomb.observed.ended === 'number' && !b.parts && again?.observed?.live === false && again.observed.ended === tomb.observed.ended && again.what === tomb.what && moved.w === 12,
