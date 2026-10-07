@@ -1,0 +1,19 @@
+// #126 probe: the sanctioned stream receives; a data module's own WebSocket is refused.
+shape Feed
+  text: string
+
+shape Direct
+  text: string
+
+component Probe126
+  resource feed = feed("ws://127.0.0.1:8791/ws") as shape Feed else empty(text="waiting")
+  resource direct = direct("ws://127.0.0.1:8791/direct") as shape Direct else empty(text="waiting")
+  resource other = other("ws://127.0.0.1:8792/other") as shape Direct else empty(text="waiting")
+  view
+    main testId="root" padding=24
+      text "feed: fetch exactStream, granted ws://127.0.0.1:8791" font-weight=600
+      text feed.text testId="feed"
+      text "direct: new WebSocket + send, granted ws://127.0.0.1:8791" font-weight=600 margin-top=12
+      text direct.text testId="direct"
+      text "other: new WebSocket + send, NOT granted ws://127.0.0.1:8792" font-weight=600 margin-top=12
+      text other.text testId="other"
