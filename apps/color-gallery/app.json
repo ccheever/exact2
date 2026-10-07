@@ -44,7 +44,7 @@
       "ios": "0"
     }
   },
-  "hooks": [
+  "hatches": [
     "sticky-limit"
   ]
 }

@@ -180,7 +180,7 @@ component Fieldnotes
         row gap=8 align-items="center"
           button press=newNote disabled=(dirty or busy) testId="new-note" aria-label="New note" aria-keyshortcuts="Meta+N Control+N" padding=10 background-color="#31554a" border-radius=8
             row gap=6 align-items="center"
-              image "symbol:add" font-size=13 font-weight=600 tint-color="#ffffff"
+              image "symbol:add" font-size=13 font-weight=600 -exact-tint-color="#ffffff"
               text "New note" color="#ffffff" font-weight=600 font-size=13
           button press=beginSearch testId="find-notes" aria-label="Find notes" aria-keyshortcuts="Meta+F Control+F" padding=10 border-style="solid" border-width=1 border-color="#cbd3c8" border-radius=8 background-color="#f6f3eb"
             text "Find" font-size=13 color="#31554a"
@@ -241,7 +241,7 @@ component Fieldnotes
             row gap=6 align-items="center" flex-shrink=0
               input appearance="none" id="search" value=query input=search placeholder="Search your notes" aria-label="Search notes" testId="search" flex=1 min-width=0 box-sizing="border-box" padding=12 border-style="solid" border-width=1 border-color="#cbd3c8" border-radius=9 background-color="#ffffff" font-size=14
               button press=closeSearch testId="close-search" aria-label="Close search" aria-keyshortcuts="Escape" padding=10 border-radius=8 background-color="#e9eee4"
-                image "symbol:close" font-size=18 font-weight=400 tint-color="#31554a"
+                image "symbol:close" font-size=18 font-weight=400 -exact-tint-color="#31554a"
             scroll testId="note-list" flex=1 min-height=160
               column gap=10 padding=(tv ? 10 : 0)
                 when length(library.notes) == 0

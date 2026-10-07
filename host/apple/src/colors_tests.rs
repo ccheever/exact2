@@ -19,7 +19,7 @@ impl DataSource for NoData {
 static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 // A name no other test reports.
-const BRAND: &str = "platform-color(ios colorsTestBrandColor, macos colorsTestBrandColor, light-dark(#102030, #405060))";
+const BRAND: &str = "-exact-platform-color(ios colorsTestBrandColor, macos colorsTestBrandColor, light-dark(#102030, #405060))";
 
 fn app() -> String {
     format!(
@@ -367,7 +367,7 @@ fn a_platform_colour_in_a_branch_not_yet_taken_is_reported_from_boot() {
     // compiled literal gives a plan whose colour nothing has interned, as a
     // plan baked elsewhere is.
     let mut plan = contract::compile(
-        "component A\n  state on = false\n  view\n    column\n      box width=20 height=20 background-image=(on ? \"linear-gradient(platform-color(ios colorsTestLateSeedColor, macos colorsTestLateSeedColor, #010203), #ffffff)\" : \"none\")\n",
+        "component A\n  state on = false\n  view\n    column\n      box width=20 height=20 background-image=(on ? \"linear-gradient(-exact-platform-color(ios colorsTestLateSeedColor, macos colorsTestLateSeedColor, #010203), #ffffff)\" : \"none\")\n",
     )
     .unwrap();
     for s in &mut plan.strings {

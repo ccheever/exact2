@@ -624,12 +624,12 @@ test('page facts: the platform off the agent, the drive\'s values under it (LLP 
   // The document pickers (studio diary R31): bit 3 where the browser has them.
   platform.showOpenFilePicker = () => {};
   expect(real.bits()).toBe(8);
-  delete platform.showOpenFilePicker;
+  delete platform.showOpenFilePicker; let focused = false; platform.document.hasFocus = () => focused; expect(real.bits()).toBe(16); focused = true; expect(real.bits()).toBe(0); // #114: bit 4 while `document.hasFocus()` is false
   real.onChange(() => {});
-  expect(listened).toEqual(['visibilitychange', 'online', 'offline']);
+  expect(listened).toEqual(['visibilitychange', 'online', 'offline', 'focus', 'blur']);
   const agent = pageReporter(true, new Proxy({}, {get() { throw new Error('agent read the platform'); }}));
   expect(agent.bits()).toBe(4 | 8);
-  agent.prefer({ 'visibility-state': 'hidden', online: false, 'can-open-files': false });
+  agent.prefer({ 'visibility-state': 'hidden', online: false, 'can-open-files': false, 'has-focus': false }); expect(agent.bits()).toBe(1 | 2 | 4 | 16); agent.prefer({ 'has-focus': 'true' });
   expect(agent.bits()).toBe(1 | 2 | 4);
   expect(() => agent.prefer({ online: 'maybe', 'can-share': false })).toThrow('prefer: online');
   expect(agent.read()['can-share']).toBe(true);

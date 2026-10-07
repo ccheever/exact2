@@ -16,6 +16,7 @@ mod start;
 mod tests;
 mod traversal;
 pub(crate) mod views;
+mod within;
 use super::*;
 pub use api::*;
 use exact_kernel::PropId;
@@ -111,6 +112,8 @@ struct Mounted {
     row: Row,
     /// Mounted out of the port and not shown since ([`shown`]).
     awaiting: bool,
+    /// Past the window, kept for the next row it needs ([`reuse`]).
+    held: bool,
 }
 #[derive(Debug)]
 pub(crate) struct Collection {
@@ -886,6 +889,7 @@ impl Collection {
             let text = self.index.key(position).unwrap().to_owned();
             let mounted = match old.remove(&text) {
                 Some(mut mounted) => {
+                    mounted.held = false;
                     let dirty = self.reposition(&mut mounted, position);
                     if update {
                         let body = &u.sites.deps.bodies[self.region.0 as usize];
@@ -911,7 +915,7 @@ impl Collection {
         // A build-only report retires nothing (LLP 1072 §5): rows past the
         // window stay, and the report is pending until an immediate one.
         if fill.create_only && !update {
-            self.build_needed(u, needed, Vec::new(), Vec::new(), frames)?;
+            self.build_needed(u, needed, Vec::new(), Vec::new(), None, frames)?;
             let mut kept = false;
             for (text, mut mounted) in old {
                 match self.index.position(&text) {
@@ -988,7 +992,8 @@ impl Collection {
         }
         // Rows still needed after the retiring ones may take the kept rows
         // past the window, farthest first.
-        let kept = self.build_needed(u, needed, retiring, kept, frames)?;
+        let hold = port.filter(|_| reusing && !update);
+        let kept = self.build_needed(u, needed, retiring, kept, hold, frames)?;
         pending |= !kept.is_empty();
         for (_, text, mut mounted) in kept {
             let position = self.index.position(&text).unwrap();
@@ -1076,6 +1081,7 @@ impl Collection {
             published: (usize::MAX, usize::MAX),
             row,
             awaiting: false,
+            held: false,
         };
         self.mounted_shown(u, &mut mounted);
         Ok(mounted)
@@ -1365,96 +1371,6 @@ impl Collection {
                 end_after_noop: ready[0] && ready[1],
             }
         }))
-    }
-    /// Travel inside the realized window, which is most reports while a list
-    /// moves: the same port, pins and heights, no measurement, nothing owed,
-    /// no correction before or after, and the window it leads to is the
-    /// mounted rows. Realizing it would reuse every row and emit nothing, so
-    /// only the geometry moves (@ref LLP 1050.000 §6). None: realize.
-    fn travel_within(
-        &mut self,
-        u: &mut Update<'_>,
-        feedback: &CollectionFeedback,
-        by_view: &BTreeMap<ViewId, usize>,
-        fill: CollectionFill,
-    ) -> Result<Option<Option<CollectionEdges>>, InstanceError> {
-        let Some(g) = &self.geometry else {
-            return Ok(None);
-        };
-        // A host reports every mounted row's height each time; one the
-        // index already holds, measured, changes nothing (`feedback`'s own
-        // loop would set it again).
-        let remeasures = |m: &RowMeasurement| {
-            let row = &self.mounted[by_view[&m.view]];
-            let key = self.index.key(row.position).unwrap();
-            self.index.measurement_token(key) == Some(row.token)
-                && !(self.index.noise_at(row.position, m.size)
-                    && (m.size == 0.0) == self.zero_heights.contains(key))
-        };
-        if feedback.measurements.iter().any(remeasures)
-            || self.restored_at.is_some()
-            || self.at_end
-            || self.target.is_some()
-            || self.pending
-            || self.preview.is_some()
-            || self.incoming.is_some()
-            || self.hidden.is_some()
-            || self.correction.is_some()
-            || (
-                g.port_cross,
-                g.port_main,
-                g.cross,
-                g.focus_view,
-                g.interaction_view,
-            ) != (
-                feedback.port_cross,
-                feedback.port_main,
-                feedback.cross,
-                feedback.focus_view,
-                feedback.interaction_view,
-            )
-        {
-            return Ok(None);
-        }
-        let anchor = self
-            .index
-            .capture_anchor(feedback.offset, g.port_main, self.follow_end)
-            .map_err(index_error)?;
-        let corrected = self
-            .index
-            .restore_anchor(&anchor, g.port_main)
-            .map_err(index_error)?;
-        if !start::at_target(&anchor, corrected, feedback.offset, self.end_sent) {
-            return Ok(None);
-        }
-        let pins = self.pins();
-        let (focus, interaction) = (self.pin(pins[0]), self.pin(pins[1]));
-        let window = self
-            .index
-            .window_led(
-                feedback.offset,
-                feedback.port_main,
-                lead(feedback.port_main, fill.velocity),
-                [focus.as_deref(), interaction.as_deref()],
-            )
-            .map_err(index_error)?;
-        let mut mounted = self.mounted.iter().map(|row| row.position);
-        let same = window
-            .segments
-            .iter()
-            .cloned()
-            .flatten()
-            .all(|p| mounted.next() == Some(p))
-            && mounted.next().is_none();
-        if !same {
-            return Ok(None);
-        }
-        u.work.rows_reused += self.mounted.len();
-        self.set_geometry(CollectionFeedback {
-            measurements: Vec::new(),
-            ..feedback.clone()
-        });
-        Ok(Some(self.edge_event(fill)?))
     }
     fn release_pins(
         &mut self,

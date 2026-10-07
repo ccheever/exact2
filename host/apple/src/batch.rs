@@ -501,7 +501,7 @@ impl Batch {
         self.ops.push(format!("{{\"op\":\"destroy\",\"id\":{id}}}"));
     }
 
-    /// `{"op":"exit","id":…}` — the view leaves with its `exit-animation`
+    /// `{"op":"exit","id":…}` — the view leaves with its `-exact-exit-animation`
     /// (LLP 1063): the presenter keeps it and everything under it where they
     /// are, without input or accessibility, until a `destroy` names it.
     pub fn exit(&mut self, id: u32) {

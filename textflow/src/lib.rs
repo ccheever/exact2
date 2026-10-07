@@ -11,6 +11,7 @@
 
 mod bands;
 mod chrome;
+pub use chrome::chrome_break;
 mod collapse;
 mod flow;
 mod geometry;

@@ -1,5 +1,5 @@
 //! `animation-timeline=Name` naming a `timeline` declaration (LLP 1055.002
-//! D2): the attribute becomes the row's text, `"clock(Name)"`, before types
+//! D2): the attribute becomes the row's text, `"-exact-clock(Name)"`, before types
 //! and lowering see it, so neither knows clock timelines exist.
 
 use crate::ast::{Attr, Expr, File, Node};
@@ -7,7 +7,7 @@ use crate::parser::SyntaxError;
 use std::collections::{HashMap, HashSet};
 
 /// Rewrite every `animation-timeline` (or `animationTimeline`) whose value
-/// is a bare name a `timeline` declares into `"clock(Name)"`, on view
+/// is a bare name a `timeline` declares into `"-exact-clock(Name)"`, on view
 /// elements and in `style` declarations. On an element any other value is
 /// left as written (a bare name there may be a binding, and a component's
 /// prop, inject, state, derive, resource, mutation, action, or an `each` or
@@ -79,7 +79,7 @@ fn attrs(names: &HashMap<String, String>, locals: &HashSet<String>, attrs: &mut 
         }
         if let Expr::Ident(name, span) = &a.value {
             if let Some(to) = names.get(name).filter(|_| !locals.contains(name)) {
-                a.value = Expr::Str(format!("clock({to})"), *span);
+                a.value = Expr::Str(format!("-exact-clock({to})"), *span);
             }
         }
     }
@@ -158,6 +158,9 @@ mod tests {
     #[test]
     fn a_binder_of_the_name_shadows_the_timeline_in_its_body_only() {
         let src = "timeline P\ncomponent App\n  state items = []\n  view\n    column\n      text \"a\" animation-timeline=P\n      each P in items key=P\n        text \"b\" animation-timeline=P\n      text \"c\" animation-timeline=P\n";
-        assert_eq!(timelines(src), ["clock(P)", "ident P", "clock(P)"]);
+        assert_eq!(
+            timelines(src),
+            ["-exact-clock(P)", "ident P", "-exact-clock(P)"]
+        );
     }
 }

@@ -6,8 +6,8 @@
 //   page's own readings (`navigation.js`), on every resize (glue.js
 //   `mediaChanged`).
 // - `exactPage` (LLP 1069.000 D2; runner/src/page.rs): visibility, online,
-//   share sheet, from the web host's own `pageReporter`; under the agent the
-//   drive's (`prefer page`).
+//   share sheet, pickers, focus, from the web host's own `pageReporter`;
+//   under the agent the drive's (`prefer page`).
 // - `exactDelivery` (LLP 1030 D7; runner/src/delivery.rs): what the build
 //   baked; a JS build links no update store, so nothing is ever staged.
 // - `exactSurface` (LLP 1047 D3; runner/src/surface_record.rs): a GPU
@@ -46,8 +46,8 @@ export function page(readers) {
   const facts = typeof document === "object" && document.createElement ? pageReporter(agent) : null;
   (data.reserved ??= {}).exactPage = (_, a, name) => {
     // A render has no page: the bake's answer (runner/src/page.rs `Page::default`).
-    const f = facts ? facts.read() : { "visibility-state": "visible", online: true, "can-share": false, "can-open-files": false };
-    return byName(readers, name, { visibilityState: f["visibility-state"], onLine: f.online, canShare: f["can-share"], canOpenFiles: f["can-open-files"] });
+    const f = facts ? facts.read() : { "visibility-state": "visible", online: true, "can-share": false, "can-open-files": false, "has-focus": true };
+    return byName(readers, name, { visibilityState: f["visibility-state"], onLine: f.online, canShare: f["can-share"], canOpenFiles: f["can-open-files"], hasFocus: f["has-focus"] });
   };
   if (!facts) return;
   const changed = again("exactPage", "page");

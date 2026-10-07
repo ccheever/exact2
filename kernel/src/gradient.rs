@@ -627,7 +627,7 @@ fn hex(out: &mut String, c: Color) {
 }
 
 /// Where a value's text goes: the browser, or the wire, which keeps a
-/// `platform-color()` as written so the reader interns the same reference
+/// `-exact-platform-color()` as written so the reader interns the same reference
 /// (LLP 1095 D1); the browser gets its web colour, else its fallback.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ColorText {

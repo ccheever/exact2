@@ -54,7 +54,7 @@ impl TransitionProperty {
             "border-color" => Some(TransitionProperty::BorderColor),
             // A path's `d` transitions (LLP 1055.000 D15); no keyframe names it.
             "d" => Some(TransitionProperty::Property(Property::D)),
-            name => Property::from_name(name).map(TransitionProperty::Property),
+            name => Property::from_author_name(name).map(TransitionProperty::Property),
         }
     }
 

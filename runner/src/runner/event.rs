@@ -6,6 +6,9 @@ use exact_plan::{ActionsId, Code, EventKind, HandlersId, NodesId, Opcode, TypeKi
 use std::fmt::Write as _;
 use std::rc::Rc;
 
+mod keyboard;
+pub use keyboard::KeyboardEvent;
+
 const BINDING_ARGS: usize = 8;
 const BINDING_STRING: usize = 1024;
 const BINDING_STRING_TOTAL: usize = 4096;
@@ -210,11 +213,14 @@ pub enum Event {
     Focus,
     /// The view lost the focus.
     Blur,
-    /// A key went down while the view had the focus: the key's name as the
-    /// web spells it (`"Enter"`, `"ArrowDown"`, `"a"`), and the modifiers
-    /// held (`KeyboardEvent`'s flags). A host writes both as a chord,
-    /// [`Event::key`].
-    Key(String, KeyModifiers),
+    /// A key went down while the view had the focus (DOM's `keydown`): the
+    /// key's name as the web spells it (`"Enter"`, `"ArrowDown"`, `"a"`),
+    /// the modifiers held, the physical key and whether it is an auto-repeat.
+    /// A host writes the chord, then the code and repeat ([`KeyboardEvent`]).
+    Key(KeyboardEvent),
+    /// A key came up while the view had the focus (DOM's `keyup`, #140): a
+    /// modifier's release too, the way an app learns ⌘ is no longer held.
+    Keyup(KeyboardEvent),
     /// Enter in an input with a `submit` handler — the web's implicit
     /// submission (HTML forms §4.10.21.2), without a form.
     Submit,
@@ -426,28 +432,21 @@ impl Event {
         })
     }
 
-    /// A key from its chord ([`KeyModifiers::split`]).
+    /// A key from its chord ([`KeyModifiers::split`]), with no code.
     pub fn key(chord: &str) -> Self {
-        let (held, key) = KeyModifiers::split(chord);
-        Self::Key(key.into(), held)
+        Self::Key(KeyboardEvent::chord(chord))
     }
 
     /// The DOM record this event offers its action as an optional last
     /// parameter, its fields in the compiler's order
     /// (`contract_types::event_record`, `contract/types/src/selection.rs`):
-    /// `key`'s `KeyboardEvent`, `press`'s `MouseEvent`, the pointer's and
+    /// `key`'s and `keyup`'s `KeyboardEvent`, `press`'s `MouseEvent`, the pointer's and
     /// `contextmenu`'s `PointerEvent`, `scroll`'s `ScrollEvent`, the
     /// clipboard's `ClipboardEvent`, `wheel`'s `WheelEvent` and `drop`'s
     /// `DragEvent`.
     pub fn record(&self) -> Option<Value> {
         match self {
-            Event::Key(key, held) => Some(Value::record(vec![
-                Value::str(key),
-                Value::Bool(held.shift),
-                Value::Bool(held.ctrl),
-                Value::Bool(held.alt),
-                Value::Bool(held.meta),
-            ])),
+            Event::Key(k) | Event::Keyup(k) => Some(k.value()),
             Event::Pointerdown(p)
             | Event::Pointerup(p)
             | Event::Pointermove(p)
@@ -957,6 +956,7 @@ impl<D: DataSource> Runner<D> {
                 Event::Focus => "focus",
                 Event::Blur => "blur",
                 Event::Key(..) => "key",
+                Event::Keyup(..) => "keyup",
                 Event::Submit => "submit",
                 Event::Load => "load",
                 Event::Message(_) => "message",
@@ -1064,7 +1064,8 @@ impl<D: DataSource> Runner<D> {
             Event::Hover(over) => (EventKind::Hover, Some(Value::Bool(*over)), "hover"),
             Event::Focus => (EventKind::Focus, None, "focus"),
             Event::Blur => (EventKind::Blur, None, "blur"),
-            Event::Key(key, _) => (EventKind::Key, Some(Value::str(key)), "key"),
+            Event::Key(k) => (EventKind::Key, Some(Value::str(&k.key)), "key"),
+            Event::Keyup(k) => (EventKind::Keyup, Some(Value::str(&k.key)), "keyup"),
             Event::Submit => (EventKind::Submit, None, "submit"),
             Event::Load => (EventKind::Load, None, "load"),
             Event::Message(message) => (EventKind::Message, Some(Value::str(message)), "message"),

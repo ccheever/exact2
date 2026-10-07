@@ -67,7 +67,7 @@ final class TextPaintIOSTests: XCTestCase {
         XCTAssertNil(node.paragraphSpec().runs.last?.background, "a hidden inline parent paints no background behind its visible child")
     }
 
-    /// `content-transition: numeric` rolls the ink layer's new pixels in. An
+    /// `-exact-content-transition: numeric` rolls the ink layer's new pixels in. An
     /// HDR `text-shadow` is a layer of its own under it, and rolls with it.
     func testAnHDRTextShadowRollsWithItsNumerals() throws {
         let session = ExactApp.shared.makeSession(label: "numeric-hdr-shadow")

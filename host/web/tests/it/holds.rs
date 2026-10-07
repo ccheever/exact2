@@ -25,7 +25,7 @@ const SOURCE: &str = r##"component App
         text "retarget"
       text `${count}` testId="count"
       when shown
-        column testId="row" scale=target background-color=color transition="translate spring(180, 12, 1), scale spring(180, 12, 1)" swiperight=swipe
+        column testId="row" scale=target background-color=color transition="translate -exact-spring(180, 12, 1), scale -exact-spring(180, 12, 1)" swiperight=swipe
           text "row"
 "##;
 fn boot() -> Host<NoData> {
@@ -219,7 +219,7 @@ fn real_wasm_swipe_takeover_style_commits_and_deletion() {
   state blocked = false
   state disabled = false
   state tint = "#ff0000"
-  state returning = "translate 0s spring(180, 12, 1) 100ms"
+  state returning = "translate 0s -exact-spring(180, 12, 1) 100ms"
   action edit(value)
     draft = value
     tint = "#0000ff"
@@ -257,7 +257,7 @@ fn real_wasm_swipe_takeover_style_commits_and_deletion() {
           when shown
             column testId="row" disabled=disabled swiperight=swipe touch-action="pan-y" width=300 height=90 background-color=tint transition=returning
               text "Swipe" height=30
-              text "Reply" testId="indicator" swipeIndicator=true opacity=0 scale=0.5 transition="opacity spring(180, 12, 1), scale spring(180, 12, 1)"
+              text "Reply" testId="indicator" swipeIndicator=true opacity=0 scale=0.5 transition="opacity -exact-spring(180, 12, 1), scale -exact-spring(180, 12, 1)"
         column navigationKey="other"
           button id="back" press=enable
             text "Back"
@@ -291,8 +291,8 @@ fn hold_input_drains_other_advanced_properties_without_animating_the_hold() {
             "background-color=color opacity=(target == 24 ? 0.5 : 1)",
         )
         .replace(
-            "scale spring(180, 12, 1)\"",
-            "scale spring(180, 12, 1), opacity spring(180, 12, 1)\"",
+            "scale -exact-spring(180, 12, 1)\"",
+            "scale -exact-spring(180, 12, 1), opacity -exact-spring(180, 12, 1)\"",
         );
     exact_web::link(exact_web_capabilities::ALL);
     let mut host = Host::boot(

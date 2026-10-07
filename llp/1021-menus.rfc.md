@@ -5,7 +5,7 @@
 **Systems:** Kernel (a top layer; the popover's box anchored to its invoker), Contract (HTML popover and dialog declarations), Web host (the Popover API by identity), Apple host (menu-shaped popovers presented as UIMenu/NSMenu), Linux host (a kernel-painted top layer), Agent API (no ninth operation), Weird Castle (the account switcher, first consumer)
 **Author:** Claude (Fable 5) for Charlie Cheever
 **Date:** 2026-08-30
-**Revision:** §5.1, 2026-10-05 (Claude, Opus 5.5): the long-press context menu earned back, with its preview and commit, for the Signal clone's chat list (Charlie's approval).
+**Revision:** §5.1, 2026-10-05 (Claude, Opus 5.5): the long-press context menu earned back, with its preview and commit, for the Signal clone's chat list (Charlie's approval). §5.2, 2026-10-07 (Claude, Opus 5.5): submenus earned back for the T3 Code clone's row menus (#141), with `position-area="right span-bottom"`.
 **Related:** LLP 1017 §8.1 (literal HTML/CSS names, no aliases — the rule that names every row here), LLP 1001 (where a deviation from the bare element is declared), LLP 1008 (host state that never enters the plan — scroll offset — and the native text field, the one native control so far), LLP 1012 (the eight operations; `tap` is a journal entry into the runner, never OS input), LLP 1014 (the canvas capture the top layer sits outside of), LLP 1018 (the `EXACT_AGENT` presentation-swap precedent: `MemoryStore` for the keychain), weird-castle e644c82 (the hand-rolled switcher overlay this replaces). Platform record: the HTML Popover API and invoker attributes; the WAI-ARIA menu pattern; Apple HIG "Menus" and "Pull-down buttons"; `UIMenu`/`UIButton.menu`/`showsMenuAsPrimaryAction` (iOS 14+), `NSMenu` (macOS).
 
 ## 1. Summary
@@ -479,11 +479,12 @@ with these values, spelled as CSS spells them:
 | `top span-right` | the top row, centre and right columns | bottom-left at the invoker's top-left |
 | `top`, `top span-all` | the top row, all three columns; `anchor-center` | above, centred on the invoker |
 | `center` | `center center`, the anchor's own cell; `anchor-center` in both axes | centred over the invoker |
+| `right span-bottom` | the right column, centre and bottom rows; aligned to the anchor's top edge | top-left at the invoker's top-right: a submenu beside its row (§5.2) |
 
 A single keyword names its row and spans every column, so `top` *is* `top
 span-all` (centred), not `top span-right`; `bottom` alike. Any other
-value (a corner, `left`/`right`, `span-left`, logical keywords, `span-all
-top`) fails the build with `lower-css-position-area`, as does the row on a
+value (a corner, `left`, `right` alone or spanning up, `span-left`, logical
+keywords, `span-all top`) fails the build with `lower-css-position-area`, as does the row on a
 node that is not a popover. Every host clamps the box to the viewport (the
 layer): CSS does the same, as an absolutely positioned box that overflows
 its area but fits its containing block is shifted back into it. Nothing
@@ -612,8 +613,8 @@ agent flow and the seeded-book CDP recipe keep working unchanged.
   Messages' black Block/Discard actions supply the measurement. The existing
   swipe row is generalized as `destructive`; D2 records the native and web
   behavior and LLP 1001 §1 declares the non-web presentation hint.
-- **Submenus** — `UIMenu` nests and ARIA allows it; nothing here needs
-  it. First consumer brings the nesting rules.
+- **Submenus** — **earned back 2026-10-07** (§5.2) by the T3 Code
+  clone's row context menus (Copy ▸ path / link / id; exact2 #141).
 - **The menu keyboard contract** (arrow traversal, typeahead, `role=menu`
   focus management) — Escape works (D2, the spec's dismissal); the rest
   arrives with the events lane (QUEUE §2), which owns keys generally.
@@ -880,13 +881,119 @@ driven: `popUp` tracks the menu modally, and no test reaches it.
 **Still deferred.** The preview's own interactivity: UIKit takes every touch
 on a preview as the commit, as QUEUE's reaction-picker note found, so
 the Signal message menu's reaction bar is not a preview, and stays
-authored (a reaction bar beside the menu is its own work). Submenus (as §5). A preview for a node that does not name a
+authored (a reaction bar beside the menu is its own work). A preview for a node that does not name a
 popover. macOS's preview (none exists). Linux's popover presentation. The
 keyboard route to a context menu (Shift+F10, the context-menu key; QUEUE's
 "Keyboard access to a message's context menu"). Compile-time checks: a
 literal `contextPopover` naming no popover, or two `contextPreview` rows,
 is not refused by the compiler. iOS logs both at the press, macOS logs a
 missing popover, and the web logs neither.
+
+## 5.2 Submenus (2026-10-07)
+
+**The consumer.** The T3 Code clone's row context menus nest one level:
+Copy ▸ path / link / id beside check-marked rows (exact2 #141). macOS built
+one flat `NSMenu` (`menu(of:)`), so "Copy" was an item that did nothing; iOS
+dropped the row, as a row without `press` separated sections.
+
+**The link is `popovertarget`.** A menu row (a `button`, `role="menuitem"`)
+whose `popovertarget` names another popover, to toggle or show it, opens
+that popover as its submenu. This is HTML's own relation: the browser opens
+the nested popover by it, and an invoker inside an open auto popover makes
+that popover the nested one's ancestor in the popover stack, so opening the
+submenu leaves the menu open, a click in the submenu dismisses neither, and
+a click back in the menu closes only the submenu. `aria-haspopup="menu"` is
+ARIA's hint on the row (AppKit serves it as `AXHasPopup`). It links nothing,
+since the web opens nothing by it, and nothing requires it.
+
+```
+button "Row" contextPopover="row-menu"
+column id="row-menu" popover="auto" role="menu"
+  button "Pinned" press=pin aria-checked=pinned role="menuitemcheckbox" popovertarget="row-menu" popovertargetaction="hide"
+  button popovertarget="copy-menu" role="menuitem" aria-haspopup="menu"
+    text "Copy"
+    text "›" aria-hidden=true
+column id="copy-menu" popover="auto" role="menu" position-area="right span-bottom"
+  button "Copy path" press=copy("path") role="menuitem" popovertarget="row-menu" popovertargetaction="hide"
+```
+
+**The rules.**
+
+- A row is a submenu when the popover it names is menu-shaped (D3; on iOS,
+  has an item to show), is not a confirmation (`alertdialog`, `dialog`), and
+  is not already on the row's path: the menu presented and the submenus down
+  to the row. A row naming one of those (a cycle), or any other popover,
+  stays an item, as before.
+- The nested popover may sit anywhere in the view, beside its menu or inside
+  it. A popover inside a menu is no row of it (closed, it is `display: none`
+  on the web), so the menu stays menu-shaped.
+- No depth limit: `NSMenu`, `UIMenu` and ARIA all nest. The HIG's advice to
+  keep to one level is the author's to follow.
+- The submenu row itself is never chosen. AppKit and UIKit send no action
+  for an item with a submenu, so its `press`, which the web fires with the
+  opening (D1), does not run natively: write none. A disabled or inert
+  opener is a dimmed item (on iOS a disabled action, as `UIMenu` has no
+  disabled state).
+- A nested item closes the whole menu by hiding the menu presented:
+  `popovertarget="<root>" popovertargetaction="hide"`. Hiding a popover hides
+  those above it in the stack, so on the web and under the agent the
+  submenu closes with it. The native menus close themselves and ignore the
+  attribute (D6). An item that hides only its own popover leaves the menu
+  open on the web and under the agent, as the spec does.
+- `aria-checked` is a check mark at any depth, `hr` a separator (macOS) or
+  a section (iOS), `destructive` and `disabled` as at the top.
+- An item's title is its row's accessible name: an `aria-hidden` child is
+  left out, so the web's own `›` is not drawn beside the platform's arrow.
+  This holds for every menu item and chooser action on both Apple hosts.
+
+**macOS.** `menu(of:)` builds each submenu into its item's `submenu`, for a
+button menu and a context menu alike. A nested item is picked as one at the
+top ("The chooser on macOS", D2): recorded, pressed by view id on the next
+turn, once for the whole menu, and cancelled for good by a batch that
+changes what the menu showed: the row, as before, and each opener on its
+path, which must still be live, enabled, shown, in its menu and opening the
+same submenu. AppKit places a submenu and opens it on hover.
+
+**iOS.** `items(of:)` nests a `UIMenu` titled by the row, for the pull-down
+and the context menu. A chosen nested action presses its row by view id, as
+any item's does.
+
+**Web and the agent.** On the web the browser opens the nested popover on
+the row's press, by identity. `position-area="right span-bottom"` places it
+beside its row (the Placement table); without a `position-area` the web
+keeps the browser's centred popover, as §4 says of any popover. A native
+submenu also opens on hover. The web's hover opener is the interest invoker
+(`interestfor`), refused as in §5.1, so the web and the agent open a
+submenu on press. Under the agent the painted presentations nest as the
+web's do. macOS's top layer already kept a popover's ancestor branch open
+(`show`) and closed what was above a closed popover (`close`). iOS's
+painted popovers now record their place in the stack, the open popover each
+is nested in (by its opener or its parent): a tap in a submenu keeps its
+menu open, a tap in the menu closes the submenu, hiding a menu hides its
+submenus, the latest opened lies on top, and `state.navigation.popover`
+names it, as macOS's does.
+
+**Linux** has no popover presentation (§4). The agent's `tap <node>
+contextmenu` on a node naming a `contextPopover` is now refused, and logged,
+with `POPOVER_UNSUPPORTED` (it had said only that the node carries no canvas
+input), so the menu's rows and its submenus' stay hidden; any invoker's tap is
+refused the same way.
+
+**Evidence.** `ContextMenuMacTests`: the submenu beside and inside its menu,
+its check marks, a nested pick pressed once on the next turn and cancelled
+by a retargeted, disabled or hidden opener; a cycle and a hide are items; a
+disabled opener is a dimmed submenu; an `aria-hidden` child is not in the
+title. `SubmenuIOSTests`: the nested `UIMenu` and its check marks, a nested
+action pressing its row, a cycle, a dimmed opener. `PositionAreaTests` for
+the new area. The Linux pinned test
+`a_context_menu_and_its_submenu_row_are_refused_as_popovers`. #141's app,
+driven by `tap row contextmenu`, `tap m-copy`, `tap m-copy-path` on the web
+and macOS: the submenu opens beside the row, `did("copy-path")` runs, and the
+menu and submenu close. The same app launched on macOS and driven by real
+input (a right-click on the row, a click on Copy, then on Copy path): the
+`NSMenu` shows Copy's submenu with its check mark, and the app's text reads
+`log: copy-path` after. iOS's nested `UIMenu` was not presented to a finger:
+`SubmenuIOSTests` stands for it.
 
 ## 6. Delivery
 

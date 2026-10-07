@@ -49,8 +49,8 @@ impl Painter {
         }
         for (glyph, baseline, paint) in paragraph.paint_glyphs(palette) {
             // A Markdown piece's own: a followed link, `~~strike~~`.
-            let mark = paragraph.runs().get(glyph.metadata).map_or(0, |r| r.mark);
-            let (underline, strike) = flags[glyph.metadata];
+            let mark = paragraph.runs().get(glyph.run()).map_or(0, |r| r.mark);
+            let (underline, strike) = flags[glyph.run()];
             let (underline, strike) = (
                 underline || mark & UNDERLINE != 0,
                 strike || mark & STRIKE != 0,

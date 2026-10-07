@@ -1,4 +1,4 @@
-// LLP 1053.000's parity page: CSS `backdrop-filter: blur()`, the browser the
+// LLP 1053.000's parity page: CSS backdrop blur and saturation, the browser the
 // oracle. A backdrop of hard-edged colour bars, and over it four glass boxes:
 // a small and a large blur, the feed's glass (blur 20, rounded, a translucent
 // white tint) and a blur across a black/white edge, which is what measures a
@@ -6,9 +6,11 @@
 // Chrome's picture (the web host at 1×) is backdrop.web.png; Linux's raster
 // test holds both painters to it, and LLP 1053.000 §3 records how far each
 // Apple mapping lands from it.
+// The lower bars add grayscale, saturation above one, both function orders,
+// rounded tinted glass, and identity. A red child stays outside the filter.
 component Backdrop
   view
-    main testId="backdrop" position="relative" width=390 height=460 background-color="#ffffff"
+    main testId="backdrop" position="relative" width=390 height=840 background-color="#ffffff"
       box position="absolute" left=0 top=0 width=390 height=300 display="flex" flex-direction="row"
         box width=30 background-color="#e53935"
         box width=30 background-color="#ffffff"
@@ -29,3 +31,25 @@ component Backdrop
       box testId="glass" position="absolute" left=20 top=150 width=350 height=110 border-radius=16 background-color="#ffffff80" backdrop-filter="blur(20px)"
       box testId="none" position="absolute" left=20 top=270 width=100 height=20 backdrop-filter="none"
       box testId="edge" position="absolute" left=95 top=320 width=200 height=120 backdrop-filter="blur(8px)"
+
+      box position="absolute" left=0 top=460 width=390 height=360 display="flex" flex-direction="row"
+        box width=30 background-color="#e53935"
+        box width=30 background-color="#ffffff"
+        box width=30 background-color="#1e88e5"
+        box width=30 background-color="#fdd835"
+        box width=30 background-color="#000000"
+        box width=30 background-color="#43a047"
+        box width=30 background-color="#ffffff"
+        box width=30 background-color="#8e24aa"
+        box width=30 background-color="#000000"
+        box width=30 background-color="#ffffff"
+        box width=30 background-color="#fb8c00"
+        box width=30 background-color="#00897b"
+        box width=30 background-color="#000000"
+      box testId="desaturated" position="absolute" left=20 top=480 width=160 height=80 backdrop-filter="saturate(0)"
+        box width=10 height=10 background-color="#ff0000"
+      box testId="saturated" position="absolute" left=210 top=480 width=160 height=80 backdrop-filter="saturate(180%)"
+      box testId="blur-saturate" position="absolute" left=20 top=580 width=160 height=80 backdrop-filter="blur(12px) saturate(1.14)"
+      box testId="saturate-blur" position="absolute" left=210 top=580 width=160 height=80 backdrop-filter="saturate(180%) blur(12px)"
+      box testId="saturated-glass" position="absolute" left=20 top=680 width=350 height=80 border-radius=16 background-color="#ffffff40" backdrop-filter="blur(12px) saturate(1.8)"
+      box testId="identity" position="absolute" left=20 top=780 width=160 height=20 backdrop-filter="saturate()"

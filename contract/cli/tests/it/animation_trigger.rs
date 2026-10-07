@@ -1,4 +1,4 @@
-//! `animation-trigger` (LLP 1055 D13): an animation in a row a virtualized
+//! `-exact-animation-trigger` (LLP 1055 D13): an animation in a row a virtualized
 //! list mounted out of its port waits, held at its start, until a report
 //! puts the row in the port (the default); `none` starts it when the row is
 //! inserted.
@@ -89,7 +89,7 @@ fn report(r: &mut Runner<Data>, offset: f64) -> Advanced {
 
 #[test]
 fn an_animation_in_a_row_mounted_ahead_waits_for_the_row_to_show() {
-    for trigger in ["", " animation-trigger=\"view\""] {
+    for trigger in ["", " -exact-animation-trigger=\"view\""] {
         waits(boot(trigger));
     }
 }
@@ -144,7 +144,7 @@ fn waits(mut r: Runner<Data>) {
 #[test]
 fn with_none_a_row_mounted_ahead_plays_from_its_insertion() {
     {
-        let trigger = " animation-trigger=\"none\"";
+        let trigger = " -exact-animation-trigger=\"none\"";
         let mut r = boot(trigger);
         report(&mut r, 0.0);
         report(&mut r, 0.0);

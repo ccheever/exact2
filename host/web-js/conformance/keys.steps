@@ -29,3 +29,8 @@ key field y
 key field Escape
 type field go
 key field Enter
+# A key's release reaches the page's `keyup` with its code; Meta's own
+# keyup no longer holds Meta; a held key repeats (#140).
+key field Meta down
+key field Meta up
+key field a for 700

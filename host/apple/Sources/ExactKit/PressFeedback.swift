@@ -1,6 +1,6 @@
 // Press feedback (LLP 1061 D2): while a finger (a mouse button on macOS)
 // holds a pressable node down inside its box, the node shows its
-// `press-scale`, eased in over 120 ms and eased back on release or cancel.
+// `-exact-press-scale`, eased in over 120 ms and eased back on release or cancel.
 // The host owns it end to end — touch-down to the first scaled frame never
 // waits for the runner — and it composes with the motion engine by folding
 // into the one transform every writer goes through (`applyTransform`): an
@@ -263,6 +263,8 @@ extension NodeView {
     }
     #else
     func applyTransform() {
+        // A backdrop mirrors its box as the transform moves and scales it.
+        defer { if !backdropOperations.isEmpty { applyBackdrop() } }
         // Flying scaled whole in its clip (LLP 1013.000 D4.4): the flight's
         // scale only, about the layer's origin, the clip's top left.
         if let s = flightLook?.scale {

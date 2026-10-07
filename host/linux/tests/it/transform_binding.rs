@@ -17,7 +17,7 @@ const APP: &str = r#"component App
   state binding = "target"
   state x = 20
   state zoom = 2
-  state transition = "translate spring(300,30,1), scale spring(300,30,1)"
+  state transition = "translate -exact-spring(300,30,1), scale -exact-spring(300,30,1)"
   state count = 0
   action geometry(w: number, h: number, pw: number, ph: number)
     count = count
@@ -232,7 +232,7 @@ fn receipt_latest_none_transition_and_target_precede_invalid_binding_cancellatio
 #[test]
 fn pair_moves_also_publish_an_unrelated_running_height_projection() {
     let source = APP.replace("  state binding", "  state height = 180\n  action grow\n    height = 300\n  state binding")
-        .replace("      button testId=\"unbind\"", "      box testId=\"panel\" position=\"absolute\" bottom=0 width=40 height=height box-sizing=\"border-box\" transition=\"height spring(300,30,1)\"\n      button testId=\"grow\" press=grow\n        text \"grow\"\n      button testId=\"unbind\"");
+        .replace("      button testId=\"unbind\"", "      box testId=\"panel\" position=\"absolute\" bottom=0 width=40 height=height box-sizing=\"border-box\" transition=\"height -exact-spring(300,30,1)\"\n      button testId=\"grow\" press=grow\n        text \"grow\"\n      button testId=\"unbind\"");
     let mut h = boot(&source);
     let panel = h.kernel().node_by_key(key(&h, "panel")).unwrap().id;
     h.set_height_owner(Some(panel)).unwrap();

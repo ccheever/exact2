@@ -298,7 +298,7 @@ final class ControlHost: NSObject {
 /// (LLP 1075.003 §3.5, from James's review): a control set again to what it
 /// already shows can restart its own animation — a Liquid Glass switch's
 /// thumb wobbled when every batch re-set its colour, frame and state.
-@inline(__always) func assign<O: AnyObject, V: Equatable>(_ object: O, _ key: ReferenceWritableKeyPath<O, V>, _ value: V) {
+@inline(__always) package func assign<O: AnyObject, V: Equatable>(_ object: O, _ key: ReferenceWritableKeyPath<O, V>, _ value: V) {
     if object[keyPath: key] != value { object[keyPath: key] = value }
 }
 #endif

@@ -397,8 +397,8 @@ test('rendered tree keeps focus; an accessible name is tree --ax\'s (LLP 1080.00
 test('a native hangup names how the app ended, its crash reports, and only its last 20 lines', async () => {
   const { hangup } = await import('./agent.mjs');
   const hostLines = Array.from({ length: 30 }, (_, i) => `app: line ${i}`);
-  const hung = hangup({ what: 'the app hung up', pid: 999999, exit: { code: null, signal: 'SIGKILL' }, reports: ['/r/ExactIOS-1.ips'], hostLines });
-  assert.match(hung, /^the app hung up \(killed by SIGKILL\)\ncrash report: \/r\/ExactIOS-1\.ips\napp: line 10\n/);
+  const hung = hangup({ what: 'the app hung up', pid: 999999, exit: { code: null, signal: 'SIGKILL' }, reports: ['/r/Caltrain-1.ips'], hostLines });
+  assert.match(hung, /^the app hung up \(killed by SIGKILL\)\ncrash report: \/r\/Caltrain-1\.ips\napp: line 10\n/);
   assert.doesNotMatch(hung, /line 9\n/);
   assert.match(hangup({ what: 'clock did not answer', pid: process.pid }), /^clock did not answer \(pid \d+ still running\)$/);
   assert.match(hangup({ what: 'the app hung up', pid: 999999 }), /\(pid 999999 gone\)$/);

@@ -22,7 +22,7 @@ final class T3ComposerFrames {
     var status: [String: Any] { ["frames": frames] }
 
     func install(_ element: ExactElement) {
-        guard element.hook == .t3Frame else { return }
+        guard element.hatch == .t3Frame else { return }
         let name = element.data[.frame] ?? ""
         guard !name.isEmpty else { return }
         if entries[name]?.element === element { measure(); return }

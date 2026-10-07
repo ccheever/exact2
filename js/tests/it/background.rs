@@ -410,6 +410,33 @@ fn background_failures_and_unhandled_rejections_are_journaled() {
     );
 }
 
+/// D7 (Charlie, 2026-10-07): the host does not close a database for work
+/// that failed (an app may keep or share a handle); a database still open
+/// after a failure in the background work that opened it is journaled with
+/// the fix.
+#[test]
+fn a_database_left_open_by_failed_background_work_is_journaled() {
+    let root = Root::new();
+    let mut m = root.module();
+    m.activate().unwrap();
+    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    assert_eq!(call(&mut m, &mut s, "open-leak", "x"), "answered");
+    rounds(&mut m, &s);
+    let journal = DataSource::take_logs(&mut m);
+    assert!(
+        journal
+            .iter()
+            .any(|l| l == "data: unhandled rejection: leaked x"),
+        "{journal:#?}"
+    );
+    assert!(
+        journal.iter().any(|l| l.starts_with(
+            "storage: app:/data/notes.db is still open after a failure in background work"
+        ) && l.contains("finally { db.close() }")),
+        "{journal:#?}"
+    );
+}
+
 /// drums R10 and R11 together: a value given at once, its save chained in
 /// the answer's checkpoint, lands; the next edit's answer does not wait for
 /// it.

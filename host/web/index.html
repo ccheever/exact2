@@ -21,7 +21,7 @@
      first frame of an app that never calls `setScheme` is wrong. `setScheme`
      overrides this on the element, as an app choosing light or dark. */
   html { color-scheme: light dark; }
-  /* Press feedback is the node's own (`press-scale`, LLP 1061), as on UIKit,
+  /* Press feedback is the node's own (`-exact-press-scale`, LLP 1061), as on UIKit,
      where a pressable view shows none unless it declares one; mobile WebKit's
      grey tap highlight would paint over it on every button and link. A
      native button keeps a highlight as UIButton does: the input glue marks it

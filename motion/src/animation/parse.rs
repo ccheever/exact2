@@ -38,7 +38,7 @@ static LINKED: std::sync::OnceLock<&'static Grammars> = std::sync::OnceLock::new
 /// Link the `animation` shorthand's and `@keyframes`' grammars (LLP 1047
 /// D2, linked by use): ~5 KiB of a web core that none of Caltrain, RealWorld
 /// or the video player animates with. A web artifact links them when its
-/// plan declares keyframes or binds `animation` or `exit-animation`, and a
+/// plan declares keyframes or binds `animation` or `-exact-exit-animation`, and a
 /// plan that does so unlinked is refused at boot (D6), so an unlinked
 /// artifact never parses one. Native artifacts and the compiler parse
 /// without it.
@@ -446,9 +446,15 @@ fn easing_keyword(part: &str) -> Option<Result<Easing, ParseError>> {
     let known = matches!(
         part,
         "linear" | "ease" | "ease-in" | "ease-out" | "ease-in-out" | "step-start" | "step-end"
-    ) || ["cubic-bezier(", "steps(", "linear(", "spring("]
-        .iter()
-        .any(|f| part.starts_with(f));
+    ) || [
+        "cubic-bezier(",
+        "steps(",
+        "linear(",
+        "spring(",
+        "-exact-spring(",
+    ]
+    .iter()
+    .any(|f| part.starts_with(f));
     known.then(|| easing_only(part))
 }
 

@@ -1,7 +1,7 @@
 # LLP 1081: Names Exact invents are spelled `-exact-`
 
 **Type:** RFC
-**Status:** Draft r3, 2026-10-03. Nothing here is built. Two review rounds by Astra and Grok (r1 and r2 both NOT READY; round 2 found the rule settled and the gaps in the plan). §8 lists what each revision changed. Charlie asked for the recommendations in §7 to be taken (2026-10-03, "do your rec").
+**Status:** Accepted by Charlie (2026-10-03, "do your rec"; 2026-10-06, "your rec is ok"). Stages 1 and 1b built 2026-10-06 (§9); stage 2 deferred. Two review rounds by Astra and Grok (r1 and r2 both NOT READY; round 2 found the rule settled and the gaps in the plan). §8 lists what each revision changed. Charlie asked for the recommendations in §7 to be taken (2026-10-03, "do your rec").
 **Systems:** Contract (a new `contract/lower/src/style_names.rs`: the style-name table with each name's kind, moved out of `tags.rs`; `tags.rs` `renamed`; `contract/syntax/src/lexer.rs`: the vendor-prefix rule; keyframe and class checks), Motion (`motion/src/property.rs` names, `motion/src/parse.rs` easing functions), Kernel (`corner.rs` parse and serialize; `style/symbols.rs` system colours; the `TextDecorationLine` enum in `schema.json`), Web host and JS target (keyword mapping, the dynamic system-colour guard, symbol masks in stage 2), Apple host (`VibrancyIOS.swift`'s colour switch; symbol colour in stage 2), every Contract source in the repo (35 `.contract` files, 158 lines, plus Contract inside Rust and JS tests, at `0b871f54e`), LLP 1001 §"Additional deviations as built"
 **Author:** Claude (Opus 5.5) for Charlie Cheever, from James's proposal (2026-10-02)
 **Date:** 2026-10-03
@@ -352,3 +352,23 @@ Not taken: Grok's belief that WebKit has a bare `-apple-system-fill`. The file a
 - **Verification adds** classes, round trips, computed values, reorder and agent output, and drives iOS too (both).
 - **§4 says the sweep, not its list, is the inventory** (Astra).
 - **The WebKit block is quoted** (Grok's second challenge): lines 283–290 of `CSSValueKeywords.in` at `bb06bdc9` hold no bare `-apple-system-fill`.
+
+## 9. As built
+
+**Stage 1b** landed on its own first, as `6e85e1012` (2026-10-06): `TextDecorationLine`'s pair is `underline line-through`, parsed in either order and any ASCII case by `TextDecorationLine::from_css`. The web host's special case for the old token (added 2026-10-04 in `a4ba6f82b`) is gone, and the `text-decoration` shorthand writes the CSS spelling. Reviewed by Astra and Grok (`llp/reviews/code-2026-10-06-1081-decoration.*.md`).
+
+**Stage 1** is the rename, cut fresh from main on 2026-10-06 (the 2026-10-03 lane, `58cc96a8f`, was 2,162 commits behind by then). It differs from r3's §4 in these ways:
+
+- **Colour roles.** LLP 1095 (platform colours) landed after r3. It replaced `SYSTEM_COLORS` with a role table in `schema.json`, and its §12 said how this rule applies to it. Built that way:
+  - Exact's roles are written `-exact-<role>` (`-exact-label`, `-exact-secondary-label`, `-exact-system-orange`, …). CSS's system colours keep their names, and WebKit's real `-apple-system-*` aliases stay. A bare Exact role name is not a colour; Contract's refusal names the `-exact-` spelling.
+  - The role table's `name` column is unchanged. It is the role's id, and the web carries a role as `var(--exact-<name>, …)`. Only the author spelling gains the prefix.
+  - `-apple-system-fill` becomes **`-exact-fill`**, not r3's `-exact-system-fill`. The `fill` role is the same colour, so one name stays (LLP 1095 §12). Its WebKit alias is removed from the table, and its iOS vibrancy key is `-exact-fill`.
+  - `platform-color()` becomes `-exact-platform-color()`.
+- **D8's tables.** The style names are `contract/lower/src/style_names.rs`, including the shorthand names main added (`border`, `text-decoration`, the multi-column ones). Contract's vocabulary listing reads that table. The spelling test walks the style names, the colour roles (CSS, Exact and WebKit alias each checked for its spelling), the corner keywords, the easing functions and the `env()` names.
+- **Two more Exact grammars under unprefixed names**, found in the implementation review (Astra, Grok), are renamed with the rest:
+  - `clock(<name>)` in `animation-timeline` (LLP 1055.002) is `-exact-clock(<name>)`. Contract's `timeline` rewrite writes it, and the kernel, the JS target and Contract's endless-timeline check read it.
+  - `animation-trigger` (LLP 1055 D13) is `-exact-animation-trigger`: its `view | none` grammar shares only CSS's name (D1).
+- **The value pre-pass reads each old token only in the grammar it belongs to:** property names and the spring in transition lists, the corner keyword in `corner-shape`, the decoration in `text-decoration-line`, `clock(` in `animation-timeline`, and the colour names anywhere but rows that hold an author's own names (grid lines, font families, keyframes and timeline names, D5). It runs on keyframe values too. A bare role's hint is given on every colour refusal, gradients, masks, shadows and the border shorthands included.
+- **The JS target's computed transitions** go through one filter on both the ordinary and the pressed path. It strips comments, drops springs, drops `--exact-*` and every old name, and writes `-exact-tint-color` as `--exact-tint`. Its paint predicate reads `-exact-spring(`.
+- **Declared limit (D5).** A computed colour written in the web's own form, `var(--exact-<role>, …)`, reads as that role on native hosts, because it is the form canonical text reads back from. It names the same colour, so it is not an alias for an old spelling. Literal source refuses it.
+- **Stage 2** (symbols take `color`) is not built. It changes pixels and is its own change.

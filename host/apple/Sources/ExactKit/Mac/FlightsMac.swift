@@ -270,7 +270,7 @@ extension Presenter {
             clip.layer?.cornerRadius = mix(f.source.radius, (view.cornerRadii(in: NSRect(origin: .zero, size: layout)).max() ?? 0) * ratio)
             view.frame = NSRect(origin: .zero, size: layout)
             view.flightLook = FlightLook(image: CGRect(origin: .zero, size: layout), scale: s)
-            view.layer?.setAffineTransform(CGAffineTransform(scaleX: s, y: s))
+            view.applyTransform() // the flight's scale, and a backdrop's box with it
             CATransaction.commit()
             return
         }

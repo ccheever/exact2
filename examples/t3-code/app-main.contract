@@ -134,7 +134,7 @@ component ChatColumn
   derive stackWidth = canvas.ready ? canvas.width : max(0, min(data.look.chatMax, conversationWidth - 2.5 * rem))
   derive stackLeft = canvas.ready ? canvas.left : 1.25 * rem + max(0, conversationWidth - 2.5 * rem - stackWidth) / 2
   view
-    column flex=1 min-width=0 min-height=0 height="100%" position="relative" inert=pageCover hook="t3-frame" data-frame="chat"
+    column flex=1 min-width=0 min-height=0 height="100%" position="relative" inert=pageCover hatch="t3-frame" data-frame="chat"
       when viewport.prefersColorScheme == "dark"
         ChatHeader(data=data, shell=shell, keySidebar=settings.keySidebar, rightOpen=((rightPanel or data.diffOpen) and not narrowDiff), detailsOpen=(detailsOpen or details.inline), menuOpen=titleMenuOpen, renaming=renaming, renameText=renameText, toggleSidebar=toggleSidebar, panel=panelUi, details=detailsAct, title=titleUi)
       else
@@ -148,7 +148,7 @@ component ChatColumn
       else
         // The history control is the list's first row; the top 24pt fades under the header (topbar-scroll-fade).
         column flex=1 min-height=0 width="100%" position="relative"
-          list virtualized=true scrollFollowEnd=(not foldHold) reachend=releaseFold scrollTop=(1000000 + jumpRequest) id="transcript" testId="transcript" hook="t3-transcript" data-timeline-owner=composerOwner data-timeline-rest=(canRest ? "yes" : "no") flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box" overflow-x="hidden"
+          list virtualized=true scrollFollowEnd=(not foldHold) reachend=releaseFold scrollTop=(1000000 + jumpRequest) id="transcript" testId="transcript" hatch="t3-transcript" data-timeline-owner=composerOwner data-timeline-rest=(canRest ? "yes" : "no") flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box" overflow-x="hidden"
             each message in data.messages key=message.id
               TimelineRow(message=message, hovered=(rowHover == message.hoverKey), part=(rowHover == message.hoverKey ? partHover : ""), hoverPart=hoverPart, command=command, local=chatLocal, documents=markdown.documents, lane=data.look.chatMax, bubble=data.look.message, ink=(data.look.themed ? data.look.text : "light-dark(#27272a, #f5f5f5)"), now=timelineNow, hasMore=data.hasMore, historyLoading=data.historyLoading, historyError=data.historyError, busy=commandPending, earlier=earlier, attachments=attachmentUrls.items, diffScheme=data.look.diff, tail=data.transcriptTail, lead=(((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "" ? 16 : 24) * rem / 16), scheme=viewport.prefersColorScheme)
           when not ((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "")
@@ -161,11 +161,11 @@ component ChatColumn
       // measures it for the transcript's end reservation): absolute at the chat's foot over the lane alone, so the
       // transcript beside it still takes the pointer and the wheel; an empty thread keeps it in flow under the hero.
       // The banners sit above the card; the drawer layer paints after both, over the banners, clipped at the card.
-      column position=(overlaid ? "absolute" : "relative") left=(overlaid ? stackLeft : 0) bottom=0 width=(overlaid ? stackWidth : "100%") padding-left=(overlaid ? "0px" : "1.25rem") padding-right=(overlaid ? 0 : 1.25 * rem + laneInset) flex-shrink=0 align-items="center" box-sizing="border-box" hook="t3-frame" data-frame="overlay" testId="composer-overlay"
+      column position=(overlaid ? "absolute" : "relative") left=(overlaid ? stackLeft : 0) bottom=0 width=(overlaid ? stackWidth : "100%") padding-left=(overlaid ? "0px" : "1.25rem") padding-right=(overlaid ? 0 : 1.25 * rem + laneInset) flex-shrink=0 align-items="center" box-sizing="border-box" hatch="t3-frame" data-frame="overlay" testId="composer-overlay"
         column padding-top=(overlaid ? "0px" : "0.75rem") width="100%" max-width=data.look.chatMax position="relative" box-sizing="border-box"
           // The banners share a row with the stash's shoulder tab.
-          row width="100%" align-items="flex-end" hook="t3-frame" data-frame="shoulder"
-            column flex=1 min-width=0 margin-right=(editor.stash.count > 0 and (editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)) ? "-1.125rem" : "0px") hook="t3-frame" data-frame="dock"
+          row width="100%" align-items="flex-end" hatch="t3-frame" data-frame="shoulder"
+            column flex=1 min-width=0 margin-right=(editor.stash.count > 0 and (editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)) ? "-1.125rem" : "0px") hatch="t3-frame" data-frame="dock"
               when editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)
                 when viewport.prefersColorScheme == "dark"
                   ComposerDock(data=data, busy=commandPending, command=command, keyed=composerKey, drop=composerDrop, urls=attachmentUrls.items, exiting=noticeExit, still=viewport.prefersReducedMotion, dismiss=noticeDismiss)
@@ -175,7 +175,7 @@ component ChatColumn
               StashBadge(stash=editor.stash, op=editorOp)
           RequestBanner(data=data, command=command, busy=commandPending, scheme=viewport.prefersColorScheme, compact=(min(data.look.chatMax, conversationWidth - 2.5 * rem) - 4.25 * rem <= 35 * rem), maximumHeight=min(384, viewport.height * 0.4))
         // A resting card keeps the transcript's reservation instead of the stack's height (resolveComposerTimelineInset).
-        column padding-bottom=(resting ? "3.25rem" : "1.25rem") justify-content="flex-end" flex-shrink=0 align-items="center" width="100%" box-sizing="border-box" hook="t3-frame" data-frame="stack"
+        column padding-bottom=(resting ? "3.25rem" : "1.25rem") justify-content="flex-end" flex-shrink=0 align-items="center" width="100%" box-sizing="border-box" hatch="t3-frame" data-frame="stack"
           column width="100%" max-width=data.look.chatMax position="relative"
             when data.requestMode == "approval" or data.composer.subagent
               when data.composer.subagent

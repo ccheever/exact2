@@ -1,6 +1,7 @@
 // A `queue` mutation with a `then` (LLP 1092 D3 beside the `then` model):
 // a queue's next waits while its `then` is armed, so `then` runs once per
-// reply, in send order, and every one of them before a timer due later.
+// reply, in send order, and every one of them before a timer due later;
+// a tap first runs the replies already due.
 shape Ack
   n: number
 
@@ -25,8 +26,9 @@ component App
 
 test "one then a reply, before the timer"
   tap "twice"
-  tap "twice"
   expect state order == ""
+  tap "twice"
+  expect state order == "aa"
   clock +5
   expect state order == "aaaat"
   tap "twice"

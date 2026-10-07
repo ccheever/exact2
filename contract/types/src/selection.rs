@@ -1,6 +1,6 @@
 //! The positional event payloads shared with the runner: `select`'s
 //! (LLP 1045 D6), a file input's `change` (LLP 1069.002 D3), the
-//! pointer's (LLP 1056 §3 stage 3), `key`'s optional `KeyboardEvent`,
+//! pointer's (LLP 1056 §3 stage 3), `key`'s and `keyup`'s optional `KeyboardEvent`,
 //! `scroll`'s optional `ScrollEvent` (chat F4), `reorderdrop`'s optional
 //! `ReorderEvent` (LLP 1094 D2), and the `InputEvent` of `input`, `change`
 //! and a text field's `select` (x2apps codeedit #2), with the
@@ -48,7 +48,7 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
         "pointerdown" | "pointerup" | "pointermove" | "contextmenu" => Some("PointerEvent"),
         "wheel" => Some("WheelEvent"),
         "drop" => Some("DragEvent"),
-        "key" => Some("KeyboardEvent"),
+        "key" | "keyup" => Some("KeyboardEvent"),
         "scroll" => Some("ScrollEvent"),
         "press" => Some("MouseEvent"),
         "copy" | "cut" | "paste" => Some("ClipboardEvent"),
@@ -77,9 +77,13 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("unavailable".into(), Ty::String),
         ],
     );
-    // What a `key` handler's action hears after the key when it takes one
-    // more parameter, in the order `Event::Key` writes it: the DOM's
-    // `KeyboardEvent` fields by their names (chat F2, kanban F27).
+    // What a `key` or `keyup` handler's action hears after the key when it
+    // takes one more parameter, in the order `exact_runner::KeyboardEvent`
+    // writes it: the DOM's `KeyboardEvent` fields by their names (chat F2,
+    // kanban F27), then the physical key (`code`: `KeyB`, `Digit1`,
+    // `MetaLeft`, whatever the layout types there; "" where the host cannot
+    // tell) and whether a keydown is the platform's auto-repeat (`repeat`;
+    // #140).
     shapes.map.insert(
         "KeyboardEvent".into(),
         vec![
@@ -88,6 +92,8 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("ctrlKey".into(), Ty::Bool),
             ("altKey".into(), Ty::Bool),
             ("metaKey".into(), Ty::Bool),
+            ("code".into(), Ty::String),
+            ("repeat".into(), Ty::Bool),
         ],
     );
     // What `input` and `change` hand an action that takes one more

@@ -46,8 +46,12 @@ pub const LOWER_TRANSFORM: u8 = 2;
 pub const LOWER_R: u8 = 4;
 /// …or a stroked shape's dash offset, its one path recorded again…
 pub const LOWER_DASH: u8 = 8;
-/// …or a circle's centre, as a translation from where it is drawn.
+/// …or a circle's centre, as a translation from where it is drawn…
 pub const LOWER_MOVE: u8 = 16;
+/// …or a text's `color` or a box's `background-color` transition: the
+/// layer recorded again by its reader with the colour of each frame (the
+/// row is not, and the engine paints nothing while it runs).
+pub const LOWER_COLOR: u8 = 32;
 
 /// Track property codes on the wire.
 #[cfg(target_os = "android")]
@@ -68,6 +72,18 @@ const DASH: u32 = 6;
 const CX: u32 = 7;
 #[cfg(target_os = "android")]
 const CY: u32 = 8;
+/// A text's colour: four tracks from here, straight red, green, blue and
+/// alpha, 0-255.
+#[cfg(target_os = "android")]
+const COLOR: u32 = 9;
+/// A box's background colour, likewise.
+#[cfg(target_os = "android")]
+const BACKGROUND: u32 = 13;
+/// Keyframes a colour transition is sent as: its values along the engine's
+/// own interpolation (premultiplied, or OKLab), straight 8-bit channels the
+/// reader joins linearly.
+#[cfg(target_os = "android")]
+const COLOR_STEPS: usize = 8;
 
 impl<D: DataSource> Host<D> {
     /// Lower the reader's properties when the painter is the Canvas host's
@@ -79,6 +95,10 @@ impl<D: DataSource> Host<D> {
         if self.lowering {
             self.engine.set_lowered_properties(&LOWERED);
         }
+        // `EXACT_LOWER_COLOR=0`: colour transitions sampled and painted by the
+        // engine every frame, to compare.
+        self.lower_colors =
+            self.lowering && !std::env::var("EXACT_LOWER_COLOR").is_ok_and(|v| v == "0");
     }
 
     /// Per node a sync set animations on: whether the reader can play them
@@ -164,8 +184,14 @@ impl<D: DataSource> Host<D> {
             .filter(|(_, p)| {
                 matches!(
                     p,
-                    Property::Opacity | Property::Translate | Property::Scale | Property::Rotate
-                )
+                    Property::Opacity
+                        | Property::Translate
+                        | Property::Scale
+                        | Property::Rotate
+                        | Property::Color
+                        | Property::BackgroundColor
+                ) && (self.lower_colors
+                    || !matches!(p, Property::Color | Property::BackgroundColor))
             })
             .collect();
         for (node, property) in keys {
@@ -174,7 +200,7 @@ impl<D: DataSource> Host<D> {
                 .runner
                 .kernel()
                 .node_by_key(key)
-                .is_some_and(|n| playable(&n, &[property]));
+                .is_some_and(|n| playable(&n, &[property]) && recolors(&n, property));
             if !layered {
                 continue;
             }
@@ -292,6 +318,15 @@ impl<D: DataSource> Host<D> {
                 Property::Translate => &[(TX, 0), (TY, 1)],
                 Property::Scale => &[(SCALE, 0)],
                 Property::Rotate => &[(ROTATE, 0)],
+                Property::Color | Property::BackgroundColor => {
+                    let code = if *p == Property::Color {
+                        COLOR
+                    } else {
+                        BACKGROUND
+                    };
+                    color_tracks(&mut out, code, t);
+                    continue;
+                }
                 _ => continue,
             };
             let axis = |v: &Value, a: usize| if a == 1 { v.y } else { v.x };
@@ -349,9 +384,64 @@ fn mask(props: &[Property]) -> u8 {
             Property::R => LOWER_R,
             Property::StrokeDashoffset => LOWER_DASH,
             Property::Cx | Property::Cy => LOWER_MOVE,
+            Property::Color | Property::BackgroundColor => LOWER_COLOR,
             _ => 0,
         }
     })
+}
+
+/// Whether a reader can show `property`'s transition on `n` by recording its
+/// layer again in each frame's colour: a text without inline runs (every
+/// glyph run is its one colour), or a box's own background (a flat colour).
+/// Any other property: yes.
+fn recolors(n: &exact_kernel::NodeRef<'_>, property: Property) -> bool {
+    match property {
+        Property::Color => n.node_type == NodeType::Text && n.children().is_empty(),
+        Property::BackgroundColor => {
+            !n.node_type.is_svg_element()
+                && n.node_type != NodeType::Text
+                && n.style.background_image == Default::default()
+        }
+        _ => true,
+    }
+}
+
+/// A colour transition as four tracks from `code` (red, green, blue, alpha;
+/// straight, 0-255): [`COLOR_STEPS`] linear pieces along its curve.
+#[cfg(target_os = "android")]
+fn color_tracks(out: &mut Vec<u32>, code: u32, t: &PlayedTransition) {
+    let values: Vec<[u8; 4]> = match &t.curve {
+        PlayedCurve::Easing { .. } => (0..=COLOR_STEPS)
+            .map(|i| {
+                let k = i as f64 / COLOR_STEPS as f64;
+                t.from.zip(t.to, |a, b| a + (b - a) * k).to_rgba8()
+            })
+            .collect(),
+        PlayedCurve::Frames { values, .. } => values.iter().map(|v| v.to_rgba8()).collect(),
+    };
+    let last = values.len().saturating_sub(1).max(1) as f64;
+    for channel in 0..4 {
+        out.push(code + channel as u32);
+        f(out, t.start);
+        out.push(0);
+        f(out, 0.0);
+        f(out, 0.0);
+        f(out, played_seconds(t));
+        f(out, 1.0);
+        out.push(0);
+        out.push(2);
+        match &t.curve {
+            PlayedCurve::Easing { easing: e, .. } => easing(out, Some(e)),
+            PlayedCurve::Frames { .. } => easing(out, Some(&Easing::Linear)),
+        }
+        out.push(values.len() as u32);
+        for (i, v) in values.iter().enumerate() {
+            f(out, i as f64 / last);
+            f(out, v[channel] as f64);
+            // Linear between the samples: the curve is the whole track's.
+            easing(out, Some(&Easing::Linear));
+        }
+    }
 }
 
 fn node_u64(key: NodeKey) -> u64 {

@@ -216,7 +216,7 @@ extension NodeView {
         f.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         f.setFrameSize(NSSize(width: scroller.contentSize.width, height: max(f.frame.height, scroller.contentSize.height)))
     }
-    func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+    package func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
         TextInputLimit.allows(textView.string, range: affectedCharRange, replacement: replacementString ?? "", props: props)
     }
     func textDidChange(_ notification: Notification) {
@@ -233,7 +233,7 @@ extension NodeView {
         presenter?.collections.pinsChanged()
         publishMarkupSelection(force: true)
     }
-    func textViewDidChangeSelection(_ notification: Notification) {
+    package func textViewDidChangeSelection(_ notification: Notification) {
         guard let f = textArea as? TextArea, let editor = f.markup, !editor.applying, !editor.styling, !f.hasMarkedText() else { return }
         if f.window?.firstResponder === f { editor.bookmark = f.selectedRange() }
         restyleMarkup()

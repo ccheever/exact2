@@ -87,6 +87,7 @@ fn procedural_rigs_render_skinned_and_their_limbs_move() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let mut shots = Vec::new();
     for (ms, name) in [(1000., "rig-walk-a"), (1300., "rig-walk-b")] {

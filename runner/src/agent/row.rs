@@ -131,6 +131,7 @@ pub(super) fn row_json(row: StyleId, v: RowValue<'_>, out: &mut String) {
         RowValue::PaintOrder(p) => quote(&p.css(), out),
         RowValue::Marker(m) => quote(&m.css(), out),
         RowValue::Filter(f) => quote(&f.css(), out),
+        RowValue::BackdropFilter(f) => quote(&f.css(), out),
         RowValue::Animations(a) => quote(&a.css(), out),
         RowValue::Color2(_) | RowValue::Tracks(_) | RowValue::Placement(_) => quote("(grid)", out),
     }

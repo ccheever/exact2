@@ -25,6 +25,17 @@ shape SidebarRowTip
   fromRight: bool
   top: number
   start: bool
+// One row of a context popover menu (sidebar-menu.ts menuRows): `parent` is the submenu row that holds it.
+shape SidebarMenuRow
+  id: string
+  label: string
+  parent: string
+  sub: bool
+  disabled: bool
+  check: bool
+  checked: bool
+  destructive: bool
+  separated: bool
 shape SearchPart
   id: string
   text: string
@@ -94,6 +105,8 @@ shape Thread
   hoverHandoff: string
   hoverError: string
   hoverErrorWarning: bool
+  // handleThreadContextMenu's items, or the bulk menu's on a selected row (the row's context popover).
+  menu: list<SidebarMenuRow>
 shape SidebarScope
   key: string
   label: string
@@ -111,6 +124,8 @@ shape SidebarDraft
   surface: string
   preview: string
   glyph: ProjectGlyph
+  // handleDraftContextMenu's items (the row's context popover).
+  menu: list<SidebarMenuRow>
 shape SidebarView
   drafts: list<SidebarDraft>
   // r6-polish: a row shows Working (the root's one-second clock runs); the texts its tooltips are placed by (r6-polish.contract).

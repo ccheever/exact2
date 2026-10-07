@@ -16,13 +16,10 @@ fn freeze_catalog(engine: &TextEngine) -> Result<(FontRecipe, RasterCatalog), Tr
     Ok(adopt_catalog_generation(prepared))
 }
 fn fixture_catalog() -> catalog::Catalog {
-    let mut db = fontdb::Database::new();
-    db.load_font_source(fontdb::Source::Binary(Arc::new(
-        include_bytes!("../../../../scripts/fixtures/fonts/assets/DejaVuSans.ttf").to_vec(),
-    )));
-    db.set_sans_serif_family("DejaVu Sans");
-    db.set_monospace_family("DejaVu Sans");
-    catalog::Catalog::with_fonts(FontSystem::new_with_locale_and_db("en-US".into(), db))
+    catalog::Catalog::from_bytes(
+        &[include_bytes!("../../../../scripts/fixtures/fonts/assets/DejaVuSans.ttf").as_slice()],
+        "DejaVu Sans",
+    )
 }
 fn request(catalog: u64, width: f32) -> (Kernel, RegionTextRequest) {
     let mut k = Kernel::new(Box::new(MonospaceMeasurer::default()));
@@ -100,36 +97,34 @@ fn request(catalog: u64, width: f32) -> (Kernel, RegionTextRequest) {
     let q = k.region_text_request().unwrap().clone();
     (k, q)
 }
+/// Every line and glyph, faces by identity: a worker shapes with the very
+/// faces the UI does (shared blobs), so nothing is renumbered.
 fn glyphs(p: &Paragraph) -> Vec<String> {
-    glyphs_mapped(p, |id| id)
-}
-fn glyphs_mapped(p: &Paragraph, map: impl Fn(fontdb::ID) -> fontdb::ID) -> Vec<String> {
     p.layout_runs()
         .map(|r| {
             let mut s = format!(
-                "{}:{}:{}:{:?}:{:?}",
+                "{}:{}:{}:{:?}",
                 r.line_i,
                 r.text,
                 r.rtl,
                 [r.line_y, r.line_top, r.line_height, r.line_w].map(f32::to_bits),
-                r.decorations
             );
             for g in r.glyphs {
+                let face = &p.lines().faces[g.face as usize];
                 s.push_str(&format!(
-                    "{:?}:{:?}:{:?}",
+                    "{:?}:{:?}",
                     (
                         g.start,
                         g.end,
-                        map(g.font_id),
-                        g.font_weight,
+                        face.id(),
+                        face.weight,
+                        &face.coords,
+                        face.skew,
                         g.glyph_id,
                         g.level,
                         g.metadata,
-                        g.color_opt,
-                        g.cache_key_flags
                     ),
-                    [g.font_size, g.x, g.y, g.w, g.x_offset, g.y_offset].map(f32::to_bits),
-                    g.line_height_opt.map(f32::to_bits)
+                    [g.font_size, g.x, g.y, g.w].map(f32::to_bits),
                 ));
             }
             s
@@ -355,32 +350,33 @@ fn stale_completion_or_foreign_raster_cannot_adopt() {
 }
 
 #[test]
-fn staged_binary_recipe_preserves_actual_declared_mono_fallback() {
+fn staged_binary_recipe_preserves_a_declared_face() {
     let mut catalog = fixture_catalog();
+    // A plan's declared face from bytes, under its stack's alias.
+    let bytes = include_bytes!("../../../../scripts/fixtures/fonts/assets/DejaVuSans-Bold.ttf");
+    let blob = fontique::Blob::new(Arc::new(bytes.to_vec()));
+    let source = fontique::SourceInfo::new(
+        fontique::SourceId::new(),
+        fontique::SourceKind::Memory(blob.clone()),
+    );
+    let parsed = fontique::FontInfo::from_source(source.clone(), 0).unwrap();
+    let info = fontique::FontInfo::from_parts(
+        source,
+        0,
+        fontique::FontWidth::NORMAL,
+        fontique::FontStyle::Normal,
+        fontique::FontWeight::new(400.0),
+        parsed.axes(),
+        parsed.charmap_index(),
+    );
     catalog
         .fonts
-        .db_mut()
-        .set_monospace_family("ExactMissingMono");
-    let installed = FontSystem::new();
-    let mut mono = installed
-        .db()
-        .faces()
-        .find(|f| {
-            f.monospaced
-                && f.style == fontdb::Style::Normal
-                && f.weight == Weight::NORMAL
-                && !f.post_script_name.contains("Emoji")
-        })
-        .expect("real mono face required")
-        .clone();
-    let bytes = installed
-        .db()
-        .with_face_data(mono.id, |b, _| b.to_vec())
-        .unwrap();
-    mono.source = fontdb::Source::Binary(Arc::new(bytes));
-    mono.families = vec![("ExactPlanStack8".into(), mono.families[0].1)];
-    let id = catalog.fonts.db_mut().push_face_info(mono);
-    assert!(!catalog.fonts.is_monospace(id));
+        .collection
+        .register_described("ExactPlanStack8", vec![info]);
+    let id = FaceId {
+        blob: blob.id(),
+        index: 0,
+    };
     catalog
         .families
         .push(FamilyChoice::Declared("ExactPlanStack8".into()));
@@ -389,49 +385,32 @@ fn staged_binary_recipe_preserves_actual_declared_mono_fallback() {
         .unwrap()
         .prepare()
         .unwrap();
-    let attrs = cosmic_text::AttrsList::new(&Attrs::new().family(Family::Monospace));
-    let shape = move |fonts: &mut FontSystem| {
-        let s =
-            cosmic_text::ShapeLine::new(fonts, "Transfer ffi 123", &attrs, Shaping::Advanced, 8);
-        s.spans
-            .iter()
-            .flat_map(|s| &s.words)
-            .flat_map(|w| &w.glyphs)
-            .map(|g| (g.font_id, g.glyph_id, g.x_advance.to_bits(), g.start, g.end))
-            .collect::<Vec<_>>()
-    };
-    let expected = shape(&mut catalog.fonts);
-    let mut spec = crate::paint::text_spec(&StyleProps::default(), "Declared ffi العربية 123");
+    let mut spec = crate::paint::text_spec(&StyleProps::default(), "Declared ffi 123");
     spec.strut.family = 8;
     for run in &mut spec.runs {
         run.family = 8;
     }
     let mut original = TextEngine::with_catalog(catalog);
+    assert_eq!(original.resolved_face_id(8, 400, false), Some(id));
     let original_paragraph = original.paragraph(&spec, Some(210.));
-    let original_glyphs = glyphs_mapped(&original_paragraph, |id| recipe.remap[&id]);
+    let original_glyphs = glyphs(&original_paragraph);
     let original_metrics = paragraph_metrics(&original_paragraph);
     let original_pixels = pixels(&mut original, &original_paragraph);
-    let (actual, still_unclassified, native_glyphs, native_metrics, native_pixels) =
-        thread::spawn(move || {
-            let mut local = recipe.catalog();
-            let mapped = recipe.remap[&id];
-            assert_eq!(local.declared_face_id(8, 400, false), Some(mapped));
-            let raw = shape(&mut local.fonts);
-            let unclassified = !local.fonts.is_monospace(mapped);
-            let mut engine = TextEngine::with_catalog(local);
-            let p = engine.paragraph(&spec, Some(210.));
-            (
-                raw,
-                unclassified,
-                glyphs(&p),
-                paragraph_metrics(&p),
-                pixels(&mut engine, &p),
-            )
-        })
-        .join()
-        .unwrap();
-    assert!(still_unclassified);
-    assert_eq!(actual, expected);
+    let (declared, native_glyphs, native_metrics, native_pixels) = thread::spawn(move || {
+        let local = recipe.catalog();
+        let declared = local.declared_face_id(8, 400, false);
+        let mut engine = TextEngine::with_catalog(local);
+        let p = engine.paragraph(&spec, Some(210.));
+        (
+            declared,
+            glyphs(&p),
+            paragraph_metrics(&p),
+            pixels(&mut engine, &p),
+        )
+    })
+    .join()
+    .unwrap();
+    assert_eq!(declared, Some(id));
     assert_eq!(native_glyphs, original_glyphs);
     assert_eq!(native_metrics, original_metrics);
     assert_eq!(native_pixels, original_pixels);
@@ -454,12 +433,7 @@ fn already_used_file_face_can_freeze_before_atomic_path_replacement() {
         include_bytes!("../../../../scripts/fixtures/fonts/assets/DejaVuSans.ttf"),
     )
     .unwrap();
-    let mut db = fontdb::Database::new();
-    db.load_font_file(&path).unwrap();
-    db.set_sans_serif_family("DejaVu Sans");
-    let catalog =
-        catalog::Catalog::with_fonts(FontSystem::new_with_locale_and_db("en-US".into(), db));
-    let mut engine = TextEngine::with_catalog(catalog);
+    let mut engine = file_engine(&path);
     let spec = crate::paint::text_spec(&StyleProps::default(), "Already cached ffi Arabic العربية");
     let old = engine.paragraph(&spec, Some(200.));
     let expected = pixels(&mut engine, &old);
@@ -630,7 +604,7 @@ fn rejected_result_releases_only_its_owner_without_changing_accepted_sibling() {
 }
 
 #[test]
-fn old_raster_catalog_remains_correct_after_same_numeric_face_id_replacement() {
+fn old_raster_catalog_remains_correct_after_catalog_replacement() {
     let mut engine = TextEngine::with_catalog(fixture_catalog());
     let (recipe, raster) = freeze_catalog(&engine).unwrap();
     let (_k, q) = request(recipe.catalog_label(), 200.);
@@ -643,25 +617,14 @@ fn old_raster_catalog_remains_correct_after_same_numeric_face_id_replacement() {
     let accepted = adopt(output, &input, &raster).unwrap();
     let original = pixels(&mut engine, accepted.paragraph().unwrap());
     let old_catalog = Rc::downgrade(&accepted.paragraph().unwrap().source.catalog);
-    let old_face = accepted
-        .paragraph()
-        .unwrap()
-        .layout_runs()
-        .flat_map(|r| r.glyphs)
-        .next()
-        .unwrap()
-        .font_id;
-    let mut new_db = fontdb::Database::new();
-    let ids = new_db.load_font_source(fontdb::Source::Binary(Arc::new(
-        include_bytes!("../../../../scripts/fixtures/fonts/assets/DejaVuSans-Bold.ttf").to_vec(),
-    )));
-    assert_eq!(
-        ids[0], old_face,
-        "fixture must exercise colliding numeric face IDs"
-    );
-    new_db.set_sans_serif_family("DejaVu Sans");
-    engine = TextEngine::with_catalog(catalog::Catalog::with_fonts(
-        FontSystem::new_with_locale_and_db("en-US".into(), new_db),
+    // A different font under the same family name: a new catalog whose
+    // first raster slot names another face.
+    engine = TextEngine::with_catalog(catalog::Catalog::from_bytes(
+        &[
+            include_bytes!("../../../../scripts/fixtures/fonts/assets/DejaVuSans-Bold.ttf")
+                .as_slice(),
+        ],
+        "DejaVu Sans",
     ));
     let (new_recipe, new_raster) = freeze_catalog(&engine).unwrap();
     assert_ne!(new_recipe.catalog_label(), recipe.catalog_label());
@@ -775,62 +738,38 @@ impl Drop for FontDirectory {
     }
 }
 fn file_engine(path: &Path) -> TextEngine {
-    let mut db = fontdb::Database::new();
-    db.load_font_file(path).unwrap();
-    db.set_sans_serif_family("DejaVu Sans");
-    TextEngine::with_catalog(catalog::Catalog::with_fonts(
-        FontSystem::new_with_locale_and_db("en-US".into(), db),
-    ))
+    TextEngine::with_catalog(catalog::Catalog::from_files(&[path], "DejaVu Sans"))
 }
+
+/// Preparing a generation reads, copies and renumbers no font: the worker's
+/// catalog shares the UI's faces (LLP 1085.000 §4; the storage spike's Q2).
 #[test]
-fn hard_linked_sources_are_read_and_owned_once_across_initial_final_views() {
+fn capture_reads_and_copies_no_font_bytes() {
     let dir = FontDirectory::new();
     let path = dir.regular();
     let linked = dir.0.join("linked.ttf");
     std::fs::hard_link(&path, &linked).unwrap();
-    let engine = file_engine(&path);
-    engine
-        .catalog
-        .borrow_mut()
-        .fonts
-        .db_mut()
-        .load_font_file(&linked)
-        .unwrap();
+    let engine = TextEngine::with_catalog(catalog::Catalog::from_files(
+        &[path.as_path(), linked.as_path()],
+        "DejaVu Sans",
+    ));
     let (recipe, _raster) = freeze_catalog(&engine).unwrap();
     let cost = recipe.capture_cost();
     assert_eq!(cost.faces, 2);
-    assert_eq!(cost.sources, 1);
-    assert_eq!(cost.file_reads, 1);
+    assert_eq!(cost.sources, 2);
     assert_eq!(
-        cost.file_bytes,
-        include_bytes!("../../../../scripts/fixtures/fonts/assets/DejaVuSans.ttf").len()
+        (cost.file_reads, cost.file_bytes, cost.binary_bytes_copied),
+        (0, 0, 0)
     );
-    let catalog = recipe.0.catalog();
-    let faces: Vec<_> = catalog.fonts.db().faces().collect();
-    let (fontdb::Source::Binary(a), fontdb::Source::Binary(b)) =
-        (&faces[0].source, &faces[1].source)
-    else {
-        panic!("owned Binary required")
-    };
-    assert!(Arc::ptr_eq(a, b));
 }
+
+/// A worker's glyphs name the same faces as the UI's: the same blobs.
 #[test]
-fn fresh_id_mapping_preserves_stable_geometry_all_glyphs_and_pixels() {
-    let mut db = fontdb::Database::new();
-    let removed = db.load_font_source(fontdb::Source::Binary(Arc::new(
-        include_bytes!("../../../../scripts/fixtures/fonts/assets/DejaVuSans.ttf").to_vec(),
-    )))[0];
-    let retained = db.load_font_source(fontdb::Source::Binary(Arc::new(
-        include_bytes!("../../../../scripts/fixtures/fonts/assets/DejaVuSans-Bold.ttf").to_vec(),
-    )))[0];
-    db.remove_face(removed);
-    db.set_sans_serif_family("DejaVu Sans");
-    let mut engine = TextEngine::with_catalog(catalog::Catalog::with_fonts(
-        FontSystem::new_with_locale_and_db("en-US".into(), db),
-    ));
+fn worker_and_ui_share_face_blobs_geometry_glyphs_and_pixels() {
+    let dir = FontDirectory::new();
+    let path = dir.regular();
+    let mut engine = file_engine(&path);
     let (recipe, raster) = freeze_catalog(&engine).unwrap();
-    let mapped = recipe.mapped_face(retained).unwrap();
-    assert_ne!(mapped, retained, "must test a genuine fresh ID remap");
     let (_k, q) = request(recipe.catalog_label(), 200.);
     let spec = q.with_request(Spec::from_request);
     let old = engine.paragraph(&spec, Some(200.));
@@ -842,31 +781,18 @@ fn fresh_id_mapping_preserves_stable_geometry_all_glyphs_and_pixels() {
         .join()
         .unwrap();
     let adopted = adopt(result, &input, &raster).unwrap();
-    assert_eq!(
-        glyphs(adopted.paragraph().unwrap()),
-        glyphs_mapped(&old, |id| recipe.mapped_face(id).unwrap())
-    );
+    let p = adopted.paragraph().unwrap();
+    assert_eq!(glyphs(p), glyphs(&old));
+    let faces = |p: &Paragraph| -> Vec<_> { p.lines().faces.iter().map(|f| f.id()).collect() };
+    assert_eq!(faces(p), faces(&old));
     assert_eq!(adopted.metrics(), paragraph_metrics(&old));
-    assert_eq!(
-        adopted
-            .paragraph()
-            .unwrap()
-            .baselines
-            .iter()
-            .map(|v| v.to_bits())
-            .collect::<Vec<_>>(),
-        old.baselines
-            .iter()
-            .map(|v| v.to_bits())
-            .collect::<Vec<_>>()
-    );
-    assert_eq!(
-        pixels(&mut engine, adopted.paragraph().unwrap()),
-        old_pixels
-    );
+    assert_eq!(pixels(&mut engine, p), old_pixels);
 }
+
+/// A file replaced after its face was first used changes no catalog that
+/// shares the face: its mapping is of the old file, for UI and worker alike.
 #[test]
-fn replacement_before_generation_boundary_changes_new_pixels_but_not_old_owner() {
+fn replacement_after_first_use_keeps_every_sharing_catalog_consistent() {
     let dir = FontDirectory::new();
     let path = dir.regular();
     let mut engine = file_engine(&path);
@@ -881,67 +807,65 @@ fn replacement_before_generation_boundary_changes_new_pixels_but_not_old_owner()
     .unwrap();
     std::fs::rename(replacement, &path).unwrap();
     let (recipe, _raster) = freeze_catalog(&engine).unwrap();
-    assert_eq!(recipe.capture_cost().file_reads, 1);
-    assert_eq!(
-        recipe.capture_cost().file_bytes,
-        include_bytes!("../../../../scripts/fixtures/fonts/assets/DejaVuSans-Bold.ttf").len()
-    );
     let r = recipe.0.clone();
-    let new_pixels = thread::spawn(move || {
-        let mut new = TextEngine::with_catalog(r.catalog());
-        let p = new.paragraph(&spec, Some(220.));
-        pixels(&mut new, &p)
+    let worker_pixels = thread::spawn(move || {
+        let mut worker = TextEngine::with_catalog(r.catalog());
+        let p = worker.paragraph(&spec, Some(220.));
+        pixels(&mut worker, &p)
     })
     .join()
     .unwrap();
-    assert_ne!(
-        new_pixels, old_pixels,
-        "new explicit generation must use bytes at its capture boundary"
+    assert_eq!(worker_pixels, old_pixels);
+    assert_eq!(pixels(&mut engine, &old), old_pixels);
+    // A catalog made afresh reads the file as it is now.
+    let mut fresh = file_engine(&path);
+    let p = fresh.paragraph(
+        &crate::paint::text_spec(&StyleProps::default(), "Already cached office ffi words"),
+        Some(220.),
     );
-    assert_eq!(
-        pixels(&mut engine, &old),
-        old_pixels,
-        "old accepted owner must keep old mapped inode/bytes"
-    );
+    assert_ne!(pixels(&mut fresh, &p), old_pixels);
 }
+
+/// Capture never opens a file, so a face's file removed or replaced before
+/// capture cannot fail it; a face first used after its file became a FIFO
+/// maps as nothing, without waiting for a writer, and text falls back.
 #[test]
-fn missing_or_racing_font_capture_does_not_replace_old_catalog() {
+#[cfg(unix)]
+fn missing_or_fifo_font_files_neither_fail_capture_nor_block() {
     let dir = FontDirectory::new();
     let path = dir.regular();
-    let mut engine = file_engine(&path);
-    let spec = crate::paint::text_spec(&StyleProps::default(), "old accepted pixels");
-    let old = engine.paragraph(&spec, Some(200.));
-    let old_pixels = pixels(&mut engine, &old);
-    let old_catalog = engine.catalog.clone();
+    let engine = file_engine(&path);
+    std::fs::remove_file(&path).unwrap();
+    assert!(std::process::Command::new("mkfifo")
+        .arg(&path)
+        .status()
+        .unwrap()
+        .success());
     let snapshot = snapshot_catalog(&engine).unwrap();
-    let output = thread::spawn(move || {
-        super::catalog_recipe::AFTER_READ.with(|hook| {
-            *hook.borrow_mut() = Some(Box::new(|path| {
-                let new = path.with_extension("new");
-                std::fs::write(
-                    &new,
-                    include_bytes!("../../../../scripts/fixtures/fonts/assets/DejaVuSans-Bold.ttf"),
-                )
-                .unwrap();
-                std::fs::rename(new, path).unwrap();
-            }))
+    let (tx, rx) = std::sync::mpsc::channel();
+    let worker = thread::spawn(move || {
+        let prepared = prepare_catalog_generation(snapshot).map(|p| p.recipe().clone());
+        let shaped = prepared.as_ref().ok().map(|recipe| {
+            let mut engine = TextEngine::with_catalog(recipe.0.catalog());
+            let spec = crate::paint::text_spec(&StyleProps::default(), "never mapped");
+            engine.measure(&spec, AxisOffer::MaxContent)
         });
-        prepare_catalog_generation(snapshot)
-    })
-    .join()
-    .unwrap();
-    assert!(matches!(output, Err(TransferError::FontCapture)));
-    assert!(Rc::ptr_eq(&engine.catalog, &old_catalog));
-    assert_eq!(pixels(&mut engine, &old), old_pixels);
-    let snapshot = snapshot_catalog(&engine).unwrap();
-    std::fs::remove_file(path).unwrap();
-    assert!(matches!(
-        thread::spawn(move || prepare_catalog_generation(snapshot))
-            .join()
-            .unwrap(),
-        Err(TransferError::FontCapture)
-    ));
-    assert_eq!(pixels(&mut engine, &old), old_pixels);
+        tx.send((prepared.is_ok(), shaped)).unwrap();
+    });
+    // A blocked-I/O discriminator, not a latency benchmark.
+    let answer = rx.recv_timeout(std::time::Duration::from_secs(5));
+    if answer.is_err() {
+        use std::os::unix::fs::OpenOptionsExt;
+        let writer = std::fs::OpenOptions::new()
+            .write(true)
+            .custom_flags(libc::O_NONBLOCK)
+            .open(&path);
+        drop(writer);
+    }
+    worker.join().unwrap();
+    let (prepared, shaped) = answer.expect("capture or first use waited on a FIFO");
+    assert!(prepared);
+    assert!(shaped.is_some());
 }
 
 #[test]
@@ -1009,10 +933,7 @@ fn current_system_catalog_generation_preserves_all_glyphs_and_rgba() {
     .join()
     .unwrap();
     let actual = adopt(output, &input, &raster).unwrap();
-    assert_eq!(
-        glyphs(actual.paragraph().unwrap()),
-        glyphs_mapped(&expected, |id| recipe.mapped_face(id).unwrap())
-    );
+    assert_eq!(glyphs(actual.paragraph().unwrap()), glyphs(&expected));
     assert_eq!(actual.metrics(), paragraph_metrics(&expected));
     assert_eq!(actual.paragraph().unwrap().baselines, expected.baselines);
     assert_eq!(
@@ -1023,69 +944,6 @@ fn current_system_catalog_generation_preserves_all_glyphs_and_rgba() {
         "current system capture (not a timing): {:?}",
         recipe.capture_cost()
     );
-}
-
-#[test]
-fn constructor_face_removal_or_metadata_change_refuses_without_mutating_old_owner() {
-    let engine = TextEngine::with_catalog(fixture_catalog());
-    let original = engine.catalog.clone();
-    let id = original.borrow().fonts.db().faces().next().unwrap().id;
-    engine.catalog.borrow_mut().fonts.db_mut().remove_face(id);
-    let snapshot = snapshot_catalog(&engine).unwrap();
-    assert!(matches!(
-        prepare_catalog_generation(snapshot),
-        Err(TransferError::UnrepresentableCatalog)
-    ));
-    assert!(Rc::ptr_eq(&original, &engine.catalog));
-
-    let engine = TextEngine::with_catalog(fixture_catalog());
-    let mut changed = engine.catalog.borrow().fonts.db().face(id).unwrap().clone();
-    changed.weight = Weight::BOLD;
-    engine.catalog.borrow_mut().fonts.db_mut().remove_face(id);
-    engine
-        .catalog
-        .borrow_mut()
-        .fonts
-        .db_mut()
-        .push_face_info(changed);
-    assert!(matches!(
-        prepare_catalog_generation(snapshot_catalog(&engine).unwrap()),
-        Err(TransferError::UnrepresentableCatalog)
-    ));
-}
-
-#[test]
-#[cfg(unix)]
-fn nonregular_replacement_refuses_without_waiting_for_a_pipe_writer() {
-    use std::os::unix::fs::OpenOptionsExt;
-    let dir = FontDirectory::new();
-    let path = dir.regular();
-    let engine = file_engine(&path);
-    let snapshot = snapshot_catalog(&engine).unwrap();
-    std::fs::remove_file(&path).unwrap();
-    assert!(std::process::Command::new("mkfifo")
-        .arg(&path)
-        .status()
-        .unwrap()
-        .success());
-    let (tx, rx) = std::sync::mpsc::channel();
-    let worker = thread::spawn(move || {
-        tx.send(prepare_catalog_generation(snapshot).err()).unwrap();
-    });
-    // This is a blocked-I/O discriminator, not a scheduling latency benchmark.
-    let answer = rx.recv_timeout(std::time::Duration::from_secs(1));
-    if answer.is_err() {
-        // Release the old blocking implementation before reporting its RED.
-        // O_NONBLOCK prevents the test cleanup from becoming a second waiter.
-        let writer = std::fs::OpenOptions::new()
-            .write(true)
-            .custom_flags(libc::O_NONBLOCK)
-            .open(&path)
-            .unwrap();
-        drop(writer);
-    }
-    worker.join().unwrap();
-    assert_eq!(answer.unwrap(), Some(TransferError::FontCapture));
 }
 
 mod prepared_ink;

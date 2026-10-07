@@ -140,3 +140,55 @@ fn corrupt_unicode_kept_answers_do_not_prevent_boot() {
         assert_eq!(runner.data().queries.len(), 1);
     }
 }
+
+/// #114: a focus change re-answers the `exactPage` readers whose shape
+/// names `hasFocus`; a reader of `onLine` alone asks nothing, and with no
+/// reader of it the change commits nothing, though the runner keeps it.
+#[test]
+fn page_focus_reanswers_only_the_readers_of_it() {
+    let boot = |fields: &[&str]| {
+        let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+        let boolean = b.primitive(TypeKind::Bool);
+        for field in fields {
+            let shape = b.record(&format!("{field}Shape"), &[(field, boolean)]);
+            b.resource(field, exact_runner::page::SOURCE, &[], shape, None);
+        }
+        b.node(NodeType::View as u8, None, None, 0, &[], &[], None);
+        let data = Deferred {
+            ready: true,
+            ..Deferred::default()
+        };
+        let viewport = Viewport::default();
+        Runner::boot(
+            b.finish().unwrap(),
+            data,
+            Kernel::with_monospace(),
+            viewport,
+            "/",
+        )
+        .unwrap()
+    };
+    let one = |v: bool| Some(Value::record(vec![Value::Bool(v)]));
+    let mut both = boot(&["hasFocus", "onLine"]);
+    assert_eq!(both.resource("hasFocus").cloned(), one(true));
+    let blurred = exact_runner::Page {
+        has_focus: false,
+        ..both.page()
+    };
+    assert!(both.set_page(blurred).unwrap().is_some());
+    assert_eq!(both.resource("hasFocus").cloned(), one(false));
+    assert_eq!(both.resource("onLine").cloned(), one(true));
+    assert!(
+        both.set_page(blurred).unwrap().is_none(),
+        "the same facts again"
+    );
+    let mut online = boot(&["onLine"]);
+    assert!(online.set_page(blurred).unwrap().is_none());
+    assert!(!online.page().has_focus);
+    let offline = exact_runner::Page {
+        on_line: false,
+        ..blurred
+    };
+    assert!(online.set_page(offline).unwrap().is_some());
+    assert_eq!(online.resource("onLine").cloned(), one(false));
+}

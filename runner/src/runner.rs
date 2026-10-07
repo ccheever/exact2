@@ -25,7 +25,7 @@ pub use resize::{ResizeRect, UNDELIVERED as RESIZE_UNDELIVERED};
 mod root_font;
 pub use event::{
     ActionBinding, ActionBindingError, ActionBindingRefusal, ControlValue, Event, KeyModifiers,
-    ScrollEvent,
+    KeyboardEvent, ScrollEvent,
 };
 mod canvas2d;
 pub use canvas2d::{

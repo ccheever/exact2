@@ -70,7 +70,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
     unowned let presenter: Presenter
     private var controls: [UInt32: ExactSegmentedControl] = [:]
     /// The segmented control a tablist or radio group projects to, if any:
-    /// a hooked node's platform object (LLP 1075.003.000 §3.2).
+    /// a hatched node's platform object (LLP 1075.003.000 §3.2).
     func control(of id: UInt32) -> UISegmentedControl? { controls[id] }
     private var bars: [UInt32: ExactTabBar] = [:]
     private var sizes: [UInt32: CGSize] = [:]
@@ -211,7 +211,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             + ["\(control.apportionsSegmentWidthsByContent)"]
         let t = control.traitCollection
         let source = "\(segments)|\(fonts)|\(t.preferredContentSizeCategory.rawValue)|\(t.legibilityWeight.rawValue)"
-        // A hook's own look (a background image, a divider) sizes it too:
+        // A hatch's own look (a background image, a divider) sizes it too:
         // such a control is measured every time, as before.
         let customized = control.backgroundImage(for: .normal, barMetrics: .default) != nil
             || control.dividerImage(forLeftSegmentState: .normal, rightSegmentState: .normal, barMetrics: .default) != nil

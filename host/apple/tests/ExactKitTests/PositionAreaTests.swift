@@ -18,6 +18,7 @@ final class PositionAreaTests: XCTestCase {
         XCTAssertEqual(at("top span-right"), CGPoint(x: 100, y: 140), "bottom-left at the invoker's top-left")
         XCTAssertEqual(at("top"), CGPoint(x: 80, y: 140))
         XCTAssertEqual(at("center"), CGPoint(x: 80, y: 185), "centred over it")
+        XCTAssertEqual(at("right span-bottom"), CGPoint(x: 180, y: 200), "a submenu: top-left at the invoker's top-right")
     }
 
     /// `position-area="top" margin=0 margin-bottom=12`: CSS aligns the

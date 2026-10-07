@@ -11,9 +11,12 @@ impl<D: DataSource> Runner<D> {
         self.page
     }
 
-    /// The page's visibility, connectivity or share sheet changed: re-answer
-    /// every `exactPage` resource in one commit; the same facts again, or no
-    /// reader, commit nothing. Size readers are not asked.
+    /// The page's visibility, connectivity, share sheet, pickers or focus
+    /// changed: re-answer, in one commit, every `exactPage` resource whose
+    /// shape reads a field that changed; the same facts again, or no such
+    /// reader, commit nothing. Focus moves each time the person switches
+    /// windows, and asks nothing of a reader of `onLine` alone (#114). Size
+    /// readers are not asked.
     pub fn set_page(&mut self, page: Page) -> Result<Option<CommitReceipt>, RunnerError> {
         if page == self.page {
             return Ok(None);
@@ -21,12 +24,24 @@ impl<D: DataSource> Runner<D> {
         let previous = std::mem::replace(&mut self.page, page);
         let which = (0..self.plan.resources.len())
             .filter(|i| self.plan.str(self.plan.resources[*i].source) == SOURCE)
+            .filter(|i| self.page_reads_changed(*i, previous))
             .collect();
         let result = self.recommit(which, "page");
         if result.is_err() {
             self.page = previous;
         }
         result
+    }
+
+    /// Whether resource `i`'s shape names a field `previous` answered
+    /// otherwise; a shape that is no record is asked again, to be refused.
+    fn page_reads_changed(&self, i: usize, previous: Page) -> bool {
+        let ty = self.plan.type_(self.plan.resources[i].ty);
+        ty.kind != TypeKind::Record
+            || ty.fields.iter().any(|f| {
+                let name = self.plan.str(self.plan.field(f).name);
+                previous.field(name) != self.page.field(name)
+            })
     }
 
     pub(super) fn page_answer(&self, i: usize) -> Result<Value, DataError> {

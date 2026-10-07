@@ -54,7 +54,7 @@ const APP: &str = r#"component App
         text "toggle"
       box height="100%" position="absolute" top=0 display=(hidden ? "none" : "block") testId="ancestor"
         when showing
-          box testId="panel" width=300 height=target position="absolute" bottom=0 max-height="100%" box-sizing="border-box" padding=8 border-width=2 border-style="solid" transition="height spring(300,30,1), translate spring(300,30,1)"
+          box testId="panel" width=300 height=target position="absolute" bottom=0 max-height="100%" box-sizing="border-box" padding=8 border-width=2 border-style="solid" transition="height -exact-spring(300,30,1), translate -exact-spring(300,30,1)"
             text "panel text"
       box testId="other" height=70 box-sizing="border-box"
       box testId="content" height=80
@@ -309,7 +309,7 @@ fn translate_only_frames_do_not_relayout_or_remeasure() {
 #[test]
 fn zero_target_negative_release_clamps_layout_without_changing_the_curve() {
     let mut h = boot(
-        "component App\n  view\n    box width=400 height=300\n      box testId=\"panel\" position=\"absolute\" bottom=0 width=300 height=0 box-sizing=\"border-box\" transition=\"height spring(300,30,1)\"\n",
+        "component App\n  view\n    box width=400 height=300\n      box testId=\"panel\" position=\"absolute\" bottom=0 width=300 height=0 box-sizing=\"border-box\" transition=\"height -exact-spring(300,30,1)\"\n",
         Box::new(MonospaceMeasurer::default()),
     );
     let panel = id(&h, "panel");
@@ -366,7 +366,7 @@ fn zero_target_negative_release_clamps_layout_without_changing_the_curve() {
 #[test]
 fn negative_release_lobe_clamps_only_height_presentation() {
     let mut h = boot(
-        "component App\n  view\n    box width=400 height=300\n      box testId=\"panel\" width=300 height=20 box-sizing=\"border-box\" transition=\"height spring(180,12,1)\"\n",
+        "component App\n  view\n    box width=400 height=300\n      box testId=\"panel\" width=300 height=20 box-sizing=\"border-box\" transition=\"height -exact-spring(180,12,1)\"\n",
         Box::new(MonospaceMeasurer::default()),
     );
     let panel = id(&h, "panel");
@@ -467,7 +467,7 @@ fn overdue_height_timer_retargets_held_layout_without_rewinding_engine() {
     every(100, step)
   view
     box width=400 height=300
-      box height=target box-sizing="border-box" transition="height spring(300,30,1)" testId="panel"
+      box height=target box-sizing="border-box" transition="height -exact-spring(300,30,1)" testId="panel"
 "#,
         Box::new(MonospaceMeasurer::default()),
     );
@@ -495,7 +495,7 @@ fn overdue_height_timer_retargets_held_layout_without_rewinding_engine() {
 #[test]
 fn negative_spring_height_catch_uses_padding_border_and_minimum_constraints() {
     for (minimum, expected) in [(0, 24.), (50, 50.)] {
-        let source = format!("component App\n  view\n    box width=400 height=300\n      box testId=\"panel\" height=20 min-height={minimum} padding=10 border-width=2 border-style=\"solid\" box-sizing=\"border-box\" transition=\"height spring(180,12,1)\"\n");
+        let source = format!("component App\n  view\n    box width=400 height=300\n      box testId=\"panel\" height=20 min-height={minimum} padding=10 border-width=2 border-style=\"solid\" box-sizing=\"border-box\" transition=\"height -exact-spring(180,12,1)\"\n");
         let mut h = boot(&source, Box::new(MonospaceMeasurer::default()));
         let panel = id(&h, "panel");
         h.set_height_owner(Some(panel)).unwrap();

@@ -113,7 +113,7 @@ fn a_change_back_reverses_from_the_current_shape_in_the_shortened_time() {
 
 #[test]
 fn a_spring_on_d_plays_its_curve_and_a_removed_node_forgets_its_path() {
-    let mut e = engine("d spring(420, 30, 1)");
+    let mut e = engine("d -exact-spring(420, 30, 1)");
     e.observe_path(NODE, Some(up()));
     let end = e.settle_time().expect("a spring's curve");
     assert!(end > 0.0);

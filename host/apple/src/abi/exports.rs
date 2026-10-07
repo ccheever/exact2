@@ -6,16 +6,26 @@
 /// runtime handle `exact_create` returned (LLP 1031 D2).
 #[macro_export]
 macro_rules! host {
-    ($data:ty, $plan:expr, $compat:expr) => {
-        $crate::host!($data, $plan, $compat, None, ::std::ptr::null());
+    // A generated entry names what it links (LLP 1047.001 D2, D3) after the
+    // arguments, `; linked = EXACT_LINKED`, and invokes the export groups of
+    // those capabilities itself; without it, every capability is linked.
+    ($data:ty, $plan:expr, $compat:expr $(; linked = $linked:expr)?) => {
+        $crate::host!($data, $plan, $compat, None, ::std::ptr::null() $(; linked = $linked)?);
     };
-    ($data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr) => {
-        $crate::host!($data, $plan, $compat, $delivery, $api, || <$data as ::std::default::Default>::default());
+    ($data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr $(; linked = $linked:expr)?) => {
+        $crate::host!($data, $plan, $compat, $delivery, $api, || <$data as ::std::default::Default>::default() $(; linked = $linked)?);
     };
-    ($data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr) => {
-        $crate::host!($data, $plan, $compat, $delivery, $api, $new, None);
+    ($data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr $(; linked = $linked:expr)?) => {
+        $crate::host!($data, $plan, $compat, $delivery, $api, $new, None $(; linked = $linked)?);
+    };
+    ($data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr, $region:expr; linked = $linked:expr) => {
+        $crate::host!(@core $data, $plan, $compat, $delivery, $api, $new, $region, $linked);
     };
     ($data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr, $region:expr) => {
+        $crate::grouped_list_exports!();
+        $crate::host!(@core $data, $plan, $compat, $delivery, $api, $new, $region, $crate::link::ALL);
+    };
+    (@core $data:ty, $plan:expr, $compat:expr, $delivery:expr, $api:expr, $new:expr, $region:expr, $linked:expr) => {
         $crate::raster_exports!();
         $crate::textflow_exports!();
         $crate::markup_exports!();
@@ -33,6 +43,7 @@ macro_rules! host {
         /// `exact_set_fonts` before its first boot.
         #[no_mangle]
         pub extern "C" fn exact_create() -> u32 {
+            $crate::link::set($linked);
             let id = EXACT_RUNTIMES.with(|r| r.borrow_mut().create());
             $crate::abi::with_entry(&EXACT_RUNTIMES, id, |e| e.bridge.set_content_region($region));
             id
@@ -607,13 +618,6 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.press_face(view), |n| n)
         }
 
-        /// A grouped list's sections and rows (LLP 1084 D4), JSON; returns
-        /// its length.
-        #[no_mangle]
-        pub extern "C" fn exact_grouped_list(rt: u32, view: u32) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.grouped_list(view), |n| n)
-        }
-
         /// A select's options and the one it shows (LLP 1069.001 D5), JSON;
         /// returns its length.
         #[no_mangle]
@@ -654,4 +658,24 @@ pub fn gesture_constant(which: u32) -> f64 {
         .get(which as usize)
         .copied()
         .unwrap_or(f64::NAN)
+}
+
+/// The grouped list's export (LLP 1084 D4; LLP 1047.001 D3): beside `host!`,
+/// whose runtimes it reads, in an archive that links grouped lists.
+#[macro_export]
+macro_rules! grouped_list_exports {
+    () => {
+        /// A grouped list's sections and rows (LLP 1084 D4), JSON; returns
+        /// its length.
+        #[no_mangle]
+        pub extern "C" fn exact_grouped_list(rt: u32, view: u32) -> u32 {
+            $crate::abi::with_runtime(
+                &EXACT_RUNTIMES,
+                rt,
+                false,
+                |b, _| b.grouped_list(view),
+                |n| n,
+            )
+        }
+    };
 }

@@ -5,19 +5,19 @@ import XCTest
 // T3Composer.swift and T3WindowChrome.swift. No transport or server is needed.
 let exactModule: ExactModule.Type = ExactModule.self
 
-private let resolve: ExactHooks.ResolveFn = { _, _, _, _, _ in 0 }
-private let click: ExactHooks.ActFn = { pointer, node, action in
+private let resolve: ExactHatches.ResolveFn = { _, _, _, _, _ in 0 }
+private let click: ExactHatches.ActFn = { pointer, node, action in
     if node == 2, action == 0 { pointer?.assumingMemoryBound(to: Int.self).pointee += 1 }
     return 0
 }
-private let log: ExactHooks.LogFn = { _, _, _ in }
-private let delegate: ExactHooks.DelegateFn = { _, _, _ in }
+private let log: ExactHatches.LogFn = { _, _, _ in }
+private let delegate: ExactHatches.DelegateFn = { _, _, _ in }
 
 private final class ComposerFixture {
     let controller = T3Composer()
     let clicks = UnsafeMutablePointer<Int>.allocate(capacity: 1)
     let table = UnsafeMutableRawPointer.allocate(byteCount: 40, alignment: 8)
-    let hooks: ExactHooks
+    let hooks: ExactHatches
     let window: NSWindow
     let editor = NSTextView(frame: NSRect(x: 0, y: 0, width: 300, height: 100))
     let button = NSView(frame: NSRect(x: 0, y: 100, width: 100, height: 30))
@@ -33,7 +33,7 @@ private final class ComposerFixture {
         table.storeBytes(of: unsafeBitCast(click, to: UnsafeRawPointer.self), toByteOffset: 16, as: UnsafeRawPointer.self)
         table.storeBytes(of: unsafeBitCast(log, to: UnsafeRawPointer.self), toByteOffset: 24, as: UnsafeRawPointer.self)
         table.storeBytes(of: unsafeBitCast(delegate, to: UnsafeRawPointer.self), toByteOffset: 32, as: UnsafeRawPointer.self)
-        hooks = ExactHooks(host: UnsafeMutableRawPointer(clicks), table: UnsafeRawPointer(table))!
+        hooks = ExactHatches(host: UnsafeMutableRawPointer(clicks), table: UnsafeRawPointer(table))!
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 200),
             styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -41,10 +41,10 @@ private final class ComposerFixture {
         window.contentView?.addSubview(button)
         editor.isEditable = true
         window.makeFirstResponder(editor)
-        composer = ExactElement(hook: .t3Composer, id: "composer", node: 1, hooks: hooks)
+        composer = ExactElement(hatch: .t3Composer, id: "composer", node: 1, hatches: hooks)
         composer.view = editor
         composer.platform = editor
-        send = ExactElement(hook: .t3Send, id: "send-message", node: 2, hooks: hooks)
+        send = ExactElement(hatch: .t3Send, id: "send-message", node: 2, hatches: hooks)
         send.view = button
         controller.install(composer)
         controller.install(send)
@@ -96,7 +96,7 @@ final class ComposerTests: XCTestCase {
         let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 300, height: 100))
         scroll.documentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 500))
         fixture.window.contentView?.addSubview(scroll)
-        let element = ExactElement(hook: .t3Transcript, id: "transcript", node: 4, hooks: fixture.hooks)
+        let element = ExactElement(hatch: .t3Transcript, id: "transcript", node: 4, hatches: fixture.hooks)
         element.platform = scroll; element.view = scroll
         element.data = ExactData(["timeline-owner": "A", "timeline-rest": "yes"])
         var changes = 0
@@ -133,7 +133,7 @@ final class ComposerTests: XCTestCase {
         let document = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: 500))
         scroll.documentView = document
         fixture.window.contentView?.addSubview(scroll)
-        let element = ExactElement(hook: .t3Transcript, id: "transcript", node: 4, hooks: fixture.hooks)
+        let element = ExactElement(hatch: .t3Transcript, id: "transcript", node: 4, hatches: fixture.hooks)
         element.platform = scroll; element.view = scroll
         element.data = ExactData(["timeline-owner": "A", "timeline-rest": "yes"])
         let timeline = T3Timeline(changed: { _ in })
@@ -171,7 +171,7 @@ final class ComposerTests: XCTestCase {
         let controller = T3Composer(changed: { name in XCTAssertEqual(name, "t3.status"); changes += 1 })
         // The host retains its elements; the controller holds them weakly.
         let elements = [(5, "traits", traits), (6, "runtime", runtime)].map { (node: UInt32, name: String, view: NSView) -> ExactElement in
-            let element = ExactElement(hook: .t3Anchor, id: name, node: node, hooks: fixture.hooks)
+            let element = ExactElement(hatch: .t3Anchor, id: name, node: node, hatches: fixture.hooks)
             element.view = view; element.platform = view
             element.data = ExactData(["anchor": name])
             return element

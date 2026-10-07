@@ -2,7 +2,8 @@
 //! the date (LLP 1027.000.000), the display preferences (LLP 1061 D5; LLP
 //! 1069.000 D1) and the page's facts (LLP 1069.000 D2). This host reads no
 //! system setting: it reports no preference, a light system, a visible page,
-//! online, and no share sheet; an agent sets them (`prefer`).
+//! online, with focus (the app is the whole display: no other window can take
+//! it), and no share sheet; an agent sets them (`prefer`).
 use super::*;
 
 impl<D: DataSource> Presenter<D> {
@@ -74,8 +75,8 @@ impl<D: DataSource> Presenter<D> {
         self.after_commit()
     }
 
-    /// `visibilityState`, `onLine` and `canShare`, as `exactPage()` answers
-    /// them: re-answered in one commit.
+    /// `visibilityState`, `onLine`, `canShare`, `canOpenFiles` and
+    /// `hasFocus`, as `exactPage()` answers them: re-answered in one commit.
     pub fn set_page(&mut self, page: exact_runner::Page) -> Option<String> {
         let error = self.host.set_page(page);
         if error.is_some() {

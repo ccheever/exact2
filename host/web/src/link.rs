@@ -106,7 +106,7 @@ pub type Materials = (fn(&mut String, &str), fn(&str) -> Option<String>);
 pub struct AnimationsLink {
     /// Link the grammars.
     pub grammars: fn(),
-    /// A node's `animation` (or `exit-animation`) list as CSS.
+    /// A node's `animation` (or `-exact-exit-animation`) list as CSS.
     pub list: fn(&exact_motion::animation::Animations, bool) -> String,
     /// The name of the rule an entry plays.
     pub name: fn(&exact_motion::animation::Animation, bool) -> String,
@@ -173,7 +173,9 @@ impl Linked {
 
     /// The capabilities registered here.
     pub fn uses(&self) -> Uses {
-        let mut uses = Uses::NONE;
+        // A grouped list is its authored nodes on the web: nothing to link
+        // (LLP 1047.001 D2).
+        let mut uses = Uses::NONE.with(Capability::GroupedLists);
         if self.markup.is_some() {
             uses = uses.with(Capability::Markdown);
         }

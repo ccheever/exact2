@@ -28,7 +28,7 @@
     "verify-terminal": ["bun", "terminal-host/verify-vendor.mjs"],
     "runtime": ["bun", "stage-runtime.mjs"]
   },
-  "hooks": [
+  "hatches": [
     "t3-composer",
     "t3-send",
     "t3-anchor",

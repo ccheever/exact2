@@ -134,7 +134,7 @@ impl Scope {
 /// Rewrite `file` through `scope`: its declarations take their
 /// program-unique names, and every reference to a top-level name — a
 /// component use, a call, a type, `class=`, the keyframes an `animation`
-/// literal names, a `clock(Name)` literal — takes the name of the
+/// literal names, a `-exact-clock(Name)` literal — takes the name of the
 /// declaration it means. `animation-timeline=Name` is left to
 /// [`resolve_clock_timelines_in`](crate::clock::resolve_clock_timelines_in),
 /// which knows the bindings that shadow it.
@@ -531,9 +531,7 @@ impl Rewriter<'_> {
         for a in attrs {
             match a.name.as_str() {
                 "class" => self.class(&mut a.value)?,
-                "animation" | "exit-animation" | "exitAnimation" => {
-                    self.animation(&mut a.value, true)?
-                }
+                "animation" | "-exact-exit-animation" => self.animation(&mut a.value, true)?,
                 "animation-name" | "animationName" => self.animation(&mut a.value, false)?,
                 "animation-timeline" | "animationTimeline" => self.timeline(&mut a.value)?,
                 // `surface=name(args)`: the name is the drawing module's, not
@@ -714,7 +712,7 @@ impl Rewriter<'_> {
         Ok(())
     }
 
-    /// A `clock(Name)` literal names a timeline where it is written (D5); a
+    /// A `-exact-clock(Name)` literal names a timeline where it is written (D5); a
     /// bare name is the clock pass's.
     fn timeline(&mut self, value: &mut Expr) -> R {
         match value {
@@ -730,7 +728,7 @@ impl Rewriter<'_> {
             Expr::Str(text, span) => {
                 let Some(name) = text
                     .trim()
-                    .strip_prefix("clock(")
+                    .strip_prefix("-exact-clock(")
                     .and_then(|rest| rest.strip_suffix(')'))
                     .map(str::trim)
                 else {
@@ -738,7 +736,7 @@ impl Rewriter<'_> {
                 };
                 if let Some(to) = self.scope.resolve(Kind::Timeline, name, *span)? {
                     if to != name {
-                        *text = format!("clock({to})");
+                        *text = format!("-exact-clock({to})");
                     }
                 }
                 Ok(())
@@ -917,7 +915,7 @@ impl Shorthand {
         let easing = matches!(
             part,
             "linear" | "ease" | "ease-in" | "ease-out" | "ease-in-out" | "step-start" | "step-end"
-        ) || ["cubic-bezier(", "steps(", "linear(", "spring("]
+        ) || ["cubic-bezier(", "steps(", "linear(", "-exact-spring("]
             .iter()
             .any(|f| part.starts_with(f));
         let free = |slot: &mut bool| !std::mem::replace(slot, true);
@@ -988,7 +986,7 @@ fn literal_roles(tokens: &[(usize, &str)], hole: char) -> Vec<(bool, bool)> {
                 || (t.starts_with('\'') && t.ends_with('\'')));
         if quoted {
             Some(Role::Name)
-        } else if ["cubic-bezier(", "steps(", "linear(", "spring("]
+        } else if ["cubic-bezier(", "steps(", "linear(", "-exact-spring("]
             .iter()
             .any(|f| t.starts_with(f))
         {

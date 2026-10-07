@@ -1,11 +1,11 @@
 //! CSS `transition` shorthand → [`Transitions`].
 //!
 //! @ref LLP 1002 §2 (the web is the standard: the authored form is CSS's own
-//! `transition` shorthand; `spring(stiffness, damping, mass)` is the one
-//! declared extension)
+//! `transition` shorthand; `-exact-spring(stiffness, damping, mass)` is the
+//! one declared extension, LLP 1081 D2)
 //!
 //! `transition: <property> || <duration> || <easing> || <delay>, …` — each
-//! part in CSS's own grammar, with `spring(k, d, m)` admitted where an easing
+//! part in CSS's own grammar, with `-exact-spring(k, d, m)` admitted where an easing
 //! goes. The first time is the duration and the second is the delay, wherever
 //! the other components occur. What CSS's parser would reject, this rejects,
 //! by name.
@@ -111,6 +111,16 @@ pub(crate) fn time(s: &str) -> Result<f64, ParseError> {
         .map_err(|_| ParseError::BadTime(s.to_string()))
 }
 
+/// The functions an easing may be, each with its kind (LLP 1081 D8): CSS's,
+/// and the spring Exact adds, spelled `-exact-` because WebKit's own
+/// `-exact-spring()` takes other arguments in another order.
+pub const EASING_FUNCTIONS: &[(&str, &str)] = &[
+    ("cubic-bezier", "css CSS Easing 1"),
+    ("steps", "css CSS Easing 1"),
+    ("linear", "css CSS Easing 2"),
+    ("-exact-spring", "exact LLP 1002"),
+];
+
 pub(crate) fn easing(s: &str) -> Result<TimingFunction, ParseError> {
     Ok(TimingFunction::Easing(match s {
         "linear" => Easing::Linear,
@@ -128,6 +138,9 @@ pub(crate) fn easing(s: &str) -> Result<TimingFunction, ParseError> {
         },
         _ => {
             let (name, args) = call(s).ok_or_else(|| ParseError::BadEasing(s.to_string()))?;
+            if !EASING_FUNCTIONS.iter().any(|(n, _)| *n == name) {
+                return Err(ParseError::BadEasing(s.to_string()));
+            }
             match name {
                 "cubic-bezier" => {
                     let n = numbers(&args, s)?;
@@ -156,7 +169,7 @@ pub(crate) fn easing(s: &str) -> Result<TimingFunction, ParseError> {
                     Easing::Steps { count, position }
                 }
                 "linear" => Easing::PiecewiseLinear(linear_stops(&args, s)?),
-                "spring" => {
+                "-exact-spring" => {
                     let n = numbers(&args, s)?;
                     let config = match n.len() {
                         0 => SpringConfig::default(),
@@ -301,7 +314,7 @@ mod tests {
 
     #[test]
     fn css_shorthand_parses_and_bad_forms_are_refused_by_name() {
-        let t = Transitions::parse("opacity 250ms ease-in-out, all 0.5s cubic-bezier(0.4, 0, 0.2, 1) 100ms, translate spring(180, 12, 1)").unwrap();
+        let t = Transitions::parse("opacity 250ms ease-in-out, all 0.5s cubic-bezier(0.4, 0, 0.2, 1) 100ms, translate -exact-spring(180, 12, 1)").unwrap();
         assert_eq!(t.0.len(), 3);
         assert_eq!(t.0[0].duration, 0.25);
         assert_eq!(t.0[0].timing, TimingFunction::Easing(Easing::EaseInOut));
@@ -353,7 +366,7 @@ mod tests {
             Err(ParseError::BadShape(_))
         ));
         assert!(matches!(
-            Transitions::parse("opacity 1s spring(1,2,3)"),
+            Transitions::parse("opacity 1s -exact-spring(1,2,3)"),
             Err(ParseError::Invalid(TransitionError::SpringDeclaresDuration))
         ));
         assert!(matches!(

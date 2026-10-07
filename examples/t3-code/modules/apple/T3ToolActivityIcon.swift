@@ -9,7 +9,7 @@ final class T3ToolActivityIcon {
     private var entries: [ObjectIdentifier: IconView] = [:]
 
     func install(_ element: ExactElement) {
-        guard element.hook == .t3ToolIcon, let host = element.view else { return }
+        guard element.hatch == .t3ToolIcon, let host = element.view else { return }
         let key = ObjectIdentifier(host)
         let view = entries[key] ?? IconView(frame: host.bounds)
         entries[key] = view
@@ -20,7 +20,7 @@ final class T3ToolActivityIcon {
     }
 
     func remove(_ element: ExactElement) {
-        guard element.hook == .t3ToolIcon, let host = element.view else { return }
+        guard element.hatch == .t3ToolIcon, let host = element.view else { return }
         entries.removeValue(forKey: ObjectIdentifier(host))?.detach()
     }
 

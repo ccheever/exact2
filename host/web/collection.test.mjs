@@ -303,6 +303,12 @@ test('an anchor correction (from) moves the port by its shift after a later user
     return {shifted,again,grown:f.port.scrollTop};})()`);
   expect(result).toEqual({shifted:232,again:232,grown:222});
 });
+test('relative corrections build on where the last one put the port, not on a floored (WebKit) read-back', async () => {
+  expect(await evaluate(`(() => {const f=fixture(),proto=Object.getOwnPropertyDescriptor(Element.prototype,'scrollTop');let real=0;
+    const set=v=>{real=Math.max(0,Math.min(v,f.port.scrollHeight-f.port.clientHeight));proto.set.call(f.port,Math.floor(real));};Object.defineProperty(f.port,'scrollTop',{configurable:true,get:()=>Math.floor(real),set});f.port.scrollTo=o=>set(o.top);
+    f.controller.commit([f.snapshot()]);f.port.scrollTop=160;f.port.dispatchEvent(new Event('scroll'));f.flush();const seq=f.reports.at(-1).sequence;
+    f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:112.6,from:140}})]);const first=f.port.scrollTop;f.controller.commit([f.snapshot('3',{correction:{scrollSequence:seq,offset:100.2,from:112.6}})]);const second=f.port.scrollTop;f.port.scrollTop=121;f.port.dispatchEvent(new Event('scroll'));f.flush();const q=f.reports.at(-1).sequence;f.controller.commit([f.snapshot('4',{correction:{scrollSequence:q,offset:90.5,from:100.5}})]);const moved=f.port.scrollTop;f.controller.commit([f.snapshot('5',{correction:{scrollSequence:q,offset:-100,from:100}})]);f.controller.commit([f.snapshot('6',{correction:{scrollSequence:q,offset:80,from:50}})]);const clamped=f.port.scrollTop;f.controller.commit([f.snapshot('7',{correction:{scrollSequence:q,offset:9.4,from:40}})]);f.controller.commit([f.snapshot('8',{correction:{scrollSequence:q,offset:60,from:30}})]);return {first,second,moved,clamped,subclamp:f.port.scrollTop};})()`)).toEqual({first:132,second:120,moved:111,clamped:30,subclamp:30});
+});
 test('under scroll-behavior: smooth an anchor correction still lands before the frame paints', async () => {
   const result=await evaluate(`(() => {const f=fixture();f.port.style.scrollBehavior='smooth';
     f.controller.commit([f.snapshot()]);f.port.scrollTo({top:160,behavior:'instant'});f.port.dispatchEvent(new Event('scroll'));f.flush();

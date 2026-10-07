@@ -196,6 +196,9 @@ fn event(rng: &mut Rng, kind: EventKind) -> Option<Event> {
         EventKind::Focus => Event::Focus,
         EventKind::Blur => Event::Blur,
         EventKind::Key => Event::key(rng.pick(&["Enter", "Escape", "Shift+ArrowDown", "a"])),
+        EventKind::Keyup => {
+            Event::of_host_kind(43, rng.pick(&["Meta\nMetaLeft\nfalse", "a\nKeyA\nfalse"])).unwrap()
+        }
         EventKind::Submit => Event::Submit,
         EventKind::Load => Event::Load,
         EventKind::Message => Event::Message(text(rng)),

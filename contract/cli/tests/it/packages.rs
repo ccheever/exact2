@@ -37,7 +37,7 @@ fn exact_motion_gives_every_file_one_activity_timeline() {
         "use Spinner from \"./spinner.contract\"\nuse Activity from \"exact:motion\"\nkeyframes pulse\n  to opacity=0\ncomponent App\n  view\n    column\n      Spinner()\n      view animation=\"pulse 1s infinite\" animation-timeline=Activity\n",
     );
     let plan = format!("{:?}", contract::compile_path(&root).unwrap());
-    assert!(plan.contains("clock(Activity)"), "{plan}");
+    assert!(plan.contains("-exact-clock(Activity)"), "{plan}");
     assert!(
         !plan.contains("Activity__"),
         "one declaration, one name: {plan}"

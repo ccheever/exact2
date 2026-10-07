@@ -125,7 +125,7 @@ the CSS property is the row's name with `-` for `_` (`font_size` →
 values are already CSS spellings), with the exceptions a table names
 (`text_color`→`color`, `position_type`→`position`, `border_radius_top_left`→
 `border-top-left-radius`, the four `shadow_*` rows → one `box-shadow`,
-`backdrop_blur`→`backdrop-filter: blur()`). Units by rule: dimensions and
+`backdrop_filter`→the ordered CSS `backdrop-filter` list). Units by rule: dimensions and
 lengths in `px`, percentages, `auto`; unitless where CSS is (`flex-grow`,
 `opacity`, `z-index`, `font-weight`, `scale`); `rotate` in `deg`;
 `translate` as two lengths or percentages (a `calc()` of the two where an

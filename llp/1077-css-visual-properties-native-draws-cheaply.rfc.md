@@ -8,6 +8,9 @@
 **Date:** 2026-10-02
 **Related:** LLP 1001 §1 (the style table; new rows and declared deviations land there), LLP 1053.000 (`backdrop-filter`, `backgroundMaterial`), LLP 1055.000 D10/D14/D19 (SVG `mask`, `filter`, `mix-blend-mode`: the island route these defer to), LLP 1061–1064 (paint motion, `box-shadow`, `text-shadow`'s precedent), LLP 1066 (`background-image`; its grammar is reused and widened), LLP 1035.004 (native affordances by meaning: the precedent for §5), `rules/DEFERRED.md` (the "decorative effects" lines; moved 2026-10-02, §1)
 
+
+> **Spelling (2026-10-06):** `-apple-continuous`, `-apple-system-fill` and the §5 rows (`symbol-rendering` … `smart-invert`) are spelled `-exact-continuous`, `-exact-fill` and `-exact-symbol-rendering` … `-exact-smart-invert` since [LLP 1081](1081-names-exact-invents.rfc.md). This document keeps the spelling it was written with, as the record.
+
 ## Summary
 
 These are CSS visual properties that iOS draws with public Core Animation or Core Text API at little or no cost, that the browser draws natively, and that authors otherwise fake or do without:

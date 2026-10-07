@@ -130,7 +130,7 @@ enum T3TerminalCommandKey {
     }
     private static var targets: [ObjectIdentifier: Target] = [:]
     static func install(_ element: ExactElement) {
-        guard element.hook == .t3TerminalKey else { return }
+        guard element.hatch == .t3TerminalKey else { return }
         targets[ObjectIdentifier(element)] = Target(element)
     }
     static func remove(_ element: ExactElement) { targets[ObjectIdentifier(element)] = nil }

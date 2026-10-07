@@ -119,7 +119,7 @@ pub(super) fn rekey(u: &mut Update<'_>, wrapper: ViewId, key: &str) {
 
 /// A row whose item left the data, before the list detaches and destroys its
 /// wrapper: an empty `listItemKey` tells the kernel it leaves (and plays its
-/// root's `exit-animation`, LLP 1063), where a row that scrolled away simply
+/// root's `-exact-exit-animation`, LLP 1063), where a row that scrolled away simply
 /// goes.
 pub(crate) fn item_left(u: &mut Update<'_>, wrapper: ViewId) {
     u.ops.push(Op::SetProp {

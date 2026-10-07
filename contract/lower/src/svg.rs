@@ -324,7 +324,7 @@ fn shared(attr: &str) -> bool {
             | "marker-mid"
             | "marker-end"
             | "animation"
-            | "animation-trigger"
+            | "-exact-animation-trigger"
             | "transition"
             | "testId"
             | "id"
@@ -387,15 +387,24 @@ impl Lowerer<'_> {
                         name => &[name],
                     };
                     let known = a.name == "animation-timing-function"
-                        || names
-                            .iter()
-                            .all(|n| Property::from_name(n).is_some_and(|p| p != Property::Height));
+                        || names.iter().all(|n| {
+                            Property::from_author_name(n).is_some_and(|p| p != Property::Height)
+                        });
+                    if let (false, Some(new)) = (known, crate::tags::renamed(&a.name)) {
+                        ok = false;
+                        errors.push(LowerError {
+                            id: "lower-keyframe-property",
+                            message: format!("`{}` is spelled `{new}` (LLP 1081)", a.name),
+                            span: a.span,
+                        });
+                        continue;
+                    }
                     if !known {
                         ok = false;
                         errors.push(LowerError {
                             id: "lower-keyframe-property",
                             message: format!(
-                                "`{}` cannot animate: keyframes take opacity, translate, scale, rotate, stroke-dashoffset, r, cx, cy, x, y, rx, ry, color, background-color, border-color and its sides, tint-color, box-shadow, fill, stroke and animation-timing-function (LLP 1055.000 D6, D15; LLP 1062 D9)",
+                                "`{}` cannot animate: keyframes take opacity, translate, scale, rotate, stroke-dashoffset, r, cx, cy, x, y, rx, ry, color, background-color, border-color and its sides, -exact-tint-color, box-shadow, fill, stroke and animation-timing-function (LLP 1055.000 D6, D15; LLP 1062 D9)",
                                 a.name
                             ),
                             span: a.span,
@@ -416,6 +425,37 @@ impl Lowerer<'_> {
                         });
                         continue;
                     };
+                    // @ref LLP 1081 D2 — a keyframe value is checked as an
+                    // attribute's is: an old spelling, and a bare role in a
+                    // colour, are refused with their new names.
+                    let rows = match crate::tags::attr(&a.name) {
+                        Some(crate::tags::AttrTarget::Styles(rows)) => rows,
+                        _ => &[],
+                    };
+                    let colour = names.iter().any(|n| {
+                        Property::from_author_name(n)
+                            .is_some_and(|p| p.is_color() || p == Property::BoxShadow)
+                    });
+                    let hint = crate::style_names::renamed_token(&value, rows)
+                        .map(|(old, new)| format!("`{old}` is spelled `{new}` (LLP 1081)"))
+                        .or_else(|| {
+                            colour
+                                .then(|| crate::values::role_hint(&value))
+                                .flatten()
+                                .map(|h| h.trim_start_matches("; ").to_string())
+                        });
+                    if let Some(hint) = hint {
+                        ok = false;
+                        errors.push(LowerError {
+                            id: "lower-keyframes",
+                            message: format!(
+                                "`{}=\"{value}\"` in `keyframes {}`: {hint}",
+                                a.name, decl.name
+                            ),
+                            span: a.span,
+                        });
+                        continue;
+                    }
                     for name in names {
                         css.push_str(&format!("{name}:{value};"));
                     }
@@ -569,13 +609,13 @@ impl Lowerer<'_> {
                     a.span,
                 );
             }
-            if matches!(a.name.as_str(), "animation" | "exit-animation") {
+            if matches!(a.name.as_str(), "animation" | "-exact-exit-animation") {
                 self.check_animation_names(tag, &a.value)?;
             }
             if a.name == "animation" && timeline_bound(attrs) {
                 self.check_timeline_rows(&a.value)?;
             }
-            if a.name == "exit-animation" {
+            if a.name == "-exact-exit-animation" {
                 exit_ends(&a.value)?;
             }
         }
@@ -795,18 +835,18 @@ fn timeline_bound(attrs: &[Attr]) -> bool {
     attrs.iter().any(|a| {
         a.name == "animation-timeline"
             && !matches!(&a.value, Expr::Str(v, _)
-                if v.trim().eq_ignore_ascii_case("auto") || v.trim().starts_with("clock("))
+                if v.trim().eq_ignore_ascii_case("auto") || v.trim().starts_with("-exact-clock("))
     })
 }
 
-/// An `exit-animation` must end (LLP 1063 D2): its node is removed when it
+/// An `-exact-exit-animation` must end (LLP 1063 D2): its node is removed when it
 /// does, so an `infinite` or `paused` literal is refused here.
 fn exit_ends(value: &Expr) -> Result<(), LowerError> {
     match value {
         Expr::Str(text, span) => match Animations::parse(text) {
             Ok(list) if list.validate_ending().is_err() => err(
                 "lower-exit-endless",
-                "an `exit-animation` must end: its node is removed when it does, so it cannot be `infinite` or `paused`",
+                "an `-exact-exit-animation` must end: its node is removed when it does, so it cannot be `infinite` or `paused`",
                 *span,
             ),
             _ => Ok(()),

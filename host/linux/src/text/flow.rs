@@ -3,8 +3,8 @@
 //! never enter the width cache; replacing that owner releases the previous frame.
 //! Preparation is O(G log G); a frame adds O(G + F log G + sum(g_f log g_f)) to
 //! textflow's documented band bound, with O(G + F + S) storage, never frame history.
+use super::lines::{Face, LayoutLine, Lines};
 use super::*;
-use cosmic_text::LayoutLine;
 use exact_textflow::{FlowOptions, FlowShape, Fragment, Options, Prepared};
 use std::ops::Range;
 
@@ -35,10 +35,13 @@ pub(super) struct FlowSource {
     height: f32,
     ellipses: Vec<Vec<LayoutGlyph>>,
     hyphen: Vec<LayoutGlyph>,
+    /// The faces every glyph above names.
+    faces: Vec<Face>,
 }
 impl FlowSource {
     pub(super) fn capacity_bytes(&self) -> usize {
-        self.hyphen.capacity() * std::mem::size_of::<LayoutGlyph>()
+        self.faces.capacity() * std::mem::size_of::<Face>()
+            + self.hyphen.capacity() * std::mem::size_of::<LayoutGlyph>()
             + self
                 .ellipses
                 .iter()
@@ -56,37 +59,54 @@ impl FlowSource {
     }
 
     // Synthetic ink uses the same run font and shaper as ordinary text.
-    fn symbol(source: &Rc<ShapedSource>, text: &str, run: usize) -> Vec<LayoutGlyph> {
-        let mut spec = (*source.spec).clone();
-        spec.runs = vec![spec.runs[run].clone()];
-        spec.runs[0].text = text.into();
-        spec.line_clamp = 0;
-        let shaped = Rc::new(ShapedSource::new(source.catalog.clone(), Arc::new(spec)));
-        let p = shaped.layout(None, Some(Wrap::None));
-        p.layout_runs()
-            .flat_map(|r| r.glyphs.iter().cloned())
-            .map(|mut g| {
-                g.metadata = run;
-                g
+    fn symbol(
+        source: &Rc<ShapedSource>,
+        faces: &mut Lines,
+        text: &str,
+        run: usize,
+    ) -> Vec<LayoutGlyph> {
+        let mut catalog = source.catalog.borrow_mut();
+        let spec_run = &source.spec.runs[run];
+        let family = catalog.choice(spec_run.family);
+        let layout = catalog.shape_one(spec_run, text, &family);
+        drop(catalog);
+        let mut ink = Lines::default();
+        for line in layout.lines() {
+            super::lines::extract(&line, layout.styles(), 0.0, &mut ink);
+        }
+        ink.glyphs
+            .iter()
+            .map(|g| LayoutGlyph {
+                metadata: run as u32,
+                face: faces.face(ink.faces[g.face as usize].clone()),
+                ..*g
             })
             .collect()
     }
 
     fn new(source: &Rc<ShapedSource>) -> Self {
-        // This is layout of the retained ShapeLines, NOT another shaping call.
+        // This is layout of the retained shape, NOT another shaping call.
         // It also supplies exactly the ordinary CSS strut/fallback-font baseline.
-        let plain = source.layout(None, Some(Wrap::None));
+        let plain = source.layout(None);
+        let mut faces = Lines {
+            faces: plain.layouts().faces.clone(),
+            ..Lines::default()
+        };
         let text: String = source.spec.runs.iter().map(|r| r.text.as_str()).collect();
         let mut clusters: Vec<Cluster> = Vec::new();
         let mut offset = 0;
-        let (baseline, height) = source.flow_box(plain.layout_runs().flat_map(|r| r.glyphs));
+        let (baseline, height) = source.flow_box(
+            plain.layout_runs().flat_map(|r| r.glyphs),
+            &plain.layouts().faces,
+        );
         for run in plain.layout_runs() {
             let start = offset + text[offset..].find(run.text).unwrap_or(0);
             let mut glyphs = run.glyphs.to_vec();
-            // Stable sort preserves the shaper's order inside multi-glyph clusters.
+            // Logical clusters: a stable sort keeps the shaper's order inside
+            // multi-glyph clusters.
             glyphs.sort_by_key(|g| g.start);
             for glyph in glyphs {
-                let range = start + glyph.start..start + glyph.end;
+                let range = start + glyph.start as usize..start + glyph.end as usize;
                 if let Some(last) = clusters.last_mut().filter(|c| c.range == range) {
                     last.width += glyph.w;
                     last.glyphs.push(glyph);
@@ -109,18 +129,7 @@ impl FlowSource {
                 )
             })
         {
-            let mut space_spec = (*source.spec).clone();
-            space_spec.runs.truncate(1);
-            space_spec.runs[0].text = " ".into();
-            let space_source = Rc::new(ShapedSource::new(
-                source.catalog.clone(),
-                Arc::new(space_spec),
-            ));
-            let space = space_source.layout(None, Some(Wrap::None));
-            let template: Vec<_> = space
-                .layout_runs()
-                .flat_map(|r| r.glyphs.iter().cloned())
-                .collect();
+            let template = Self::symbol(source, &mut faces, " ", 0);
             let width = template.iter().map(|g| g.w).sum();
             let whitespace = |ch| {
                 matches!(
@@ -170,7 +179,7 @@ impl FlowSource {
             exact_kernel::OverflowWrap::Anywhere => exact_textflow::OverflowWrap::Anywhere,
         };
         let hyphen = if text.contains('\u{ad}') {
-            Self::symbol(source, "-", 0)
+            Self::symbol(source, &mut faces, "-", 0)
         } else {
             Vec::new()
         };
@@ -185,12 +194,13 @@ impl FlowSource {
         );
         let ellipses = if source.spec.line_clamp > 0 {
             (0..source.spec.runs.len())
-                .map(|i| Self::symbol(source, "…", i))
+                .map(|i| Self::symbol(source, &mut faces, "…", i))
                 .collect()
         } else {
             Vec::new()
         };
         Self {
+            faces: faces.faces,
             hyphen,
             ellipses,
             text,
@@ -296,7 +306,7 @@ impl TextEngine {
         let result = exact_textflow::flow(&data.prepared, shapes, &options, &mut fragments);
         self.flow_walk += walk_started.elapsed();
         if !result.complete && !result.clamped {
-            let mut ordinary = source.layout(Some(width), None);
+            let mut ordinary = source.layout(Some(width));
             ordinary.flow = Some(FlowLayout {
                 fragments: Vec::new(),
                 line_height: data.height,
@@ -308,7 +318,10 @@ impl TextEngine {
             return Rc::new(ordinary);
         }
         let height = result.height;
-        let mut layouts: Vec<Vec<LayoutLine>> = source.layout_line_slots();
+        let mut layouts = Lines {
+            faces: data.faces.clone(),
+            ..Lines::default()
+        };
         let mut baselines = Vec::new();
         let mut bottoms = Vec::new();
         let mut slots = Vec::new();
@@ -384,7 +397,7 @@ impl TextEngine {
                     let run = visible
                         .last()
                         .and_then(|c| c.glyphs.first())
-                        .map_or(0, |g| g.metadata);
+                        .map_or(0, |g| g.run());
                     let ink = &data.ellipses[run];
                     let advance: f32 = ink.iter().map(|g| g.w).sum();
                     if total + advance <= available || visible.is_empty() {
@@ -396,26 +409,22 @@ impl TextEngine {
                 }
             }
             // UAX #9 L2 on whole clusters, preserving glyph order inside a cluster.
-            let max = visible
-                .iter()
-                .map(|c| c.glyphs[0].level.number())
-                .max()
-                .unwrap_or(0);
+            let max = visible.iter().map(|c| c.glyphs[0].level).max().unwrap_or(0);
             let min_odd = visible
                 .iter()
-                .map(|c| c.glyphs[0].level.number())
+                .map(|c| c.glyphs[0].level)
                 .filter(|l| l % 2 == 1)
                 .min()
                 .unwrap_or(max + 1);
             for level in (min_odd..=max).rev() {
                 let mut i = 0;
                 while i < visible.len() {
-                    if visible[i].glyphs[0].level.number() < level {
+                    if visible[i].glyphs[0].level < level {
                         i += 1;
                         continue;
                     }
                     let start = i;
-                    while i < visible.len() && visible[i].glyphs[0].level.number() >= level {
+                    while i < visible.len() && visible[i].glyphs[0].level >= level {
                         i += 1;
                     }
                     visible[start..i].reverse();
@@ -429,11 +438,12 @@ impl TextEngine {
             .max(0.0);
             f.x += shift;
             let mut x = f.x;
-            let mut glyphs = Vec::new();
+            let first = layouts.glyphs.len() as u32;
+            let glyphs = &mut layouts.glyphs;
             if source.spec.direction == exact_kernel::Direction::Rtl {
                 if let Some(ink) = suffix {
                     for g in ink {
-                        let mut g = g.clone();
+                        let mut g = *g;
                         g.x += x;
                         x += g.w;
                         glyphs.push(g);
@@ -441,7 +451,7 @@ impl TextEngine {
                 }
             }
             for c in visible {
-                glyphs.extend(c.glyphs.iter().cloned().map(|mut g| {
+                glyphs.extend(c.glyphs.iter().copied().map(|mut g| {
                     g.x += x;
                     g
                 }));
@@ -450,7 +460,7 @@ impl TextEngine {
             if source.spec.direction != exact_kernel::Direction::Rtl {
                 if let Some(ink) = suffix {
                     for g in ink {
-                        let mut g = g.clone();
+                        let mut g = *g;
                         g.x += x;
                         x += g.w;
                         glyphs.push(g);
@@ -464,13 +474,14 @@ impl TextEngine {
                 .get(a)
                 .or_else(|| data.clusters.last())
                 .map_or(0, |c| c.line);
-            layouts[line].push(LayoutLine {
+            let end = layouts.glyphs.len() as u32;
+            layouts.lines.push(LayoutLine {
+                hard: line as u32,
+                glyphs: (first, end),
                 w: f.width,
                 max_ascent: data.baseline,
                 max_descent: data.height - data.baseline,
-                line_height_opt: Some(data.height),
-                glyphs,
-                decorations: Vec::new(),
+                line_height: Some(data.height),
             });
             baselines.push(f.y + data.baseline);
             bottoms.push(f.y + data.height);
@@ -482,7 +493,8 @@ impl TextEngine {
             .ceil();
         let mut p = Paragraph {
             source,
-            layouts: Arc::new(layouts),
+            record: std::cell::OnceCell::from(Arc::new(layouts)),
+            remake: None,
             flow: Some(FlowLayout {
                 fragments,
                 line_height: data.height,

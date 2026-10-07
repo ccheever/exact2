@@ -1,12 +1,12 @@
-// Accept fixture: `exit-animation` and `layout-transition` (LLP 1063). A
+// Accept fixture: `-exact-exit-animation` and `-exact-layout-transition` (LLP 1063). A
 // removed row leaves with the keyframes it names; the rows after it slide up
 // into its place instead of jumping.
 keyframes leave
   to opacity=0 scale=0.96 animation-timing-function="ease-in"
 
 style Row
-  layout-transition="320ms cubic-bezier(.32,.72,0,1)"
-  exit-animation="leave 200ms cubic-bezier(.32,.72,0,1) both"
+  -exact-layout-transition="320ms cubic-bezier(.32,.72,0,1)"
+  -exact-exit-animation="leave 200ms cubic-bezier(.32,.72,0,1) both"
 
 component Presence
   state shown = true

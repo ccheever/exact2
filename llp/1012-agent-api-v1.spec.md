@@ -305,6 +305,14 @@ the Linux host implements this list, not that file):
   target first responder; iOS direct delivery (§9 of LLP 1008). CLI: `type X
   key Enter` — which, at an input with a `submit` handler, is the web's
   implicit submission on every host. Not on the Linux carrier yet (its lane).
+  The up runs the focus's `keyup` handlers (2026-10-07, #140), whether it
+  follows the down in one request or comes as `"phase":"up"`; a lone
+  modifier's down holds it and its up releases it, as DOM's flags say.
+  `"phase":"down","repeat":true` is an auto-repeat keydown (CDP's
+  `autoRepeat`, AppKit's `isARepeat`), which `type X key K for <ms>` sends
+  while the key is held, at macOS's default rate on the virtual clock (the
+  first 500 ms after the down, then every 83 ms; a modifier alone repeats
+  none). UIKit's presses carry no repeat, so iOS reports `repeat` as given.
 - **`clock`** is monotonic (a backwards `to` is refused). It moves the
   runner's clock and the host's motion clock to one instant and **lands where
   the runner says** (`batch.clock`): a timer's refusal stops the advance at

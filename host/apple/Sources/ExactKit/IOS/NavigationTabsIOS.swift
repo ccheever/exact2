@@ -112,7 +112,7 @@ extension NavigationHost {
         routerTab = p.at
         syncItems(tabs, navs: navs)
         let owned = askTabContainer(tabs, navs: navs, selected: p.at)
-        tabContainerAsked = presenter.session?.natives.hooksConnected == true
+        tabContainerAsked = presenter.session?.natives.hatchesConnected == true
         let holder: UIViewController = owned ?? {
             let container = UITabBarController()
             tabProxy.host = self
@@ -129,9 +129,9 @@ extension NavigationHost {
         // Kept under the agent too, where the authored tablist shows in the
         // bar's place: a real touch refuses it (LLP 1080.000 D7).
         adoptedTablist = tabs.tablist.id
-        if owned == nil, presenter.session?.natives.hooksConnected == true, let container = tabController {
-            presenter.session?.natives.tabsHook(container, event: 0)
-            tabsHooked = true
+        if owned == nil, presenter.session?.natives.hatchesConnected == true, let container = tabController {
+            presenter.session?.natives.tabsHatch(container, event: 0)
+            tabsHatched = true
         }
         presenter.session?.log("navigation: \(navs.count) tabs in \(owned.map { "the app's \(type(of: $0))" } ?? "a UITabBarController")\(ExactEnv.authoredChrome ? " (the authored tablist shows)" : "")")
     }
@@ -148,9 +148,9 @@ extension NavigationHost {
     /// The module's `tabContainer`, when it is connected: the app's own
     /// container for these stacks, or nil.
     private func askTabContainer(_ tabs: NavigationTabs, navs: [UINavigationController], selected: Int) -> UIViewController? {
-        guard let natives = presenter.session?.natives, natives.hooksConnected else { return nil }
+        guard let natives = presenter.session?.natives, natives.hatchesConnected else { return nil }
         let names = tabs.panels.map { $0.props["id"] ?? "" }
-        return natives.tabContainerHook(names: names, nodes: tabs.tabs.map(\.id), selected: selected, controllers: navs) as? UIViewController
+        return natives.tabContainerHatch(names: names, nodes: tabs.tabs.map(\.id), selected: selected, controllers: navs) as? UIViewController
     }
 
     /// At a cold launch the module connects after first pixel: Exact's tab
@@ -160,10 +160,10 @@ extension NavigationHost {
     /// from: the app's container takes their place once nothing is presented
     /// (each batch asks again until then).
     func replayTabs() {
-        guard let container = tabController, let natives = presenter.session?.natives, natives.hooksConnected else { return }
-        if !tabsHooked {
-            tabsHooked = true
-            natives.tabsHook(container, event: 0)
+        guard let container = tabController, let natives = presenter.session?.natives, natives.hatchesConnected else { return }
+        if !tabsHatched {
+            tabsHatched = true
+            natives.tabsHatch(container, event: 0)
         }
         guard !tabContainerAsked, presenter.modals.routes.isEmpty, !presenter.modals.inTransition, presentedNavigations.isEmpty,
               let root = self.container, let tabs = NavigationTabs.of(root, presenter), let parent = container.parent else { return }
@@ -175,7 +175,7 @@ extension NavigationHost {
             container.selectedIndex = max(0, routerTab)
             return
         }
-        natives.tabsHook(container, event: 1)
+        natives.tabsHatch(container, event: 1)
         container.delegate = nil
         tablistRoot = nil
         tablistHidBar = false
@@ -185,7 +185,7 @@ extension NavigationHost {
         tabController = nil
         mount(owned, in: parent, at: root)
         tabOwner = owned
-        presenter.session?.log("hook: the app's \(type(of: owned)) holds the tabs; the content moved after the first frame")
+        presenter.session?.log("hatch: the app's \(type(of: owned)) holds the tabs; the content moved after the first frame")
     }
 
     private func hideTabBar(_ container: UITabBarController) {
@@ -227,7 +227,7 @@ extension NavigationHost {
         if let container = tabController, container.selectedIndex != p.at { container.selectedIndex = p.at }
         if routerTab != p.at {
             routerTab = p.at
-            if tabController == nil { presenter.session?.natives.tabsHook(nil, event: 2, index: p.at) }
+            if tabController == nil { presenter.session?.natives.tabsHatch(nil, event: 2, index: p.at) }
         }
         primaryNavigation = navs[p.at]
         syncItems(tabs, navs: navs)
@@ -247,7 +247,7 @@ extension NavigationHost {
             item.selectedImage = face.base.flatMap { UIImage(systemName: $0 + ".fill") } ?? image
             item.accessibilityIdentifier = face.base ?? face.title
             item.isEnabled = !face.disabled
-            // An authored badge, or one it just lost; a badge a hook set on
+            // An authored badge, or one it just lost; a badge a hatch set on
             // a tab that never authored one is left alone.
             let had = tabItems.indices.contains(index) && !tabItems[index].hasSuffix("|")
             if face.badge != nil || had { item.badgeValue = face.badge }
@@ -296,8 +296,8 @@ extension NavigationHost {
             // Its routes may go into the next containers (a remount, new tabs).
             nav.setViewControllers([], animated: false)
         }
-        if tabsHooked, tabController != nil { presenter.session?.natives.tabsHook(tabController, event: 1) }
-        if tabController == nil, tabOwner != nil { presenter.session?.natives.tabsHook(nil, event: 3) }
+        if tabsHatched, tabController != nil { presenter.session?.natives.tabsHatch(tabController, event: 1) }
+        if tabController == nil, tabOwner != nil { presenter.session?.natives.tabsHatch(nil, event: 3) }
         if let holder = tabOwner {
             (holder as? UITabBarController)?.delegate = nil
             holder.willMove(toParent: nil)
@@ -306,7 +306,7 @@ extension NavigationHost {
         }
         tabController = nil
         tabOwner = nil
-        tabsHooked = false
+        tabsHatched = false
         tabContainerAsked = false
         routerTab = -1
         tabNavigations = [:]

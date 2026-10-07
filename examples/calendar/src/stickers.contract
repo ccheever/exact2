@@ -43,8 +43,8 @@ component StickerAgendaRow
         text stickerId text-transform="capitalize" flex=1 min-width=0 font-size=14 font-weight=500 color=ink white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
       calendar-drag-handle id=`sticker-agenda-${date}` testId=`sticker-agenda-${date}` event-id=`sticker-day:${day}:${stickerId}` menu-kind="sticker" completed="false" enabled=(disabled ? "false" : "true") press=edit message=command(day) aria-label=`${stickerId} sticker` position="absolute" left=0 top=0 right=0 bottom=0
       when hot and not hidden and not disabled
-        button testId="delete-sticker" press=remove aria-label=`Remove the ${stickerId} sticker` position="absolute" right=8 top=15 width=22 height=22 padding=0 border-width=0 border-radius=11 background-color="#ffffff00" display="flex" align-items="center" justify-content="center" press-scale=0.92
-          image "symbol:close" font-size=10 tint-color=muted
+        button testId="delete-sticker" press=remove aria-label=`Remove the ${stickerId} sticker` position="absolute" right=8 top=15 width=22 height=22 padding=0 border-width=0 border-radius=11 background-color="#ffffff00" display="flex" align-items="center" justify-content="center" -exact-press-scale=0.92
+          image "symbol:close" font-size=10 -exact-tint-color=muted
 
 // A palette sticker: a click puts it on the selected date or, when the date
 // already has it, takes it off; a drag places it on another date.

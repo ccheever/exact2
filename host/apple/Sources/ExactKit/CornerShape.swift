@@ -1,14 +1,14 @@
-// CSS `corner-shape` and `-apple-continuous` (LLP 1077 D1), shared by UIKit
+// CSS `corner-shape` and `-exact-continuous` (LLP 1077 D1), shared by UIKit
 // and AppKit. The outline is the kernel's (`exact_corner_outline`), so every
 // host draws one shape for one name; the one case Core Animation says
-// itself is `-apple-continuous` with one radius, `cornerCurve = .continuous`.
+// itself is `-exact-continuous` with one radius, `cornerCurve = .continuous`.
 import CExact
 import CoreGraphics
 import QuartzCore
 
 struct CornerShape: Equatable {
     /// Each corner's superellipse K, top-left first; NaN is
-    /// `-apple-continuous`.
+    /// `-exact-continuous`.
     let k: [Float]
 
     /// The row, or nil when every corner is `round` (no row is sent).

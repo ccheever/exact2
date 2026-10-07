@@ -159,7 +159,7 @@ component AppTile
     small: bool
     press: action
   view
-    button press=press testId=`app-${id}` aria-label=label press-scale=0.94 width=78 display="flex" flex-direction="column" align-items="center" gap=7
+    button press=press testId=`app-${id}` aria-label=label -exact-press-scale=0.94 width=78 display="flex" flex-direction="column" align-items="center" gap=7
       column width=66 height=66 border-radius=17 background-color=tile align-items="center" justify-content="center" position="relative"
         text glyph font-family="Exciting" font-weight=900 font-size=(small ? 24 : 34) line-height="40px" color=ink
         when badge > 0
@@ -176,7 +176,7 @@ component DockTile
     ink: string
     press: action
   view
-    button press=press testId=`dock-${id}` aria-label=id press-scale=0.94 width=66 height=66 border-radius=17 background-color=tile display="flex" flex-direction="row" align-items="center" justify-content="center"
+    button press=press testId=`dock-${id}` aria-label=id -exact-press-scale=0.94 width=66 height=66 border-radius=17 background-color=tile display="flex" flex-direction="row" align-items="center" justify-content="center"
       text glyph font-family="Exciting" font-weight=900 font-size=34 line-height="40px" color=ink
 
 // A notification card on the lock screen: the app's mark, who, what, when.

@@ -563,6 +563,19 @@ the other hosts gain:
 There is no ownership there and no deferral to delete. What it does matches
 the other hosts in every respect D4 and D9 name.
 
+**Open handles of work that failed (Charlie, 2026-10-07).** Background work
+owns a let-go answer's operations, not its database handles: an app may keep
+or share a handle across answers, so no host closes one for it, on failure or
+on settling. When a failure happens (an answer's own rejection, or a rejection
+nothing handled) while a database opened by work that now runs in the
+background (an answer that replied, failed or was let go) is still open, each
+executor journals once per handle `storage: <path> is still open after a
+failure in background work that opened it: if that work owns it, close it in a
+finally (finally { db.close() })` (the shared prelude, Hermes and the wasm
+module realm; `ts-data.js` on the JS target). The host cannot know the failing
+chain held that handle, so the line says "if". The chain closes its own handle
+in a finally.
+
 ### D8 — Failure reporting
 
 The same lines appear on every host, journaled by the runtime and read by

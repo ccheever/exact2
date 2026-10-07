@@ -3,7 +3,7 @@
 The LLP 1013.000 example: one screen per form of a shared-element flight.
 A node's `sharedElement` names it; when a commit destroys the node holding a
 name and creates another holding it, the new one flies from where the old one
-was shown, on either one's `layout-transition`.
+was shown, on either one's `-exact-layout-transition`.
 
 | Screen | Try | What it shows |
 |---|---|---|

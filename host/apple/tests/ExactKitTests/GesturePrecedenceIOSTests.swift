@@ -321,7 +321,7 @@ final class GesturePrecedenceIOSTests: XCTestCase {
         }
     }
 
-    /// A disabled scroller takes nothing (an app's hook can turn
+    /// A disabled scroller takes nothing (an app's hatch can turn
     /// `isScrollEnabled` off): the photo keeps the drag, or yields past it to
     /// an enabled scroller that can take it.
     func testADisabledPagerTakesNothing() throws {

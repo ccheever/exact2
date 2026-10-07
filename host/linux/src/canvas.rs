@@ -1,10 +1,10 @@
 //! Exact geometry painted by Android's `Canvas` (LLP 1076 §3.3): the kernel
-//! lays out, cosmic-text shapes, and the paint walk runs as everywhere else,
+//! lays out, Parley shapes, and the paint walk runs as everywhere else,
 //! but the backend records what it would draw — rounded rects, paths,
 //! clips, layers, pictures and positioned glyph runs — into one flat op
 //! stream that the app's `View` replays in `onDraw`. HWUI (Skia on the
 //! RenderThread, with its glyph atlas) does the drawing; text is drawn with
-//! `Canvas.drawGlyphs` from the same font files cosmic-text shaped with, so
+//! `Canvas.drawGlyphs` from the same font files Parley shaped with, so
 //! measurement and pixels agree.
 //!
 //! The presenter lives on the Android main thread ([`CanvasHost`]); every
@@ -23,6 +23,13 @@
 //! - `8 IMAGE id x y w h`
 //! - `9 GLYPHS font size color skew n (glyph x y)×n`
 //! - `10 FONT key index weight len utf8-path(padded to 4)` — once per face
+//! - `41 FONT_AXES key index weight n (tag value)×n len utf8-path(padded to 4)` — `FONT` for a
+//!   face drawn at variation settings fontique chose (`tag` an OpenType axis tag as a big-endian
+//!   `u32`, `value` in the axis's units: `ital` 1 for Roboto's italic, `wght`, `slnt`, `wdth`).
+//!   The reader sets them on its `Font`; `wght`, when absent, is `weight` as for `FONT`. In
+//!   place of `FONT` for such a face, so a reader that predates it stops rather than drawing
+//!   the default instance at the instance's advances. GLYPHS' `skew` stays for an oblique
+//!   fontique synthesized (a face with neither axis)
 //! - `11 IMAGE_DEF id w h` — fetch its pixels with [`CanvasHost::image`]
 //! - `12 IMAGE_FREE id`
 //! - `13 STROKE color width cap join n (tag coords…)×n` — caps/joins as SVG (0 butt/miter, 1 round, 2 square/bevel)
@@ -30,8 +37,9 @@
 //!   only over `region` with those corner radii (a clip-free rounded image; `clip.rs`)
 //! - `26 ANIMATED id len utf8-path(padded to 4)` — after `IMAGE_DEF`: the picture is a GIF's or
 //!   WebP's first frame; a reader may draw that file's animated drawable in its place
-//! - `27 BACKDROP sigma x y w h radii×8` — blur what this recording drew so far (the row's
-//!   content beneath) by `sigma` (local units), within that rounded rect: a material's backdrop
+//! - `42 BACKDROP n (kind amount)×n x y w h radii×8` — filter what this recording drew so far
+//!   inside that rounded rect, in order: kind 0 blur (local units), 1 saturation (multiplier)
+//!   (replaces the radius-only op 27; an older reader must refuse the new op)
 //! - `28 NATIVE view kind x y w h radii×8 len utf8-json` — a platform element (`paint/native.rs`;
 //!   kind 0 video, 1 web view, 2 module) shown in that rounded rect: the reader draws the
 //!   platform view's own drawing there
@@ -67,6 +75,9 @@ const LAYER: u32 = 7;
 const IMAGE: u32 = 8;
 const GLYPHS: u32 = 9;
 const FONT: u32 = 10;
+/// `FONT` with variation settings: key, index, weight, count and (tag
+/// value) pairs, then the path.
+const FONT_AXES: u32 = 41;
 const IMAGE_DEF: u32 = 11;
 const IMAGE_FREE: u32 = 12;
 const STROKE: u32 = 13;
@@ -75,8 +86,8 @@ const IMAGE_RRECT: u32 = 14;
 const DASH: u32 = 25;
 /// A picture's animated file: id, length, path.
 const ANIMATED: u32 = 26;
-/// A backdrop blur: sigma, then the rounded rect.
-const BACKDROP: u32 = 27;
+/// Ordered backdrop functions (kind, amount), then the rounded rect.
+const BACKDROP: u32 = 42;
 /// A platform element: view, kind, rounded rect, props.
 const NATIVE: u32 = 28;
 /// A row's recording: id, the id of the row it replaces (0 for none; the top
@@ -105,6 +116,8 @@ const SLOT: u32 = 23;
 const SLOT_SET: u32 = 24;
 /// Instead of a stream: the last one moved. A count, then per scroller its
 /// id and the move (device pixels) of its rows from where they were drawn.
+/// With `EXACT_MOVE_TRACKS=1`, `CLOCK` and `TRACKS` ops may follow: layers of
+/// the last stream whose plays changed since.
 const SHIFT: u32 = 22;
 
 /// Room (points) left of and above a row's origin in its recording, so what
@@ -166,8 +179,8 @@ pub struct Recorder {
     ops: Vec<u32>,
     /// The matrix last written into `ops` (points → device pixels).
     matrix: Option<[f32; 6]>,
-    /// Faces announced to the reader, by (file, index, weight).
-    fonts: HashMap<(Arc<str>, u32, u16), u32>,
+    /// Faces announced to the reader, by (file, index, weight, axes).
+    fonts: HashMap<FontKey, u32>,
     /// Files standing in for faces loaded from bytes, by blob id.
     face_files: HashMap<u64, Option<Arc<str>>>,
     /// Pictures announced to the reader, by allocation, with a weak handle
@@ -208,6 +221,10 @@ pub struct Recorder {
 /// A picture slot recording: its id, the row's ops so far, the row's matrix,
 /// and which clips were written when it began.
 type SlotRecording = (u32, Vec<u32>, Option<[f32; 6]>, Vec<bool>);
+
+/// A face as the reader makes it: file, collection index, weight, and up to
+/// three axes as (tag, value bits), unused ones zero.
+type FontKey = (Arc<str>, u32, u16, [(u32, u32); 3]);
 
 struct RowRecording {
     clips: Vec<clip::Clip>,
@@ -319,7 +336,7 @@ impl Recorder {
     /// A face loaded from bytes (a declared `font`) has no file for Android's
     /// `Font`: its bytes are written once to `$HOME/.exact-fonts/`, named by
     /// their hash, and that file stands in.
-    fn face_file(&mut self, font: &cosmic_text::PenikoFont) -> Option<(Arc<str>, u32)> {
+    fn face_file(&mut self, font: &parley::FontData) -> Option<(Arc<str>, u32)> {
         let blob = font.data.id();
         if let Some(path) = self.face_files.get(&blob) {
             return path.clone().map(|p| (p, font.index));
@@ -338,14 +355,34 @@ impl Recorder {
         path.map(|p| (p, font.index))
     }
 
-    fn font(&mut self, file: &(Arc<str>, u32), weight: u16) -> u32 {
-        let key = (file.0.clone(), file.1, weight);
+    fn font(
+        &mut self,
+        file: &(Arc<str>, u32),
+        weight: u16,
+        synthesis: &fontique::Synthesis,
+    ) -> u32 {
+        // Fontique sets at most three axes (`wdth`, `wght`, `ital` or `slnt`).
+        let mut axes = [(0u32, 0u32); 3];
+        let vars = synthesis.variation_settings();
+        for (slot, (tag, value)) in axes.iter_mut().zip(vars) {
+            *slot = (u32::from_be_bytes(tag.to_be_bytes()), value.to_bits());
+        }
+        let n = vars.len().min(axes.len());
+        let key = (file.0.clone(), file.1, weight, axes);
         if let Some(k) = self.fonts.get(&key) {
             return *k;
         }
         let k = self.fonts.len() as u32 + 1;
         self.fonts.insert(key, k);
-        self.ops.extend([FONT, k, file.1, u32::from(weight)]);
+        if n == 0 {
+            self.ops.extend([FONT, k, file.1, u32::from(weight)]);
+        } else {
+            self.ops
+                .extend([FONT_AXES, k, file.1, u32::from(weight), n as u32]);
+            for (tag, value) in &axes[..n] {
+                self.ops.extend([*tag, *value]);
+            }
+        }
         self.string(&file.0);
         k
     }
@@ -531,10 +568,15 @@ impl Backend for Recorder {
         self.shadow(shape, color, sigma, outer, ts)
     }
 
-    fn backdrop_blur(&mut self, shape: &Shape, sigma: f32, ts: Transform) {
+    fn backdrop_filter(
+        &mut self,
+        shape: &Shape,
+        filter: &exact_kernel::style::BackdropFilter,
+        ts: Transform,
+    ) {
         // What is beneath is what the reader already drew in this row; it
-        // blurs that, clipped to the shape (LLP 1053.000 D2).
-        if sigma <= 0.0 || shape.rect.2 <= 0.0 || shape.rect.3 <= 0.0 {
+        // filters that, clipped to the shape (LLP 1053.000 D2).
+        if filter.is_none() || shape.rect.2 <= 0.0 || shape.rect.3 <= 0.0 {
             return;
         }
         let bounds = clip::map(shape.rect, ts);
@@ -544,7 +586,15 @@ impl Backend for Recorder {
         self.need(bounds);
         self.transform(ts);
         self.ops.push(BACKDROP);
-        self.f(sigma);
+        self.ops.push(filter.0.len() as u32);
+        for op in &filter.0 {
+            let (kind, amount) = match op {
+                exact_kernel::style::BackdropOp::Blur(n) => (0, *n),
+                exact_kernel::style::BackdropOp::Saturate(n) => (1, *n),
+            };
+            self.ops.push(kind);
+            self.f(amount);
+        }
         self.rect_radii(shape);
     }
 
@@ -604,7 +654,7 @@ impl Backend for Recorder {
             let Some(file) = run.file.clone().or_else(|| self.face_file(&run.font)) else {
                 continue;
             };
-            let font = self.font(&file, run.weight);
+            let font = self.font(&file, run.weight, &run.synthesis);
             self.ops.extend([GLYPHS, font]);
             self.f(run.size);
             self.ops.push(Self::color(run.paint.color));
@@ -784,6 +834,10 @@ impl Backend for Recorder {
         true
     }
 
+    fn layer_recolored(&mut self) {
+        self.layers.note_recolored();
+    }
+
     fn layer_end(&mut self) {
         self.layer_close();
     }
@@ -936,6 +990,13 @@ pub struct CanvasHost<D: DataSource> {
     rows_before: Vec<(ViewId, u64)>,
     rows_after: Vec<(ViewId, u64)>,
     paint_by: Option<u32>,
+    /// The reader takes layers' tracks after a move (`EXACT_MOVE_TRACKS=1`,
+    /// which its launcher sets): a row that comes into view then starts its
+    /// animations without a paint, and a paint is owed only by the frame
+    /// rows mounted out of view can first show ([`CanvasHost::unhurried`]).
+    move_tracks: bool,
+    /// The last pass was a slice: it may have left rows of its window unbuilt.
+    sliced: bool,
     /// A GPU canvas wants another frame (Android: they present each frame).
     surfaces: bool,
     /// GPU canvases wait for the host's own thread: it booted on another
@@ -976,7 +1037,8 @@ struct Painted {
 /// At most this many frames move the last paint before one paints again:
 /// what it leaves stale (boxes, hits, which pictures show) stays this fresh.
 const MOVES: u32 = 30;
-/// The same, once rows have mounted out of view since the last paint.
+/// The same, once rows have mounted out of view since the last paint, where
+/// the frame they can first show is not known ([`CanvasHost::unhurried`]).
 const MOVES_MOUNTED: u32 = 6;
 
 impl<D: DataSource + Default> CanvasHost<D> {
@@ -1047,6 +1109,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
             rows_before: Vec::new(),
             rows_after: Vec::new(),
             paint_by: None,
+            move_tracks: std::env::var("EXACT_MOVE_TRACKS").is_ok_and(|v| v == "1"),
+            sliced: false,
             moves: std::env::var("EXACT_MOVES")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -1160,7 +1224,13 @@ impl<D: DataSource + Default> CanvasHost<D> {
                 p.first_pixel();
             }
         }
-        if let Some(shift) = self.shift(now) {
+        if let Some(mut shift) = self.shift(now) {
+            // A play that changed since the last stream (a row that came
+            // into view starts its animations): its layer's tracks go with
+            // the move, where the reader takes them there.
+            if self.move_tracks && self.p.host().lowered_epoch() != self.tracks_epoch {
+                self.layer_tracks(&mut shift);
+            }
             return Some(shift);
         }
         if !self.p.dirty() && !self.owed_at(now) {
@@ -1204,7 +1274,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
                 (self.origin_ns >> 32) as u32,
             ]);
         }
-        self.tracks.retain(|id, _| alive.iter().any(|a| a.0 == *id));
+        let ids: std::collections::HashSet<u32> = alive.iter().map(|a| a.0).collect();
+        self.tracks.retain(|id, _| ids.contains(id));
         // Plays change only in a sync: until one, only new layers' tracks;
         // after one, the layers of the nodes it changed.
         let epoch = self.p.host().lowered_epoch();
@@ -1271,7 +1342,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         // Rows mounted out of view since the paint (a quiet epoch) show at the
         // next one, so it comes sooner: they may scroll in within a quarter
         // second.
-        let limit = if self.quiet.is_some() {
+        let limit = if self.quiet.is_some() && !self.unhurried() {
             self.moves.min(MOVES_MOUNTED)
         } else {
             self.moves

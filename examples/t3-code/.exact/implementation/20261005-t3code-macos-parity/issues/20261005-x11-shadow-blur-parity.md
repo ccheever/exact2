@@ -1,10 +1,10 @@
 ---
 name: 20261005-x11-shadow-blur-parity
 plan: 20261005-t3code-macos-parity
-status: draft
+status: closed-upstream
 kind: framework-gap
 blocks: [20261005-auto-balance, 20261005-composer-fidelity, 20261005-managed-codex-chatgpt, 20261005-provider-sign-in-and-install, 20261005-server-update-banner, 20261005-settings-scoped-controls-and-theme-editor, 20261005-usage-pooled-view, 20261005-usage-reset-and-feedback]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/129
 reproduced_on: null
 ---
 
@@ -111,3 +111,19 @@ To confirm on the pinned `main` at `issue-open`.
 Draft; not reproduced on the pinned `main`; not searched upstream; not published.
 Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval;
 publication only after approval).
+
+## Merged upstream in part (2026-10-07, adopt-main-fixes-r5)
+
+Filed as [#129](https://github.com/ccheever/exact2/issues/129) (the negative-spread shadow already matched Chrome on
+`4c893fef6`, so only the backdrop was filed). Main #221 (`846a844da`) closed it: where macOS blurs a backdrop (a panel
+that is a sibling of what it covers), the chain mirrors the box before the blur, as Chrome does, so the edges no
+longer read past the box. A backdrop beyond the parent's subtree (case B) and `saturate()` continue in
+[#225](https://github.com/ccheever/exact2/issues/225). In the feature branch since main `261dd4e10`
+([adopt-main-fixes-r5](../tasks/20261007-adopt-main-fixes-r5.md)).
+
+Nothing to remove; the clone's real backdrops changed with no clone edit. The composer command drawer
+(`ComposerDrawerLayer`, `blur(16px)` over the chat column) had a dark band at its bottom edge before (the blur read the
+card's shadow below the box) and a clean edge after (agent drive, before/after image). The dialog backdrops
+(`blur(4px)`) and the SnapShot menu take the same mirror. Kept for #225: the flattened glass (composer card, model
+picker, toasts, PR tooltips, the confirm dialog, the alert stack), since each is nested below what it would blur and
+the reference's `saturate(1.14)` is refused. The issue stays open for #225.

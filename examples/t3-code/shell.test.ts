@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { pushToast, toasts } from './toast';
 import { applyDismissals, advanceToasts, toastViews, commandShortcut, surfaces, titleMenu, withOffsets, TOAST_LIMIT } from './shell';
-import { threadTransitions, transitionToast, updateCandidates, updateKey, updateToastView, threadNotifications } from './shell-notify';
+import { threadTransitions, transitionToast, updateCandidates, updateKey, updateToastView, threadNotifications, nativeNotifyStatus, reportWindowFacts } from './shell-notify';
 import { shellCommand, shellLocal, shellFailure, shellSuccess, resolveRenameCommit, settingsFailure } from './shell-commands';
 import type { T3Client } from './client';
 import type { Obj } from './domain';
@@ -170,6 +170,23 @@ describe('thread notifications', () => {
     client.shell.threads = [thread('a', { status: 'idle', activeRunId: null, activityRunStatus: null, latestRunCompletedAt: '2026-10-04T10:05:00.000Z' }), thread('open')];
     await threadNotifications(client, native, { active: false, authorization: 'authorized', agent: false, opened: '', openedThread: '' });
     expect(requests.filter(request => request.op === 'notifyPost').map(request => [request.title, request.body, request.tag])).toEqual([['Thread completed', 'T a', 'env:a']]);
+  });
+
+  test('the window facts are the page\'s (exactPage, exact2 #219): focus for notifications, each change once to the activity reporter', async () => {
+    const requests: Obj[] = [];
+    const native = { available: true, watch() {}, later: async (request: unknown) => { requests.push(request as Obj);
+      return { ok: true, generation: 0, value: { active: true, authorization: 'authorized', agent: false, opened: '1:a', openedThread: 'a' } }; } } as Native;
+    const previous = { active: true, authorization: 'unknown', agent: false, opened: '', openedThread: '' };
+    // A module's own focus reading is not the window's: the page's hasFocus is.
+    expect(await nativeNotifyStatus(native, previous, false)).toEqual({ active: false, authorization: 'authorized', agent: false, opened: '1:a', openedThread: 'a' });
+    const failing = { available: true, watch() {}, later: async () => { throw new Error('gone'); } } as unknown as Native;
+    expect((await nativeNotifyStatus(failing, previous, false)).active).toBe(false);
+    const owner = {};
+    await reportWindowFacts(owner, native, true, true);
+    await reportWindowFacts(owner, native, true, true);
+    await reportWindowFacts(owner, native, true, false);
+    await reportWindowFacts(owner, native, false, false);
+    expect(requests.filter(request => request.op === 'activityFacts').map(request => [request.visible, request.focused])).toEqual([[true, true], [true, false], [false, false]]);
   });
 
   test('off and in-app off: nothing tracked or raised', async () => {

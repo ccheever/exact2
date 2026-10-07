@@ -4,6 +4,9 @@ tap green
 tap green
 key green ArrowDown
 key blue ArrowRight
+# Red again: WebKit's arrows do not wrap past the group's last radio (plain HTML), so the steps after
+# start from one state in every engine.
+tap red
 # A group whose action refuses snaps back; a checkbox's InputEvent.
 tap locked-b
 tap mint

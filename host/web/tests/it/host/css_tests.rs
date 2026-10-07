@@ -283,7 +283,7 @@ fn relative_lengths_are_pixels_live_and_units_ahead_of_time() {
         (StyleId::LetterSpacing, "0.1em"),
         (StyleId::BorderRadiusTopLeft, "0.5rem"),
         (StyleId::BorderRadiusBottomLeft, "0.5rem"),
-        (StyleId::CornerShape, "-apple-continuous round round round"),
+        (StyleId::CornerShape, "-exact-continuous round round round"),
     ] {
         s.set_dynamic(id, &StyleValue::Text(value.into())).unwrap();
     }

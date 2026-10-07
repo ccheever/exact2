@@ -52,10 +52,10 @@ fn a_timeline_literal_in_a_match_is_rewritten_too() {
     let dir = Dir::new("match-clock");
     let root = dir.write(
         "app.contract",
-        "use Activity as Shared from \"exact:motion\"\ntimeline Activity\nkeyframes p\n  to opacity=0\ncomponent App\n  state opt = some(1)\n  view\n    column\n      view animation=\"p 1s\" animation-timeline=\"clock(Shared)\"\n      view animation=\"p 1s\" animation-timeline=(match opt { case some(x) => \"clock(Shared)\", case none => \"auto\" })\n",
+        "use Activity as Shared from \"exact:motion\"\ntimeline Activity\nkeyframes p\n  to opacity=0\ncomponent App\n  state opt = some(1)\n  view\n    column\n      view animation=\"p 1s\" animation-timeline=\"-exact-clock(Shared)\"\n      view animation=\"p 1s\" animation-timeline=(match opt { case some(x) => \"-exact-clock(Shared)\", case none => \"auto\" })\n",
     );
     let text = plan(&root);
-    assert!(!text.contains("clock(Shared)"), "{text}");
+    assert!(!text.contains("-exact-clock(Shared)"), "{text}");
 }
 
 #[test]
@@ -277,14 +277,14 @@ fn a_keyword_whose_slot_is_filled_is_the_name_and_quotes_name_too() {
     let dir = Dir::new("slots");
     dir.write(
         "ui.contract",
-        "keyframes linear\n  to opacity=0\nkeyframes pulse\n  to opacity=0\ncomponent Card\n  props\n    n: number\n  view\n    column\n      view animation=\"linear 1s linear\"\n      view animation=`steps(${n}, jump-end) pulse 1s`\n      view animation-timeline=`clock(Shared)` animation=\"pulse 1s\"\n",
+        "keyframes linear\n  to opacity=0\nkeyframes pulse\n  to opacity=0\ncomponent Card\n  props\n    n: number\n  view\n    column\n      view animation=\"linear 1s linear\"\n      view animation=`steps(${n}, jump-end) pulse 1s`\n      view animation-timeline=`-exact-clock(Shared)` animation=\"pulse 1s\"\n",
     );
     dir.write(
         "ui.contract",
         &std::fs::read_to_string(dir.0.join("ui.contract"))
             .unwrap()
             .replace(
-                "view animation-timeline=`clock(Shared)` animation=\"pulse 1s\"\n",
+                "view animation-timeline=`-exact-clock(Shared)` animation=\"pulse 1s\"\n",
                 "view animation=\"pulse 1s\"\n",
             ),
     );
@@ -302,10 +302,10 @@ fn a_template_clock_literal_is_rewritten() {
     let dir = Dir::new("template-clock");
     let root = dir.write(
         "app.contract",
-        "use Activity as Shared from \"exact:motion\"\ntimeline Activity\nkeyframes p\n  to opacity=0\ncomponent App\n  view\n    column\n      view animation=\"p 1s\" animation-timeline=\"clock(Shared)\"\n      view animation=\"p 1s\" animation-timeline=`clock(Shared)`\n",
+        "use Activity as Shared from \"exact:motion\"\ntimeline Activity\nkeyframes p\n  to opacity=0\ncomponent App\n  view\n    column\n      view animation=\"p 1s\" animation-timeline=\"-exact-clock(Shared)\"\n      view animation=\"p 1s\" animation-timeline=`-exact-clock(Shared)`\n",
     );
     let text = plan(&root);
-    assert!(!text.contains("clock(Shared)"), "{text}");
+    assert!(!text.contains("-exact-clock(Shared)"), "{text}");
 }
 
 #[test]
@@ -679,10 +679,10 @@ fn a_component_argument_is_a_value_not_a_style_row() {
     let dir = Dir::new("arg-value");
     let root = dir.write(
         "app.contract",
-        "use Activity as Shared from \"exact:motion\"\ntimeline Activity\ncomponent App\n  view\n    Label(animationTimeline=\"clock(Shared)\")\ncomponent Label\n  props\n    animationTimeline: string\n  view\n    text animationTimeline\n",
+        "use Activity as Shared from \"exact:motion\"\ntimeline Activity\ncomponent App\n  view\n    Label(animationTimeline=\"-exact-clock(Shared)\")\ncomponent Label\n  props\n    animationTimeline: string\n  view\n    text animationTimeline\n",
     );
     let text = plan(&root);
-    assert!(text.contains("clock(Shared)"), "{text}");
+    assert!(text.contains("-exact-clock(Shared)"), "{text}");
 }
 
 #[test]

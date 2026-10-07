@@ -657,6 +657,7 @@ fn dimension_pixel_strings_use_css_numbers_and_refuse_invalid_values_atomically(
 fn every_row_writes_its_own_field_and_no_other() {
     // Linked by use (LLP 1057.003), as every host that sets the rows links it.
     exact_kernel::timeline::link();
+    exact_kernel::style::link_backdrop_filter();
     let candidates = [
         StyleValue::Number(3.0),
         StyleValue::Number(0.5),
@@ -678,6 +679,7 @@ fn every_row_writes_its_own_field_and_no_other() {
         StyleValue::Text("squircle".into()),
         StyleValue::Text("1px 2px #000".into()),
         StyleValue::Text("y 30deg".into()),
+        StyleValue::Text("blur(12px) saturate(1.14)".into()),
     ];
     let mut unwritten = Vec::new();
     let base = StyleProps::default();

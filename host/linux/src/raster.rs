@@ -957,8 +957,13 @@ impl Backend for Raster {
         }
     }
 
-    fn backdrop_blur(&mut self, shape: &Shape, sigma: f32, ts: Transform) {
-        self.blur_backdrop(shape, sigma, ts);
+    fn backdrop_filter(
+        &mut self,
+        shape: &Shape,
+        filter: &exact_kernel::style::BackdropFilter,
+        ts: Transform,
+    ) {
+        self.filter_backdrop(shape, filter, ts);
     }
 
     fn push_clip(&mut self, shape: &Shape, ts: Transform) {

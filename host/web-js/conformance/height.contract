@@ -12,5 +12,5 @@ component App
   view
     column testId="page" height=900 position="relative" background-color="#ffffff"
       text `${snaps} ${px}` testId="count"
-      column id="sheet" testId="sheet" position="absolute" bottom=0 left=0 right=0 height=px box-sizing="border-box" transition="height spring(300, 30, 1)" background-color="#dde"
+      column id="sheet" testId="sheet" position="absolute" bottom=0 left=0 right=0 height=px box-sizing="border-box" transition="height -exact-spring(300, 30, 1)" background-color="#dde"
         column heightDragFor="sheet" heightrelease=snap testId="handle" height=40 touch-action="none" background-color="#99a"

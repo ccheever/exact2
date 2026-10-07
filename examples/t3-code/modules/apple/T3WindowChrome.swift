@@ -15,7 +15,7 @@ final class T3WindowChrome {
     var status: [String: Any] { ["fullScreen": fullScreen.fullScreen, "systemLocale": T3Locale.systemLocale()] }
 
     func install(_ element: ExactElement) {
-        guard element.hook == .t3Composer, let window = element.view?.window else { return }
+        guard element.hatch == .t3Composer, let window = element.view?.window else { return }
         if self.window !== window {
             destroy()
             self.window = window

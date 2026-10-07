@@ -8,23 +8,13 @@ use tiny_skia::{Color, FillRule, PathBuilder, Rect};
 pub(super) mod messages_envelope_model;
 
 fn engine() -> TextEngine {
-    let engine = TextEngine::new();
-    engine
-        .catalog
-        .borrow_mut()
-        .fonts
-        .db_mut()
-        .load_fonts_dir(concat!(
+    TextEngine::with_catalog(catalog::Catalog::installed_with(
+        Path::new(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../scripts/fixtures/fonts/assets"
-        ));
-    engine
-        .catalog
-        .borrow_mut()
-        .fonts
-        .db_mut()
-        .set_sans_serif_family("DejaVu Sans");
-    engine
+        )),
+        "DejaVu Sans",
+    ))
 }
 
 fn spec(text: &str) -> Spec {
@@ -73,23 +63,26 @@ fn full(
     target.fill(Color::WHITE);
     let glyph_ts = view.transform.pre_scale(1.0 / view.scale, 1.0 / view.scale);
     let mut catalog = paragraph.source.catalog.borrow_mut();
+    let slots = ink::slots(&mut catalog, paragraph.lines());
     for (g, baseline, ink) in paragraph.paint_glyphs(palette) {
         if ink.color[3] == 0 {
             continue;
         }
-        let phys = g.physical(
+        let (key, x, y) = ink::physical(
+            g,
+            slots[g.face as usize],
             (
                 view.origin.0 * view.scale,
                 (view.origin.1 + baseline) * view.scale,
             ),
             view.scale,
         );
-        let Some(glyph) = catalog.glyph(phys.cache_key, ink.color) else {
+        let Some(glyph) = catalog.glyph(key, ink.color) else {
             continue;
         };
         target.draw_pixmap(
-            phys.x + glyph.left,
-            phys.y - glyph.top,
+            x + glyph.left,
+            y - glyph.top,
             glyph.pixmap.as_ref(),
             &PixmapPaint::default(),
             glyph_ts,
@@ -303,27 +296,19 @@ fn scale_changes_replace_one_index_and_do_not_retain_history() {
 
 #[test]
 fn physical_cpu_placement_uses_all_x_bins_and_only_zero_y_bin() {
-    use cosmic_text::SubpixelBin;
     let mut engine = engine();
     let p = engine.layout(&spec("f"), Some(100.0));
-    let mut g = p.layout_runs().next().unwrap().glyphs[0].clone();
+    let mut g = p.layout_runs().next().unwrap().glyphs[0];
     g.x = 0.0;
-    g.x_offset = 0.0;
-    g.y = 0.375;
-    g.y_offset = 0.013;
+    g.y = 0.375 - 0.013 * g.font_size;
     let mut x_bins = std::collections::HashSet::new();
     for scale in [0.75, 1.0, 1.25, 2.0] {
         for i in -32..32 {
             let offset = (i as f32 / 16.0, i as f32 / 13.0);
-            let physical = g.physical(offset, scale);
-            x_bins.insert(physical.cache_key.x_bin);
-            assert_eq!(physical.cache_key.y_bin, SubpixelBin::Zero);
-            assert_eq!(
-                physical.y,
-                (g.y - g.y_offset * g.font_size)
-                    .mul_add(scale, offset.1)
-                    .trunc() as i32
-            );
+            let (key, _, y) = ink::physical(&g, 0, offset, scale);
+            x_bins.insert(key.x_bin);
+            assert_eq!(key.y_bin, 0);
+            assert_eq!(y, g.y.mul_add(scale, offset.1).trunc() as i32);
         }
     }
     assert_eq!(x_bins.len(), 4);
@@ -336,12 +321,10 @@ fn actual_color_bitmap_placement_matches_full_paint() {
     s.runs[0].size = 28.0;
     let p = engine.layout(&s, Some(230.0));
     let color = p.paint_glyphs(&palette()).any(|(g, _, _)| {
-        let mut borrow = p.source.catalog.borrow_mut();
-        let catalog = &mut *borrow;
-        catalog
-            .swash
-            .get_image_uncached(&mut catalog.fonts, g.physical((0.0, 0.0), 1.25).cache_key)
-            .is_some_and(|image| image.content == SwashContent::Color)
+        let mut catalog = p.source.catalog.borrow_mut();
+        let slots = ink::slots(&mut catalog, p.lines());
+        let (key, _, _) = ink::physical(g, slots[g.face as usize], (0.0, 0.0), 1.25);
+        catalog.renders_color(key)
     });
     assert!(color, "fixture must exercise an actual Swash color bitmap");
     for y in [-0.625, -119.375, -p.height + 70.25] {

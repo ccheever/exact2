@@ -31,7 +31,7 @@ use crate::wire::Op;
 /// process on a stack overflow (20,000 levels did).
 pub const MAX_DEPTH: u32 = 128;
 
-/// A destroyed node that leaves with its `exit-animation` (LLP 1063): the
+/// A destroyed node that leaves with its `-exact-exit-animation` (LLP 1063): the
 /// root of a destroyed subtree whose parent survived the batch and that no
 /// batch-local creation owns, or a virtualized list's row whose item left the
 /// data. Its descendants go with it; their own exit rows never play.
@@ -41,7 +41,7 @@ pub struct Exit {
     pub key: NodeKey,
     /// The surviving parent it leaves from.
     pub parent: NodeKey,
-    /// Its `exit-animation` row as it was when destroyed.
+    /// Its `-exact-exit-animation` row as it was when destroyed.
     pub animations: exact_motion::Animations,
 }
 
@@ -926,7 +926,7 @@ fn exit(
     })
 }
 
-/// The `exit-animation` `slot` plays as it leaves: its own row, unless it
+/// The `-exact-exit-animation` `slot` plays as it leaves: its own row, unless it
 /// is a virtualized list's row wrapper (it carries `listItemKey`). The window
 /// destroys rows that scroll away as well as rows whose item left the data,
 /// and empties the key of the latter alone; such a wrapper leaves as the

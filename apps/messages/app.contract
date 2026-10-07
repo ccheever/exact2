@@ -251,7 +251,7 @@ component Messages
                   image "symbol:compose"
               text "Messages" font-size=34 font-weight=700 letter-spacing=-0.7 margin-left=20 margin-bottom=12 margin-top=4
               row margin-left=16 margin-right=16 margin-bottom=12 border-radius=12 height=36 background-color="light-dark(#efeff0, #1c1c1e)" align-items="center" gap=7 padding-left=10 padding-right=10 flex-shrink=0
-                image "symbol:search" font-size=16 tint-color="#8e8e93"
+                image "symbol:search" font-size=16 -exact-tint-color="#8e8e93"
                 input appearance="none" value=query input=search placeholder="Search" testId="search" aria-label="Search conversations" font-size=17 flex=1 min-width=0 border-width=0 background-color="#00000000" class=Ink
               scroll flex=1 min-height=0 testId="inbox-list"
                 each t in data.threads key=t.id
@@ -260,9 +260,9 @@ component Messages
                       Avatar(initials=t.initials, color=t.color, size=44)
                       text t.name font-size=17 font-weight=600 flex=1 min-width=0 line-clamp=1
                       button press=inboxOperation("mute", t.id) testId=`mute-${t.id}` aria-label=(t.muted ? "Show alerts" : "Hide alerts") class=GlassButton backgroundMaterial="glass"
-                        image "symbol:notifications" font-size=18 tint-color="#5856d6"
+                        image "symbol:notifications" font-size=18 -exact-tint-color="#5856d6"
                       button press=inboxOperation("delete-thread", t.id) testId=`delete-thread-${t.id}` aria-label=`Delete ${t.name}` class=GlassButton backgroundMaterial="glass"
-                        image "symbol:delete" font-size=18 tint-color="#ff3b30"
+                        image "symbol:delete" font-size=18 -exact-tint-color="#ff3b30"
                   else
                     scroll swipeContent=`conversation-${t.id}` swipeLeading=`unread-${t.id}` swipeTrailing=`delete-thread-${t.id} mute-${t.id}` scroll=inboxScrolled(t.id) testId=`thread-swipe-${t.id}` width="100%" height=86.667 overflow-x="scroll" overflow-y="hidden" scrollbar-width="none" scroll-snap-type="x mandatory" scrollLeft=(inboxEditing ? 200 : (swiped == t.id ? swipeOffset : 70))
                       row width="100%" height=86.667
@@ -277,7 +277,7 @@ component Messages
                                 box width=7 height=7 border-radius=4 background-color="#0088ff"
                               text t.name font-size=17 font-weight=600 flex=1 min-width=0 line-clamp=1 text-align="left"
                               when t.muted
-                                image "symbol:notifications" font-size=12 tint-color="#8e8e93"
+                                image "symbol:notifications" font-size=12 -exact-tint-color="#8e8e93"
                               text t.time font-size=14 class=Secondary
                               text "›" font-size=19 class=Secondary
                             text t.preview font-size=15 line-height="20px" class=Secondary line-clamp=2 text-align="left"
@@ -354,13 +354,13 @@ component Messages
             column testId="reader" flex=1 min-height=0 width="100%" inert=(selected != "" or choosing or panel)
               row height=44 padding-left=16 padding-right=16 align-items="center" gap=16
                 button press=back testId="reader-back" class=GlassButton backgroundMaterial="glass"
-                  image "symbol:back" font-size=20 tint-color="light-dark(#000000, #ffffff)"
+                  image "symbol:back" font-size=20 -exact-tint-color="light-dark(#000000, #ffffff)"
                 text "Message" font-size=17 font-weight=600
               scroll flex=1 min-height=0 padding=20
                 textarea appearance="none" readonly=true value=fullText aria-label="Full message text" testId="reader-text" field-sizing="content" width="100%" min-height=300 padding=0 border-width=0 background-color="#00000000" class=Ink font-size=17 line-height="24px"
           when entry.id == top(nav).id
             when flightPhase >= 2 and flightThread == thread
-              box testId="send-flight" position="absolute" left=flightX top=flightY width=flightWidth translate=`0px ${flightDelta}px` scale=flightScale transform-origin="100% 100%" transition=(flightPhase == 2 ? "none" : (flightPhase == 5 ? "translate spring(141.75909, 23.8125, 1), scale spring(320, 50.5964, 2)" : "translate spring(141.75909, 23.8125, 1), scale 177ms cubic-bezier(0.41, 0.2, 0.6, 1)")) pointer-events="none" z-index=20
+              box testId="send-flight" position="absolute" left=flightX top=flightY width=flightWidth translate=`0px ${flightDelta}px` scale=flightScale transform-origin="100% 100%" transition=(flightPhase == 2 ? "none" : (flightPhase == 5 ? "translate -exact-spring(141.75909, 23.8125, 1), scale -exact-spring(320, 50.5964, 2)" : "translate -exact-spring(141.75909, 23.8125, 1), scale 177ms cubic-bezier(0.41, 0.2, 0.6, 1)")) pointer-events="none" z-index=20
                 Balloon(body=flightBody, outgoing=true, tail=true, maximum=flightWidth, identifier="flying-balloon")
             when panel
               box position="absolute" top=0 left=0 right=0 bottom=0 z-index=25
@@ -416,13 +416,13 @@ component Messages
                       text "↩" font-size=22
                       text "Reply" font-size=17
                     button press=copy testId="copy-message" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
-                      image "symbol:copy" font-size=20 tint-color="light-dark(#000000, #ffffff)"
+                      image "symbol:copy" font-size=20 -exact-tint-color="light-dark(#000000, #ffffff)"
                       text "Copy" font-size=17
                     button press=read(selectedBody) testId="read-message" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
                       text "Aa" font-size=18
                       text "Select Text" font-size=17
                     button press=remove disabled=data.busy testId="delete-message" height=44 padding-left=20 display="flex" flex-direction="row" align-items="center" gap=16
-                      image "symbol:delete" font-size=20 tint-color="#ff3b30"
+                      image "symbol:delete" font-size=20 -exact-tint-color="#ff3b30"
                       text "Delete" font-size=17 color="#ff3b30"
             when choosing
               column position="absolute" top=0 left=0 right=0 bottom=0 z-index=40 background-color="#00000030" justify-content="flex-end"

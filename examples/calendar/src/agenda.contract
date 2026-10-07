@@ -31,8 +31,8 @@ component AgendaRow
       when kind == "todo"
         button testId=`todo-check-${id}` press=toggle(id, not completed) role="checkbox" aria-checked=completed aria-label=`Complete ${title}` disabled=disabled position="absolute" left=4 top=8 width=36 height=36 padding=0 border-width=0 background-color="#ffffff00"
       when hot and not hidden and not disabled
-        button testId=`delete-${id}` press=remove(id) aria-label=`Delete ${title}` position="absolute" right=8 top=15 width=22 height=22 padding=0 border-width=0 border-radius=11 background-color="#ffffff00" display="flex" align-items="center" justify-content="center" press-scale=0.92
-          image "symbol:close" font-size=10 tint-color=muted
+        button testId=`delete-${id}` press=remove(id) aria-label=`Delete ${title}` position="absolute" right=8 top=15 width=22 height=22 padding=0 border-width=0 border-radius=11 background-color="#ffffff00" display="flex" align-items="center" justify-content="center" -exact-press-scale=0.92
+          image "symbol:close" font-size=10 -exact-tint-color=muted
 
 
 component AgendaMark

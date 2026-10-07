@@ -52,7 +52,7 @@ enum T3MediaActions {
         let agent = exportsRoot != nil
         switch request["op"] as? String {
         case "mediaMenu":
-            DispatchQueue.main.async { answer(menu(request["items"] as? [[String: Any]] ?? [], anchor: request["anchor"] as? String, agent: agent)) }
+            T3MenuTurn.run { answer(menu(request["items"] as? [[String: Any]] ?? [], anchor: request["anchor"] as? String, agent: agent)) } // outside a main-queue block (T3ContextMenu.swift)
         case "mediaCopyText":
             guard let text = request["text"] as? String else { return fail("The media action failed.") }
             DispatchQueue.main.async {

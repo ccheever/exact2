@@ -5,6 +5,19 @@
 import AppKit
 import UniformTypeIdentifiers
 
+/// Where the module's own native menus pop up: a main run-loop turn in the common modes, outside any
+/// main-queue block. A menu tracked inside a `DispatchQueue.main.async` block stops the main queue
+/// until it closes (CoreFoundation does not drain the main queue in a run loop nested in its own
+/// callout), and ExactKit hands every `native.later` call to the module through that queue. A menu
+/// held open then held back every server request, which went out together when it closed (round 5).
+/// Electron keeps sending while its menus are open.
+enum T3MenuTurn {
+    static func run(_ work: @escaping () -> Void) {
+        CFRunLoopPerformBlock(CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue, work)
+        CFRunLoopWakeUp(CFRunLoopGetMain())
+    }
+}
+
 final class T3ContextMenu: NSObject {
     private var chosen: String?
 
@@ -76,7 +89,7 @@ final class T3ContextMenu: NSObject {
     /// agent must choose from are Contract `contextPopover`s (the right-panel tab menu).
     static func perform(_ request: [String: Any], agent: Bool = false, reply: @escaping ([String: Any]) -> Void) {
         if agent { return reply(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": ["clicked": NSNull(), "shown": false] as [String: Any]]) }
-        DispatchQueue.main.async {
+        T3MenuTurn.run {
             let items = request["items"] as? [[String: Any]] ?? []
             // NSMenuItem.target is weak: keep the owner alive across the modal popUp.
             let owner = T3ContextMenu()

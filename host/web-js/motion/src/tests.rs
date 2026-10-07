@@ -9,7 +9,7 @@ fn lowered(m: &mut Motion, now: f64) -> Vec<f64> {
 #[test]
 fn a_released_hold_springs_home_as_frames_once() {
     let mut m = Motion::new();
-    assert!(m.transitions(7, "translate spring(180, 12, 1)"));
+    assert!(m.transitions(7, "translate -exact-spring(180, 12, 1)"));
     m.observe(7, [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0], 0.0)
         .unwrap();
     assert!(
@@ -111,7 +111,7 @@ fn a_pan_releases_at_its_speed_once() {
 #[test]
 fn a_held_height_springs_to_its_new_target() {
     let mut m = Motion::new();
-    assert!(m.transitions(4, "height spring(300, 30, 1)"));
+    assert!(m.transitions(4, "height -exact-spring(300, 30, 1)"));
     m.height(4, 400.0, 0.0).unwrap();
     let (serial, value) = m
         .begin(4, Property::Height, Value::scalar(400.0), 0.1)
@@ -130,7 +130,10 @@ fn a_held_height_springs_to_its_new_target() {
 #[test]
 fn a_transform_pair_moves_together_and_ends_apart() {
     let mut m = Motion::new();
-    assert!(m.transitions(9, "translate spring(200, 20, 1), scale spring(200, 20, 1)"));
+    assert!(m.transitions(
+        9,
+        "translate -exact-spring(200, 20, 1), scale -exact-spring(200, 20, 1)"
+    ));
     m.observe(9, [0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 1.0], 0.0)
         .unwrap();
     let (t, s, v) = m.begin_pair(9, [0.0, 0.0, 1.0], 0.1).unwrap().unwrap();

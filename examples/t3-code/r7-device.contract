@@ -266,7 +266,7 @@ component R7DevToolsDrawer
                 R7DevGlyph(name="chevron-down", size=14, color=r7devMuted())
             when tools.logOpen
               scroll max-height="16rem"
-                column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" hook="t3-media" data-media-kind="device-events" data-device-id=tools.logDevice data-device-host=tools.logHost testId="device-tools-events"
+                column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" hatch="t3-media" data-media-kind="device-events" data-device-id=tools.logDevice data-device-host=tools.logHost testId="device-tools-events"
                   when tools.eventsEmpty
                     text "No events yet." font-family="ui-monospace" font-size="0.6875rem" line-height="1.1171875rem" color=r7devMuted()
                   each entry in tools.events key=entry.id

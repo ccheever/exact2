@@ -1,10 +1,10 @@
 ---
 name: 20261005-x27-window-chrome
 plan: 20261005-t3code-macos-parity
-status: draft
+status: closed-upstream
 kind: framework-gap
 blocks: [20261005-desktop-shell-details]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/113
 reproduced_on: null
 ---
 
@@ -73,3 +73,12 @@ Draft; not reproduced on the pinned `main`; not searched upstream; not published
 Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval; publication only after approval).
 
 Re-checked 2026-10-07 on main `cff90b364` (task [20261007-adopt-main-fixes-r3](../tasks/closed/20261007-adopt-main-fixes-r3.md)): still missing: no title-row height or traffic-light inset setting, and no window full-screen fact (`bc6bc35f4` adds `requestFullscreen`/`fullscreenchange` for a `video` element only). `T3WindowChrome.swift` and `T3FullScreen.swift` stay.
+
+## Re-checked on main `261dd4e10` (2026-10-07, adopt-main-fixes-r5)
+
+[#113](https://github.com/ccheever/exact2/issues/113) is closed (2026-10-06) with only the frame restore (main #164,
+adopted earlier). Still missing on `261dd4e10`: `env()` accepts only `safe-area-inset-*` and `viewport-segment-*`
+(no `titlebar-area-*`), `host.macos.window` has no title-bar setting, `exactViewport()` has no `displayMode` and
+`exactPage()` no full-screen field (its fields are `visibilityState`, `onLine`, `canShare`, `canOpenFiles`,
+`hasFocus`). `T3WindowChrome.swift` and `T3FullScreen.swift` stay. No open upstream issue tracks the rest of #113;
+filing one is the user's decision ([adopt-main-fixes-r5](../tasks/20261007-adopt-main-fixes-r5.md)).

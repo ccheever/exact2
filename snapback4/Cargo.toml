@@ -18,7 +18,8 @@ snapback4-lang = { git = "https://github.com/expo/snapback.git", rev = "a397218e
 
 [patch.crates-io]
 taffy = { path = "../vendor/taffy" }
-cosmic-text = { path = "../vendor/cosmic-text" }
+parley = { path = "../vendor/parley" }
+fontique = { path = "../vendor/fontique" }
 wgpu-hal = { path = "../vendor/wgpu-hal" }
 
 [package]

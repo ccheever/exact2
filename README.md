@@ -469,9 +469,14 @@ This list lives in memory. To keep it across launches, give `app.ts` a grant lik
   source. A list that changes changes where its data lives, through a mutation, as
   in the example above. That's what lets the plan be baked, diffed, inspected, and
   executed the same way on four hosts.
-- **No escape hatch.** Where an app needs a platform widget, it uses a *native
-  module*: a hyphenated tag like `native-map`, backed by Swift or Rust, laid out by the
-  kernel like any other box.
+- **No escape hatch; access hatches.** Nothing steps outside the plan. Where an app
+  needs a platform widget, it uses a *native module*: a hyphenated tag like
+  `native-map`, backed by Swift or Rust, laid out by the kernel like any other box.
+  Where it needs the platform object Exact itself built (a `UIView`, a navigation
+  controller, a DOM element), it marks the node `hatch="word"` and its native code is
+  handed that object: an *access hatch*, the panel a machine is built with so its
+  insides can be reached. It configures what Exact made and changes Contract state
+  only by acting on authored nodes, as a person would.
 
 These limits serve the principles. An agent can't wire up a data race it can't write.
 A plan with no JavaScript in it starts fast. A view written in CSS's own words means

@@ -8,6 +8,9 @@
 **Numeric-height trial:** Tuft / Zeno (Astra), implementing 2026-09-17; LLP 1041 §8.12.
 **Related:** LLP 1003 (the spec of what this built), LLP 1001 (kernel v1 — the rows motion targets), RFC 0492 (the exact1 motion program this supersedes as authority; research), RFC 0099 (exact1's motion substrate; research), LLP 0486 (one layout language, two engines — the pattern this applies to motion), LLP 0559 F1 (the Flutter warning this heeds), `rules/DEFERRED.md` §Motion
 
+
+> **Spelling (2026-10-06):** `spring()` is spelled `-exact-spring()` since [LLP 1081](1081-names-exact-invents.rfc.md). This document keeps the spelling it was written with, as the record.
+
 ## Summary
 
 The motion crate exact2 inherited was the one subsystem that was **ported rather

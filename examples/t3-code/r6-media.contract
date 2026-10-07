@@ -16,7 +16,7 @@ component R6MediaBody
     local: action
   view
     when att.preview == "pdf" or att.preview == "html"
-      box hook="t3-media" data-media-url=att.url data-media-kind=att.preview data-media-name=att.name flex=1 min-height=0 width="100%" background-color="#ffffff" aria-label=att.name testId=`attachment-${att.preview}`
+      box hatch="t3-media" data-media-url=att.url data-media-kind=att.preview data-media-name=att.name flex=1 min-height=0 width="100%" background-color="#ffffff" aria-label=att.name testId=`attachment-${att.preview}`
     when att.preview == "audio"
       column flex=1 min-height=0 width="100%" padding="1.5rem" box-sizing="border-box" align-items="center" justify-content="center" testId="attachment-audio"
         video att.url controls=true preload="metadata" aria-label=att.name error=local("surface-r5-att-media-error", att.id) width="100%" max-width="36rem" height="3.375rem" flex-shrink=0 border-radius="1.6875rem" overflow="hidden" testId="attachment-audio-player"

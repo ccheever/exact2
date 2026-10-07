@@ -63,7 +63,7 @@ fn open(k: &mut Kernel, viewer_curve: bool) -> exact_kernel::CommitReceipt {
         name(5, "photo"),
     ];
     if viewer_curve {
-        ops.push(curve(5, "spring(300, 30, 1)"));
+        ops.push(curve(5, "-exact-spring(300, 30, 1)"));
     }
     ops.extend([
         Op::SetChildren {

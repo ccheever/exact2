@@ -87,8 +87,9 @@ final class T3TerminalActions: NSObject {
         let token = request
         let rows = Self.menuItems(context: context, hasSelection: captured != nil, canAddToChat: canAddToChat)
         openRequest = token
-        // Let the bridge reply return before entering NSMenu's nested tracking loop.
-        DispatchQueue.main.async { [weak self, weak view] in
+        // Let the bridge reply return before entering NSMenu's nested tracking loop, on a run-loop
+        // turn rather than a main-queue block, so the main queue keeps draining while it tracks (T3MenuTurn).
+        T3MenuTurn.run { [weak self, weak view] in
             guard let self, let view, self.request == token, view.web.window != nil else { return }
             self.items = rows; self.chosen = nil
             let x = body["x"] as? Double ?? 8, top = body["y"] as? Double ?? 8

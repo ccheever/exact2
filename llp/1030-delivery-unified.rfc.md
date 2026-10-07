@@ -188,6 +188,33 @@ which UIKit draws the iOS 18 design, a glass button configuration as a bordered
 one. The hosts read the recorded SDK (`LinkedDesign.liquidGlass`) where they
 choose between a glass look and an earlier one.
 
+**The executable's name (2026-10-06, from James's report that every Exact app
+ran as `ExactIOS`):** the executable is named after the app, following each
+platform's own convention, because that name is how a developer finds the
+process: crash reports (`<executable>-<date>.ips` and their `Process:` line),
+Settings › Analytics Data, the Organizer, Instruments, Console, `ps`. Two Exact
+apps on one phone had crash reports that looked identical. Each platform names
+its executable after either the app's name (Apple, Windows) or its id (Android,
+the Linux desktop), and the manifest's `[app]` section already declares both,
+so nothing new is declared. `scripts/app.mjs::executableName` derives
+the name: `app.name` verbatim, with the characters a macOS or Windows file
+name cannot carry (`<>:"/\|?*`, control characters) replaced by `-`, leading
+and trailing dots and spaces trimmed, and the id's last segment used if nothing
+is left.
+
+| Platform | The platform's convention | Exact |
+|---|---|---|
+| iOS, tvOS | Xcode: `PRODUCT_NAME` is the target's name, and `CFBundleExecutable` follows it: `Caltrain.app/Caltrain`, spaces kept | the same; the Swift package's products stay `ExactIOS`/`ExactMac` and are renamed as the bundle is assembled; the sample host keeps `ExactHostIOS`/`ExactHostMac`, because an embedder names its own |
+| macOS | Xcode: `Caltrain.app/Contents/MacOS/Caltrain` | the same, also for the bare development executable and its `<executable>-Info.plist` |
+| Windows | Visual Studio: the project's name is the assembly's, `Caltrain.exe` | `dist-windows/<executable>.exe`; Cargo's `<app>-windows.exe` is renamed as it is packaged |
+| Linux | a lowercase, hyphenated binary; the `.desktop` file, the Wayland `app_id` and the X11 `WM_CLASS` are the reverse-DNS id | unchanged: the host draws to DRM or VNC and opens no desktop window, so nothing uses the name, and the development binary stays Cargo's `<app>-linux`. A Linux package or window takes `app.id` for its desktop identity |
+| Android | Android Studio: the name is only `android:label`; the process, logcat and Play Console use the `applicationId` | no host; it would be `app.id`, with no name to choose |
+| Web | `<title>` and the web manifest's `name`/`short_name`; no executable | already so: `app.json` is the web manifest |
+
+Renaming the executable leaves an installed app's data in place: containers,
+the keychain and the macOS privacy grants are keyed by the bundle id and the
+signature.
+
 ### D3a — The compatibility id: the cohort a bundle is safe for
 
 LLP 1026 D9's runtime version — kernel schema, format, module ABI,

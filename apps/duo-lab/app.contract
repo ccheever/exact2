@@ -202,7 +202,7 @@ component DuoLab
                   text "Back" font-size=14 font-weight=600 color="#ffffff"
                 text "Note" font-size=20 font-weight=700 testId="note-title"
               text "A pushed route. The sheet below holds a textarea; its keyboard shortens the viewport (resizes-content)." class=Note padding-top=8
-            column id="note-sheet" testId="note-sheet" position="absolute" bottom=0 left=0 right=0 height=sheetPx max-height="calc(100% - 72px)" box-sizing="border-box" padding=16 padding-right="calc(env(safe-area-inset-right) + 16px)" padding-bottom="calc(env(safe-area-inset-bottom) + 16px)" gap=12 background-color="#ffffff" border-top-left-radius=20 border-top-right-radius=20 transition="height spring(300, 30, 1)"
+            column id="note-sheet" testId="note-sheet" position="absolute" bottom=0 left=0 right=0 height=sheetPx max-height="calc(100% - 72px)" box-sizing="border-box" padding=16 padding-right="calc(env(safe-area-inset-right) + 16px)" padding-bottom="calc(env(safe-area-inset-bottom) + 16px)" gap=12 background-color="#ffffff" border-top-left-radius=20 border-top-right-radius=20 transition="height -exact-spring(300, 30, 1)"
               column heightDragFor="note-sheet" heightrelease=snapSheet touch-action="none" testId="sheet-handle" aria-label="Resize the note sheet" gap=3
                 text "Note" font-size=18 font-weight=600
                 text "Drag to resize" font-size=11 color="#6b655a"

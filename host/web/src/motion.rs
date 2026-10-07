@@ -3,7 +3,7 @@
 //! @ref LLP 1002 D2 (on the web a spring is lowered, not evaluated per frame)
 //! @ref LLP 1003 §4 (the seam: `Kernel::motion_sync`)
 //!
-//! CSS plays every easing transition itself. A `spring()` it cannot, so the
+//! CSS plays every easing transition itself. A `-exact-spring()` it cannot, so the
 //! host keeps the same [`Engine`] every native host runs, feeds it each
 //! commit through the kernel's seam, seeks it to the commit's clock, and asks
 //! it for the frames of any spring that just started — including one that
@@ -669,9 +669,9 @@ mod tests {
     #[test]
     fn hold_moves_do_not_recompile_unchanged_springs() {
         crate::link::link_for_tests();
-        let mut source = String::from("component App\n  state big = false\n  action toggle\n    big = not big\n  view\n    column\n      button press=toggle testId=\"toggle\"\n        text \"Toggle\"\n      text \"Held\" testId=\"held\" transition=\"translate spring(180, 12, 1)\"\n");
+        let mut source = String::from("component App\n  state big = false\n  action toggle\n    big = not big\n  view\n    column\n      button press=toggle testId=\"toggle\"\n        text \"Toggle\"\n      text \"Held\" testId=\"held\" transition=\"translate -exact-spring(180, 12, 1)\"\n");
         for _ in 0..32 {
-            source.push_str("      text \"Moving\" scale=(big ? 1.5 : 1) opacity=(big ? 0.5 : 1) transition=\"scale spring(180, 12, 1), opacity spring(180, 12, 1)\"\n");
+            source.push_str("      text \"Moving\" scale=(big ? 1.5 : 1) opacity=(big ? 0.5 : 1) transition=\"scale -exact-spring(180, 12, 1), opacity -exact-spring(180, 12, 1)\"\n");
         }
         let (mut host, _) = crate::Host::boot(
             &contract::compile(&source).unwrap().encode(),

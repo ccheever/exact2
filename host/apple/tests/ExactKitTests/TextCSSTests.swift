@@ -152,7 +152,7 @@ final class TextCSSTests: XCTestCase {
     /// whose first named instance is Thin); a static face is left as it is.
     func testADeclaredVariableFaceTakesItsWeightOnTheAxis() throws {
         let fonts = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("../../../../")
-        let inter = try Data(contentsOf: fonts.appendingPathComponent("vendor/cosmic-text/fonts/InterVariable.ttf").standardized)
+        let inter = try Data(contentsOf: fonts.appendingPathComponent("host/apple/tests/fonts/InterVariable.ttf").standardized)
         let first = (CTFontManagerCreateFontDescriptorsFromData(inter as CFData) as! [CTFontDescriptor])[0]
         func wght(_ d: CTFontDescriptor) -> Double? {
             (CTFontCopyVariation(CTFontCreateWithFontDescriptor(d, 16, nil)) as? [NSNumber: NSNumber])?[0x77676874 as NSNumber]?.doubleValue

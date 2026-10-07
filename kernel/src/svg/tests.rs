@@ -359,9 +359,9 @@ fn a_boxs_css_filter_is_the_functions_chain_over_a_box_of_no_size() {
     );
     // A drop-shadow's colour may name a platform colour (LLP 1095 D1): the
     // browser reads it as the role, the box resolves it (here, its fallback).
-    let role = FilterList::parse("drop-shadow(0 2px 4px system-orange)").unwrap();
+    let role = FilterList::parse("drop-shadow(0 2px 4px -exact-system-orange)").unwrap();
     assert_eq!(FilterList::parse(&role.css()), Some(role.clone()));
-    let orange = crate::style::ColorValue::parse_light_dark("system-orange").unwrap();
+    let orange = crate::style::ColorValue::parse_light_dark("-exact-system-orange").unwrap();
     let shadow = crate::svg::scene::box_filter(&role, black, false).unwrap();
     let o = orange.resolve(false);
     let [r, g, b] = [o.r(), o.g(), o.b()].map(|v| f32::from(v) / 255.0);
@@ -371,7 +371,7 @@ fn a_boxs_css_filter_is_the_functions_chain_over_a_box_of_no_size() {
         shadow.primitives[0].op
     );
     let platform =
-        "drop-shadow(1px 1px platform-color(ios systemTealColor, light-dark(#30b0c7, #40c8e0)))";
+        "drop-shadow(1px 1px -exact-platform-color(ios systemTealColor, light-dark(#30b0c7, #40c8e0)))";
     assert!(FilterList::parse(platform).is_some());
     assert!(FilterList::parse("drop-shadow(1px 1px light-dark(#000, #fff))").is_some());
     // Under the dark appearance, a pair's dark half; `currentcolor` too.

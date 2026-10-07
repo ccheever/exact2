@@ -55,13 +55,13 @@ pub struct HandoffResidency {
 }
 
 /// Catalog-local paragraph storage. Vector/String capacities below are exact
-/// accessible storage, not allocator/RSS accounting. Cosmic private caches,
-/// font-system scratch, font data and glyph caches are outside this count.
+/// accessible storage, not allocator/RSS accounting. Parley's layout
+/// scratch, font data and glyph caches are outside this count.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Residency {
     /// Exact visible vector capacities of indexed paragraphs and canonical keys.
     pub owned_capacity_bytes: usize,
-    /// Zero for moved source Strings; private cosmic internals remain excluded.
+    /// Zero for moved source Strings.
     pub private_text_bytes_estimate: usize,
     /// Unique live width snapshots, including cache and painter owners.
     pub paragraphs: usize,
@@ -91,7 +91,7 @@ pub struct Residency {
 /// Accepted painter storage outside the current catalog's paragraph index.
 /// Source, layout and ink backings are each counted once, excluding backings
 /// already in the current catalog. Wrapper counts stay separate from bytes.
-/// This excludes keys, fonts, private cosmic caches, Arc headers, allocator
+/// This excludes keys, fonts, Parley's scratch, Arc headers, allocator
 /// overhead and other engines/callers. This is not total RSS.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct RetiringResidency {
@@ -101,7 +101,7 @@ pub struct RetiringResidency {
     pub paragraphs: usize,
     /// Exact accessible vector capacities of those unique paragraph backings.
     pub owned_capacity_bytes: usize,
-    /// Zero for moved source Strings; private cosmic internals remain excluded.
+    /// Zero for moved source Strings.
     pub private_text_bytes_estimate: usize,
 }
 
@@ -120,7 +120,7 @@ impl From<Option<f32>> for Width {
 struct Payloads {
     sources: HashSet<*const super::shaping::ShapeData>,
     flows: HashSet<*const ShapedSource>,
-    lines: HashSet<*const Vec<Vec<cosmic_text::LayoutLine>>>,
+    lines: HashSet<*const super::Lines>,
     baselines: HashSet<*const Vec<f32>>,
     indexes: HashSet<*const super::ink::Index>,
 }
@@ -140,12 +140,14 @@ impl Payloads {
     }
     fn width(&mut self, p: &Paragraph) -> usize {
         let mut bytes = 0;
-        let baselines = p.baselines.capacity() * size_of::<f32>();
-        if self.lines.insert(Arc::as_ptr(&p.layouts)) {
-            bytes += p.resident_capacity_bytes - p.source.accessible_capacity_bytes - baselines;
+        if let Some(lines) = p.record.get() {
+            if self.lines.insert(Arc::as_ptr(lines)) {
+                bytes += lines.capacity_bytes();
+            }
         }
+        // Baselines, bottoms and a flow travel together.
         if self.baselines.insert(Arc::as_ptr(&p.baselines)) {
-            bytes += baselines;
+            bytes += p.resident_capacity_bytes - p.source.accessible_capacity_bytes;
         }
         if let Some(index) = &p.ink.borrow().index {
             if self.indexes.insert(&**index as *const _) {
@@ -242,6 +244,9 @@ pub(super) struct Cache {
     grown_bytes: usize,
     grown_identities: usize,
     unwalked: u32,
+    /// What each field's value and caret prefix showed last, and earlier
+    /// ones a paint still held ([`Cache::superseding`]).
+    superseded: HashMap<(u32, u8), Vec<(u64, u64)>>,
 }
 /// New identities since the last walk after which a paint's maintenance walks.
 pub(super) const WALK_IDENTITIES: usize = 64;
@@ -276,6 +281,7 @@ impl Default for Cache {
             grown_bytes: 0,
             grown_identities: 0,
             unwalked: 0,
+            superseded: HashMap::new(),
         }
     }
 }
@@ -626,6 +632,44 @@ impl Cache {
         }
         result
     }
+    /// `key` is now what `owner` (a text field's value, or its caret's
+    /// prefix) shows: the identities it showed before go once nothing holds
+    /// their paragraphs. Each keystroke makes a new text and none comes
+    /// back, so kept cold (as a list row's text is, for the scroll's return)
+    /// they only filled the cold budget: 130 typed characters left ~3 MB of
+    /// shaped prefixes.
+    pub fn superseding(&mut self, owner: (u32, u8), key: (u64, u64)) {
+        let old = self.superseded.entry(owner).or_default();
+        if old.last() == Some(&key) {
+            return;
+        }
+        old.retain(|k| *k != key);
+        old.push(key);
+        let mut waiting = Vec::new();
+        for k in old.drain(..old.len() - 1) {
+            let Some(bucket) = self.identities.get_mut(&k.0) else {
+                continue;
+            };
+            let Some(pos) = bucket.iter().position(|e| e.id == k.1) else {
+                continue;
+            };
+            for snapshot in bucket[pos].widths.values_mut() {
+                snapshot.cold = None;
+            }
+            if bucket[pos].pinned() {
+                // Still drawn by the paint being replaced: next time.
+                waiting.push(k);
+                continue;
+            }
+            bucket.remove(pos);
+            if bucket.is_empty() {
+                self.identities.remove(&k.0);
+            }
+        }
+        let old = self.superseded.entry(owner).or_default();
+        old.splice(0..0, waiting);
+    }
+
     /// Drop cold/transient ownership, preserving weak dedup for frame-owned ones.
     #[cfg(test)]
     pub fn clear(&mut self) {
@@ -977,16 +1021,8 @@ pub(super) fn capacities(paragraph: &Paragraph) -> usize {
     fn vector<T>(v: &Vec<T>) -> usize {
         v.capacity() * size_of::<T>()
     }
-    let mut bytes = paragraph.source.accessible_capacity_bytes
+    paragraph.source.accessible_capacity_bytes
         + vector(&paragraph.baselines)
         + vector(&paragraph.bottoms)
-        + vector(&paragraph.layouts)
-        + paragraph.flow.as_ref().map_or(0, |f| f.capacity_bytes());
-    for layouts in paragraph.layouts.iter() {
-        bytes += vector(layouts);
-        for line in layouts {
-            bytes += vector(&line.glyphs) + vector(&line.decorations);
-        }
-    }
-    bytes
+        + paragraph.flow.as_ref().map_or(0, |f| f.capacity_bytes())
 }

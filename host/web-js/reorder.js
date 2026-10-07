@@ -123,13 +123,13 @@ export function install({ internals: { Collection, Lists, Views, find, minEpoch,
       return { terminal: p.terminal, wrappers: this.mounted.map(m => ({ wrapper: m.view, root: m.root, top: this.index.prefix(m.position), offset: at ? at(m.position) : 0 })) };
     },
     /** Each mounted wrapper's absolute target (views.rs's style op): the motion
-     * engine springs it there (`translate spring(300,30,1)`). */
+     * engine springs it there (`translate -exact-spring(300,30,1)`). */
     // Offsets that move with their rows in one commit apply at once (LLP
     // 1094 D8); the dragged row hides while a ghost stands for it (D6).
     emitPreview() {
       if (!this.preview && !this.incoming && this.hidden == null && !this.mounted.some(m => m.previewHidden)) return;
       const at = this.offsets(), hidden = this.hidden == null ? undefined : this.index.pos.get(this.hidden);
-      const transition = this.instant ? "" : "translate spring(300,30,1)";
+      const transition = this.instant ? "" : "translate -exact-spring(300,30,1)";
       for (const m of this.mounted) {
         const offset = at ? at(m.position) : 0;
         if (m.previewTarget !== offset) {

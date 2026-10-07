@@ -159,7 +159,7 @@ component R4BranchPicker
               input id="details-branch-search" value=git.branch.query input=local("git-query", "") submit=act(git.branch.enterOp, "enter", git.branch.enterValue) focus=searchFocus(true) blur=searchFocus(false) autofocus=true role="combobox" aria-label="Search refs" testId="details-branch-search" flex=1 min-width=0 height="1.625rem" padding-left="1.25rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false"
           when git.branch.empty != ""
             text git.branch.empty font-size="0.875rem" line-height="1.25rem" padding="0.5rem" text-align="center" color="light-dark(#71717a, #818181)"
-          scroll max-height="14rem" width="100%" hook="t3-anchor" data-anchor="scroll:details-refs"
+          scroll max-height="14rem" width="100%" hatch="t3-anchor" data-anchor="scroll:details-refs"
             column width="100%" gap=0 padding-left="0.5rem" padding-right="0.25rem" padding-top="0.75rem" padding-bottom="0.5rem" box-sizing="border-box" role="listbox"
               // lane r9-connect: a local draft's pull request reference leads (r9-connect-checkout.ts).
               each item in git.branch.checkout key=item.reference

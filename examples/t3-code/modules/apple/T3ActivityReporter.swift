@@ -1,5 +1,10 @@
-// backgroundActivityReporter.ts (T3 Code 1e2ecbd975). AppKit supplies window
-// facts; one reporter owns the debounce, cadence and scopes for all transports.
+// backgroundActivityReporter.ts (T3 Code 1e2ecbd975). One reporter owns the
+// debounce, cadence and scopes for all transports. `visible` and `focused` are
+// the page's (`exactPage()` visibilityState and hasFocus, exact2 #219), which the
+// shell hands over when they change (`facts`), as the reference reads
+// document.visibilityState and document.hasFocus() and reports again on
+// visibilitychange, focus and blur. AppKit supplies only the pointer, key and
+// wheel interactions (the reference's window listeners).
 import AppKit
 
 final class T3ActivityScopes {
@@ -38,6 +43,9 @@ final class T3ActivityReporter: @unchecked Sendable {
     private var remainingReports = 0
     private var lastInteraction = Date().timeIntervalSince1970 * 1000
     private var visible = false, focused = false, alive = true
+    /// Whether the page's facts have arrived: a reporter whose facts come from the
+    /// page holds its first report until they do, so no report guesses them.
+    private var factsKnown: Bool
     // AppKit objects are used only on the main queue.
     private var observers: [NSObjectProtocol] = []
     private var eventMonitor: Any?
@@ -51,8 +59,9 @@ final class T3ActivityReporter: @unchecked Sendable {
     private let preferencesURL: URL?
     private static let identityKey = "backgroundActivityClientId"
 
-    init(persistent: Bool, dataDirectory: URL?, observeWindows: Bool = true) {
+    init(persistent: Bool, dataDirectory: URL?, observeWindows: Bool = true, pageFacts: Bool = false) {
         self.observeWindows = observeWindows
+        factsKnown = !pageFacts
         self.persistent = persistent
         preferencesURL = dataDirectory?.appendingPathComponent("t3-code.json")
     }
@@ -102,6 +111,15 @@ final class T3ActivityReporter: @unchecked Sendable {
     }
     func disconnect(_ id: UUID) { queue.async { [self] in connections[id] = nil; requestReport() } }
     func changed() { queue.async { [self] in requestReport() } }
+    /// The page's window facts (document.visibilityState === "visible", document.hasFocus()):
+    /// each change is reported, as the reference's visibilitychange, focus and blur listeners do.
+    func facts(visible: Bool, focused: Bool) {
+        queue.async { [self] in
+            guard alive else { return }
+            self.visible = visible; self.focused = focused; factsKnown = true
+            requestReport()
+        }
+    }
     func retain(_ id: UUID, environment: String, method: String, payload: [String: Any]) {
         queue.async { [self] in
             guard alive else { return }
@@ -120,7 +138,7 @@ final class T3ActivityReporter: @unchecked Sendable {
         debounce = work; queue.asyncAfter(deadline: .now() + 0.25, execute: work)
     }
     private func report() {
-        guard alive else { return }
+        guard alive, factsKnown else { return }
         if reporting { reportAgain = true; return }
         guard !connections.isEmpty else { return }
         let now = Date(), millis = now.timeIntervalSince1970 * 1000
@@ -146,31 +164,23 @@ final class T3ActivityReporter: @unchecked Sendable {
             }
         }
     }
+    /// The reference's pointermove, keydown and wheel listeners: AppKit delivers mouse
+    /// moves only to a window that asks for them, so each main-capable window does while observed.
     private func observe() {
         guard observeWindows, !observing, !stoppedObserving else { return }; observing = true
-        let names: [Notification.Name] = [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification]
-        // Explicit AppKit names also cover hide, minimize, close and occlusion.
-        let windowNames = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification,
-                           NSWindow.didChangeOcclusionStateNotification, NSWindow.didMiniaturizeNotification,
-                           NSWindow.didDeminiaturizeNotification, NSWindow.willCloseNotification,
-                           NSApplication.didHideNotification, NSApplication.didUnhideNotification]
-        for name in names + windowNames {
-            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.windowFacts() })
+        for name in [NSApplication.didBecomeActiveNotification, NSWindow.didBecomeKeyNotification, NSWindow.didBecomeMainNotification] {
+            observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.trackPointer() })
         }
         eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .keyDown, .scrollWheel]) { [weak self] event in
             self?.interaction(); return event
         }
-        windowFacts()
+        trackPointer()
     }
-    private func windowFacts() {
-        let windows = NSApp.windows.filter { $0.canBecomeMain && $0.isVisible }
-        for window in windows where mouseWindows.object(forKey: window) == nil {
+    private func trackPointer() {
+        for window in NSApp.windows where window.canBecomeMain && window.isVisible && mouseWindows.object(forKey: window) == nil {
             mouseWindows.setObject(NSNumber(value: window.acceptsMouseMovedEvents), forKey: window)
             window.acceptsMouseMovedEvents = true
         }
-        let visible = !NSApp.isHidden && windows.contains { !$0.isMiniaturized && $0.occlusionState.contains(.visible) }
-        let focused = NSApp.isActive && windows.contains { $0.isKeyWindow }
-        queue.async { [self] in self.visible = visible; self.focused = focused; requestReport() }
     }
     private func interaction() {
         let now = Date().timeIntervalSince1970 * 1000

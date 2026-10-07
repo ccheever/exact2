@@ -12,8 +12,11 @@ import { inactive } from "./document.js";
 import { sig, effect, scope, end, untracked, write, writeItem, owner, onEnd, viewId, Views, inflight, After, rev, ticket, journal, Resources, Mutations, unadopted, adopting, adoptRow, settled, Refusal, Hosts, exitView, clock } from "./rt.js";
 
 const BOOTSTRAP_ROWS = 16, ESTIMATED = 32, LEAD_SECONDS = 0.25, FAR_VIEWPORTS = 2, KEPT = 4096;
-// A port within half a point of a followed end already sent is at it: hosts round offsets to device pixels (start.rs `at_target`).
-const atTarget = (a, c, offset, sent) => { const gap = Math.abs(c - offset); return gap <= 0.01 || (a.follows && gap <= 0.5 && Math.abs(c - sent) <= 0.01); };
+// A port less than END_SLACK from a followed end already sent is at it: hosts round or floor offsets (start.rs `at_target`).
+// How far short of a fractional end a port at its end may report (index.rs `END_SLACK`): Chrome
+// rounds a scroll range to whole pixels, WebKit floors it (210.72 - 140 scrolls to 71 in one, 70 in the other).
+const END_SLACK = 1;
+const atTarget = (a, c, offset, sent) => { const gap = Math.abs(c - offset); return gap <= 0.01 || (a.follows && gap < END_SLACK && Math.abs(c - sent) <= 0.01); };
 const lead = (port, v) => { const extra = Math.min(Math.abs(v) * LEAD_SECONDS, port * 2); return v > 0 ? [port, port + extra] : [port + extra, port]; };
 const same = Object.is;
 // A row remeasured within this of the height it already has keeps that
@@ -134,7 +137,7 @@ class SizeIndex {
   }
   anchor(offset, port, follow) {
     offset = this.clamp(offset, port);
-    const follows = follow && port > 0 && this.maxOffset(port) - offset <= 0.5;
+    const follows = follow && port > 0 && this.maxOffset(port) - offset < END_SLACK;
     // At the start, no anchor unless it follows the end (index.rs
     // `capture_anchor`): CSS scroll anchoring selects none at a zero offset.
     const row = offset <= 0 && !follows ? null : find(this.t, offset, false);
@@ -269,7 +272,7 @@ class Collection {
   settleStart(extent) {
     const g = this.geometry;
     if (g && this.atEnd && this.index.len && !this.pending && !this.correction && Math.abs(this.index.total - extent) < 0.01 && this.mounted.every(m => this.index.measured(m.key))
-      && this.index.maxOffset(g.port_main) - g.offset <= 0.5) this.atEnd = false;
+      && this.index.maxOffset(g.port_main) - g.offset < END_SLACK) this.atEnd = false;
   }
   restore(a) {
     const g = this.geometry;

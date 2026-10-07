@@ -182,9 +182,9 @@ component InteractionGallery
           CountButton(count=1000, label="1,000", gallery=gallery, command=command)
           CountButton(count=25000, label="25,000", gallery=gallery, command=command)
           text `${gallery.total} studies · 6 local images` font-size=(12 * k) color=theme.muted flex=1 min-width=170
-          button press=command("insert", "", 0) disabled=(not gallery.canInsert) testId="insert" aria-label="Insert a new study at the beginning" press-scale=0.97 padding=7 background-color=theme.card border-width=0 border-radius=6
+          button press=command("insert", "", 0) disabled=(not gallery.canInsert) testId="insert" aria-label="Insert a new study at the beginning" -exact-press-scale=0.97 padding=7 background-color=theme.card border-width=0 border-radius=6
             text "+ Add study" font-size=(12 * k) color=theme.ink
-          button press=command("reset", "", 0) testId="reset" aria-label="Reset this collection and its edits" press-scale=0.97 padding=7 background-color=theme.card border-width=0 border-radius=6
+          button press=command("reset", "", 0) testId="reset" aria-label="Reset this collection and its edits" -exact-press-scale=0.97 padding=7 background-color=theme.card border-width=0 border-radius=6
             text "Reset" font-size=(12 * k) color=theme.muted
       when gallery.mode != "photos"
         row gap=8 padding-left=20 padding-right=20 padding-bottom=8 flex-shrink=0 align-items="center" flex-wrap="wrap"
@@ -244,7 +244,7 @@ component InteractionGallery
             column position="absolute" top=16 left=20 right=20 max-width=340 padding=12 box-sizing="border-box" border-radius=10 background-color="#203b37" gap=5
               text "A little closer." font-size=(30 * k) font-weight=600 color="#ffffff"
               text "Drag the header or choose a height; scroll the notes inside." font-size=(13 * k) color="#ffffff"
-          column id="reading-sheet" position="absolute" bottom=0 left=0 right=0 height=sheetPx min-height=0 max-height="100%" transition="height spring(300, 30, 1)" background-color=theme.card border-top-left-radius=20 border-top-right-radius=20 padding=16 box-sizing="border-box" gap=12 testId="reading-sheet"
+          column id="reading-sheet" position="absolute" bottom=0 left=0 right=0 height=sheetPx min-height=0 max-height="100%" transition="height -exact-spring(300, 30, 1)" background-color=theme.card border-top-left-radius=20 border-top-right-radius=20 padding=16 box-sizing="border-box" gap=12 testId="reading-sheet"
             row flex-shrink=0 align-items="center" gap=8 flex-wrap="wrap"
               column heightDragFor="reading-sheet" heightrelease=snapSheet touch-action="none" testId="sheet-handle" aria-label="Resize reading sheet" flex=1 min-width=120 gap=3 padding-top=2 padding-bottom=2
                 text "Field notes" font-size=(20 * k) font-weight=600 color=theme.ink
@@ -287,7 +287,7 @@ component ModeButton
     gallery: GalleryState
     command: action
   view
-    button press=command("mode", name, 0) id=`mode-${name}` testId=`mode-${name}` aria-keyshortcuts=shortcut aria-label=`${label}${gallery.mode == name ? ", selected" : ""}` press-scale=0.97 padding=9 border-width=0 border-radius=8 background-color=(gallery.mode == name ? theme.wash : theme.page)
+    button press=command("mode", name, 0) id=`mode-${name}` testId=`mode-${name}` aria-keyshortcuts=shortcut aria-label=`${label}${gallery.mode == name ? ", selected" : ""}` -exact-press-scale=0.97 padding=9 border-width=0 border-radius=8 background-color=(gallery.mode == name ? theme.wash : theme.page)
       text label font-size=(13 * k) font-weight=600 color=(gallery.mode == name ? theme.accent : theme.muted)
 
 component CountButton
@@ -300,7 +300,7 @@ component CountButton
     gallery: GalleryState
     command: action
   view
-    button press=command("load", "", count) testId=`count-${count}` aria-label=`Reset to ${count} studies` press-scale=0.97 padding=7 border-width=0 border-radius=6 background-color=(gallery.requested == count ? theme.wash : theme.card)
+    button press=command("load", "", count) testId=`count-${count}` aria-label=`Reset to ${count} studies` -exact-press-scale=0.97 padding=7 border-width=0 border-radius=6 background-color=(gallery.requested == count ? theme.wash : theme.card)
       text label font-size=(12 * k) color=theme.ink
 
 component PhotoCard
@@ -312,7 +312,7 @@ component PhotoCard
     returned: bool
     command: action
   view
-    button press=command("open", photo.id, 0) id=`open-${photo.id}` testId=`open-${photo.id}` aria-label=`Open ${photo.title}, study ${photo.id}` press-scale=0.994 display="flex" flex-direction="column" flex=1 flex-basis="30%" min-width=220 padding=0 border-width=1 border-style="solid" border-color=(returned ? theme.accent : theme.edge) border-radius=12 overflow="hidden" background-color=theme.card text-align="start"
+    button press=command("open", photo.id, 0) id=`open-${photo.id}` testId=`open-${photo.id}` aria-label=`Open ${photo.title}, study ${photo.id}` -exact-press-scale=0.994 display="flex" flex-direction="column" flex=1 flex-basis="30%" min-width=220 padding=0 border-width=1 border-style="solid" border-color=(returned ? theme.accent : theme.edge) border-radius=12 overflow="hidden" background-color=theme.card text-align="start"
       image photo.asset aria-label=photo.alt width="100%" height=190 object-fit="cover" background-color=photo.tone testId=`image-${photo.id}`
       column padding=13 gap=5 width="100%" box-sizing="border-box"
         text photo.title font-size=(17 * k) font-weight=600 color=theme.ink
@@ -336,7 +336,7 @@ component SwipeRow
     box testId=`swipe-row-${n}` timeline-scope="--swipe" width="100%" height=56 flex-shrink=0 position="relative" overflow="hidden" padding=0 border-width=0 box-sizing="border-box" border-radius=10 background-color=theme.wash
       row testId=`swipe-label-${n}` position="absolute" left=0 top=0 width=64 height="100%" align-items="center" justify-content="center" animation="swipeReveal 1s linear both" animation-timeline="--swipe" animation-range="0px 64px"
         text (kept ? "Undo" : "Keep") font-size=(13 * k) font-weight=600 color=theme.accent
-      box testId=`swipe-card-${n}` swiperight=keep touch-action="pan-y" aria-label=`Swipe study ${n} to ${kept ? "undo keeping it" : "keep it"}` width="100%" height="100%" position="relative" display="flex" flex-direction="row" align-items="center" gap=8 padding-left=16 border-width=0 margin=0 box-sizing="border-box" background-color=theme.card transition="translate spring(300, 30, 1)" drag-timeline="--swipe x"
+      box testId=`swipe-card-${n}` swiperight=keep touch-action="pan-y" aria-label=`Swipe study ${n} to ${kept ? "undo keeping it" : "keep it"}` width="100%" height="100%" position="relative" display="flex" flex-direction="row" align-items="center" gap=8 padding-left=16 border-width=0 margin=0 box-sizing="border-box" background-color=theme.card transition="translate -exact-spring(300, 30, 1)" -exact-drag-timeline="--swipe x"
         text `Study ${n}` font-size=(15 * k) font-weight=600 color=theme.ink
         text (kept ? "kept" : "") testId=`swipe-kept-${n}` font-size=(11 * k) color=theme.muted
 
@@ -380,7 +380,7 @@ component CardDeck
       box testId="deck-clip" timeline-scope="--fling" width="100%" height=320 flex-shrink=0 position="relative" overflow="hidden" padding=0 border-width=0 box-sizing="border-box" border-radius=12 background-color=theme.wash
         box testId="deck-next" position="absolute" left=40 right=40 top=20 bottom=20 border-radius=14 background-color=theme.card display="flex" align-items="center" justify-content="center" animation="deckRise 1s linear both" animation-timeline="--fling" animation-range="-300px 300px"
           text `Card ${dealt + 2}` font-size=(18 * k) font-weight=600 color=theme.ink
-        box id="deck-top" testId="deck-top" width="100%" height="100%" position="relative" padding=0 border-width=0 margin=0 box-sizing="border-box" translate=`${panX}px ${panY}px` transition="translate spring(300, 30, 1), scale spring(300, 30, 1)" drag-timeline="--fling x"
+        box id="deck-top" testId="deck-top" width="100%" height="100%" position="relative" padding=0 border-width=0 margin=0 box-sizing="border-box" translate=`${panX}px ${panY}px` transition="translate -exact-spring(300, 30, 1), scale -exact-spring(300, 30, 1)" -exact-drag-timeline="--fling x"
           box testId="deck-face" position="absolute" left=40 right=40 top=20 bottom=20 border-radius=14 background-color=theme.accent display="flex" align-items="center" justify-content="center" transform-origin="50% 100%" animation="deckTilt 1s linear both" animation-timeline="--fling" animation-range="-300px 300px"
             text `Card ${dealt + 1}` font-size=(18 * k) font-weight=600 color="#ffffff"
           box transformDragFor="deck-top" transformgeometry=deckGeometry transformrelease=releaseCard touch-action="none" position="absolute" left=0 top=0 width="100%" height="100%" testId="deck-handle" aria-label="Throw the top card aside"
@@ -464,7 +464,7 @@ component Viewer
         // both, as CSS's `timeline-scope` does (D4).
         box testId="viewer-clip" timeline-scope="--dismiss" width="100%" height=410 flex-shrink=0 position="relative" overflow="hidden" padding=0 border-width=0 box-sizing="border-box" border-radius=12
           box testId="viewer-backdrop" position="absolute" left=0 top=0 width="100%" height="100%" padding=0 border-width=0 box-sizing="border-box" background-color="#172521" animation=(zoom == 1 ? "viewerFade 1s linear both" : "none") animation-timeline="--dismiss" animation-range="0px 300px"
-          box id="viewer-transform" testId="viewer-transform" width="100%" height="100%" position="relative" padding=0 border-width=0 margin=0 box-sizing="border-box" translate=`${panX}px ${panY}px` scale=zoom transition="translate spring(300, 30, 1), scale spring(300, 30, 1)" drag-timeline="--dismiss y"
+          box id="viewer-transform" testId="viewer-transform" width="100%" height="100%" position="relative" padding=0 border-width=0 margin=0 box-sizing="border-box" translate=`${panX}px ${panY}px` scale=zoom transition="translate -exact-spring(300, 30, 1), scale -exact-spring(300, 30, 1)" -exact-drag-timeline="--dismiss y"
             image viewer.photo.asset aria-label=viewer.photo.alt position="absolute" left=0 top=0 width="100%" height="100%" object-fit="contain" testId="viewer-image"
             box transformDragFor="viewer-transform" transformgeometry=photoGeometry transformrelease=releasePhoto touch-action="none" position="absolute" left=0 top=0 width="100%" height="100%" testId="viewer-handle" aria-label=`Pan ${viewer.photo.title}`
         column width="100%" max-width=740 gap=7
@@ -512,7 +512,7 @@ component SheetButton
     selected: number
     choose: action
   view
-    button press=choose(px) testId=`sheet-${name}` aria-label=`${label}${selected == px ? ", selected" : ""}` press-scale=0.97 padding=8 border-width=0 border-radius=6 background-color=(selected == px ? theme.wash : theme.page)
+    button press=choose(px) testId=`sheet-${name}` aria-label=`${label}${selected == px ? ", selected" : ""}` -exact-press-scale=0.97 padding=8 border-width=0 border-radius=6 background-color=(selected == px ? theme.wash : theme.page)
       text label font-size=(12 * k) color=theme.ink
 
 component ActionButton
@@ -528,7 +528,7 @@ component ActionButton
     shortcut: string
     command: action
   view
-    button press=command(op, target, n) id=id testId=id aria-keyshortcuts=shortcut press-scale=0.97 padding=8 border-width=0 border-radius=6 background-color=theme.wash
+    button press=command(op, target, n) id=id testId=id aria-keyshortcuts=shortcut -exact-press-scale=0.97 padding=8 border-width=0 border-radius=6 background-color=theme.wash
       text label font-size=(12 * k) color=theme.accent
 
 component RenderButton
@@ -541,7 +541,7 @@ component RenderButton
     selected: string
     choose: action
   view
-    button press=choose(name) testId=`render-${name}` aria-label=`${label}${selected == name ? ", selected" : ""}` press-scale=0.97 padding=7 border-width=0 border-radius=6 background-color=(selected == name ? theme.wash : theme.card)
+    button press=choose(name) testId=`render-${name}` aria-label=`${label}${selected == name ? ", selected" : ""}` -exact-press-scale=0.97 padding=7 border-width=0 border-radius=6 background-color=(selected == name ? theme.wash : theme.card)
       text label font-size=(12 * k) color=theme.ink
 
 component NoteCard
@@ -553,7 +553,7 @@ component NoteCard
     selected: string
     command: action
   view
-    button press=command("select", photo.id, 0) testId=`note-${photo.id}` aria-label=`Read ${photo.title}, study ${photo.id}` press-scale=0.994 display="flex" flex-direction="row" gap=14 padding=12 border-width=0 border-radius=10 background-color=(selected == photo.id ? theme.wash : theme.page) align-items="flex-start" text-align="start"
+    button press=command("select", photo.id, 0) testId=`note-${photo.id}` aria-label=`Read ${photo.title}, study ${photo.id}` -exact-press-scale=0.994 display="flex" flex-direction="row" gap=14 padding=12 border-width=0 border-radius=10 background-color=(selected == photo.id ? theme.wash : theme.page) align-items="flex-start" text-align="start"
       image photo.asset aria-label=photo.alt width=72 height=88 object-fit="cover" border-radius=6 flex-shrink=0
       column flex=1 min-width=0 gap=5
         text photo.title font-size=(17 * k) font-weight=600 color=theme.ink

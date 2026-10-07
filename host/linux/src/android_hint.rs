@@ -123,3 +123,27 @@ pub fn colocate(tid: i32) -> bool {
         libc::sched_setaffinity(tid, std::mem::size_of::<libc::cpu_set_t>(), &set) == 0
     }
 }
+
+/// Run thread `tid` only on the fast cores (`fast`), or anywhere again:
+/// a thread that sleeps through a press wakes for the release on a little
+/// core, where [`colocate`] declines. Whether the mask was set.
+pub fn fast_thread(tid: i32, fast: bool) -> bool {
+    let set = crate::android::fast_set();
+    if set.is_empty() {
+        return false;
+    }
+    // SAFETY: a zeroed cpu_set_t is the empty set; CPU_SET writes indexes below CPU_SETSIZE.
+    unsafe {
+        let mut mask: libc::cpu_set_t = std::mem::zeroed();
+        if fast {
+            for &cpu in set {
+                libc::CPU_SET(cpu, &mut mask);
+            }
+        } else {
+            for cpu in 0..libc::CPU_SETSIZE {
+                libc::CPU_SET(cpu, &mut mask);
+            }
+        }
+        libc::sched_setaffinity(tid, std::mem::size_of::<libc::cpu_set_t>(), &mask) == 0
+    }
+}

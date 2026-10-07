@@ -1,5 +1,5 @@
 // data: svg-gallery
-// Synthetic conformance plan: `exit-animation` and `layout-transition`
+// Synthetic conformance plan: `-exact-exit-animation` and `-exact-layout-transition`
 // (LLP 1063, presence-glue.js), over a dist that links the animation
 // grammars. A removed row leaves with the keyframes it names while the row
 // after it slides up into its place, eased, and on a spring; one coming
@@ -9,13 +9,13 @@ keyframes leave
   to opacity=0 scale=0.96 animation-timing-function="ease-in"
 
 style Row
-  layout-transition="320ms cubic-bezier(.32,.72,0,1)"
-  exit-animation="leave 200ms cubic-bezier(.32,.72,0,1) both"
+  -exact-layout-transition="320ms cubic-bezier(.32,.72,0,1)"
+  -exact-exit-animation="leave 200ms cubic-bezier(.32,.72,0,1) both"
   padding=12 background-color="#e8eef6" margin-bottom=6
 
 style Springy
-  layout-transition="spring(300, 24, 1)"
-  exit-animation="leave 260ms ease-in both"
+  -exact-layout-transition="-exact-spring(300, 24, 1)"
+  -exact-exit-animation="leave 260ms ease-in both"
   padding=10 background-color="#f3e8d8" margin-bottom=6
 
 component Presence

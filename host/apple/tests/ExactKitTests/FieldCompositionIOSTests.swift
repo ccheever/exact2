@@ -67,5 +67,44 @@ final class FieldCompositionIOSTests: XCTestCase {
         XCTAssertEqual(field.text, "你好")
         XCTAssertNil(node.pendingValue)
     }
+
+    /// #140, a hardware keyboard during a composition (macOS's
+    /// `KeyUpMacTests` drive the same through AppKit): a modifier's own key
+    /// passes it untouched, any other key is the input method's, and a ⌘
+    /// chord's keydown commits it before its handlers run, without hearing
+    /// the text twice. A composer's handler then clears the field, and the
+    /// cleared value lands.
+    func testACommandChordCommitsTheCompositionAndAModifierPassesIt() throws {
+        let p = Presenter()
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
+        let node = NodeView(id: 1, kind: "input", presenter: p)
+        node.frame = CGRect(x: 0, y: 0, width: 300, height: 44)
+        node.handlers = ["input", "key", "keyup"]
+        window.addSubview(node); p.views[node.id] = node
+        window.makeKeyAndVisible()
+        // A controlled input: the app echoes what it hears.
+        var heard: [String] = []
+        p.onInput = { [unowned node] _, value in
+            heard.append(value)
+            node.applyProps(set: ["value": value], clear: [])
+        }
+        let field = try XCTUnwrap(node.field)
+        XCTAssertTrue(field.becomeFirstResponder())
+        field.setMarkedText("한", selectedRange: NSRange(location: 1, length: 0))
+        node.fieldChanged()
+        XCTAssertEqual(heard, ["한"], "UIKit reports the composed text as it is composed")
+        XCTAssertFalse(node.passesComposition("KeyA", command: false, down: true))
+        XCTAssertFalse(node.passesComposition("KeyB", command: true, down: false), "a chord's keyup waits for its keydown's commit")
+        XCTAssertTrue(node.passesComposition("ShiftLeft", command: false, down: false))
+        XCTAssertNotNil(field.markedTextRange, "none of these commits it")
+        XCTAssertTrue(node.passesComposition("Enter", command: true, down: true))
+        XCTAssertNil(field.markedTextRange)
+        XCTAssertEqual(field.text, "한")
+        XCTAssertNil(node.pendingValue)
+        XCTAssertEqual(heard, ["한"], "the commit is not heard again")
+        node.applyProps(set: ["value": ""], clear: [])
+        XCTAssertEqual(field.text, "", "the composer's cleared value lands")
+        XCTAssertTrue(node.passesComposition("KeyA", command: false, down: true), "no composition: every key")
+    }
 }
 #endif

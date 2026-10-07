@@ -1,6 +1,6 @@
 //! What the grnl port added to the `animation` row's bytes (LLP 1055 D5):
 //! a `light-dark()` keyframe's dark value and `box-shadow`'s two halves
-//! round-trip bit for bit (LLP 1062 D9), and an `exit-animation` that never
+//! round-trip bit for bit (LLP 1062 D9), and an `-exact-exit-animation` that never
 //! ends is refused on both ingress paths (LLP 1063 D2).
 
 use exact_kernel::wire::codec::{Reader, Writer};
@@ -100,7 +100,7 @@ fn an_exit_that_never_ends_is_refused_on_both_paths() {
     }
 }
 
-/// `animation-trigger: view`, the default (LLP 1055 D13): below a row a
+/// `-exact-animation-trigger: view`, the default (LLP 1055 D13): below a row a
 /// list says it mounted out of its port, the row reaches motion paused; the
 /// commit that names the row revealed resumes it. A node with `none`, and a
 /// row with nothing waiting below it, are untouched.

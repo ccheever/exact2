@@ -30,15 +30,15 @@ component Controls
     inner = inner + 1
   view
     column testId="root" gap=8 padding=8 background-color="#ffffff"
-      select value=pick change=choose testId="pick"
+      select value=pick change=choose testId="pick" width=120 height=24
         option "Alpha"
         option "Beta"
-      input type="date" value=day change=setDay testId="day"
-      input type="time" value=hour change=setHour testId="hour"
-      input type="range" min=0 max=10 value=level change=setLevel testId="level"
-      input type="checkbox" checked=agreed change=agree testId="agree"
-      input type="checkbox" checked=true change=agree testId="lit-on" aria-label="On"
-      input type="checkbox" checked=false change=agree testId="lit-off" aria-label="Off"
+      input type="date" value=day change=setDay testId="day" width=160 height=24
+      input type="time" value=hour change=setHour testId="hour" width=120 height=24
+      input type="range" min=0 max=10 value=level change=setLevel testId="level" width=160 height=20
+      input type="checkbox" checked=agreed change=agree testId="agree" width=16 height=16
+      input type="checkbox" checked=true change=agree testId="lit-on" aria-label="On" width=16 height=16
+      input type="checkbox" checked=false change=agree testId="lit-off" aria-label="Off" width=16 height=16
       text `${pick} ${day} ${hour} ${level} ${agreed} ${far} ${inner}` testId="values"
       scroll testId="inner-scroll" height=80
         box height=300

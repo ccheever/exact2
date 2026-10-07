@@ -21,6 +21,6 @@ component RowTip
   view
     box position="relative" hover=hover flex-shrink=0 display="flex" flex-direction="row" align-items="center" min-width=0
       children
-      box position="absolute" width=0 height=0 padding=0 border-width=0 pointer-events="none" aria-hidden=true tabindex=-1 hook="t3-timeline-tip" press=scrollDismiss
+      box position="absolute" width=0 height=0 padding=0 border-width=0 pointer-events="none" aria-hidden=true tabindex=-1 hatch="t3-timeline-tip" press=scrollDismiss
       when label != ""
         TipBubble(label=label, side=side, align=align, offset=offset, inset=0, shown=(shown and not dismissed))

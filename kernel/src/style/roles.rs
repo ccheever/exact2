@@ -1,5 +1,5 @@
 //! Colours that name a platform colour (LLP 1095): a role from the schema's
-//! table (D2), or `platform-color()` (D3). Each carries a fallback pair, so
+//! table (D2), or `-exact-platform-color()` (D3). Each carries a fallback pair, so
 //! the kernel and any host without the platform's colour always have a
 //! deterministic RGBA; a host that has it resolves the name per view.
 
@@ -10,20 +10,26 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 
-/// The role a keyword names: CSS's system colours in any ASCII case, Exact's
-/// roles, WebKit's `-apple-system-*` names for them, and the web form a role
-/// is written as (`var(--exact-<role>, …)`), so canonical CSS reads back.
+/// The role a keyword names, in any ASCII case: CSS's system colours by
+/// their names, Exact's roles as `-exact-<role>` (LLP 1081 D2), WebKit's
+/// `-apple-system-*` names for those it has, and the web form a role is
+/// written as (`var(--exact-<role>, …)`), so canonical CSS reads back. An
+/// Exact role's bare name is not a colour.
 pub fn role(text: &str) -> Option<u8> {
     let text = text.trim();
-    let name = match text.strip_prefix("var(--exact-") {
-        Some(rest) => &rest[..rest.find([',', ')'])?],
-        None => text,
+    let lower = text.to_ascii_lowercase();
+    let exact = match lower.strip_prefix("var(--exact-") {
+        Some(rest) => Some(&rest[..rest.find([',', ')'])?]),
+        None => lower.strip_prefix("-exact-"),
     };
     COLOR_ROLES
         .iter()
-        .position(|r| {
-            r.name.eq_ignore_ascii_case(name)
-                || (!r.alias.is_empty() && r.alias.eq_ignore_ascii_case(name))
+        .position(|r| match exact {
+            Some(name) => !is_css_system(r) && r.name.eq_ignore_ascii_case(name),
+            None => {
+                (is_css_system(r) && r.name.eq_ignore_ascii_case(text))
+                    || (!r.alias.is_empty() && r.alias.eq_ignore_ascii_case(text))
+            }
         })
         .and_then(|i| u8::try_from(i).ok())
 }
@@ -36,7 +42,7 @@ pub fn role_of(id: u8) -> Option<&'static ColorRole> {
     COLOR_ROLES.get(usize::from(id))
 }
 
-/// Whether `c` names a role or an interned `platform-color()` that exists.
+/// Whether `c` names a role or an interned `-exact-platform-color()` that exists.
 pub fn is_known_reference(c: ColorValue) -> bool {
     match c {
         ColorValue::Role(id) => usize::from(id) < COLOR_ROLES.len(),
@@ -57,7 +63,7 @@ pub fn role_fallback(id: u8) -> ColorValue {
     })
 }
 
-/// One `platform-color()`: a native name per platform, and the fallback.
+/// One `-exact-platform-color()`: a native name per platform, and the fallback.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlatformColor {
     /// `UIColor`'s class property, or `named:<Asset>`.
@@ -145,7 +151,7 @@ pub fn set_reported(entries: impl IntoIterator<Item = (ColorValue, bool, Color)>
 }
 
 /// Every reference a host may resolve, with its native name on this
-/// platform: each role, then each interned `platform-color()` that names one.
+/// platform: each role, then each interned `-exact-platform-color()` that names one.
 pub fn references(macos: bool) -> Vec<(ColorValue, Box<str>)> {
     let mut out: Vec<(ColorValue, Box<str>)> = COLOR_ROLES
         .iter()
@@ -171,13 +177,13 @@ pub fn references(macos: bool) -> Vec<(ColorValue, Box<str>)> {
     out
 }
 
-/// Interned `platform-color()`s. A plan names a few; the runner admits one
+/// Interned `-exact-platform-color()`s. A plan names a few; the runner admits one
 /// only as a plan literal (LLP 1095 D3), and the cap bounds the table
 /// whatever else parses one.
 static PLATFORM: Mutex<Vec<Arc<PlatformColor>>> = Mutex::new(Vec::new());
 const PLATFORM_CAP: usize = 1024;
 
-/// A `platform-color()` by id.
+/// A `-exact-platform-color()` by id.
 pub fn platform(id: u16) -> Option<Arc<PlatformColor>> {
     PLATFORM.lock().ok()?.get(usize::from(id)).cloned()
 }
@@ -198,13 +204,13 @@ pub fn native_name_ok(name: &str) -> bool {
         && name.chars().all(|c| c.is_ascii_alphanumeric())
 }
 
-/// Intern every `platform-color()` written in `text` (a plan literal: a
+/// Intern every `-exact-platform-color()` written in `text` (a plan literal: a
 /// colour, or a composite value holding some), so a host's first report
 /// resolves it before any branch selects it (LLP 1095 D9). One that does
 /// not parse is left for the row's own parse to refuse.
 pub fn intern_literals(text: &str) {
     let mut rest = text;
-    while let Some(at) = rest.find("platform-color(") {
+    while let Some(at) = rest.find("-exact-platform-color(") {
         let call = &rest[at..];
         let mut depth = 0usize;
         let close = call.char_indices().find_map(|(i, c)| {
@@ -228,12 +234,12 @@ pub fn intern_literals(text: &str) {
     }
 }
 
-/// `platform-color(<platform> <name>, …, <fallback>)` (LLP 1095 D3), interned.
+/// `-exact-platform-color(<platform> <name>, …, <fallback>)` (LLP 1095 D3), interned.
 /// The fallback is a colour or a `light-dark()` pair, never a reference.
 pub fn parse_platform(text: &str) -> Option<ColorValue> {
     let inner = text
         .trim()
-        .strip_prefix("platform-color(")?
+        .strip_prefix("-exact-platform-color(")?
         .strip_suffix(')')?;
     let mut parts = Vec::new();
     let (mut depth, mut start) = (0i32, 0);
@@ -266,7 +272,7 @@ pub fn parse_platform(text: &str) -> Option<ColorValue> {
             return None;
         }
     }
-    let mut canonical = String::from("platform-color(");
+    let mut canonical = String::from("-exact-platform-color(");
     for (platform, name) in [("ios", &ios), ("macos", &macos), ("web", &web)] {
         if let Some(n) = name {
             canonical.push_str(platform);
@@ -297,7 +303,7 @@ pub fn parse_platform(text: &str) -> Option<ColorValue> {
 /// A reference's CSS for the browser and for canonical text: a CSS system
 /// colour as is; an Exact role as `var(--exact-<role>, <fallback>)`, which a
 /// page's sheet may define (WebKit's own dynamic colour) and which reads
-/// back as the role; a `platform-color()` as its web colour, else its
+/// back as the role; a `-exact-platform-color()` as its web colour, else its
 /// fallback, and on the wire as itself.
 pub(crate) fn reference_css(out: &mut String, c: ColorValue, mode: ColorText) {
     match c {
@@ -350,12 +356,18 @@ impl ColorValue {
     }
 
     /// A role's WebKit name (`-apple-system-label`), when it has one: what an
-    /// Apple host draws vibrantly inside a material (LLP 1077 D13).
+    /// Apple host draws vibrantly inside a material (LLP 1077 D13). `fill`
+    /// has no WebKit name and answers as its author spelling, `-exact-fill`,
+    /// UIKit's `.fill` vibrancy (LLP 1095 §12).
     pub fn system_name(self) -> Option<&'static str> {
         match self {
             ColorValue::Role(id) => {
-                let alias = role_of(id)?.alias;
-                (!alias.is_empty()).then_some(alias)
+                let role = role_of(id)?;
+                match role.alias {
+                    "" if role.name == "fill" => Some("-exact-fill"),
+                    "" => None,
+                    alias => Some(alias),
+                }
             }
             _ => None,
         }
@@ -370,7 +382,7 @@ mod tests {
     fn a_reported_resolution_replaces_the_fallback_until_withdrawn() {
         // A name no other test reports: the table is process-wide.
         let c = ColorValue::parse_light_dark(
-            "platform-color(ios rolesTestReportColor, light-dark(#010203, #040506))",
+            "-exact-platform-color(ios rolesTestReportColor, light-dark(#010203, #040506))",
         )
         .unwrap();
         assert_eq!(c.resolve(true), Color(0x0405_06ff));
@@ -434,7 +446,18 @@ mod tests {
 
     #[test]
     fn roles_answer_to_css_and_webkit_names_and_their_own_css() {
-        let id = role("secondary-label").unwrap();
+        let id = role("-exact-secondary-label").unwrap();
+        assert_eq!(role("-Exact-Secondary-Label"), Some(id));
+        assert_eq!(
+            role("secondary-label"),
+            None,
+            "an Exact role is spelled -exact- (LLP 1081)"
+        );
+        assert_eq!(
+            role("-exact-canvastext"),
+            None,
+            "a CSS colour keeps its CSS name"
+        );
         assert_eq!(role("-apple-system-secondary-label"), Some(id));
         assert_eq!(
             role("var(--exact-secondary-label, light-dark(#3c3c4399, #ebebf599))"),
@@ -463,9 +486,9 @@ mod tests {
 
     #[test]
     fn a_platform_color_is_interned_with_a_required_fallback() {
-        let a = parse_platform("platform-color(ios systemMintColor, macos systemMintColor, light-dark(#00c7be, #63e6e2))").unwrap();
+        let a = parse_platform("-exact-platform-color(ios systemMintColor, macos systemMintColor, light-dark(#00c7be, #63e6e2))").unwrap();
         let b = parse_platform(
-            "platform-color(macos systemMintColor,ios systemMintColor,light-dark(#00c7be,#63e6e2))",
+            "-exact-platform-color(macos systemMintColor,ios systemMintColor,light-dark(#00c7be,#63e6e2))",
         )
         .unwrap();
         assert_eq!(a, b, "one canonical form, one id");
@@ -476,25 +499,25 @@ mod tests {
         assert_eq!(p.ios.as_deref(), Some("systemMintColor"));
         assert_eq!(a.resolve(true), Color(0x63e6_e2ff));
         assert!(
-            parse_platform("platform-color(ios systemMintColor)").is_none(),
+            parse_platform("-exact-platform-color(ios systemMintColor)").is_none(),
             "no fallback"
         );
-        assert!(parse_platform("platform-color(ios _privateColor, #000)").is_none());
-        assert!(parse_platform("platform-color(ios new, #000)").is_none());
+        assert!(parse_platform("-exact-platform-color(ios _privateColor, #000)").is_none());
+        assert!(parse_platform("-exact-platform-color(ios new, #000)").is_none());
         assert!(
-            parse_platform("platform-color(ios labelColor, label)").is_none(),
+            parse_platform("-exact-platform-color(ios labelColor, label)").is_none(),
             "a reference is no fallback"
         );
-        assert!(parse_platform("platform-color(android x, #000)").is_none());
-        assert!(parse_platform("platform-color(ios named:Brand, #c8102e)").is_some());
+        assert!(parse_platform("-exact-platform-color(android x, #000)").is_none());
+        assert!(parse_platform("-exact-platform-color(ios named:Brand, #c8102e)").is_some());
     }
 
     #[test]
     fn a_literals_platform_colours_are_interned_wherever_they_stand() {
-        let a = "platform-color(ios rolesTestLiteralAColor, light-dark(#010203, #040506))";
-        let b = "platform-color(ios rolesTestLiteralBColor, #070809)";
+        let a = "-exact-platform-color(ios rolesTestLiteralAColor, light-dark(#010203, #040506))";
+        let b = "-exact-platform-color(ios rolesTestLiteralBColor, #070809)";
         intern_literals(&format!(
-            "linear-gradient({a}, transparent), 0 1px {b}, platform-color("
+            "linear-gradient({a}, transparent), 0 1px {b}, -exact-platform-color("
         ));
         let names: Vec<_> = references(false).into_iter().map(|(_, n)| n).collect();
         for name in ["rolesTestLiteralAColor", "rolesTestLiteralBColor"] {
@@ -506,9 +529,9 @@ mod tests {
     fn references_cross_the_wire_as_what_they_name() {
         use crate::wire::codec::{Reader, Writer};
         for text in [
-            "secondary-label",
+            "-exact-secondary-label",
             "Canvas",
-            "platform-color(ios systemTealColor, light-dark(#30b0c7, #40c8e0))",
+            "-exact-platform-color(ios systemTealColor, light-dark(#30b0c7, #40c8e0))",
         ] {
             let c = ColorValue::parse_light_dark(text).unwrap();
             let mut w = Writer::new();
@@ -523,12 +546,12 @@ mod tests {
         use crate::wire::codec::{Reader, Writer};
         use crate::{StyleId, StyleProps, StyleValue};
         // A web colour, so the browser's CSS differs from what was written.
-        let p = "platform-color(ios systemOrangeColor, web orange, #010203)";
+        let p = "-exact-platform-color(ios systemOrangeColor, web orange, #010203)";
         let mut style = StyleProps::default();
         for (id, text) in [
             (
                 StyleId::BackgroundImage,
-                format!("linear-gradient({p}, system-orange)"),
+                format!("linear-gradient({p}, -exact-system-orange)"),
             ),
             (
                 StyleId::MaskImage,
@@ -536,15 +559,15 @@ mod tests {
             ),
             (
                 StyleId::BoxShadow,
-                format!("0 1px 2px {p}, 0 0 4px secondary-label"),
+                format!("0 1px 2px {p}, 0 0 4px -exact-secondary-label"),
             ),
             (StyleId::TextShadow, format!("1px 1px 2px {p}")),
-            (StyleId::SymbolPalette, format!("{p} system-orange")),
+            (StyleId::SymbolPalette, format!("{p} -exact-system-orange")),
             (StyleId::Fill, p.to_string()),
             (StyleId::Stroke, format!("url(#g) {p}")),
             (
                 StyleId::Filter,
-                format!("drop-shadow(0 2px 4px {p}) drop-shadow(1px 1px system-orange)"),
+                format!("drop-shadow(0 2px 4px {p}) drop-shadow(1px 1px -exact-system-orange)"),
             ),
         ] {
             style

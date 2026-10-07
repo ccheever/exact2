@@ -1,7 +1,11 @@
 // The sidebar's native pieces (MIT reference, see LICENSE-T3): the thread
 // action menu as the desktop shell shows it (ElectronMenu.ts showContextMenu:
-// a native menu at the pointer with separators, submenus, checkmarks and a
-// trash glyph on the destructive row), the modifier state a row press reads
+// a native menu with separators, submenus, checkmarks and a trash glyph on the
+// destructive row) when the keyboard opens it at the focused row (ContextMenu,
+// Shift+F10; a right-click's is the rows' context popover, sidebar-row.contract
+// ThreadMenu, which the host presents as an NSMenu with its submenus since
+// exact2 #223, and a context popover opens only from the pointer), the
+// legacy sidebar's menus, the modifier state a row press reads
 // (⌘-click toggles, ⇧-click extends the multi-selection; read from the click
 // event, r8-pointer D8), and thread-jump
 // hints while ⌘ alone is held for 200 ms (THREAD_JUMP_HINT_SHOW_DELAY_MS).

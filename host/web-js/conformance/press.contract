@@ -1,7 +1,7 @@
 // data: svg-gallery
 // Synthetic conformance plan: press feedback (LLP 1061): a node's
-// press-scale shows while a finger holds it, on the web host's input piece;
-// the press runs at the lift, and a node without press-scale shows none.
+// -exact-press-scale shows while a finger holds it, on the web host's input piece;
+// the press runs at the lift, and a node without -exact-press-scale shows none.
 component Press
   state presses = 0
   action press
@@ -9,7 +9,7 @@ component Press
   view
     column testId="root" padding=40 gap=24 background-color="#ffffff" height=900 box-sizing="border-box"
       text `${presses} presses` testId="count"
-      button press=press press-scale=0.8 testId="shrinks" width=200 height=80 background-color="#2563eb" border-width=0 border-radius=12
+      button press=press -exact-press-scale=0.8 testId="shrinks" width=200 height=80 background-color="#2563eb" border-width=0 border-radius=12
         text "Press me" color="#ffffff"
       button press=press testId="plain" width=200 height=80 background-color="#16a34a" border-width=0 border-radius=12
         text "No feedback" color="#ffffff"

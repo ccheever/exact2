@@ -23,7 +23,7 @@ pub struct Handoff {
     pub from: NodeKey,
     /// The created node, live after the commit.
     pub to: NodeKey,
-    /// The arriver's `layout-transition`, else the leaver's (D2): the curve
+    /// The arriver's `-exact-layout-transition`, else the leaver's (D2): the curve
     /// the flight runs on. A handoff with neither is not reported.
     pub transition: Transition,
 }

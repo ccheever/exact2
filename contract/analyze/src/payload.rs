@@ -21,7 +21,7 @@ fn payload(event: &str, control: Option<&str>) -> Vec<(&'static str, &'static st
         ("change" | "input", Some("file")) => one("files", "list<Picked>", "the picked `files`"),
         ("change" | "input", Some("select")) => one("value", "string", "the select's new `value`"),
         ("change" | "input", _) => one("value", "string", "the field's new `value`"),
-        ("key", _) => one("key", "string", "the key's name, `key`"),
+        ("key" | "keyup", _) => one("key", "string", "the key's name, `key`"),
         ("message", _) => one("data", "string", "the message's `data`"),
         ("error", _) => one("message", "string", "the error's `message`"),
         ("hover", _) => one("hovered", "bool", "whether the pointer is over, `hovered`"),

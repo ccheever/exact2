@@ -75,6 +75,99 @@ final class TerminalStreamTests: XCTestCase {
         XCTAssertEqual(socket.requests("terminal.attach").count, 1)
     }
 
+    /// Round 5: the reference's RPC client refuses no request for the number already pending, so a
+    /// user's write queued behind slow reads (a snooze chosen from a native menu) still goes out.
+    func testPendingRequestsHaveNoCapAsInTheReference() throws {
+        let socket = try R3Socket()
+        socket.answer = { _ in [] } // the server holds every reply
+        let transport = connected(socket); defer { transport.destroy() }
+        let generation = perform(transport, ["op": "status"])["generation"] as! Int
+        let lock = NSLock()
+        var refused: [String] = []
+        let note: ([String: Any]) -> Void = { reply in
+            guard let error = reply["error"] as? [String: Any], error["kind"] as? String != "Timeout" else { return }
+            lock.lock(); refused.append("\(error)"); lock.unlock()
+        }
+        for index in 0..<80 {
+            transport.perform(["op": "request", "method": "vcs.refreshStatus", "payload": ["cwd": "/repo/\(index)"], "generation": generation, "timeout": 5], completion: note)
+        }
+        transport.perform(["op": "request", "method": "orchestration.dispatchCommand", "payload": ["type": "thread.snooze"], "generation": generation, "timeout": 5], completion: note)
+        XCTAssertTrue(until(3) { socket.requests("vcs.refreshStatus").count == 80 && socket.requests("orchestration.dispatchCommand").count == 1 },
+                      "sent: \(socket.requests("vcs.refreshStatus").count) reads, \(socket.requests("orchestration.dispatchCommand").count) writes")
+        lock.lock(); let failures = refused; lock.unlock()
+        XCTAssertEqual(failures, [], "no request is refused for the number pending")
+    }
+
+    /// Round 5: a shared read joins an identical one still pending, as the reference's query atoms share
+    /// one request per input. One request reaches the server and every caller gets its reply. Another
+    /// payload is sent on its own, and a request that is not shared ends the sharing for its workspace.
+    func testSharedReadsJoinAnIdenticalPendingOne() throws {
+        let socket = try R3Socket()
+        socket.answer = { _ in [] } // the server holds every reply
+        let transport = connected(socket); defer { transport.destroy() }
+        let generation = perform(transport, ["op": "status"])["generation"] as! Int
+        let lock = NSLock()
+        var replies: [[String: Any]] = []
+        let note: ([String: Any]) -> Void = { reply in lock.lock(); replies.append(reply); lock.unlock() }
+        for _ in 0..<5 {
+            transport.perform(["op": "request", "method": "vcs.listRefs", "payload": ["cwd": "/repo", "limit": 50], "generation": generation, "share": true], completion: note)
+        }
+        transport.perform(["op": "request", "method": "vcs.listRefs", "payload": ["cwd": "/other", "limit": 50], "generation": generation, "share": true], completion: note)
+        XCTAssertTrue(until(3) { socket.requests("vcs.listRefs").count >= 2 })
+        wait(0.3)
+        XCTAssertEqual(socket.requests("vcs.listRefs").count, 2, "five identical shared reads are one request")
+        // A request that is not shared, naming /repo (as a branch switch does): a later shared read of
+        // /repo is sent anew, and /other's still joins.
+        transport.perform(["op": "request", "method": "vcs.switchRef", "payload": ["cwd": "/repo", "refName": "feature"], "generation": generation], completion: { _ in })
+        transport.perform(["op": "request", "method": "vcs.listRefs", "payload": ["limit": 50, "cwd": "/repo"], "generation": generation, "share": true], completion: { _ in })
+        transport.perform(["op": "request", "method": "vcs.listRefs", "payload": ["cwd": "/other", "limit": 50], "generation": generation, "share": true], completion: { _ in })
+        XCTAssertTrue(until(3) { socket.requests("vcs.listRefs").count >= 3 })
+        wait(0.3)
+        XCTAssertEqual(socket.requests("vcs.listRefs").count, 3, "after the write, /repo is read again; /other still joins")
+        let first = try XCTUnwrap(socket.requests("vcs.listRefs").first?["id"] as? String)
+        socket.send(["_tag": "Exit", "requestId": first, "exit": ["_tag": "Success", "value": ["refs": [] as [Any], "totalCount": 0]]])
+        XCTAssertTrue(until(3) { lock.lock(); defer { lock.unlock() }; return replies.filter { $0["ok"] as? Bool == true }.count == 5 },
+                      "every joined caller gets the reply: \(replies)")
+    }
+
+    /// Round 5: a shared reply too large for one native reply (over 512 KB) comes back as a native transfer.
+    /// Each joined caller gets its own, so one reader's release never strands another's.
+    func testJoinedCallersEachReadTheirOwnLargeReply() throws {
+        let socket = try R3Socket()
+        socket.answer = { _ in [] } // the server holds the reply until the test sends it
+        let transport = connected(socket); defer { transport.destroy() }
+        let generation = perform(transport, ["op": "status"])["generation"] as! Int
+        let lock = NSLock()
+        var replies: [[String: Any]] = []
+        for _ in 0..<2 {
+            transport.perform(["op": "request", "method": "vcs.listRefs", "payload": ["cwd": "/repo"], "generation": generation, "share": true]) { reply in
+                lock.lock(); replies.append(reply); lock.unlock()
+            }
+        }
+        XCTAssertTrue(until(3) { socket.requests("vcs.listRefs").count == 1 })
+        wait(0.2)
+        XCTAssertEqual(socket.requests("vcs.listRefs").count, 1, "the second read joined the first")
+        let id = try XCTUnwrap(socket.requests("vcs.listRefs").first?["id"] as? String)
+        let name = String(repeating: "r", count: 600 * 1024)
+        socket.send(["_tag": "Exit", "requestId": id, "exit": ["_tag": "Success", "value": ["refs": [["name": name]], "totalCount": 1]]])
+        XCTAssertTrue(until(3) { lock.lock(); defer { lock.unlock() }; return replies.count == 2 })
+        lock.lock(); let both = replies; lock.unlock()
+        // Each caller reads its transfer to the end and releases it, as protocol.ts bridgeReply does, one after the other.
+        for (caller, reply) in both.enumerated() {
+            let transfer = try XCTUnwrap((reply["value"] as? [String: Any])?["_nativeTransfer"] as? [String: Any], "caller \(caller): \(reply)")
+            let transferId = try XCTUnwrap(transfer["id"] as? String), parts = try XCTUnwrap(transfer["parts"] as? Int)
+            var text = ""
+            for index in 0..<parts {
+                let chunk = perform(transport, ["op": "readChunk", "id": transferId, "index": index, "generation": generation])
+                XCTAssertEqual(chunk["ok"] as? Bool, true, "caller \(caller), chunk \(index): \(chunk)")
+                text += ((chunk["value"] as? [String: Any])?["text"] as? String) ?? ""
+            }
+            _ = perform(transport, ["op": "releaseChunk", "id": transferId, "generation": generation])
+            let value = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]
+            XCTAssertEqual(((value?["refs"] as? [[String: Any]])?.first?["name"] as? String)?.count, name.count, "caller \(caller) read the whole reply")
+        }
+    }
+
     func testTerminalStreamsDoNotCountTowardTheSixteenAppStreamsAndEndWithTheSocket() throws {
         let socket = try R3Socket()
         socket.answer = { _ in [] }

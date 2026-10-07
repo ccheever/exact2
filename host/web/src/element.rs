@@ -239,7 +239,7 @@ pub fn host_css_of(node: &NodeFacts<'_>, mut css: String, tag: &str) -> String {
     if node.is_root && node.style.position_type == exact_kernel::PositionType::Static {
         css.push_str("position:relative;");
     }
-    // A raster image with a `tint-color` is a template (LLP 1011 §3): its
+    // A raster image with a `-exact-tint-color` is a template (LLP 1011 §3): its
     // alpha masks the tint, fitted and centered in the content box as
     // `object-fit` fits the picture, which moves out of the box, where the
     // replaced element's own clip hides it. `scale-down` needs the natural

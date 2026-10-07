@@ -60,7 +60,7 @@ const APP: &str = r#"component App
     box width="100%" height="100%"
       when showing
         box testId="clip" position="absolute" left=left top=40 width="60%" height=160 overflow="hidden" box-sizing="border-box" padding=0 border-width=0
-          box id="target" testId="target" width="100%" height="100%" box-sizing="border-box" margin=0 padding=0 border-width=0 translate=`${x}px ${y}px` scale=zoom transition="translate spring(300,30,1), scale spring(300,30,1)"
+          box id="target" testId="target" width="100%" height="100%" box-sizing="border-box" margin=0 padding=0 border-width=0 translate=`${x}px ${y}px` scale=zoom transition="translate -exact-spring(300,30,1), scale -exact-spring(300,30,1)"
             box testId="handle" position="absolute" left=0 top=0 width="100%" height="100%" transformDragFor="target" transformgeometry=geometry transformrelease=release touch-action="none" disabled=disabled
       column position="absolute" top=300
         button testId="fit" press=fit

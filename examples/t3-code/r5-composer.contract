@@ -12,7 +12,7 @@ component R5LabelProbe
     label: string
     xs: bool
   view
-    box hook="t3-anchor" data-anchor=name display="flex" flex-direction="row" flex-shrink=0
+    box hatch="t3-anchor" data-anchor=name display="flex" flex-direction="row" flex-shrink=0
       text (label == "" ? " " : label) font-size=(xs ? "0.75rem" : "0.875rem") font-weight=(xs ? 400 : 500) line-height=(xs ? "1rem" : "1.25rem") white-space="nowrap" flex-shrink=0
 
 component R5ComposerLabelProbes
@@ -46,5 +46,5 @@ component R5TextProbes
   view
     column position="absolute" left=0 top=0 opacity=0 pointer-events="none" aria-hidden=true align-items="flex-start" testId="r5-text-probes"
       each probe in probes key=probe.key
-        box hook="t3-anchor" data-anchor=probe.key display="flex" flex-direction="row" flex-shrink=0
+        box hatch="t3-anchor" data-anchor=probe.key display="flex" flex-direction="row" flex-shrink=0
           text probe.text font-size=probe.size font-weight=probe.weight line-height=`${probe.size + 4}px` white-space="nowrap" flex-shrink=0

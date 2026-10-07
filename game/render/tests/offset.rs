@@ -58,6 +58,7 @@ fn drawn(gpu: &exact_gpu::Gpu, shift: f64) -> (f64, u64) {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let image = fixture::render(gpu, &mut surface, &frame).unwrap().0;
     let lit: Vec<u32> = (0..160)

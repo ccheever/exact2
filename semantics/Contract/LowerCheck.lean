@@ -204,7 +204,10 @@ def check (p : Program) (o : Oracle) (events : List Observe.Event) (pi : PlanInf
   let L := layout p pi
   let mut t : Tally := {}
   let mut out : Array String := #[]
-  -- The configurations to check in: boot, and after each event that commits.
+  -- The configurations to check in: boot, and after each event that is not
+  -- poisoned. A refused observed step can still have committed the work due
+  -- before its event, or the event after a refused advance (`dispatchAt`), so
+  -- the run goes on from what it returned; `observe_step_sound` makes it reachable.
   let (c0, o0) := boot p o
   let mut cfgs : Array Config := #[]
   match o0 with
@@ -216,7 +219,7 @@ def check (p : Program) (o : Oracle) (events : List Observe.Event) (pi : PlanInf
       let (c', r) := Observe.step p o c e
       match r with
       | .ok => cfgs := cfgs.push c'; c := c'
-      | .refused _ => pure ()
+      | .refused _ => cfgs := cfgs.push c'; c := c'
       | .poisoned _ => break
   for b in pi.bodies do
     let what := s!"{b.kind.text} {b.name}"

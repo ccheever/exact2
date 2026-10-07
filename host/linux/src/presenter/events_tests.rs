@@ -270,7 +270,7 @@ fn store_writes_are_dropped_with_their_commit() {
 fn press_fixture() -> Presenter<Keeps> {
     let source = APP.replace(
         "height=32\n      box opacity",
-        "width=100 height=32 scale=1.5 press-scale=0.5 transform-origin=\"0 0\"\n      box opacity",
+        "width=100 height=32 scale=1.5 -exact-press-scale=0.5 transform-origin=\"0 0\"\n      box opacity",
     );
     let (mut p, error) = Presenter::boot_with(
         &contract::compile(&source).unwrap().encode(),

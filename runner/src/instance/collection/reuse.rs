@@ -133,6 +133,9 @@ impl Reuse {
     }
 }
 
+/// Retiring rows a travelling list keeps mounted for the rows it needs next.
+pub(super) const HOLD: usize = 4;
+
 /// Which way an item would likely steer its row's `when` and `match` arms:
 /// per field, whether an option is present, a flag set, a list empty.
 fn steer(item: Option<&Value>) -> u64 {
@@ -183,20 +186,36 @@ impl Collection {
     /// Mount the rows the window needs and nothing mounted: each rebound
     /// from a retiring row that admits it, else from a row `kept` past the
     /// window (farthest first; a limited report keeps them), else built. The
-    /// retiring rows left over are destroyed; the kept ones left are
-    /// returned.
+    /// kept ones left are returned.
+    ///
+    /// With `hold` (the port: a list that travels, its rows rebindable), the
+    /// retiring rows left over stay mounted where they are, the [`HOLD`]
+    /// nearest the port: rows enter a moving window at one edge and leave
+    /// it at the other in different reports, so a report that only retired
+    /// would destroy the row the next one builds (crypto at 6,000 px/s
+    /// rebound 14 rows of 72). The next row the window needs takes the
+    /// farthest of them, and a turn back finds them as they were. The rest,
+    /// and every one without `hold`, are destroyed.
     pub(super) fn build_needed(
         &mut self,
         u: &mut Update<'_>,
         needed: Vec<(usize, String)>,
-        retiring: Vec<Mounted>,
+        mut retiring: Vec<Mounted>,
         mut kept: Vec<(f64, String, Mounted)>,
+        hold: Option<(f64, f64)>,
         frames: &[Frame],
     ) -> Result<Vec<(f64, String, Mounted)>, InstanceError> {
         let mut gone = Vec::new();
         let mut spares = Vec::new();
+        // Nearest the port first: a rebind takes the last.
+        let far = |c: &Self, m: &Mounted| {
+            hold.map_or(0.0, |(top, end)| c.distance(m.position, top, end).1)
+        };
+        if hold.is_some() {
+            retiring.sort_by(|a, b| far(self, a).total_cmp(&far(self, b)));
+        }
         for mounted in retiring {
-            if !needed.is_empty() && self.spare(&mounted) {
+            if (!needed.is_empty() || hold.is_some()) && self.spare(&mounted) {
                 spares.push(mounted);
             } else {
                 gone.push(mounted.wrapper);
@@ -212,6 +231,17 @@ impl Collection {
                 Some(spare) => self.rebind(u, spare, position, &text, frames)?,
                 None => self.build_row(u, position, &text, frames)?,
             };
+            self.settle_mounted(u, mounted, &text)?;
+        }
+        let reach = hold.map_or(0.0, |(top, end)| FAR_VIEWPORTS * (end - top));
+        let held = spares
+            .iter()
+            .take(HOLD)
+            .take_while(|m| hold.is_some() && far(self, m) <= reach)
+            .count();
+        for mut mounted in spares.drain(..held) {
+            mounted.held = true;
+            let text = super::super::ident(&mounted.row.key, mounted.row.dup).expect("validated");
             self.settle_mounted(u, mounted, &text)?;
         }
         gone.extend(spares.into_iter().map(|m| m.wrapper));
@@ -289,6 +319,7 @@ impl Collection {
         mounted.epoch = advance(&mut self.next_epoch)?;
         mounted.preview_target = None;
         mounted.preview_hidden = false;
+        mounted.held = false;
         mounted.published = (usize::MAX, usize::MAX);
         u.renewed.push(mounted.wrapper);
         views(&mounted.row.roots, &mut u.renewed);

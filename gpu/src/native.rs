@@ -319,6 +319,27 @@ pub unsafe fn attach(_id: u32, _window: *mut c_void, _width: u32, _height: u32) 
     1
 }
 
+/// Give canvas `id` buffers to render into, which a reader draws itself
+/// (`crate::buffers`). 0 on success, 1 on a refusal (see [`error`]).
+#[cfg(target_os = "android")]
+pub fn attach_buffers(id: u32, width: u32, height: u32) -> u32 {
+    u32::from(with(|m| m.attach_buffers(id, width, height)) != Some(true))
+}
+
+/// Canvas `id`'s newest finished frame: its `AHardwareBuffer*` (alive until
+/// the canvas is detached or resized) with `[generation, slot, serial]` in
+/// `out`, or null.
+#[cfg(target_os = "android")]
+pub fn buffer(id: u32, out: &mut [u32; 3]) -> *mut c_void {
+    match with(|m| m.buffer(id)).flatten() {
+        Some((words, buffer)) => {
+            *out = words;
+            buffer
+        }
+        None => std::ptr::null_mut(),
+    }
+}
+
 /// Drop canvas `id`'s window target; its state stays.
 pub fn detach(id: u32) {
     with(|m| m.detach(id));
@@ -708,6 +729,19 @@ macro_rules! module {
         /// Drop a canvas's window target; its state stays.
         #[no_mangle]
         pub extern "C" fn gpu_detach(id: u32) { $crate::native::detach(id) }
+
+        /// Buffers for a canvas a reader draws itself; 0 on success.
+        #[cfg(target_os = "android")]
+        #[no_mangle]
+        pub extern "C" fn gpu_attach_buffers(id: u32, width: u32, height: u32) -> u32 { $crate::native::attach_buffers(id, width, height) }
+
+        /// The canvas's newest finished buffer, `[generation, slot, serial]` in `out`; or null.
+        ///
+        /// # Safety
+        /// `out` is three writable `u32`s.
+        #[cfg(target_os = "android")]
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_buffer(id: u32, out: *mut u32) -> *mut ::std::ffi::c_void { $crate::native::buffer(id, &mut *out.cast::<[u32; 3]>()) }
 
         /// Clear the previous complete shader namespace after app acceptance.
         #[no_mangle]

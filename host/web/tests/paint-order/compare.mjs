@@ -57,6 +57,7 @@ try {
           }))), step.paint, `kernel paint after ${step.action}${waiting ? ' while waiting' : ''}`);
           assert.deepEqual(await page.evaluate(readIsolation), step.isolation, `after ${step.action}`);
           assert.deepEqual(await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('[data-testid]')].map(e => [e.dataset.testid, getComputedStyle(e).zIndex]))), step.zIndex, 'authored z-index remains exact and clamped');
+          assert.deepEqual(await page.evaluate(() => Object.fromEntries([...document.querySelectorAll('[data-testid]')].map(e => [e.dataset.testid, getComputedStyle(e).backdropFilter]))), step.backdrop, 'ordered backdrop values update and refused values clear');
         }
       };
       const sliced = names[i].startsWith('sliced keyed');

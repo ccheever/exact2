@@ -156,7 +156,7 @@ extension NodeView {
         case "-apple-system-tertiary-label": .tertiaryLabel
         case "-apple-system-quaternary-label": .quaternaryLabel
         case "-apple-system-separator": .separator
-        case "-apple-system-fill": .fill
+        case "-exact-fill": .fill
         default: nil
         }
     }

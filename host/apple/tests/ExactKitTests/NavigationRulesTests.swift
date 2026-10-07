@@ -615,7 +615,7 @@ final class MacShortcutTests: XCTestCase {
         XCTAssertEqual(shown("Edit").first?.title, "Undo Move")
         XCTAssertEqual(shown("Edit").first?.keyEquivalent, "z")
         XCTAssertEqual(menu("Edit").items.filter { $0.title == "Undo" }.map(\.isHidden), [true])
-        XCTAssertEqual(shown("Edit").last?.title, "Duplicate")
+        XCTAssertEqual(shown("Edit").map(\.title), ["Undo Move", "Redo", "Cut", "Copy", "Paste", "Delete", "Select All", "Duplicate", "Speech"])
         XCTAssertEqual(shown("View").first?.title, "Zoom In")
         XCTAssertEqual(shown("File").map(\.title).prefix(2), ["Close Board", "Export"])
         let close = menu("File").items.first { $0.title == "Close Window" }!
@@ -629,8 +629,45 @@ final class MacShortcutTests: XCTestCase {
         presenter.shortcuts.sync()
         XCTAssertEqual(shown("Edit").first?.title, "Undo")
         XCTAssertEqual(shown("Edit").first?.keyEquivalent, "z")
-        XCTAssertEqual(shown("Edit").last?.title, "Duplicate")
-        XCTAssertEqual(shown("Edit").last?.keyEquivalent, "d")
+        XCTAssertEqual(shown("Edit").map(\.title), ["Undo", "Redo", "Cut", "Copy", "Paste", "Delete", "Select All", "Duplicate", "Speech"])
+        XCTAssertEqual(shown("Edit").first { $0.title == "Duplicate" }?.keyEquivalent, "d")
+    }
+
+    /// #141, as Apple's HIG and TextEdit, Safari and Chrome have Edit: a
+    /// paste variant (⇧⌘V, ⌥⇧⌘V) follows Paste, never File; Edit's other
+    /// commands follow Select All, ahead of Speech ▸ Start Speaking / Stop
+    /// Speaking, whose actions the responder chain answers.
+    func testPasteVariantsFollowPasteAndSpeechFollowsEditsCommands() {
+        let presenter = Presenter()
+        let window = window(presenter)
+        defer { window.close() }
+        let previousServices = NSApp.servicesMenu
+        let previousWindows = NSApp.windowsMenu
+        defer { NSApp.servicesMenu = previousServices; NSApp.windowsMenu = previousWindows }
+        _ = button(1, "Paste as Text", "Shift+Meta+v", in: presenter)
+        _ = button(2, "Paste and Match Style", "Alt+Shift+Meta+v", in: presenter)
+        let find = button(3, "Find", "Meta+f", in: presenter)
+        let bar = DevMenu.makeMenu(shortcuts: presenter.shortcuts, documents: false)
+        let menu = { (title: String) in bar.items.first { $0.submenu?.title == title }!.submenu! }
+        let listed = { (title: String) in menu(title).items.filter { !$0.isHidden }.map { $0.isSeparatorItem ? "—" : $0.title } }
+        for _ in 0..<3 { presenter.shortcuts.sync() }
+        XCTAssertEqual(listed("Edit"), ["Undo", "Redo", "—", "Cut", "Copy", "Paste", "Paste as Text", "Paste and Match Style",
+                                        "Delete", "Select All", "—", "Find", "—", "Speech"])
+        XCTAssertFalse(listed("File").contains { $0.hasPrefix("Paste") })
+        let asText = menu("Edit").items.first { $0.title == "Paste as Text" }!
+        XCTAssertEqual(asText.keyEquivalent, "v")
+        XCTAssertEqual(asText.keyEquivalentModifierMask, [.command, .shift])
+        let speech = menu("Edit").items.first { $0.title == "Speech" }!.submenu!
+        XCTAssertEqual(speech.items.map(\.title), ["Start Speaking", "Stop Speaking"])
+        XCTAssertEqual(speech.items.map(\.action), [#selector(NSTextView.startSpeaking(_:)), #selector(NSTextView.stopSpeaking(_:))])
+        XCTAssertTrue(speech.items.allSatisfy { $0.target == nil && $0.keyEquivalent.isEmpty })
+        // After the app's own Paste too; Edit's commands gone leave one separator.
+        _ = button(4, "Paste Rows", "Meta+v", in: presenter)
+        find.removeFromSuperview()
+        presenter.views.removeValue(forKey: find.id)
+        presenter.shortcuts.sync()
+        XCTAssertEqual(listed("Edit"), ["Undo", "Redo", "—", "Cut", "Copy", "Paste Rows", "Paste as Text", "Paste and Match Style",
+                                        "Delete", "Select All", "—", "Speech"])
     }
 
     func testShortcutsRespectDisabledInertHiddenRepeatedAndWindowOwnership() {

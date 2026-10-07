@@ -6,11 +6,11 @@ import XCTest
 // ends composition first; the transcript remembers where a thread was left and restores it.
 // Real AppKit views in a real window; compiled with every file in modules/apple.
 
-private let r9Resolve: ExactHooks.ResolveFn = { _, _, _, _, _ in 0 }
-private let r9Act: ExactHooks.ActFn = { _, _, _ in 0 }
-private let r9Log: ExactHooks.LogFn = { _, _, _ in }
-private let r9Delegate: ExactHooks.DelegateFn = { _, _, _ in }
-private func makeHooks() -> ExactHooks {
+private let r9Resolve: ExactHatches.ResolveFn = { _, _, _, _, _ in 0 }
+private let r9Act: ExactHatches.ActFn = { _, _, _ in 0 }
+private let r9Log: ExactHatches.LogFn = { _, _, _ in }
+private let r9Delegate: ExactHatches.DelegateFn = { _, _, _ in }
+private func makeHooks() -> ExactHatches {
     let table = UnsafeMutableRawPointer.allocate(byteCount: 40, alignment: 8)
     table.initializeMemory(as: UInt8.self, repeating: 0, count: 40)
     table.storeBytes(of: UInt32(40), as: UInt32.self)
@@ -18,7 +18,7 @@ private func makeHooks() -> ExactHooks {
     table.storeBytes(of: unsafeBitCast(r9Act, to: UnsafeRawPointer.self), toByteOffset: 16, as: UnsafeRawPointer.self)
     table.storeBytes(of: unsafeBitCast(r9Log, to: UnsafeRawPointer.self), toByteOffset: 24, as: UnsafeRawPointer.self)
     table.storeBytes(of: unsafeBitCast(r9Delegate, to: UnsafeRawPointer.self), toByteOffset: 32, as: UnsafeRawPointer.self)
-    return ExactHooks(host: nil, table: UnsafeRawPointer(table))!
+    return ExactHatches(host: nil, table: UnsafeRawPointer(table))!
 }
 
 /// Stands in for Exact's node, the text view's real delegate: focus on begin-editing, blur on end.
@@ -47,7 +47,7 @@ final class ComposerFixture {
         editor.delegate = node
         scroller.documentView = editor
         window.contentView?.addSubview(scroller); window.contentView?.addSubview(button)
-        element = ExactElement(hook: .t3Composer, id: "composer", node: 1, hooks: hooks)
+        element = ExactElement(hatch: .t3Composer, id: "composer", node: 1, hatches: hooks)
         element.view = scroller; element.platform = editor
         element.data = ExactData(["snapshot-owner": "owner-a"])
         composer.install(element) // the real delegate proxy goes in front of the node
@@ -163,7 +163,7 @@ final class R9InputTests: XCTestCase {
             window.isReleasedWhenClosed = false
             scroll.documentView = document
             window.contentView?.addSubview(scroll)
-            transcript = ExactElement(hook: .t3Transcript, id: "transcript", node: 1, hooks: hooks)
+            transcript = ExactElement(hatch: .t3Transcript, id: "transcript", node: 1, hatches: hooks)
             transcript.view = scroll; transcript.platform = scroll
             owner("thread-a")
             rows(prefix: "a")
@@ -174,7 +174,7 @@ final class R9InputTests: XCTestCase {
             turns = (0..<6).map { index in
                 let row = Flipped(frame: NSRect(x: 0, y: CGFloat(index) * 500, width: 400, height: 480))
                 document.addSubview(row)
-                let element = ExactElement(hook: .t3Turn, id: "", node: UInt32(10 + index), hooks: hooks)
+                let element = ExactElement(hatch: .t3Turn, id: "", node: UInt32(10 + index), hatches: hooks)
                 element.view = row; element.data = ExactData(["turn": "\(prefix)\(index)"])
                 r9.install(element)
                 return element

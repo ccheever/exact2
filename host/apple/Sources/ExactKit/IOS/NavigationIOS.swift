@@ -1,8 +1,8 @@
 // @ref LLP 1008 §9 — Contract routes projected into UIKit's navigation
 // controller. UIKit owns recognition, arbitration, progress and cancellation.
 // Only a completed pop invokes the Contract back control. The bar a stack
-// shows, what a route projects into it and when the app module's hooks run
-// are LLP 1075.003's (NavigationBarIOS.swift, NativeHooks.swift).
+// shows, what a route projects into it and when the app module's hatches run
+// are LLP 1075.003's (NavigationBarIOS.swift, NativeHatches.swift).
 #if os(iOS) || os(tvOS)
 import UIKit
 
@@ -10,10 +10,10 @@ final class RouteController: UIViewController {
     let node: NodeView
     var key: String { node.props["navigationKey"] ?? "" }
     /// What Exact last projected into the navigation item, and that plus
-    /// what the route hook last saw; whether the hook has run; the header
-    /// lifted into the bar; the content scroll view a hook was handed.
-    var projectedSource: BarSource?, projected: HookSource?, backSource: String?
-    var hooked = false
+    /// what the route hatch last saw; whether the hatch has run; the header
+    /// lifted into the bar; the content scroll view a hatch was handed.
+    var projectedSource: BarSource?, projected: HatchSource?, backSource: String?
+    var hatched = false
     weak var lifted: NodeView?
     weak var host: NavigationHost?
     weak var ownedScroll: NodeView?
@@ -32,7 +32,7 @@ final class RouteController: UIViewController {
     }
     required init?(coder: NSCoder) { nil }
     // The bar's height changed (a push to an inline title, a rotation, a
-    // hook): the route's content area follows (LLP 1075.003 §3.5).
+    // hatch): the route's content area follows (LLP 1075.003 §3.5).
     override func viewSafeAreaInsetsDidChange() {
         super.viewSafeAreaInsetsDidChange()
         host?.coversChanged()
@@ -95,9 +95,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// place its bar takes; the tab delegate Exact keeps and forwards.
     var tabController: UITabBarController?
     /// What holds the tabs: Exact's tab controller, or a container the app's
-    /// `tabContainer` hook returned (LLP 1075.003 §3.6).
+    /// `tabContainer` hatch returned (LLP 1075.003 §3.6).
     var tabOwner: UIViewController?
-    var tabsHooked = false, tabContainerAsked = false, routerTab = -1
+    var tabsHatched = false, tabContainerAsked = false, routerTab = -1
     var tabNavigations: [UInt32: UINavigationController] = [:]
     var tabPanels: [UInt32] = []
     /// How many routes the selected stack declared at the last projection.
@@ -120,12 +120,12 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// While a push or pop runs: paints what each frame newly reveals.
     /// LLP 1075.003: each stack Exact built, by controller; what each shown
     /// bar covers of its route; the ownership changes already journaled;
-    /// whether the hooks are being replayed for a cold launch's objects.
+    /// whether the hatches are being replayed for a cold launch's objects.
     var stacks: [ObjectIdentifier: NavigationStack] = [:]
     var stackCount = 0
     var covers: [UInt32: HostCover] = [:]
     var ownedReported: Set<String> = []
-    var replayingHooks = false
+    var replayingHatches = false
     private var coversPending = false
     /// Whether the session's view last took the whole of its own for a bar.
     var tookWholeView = false
@@ -436,23 +436,23 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     }
 
     /// A route's controller leaves for good: its header paints again and the
-    /// route hook hears `routeEnded` (LLP 1075.003 §3.2).
+    /// route hatch hears `routeEnded` (LLP 1075.003 §3.2).
     private func end(_ c: RouteController) {
         if let header = c.lifted { header.isHidden = false; c.lifted = nil }
-        guard c.hooked else { return }
-        c.hooked = false
-        presenter.session?.natives.routeHook(.ended, controller: c, navigation: nil, scroll: nil, key: c.key, dataset: c.node.props["dataset"])
+        guard c.hatched else { return }
+        c.hatched = false
+        presenter.session?.natives.routeHatch(.ended, controller: c, navigation: nil, scroll: nil, key: c.key, dataset: c.node.props["dataset"])
     }
 
     /// At a cold launch the module loads a turn after first pixel (LLP
-    /// 1075.003 Q3 (c)): each hook runs once for every object already live,
+    /// 1075.003 Q3 (c)): each hatch runs once for every object already live,
     /// stacks first, in the order they were built.
-    func replayHooks() {
-        guard presenter.session?.natives.hooksConnected == true else { return }
-        replayingHooks = true
-        defer { replayingHooks = false }
+    func replayHatches() {
+        guard presenter.session?.natives.hatchesConnected == true else { return }
+        replayingHatches = true
+        defer { replayingHatches = false }
         let navs = allNavigations
-        for nav in navs { hookNavigation(nav) }
+        for nav in navs { hatchNavigation(nav) }
         replayTabs()
         for nav in navs {
             prepareRoutes(nav.viewControllers.compactMap { $0 as? RouteController }, in: nav)
@@ -797,8 +797,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
 
     /// A stack Exact retired: its handle goes.
     func retireStack(_ nav: UINavigationController) {
-        guard let stack = stacks.removeValue(forKey: ObjectIdentifier(nav)), stack.hooked else { return }
-        _ = presenter.session?.natives.navigationHook(nav, built: false, showsBar: stack.showsBar, label: stack.label)
+        guard let stack = stacks.removeValue(forKey: ObjectIdentifier(nav)), stack.hatched else { return }
+        _ = presenter.session?.natives.navigationHatch(nav, built: false, showsBar: stack.showsBar, label: stack.label)
     }
 
     func reset(clearFocus: Bool = true) {

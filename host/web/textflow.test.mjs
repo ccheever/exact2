@@ -523,17 +523,18 @@ test('a batch that wants frames presents every animation frame and keeps timer t
 
 // A real DOM is needed here: document capture runs before the clone forwards
 // its event to the detached original. A mock dispatch misses the double route.
-browserTest('flowed links keep press ownership through document capture', async () => {
+// Run an in-page fixture (a function) in headless Chrome over these glue modules; its result by value.
+async function inChrome(fixture, modules = ['/textflow-glue.js', '/timer-glue.js', '/input-glue.js']) {
   const { spawn } = await import('node:child_process');
   const { mkdtempSync, rmSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
   const { join } = await import('node:path');
   const { Cdp } = await import('../../scripts/agent.mjs');
   const dir = mkdtempSync(join(tmpdir(), 'exact-flow-input-'));
-  const modules = new Set(['/textflow-glue.js', '/timer-glue.js', '/input-glue.js']);
+  const served = new Set(modules);
   const server = Bun.serve({ port: 0, hostname: '127.0.0.1', fetch(req) {
     const path = new URL(req.url).pathname;
-    return modules.has(path) ? new Response(Bun.file(new URL('.' + path, import.meta.url)))
+    return served.has(path) ? new Response(Bun.file(new URL('.' + path, import.meta.url)))
       : new Response('<!doctype html><body><main id="root"></main>', { headers: { 'content-type': 'text/html' } });
   }});
   let child;
@@ -546,21 +547,44 @@ browserTest('flowed links keep press ownership through document capture', async 
     const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
     const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
     await cdp.send('Page.navigate', { url: `http://127.0.0.1:${server.port}` }, sessionId);
-    const result = await cdp.send('Runtime.evaluate', {
-      expression: `(${flowInputFixture})()`, awaitPromise: true, returnByValue: true,
-    }, sessionId);
+    const result = await cdp.send('Runtime.evaluate', { expression: `(${fixture})()`, awaitPromise: true, returnByValue: true }, sessionId);
     if (result.exceptionDetails) throw Error(result.exceptionDetails.exception?.description ?? result.exceptionDetails.text);
-    expect(result.result.value).toEqual([
-      { press: 1, navigate: 0, prevented: true },
-      { press: 1, navigate: 0, prevented: true },
-      { press: 0, navigate: 1, prevented: true },
-      { press: 0, navigate: 0, prevented: false },
-    ]);
+    return result.result.value;
   } finally {
     if (child && child.exitCode === null) { const exit = new Promise(r => child.once('exit', r)); child.kill(); await exit; }
     server.stop(true); rmSync(dir, { recursive: true, force: true });
   }
+}
+
+browserTest('flowed links keep press ownership through document capture', async () => {
+  expect(await inChrome(flowInputFixture)).toEqual([
+    { press: 1, navigate: 0, prevented: true },
+    { press: 1, navigate: 0, prevented: true },
+    { press: 0, navigate: 1, prevented: true },
+    { press: 0, navigate: 0, prevented: false },
+  ]);
 }, 20000);
+
+// A batch that puts flowed paragraphs back to their text (the JS target's every commit, a topology
+// change on the wasm host) flows them again in the same task: no frame paints them unflowed, and a
+// scroller at its end, which the shorter text clamped, keeps its offset. WebKit kept the clamp, and
+// pressing a button under textflow's article scrolled the page 85 px (conformance, 2026-10-07).
+browserTest('a batch that restores flowed text reflows it at once and keeps a clamped scroll', async () => {
+  const r = await inChrome(flowScrollFixture);
+  expect(r.flowedBefore).toBe(true);
+  expect(r.flowedAfter).toBe(true);
+  expect(r.atEnd).toBeGreaterThan(0);
+  expect(r.after).toBe(r.atEnd);
+  // Through the batch the flowed height is held, even across a host's whole-cssText style write,
+  // so the scroller never clamps; after the reflow the hold is gone.
+  expect(r.held).toBe(300);
+  expect(r.during).toBe(r.atEnd);
+  expect(r.holdAfter).toBe(null);
+  expect(r.authored).toBe(0); // a scroll the batch makes on purpose stands
+  expect(r.unflowed).toBe(null); // a paragraph that stops flowing keeps no held height
+  expect(r.scaledHold).toBe(300); // the flowed layout height, not a transformed ancestor's on-screen 150
+}, 20000);
+
 
 async function flowInputFixture() {
   const { createTextFlow } = await import('/textflow-glue.js');
@@ -609,3 +633,47 @@ async function flowInputFixture() {
   }
   return results;
 }
+
+async function flowScrollFixture() {
+  const { createTextFlow } = await import('/textflow-glue.js');
+  const root = document.getElementById('root'), views = new Map();
+  root.innerHTML = '<div id="port" style="height:200px;overflow:auto"><div style="height:150px"></div><div id="context" style="position:relative"><div id="paragraph" style="width:200px;font:16px/24px serif">flowed text</div><div id="ball" style="position:absolute;left:80px;top:0;width:20px;height:20px"></div></div></div>';
+  const port = document.getElementById('port'), parent = document.getElementById('context'), paragraph = document.getElementById('paragraph'), ball = document.getElementById('ball');
+  views.set(1, parent); views.set(2, paragraph); views.set(3, ball);
+  // The walker's flowed height (300 px) is far taller than the ordinary one line (24 px).
+  const request = (op) => {
+    if (op === 0) return { ranges: [[0, 11, 0, 11]], graphemes: Array.from({ length: 11 }, (_, i) => [i, i + 1, i, i + 1]) };
+    if (op === 1) return { prepared: true };
+    if (op !== 2) return {};
+    return { shapes: [{ kind: 'Circle', cx: 90, cy: 10, r: 10 }], complete: true, height: 300, line_height: 24,
+      fragments: [{ start: 0, end: 11, utf16_start: 0, utf16_end: 11, paint_start: 0, paint_end: 11, x: 0, y: 276, width: 70, available: 80, line: 11 }] };
+  };
+  const flow = createTextFlow({ views, request, agentMode: true, advance() {} });
+  flow.afterBatch({ ops: [{ op: 'textflow', contexts: [{ id: 1, exclusions: [3], paragraphs: [{ id: 2, definite: false, refusal: null }] }] }], timers: false });
+  await flow.settle();
+  const flowedBefore = !!paragraph.querySelector('[data-flow-fragment]');
+  port.scrollTop = port.scrollHeight;
+  const atEnd = port.scrollTop;
+  const batch = { ops: [{ op: 'children' }], timers: false };
+  flow.beforeBatch(batch);
+  paragraph.style.cssText = 'width:200px;font:16px/24px serif'; // the wasm host's style op replaces cssText
+  const held = parseFloat(getComputedStyle(paragraph).minHeight), during = port.scrollTop; // forces layout
+  flow.afterBatch(batch);
+  // Read in the same task: nothing has painted.
+  const result = { flowedBefore, atEnd, held, during, flowedAfter: !!paragraph.querySelector('[data-flow-fragment]'), after: port.scrollTop, holdAfter: paragraph.dataset.flowHold ?? null };
+  // An offset authored while the paragraph is unflowed (a commit's scrollTop) is not taken back.
+  flow.beforeBatch(batch); port.scrollTop = 0; flow.afterBatch(batch);
+  result.authored = port.scrollTop;
+  // Under a scaled ancestor the hold is the flowed layout height, not the on-screen rect.
+  port.style.transform = 'scale(0.5)';
+  flow.beforeBatch(batch); result.scaledHold = parseFloat(getComputedStyle(paragraph).minHeight); flow.afterBatch(batch);
+  port.style.transform = '';
+  // Its exclusion moves away, still in the context: the paragraph is ordinary text again, and the
+  // height held for it goes too (it once stayed, a stale min-height, after textflow's type-size).
+  ball.style.top = '2000px';
+  flow.beforeBatch(batch); flow.afterBatch(batch);
+  result.unflowed = paragraph.dataset.flowHold ?? null;
+  flow.dispose();
+  return result;
+}
+

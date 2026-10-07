@@ -29,7 +29,7 @@ fn fixture() -> Host<NoData> {
       button testId="remove" press=remove
         text "remove"
       when showing
-        box testId="row" opacity=(target == 0 ? 1 : 0.25) swiperight=retarget transition="opacity 180ms ease-out, translate spring(300, 30, 1)"
+        box testId="row" opacity=(target == 0 ? 1 : 0.25) swiperight=retarget transition="opacity 180ms ease-out, translate -exact-spring(300, 30, 1)"
           text "row"
 "#).unwrap().encode();
     Host::boot(

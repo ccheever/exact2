@@ -41,7 +41,7 @@ final class R10Connect {
     // MARK: Elements
 
     func install(_ element: ExactElement) {
-        if element.hook == .t3SelectOnOpen, element.isNew { selectOnOpen(element) }
+        if element.hatch == .t3SelectOnOpen, element.isNew { selectOnOpen(element) }
     }
     func destroy() {
         if let monitor { NSEvent.removeMonitor(monitor) }

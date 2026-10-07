@@ -51,7 +51,7 @@ const artifact = () => globalThis.exact.nativeArtifact ??= new Promise((resolve,
   document.head.append(script);
 }).catch(error => { globalThis.exact.nativeArtifact = null; throw error; });
 
-// The artifact itself, for the page module's hooks (LLP 1075.003.000).
+// The artifact itself, for the page module's hatches (LLP 1075.003.000).
 globalThis.exact.nativeModule = artifact;
 
 globalThis.exact.nativeHost = ({ dispatch, log }) => {

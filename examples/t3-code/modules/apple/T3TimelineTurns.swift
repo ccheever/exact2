@@ -21,7 +21,7 @@ final class T3TimelineTurns {
     var status: [String: Any] { ["turnsInView": inView, "turnAbove": above] }
 
     func install(_ element: ExactElement) {
-        if element.hook == .t3Transcript, transcript !== element {
+        if element.hatch == .t3Transcript, transcript !== element {
             if let observation { NotificationCenter.default.removeObserver(observation) }
             transcript = element
             if let clip = element.scrollView?.contentView {
@@ -29,7 +29,7 @@ final class T3TimelineTurns {
                 observation = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: clip, queue: .main) { [weak self] _ in self?.schedule() }
             }
         }
-        if element.hook == .t3Turn, let id = element.data[.turn], !id.isEmpty {
+        if element.hatch == .t3Turn, let id = element.data[.turn], !id.isEmpty {
             rows = rows.filter { $0.value.element != nil && $0.value.element !== element }
             rows[id] = Weak(element: element)
         }
@@ -37,7 +37,7 @@ final class T3TimelineTurns {
     }
     func remove(_ element: ExactElement) {
         if element === transcript { destroy(); return }
-        if element.hook == .t3Turn { rows = rows.filter { $0.value.element != nil && $0.value.element !== element }; schedule() }
+        if element.hatch == .t3Turn { rows = rows.filter { $0.value.element != nil && $0.value.element !== element }; schedule() }
     }
     func destroy() {
         release()

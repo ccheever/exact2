@@ -1,10 +1,10 @@
 ---
 name: 20261005-x25-keyboard-keyup-code-capture
 plan: 20261005-t3code-macos-parity
-status: draft
+status: closed-upstream
 kind: framework-gap
 blocks: [20261005-browser-surface, 20261005-desktop-shell-details, 20261005-diff-review-engine, 20261005-pr-handoffs-and-quick-actions, 20261005-pr-header-actions-and-stacks, 20261005-pr-writing-and-metadata, 20261005-right-panel-tab-menu, 20261005-sign-in-terminals, 20261005-terminal-drawer, 20261005-terminal-layout, 20261005-terminal-surface, 20261005-thread-commands-and-keys]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/140
 reproduced_on: null
 ---
 
@@ -99,3 +99,26 @@ and keep `T3KeyRecorder.swift` only if the Contract handler cannot capture a cho
 
 Draft; not reproduced on the pinned `main`; not searched upstream; not published.
 Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval; publication only after approval).
+
+## Merged upstream in part (2026-10-07, adopt-main-fixes-r5)
+
+Filed as [#140](https://github.com/ccheever/exact2/issues/140), still open for a capture-phase handler and a
+held-modifier fact. Main #220 (`5a20af1cf`) adds DOM's `keyup`, `KeyboardEvent.code` and `.repeat` on every host
+(macOS: AppKit's keyUp and a released modifier, `code` from the key code, `repeat` from `isARepeat`); a ⌘ chord
+during a composition commits it first (main's QUEUE). `#140` also notes that `press` already takes a `MouseEvent`
+with modifiers. In the feature branch since main `261dd4e10` ([adopt-main-fixes-r5](../tasks/20261007-adopt-main-fixes-r5.md)).
+
+Nothing to remove. Every clone monitor needs what is still missing, or lives where Contract key handlers do not reach:
+- held ⌘ for the sidebar's jump hints (`T3Sidebar.swift`) and the Send button's alternate label
+  (`T3ComposerIntent.swift`): the reference listens on `window` in the capture phase, so the hints show with nothing
+  focused; a Contract `key`/`keyup` hears keys only inside the focused element (#140, held-modifier fact);
+- the surface launcher's letters before type-to-focus (`R8KeysLauncher.swift`), the key recorder that must see ⌘ chords
+  before the menu (`T3KeyRecorder.swift`) and the tab rename field's Escape and chords (`RightPanelTabsInput.swift`): a
+  window capture-phase handler (#140);
+- the held ⌘W drop and the ⌘Q hold (`T3Menus.swift`): the reference does both in its main process
+  (`DesktopWindow.ts`, `QuitHold.ts`), before the menu, so they stay native;
+- the terminal's suppressed key-ups, the device stream's key up/down, the native composer's ⌥↑ and Return: native views,
+  not Contract fields.
+
+Found, not this round: the Send gesture's and the sidebar row's click modifiers could read `press`'s `MouseEvent`
+(`T3ComposerIntent.take`, `T3Sidebar.pressModifiers`), which main already had before #220. The issue stays open for #140.

@@ -1,4 +1,4 @@
-//! LLP 1061: `press-scale` is a style row the hosts own; the user's motion
+//! LLP 1061: `-exact-press-scale` is a style row the hosts own; the user's motion
 //! and transparency preferences are `exactViewport()` fields, re-answered in
 //! one commit, so an app collapses its own motion.
 
@@ -53,7 +53,7 @@ fn a_press_scale_from_an_expression_follows_its_state() {
     let mut r = boot(concat!(
         "component App\n  state firm = false\n",
         "  action soften\n    firm = not firm\n",
-        "  view\n    button press=soften press-scale=(firm ? 1 : 0.97) testId=\"b\"\n      text \"b\"\n",
+        "  view\n    button press=soften -exact-press-scale=(firm ? 1 : 0.97) testId=\"b\"\n      text \"b\"\n",
     ));
     assert_eq!(style(&r, "b").press_scale, 0.97);
     let k = r.kernel();

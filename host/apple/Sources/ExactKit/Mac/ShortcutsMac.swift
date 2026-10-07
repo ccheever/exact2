@@ -78,14 +78,21 @@ private struct Shortcut {
             && characters.range(of: "\\p{Latin}", options: .regularExpression) == nil
     }
     /// The chords a Mac's Edit menu holds (Apple's HIG): Undo, Redo, Cut,
-    /// Copy, Paste, Select All, Duplicate, and Find with its next and
-    /// previous (studio diary R16).
+    /// Copy, Paste and its variants, Select All, Duplicate, and Find with
+    /// its next and previous (studio diary R16).
     var isEdit: Bool {
+        if isPasteVariant { return true }
         switch (key, modifiers) {
         case ("z", .command), ("z", [.command, .shift]), ("x", .command), ("c", .command), ("v", .command),
              ("a", .command), ("d", .command), ("f", .command), ("g", .command), ("g", [.command, .shift]): return true
         default: return false
         }
+    }
+    /// A paste variant, which the HIG puts right after Paste: Paste and
+    /// Match Style ⌥⇧⌘V (TextEdit, Safari, Chrome) and ⇧⌘V, Chrome's other
+    /// chord for it and many apps' Paste as Text (#141).
+    var isPasteVariant: Bool {
+        key == "v" && (modifiers == [.command, .shift] || modifiers == [.command, .shift, .option])
     }
     /// The chords a Mac's View menu holds: zoom in, out and to actual size,
     /// and the Control-Command ones (Show Sidebar ⌃⌘S, Full Screen ⌃⌘F).
@@ -203,6 +210,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
         var application: [NSMenuItem] = []
         var navigation: [NSMenuItem] = []
         var editItems: [NSMenuItem] = []
+        var pastes: [NSMenuItem] = []
         var viewItems: [NSMenuItem] = []
         var live: Set<UInt32> = []
         var chords: [(NSMenuItem, Shortcut?)] = []
@@ -228,6 +236,8 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
                 application.append(item)
             } else if navigationMenu != nil, let shortcut, isNavigation(view, shortcut: shortcut) {
                 navigation.append(item)
+            } else if editMenu != nil, let shortcut, shortcut.isPasteVariant {
+                pastes.append(item)
             } else if editMenu != nil, let shortcut, shortcut.isEdit {
                 editItems.append(item)
             } else if viewMenu != nil, let shortcut, shortcut.isView {
@@ -250,7 +260,7 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
             item.keyEquivalent = shortcut?.keyEquivalent ?? ""
             item.keyEquivalentModifierMask = shortcut?.modifiers ?? []
         }
-        if let editMenu { placeEdit(editItems, in: editMenu) }
+        if let editMenu { placeEdit(editItems, pastes: pastes, in: editMenu) }
         if let viewMenu {
             if !viewItems.isEmpty { viewItems.append(viewSeparator) } else { viewSeparator.menu?.removeItem(viewSeparator) }
             place(viewItems, in: viewMenu, at: 0)
@@ -274,12 +284,14 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
             navigationMenu.supermenu?.items.first(where: { $0.submenu === navigationMenu })?.isHidden = navigation.isEmpty
         }
     }
-    /// Edit's commands (studio diary R16): one whose chord is a host item's
-    /// own — Undo ⌘Z, Redo ⇧⌘Z, Cut, Copy, Paste, Select All — stands in its
-    /// place, the host's hidden while it does (`claim`), so Edit ▸ Undo is
-    /// the app's "Undo Move" whatever has the focus, as its ⌘Z already is;
-    /// the rest follow the host's items, after a separator.
-    private func placeEdit(_ commands: [NSMenuItem], in menu: NSMenu) {
+    /// Edit's commands (studio diary R16), where Apple's HIG puts them: one
+    /// whose chord is a host item's own — Undo ⌘Z, Redo ⇧⌘Z, Cut, Copy,
+    /// Paste, Select All — stands in its place, the host's hidden while it
+    /// does (`claim`), so Edit ▸ Undo is the app's "Undo Move" whatever has
+    /// the focus, as its ⌘Z already is; a paste variant follows Paste, as
+    /// Paste and Match Style does; the rest follow Select All, after a
+    /// separator, ahead of Speech and of what AppKit appends (#141).
+    private func placeEdit(_ commands: [NSMenuItem], pastes: [NSMenuItem], in menu: NSMenu) {
         var extra: [NSMenuItem] = []
         for item in commands {
             if let host = unbound.first(where: { host, key, mask in
@@ -293,10 +305,18 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
                 extra.append(item)
             }
         }
-        if extra.isEmpty { editSeparator.menu?.removeItem(editSeparator); return }
-        let tail = [editSeparator] + extra
-        for item in tail where item.menu === menu { menu.removeItem(item) }
-        for item in tail { menu.addItem(item) }
+        for item in pastes + [editSeparator] + extra { item.menu?.removeItem(item) }
+        // After the host's own item: past the command standing in for it.
+        let after = { (action: Selector) in menu.items.firstIndex { $0.action == action && !($0.target is ShortcutHost) }.map { $0 + 1 } }
+        var rest = extra
+        if let start = after(#selector(NSText.paste(_:))) {
+            for (offset, item) in pastes.enumerated() { menu.insertItem(item, at: start + offset) }
+        } else {
+            rest = pastes + extra
+        }
+        guard !rest.isEmpty else { return }
+        let start = after(#selector(EditMenuTarget.selectAll(_:))) ?? menu.numberOfItems
+        for (offset, item) in ([editSeparator] + rest).enumerated() { menu.insertItem(item, at: start + offset) }
     }
     /// The host's items whose chord no command claims any longer get it
     /// back, and come back into view.
@@ -377,9 +397,11 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     @objc private func activate(_ item: NSMenuItem) {
         guard validateMenuItem(item), let id = (item.representedObject as? NSNumber)?.uint32Value else { return }
         // Menu selection by keyboard need not use the declared equivalent.
-        // AppKit owns that selection; repeat and composition still cannot fire it.
+        // AppKit owns that selection; repeat and composition still cannot fire
+        // it, nor a chord that ended one (`Presenter.endComposition`, #140).
         if let event = NSApp.currentEvent, event.type == .keyDown,
-           event.isARepeat || (NSApp.keyWindow?.firstResponder as? NSTextInputClient)?.hasMarkedText() == true { return }
+           event.isARepeat || (NSApp.keyWindow?.firstResponder as? NSTextInputClient)?.hasMarkedText() == true
+            || presenter?.endedComposition(event) == true { return }
         presenter?.press(id)
     }
 }

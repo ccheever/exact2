@@ -38,7 +38,7 @@ const APP: &str = r#"component App
         text "hide"
       input value=draft input=edit testId="input"
       when showing
-        column id="panel" testId="panel" position="absolute" bottom=0 width=400 height=target max-height="100%" box-sizing="border-box" transition="height spring(300,30,1)"
+        column id="panel" testId="panel" position="absolute" bottom=0 width=400 height=target max-height="100%" box-sizing="border-box" transition="height -exact-spring(300,30,1)"
           box testId="handle" heightDragFor="panel" heightrelease=release height=40 touch-action="none" disabled=disabled
             text "drag header"
           list virtualized=true scrollFollowEnd=true flex=1 min-height=0 width="100%" testId="port"

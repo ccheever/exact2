@@ -7,8 +7,8 @@ import { obj, str, type Obj } from './domain';
 import type { T3Client } from './client';
 import { ClientError, type Files, type Native } from './protocol';
 import { pushToast } from './toast';
-import { canSnooze, capabilities, effectiveSnoozed, latestRun, orderKeyBetween, planReorder, sectionOf, wokeAt } from './sidebar-model';
-import { bulkMenuItems, canArchive, nativeTemplate, threadMenuItems, type MenuItem } from './sidebar-menu';
+import { capabilities, latestRun, orderKeyBetween, planReorder, wokeAt } from './sidebar-model';
+import { bulkMenuState, canArchive, nativeTemplate, threadMenuItems, threadMenuState, type MenuItem } from './sidebar-menu';
 import { wall, adoptCommandTime, closeDialog, openSnoozeDialog, resolveCustomSnooze, sidebarPrefs, sidebarSession, undoLive, SETTLED_TAIL_PAGE_COUNT, type UndoAction } from './sidebar-state';
 export { clock, undoLive } from './sidebar-state';
 import { partition, projectScopes, renderedRows, searchRows } from './sidebar-view';
@@ -18,7 +18,7 @@ import { dismissProviderPill, scheduleProviderPill } from './sidebar-provider-pi
 import { syncFavicons } from './r3-sidebar-glyph';
 import { resetSidebarWidth } from './r4-polish-sidebar-width';
 import { sweepRelease } from './r11-upstream-sweep';
-import { discardDraft, draftMenu } from './r11-upstream-drafts';
+import { discardDraft, draftChoice, draftMenu } from './r11-upstream-drafts';
 import { menuAnchor, rowKeyMenu, withMenuAnchor } from './r12-sidebar-keys';
 import { legacyCommand, legacyLocal } from './legacy-sidebar-commands'; // legacy-sidebar: the "Sidebar (legacy)" gestures
 import { legacyEnabled, legacyProjectOrder, threadSortOrder } from './legacy-sidebar-view';
@@ -352,18 +352,7 @@ export async function sidebarRefreshed(client: T3Client, nativeHandle: Native): 
 /** After a thread opens: the server visit lands at once for an unseen completion. */
 export function sidebarOpened(client: T3Client, nativeHandle: Native): void { visitOpenThread(client, nativeHandle); }
 
-function menuState(client: T3Client, thread: Obj, header: boolean) {
-  const caps = capabilities(client.config), now = wall(client), prefs = sidebarPrefs(client);
-  const scope = projectScopes(client).find(group => group.ids.has(str(thread.projectId)));
-  const section = sectionOf(thread, caps, now, client.local.clientSettings?.sidebarWorkingShelfEnabled === true);
-  return {
-    branch: str(thread.branch), projectFilter: header || !scope ? null : { label: scope.name, isActive: prefs.scope === scope.key },
-    isPinned: thread.pinnedAt != null, isSettled: caps.settlement && thread.settledOverride === 'settled' && section === 'settled',
-    autoSettleEnabled: thread.autoSettleDisabledAt == null, isSnoozed: caps.snooze && effectiveSnoozed(thread, now),
-    canSnoozeNow: canSnooze(thread, now), isRegeneratingTitle: thread.titleRegeneration != null || sidebarSession(client).regenerating.has(str(thread.id)),
-    isRunning: !canArchive(thread), caps, presets: snoozePresets(now, client.local.deviceSettings.timestampFormat), scope,
-  };
-}
+const menuState = (client: T3Client, thread: Obj, header: boolean) => threadMenuState(client, thread, header, projectScopes(client), wall(client));
 async function showMenu(client: T3Client, nativeHandle: Native, items: MenuItem[]): Promise<string> {
   const reply = obj(await client.restAccess(nativeHandle).call({ op: 'sidebarMenu', items: nativeTemplate(items), ...menuAnchor(client) }));
   return str(reply.id);
@@ -441,6 +430,7 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
     return 'sidebar:new-thread';
   }
   if (op === 'discard-project-draft') { discardDraft(client, nativeHandle, `${client.environmentId}:new:${id}`, true); return ''; } // r11-upstream: behind the undo notice
+  if (op === 'draft-choice') return draftChoice(client, nativeHandle, id, value); // the draft row's context popover (exact2 #223)
   if (op === 'draft-menu') return value === 'key' ? withMenuAnchor(client, 'bottom-left', () => draftMenu(client, nativeHandle, id)) : draftMenu(client, nativeHandle, id); // r11-upstream (95edeb753b): a draft row's context menu; r12-sidebar: Shift+F10 anchors it to the row
   if (op === 'row-key') { const key = rowKeyMenu(id, value); return key ? withMenuAnchor(client, key.anchor, () => sidebarCommand(client, nativeHandle, storage, key.op, key.id, key.value)) : ''; } // r12-sidebar: a focused row's ContextMenu key
   if (op === 'new-thread-click') {
@@ -466,6 +456,15 @@ export async function sidebarCommand(client: T3Client, nativeHandle: Native, sto
     const state = menuState(client, thread, value === 'header');
     const choice = await showMenu(client, nativeHandle, threadMenuItems(state));
     return choice ? runChoice(client, nativeHandle, storage, thread, choice, state.scope?.key ?? '') : '';
+  }
+  // A choice from the row's context popover (sidebar-row.contract RowMenu, exact2 #223): the row's
+  // menu as painted, so a selected row's is the bulk menu, as the right-click's handler decides.
+  if (op === 'menu-choice') {
+    if (session.selection.length > 0 && session.selection.includes(id)) return bulkChoice(client, nativeHandle, storage, value);
+    const thread = threadOf(client, id);
+    if (!thread || !value) return '';
+    const state = menuState(client, thread, false);
+    return runChoice(client, nativeHandle, storage, thread, value, state.scope?.key ?? '');
   }
   const thread = threadOf(client, id);
   if (!thread) { toast(client, 'Thread unavailable', new Error('That thread is no longer available.')); return ''; }
@@ -527,20 +526,21 @@ async function runChoice(client: T3Client, nativeHandle: Native, storage: Files,
   }
 }
 
-async function bulkMenu(client: T3Client, nativeHandle: Native, storage: Files): Promise<string> {
-  const session = sidebarSession(client), caps = capabilities(client.config), now = wall(client);
+/** The selected rows painted now, in the selection's order. */
+function selectedRows(client: T3Client, now: number): Obj[] {
   const rendered = new Set(renderedRows(client, partition(client, now)).map(entry => str(entry.thread.id)));
-  const threads = session.selection.filter(id => rendered.has(id)).map(id => threadOf(client, id)).filter((thread): thread is Obj => !!thread);
+  return sidebarSession(client).selection.filter(id => rendered.has(id)).map(id => threadOf(client, id)).filter((thread): thread is Obj => !!thread);
+}
+async function bulkMenu(client: T3Client, nativeHandle: Native, storage: Files): Promise<string> {
+  const threads = selectedRows(client, wall(client));
   if (!threads.length) return '';
-  const presets = snoozePresets(now, client.local.deviceSettings.timestampFormat);
-  const pinned = caps.pinning ? threads.filter(thread => thread.pinnedAt != null) : [];
-  const supported = caps.titleRegeneration ? threads : [];
-  const regeneratable = supported.filter(thread => thread.titleRegeneration == null && !session.regenerating.has(str(thread.id)));
-  const choice = await showMenu(client, nativeHandle, bulkMenuItems({ count: threads.length, pinnedCount: pinned.length,
-    canSnooze: caps.snooze && threads.every(thread => canSnooze(thread, now)), regeneratable: regeneratable.length,
-    regenerationSupported: supported.length, presets }));
-  const ids = threads.map(thread => str(thread.id)), batch = new Set(ids);
-  if (!choice) return '';
+  const choice = await showMenu(client, nativeHandle, bulkMenuState(client, threads, wall(client)).items);
+  return choice ? bulkChoice(client, nativeHandle, storage, choice) : '';
+}
+async function bulkChoice(client: T3Client, nativeHandle: Native, storage: Files, choice: string): Promise<string> {
+  const session = sidebarSession(client), threads = selectedRows(client, wall(client));
+  if (!threads.length) return '';
+  const { presets, pinned, regeneratable, ids } = bulkMenuState(client, threads, wall(client)), batch = new Set(ids);
   if (choice.startsWith('snooze:')) {
     if (choice === 'snooze:custom') { openSnoozeDialog(session, ids, '', wall(client)); return ''; }
     const preset = presets.find(entry => `snooze:${entry.id}` === choice);

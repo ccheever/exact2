@@ -182,7 +182,7 @@ component NewContactSheet
                     justify-content="space-between"
                     flex-shrink=0
                     text "phone" font-size=17
-                    image "symbol:back" rotate=180 font-size=12 tint-color="#8e8e93"
+                    image "symbol:back" rotate=180 font-size=12 -exact-tint-color="#8e8e93"
                   input appearance="none" id="contact-phone"
                     testId="contact-phone"
                     aria-label="Phone"
@@ -212,7 +212,7 @@ component NewContactSheet
                   display="flex"
                   align-items="center"
                   justify-content="center"
-                  image "symbol:add" font-size=18 tint-color="#ffffff"
+                  image "symbol:add" font-size=18 -exact-tint-color="#ffffff"
                 text "add phone" font-size=17
             column border-radius=28
               class=ContactFormSurface
@@ -274,7 +274,7 @@ component NewContactSheet
                   display="flex"
                   align-items="center"
                   justify-content="center"
-                  image "symbol:add" font-size=18 tint-color="#ffffff"
+                  image "symbol:add" font-size=18 -exact-tint-color="#ffffff"
                 text "add email" font-size=17
             button disabled=true
               aria-label="Add pronouns"
@@ -292,7 +292,7 @@ component NewContactSheet
                 display="flex"
                 align-items="center"
                 justify-content="center"
-                image "symbol:add" font-size=18 tint-color="#ffffff"
+                image "symbol:add" font-size=18 -exact-tint-color="#ffffff"
               text "add pronouns" font-size=17
             button disabled=true
               aria-label="Ringtone"
@@ -306,7 +306,7 @@ component NewContactSheet
               gap=8
               text "Ringtone" font-size=17 flex=1
               text "Default" font-size=17 color="#8e8e93"
-              image "symbol:back" rotate=180 font-size=12 tint-color="#8e8e93"
+              image "symbol:back" rotate=180 font-size=12 -exact-tint-color="#8e8e93"
             button disabled=true
               aria-label="Text Tone"
               height=51.333333
@@ -319,7 +319,7 @@ component NewContactSheet
               gap=8
               text "Text Tone" font-size=17 flex=1
               text "Default" font-size=17 color="#8e8e93"
-              image "symbol:back" rotate=180 font-size=12 tint-color="#8e8e93"
+              image "symbol:back" rotate=180 font-size=12 -exact-tint-color="#8e8e93"
             column min-height=106.333333
               box-sizing="border-box"
               padding=16

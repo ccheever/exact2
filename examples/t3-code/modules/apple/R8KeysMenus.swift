@@ -7,6 +7,10 @@ import AppKit
 ///
 /// - File holds only Close Window (⌘W). The host also files every button that
 ///   declares a ⌘ chord there; those items stay as hidden key equivalents.
+/// - Edit holds the reference's items alone: since exact2 #226 the host files a
+///   ⌘F, ⌘D or ⌘G button there after Select All (⇧⌘G is the branch picker), so each
+///   stays a hidden key equivalent too; a command standing in for one of Edit's own
+///   items (the app's Undo ⌘Z) keeps its place.
 /// - View starts with Reload (⌘R) and Force Reload (⇧⌘R), which reload the window,
 ///   as the reference's roles reload the page. The host's Develop menu (Reload ⌘R,
 ///   Open Project… ⌘O, App Info… ⌘D) and its Go menu are not part of the reference
@@ -20,6 +24,7 @@ final class R8KeysMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
     private var reloadAction: Selector?
     private weak var reloadTarget: AnyObject?
     private weak var file: NSMenu?
+    private weak var edit: NSMenu?
     private var logMonitor: Any?
     /// The host's command items (ShortcutsMac): titled by their button's label.
     static let undoTitle = "Undo", closePanelTitle = "Close Right Panel"
@@ -52,6 +57,11 @@ final class R8KeysMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
             undo.action = #selector(undo(_:))
             undo.target = self
         }
+        if let edit = bar.items.first(where: { $0.submenu?.title == "Edit" })?.submenu {
+            self.edit = edit
+            if edit.delegate == nil || edit.delegate === self { edit.delegate = self }
+            concealCommands(edit)
+        }
         if let file = bar.items.first(where: { $0.submenu?.title == "File" })?.submenu {
             self.file = file
             if file.delegate == nil || file.delegate === self { file.delegate = self }
@@ -71,7 +81,29 @@ final class R8KeysMenus: NSObject, NSMenuDelegate, NSMenuItemValidation {
             item.allowsKeyEquivalentWhenHidden = true
         }
     }
-    func menuNeedsUpdate(_ menu: NSMenu) { if menu === file { conceal(menu) } }
+    func menuNeedsUpdate(_ menu: NSMenu) { if menu === file { conceal(menu) } else if menu === edit { concealCommands(menu) } }
+
+    /// Edit's app commands, but one standing in for Edit's own (Undo ⌘Z, Redo ⇧⌘Z, Cut,
+    /// Copy, Paste, Select All), are hidden key equivalents; a separator the hidden ones
+    /// leave beside another (or first) hides with them.
+    func concealCommands(_ menu: NSMenu) {
+        for item in menu.items where Self.isCommand(item) && !Self.standsIn(item) {
+            if !item.isHidden { item.isHidden = true }
+            item.allowsKeyEquivalentWhenHidden = true
+        }
+        var afterSeparator = true
+        for item in menu.items {
+            if item.isSeparatorItem {
+                if item.isHidden != afterSeparator { item.isHidden = afterSeparator }
+                afterSeparator = true
+            } else if !item.isHidden { afterSeparator = false }
+        }
+    }
+    static func isCommand(_ item: NSMenuItem) -> Bool { item.target.map { String(describing: type(of: $0)) == "ShortcutHost" } == true }
+    static func standsIn(_ item: NSMenuItem) -> Bool {
+        let key = item.keyEquivalent.lowercased(), mask = item.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask)
+        return (mask == .command && ["z", "x", "c", "v", "a"].contains(key)) || (mask == [.command, .shift] && key == "z")
+    }
 
     /// The host's command item for a button label in File (hidden there), or nil.
     func command(_ title: String) -> NSMenuItem? {

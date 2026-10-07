@@ -1,57 +1,26 @@
+use super::catalog::GlyphKey;
 use super::*;
-use cosmic_text::{CacheKey, SubpixelBin};
 use std::collections::{BTreeMap, BTreeSet};
 
-const BINS: [SubpixelBin; 4] = [
-    SubpixelBin::Zero,
-    SubpixelBin::One,
-    SubpixelBin::Two,
-    SubpixelBin::Three,
-];
-#[derive(Debug, PartialEq, Eq)]
-struct ImageCard {
-    placement: (i32, i32, u32, u32),
-    content: u8,
-    data: Vec<u8>,
-    pointer: usize,
-    capacity: usize,
-}
-fn cache_card(p: &Paragraph) -> BTreeMap<CacheKey, Option<ImageCard>> {
+const BINS: [u8; 4] = [0, 1, 2, 3];
+fn cache_card(p: &Paragraph) -> BTreeMap<GlyphKey, Option<(i32, i32, u32, u32)>> {
     p.source
         .catalog
-        .borrow()
-        .swash
-        .image_cache
+        .borrow_mut()
+        .placements()
         .iter()
-        .map(|(key, image)| {
-            (
-                *key,
-                image.as_ref().map(|image| ImageCard {
-                    placement: (
-                        image.placement.left,
-                        image.placement.top,
-                        image.placement.width,
-                        image.placement.height,
-                    ),
-                    content: match image.content {
-                        SwashContent::Mask => 0,
-                        SwashContent::SubpixelMask => 1,
-                        SwashContent::Color => 2,
-                    },
-                    data: image.data.clone(),
-                    pointer: image.data.as_ptr() as usize,
-                    capacity: image.data.capacity(),
-                }),
-            )
-        })
+        .map(|(key, p)| (*key, p.map(|p| (p.left, p.top, p.width, p.height))))
         .collect()
 }
-fn keys(p: &Paragraph, scale: f32) -> BTreeSet<CacheKey> {
+fn keys(p: &Paragraph, scale: f32) -> BTreeSet<GlyphKey> {
+    let slots = ink::slots(&mut p.source.catalog.borrow_mut(), p.lines());
     p.layout_runs()
         .flat_map(|line| {
+            let slots = slots.clone();
             line.glyphs.iter().flat_map(move |glyph| {
-                let mut key = glyph.physical((0.0, 0.0), scale).cache_key;
-                key.y_bin = SubpixelBin::Zero;
+                let (mut key, _, _) =
+                    ink::physical(glyph, slots[glyph.face as usize], (0.0, 0.0), scale);
+                key.y_bin = 0;
                 BINS.map(|bin| {
                     let mut phase = key;
                     phase.x_bin = bin;
@@ -61,12 +30,11 @@ fn keys(p: &Paragraph, scale: f32) -> BTreeSet<CacheKey> {
         })
         .collect()
 }
-fn warm(p: &Paragraph, keys: impl IntoIterator<Item = CacheKey>) {
-    let mut borrow = p.source.catalog.borrow_mut();
-    let c = &mut *borrow;
+fn warm(p: &Paragraph, keys: impl IntoIterator<Item = GlyphKey>) {
+    let mut c = p.source.catalog.borrow_mut();
     for key in keys {
-        // Only test preparation populates the existing ordinary cache.
-        let _ = c.swash.get_image(&mut c.fonts, key);
+        // Only test preparation populates the kept placements.
+        let _ = c.placement(key);
     }
 }
 fn delta(before: ink::BuildWork) -> ink::BuildWork {
@@ -181,7 +149,7 @@ fn messages_32_body_revisions_reuse_missing_phase_envelopes() {
         .union(&keys_b)
         .map(|key| {
             let mut key = *key;
-            key.x_bin = SubpixelBin::Zero;
+            key.x_bin = 0;
             key
         })
         .collect::<BTreeSet<_>>();
@@ -313,9 +281,7 @@ fn numeric_envelopes_bound_generation_and_clear_on_cap() {
         let entries = &c.envelopes.entries;
         assert_eq!(entries.len(), i % 256 + 1);
         assert_eq!(entries.capacity(), 256);
-        assert!(entries
-            .iter()
-            .all(|(k, _)| k.x_bin == SubpixelBin::Zero && k.y_bin == SubpixelBin::Zero));
+        assert!(entries.iter().all(|(k, _)| k.x_bin == 0 && k.y_bin == 0));
         if i == 0 {
             first_key = Some(entries[0].0);
         }
@@ -332,9 +298,9 @@ fn numeric_envelopes_bound_generation_and_clear_on_cap() {
     eprintln!(
         "numeric envelope bytes: struct={} entry={} capacity={} payload={}",
         std::mem::size_of::<ink::Envelopes>(),
-        std::mem::size_of::<(CacheKey, ink::Bounds)>(),
+        std::mem::size_of::<(GlyphKey, ink::Bounds)>(),
         c.envelopes.entries.capacity(),
-        c.envelopes.entries.capacity() * std::mem::size_of::<(CacheKey, ink::Bounds)>()
+        c.envelopes.entries.capacity() * std::mem::size_of::<(GlyphKey, ink::Bounds)>()
     );
 }
 
@@ -385,16 +351,10 @@ fn cold_partial_full_warm_keep_exact_index_queries_pixels_and_cache() {
         for regime in 0..3 {
             // Each placement-count regime starts with cold numeric envelopes.
             p.source.catalog.borrow_mut().ink_catalog = Rc::new(());
-            p.source.catalog.borrow_mut().swash.image_cache.clear();
+            p.source.catalog.borrow_mut().placements().clear();
             match regime {
                 0 => {}
-                1 => warm(
-                    &p,
-                    required
-                        .iter()
-                        .copied()
-                        .filter(|k| k.x_bin == SubpixelBin::One),
-                ),
+                1 => warm(&p, required.iter().copied().filter(|k| k.x_bin == 1)),
                 _ => warm(&p, required.iter().copied()),
             }
             let count = cache_card(&p).len();
@@ -412,15 +372,12 @@ fn cached_none_is_no_ink_but_absent_still_calls_uncached() {
     let mut engine = engine();
     let mut p = engine.layout(&spec("fj"), Some(100.0));
     // A real out-of-face glyph produces None through the ordinary Swash API.
-    for line in Arc::get_mut(&mut p.layouts).unwrap() {
-        for layout in line {
-            for glyph in &mut layout.glyphs {
-                glyph.glyph_id = u16::MAX;
-            }
-        }
+    p.layouts();
+    for glyph in &mut Arc::get_mut(p.record.get_mut().unwrap()).unwrap().glyphs {
+        glyph.glyph_id = u32::from(u16::MAX);
     }
     let required = keys(&p, 1.0);
-    p.source.catalog.borrow_mut().swash.image_cache.clear();
+    p.source.catalog.borrow_mut().placements().clear();
     let (_, absent) = checked_index(&p, 1.0);
     assert_eq!(absent.uncached_calls, required.len());
     warm(&p, required.iter().copied());
@@ -436,16 +393,15 @@ fn cached_none_is_no_ink_but_absent_still_calls_uncached() {
     // Controlled cached Some with zero width must also remain no ink.
     // The real missing glyph's uncached oracle is still empty.
     for key in &required {
-        let mut empty = cosmic_text::SwashImage::new();
-        empty.placement.left = -23;
-        empty.placement.top = 17;
-        empty.placement.height = 12;
-        p.source
-            .catalog
-            .borrow_mut()
-            .swash
-            .image_cache
-            .insert(*key, Some(empty));
+        p.source.catalog.borrow_mut().placements().insert(
+            *key,
+            Some(catalog::Placement {
+                left: -23,
+                top: 17,
+                width: 0,
+                height: 12,
+            }),
+        );
     }
     p.source.catalog.borrow_mut().ink_catalog = Rc::new(());
     let (zero, work) = checked_index(&p, 1.0);
@@ -475,8 +431,7 @@ fn size_weight_italic_and_scale_use_full_keys_without_cross_aliasing() {
         p.source
             .catalog
             .borrow_mut()
-            .swash
-            .image_cache
+            .placements()
             .retain(|k, _| initial.contains_key(k));
         let required = keys(&p, scale);
         let present = required.iter().filter(|k| initial.contains_key(k)).count();
@@ -563,7 +518,7 @@ fn warm_repaint_reuses_one_index_and_preserves_metrics_source_and_runs() {
         .map(|(g, b, ink)| {
             (
                 g.glyph_id,
-                g.font_id,
+                g.face,
                 g.font_size.to_bits(),
                 g.start,
                 g.end,
@@ -594,7 +549,7 @@ fn warm_repaint_reuses_one_index_and_preserves_metrics_source_and_runs() {
         p.paint_glyphs(&palette())
             .map(|(g, b, ink)| (
                 g.glyph_id,
-                g.font_id,
+                g.face,
                 g.font_size.to_bits(),
                 g.start,
                 g.end,

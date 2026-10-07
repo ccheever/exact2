@@ -32,6 +32,8 @@ pub use wgpu;
 #[cfg(not(target_arch = "wasm32"))]
 mod acquire;
 mod binding;
+#[cfg(target_os = "android")]
+mod buffers;
 mod children;
 mod frame;
 #[cfg(all(test, target_os = "macos"))]
@@ -387,6 +389,9 @@ struct Instance {
     published: Option<String>,
     presentation: Option<Arc<wgpu::Surface<'static>>>,
     config: Option<wgpu::SurfaceConfiguration>,
+    /// Buffers it renders into instead of a window ([`buffers`]).
+    #[cfg(target_os = "android")]
+    ring: Option<buffers::Ring>,
     /// The next texture, acquired off the presenter's thread (`acquire`).
     #[cfg(not(target_arch = "wasm32"))]
     acquire: acquire::Acquire,
@@ -409,6 +414,13 @@ struct Instance {
 }
 
 impl Instance {
+    fn has_ring(&self) -> bool {
+        #[cfg(target_os = "android")]
+        return self.ring.is_some();
+        #[cfg(not(target_os = "android"))]
+        false
+    }
+
     fn drain(&mut self) {
         self.messages.extend(self.surface.messages());
         if let Some(record) = self.surface.published() {
@@ -706,7 +718,53 @@ impl Module {
             }
             inst.presentation = None;
             inst.config = None;
+            #[cfg(target_os = "android")]
+            {
+                inst.ring = None;
+            }
         }
+    }
+
+    /// Give a canvas made without a target buffers to render into, which a
+    /// reader draws itself ([`buffers`]); `false` when the device cannot
+    /// (the canvas then needs a window).
+    #[cfg(target_os = "android")]
+    pub fn attach_buffers(&mut self, id: u32, width: u32, height: u32) -> bool {
+        self.check_device();
+        let Some(gpu) = self.gpu.as_ref() else {
+            return self.fail::<()>("no device").is_some();
+        };
+        if let Some(why) = shaders::missing(self.registry.shaders) {
+            return self.fail::<()>(why).is_some();
+        }
+        let Some(ring) = buffers::Ring::new(gpu, width, height) else {
+            return self
+                .fail::<()>("the device cannot render into hardware buffers")
+                .is_some();
+        };
+        let features = gpu.device.features();
+        let Some(inst) = self.instances.get_mut(&id) else {
+            return self.fail::<()>(format!("no canvas {id}")).is_some();
+        };
+        inst.acquire = Default::default();
+        inst.presentation = None;
+        inst.config = None;
+        inst.ring = Some(ring);
+        inst.surface.device_ready(features);
+        inst.dirty = true;
+        true
+    }
+
+    /// The newest frame a canvas with buffers has finished: `[generation,
+    /// slot, serial]` and the `AHardwareBuffer*`.
+    #[cfg(target_os = "android")]
+    pub fn buffer(&mut self, id: u32) -> Option<([u32; 3], *mut std::ffi::c_void)> {
+        if let Some(gpu) = &self.gpu {
+            let _ = gpu.device.poll(wgpu::PollType::Poll);
+        }
+        let ring = self.instances.get_mut(&id)?.ring.as_mut()?;
+        ring.settle();
+        ring.latest()
     }
 
     /// Create surface ownership without a device, target, or registered shaders.
@@ -740,6 +798,8 @@ impl Module {
                 published: None,
                 presentation,
                 config,
+                #[cfg(target_os = "android")]
+                ring: None,
                 #[cfg(not(target_arch = "wasm32"))]
                 acquire: Default::default(),
                 #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
@@ -765,6 +825,10 @@ impl Module {
         self.open = None;
         for inst in self.instances.values_mut() {
             inst.presentation = None;
+            #[cfg(target_os = "android")]
+            {
+                inst.ring = None;
+            }
             #[cfg(not(target_arch = "wasm32"))]
             {
                 inst.acquire = Default::default();
@@ -786,7 +850,7 @@ impl Module {
             && self
                 .instances
                 .get(&id)
-                .is_some_and(|i| i.presentation.is_some())
+                .is_some_and(|i| i.presentation.is_some() || i.has_ring())
     }
 
     /// The display's frame period, from the host, for every frame that follows.

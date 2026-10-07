@@ -7,7 +7,7 @@ style AccentText
   color="light-dark(#007aff, #0a84ff)"
 
 style PrimaryIcon
-  tint-color="light-dark(#000000, #ffffff)"
+  -exact-tint-color="light-dark(#000000, #ffffff)"
 
 style PrimaryFill
   background-color="light-dark(#000000, #ffffff)"

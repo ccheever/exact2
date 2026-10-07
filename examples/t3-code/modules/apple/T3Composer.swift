@@ -34,7 +34,7 @@ final class T3Composer {
 
     func install(_ element: ExactElement) {
         editor.install(element)
-        if element.hook == .t3Anchor {
+        if element.hatch == .t3Anchor {
             let name = element.data[.anchor] ?? ""
             guard !name.isEmpty else { return }
             if anchors[name]?.element !== element {
@@ -48,9 +48,9 @@ final class T3Composer {
                 anchors[name] = anchor
             }
             measure()
-        } else if element.hook == .t3Send {
+        } else if element.hatch == .t3Send {
             send = element
-        } else if element.hook == .t3Composer {
+        } else if element.hatch == .t3Composer {
             composer = element
             if keyMonitor == nil {
                 keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in

@@ -32,6 +32,8 @@ fn painted_prefix(value: &str, at: u32, masked: bool) -> String {
 
 /// A field's painted text, as its selection is placed on it.
 pub(super) struct FieldText<'a> {
+    /// Its node: whose caret texts these are.
+    pub node: u32,
     /// The field's inherited style, its value never collapsed.
     pub style: &'a StyleProps,
     /// Its value, whose UTF-16 units the selection counts.
@@ -45,7 +47,7 @@ pub(super) struct FieldText<'a> {
 impl super::Painter {
     /// Where offset `at` falls, in the viewport: its x, the top of its
     /// line, and the line's height.
-    fn field_point(&self, field: &FieldText<'_>, at: u32) -> (f32, f32, f32) {
+    fn field_point(&self, field: &FieldText<'_>, at: u32, end: u8) -> (f32, f32, f32) {
         let prefix = painted_prefix(field.value, at, field.masked);
         let style = field.style;
         let mut text = self.text.borrow_mut();
@@ -56,7 +58,11 @@ impl super::Painter {
             style.font_size * 1.2
         };
         let last = prefix.rsplit('\n').next().unwrap_or("");
-        let x = text.paragraph(&text_spec(style, last), None).width;
+        // The text up to an end of the selection: each replaces the last one
+        // measured for that end (1 its start or the caret, 2 its end).
+        let x = text
+            .paragraph_replacing((field.node, end), &text_spec(style, last), None)
+            .width;
         let y = prefix.matches('\n').count() as f32 * line;
         (field.origin.0 + x, field.origin.1 + y, line)
     }
@@ -72,8 +78,8 @@ impl super::Painter {
         if selection.start == selection.end {
             return;
         }
-        let (x0, y0, line) = self.field_point(field, selection.start);
-        let (x1, y1, _) = self.field_point(field, selection.end);
+        let (x0, y0, line) = self.field_point(field, selection.start, 1);
+        let (x1, y1, _) = self.field_point(field, selection.end, 2);
         if y0 != y1 {
             return;
         }
@@ -93,7 +99,7 @@ impl super::Painter {
         if selection.start != selection.end {
             return;
         }
-        let (x, y, line) = self.field_point(field, selection.start);
+        let (x, y, line) = self.field_point(field, selection.start, 1);
         self.backend
             .fill(&Shape::rect((x, y, 1.0, line)), color, ts);
     }

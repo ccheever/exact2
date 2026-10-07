@@ -76,12 +76,12 @@ final class T3ComposerEditor {
     // MARK: Elements
 
     func install(_ element: ExactElement) {
-        if element.hook == .t3ComposerKey {
+        if element.hatch == .t3ComposerKey {
             let name = element.data[.anchor] ?? ""
             if !name.isEmpty { keys[name] = Key(element) }
             return
         }
-        guard element.hook == .t3Composer else { return }
+        guard element.hatch == .t3Composer else { return }
         self.element = element
         owner = element.data[.snapshotOwner] ?? ""
         guard let view = element.textView else { return }

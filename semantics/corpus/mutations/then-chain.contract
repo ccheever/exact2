@@ -1,5 +1,5 @@
 // A `then` that sends into another mutation arms that one's `then`, which
-// runs next in the same advance; a tap between the answers re-arms.
+// runs next in the same advance; a tap first runs the chain already due.
 shape Ack
   ok: bool
 
@@ -27,5 +27,6 @@ test "chain"
   expect state log == "ad"
   tap "start"
   tap "start"
-  clock +0
   expect state log == "adad"
+  clock +0
+  expect state log == "adadad"

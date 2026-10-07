@@ -1,8 +1,10 @@
 // Thread and provider notifications (MIT reference: components/
 // ThreadNotificationCoordinator.tsx, threadNotifications.ts,
 // ProviderUpdatePrimaryNotification.tsx, ProviderUpdateLaunchNotification
-// .logic.ts, providerUpdateDismissal.ts). The macOS side (notification
-// center, sound, Dock badge, window focus) is modules/apple/T3Notifications.swift.
+// .logic.ts, providerUpdateDismissal.ts). The window's focus is the page's
+// (`exactPage().hasFocus`, document.hasFocus(): exact2 #219); the macOS side
+// (notification center, sound, Dock badge, a click that opens the thread: #224)
+// is modules/apple/T3Notifications.swift.
 import type { T3Client } from './client';
 import { pushToast, dismissToast } from './toast';
 import { arr, obj, str, type Obj } from './domain';
@@ -25,15 +27,32 @@ function notifyState(client: T3Client): NotifyState {
 export const hasNotificationSound = (mode: string) => mode === 'sound' || mode === 'notifications-and-sound';
 export const hasDesktopNotifications = (mode: string) => mode === 'notifications' || mode === 'notifications-and-sound';
 
-/** The native module's view of the window and the notification center. */
-export async function nativeNotifyStatus(native: Native, previous: NotifyStatus): Promise<NotifyStatus> {
+/**
+ * The notification center as the native module sees it; `active` is the page's
+ * own focus fact (`exactPage().hasFocus`, ThreadNotificationCoordinator's
+ * document.hasFocus()), never the module's.
+ */
+export async function nativeNotifyStatus(native: Native, previous: NotifyStatus, focused: boolean): Promise<NotifyStatus> {
   try {
     const response = await bridgeReply(native, { op: 'notifyStatus' });
-    if (!response.ok) return previous;
+    if (!response.ok) return { ...previous, active: focused };
     const value = obj(response.value);
-    return { active: value.active !== false, authorization: str(value.authorization, 'unknown'), agent: value.agent === true,
+    return { active: focused, authorization: str(value.authorization, 'unknown'), agent: value.agent === true,
       opened: str(value.opened), openedThread: str(value.openedThread) };
-  } catch { return previous; }
+  } catch { return { ...previous, active: focused }; }
+}
+
+const reportedFacts = new WeakMap<object, string>();
+/**
+ * backgroundActivityReporter's window facts (document.visibilityState and
+ * document.hasFocus(), re-reported on visibilitychange, focus and blur): the
+ * page's `exactPage()` facts, handed to the module's reporter when they change.
+ */
+export async function reportWindowFacts(owner: object, native: Native, visible: boolean, focused: boolean): Promise<void> {
+  const key = `${visible}:${focused}`;
+  if (reportedFacts.get(owner) === key) return;
+  const response = await bridgeReply(native, { op: 'activityFacts', visible, focused }).catch(() => null);
+  if (response?.ok) reportedFacts.set(owner, key);
 }
 
 type Transition = { threadId: string; kind: 'completion' | 'input'; status: string; title: string };

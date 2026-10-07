@@ -61,6 +61,11 @@ function answer(source:string, args:unknown[], store:Store, storage:Storage, nat
     return {text:"saved " + value};
   }
   if (op === "reject") { Promise.reject(new Error("lost " + value)); return {text:"answered"}; }
+  // A database opened by the answer and left open by its chain, which throws (LLP 1097 D7).
+  if (op === "open-leak") {
+    storage.sqlite.open("app:/data/notes.db").then(() => { throw new Error("leaked " + value); });
+    return {text:"answered"};
+  }
   if (op === "last-error") return {text:lastError};
   // Each part appended to one log, awaited in turn: two such answers
   // interleave at their awaits, as two async calls do on the web (D4.5).

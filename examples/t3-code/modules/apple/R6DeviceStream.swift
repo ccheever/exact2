@@ -428,7 +428,7 @@ final class R6DeviceStreams {
     }
 
     func install(_ element: ExactElement) {
-        guard element.hook == .t3Media, let host = element.view, let kind = element.data[.mediaKind], kind.hasPrefix("device-") else { return }
+        guard element.hatch == .t3Media, let host = element.view, let kind = element.data[.mediaKind], kind.hasPrefix("device-") else { return }
         let deviceId = element.data[.deviceId] ?? "", hostId = element.data[.deviceHost] ?? ""
         let key = ObjectIdentifier(host), platform = String(kind.dropFirst("device-".count)), deviceKey = "\(hostId)\u{0}\(deviceId)"
         if platform == "events" { return tools.watchEvents(host: key, key: deviceKey, deviceId: deviceId, hostId: hostId) }

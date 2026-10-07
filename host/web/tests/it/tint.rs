@@ -20,10 +20,10 @@ fn a_tinted_raster_is_its_alpha_masking_the_tint() {
   view
     column
       button "Toggle" press=toggle testId="toggle"
-      image "assets/mark.png" testId="mark" width=80 height=40 object-fit=(wide ? "cover" : "contain") tint-color="light-dark(#000000, #ffffff)"
-      image "assets/mark.png" testId="down" object-fit="scale-down" tint-color="#ff0000" transition="tint-color 200ms linear"
+      image "assets/mark.png" testId="mark" width=80 height=40 object-fit=(wide ? "cover" : "contain") -exact-tint-color="light-dark(#000000, #ffffff)"
+      image "assets/mark.png" testId="down" object-fit="scale-down" -exact-tint-color="#ff0000" transition="-exact-tint-color 200ms linear"
       image "assets/mark.png" testId="plain" object-fit="cover"
-      image "symbol:search" testId="symbol" tint-color="#ff0000"
+      image "symbol:search" testId="symbol" -exact-tint-color="#ff0000"
 "##,
     )
     .unwrap();

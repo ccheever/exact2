@@ -44,7 +44,7 @@ fn refused(attrs: &str) -> contract::CompileError {
 #[test]
 fn the_three_rows_take_css_in_a_literal_a_style_and_a_conditional() {
     let r = boot(
-        "style Card\n  corner-shape=\"-apple-continuous\"\n  mask-image=\"linear-gradient(#000, transparent)\"\n\ncomponent App\n  state on = true\n  view\n    column\n      view class=Card testId=\"a\"\n      view corner-shape=(on ? \"squircle bevel\" : \"round\") testId=\"b\"\n      text \"x\" text-shadow=(on ? \"1px 2px 3px #000\" : \"none\") testId=\"c\"\n",
+        "style Card\n  corner-shape=\"-exact-continuous\"\n  mask-image=\"linear-gradient(#000, transparent)\"\n\ncomponent App\n  state on = true\n  view\n    column\n      view class=Card testId=\"a\"\n      view corner-shape=(on ? \"squircle bevel\" : \"round\") testId=\"b\"\n      text \"x\" text-shadow=(on ? \"1px 2px 3px #000\" : \"none\") testId=\"c\"\n",
     );
     let a = style_of(&r, "a");
     assert!(a.rare.corner_shape.is_apple_continuous());
@@ -117,9 +117,12 @@ fn apples_affordances_are_declared_rows_and_haptic_is_a_command() {
     r.dispatch(tap, exact_runner::Event::Press).unwrap();
     assert!(r.take_commands().iter().any(|c| c.name == "haptic"));
     for (attr, says) in [
-        ("symbol-value=2", "0 to 1"),
-        ("symbol-palette=\"#000 #111 #222 #333\"", "one to three"),
-        ("press-haptic=\"buzz\"", "selection"),
+        ("-exact-symbol-value=2", "0 to 1"),
+        (
+            "-exact-symbol-palette=\"#000 #111 #222 #333\"",
+            "one to three",
+        ),
+        ("-exact-press-haptic=\"buzz\"", "selection"),
     ] {
         let e = refused(attr);
         assert!(e.message.contains(says), "{attr}: {e}");

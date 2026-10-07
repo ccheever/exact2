@@ -715,11 +715,11 @@ impl Lowerer<'_> {
                     }
                 }
                 Some(crate::tags::AttrTarget::Handler(h))
-                    if !matches!(h, "press" | "focus" | "blur" | "key" | "hover") =>
+                    if !matches!(h, "press" | "focus" | "blur" | "key" | "keyup" | "hover") =>
                 {
                     return refuse(
                         "lower-button-context",
-                        format!("a native button takes `press`, `focus`, `blur`, `key` and `hover` handlers, not `{name}`: {alternative}"),
+                        format!("a native button takes `press`, `focus`, `blur`, `key`, `keyup` and `hover` handlers, not `{name}`: {alternative}"),
                     );
                 }
                 _ => {}
@@ -780,7 +780,7 @@ impl Lowerer<'_> {
         Ok(())
     }
 
-    /// A native button's `animation` or `exit-animation`: keyframes, looked
+    /// A native button's `animation` or `-exact-exit-animation`: keyframes, looked
     /// up by name, that touch only its opacity and transforms.
     fn check_native_animation(&self, a: &contract_syntax::Attr) -> Result<(), LowerError> {
         let Some(texts) = literals(&a.value) else {

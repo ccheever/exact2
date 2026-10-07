@@ -114,7 +114,7 @@ extension NodeView {
         }
         return true
     }
-    func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+    package func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
         let pair: [UIGestureRecognizer?] = [transformRecognizer, transformContact?.pinch]
         return pair.contains { $0 === gesture } && pair.contains { $0 === other }
     }

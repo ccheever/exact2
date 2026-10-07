@@ -40,7 +40,7 @@ fn fixture() -> (Host<NoData>, String) {
         text "remove"
       text `${releases}` testId="releases"
       when showing
-        column id="sheet" testId="sheet" height=size box-sizing="border-box" transition="height spring(180, 12, 1)"
+        column id="sheet" testId="sheet" height=size box-sizing="border-box" transition="height -exact-spring(180, 12, 1)"
           box testId="header" heightDragFor=binding heightrelease=release disabled=disabled height=32
           box testId="second-header" heightDragFor="sheet" heightrelease=release height=16
           scroll testId="inner" flex=1 min-height=0
@@ -285,7 +285,7 @@ fn unbind_uses_latest_none_or_zero_transition_before_cancelling_unchanged_target
         let source = format!(
             r#"component App
   state binding = "sheet"
-  state declaration = "height spring(180, 12, 1)"
+  state declaration = "height -exact-spring(180, 12, 1)"
   action release(height: number, velocity: number)
     binding = binding
   action unbind
@@ -568,7 +568,7 @@ fn measured_release_velocity_follows_the_constrained_height_shown() {
   action release(height: number, velocity: number)
     seen = velocity
   view
-    column id="sheet" testId="sheet" height=size {max} box-sizing="border-box" transition="height spring(180, 12, 1)"
+    column id="sheet" testId="sheet" height=size {max} box-sizing="border-box" transition="height -exact-spring(180, 12, 1)"
       box testId="header" heightDragFor="sheet" heightrelease=release height=32
       text `${{seen}}` testId="seen"
 "#

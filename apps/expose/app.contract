@@ -218,14 +218,14 @@ component Expose
                 when not includes(dismissed, "update")
                   Notice(id="update", glyph="E", app="Settings", title="Expose", body="Expose 1.0 is ready. It will install tonight while the phone charges.", time="3h", press=openPage("about"))
                 row justify-content="center" padding-top=4
-                  button press=clearNotices testId="clear-notices" press-scale=0.95 height=32 padding-left=16 padding-right=16 border-radius=16 background-color="#ffffff1c" display="flex" flex-direction="row" align-items="center"
+                  button press=clearNotices testId="clear-notices" -exact-press-scale=0.95 height=32 padding-left=16 padding-right=16 border-radius=16 background-color="#ffffff1c" display="flex" flex-direction="row" align-items="center"
                     text "Clear" font-size=14 font-weight=600 color="#ffffffd9"
           row justify-content="space-between" align-items="center" padding-left=48 padding-right=48 padding-bottom=6 flex-shrink=0
-            button press=nope("Flashlight") testId="lock-flashlight" aria-label="Flashlight" press-scale=0.92 width=54 height=54 border-radius=27 background-color="#ffffff24" display="flex" flex-direction="row" align-items="center" justify-content="center"
+            button press=nope("Flashlight") testId="lock-flashlight" aria-label="Flashlight" -exact-press-scale=0.92 width=54 height=54 border-radius=27 background-color="#ffffff24" display="flex" flex-direction="row" align-items="center" justify-content="center"
               svg viewBox="0 0 24 24" width=24 height=24
                 path d="M6 2h12v4l-3 4v12H9V10L6 6V2z" fill="#ffffff"
                 rect x=11 y=13 width=2 height=3 rx=1 fill="#0b0b0c"
-            button press=nope("Camera") testId="lock-camera" aria-label="Camera" press-scale=0.92 width=54 height=54 border-radius=27 background-color="#ffffff24" display="flex" flex-direction="row" align-items="center" justify-content="center"
+            button press=nope("Camera") testId="lock-camera" aria-label="Camera" -exact-press-scale=0.92 width=54 height=54 border-radius=27 background-color="#ffffff24" display="flex" flex-direction="row" align-items="center" justify-content="center"
               svg viewBox="0 0 24 24" width=26 height=26
                 path d="M4 7h3l2-2.5h6L17 7h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z" fill="#ffffff"
                 circle cx=12 cy=13 r=3.4 fill="#0b0b0c"
@@ -240,14 +240,14 @@ component Expose
           scroll flex=1 min-height=0
             column padding-left=22 padding-right=22 padding-top=10 gap=22
               row gap=14
-                button press=nope("Calendar") testId="widget-calendar" press-scale=0.98 flex=1 height=164 border-radius=24 background-color="#f5f5f7" padding=16 box-sizing="border-box" display="flex" flex-direction="column" justify-content="space-between" color="#0b0b0c" text-align="start"
+                button press=nope("Calendar") testId="widget-calendar" -exact-press-scale=0.98 flex=1 height=164 border-radius=24 background-color="#f5f5f7" padding=16 box-sizing="border-box" display="flex" flex-direction="column" justify-content="space-between" color="#0b0b0c" text-align="start"
                   column
                     text clock.weekday font-size=13 font-weight=600 letter-spacing=0.6 text-transform="uppercase" color="#6e6e75"
                     text clock.day font-family="Exciting" font-weight=900 font-size=58 line-height="62px" letter-spacing=-1
                   column gap=1
                     text "Type review" font-family="Exciting Lilt" font-weight=700 font-size=15
                     text "2:00 – 3:00 PM · Studio" font-size=12 color="#6e6e75"
-                button press=nope("Weather") testId="widget-weather" press-scale=0.98 flex=1 height=164 border-radius=24 background-color="#1c1c20" padding=16 box-sizing="border-box" display="flex" flex-direction="column" justify-content="space-between" text-align="start"
+                button press=nope("Weather") testId="widget-weather" -exact-press-scale=0.98 flex=1 height=164 border-radius=24 background-color="#1c1c20" padding=16 box-sizing="border-box" display="flex" flex-direction="column" justify-content="space-between" text-align="start"
                   column
                     text weather.place font-family="Exciting Lilt" font-weight=700 font-size=15
                     text weather.temp font-family="Exciting" font-weight=900 font-size=58 line-height="62px" letter-spacing=-1
@@ -256,7 +256,7 @@ component Expose
                     text (weather.ready ? `H ${weather.high}  L ${weather.low}` : "Palo Alto, from Open-Meteo") font-size=12 color="#ffffff99" line-clamp=1
               each a in library.articles key=a.id
                 when a.id == library.lead
-                  button press=openArticle(a.id) testId="widget-reader" press-scale=0.98 width="100%" border-radius=24 background-color="#1c1c20" padding=16 box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=14 text-align="start"
+                  button press=openArticle(a.id) testId="widget-reader" -exact-press-scale=0.98 width="100%" border-radius=24 background-color="#1c1c20" padding=16 box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=14 text-align="start"
                     column width=52 height=52 border-radius=14 background-color="#f5f5f7" align-items="center" justify-content="center" flex-shrink=0
                       text "R" font-family="Exciting" font-weight=900 font-size=30 line-height="34px" color="#0b0b0c"
                     column flex=1 min-width=0 gap=3
@@ -297,7 +297,7 @@ component Expose
             row height=44 align-items="center" justify-content="space-between" padding-left=16 padding-right=16 flex-shrink=0
               button press=go("home") testId="inbox-home" height=44 display="flex" flex-direction="row" align-items="center"
                 text "Edit" font-size=17 color="light-dark(#0b0b0c, #f5f5f7)"
-              button press=openThread("expose") testId="inbox-compose" aria-label="Ask Expose" press-scale=0.92 width=36 height=36 border-radius=18 background-color="light-dark(#e9e9ee, #1c1c20)" display="flex" flex-direction="row" align-items="center" justify-content="center"
+              button press=openThread("expose") testId="inbox-compose" aria-label="Ask Expose" -exact-press-scale=0.92 width=36 height=36 border-radius=18 background-color="light-dark(#e9e9ee, #1c1c20)" display="flex" flex-direction="row" align-items="center" justify-content="center"
                 svg viewBox="0 0 24 24" width=18 height=18
                   path d="M12 5v14M5 12h14" fill="none" stroke="light-dark(#0b0b0c, #f5f5f7)" stroke-width=2.4 stroke-linecap="round"
             scroll flex=1 min-height=0
@@ -347,7 +347,7 @@ component Expose
                     text "Expose" font-family="Exciting Lilt" font-weight=700 font-size=20
                     text `${intelligence.modelName} · via OpenRouter` font-size=12 class=Muted
                     when not intelligence.hasKey
-                      button press=openPage("intelligence") testId="thread-add-key" press-scale=0.97 margin-top=4 height=34 padding-left=14 padding-right=14 border-radius=17 background-color="#ff6a2b" display="flex" flex-direction="row" align-items="center"
+                      button press=openPage("intelligence") testId="thread-add-key" -exact-press-scale=0.97 margin-top=4 height=34 padding-left=14 padding-right=14 border-radius=17 background-color="#ff6a2b" display="flex" flex-direction="row" align-items="center"
                         text "Add an OpenRouter key" font-size=14 font-weight=600 color="#ffffff"
                 else
                   text (thread == "mom" ? "Saturday 6:02 PM" : thread == "builds" ? "Yesterday 11:20 PM" : "Today 8:20 AM") font-size=12 font-weight=500 class=Muted text-align="center" padding-bottom=10
@@ -360,13 +360,13 @@ component Expose
                 when chat.kind != "assistant"
                   text "Delivered" font-size=12 font-weight=500 class=Muted text-align="right" padding-right=4
             row align-items="flex-end" gap=10 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 flex-shrink=0 border-top-style="solid" border-top-width=0.5 border-color="light-dark(#d9d9de, #2a2a2e)"
-              button press=nope("Attachments") testId="composer-add" aria-label="Add attachment" press-scale=0.9 width=34 height=34 border-radius=17 background-color="light-dark(#e9e9ee, #1c1c20)" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+              button press=nope("Attachments") testId="composer-add" aria-label="Add attachment" -exact-press-scale=0.9 width=34 height=34 border-radius=17 background-color="light-dark(#e9e9ee, #1c1c20)" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
                 svg viewBox="0 0 24 24" width=16 height=16
                   path d="M12 5v14M5 12h14" fill="none" stroke="light-dark(#0b0b0c, #f5f5f7)" stroke-width=2.4 stroke-linecap="round"
               row flex=1 min-width=0 min-height=36 border-radius=18 border-style="solid" border-width=1 border-color="light-dark(#c6c6c8, #3a3a3c)" align-items="center" padding-left=14 padding-right=4 gap=6
                 input appearance="none" id="composer" testId="composer" value=draft input=write submit=sendDraft placeholder=(chat.kind == "assistant" ? "Ask Expose" : "Message") aria-label="Message" flex=1 min-width=0 height=34 border-width=0 font-size=(17 * scale) color="light-dark(#0b0b0c, #f5f5f7)" disabled=(chat.kind != "assistant")
                 when trim(draft) != "" and chat.kind == "assistant"
-                  button press=sendDraft testId="send" aria-label="Send" press-scale=0.9 width=28 height=28 border-radius=14 background-color="#ff6a2b" display="flex" flex-direction="row" align-items="center" justify-content="center"
+                  button press=sendDraft testId="send" aria-label="Send" -exact-press-scale=0.9 width=28 height=28 border-radius=14 background-color="#ff6a2b" display="flex" flex-direction="row" align-items="center" justify-content="center"
                     svg viewBox="0 0 24 24" width=16 height=16
                       path d="M12 19V6M6 12l6-6 6 6" fill="none" stroke="#ffffff" stroke-width=2.6 stroke-linecap="round" stroke-linejoin="round"
             HomeBar(tone="light-dark(#0b0b0c, #ffffff)", press=go("home"))
@@ -383,7 +383,7 @@ component Expose
                   text `${clock.weekday}, ${clock.date}` font-size=13 font-weight=500 class=Muted
                 each a in library.articles key=a.id
                   when a.id == library.lead
-                    button press=openArticle(a.id) testId=`article-${a.id}` press-scale=0.985 width="100%" class=Card padding=18 box-sizing="border-box" display="flex" flex-direction="column" gap=8 align-items="flex-start" text-align="start"
+                    button press=openArticle(a.id) testId=`article-${a.id}` -exact-press-scale=0.985 width="100%" class=Card padding=18 box-sizing="border-box" display="flex" flex-direction="column" gap=8 align-items="flex-start" text-align="start"
                       text a.section font-size=12 font-weight=700 letter-spacing=0.8 text-transform="uppercase" color="#ff6a2b"
                       text a.title font-family="Exciting Lilt" font-weight=700 font-size=28 line-height="32px" letter-spacing=-0.3 text-align="left"
                       text a.deck font-size=(16 * scale) font-style="italic" line-height=1.35 class=Muted text-align="left"
@@ -405,7 +405,7 @@ component Expose
             StatusBar(time=clock.time, tone="light-dark(#0b0b0c, #ffffff)", wifi=wifi, airplane=airplane, press=lock)
             row height=44 align-items="center" justify-content="space-between" padding-left=8 padding-right=16 flex-shrink=0
               BackButton(id="reader", label="Reader", press=closeArticle)
-              button press=askAbout(article) testId="ask-expose" aria-label="Ask Expose about this article" press-scale=0.95 height=32 padding-left=12 padding-right=12 border-radius=16 background-color="light-dark(#0b0b0c, #f5f5f7)" display="flex" flex-direction="row" align-items="center" gap=6
+              button press=askAbout(article) testId="ask-expose" aria-label="Ask Expose about this article" -exact-press-scale=0.95 height=32 padding-left=12 padding-right=12 border-radius=16 background-color="light-dark(#0b0b0c, #f5f5f7)" display="flex" flex-direction="row" align-items="center" gap=6
                 text "E" font-family="Exciting" font-weight=900 font-size=15 line-height="18px" color="light-dark(#ffffff, #0b0b0c)"
                 text "Ask Expose" font-size=13 font-weight=600 color="light-dark(#ffffff, #0b0b0c)"
             scroll flex=1 min-height=0
@@ -423,7 +423,7 @@ component Expose
                       text p font-size=(17.5 * scale) line-height=1.5
                     column border-left-style="solid" border-left-width=3 border-color="#ff6a2b" padding-left=16 padding-top=4 padding-bottom=4 margin-top=6 margin-bottom=6
                       text a.pull font-family="Exciting Lilt" font-weight=600 font-size=(24 * scale) line-height=1.2
-                    button press=askAbout(a.id) testId="ask-expose-below" press-scale=0.98 width="100%" margin-top=10 class=Card padding=16 box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=14 text-align="start"
+                    button press=askAbout(a.id) testId="ask-expose-below" -exact-press-scale=0.98 width="100%" margin-top=10 class=Card padding=16 box-sizing="border-box" display="flex" flex-direction="row" align-items="center" gap=14 text-align="start"
                       column width=44 height=44 border-radius=22 background-color="light-dark(#0b0b0c, #f5f5f7)" align-items="center" justify-content="center" flex-shrink=0
                         text "E" font-family="Exciting" font-weight=900 font-size=24 line-height="28px" color="light-dark(#ffffff, #0b0b0c)"
                       column flex=1 min-width=0 gap=2 align-items="flex-start"
@@ -491,7 +491,7 @@ component Expose
                     text "OPENROUTER KEY" font-size=13 class=Muted
                     row align-items="center" gap=8
                       input appearance="none" id="key" testId="key" type="password" value=keyDraft input=writeKey submit=saveKey placeholder="sk-or-v1-…" aria-label="OpenRouter key" flex=1 min-width=0 height=40 padding-left=12 padding-right=12 border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#c6c6c8, #3a3a3c)" font-size=16 color="light-dark(#0b0b0c, #f5f5f7)" background-color="light-dark(#ffffff, #0b0b0c)"
-                      button press=saveKey testId="save-key" disabled=(trim(keyDraft) == "") press-scale=0.95 height=40 padding-left=14 padding-right=14 border-radius=10 background-color=(trim(keyDraft) == "" ? "light-dark(#e9e9ee, #2a2a2e)" : "#ff6a2b") display="flex" flex-direction="row" align-items="center"
+                      button press=saveKey testId="save-key" disabled=(trim(keyDraft) == "") -exact-press-scale=0.95 height=40 padding-left=14 padding-right=14 border-radius=10 background-color=(trim(keyDraft) == "" ? "light-dark(#e9e9ee, #2a2a2e)" : "#ff6a2b") display="flex" flex-direction="row" align-items="center"
                         text "Save" font-size=15 font-weight=600 color=(trim(keyDraft) == "" ? "light-dark(#8e8e93, #6e6e75)" : "#ffffff")
                     when keySaved
                       text "Saved. Expose will use this key from now on." font-size=13 color="#ff6a2b"
@@ -508,7 +508,7 @@ component Expose
                         column flex=1 min-width=0 align-items="flex-start"
                           text m.name font-size=(16 * scale) font-weight=(m.selected ? 600 : 400)
                           text m.maker font-size=(12 * scale) class=Muted
-                  button press=openThread("expose") testId="intelligence-chat" press-scale=0.98 width="100%" height=48 border-radius=14 background-color="light-dark(#0b0b0c, #f5f5f7)" display="flex" flex-direction="row" align-items="center" justify-content="center"
+                  button press=openThread("expose") testId="intelligence-chat" -exact-press-scale=0.98 width="100%" height=48 border-radius=14 background-color="light-dark(#0b0b0c, #f5f5f7)" display="flex" flex-direction="row" align-items="center" justify-content="center"
                     text "Talk to Expose" font-family="Exciting Lilt" font-weight=700 font-size=17 color="light-dark(#ffffff, #0b0b0c)"
                 when page == "display"
                   row class=Card padding-left=16 padding-right=16 min-height=46 align-items="center" justify-content="space-between" gap=12
@@ -563,7 +563,7 @@ component Expose
                     text "Exciting Black v18 — the display face, an original design inspired by, and not derived from, Chicago." font-size=(14 * scale) line-height=1.4 class=Muted
                     text "Exciting Lilt v10 — Semibold and Bold, the titling face." font-size=(14 * scale) line-height=1.4 class=Muted
                     text "Exposure Sans Original 10 — the text face, four weights and an italic." font-size=(14 * scale) line-height=1.4 class=Muted
-                  button press=lock testId="about-lock" press-scale=0.98 width="100%" height=48 border-radius=14 class=Card display="flex" flex-direction="row" align-items="center" justify-content="center"
+                  button press=lock testId="about-lock" -exact-press-scale=0.98 width="100%" height=48 border-radius=14 class=Card display="flex" flex-direction="row" align-items="center" justify-content="center"
                     text "Lock the phone" font-family="Exciting Lilt" font-weight=700 font-size=17
             HomeBar(tone="light-dark(#0b0b0c, #ffffff)", press=go("home"))
 

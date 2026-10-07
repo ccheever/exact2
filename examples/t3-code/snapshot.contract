@@ -203,7 +203,7 @@ component SnapshotTile
     hovering = over
   view
     column hover=setHover position="relative" width="13rem" max-width="100%" height="7rem" flex-shrink=0 box-sizing="border-box" overflow="hidden" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7cc, #ffffff0d)" background-color="light-dark(#fcfcfc, #0a0a0a)" testId=`snapshot-draft-${image.id}`
-      box hook="t3-snapshot-tile" data-snapshot-id=image.id position="absolute" top=0 left=0 right=0 bottom=0 testId=`snapshot-thumbnail-${image.id}`
+      box hatch="t3-snapshot-tile" data-snapshot-id=image.id position="absolute" top=0 left=0 right=0 bottom=0 testId=`snapshot-thumbnail-${image.id}`
       row position="absolute" left=0 right=0 bottom=0 gap="0.375rem" align-items="center" padding-left="0.625rem" padding-right="0.625rem" padding-top="1.5rem" padding-bottom="0.5rem" box-sizing="border-box" min-width=0 background-image="linear-gradient(to top, #000000d9, #0000008c, #00000000)"
         row width="1.75rem" height="1.75rem" border-radius="0.5rem" flex-shrink=0 align-items="center" justify-content="center" background-color="#ffffff33"
           text image.letter font-size="0.625rem" font-weight=500 line-height="0.875rem" color="#ffffff"

@@ -319,7 +319,7 @@ final class BoxLayerIOSTests: XCTestCase {
         padded.raster = nil
     }
 
-    /// A `tint-color` draws the bitmap as a template from the same decoded
+    /// A `-exact-tint-color` draws the bitmap as a template from the same decoded
     /// pixels, through `draw(_:)` (a canvas capture drops a mask layer): the
     /// opaque half takes the tint, the transparent half stays clear, and a
     /// `light-dark()` tint follows a live appearance change. Without the row

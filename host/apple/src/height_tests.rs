@@ -522,7 +522,9 @@ fn negative_spring_lobe_clips_only_height_presentation_and_settles() {
         patch
             .set_dynamic(
                 StyleId::Transition,
-                &StyleValue::Text("height spring(180, 12, 1), translate spring(180, 12, 1)".into()),
+                &StyleValue::Text(
+                    "height -exact-spring(180, 12, 1), translate -exact-spring(180, 12, 1)".into(),
+                ),
             )
             .unwrap();
         h.runner

@@ -1,10 +1,10 @@
 ---
 name: 20261005-x28-notification-actions-badges
 plan: 20261005-t3code-macos-parity
-status: draft
+status: closed-upstream
 kind: framework-policy
 blocks: [20261005-client-activity-reporting]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/114
 reproduced_on: null
 ---
 
@@ -80,3 +80,35 @@ Under A or B: replace the `notifyStatus` poll with the focus fact in `shell-noti
 
 Draft; not reproduced on the pinned `main`; not searched upstream; not published.
 Next: `issue-open` (confirm the DEFERRED text, reproduce, search for duplicates, prepare the report for the user's approval; publication only after approval). The policy decision belongs to Charlie.
+
+## Merged upstream; focus fact adopted (2026-10-07, adopt-main-fixes-r5)
+
+Filed as [#114](https://github.com/ccheever/exact2/issues/114). Main #219 (`6af680b0e`) closed it with option B:
+`exactPage().hasFocus` is `document.hasFocus()` on every host (macOS: the app is active and the session's window
+is key), it is told again on window focus changes, and the agent sets it with `prefer has-focus`. Notification
+click actions and the app badge continue as the policy issue [#224](https://github.com/ccheever/exact2/issues/224)
+(refused by DEFERRED). In the feature branch since main `261dd4e10` ([adopt-main-fixes-r5](../tasks/20261007-adopt-main-fixes-r5.md)).
+
+Adopted:
+- **Thread notifications.** `app.contract` declares `resource page = exactPage() as shape Page` and hands
+  `page.hasFocus` and `page.visibilityState` to `shellView`. `shell-notify.ts` decides between the in-app toast and
+  the system notification on `page.hasFocus`, as ThreadNotificationCoordinator reads `document.hasFocus()`.
+  `T3Notifications.swift` no longer reads `NSApp.isActive` (its `active` and the agent's "a visible window is
+  focused" rule are gone) and posts whenever the page asks.
+- **Client activity reports** (`client-activity-reporting`). `visible` and `focused` are the page's
+  `visibilityState` and `hasFocus`, handed to the reporter through the module's `activityFacts` op when they change
+  (`reportWindowFacts`). The reporter holds its first report until they arrive and reports again on each change, as
+  the reference's visibilitychange, focus and blur listeners do. `T3ActivityReporter.swift` keeps only the pointer,
+  key and wheel interactions (the reference's window listeners).
+- **Other `window` focus listeners of the reference** that the clone had left out for lack of the fact: the workspace
+  card asks `vcs.refreshStatus` when the window regains the focus (GitActionsControl, `refreshVcsOnFocus`), and
+  SnapShot settings read the permissions again on focus (SnapShotSettings `refreshState`).
+
+Live (agent, lane server through a trace proxy): Before, under the agent every report said `focused:false` (the
+AppKit reading of an agent window). After, `focused:true`; `prefer has-focus false` gives a report with
+`focused:false`, `shell.notifications` "… (window inactive)" and `page.hasFocus` false; focus back gives
+`vcs.refreshStatus` and a report with `focused:true`. Kept: the Dock badge, its clearing on focus, the click that opens
+the thread and the sounds (`T3Notifications.swift`), for #224. Not built here (the clone had no counterpart): the
+reference's toast timers that run only while visible and focused (git and provider success toasts), DiffPanel's
+refresh on focus, the composer's refocus on window focus, SnapShotCoordinator's drain on focus. They can be built on
+`page.hasFocus` now. The issue stays open for #224.

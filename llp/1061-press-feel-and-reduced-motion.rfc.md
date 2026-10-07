@@ -12,6 +12,9 @@
 - The press never writes CSS `transform`. On the web it composes through CSS's `scale` property (the row's scale × the press), as Apple already does, so an authored `transform` (on SVG today, and the owed HTML row) survives a press.
 - The press is kept under reduced motion. A native button's highlight isn't skipped under Reduce Motion, and a shrink under the finger is feedback, not motion.
 
+
+> **Spelling (2026-10-06):** `press-scale` is spelled `-exact-press-scale` since [LLP 1081](1081-names-exact-invents.rfc.md). This document keeps the spelling it was written with, as the record.
+
 ## Summary
 
 grnl's design system asks three things of the platform a designer cannot

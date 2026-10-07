@@ -29,7 +29,7 @@ component Vibrancy
         text "Tertiary label" testId="c-tertiary" font-size=20 font-weight=700 color="-apple-system-tertiary-label"
         text "Quaternary label" testId="c-quaternary" font-size=20 font-weight=700 color="-apple-system-quaternary-label"
         box height=2 background-color="-apple-system-separator"
-        box height=18 background-color="-apple-system-fill"
+        box height=18 background-color="-exact-fill"
         text "Plain #000000" testId="c-plain" font-size=20 font-weight=700 color="#000000"
       box testId="visible" position="absolute" left=15 top=260 width=360 height=200 border-radius=16 overflow=(clip ? "hidden" : "visible") backgroundMaterial="regular" display="flex" flex-direction="column" padding=12 gap=2
         text "Label" testId="v-label" font-size=20 font-weight=700 color="-apple-system-label"

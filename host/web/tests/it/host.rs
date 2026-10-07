@@ -88,7 +88,7 @@ fn symbol_roles_carry_host_paths_and_decorative_images() {
   view
     column font-size=22
       button "Change" press=change testId="change"
-      image source tint-color="light-dark(#007aff,#0a84ff)"
+      image source -exact-tint-color="light-dark(#007aff,#0a84ff)"
       image "symbol:add" aria-label="Add a stop"
 "##,
     )
@@ -117,7 +117,7 @@ fn a_filled_role_is_a_filled_silhouette_and_its_outline_is_stroked() {
     saved = not saved
   view
     button press=toggle testId="toggle" aria-label="Save"
-      image (saved ? "symbol:bookmark-fill" : "symbol:bookmark") tint-color="#ff8d28"
+      image (saved ? "symbol:bookmark-fill" : "symbol:bookmark") -exact-tint-color="#ff8d28"
 "##,
     )
     .unwrap();

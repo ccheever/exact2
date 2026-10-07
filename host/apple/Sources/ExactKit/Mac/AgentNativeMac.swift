@@ -68,7 +68,7 @@ extension Presenter {
     }
 
     private func inspectionJudges(_ v: NSView, owner: NodeView?) -> Bool {
-        if let n = liveView(v) { return !Self.platformKinds.contains(n.kind) && n.props["hook"] == nil }
+        if let n = liveView(v) { return !Self.platformKinds.contains(n.kind) && n.props["hatch"] == nil }
         if v === root || v === session?.view { return true }
         if let o = owner {
             let containers: [NSView?] = [o.clipBox, o.scroll?.documentView, o.overlay, o.materialContent, o.glassGroupContent]
@@ -89,7 +89,7 @@ extension Presenter {
             if sub === o.video || sub === o.web { return ("heavy", id) }
             if sub === controls.controls[id] { return ("control", id) }
             if segments.inspectionOwns(sub) { return ("segment", id) }
-            if Self.platformKinds.contains(o.kind) || o.props["hook"] != nil { return ("platform", id) }
+            if Self.platformKinds.contains(o.kind) || o.props["hatch"] != nil { return ("platform", id) }
         }
         // A content region's surface (`RegionController.flush`): this
         // session's, by its controller; its interior is the region's own.

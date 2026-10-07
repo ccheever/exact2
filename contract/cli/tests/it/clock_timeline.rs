@@ -1,5 +1,5 @@
 //! `timeline Name` and `animation-timeline=Name` (LLP 1055.002 D1, D2): the
-//! row reads `clock(Name)`, its animations stay on the clock, and two
+//! row reads `-exact-clock(Name)`, its animations stay on the clock, and two
 //! declarations of one name meet as a refusal, never as one shared phase.
 
 use exact_kernel::{Kernel, StyleId};
@@ -108,7 +108,7 @@ fn a_timeline_is_imported_by_name_and_two_files_of_one_name_are_two_timelines() 
         "use Spinner, Pending from \"./lib/spinner.contract\"\nkeyframes q\n  to opacity=0\ncomponent App\n  view\n    column\n      Spinner()\n      text \"x\" animation=\"q 1s infinite\" animation-timeline=Pending\n",
     );
     let plan = format!("{:?}", contract::compile_path(&one).unwrap());
-    assert!(plan.contains("clock(Pending)"), "{plan}");
+    assert!(plan.contains("-exact-clock(Pending)"), "{plan}");
     assert!(!plan.contains("Pending__"), "{plan}");
     // The app's own `Pending` and `p` are not the spinner's: each file's
     // names mean its own declarations, and the spinner's are renamed where
@@ -119,8 +119,8 @@ fn a_timeline_is_imported_by_name_and_two_files_of_one_name_are_two_timelines() 
     );
     let plan = format!("{:?}", contract::compile_path(&two).unwrap());
     for name in [
-        "clock(Pending)",
-        "clock(Pending__spinner)",
+        "-exact-clock(Pending)",
+        "-exact-clock(Pending__spinner)",
         "p__spinner 1s infinite",
     ] {
         assert!(plan.contains(name), "{name}: {plan}");

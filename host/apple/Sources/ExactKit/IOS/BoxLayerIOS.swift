@@ -52,7 +52,7 @@ extension NodeView {
     /// radius only when it is the whole content box and that is the border
     /// box, or when no corner is rounded.
     ///
-    /// A `tint-color` draws (LLP 1011 §4): a mask layer would say it, but a
+    /// A `-exact-tint-color` draws (LLP 1011 §4): a mask layer would say it, but a
     /// canvas's capture (`render(in:)`) drops masks and would show the tint's
     /// whole rectangle, so the template is `draw(_:)`'s, from the same pixels.
     func applyImageLayer() {

@@ -73,12 +73,12 @@ pub struct MotionSync {
     pub retired: Vec<(u64, Property)>,
     /// Each created or touched node's `transition` row.
     pub transitions: Vec<(u64, Transitions)>,
-    /// Each created or touched node's `layout-transition` row (LLP 1063).
+    /// Each created or touched node's `-exact-layout-transition` row (LLP 1063).
     /// Its targets are not here: a host observes `Property::Layout` after
     /// layout, from the laid-out origin in the parent.
     pub layout: Vec<(u64, Transitions)>,
     /// Each created or touched node's clock timeline, its
-    /// `animation-timeline: clock(Name)` (LLP 1055.002). Before `animations`:
+    /// `animation-timeline: -exact-clock(Name)` (LLP 1055.002). Before `animations`:
     /// the plays they start join it once every row is applied.
     pub clocks: Vec<(u64, Option<String>)>,
     /// Each created or touched node's `animation` row (LLP 1055 D5).
@@ -242,7 +242,7 @@ fn color(c: ColorValue, dark: bool) -> Option<Value> {
 
 /// A node's paint targets under an appearance (LLP 1055.000 D6, LLP 1062
 /// D2): only for the paint properties its `transition`, `animation` or
-/// `exit-animation` names, so a node that animates no colour costs nothing.
+/// `-exact-exit-animation` names, so a node that animates no colour costs nothing.
 /// `light-dark()` resolves by `dark`, `color` is inherited, and a shadow's
 /// opacity folds into its colour's alpha. `None` for a property that is not
 /// a colour now: paint `none` or a paint server (CSS: a discrete pair, no
@@ -360,7 +360,7 @@ impl Kernel {
         out
     }
 
-    /// The box a node's `layout-transition` animates (LLP 1063), when it
+    /// The box a node's `-exact-layout-transition` animates (LLP 1063), when it
     /// declares one: its laid-out origin and size, relative to the box it is
     /// placed in. That is its parent, except for the root of a virtualized
     /// list's row: its wrapper (the node carrying `listItemKey`) exists only
@@ -717,7 +717,7 @@ impl Kernel {
     }
 
     /// A row a list mounted out of its port: whether an animation below it
-    /// waits for the row to show (`animation-trigger: view`, LLP 1055 D13).
+    /// waits for the row to show (`-exact-animation-trigger: view`, LLP 1055 D13).
     /// Until [`Kernel::reveal`] those are held at their start.
     pub fn await_view(&mut self, row: crate::ViewId) -> bool {
         // Rows destroyed before they showed are forgotten here.

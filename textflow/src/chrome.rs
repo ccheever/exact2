@@ -54,3 +54,67 @@ pub(crate) fn breaks(before: char, after: char) -> bool {
     let (b, a) = (before as usize - 0x21, after as usize - 0x21);
     PAIRS[BEFORE[b] as usize] >> AFTER[a] & 1 == 1
 }
+
+/// The walker's choice between `before` and `after` where it does not defer
+/// to UAX #14: `None` defers. The host's ordinary paragraphs give this to
+/// their line breaker so both paths break alike (LLP 1085.000 G6): a break
+/// follows a space and never precedes one; `-` before a digit breaks only
+/// after a letter or digit (a URL, not a negative number); otherwise
+/// Chrome's Latin-1 pair table. Hard breaks and dictionary scripts defer.
+pub fn chrome_break(before_before: Option<char>, before: char, after: char) -> Option<bool> {
+    let space = |c: char| matches!(c, ' ' | '\t');
+    let hard = |c: char| {
+        matches!(
+            c,
+            '\n' | '\r' | '\u{c}' | '\u{85}' | '\u{2028}' | '\u{2029}'
+        )
+    };
+    let latin1 = |c: char| ('\u{21}'..='\u{ff}').contains(&c);
+    if hard(before) || hard(after) {
+        None
+    } else if space(after) {
+        Some(false)
+    } else if space(before) {
+        Some(true)
+    } else if before == '-' && after.is_ascii_digit() {
+        Some(before_before.is_some_and(|c| c.is_ascii_alphanumeric()))
+    } else if latin1(before) && latin1(after) && !(before == '-' && !after.is_ascii()) {
+        Some(breaks(before, after))
+    } else {
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The host's ordinary paragraphs break as the walker does (LLP
+    /// 1085.000 G6): after a space, never before one, Chrome's table between
+    /// Latin-1 characters, a URL's `-2` but not a negative number's.
+    #[test]
+    fn chrome_break_is_the_walkers_rule() {
+        assert_eq!(chrome_break(Some('a'), ' ', 'b'), Some(true));
+        assert_eq!(chrome_break(Some('a'), 'b', ' '), Some(false));
+        assert_eq!(chrome_break(Some('a'), '-', '2'), Some(true));
+        assert_eq!(chrome_break(Some(' '), '-', '2'), Some(false));
+        assert_eq!(chrome_break(None, '-', '2'), Some(false));
+        assert_eq!(chrome_break(Some('a'), 'b', '\n'), None);
+        assert_eq!(chrome_break(Some('a'), '\u{4e00}', '\u{4e01}'), None);
+        for before in '\u{21}'..='\u{ff}' {
+            for after in '\u{21}'..='\u{ff}' {
+                // A hard break (NEL) defers; `-` has its own rules.
+                if [before, after].contains(&'\u{85}')
+                    || before == '-' && (after.is_ascii_digit() || !after.is_ascii())
+                {
+                    continue;
+                }
+                assert_eq!(
+                    chrome_break(Some('x'), before, after),
+                    Some(breaks(before, after)),
+                    "{before:?} {after:?}"
+                );
+            }
+        }
+    }
+}

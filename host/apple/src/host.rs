@@ -103,6 +103,9 @@ pub enum HostError {
     Runner(RunnerError),
     Layout(String),
     Delivery(String),
+    /// The plan uses capabilities this archive doesn't link, by name
+    /// (LLP 1047.001 D5): `Unlinked("grouped_lists")`.
+    Unlinked(String),
     RuntimeIdExhausted,
 }
 
@@ -135,8 +138,8 @@ pub struct Host<D: DataSource> {
     mirror: IdMap<ViewId, Mirror>,
     keys: IdMap<NodeKey, ViewId>,
     inline_runs: IdMap<ViewId, (ViewId, Vec<EventKind>)>,
-    /// Hook words journaled as having no view here (an inline run's).
-    viewless_hooks: std::collections::BTreeSet<String>,
+    /// Hatch words journaled as having no view here (an inline run's).
+    viewless_hatches: std::collections::BTreeSet<String>,
     /// SVG scenes and lowered CSS animations (LLP 1055 D4, D7).
     svg: svg::SvgState,
     /// 2D canvases whose replays the presenter has not caught up with: a
@@ -361,6 +364,10 @@ impl<D: DataSource> Host<D> {
             }
         }
         let plan = plan_bytes.decode().map_err(HostError::Plan)?;
+        // Before anything is built from it (LLP 1047.001 D5).
+        if let Some(names) = crate::link::missing(&plan, crate::link::linked()) {
+            return Err(HostError::Unlinked(names));
+        }
         // Native hosts link every row's grammar (LLP 1053.000 §2).
         exact_kernel::style::link_backdrop_filter();
         exact_kernel::style::link_segments();
@@ -418,7 +425,7 @@ impl<D: DataSource> Host<D> {
             mirror: IdMap::default(),
             keys: IdMap::default(),
             inline_runs: IdMap::default(),
-            viewless_hooks: Default::default(),
+            viewless_hatches: Default::default(),
             svg: svg::SvgState::new(cfg!(any(target_os = "ios", target_os = "tvos"))),
             canvas_held: IdSet::default(),
             canvas_kept: Default::default(),

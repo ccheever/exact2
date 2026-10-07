@@ -72,7 +72,7 @@ fn bilingual_fragments_reorder_clusters_but_keep_logical_fragment_order() {
         for run in p.layout_runs() {
             for pair in run.glyphs.windows(2) {
                 assert!(pair[0].x <= pair[1].x + 0.01);
-                if pair[0].level.is_rtl()
+                if pair[0].level % 2 == 1
                     && pair[0].level == pair[1].level
                     && pair[0].start != pair[1].start
                 {
@@ -352,7 +352,7 @@ fn tall_wall_jumps_and_unrepresentable_flow_falls_back_to_visible_text() {
 fn clamp_paints_measured_ellipsis_inside_last_interval() {
     let mut engine = TextEngine::new();
     let ellipsis = engine.paragraph(&spec("…"), None);
-    let ink = ellipsis
+    let ink = *ellipsis
         .layout_runs()
         .flat_map(|r| r.glyphs)
         .next()
@@ -362,7 +362,11 @@ fn clamp_paints_measured_ellipsis_inside_last_interval() {
     let p = engine.paragraph_flow(&s, 400., &circle(200.), None);
     let last = p.layout_runs().last().unwrap();
     let glyph = last.glyphs.last().unwrap();
-    assert_eq!((glyph.font_id, glyph.glyph_id), (ink.font_id, ink.glyph_id));
+    let face = |p: &Paragraph, g: &LayoutGlyph| p.lines().faces[g.face as usize].id();
+    assert_eq!(
+        (face(&p, glyph), glyph.glyph_id),
+        (face(&ellipsis, &ink), ink.glyph_id)
+    );
     let f = p.fragments().last().unwrap();
     assert!(glyph.x + glyph.w <= 400. + 0.01);
     assert!(glyph.x + glyph.w <= f.x + f.width + 0.01);
@@ -372,7 +376,7 @@ fn clamp_paints_measured_ellipsis_inside_last_interval() {
 fn soft_hyphen_paints_real_dash_beside_hole() {
     let mut engine = TextEngine::new();
     let dash = engine.paragraph(&spec("-"), None);
-    let glyph = dash.layout_runs().next().unwrap().glyphs[0].clone();
+    let glyph = dash.layout_runs().next().unwrap().glyphs[0];
     let p = engine.paragraph_flow(
         &spec("ab\u{ad}cdefghij"),
         400.,
@@ -388,6 +392,10 @@ fn soft_hyphen_paints_real_dash_beside_hole() {
     assert_eq!(p.fragments()[0].end, 4);
     let first = p.layout_runs().next().unwrap();
     let ink = first.glyphs.last().unwrap();
-    assert_eq!((ink.font_id, ink.glyph_id), (glyph.font_id, glyph.glyph_id));
+    let face = |p: &Paragraph, g: &LayoutGlyph| p.lines().faces[g.face as usize].id();
+    assert_eq!(
+        (face(&p, ink), ink.glyph_id),
+        (face(&dash, &glyph), glyph.glyph_id)
+    );
     assert!((first.line_w - first.glyphs.iter().map(|g| g.w).sum::<f32>()).abs() < 0.01);
 }

@@ -83,7 +83,7 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
     var status: [String: Any] { ["mediaViews": entries.count, "mediaLoaded": loaded, "mediaRefused": Array(refused.suffix(8))] }
 
     func install(_ element: ExactElement) {
-        guard element.hook == .t3Media, let host = element.view else { return }
+        guard element.hatch == .t3Media, let host = element.view else { return }
         mount(host: host, kind: element.data[.mediaKind] ?? "", raw: element.data[.mediaUrl] ?? "", name: element.data[.mediaName] ?? "")
     }
 

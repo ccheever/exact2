@@ -129,7 +129,7 @@ fn raster_tint_preserves_alpha_background_and_border_in_both_painters() {
     setScheme(dark ? "light" : "dark")
   view
     column align-items="flex-start"
-      image "alpha.png" testId="mark" width=12 height=4 padding=4 border-width=2 border-style="solid" border-color="#00ff00" background-color="#ffffff" tint-color="light-dark(#ff0000, #00000080)"
+      image "alpha.png" testId="mark" width=12 height=4 padding=4 border-width=2 border-style="solid" border-color="#00ff00" background-color="#ffffff" -exact-tint-color="light-dark(#ff0000, #00000080)"
       button "Flip" testId="flip" press=flip
 "##,
     ).unwrap();

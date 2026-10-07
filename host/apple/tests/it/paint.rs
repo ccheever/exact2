@@ -253,7 +253,7 @@ fn currentcolor_borders_and_inline_runs_follow_an_animating_color() {
 #[test]
 fn an_exit_animates_a_colour_the_node_never_transitioned() {
     let mut host = boot(
-        "keyframes leave\n  to background-color=\"#0000ff\"\ncomponent App\n  state shown = true\n  action hide\n    shown = false\n  view\n    column\n      button press=hide testId=\"hide\"\n        text \"Hide\"\n      when shown\n        column testId=\"gone\" height=40 background-color=\"#ff0000\" exit-animation=\"leave 1s linear both\"\n",
+        "keyframes leave\n  to background-color=\"#0000ff\"\ncomponent App\n  state shown = true\n  action hide\n    shown = false\n  view\n    column\n      button press=hide testId=\"hide\"\n        text \"Hide\"\n      when shown\n        column testId=\"gone\" height=40 background-color=\"#ff0000\" -exact-exit-animation=\"leave 1s linear both\"\n",
     );
     let (hide, gone) = (view(&host, "hide"), view(&host, "gone"));
     let off = host.dispatch_at(hide, Event::Press, 0.0);
@@ -390,7 +390,7 @@ fn an_svg_fill_moves_between_its_light_dark_pair() {
 #[test]
 fn an_exit_presents_text_color_over_the_last_style() {
     let mut host = boot(
-        "keyframes leave\n  to color=\"#0000ff\"\ncomponent App\n  state shown = true\n  action hide\n    shown = false\n  view\n    column\n      button \"Hide\" press=hide testId=\"hide\"\n      when shown\n        text \"Leaving\" testId=\"gone\" color=\"#ff0000\" exit-animation=\"leave 1s linear both\"\n",
+        "keyframes leave\n  to color=\"#0000ff\"\ncomponent App\n  state shown = true\n  action hide\n    shown = false\n  view\n    column\n      button \"Hide\" press=hide testId=\"hide\"\n      when shown\n        text \"Leaving\" testId=\"gone\" color=\"#ff0000\" -exact-exit-animation=\"leave 1s linear both\"\n",
     );
     let (hide, gone) = (view(&host, "hide"), view(&host, "gone"));
     host.dispatch_at(hide, Event::Press, 0.0);

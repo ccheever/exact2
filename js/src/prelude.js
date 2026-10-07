@@ -74,7 +74,7 @@
   if (tracker && typeof tracker.enablePromiseRejectionTracker === "function") {
     tracker.enablePromiseRejectionTracker({
       allRejections: true,
-      onUnhandled: function (id, error) { journal("data: unhandled rejection: " + errorText(error)); },
+      onUnhandled: function (id, error) { journal("data: unhandled rejection: " + errorText(error)); leftOpen(); },
       onHandled: function () {},
     });
   }
@@ -84,6 +84,8 @@
       try { report.run(); } catch (e) { /* the tracker's own; nothing to tell */ }
     }
   }
+  // A browser realm (the wasm host's module realm) reports its own rejections (module-glue.js).
+  if (!tracker && typeof global.addEventListener === "function") global.addEventListener("unhandledrejection", function () { leftOpen(); });
   var refuseTimeout = noTimers("setTimeout()");
   fixed(global, "setTimeout", function setTimeout(callback, delay) {
     if (typeof callback === "function" && callback.name === "bound onUnhandled") {
@@ -963,13 +965,36 @@
       close: function () { return storageCall(raw, "close", []); },
     });
   }
-  function database(raw) {
+  // The databases open now, each with the path and the work that opened it: an answer that
+  // fails, its own or one let go (LLP 1097 D7), with one still open is journaled, since the host
+  // does not close a handle an app may keep or share (Charlie, 2026-10-07), and the next open
+  // would find it locked. A close counts from the moment it is issued.
+  var openDatabases = new Set();
+  // On a failure (an answer's own rejection, or a rejection nothing handled), each database
+  // opened by an answer that has replied, failed or been let go, or by background work: work that
+  // runs on in the background, which may have been the work that failed.
+  function leftOpen() {
+    openDatabases.forEach(function (h) {
+      var by = h.by;
+      if (h.told || !by || !(by === background || by.replied || by.status !== "pending" || by.letGo || by.lost)) return;
+      h.told = true;
+      journal("storage: " + h.path + " is still open after a failure in background work that opened it: if that work owns it, close it in a finally (finally { db.close() }), or the next open finds it locked (LLP 1097 D7)");
+    });
+  }
+  function database(raw, path, by) {
+    var handle = { path: path, by: by, told: false };
+    openDatabases.add(handle);
     return Object.freeze({
       execute: function (sql, params) { return storageCall(raw, "execute", [sql, params]); },
       query: function (sql, params) { return storageCall(raw, "query", [sql, params]); },
       prepare: function (sql) { return storageCall(raw, "prepare", [sql], statement); },
       transaction: function (commands) { return storageCall(raw, "transaction", [commands]); },
-      close: function () { return storageCall(raw, "close", []); },
+      // A close counts once issued; one refused or failed leaves the database open, and tracked.
+      close: function () {
+        openDatabases.delete(handle);
+        // A failed close still rejects for the caller, so one left unhandled is still reported.
+        return storageCall(raw, "close", []).then(undefined, function (e) { openDatabases.add(handle); throw e; });
+      },
     });
   }
   var files = { directories: Object.freeze({ data:"app:/data", cache:"app:/cache", temporary:"app:/tmp" }) };
@@ -977,7 +1002,11 @@
     files[method] = function () { return storageCall(nativeStorage && nativeStorage.fs, method, arguments); };
   });
   var storage = Object.freeze({ fs:Object.freeze(files), sqlite:Object.freeze({
-    open:function (path) { return storageCall(nativeStorage && nativeStorage.sqlite, "open", [path], database); },
+    open:function (path) {
+      // Its owner as storageCall reckons it: storage after an answer replied is the background's.
+      var by = moving && (currentCall ? currentCall.replied : !initializing) ? background : currentCall;
+      return storageCall(nativeStorage && nativeStorage.sqlite, "open", [path], function (raw) { return database(raw, path, by); });
+    },
   }) });
 
   // --- the seam ------------------------------------------------------------
@@ -1195,8 +1224,10 @@
         if (call.lost) return;
         call.status = "done"; call.value = v;
       }, function (e) {
-        if (call.lost) return;
+        // A lost call's answer is not delivered, but a database it left open still is said.
+        if (call.lost) { leftOpen(); return; }
         call.status = "failed"; call.error = e;
+        leftOpen();
       });
       return JSON.stringify({ tag: 3, call: call.id });
     }

@@ -32,7 +32,7 @@ fn css(v: Value) -> [f64; 4] {
 #[test]
 fn the_shorthand_names_every_paint_property_and_box_shadow_names_both_halves() {
     let t = Transitions::parse(
-        "background-color 200ms cubic-bezier(.32,.72,0,1), color 120ms ease, border-color 1s, box-shadow 320ms linear, tint-color 90ms",
+        "background-color 200ms cubic-bezier(.32,.72,0,1), color 120ms ease, border-color 1s, box-shadow 320ms linear, -exact-tint-color 90ms",
     )
     .unwrap();
     let governs = |p: Property| t.matching(p).map(|d| d.duration);
@@ -61,7 +61,8 @@ fn the_shorthand_names_every_paint_property_and_box_shadow_names_both_halves() {
 /// interrupts as CSS does, from where it is, and every host agrees.
 #[test]
 fn a_spring_on_paint_plays_its_curve_from_rest() {
-    let t = Transitions::parse("background-color 200ms linear, all spring(180, 12, 1)").unwrap();
+    let t =
+        Transitions::parse("background-color 200ms linear, all -exact-spring(180, 12, 1)").unwrap();
     let spring = t.matching(Property::BackgroundColor).unwrap();
     assert!(matches!(spring.timing, TimingFunction::Spring(_)));
     let config = exact_motion::SpringConfig {

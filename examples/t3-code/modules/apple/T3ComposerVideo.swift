@@ -36,7 +36,7 @@ final class T3ComposerVideo {
     var status: [String: Any] { ["videoPlayers": entries.count] }
 
     func install(_ element: ExactElement) {
-        guard element.hook == .t3Video, let host = element.view else { return }
+        guard element.hatch == .t3Video, let host = element.view else { return }
         let id = element.data[.snapshotId] ?? ""
         let key = ObjectIdentifier(host)
         if entries[key]?.id == id { return }

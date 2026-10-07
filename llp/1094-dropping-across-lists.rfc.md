@@ -269,6 +269,13 @@ viewport y, minus the target port's viewport top, plus its scroll top.
   (D6). The candidates are the target list's port, then each scroll
   ancestor of the target list in the source tree whose viewport box
   contains the ghost's centre (or the source's, before any retarget).
+  - **Amended 2026-10-07:** an ancestor also joins while it holds the
+    contact (the pointer or finger) and the ghost's centre has passed its
+    edge, and a centre past an edge is in that edge's band. A tall row held
+    by its top otherwise carried its centre out of the scroller before the
+    contact reached the band, and the scroller stopped: on a phone, a card
+    could never be carried to a column below the fold (authoring bench,
+    t4-kanban, 2026-10-07). The target is still the list under the centre.
   - The innermost candidate that can still move toward its edge band on its
     own axis scrolls first; for a board, that is the column vertically,
     then the board horizontally.

@@ -1,10 +1,10 @@
 ---
 name: 20261005-x26-app-menu-control
 plan: 20261005-t3code-macos-parity
-status: draft
+status: closed-upstream
 kind: framework-gap
 blocks: [20261005-app-developer-tools, 20261005-app-update-feed, 20261005-browser-surface, 20261005-desktop-shell-details, 20261005-legacy-sidebar, 20261005-media-actions, 20261005-pr-handoffs-and-quick-actions, 20261005-right-panel-tab-menu, 20261005-ssh-password-and-remote-open, 20261005-terminal-integrations, 20261005-terminal-layout]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/141
 reproduced_on: null
 ---
 
@@ -82,3 +82,32 @@ Replace `R8KeysMenus.swift` surgery and the additions in `T3Menus.swift` with th
 
 Draft; not reproduced on the pinned `main`; not searched upstream; not published.
 Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval; publication only after approval).
+
+## Merged upstream in part (2026-10-07, adopt-main-fixes-r5)
+
+Filed as [#141](https://github.com/ccheever/exact2/issues/141), still open for an app-declared menu bar. Two parts
+landed (in the feature branch since main `261dd4e10`, [adopt-main-fixes-r5](../tasks/20261007-adopt-main-fixes-r5.md)):
+- **#223 (`d988e318b`): context-menu submenus.** A menu row whose `popovertarget` names another menu popover is a
+  submenu `NSMenuItem` on macOS and a nested popover under the agent. Adopted: the sidebar's thread-row and draft-row
+  right-click menus are context popovers (`sidebar-row.contract` ThreadMenu, DraftMenu). Each row carries its
+  menu (`sidebar-menu.ts` `menuRows`, the bulk menu on a selected row), a choice runs `menu-choice` / `draft-choice`
+  (`runChoice`, `bulkChoice`, `draftChoice`), and Snooze ▸, Auto-settle behavior ▸ and Copy ▸ are nested popovers
+  placed `right span-bottom`. A real right-click shows the same `NSMenu` the module built before (items, separators,
+  submenus, the 12 pt trash glyph). The agent can now open and choose the menu (Snooze ▸ In 1 hour ran), where the
+  module's menu answered "dismissed".
+- **#226 (`dfcf8e9cf`): Edit ▸ Speech, paste variants after Paste.** The host's Edit has Speech, so `T3Menus.swift`
+  no longer adds its own (it would have shown twice). #226 also files a ⌘F/⌘D/⌘G button under Edit after Select
+  All, which showed the clone's ⇧⌘G as Edit ▸ Branch and ⌘D as Edit ▸ Toggle Diff (at the end, before #226).
+  `R8KeysMenus.swift` keeps Edit's app commands as hidden key equivalents, as it does File's, so Edit is
+  DesktopApplicationMenu.ts's again: Undo, Redo, Cut, Copy, Paste, Paste as Text, Delete, Select All, Speech.
+
+Kept, with the open issue: the menu bar surgery (`R8KeysMenus.swift`, `T3Menus.swift`: Paste as Text as the responder
+chain's `pasteAsPlainText:`, the zoom items, Check for Updates…, Help, removing Develop and Go) for #141; the
+keyboard-opened row menus (ContextMenu, Shift+F10 at the focused row) through `T3Sidebar.swift`, since a context
+popover opens only from a right-click: [#235](https://github.com/ccheever/exact2/issues/235) (filed 2026-10-07);
+the module's `contextMenu` menus (`T3ContextMenu.swift`: links, archive, branch, media, the right-panel tab's keyboard
+menu), which are flat and needed no submenu. Two right-click menus with submenus still use the module's `NSMenu` and
+are not converted in this round: the Files tree row's (Open with ▸) and the legacy sidebar project's (a grouped
+project's per-member submenus). They look the same as the reference's; the agent cannot choose from them. Converting
+them as the sidebar's were is a follow-up task (user decision: this round's live-drive budget was spent on the sidebar
+menus #223 was filed for). The issue stays open for #141 and #235.

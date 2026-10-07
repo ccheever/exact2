@@ -222,7 +222,7 @@ pub struct Kernel {
     /// Keeps nothing ([`Kernel::detached`]).
     detached: bool,
     /// List rows mounted out of their port that hold an animation waiting
-    /// for the row to show (`animation-trigger: view`, LLP 1055 D13).
+    /// for the row to show (`-exact-animation-trigger: view`, LLP 1055 D13).
     pub(crate) awaiting: crate::id::IdSet<ViewId>,
 }
 

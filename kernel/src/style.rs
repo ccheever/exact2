@@ -13,7 +13,7 @@ use crate::generated::{
 };
 
 mod backdrop;
-pub use backdrop::link as link_backdrop_filter;
+pub use backdrop::{link as link_backdrop_filter, BackdropFilter, BackdropOp};
 mod border;
 pub(crate) mod effects;
 pub use crate::gradient::link as link_gradients;
@@ -399,18 +399,6 @@ impl StyleValue {
         if let Some(value) = space::f32_row(self, style) {
             return value;
         }
-        // @ref LLP 1053.000 D1 — CSS `backdrop-filter`: `none` or one `blur()`.
-        if style == StyleId::BackdropBlur {
-            return match self {
-                StyleValue::Text(t) => backdrop::parse_linked(t)
-                    .map_err(|reason| StyleValueError::BadBackdropFilter { style, reason }),
-                StyleValue::Number(n) if (*n as f32).is_finite() && *n >= 0.0 => Ok(*n as f32),
-                _ => Err(StyleValueError::BadBackdropFilter {
-                    style,
-                    reason: "`backdrop-filter` is `none` or `blur(<length>)` (LLP 1053.000 D1)",
-                }),
-            };
-        }
         // @ref LLP 1043.000 §3 D1 — shape-margin is a nonnegative CSS length.
         if style == StyleId::ShapeMargin {
             let value = match self {
@@ -632,7 +620,6 @@ pub fn takes_text(style: StyleId) -> bool {
                         | Perspective
                         | SymbolValue
                         | TextStrokeWidth
-                        | BackdropBlur
                         | ShapeMargin
                 )
         }
@@ -672,6 +659,18 @@ fn parse_pixel_length(token: &str) -> Option<f32> {
     } else {
         token
     };
+    let value = parse_css_number(number)?;
+    let mantissa = number.split(['e', 'E']).next()?;
+    if value.abs() > f32::MAX as f64
+        || (!pixels && mantissa.bytes().any(|b| b.is_ascii_digit() && b != b'0'))
+    {
+        return None;
+    }
+    Some(value as f32)
+}
+
+/// A finite CSS number token, before a property's unit conversion and range check.
+fn parse_css_number(number: &str) -> Option<f64> {
     // Rust floats accept spellings outside CSS number tokens. Check the
     // decimal/exponent grammar before the range-preserving conversion.
     let unsigned = number.strip_prefix(['+', '-']).unwrap_or(number);
@@ -688,13 +687,7 @@ fn parse_pixel_length(token: &str) -> Option<f32> {
         return None;
     }
     let value = exact_num::parse_f64(number).ok()?;
-    if !value.is_finite()
-        || value.abs() > f32::MAX as f64
-        || (!pixels && mantissa.bytes().any(|b| b.is_ascii_digit() && b != b'0'))
-    {
-        return None;
-    }
-    Some(value as f32)
+    value.is_finite().then_some(value)
 }
 
 /// A colour as authored, which may not be a single colour yet.
@@ -716,7 +709,7 @@ pub enum ColorValue {
     /// A colour role (LLP 1095 D2), by id into `COLOR_ROLES`: the platform's
     /// own colour where a host has it, the role's pair everywhere else.
     Role(u8),
-    /// A `platform-color()` (LLP 1095 D3), by id into the interned table.
+    /// A `-exact-platform-color()` (LLP 1095 D3), by id into the interned table.
     Platform(u16),
     /// A colour in its own space, or a `light-dark()` with one (LLP 1100
     /// D2), by id into `style::wide`.
@@ -787,14 +780,14 @@ impl ColorValue {
         }
     }
 
-    /// A role (LLP 1095 D2), a `platform-color()` (D3), a colour in a
+    /// A role (LLP 1095 D2), a `-exact-platform-color()` (D3), a colour in a
     /// profile's or its own space (LLP 1100), or `light-dark(<color>,
     /// <color>)`. Anything else falls through to the plain colour parse.
     pub fn parse_light_dark(text: &str) -> Option<ColorValue> {
         if let Some(role) = roles::role(text) {
             return Some(ColorValue::Role(role));
         }
-        if text.trim_start().starts_with("platform-color(") {
+        if text.trim_start().starts_with("-exact-platform-color(") {
             return roles::parse_platform(text);
         }
         if text
@@ -851,7 +844,7 @@ pub enum RowValue<'a> {
     ShapeOutside(&'a exact_textflow::ShapeOutside),
     /// CSS `aspect-ratio` as authored (LLP 1053 G1).
     AspectRatio(&'a crate::ratio::AspectRatio),
-    /// `drag-timeline` (LLP 1057.003).
+    /// `-exact-drag-timeline` (LLP 1057.003).
     DragTimeline(&'a crate::timeline::DragTimeline),
     /// CSS `animation-timeline` (LLP 1057.003).
     AnimationTimeline(&'a crate::timeline::AnimationTimeline),
@@ -877,6 +870,8 @@ pub enum RowValue<'a> {
     BackgroundImage(&'a crate::gradient::BackgroundImage),
     /// CSS `box-shadow`: `none` or a list (LLP 1077 D4).
     BoxShadow(&'a BoxShadows),
+    /// CSS `backdrop-filter`, in authored order (LLP 1053.000 D1).
+    BackdropFilter(&'a BackdropFilter),
     /// CSS `text-shadow` (LLP 1077 D3).
     TextShadow(&'a TextShadow),
     /// CSS `mask-image`: `none` or one gradient (LLP 1077 D2).
@@ -918,6 +913,7 @@ impl RowValue<'_> {
     pub(crate) fn is_finite(&self) -> bool {
         match self {
             RowValue::LineHeight(v) => v.is_finite(),
+            RowValue::BackdropFilter(v) => v.is_finite(),
             RowValue::Dimension(v) => v.is_finite(),
             RowValue::Number(v) => v.is_finite(),
             RowValue::Vec2(v) => v.x.is_finite() && v.y.is_finite(),
@@ -1466,3 +1462,22 @@ mod touch_action;
 
 #[cfg(test)]
 mod touch_action_tests;
+
+impl crate::generated::TextDecorationLine {
+    /// CSS's `text-decoration-line`: one keyword, or `underline` and
+    /// `line-through` in either order. The pair's name is CSS's two
+    /// keywords, which the web writes as it is (LLP 1081 D2).
+    pub fn from_css(text: &str) -> Option<Self> {
+        let lower = text.to_ascii_lowercase();
+        let mut words: Vec<&str> = lower.split_ascii_whitespace().collect();
+        words.sort_unstable();
+        match words[..] {
+            ["line-through", "underline"] => Some(Self::UnderlineLineThrough),
+            [one] => Self::from_name(one),
+            _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod decoration_tests;

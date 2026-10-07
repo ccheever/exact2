@@ -25,6 +25,6 @@ component Visual
       box testId="children" position="absolute" left=270 top=210 width=100 height=70 background-color="#fdd835" mask-image="linear-gradient(transparent, #000000 50%)"
         box position="absolute" left=10 top=10 width=80 height=50 background-color="#43a047"
       box testId="masked-round" position="absolute" left=20 top=305 width=100 height=70 border-radius=20 background-color="#43a047" mask-image="linear-gradient(135deg, #000000 40%, #00000033)"
-      box testId="apple" position="absolute" left=145 top=305 width=100 height=70 border-radius=22 corner-shape="-apple-continuous" background-color="#1e88e5"
-      box testId="apple-border" position="absolute" left=270 top=305 width=100 height=70 box-sizing="border-box" border-style="solid" border-width=4 border-color="#000000" border-radius=22 corner-shape="-apple-continuous" background-color="#ffffff"
+      box testId="apple" position="absolute" left=145 top=305 width=100 height=70 border-radius=22 corner-shape="-exact-continuous" background-color="#1e88e5"
+      box testId="apple-border" position="absolute" left=270 top=305 width=100 height=70 box-sizing="border-box" border-style="solid" border-width=4 border-color="#000000" border-radius=22 corner-shape="-exact-continuous" background-color="#ffffff"
       button testId="dark" press=scheme aria-label="Scheme" position="absolute" left=20 top=400 width=40 height=40 background-color="#757575"

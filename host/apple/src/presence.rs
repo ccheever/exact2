@@ -4,13 +4,13 @@
 //! A receipt's exits name the one view of each removed subtree that leaves
 //! (the kernel's rule). The host tells the presenter `exit` before the
 //! batch's destroys, withholds the destroys of that view and everything
-//! under it, keeps its motion node, and plays its `exit-animation` from the
+//! under it, keeps its motion node, and plays its `-exact-exit-animation` from the
 //! commit's clock; when the engine passes the end, one `destroy` of the
 //! leaving view lets the presenter drop the lot. The leaving view is not in
 //! the mirror, so no frame, style or children op reaches it: it keeps its
 //! last laid-out frame while its old siblings take its place.
 //!
-//! A node with a `layout-transition` has its laid-out box in its parent
+//! A node with a `-exact-layout-transition` has its laid-out box in its parent
 //! (`Kernel::layout_box`) observed as `Property::Layout` after every layout
 //! that moved or resized it. The engine's transition rules apply (first seen
 //! takes the value, an interrupt starts from where it is); the presenter gets

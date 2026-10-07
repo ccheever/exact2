@@ -779,8 +779,14 @@ Measured zero-height runs are skipped by the height tree rather than flattened
 from a potentially huge endpoint hull. Typography invalidation restores estimates,
 the reading anchor and actual emitted rows/spacers. Individually valid heights
 whose sum would overflow native geometry are rejected without poisoning the
-runner. End-follow tolerates at most 0.5 logical units of host geometry rounding,
-including the browser's integer scroll range for fractional CSS row extents.
+runner. End-follow tolerates less than one logical unit of host geometry rounding
+(`END_SLACK`, `collection/index.rs`), including the browser's integer scroll range for
+fractional CSS row extents. **Amended 2026-10-07** from at most 0.5: Chrome rounds that
+range, but WebKit floors it (a 210.72 px extent in a 140 px port scrolls to 71 in Chrome and
+stops at 70 in WebKit), so a port at the end can read up to, but not, a pixel short, and a
+transcript stopped following its end in Safari (synthetic-lists, WebKit conformance). A
+reader a whole pixel or more above the runner's modelled end stays where they are; one less
+than a pixel above it is taken as at it, a tolerance, not a proof.
 
 **2026-09-18 (LLP 1027.004 S1, revised after review):** `reachstart` and
 `reachend` are argument-free list handlers dispatched after accepted host geometry
@@ -975,13 +981,15 @@ one (+64 pt), inside the frame the motion starts on. So:
   250 ms poll), an opening list never settled (`settle_start` needs no
   correction owed), and with its opening unsettled no follow was smooth:
   in such a session every sent message snapped. The runner now takes a port
-  within half a point of a followed end it has already sent as at it
+  within half a point (less than a point since 2026-10-07: `END_SLACK`, above) of a
+  followed end it has already sent as at it
   (`at_target`, `collection/start.rs`, and the web JS target's `list.js`,
   which mirrors it). An end that moved, by any amount, is sent once. A row
   anchor keeps 0.01: a row above it measured 0.4 pt taller is a real move,
-  and such moves add up report on report. Half a point is half a pixel
+  and such moves add up report on report. Half a point was half a pixel
   at 1x and more at any finer scale; a per-host half pixel would need each
-  host's scale in its reports. The web hosts take the runner's corrections,
+  host's scale in its reports. (2026-10-07: less than a point, `END_SLACK`,
+  since WebKit floors a fractional scroll range to whole pixels.) The web hosts take the runner's corrections,
   so the same loop under a browser's device-pixel `scrollTop` ends with it.
 - Not done: the host resolving a followed end from its own layout, a
   correction that names the end, not an offset (proposal on

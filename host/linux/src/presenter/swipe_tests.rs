@@ -28,7 +28,7 @@ fn source() -> String {
   view
     column width=400 height=500
       when showing
-        box testId="row" width=400 height=100 swiperight=reply touch-action="pan-y" opacity=(target == 0 ? 1 : 0.25) transition="translate spring(300, 30, 1)"
+        box testId="row" width=400 height=100 swiperight=reply touch-action="pan-y" opacity=(target == 0 ? 1 : 0.25) transition="translate -exact-spring(300, 30, 1)"
           box testId="indicator" swipeIndicator=true opacity=0 scale=0 transition="opacity 100ms ease-out, scale 100ms ease-out" width=10 height=10
           text "swipe me" testId="label"
       button press=hide testId="hide"
@@ -337,7 +337,7 @@ fn navigation_cancels_a_held_view_without_waiting_for_the_next_pointer_event() {
   view
     main navigationKey=selected navigationBack="back"
       column navigationKey="a"
-        box testId="row" width=400 height=100 swiperight=reply touch-action="pan-y" transition="translate spring(300, 30, 1)"
+        box testId="row" width=400 height=100 swiperight=reply touch-action="pan-y" transition="translate -exact-spring(300, 30, 1)"
           text "swipe me"
       column navigationKey="b"
         text "other route"
@@ -533,7 +533,7 @@ component App
         list id="content" testId="transcript" virtualized=true width=360.25 height=200.5 padding-left=1.3 border-width=0.7 border-style="solid" box-sizing="border-box"
           each m in rows key=m.rowKey
             column width="100%" padding=5.3 disabled=disabled display=(showing ? "flex" : "none")
-              box testId=`reply-hit-${{m.id}}` swiperight=replyTo(m.id) touch-action="pan-y" retainFocus=true transition="translate spring(300, 30, 1)" width="100%" padding=0 border-width=0 background-color="#00000000" text-align="left"
+              box testId=`reply-hit-${{m.id}}` swiperight=replyTo(m.id) touch-action="pan-y" retainFocus=true transition="translate -exact-spring(300, 30, 1)" width="100%" padding=0 border-width=0 background-color="#00000000" text-align="left"
                 MessageBubble(message=m)
               button press=replyTo(m.id) testId=`reply-${{m.id}}` padding=4 border-width=0 background-color="#00000000" align-self="flex-end"
                 text "Reply" font-size=11 color="#2668d8"

@@ -71,6 +71,34 @@ final class ActivityTests: XCTestCase {
         wait(for: [next], timeout: 2)
         lock.lock(); XCTAssertEqual(count, 2); lock.unlock()
     }
+    func testPageFactsHoldTheFirstReportAndEachChangeReportsAgain() {
+        // The window facts are the page's exactPage() (exact2 #219): document.visibilityState and
+        // document.hasFocus(), reported again on visibilitychange, focus and blur.
+        let reporter = T3ActivityReporter(persistent: false, dataDirectory: nil, observeWindows: false, pageFacts: true)
+        defer { reporter.destroy() }
+        let lock = NSLock()
+        var reports: [[String: Any]] = []
+        let early = expectation(description: "no report before the page's facts"); early.isInverted = true
+        var first: XCTestExpectation? = early, second: XCTestExpectation?
+        reporter.connect(UUID(), environment: "e") { value, done in
+            lock.lock(); reports.append(value); let waiting = reports.count == 1 ? first : second; lock.unlock()
+            waiting?.fulfill(); done()
+        }
+        wait(for: [early], timeout: 0.4)
+        let focusedReport = expectation(description: "the facts arrive")
+        lock.lock(); first = focusedReport; lock.unlock()
+        reporter.facts(visible: true, focused: true)
+        wait(for: [focusedReport], timeout: 2)
+        let blurred = expectation(description: "blur reports again")
+        lock.lock(); second = blurred; lock.unlock()
+        reporter.facts(visible: true, focused: false)
+        wait(for: [blurred], timeout: 2)
+        lock.lock(); defer { lock.unlock() }
+        XCTAssertEqual(reports.count, 2)
+        XCTAssertEqual(reports.map { $0["focused"] as? Bool }, [true, false])
+        XCTAssertEqual(reports.map { $0["visible"] as? Bool }, [true, true])
+        XCTAssertEqual(reports.map { $0["appState"] as? String }, ["active", "active"])
+    }
     func testIdentitySurvivesPreferenceSaveAndRelaunch() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }

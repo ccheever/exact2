@@ -32,14 +32,16 @@ enum PositionArea {
     /// `margins` widen the box being placed and the border box sits inside
     /// them. `none` (and `bottom span-right`) is D2's rule: the margin box's
     /// top-left at the invoker's bottom-left. A `top` area puts its bottom at
-    /// the invoker's top; `center` centres it over the invoker. Then the
-    /// margin box is clamped to the layer, as CSS shifts an absolutely
-    /// positioned box that overflows its area back into its containing block;
-    /// never flipped (a flip is `position-try`, not admitted).
+    /// the invoker's top; `center` centres it over the invoker; `right
+    /// span-bottom` (a submenu, §5) puts its top-left at the invoker's
+    /// top-right. Then the margin box is clamped to the layer, as CSS shifts
+    /// an absolutely positioned box that overflows its area back into its
+    /// containing block; never flipped (a flip is `position-try`, not admitted).
     static func origin(_ area: String, anchor: CGRect, size: CGSize, margins: Margins = .init(), in bounds: CGRect) -> CGPoint {
         let outer = CGSize(width: size.width + margins.left + margins.right, height: size.height + margins.top + margins.bottom)
-        let x = centred(area) ? anchor.midX - outer.width / 2 : anchor.minX
-        let y = area == "center" ? anchor.midY - outer.height / 2
+        let beside = area == "right span-bottom"
+        let x = beside ? anchor.maxX : centred(area) ? anchor.midX - outer.width / 2 : anchor.minX
+        let y = beside ? anchor.minY : area == "center" ? anchor.midY - outer.height / 2
             : area.hasPrefix("top") ? anchor.minY - outer.height : anchor.maxY
         return CGPoint(x: max(bounds.minX, min(x, bounds.maxX - outer.width)) + margins.left,
                        y: max(bounds.minY, min(y, bounds.maxY - outer.height)) + margins.top)

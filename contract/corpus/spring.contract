@@ -1,4 +1,4 @@
-// Accept fixture: a `spring()` transition. CSS cannot play it, so on the web
+// Accept fixture: a `-exact-spring()` transition. CSS cannot play it, so on the web
 // the host lowers it to frames (LLP 1002 D2); the easing beside it stays CSS.
 component Pop
   state big = false
@@ -8,4 +8,4 @@ component Pop
     column testId="root"
       button press=toggle aria-label="Toggle" testId="toggle"
         text "Toggle"
-      text "Hello" testId="hello" scale=(big ? 1.5 : 1) opacity=(big ? 0.5 : 1) transition="scale spring(180, 12, 1), opacity 200ms linear"
+      text "Hello" testId="hello" scale=(big ? 1.5 : 1) opacity=(big ? 0.5 : 1) transition="scale -exact-spring(180, 12, 1), opacity 200ms linear"

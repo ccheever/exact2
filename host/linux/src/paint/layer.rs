@@ -3,7 +3,9 @@
 //! moves and fades it every frame without the row being recorded again.
 
 use super::{border, gradient, Backend, Painter, Presented, Rect4, RunPaint, Shape};
-use crate::host::lower::{LOWER_DASH, LOWER_MOVE, LOWER_OPACITY, LOWER_R, LOWER_TRANSFORM};
+use crate::host::lower::{
+    LOWER_COLOR, LOWER_DASH, LOWER_MOVE, LOWER_OPACITY, LOWER_R, LOWER_TRANSFORM,
+};
 use crate::image::Bitmap;
 use crate::text::{Paragraph, TextEngine};
 use exact_kernel::motion::motion_node;
@@ -85,6 +87,9 @@ impl Painter {
         ];
         let pivot = (x + origin.0 + dx, y + origin.1 + dy);
         let taken = self.backend.layer_begin(motion_node(key), ts, pivot, base);
+        if taken && p.lowered & LOWER_COLOR != 0 {
+            self.backend.layer_recolored();
+        }
         Opened {
             lowered: if taken { p.lowered } else { 0 },
         }

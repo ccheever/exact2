@@ -894,7 +894,6 @@ impl<D: DataSource> Bridge<D> {
             3 => Event::Hover(false),
             4 => Event::Focus,
             5 => Event::Blur,
-            6 => Event::key(&payload),
             7 => Event::Submit,
             8 => Event::Load,
             9 => Event::Message(payload),
@@ -907,13 +906,15 @@ impl<D: DataSource> Bridge<D> {
             // up and move with its record (LLP 1005 §3; LLP 1056 §3 stage 3),
             // the clipboard's three, a text's selectionchange, and
             // beforeunload, wheel and drop, and a text field's `input`,
-            // `change` and `select` with its selection (x2apps codeedit #2)
+            // `change` and `select` with its selection (x2apps codeedit #2),
+            // and a key's down (6) and up (43) with its code and repeat
             // (`Event::of_host_kind`).
-            10 | 13 | 19 | 20 | 21 | 28..=38 | 40..=42 => match Event::of_host_kind(kind, &payload)
-            {
-                Ok(event) => event,
-                Err(error) => return self.emit(format!(r#"{{"ops":[],"error":"{error}"}}"#)),
-            },
+            6 | 10 | 13 | 19 | 20 | 21 | 28..=38 | 40..=43 => {
+                match Event::of_host_kind(kind, &payload) {
+                    Ok(event) => event,
+                    Err(error) => return self.emit(format!(r#"{{"ops":[],"error":"{error}"}}"#)),
+                }
+            }
             // @ref LLP 1038 D8 — the next ABI kind after scroll.
             14 => Event::Navigate(payload),
             15 => {

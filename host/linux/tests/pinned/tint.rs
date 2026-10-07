@@ -43,7 +43,7 @@ fn an_untinted_symbol_paints_the_accent_fallback() {
   view
     column width=100 height=100 background-color="#ffffff" color="#000000"
       image "symbol:play-fill" testId="plain" width=48 height=48 font-size=48
-      image "symbol:play-fill" testId="red" width=48 height=48 font-size=48 tint-color="#ff0000"
+      image "symbol:play-fill" testId="red" width=48 height=48 font-size=48 -exact-tint-color="#ff0000"
 "##,
     )
     .unwrap();

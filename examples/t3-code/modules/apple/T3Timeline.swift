@@ -30,7 +30,7 @@ final class T3Timeline {
     init(changed: @escaping (String) -> Void) { self.changed = changed }
 
     func install(_ element: ExactElement) {
-        guard element.hook == .t3Transcript else { return }
+        guard element.hatch == .t3Transcript else { return }
         let nextOwner = element.data[.timelineOwner] ?? ""
         let nextEligible = element.data[.timelineRest] == "yes"
         if self.element !== element {
