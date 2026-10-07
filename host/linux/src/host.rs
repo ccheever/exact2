@@ -226,7 +226,14 @@ impl<D: DataSource> Host<D> {
         exact_kernel::style::link_segments();
         exact_kernel::style::link_wide_colors();
         exact_kernel::timeline::link();
-        let kernel = Kernel::new(measurer);
+        let mut kernel = Kernel::new(measurer);
+        let env = exact_kernel::Env {
+            control_text_styles: Some(crate::paint::control::control_text_styles()),
+            ..kernel.env().clone()
+        };
+        kernel
+            .set_env(env)
+            .map_err(|e| HostError::Layout(format!("{e:?}")))?;
         // An `app:/data` image shows from the first frame, before storage
         // is configured and whether or not anything was picked (D7).
         crate::picker::know_roots(data.app_id());

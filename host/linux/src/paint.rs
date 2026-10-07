@@ -925,17 +925,11 @@ impl Painter {
             clip: clip_rect,
             scroll: scrolls.then(|| walk.scene.scroll.get(&id).copied().unwrap_or((0.0, 0.0))),
         });
-        let mut opacity = if layer.opacity() {
+        let opacity = if layer.opacity() {
             1.0
         } else {
             p.opacity.clamp(0.0, 1.0)
         };
-        if node.node_type == NodeType::TextInput
-            && node.style.appearance == exact_kernel::Appearance::Auto
-            && node.props.bool(PropId::Disabled) == Some(true)
-        {
-            opacity *= 0.5;
-        }
         // CSS opacity is paint only: a transparent subtree is still hit (the
         // walk records its boxes) and draws through a backend that draws nothing.
         // Visibility is not that: only this box's own paint is skipped.
@@ -1042,7 +1036,9 @@ impl Painter {
             NodeType::TextInput => {
                 self.row_refuse();
                 let native = node.style.appearance == exact_kernel::Appearance::Auto;
-                let field_shape = native.then(|| self.text_field_chrome(surface.outer.rect, ts));
+                let disabled = node.props.bool(PropId::Disabled) == Some(true);
+                let field_shape =
+                    native.then(|| self.text_field_chrome(surface.outer.rect, disabled, ts));
                 let content = if let Some(c) = node.field_content_rect() {
                     (rect.0 + c.x, rect.1 + c.y, c.width, c.height)
                 } else {
@@ -1081,12 +1077,18 @@ impl Painter {
                     } else {
                         ((content.3 - paragraph.height) / 2.0).max(0.0)
                     };
-                let ink = if placeholder {
+                let mut ink = if placeholder {
                     [0x75, 0x75, 0x75, 0xff]
                 } else {
                     presented_color(walk, node)
                         .unwrap_or_else(|| rgba(node.text_color().resolve(self.dark)))
                 };
+                if native
+                    && disabled
+                    && (placeholder || !node.style.mask.has(exact_kernel::StyleId::TextColor))
+                {
+                    ink = control::disabled_field_ink(ink, self.dark);
+                }
                 // The focused field's selection (x2apps codeedit #2).
                 let field = caret::FieldText {
                     style: &computed,
@@ -1121,10 +1123,8 @@ impl Painter {
                     );
                     let at_end = || exact_runner::FieldSelection::at_end(value);
                     self.field_caret(&field, caret, selection.unwrap_or_else(at_end), ts);
-                    if let Some(shape) = &field_shape {
-                        let accent = control::accent(node, self.dark).unwrap_or(control::ACCENT);
-                        self.field_ring(shape, accent, ts);
-                    }
+                    let accent = control::accent(node, self.dark).unwrap_or(control::ACCENT);
+                    self.field_ring(field_shape.as_ref().unwrap_or(&outer), accent, ts);
                 }
             }
             NodeType::Svg => self.svg(walk, node, rect, content, ts),

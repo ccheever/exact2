@@ -114,7 +114,7 @@ fn native_cell_look_keeps_bare_fields_and_authored_ink() {
     };
     let plan = contract::compile_path_terminal(&entry("look")).unwrap();
     let host = Host::boot(plan, (), Mode::Fullscreen, 40, 12).unwrap();
-    assert!(host.kernel().env().control_text_styles.is_none());
+    assert!(host.kernel().env().control_text_styles.is_some());
     let field = host
         .kernel()
         .node_by_key(host.kernel().find_by_test_id("field")[0])
@@ -125,7 +125,7 @@ fn native_cell_look_keeps_bare_fields_and_authored_ink() {
     let plan = contract::compile(
         r##"component App
   view
-    column color="#ff0000"
+    column color="#ff0000" font-size=32 font-style="italic" font-weight=700 letter-spacing=4
       input width="10ch" value="native" testId="native"
       input width="10ch" value="authored" color="#00ff00"
       input width="10ch" value="bare" appearance="none" disabled=true
@@ -134,6 +134,17 @@ fn native_cell_look_keeps_bare_fields_and_authored_ink() {
     )
     .unwrap();
     let mut host = Host::boot(plan, (), Mode::Fullscreen, 40, 12).unwrap();
+    let n = host
+        .kernel()
+        .node_by_key(host.kernel().find_by_test_id("native")[0])
+        .unwrap();
+    let s = n.computed_style(exact_kernel::StyleMask::INHERITED);
+    assert_eq!(s.font_family, 5);
+    assert_eq!(s.font_size, 16.0);
+    assert_eq!(s.font_weight, 400);
+    assert_eq!(s.font_style, exact_kernel::FontStyle::Normal);
+    assert_eq!(s.letter_spacing, 0.0);
+    assert_eq!(n.text_color().resolve(false).g(), 0);
     for dark in [false, true] {
         host.dark = dark;
         let painted = host.render(0, 12);

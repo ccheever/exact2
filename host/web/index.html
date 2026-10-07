@@ -37,6 +37,7 @@
   /* Native text fields keep the UA's chrome and content-box sizing, with
      the common reset's inherited typography (LLP 1104 D4, D8). */
   #exact-root [data-native] { all: revert; display: block; font: inherit; letter-spacing: inherit; color: inherit; }
+  #exact-root [data-native]:disabled { color: revert; }
   select { display: block; }
   /* A link is a bare node too: the UA's link colour, underline and pointer
      go, as a button's control styling does. A \`link\` is block-level like any
@@ -48,7 +49,9 @@
      tree; its box is a bare div's, so the UA's heading margins, size and
      weight go. The node's own style rows, inline, still win. */
   h1, h2, h3, h4, h5, h6 { margin: 0; font-size: inherit; font-weight: inherit; }
-  #exact-root button:focus-visible { outline: revert; outline-offset: 2px; }
+  #exact-root button:focus-visible,
+  #exact-root input:not([data-native]):focus-visible,
+  #exact-root textarea:not([data-native]):not([markup="markdown"]):focus-visible { outline: revert; outline-offset: 2px; }
   /* The UA's own reset, which \`all: unset\` undid: a field shows what was
      typed, as the kernel measures it and native fields draw it (LLP 1064 D6). */
   #exact-root [data-native], input, textarea { cursor: text; -webkit-user-select: text; user-select: text; text-transform: none; }
