@@ -38,7 +38,7 @@ mod collection;
 mod source;
 pub use source::{
     Announce, BackgroundState, DataError, DataSource, InFlight, Interrupt, Native, NativeCall,
-    NativeHandler, Target, BACKGROUND,
+    NativeHandler, PreloadWake, Target, BACKGROUND,
 };
 mod delivery;
 mod device;

@@ -219,6 +219,21 @@ impl<D: DataSource> DataSource for Swappable<D> {
             _ => Ok(true),
         }
     }
+    fn when_preloaded(&self, wake: Box<dyn FnOnce() + Send>) {
+        if let Some(embedded) = &self.embedded {
+            return embedded.when_preloaded(wake);
+        }
+        match (self.preloader, self.bytes.as_deref()) {
+            #[cfg(any(
+                target_os = "macos",
+                target_os = "linux",
+                target_os = "windows",
+                target_os = "android"
+            ))]
+            (Some(_), Some(bytes)) => native::when_loaded(bytes, wake),
+            _ => wake(),
+        }
+    }
     fn app_id(&self) -> &str {
         &self.app_id
     }

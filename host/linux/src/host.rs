@@ -19,6 +19,8 @@ use exact_plan::Plan;
 use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
 use std::collections::BTreeMap;
 
+#[path = "activation.rs"]
+mod activation;
 #[path = "arrange.rs"]
 mod arrange;
 #[path = "content_region/host.rs"]
@@ -115,6 +117,9 @@ pub struct Host<D: DataSource> {
         u64,
         Vec<(exact_motion::Property, exact_motion::PlayedTransition)>,
     >,
+    /// The executor's wake, which a pending activation leaves with the data
+    /// source, so the display loop doesn't poll.
+    preload_wake: exact_runner::PreloadWake,
     router_op: Option<exact_runner::RouterChange>,
     navigation: crate::navigation::Navigation,
     presence: presence::Presence,
@@ -266,6 +271,7 @@ impl<D: DataSource> Host<D> {
             lowered_epoch: 0,
             lowered_changed: Default::default(),
             played: Default::default(),
+            preload_wake: Default::default(),
             router_op: None,
             navigation: Default::default(),
             presence: Default::default(),
@@ -682,62 +688,6 @@ impl<D: DataSource> Host<D> {
         self.runner.log(line);
     }
 
-    fn configure_storage(&mut self) -> Result<(), exact_runner::DataError> {
-        let app_id = self.runner.data().app_id().to_string();
-        let Some(([data, cache, temporary], _)) = crate::picker::app_dirs(&app_id)? else {
-            return Ok(());
-        };
-        // An authored test's store starts empty every run (`agent --test`):
-        // emptied at the boot that read it, so this is a no-op unless that failed.
-        crate::picker::empty_fresh_tree(&app_id)?;
-        // What `app:/` names for the picker and an image's source (LLP
-        // 1069.002 D4, D7); the last launch's picks go.
-        crate::picker::set_roots(data.clone(), cache.clone(), temporary.clone());
-        self.runner.data().configure_storage(data, cache, temporary)
-    }
-
-    /// Activate deferred data only after the presenter has produced first pixel.
-    /// Returns whether a data-ready commit needs presenting and dispatching.
-    pub fn activate_data(&mut self) -> Result<bool, String> {
-        if self.data_activated {
-            return Ok(false);
-        }
-        if !self
-            .runner
-            .data_ref()
-            .preload()
-            .map_err(|e| format!("prepare data: {e:?}"))?
-        {
-            return Ok(false);
-        }
-        if let Err(error) = self
-            .configure_storage()
-            .and_then(|()| self.runner.data().activate())
-        {
-            return Err(format!("activate data: {error:?}"));
-        }
-        self.data_activated = true;
-        match self.runner.data_ready() {
-            Ok(Some(receipt)) => match self.commit(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ) {
-                Some(error) => Err(error),
-                None => Ok(true),
-            },
-            Ok(None) => Ok(false),
-            Err(error) => Err(format!("data ready: {error:?}")),
-        }
-    }
-
-    /// Deferred image preparation needs another turn after first pixel.
-    pub fn data_pending(&self) -> bool {
-        !self.data_activated
-    }
-
     /// The work behind a continuation, dispatched on this thread after the
     /// commit that handed it out (LLP 1027.002 D3).
     pub fn dispatch_work(&mut self, token: u64) -> exact_runner::Dispatch {
@@ -753,6 +703,7 @@ impl<D: DataSource> Host<D> {
     /// also wake (LLP 1016.002).
     pub fn executor(&mut self) -> crate::executor::Executor {
         let executor = crate::executor::Executor::start(&self.grants());
+        self.preload_wake.set(executor.waker());
         self.runner.listen(executor.waker());
         executor
     }
