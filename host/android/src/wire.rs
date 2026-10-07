@@ -140,6 +140,7 @@ impl Encoder {
                         b"spatial" => flag(value, 4, &mut flags)?,
                         b"canvas" => flag(value, 8, &mut flags)?,
                         b"frames" => flag(value, 16, &mut flags)?,
+                        b"controls" => flag(value, 256, &mut flags)?,
                         b"canvasOwed" => flag(value, 32, &mut flags)?,
                         b"clock" => {
                             clock = number(value)?;

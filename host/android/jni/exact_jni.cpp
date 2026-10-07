@@ -118,6 +118,7 @@ struct Session {
     const std::thread::id owner = std::this_thread::get_id();
     PackedBuffer measure_wire;
     PackedBuffer fonts_wire;
+    std::vector<uint8_t> scroll_input;
     jobject output_wrapper = nullptr;
     const uint8_t *output_address = nullptr;
     uint32_t output_capacity = 0;
@@ -522,6 +523,41 @@ jobject intrinsics(JNIEnv *env, jclass, jlong handle, jbyteArray payload) {
         return input(env, s, payload, count) ? exact_android_intrinsics(s.runtime, count) : 0;
     });
 }
+jobject controlQuery(JNIEnv *env, jclass, jlong handle, jint view, jint kind) {
+    return transaction(env, handle, [&](Session &s) {
+        return exact_android_control_query(s.runtime, uint32_t(view), uint32_t(kind));
+    });
+}
+void scrolled(JNIEnv *env, jclass, jlong handle, jbyteArray positions) {
+    boundary(env, false, [&]() {
+        auto *s = session(env, handle);
+        if (!s) return false;
+        const auto count = positions ? env->GetArrayLength(positions) : 0;
+        if (env->ExceptionCheck()) return false;
+        if (count % 20 != 0) { fail(env, argument_error, "Truncated native scroll facts"); return false; }
+        ++s->transactions;
+        s->scroll_input.resize(size_t(count));
+        if (count) env->GetByteArrayRegion(positions, 0, count, reinterpret_cast<jbyte *>(s->scroll_input.data()));
+        if (env->ExceptionCheck()) return false;
+        for (jint offset = 0; offset < count; offset += 20) {
+            const auto *r = s->scroll_input.data() + offset;
+            const uint32_t id = uint32_t(r[0]) | uint32_t(r[1]) << 8 | uint32_t(r[2]) << 16 | uint32_t(r[3]) << 24;
+            double left, top;
+            std::memcpy(&left, r + 4, sizeof(left));
+            std::memcpy(&top, r + 12, sizeof(top));
+            if (!exact_android_scrolled(s->runtime, id, left, top)) {
+                fail(env, argument_error, "Invalid native scroll facts"); return false;
+            }
+        }
+        return true;
+    });
+}
+jobject collectionFeedback(JNIEnv *env, jclass, jlong handle, jbyteArray payload, jdouble now) {
+    return transaction(env, handle, [&](Session &s) {
+        uint32_t count;
+        return input(env, s, payload, count) ? exact_android_collection_feedback(s.runtime, count, now) : 0;
+    });
+}
 jobject agent(JNIEnv *env, jclass, jlong handle, jbyteArray payload) {
     return transaction(env, handle, [&](Session &s) {
         uint32_t count;
@@ -575,6 +611,9 @@ JNINativeMethod methods[] = {
     NATIVE(intrinsic, "(JIFF)Ljava/nio/ByteBuffer;"),
     NATIVE(intrinsics, "(J[B)Ljava/nio/ByteBuffer;"),
     NATIVE(agent, "(J[B)Ljava/nio/ByteBuffer;"),
+    NATIVE(controlQuery, "(JII)Ljava/nio/ByteBuffer;"),
+    NATIVE(collectionFeedback, "(J[BD)Ljava/nio/ByteBuffer;"),
+    NATIVE(scrolled, "(J[B)V"),
     NATIVE(bridgeStats, "(J)[J")
 };
 #undef NATIVE

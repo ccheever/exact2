@@ -102,6 +102,18 @@ pub trait GeneralRuntime<D: DataSource>: backend_sealed::Backend<D> + Sized {
     fn intrinsics(&mut self, len: usize) -> u32 {
         unreachable!("uninhabited core fallback")
     }
+    /// Read a native control's shared viewless contents (0 face, 1 options, 2 radio).
+    fn control_query(&mut self, view: u32, kind: u32) -> u32 {
+        unreachable!("uninhabited core fallback")
+    }
+    /// Record a native scroll offset without publishing or laying out.
+    fn scrolled(&mut self, view: u32, left: f64, top: f64) {
+        unreachable!("uninhabited core fallback")
+    }
+    /// Deliver the shared viewport collection feedback protocol.
+    fn collection_feedback(&mut self, len: usize, now: f64) -> u32 {
+        unreachable!("uninhabited core fallback")
+    }
     /// Existing owner operation `agent`.
     fn agent(&mut self, len: usize) -> u32 {
         unreachable!("uninhabited core fallback")
@@ -165,6 +177,26 @@ impl<D: DataSource> GeneralRuntime<D> for General<D> {
     }
     fn intrinsics(&mut self, len: usize) -> u32 {
         exact_apple::abi::Bridge::intrinsics(self, len)
+    }
+    fn control_query(&mut self, view: u32, kind: u32) -> u32 {
+        match kind {
+            0 => exact_apple::abi::Bridge::press_face(self, view),
+            1 => exact_apple::abi::Bridge::select_options(self, view),
+            2 => exact_apple::abi::Bridge::radio_group(self, view),
+            _ => {
+                let len = exact_apple::abi::Bridge::input_write(
+                    self,
+                    br#"{"op":"invalid Android control query"}"#,
+                );
+                exact_apple::abi::Bridge::agent(self, len)
+            }
+        }
+    }
+    fn scrolled(&mut self, view: u32, left: f64, top: f64) {
+        exact_apple::abi::Bridge::scrolled(self, false, view, left, top)
+    }
+    fn collection_feedback(&mut self, len: usize, now: f64) -> u32 {
+        exact_apple::abi::Bridge::collection_feedback(self, len, now)
     }
     fn agent(&mut self, len: usize) -> u32 {
         exact_apple::abi::Bridge::agent(self, len)
@@ -550,6 +582,39 @@ impl<D: DataSource, G: GeneralRuntime<D>> Bridge<D, G> {
             }
             _ => self.refuse("not booted"),
         }
+    }
+    /// Query controls through the existing portable host without a second tree.
+    /// The reply is JSON, not a publication; callers must consume its lease first.
+    pub fn control_query(&mut self, view: u32, kind: u32) -> u32 {
+        self.binary = false;
+        if let Owner::General(b) = &mut self.owner {
+            return b.control_query(view, kind);
+        }
+        self.output.clear();
+        self.output.extend_from_slice(
+            br#"{"error":"control query requires a general native owner and known query"}"#,
+        );
+        self.output.len() as u32
+    }
+    /// Record coalesced native scroll facts before the next authored turn.
+    pub fn scrolled(&mut self, view: u32, left: f64, top: f64) -> bool {
+        if view == 0 || !left.is_finite() || !top.is_finite() {
+            return false;
+        }
+        match &mut self.owner {
+            Owner::General(b) => b.scrolled(view, left, top),
+            Owner::Core(c) => c.scrolled(view, left, top),
+            Owner::Empty => return false,
+        }
+        true
+    }
+    /// Forward fixed-width collection facts to the shared native runner.
+    pub fn collection_feedback(&mut self, len: usize, now: f64) -> u32 {
+        if let Owner::General(b) = &mut self.owner {
+            self.binary = false;
+            return b.collection_feedback(len, now);
+        }
+        self.refuse("collection feedback requires a general native owner")
     }
     /// Read the shared agent's runner/kernel state; replies remain JSON.
     pub fn agent(&mut self, len: usize) -> u32 {

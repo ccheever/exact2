@@ -118,6 +118,10 @@ class ExactActivity : Activity() {
         }
         setContentView(exact)
     }
+    @Suppress("DEPRECATION")
+    override fun onBackPressed() {
+        if (!exact.navigateBack()) super.onBackPressed()
+    }
     override fun onStart() { super.onStart(); exact.setSessionVisible(true) }
     override fun onStop() { exact.setSessionVisible(false); super.onStop() }
     override fun onDestroy() { benchmark?.close(); comparison?.close(); startup?.close(); exact.close(); super.onDestroy() }

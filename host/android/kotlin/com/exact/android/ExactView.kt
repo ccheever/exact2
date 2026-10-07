@@ -16,7 +16,7 @@ import java.nio.ByteBuffer
 import kotlin.math.ceil
 
 /** An embeddable imperative session. The main thread owns Rust and Android presentation. */
-class ExactView(context: Context, initialPress: String? = null) : FrameLayout(context), AutoCloseable {
+class ExactView(context: Context, initialPress: String? = null, nativeFactory: NativeViewFactory? = null) : FrameLayout(context), AutoCloseable {
     companion object {
         private fun ownerLooper(): Looper {
             val owner = Looper.getMainLooper()
@@ -52,9 +52,10 @@ class ExactView(context: Context, initialPress: String? = null) : FrameLayout(co
     private var schedule: BatchReader.Schedule? = null
     private val pending = java.util.ArrayDeque<() -> Unit>()
     private val imageSizes = LinkedHashMap<Int, Pair<Float, Float>>()
+    private val scrollPositions = LinkedHashMap<Int, Pair<Double, Double>>()
     private val text = TextEngine(context) { requestPump() }
     private val presenter = Presenter(context, text, ::event,
-        ::notifyTitle, { id, w, h -> imageSizes[id] = w to h }, ::requestFit)
+        ::notifyTitle, { id, w, h -> imageSizes[id] = w to h }, ::requestFit, ::collectionFeedback, nativeFactory, { id, x, y -> scrollPositions[id] = x to y })
     private var handle = Native.create(text)
     var onTitle: ((String) -> Unit)? = null
     internal var onBoot: (() -> Unit)? = null
@@ -69,6 +70,7 @@ class ExactView(context: Context, initialPress: String? = null) : FrameLayout(co
     internal fun groupInfo(): List<Presenter.GroupInfo> = presenter.groupInfo()
     internal fun accessibility(testId: String): Pair<android.view.accessibility.AccessibilityNodeProvider, Int>? = presenter.accessibility(testId)
     internal val startupReady: Boolean get() = booted && !closed && viewportValid && !fitQueued && !fitting && !applying
+    fun navigateBack(): Boolean = !closed && booted && presenter.back()
     internal fun activate(testId: String): Boolean = presenter.activate(testId)
     internal fun actionView(testId: String): View? = presenter.actionView(testId)
     internal fun bridgeStats(): LongArray = Native.bridgeStats(handle)
@@ -102,6 +104,11 @@ class ExactView(context: Context, initialPress: String? = null) : FrameLayout(co
         val deliver = { apply { Native.dispatch(handle, id, kind, value?.toByteArray(Charsets.UTF_8), now()) } }
         if (applying) pending.add(deliver) else deliver()
     }
+    private fun collectionFeedback(bytes: ByteArray) {
+        if (closed || !booted) return
+        val deliver = { if (!closed) apply { Native.collectionFeedback(handle, bytes, now()) } }
+        if (applying) pending.add(deliver) else deliver()
+    }
     private fun notifyTitle(value: String) {
         val notify = { if (!closed) onTitle?.invoke(value); Unit }
         // Public callbacks may close the session or dispatch another turn. The
@@ -117,12 +124,30 @@ class ExactView(context: Context, initialPress: String? = null) : FrameLayout(co
             // caused by applying props are deferred until decoding has finished.
             val observer = observeTransaction
             val start = if (observer != null) System.nanoTime() else 0L
+            // Scrolling stays entirely native. Coalesce its metadata and cross
+            // JNI once only when an authored turn needs visible frame()/measure().
+            if (scrollPositions.isNotEmpty()) {
+                val positions = ByteBuffer.allocate(scrollPositions.size * 20).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                for ((id, offset) in scrollPositions) positions.putInt(id).putDouble(offset.first).putDouble(offset.second)
+                scrollPositions.clear()
+                Native.scrolled(handle, positions.array())
+            }
             val buffer = call()
             val committed = if (observer != null) System.nanoTime() else 0L
             schedule = BatchReader.apply(buffer, presenter)
+            // Queries may overwrite the native output, so read faces only after
+            // BatchReader has finished consuming the entire direct-buffer lease.
+            presenter.resolveControls { id, kind ->
+                val response = Native.controlQuery(handle, id, kind)
+                val bytes = ByteArray(response.remaining()); response.get(bytes)
+                org.json.JSONObject(String(bytes, Charsets.UTF_8))
+            }
             observer?.invoke(committed - start, System.nanoTime() - committed)
             val current = schedule!!
             if (current.flags and 64 != 0) clockOffset = current.clock - SystemClock.uptimeMillis()
+        } catch (error: Throwable) {
+            presenter.abort()
+            throw error
         } finally { applying = false }
         arm()
         if (imageSizes.isNotEmpty()) {

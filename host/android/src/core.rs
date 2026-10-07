@@ -368,6 +368,10 @@ impl<D: DataSource> Core<D> {
         Ok((core, out))
     }
 
+    pub(crate) fn scrolled(&mut self, view: ViewId, left: f64, top: f64) {
+        self.runner.scrolled(Some(view), left, top);
+    }
+
     fn publish(
         &mut self,
         receipts: &[CommitReceipt],

@@ -92,6 +92,7 @@ internal object BatchReader {
         if (metadata != null && !metadata.isNull("error")) error(metadata.getString("error"))
         require(flags and (8 or 32) == 0) { "Android canvas executor is not implemented" }
         buffer.position(start)
+        target.begin()
         try {
             repeat(count) {
                 val opcode = buffer.get().toInt() and 255
@@ -120,6 +121,7 @@ internal object BatchReader {
                 }
                 check(buffer.position() == end)
             }
+            if (flags and 256 != 0) target.controlsChanged()
             target.finish()
         } finally { target.discardStylePool() }
         return Schedule(flags, clock, due, metadata)

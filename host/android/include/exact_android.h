@@ -33,6 +33,10 @@ uint32_t exact_android_preferences(uint32_t rt, uint32_t bits);
 uint32_t exact_android_insets(uint32_t rt, float top, float right, float bottom, float left);
 uint32_t exact_android_intrinsic(uint32_t rt, uint32_t view, float width, float height);
 uint32_t exact_android_intrinsics(uint32_t rt, size_t len);
+/* Control contents (0 button face, 1 select options, 2 radio group) are JSON. */
+uint32_t exact_android_control_query(uint32_t rt, uint32_t view, uint32_t kind);
+uint32_t exact_android_scrolled(uint32_t rt, uint32_t view, double left, double top);
+uint32_t exact_android_collection_feedback(uint32_t rt, size_t len, double now);
 /* The agent reply alone is UTF-8 JSON, using the same out buffer. */
 uint32_t exact_android_agent(uint32_t rt, size_t len);
 

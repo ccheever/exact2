@@ -199,6 +199,30 @@ macro_rules! host {
         pub extern "C" fn exact_android_intrinsics(rt: u32, len: usize) -> u32 {
             $crate::session::transaction(&EXACT_ANDROID, rt, false, |b, _| b.intrinsics(len))
         }
+        /// Query native control contents; JSON consumed before the next call.
+        #[no_mangle]
+        pub extern "C" fn exact_android_control_query(rt: u32, view: u32, kind: u32) -> u32 {
+            $crate::session::transaction(&EXACT_ANDROID, rt, true, |b, _| {
+                b.control_query(view, kind)
+            })
+        }
+        /// Record native scroll metadata; no output buffer or publication changes.
+        #[no_mangle]
+        pub extern "C" fn exact_android_scrolled(rt: u32, view: u32, left: f64, top: f64) -> u32 {
+            $crate::session::with_session(
+                &EXACT_ANDROID,
+                rt,
+                |s| u32::from(s.bridge.scrolled(view, left, top)),
+                || 0,
+            )
+        }
+        /// Report a mounted viewport using the shared little-endian v3 protocol.
+        #[no_mangle]
+        pub extern "C" fn exact_android_collection_feedback(rt: u32, len: usize, now: f64) -> u32 {
+            $crate::session::transaction(&EXACT_ANDROID, rt, false, |b, _| {
+                b.collection_feedback(len, now)
+            })
+        }
         /// Query the shared agent API; output is UTF-8 JSON instead of EXA1.
         #[no_mangle]
         pub extern "C" fn exact_android_agent(rt: u32, len: usize) -> u32 {

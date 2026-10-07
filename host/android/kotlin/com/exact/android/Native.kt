@@ -18,6 +18,9 @@ internal object Native {
     @JvmStatic external fun insets(handle: Long, top: Float, right: Float, bottom: Float, left: Float): ByteBuffer
     @JvmStatic external fun intrinsic(handle: Long, view: Int, width: Float, height: Float): ByteBuffer
     @JvmStatic external fun intrinsics(handle: Long, sizes: ByteArray): ByteBuffer
+    @JvmStatic external fun controlQuery(handle: Long, view: Int, kind: Int): ByteBuffer
+    @JvmStatic external fun scrolled(handle: Long, positions: ByteArray)
+    @JvmStatic external fun collectionFeedback(handle: Long, facts: ByteArray, now: Double): ByteBuffer
     @JvmStatic external fun agent(handle: Long, request: ByteArray): ByteBuffer
     @JvmStatic external fun bridgeStats(handle: Long): LongArray
     @JvmStatic external fun close(handle: Long)

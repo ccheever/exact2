@@ -68,18 +68,29 @@ targeting native performance. Rust remains the app-state and CSS-layout owner;
 Android retains the platform view tree. This is an alternative to the Android
 Canvas painter experiments built over `host/linux`.
 
-The current prototype uses `EditText`, `ImageView` and vertical `ScrollView`.
-Buttons are custom view containers with platform ripples and accessibility
-semantics. Text uses the public Compose `Paragraph` API without a composition
-tree; text and backgrounds still draw through Android Canvas, with retained
-RenderNodes for eligible passive text. Native toolbars, navigation and general
-native component embedding are goals, not implemented features.
+The presenter uses `EditText`, `ImageView`, vertical `ScrollView`, and SDK
+`Button`, `CheckBox`, `Switch`, `RadioButton`, `SeekBar` and picker dialogs for
+native controls. `button appearance="auto"` uses the SDK button; authored CSS
+buttons keep the existing container and platform ripple. Text uses the public
+Compose `Paragraph` API without a composition tree; text and backgrounds draw
+through Android Canvas, with retained RenderNodes for eligible passive text.
+
+Authored `navigationKey` state selects retained routes. A route's first `header`
+with one heading projects its title and actions into an SDK `Toolbar`; system
+back invokes the live authored back action. Horizontal `tablist` and inline
+`toolbar` roles use SDK controls too. The runner remains the route/state owner.
+Virtualized vertical lists use the shared collection snapshots, measurements and
+anchor-correction protocol, with native scrolling and bounded feedback turns.
+`ExactView` also accepts a per-session `NativeViewFactory` for embedding a View
+in an existing native host; loading native module artifacts is still unsupported.
 
 One borrowed direct-buffer transaction crosses JNI for each event or active
 animation frame. Changed paint, geometry and transform values use binary records;
 cold tree and style operations retain the existing native dictionary vocabulary.
-Native scrolling without an authored handler stays in Android. The adapter
-reuses the existing Rust runner/kernel and the Apple host's portable bridge and
+Native scrolling without an authored handler stays in Android. Scroll offsets
+are coalesced before the next authored turn so `frame()` and `measure()` read the
+visible geometry. Control-content queries run after the borrowed publication has
+been consumed. The adapter reuses the existing Rust runner/kernel and the Apple host's portable bridge and
 request executor rather than introducing another layout engine.
 
 `apps/android-core` provides a counter, native text editing, eager scrollable
@@ -99,12 +110,13 @@ can select the Gradle executable. APKs use Rust release, R8 and resource shrinki
 local builds use a development signing key. Delivery and Rust replacement must
 be disabled in the Android app manifest.
 
-This draft does not implement virtualized collections, Canvas 2D, SVG, Markdown,
-WebViews, video, GPU/native module artifacts, delivery or Rust replacement.
-Advanced text/font cases fail explicitly. Its core publication currently keeps
-an outdated environment snapshot across layout, which can resend styles on the
-next paint-only update; that issue remains open rather than reverting the
-kernel's viewport update.
+This draft does not implement horizontal virtualized collections, Canvas 2D,
+SVG, Markdown, WebViews, video, GPU/native module artifacts, delivery or Rust
+replacement. Native chrome covers the route/header/tab subset above; rich search
+headers, keyboard toolbars and modal transitions remain outside that subset.
+Advanced text/font cases fail explicitly. The core presenter captures styles
+after layout updates the kernel's viewport environment; viewport resize and
+inset changes refresh retained styles, while paint-only turns stay sparse.
 
 ## Contents
 

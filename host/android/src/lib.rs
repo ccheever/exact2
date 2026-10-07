@@ -30,3 +30,6 @@ mod carrier_tests;
 
 /// Explicit source contract and conservative bake-time selection.
 pub use carrier::{baked_core_eligible, DataContract};
+
+#[cfg(test)]
+mod controls_tests;
