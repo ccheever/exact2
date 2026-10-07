@@ -88,20 +88,57 @@ component NewTaskHero
     chooseProject: action
     chooseEnvironment: action
     colors: ComposerColors
+    iconMuted: string
+    voiceBusy: bool
   view
-    column flex=1 min-height=0 align-items="center" padding-top=72 padding-left=21 padding-right=21 gap=21
+    column width="100%" box-sizing="border-box" align-items="center" padding-left=21 padding-right=21 gap=(data.scratch ? 7 : 21) testId="new-task-hero"
       when data.scratch
-        text "What should we work on?" font-size=26 line-height="32px" font-weight=500 color=colors.foreground text-align="center"
+        text "What should we work on?" font-size=26 line-height="32px" font-weight=500 letter-spacing="-0.025em" color=colors.foreground text-align="center"
+        row max-width="100%" flex-wrap="wrap" align-items="center" justify-content="center" gap=3.5
+          button press=chooseProject disabled=(not data.canSelect) box-sizing="border-box" height=38.5 padding-left=7 padding-right=7 max-width=190 border-radius=10.5 aria-label="Choose a project"
+            row align-items="center" gap=7
+              t3-symbol symbol-name="folder" point-size=14 symbol-tint=iconMuted width=14 height=14
+              text "Choose a project" font-size=14 line-height="19px" font-weight=500 color=colors.muted line-clamp=1
+              t3-symbol symbol-name="chevron.right" point-size=10 symbol-tint=iconMuted width=10 height=10
+          NewTaskEnvironmentControl(data=data, choose=chooseEnvironment, colors=colors, iconMuted=iconMuted, voiceBusy=voiceBusy)
       else
-        column align-items="center" gap=5.25
-          text "What should we build" font-size=26 line-height="32px" font-weight=500 color=colors.foreground text-align="center"
+        column width="100%" align-items="center" gap=5.25
+          text "What should we build" font-size=26 line-height="32px" font-weight=500 letter-spacing="-0.025em" color=colors.foreground text-align="center"
           row max-width="100%" align-items="center" justify-content="center"
-            text "in " font-size=26 line-height="32px" font-weight=500 color=colors.foreground
-            button press=chooseProject disabled=(not data.canSelect) max-width=250 min-width=0 padding=0 border-bottom-width=1 border-bottom-style="solid" border-bottom-color=colors.muted
-              text data.projectTitle line-clamp=1 text-overflow="ellipsis" font-size=26 line-height="32px" font-weight=500 color=colors.foreground
-            text "?" font-size=26 line-height="32px" font-weight=500 color=colors.foreground
-      button press=chooseEnvironment disabled=(length(data.environments) < 2 or not data.canSelect) padding=0
-        text `on ${data.environmentLabel}` font-size=14 line-height="19px" color=colors.muted
+            text "in " font-size=26 line-height="32px" font-weight=500 letter-spacing="-0.025em" color=colors.foreground
+            button press=chooseProject disabled=(not data.canSelect) max-width=250 min-width=0 padding=0 border-bottom-width=1 border-bottom-style="solid" border-bottom-color=colors.muted aria-label=data.projectTitle
+              text data.projectTitle line-clamp=1 text-overflow="ellipsis" font-size=26 line-height="32px" font-weight=500 letter-spacing="-0.025em" color=colors.foreground
+            text "?" font-size=26 line-height="32px" font-weight=500 letter-spacing="-0.025em" color=colors.foreground
+        NewTaskEnvironmentControl(data=data, choose=chooseEnvironment, colors=colors, iconMuted=iconMuted, voiceBusy=voiceBusy)
+
+component NewTaskEnvironmentControl
+  props
+    data: NewTaskSnapshot
+    choose: action
+    colors: ComposerColors
+    iconMuted: string
+    voiceBusy: bool
+  view
+    when length(data.environments) > 1
+      button press=choose disabled=(not data.canSelect or voiceBusy) box-sizing="border-box" height=38.5 max-width=(data.scratch ? 170 : 260) padding-left=7 padding-right=7 border-radius=10.5 aria-label=`Environment: ${data.environmentLabel}` opacity=(not data.canSelect or voiceBusy ? 0.45 : 1)
+        NewTaskEnvironmentLabel(data=data, colors=colors, iconMuted=iconMuted)
+    else
+      row box-sizing="border-box" height=38.5 max-width=(data.scratch ? 170 : 260) padding-left=7 padding-right=7 align-items="center" opacity=(not data.canSelect or voiceBusy ? 0.45 : 1)
+        NewTaskEnvironmentLabel(data=data, colors=colors, iconMuted=iconMuted)
+
+component NewTaskEnvironmentLabel
+  props
+    data: NewTaskSnapshot
+    colors: ComposerColors
+    iconMuted: string
+  view
+    row min-width=0 align-items="center" gap=7
+      each environment in data.environments key=environment.id
+        when environment.selected
+          t3-symbol symbol-name=environment.machine point-size=14 symbol-tint=iconMuted width=14 height=14 flex-shrink=0
+      text `on ${data.environmentLabel}` min-width=0 flex-shrink=1 font-size=14 line-height="19px" font-weight=500 color=colors.muted line-clamp=1 text-overflow="ellipsis"
+      when length(data.environments) > 1
+        t3-symbol symbol-name="chevron.right" point-size=10 symbol-tint=iconMuted width=10 height=10 flex-shrink=0
 
 component NewTaskWorkspace
   props
@@ -109,15 +146,20 @@ component NewTaskWorkspace
     action: action
     chooseBranch: action
     colors: ComposerColors
+    iconMuted: string
+    voiceBusy: bool
   view
     when not data.scratch
-      row align-items="center" gap=3.5 padding-left=7 padding-right=7
-        button press=action("workspace", "", (data.workspaceMode == "local" ? "worktree" : "local")) disabled=(not data.canSelect) padding=7 max-width=220
-          row align-items="center" gap=7
-            t3-symbol symbol-name=(data.workspaceMode == "local" ? "folder" : "arrow.triangle.branch") point-size=14 symbol-weight="regular" symbol-tint=colors.iconSubtle width=14 height=14
-            text data.workspaceLabel font-size=14 line-height="19px" color=colors.muted line-clamp=1 text-overflow="ellipsis"
-        button press=chooseBranch disabled=(not data.canSelect) padding=7 max-width=190
-          row align-items="center" gap=7
-            t3-symbol symbol-name="arrow.triangle.branch" point-size=14 symbol-weight="regular" symbol-tint=colors.iconSubtle width=14 height=14
-            text data.branchLabel min-width=0 flex-shrink=1 font-size=14 line-height="19px" color=colors.muted line-clamp=1 text-overflow="ellipsis"
-            t3-symbol symbol-name="chevron.right" point-size=10 symbol-weight="regular" symbol-tint=colors.iconSubtle width=10 height=10
+      row align-items="center" gap=3.5 padding-left=7 padding-right=7 padding-bottom=3.5
+        button press=action("workspace", "", (data.workspaceMode == "local" ? "worktree" : "local")) disabled=(not data.canSelect or voiceBusy) box-sizing="border-box" height=38.5 padding-left=7 padding-right=7 max-width=(data.workspaceMode == "local" ? 220 : 148) border-radius=10.5 aria-label=data.workspaceLabel opacity=(not data.canSelect or voiceBusy ? 0.45 : 1)
+          row align-items="center" gap=7 min-width=0
+            box width=14 height=14 position="relative" flex-shrink=0
+              t3-symbol symbol-name="folder" point-size=14 symbol-tint=iconMuted width=14 height=14
+              when data.workspaceMode == "worktree"
+                t3-symbol position="absolute" right=(-3.5) bottom=(-3.5) symbol-name="arrow.triangle.branch" point-size=8 symbol-tint=iconMuted width=8 height=8
+            text data.workspaceLabel min-width=0 flex-shrink=1 font-size=14 line-height="19px" font-weight=500 color=colors.muted line-clamp=1 text-overflow="ellipsis"
+        button press=chooseBranch disabled=(not data.canSelect) box-sizing="border-box" height=38.5 padding-left=7 padding-right=7 max-width=190 border-radius=10.5 aria-label=`${data.workspaceMode == "worktree" ? "Base branch" : "Branch"}: ${data.branchLabel}` opacity=(not data.canSelect ? 0.45 : 1)
+          row align-items="center" gap=7 min-width=0
+            t3-symbol symbol-name="arrow.triangle.branch" point-size=14 symbol-tint=iconMuted width=14 height=14 flex-shrink=0
+            text data.branchLabel min-width=0 flex-shrink=1 font-size=14 line-height="19px" font-weight=500 color=colors.muted line-clamp=1 text-overflow="ellipsis"
+            t3-symbol symbol-name="chevron.right" point-size=10 symbol-tint=iconMuted width=10 height=10 flex-shrink=0

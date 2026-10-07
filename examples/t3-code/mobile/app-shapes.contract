@@ -32,6 +32,7 @@ shape MobileLayout
   safeTop: number
   safeBottom: number
   liquidGlass: bool
+  keyboardDocked: bool
 shape HomeChromeView
   configuration: string
   environmentId: string

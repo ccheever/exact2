@@ -13,7 +13,7 @@ export function mobileLayoutFacts(input: string) {
   let value: Record<string, unknown> = {};
   try { value = obj(JSON.parse(input)); } catch { /* Bake has no UIKit geometry. */ }
   return { safeTop: typeof value.safeTop === 'number' && Number.isFinite(value.safeTop) ? Math.max(0, value.safeTop) : 0, safeBottom: typeof value.safeBottom === 'number' && Number.isFinite(value.safeBottom)
-    ? Math.max(0, value.safeBottom) : 0, liquidGlass: value.liquidGlass === true };
+    ? Math.max(0, value.safeBottom) : 0, liquidGlass: value.liquidGlass === true, keyboardDocked: value.keyboardDocked === true };
 }
 
 export function homeChromeEvent(input: string) {

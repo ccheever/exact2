@@ -7,6 +7,7 @@ use MobileQueueTrigger from "./queue-trigger.contract"
 use VoiceSnapshot, VoiceColors, VoiceStartAction, VoiceDictationToolbar, VoiceErrorStatus from "./voice-controls.contract"
 component ThreadComposer
   props
+    editorId: string
     showQueue: bool
     showBackdrop: bool
     data: ThreadComposerState
@@ -75,7 +76,7 @@ component ThreadComposer
                 column width=44 height=44 align-items="center" justify-content="center"
                   t3-symbol symbol-name="plus" point-size=20 symbol-weight="regular" symbol-tint=colors.iconSubtle width=20 height=20
             // Keep the native editor at one plan site while the compact toolbar covers it.
-            textarea value=data.draft input=typedDraft key=typedKey focus=focusChanged(true) blur=focusChanged(false) placeholder=data.placeholder
+            textarea id=editorId value=data.draft input=typedDraft key=typedKey focus=focusChanged(true, data.contentOwner, editorId) blur=focusChanged(false, data.contentOwner, editorId) placeholder=data.placeholder
               readonly=(dictating or (data.editing and not data.canCancel)) hatch="mobile-voice-editor" data-mobile-voice-owner=voiceOwner
               data-mobile-voice-selection-revision=(voice.selectionOwner == voiceOwner ? voice.selectionRevision : 0)
               opacity=(voicePresented and not expanded ? 0 : 1) pointer-events=(voicePresented and not expanded ? "none" : "auto")
@@ -132,3 +133,14 @@ component ThreadSendButton
           background-color=(data.showStop ? colors.danger : colors.primary) opacity=(disabled ? 0.15 : 1)
           t3-symbol symbol-name=(data.showStop ? "stop.fill" : data.sendSymbol) point-size=14 symbol-weight="semibold"
             symbol-tint=(data.showStop ? colors.dangerForeground : colors.primaryForeground) width=14 height=14
+
+// @ref llp/1107.005-composer-and-transcript.decision.md#composer-focus-restoration
+shape ComposerFocusReturn
+  editorId: string
+  owner: string
+  sheetId: string
+  phase: string
+  attempts: number
+// GAP 010: source dismissal fallback 300ms, then at most 20 focus attempts 50ms apart.
+fn composerReturnValid(capture: ComposerFocusReturn, editorId: string, owner: string, routeIds: list<string>, settings: bool): bool = capture.editorId != "" and capture.owner != "" and capture.owner == owner and includes(routeIds, capture.editorId) and (editorId == capture.editorId or (settings and includes(routeIds, capture.sheetId)))
+fn composerReturnPhase(capture: ComposerFocusReturn, editorId: string, owner: string, routeIds: list<string>, settings: bool, focused: bool): string = not composerReturnValid(capture, editorId, owner, routeIds, settings) ? "" : editorId != capture.editorId ? capture.phase : focused or capture.phase == "expanded" ? "" : capture.phase == "pending" ? "restoring" : capture.phase

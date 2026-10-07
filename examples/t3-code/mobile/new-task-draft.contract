@@ -1,0 +1,115 @@
+// Pinned NewTaskDraftScreen.tsx 365aa87982: full hero scroll and an always-expanded sheet dock.
+// @ref llp/1107.005-composer-and-transcript.decision.md#new-task-ownership
+use NewTaskSnapshot, ComposerColors from "./composer-shapes.contract"
+use ThreadColors from "./thread-shapes.contract"
+use NewTaskHero, NewTaskWorkspace from "./new-task.contract"
+use ComposerAttachmentStrip from "./composer-attachments.contract"
+use ComposerAttachmentsSnapshot from "./composer-attachment-shapes.contract"
+use ProviderIcon from "./provider-icon.contract"
+use ThreadSendButton from "./thread-composer.contract"
+use VoiceSnapshot, VoiceColors, VoiceStartAction, VoiceDictationToolbar, VoiceErrorStatus from "./voice-controls.contract"
+component NewTaskDraft
+  props
+    routeId: string
+    editorId: string
+    data: NewTaskSnapshot
+    colors: ComposerColors
+    threadColors: ThreadColors
+    attachments: ComposerAttachmentsSnapshot
+    safeBottom: number
+    keyboardDocked: bool
+    underHeader: bool
+    dark: bool
+    enterBehavior: string
+    voice: VoiceSnapshot
+    voiceColors: VoiceColors
+    voiceOwner: string
+    voiceDisabled: bool
+    voiceAction: action
+    chooseProject: action
+    chooseEnvironment: action
+    chooseBranch: action
+    editDraft: action
+    focusChanged: action
+    action: action
+    pickAttachments: action
+    openModelSettings: action
+    openAttachment: action
+    removeAttachment: action
+  state geometryOwner = ""
+  state measuredCover = 0
+  state measuredTop = 0
+  derive owner = `${routeId}:${data.environmentId}:${data.projectId}:${data.composer.contentOwner}`
+  derive coveredBottom = geometryOwner == owner ? measuredCover : 0
+  derive coveredTop = underHeader and geometryOwner == owner ? measuredTop : 0
+  derive bottomPadding = max(safeBottom, 10)
+  derive dictating = voice.busy and voice.owner == voiceOwner
+  derive voicePresented = voice.owner == voiceOwner and voice.phase != "idle"
+  action geometryChanged(expected: string, width: number, height: number)
+    if expected == owner
+      let routeFrame = frame(`new-task-route-bounds-${routeId}`)
+      let flowFrame = frame(`new-task-flow-bounds-${routeId}`)
+      if not routeFrame.unavailable and not routeFrame.provisional and not flowFrame.unavailable and not flowFrame.provisional
+        geometryOwner = expected
+        measuredTop = max(0, flowFrame.y - routeFrame.y)
+        measuredCover = max(0, routeFrame.y + routeFrame.height - flowFrame.y - flowFrame.height)
+  action typedDraft(value: string)
+    if data.canSelect and not dictating
+      editDraft(value, data.composer.contentOwner)
+  action typedKey(key: string)
+    if (enterBehavior == "send" and key == "Enter") or (enterBehavior == "newline" and key == "Meta+Enter")
+      preventDefault()
+      if data.composer.canSend and not dictating
+        action("send", data.composer.contentOwner, "")
+    else if (enterBehavior == "send" and key == "Meta+Enter") or (enterBehavior == "newline" and key == "Shift+Meta+Enter")
+      preventDefault()
+      if data.composer.canSend and not dictating
+        action("send-alternate", data.composer.contentOwner, "")
+  view
+    view position="absolute" inset=0 background-color=colors.sheet pointer-events="none" aria-hidden=true
+    each expected in [owner] key=expected
+      view id=`new-task-route-bounds-${routeId}` position="absolute" inset=0 pointer-events="none" aria-hidden=true resize=geometryChanged(expected)
+    column id=`new-task-flow-${routeId}` position="relative" flex=1 min-height=0 pointer-events="none"
+      view id=`new-task-flow-bounds-${routeId}` position="absolute" inset=0 pointer-events="none" aria-hidden=true resize=geometryChanged(owner)
+      column position="absolute" top=(-coveredTop) left=0 right=0 bottom=(-coveredBottom) pointer-events="none"
+        scroll id=`new-task-hero-scroll-${routeId}` testId="new-task-hero-scroll" flex=1 min-height=0 keyboardDismissMode="interactive" scrollbar-width="none" pointer-events="auto"
+          column min-height="100%" box-sizing="border-box" align-items="center" padding-top=72 padding-bottom=236 font-family="DM Sans"
+            NewTaskHero(data=data, chooseProject=chooseProject, chooseEnvironment=chooseEnvironment, colors=colors, iconMuted=threadColors.iconMuted, voiceBusy=dictating)
+    column id=`new-task-dock-${routeId}` position="absolute" left=0 right=0 bottom=(keyboardDocked ? -max(bottomPadding - 8, 0) : 0) padding-left=12 padding-right=12 padding-top=3.5 padding-bottom=bottomPadding background-color=colors.sheet font-family="DM Sans" pointer-events="auto"
+      NewTaskWorkspace(data=data, action=action, chooseBranch=chooseBranch, colors=colors, iconMuted=threadColors.iconMuted, voiceBusy=dictating)
+      when data.composer.showReadOnlyNotice
+        text "This connection cannot start tasks." padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 font-size=13 line-height="17px" color=colors.muted
+      when data.composer.modelUnavailable
+        button press=openModelSettings disabled=(not data.canSelect) padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 text-align="left"
+          text "Model unavailable. Open model settings." font-size=13 line-height="17px" color=colors.foreground
+      column id=`new-task-card-${routeId}` position="relative" border-radius=26 min-height=140 overflow="hidden" box-sizing="border-box" padding-top=14 padding-bottom=6
+        box-shadow=(dark ? "0px 6px 28px 0px rgba(0,0,0,0.35)" : "0px 6px 28px 0px rgba(0,0,0,0.15)")
+        t3-composer-material position="absolute" inset=0 pointer-events="none" aria-hidden=true material-appearance=(dark ? "dark" : "light") material-radius=26 material-surface=threadColors.composerSurface material-border=threadColors.composerBorder
+        ComposerAttachmentStrip(data=attachments, open=openAttachment, remove=removeAttachment, colors=threadColors)
+        textarea id=editorId value=data.composer.draft input=typedDraft key=typedKey focus=focusChanged(true, data.composer.contentOwner, editorId) blur=focusChanged(false, data.composer.contentOwner, editorId) placeholder="Ask anything…"
+          readonly=(not data.canSelect or dictating) hatch="mobile-voice-editor" data-mobile-voice-owner=voiceOwner
+          data-mobile-voice-selection-revision=(voice.selectionOwner == voiceOwner ? voice.selectionRevision : 0)
+          field-sizing="content" min-height=72 max-height=160 min-width=0 margin-left=14 margin-right=14 padding-top=4 padding-bottom=4 padding-left=0 padding-right=0
+          box-sizing="border-box" font-family="DM Sans" font-size=16 line-height="23px" color=colors.foreground border-width=0 background-color="transparent" testId="thread-composer"
+        view height=3.5
+        row align-items="center" gap=0 retainFocus=true
+          when not voicePresented
+            button press=pickAttachments(data.composer.contentOwner) disabled=(not data.canSelect) width=44 height=44 padding=0 aria-label="Add attachment"
+              column width=44 height=44 align-items="center" justify-content="center"
+                t3-symbol symbol-name="plus" point-size=20 symbol-weight="regular" symbol-tint=threadColors.iconSubtle width=20 height=20
+            column flex=1 min-width=0 align-items="flex-end"
+              button press=openModelSettings disabled=(not data.canSelect) box-sizing="border-box" max-width="100%" height=38.5 padding-left=7 padding-right=7 border-radius=10.5 aria-label="Model and reasoning settings"
+                row min-width=0 align-items="center" gap=7
+                  ProviderIcon(driver=data.composer.providerDriver, size=14, dark=dark, iconUrl=data.composer.providerIconURL)
+                  text data.composer.modelLabel min-width=0 flex-shrink=1 line-clamp=1 text-overflow="ellipsis" font-size=14 line-height="19px" font-weight=500 color=colors.foreground
+                  t3-symbol symbol-name="chevron.down" point-size=10 symbol-weight="regular" symbol-tint=threadColors.foreground width=10 height=10
+            VoiceStartAction(data=voice, colors=voiceColors, disabled=voiceDisabled, action=voiceAction)
+            ThreadSendButton(data=data.composer, action=action, colors=threadColors)
+          else when dictating
+            column flex=1 min-width=0
+              VoiceDictationToolbar(data=voice, colors=voiceColors, action=voiceAction)
+          else
+            column flex=1 min-width=0
+              VoiceErrorStatus(data=voice, colors=voiceColors, action=voiceAction)
+            VoiceStartAction(data=voice, colors=voiceColors, disabled=voiceDisabled, action=voiceAction)
+            ThreadSendButton(data=data.composer, action=action, colors=threadColors)

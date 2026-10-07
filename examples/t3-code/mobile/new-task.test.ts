@@ -1,3 +1,4 @@
+import { mobileLayoutFacts } from './root-presentation';
 import { expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
 import { obj, type Obj } from './shared/domain';
@@ -410,4 +411,16 @@ test('a refused Connect reply also rolls back by captured cells without clobberi
   expect(f.client.local.drafts[f.to]).toBe('Edited destination during wait');
   expect(f.client.local.composerControls.contexts[f.from]).toBe(context);
   expect(f.client.local.selections.remote).toBe(selected);
+});
+
+
+test('New Task keyboard offset uses an explicit docked guide fact, never focus-like values', () => {
+  expect(mobileLayoutFacts('').keyboardDocked).toBe(false);
+  expect(mobileLayoutFacts('{"keyboardDocked":true}').keyboardDocked).toBe(true);
+  for (const value of [false, null, 1, "true", {}, []]) {
+    expect(mobileLayoutFacts(JSON.stringify({ keyboardDocked: value })).keyboardDocked).toBe(false);
+  }
+  expect(mobileLayoutFacts('{"safeTop":-1,"safeBottom":34,"keyboardDocked":true,"liquidGlass":true}'))
+    .toEqual({ safeTop: 0, safeBottom: 34, liquidGlass: true, keyboardDocked: true });
+  expect(mobileLayoutFacts('{"focused":true,"height":300}').keyboardDocked).toBe(false);
 });
