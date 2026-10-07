@@ -48,12 +48,12 @@ Scheduling preference (not a prerequisite): after `20261005-main-fix-adoption` (
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged into `daehyeon/t3-code` | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged (oracle, trace proxy, diff, RPC tally) | pending |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged (area files and registration points exist) | pending |
+| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged (area files and registration points exist) | pending |
 | recorded decision | Plan decision U2 / U23 (apparatus): provider-setup stream fixture `target/t3-ui-parity/provider-setup-fixture.mjs` (a scripted responder in the lane kit that answers `provider.auth.*` / `provider.install.*` with scripted state sequences on ports 16000–16999; reused by `20261005-managed-codex-chatgpt`, `20261005-provider-settings-upkeep` and `20261005-usage-reset-and-feedback`) | none | User approves at `prepare` | pending |
 
 ## Issue assessment at preparation
 
-Checked sources and time: plan `issues/` drafts (local, unpublished) read 2026-10-05; no upstream search (no network); library topics above. Issue records: [X21](../issues/20261005-x21-two-way-websocket.md), [X9](../issues/20261005-x09-root-component-across-files.md), [X17](../issues/20261005-x17-popover-position-try.md), [X5](../issues/20261005-x05-url-scheme-delivery.md), [X35](../issues/20261005-x35-secure-text-entry.md), [X42](../issues/20261005-x42-text-blur-filter.md).
+Checked sources and time: plan `issues/` drafts (local, unpublished) read 2026-10-05; no upstream search (no network); library topics above. Issue records: [X21](../issues/20261005-x21-two-way-websocket.md), [X9](../issues/20261005-x09-root-component-across-files.md), [X17](../issues/20261005-x17-popover-position-try.md), [X5](../issues/20261005-x05-url-scheme-delivery.md), [X35](../issues/closed/20261005-x35-secure-text-entry.md), [X42](../issues/20261005-x42-text-blur-filter.md).
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |

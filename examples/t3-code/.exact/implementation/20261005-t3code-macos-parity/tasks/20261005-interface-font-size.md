@@ -72,7 +72,7 @@ Tools are named by their `target/t3-ui-parity/…` path (committed under `exampl
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
+| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged (the oracle runs at 12, 16 and 20) | pending |
 | resolved framework issue | [X3 root font size](../issues/20261005-x03-root-font-size.md) | none yet (local draft) | Fix merged into `main` upstream (this plan files the issue only) and the example pinned to it, or the user waives | pending |

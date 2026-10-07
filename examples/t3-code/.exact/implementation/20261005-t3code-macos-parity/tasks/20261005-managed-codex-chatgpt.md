@@ -47,14 +47,14 @@ Scheduling preference (not a prerequisite): after `20261005-main-fix-adoption` (
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged (area files and registration points exist) | pending |
+| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged (area files and registration points exist) | pending |
 | merged task PR | [20261005-provider-sign-in-and-install](20261005-provider-sign-in-and-install.md) | pending | Merged (streams, open-URL op, setup fixture, `RedactedText`) | pending |
 | recorded decision | Plan decision U2 / U23 (apparatus): the provider-setup fixture `target/t3-ui-parity/provider-setup-fixture.mjs` introduced by `20261005-provider-sign-in-and-install` is reused | none | Approved there | pending |
 | recorded decision | A real ChatGPT test account and an isolated server for the attended session | none | User provides at `prepare` | pending |
 
 ## Issue assessment at preparation
 
-Checked sources and time: plan `issues/` drafts read 2026-10-05; no upstream search (no network). Records: [X21](../issues/20261005-x21-two-way-websocket.md), [X9](../issues/20261005-x09-root-component-across-files.md), [X14](../issues/20261005-x14-parked-native-reply.md), [X6](../issues/20261005-x06-module-quit-shutdown.md), [X5](../issues/20261005-x05-url-scheme-delivery.md), [X11](../issues/20261005-x11-shadow-blur-parity.md), [X35](../issues/20261005-x35-secure-text-entry.md).
+Checked sources and time: plan `issues/` drafts read 2026-10-05; no upstream search (no network). Records: [X21](../issues/20261005-x21-two-way-websocket.md), [X9](../issues/20261005-x09-root-component-across-files.md), [X14](../issues/20261005-x14-parked-native-reply.md), [X6](../issues/20261005-x06-module-quit-shutdown.md), [X5](../issues/20261005-x05-url-scheme-delivery.md), [X11](../issues/20261005-x11-shadow-blur-parity.md), [X35](../issues/closed/20261005-x35-secure-text-entry.md).
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |

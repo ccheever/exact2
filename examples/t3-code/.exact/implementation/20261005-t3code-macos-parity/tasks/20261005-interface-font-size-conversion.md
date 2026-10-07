@@ -55,7 +55,7 @@ Line numbers are from the mc-orch tree on 2026-10-05; find code by symbol.
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-interface-font-size](20261005-interface-font-size.md) | pending | Merged (root size works; the map exists) | pending |
 | resolved framework issue | [X3](../issues/20261005-x03-root-font-size.md) | none yet | Fixed on `main` and merged into the integration branch, or waived by the user | pending |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged | pending |
+| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged | pending |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 
 Scheduling preference: after the last ticket that adds UI in the area being converted.

@@ -54,7 +54,7 @@ Rules for lane runs: attended rows build the lane app with `T3_LOCAL_HOME=<lane>
 | --- | --- | --- | --- | --- |
 | resolved framework issue | [X2 developer tools for the app UI](../issues/20261005-x02-app-developer-tools.md) | none yet (local draft) | Charlie's decision on the DEFERRED rule and the chosen option; only option A also needs support merged upstream (options B and C are app-side) | pending |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
+| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged (the oracle's menu template and screenshots) | pending |
 | scheduling preference | After `20261005-desktop-shell-details` (menu work) | none | Not a prerequisite | — |
 

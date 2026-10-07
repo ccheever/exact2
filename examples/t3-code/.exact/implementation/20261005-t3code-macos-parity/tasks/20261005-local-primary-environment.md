@@ -94,7 +94,7 @@ settings; default is the clone's own `t3-code.json`, so a change made in the ori
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | merged task PR | [20261005-embedded-server-runtime](20261005-embedded-server-runtime.md) | pending | Merged; spike result is go | pending |
 | scheduling preference | `20261005-environment-routes` first | none | Both touch `environmentKey` call sites | pending |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
+| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | recorded decision | U4 decided (relaunch, as T3 Code); U5 to U7 and U13 (real-home smoke) | none | U5–U7 and U13 answered at `prepare` | U4: user 2026-10-05 |
 | scheduling preference | After `20261005-remote-scopes-and-update-commands` | none | The Version row's desktop-managed sentence | pending |
 
