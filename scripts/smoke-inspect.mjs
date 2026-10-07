@@ -20,6 +20,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // its manifest. The named-host ATS opt-in is verified on a built bundle.
 // A bundled page (`local.html`) loads a loopback `http:` stylesheet, as
 // Chrome does from a secure page, and the host logs one that fails (#135).
+// A bundled PDF (`local.pdf`) is shown by its type, WebKit's PDF view, not
+// as its bytes in an HTML document (#115).
 export async function httpFrameSmoke({ host, open, check }) {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-http-frames-'));
   const source = resolve(dir, 'app.contract'), plan = resolve(dir, 'app.plan');
@@ -35,6 +37,8 @@ export async function httpFrameSmoke({ host, open, check }) {
     await new Promise((done, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', done); });
     const url = `http://127.0.0.1:${server.address().port}/`;
     writeFileSync(resolve(dir, 'local.html'), `<!doctype html><link rel="stylesheet" href="${url}style.css"><link rel="stylesheet" href="${url}missing.css"><p id="result">unstyled</p><script>addEventListener("load", () => { document.getElementById("result").textContent = getComputedStyle(document.body).backgroundColor + " secure " + isSecureContext })</script>`);
+    // One page, "Hello PDF": the smallest file WebKit's PDF view opens.
+    writeFileSync(resolve(dir, 'local.pdf'), Buffer.from('JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL1R5cGUgL1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAgUiAvTWVkaWFCb3ggWzAgMCAzMDAgMjAwXSAvQ29udGVudHMgNCAwIFIgL1Jlc291cmNlcyA8PCAvRm9udCA8PCAvRjEgNSAwIFIgPj4gPj4gPj4KZW5kb2JqCjQgMCBvYmoKPDwgL0xlbmd0aCA0MCA+PgpzdHJlYW0KQlQgL0YxIDI0IFRmIDQwIDEwMCBUZCAoSGVsbG8gUERGKSBUaiBFVAplbmRzdHJlYW0KZW5kb2JqCjUgMCBvYmoKPDwgL1R5cGUgL0ZvbnQgL1N1YnR5cGUgL1R5cGUxIC9CYXNlRm9udCAvSGVsdmV0aWNhID4+CmVuZG9iagp4cmVmCjAgNgowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMDkgMDAwMDAgbiAKMDAwMDAwMDA1OCAwMDAwMCBuIAowMDAwMDAwMTE1IDAwMDAwIG4gCjAwMDAwMDAyNDEgMDAwMDAgbiAKMDAwMDAwMDMzMSAwMDAwMCBuIAp0cmFpbGVyCjw8IC9TaXplIDYgL1Jvb3QgMSAwIFIgPj4Kc3RhcnR4cmVmCjQwMQolJUVPRgo=', 'base64'));
     writeFileSync(source, `component Frames
   state received = ""
   action message(payload)
@@ -45,6 +49,7 @@ export async function httpFrameSmoke({ host, open, check }) {
       iframe src="${url}" sandbox="" width=300 height=70 testId="http-blocked"
       iframe src="${url}" sandbox="allow-scripts" message=message width=300 height=70 testId="http-scripts"
       iframe src="local.html" width=300 height=70 testId="local-http"
+      iframe src="local.pdf" width=300 height=200 testId="local-pdf"
 `);
     const built = spawnSync('cargo', ['run', '-q', '--profile', HOST_DEV, '-p', 'contract', '--', 'build', source, '-o', plan], { cwd: resolve(import.meta.dir, '..'), encoding: 'utf8' });
     if (!check(built.status === 0, `${host} HTTP iframe fixture compiles: ${built.stderr}`)) return;
@@ -52,16 +57,21 @@ export async function httpFrameSmoke({ host, open, check }) {
     const expected = { 'http-open': `script ran at 300 origin ${new URL(url).origin}`, 'http-blocked': 'script blocked', 'http-scripts': 'script ran at 300 origin null', 'local-http': 'rgb(26, 127, 55) secure true' };
     const failed = `${url}missing.css did not load`;
     const guest = (tree, id) => byTestId(tree, id)?.guest?.find(n => n.id === 'result')?.text;
+    // Before #115 the PDF's bytes were the text of an HTML body, which has
+    // no element to outline; WebKit's PDF document has its annotation layer.
+    const pdf = (tree) => byTestId(tree, 'local-pdf');
+    const pdfShown = (tree) => pdf(tree)?.loading === false && pdf(tree).guest?.length > 0;
     let tree, state;
     for (let i = 0; i < 100; i++) {
       tree = await s.tree(); state = await s.state();
-      if (Object.entries(expected).every(([id, text]) => byTestId(tree, id)?.loading === false && guest(tree, id) === text) && state.slots.received === 'http-ready' && s.carrier.hostLines.some(l => l.includes(failed))) break;
+      if (Object.entries(expected).every(([id, text]) => byTestId(tree, id)?.loading === false && guest(tree, id) === text) && pdfShown(tree) && state.slots.received === 'http-ready' && s.carrier.hostLines.some(l => l.includes(failed))) break;
       await sleep(50);
     }
     for (const [id, text] of Object.entries(expected)) {
       check(byTestId(tree, id)?.loading === false, `${host} ${id}: HTTP guest did not finish loading`);
       check(guest(tree, id) === text, `${host} ${id}: expected ${text}, got ${JSON.stringify(guest(tree, id))}`);
     }
+    check(pdfShown(tree), `${host} local-pdf: a bundled PDF was not shown as a PDF: ${JSON.stringify(pdf(tree))?.slice(0, 200)}`);
     check(state.slots.received === 'http-ready', `${host} HTTP sandboxed guest did not deliver its message`);
     check(s.carrier.hostLines.some(l => l.includes(failed)), `${host} a bundled page's failed sub-resource was not logged: ${s.carrier.hostLines.slice(-5).join(' | ')}`);
   } catch (error) { check(false, `${host} HTTP iframe fixture: ${error.message}`); }
