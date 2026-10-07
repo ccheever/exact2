@@ -436,7 +436,10 @@ half-typed `-` or `1.` survives). That makes the contract:
 
 A field bound straight to the accepted value breaks this: an action that
 normalizes `-2` to the `0` it already held leaves the binding unchanged, so the
-field keeps showing `-2`.
+field keeps showing `-2`. So does normalizing while the person types: a `task … when draft != …`, a
+timer or an `input` action that rewrites the draft (an empty field back to
+`"1"`) puts text back under the caret mid-edit, and the next keystroke lands
+after it (`1` then `3` reads `13`). Normalize only in `change`.
 
 ```contract
 component Quantity
