@@ -1,4 +1,4 @@
-// @ref llp/1106.004-home-projection.decision.md#decision
+// @ref llp/1107.004-home-projection.decision.md#decision
 // T3 Code 365aa87982 threadSubagents.ts, ThreadAgentsSheet, SubagentRow and
 // subagent-card-presentation.ts. MIT, see ../LICENSE-T3. This is the Agents route,
 // not the pinned native Live Activity stub.

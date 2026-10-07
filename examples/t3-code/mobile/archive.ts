@@ -1,4 +1,4 @@
-// @ref llp/1106.004-home-projection.decision.md#decision
+// @ref llp/1107.004-home-projection.decision.md#decision
 // T3 Code 365aa87982 archivedThreadList.ts, archivedThreads.ts, useThreadListActions.ts.
 // Presentation over shared validated snapshots and per-environment RPC ownership.
 import { mobileClient, mobileNative } from './client';

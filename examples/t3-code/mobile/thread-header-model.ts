@@ -1,6 +1,6 @@
 // Pinned365aa87982 packages/client-runtime/src/state/gitActions.ts and mobile terminalMenu.ts.
 // Quick-action body preserved; types use the existing mobile structural model.
-// @ref llp/1106.005-composer-and-transcript.decision.md
+// @ref llp/1107.005-composer-and-transcript.decision.md
 import type { GitQuickAction, VcsStatusResult } from './git-overview-model';
 import { arr, num, obj, str, type Obj } from './shared/domain';
 

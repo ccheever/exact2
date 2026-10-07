@@ -1,6 +1,6 @@
 // T3 Code (MIT, LICENSE-T3)365aa87982 packages/shared/src/delimitedPreview.ts.
 // Source SHA256 3871bc65931237038e63a94df7c72341b9d81f95a79108ac45c771533352c0fe; only import paths adapted.
-// @ref llp/1106.005-composer-and-transcript.decision.md#media-presentation
+// @ref llp/1107.005-composer-and-transcript.decision.md#media-presentation
 /** A table preview is bounded independently of the source preview's byte limit. */
 export function filePreviewDelimiter(file: { name: string; mimeType?: string }): "," | "\t" | null {
   const mime = file.mimeType?.split(";", 1)[0]?.trim().toLowerCase();

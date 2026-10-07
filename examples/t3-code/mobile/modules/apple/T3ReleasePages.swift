@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1106.003-pairing-and-transport.decision.md#mobile-adaptations
+// @ref llp/1107.003-pairing-and-transport.decision.md#mobile-adaptations
 // T3 Code 365aa87982 cliRelease.ts: public GitHub release pages, 100 entries.
 import Foundation
 

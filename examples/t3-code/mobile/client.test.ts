@@ -3,6 +3,9 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { mobileCommand, mobileNative, mobilePairingFields, mobilePairingTarget, mobilePairingUrl, mobileSnapshot } from './client';
 import { ClientError, type Files, type Native } from './shared/protocol';
+import { T3Client } from './shared/client';
+import { letGoAware } from './shared/let-go';
+import { obj, str, type Obj } from './shared/domain';
 
 const unusedStorage: Files = { fs: {
   async mkdir() { throw new Error('Unexpected storage call'); },
@@ -10,8 +13,96 @@ const unusedStorage: Files = { fs: {
   async atomicWriteFile() { throw new Error('Unexpected storage call'); },
 } };
 
+function refreshFixture() {
+  const client = new T3Client(), calls: Obj[] = [], events: Obj[] = [], subscriptions: Record<string, string> = {};
+  let generation = 1, sequence = 0, floor = 0, serial = 0;
+  const selected = { id: 'thread', projectId: 'project', modelSelection: { instanceId: 'provider', model: 'model' } };
+  const config = { environment: { environmentId: 'env', orchestrationProtocolVersion: 2, capabilities: { serverResolvedCommandContext: true } },
+    providers: [], shellResumeCompletionMarker: true, threadResumeCompletionMarker: true };
+  const projection: Obj = { thread: selected };
+  for (const family of ['runs', 'attempts', 'nodes', 'subagents', 'providerSessions', 'providerThreads', 'providerTurns', 'runtimeRequests',
+    'messages', 'plans', 'turnItems', 'checkpointScopes', 'checkpoints', 'contextHandoffs', 'contextTransfers', 'visibleTurnItems']) projection[family] = [];
+  const good = (value: unknown) => ({ ok: true, generation, value });
+  const native: Native = { available: true, watch() {}, async later(input) {
+    const request = obj(input); calls.push(request);
+    if (request.op === 'status') return good({ state: 'connected', origin: 'https://test.invalid', environmentId: 'env', message: '' });
+    if (request.op === 'environments') return good({ saved: [] });
+    if (request.op === 'http') return good(request.path === '/api/auth/session' ? { authenticated: true, scopes: ['orchestration:operate'] }
+      : request.path === '/api/orchestration/shell' ? { snapshotSequence: 1, projects: [{ id: 'project', title: 'Project', workspaceRoot: '/project' }], threads: [selected] }
+        : { snapshotSequence: 1, projection });
+    if (request.method === 'server.getConfig') return good(config);
+    if (request.op === 'subscribe') {
+      const key = str(request.key), id = `sub-${++serial}`; subscriptions[key] = id;
+      events.push({ seq: ++sequence, generation, key, subscriptionId: id,
+        value: key === 'config' ? { type: 'snapshot', config } : { kind: 'synchronized' } });
+      return good({ id });
+    }
+    if (request.op === 'events') return good({ events: events.filter(event => Number(event.seq) > Number(request.after)), latest: sequence, reset: Number(request.after) < floor });
+    if (request.op === 'ack') { while (events.length && Number(events[0]!.seq) <= Number(request.through)) events.shift(); return good({ latest: sequence }); }
+    return good({});
+  } };
+  return { client, native, calls, events, reconnect() { generation++; floor = sequence; events.length = 0; },
+    overflow() { sequence += 100; floor = sequence; events.length = 0; } };
+}
+
+describe('mobile refresh ownership', () => {
+  test('a swallowed aborted fleet read cannot watch outside the answer or write a transcript error', async () => {
+    const f = refreshFixture(), original = f.native.later;
+    let aborted = false, lateWatches = 0;
+    f.native.later = async input => {
+      if (obj(input).op === 'environments') { aborted = true; throw { name: 'FetchError', kind: 'Aborted' }; }
+      return original(input);
+    };
+    f.native.watch = () => { if (aborted) { lateWatches++; throw new Error('native.watch outside an answer'); } };
+    await f.client.refresh(letGoAware(f.native), unusedStorage);
+    expect(aborted).toBe(true);
+    expect(lateWatches).toBe(0);
+    expect(f.client.error).toBe('');
+    expect(f.calls.some(call => call.op === 'localBackendStatus')).toBe(false);
+  });
+  test('a new generation keeps the selected thread and reaches synchronized state', async () => {
+    const f = refreshFixture();
+    await f.client.refresh(f.native, unusedStorage);
+    f.client.threadId = 'thread'; await f.client.openThread(f.native, 'thread');
+    await f.client.refresh(f.native, unusedStorage);
+    expect(f.client.ready).toBe(true);
+    f.reconnect(); f.calls.length = 0;
+    await f.client.refresh(f.native, unusedStorage);
+    expect(f.client.threadId).toBe('thread');
+    expect(obj(f.client.thread?.projection.thread).id).toBe('thread');
+    expect(f.client.ready).toBe(true);
+    expect(f.client.error).toBe('');
+  });
+  test('an overflow before the first event drain resnapshots instead of leaving synchronization incomplete', async () => {
+    const f = refreshFixture(), original = f.native.later;
+    let first = true;
+    f.native.later = async input => {
+      if (first && obj(input).op === 'events') { first = false; f.overflow(); }
+      return original(input);
+    };
+    await f.client.refresh(f.native, unusedStorage);
+    expect(f.client.ready).toBe(true);
+    expect(f.client.shellLive).toBe(true);
+    expect(f.calls.filter(call => call.path === '/api/orchestration/shell')).toHaveLength(2);
+    await f.client.refresh(f.native, unusedStorage);
+    expect(f.client.ready).toBe(true);
+    expect(f.client.error).toBe('');
+    expect(f.events).toEqual([]);
+  });
+  test('a real overflow within the same generation still resnapshots and drains completion markers', async () => {
+    const f = refreshFixture();
+    await f.client.refresh(f.native, unusedStorage);
+    f.overflow(); f.calls.length = 0;
+    await f.client.refresh(f.native, unusedStorage);
+    expect(f.calls.filter(call => call.path === '/api/orchestration/shell')).toHaveLength(1);
+    expect(f.calls.some(call => call.op === 'ack' && Number(call.through) >= 100)).toBe(true);
+    expect(f.client.ready).toBe(true);
+    expect(f.events).toEqual([]);
+  });
+});
+
 describe('pinned shared sources', () => {
-  test('every TS copy retains its pin and full body apart from explicit mobile send admission and selection', () => {
+  test('every TS copy matches its immutable pin apart from explicit mobile send adaptations', () => {
     const directory = new URL('./shared/', import.meta.url).pathname;
     const names: string[] = [];
     function visit(dir: string) {
@@ -22,15 +113,36 @@ describe('pinned shared sources', () => {
     }
     visit(directory);
     expect(names.length).toBe(297);
-    for (const name of names) {
+    const copies = names.map(name => {
       const local = readFileSync(join(directory, name), 'utf8').split('\n');
       expect(local[0]).toContain('GAP 001');
-      const pin = ['client.ts', 'local-backend.ts', 'timestamp-format.ts'].includes(name)
-        ? '38352ceaf4cd35a40b7b24ce992db87c2357a99b' : '887b2491b182f851b11253655f6aa84fe2a26708';
+      const pin = name === 'let-go.ts' ? '669968e248e3a3ca29dbfeada999af2114141223'
+        : ['client.ts', 'local-backend.ts', 'timestamp-format.ts'].includes(name)
+          ? '38352ceaf4cd35a40b7b24ce992db87c2357a99b' : '887b2491b182f851b11253655f6aa84fe2a26708';
       const adapted = name === 'client-ops-composer.ts';
       expect(local[1]).toBe(`// ${adapted ? 'Adapted' : 'Unchanged'} body from examples/t3-code/${name} at ${pin}.`);
-      let expected = readFileSync(new URL(`../${name}`, import.meta.url), 'utf8');
-      if (adapted) expected = "// Mobile 365aa87982: send admission and retained model options differ from this desktop copy.\nimport { mobileModelSelectionUnavailable } from '../model-availability';\nimport { mobileDispatchSelection as dispatchSelection } from '../model-send-selection';\n" + expected
+      return { name, local, pin };
+    });
+    const objects = copies.map(copy => `${copy.pin}:examples/t3-code/${copy.name}`);
+    const result = Bun.spawnSync(['git', 'cat-file', '--batch'], {
+      cwd: directory, stdin: new TextEncoder().encode(objects.join('\n') + '\n'),
+    });
+    expect(result.exitCode).toBe(0);
+    // Git's batch protocol reports UTF-8 body lengths in bytes, not JavaScript characters.
+    const bytes = result.stdout, decoder = new TextDecoder(); let offset = 0;
+    const bodies = objects.map(source => {
+      const newline = bytes.indexOf(10, offset);
+      const header = decoder.decode(bytes.subarray(offset, newline));
+      expect(header, source).toMatch(/^[0-9a-f]{40} blob \d+$/);
+      const size = Number(header.split(' ')[2]); offset = newline + 1;
+      const body = decoder.decode(bytes.subarray(offset, offset + size)); offset += size;
+      expect(bytes[offset++]).toBe(10);
+      return body;
+    });
+    expect(offset).toBe(bytes.length);
+    for (const [index, { name, local }] of copies.entries()) {
+      let expected = bodies[index]!;
+      if (name === 'client-ops-composer.ts') expected = "// Mobile 365aa87982: send admission and retained model options differ from this desktop copy.\nimport { mobileModelSelectionUnavailable } from '../model-availability';\nimport { mobileDispatchSelection as dispatchSelection } from '../model-send-selection';\n" + expected
         .replace("import { dispatchSelection, promptForSend, ultrathinkChoice }", "import { promptForSend, ultrathinkChoice }")
         .replace("if (!arr(provider.models).some(model => model.slug === this.modelId)) throw new ClientError('Choose one of the models advertised by T3.');",
           "if (!this.modelId || mobileModelSelectionUnavailable(this.config, { instanceId: this.providerId, model: this.modelId })) throw new ClientError('Model unavailable. Open model settings.');");

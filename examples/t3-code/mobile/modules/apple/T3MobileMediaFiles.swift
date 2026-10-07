@@ -1,6 +1,6 @@
 #if os(iOS)
 // Adapted from T3 Code (MIT), 365aa87982 T3NativeFilePresentation.prepareFile/localAttachmentPreview.
-// @ref llp/1106.005-composer-and-transcript.decision.md#media-presentation
+// @ref llp/1107.005-composer-and-transcript.decision.md#media-presentation
 import Foundation
 import ImageIO
 import CoreGraphics

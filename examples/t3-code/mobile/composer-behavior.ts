@@ -1,6 +1,6 @@
 import { mobileComposerTarget } from './composer-target';
 // Pinned365aa87982 ComposerTextView key commands and followUpBehavior.ts.
-// @ref llp/1106.005-composer-and-transcript.decision.md#settings-ownership
+// @ref llp/1107.005-composer-and-transcript.decision.md#settings-ownership
 import type { T3Client } from './shared/client';
 import { arr, obj } from './shared/domain';
 import { stage } from './shared/composer-controls';

@@ -1,4 +1,4 @@
-// @ref llp/1106.010-mobile-browser-devices.decision.md#connection-and-command-ownership
+// @ref llp/1107.010-mobile-browser-devices.decision.md#connection-and-command-ownership
 // Pinned mobile preview route identity; stream credentials remain in native code.
 import type { T3Client } from './shared/client';
 import { ClientError, type Native } from './shared/protocol';

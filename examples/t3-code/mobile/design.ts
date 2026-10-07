@@ -1,4 +1,4 @@
-// @ref llp/1106.002-design-system-parity.spec.md#semantic-colors
+// @ref llp/1107.002-design-system-parity.spec.md#semantic-colors
 // Literal palettes from upstream 365aa87982 generated-uniwind-themes.css.
 import t0 from './themes/light.json';
 import t1 from './themes/dark.json';

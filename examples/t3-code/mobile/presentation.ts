@@ -1,5 +1,5 @@
 // upstream 365aa87982 ConnectionEnvironmentRow.tsx / EnvironmentMachineSymbol.tsx.
-// @ref llp/1106.003-pairing-and-transport.decision.md#decision
+// @ref llp/1107.003-pairing-and-transport.decision.md#decision
 import { mobileSnapshot } from './client';
 import { mobileTheme, withAlpha } from './design';
 import { statusText } from './shared/connections';

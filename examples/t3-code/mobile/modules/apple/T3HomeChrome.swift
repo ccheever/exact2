@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1106.002-design-system-parity.spec.md#semantic-colors
+// @ref llp/1107.002-design-system-parity.spec.md#semantic-colors
 // Pinned T3 Code 365aa87982: HomeHeader, WorkspaceConnectionTitle,
 // ThreadNavigationSidebar, and patches/react-native-screens@4.28.0.patch.
 import UIKit

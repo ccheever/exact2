@@ -1,6 +1,6 @@
 // Pinned T3 Code365aa87982 apps/mobile/src/features/voice-input/voiceInputMetering.ts; imports adapted only.
 // Original SHA256 5a963b15015d75d41722f844781b097aae6e71e63b41167246462d6e767f5a5c. MIT: voice-LICENSE.
-// @ref llp/1106.008-mobile-voice.decision.md#controller-reuse
+// @ref llp/1107.008-mobile-voice.decision.md#controller-reuse
 export const VOICE_WAVEFORM_SAMPLE_COUNT = 64;
 
 const VOICE_NOISE_FLOOR_DECIBELS = -60;

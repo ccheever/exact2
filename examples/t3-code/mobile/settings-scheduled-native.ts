@@ -1,4 +1,4 @@
-// @ref llp/1106.003-pairing-and-transport.decision.md#mobile-adaptations
+// @ref llp/1107.003-pairing-and-transport.decision.md#mobile-adaptations
 // Explicit UIKit actions over the parent's existing native module bridge.
 import { mobileClient } from './client';
 import { obj, str, type Obj } from './shared/domain';

@@ -1,4 +1,4 @@
-// @ref llp/1106.005-composer-and-transcript.decision.md#media-presentation
+// @ref llp/1107.005-composer-and-transcript.decision.md#media-presentation
 import type { T3Client } from './shared/client';
 import { obj, str } from './shared/domain';
 import { bridgeReply, ClientError, type Native } from './shared/protocol';

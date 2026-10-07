@@ -1,5 +1,5 @@
 // Pinned mobile ThreadSettingsSheet/modelOptions/thread-settings-options at365aa87982.
-// @ref llp/1106.005-composer-and-transcript.decision.md#settings-ownership
+// @ref llp/1107.005-composer-and-transcript.decision.md#settings-ownership
 import { mobileClient, mobileCommand } from './client';
 import type { T3Client } from './shared/client';
 import { arr, obj, str, type Obj } from './shared/domain';

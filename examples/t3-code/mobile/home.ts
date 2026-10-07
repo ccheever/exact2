@@ -1,7 +1,7 @@
-// @ref llp/1106.004-home-projection.decision.md#decision
+// @ref llp/1107.004-home-projection.decision.md#decision
 // Mobile HomeScreen/threadListV2 at upstream 365aa87982; projection over the shared V2 shell.
-// @ref llp/1106.000-mobile-app-layout.decision.md#shared-typescript
-// @ref llp/1106.002-design-system-parity.spec.md#typography-and-font-assets
+// @ref llp/1107.000-mobile-app-layout.decision.md#shared-typescript
+// @ref llp/1107.002-design-system-parity.spec.md#typography-and-font-assets
 import { mobileClient } from './client';
 import type { T3Client } from './shared/client';
 import { arr, obj, str, type Obj, type Shell } from './shared/domain';

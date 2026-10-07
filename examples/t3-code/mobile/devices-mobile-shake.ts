@@ -1,4 +1,4 @@
-// @ref llp/1106.010-mobile-browser-devices.decision.md#connection-and-command-ownership
+// @ref llp/1107.010-mobile-browser-devices.decision.md#connection-and-command-ownership
 // T3 Code365aa87982 (MIT): apps/mobile/src/features/devices/shakeDetector.ts
 // Original SHA256 d7b818271c67251243ddb3e1eda629adf33ab20b2c4c980ab6ed63cbe439819c; type import adapted only.
 export interface AccelerationSample {

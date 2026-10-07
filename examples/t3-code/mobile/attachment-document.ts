@@ -1,6 +1,6 @@
 import { mobileComposerTarget } from './composer-target';
 // AttachmentFileScreen/useAttachmentDocument at365aa87982, over the existing media owner.
-// @ref llp/1106.005-composer-and-transcript.decision.md#media-presentation
+// @ref llp/1107.005-composer-and-transcript.decision.md#media-presentation
 import { mobileClient, mobileNative } from './client';
 import type { T3Client } from './shared/client';
 import { obj, str } from './shared/domain';

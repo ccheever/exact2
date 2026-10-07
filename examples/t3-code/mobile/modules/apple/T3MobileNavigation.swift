@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1106.003-pairing-and-transport.decision.md#mobile-adaptations
+// @ref llp/1107.003-pairing-and-transport.decision.md#mobile-adaptations
 // T3 Code 365aa87982 Stack.tsx header presets and ConnectionsNewRouteScreen.
 // Exact owns stacks, presentation/detents, route views and scroll geometry.
 import UIKit

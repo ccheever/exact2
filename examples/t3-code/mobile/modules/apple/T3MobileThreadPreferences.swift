@@ -1,4 +1,4 @@
-// @ref llp/1106.009-mobile-settings.decision.md#thread-behavior-and-project-overview
+// @ref llp/1107.009-mobile-settings.decision.md#thread-behavior-and-project-overview
 // T3 Code 365aa87982: features/settings/components/AutoSettleDaysField.ios.tsx.
 // App-owned popover and SwiftUI wheel. No server or preference owner lives here.
 #if os(iOS)

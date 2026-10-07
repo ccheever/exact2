@@ -1,4 +1,4 @@
-// @ref llp/1106.011-responsive-workspace.decision.md#composition-decision
+// @ref llp/1107.011-responsive-workspace.decision.md#composition-decision
 // Thread uses its owned native menu coordinator; other routes keep authored controls.
 component MobileRootHeader
   props

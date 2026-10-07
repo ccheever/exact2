@@ -1,6 +1,6 @@
 import { mobileComposerTargetRequire, mobileComposerTargetCurrent, mobileComposerTargetText, mobileComposerEditContext } from './composer-target';
 // Pinned365aa87982 ThreadTerminalRouteScreen over existing terminal metadata/UI/transport owners.
-// @ref llp/1106.007-mobile-terminal.decision.md#root-seam
+// @ref llp/1107.007-mobile-terminal.decision.md#root-seam
 import { mobileDraftChanged } from './draft';
 import { saveTerminalContext, formatTerminalContextReference, terminalContextRecord } from './shared/terminal-integrations';
 import { contextReferences } from './shared/composer-editor-menu';

@@ -1,5 +1,5 @@
 // ReviewSheet/nativeReviewDiffAdapter at365aa87982. Native geometry acceptance pending.
-// @ref llp/1106.006-review-and-files.decision.md#mobile-presentation
+// @ref llp/1107.006-review-and-files.decision.md#mobile-presentation
 use ReviewColors, ReviewSnapshot, ReviewRow from "./review-shapes.contract"
 
 component ReviewView
@@ -41,9 +41,9 @@ component ReviewView
       else
         t3-review-viewport width=0 height=0 review-owner=data.owner review-section=data.sectionId review-route=routeId
           review-navigation-revision=`${data.navigationRevision}` review-focused=focused change=visibleFile
-        list id="review-diff" hook="mobile-review-list" data-mobile-review-owner=data.owner data-mobile-review-section=data.sectionId data-mobile-review-route=routeId flex=1 min-height=0 virtualized=true estimated-item-height=22 refresh=refresh reachend=loadMore
+        list id="review-diff" hatch="mobile-review-list" data-mobile-review-owner=data.owner data-mobile-review-section=data.sectionId data-mobile-review-route=routeId flex=1 min-height=0 virtualized=true estimated-item-height=22 refresh=refresh reachend=loadMore
           each row in data.rows key=row.id
-            column hook="mobile-review-row" data-mobile-review-owner=data.owner data-mobile-review-section=data.sectionId
+            column hatch="mobile-review-row" data-mobile-review-owner=data.owner data-mobile-review-section=data.sectionId
               data-mobile-review-route=routeId data-mobile-review-path=row.filePath
               when row.kind == "file"
                 row margin-left=8 margin-right=8 margin-top=6 margin-bottom=6 min-height=44

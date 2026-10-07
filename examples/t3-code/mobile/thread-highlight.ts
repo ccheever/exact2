@@ -1,6 +1,6 @@
 // Shared TextMate tokenizer, with mobile's GitHub themes rather than desktop Pierre colors.
 // Theme-trie helper bodies below retain shared/r12-render-textmate.ts at887b249, presentation only.
-// @ref llp/1106.002-design-system-parity.spec.md#semantic-colors
+// @ref llp/1107.002-design-system-parity.spec.md#semantic-colors
 import { tokenizeCode } from './shared/r12-render-textmate';
 import { shikiLanguage } from './shared/r12-render-highlight';
 import { MOBILE_CODE_THEMES } from './thread-highlight-themes';

@@ -1,4 +1,4 @@
-// @ref llp/1106.002-design-system-parity.spec.md#source-authority
+// @ref llp/1107.002-design-system-parity.spec.md#source-authority
 // Fixture values: T3 Code 365aa87982 showcaseEnvironmentRows.ts (MIT, ../LICENSE-T3).
 // This module never selects showcase mode. The native explicit test launch flag owns it.
 const displayURLs: Readonly<Record<string, string>> = {

@@ -1,5 +1,5 @@
-// @ref llp/1106.009-mobile-settings.decision.md#root-and-native-lifetime
-// @ref llp/1106.003-pairing-and-transport.decision.md#mobile-adaptations
+// @ref llp/1107.009-mobile-settings.decision.md#root-and-native-lifetime
+// @ref llp/1107.003-pairing-and-transport.decision.md#mobile-adaptations
 // Mobile Usage route ownership over the shared transport, config and usage merge.
 import { mobileClient } from './client';
 import { arr, obj, str, type Obj } from './shared/domain';

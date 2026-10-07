@@ -1,4 +1,4 @@
-// @ref llp/1106.002-design-system-parity.spec.md#typography-and-font-assets
+// @ref llp/1107.002-design-system-parity.spec.md#typography-and-font-assets
 // Pinned mobile server controls, choice/switch rows and project override panel.
 use SettingsColors, SettingsTextRoles, SettingsSectionLabel from "./settings.contract"
 shape ServerSettingsRow

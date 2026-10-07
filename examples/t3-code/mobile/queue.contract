@@ -1,5 +1,5 @@
 // Pinned365aa87982 ThreadQueueSheet. Root owns native title/route dismissal.
-// @ref llp/1106.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
+// @ref llp/1107.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 use GitColors from "./git-overview.contract"
 shape MobileQueueAttachment
   id: string
@@ -74,7 +74,7 @@ component MobileQueueView
                       text entry.attachmentOverflow font-size=10 color=colors.muted
               text entry.title flex=1 min-width=0 line-clamp=1 text-overflow="ellipsis" font-size=14 color=(entry.editing ? colors.muted : colors.foreground)
             when data.showSteer
-              button press=action("queue:steer", entry.actionId, "") disabled=(not entry.canSteer) press-haptic="selection"
+              button press=action("queue:steer", entry.actionId, "") disabled=(not entry.canSteer) -exact-press-haptic="selection"
                 height=28 padding-left=10.5 padding-right=10.5 border-radius=999 background-color=colors.primary opacity=(entry.canSteer ? 1 : 0.4)
                 aria-label=`Steer with message ${entry.index} now`
                 text "Steer" font-size=12 font-weight=500 color=colors.primaryForeground
@@ -82,13 +82,13 @@ component MobileQueueView
               t3-symbol symbol-name="ellipsis" point-size=16 symbol-weight="regular" symbol-tint=colors.muted width=16 height=16
           column id=entry.menuId popover="auto" role="menu" aria-label=`Actions for queued message ${entry.index}`
             when data.showSteer
-              button press=action("queue:steer", entry.actionId, "") disabled=(not entry.canSteer) press-haptic="selection" popovertarget=entry.menuId popovertargetaction="hide"
+              button press=action("queue:steer", entry.actionId, "") disabled=(not entry.canSteer) -exact-press-haptic="selection" popovertarget=entry.menuId popovertargetaction="hide"
                 text "Steer now"
-            button press=action("queue:edit", entry.actionId, "") disabled=(not entry.canEdit) press-haptic="selection" popovertarget=entry.menuId popovertargetaction="hide"
+            button press=action("queue:edit", entry.actionId, "") disabled=(not entry.canEdit) -exact-press-haptic="selection" popovertarget=entry.menuId popovertargetaction="hide"
               text "Edit"
-            button press=action("queue:up", entry.actionId, "") disabled=(not entry.canMoveUp) press-haptic="selection" popovertarget=entry.menuId popovertargetaction="hide"
+            button press=action("queue:up", entry.actionId, "") disabled=(not entry.canMoveUp) -exact-press-haptic="selection" popovertarget=entry.menuId popovertargetaction="hide"
               text "Move up"
-            button press=action("queue:down", entry.actionId, "") disabled=(not entry.canMoveDown) press-haptic="selection" popovertarget=entry.menuId popovertargetaction="hide"
+            button press=action("queue:down", entry.actionId, "") disabled=(not entry.canMoveDown) -exact-press-haptic="selection" popovertarget=entry.menuId popovertargetaction="hide"
               text "Move down"
-            button press=action("queue:remove", entry.actionId, "") disabled=(not entry.canRemove) press-haptic="selection" popovertarget=entry.menuId popovertargetaction="hide" aria-label="Remove queued message"
+            button press=action("queue:remove", entry.actionId, "") disabled=(not entry.canRemove) -exact-press-haptic="selection" popovertarget=entry.menuId popovertargetaction="hide" aria-label="Remove queued message"
               text "Remove"

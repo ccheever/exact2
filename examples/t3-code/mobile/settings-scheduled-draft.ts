@@ -1,5 +1,5 @@
-// @ref llp/1106.009-mobile-settings.decision.md#root-and-native-lifetime
-// @ref llp/1106.003-pairing-and-transport.decision.md#decision
+// @ref llp/1107.009-mobile-settings.decision.md#root-and-native-lifetime
+// @ref llp/1107.003-pairing-and-transport.decision.md#decision
 // Mobile365aa87982 scheduledTaskDraft/scheduledTaskWebhook; shared drafts predate webhooks.
 import { arr, obj, str, type Obj } from './shared/domain';
 import { ClientError } from './shared/protocol';

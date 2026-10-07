@@ -1,4 +1,4 @@
-// @ref llp/1106.009-mobile-settings.decision.md#unconfigured-account-routes
+// @ref llp/1107.009-mobile-settings.decision.md#unconfigured-account-routes
 use SettingsColors, SettingsTextRoles from "./settings.contract"
 shape NotificationsData
   title: string

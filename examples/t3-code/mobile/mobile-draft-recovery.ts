@@ -1,5 +1,5 @@
 // Pinned365aa87982 use-thread-composer-state run-loss recovery and composerContext.
-// @ref llp/1106.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
+// @ref llp/1107.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import { T3Client } from './shared/client';
 import { arr, obj, str, type Obj } from './shared/domain';
 import { ClientError, type Native, type Files } from './shared/protocol';

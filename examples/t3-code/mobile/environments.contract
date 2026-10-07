@@ -1,4 +1,4 @@
-// @ref llp/1106.002-design-system-parity.spec.md#motion
+// @ref llp/1107.002-design-system-parity.spec.md#motion
 // T3 Code 365aa87982: LocalEnvironmentList, ConnectionEnvironmentRow,
 // ConnectionStatusDot and EnvironmentMachineSymbol. Root supplies live state.
 use ConnectionColors, ConnectionField from "./connect.contract"
@@ -216,7 +216,7 @@ component EnvironmentItem
                 aria-label="Save environment"
                 testId=`environment-save-${environment.id}`
                 row align-items="center" justify-content="center" gap=5.25
-                  image "symbol:checkmark" width=13 height=13 tint-color=colors.primaryForeground
+                  image "symbol:checkmark" width=13 height=13 -exact-tint-color=colors.primaryForeground
                   text "Save" text-transform="uppercase"
                     font-size=13
                     line-height="17px"
@@ -259,7 +259,7 @@ component EnvironmentItem
               background-color=colors.danger
               aria-label="Remove environment"
               testId=`environment-remove-${environment.id}`
-              image "symbol:delete" width=14 height=14 tint-color=colors.dangerForeground
+              image "symbol:delete" width=14 height=14 -exact-tint-color=colors.dangerForeground
 
 // T3 Code 365aa87982, GitHubRoutingSettings and SettingsSection. Permissions
 // are persisted by the shared github-routing command, keyed to saved endpoints.

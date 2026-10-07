@@ -1,4 +1,4 @@
-// @ref llp/1106.011-responsive-workspace.decision.md#source-helpers
+// @ref llp/1107.011-responsive-workspace.decision.md#source-helpers
 // Scalar projection from adaptive-workspace.ts. Root owns navigation and pane content.
 shape MobileWorkspace
   variant: string

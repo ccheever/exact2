@@ -1,6 +1,6 @@
 // ThreadComposer compact/expanded geometry and ComposerActionButton, upstream365aa87982.
-// @ref llp/1106.002-design-system-parity.spec.md#typography-and-font-assets
-// @ref llp/1106.008-mobile-voice.decision.md#presentation
+// @ref llp/1107.002-design-system-parity.spec.md#typography-and-font-assets
+// @ref llp/1107.008-mobile-voice.decision.md#presentation
 use ThreadComposerState, ThreadColors from "./thread-shapes.contract"
 use ProviderIcon from "./provider-icon.contract"
 use MobileQueueTrigger from "./queue-trigger.contract"
@@ -70,7 +70,7 @@ component ThreadComposer
                   t3-symbol symbol-name="plus" point-size=20 symbol-weight="regular" symbol-tint=colors.iconSubtle width=20 height=20
             // Keep the native editor at one plan site while the compact toolbar covers it.
             textarea value=data.draft input=typedDraft key=typedKey focus=focusChanged(true) blur=focusChanged(false) placeholder=data.placeholder
-              readonly=(dictating or (data.editing and not data.canCancel)) hook="mobile-voice-editor" data-mobile-voice-owner=voiceOwner
+              readonly=(dictating or (data.editing and not data.canCancel)) hatch="mobile-voice-editor" data-mobile-voice-owner=voiceOwner
               data-mobile-voice-selection-revision=(voice.selectionOwner == voiceOwner ? voice.selectionRevision : 0)
               opacity=(voicePresented and not expanded ? 0 : 1) pointer-events=(voicePresented and not expanded ? "none" : "auto")
               aria-hidden=(voicePresented and not expanded)
