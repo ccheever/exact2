@@ -354,6 +354,14 @@ Task `20261005-local-primary-environment` (`local-primary.ts`, `this-machine.ts`
 - **No relaunch after a Local environment change (X45, [#122](https://github.com/ccheever/exact2/issues/122)).** The reference relaunches the app (decision U4); the clone stops or starts the embedded server in place, hands the focus over and reconnects, and the window stays.
 - **Tab inside the dialog (LLP 1080.003 §4, not an ask).** `aria-modal` does not keep Tab inside a modal on macOS; the Local environment dialog keeps it on its two buttons with its own `key` handlers, as the reference's focus trap does, so nothing differs.
 
+## Provider settings upkeep: declared differences
+
+Task `20261005-provider-settings-upkeep`, 2026-10-08.
+- **ACP registry icons on Apple (X44, [#121](https://github.com/ccheever/exact2/issues/121), residual).** Registry icons are SVG (`https://cdn.agentclientprotocol.com/registry/v1/latest/<id>.svg`); an SVG `image` is a load error on Apple, so every instance icon of an ACP agent shows the ACP glyph there (the fallback the reference shows while loading or after a failure). The allow-list, the agent-id URL and the `load`/`error` states are ported; a PNG on the CDN would draw. The fetch rules of `AcpRegistryIcon.tsx` (no credentials, no referrer, 512 KB, CacheStorage) are the host's image loading, documented by main #177.
+- **End-aligned popovers (X17, [#112](https://github.com/ccheever/exact2/issues/112)).** The update details popover (side bottom, align end, w-80) is placed by margins: its left edge sits the popover's width minus the trigger's to the left of the trigger. It does not flip near a window edge.
+- **Escape inside Settings.** Among `aria-keyshortcuts` buttons the lowest node wins, so Settings' Back (Escape) answered before a popover's own dismissal and closed Settings. The update popover and the clone's select popups are `aria-modal` while open (only shortcuts inside a modal are heard) and carry an Escape button that hides them and returns focus to the trigger; an open custom model editor makes Back give up Escape (`providerPage.escapeOwned`). Not an exact2 gap (the web's `keydown` also reaches document handlers); recorded because the reference's Base UI popover stops it.
+- **Popover motion.** The reference fades and scales the popover in; no popover in the clone animates (the app's popover timing), so reduced motion changes nothing for it. The "Updating" spinner stops under reduced motion, as `motion-safe:` does.
+
 ## Not exact2 asks (stay in the app module)
 
 Keychain credentials, SSH tunnels, VideoToolbox/SceneKit device views, the terminal (WKWebView running REF's Ghostty WASM; no exact2 change needed), notifications, SnapShot capture, the offscreen Mermaid web view, agent export plumbing.

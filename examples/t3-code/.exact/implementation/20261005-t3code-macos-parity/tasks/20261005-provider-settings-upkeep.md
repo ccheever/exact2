@@ -1,13 +1,13 @@
 ---
 name: 20261005-provider-settings-upkeep
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
-delivery: none
+implementation: implemented
+verification: verified-with-unverified-rows
+delivery: draft
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-provider-settings-upkeep
+pr_url: https://github.com/ccheever/exact2/pull/251
 verified_commit: null
 ---
 
@@ -98,14 +98,83 @@ Required environment: Xcode 27.0, pinned Bun and Hermes, oracle build, isolated 
 
 2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold. Rows that need a real account are signed in by the user in person on the lane build; every other sign-in row uses lane fixtures.
 
-Planned. No branch.
+2026-10-08: implemented in [PR #251](https://github.com/ccheever/exact2/pull/251) (draft), all five scope items, from `d82fb6a47`.
+- **A9 popover** (`providers-upkeep.ts` `advisoryView`, `providers-upkeep.contract` `ProviderVersionAdvisory`):
+  one node for the list row (now a select button under the row's content, the icon its own
+  pressable) and the editor header; `getProviderVersionAdvisoryPresentation` ported; "Install vX"
+  only with `canInstallVersion` and a message, "Update now" only for
+  `isProviderSettingsUpdateCandidate`; read-only hides the action; "Updating" (spinner, still
+  under reduced motion) from a local pending set or `updateState` queued/running; "or, update
+  manually using" and the command with Copy ("Copy command" tooltip). The editor's inline card
+  is gone.
+- **D12 Update all and toasts** (`provider-updates.ts`, `provider-update-notify.ts`): the
+  reference logic ported whole (minus the WSL grouping); "Update all" in the Providers header over
+  the focused environment and every connected background environment, tooltip
+  "machine: providers", "Updating…", one toast (`getProviderUpdateRunToastView`). The launch prompt
+  is ProviderUpdatePrimaryNotification: Update closes the prompt and runs the one-click providers
+  on the primary, then one outcome toast from `updateState` (failed / "Provider still needs an
+  update" / "Provider updated", 3 s). The old `shell:provider-update` and the partial
+  `updateCandidates`/`updateKey`/`updateToastView` are removed. Updates run on their own queue
+  mutation (`providerUpdateRun`, app.contract) so Settings stays usable, with a 15-minute request
+  deadline (`T3Transport.swift` accepts up to 900 s when asked; a deadline sends Interrupt, which
+  would stop the update on the server).
+- **D6 ACP management** (`acp-sessions.ts`, `AcpManagement`): Native sessions (Log out, project
+  picker locked while a project request is pending, List/Refresh, Import → "Imported", Delete
+  with the dialogs.confirm copy, Load more by cursor) and Agent providers (protocol, base URL,
+  write-only headers with "Headers must be a JSON object with string values.", Save, Disable with
+  confirm); the "Continue authentication" link opens the URL (`remoteEditorsOpen`) and sends
+  `server.acceptAcpRegistryUrlAuth`; `accepted:false` warns "Authentication request expired".
+- **D13 custom model options** (`custom-model-editor.ts`, `CustomModelEditor`): the logic whole,
+  `readCustomModelEntries`/`toCustomModelSetting`/`deriveProviderModelsForDisplay`; the pencil
+  opens the editor under its row (replacing the inline rename); Save writes through the instance
+  upsert; ACP stores plain slugs. Escape: while the editor is open, Settings' Back gives up Escape
+  (`providerPage.escapeOwned`), so the editor's Cancel takes it.
+- **ACP icons** (`acp-icons.ts`, `AcpRegistryAgentIcon`): `registryIconUrl` or the agent id's URL,
+  allow-listed, at every `DriverMark` (9 sites) and in the wizard's results; the ACP glyph while
+  loading and after an error. On Apple an SVG is a load error (X44 residual, [#121](https://github.com/ccheever/exact2/issues/121)),
+  so registry icons (all `.svg`) show the glyph there.
+- Found on the live drive and fixed after it (not re-driven): Escape in a Settings popover also
+  pressed Settings' Back (the lower node id wins among `aria-keyshortcuts`): the popover and the
+  select popups are `aria-modal` with their own Escape, which returns focus to the trigger; the
+  popover opened left-aligned (`top/right` ignored for a top-layer popover): it is offset by the
+  widths (X17); the popup's 84% glass let text show through: 95% plus `backdrop-filter`.
+
+Provisional, user decision pending: (1) the launch prompt follows the primary environment and,
+with no primary known (a lane or remote-only launch), the focused one; (2) the toast flow follows
+the reference (no "Updating" toast: the sidebar pill shows a running update), not this record's
+"Loading → … in place" wording; (3) a custom ACP model keeps only its slug (name and options are
+not saved), the clone's existing rule, because the server's ACP schema is a string list.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 (2026-10-08) | `321dc8189` on `d82fb6a47` | `bun test examples/t3-code` 2575 pass / 0 fail (base 2512); strict `tsc` clean; contract build 2691 slots, 46 resources (`app.contract` 1,500 lines); `cargo test -p t3-code-macos --lib` 11 pass; caps within; five checks: build, test (3383 pass / 0 fail / 33 ignored, 94 binaries), clippy, fmt, boot green | [evidence](https://github.com/ccheever/exact2/tree/t3-code-evidence/provider-settings-upkeep): 7 images, drive records, RPC log | rows below |
+| live drive, try 1 | branch bundle, lane fixture | Pairing failed ("cannot decode raw data"): the fixture proxy forwarded `content-encoding: gzip` on a body Bun had decoded. Screenshots deleted (they showed a pairing token); record kept | `after-drive-attempt1-record.txt` | fixture fixed |
+| live drive, try 2 (the retry) | branch bundle (before the Escape/alignment fixes) | Paired Mac Studio and Laptop; the launch prompt; providers list; list popover (title, detail, Update now, divider, command); URL auth (accept, then "Authentication request expired"); ACP List, Load more, Import ("Imported", toast), Delete confirm. Then Escape in the popover closed Settings (bug, fixed) and Escape aimed at the inert Delete button left the confirm open, so the later scenarios found nothing; the Update all press landed on the toasts covering the header (no RPC) | `after-drive-record.txt`, `rpc-log-live.txt`, images | one more session |
+
 
 ## Next action
 
-`prepare` from `feat(example)/t3-code` once the prerequisite task PRs above have merged into it; sign-in rows use lane fixtures, and real-account rows wait for the user to sign in.
+Acceptance rows (2026-10-08):
+- **Pass:** Ported tests (provider update launch notification logic, 17 cases plus multi-backend
+  5, `isTerminalProviderUpdatePhase` 2, the incompatible-latest case and
+  `getProviderUpdateRunToastView` 2; customModelEditor.logic, all 9 cases (16 tests with each `it.each` row);
+  ProviderInstanceCard :20, :50; AcpSessionManagementSection 5; AcpRegistryIcon :105;
+  ProviderSettingsPanel.environment :285 and :584), Gates, URL auth (live and :584), ACP icons
+  (live fallback in the list row and editor; allow-list tests).
+- **Partly live:** Popover (list popover live; the editor popover, 840×620 and dark not reached),
+  ACP sessions and providers (List, Load more, Import, Delete confirm live; Cancel/Confirm,
+  Log out, providers by tests), Toast progress (prompt live; Update and the outcome by tests).
+- **Tests only, live not reached:** Copy command, Update all (the press hit the toasts over the
+  header), Custom options editor, Keyboard/Escape/reduced motion (Escape closed Settings on the
+  drive: fixed after it, not re-driven).
+- **Not run:** Trace and pixels (user decision 2026-10-06: no oracle or trace tools); Real hover
+  and real update (attended): the session budget (one drive and one retry) was spent; a real
+  session import also needs a signed-in ACP agent (the user chose not to sign in to Gemini CLI,
+  20261005-provider-sign-in-and-install).
+
+Next: one more live macOS session on the current bundle (the fixture is `target/upkeep-lane`
+in this worktree: `bun fixture.mjs serve`, `seed`, then `drive.mjs` with the toasts dismissed
+first) for the rows above, then the attended hover/update row with a lane-local CLI. Review
+and merge the PR.
