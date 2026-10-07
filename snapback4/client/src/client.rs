@@ -388,17 +388,18 @@ impl Client {
         let (id, new_ids): (String, Vec<String>) = match key {
             Some(key) => {
                 let id = keyed_id(&device, key, None);
+                // A key names one intent: the same key with other input is
+                // refused, as Snapback's own client refuses a reused id, for
+                // as long as the device knows what the first carried.
+                if let Some(earlier) = self.input_of(core, &id)? {
+                    if earlier != input_key(op, &args) {
+                        return Ok(json!({"id": id, "state": "failed", "why": {
+                            "code": "E_WRITE_ID_REUSE", "family": "input",
+                            "message": "this key already names a write with other input"}}));
+                    }
+                }
                 let known = self.outcome(core, &id)?;
                 if known["state"] != "unknown" {
-                    // A key names one intent: the same key with other input is
-                    // refused, as Snapback's own client refuses a reused id.
-                    if let Some(earlier) = self.input_of(core, &id)? {
-                        if earlier.0 != op || earlier.1 != args {
-                            return Ok(json!({"id": id, "state": "failed", "why": {
-                                "code": "E_WRITE_ID_REUSE", "family": "input",
-                                "message": "this key already names a write with other input"}}));
-                        }
-                    }
                     return Ok(known);
                 }
                 (
@@ -427,27 +428,33 @@ impl Client {
         Ok(reply)
     }
 
-    /// The operation and input a write carried, while the device still knows
-    /// them: queued in the outbox, or refused in the journal.
-    fn input_of(
-        &mut self,
-        core: &mut dyn Core,
-        id: &str,
-    ) -> Result<Option<(String, Json)>, String> {
+    /// The digest of the operation and input a write carried ([`input_key`]),
+    /// while the device still knows it: queued in the outbox, refused in the
+    /// journal, or answered in a kept receipt.
+    fn input_of(&mut self, core: &mut dyn Core, id: &str) -> Result<Option<String>, String> {
         let queued = ok(core.call(json!({"op": "queued"})))?;
-        let refused = self.refusals(core)?;
-        Ok(queued
+        if let Some(entry) = queued
             .as_array()
             .into_iter()
             .flatten()
-            .chain(refused.as_array().into_iter().flatten())
-            .find(|entry| entry["id"] == id)
-            .map(|entry| {
-                (
-                    entry["op"].as_str().unwrap_or_default().to_owned(),
-                    entry["args"].clone(),
-                )
-            }))
+            .find(|e| e["id"] == id)
+        {
+            return Ok(Some(input_key(
+                entry["op"].as_str().unwrap_or_default(),
+                &entry["args"],
+            )));
+        }
+        let refused = self.refusals(core)?;
+        if let Some(entry) = refused
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|e| e["id"] == id)
+        {
+            return Ok(entry["input"].as_str().map(str::to_owned));
+        }
+        let history = ok(core.call(json!({"op": "meta", "key": crate::round::HISTORY})))?;
+        Ok(crate::round::history_input(&history, id))
     }
 
     /// The id a write with this idempotency `key` has (or would have) on this
@@ -519,7 +526,20 @@ impl Client {
         if let Some(known) = crate::round::history_receipt(&history, id) {
             return Ok(known);
         }
-        Ok(json!({"id": id, "state": if entry.is_some() { "pending" } else { "unknown" }}))
+        if entry.is_some() {
+            return Ok(json!({"id": id, "state": "pending"}));
+        }
+        // A refusal outlives its receipt: the journal keeps it until dismissed.
+        let refused = self.refusals(core)?;
+        if let Some(refused) = refused
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|r| r["id"] == id)
+        {
+            return Ok(json!({"id": id, "state": "failed", "why": refused["why"]}));
+        }
+        Ok(json!({"id": id, "state": "unknown"}))
     }
 
     /// Every server outcome this client knows, for a host that must rebuild
@@ -580,15 +600,12 @@ impl Client {
 
     /// The journal's segments, in order, each with its refusals.
     fn journal(&mut self, core: &mut dyn Core) -> Result<crate::journal::Segments, String> {
-        use crate::journal::{index, segment, segment_key, Index, INDEX};
+        use crate::journal::{index, segment, segment_key, INDEX};
         let mut meta = |key: String| ok(core.call(json!({"op": "meta", "key": key})));
-        Ok(match index(&meta(INDEX.into())?) {
-            Index::Inline(list) => vec![(None, list)],
-            Index::Segments(segments) => segments
-                .into_iter()
-                .map(|n| Ok((Some(n), segment(&meta(segment_key(n))?))))
-                .collect::<Result<_, String>>()?,
-        })
+        index(&meta(INDEX.into())?)
+            .into_iter()
+            .map(|n| Ok((n, segment(&meta(segment_key(n))?))))
+            .collect()
     }
 
     /// Forget refusals the app has shown (by id; `None`: all of them).
@@ -598,23 +615,25 @@ impl Client {
         let keep = |refused: &Json| {
             ids.is_some_and(|ids| !ids.iter().any(|id| refused["id"] == id.as_str()))
         };
+        let journal = self.journal(core)?;
         let mut segments = Vec::new();
-        for (n, list) in self.journal(core)? {
+        for (n, list) in &journal {
             let rest: Vec<Json> = list
                 .iter()
                 .filter(|refused| keep(refused))
                 .cloned()
                 .collect();
-            let n = n.unwrap_or(0);
-            if rest.len() != list.len() || rest.is_empty() {
-                ok(core.call(json!({"op": "set_meta", "key": segment_key(n),
+            if rest.len() != list.len() {
+                ok(core.call(json!({"op": "set_meta", "key": segment_key(*n),
                     "value": Json::Array(rest.clone()).to_string()})))?;
             }
             if !rest.is_empty() {
-                segments.push(n);
+                segments.push(*n);
             }
         }
-        ok(core.call(json!({"op": "set_meta", "key": INDEX, "value": index_text(&segments)})))?;
+        if segments.len() != journal.len() {
+            ok(core.call(json!({"op": "set_meta", "key": INDEX, "value": index_text(&segments)})))?;
+        }
         lock(&self.shared).revision += 1;
         Ok(())
     }
@@ -797,6 +816,49 @@ impl Client {
 
 /// A keyed write's id, or its `index`th new row id, from the device's
 /// identity and the app's idempotency key: the same intent, the same id.
+/// A digest of a write's operation and input, its keys in sorted order: what
+/// a key is bound to, kept with its receipt and its refusal.
+pub(crate) fn input_key(op: &str, args: &Json) -> String {
+    use sha2::{Digest, Sha256};
+    fn canonical(value: &Json, out: &mut String) {
+        match value {
+            Json::Object(fields) => {
+                let mut keys: Vec<&String> = fields.keys().collect();
+                keys.sort();
+                out.push('{');
+                for (i, key) in keys.into_iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    out.push_str(&Json::String(key.clone()).to_string());
+                    out.push(':');
+                    canonical(&fields[key], out);
+                }
+                out.push('}');
+            }
+            Json::Array(items) => {
+                out.push('[');
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    canonical(item, out);
+                }
+                out.push(']');
+            }
+            other => out.push_str(&other.to_string()),
+        }
+    }
+    let mut text = String::new();
+    canonical(args, &mut text);
+    let mut hash = Sha256::new();
+    hash.update(b"exact-snapback4 write input\0");
+    hash.update(op.as_bytes());
+    hash.update([0]);
+    hash.update(text.as_bytes());
+    crockford(&hash.finalize())
+}
+
 pub(crate) fn keyed_id(device: &str, key: &str, index: Option<u8>) -> String {
     use sha2::{Digest, Sha256};
     let mut hash = Sha256::new();

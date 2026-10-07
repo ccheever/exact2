@@ -723,6 +723,14 @@ fn a_keyed_write_is_admitted_once_whatever_is_asked_again() {
     let after = write(&mut mona);
     assert_eq!(after["state"], "sent", "{after}");
     assert!(mona.queued().is_empty());
+    // Sent, its receipt still names its input: other input is still a reuse,
+    // and the same input still answers the first, after a reopen too.
+    mona.reopen();
+    assert!(mona.open(server.port));
+    let other = mona.call(json!({"op": "write", "name": "send", "args": {"body": "twice"}, "now": now(), "key": "draft:7"}));
+    assert_eq!(other["why"]["code"], "E_WRITE_ID_REUSE", "{other}");
+    assert_eq!(write(&mut mona)["state"], "sent");
+    assert!(mona.queued().is_empty());
     let mine: Vec<_> = mona
         .inbox()
         .into_iter()
@@ -777,4 +785,45 @@ fn the_refusal_journal_keeps_every_refusal_until_dismissed() {
     );
     ola.call(json!({"op": "dismiss"}));
     assert_eq!(ola.call(json!({"op": "refusals"})), json!([]));
+}
+
+/// A keyed write the server refused stays known by its refusal after its
+/// receipt is gone, and keeps its key bound to the input it carried; a
+/// dismissal that matches nothing leaves the journal as it was.
+#[test]
+fn a_refusal_outlives_its_receipt() {
+    let server = Server::start();
+    let mut pia = Device::new("pia");
+    pia.open(server.port);
+    assert_eq!(pia.sync(&server, false), json!({"ok": true}));
+    let claim = |device: &mut Device, key: &str, write: &str| {
+        device.call(json!({"op": "write", "name": "claim", "args": {"key": key}, "now": now(), "key": write}))
+    };
+    assert_eq!(claim(&mut pia, "desk", "first")["state"], "pending");
+    let refused = claim(&mut pia, "desk", "second");
+    assert_eq!(pia.sync(&server, false), json!({"ok": true}));
+    // The receipt window moves on; the journal still has the refusal.
+    pia.call(json!({"op": "set_meta", "key": "write-history", "value": "[]"}));
+    assert_eq!(
+        pia.call(json!({"op": "meta", "key": "write-history"})),
+        "[]"
+    );
+    pia.reopen();
+    assert!(pia.open(server.port));
+    let outcome = pia.call(json!({"op": "outcome", "id": refused["id"]}));
+    assert_eq!(outcome["state"], "failed", "{outcome}");
+    assert_eq!(outcome["why"]["code"], "TAKEN");
+    let reused = claim(&mut pia, "window", "second");
+    assert_eq!(reused["why"]["code"], "E_WRITE_ID_REUSE", "{reused}");
+    assert_eq!(claim(&mut pia, "desk", "second")["state"], "failed");
+    assert!(pia.queued().is_empty(), "nothing admitted");
+    pia.call(json!({"op": "dismiss", "ids": []}));
+    pia.call(json!({"op": "dismiss", "ids": ["00000000000000000000000000"]}));
+    assert_eq!(
+        pia.call(json!({"op": "refusals"}))
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
 }

@@ -24,19 +24,10 @@ pub(crate) const HISTORY: &str = "write-history";
 /// Record a refused write in the journal (once per id), before its entry —
 /// and with it the input — is retired. The journal's layout is `journal.rs`'s.
 async fn journal(io: &Io, entry: &Json, outcome: &Json) -> Result<()> {
-    use crate::journal::{fits, index, index_text, segment, segment_key, Index, INDEX};
+    use crate::journal::{fits, index, index_text, segment, segment_key, stored, INDEX};
     let id = entry["id"].as_str().unwrap_or_default();
     let read = |key: String| io.device(json!({"op": "meta", "key": key}));
-    let mut segments = match index(&read(INDEX.into()).await.map_err(denied)?) {
-        Index::Segments(segments) => segments,
-        Index::Inline(list) => {
-            // The first layout: move its refusals into segment 0.
-            io.device(json!({"op": "set_meta", "key": segment_key(0), "value": Json::Array(list).to_string()}))
-                .await
-                .map_err(denied)?;
-            vec![0]
-        }
-    };
+    let mut segments = index(&read(INDEX.into()).await.map_err(denied)?);
     let mut last = Vec::new();
     for n in &segments {
         last = segment(&read(segment_key(*n)).await.map_err(denied)?);
@@ -44,8 +35,9 @@ async fn journal(io: &Io, entry: &Json, outcome: &Json) -> Result<()> {
             return Ok(());
         }
     }
-    let refused = json!({"id": id, "op": entry["op"], "args": entry["args"],
-        "why": outcome["why"], "at": entry["now"]});
+    let op = entry["op"].as_str().unwrap_or_default();
+    let refused = stored(json!({"id": id, "op": op, "args": entry["args"],
+        "input": crate::client::input_key(op, &entry["args"]), "why": outcome["why"], "at": entry["now"]}));
     let n = match segments.last() {
         Some(n) if fits(&last, &refused) => *n,
         _ => {
@@ -61,10 +53,10 @@ async fn journal(io: &Io, entry: &Json, outcome: &Json) -> Result<()> {
     .map_err(denied)?;
     if !segments.contains(&n) {
         segments.push(n);
+        io.device(json!({"op": "set_meta", "key": INDEX, "value": index_text(&segments)}))
+            .await
+            .map_err(denied)?;
     }
-    io.device(json!({"op": "set_meta", "key": INDEX, "value": index_text(&segments)}))
-        .await
-        .map_err(denied)?;
     Ok(())
 }
 
@@ -518,6 +510,14 @@ async fn persist(io: &Io, shared: &Mutex<Shared>, id: &str) -> Result<()> {
         if let Some(store) = &held.revalidated {
             kept["revalidated_store"] = store.clone();
         }
+        // What it carried, so a key reused with other input is refused for as
+        // long as the device keeps this receipt.
+        if let Some(entry) = &entry {
+            kept["input"] = json!(crate::client::input_key(
+                entry["op"].as_str().unwrap_or_default(),
+                &entry["args"]
+            ));
+        }
         io.device(json!({"op": "keep_write", "value": kept.to_string()}))
             .await
             .map_err(denied)?;
@@ -579,7 +579,23 @@ pub(crate) fn success_sequence(entry: &Json) -> Option<u64> {
 
 /// A terminal receipt for `id` in the device's kept history (`meta`'s
 /// answer for [`HISTORY`]: a JSON list as text, or null).
+/// The receipt as answered: without the `input` digest it keeps.
 pub(crate) fn history_receipt(history: &Json, id: &str) -> Option<Json> {
+    let mut receipt = history_entry(history, id)?;
+    if let Some(fields) = receipt.as_object_mut() {
+        fields.remove("input");
+    }
+    Some(receipt)
+}
+
+/// The `input` digest the device's kept receipt for `id` names, if any.
+pub(crate) fn history_input(history: &Json, id: &str) -> Option<String> {
+    history_entry(history, id)?["input"]
+        .as_str()
+        .map(str::to_owned)
+}
+
+fn history_entry(history: &Json, id: &str) -> Option<Json> {
     let list: Json = serde_json::from_str(history.as_str()?).ok()?;
     list.as_array()?
         .iter()

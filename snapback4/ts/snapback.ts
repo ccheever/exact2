@@ -135,9 +135,12 @@ export class Snapback {
     return ok<Read<T>>(await this.call({ op: 'read', name, args, now: clock(now) }));
   }
 
-  /** Every page of a paged query (`next` cursors passed back as `args.c`). */
-  async readAll<T = Json>(name: string, args: Request, now: number, cursor = 'c', limit = 10_000): Promise<T[]> {
+  /** Every page of a paged query (`next` cursors passed back as `args.c`).
+   * `limit`, if given, refuses a query that holds more rows than that; by
+   * default every row is read, and only a cursor that does not advance stops. */
+  async readAll<T = Json>(name: string, args: Request, now: number, cursor = 'c', limit = Infinity): Promise<T[]> {
     const rows: T[] = [];
+    const seen = new Set<string>();
     let next: string | null = null;
     do {
       const page: Read<T[]> = await this.read<T[]>(name, { ...args, [cursor]: next }, now);
@@ -146,6 +149,10 @@ export class Snapback {
       rows.push(...page.data);
       next = page.next ?? null;
       if (rows.length > limit) throw new Error(`${name}: more than ${limit} rows`);
+      if (next !== null) {
+        if (seen.has(next)) throw new Error(`${name}: its pages do not end`);
+        seen.add(next);
+      }
     } while (next);
     return rows;
   }
