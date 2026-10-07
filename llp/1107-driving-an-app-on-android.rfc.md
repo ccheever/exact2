@@ -9,7 +9,7 @@
 
 ## 1. Summary
 
-The agent can now drive an exact2 app on an Android emulator or phone: `bun scripts/agent.mjs android --app <app> …` and `--test <file>`, with every operation the Linux host answers (tree, layout, tap, type, clock, screenshot, state, logs, prefer, `fail fetch`).
+The agent can now drive an exact2 app on an Android emulator or phone: `bun scripts/agent.mjs android --app <app> …` and `--test <file>`, with the operations the Linux host answers (tree, layout, tap, type, clock, screenshot, state, logs, prefer, `fail fetch`). World save and restore are refused on Android, as the carrier refuses them on every host it has no transfer for, and native modules (`EXACT_NATIVE_LIBS`) are not built or pushed.
 
 The carrier runs the app's **Linux host built for `aarch64-linux-android`**, headless, under `adb shell`:
 - It runs the runner, kernel, layout, text and painter, compiled with the host's Android-gated code, against bionic and the phone's own fonts (`/system/fonts`).
@@ -39,7 +39,11 @@ The carrier pushes the app's Android-built Linux host and its `assets/` to `/dat
 - **`EXACT_FONTS`:** `/system/fonts`, so the phone's faces draw (the desktop carriers' pinned DejaVu is dropped);
 - **`EXACT_NATIVE_LIBS`:** where native modules sit.
 
-A screenshot is written on the device and pulled to the path asked for. No APK, Gradle or Kotlin is involved, and the host's own agent answers, so the carrier's contract is the Linux one.
+A screenshot is written on the device and pulled to the path asked for.
+- **Per drive:** each drive deploys into a run directory of its own (`run-<pid>-<time>`, swept after an hour), so two drives of one app share neither a binary nor a screenshot.
+- **Kept:** `HOME` is the app's and survives, so a named scratch store (`--storage`) persists between drives as on the desktop carriers.
+- **Plans and URLs:** a local `--plan` is pushed and read on the device; a launch URL reaches the host as its argv.
+- **A known limit:** a drive whose local `adb` client is killed can leave its process running on the device until that session ends. It cannot touch another drive's files, but it shares the app's `HOME`. No APK, Gradle or Kotlin is involved, and the host's own agent answers, so the carrier's contract is the Linux one.
 
 The trade-off: this proves the app's logic, layout and paint on Android's ABI, libc and fonts, but not the Canvas reader's drawing, not touch through Android's input system, and not the soft keyboard. When the Android lane brings the reader into the repository, a `--reader` carrier can drive the APK instead; the operations stay the same.
 
@@ -54,7 +58,7 @@ The GPU painter (vello on wgpu Vulkan) crashes under the emulator's SwiftShader 
 - The SDK is `ANDROID_HOME`, else `~/Library/Android/sdk` or `~/Android/Sdk`.
 - `ANDROID_SERIAL` picks the device; otherwise the first ready one.
 
-The Rust target is installed once (`rustup target add aarch64-linux-android`). This lives beside `agent.mjs`, not in `scripts/app.mjs`, which is at the line cap.
+The Rust target is installed once by hand (`rustup target add aarch64-linux-android`, in the app's directory so its pinned toolchain gets it); the build names that command when it is missing. This lives beside `agent.mjs`, not in `scripts/app.mjs`, which is at the line cap.
 
 ## 4. What stage 2 needs (not built)
 

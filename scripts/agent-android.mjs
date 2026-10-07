@@ -81,7 +81,7 @@ export function androidDeploy(app, bin, env) {
   run(['shell', `chmod 755 ${quote(`${dir}/${exe}`)}`], 'chmod');
   if (existsSync(resolve(app.dir, 'assets'))) run(['push', resolve(app.dir, 'assets'), `${dir}/`], 'push the assets');
   const vars = Object.fromEntries(Object.entries(env).filter(([k]) => k.startsWith('EXACT_')));
-  delete vars.EXACT_FONT; // the desktop carriers' pinned DejaVu; a phone draws with its own faces
+  if (!process.env.EXACT_FONT) delete vars.EXACT_FONT; // the desktop carriers' pinned DejaVu; a phone draws with its own faces
   // A local plan (`--plan`) is read on the device: copied there, or the baked plan would boot instead.
   if (vars.EXACT_PLAN && existsSync(vars.EXACT_PLAN)) {
     run(['push', resolve(vars.EXACT_PLAN), `${dir}/agent.plan`], 'push the plan');
@@ -107,6 +107,11 @@ if (import.meta.main) {
   if (verb !== 'build' || !name) {
     console.error('usage: bun scripts/agent-android.mjs build <app>   (then: bun scripts/agent.mjs android --app <app> …)');
     process.exit(2);
+  }
+  const installed = spawnSync('rustup', ['target', 'list', '--installed'], { cwd: resolveApp(name).dir, encoding: 'utf8' }).stdout ?? '';
+  if (!installed.split('\n').includes(ANDROID_TARGET)) {
+    console.error(`the toolchain has no ${ANDROID_TARGET} target: rustup target add ${ANDROID_TARGET} (once, in the app's directory so its pinned toolchain gets it)`);
+    process.exit(1);
   }
   const app = resolveApp(name), [cmd, ...args] = androidBuild(app);
   const built = spawnSync(cmd, args, { cwd: app.workspace ?? app.dir, env: { ...androidToolchainEnv(), CARGO_TARGET_DIR: app.target }, stdio: 'inherit' });
