@@ -15,7 +15,7 @@ import Foundation
 
 enum T3FileEditor {
     static func install(_ element: ExactElement) {
-        guard element.hook == .t3FileEditor, let view = element.textView else { return }
+        guard element.hatch == .t3FileEditor, let view = element.textView else { return }
         watchPresses()
         if element.isNew, element.id == fileEditorId { focusFileEditor(element, view) }
     }

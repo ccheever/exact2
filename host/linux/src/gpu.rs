@@ -884,8 +884,13 @@ impl Backend for Gpu {
         self.push_recorded(backdrop::Layer::Clip(Fill::NonZero, a, clip));
     }
 
-    fn backdrop_blur(&mut self, s: &Shape, sigma: f32, ts: Transform) {
-        self.blur_backdrop(s, sigma, ts);
+    fn backdrop_filter(
+        &mut self,
+        s: &Shape,
+        filter: &exact_kernel::style::BackdropFilter,
+        ts: Transform,
+    ) {
+        self.filter_backdrop(s, filter, ts);
     }
 
     fn push_css_clip(&mut self, path: &exact_kernel::clip::ClipPath, ts: Transform) -> bool {

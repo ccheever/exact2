@@ -9,7 +9,7 @@ import { faultOp, faultsJson, setFaultLog } from '../web/faults.js';
 import { environment, navigation, unselected, guestOutline, guestTap, guestType, viewBox, foldEnv, preferFold, typedControl, typeControl, reveal, animationClocks, pageReporter } from './navigation.js';
 // A runtime value as the runner's typed JSON: records by field name.
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
-const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-pressed', 'accessibilityPressed'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['placeholder', 'placeholder'], ['autocomplete', 'autocomplete'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hook', 'hook'], ['data-nativeviewmodulename', 'nativeViewModuleName'], ['data-nativeviewprops', 'nativeViewProps']];
+const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-pressed', 'accessibilityPressed'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['placeholder', 'placeholder'], ['autocomplete', 'autocomplete'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hatch', 'hatch'], ['data-nativeviewmodulename', 'nativeViewModuleName'], ['data-nativeviewprops', 'nativeViewProps']];
 const TYPES = { TEMPLATE: 'Head', BUTTON: 'Pressable', INPUT: 'TextInput', TEXTAREA: 'TextInput', VIDEO: 'Video', AUDIO: 'Video', IMG: 'Image', IFRAME: 'WebView', A: 'Pressable' };
 /** The view an operation names: its id, else the first node with that testId on an active screen, a covered
  * screen's or an unselected tab's copy only when no active one carries it, as the runner's `target`. */
@@ -265,6 +265,8 @@ export function install(exact) {
       // `perf <target>` (LLP 1079 D2): the plan sites under a view, with their work (perf.js).
       case 'perf': {
         if (req.frames) return { virtual: true }; // the agent's clock presents no frame (LLP 1079 D4)
+        // `perf hatches` (LLP 1075.003.000.001 §3.3): the hatches' calls, timed, and what their code counted (hatches.js).
+        if (req.hatches) return exact.hatchPerf ? exact.hatchPerf.reply(tags()) : { ...tags(), seq: exact.clock.epoch, plan: exact.plan ?? null, measuring: exact.plan != null, hatches: {}, calls: [], tickets: 0, counters: {}, timings: {}, rejected: 0, abandoned: 0, limited: 0 };
         let el = document.getElementById('exact-root');
         // The view `tree` names (review b5-c 1).
         if (req.target != null) { const hit = targetOf(all(), req.target); if (!hit) return { error: `no view matches ${req.target}` }; el = views.get(hit.id); }
@@ -302,9 +304,12 @@ export function install(exact) {
           // Virtualized lists report until a round sends nothing, reading
           // layout now (collection-glue.js `settle`, as glue.js's clock does).
           const end = performance.now() + 20000;
+          // A hatch whose acts keep causing acts never settles (LLP 1075.003.000.001 §2.5): 16 drains of its queue, then say so.
+          const drained = exact.hatchActs?.drains() ?? 0, looping = () => exact.hatchActs && exact.hatchActs.drains() - drained > 16 && exact.hatchActs.queued() > 0;
           for (let round = 0; round < 16; round++) {
             // A held request is in flight until the agent answers it: never waited on.
-            do await new Promise(r => setTimeout(r, 30)); while (exact.inflight.n > holds().length && performance.now() < end);
+            do await new Promise(r => setTimeout(r, 30)); while (exact.inflight.n > holds().length && performance.now() < end && !looping());
+            if (looping()) return { clock: exact.clock.now, settled: false, reason: 'hatches' };
             // Declared faces loading (the stylesheet's, LLP 1019) are the page's too.
             await document.fonts?.ready;
             // Text around shapes lays out in the frames after a commit (flow.js).
@@ -398,7 +403,7 @@ export function install(exact) {
         // The module's storage (LLP 1097 D8), as the runner's `state.background`.
         const background = exact.data?.background?.();
         const faults = faultsJson();
-        return { slots, derives, resources, pending, streams, ...(faults.length ? { faults } : {}), ...(background ? { background } : {}), tasks, queued, notifications: exact.notices ?? [], ...(exact.sounds ? { sounds: exact.sounds.state(req.sounds === 'all') } : {}), head, focus, language, storage, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, mediaSession: exact.mediaSession?.state(id) ?? { owner: null, claimants: [], actions: [], playbackState: 'none', published: 'none' }, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.surfaceRefusals ? { surfaceRefusals: exact.surfaceRefusals() } : {}), reorder: exact.reorderState?.() ?? null, ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...(exact.hookStats ? { hooks: exact.hookStats } : {}), ...tags() };
+        return { slots, derives, resources, pending, streams, ...(faults.length ? { faults } : {}), ...(background ? { background } : {}), tasks, queued, notifications: exact.notices ?? [], ...(exact.sounds ? { sounds: exact.sounds.state(req.sounds === 'all') } : {}), head, focus, language, storage, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, mediaSession: exact.mediaSession?.state(id) ?? { owner: null, claimants: [], actions: [], playbackState: 'none', published: 'none' }, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.surfaceRefusals ? { surfaceRefusals: exact.surfaceRefusals() } : {}), reorder: exact.reorderState?.() ?? null, ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...(exact.hatchState ? { hatches: exact.hatchState() } : {}), ...tags() };
       }
       // The page group (LLP 1069.000 D6), where the plan reads `exactPage` (facts.js); else the drive's facts
       // held here, so `root-font-size` still sets the root element's size `rem` follows (D3), as glue.js does.

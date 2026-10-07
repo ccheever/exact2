@@ -722,7 +722,11 @@ export class T3Client {
   }
   // Generation-guarded server access for settings-rest-commands.ts / settings-rest-data.ts.
   restAccess(native: Native) {
-    return { request: (method: string, payload: Obj = {}, write = false) => this.request(native, method, payload, this.generation, write), http: (path: string) => this.http(native, path), ids: (count: number) => this.ids(native, count), call: (request: Obj) => this.call(native, request),
+    // `read`: a read the transport shares with an identical one already pending (T3Transport `share`): an
+    // answer asked again before its reply (Exact lets the old one go) joins it instead of sending again,
+    // as the reference's query atoms share one request per input (round 5: vcs.refreshStatus four a second).
+    return { request: (method: string, payload: Obj = {}, write = false) => this.request(native, method, payload, this.generation, write),
+      read: (method: string, payload: Obj = {}) => this.call(native, { op: 'request', method, payload, share: true }, this.generation), http: (path: string) => this.http(native, path), ids: (count: number) => this.ids(native, count), call: (request: Obj) => this.call(native, request),
       dispatch: (storage: Files, payload: Obj, description: string) => this.dispatch(native, storage, payload, description), write: (storage: Files, pending: Pending) => this.write(native, storage, pending) };
   }
   get snapshotOwner() { return this.environmentId ? JSON.stringify([this.origin, this.environmentId, this.projectId, this.threadId]) : ''; }

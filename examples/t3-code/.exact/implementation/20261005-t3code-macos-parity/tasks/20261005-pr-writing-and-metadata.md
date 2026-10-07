@@ -29,7 +29,7 @@ comment editing; long-comment collapse), **C3** (reviewer and label pickers), **
 pills and picker on remarks in Summary and Timeline).
 Excluded: line comments, thread Reply/Resolve/Edit and reactions inside thread cards (`20261005-pr-code-tab`);
 reactions on the PR description (the reference reads them, `P:700`, but renders no bar);
-host actions (`20261005-pr-header-actions-and-stacks`); Forgejo's required-summary rule is ported, other hosts are not fixture-run.
+host actions (`20261005-pr-header-actions-and-stacks`); Forgejo's required-summary rule is ported, other hosts are not run live.
 Reuse (done): `prCommand` ops `comment`, `title`, `label`/`unlabel`, `request-review`/`remove-review` and `prCandidates`
 (`pages-pr-detail.ts:189-245`, never wired to UI), the `pageslocal:pr-act-*` route (`app.contract:134-136`, one write at a time), `canEdit/canReview/canLabel`
 fields (`pages-pr-detail.contract:113-121`, unused), the PR Markdown renderer for Preview.
@@ -56,7 +56,7 @@ Reference wording to keep: placeholders "Leave a comment", "Summarize your revie
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | merged task PR | [20261005-pr-conversation-and-refresh](20261005-pr-conversation-and-refresh.md) | pending | Merged (conversation model, refresh, `readableFailure`) | pending |
-| merged task PR | [20261005-fake-github-fixture](20261005-fake-github-fixture.md) | pending | Write verbs and profiles served | pending |
+| merged task PR | [20261007-real-github-lane](20261007-real-github-lane.md) | pending | Probe rows for every write confirmed by GitHub read-back; the second account for reviewer requests | pending |
 | scheduling preference | [20261005-pr-header-actions-and-stacks](20261005-pr-header-actions-and-stacks.md), [20261005-main-fix-adoption](closed/20261005-main-fix-adoption.md) | pending | Close/Reopen with comment calls the same `pr-act-action` path that `20261005-pr-header-actions-and-stacks` upgrades; merge that one first if both are open | pending |
 | merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 
@@ -89,13 +89,13 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and `..
 
 | Criterion | Setup/reset and fixture | Action or command | Expected result | Required platform | Proof |
 | --- | --- | --- | --- | --- | --- |
-| Comment and close-with-comment | Fake gh, profile `admin-reviewer`, open PR | Type, ⌘↵ via `type`/`key`; then "Close with comment" | Logged `pr comment N --body-file -` body equals typed text; then `pr close N`; Summary shows the comment; failure of close keeps the comment and toasts | macOS, 1280×840 | `calls.ndjson`, tree JSON |
-| Review verdicts | Profiles `admin-reviewer`, `admin-author` | Submit Comment/Approve/Request changes with a summary | `POST …/pulls/N/reviews` body has the event and summary; toasts as listed; author sees Comment only; empty Comment disabled | macOS | log, shots |
+| Comment and close-with-comment | Sandbox, the primary account on a second-account pull request | Type, ⌘↵ via `type`/`key`; then "Close with comment" | Logged `pr comment N --body-file -` body equals typed text; then `pr close N`; Summary shows the comment; failure of close keeps the comment and toasts | macOS, 1280×840 | `logs/gh-calls.tsv`, GitHub read-back, tree JSON |
+| Review verdicts | The primary account on `second-review` (reviewer) and on its own pull request (author) | Submit Comment/Approve/Request changes with a summary | GitHub shows the review's state and summary (read back with the lane gh); toasts as listed; author sees Comment only; empty Comment disabled | macOS | log, shots |
 | Pending store | Unit plus popover | Add and discard through the store API (the Code tab fills it later) | Badge "Review (n)", discard clears; summary kept across close/reopen and PR switch | macOS | tests, shots |
-| Title/description/comment edit | Own and others' comments | Edit each; unchanged title; Escape; failure with `failNext` | Mutation variables logged; no call when unchanged; editor and text retained on failure; pencil absent on others' comments and on reviews | macOS | log |
+| Title/description/comment edit | Own and others' comments | Edit each; unchanged title; Escape; failure by unit test with an injected failure | Mutation variables logged; no call when unchanged; editor and text retained on failure; pencil absent on others' comments and on reviews | macOS | log |
 | Preview and collapse | 40-line comment | Preview toggle; "Show full comment" | Same render as the saved body; collapse at 240 pt | macOS | shots |
-| Reviewers | Profiles `writer`, `reader` | Pick, unpick, search | `POST`/`DELETE …/requested_reviewers` bodies; toasts; reader's button disabled with the tooltip | macOS | log |
-| Labels | Profiles `triage`, `reader` | Apply, remove (name with space and slash) | `POST …/labels`, `DELETE …/labels/<encoded>`; no success toast; failure title "Could not put … on" | macOS | log |
+| Reviewers | Live: the primary asks the second account and the second asks the primary; `reader` by unit test | Pick, unpick, search | `POST`/`DELETE …/requested_reviewers` bodies; toasts; reader's button disabled with the tooltip | macOS | log |
+| Labels | Live with the primary account; `triage` and `reader` by unit test | Apply, remove (name with space and slash) | `POST …/labels`, `DELETE …/labels/<encoded>`; no success toast; failure title "Could not put … on" | macOS | log |
 | Reactions | Comment with two reactions | Add, remove, fail once | Optimistic change, `addReaction`/`removeReaction` content enum, rollback on failure; tooltip "You, A and 2 others reacted with … emoji" | macOS | log, shots |
 | Visual and trace | Oracle, same fixture | Pairs for composer, editors, pickers, pills at 1280×840 and 840×620, light and dark; `target/t3-ui-parity/trace-diff.mjs pr-writes` | Every moved cell is fixed, or declared in `EXACT2-GAPS.md` with an issue link; RPC payloads equal | macOS | pair table, diff |
 | Ported tests | `bun test` | Original names: "canEditPullRequestChangeRequest", "canEditPullRequestComment", "reaction presentation", "reaction tooltip", "reaction tooltip, with a reaction in flight", "pending reactions", the review-store cases, "updates cached labels after successful edits without rereading the host", "updates reviewer requests and enriched reviewers without rereading the host", "refreshes pull request activity after a comment is updated" | Pass | macOS | log |
@@ -104,7 +104,7 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and `..
 | Gates | `git add -A` | Clone checks; `bun scripts/caps.mjs`; five repository checks | Green; every moved cell is fixed, or declared in `EXACT2-GAPS.md` with an issue link | macOS | logs |
 
 Task-owned source paths: `examples/t3-code/pages-pr-detail.ts`, new `pages-pr-writes.ts` (+ tests), `pages-pr-compose.contract`, `pages-pr-edit.contract`, `pages-pr-meta.contract`, `app.contract` (Preview argument), `AGENT-HANDOFF.md`.
-Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, fake gh, reference oracle. Attended and normal-launch rows use a lane build with `T3_LOCAL_HOME=<lane>/t3-home` and `T3_LOCAL_PORT=<lane port 16xxx>` (see `20261005-embedded-server-runtime`).
+Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, the real-GitHub lane (sandbox, shared lane config dirs, two accounts; `tools/github-lane`), reference oracle. Attended and normal-launch rows use a lane build with `T3_LOCAL_HOME=<lane>/t3-home` and `T3_LOCAL_PORT=<lane port 16xxx>` (see `20261005-embedded-server-runtime`).
 
 ## Progress
 
@@ -120,4 +120,4 @@ Planned. No branch.
 
 ## Next action
 
-`prepare` from `feat(example)/t3-code` once the prerequisite task PRs above have merged into it; sign-in rows use lane fixtures, and real-account rows wait for the user to sign in.
+Starts after [20261007-real-github-lane](20261007-real-github-lane.md) merges: `prepare` from `feat(example)/t3-code` on its shared lane login and sandbox (`examples/t3-code/tools/github-lane/README.md`), with a unit-test fallback for injected failures and delays and for the read, triage and read-only-author profiles.

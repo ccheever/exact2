@@ -2,14 +2,14 @@ import AppKit
 import XCTest
 
 private var tabActions: [(UInt32, UInt32)] = []
-private let resolve: ExactHooks.ResolveFn = { _, _, _, _, _ in 0 }
-private let act: ExactHooks.ActFn = { _, node, action in tabActions.append((node, action)); return 1 }
-private let log: ExactHooks.LogFn = { _, _, _ in }
-private let delegate: ExactHooks.DelegateFn = { _, _, _ in }
+private let resolve: ExactHatches.ResolveFn = { _, _, _, _, _ in 0 }
+private let act: ExactHatches.ActFn = { _, node, action in tabActions.append((node, action)); return 1 }
+private let log: ExactHatches.LogFn = { _, _, _ in }
+private let delegate: ExactHatches.DelegateFn = { _, _, _ in }
 
 final class TabInputTests: XCTestCase {
     private var table: UnsafeMutableRawPointer!
-    private var hooks: ExactHooks!
+    private var hooks: ExactHatches!
     private var window: NSWindow!
     private var input: RightPanelTabsInput!
     private var elements: [ExactElement] = []
@@ -23,7 +23,7 @@ final class TabInputTests: XCTestCase {
         table.storeBytes(of: unsafeBitCast(act, to: UnsafeRawPointer.self), toByteOffset: 16, as: UnsafeRawPointer.self)
         table.storeBytes(of: unsafeBitCast(log, to: UnsafeRawPointer.self), toByteOffset: 24, as: UnsafeRawPointer.self)
         table.storeBytes(of: unsafeBitCast(delegate, to: UnsafeRawPointer.self), toByteOffset: 32, as: UnsafeRawPointer.self)
-        hooks = ExactHooks(host: nil, table: UnsafeRawPointer(table))!
+        hooks = ExactHatches(host: nil, table: UnsafeRawPointer(table))!
         window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 300, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         input = RightPanelTabsInput()
@@ -36,7 +36,7 @@ final class TabInputTests: XCTestCase {
         install("tab-cancel:device:test", node: 4, view: nil)
     }
     private func install(_ name: String, node: UInt32, view: NSView?) {
-        let element = ExactElement(hook: .t3Anchor, id: name, node: node, hooks: hooks)
+        let element = ExactElement(hatch: .t3Anchor, id: name, node: node, hatches: hooks)
         element.data = ExactData(["anchor": name]); element.view = view
         elements.append(element); input.install(element)
     }

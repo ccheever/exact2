@@ -3,7 +3,10 @@ import AppKit
 import UniformTypeIdentifiers
 
 /// The reference desktop menu (apps/desktop/src/window/DesktopApplicationMenu.ts) laid over
-/// the host's: Edit gains Paste as Text (⇧⌘V) and Speech, View gains Actual Size, Zoom In
+/// the host's: Edit gains Paste as Text (⇧⌘V; the host files a paste variant after Paste and
+/// gives Edit its Speech since exact2 #226, but an app item is a Contract button's press, and
+/// this one is the responder chain's `pasteAsPlainText:` as the reference's pasteAndMatchStyle
+/// is: an app-declared role item waits on #141), View gains Actual Size, Zoom In
 /// and Zoom Out (the main window's zoom, Electron's 0.5-level steps). Settings… (⌘,) is the
 /// host's placement of the app's Meta+, command. ⌘Q from the keyboard goes through the
 /// Quit shortcut setting (QuitHold.ts); Quit from the menu stays immediate. Check for
@@ -43,7 +46,7 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
     }
 
     func install(_ element: ExactElement) {
-        guard element.hook == .t3Composer, let window = element.view?.window else { return }
+        guard element.hatch == .t3Composer, let window = element.view?.window else { return }
         attach(window)
         augment(NSApp.mainMenu)
         if monitor == nil {
@@ -93,11 +96,7 @@ final class T3Menus: NSObject, NSMenuItemValidation, NSMenuDelegate {
             edit.insertItem(item, at: paste >= 0 ? paste + 1 : edit.numberOfItems)
             let selectAll = edit.indexOfItem(withTitle: "Select All")
             if selectAll > 0, edit.item(at: selectAll - 1)?.isSeparatorItem == false { edit.insertItem(.separator(), at: selectAll) }
-            edit.addItem(.separator())
-            let speech = NSMenu(title: "Speech")
-            speech.addItem(withTitle: "Start Speaking", action: #selector(NSTextView.startSpeaking(_:)), keyEquivalent: "")
-            speech.addItem(withTitle: "Stop Speaking", action: #selector(NSTextView.stopSpeaking(_:)), keyEquivalent: "")
-            edit.addItem(withTitle: "Speech", action: nil, keyEquivalent: "").submenu = speech
+            // Speech is the host's own Edit ▸ Speech (exact2 #226).
         }
         if let view = bar.items.first(where: { $0.submenu?.title == "View" })?.submenu, view.item(withTitle: "Actual Size") == nil {
             let items: [(String, Selector, String, Bool)] = [("Actual Size", #selector(actualSize(_:)), "0", false), ("Zoom In", #selector(zoomIn(_:)), "=", false),

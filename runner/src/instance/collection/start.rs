@@ -84,7 +84,7 @@ impl Collection {
                     .key(m.position)
                     .is_some_and(|k| self.index.is_measured(k))
             })
-            && (total - g.port_main).max(0.0) - g.offset <= 0.5
+            && (total - g.port_main).max(0.0) - g.offset < super::index::END_SLACK
         {
             self.at_end = false;
         }
@@ -92,7 +92,8 @@ impl Collection {
 }
 /// Whether a port at `offset` is where the anchor puts it (`corrected`).
 /// Hosts round offsets to device pixels (4405.1667 shows as 4405.333 at
-/// 3x): a followed end already sent (`sent`) is reached within half a point,
+/// 3x; WebKit floors a fractional scroll range): a followed end already sent
+/// (`sent`) is reached within `END_SLACK`,
 /// else the same unreachable end went out with every commit and an opening
 /// never settled (LLP 1010 §6.8). An end that moved is sent once; a row
 /// anchor keeps 0.01, since its moves add up report on report.
@@ -105,6 +106,6 @@ pub(super) fn at_target(
     let gap = (corrected - offset).abs();
     gap <= 0.01
         || (super::index::SizeIndex::follows_end(anchor)
-            && gap <= 0.5
+            && gap < super::index::END_SLACK
             && (corrected - sent).abs() <= 0.01)
 }

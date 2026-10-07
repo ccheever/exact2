@@ -59,7 +59,7 @@ Reference rules to keep: line comments only on the whole change (not under a com
 | merged task PR | [20261005-pr-writing-and-metadata](20261005-pr-writing-and-metadata.md) | pending | Merged (composer, review store, editor, reactions) | pending |
 | merged task PR | [20261005-diff-review-engine](closed/20261005-diff-review-engine.md) | pending | Merged (annotation rows, tree, lazy rows, line-comment cards) | pending |
 | merged task PR | [20261005-pr-handoffs-and-quick-actions](20261005-pr-handoffs-and-quick-actions.md) | pending | Merged (`buildFixFindingHandoff`, `buildAddSelectionToAgentHandoff`, the hand-off runner) | pending |
-| merged task PR | [20261005-fake-github-fixture](20261005-fake-github-fixture.md) | pending | Diff, files, contents, viewed, thread verbs served (also reached through `20261005-pr-conversation-and-refresh`) | pending |
+| merged task PR | [20261007-real-github-lane](20261007-real-github-lane.md) | pending | Sandbox `many-files` and `second-review` threads; probe rows for diff slices, `diffFileContents`, `filesViewed`, `setFilesViewed` and the thread writes confirmed | pending |
 | merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 
 ## Issue assessment at preparation
@@ -90,13 +90,13 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and `..
 
 | Criterion | Setup/reset and fixture | Action or command | Expected result | Required platform | Proof |
 | --- | --- | --- | --- | --- | --- |
-| Tab and slices | Fake gh: PR with 130 files (`pr diff` answers 406 so the files API pages 100 + 30), 14 commits, rename, binary file | `bun scripts/agent.mjs macos --json "tap pr-row-<n>" "tap pull-request-tab-code" tree` | Tab present (absent when `capabilities.diff` is false, unit test); first slice then "Loading more files..." then rest; counts "130 files"; withheld-file icon | macOS 1280×840 | tree JSON, trace of `/api/pull-requests/diff` |
-| Slice failure | `failNext` on `…/files?…page=2` | Scroll to the end; Retry | Message + Retry; recovers | macOS | shot, log |
+| Tab and slices | Sandbox `many-files` (310 files: GitHub answers 406 to `pr diff`, the files API pages 100 at a time); this task seeds the 14 commits, the rename and the binary file it also needs | `bun scripts/agent.mjs macos --json "tap pr-row-<n>" "tap pull-request-tab-code" tree` | Tab present (absent when `capabilities.diff` is false, unit test); first slice then "Loading more files..." then rest; counts "310 files"; withheld-file icon | macOS 1280×840 | tree JSON, trace of `/api/pull-requests/diff` |
+| Slice failure | Unit test: an injected failure of the second slice | Scroll to the end; Retry | Message + Retry; recovers | macOS | shot, log |
 | Commit scope | Same | Pick a commit; "Show more (4 left)"; return to All commits | Diff changes; gutter disabled with the icon text; `…/commits/<sha>` logged | macOS | shots |
-| Viewed marks | Profile `admin-reviewer` | Tick 3 files quickly; push a new commit in the fixture; refresh | One `markFileAsViewed` document with aliases `f0…f2` after the flush; counts "3 / 130"; file folds; pushed file shows "Changed"; failure reverts the overlay | macOS | log, shots |
+| Viewed marks | Primary account on `second-review` | Tick 3 files quickly; push a new commit with the second account's lane gh; refresh | One `markFileAsViewed` document with aliases `f0…f2` after the flush; counts "3 / 310" on `many-files`; file folds; pushed file shows "Changed"; failure reverts the overlay | macOS | log, shots |
 | Line comments to review | Same | Draft on an added, deleted and context line (split view) `(attended session)` for the drag; "Add to review"; open composer; Submit review | Pending cards and badge; `POST …/pulls/N/reviews` body has three `comments` with correct `position`, `oldPath` for the rename; store cleared | macOS; attended part on a lane build with `T3_LOCAL_HOME=<lane>/t3-home`, `T3_LOCAL_PORT=<lane port 16xxx>` | log, shots |
 | Add to agent | Active thread composer | Draft; "Add to agent" | Chip + prompt from `buildAddSelectionToAgentHandoff`; toast "Asked in a thread" or "Added to the composer" per context | macOS | draft state |
-| Thread cards | Threads: open on added line, resolved on deleted line, outdated, 12 comments | Reply, Resolve, Unresolve, edit own comment, Load more, react, Fix in a thread | `addPullRequestReviewThreadReply`, `resolveReviewThread`/`unresolveReviewThread`, `updatePullRequestReviewComment` bodies logged; texts as listed; permission profile `reader` hides Resolve | macOS | log, shots |
+| Thread cards | Threads: open on added line, resolved on deleted line, outdated, 12 comments | Reply, Resolve, Unresolve, edit own comment, Load more, react, Fix in a thread | `addPullRequestReviewThreadReply`, `resolveReviewThread`/`unresolveReviewThread`, `updatePullRequestReviewComment` bodies logged; texts as listed; `reader` hiding Resolve by unit test | macOS | log, shots |
 | Orphans | Thread on a line outside the hunks | Open Code | Under "Conversations not on the current diff", count and file groups | macOS | shot |
 | Timeline link | Timeline with commits | Click a commit row | Code tab opens scoped to that commit | macOS | tree JSON |
 | Visual and trace | Oracle on the same fixture | Pairs at 1280×840 and 840×620, light and dark: toolbar, slices, viewed, draft, pending, thread open/resolved; `target/t3-ui-parity/trace-diff.mjs pr-code` | Every moved cell is fixed, or declared in `EXACT2-GAPS.md` with an issue link; diff request bodies and `runAction`-free read multisets equal | macOS | pair table, diff |
@@ -105,7 +105,7 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and `..
 | Gates | `git add -A` | Clone checks (incl. the Swift transport test for the POST op); `bun scripts/caps.mjs`; five repository checks | Green; every moved cell is fixed, or declared in `EXACT2-GAPS.md` with an issue link | macOS | logs |
 
 Task-owned source paths: `examples/t3-code/pages-pr-detail.*`, new `pages-pr-code.*`, `pages-pr-threads.*`, `pages-pr-viewed.ts`, `modules/apple/T3Transport.swift` (POST-JSON op) with `macos/tests/transport`, `diff.ts`/`diff.contract` (shared rows), `AGENT-HANDOFF.md`.
-Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, fake gh, reference oracle. Attended and normal-launch rows use a lane build with `T3_LOCAL_HOME=<lane>/t3-home` and `T3_LOCAL_PORT=<lane port 16xxx>` (see `20261005-embedded-server-runtime`).
+Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, the real-GitHub lane (sandbox, shared lane config dirs, two accounts; `tools/github-lane`), reference oracle. Attended and normal-launch rows use a lane build with `T3_LOCAL_HOME=<lane>/t3-home` and `T3_LOCAL_PORT=<lane port 16xxx>` (see `20261005-embedded-server-runtime`).
 
 ## Progress
 
@@ -121,4 +121,4 @@ Planned. No branch.
 
 ## Next action
 
-`prepare` from `feat(example)/t3-code` once the prerequisite task PRs above have merged into it; sign-in rows use lane fixtures, and real-account rows wait for the user to sign in.
+Starts after [20261007-real-github-lane](20261007-real-github-lane.md) merges: `prepare` from `feat(example)/t3-code` on its shared lane login and sandbox (`examples/t3-code/tools/github-lane/README.md`), with a unit-test fallback for injected failures and delays and for the read, triage and read-only-author profiles.

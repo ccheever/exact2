@@ -203,7 +203,8 @@ mod tests {
             ColorValue::LightDark(grey(168), grey(255))
         );
         let platform =
-            ColorValue::parse_light_dark("platform-color(macos labelColor, #808080)").unwrap();
+            ColorValue::parse_light_dark("-exact-platform-color(macos labelColor, #808080)")
+                .unwrap();
         assert_eq!(shade(platform, true), ColorValue::Fixed(grey(44)));
         assert_eq!(shade(platform, false), ColorValue::Fixed(grey(212)));
     }

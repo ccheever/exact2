@@ -57,7 +57,7 @@ Reference rules to keep: writes route only when both servers are "read-write", r
 | merged task PR | [20261005-environment-routes](closed/20261005-environment-routes.md) | pending | Merged (saved-environment key; `gitHubRoutingConnectionKey` over several routes) | pending |
 | merged task PR | [20261005-pr-conversation-and-refresh](20261005-pr-conversation-and-refresh.md) | pending | Merged | pending |
 | merged task PR | [20261005-pr-handoffs-and-quick-actions](20261005-pr-handoffs-and-quick-actions.md) | pending | Merged (row menus, Check out menu and the hand-offs that "Act on" redirects; it already follows `20261005-pr-header-actions-and-stacks`, whose More menu also carries the radio) | pending |
-| merged task PR | [20261005-fake-github-fixture](20261005-fake-github-fixture.md) | pending | Search cursors and a second-lane account served (also reached through `20261005-pr-conversation-and-refresh`) | pending |
+| merged task PR | [20261007-real-github-lane](20261007-real-github-lane.md) | pending | Sandbox's bulk pull requests page the list (probe `R3`/`R4`); a second lane server per account | pending |
 | merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 
 ## Issue assessment at preparation
@@ -90,15 +90,15 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and `..
 | Link / unlink | Sent thread; unsent draft | Menu item; in the draft the picker | `thread.pull-request.link`/`unlink` in the trace with the chosen thread id; draft opens the picker; failure toast on a refused dispatch | macOS | trace, shots |
 | Autolinks | PR body with `#101`, a 40-hex hash, `` `#2` `` in code, `a#3` | Open the PR | Only the first two are links; code and word-attached forms are not | macOS | tree JSON |
 | Hover card | PR text link | `(attended session)` hover 350 ms, leave | Card with the listed fields; closes after 120 ms; click opens the panel | macOS, real pointer; lane build with `T3_LOCAL_HOME=<lane>/t3-home`, `T3_LOCAL_PORT=<lane port 16xxx>` | recorded steps, shots |
-| Routing | Two fixture backends A (focused) and B (background), the same fake account, separate `FAKE_GH_LOG`; GitHub sharing set A/B to off, read, read-write combinations | Open a PR; comment; Check out with "Act on" = B | Reads and writes land in the log of the allowed server only; with one side "read" a write stays on the origin; identity mismatch is refused before dispatch; Check out creates B's worktree | macOS | two logs, `git worktree list` |
-| Paging | Fake gh with 130 PRs across 2 repositories | Scroll to the end; press "Load more pull requests" until the cap; fail one page | Request `cursors` equal the previous `nextCursors`; rows append in place; states and texts as listed | macOS | trace, shots |
+| Routing | Two lane servers A (focused) and B (background) signed in to the same lane account (shared config dir), each with its own `T3_GITHUB_LANE` gh log; GitHub sharing set A/B to off, read, read-write combinations | Open a PR; comment; Check out with "Act on" = B | Reads and writes land in the log of the allowed server only; with one side "read" a write stays on the origin; identity mismatch is refused before dispatch; Check out creates B's worktree | macOS | two logs, `git worktree list` |
+| Paging | Sandbox's 105 bulk open pull requests beside the seeded ones, and the second account's fork | Scroll to the end; press "Load more pull requests" until the cap; fail one page | Request `cursors` equal the previous `nextCursors`; rows append in place; states and texts as listed | macOS | trace, shots |
 | Visual and trace | Oracle on the same fixtures | Pairs at 1280×840 and 840×620, light and dark: count button, picker, card, list footer; `target/t3-ui-parity/trace-diff.mjs pr-links`, `pr-routing`, `pr-list` | Every moved cell is fixed, or declared in `EXACT2-GAPS.md` with an issue link; read multisets and write order equal | macOS | pair table, diff |
 | Ported tests | `bun test` | Original names: "one server per repository", "where a pull request can be acted on", "merging the environments' own listings", "which environments a listing should ask", "who \"I\" am, per server", "the server a saved selection names", "linked pull request thread navigation", "does not probe another environment with %s routing permission", "keeps hover previews fresh after edits and turns", SSH-profile routing cases | Pass; Effect-runtime-only cases classified in the header | macOS | log |
 | Keyboard focus, Escape, reduced motion | `prefer prefers-reduced-motion reduce` | Tab/Return through the count button, menu item, picker, "Load more pull requests"; Escape closes the picker and the hover card | Focus visible and returned to the trigger; nothing is linked on Escape; the card appears without fade when reduced | macOS | `tree --ax`, state |
 | Gates | `git add -A` | Clone checks; `bun scripts/caps.mjs`; five repository checks | Green; every moved cell is fixed, or declared in `EXACT2-GAPS.md` with an issue link | macOS | logs |
 
 Task-owned source paths: `examples/t3-code/pages-prs.*`, `pages-pr-detail.*`, new `pages-pr-links.*`, `pages-pr-routing.ts`, `palette-linkpr.ts`, `settings-b-fleet.ts` (request helper), `r4-surfaces-prs.ts`, `AGENT-HANDOFF.md`.
-Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, two lane backends, fake gh, reference oracle. Attended and normal-launch rows use a lane build with `T3_LOCAL_HOME=<lane>/t3-home` and `T3_LOCAL_PORT=<lane port 16xxx>` (see `20261005-embedded-server-runtime`).
+Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, two lane backends, the real-GitHub lane (sandbox, shared lane config dirs, two accounts; `tools/github-lane`), reference oracle. Attended and normal-launch rows use a lane build with `T3_LOCAL_HOME=<lane>/t3-home` and `T3_LOCAL_PORT=<lane port 16xxx>` (see `20261005-embedded-server-runtime`).
 
 ## Progress
 
@@ -114,4 +114,4 @@ Planned. No branch.
 
 ## Next action
 
-`prepare` from `feat(example)/t3-code` once the prerequisite task PRs above have merged into it; sign-in rows use lane fixtures, and real-account rows wait for the user to sign in.
+Starts after [20261007-real-github-lane](20261007-real-github-lane.md) merges: `prepare` from `feat(example)/t3-code` on its shared lane login and sandbox (`examples/t3-code/tools/github-lane/README.md`), with a unit-test fallback for injected failures and delays and for the read, triage and read-only-author profiles.

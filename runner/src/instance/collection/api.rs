@@ -146,7 +146,9 @@ pub struct CollectionSnapshot {
     pub count: usize,
     /// Measured plus estimated full content extent on the main axis.
     pub total_extent: f64,
-    /// Only live wrappers, in logical order, including at most two pinned rows.
+    /// Only live wrappers, in logical order, including at most two pinned
+    /// rows and, where rows are rebound, the few held past the window for
+    /// the rows it needs next (LLP 1078).
     pub rows: Vec<CollectionRow>,
     /// Optional anchor correction; consume at most once per revision.
     pub correction: Option<AnchorCorrection>,

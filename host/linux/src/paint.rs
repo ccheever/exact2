@@ -21,6 +21,7 @@
 
 use crate::image::Bitmap;
 use crate::text::{Paragraph, Run, RunPaint, Shared, Spec, TextEngine};
+use exact_kernel::style::{BackdropFilter, BackdropOp};
 use exact_kernel::{
     Dimension, Display, Kernel, NodeRef, NodeType, ObjectFit, Overflow, PropId, StyleId, StyleMask,
     StyleProps, ViewId,
@@ -160,9 +161,8 @@ struct BoxPaint {
     gradients: Vec<gradient::Captured>,
     padding: [f32; 4],
     shadows: Vec<shadow::ShadowPaint>,
-    /// `backdrop-filter: blur(σ)`, σ in points; 0 for none, or under a
-    /// host material, which wins (LLP 1053.000 D3).
-    backdrop: f32,
+    /// The ordered backdrop functions, or the winning material's blur.
+    backdrop: BackdropFilter,
 }
 struct BoxGeometry {
     outer: Shape,
@@ -228,7 +228,10 @@ impl BoxPaint {
             },
             gradients: gradient::Captured::capture(s, dark),
             shadows: shadow::ShadowPaint::capture(s, dark),
-            backdrop: material.map_or(s.backdrop_blur.max(0.0), |m| m.blur),
+            backdrop: material.map_or_else(
+                || s.backdrop_filter.clone(),
+                |m| BackdropFilter(vec![BackdropOp::Blur(m.blur)]),
+            ),
             padding: [
                 pad(s.padding_top),
                 pad(s.padding_right),
@@ -277,9 +280,9 @@ impl BoxPaint {
                 backend.fill_border(&band, ts);
             }
         }
-        // @ref LLP 1053.000 D2 — the backdrop blurs under the background.
-        if self.backdrop > 0.0 {
-            backend.backdrop_blur(&geometry.outer, self.backdrop, ts);
+        // @ref LLP 1053.000 D2 — the backdrop filters under the background.
+        if !self.backdrop.is_none() {
+            backend.backdrop_filter(&geometry.outer, &self.backdrop, ts);
         }
         self.emit(geometry, |shape, color| backend.fill(&shape, color, ts));
         // The last layer first, so the first is on top (LLP 1077 D5), within
@@ -883,7 +886,7 @@ impl Painter {
             || node.node_type == NodeType::Image
             || !node.style.box_shadow.0.is_empty()
             // A backdrop reads what is under it, beyond any damage.
-            || node.style.backdrop_blur > 0.0
+            || !node.style.backdrop_filter.is_none()
             || self.material_note(&node)
             || !p.colors.is_empty();
         let origin = node.style.transform_origin.resolve(w, h);
@@ -1057,10 +1060,11 @@ impl Painter {
                 }
                 let spec = text_spec(&computed, shown);
                 let multiline = node.props.str(PropId::SemanticTag) == Some("textarea");
-                let paragraph = self
-                    .text
-                    .borrow_mut()
-                    .paragraph(&spec, multiline.then_some(content.2));
+                let paragraph = self.text.borrow_mut().paragraph_replacing(
+                    (node.id, 0),
+                    &spec,
+                    multiline.then_some(content.2),
+                );
                 walk.text.insert(node.key, paragraph.clone());
                 let oy = content.1
                     + if multiline {
@@ -1076,6 +1080,7 @@ impl Painter {
                 };
                 // The focused field's selection (x2apps codeedit #2).
                 let field = caret::FieldText {
+                    node: node.id,
                     style: &computed,
                     value,
                     masked: node.props.str(PropId::Type) == Some("password"),

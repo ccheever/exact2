@@ -3,11 +3,11 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// LLP 1075.003 Stage 1 over the native fixture's own plan and hook module,
+/// LLP 1075.003 Stage 1 over the native fixture's own plan and hatch module,
 /// which `build.mjs --test --ios` compiles for this simulator: Exact's bar on
 /// frame one from the authored header, the content area it leaves, Back as
-/// UIKit's back button, the forwarded delegate, and the module's hooks —
-/// their moments, the authored control a hook-made item clicks, and the
+/// UIKit's back button, the forwarded delegate, and the module's hatches —
+/// their moments, the authored control a hatch-made item clicks, and the
 /// development check of what Exact owns. UIKit synthesizes no touches for a
 /// unit test; a bar item is driven as a tap drives it, by its action.
 final class NavigationBarIOSTests: XCTestCase {
@@ -32,7 +32,7 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertTrue(done(), what)
     }
 
-    /// The fixture booted in a window, its module's hooks connected or not.
+    /// The fixture booted in a window, its module's hatches connected or not.
     private func fixture(_ label: String, module: Bool) throws -> ExactSession {
         let env = ProcessInfo.processInfo.environment
         let path = try XCTUnwrap(env["EXACT_FIXTURE_PLAN"], "build.mjs --test --ios compiles the fixture's plan")
@@ -93,7 +93,7 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertEqual(top.navigationItem.largeTitleDisplayMode, .always)
         XCTAssertEqual(top.navigationItem.rightBarButtonItems?.count, 1, "the header's Compose button")
         XCTAssertEqual(top.navigationItem.rightBarButtonItems?.first?.accessibilityLabel, "Compose")
-        XCTAssertNil(top.navigationItem.leftBarButtonItems?.first { $0.accessibilityIdentifier == "hook-more" }, "no module, no hook")
+        XCTAssertNil(top.navigationItem.leftBarButtonItems?.first { $0.accessibilityIdentifier == "hatch-more" }, "no module, no hatch")
         let header = try node(session, "header-home")
         XCTAssertTrue(header.isHidden, "iOS does not paint the header the bar shows")
         XCTAssertEqual(header.bounds.height, 0, "and it takes no space")
@@ -265,43 +265,43 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertEqual(backs(session), 1, "Back once")
     }
 
-    func testTheModulesHooksRunAtTheirMomentsAndActThroughAuthoredControls() throws {
-        let session = try fixture("bar-hooks", module: true)
+    func testTheModulesHatchesRunAtTheirMomentsAndActThroughAuthoredControls() throws {
+        let session = try fixture("bar-hatches", module: true)
         let log = { self.journal(session) }
-        until("hooks connected and replayed") { log().contains("hook route 0: built") }
+        until("hatches connected and replayed") { log().contains("hatch route 0: built") }
         let lines = log()
-        let navigationAt = try XCTUnwrap(lines.range(of: "hook navigation #1: built"))
-        XCTAssertLessThan(navigationAt.lowerBound, try XCTUnwrap(lines.range(of: "hook route 0: built")).lowerBound, "a stack's hook runs before its routes'")
+        let navigationAt = try XCTUnwrap(lines.range(of: "hatch navigation #1: built"))
+        XCTAssertLessThan(navigationAt.lowerBound, try XCTUnwrap(lines.range(of: "hatch route 0: built")).lowerBound, "a stack's hatch runs before its routes'")
         let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
-        XCTAssertEqual(nav.navigationBar.tintColor, .systemIndigo, "the long tail is the hook's")
+        XCTAssertEqual(nav.navigationBar.tintColor, .systemIndigo, "the long tail is the hatch's")
         let home = try XCTUnwrap(nav.topViewController)
         // A route prepared again with nothing changed keeps its projected
-        // items and runs no hook.
+        // items and runs no hatch.
         let items = home.navigationItem.rightBarButtonItems ?? []
         session.presenter.navigation.prepareRoutes(nav.viewControllers.compactMap { $0 as? RouteController }, in: nav)
         spin(0.2)
-        XCTAssertFalse(log().contains("hook route 0: changed"), "an unchanged route runs no hook")
+        XCTAssertFalse(log().contains("hatch route 0: changed"), "an unchanged route runs no hatch")
         XCTAssertTrue(items.elementsEqual(home.navigationItem.rightBarButtonItems ?? [], by: ===), "an unchanged route is not projected again")
-        let more = home.navigationItem.leftBarButtonItems?.first { $0.accessibilityIdentifier == "hook-more" }
-        XCTAssertEqual(home.navigationItem.rightBarButtonItems?.count, 1, "Exact's Compose stays beside the hook's item")
-        // The hook-made control clicks the authored one.
+        let more = home.navigationItem.leftBarButtonItems?.first { $0.accessibilityIdentifier == "hatch-more" }
+        XCTAssertEqual(home.navigationItem.rightBarButtonItems?.count, 1, "Exact's Compose stays beside the hatch's item")
+        // The hatch-made control clicks the authored one.
         try tap(more)
-        until("the hook's click pressed Compose") { state(session, "composed") as? Double == 1 }
-        // A pushed route's hook; a write to what Exact owns on its content
+        until("the hatch's click pressed Compose") { state(session, "composed") as? Double == 1 }
+        // A pushed route's hatch; a write to what Exact owns on its content
         // scroll view is journaled by name at the next batch; a route the
         // router drops ends its handle.
         let agent = Agent(session: session)
         _ = agent.tap(["id": Int(try node(session, "detail").id)])
         let key = try XCTUnwrap(try node(session, "route-detail").props["navigationKey"])
-        until("detail built") { log().contains("hook route \(key): built") && nav.transitionCoordinator == nil }
+        until("detail built") { log().contains("hatch route \(key): built") && nav.transitionCoordinator == nil }
         let detail = try XCTUnwrap(nav.topViewController)
-        XCTAssertNotNil(detail.navigationItem.leftBarButtonItems?.first { $0.accessibilityIdentifier == "hook-more" })
+        XCTAssertNotNil(detail.navigationItem.leftBarButtonItems?.first { $0.accessibilityIdentifier == "hatch-more" })
         _ = agent.tap(["id": Int(try node(session, "violate").id)])
-        until("the hook saw the word") { log().contains("hook route \(key): changed") }
+        until("the hatch saw the word") { log().contains("hatch route \(key): changed") }
         _ = agent.tap(["id": Int(try node(session, "violate").id)])
         until("the check journaled it") { log().contains("route \(key): contentInset changed outside Exact, which owns it") }
         nav.popViewController(animated: true)
-        until("detail ended") { log().contains("hook route \(key): ended") }
+        until("detail ended") { log().contains("hatch route \(key): ended") }
     }
 }
 

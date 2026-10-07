@@ -161,9 +161,9 @@ final class NavigationTabsIOSTests: XCTestCase {
         try tapNode(session, "bump-second")
         until("and comes back with it") { second.tabBarItem.badgeValue == "1" }
         XCTAssertNil(home.tabBarItem.badgeValue, "a transparent box is no badge; Second's \"1\" beside its pill shows the pill is none either")
-        // A badge a hook set on a tab that never authored one stays through
+        // A badge a hatch set on a tab that never authored one stays through
         // that tab's face changing (its selected symbol).
-        home.tabBarItem.badgeValue = "hook"
+        home.tabBarItem.badgeValue = "hatch"
         // A draft and a scroll in Second.
         let draft = try node(session, "draft")
         _ = Agent(session: session).type(["id": Int(draft.id), "text": "kept"])
@@ -178,7 +178,7 @@ final class NavigationTabsIOSTests: XCTestCase {
         // Away and back.
         tapTab(tabs, 0)
         until("Home selected") { tabs.selectedIndex == 0 }
-        XCTAssertEqual(home.tabBarItem.badgeValue, "hook", "the hook's badge stays")
+        XCTAssertEqual(home.tabBarItem.badgeValue, "hatch", "the hatch's badge stays")
         XCTAssertEqual(home.topViewController?.navigationItem.title, "Detail", "the pushed screen survived")
         XCTAssertTrue(try node(session, "counts").accessibleText.contains("count 1"), "the hidden tab's update shows")
         tapTab(tabs, 1)
@@ -273,7 +273,7 @@ final class NavigationTabsIOSTests: XCTestCase {
 
     /// Stage 2's check of `tabBarMinimizeBehavior` (iOS 26), as far as a
     /// unit test reaches: a route whose title stays still (Detail's, inline)
-    /// names no content scroll view to UIKit, so a minimize behavior a hook
+    /// names no content scroll view to UIKit, so a minimize behavior a hatch
     /// sets has nothing to follow and the content area holds under scrolling.
     /// A finger's scroll (UIKit's own heuristics) is owed to a device check
     /// (LLP 1075.003 §6).
@@ -313,18 +313,18 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertEqual(tabs.viewControllers?.count, 2)
     }
 
-    /// A hook-made item clicks its authored control while its route lives,
+    /// A hatch-made item clicks its authored control while its route lives,
     /// and reaches nothing once the route ends: not the node that takes its
     /// id after the plan reloads in the same session, not a destroyed one.
-    func testAHookMadeItemDoesNothingOnceItsRouteEnds() throws {
+    func testAHatchMadeItemDoesNothingOnceItsRouteEnds() throws {
         let session = try fixture("tabs-ended", module: true)
         defer { NativeViews.uninstallTable() }
         let log = { session.agent(#"{"op":"logs","since":0}"#) }
         let composed = { (try? self.node(session, "composed"))?.accessibleText ?? "" }
-        until("hooks replayed") { log().contains("hook route 0: built") }
+        until("hatches replayed") { log().contains("hatch route 0: built") }
         let navigation = session.presenter.navigation
         let home = try XCTUnwrap(navigation.tabNavigations[navigation.tabPanels[0]]?.viewControllers.first)
-        let more = try XCTUnwrap(home.navigationItem.leftBarButtonItems?.first { $0.accessibilityIdentifier == "hook-more" })
+        let more = try XCTUnwrap(home.navigationItem.leftBarButtonItems?.first { $0.accessibilityIdentifier == "hatch-more" })
         let target = try XCTUnwrap(more.target as? NSObject), action = try XCTUnwrap(more.action)
         _ = target.perform(action, with: more)
         until("the live item clicks Compose") { composed() == "composed 1" }
@@ -350,7 +350,7 @@ final class NavigationTabsIOSTests: XCTestCase {
     func testAScreenMadeWithItsRouteIsContainedOnceTheRouteMounts() throws {
         let session = try fixture("tabs-screen", module: true)
         defer { NativeViews.uninstallTable() }
-        until("the module connected") { session.agent(#"{"op":"logs","since":0}"#).contains("hook route 0: built") }
+        until("the module connected") { session.agent(#"{"op":"logs","since":0}"#).contains("hatch route 0: built") }
         let plan = try Data(contentsOf: URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_FIXTURE_PLAN"])))
         XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 402, height: 874)).error)
         spin(0.3)
@@ -360,7 +360,7 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertTrue(route.children.first?.view.isDescendant(of: route.view) == true)
     }
 
-    func testTheTabsHookAContainerTheAppOwnsAndANativeScreen() throws {
+    func testTheTabsHatchAContainerTheAppOwnsAndANativeScreen() throws {
         setenv("EXACT_FIXTURE_CONTAINER", "app", 1)
         defer { unsetenv("EXACT_FIXTURE_CONTAINER"); NativeViews.uninstallTable() }
         let session = try fixture("tabs-owned", module: true)
@@ -369,8 +369,8 @@ final class NavigationTabsIOSTests: XCTestCase {
         // At a cold launch Exact's container comes first; once the module
         // connects, `tabs` runs on it and `tabContainer` takes its stacks.
         until("the app's container holds the tabs") { navigation.tabController == nil && navigation.tabOwner != nil }
-        XCTAssertTrue(log().contains("hook tabs: built"))
-        XCTAssertTrue(log().contains("hook tabContainer: the app's"))
+        XCTAssertTrue(log().contains("hatch tabs: built"))
+        XCTAssertTrue(log().contains("hatch tabContainer: the app's"))
         let owner = try XCTUnwrap(navigation.tabOwner)
         let stacks = navigation.tabPanels.compactMap { navigation.tabNavigations[$0] }
         XCTAssertEqual(stacks.count, 2)

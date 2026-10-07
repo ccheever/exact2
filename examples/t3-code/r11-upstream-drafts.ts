@@ -10,7 +10,7 @@ import { obj, str, type Obj } from './domain';
 import type { T3Client } from './client';
 import { ClientError, type Native } from './protocol';
 import { pushToast } from './toast';
-import { nativeTemplate, type MenuItem } from './sidebar-menu';
+import { menuRows, nativeTemplate, type MenuItem, type MenuRow } from './sidebar-menu';
 import { remember } from './sidebar-commands';
 import { sidebarSession } from './sidebar-state';
 import { draftContext, type DraftContext } from './composer-controls-branch';
@@ -58,16 +58,34 @@ async function copy(client: T3Client, native: Native, text: string, title: strin
   catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'error', title: failure, description: error instanceof Error ? error.message : 'An error occurred.', stacked: true }); }
 }
 
-/** handleDraftContextMenu for a new-thread draft row (`projectId`). */
-export async function draftMenu(client: T3Client, native: Native, projectId: string): Promise<string> {
+/** What handleDraftContextMenu offers for a new-thread draft row (`projectId`), or nothing once the draft is empty. */
+function draftMenuState(client: T3Client, projectId: string) {
   const key = `${client.environmentId}:new:${projectId}`;
   const project = client.shell.projects.find(entry => entry.id === projectId);
-  if (!hasContent(client, key)) return '';
+  if (!hasContent(client, key)) return null;
   const context = draftContext(client, key);
   const workspacePath = context.worktreePath || str(project?.workspaceRoot);
   const hasProject = !!project && client.projectGroups().some(group => group.members.some(member => member.id === projectId));
-  const reply = obj(await client.restAccess(native).call({ op: 'sidebarMenu', items: nativeTemplate(draftMenuItems({ hasPath: !!workspacePath, hasBranch: !!context.branch, hasProject })), ...menuAnchor(client) }));
-  switch (str(reply.id)) {
+  return { key, context, workspacePath, hasProject, items: draftMenuItems({ hasPath: !!workspacePath, hasBranch: !!context.branch, hasProject }) };
+}
+/** The draft row's context popover (sidebar-row.contract DraftMenu, exact2 #223). */
+export function draftMenuRows(client: T3Client, projectId: string): MenuRow[] {
+  const state = draftMenuState(client, projectId);
+  return state ? menuRows(state.items) : [];
+}
+/** handleDraftContextMenu for a new-thread draft row (`projectId`), opened from the keyboard at the row (T3Sidebar.swift). */
+export async function draftMenu(client: T3Client, native: Native, projectId: string): Promise<string> {
+  const state = draftMenuState(client, projectId);
+  if (!state) return '';
+  const reply = obj(await client.restAccess(native).call({ op: 'sidebarMenu', items: nativeTemplate(state.items), ...menuAnchor(client) }));
+  return draftChoice(client, native, projectId, str(reply.id));
+}
+/** A choice from the draft row's menu, by its item id. */
+export async function draftChoice(client: T3Client, native: Native, projectId: string, choice: string): Promise<string> {
+  const state = draftMenuState(client, projectId);
+  if (!state) return '';
+  const { key, context, workspacePath, hasProject } = state;
+  switch (choice) {
     case 'project-settings':
       if (!hasProject) return '';
       sidebarSession(client).navigate = { kind: 'project-settings', projectId };

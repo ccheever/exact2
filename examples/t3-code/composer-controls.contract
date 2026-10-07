@@ -242,7 +242,7 @@ component TraitsTrigger
   action hover(value: bool)
     over = value
   view
-    box position="relative" display="flex" flex-direction="row" align-items="center" min-width=0 max-width="12rem" flex-shrink=(iconOnly ? 0 : 1) hook="t3-anchor" data-anchor="traits"
+    box position="relative" display="flex" flex-direction="row" align-items="center" min-width=0 max-width="12rem" flex-shrink=(iconOnly ? 0 : 1) hatch="t3-anchor" data-anchor="traits"
       button press=press hover=hover class=Control aria-label=aria aria-expanded=open aria-keyshortcuts=keyEffort testId="reasoning-effort" disabled=disabled opacity=(disabled ? 0.64 : 1) min-width=0 max-width="12rem" flex-shrink=(iconOnly ? 0 : 1) height=(xs ? "1.5rem" : "1.75rem") padding-left=(xs ? "0.4375rem" : "0.6875rem") padding-right=(xs ? "0.4375rem" : "0.6875rem") padding-top=0 padding-bottom=0 gap=(xs ? "0.25rem" : "0.375rem") border-radius="0.5rem" background-color=(open or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
         when speed != ""
           box display="flex" flex-shrink=0 opacity=0.8
@@ -271,7 +271,7 @@ component RuntimeTrigger
   action hover(value: bool)
     over = value
   view
-    box position="relative" display="flex" flex-direction="row" align-items="center" flex-shrink=0 hook="t3-anchor" data-anchor="runtime"
+    box position="relative" display="flex" flex-direction="row" align-items="center" flex-shrink=0 hatch="t3-anchor" data-anchor="runtime"
       button press=press hover=hover class=Control aria-label="Runtime mode" aria-expanded=open aria-keyshortcuts=keyMode testId="runtime-mode" disabled=disabled opacity=(disabled ? 0.64 : 1) flex-shrink=0 height=(xs ? "1.5rem" : "1.75rem") padding-left=(xs ? "0.4375rem" : "0.6875rem") padding-right=(xs ? "0.4375rem" : "0.6875rem") padding-top=0 padding-bottom=0 gap=(xs ? "0.25rem" : "0.375rem") border-radius="0.5rem" background-color=(open or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
         CcIcon(name=icon, size=(xs ? 12 : 16), color="light-dark(#71717a, #818181)", weight=2)
         when not iconOnly
@@ -312,7 +312,7 @@ component OverflowTrigger
   action hover(value: bool)
     over = value
   view
-    box position="relative" display="flex" flex-direction="row" align-items="center" flex-shrink=0 hook="t3-anchor" data-anchor="more"
+    box position="relative" display="flex" flex-direction="row" align-items="center" flex-shrink=0 hatch="t3-anchor" data-anchor="more"
       button press=press hover=hover class=Control aria-label="More composer controls" aria-haspopup="menu" aria-expanded=open aria-keyshortcuts=keys testId="composer-more-controls" disabled=disabled opacity=(disabled ? 0.64 : 1) flex-shrink=0 height=(xs ? "1.5rem" : "1.75rem") padding-left=(xs ? "0.4375rem" : "0.6875rem") padding-right=(xs ? "0.4375rem" : "0.6875rem") padding-top=0 padding-bottom=0 border-radius="0.5rem" background-color=(open or over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
         svg width=(xs ? "0.75rem" : "1rem") height=(xs ? "0.75rem" : "1rem") viewBox="0 0 24 24" color="light-dark(#71717a, #818181)" fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
           circle cx=12 cy=12 r=1
@@ -386,13 +386,13 @@ component PrimaryActions
     overThread = value ? data.threadId : overThread
   derive blocked = busy or not data.canSend
   view
-    row gap="0.5rem" align-items="center" flex-shrink=0 hook="t3-anchor" data-anchor="actions"
+    row gap="0.5rem" align-items="center" flex-shrink=0 hatch="t3-anchor" data-anchor="actions"
       when data.composer.attach
         AttachButton(disabled=(busy or not data.connected), press=command("cclocal:attach", "", "", 0))
       // ContextWindowMeter (Settings › Context window indicator): a usage ring
       // whose details open above it.
       when data.composer.contextShow
-        button press=openOptions("context") hover=hover("meter") hook="t3-anchor" data-anchor="meter" testId="context-window-meter" aria-label=data.composer.contextAria width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over == "meter" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+        button press=openOptions("context") hover=hover("meter") hatch="t3-anchor" data-anchor="meter" testId="context-window-meter" aria-label=data.composer.contextAria width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over == "meter" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
           svg width="1.25rem" height="1.25rem" viewBox="0 0 24 24" rotate=-90 aria-hidden=true
             circle cx=12 cy=12 r=9.75 fill="none" stroke="light-dark(#71717a3d, #8181813d)" stroke-width=3
             circle cx=12 cy=12 r=9.75 fill="none" stroke=(data.composer.contextOver ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717ab8, #818181b8)") stroke-width=3 stroke-linecap="round" stroke-dasharray=61.26 stroke-dashoffset=data.composer.contextOffset
@@ -401,7 +401,7 @@ component PrimaryActions
           button press=send hover=hover("refine") disabled=blocked opacity=(blocked ? 0.64 : 1) testId="plan-refine" height="2rem" padding-left="1rem" padding-right="1rem" border-radius="1rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0 background-color=(over == "refine" and not blocked ? "light-dark(#1d4ed8e6, #3b74f5)" : "light-dark(#1b4ed8, #346bf1)") box-shadow=(blocked ? "none" : "0 1px 2px 0 #1b4ed83d")
             text (busy ? "Sending..." : "Refine") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff" white-space="nowrap"
         else
-          row align-items="center" flex-shrink=0 testId="implement-actions" hook="t3-anchor" data-anchor="implement"
+          row align-items="center" flex-shrink=0 testId="implement-actions" hatch="t3-anchor" data-anchor="implement"
             button press=command("send", "", "", 0) hover=hover("implement") disabled=blocked opacity=(blocked ? 0.64 : 1) testId="plan-implement" height="2rem" padding-left="1rem" padding-right="1rem" border-top-left-radius="1rem" border-bottom-left-radius="1rem" border-top-right-radius=0 border-bottom-right-radius=0 border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over == "implement" and not blocked ? "light-dark(#1d4ed8e6, #3b74f5)" : "light-dark(#1b4ed8, #346bf1)")
               text (busy ? "Sending..." : "Implement") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff" white-space="nowrap"
             button press=openOptions("implement") hover=hover("menu") disabled=blocked opacity=(blocked ? 0.64 : 1) testId="plan-implement-menu" aria-label="Implementation actions" height="2rem" padding-left="0.5rem" padding-right="0.5rem" border-top-right-radius="1rem" border-bottom-right-radius="1rem" border-top-left-radius=0 border-bottom-left-radius=0 border-left-width=1 border-top-width=0 border-right-width=0 border-bottom-width=0 border-style="solid" border-color="#ffffff33" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over == "menu" and not blocked ? "light-dark(#1d4ed8e6, #3b74f5)" : "light-dark(#1b4ed8, #346bf1)")
@@ -420,7 +420,7 @@ component PrimaryActions
                 SendGlyph(icon="play", spinner=data.composer.sendSpinner)
           else
             box position="relative" display="flex" flex-shrink=0 hover=hover("send")
-              button press=send id="send-message" hook="t3-send" testId="send-message" aria-label=(data.composer.sendStatus != "" ? data.composer.sendStatus : sendable and data.composer.sendRunning ? data.composer.sendLabel : "Submit message") aria-keyshortcuts=data.composer.sendChords disabled=(busy or not sendable or data.composer.sendSpinner) opacity=(busy or not sendable ? 0.64 : 1) width="2rem" height="2rem" border-radius="1rem" overflow="hidden" border-width=0 padding=0 position="relative" display="flex" align-items="center" justify-content="center" flex-shrink=0 scale=(over == "send" and sendable and not busy and not data.composer.sendSpinner ? 1.05 : 1) transition="scale 150ms cubic-bezier(0.4, 0, 0.2, 1)" box-shadow=(busy or not sendable ? "none" : "0 1px 2px 0 #0000003d, inset 0 1px 0 0 #ffffff29") color="#ffffff"
+              button press=send id="send-message" hatch="t3-send" testId="send-message" aria-label=(data.composer.sendStatus != "" ? data.composer.sendStatus : sendable and data.composer.sendRunning ? data.composer.sendLabel : "Submit message") aria-keyshortcuts=data.composer.sendChords disabled=(busy or not sendable or data.composer.sendSpinner) opacity=(busy or not sendable ? 0.64 : 1) width="2rem" height="2rem" border-radius="1rem" overflow="hidden" border-width=0 padding=0 position="relative" display="flex" align-items="center" justify-content="center" flex-shrink=0 scale=(over == "send" and sendable and not busy and not data.composer.sendSpinner ? 1.05 : 1) transition="scale 150ms cubic-bezier(0.4, 0, 0.2, 1)" box-shadow=(busy or not sendable ? "none" : "0 1px 2px 0 #0000003d, inset 0 1px 0 0 #ffffff29") color="#ffffff"
                 SendArt()
                 SendGlyph(icon=(sendable ? data.composer.sendIcon : "arrow"), spinner=data.composer.sendSpinner)
               TipBubble(label=data.composer.sendTooltip, side="top", align=(tipShift > 0 ? "end" : "center"), offset=36, inset=(tipShift > 0 ? data.composer.sendTipWidth / 2 - rem - tipShift : 0), shown=(over == "send" and overThread == data.threadId))
@@ -467,13 +467,13 @@ component ComposerFooter
   derive traitsOut = (resting ? data.composer.restingTraitsOverflow : data.composer.traitsOverflow)
   derive clusterHidden = (resting ? data.composer.restingControlsHidden : data.composer.controlsHidden)
   view
-    row width=(resting ? `calc(100% - ${2.5 * rem}px)` : "100%") height=(resting ? "2rem" : "3rem") padding-left=(resting ? "0.875rem" : "1rem") padding-right=(resting ? "0.875rem" : "1rem") padding-bottom=(resting ? "0px" : "1rem") box-sizing="border-box" align-items="center" gap="0.5rem" position=(resting ? "absolute" : "relative") left=(resting ? "1.25rem" : "0px") top=(resting ? "3.125rem" : "0px") border-radius=(resting ? "1rem" : "0px") background-color=(resting ? "light-dark(#fafafa, #101010)" : "#00000000") hook="t3-frame" data-frame="toolbar" testId="composer-toolbar"
+    row width=(resting ? `calc(100% - ${2.5 * rem}px)` : "100%") height=(resting ? "2rem" : "3rem") padding-left=(resting ? "0.875rem" : "1rem") padding-right=(resting ? "0.875rem" : "1rem") padding-bottom=(resting ? "0px" : "1rem") box-sizing="border-box" align-items="center" gap="0.5rem" position=(resting ? "absolute" : "relative") left=(resting ? "1.25rem" : "0px") top=(resting ? "3.125rem" : "0px") border-radius=(resting ? "1rem" : "0px") background-color=(resting ? "light-dark(#fafafa, #101010)" : "#00000000") hatch="t3-frame" data-frame="toolbar" testId="composer-toolbar"
       // r5-composer: the labels' natural widths (r5-composer.contract), read by footerLayout.
       R5TextProbes(probes=data.composer.menuProbes)
       R5ComposerLabelProbes(model=(data.composer.fanout ? data.composer.fanoutLabel : data.modelLabel == "" ? "Choose model" : data.modelLabel), traits=data.composer.traitsLabel, runtime=data.composer.runtimeLabel, plan=(data.composer.planVisible ? (data.composer.planActive ? "Plan" : "Build") : ""))
       // r5-integrate: the model picker sits 10pt left of this row (-ms-2.5); main's macOS hit test reaches a
       // child's visible overflow (652a6c865), so the part outside the row takes its press.
-      row flex=1 min-width=0 gap=(resting ? "0px" : "0.25rem") align-items="center" height="2rem" box-sizing="border-box" hook="t3-anchor" data-anchor="controls"
+      row flex=1 min-width=0 gap=(resting ? "0px" : "0.25rem") align-items="center" height="2rem" box-sizing="border-box" hatch="t3-anchor" data-anchor="controls"
         when data.composer.noProvider != ""
           ProviderUnavailable(label=data.composer.noProvider, xs=resting, disabled=(data.composer.providerSetupId == ""), press=openProviders(data.composer.providerSetupId))
         else
@@ -494,7 +494,7 @@ component ComposerFooter
         PrimaryActions(data=data, sendable=sendable, hasText=(text != ""), busy=busy, tipShift=tipShift, send=send, stop=stop, command=command, openOptions=openOptions)
     when resting
       box position="absolute" right="0.5rem" top="0.4375rem" width="2rem" height="2rem" display="flex" hover=sendHover
-        button press=send id="send-message" hook="t3-send" testId="send-message" aria-label=(data.composer.sendStatus != "" ? data.composer.sendStatus : "Submit message") aria-keyshortcuts=data.composer.sendChords disabled=(busy or not sendable or data.running) opacity=(busy or not sendable or data.running ? 0.64 : 1) position="relative" width="2rem" height="2rem" border-radius="1rem" overflow="hidden" border-width=0 padding=0 display="flex" align-items="center" justify-content="center" color="#ffffff"
+        button press=send id="send-message" hatch="t3-send" testId="send-message" aria-label=(data.composer.sendStatus != "" ? data.composer.sendStatus : "Submit message") aria-keyshortcuts=data.composer.sendChords disabled=(busy or not sendable or data.running) opacity=(busy or not sendable or data.running ? 0.64 : 1) position="relative" width="2rem" height="2rem" border-radius="1rem" overflow="hidden" border-width=0 padding=0 display="flex" align-items="center" justify-content="center" color="#ffffff"
           SendArt()
           SendGlyph(icon="arrow", spinner=data.composer.sendSpinner)
         TipBubble(label=data.composer.sendTooltip, side="top", align=(tipShift > 0 ? "end" : "center"), offset=36, inset=(tipShift > 0 ? data.composer.sendTipWidth / 2 - rem - tipShift : 0), shown=(sendOver and sendThread == data.threadId))
@@ -641,7 +641,7 @@ component ComposerMenus
                   when branchQuery == ""
                     text "Search refs..." position="absolute" left="1.25rem" top=0 font-size="0.875rem" line-height="1.625rem" color="light-dark(#71717a, #818181)" aria-hidden=true
                   input id="branch-search" value=branchQuery input=searchBranches submit=command(branches.enterOp, "", branches.enterValue, 0) focus=searchFocus(true) blur=searchFocus(false) aria-label="Search refs" testId="branch-search" flex=1 min-width=0 height="1.625rem" padding-left="1.25rem" padding-right="0.5625rem" padding-top=0 padding-bottom=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.625rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false"
-              scroll max-height="14rem" width="100%" hook="t3-anchor" data-anchor="scroll:strip-refs"
+              scroll max-height="14rem" width="100%" hatch="t3-anchor" data-anchor="scroll:strip-refs"
                 column width="100%" gap=0 padding-left="0.5rem" padding-right="0.625rem" padding-top="0.75rem" padding-bottom="0.5rem" box-sizing="border-box"
                   // lane r9-connect: a local draft's pull request reference leads (r9-connect-checkout.ts).
                   each item in branches.checkout key=item.reference
@@ -793,7 +793,7 @@ component ComposerStrip
     wide: bool
   view
     // ps-1 pe-2 inside the drawer's pseudo-element border: the drawn 1pt border eats a point of each.
-    row margin-left="1.375rem" margin-right="1.375rem" padding-left="0.1875rem" padding-right="0.4375rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.25rem" box-sizing="border-box" align-items="center" border-bottom-left-radius="1rem" border-bottom-right-radius="1rem" border-style="solid" border-top-width=0 border-left-width=1 border-right-width=1 border-bottom-width=1 border-color="light-dark(#00000014, #ffffff12)" box-shadow="0 12px 28px -18px light-dark(#00000040, #00000000)" hook="t3-frame" data-frame="strip" testId="composer-context-strip"
+    row margin-left="1.375rem" margin-right="1.375rem" padding-left="0.1875rem" padding-right="0.4375rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.25rem" box-sizing="border-box" align-items="center" border-bottom-left-radius="1rem" border-bottom-right-radius="1rem" border-style="solid" border-top-width=0 border-left-width=1 border-right-width=1 border-bottom-width=1 border-color="light-dark(#00000014, #ffffff12)" box-shadow="0 12px 28px -18px light-dark(#00000040, #00000000)" hatch="t3-frame" data-frame="strip" testId="composer-context-strip"
       when strip.gitless
         // lane r12-threads: a non-Git project offers only where it runs (BranchToolbarEnvironmentSelector): the
         // "Run on" Select for a draft, the static machine row (h-6 px-1.75 gap-1, text-xs /70) for a started thread.

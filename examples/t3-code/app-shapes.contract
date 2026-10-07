@@ -12,3 +12,7 @@ shape TimelineReadsResult
   complete: bool
 shape Time
   epochAtZero: number
+// exactPage(): the window's visibility and focus (document.visibilityState, document.hasFocus(); exact2 #219).
+shape Page
+  visibilityState: string
+  hasFocus: bool

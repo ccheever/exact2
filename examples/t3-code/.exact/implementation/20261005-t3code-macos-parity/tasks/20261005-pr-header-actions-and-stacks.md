@@ -32,7 +32,7 @@ Excluded: comments, reviews, edits, reactions, reviewers, labels (`20261005-pr-w
 the Check out menu, Ask/Explain/Fix hand-offs, the folding header, Shift quick actions, and the row
 context menu, checks and stack popovers (`20261005-pr-handoffs-and-quick-actions`); the Code tab
 (`20261005-pr-code-tab`); the "Act on" environment radio (`20261005-pr-links-previews-and-routing`);
-other hosts' action sets (capability flags drive the menu; only GitHub is fixture-run).
+other hosts' action sets (capability flags drive the menu; only GitHub runs live, on the sandbox).
 Reuse (done): Merge/Ready with its dialog on the thread card (`r6-pr-actions.ts` `performAction`, `askMerge`, `confirmMerge`;
 `r6-pr.contract:149-154`), `actionPayload`/`readableFailure`/`ACTION_*` (`r6-pr-logic.ts`), the More menu shell
 (`pages-pr-detail.contract` `PrdMore`), the Default merge method setting (`source-control-view.ts`), and the existing
@@ -57,7 +57,7 @@ Observed today: Close runs at once (`pages-pr-detail.contract` `pr-more-close`),
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | merged task PR | [20261005-pr-conversation-and-refresh](20261005-pr-conversation-and-refresh.md) | pending | Merged (refresh events, `readableFailure`, Summary model) | pending |
-| merged task PR | [20261005-fake-github-fixture](20261005-fake-github-fixture.md) | pending | Action, stack and permission-profile verbs served | pending |
+| merged task PR | [20261007-real-github-lane](20261007-real-github-lane.md) | pending | Sandbox seeded; probe rows for `runAction` and the profiles confirmed; stacks and workflow approval as its probe records them | pending |
 | merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | scheduling preference | [20261005-main-fix-adoption](closed/20261005-main-fix-adoption.md) | pending | Merged first (popover/tooltip Contract) | pending |
 
@@ -84,10 +84,10 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and the
 
 | Criterion | Setup/reset and fixture | Action or command | Expected result | Required platform | Proof |
 | --- | --- | --- | --- | --- | --- |
-| Primary control per state | Fake gh: 101 conflicting, 102 failing, 103 draft, a clean open PR, a merged PR, a closed PR | `bun scripts/agent.mjs macos --json "tap pr-row-<n>" tree` per PR | Resolve conflicts / Auto-merge (m) / Ready for review / Merge label / Merged badge / Closed badge; menu items as the reference's matrix | macOS 1280×840 | tree JSON, shots |
-| Each action's effect | Profile `admin-reviewer` | Merge (3 methods), auto-merge on/off, ready, draft, close, reopen, update-branch (both), revert, approve-workflows | `calls.ndjson` argv equals the fixture ticket's verb table; state changes; success toast text; Cancel in a dialog sends nothing | macOS | log + state diff |
-| Failures | `failNext` per action | Repeat | Title "Could not …", description = host sentence else the hint; buttons re-enabled; list row's optimistic note rolled back | macOS | shots |
-| Permissions | Profiles `reader`, `contributor-author`, `triage`, `writer` | Open the same PRs | reader: no action items; contributor-author: close/reopen/ready/draft but no merge; update-branch only when `viewerCanUpdateBranch` | macOS | tree JSON |
+| Primary control per state | Sandbox (lane config dir): `conflict`, `failing`, `draft`, `open-clean`, `merged`, `closed` (numbers in `sandbox.json`) | `bun scripts/agent.mjs macos --json "tap pr-row-<n>" tree` per PR | Resolve conflicts / Auto-merge (m) / Ready for review / Merge label / Merged badge / Closed badge; menu items as the reference's matrix | macOS 1280×840 | tree JSON, shots |
+| Each action's effect | Primary account on its own and on the second account's pull requests (seeded, or new ones as the probe makes them) | Merge (3 methods), auto-merge on/off, ready, draft, close, reopen, update-branch (both), revert, approve-workflows (each where `sandbox.json` and the probe record GitHub allows it for this account) | `logs/gh-calls.tsv` argv as the verb table; GitHub read back with the lane gh shows the change; success toast text; Cancel in a dialog sends nothing | macOS | gh log + read-back |
+| Failures | Unit tests with injected failures (as `pr-profiles-injection.test.ts`); live where GitHub refuses on its own (merge of a conflicting pull request, update of a branch that is not behind) | Repeat | Title "Could not …", description = host sentence else the hint; buttons re-enabled; list row's optimistic note rolled back | macOS | shots |
+| Permissions | Live: the second account (write) on the primary's pull requests and on its own; unit tests for `reader`, `triage`, `contributor-author` (personal repositories have no read or triage collaborators) | Open the same PRs | reader: no action items; contributor-author: close/reopen/ready/draft but no merge; update-branch only when `viewerCanUpdateBranch` | macOS | tree JSON |
 | Out-of-date branch | `behindBy` 3, mergeable | Focus the base-branch mark; press "Update with rebase" | Popover "This branch is out-of-date with main by 3 commits." / "Changes can be cleanly merged."; `pr update-branch N --rebase` logged | macOS | shot, log |
 | Stack | 3-layer stack, selected layer 2 | Open "2/3"; Merge stack; fail once with stale heads | Layers top-down with check mark and "↳ main"; dialog "Merge 2 pull requests?"; toasts as the reference | macOS | shots, log |
 | Keyboard focus, Escape, reduced motion | `prefer prefers-reduced-motion reduce` | Tab/arrows/Return in the More menu and freshness popover; Escape closes each dialog and popover; focus returns to the trigger | Focus visible and ordered; Escape sends nothing; no scale/fade when reduced | macOS | `tree --ax`, state |
@@ -96,7 +96,7 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and the
 | Gates | `git add -A` | Clone checks (`bun test`, strict `tsc`, contract build, `cargo test -p t3-code-macos --lib`, affected AppKit binaries); `bun scripts/caps.mjs`; the five repository checks | Green; every moved cell is fixed, or declared in `EXACT2-GAPS.md` with an issue link | macOS | logs |
 
 Task-owned source paths: `examples/t3-code/pages-pr-detail.*`, new `pages-pr-actions.*`, `pages-pr-stack.*`, `r6-pr-logic.ts`, `AGENT-HANDOFF.md`.
-Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, fake gh, reference oracle. Any attended or normal-launch run uses a lane build with `T3_LOCAL_HOME=<lane>/t3-home` and `T3_LOCAL_PORT=<lane port 16xxx>` (see `20261005-embedded-server-runtime`).
+Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, the real-GitHub lane (sandbox, shared lane config dirs, two accounts; `tools/github-lane`), reference oracle. Any attended or normal-launch run uses a lane build with `T3_LOCAL_HOME=<lane>/t3-home` and `T3_LOCAL_PORT=<lane port 16xxx>` (see `20261005-embedded-server-runtime`).
 
 ## Progress
 
@@ -112,4 +112,4 @@ Planned. No branch.
 
 ## Next action
 
-`prepare` from `feat(example)/t3-code` once the prerequisite task PRs above have merged into it; sign-in rows use lane fixtures, and real-account rows wait for the user to sign in.
+Starts after [20261007-real-github-lane](20261007-real-github-lane.md) merges: `prepare` from `feat(example)/t3-code` on its shared lane login and sandbox (`examples/t3-code/tools/github-lane/README.md`), with a unit-test fallback for injected failures and delays and for the read, triage and read-only-author profiles.

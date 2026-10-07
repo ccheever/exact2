@@ -40,7 +40,7 @@ test('a nested z insertion and removal propagates through unmarked lists to the 
   expect(follower.style.isolation).toBe('');
 });
 
-test('layout-transition and text-flow policy come from the actual children and siblings', () => {
+test('-exact-layout-transition and text-flow policy come from the actual children and siblings', () => {
   const { root, add } = tree();
   const holder = add(root), paragraph = add(holder, 'text');
   const child = add(holder, 'box', { layout: '', position: 'absolute', wrap: '' });

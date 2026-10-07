@@ -213,7 +213,7 @@ component AddProviderDialog
                               row flex=1 min-width=0 gap="0.75rem" align-items="center"
                                 box width="1.5rem" height="1.5rem" border-radius="0.375rem" flex-shrink=0 display="flex" align-items="center" justify-content="center" overflow="hidden"
                                   when agent.icon != ""
-                                    image agent.icon width="1.5rem" height="1.5rem" object-fit="contain" aria-hidden=true tint-color="light-dark(#71717b, #818181)"
+                                    image agent.icon width="1.5rem" height="1.5rem" object-fit="contain" aria-hidden=true -exact-tint-color="light-dark(#71717b, #818181)"
                                   else
                                     DriverMark(driver="acpRegistry", size=20, initials=agent.name)
                                 column flex=1 min-width=0

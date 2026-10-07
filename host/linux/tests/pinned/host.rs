@@ -922,6 +922,50 @@ fn popover_invocation_reports_unsupported_without_dispatching_a_partial_action()
         .contains("Linux does not support popover presentation"));
 }
 
+/// LLP 1021 §5.2: Linux presents no popover, so a context menu is refused
+/// with the popover refusal (and logged), its rows and its submenu's stay
+/// hidden, and no action runs.
+#[test]
+fn a_context_menu_and_its_submenu_row_are_refused_as_popovers() {
+    pin_font();
+    let plan = contract::compile(r#"component App
+  state log = ""
+  action did(what: string)
+    log = `${log} ${what}`
+  view
+    column
+      button "Row" contextPopover="row-menu" testId="row" width=200 height=50
+      column id="row-menu" popover="auto" role="menu" position="absolute"
+        button "Copy" popovertarget="copy-menu" role="menuitem" testId="m-copy" width=200 height=40
+      column id="copy-menu" popover="auto" role="menu" position="absolute"
+        button "Copy path" press=did("copy-path") popovertarget="row-menu" popovertargetaction="hide" testId="m-copy-path" width=200 height=40
+"#).unwrap();
+    let (mut p, error) =
+        Presenter::boot(&plan.encode(), NoData, (390., 844.), 1., assets()).unwrap();
+    assert!(error.is_none());
+    let row = view(&p, "row");
+    let answer = handle(
+        &mut p,
+        &format!(r#"{{"op":"tap","id":{row},"contextmenu":true}}"#),
+    );
+    assert!(
+        answer.contains("Linux does not support popover presentation"),
+        "{answer}"
+    );
+    // The menu never opens, so its rows, the submenu's opener and items
+    // included, stay hidden.
+    for name in ["m-copy", "m-copy-path"] {
+        let id = view(&p, name);
+        let answer = handle(&mut p, &format!(r#"{{"op":"tap","id":{id}}}"#));
+        assert!(answer.contains("hidden or inert"), "{name}: {answer}");
+    }
+    assert_eq!(p.host().runner().slot("log"), Some(&Value::str("")));
+    assert!(p
+        .host()
+        .agent(r#"{"op":"logs"}"#)
+        .contains("Linux does not support popover presentation"));
+}
+
 #[test]
 fn ordinary_node_state_is_not_routed_to_a_surface() {
     let mut p = fixture("scroll");

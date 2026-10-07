@@ -22,7 +22,7 @@ component Rem
     column testId="page"
       text "unsized em" testId="unsized" font-size="1.25em" margin-left="-0.5em" padding-left="1em"
       main testId="root" font-size=size padding=16
-        input type="range" min=12 max=20 step=1 value=size input=pick aria-label="Font size" testId="size"
+        input type="range" min=12 max=20 step=1 value=size input=pick aria-label="Font size" testId="size" width=160 height=20
         view testId="box" width="10rem" height="2rem" background-color="#dddddd"
           text "rem text" testId="label" font-size="1.5rem"
         text "em text" testId="em" font-size="1.5em" line-height="1.25em"

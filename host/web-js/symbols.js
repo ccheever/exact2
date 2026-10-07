@@ -66,7 +66,7 @@ function appSource(e, v) {
     .then(url => { if (e.$app === v && e.getAttribute("src") !== url) { if (url) e.setAttribute("src", url); else e.removeAttribute("src"); template(e, url || null); } })
     .catch(() => {}).finally(() => inflight.n--);
 }
-// A raster with a `tint-color` is a template (element.rs `host_css`, LLP
+// A raster with a `-exact-tint-color` is a template (element.rs `host_css`, LLP
 // 1011 §3): its alpha masks the tint. A source that becomes a raster takes
 // the mask; one that becomes a symbol (or no tint) drops it.
 const TEMPLATE = ["mask-image", "mask-size", "mask-repeat", "mask-position", "mask-origin", "mask-clip", "object-position"];

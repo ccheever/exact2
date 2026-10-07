@@ -26,7 +26,7 @@ final class T3TimelineTooltip {
     private var monitor: Any?
 
     func install(_ element: ExactElement) {
-        guard element.hook == .t3TimelineTip, let view = element.view else { return }
+        guard element.hatch == .t3TimelineTip, let view = element.view else { return }
         let key = ObjectIdentifier(view)
         if entries[key] == nil { entries[key] = Entry(element) }
         if observation == nil {
@@ -56,7 +56,7 @@ final class T3TimelineTooltip {
         for entry in entries.values where entry.trigger?.window === window { entry.setDismissed(false) }
     }
     func remove(_ element: ExactElement) {
-        guard element.hook == .t3TimelineTip, let view = element.view else { return }
+        guard element.hatch == .t3TimelineTip, let view = element.view else { return }
         entries.removeValue(forKey: ObjectIdentifier(view))
         if entries.isEmpty { destroy() }
     }

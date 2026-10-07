@@ -1,11 +1,15 @@
-// CSS `backdrop-filter: blur(σ)` on both Apple platforms (LLP 1053.000 D2).
+// CSS `backdrop-filter` on both Apple platforms (LLP 1053.000 D2).
 //
 // macOS: Core Image's Gaussian as the node layer's public
 // `backgroundFilters`, run between the sRGB tone curves because Core Image
 // blurs linear light and Chrome blurs encoded values; measured against
 // Chrome's picture of scripts/fixtures/backdrop.contract its σ lands within
-// 0.05 pt. AppKit filters a layer's backdrop only when the layer masks to
-// its bounds, and the backdrop it sees is the superlayer's subtree: the
+// 0.05 pt. Core Animation hands the filters the backdrop past the box,
+// where Chrome reads only the box and mirrors it past its edges; the chain
+// mirrors the box first, so the edges land within 2/255 per channel of
+// Chrome's (#129's panels; a turned or skewed box still reads past it).
+// AppKit filters a layer's backdrop only when the layer masks to its
+// bounds, and the backdrop it sees is the superlayer's subtree: the
 // parent's paint and the earlier siblings, not what a further ancestor
 // paints. Both are declared (LLP 1053.000 §3, LLP 1001 §1): a backdrop
 // node clips its children to its border box, and paint above its parent
@@ -123,25 +127,40 @@ enum Materials {
     #endif
 }
 
+/// The kernel's ordered backdrop operations, decoded once from its typed wire.
+enum BackdropOperation: Equatable {
+    case blur(CGFloat), saturate(CGFloat)
+
+    init?(_ value: BatchValue) {
+        guard case .object(let fields) = value else { return nil }
+        if let n = fields["blur"]?.number { self = .blur(CGFloat(n)) }
+        else if let n = fields["saturate"]?.number { self = .saturate(CGFloat(n)) }
+        else { return nil }
+    }
+}
+
 extension NodeView {
-    /// The material this node asks for: the host-policy prop, else a
-    /// backdrop blur, else none.
+    var backdropOperations: [BackdropOperation] {
+        style["backdrop_filter"]?.array?.compactMap(BackdropOperation.init) ?? []
+    }
+
+    /// The material this node asks for: the host-policy prop, else a backdrop.
     var materialRequest: String? {
         if let material = props["backgroundMaterial"] { return material }
-        return number("backdrop_blur") > 0 ? "backdrop" : nil
+        return backdropOperations.isEmpty ? nil : "backdrop"
     }
 }
 
 #if os(iOS) || os(tvOS)
-/// A backdrop blur's material view, remembering the σ it was made for.
+/// The system material approximation, remembering its authored functions.
 final class BackdropEffectView: UIVisualEffectView {
-    var sigma: CGFloat = -1
+    var operations: [BackdropOperation] = []
 }
 
 extension NodeView {
-    /// Whether the backdrop's effect no longer matches its σ.
+    /// Whether the approximation is stale after a style update.
     var backdropStale: Bool {
-        (materialView as? BackdropEffectView).map { $0.sigma != number("backdrop_blur") } ?? false
+        (materialView as? BackdropEffectView).map { $0.operations != backdropOperations } ?? false
     }
 
     /// The effect for material `kind` (LLP 1053.000 D4): a glass effect on
@@ -171,8 +190,8 @@ extension NodeView {
     /// The backdrop blur's effect, nil when this is not a backdrop.
     func backdropEffect() -> UIVisualEffect? {
         guard let view = materialView as? BackdropEffectView else { return nil }
-        view.sigma = number("backdrop_blur")
-        return UIBlurEffect(style: Backdrop.material(sigma: view.sigma))
+        view.operations = backdropOperations
+        return UIBlurEffect(style: Backdrop.material)
     }
 }
 
@@ -183,7 +202,7 @@ enum Backdrop {
     /// Chrome over the parity page, `.light` is nearest in every case, the
     /// tinted glass included (LLP 1053.000 §3; Charlie, 2026-09-27: "yes
     /// switch to regular or light"). It does not follow the appearance.
-    static func material(sigma _: CGFloat) -> UIBlurEffect.Style { .light }
+    static var material: UIBlurEffect.Style { .light }
 }
 #else
 import CoreImage
@@ -193,17 +212,28 @@ extension NodeView {
     /// takes the node's backdrop instead.
     func applyBackdrop() {
         guard let l = layer else { return }
-        let sigma = materialView == nil && props["backgroundMaterial"] == nil ? max(0, number("backdrop_blur")) : 0
-        guard sigma > 0 else {
-            if l.backgroundFilters != nil { l.backgroundFilters = nil; syncEllipticalClip() }
+        let operations = materialView == nil && props["backgroundMaterial"] == nil ? backdropOperations : []
+        guard !operations.isEmpty else {
+            if l.backgroundFilters != nil { l.backgroundFilters = nil; backdropDrawn = nil; syncEllipticalClip() }
             return
         }
         if !layerUsesCoreImageFilters { layerUsesCoreImageFilters = true }
-        let current = (l.backgroundFilters?.dropFirst().first as? CIFilter)?.value(forKey: kCIInputRadiusKey) as? Double
-        if current != Double(sigma), let blur = CIFilter(name: "CIGaussianBlur"),
-           let encode = CIFilter(name: "CILinearToSRGBToneCurve"), let decode = CIFilter(name: "CISRGBToneCurveToLinear") {
-            blur.setValue(Double(sigma), forKey: kCIInputRadiusKey)
-            l.backgroundFilters = [encode, blur, decode]
+        // Core Animation hands the filters the backdrop in the superlayer's
+        // space, where the box is the frame moved and scaled by the layer's
+        // transform about its anchor (a press, a flight, `translate`). A
+        // turned, skewed or 3D layer, or one under a parent's perspective,
+        // reads past its box: not measured.
+        let t = l.transform, size = frame.size
+        let anchor = CGPoint(x: l.anchorPoint.x * size.width, y: l.anchorPoint.y * size.height)
+        let flat = l.superlayer.map { CATransform3DIsIdentity($0.sublayerTransform) } ?? true
+        let box = flat && CATransform3DIsAffine(t) && t.m12 == 0 && t.m21 == 0
+            ? CGRect(origin: CGPoint(x: -anchor.x, y: -anchor.y), size: size).applying(CATransform3DGetAffineTransform(t))
+                .offsetBy(dx: frame.minX + anchor.x, dy: frame.minY + anchor.y)
+            : nil
+        let drawn = BackdropDrawn(operations: operations, box: box)
+        if backdropDrawn != drawn || l.backgroundFilters == nil {
+            l.backgroundFilters = Backdrop.filters(drawn)
+            backdropDrawn = drawn
         }
         // AppKit filters the backdrop only inside a masking layer; one
         // radius rides it (differing radii take their smallest).
@@ -212,6 +242,63 @@ extension NodeView {
         let radius = radii.allSatisfy { $0.width == $0.height } ? radii.map(\.width).min() ?? 0 : 0
         if l.cornerRadius != radius { l.cornerRadius = radius }
         syncEllipticalClip()
+    }
+}
+
+/// The filter list and its box in the superlayer (nil: blur reads past the box).
+struct BackdropDrawn: Equatable {
+    var operations: [BackdropOperation]
+    var box: CGRect?
+}
+
+enum Backdrop {
+    /// Core Image's chain for `drawn`. Chrome reads the backdrop inside the
+    /// border box and mirrors it past the edges: the box is scaled to a
+    /// square, which `CIFourfoldReflectedTile` mirrors (its tile runs from
+    /// its centre by its width), and scaled back. The Gaussian runs between
+    /// the sRGB tone curves, as Chrome blurs encoded values.
+    static func filters(_ drawn: BackdropDrawn) -> [CIFilter] {
+        func filter(_ name: String, _ values: [String: Any] = [:]) -> CIFilter? {
+            let f = CIFilter(name: name)
+            for (key, value) in values { f?.setValue(value, forKey: key) }
+            return f
+        }
+        func transform(_ t: CGAffineTransform) -> CIFilter? {
+            let ns = NSAffineTransform()
+            ns.transformStruct = NSAffineTransformStruct(m11: t.a, m12: t.b, m21: t.c, m22: t.d, tX: t.tx, tY: t.ty)
+            return filter("CIAffineTransform", [kCIInputTransformKey: ns])
+        }
+        var chain: [CIFilter?] = []
+        let blurs = drawn.operations.contains { if case .blur(let sigma) = $0 { return sigma > 0 }; return false }
+        if blurs, let box = drawn.box, box.width > 0, box.height > 0 {
+            let side = max(box.width, box.height)
+            let square = CGAffineTransform(scaleX: side / box.width, y: side / box.height).translatedBy(x: -box.minX, y: -box.minY)
+            let mirror = filter("CIFourfoldReflectedTile", [kCIInputCenterKey: CIVector(x: 0, y: 0), kCIInputWidthKey: Double(side),
+                                                             kCIInputAngleKey: 0.0, "inputAcuteAngle": Double.pi / 2])
+            chain = [transform(square), mirror, transform(square.inverted())]
+        }
+        chain.append(filter("CILinearToSRGBToneCurve"))
+        for operation in drawn.operations {
+            switch operation {
+            case .blur(let sigma):
+                chain.append(filter("CIGaussianBlur", [kCIInputRadiusKey: Double(sigma)]))
+            case .saturate(let amount):
+                // Filter Effects 1's saturation matrix, in encoded sRGB.
+                // CIColorControls chooses its own grayscale weights. The
+                // explicit matrix keeps CSS's weights, and its output must
+                // clamp before a later blur sees it (amount may exceed one).
+                let r = 0.213 * (1 - amount), g = 0.715 * (1 - amount), b = 0.072 * (1 - amount)
+                chain.append(filter("CIColorMatrix", [
+                    "inputRVector": CIVector(x: r + amount, y: g, z: b, w: 0),
+                    "inputGVector": CIVector(x: r, y: g + amount, z: b, w: 0),
+                    "inputBVector": CIVector(x: r, y: g, z: b + amount, w: 0)]))
+                chain.append(filter("CIColorClamp", [
+                    "inputMinComponents": CIVector(x: 0, y: 0, z: 0, w: 0),
+                    "inputMaxComponents": CIVector(x: 1, y: 1, z: 1, w: 1)]))
+            }
+        }
+        chain.append(filter("CISRGBToneCurveToLinear"))
+        return chain.compactMap { $0 }
     }
 }
 #endif

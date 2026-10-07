@@ -277,7 +277,7 @@ fn an_end_moved_by_less_than_half_a_point_is_still_followed() {
 }
 
 #[test]
-fn dom_integer_end_append_follows_but_half_pixel_reader_does_not() {
+fn dom_integer_end_append_follows_but_a_reader_a_pixel_up_does_not() {
     for (at_end, follow) in [(true, true), (false, true), (true, false)] {
         let mut h = Harness::new(2, false, follow);
         let mut initial = h.feedback(0.0);
@@ -301,7 +301,8 @@ fn dom_integer_end_append_follows_but_half_pixel_reader_does_not() {
         let top = if at_end {
             334_858.0
         } else {
-            334_858.078_125 - 0.500_001
+            // A whole pixel (END_SLACK) short of the true end: a reader, not a clamp.
+            334_858.078_125 - 1.0
         };
         let mut tail = h.feedback(top);
         tail.port_main = 519.0;

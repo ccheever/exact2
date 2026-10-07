@@ -103,9 +103,9 @@ component AlertStack
     openSetup: action
   view
     // r6-polish: hooked and clipped to its banners' span, so the side gutters leave presses to the transcript (r6-polish-measure.ts alertClip).
-    column position="absolute" top="3.25rem" left=0 right=0 align-items="center" z-index=10 pointer-events="none" hook="t3-anchor" data-anchor="alerts" clip-path=data.alertClip
+    column position="absolute" top="3.25rem" left=0 right=0 align-items="center" z-index=10 pointer-events="none" hatch="t3-anchor" data-anchor="alerts" clip-path=data.alertClip
       when data.providerBannerKey != "" and data.providerBannerKey != dismissed
-        column max-width="calc(100% - 32px)" padding-top="0.75rem" pointer-events="auto" hook="t3-anchor" data-anchor="alert:provider"
+        column max-width="calc(100% - 32px)" padding-top="0.75rem" pointer-events="auto" hatch="t3-anchor" data-anchor="alert:provider"
           row padding-left="0.875rem" padding-right="0.875rem" padding-top="0.75rem" padding-bottom="0.75rem" box-sizing="border-box" gap="0.5rem" align-items="flex-start" border-radius="0.875rem" border-style="solid" border-width=1 border-color=(data.providerBannerWarning ? "light-dark(#fe9a0052, #fe9a0052)" : "light-dark(#fb2c3652, #fb414a52)") background-color=(data.providerBannerWarning ? "light-dark(#fcf8f2, #14100a)" : "light-dark(#fcf4f4, #140c0d)") testId="provider-status-banner" role=(data.providerBannerAlert ? "alert" : "status")
             row width="1rem" height="1.25rem" margin-top="0.125rem" align-items="center" justify-content="center" flex-shrink=0
               Icon(name="info", size=16, color=(data.providerBannerWarning ? "#fe9a00" : "light-dark(#fb2c36, #fb414a)"))
@@ -119,7 +119,7 @@ component AlertStack
             button press=dismissProvider width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label=data.providerBannerDismiss testId="dismiss-provider-warning"
               Icon(name="x", size=14, color="light-dark(#71717b, #818181)")
       when data.error != ""
-        column max-width="calc(100% - 32px)" padding-top="0.75rem" pointer-events="auto" hook="t3-anchor" data-anchor="alert:error"
+        column max-width="calc(100% - 32px)" padding-top="0.75rem" pointer-events="auto" hatch="t3-anchor" data-anchor="alert:error"
           // ThreadErrorBanner: warning (amber) for usage limits, error otherwise; w-fit up to min(48rem, 100% - 2rem).
           row max-width="48rem" padding-left="0.875rem" padding-right="0.875rem" padding-top="0.75rem" padding-bottom="0.75rem" box-sizing="border-box" gap="0.5rem" align-items="flex-start" border-radius="0.875rem" border-style="solid" border-width=1 border-color=(data.errorWarning ? "light-dark(#fe9a0052, #fe9a0052)" : "light-dark(#fb2c3652, #fb414a52)") background-color=(data.errorWarning ? "light-dark(#fcf8f2, #14100a)" : "light-dark(#fcf4f4, #140c0d)") testId="error-banner" role="alert"
             row width="1rem" height="1.25rem" margin-top="0.125rem" align-items="center" justify-content="center" flex-shrink=0
@@ -128,7 +128,7 @@ component AlertStack
             button press=command("dismiss-error", "", "", 0) width="1.5rem" height="1.5rem" padding=0 flex-shrink=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Dismiss error"
               Icon(name="x", size=14, color="light-dark(#71717b, #818181)")
       when data.uncertain
-        column max-width="calc(100% - 32px)" padding-top="0.75rem" pointer-events="auto" hook="t3-anchor" data-anchor="alert:uncertain"
+        column max-width="calc(100% - 32px)" padding-top="0.75rem" pointer-events="auto" hatch="t3-anchor" data-anchor="alert:uncertain"
           row padding-left="0.875rem" padding-right="0.875rem" padding-top="0.75rem" padding-bottom="0.75rem" box-sizing="border-box" gap="0.5rem" align-items="flex-start" border-radius="0.875rem" border-style="solid" border-width=1 border-color="#fe9a0052" background-color="light-dark(#fcf8f2, #14100a)" testId="uncertain-banner" role="status"
             row width="1rem" height="1.25rem" margin-top="0.125rem" align-items="center" justify-content="center" flex-shrink=0
               Icon(name="circle-alert", size=16, color="#fe9a00")

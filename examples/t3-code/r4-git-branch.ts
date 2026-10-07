@@ -59,7 +59,8 @@ export function originLabel(client: T3Client, branch: string): string {
 async function loadRefs(client: T3Client, native: Native, cwd: string, query: string): Promise<Refs> {
   const state = branchState(client), current = state.refs;
   const search = sanitizeNewRefName(query).slice(0, 256);
-  const list = (cursor?: number) => client.restAccess(native).request('vcs.listRefs', { cwd, limit: REF_PAGE, ...(search ? { query: search } : {}), ...(cursor === undefined ? {} : { cursor }) });
+  // A shared read (activeBranchRefQuery is one query per input): the card asked again before the reply joins it.
+  const list = (cursor?: number) => client.restAccess(native).read('vcs.listRefs', { cwd, limit: REF_PAGE, ...(search ? { query: search } : {}), ...(cursor === undefined ? {} : { cursor }) });
   // r5-composer: a scroll toward the list's end loads the next page (r5-composer-paging.ts).
   if (current && current.cwd === cwd && current.query === query && current.generation === client.generation && !current.stale)
     return Object.assign(current, await morePages(current, client.presentation, 'details-refs', list));

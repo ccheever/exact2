@@ -15,7 +15,7 @@ import { shortcutLabel } from './keybinding-view';
 import { snoozePresets } from './sidebar-presentation';
 import { canSnooze, effectiveSnoozed } from './sidebar-model';
 import { diffNotGit } from './diff';
-import { threadNotifications, providerUpdates, nativeNotifyStatus, type NotifyStatus } from './shell-notify';
+import { threadNotifications, providerUpdates, nativeNotifyStatus, reportWindowFacts, type NotifyStatus } from './shell-notify';
 import { slowRequests, tracking } from './shell-slow';
 import { settleLiveTraces } from './r3-protocol-reader'; // r13-slow: answered requests whose answer was let go end on the next shell read
 import { nightlyMobileBetaNotice } from './shell-nightly';
@@ -240,15 +240,20 @@ async function panelSaved<T>(client: T3Client, storage: Files, view: T): Promise
   return view;
 }
 
-/** One shell answer: toasts after dismissals and timers, notifications, header and menus. */
-export async function shellView(client: T3Client, native: Native | null | undefined, storage: Files, now: number, dismissed: string, paused: boolean, sheet = false) {
+/**
+ * One shell answer: toasts after dismissals and timers, notifications, header and menus.
+ * `page` is the window's `exactPage()` focus and visibility (exact2 #219).
+ */
+export async function shellView(client: T3Client, native: Native | null | undefined, storage: Files, now: number, dismissed: string, paused: boolean, sheet = false,
+  page: { focused: boolean; visible: boolean } = { focused: true, visible: true }) {
   // A closed toast's onClose may change saved preferences (shell-prefs.ts): write them now.
   if (applyDismissals(client, dismissed)) await client.savePreferences(storage);
   const state = shellState(client);
   nightlyMobileBetaNotice(client, client.preferencesLoaded); // shell-nightly.ts
   if (native?.available) {
     native.watch('t3.notify');
-    state.status = await nativeNotifyStatus(native, state.status);
+    state.status = await nativeNotifyStatus(native, state.status, page.focused);
+    await reportWindowFacts(client, native, page.visible, page.focused); // client-activity-reporting's visible and focused
     await providerUpdates(client, storage);
     await cloneToasts(client, native); // project-clones-live.ts: a toast per tracked clone, every environment
     await threadNotifications(client, native, state.status);

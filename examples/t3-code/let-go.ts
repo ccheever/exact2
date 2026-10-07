@@ -26,14 +26,17 @@ export function letGo(error: unknown): boolean {
 
 /**
  * `native` whose calls reject with ClientError 'superseded' once Exact lets the
- * answer go. The whole answer is let go, so a call its `catch` or `finally`
- * makes afterwards is refused here too: natively it would run outside any
- * answer and be refused with a plain Error the catches could not tell apart.
+ * answer go. The whole answer is let go, so a call or a watch its `catch` or
+ * `finally`, or the code after a catch that swallowed the rejection, makes
+ * afterwards is refused here too: natively it would run outside any answer and
+ * be refused with a plain Error the catches could not tell apart ("native.watch
+ * outside an answer" became the transcript banner when a refresh let go inside
+ * fleet.sync's tolerated `environments` read went on to read the embedded server).
  */
 export function letGoAware(native: Native): Native {
   let gone = '';
   const superseded = () => new ClientError(gone, 'superseded');
-  return { available: native.available, watch: topic => native.watch(topic), later: async request => {
+  return { available: native.available, watch: topic => { if (gone) throw superseded(); native.watch(topic); }, later: async request => {
     if (gone) throw superseded();
     try { return await native.later(request); }
     catch (error) {

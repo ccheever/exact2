@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 // The ordinary bake, packaged as a native executable, GPU DLL and baked assets.
 import { copyFileSync, cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { bakeTarget, buildBake, copyShaders, developmentBuildEnv, resolveApp } from '../../scripts/app.mjs';
+import { bakeTarget, buildBake, copyShaders, developmentBuildEnv, resolveApp, windowsFile } from '../../scripts/app.mjs';
 
 if (process.platform !== 'win32') throw new Error('build the Windows host on Windows with the MSVC Rust target');
 const args = process.argv.slice(2);
@@ -16,9 +16,9 @@ mkdirSync(output, {recursive:true});
 let executable;
 for (const product of build.products) {
   if (!/\.(exe|dll)$/.test(product.path)) continue;
-  const destination = resolve(output, basename(product.path));
+  const destination = resolve(output, windowsFile(app, product.path));
   copyFileSync(product.path, destination);
-  if (product.path.endsWith('.exe')) executable = destination;
+  if (product.path.endsWith(`${app.crate('windows')}.exe`)) executable = destination;
 }
 if (!executable) throw new Error('Windows bake produced no executable');
 for (const name of ['assets','deck']) {

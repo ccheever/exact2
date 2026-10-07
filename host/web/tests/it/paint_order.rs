@@ -229,7 +229,7 @@ fn dirty_lists_follow_layout_policy_and_text_flow_structure() {
       button "Toggle" testId="toggle" press=toggle
       box
         when changed
-          box layout-transition="200ms linear"
+          box -exact-layout-transition="200ms linear"
       box position="relative"
         text "paragraph"
         when changed

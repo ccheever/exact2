@@ -80,11 +80,20 @@ export async function readDetail(client: T3Client, native: Native, reference: Ob
     const ref = normalRef(reference);
     let merged = obj(await client.rpc(native, 'pullRequests.detail', { ...ref, allowStale: false }));
     if (caps(client).pullRequestChecks === true && num(merged.number) > 0) {
-      const checks = await client.rpc(native, 'pullRequests.checks', ref).catch(() => null);
+      const checks = await client.rpc(native, 'pullRequests.checks', ref).catch((error: unknown) => { if (letGo(error)) throw error; return null; });
       if (checks && typeof checks === 'object' && Array.isArray(obj(checks).checks)) merged = { ...merged, ...obj(checks) };
     }
     entry.detail = num(merged.number) > 0 ? merged : null;
-  } catch (error) { if (!letGo(error)) entry.error = error instanceof Error ? error.message : String(error); }
+  } catch (error) {
+    // real-github-lane: an answer let go mid-read (Exact replaced it, e.g. for a new revision while
+    // GitHub was still answering) settles nothing. Storing it as a finished read with no detail and
+    // no error made every later answer treat "nothing" as fresh, so the row never split.
+    if (letGo(error)) {
+      if (state.details.get(key) === entry) { if (cached) state.details.set(key, cached); else state.details.delete(key); }
+      throw error;
+    }
+    entry.error = error instanceof Error ? error.message : String(error);
+  }
   entry.reading = false;
   state.details.set(key, entry);
   return entry.detail;

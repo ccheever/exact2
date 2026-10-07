@@ -7,6 +7,7 @@
 // (LLP 1031 D1), never a global.
 #if os(macOS)
 import AppKit
+import CoreImage
 import IOSurface
 /// A material paints, but never supplies a new hit target or focus owner.
 private final class MaterialContent: NSView {
@@ -127,6 +128,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// While it flies as a shared element (LLP 1013.000 D4): where its image is drawn.
     var flightLook: FlightLook?
     var materialView: NSView?
+    /// The backdrop blur's σ and mirrored box as last set (`Backdrop.swift`).
+    var backdropDrawn: BackdropDrawn?
     /// `glassGroup`'s view and a grouped glass's isolation (`GlassGroup.swift`).
     var glassGroupView: NSView?
     var glassIsolation: NSView?
@@ -460,7 +463,11 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     // Transparency and Increase Contrast; do not freeze the effective appearance.
     var appliedMaterial: String {
         guard let materialView, materialView.superview === self || (glassIsolation != nil && materialView.superview?.superview === glassIsolation) else {
-            if (layer?.backgroundFilters?.count ?? 0) > 0 { return "backgroundFilters(CIGaussianBlur)" }
+            if let filters = layer?.backgroundFilters, !filters.isEmpty {
+                let effects = filters.compactMap { ($0 as? CIFilter)?.name }
+                    .filter { $0 == "CIGaussianBlur" || $0 == "CIColorMatrix" }
+                return "backgroundFilters(\(effects.joined(separator: ",")))"
+            }
             return props["backgroundMaterial"] == nil ? "none" : "unsupported"
         }
         if #available(macOS 26.0, *), let glass = materialView as? NSGlassEffectView { return "NSGlassEffectView(.\(glass.style == .clear ? "clear" : "regular"))" }
@@ -1143,6 +1150,13 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// box's own layer paint decides the radius with it (`applyBoxLayer`).
     func applyClipRadius() { applyBoxLayer() }
 
+    /// A backdrop mirrors its box where its parent hands it the backdrop.
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        let moved = newOrigin != frame.origin
+        super.setFrameOrigin(newOrigin)
+        if moved, !backdropOperations.isEmpty { applyBackdrop() }
+    }
+
     /// The reduction depends on the size, which the kernel's layout sets
     /// after the style.
     override func setFrameSize(_ newSize: NSSize) {
@@ -1153,7 +1167,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         layerPaintCache = nil
         if hasBoxPaint || clipsToBounds || clipBox != nil { applyClipRadius() }
         if materialView != nil { applyMaterialRadius() }
-        if number("backdrop_blur") > 0 { applyBackdrop() }
+        if !backdropOperations.isEmpty { applyBackdrop() }
         // Border, gradient and image sublayers follow the new size.
         if layerBoxEligible && (hasBoxPaint || kind == "image") { needsDisplay = true }
     }

@@ -122,7 +122,7 @@ pub(super) fn resolve(arena: &mut NodeArena, receipt: &CommitReceipt) -> Vec<Nod
 }
 
 /// What `name` resolves to for the consumer at `slot`: walking up from it,
-/// the first node that declares the name (its own `drag-timeline`, first)
+/// the first node that declares the name (its own `-exact-drag-timeline`, first)
 /// or scopes it (`timeline-scope`) decides.
 fn lookup(arena: &NodeArena, consumer: u32, name: &str) -> NamedTimeline {
     let slots = &arena.timelines.slots;

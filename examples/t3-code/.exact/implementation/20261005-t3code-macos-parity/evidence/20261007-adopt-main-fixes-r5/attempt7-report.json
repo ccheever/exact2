@@ -1,0 +1,1604 @@
+{
+  "schema_version": 1,
+  "started_at": "2026-10-07T15:40:48.260778+00:00",
+  "project_root": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-adopt-main-fixes-r5",
+  "recipe_sha256": "63fe96baec855083254348ace65ea87ed15c331d23dcdb35699a4f63345160f8",
+  "environment": {
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "python": "3.9.6 (default, Aug 25 2026, 21:26:21) \n[Clang 21.0.0 (clang-2100.3.34.2)]"
+  },
+  "source": {
+    "algorithm": "sha256",
+    "digest": "f2b0db9ff288fb6ed9b9aa5dd9100b0f525dabf9fcee7d5744e9056081695c83",
+    "entries": [
+      {
+        "path": "examples/t3-code/app-main.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "b8f250306bd26378071fac7083d58d71a74744b06ea64875080863b1d8501e11"
+      },
+      {
+        "path": "examples/t3-code/app-shapes.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "8289de7bcb7fd76b8808780e1f92881430efd0f111be8961e8d3a6e3ed4a058a"
+      },
+      {
+        "path": "examples/t3-code/app.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "b622332e5f76acc2d9690116601dfaccda2c2c93e41617d7d96475a27a631f76"
+      },
+      {
+        "path": "examples/t3-code/app.json",
+        "kind": "file",
+        "executable": false,
+        "sha256": "5b0069bd7a546d4266464305ff5f49b951a8c15738c45c23588343a696eea675"
+      },
+      {
+        "path": "examples/t3-code/app.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "f2bc20b9ac9fbb8bd7592a3fdce3f5db08036f7b0e3b69c597a45d9378cb1839"
+      },
+      {
+        "path": "examples/t3-code/chat.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "a25fc33dea58e92ec011a1619299b5cebcbd8882b1e877a39c2eb3e9ccaf7af2"
+      },
+      {
+        "path": "examples/t3-code/client.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "900d4ae355fa33606d4aff1871dd65f7af1511d524ccc28c26471521872e6da1"
+      },
+      {
+        "path": "examples/t3-code/composer-controls-branch.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "398896ebb96e699daa072cdc17f6deb34925b7400162c4ec23f38a1a0f1b3834"
+      },
+      {
+        "path": "examples/t3-code/composer-controls-fixture.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "675b36be0d73c0b36755008e7371272145afa7d9c7ce9ab139bb71ab882d9bcb"
+      },
+      {
+        "path": "examples/t3-code/composer-controls.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "7da03e8cdcede957d8272c3ed2d1c81912cd2bdbea576cf17782520fbc7271ba"
+      },
+      {
+        "path": "examples/t3-code/composer-controls.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "3f90740287e778c4328d2f13c7e5a7969a5ec06f6a2def6d9f640b8d0f5420de"
+      },
+      {
+        "path": "examples/t3-code/composer-editor.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "e7e41b6c0df07e293cdc7501e66d7f05bd44460faf18f3c622ab258af7ba0315"
+      },
+      {
+        "path": "examples/t3-code/composer.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "0582f795aadacd8338a4736113224938afb17bbc05e98b0eac90d2b514ec2888"
+      },
+      {
+        "path": "examples/t3-code/let-go.test.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "f2ca668dc984ccd74ddd40faccae934c48ac660dbab4dbbc52d82d41922fda03"
+      },
+      {
+        "path": "examples/t3-code/let-go.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "a8a14bb5a4e767f165609794b3a272b7edd812306c9ce4b9b2095829f74a0f9c"
+      },
+      {
+        "path": "examples/t3-code/local-backend.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "e43928374f6271db4f4766683bc5062944dbe1b969e1bd024bc98a8fc69f4031"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/activity/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "92b0d7311760ade03033ed58acca869919c61583a375bee4e24c79625e0ae0d9"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/composer/editor.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "b4a9f69f23f2ca66f24be5bb799cf2c7d516e0a31653523ee23d194a1453c75e"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/composer/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "61a3abbcff350c7bf8e19bba8adb53063fc9bba98035b9f2998945632c187861"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/contextmenu/file-menus.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "f2924664cff6660ef77ca10ae5717f4dbdda243b858341753c6974872b708909"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/contextmenu/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "9781e1d1620b01577bcbb890561d56a5659eecb88b96eff32f74b159418c4873"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/contextmenu/tab-input.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "4bc0f97a2d6d3c1eededc396f47bf9a221b8ab250b81029c6fe03f368b70b543"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/media-actions/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "789fc6afa3f520352608f506a3580347441e8eb1ae45a0d66d986cd678406218"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/menus/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "1aff1ad74ca6ac3eaddfd4c91e3938a075d6cbaf059c75f8f495d6106292e799"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/notifications/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "2f50460773295f1badd01ea07f97598c2b4b7a7c09fc2857a33e36191916e82e"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/r10-connect/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "03e8a6d410e5e55597545771bfeb842d0d87efd0df0d6742f5aa63393cd4da2a"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/r11-upstream/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "4e248a538ffc6dc3d2bc95b5c5a33d9a504ea83505f9b09ef7f29c951bc933c0"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/r12-sidebar/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "0369719fa7e3e2e4b471a6b8ce19fda3324ee32b426e5cf9cad7517bfd893920"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/r5-composer/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "79d9602d48aebdee07ea6a9538ce3fe837c31d54fdbb8b4d6d0746ffddb5466e"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/r5-panels/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "f387a761ec5bbda0ac3cd5e7ad2cbaf0fee4154b39c3fe814971a2b5f4f0403d"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/r8-keys/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "8e3f3f2881df2ef382b514d6f5c8465637100d140e323914f625df01c2e9b5b8"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/r9-input/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "2d7587616b0eb2c48cb64ec4ce5711b483228d9e9402d401f70176342f930548"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/sidebar/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "c7bb0f57e48227f4cb3279127ad66522990d4056fcf78ab6909991fa8390b8ad"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/terminal/auth.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "758dad52983b3eed2db93a4040326c856e51367212e23d7d9e6537aae28ead51"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/terminal/drawer.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "ff674939db9fc5ea9dda6a78f222affe5e8ea651f0aa088c672837662246cddf"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/terminal/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "fce6e032ea50a536e0ad033c6de78b4a5c47953dcd4c00ca909fbab66f2415a6"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/terminal/pointer.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "b9ece2be5f30d7f31006b5743ffdfcc7ad1b3d87a382b587afcf488539a3322c"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/terminal/vectors.json",
+        "kind": "file",
+        "executable": false,
+        "sha256": "c1785517eedb247dd6b668f340bd6739899be9a0400d01e5f7558a490dd17edd"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/transport/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "1453f3b3e23e48cea55804f4260d46253bbb624483c0192c96b3308e25762a5a"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/transport/r3.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "68f0432e26cf2ecb734a35396cfac1cbcfbedf23f6ed59ba7ee6595bbb2f3cde"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/transport/remote-scopes.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "19ea0d3438fe1a7399f915917ba596a2209a185d2cfe97f27287dae181875cd5"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/transport/routes.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "48741999a97244a34927482f4f30619d014fb55da1cc5374bc94a191320a0330"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/transport/terminal-streams.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "306b0c4712dc4cb5fed46add1081fd49bbfb93f0e4410249931f1a899c42522f"
+      },
+      {
+        "path": "examples/t3-code/markdown.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "6ef93fad632664b6fa43a1254c3366b804f343f07375af6edde3385ab7d12db2"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/R10Connect.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "62f48b75220cb0f272424ef118f9c0cdc3a606610ade8961aff330d32962ec5b"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/R5ComposerScroll.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "c4fcca08b5696ca4668b4b442062533c13f2642d8344e55f5e81c66fe1a0e4d7"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/R6DeviceStream.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "e910e5636bcb3ba4f0c80a80c93546ad254d32c479beee2f47f33d11d69b760a"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/R6MediaPreview.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "6c9945f2c0525ba9c48ec86646c4596e1dd01fc55e446e89618f6ce39ecb9d72"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/R8KeysLauncher.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "c2812b890157553b6657a8abb1c9aae99a599ad458b24336c72eef8805d0bb02"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/R8KeysMeasure.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "708e69c447614d6fd5ddc444a71872f86b02315f2c858140817c00493fdc8d00"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/R8KeysMenus.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "b6c4a0a5578d00fe980ac433915aba0d42e58cdb25959f86081af8618d8ffb6f"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/R9Input.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "8b3af0499150ad0913d81137f0633fb604f267974fd27ca624c878cb57b645aa"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/RightPanelTabsInput.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "50f89888acc06c4d93e2ed809c75c6b723e1d7c83d9e59d6fb21287de3e5e9a1"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3ActivityReporter.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "dca816d61ca3f42ec52badd6be9c93220cf3d7abca9c42c98936ae1ef2e629f2"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3Composer.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "6cfa63d7cc2711bdf1fc2f12d729a5cee315bce9b7f1d42db16d5d0f083bba56"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3ComposerEditor.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "446a5ae7af8957ebaf2ec546fbd1d4dd640f8a384fa24b1e67aa8c0c095009f0"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3ComposerFrames.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "1a93c332a11c98de33dfb5bbcf468d34399026388fe21d930ecd3cc12f768aad"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3ComposerVideo.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "c940bfc5249e34dc792455fa26e654190d6b73e49b1ead654620e184a06f96bc"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3ContextMenu.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "dfd78789ea6cec6672edff33165924e92a71bc064de4254b1b4b60c26c670366"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3MediaActions.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "eda65fd3370b2ffcc2bda5c4bd30768e1b68b95c5869f0e3a87e177d39e0bda1"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3Menus.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "75709c6acd54608a87d164c3ae2e734629d002b51c648b15d57a1506d3c106a8"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3Module+Shell.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "9c25394cb2a3aa5d2c0ecbcd5f71752f418c405aa064f1020a1695d393de8d08"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3Module+Sidebar.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "d65442b399c1621763d4f88e5c2ffadb0a0195c1f51964c2a0a5c592076346da"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3Module.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "b838a50d54c51714b2e6d158d205d4e4119462b2d47c9431823162e6015a72ea"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3Notifications.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "5965c5acbc18be275fd3d09f318b1a17c3ac414ff85104a4d8a3080b1f1856c2"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3PanelsNative.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "1474c89e88288adc975950bcef6f27f0711d8596aee6f8c1b62e8533f12deffc"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3Sidebar.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "edb69b05acb040928c5e88b32285384810b3e82458b77f079020bddd1b63dbc5"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3TerminalActions.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "a73d4532fe867bd3ed00d1105fe66a7979d37f03c21506feeda4b803b24b8921"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3TerminalKeys.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "bf8fc2642c23f63a53c7e8b397870207054e4f1d5db35a96aeeb0ef83b8e30b6"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3Timeline.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "584149a85593219fb8cf695ea04f69dee9c3369adf3d2348299fcc8b324df7e9"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3TimelineTooltip.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "0d44b5e7f7303f0295c43ac53072c9c73e8a43fa2e7f771a39975e9ff9389a18"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3TimelineTurns.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "2dde0575206d07535ad4f702ff4b13a4c2da751e74f405f71a5c514ce41460c2"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3ToolActivityIcon.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "7d0a4e41a312df442eecbd20d56b30cf360ad7d377e344bc78b46d71f5920d74"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3Transport.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "2be4f8f9db2830f9615a47bb17c30d14142e4fcd7fb67538df299db5aaf6e43f"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3WindowChrome.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "18be76c8b75b085a21be9ba2899bd0ebd6f02e3fc4ac72763efe8215657bf355"
+      },
+      {
+        "path": "examples/t3-code/protocol.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "bf1f17f7c1ff9da87601d8666b5c8e2271448a908d523f075d00b3394d823deb"
+      },
+      {
+        "path": "examples/t3-code/providers-wizard.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "a54b16ac35e49587f5ace9e394a59fbc6ae213c3f822556d8bdaeb1d022c9107"
+      },
+      {
+        "path": "examples/t3-code/r11-upstream-drafts.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "8f03515c43836e51cbaacab69b8179d0f29c04b615abb4aeddc649ceae3028ca"
+      },
+      {
+        "path": "examples/t3-code/r3-shell-details.test.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "84097c17ba93d743f779884c2edac189bd37e8329ffe6975b5beaa0a47d347c4"
+      },
+      {
+        "path": "examples/t3-code/r4-composer.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "88caf6745d8258d393c60d59d25cc141fef2e364f4fe21525db518a0df9bd97c"
+      },
+      {
+        "path": "examples/t3-code/r4-git-branch.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "4b5c688bfd5e61686b2fc3745908ce074b25523551ce8006992365d58a3dab26"
+      },
+      {
+        "path": "examples/t3-code/r4-git-card.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "6c8c48719994257d06135fefcee8d9d5c47f1c49906b410cf21fbfad2f41509a"
+      },
+      {
+        "path": "examples/t3-code/r4-git.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "bb85ae5d150688b936791fd75a2c2ee9c644c65dbb49838c0db89021c1f4efdd"
+      },
+      {
+        "path": "examples/t3-code/r4-surfaces-files.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "94e0b8eeafb21fdb26a07e0370daf63af87f703d86588046afcedceaae1bce52"
+      },
+      {
+        "path": "examples/t3-code/r4-surfaces.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "3c70880c3ca9bb2c3854ae4fd6cef70986723fb3754df75ae8f238b7949109fe"
+      },
+      {
+        "path": "examples/t3-code/r5-composer.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "51f92430452252c1e66eeda4ff219add4a0aad91b3f2faddc00cc34c79dc0453"
+      },
+      {
+        "path": "examples/t3-code/r6-device.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "8c7a376f741496274890801ad9be2e66be351f584c0a0c7fc98c5061d8eeb86f"
+      },
+      {
+        "path": "examples/t3-code/r6-media.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "be1d0eb141a1e118070e43691e58eb43e2beb5531058ffb953ca832bba3bef3b"
+      },
+      {
+        "path": "examples/t3-code/r6-polish.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "3b39e9a0994ca4ee121d8c05d88476e4c1b37f68bd9df424682d9b5f9d5f57d5"
+      },
+      {
+        "path": "examples/t3-code/r7-device.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "139b737828630425257e3192b37af2c2411540ec2163b24c936c297da85f4bf5"
+      },
+      {
+        "path": "examples/t3-code/r8-pointer-tips.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "dc28555d92eb98120b2a913bf0095c8a134e2d5579437644c0e7a501df8e27f6"
+      },
+      {
+        "path": "examples/t3-code/r9-connect.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "8cbef21590125d52cc2ad0b591a4c8dd8cce1b7d6069867b6fb5c92a975a1458"
+      },
+      {
+        "path": "examples/t3-code/settings-a-telemetry.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "b1c4b27dc8e6c72cc905a748c90fdc92b049d3f8e7d1fc4633fff86ae27c08c4"
+      },
+      {
+        "path": "examples/t3-code/settings-appearance-editor.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "294486df4fb6605fe887bd09e08deb316203ed99f0cca50e3b4bb9c4fa3cacae"
+      },
+      {
+        "path": "examples/t3-code/settings-b-fleet.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "5ed3ebce5ce94bb0672de2332204e5da011fe17b866bc76bbd812fc5c8f9609a"
+      },
+      {
+        "path": "examples/t3-code/settings-shortcuts.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "9fc5ee936459128e20d4a78c59d18aec0155d485c492c2115be5a8c37ecb5bd7"
+      },
+      {
+        "path": "examples/t3-code/shell-details.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "e807f0d8c5127fb0825ccf63fae3caba2fd5a11b7906a80aaccb976d92719b22"
+      },
+      {
+        "path": "examples/t3-code/shell-details.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "5e07de395fb81df1146e3490fcef3da1ee4d5eda0fc9288b941df9fbf1d03218"
+      },
+      {
+        "path": "examples/t3-code/shell-morph.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "c89ff68cdcee07157bfca83330ba19a19518e626105435b8356d1ea21bb8aed2"
+      },
+      {
+        "path": "examples/t3-code/shell-notify.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "5a5af79d9b2ad73315daacbab8557600f83a6705c2d7367ebf79df670ea7350b"
+      },
+      {
+        "path": "examples/t3-code/shell-panels.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "d7f0b41e83eb9aa0e3b20fe883d89c829cef8de49c92ea44fc58b0e8a58f83ec"
+      },
+      {
+        "path": "examples/t3-code/shell-tip.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "ee78d35cf733fb582a605d7a7f72f826623a379963dce96a240a7f44590bc652"
+      },
+      {
+        "path": "examples/t3-code/shell-vcs.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "956b8f2c40de7ff5a110e48a6eac56f97ccbd201ca8fd9dd3c51d9d72ea2d877"
+      },
+      {
+        "path": "examples/t3-code/shell.test.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "137e0a84708695b08343bb52d9b997cc0200869de00b052bf39a99320702a064"
+      },
+      {
+        "path": "examples/t3-code/shell.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "4ae541ce73ef727acb7dd2733bb929ca64c819264a9c1149ff03e6468dc6d8d8"
+      },
+      {
+        "path": "examples/t3-code/sidebar-commands.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "0752ecb6ab4bcd3db649d1fa8bc0f33b2d40760504706ba8922bf052c39a49ae"
+      },
+      {
+        "path": "examples/t3-code/sidebar-menu.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "92630a15598c6d60041beed0ae7c7ccbf5741669e31d347bac5b1c69ba89ca2e"
+      },
+      {
+        "path": "examples/t3-code/sidebar-row.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "7d8a547c36d5ea53e080dcee86ada81e43867d244047893828a08759383bb202"
+      },
+      {
+        "path": "examples/t3-code/sidebar-shapes.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "e89f93cd23c0f2714a30aa503646427cbded7c728b90cfdda25f873cb3c8d855"
+      },
+      {
+        "path": "examples/t3-code/sidebar-view.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "81ba0a3fc1efaff6672eaee84c88c684cd6a183ae7d75a09a90a7a24785d2fee"
+      },
+      {
+        "path": "examples/t3-code/sidebar.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "a1a969d6c78e34dc75dffe060b3ac31ddf50f5c24c37e9fe4f442e2e4ad0e6e5"
+      },
+      {
+        "path": "examples/t3-code/sidebar.test.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "870b7e7f67b165a943618100a522550b092bf039394300ea1cc385d1043eda94"
+      },
+      {
+        "path": "examples/t3-code/snapshot.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "815bb6530b2a16198a20558e80596bc3dbc643a04e9141570c73683aa97cac8b"
+      },
+      {
+        "path": "examples/t3-code/timeline-icons.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "65415ccd7218528f8a4abf45b1fb8ac5776af01feeeef01c0bf26b76729eb56e"
+      },
+      {
+        "path": "examples/t3-code/timeline.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "493ed51a17ec2bae1d3407ac57461f68ca24e7d48a0fcff627aef42add002572"
+      },
+      {
+        "path": "examples/t3-code/timeline.test.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "810017593d70a505b464ebd60e3818368fb5f541580e55aff1d2668d262ec56d"
+      },
+      {
+        "path": "examples/t3-code/vcs-status-cadence.test.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "5f84752866db6694dd4e636c9ffa524e478728b1cfa4593396e8c4d3ee54b163"
+      }
+    ]
+  },
+  "checks": [
+    {
+      "name": "let-go tests, including the native.watch-after-let-go reproduction",
+      "required": true,
+      "argv": [
+        "/Users/daehyeonmun/.bun-1.4.2/bin/bun",
+        "test",
+        "examples/t3-code/let-go.test.ts"
+      ],
+      "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-adopt-main-fixes-r5",
+      "timeout_seconds": 120,
+      "started_at": "2026-10-07T15:40:48.270741+00:00",
+      "exit_code": 0,
+      "stdout": "001.stdout.log",
+      "stderr": "001.stderr.log",
+      "status": "passed",
+      "finished_at": "2026-10-07T15:40:48.725922+00:00"
+    },
+    {
+      "name": "git status cadence tests (strip and card under a 500 ms tick with held replies; shared reads; the switched name)",
+      "required": true,
+      "argv": [
+        "/Users/daehyeonmun/.bun-1.4.2/bin/bun",
+        "test",
+        "examples/t3-code/vcs-status-cadence.test.ts"
+      ],
+      "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-adopt-main-fixes-r5",
+      "timeout_seconds": 120,
+      "started_at": "2026-10-07T15:40:48.726629+00:00",
+      "exit_code": 0,
+      "stdout": "002.stdout.log",
+      "stderr": "002.stderr.log",
+      "status": "passed",
+      "finished_at": "2026-10-07T15:40:48.905934+00:00"
+    },
+    {
+      "name": "clone unit tests",
+      "required": true,
+      "argv": [
+        "/Users/daehyeonmun/.bun-1.4.2/bin/bun",
+        "test",
+        "examples/t3-code"
+      ],
+      "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-adopt-main-fixes-r5",
+      "timeout_seconds": 300,
+      "started_at": "2026-10-07T15:40:48.906619+00:00",
+      "exit_code": 0,
+      "stdout": "003.stdout.log",
+      "stderr": "003.stderr.log",
+      "status": "passed",
+      "finished_at": "2026-10-07T15:40:50.177881+00:00"
+    },
+    {
+      "name": "strict tsc on app.ts (ES2023)",
+      "required": true,
+      "argv": [
+        "/Users/daehyeonmun/.bun-1.4.2/bin/bun",
+        "node_modules/typescript/bin/tsc",
+        "--noEmit",
+        "--strict",
+        "--target",
+        "ES2023",
+        "--module",
+        "ESNext",
+        "--moduleResolution",
+        "bundler",
+        "--skipLibCheck",
+        "--lib",
+        "ES2023,DOM",
+        "examples/t3-code/app.ts"
+      ],
+      "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-adopt-main-fixes-r5",
+      "timeout_seconds": 300,
+      "started_at": "2026-10-07T15:40:50.178586+00:00",
+      "exit_code": 0,
+      "stdout": "004.stdout.log",
+      "stderr": "004.stderr.log",
+      "status": "passed",
+      "finished_at": "2026-10-07T15:40:50.413969+00:00"
+    },
+    {
+      "name": "contract build of app.contract",
+      "required": true,
+      "argv": [
+        "cargo",
+        "run",
+        "-q",
+        "-p",
+        "contract",
+        "--",
+        "build",
+        "examples/t3-code/app.contract",
+        "-o",
+        "/private/tmp/claude-501/-Users-daehyeonmun-orca-workspaces-exact2-t3-code/9d293baa-3a94-4e6f-a91c-a64f957a461f/scratchpad/t3-code.plan"
+      ],
+      "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-adopt-main-fixes-r5",
+      "timeout_seconds": 900,
+      "started_at": "2026-10-07T15:40:50.414756+00:00",
+      "exit_code": 0,
+      "stdout": "005.stdout.log",
+      "stderr": "005.stderr.log",
+      "status": "passed",
+      "finished_at": "2026-10-07T15:41:12.389594+00:00"
+    },
+    {
+      "name": "t3-code-macos lib tests (the bake of app.ts)",
+      "required": true,
+      "argv": [
+        "cargo",
+        "test",
+        "-p",
+        "t3-code-macos",
+        "--lib"
+      ],
+      "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-adopt-main-fixes-r5",
+      "timeout_seconds": 1500,
+      "started_at": "2026-10-07T15:41:12.390578+00:00",
+      "exit_code": 0,
+      "stdout": "006.stdout.log",
+      "stderr": "006.stderr.log",
+      "status": "passed",
+      "finished_at": "2026-10-07T15:42:22.349578+00:00"
+    },
+    {
+      "name": "AppKit XCTests: transport (no cap on pending requests) and the module menus' binaries (contextmenu, media-actions, sidebar, r12-sidebar, r11-upstream, terminal); Bun 1.4.2 first on PATH",
+      "required": true,
+      "argv": [
+        "/bin/bash",
+        "examples/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261007-adopt-main-fixes-r5/swift-tests.sh",
+        "transport",
+        "contextmenu",
+        "media-actions",
+        "sidebar",
+        "r12-sidebar",
+        "r11-upstream",
+        "terminal"
+      ],
+      "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-adopt-main-fixes-r5",
+      "timeout_seconds": 2400,
+      "started_at": "2026-10-07T15:42:22.350373+00:00",
+      "exit_code": 0,
+      "stdout": "007.stdout.log",
+      "stderr": "007.stderr.log",
+      "status": "passed",
+      "finished_at": "2026-10-07T15:45:36.757236+00:00"
+    },
+    {
+      "name": "live: Settings > Connections > Add environment shows no transcript banner on the fixed build (real input)",
+      "required": true,
+      "argv": null,
+      "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-adopt-main-fixes-r5",
+      "timeout_seconds": 60,
+      "started_at": "2026-10-07T15:45:36.758087+00:00",
+      "exit_code": null,
+      "stdout": "008.stdout.log",
+      "stderr": "008.stderr.log",
+      "status": "blocked",
+      "reason": "Passed by hand in the final session on da3aae081 (record 07); this runner cannot drive real input",
+      "finished_at": "2026-10-07T15:45:36.758265+00:00"
+    },
+    {
+      "name": "live: choose Snooze > In 1 hour from the native NSMenu with real input after holding it open 10 s or more, read the snooze back, un-snooze",
+      "required": true,
+      "argv": null,
+      "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-adopt-main-fixes-r5",
+      "timeout_seconds": 60,
+      "started_at": "2026-10-07T15:45:36.758776+00:00",
+      "exit_code": null,
+      "stdout": "009.stdout.log",
+      "stderr": "009.stderr.log",
+      "status": "blocked",
+      "reason": "A real-input session on the after build is run by hand under .realinput-lock (task record attempt 5); this runner cannot drive it",
+      "finished_at": "2026-10-07T15:45:36.758907+00:00"
+    }
+  ],
+  "status": "blocked",
+  "source_after": {
+    "algorithm": "sha256",
+    "digest": "f2b0db9ff288fb6ed9b9aa5dd9100b0f525dabf9fcee7d5744e9056081695c83",
+    "entries": [
+      {
+        "path": "examples/t3-code/app-main.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "b8f250306bd26378071fac7083d58d71a74744b06ea64875080863b1d8501e11"
+      },
+      {
+        "path": "examples/t3-code/app-shapes.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "8289de7bcb7fd76b8808780e1f92881430efd0f111be8961e8d3a6e3ed4a058a"
+      },
+      {
+        "path": "examples/t3-code/app.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "b622332e5f76acc2d9690116601dfaccda2c2c93e41617d7d96475a27a631f76"
+      },
+      {
+        "path": "examples/t3-code/app.json",
+        "kind": "file",
+        "executable": false,
+        "sha256": "5b0069bd7a546d4266464305ff5f49b951a8c15738c45c23588343a696eea675"
+      },
+      {
+        "path": "examples/t3-code/app.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "f2bc20b9ac9fbb8bd7592a3fdce3f5db08036f7b0e3b69c597a45d9378cb1839"
+      },
+      {
+        "path": "examples/t3-code/chat.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "a25fc33dea58e92ec011a1619299b5cebcbd8882b1e877a39c2eb3e9ccaf7af2"
+      },
+      {
+        "path": "examples/t3-code/client.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "900d4ae355fa33606d4aff1871dd65f7af1511d524ccc28c26471521872e6da1"
+      },
+      {
+        "path": "examples/t3-code/composer-controls-branch.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "398896ebb96e699daa072cdc17f6deb34925b7400162c4ec23f38a1a0f1b3834"
+      },
+      {
+        "path": "examples/t3-code/composer-controls-fixture.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "675b36be0d73c0b36755008e7371272145afa7d9c7ce9ab139bb71ab882d9bcb"
+      },
+      {
+        "path": "examples/t3-code/composer-controls.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "7da03e8cdcede957d8272c3ed2d1c81912cd2bdbea576cf17782520fbc7271ba"
+      },
+      {
+        "path": "examples/t3-code/composer-controls.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "3f90740287e778c4328d2f13c7e5a7969a5ec06f6a2def6d9f640b8d0f5420de"
+      },
+      {
+        "path": "examples/t3-code/composer-editor.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "e7e41b6c0df07e293cdc7501e66d7f05bd44460faf18f3c622ab258af7ba0315"
+      },
+      {
+        "path": "examples/t3-code/composer.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "0582f795aadacd8338a4736113224938afb17bbc05e98b0eac90d2b514ec2888"
+      },
+      {
+        "path": "examples/t3-code/let-go.test.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "f2ca668dc984ccd74ddd40faccae934c48ac660dbab4dbbc52d82d41922fda03"
+      },
+      {
+        "path": "examples/t3-code/let-go.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "a8a14bb5a4e767f165609794b3a272b7edd812306c9ce4b9b2095829f74a0f9c"
+      },
+      {
+        "path": "examples/t3-code/local-backend.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "e43928374f6271db4f4766683bc5062944dbe1b969e1bd024bc98a8fc69f4031"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/activity/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "92b0d7311760ade03033ed58acca869919c61583a375bee4e24c79625e0ae0d9"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/composer/editor.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "b4a9f69f23f2ca66f24be5bb799cf2c7d516e0a31653523ee23d194a1453c75e"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/composer/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "61a3abbcff350c7bf8e19bba8adb53063fc9bba98035b9f2998945632c187861"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/contextmenu/file-menus.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "f2924664cff6660ef77ca10ae5717f4dbdda243b858341753c6974872b708909"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/contextmenu/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "9781e1d1620b01577bcbb890561d56a5659eecb88b96eff32f74b159418c4873"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/contextmenu/tab-input.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "4bc0f97a2d6d3c1eededc396f47bf9a221b8ab250b81029c6fe03f368b70b543"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/media-actions/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "789fc6afa3f520352608f506a3580347441e8eb1ae45a0d66d986cd678406218"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/menus/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "1aff1ad74ca6ac3eaddfd4c91e3938a075d6cbaf059c75f8f495d6106292e799"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/notifications/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "2f50460773295f1badd01ea07f97598c2b4b7a7c09fc2857a33e36191916e82e"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/r10-connect/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "03e8a6d410e5e55597545771bfeb842d0d87efd0df0d6742f5aa63393cd4da2a"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/r11-upstream/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "4e248a538ffc6dc3d2bc95b5c5a33d9a504ea83505f9b09ef7f29c951bc933c0"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/r12-sidebar/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "0369719fa7e3e2e4b471a6b8ce19fda3324ee32b426e5cf9cad7517bfd893920"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/r5-composer/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "79d9602d48aebdee07ea6a9538ce3fe837c31d54fdbb8b4d6d0746ffddb5466e"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/r5-panels/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "f387a761ec5bbda0ac3cd5e7ad2cbaf0fee4154b39c3fe814971a2b5f4f0403d"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/r8-keys/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "8e3f3f2881df2ef382b514d6f5c8465637100d140e323914f625df01c2e9b5b8"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/r9-input/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "2d7587616b0eb2c48cb64ec4ce5711b483228d9e9402d401f70176342f930548"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/sidebar/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "c7bb0f57e48227f4cb3279127ad66522990d4056fcf78ab6909991fa8390b8ad"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/terminal/auth.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "758dad52983b3eed2db93a4040326c856e51367212e23d7d9e6537aae28ead51"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/terminal/drawer.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "ff674939db9fc5ea9dda6a78f222affe5e8ea651f0aa088c672837662246cddf"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/terminal/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "fce6e032ea50a536e0ad033c6de78b4a5c47953dcd4c00ca909fbab66f2415a6"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/terminal/pointer.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "b9ece2be5f30d7f31006b5743ffdfcc7ad1b3d87a382b587afcf488539a3322c"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/terminal/vectors.json",
+        "kind": "file",
+        "executable": false,
+        "sha256": "c1785517eedb247dd6b668f340bd6739899be9a0400d01e5f7558a490dd17edd"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/transport/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "1453f3b3e23e48cea55804f4260d46253bbb624483c0192c96b3308e25762a5a"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/transport/r3.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "68f0432e26cf2ecb734a35396cfac1cbcfbedf23f6ed59ba7ee6595bbb2f3cde"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/transport/remote-scopes.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "19ea0d3438fe1a7399f915917ba596a2209a185d2cfe97f27287dae181875cd5"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/transport/routes.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "48741999a97244a34927482f4f30619d014fb55da1cc5374bc94a191320a0330"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/transport/terminal-streams.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "306b0c4712dc4cb5fed46add1081fd49bbfb93f0e4410249931f1a899c42522f"
+      },
+      {
+        "path": "examples/t3-code/markdown.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "6ef93fad632664b6fa43a1254c3366b804f343f07375af6edde3385ab7d12db2"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/R10Connect.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "62f48b75220cb0f272424ef118f9c0cdc3a606610ade8961aff330d32962ec5b"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/R5ComposerScroll.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "c4fcca08b5696ca4668b4b442062533c13f2642d8344e55f5e81c66fe1a0e4d7"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/R6DeviceStream.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "e910e5636bcb3ba4f0c80a80c93546ad254d32c479beee2f47f33d11d69b760a"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/R6MediaPreview.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "6c9945f2c0525ba9c48ec86646c4596e1dd01fc55e446e89618f6ce39ecb9d72"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/R8KeysLauncher.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "c2812b890157553b6657a8abb1c9aae99a599ad458b24336c72eef8805d0bb02"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/R8KeysMeasure.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "708e69c447614d6fd5ddc444a71872f86b02315f2c858140817c00493fdc8d00"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/R8KeysMenus.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "b6c4a0a5578d00fe980ac433915aba0d42e58cdb25959f86081af8618d8ffb6f"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/R9Input.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "8b3af0499150ad0913d81137f0633fb604f267974fd27ca624c878cb57b645aa"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/RightPanelTabsInput.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "50f89888acc06c4d93e2ed809c75c6b723e1d7c83d9e59d6fb21287de3e5e9a1"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3ActivityReporter.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "dca816d61ca3f42ec52badd6be9c93220cf3d7abca9c42c98936ae1ef2e629f2"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3Composer.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "6cfa63d7cc2711bdf1fc2f12d729a5cee315bce9b7f1d42db16d5d0f083bba56"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3ComposerEditor.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "446a5ae7af8957ebaf2ec546fbd1d4dd640f8a384fa24b1e67aa8c0c095009f0"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3ComposerFrames.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "1a93c332a11c98de33dfb5bbcf468d34399026388fe21d930ecd3cc12f768aad"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3ComposerVideo.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "c940bfc5249e34dc792455fa26e654190d6b73e49b1ead654620e184a06f96bc"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3ContextMenu.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "dfd78789ea6cec6672edff33165924e92a71bc064de4254b1b4b60c26c670366"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3MediaActions.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "eda65fd3370b2ffcc2bda5c4bd30768e1b68b95c5869f0e3a87e177d39e0bda1"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3Menus.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "75709c6acd54608a87d164c3ae2e734629d002b51c648b15d57a1506d3c106a8"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3Module+Shell.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "9c25394cb2a3aa5d2c0ecbcd5f71752f418c405aa064f1020a1695d393de8d08"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3Module+Sidebar.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "d65442b399c1621763d4f88e5c2ffadb0a0195c1f51964c2a0a5c592076346da"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3Module.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "b838a50d54c51714b2e6d158d205d4e4119462b2d47c9431823162e6015a72ea"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3Notifications.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "5965c5acbc18be275fd3d09f318b1a17c3ac414ff85104a4d8a3080b1f1856c2"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3PanelsNative.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "1474c89e88288adc975950bcef6f27f0711d8596aee6f8c1b62e8533f12deffc"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3Sidebar.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "edb69b05acb040928c5e88b32285384810b3e82458b77f079020bddd1b63dbc5"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3TerminalActions.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "a73d4532fe867bd3ed00d1105fe66a7979d37f03c21506feeda4b803b24b8921"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3TerminalKeys.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "bf8fc2642c23f63a53c7e8b397870207054e4f1d5db35a96aeeb0ef83b8e30b6"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3Timeline.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "584149a85593219fb8cf695ea04f69dee9c3369adf3d2348299fcc8b324df7e9"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3TimelineTooltip.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "0d44b5e7f7303f0295c43ac53072c9c73e8a43fa2e7f771a39975e9ff9389a18"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3TimelineTurns.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "2dde0575206d07535ad4f702ff4b13a4c2da751e74f405f71a5c514ce41460c2"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3ToolActivityIcon.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "7d0a4e41a312df442eecbd20d56b30cf360ad7d377e344bc78b46d71f5920d74"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3Transport.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "2be4f8f9db2830f9615a47bb17c30d14142e4fcd7fb67538df299db5aaf6e43f"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3WindowChrome.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "18be76c8b75b085a21be9ba2899bd0ebd6f02e3fc4ac72763efe8215657bf355"
+      },
+      {
+        "path": "examples/t3-code/protocol.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "bf1f17f7c1ff9da87601d8666b5c8e2271448a908d523f075d00b3394d823deb"
+      },
+      {
+        "path": "examples/t3-code/providers-wizard.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "a54b16ac35e49587f5ace9e394a59fbc6ae213c3f822556d8bdaeb1d022c9107"
+      },
+      {
+        "path": "examples/t3-code/r11-upstream-drafts.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "8f03515c43836e51cbaacab69b8179d0f29c04b615abb4aeddc649ceae3028ca"
+      },
+      {
+        "path": "examples/t3-code/r3-shell-details.test.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "84097c17ba93d743f779884c2edac189bd37e8329ffe6975b5beaa0a47d347c4"
+      },
+      {
+        "path": "examples/t3-code/r4-composer.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "88caf6745d8258d393c60d59d25cc141fef2e364f4fe21525db518a0df9bd97c"
+      },
+      {
+        "path": "examples/t3-code/r4-git-branch.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "4b5c688bfd5e61686b2fc3745908ce074b25523551ce8006992365d58a3dab26"
+      },
+      {
+        "path": "examples/t3-code/r4-git-card.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "6c8c48719994257d06135fefcee8d9d5c47f1c49906b410cf21fbfad2f41509a"
+      },
+      {
+        "path": "examples/t3-code/r4-git.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "bb85ae5d150688b936791fd75a2c2ee9c644c65dbb49838c0db89021c1f4efdd"
+      },
+      {
+        "path": "examples/t3-code/r4-surfaces-files.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "94e0b8eeafb21fdb26a07e0370daf63af87f703d86588046afcedceaae1bce52"
+      },
+      {
+        "path": "examples/t3-code/r4-surfaces.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "3c70880c3ca9bb2c3854ae4fd6cef70986723fb3754df75ae8f238b7949109fe"
+      },
+      {
+        "path": "examples/t3-code/r5-composer.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "51f92430452252c1e66eeda4ff219add4a0aad91b3f2faddc00cc34c79dc0453"
+      },
+      {
+        "path": "examples/t3-code/r6-device.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "8c7a376f741496274890801ad9be2e66be351f584c0a0c7fc98c5061d8eeb86f"
+      },
+      {
+        "path": "examples/t3-code/r6-media.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "be1d0eb141a1e118070e43691e58eb43e2beb5531058ffb953ca832bba3bef3b"
+      },
+      {
+        "path": "examples/t3-code/r6-polish.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "3b39e9a0994ca4ee121d8c05d88476e4c1b37f68bd9df424682d9b5f9d5f57d5"
+      },
+      {
+        "path": "examples/t3-code/r7-device.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "139b737828630425257e3192b37af2c2411540ec2163b24c936c297da85f4bf5"
+      },
+      {
+        "path": "examples/t3-code/r8-pointer-tips.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "dc28555d92eb98120b2a913bf0095c8a134e2d5579437644c0e7a501df8e27f6"
+      },
+      {
+        "path": "examples/t3-code/r9-connect.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "8cbef21590125d52cc2ad0b591a4c8dd8cce1b7d6069867b6fb5c92a975a1458"
+      },
+      {
+        "path": "examples/t3-code/settings-a-telemetry.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "b1c4b27dc8e6c72cc905a748c90fdc92b049d3f8e7d1fc4633fff86ae27c08c4"
+      },
+      {
+        "path": "examples/t3-code/settings-appearance-editor.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "294486df4fb6605fe887bd09e08deb316203ed99f0cca50e3b4bb9c4fa3cacae"
+      },
+      {
+        "path": "examples/t3-code/settings-b-fleet.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "5ed3ebce5ce94bb0672de2332204e5da011fe17b866bc76bbd812fc5c8f9609a"
+      },
+      {
+        "path": "examples/t3-code/settings-shortcuts.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "9fc5ee936459128e20d4a78c59d18aec0155d485c492c2115be5a8c37ecb5bd7"
+      },
+      {
+        "path": "examples/t3-code/shell-details.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "e807f0d8c5127fb0825ccf63fae3caba2fd5a11b7906a80aaccb976d92719b22"
+      },
+      {
+        "path": "examples/t3-code/shell-details.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "5e07de395fb81df1146e3490fcef3da1ee4d5eda0fc9288b941df9fbf1d03218"
+      },
+      {
+        "path": "examples/t3-code/shell-morph.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "c89ff68cdcee07157bfca83330ba19a19518e626105435b8356d1ea21bb8aed2"
+      },
+      {
+        "path": "examples/t3-code/shell-notify.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "5a5af79d9b2ad73315daacbab8557600f83a6705c2d7367ebf79df670ea7350b"
+      },
+      {
+        "path": "examples/t3-code/shell-panels.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "d7f0b41e83eb9aa0e3b20fe883d89c829cef8de49c92ea44fc58b0e8a58f83ec"
+      },
+      {
+        "path": "examples/t3-code/shell-tip.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "ee78d35cf733fb582a605d7a7f72f826623a379963dce96a240a7f44590bc652"
+      },
+      {
+        "path": "examples/t3-code/shell-vcs.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "956b8f2c40de7ff5a110e48a6eac56f97ccbd201ca8fd9dd3c51d9d72ea2d877"
+      },
+      {
+        "path": "examples/t3-code/shell.test.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "137e0a84708695b08343bb52d9b997cc0200869de00b052bf39a99320702a064"
+      },
+      {
+        "path": "examples/t3-code/shell.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "4ae541ce73ef727acb7dd2733bb929ca64c819264a9c1149ff03e6468dc6d8d8"
+      },
+      {
+        "path": "examples/t3-code/sidebar-commands.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "0752ecb6ab4bcd3db649d1fa8bc0f33b2d40760504706ba8922bf052c39a49ae"
+      },
+      {
+        "path": "examples/t3-code/sidebar-menu.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "92630a15598c6d60041beed0ae7c7ccbf5741669e31d347bac5b1c69ba89ca2e"
+      },
+      {
+        "path": "examples/t3-code/sidebar-row.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "7d8a547c36d5ea53e080dcee86ada81e43867d244047893828a08759383bb202"
+      },
+      {
+        "path": "examples/t3-code/sidebar-shapes.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "e89f93cd23c0f2714a30aa503646427cbded7c728b90cfdda25f873cb3c8d855"
+      },
+      {
+        "path": "examples/t3-code/sidebar-view.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "81ba0a3fc1efaff6672eaee84c88c684cd6a183ae7d75a09a90a7a24785d2fee"
+      },
+      {
+        "path": "examples/t3-code/sidebar.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "a1a969d6c78e34dc75dffe060b3ac31ddf50f5c24c37e9fe4f442e2e4ad0e6e5"
+      },
+      {
+        "path": "examples/t3-code/sidebar.test.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "870b7e7f67b165a943618100a522550b092bf039394300ea1cc385d1043eda94"
+      },
+      {
+        "path": "examples/t3-code/snapshot.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "815bb6530b2a16198a20558e80596bc3dbc643a04e9141570c73683aa97cac8b"
+      },
+      {
+        "path": "examples/t3-code/timeline-icons.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "65415ccd7218528f8a4abf45b1fb8ac5776af01feeeef01c0bf26b76729eb56e"
+      },
+      {
+        "path": "examples/t3-code/timeline.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "493ed51a17ec2bae1d3407ac57461f68ca24e7d48a0fcff627aef42add002572"
+      },
+      {
+        "path": "examples/t3-code/timeline.test.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "810017593d70a505b464ebd60e3818368fb5f541580e55aff1d2668d262ec56d"
+      },
+      {
+        "path": "examples/t3-code/vcs-status-cadence.test.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "5f84752866db6694dd4e636c9ffa524e478728b1cfa4593396e8c4d3ee54b163"
+      }
+    ]
+  },
+  "source_unchanged": true,
+  "finished_at": "2026-10-07T15:45:36.769920+00:00"
+}

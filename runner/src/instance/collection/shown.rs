@@ -2,7 +2,7 @@
 //!
 //! A list mounts rows ahead of its port, so an animation that starts when
 //! its node is inserted has run (or finished) before its row arrives. A node
-//! with `animation-trigger: view` waits instead: the kernel holds its
+//! with `-exact-animation-trigger: view` waits instead: the kernel holds its
 //! animations while the row above it is one this list mounted out of the
 //! port, until a report puts the row in it. The list only says which rows
 //! those are; whether anything below them waits is the kernel's to know.

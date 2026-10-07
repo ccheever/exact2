@@ -18,19 +18,31 @@
     },
     "data": {
       "type": "array",
-      "description": "The app's data-* words (LLP 1075.003 Q2), without the `data-`: real attributes on the web, read by the app module's hooks on Apple through typed keys the build writes from this list (ExactDataKey). A data-* attribute in the Contract that this list lacks is bake-undeclared-data.",
+      "description": "The app's data-* words (LLP 1075.003 Q2), without the `data-`: real attributes on the web, read by the app module's hatches on Apple through typed keys the build writes from this list (ExactDataKey). A data-* attribute in the Contract that this list lacks is bake-undeclared-data.",
       "items": {
         "type": "string",
         "pattern": "^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$"
       }
     },
-    "hooks": {
-      "type": "array",
-      "description": "The app's hook words (LLP 1075.003.000 Q1): a node marked hook=\"word\" hands its platform object (a UIView or NSView and its kind's UIKit or AppKit object, or a DOM element) to the app module's element hook, which compares it with typed keys the build writes from this list (ExactHookKey). A hooked node leaves the host's fast path. A hook word in the Contract that this list lacks is bake-undeclared-hook.",
-      "items": {
-        "type": "string",
-        "pattern": "^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$"
-      }
+    "hatches": {
+      "description": "The app's hatch words (LLP 1075.003.000 Q1): a node marked hatch=\"word\" hands its platform object (a UIView or NSView and its kind's UIKit or AppKit object, or a DOM element) to the app module's element hatch, which compares it with typed keys the build writes from this list (ExactHatchKey). A hatched node leaves the host's fast path. A hatch word in the Contract that this list lacks is bake-undeclared-hatch. Either a list of words, each handled on every platform the app builds, or an object giving each word the platforms whose module handles it, as {\"avatar\": [\"ios\", \"macos\", \"web\"]} (LLP 1075.003.000.001 §5): a platform the word does not name shows the node and never calls a hatch for it, and its typed keys leave the word out.",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$" },
+          "additionalProperties": {
+            "type": "array",
+            "items": { "enum": ["ios", "tvos", "macos", "web", "linux", "windows", "android"] }
+          }
+        }
+      ]
     },
     "gpu": {
       "type": "object",
