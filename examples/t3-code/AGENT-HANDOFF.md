@@ -88,7 +88,8 @@ and its copies) and the never-built `20261005-fake-github-fixture`. Recipe: `too
 
 | What | Where |
 |---|---|
-| Shared lane dir (`T3_GITHUB_LANE_SHARED`) | the base checkout's `target/t3-ui-parity/github-lane`: `gh/` primary account (owns the sandbox), `gh-second/` second account (collaborator, fork), `sandbox.json` (repository, logins, seeded numbers; no tokens) |
+| Shared lane dir (`T3_GITHUB_LANE_SHARED`) | the base checkout's `target/t3-ui-parity/github-lane`: `gh/` primary account `daehyeonmun2021` (owns the repository), `gh-second/` second account `daehyeon-mun` (collaborator, fork), `sandbox.json` (repository and id, logins, seeded numbers, stack; no tokens) |
+| Repository | `daehyeonmun2021/playground` (public) and the fork `daehyeon-mun/playground`. Neutral playground content only: no exact2 or T3 code, no "t3", "T3 Code", "sandbox", "exact" or clone wording in anything written there (user decision 2026-10-07). main requires `ci/build`. The `daehyeon-mun` token reaches other organizations: never use it outside the playground and its fork |
 | Per-checkout lane (`T3_GITHUB_LANE`) | `target/github-lane`: `bin/<account>/gh` wrappers, `home/<account>` (`.zprofile`, `.gitconfig`), `servers/<account>` (T3 home, Codex, Claude, XDG, tmp, sandbox clone, `server.log`), `logs/gh-calls.tsv`, `logs/probe-*.json` |
 | Server | the staged release (`bun examples/t3-code/stage-runtime.mjs`) or `T3_LANE_SERVER`; ports 16520 (primary), 16521 (second) |
 | Commands | `bun tools/github-lane/lane.mjs setup / whoami / start <account> / which <account> / project <account> / pair <account> / stop <account>`; `bun tools/github-lane/seed.mjs`; `bun tools/github-lane/probe.mjs` |
@@ -98,8 +99,13 @@ Rules: the lane never reads `~/.config/gh`, the keyring or a token; sign-in is t
 `gh` item). The wrapper refuses to run without the lane dir's own token. The lane touches only the
 sandbox and the second account's fork; seed writes are idempotent, the probe writes only to its own
 `probe/<run>/…` pull requests. Leave the sandbox, the fork and both logins in place for the later pull
-request tasks. A live drive pairs a lane app copy (its own bundle id) with the primary lane server
-(`lane.mjs pair primary` writes the single-use URL to a 0600 file; never print it).
+request tasks. A live drive pairs the agent-mode app with the primary lane server (`pairingToken`
+from `lane.mjs`, or `lane.mjs pair primary`, which writes the single-use URL to a 0600 file; never
+print it). Under the agent the native context menus never pop up (`T3ContextMenu` answers
+"dismissed"), so a right-click check needs a normal launch with real input. A worktree setup
+script must be a project settings override (`ensureProject(…, { scripts })`): this server reads
+project scripts from settings. Re-run `bun seed.mjs` after a drive that merged or readied a seeded
+pull request. Probe results and the drive: task `20261007-real-github-lane`.
 
 ## Interface font size
 
@@ -405,7 +411,7 @@ Recipe (one session, one lane copy; the tools are in `lanes/r9-input/tools` and
 | 2 | Code-line wrap break positions (fixed by exact2 #208, 2026-10-07); word-boundary truncation (sweep's settled rows "fixture…"); agent mode stores a 1970 onboarding time (virtual clock); dialog and popover shadows faint or missing; tooltip offsets; Send tooltip shifted; PR pending labels; flipped hover card overhang; open-state tint; AVKit chrome; `text-wrap: balance`; placeholder colour; opaque composer; textarea sizing; heavier text (pill crops 3.9 / 7.2); no cursor property; WebKit's default form controls in rendered HTML | framework |
 | 3 | R1–R11 above: chords under Korean 2-Set outside the composer, the re-hover after a real ⌘Z, select-on-open and real-key debounce timing, ⌘B after a click and while composing, the first click after composing, a real wheel then a thread switch, Connections with real pairings and a relaunch, Duo pinch / orbit / flick, the sweep with a real drag, the draft row's right-click menu, the 3D phone's cold first open; ⌘1 (Raycast); IME marked text; ⌘Q hold; drags; physical keys into a device screen; Files editor caret after a press below the last line | physical-input |
 | 4 | Open in editor (no `cursor` CLI); notifications; SnapShot capture; Save screenshot's NSSavePanel | os-grant |
-| 5 | Real GitHub merge / ready / hand-off, Details links, linked PR snapshots, publish, PR creation, Pull Requests list data, Local PR checkout success (`gh pr checkout`) | live-credentials |
+| 5 | Live on real GitHub since 2026-10-07 (real-github-lane): the row's merge (sheet, toast, merged on GitHub), ready, checks popover, Fix hand-off into a worktree, linked PR snapshots, Local PR checkout (`gh pr checkout`, by RPC). Still owed: the Pull Requests page and its number menus driven live, the checkout dialog UI, publish and PR creation | live drive |
 | 6 | A real device hub (serve-sim iPhone Duo with physical orientation, serve-emu foldable); a live setup-script run for the PR checkout's Worktree thread id; the reference's own Resolve/Fix press; subagents; terminal/element/review chips; provider update pill tooltips; Usage share by metric on real usage data (unit tests only) | fixture-cannot-produce |
 
 ## Lane tooling (`target/t3-ui-parity/`, ignored apparatus)

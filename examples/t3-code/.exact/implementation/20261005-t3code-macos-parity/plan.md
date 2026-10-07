@@ -66,8 +66,10 @@ these user decisions have changed the tickets:
   `fake-github-fixture` is blocked as superseded; `real-github-lane` builds the lane (isolated
   servers whose `gh` is the real CLI on shared lane config dirs), the sandbox repository, its seed
   and the RPC probe, and re-verifies the pull request behaviors already built. The six pull
-  request tasks depend on it instead and reuse its login and sandbox; injected failures and delays
-  and the read, triage and read-only-author profiles stay unit tests.
+  request tasks depend on it instead and reuse its login and sandbox (`daehyeonmun2021/playground`,
+  public, neutral playground content; the second account `daehyeon-mun` collaborates and forks);
+  injected failures and delays and the read, triage and read-only-author profiles stay unit tests.
+  Its live drive found and fixed a pull request row read that never settled on real GitHub.
 - `round12-wrapup` is superseded and `clone-on-exact2-main`'s import is done. The clone
   reaches `main` through #99, which stays a draft until the cleanup the user scheduled for the end.
 - These are blocked on an issue decision: `browser-surface` (X1), `app-developer-tools` (X2),

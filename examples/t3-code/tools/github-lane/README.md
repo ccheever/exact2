@@ -39,23 +39,40 @@ GH_CONFIG_DIR=<shared>/gh        gh auth login --hostname github.com --git-proto
 GH_CONFIG_DIR=<shared>/gh-second gh auth login --hostname github.com --git-protocol https --web --clipboard --insecure-storage --scopes repo,read:org,workflow
 ```
 
-The first is the primary account (it owns the sandbox), the second its collaborator. Sign the
-browser in to the matching account before entering the code at github.com/login/device.
+The first is the primary account (it owns the repository), the second its collaborator and
+fork owner. Sign the browser in to the matching account before entering the code at
+github.com/login/device. Signed in on 2026-10-07: primary `daehyeonmun2021`, second
+`daehyeon-mun`.
+
+## The repository (user decision 2026-10-07)
+
+`daehyeonmun2021/playground`, public, with the second account's fork `daehyeon-mun/playground`.
+It is a plain playground: no code from this repository or T3 Code, and no "t3", "T3 Code",
+"sandbox", "exact" or clone wording in its name, description, README, branches, pull request
+titles and bodies, labels or commit messages (`lane.test.ts` checks the seed's). Branches are
+`feature/…`, `fix/…`, `docs/…`, `chore/note-NNN`; the probe's are `chore/check-<run>-<n>`.
+main requires the `ci/build` status (admins included), so merges wait for it and auto-merge can
+be armed. Checks are commit statuses (`ci/build`, `ci/test`); there is no workflow. The seed
+refuses a repository it did not create (`sandbox.json` keeps the id). The `daehyeon-mun` token
+can reach other organizations: use it for nothing but this repository and its fork.
 
 ## Use
 
 ```sh
 export T3_GITHUB_LANE_SHARED=<base checkout>/target/t3-ui-parity/github-lane
 bun lane.mjs setup && bun lane.mjs whoami
-bun seed.mjs --create --visibility private   # --create only once the user approved the sandbox; re-runs need no flag
-bun probe.mjs                                # starts both servers, probes, stops them
+bun seed.mjs                       # idempotent; --repo owner/name --create --visibility public made it once
+bun probe.mjs                      # starts both servers, probes every RPC, stops them
 bun lane.mjs start primary && bun lane.mjs project primary && bun lane.mjs pair primary   # for a live drive
 bun lane.mjs stop primary
 ```
 
-The seed is idempotent: it finds its pull requests by branch (`seed/<key>`, `seed/<key>-gN`)
-and its comments by an invisible `<!-- lane:… -->` marker, puts a drifted one back where one
-call does it (draft again, closed again, reopened), and otherwise opens the next generation.
-The probe writes only to its own pull requests (`probe/<run>/…`, label `probe`), so a drive
-always finds the seeded states. The sandbox, its fork and both logins stay in place for the
-later pull request tasks.
+The seed finds its pull requests by branch (`feature/changelog`, then `feature/changelog-2`) and
+its comments by an invisible `<!-- ref:… -->` marker, puts a drifted one back where one call does
+it (draft again, closed again, reopened, merged), and otherwise opens the next generation, so a
+drive that merged or readied a seeded pull request is undone by the next `bun seed.mjs`. It also
+keeps a two-layer GitHub stack (`POST /repos/{o}/{r}/stacks`). The probe writes only to its own
+pull requests and stack. A worktree setup script for hand-off checks goes into the project's
+settings override (`ensureProject(…, { scripts })`): this server reads project scripts from
+settings, not from the project record. The repository, its fork and both logins stay in place
+for the later pull request tasks.

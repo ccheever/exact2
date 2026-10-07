@@ -8,7 +8,7 @@
 // so the machine's `~/.config/gh` and keyring are never consulted.
 import { spawnSync } from "node:child_process";
 import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 export const checkout = resolve(import.meta.dir, "../../../..");
 export const example = join(checkout, "examples/t3-code");
@@ -178,10 +178,9 @@ export function writeSandbox(paths, value) { writeFileSync(paths.sandboxFile, `$
 /** Lines the lane gh wrappers logged since `offset` (bytes), parsed. */
 export function ghCallsSince(paths, offset) {
   if (!existsSync(paths.ghLog)) return [];
-  return readFileSync(paths.ghLog, "utf8").slice(offset).split("\n").filter(Boolean).map((line) => {
-    const [at, cwd, config, tokenFrom, argv] = line.split("\t");
-    return { at, cwd, config, tokenFromEnv: tokenFrom === "env-token", argv: (argv ?? "").trim() };
-  });
+  // Parallel gh processes append at once; a line another write split is skipped, not misread.
+  return readFileSync(paths.ghLog, "utf8").slice(offset).split("\n").map((line) => line.split("\t")).filter((fields) => fields.length >= 5 && /^\d{4}-/.test(fields[0]))
+    .map(([at, cwd, config, tokenFrom, ...argv]) => ({ at, cwd, config, tokenFromEnv: tokenFrom === "env-token", argv: argv.join(" ").trim() }));
 }
 export const ghLogSize = (paths) => (existsSync(paths.ghLog) ? readFileSync(paths.ghLog).length : 0);
 export const note = (paths, line) => appendFileSync(join(paths.logs, "lane.log"), `${new Date().toISOString()} ${line}\n`);
@@ -248,10 +247,12 @@ export async function connect(origin, pairingToken, scopes = "orchestration:read
 }
 
 /**
- * The server's project for `workspaceRoot`, created when missing. `scripts` (ProjectScript[])
- * replaces the project's scripts when given, e.g. a worktree setup script for hand-off checks.
+ * The server's project for `workspaceRoot`, created when missing. `scripts` (ProjectScript[]), e.g.
+ * a worktree setup script for hand-off checks, goes where this server reads them: the project's
+ * settings override (it folds project scripts into settings, `resolveProjectScripts`), and the
+ * project record too for servers that do not.
  */
-export async function ensureProject(conn, workspaceRoot, { title = "GitHub sandbox", scripts } = {}) {
+export async function ensureProject(conn, workspaceRoot, { title = basename(workspaceRoot), scripts } = {}) {
   const response = await fetch(`${conn.origin}/api/projects`, { headers: conn.auth });
   const snapshot = await response.json();
   let project = (snapshot.projects ?? []).find((entry) => entry.workspaceRoot === workspaceRoot && !entry.deletedAt);
@@ -262,6 +263,7 @@ export async function ensureProject(conn, workspaceRoot, { title = "GitHub sandb
   } else if (scripts) {
     await conn.request("projects.mutate", { type: "project.update", commandId: crypto.randomUUID(), projectId: project.id, scripts });
   }
+  if (scripts) await conn.request("server.updateSettings", { patch: { projectSettingsOverrides: { [project.id]: { defaultProjectScripts: scripts } } } });
   return project.id;
 }
 

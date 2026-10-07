@@ -131,6 +131,20 @@ describe('host failures and delays (injected; real GitHub does not fail or stall
     const view = await answer;
     expect([view.number, view.error, view.title, view.canMerge]).toEqual([7, '', 'Add input validation', true]);
   });
+  test('the row: a read let go mid-flight (its answer replaced while GitHub was answering) settles nothing, and the next answer reads again', async () => {
+    // Found by the live drive on real GitHub: the detail takes ~0.8 s, the server's link syncs bump the
+    // revision meanwhile, and the replaced answer used to leave a finished, empty entry the row trusted.
+    const ref = { projectId: 'p1', host: 'github.com', repository: 'lane/sandbox', number: 7 };
+    let replaced = true;
+    const { client, calls } = fakeClient({
+      'pullRequests.detail': () => { if (replaced) { replaced = false; throw new ClientError('The answer was replaced.', 'superseded'); } return detail(PROFILES.maintainer!); },
+      'pullRequests.checks': () => ({ checks: [{ name: 'ci/build', status: 'success' }] }),
+    });
+    await expect(readDetail(client, native, ref, 1_000)).rejects.toThrow('The answer was replaced.');
+    expect((await readDetail(client, native, ref, 1_000))?.number).toBe(7);
+    expect(calls.filter((c) => c === 'pullRequests.detail').length).toBe(2);
+    forgetDetails(client);
+  });
   test('the row: a failed read is retried after 30 s, not on every frame; a slow read lands when the host answers', async () => {
     const ref = { projectId: 'p1', host: 'github.com', repository: 'lane/sandbox', number: 7 };
     let fail = true, pending: ((value: unknown) => void) | null = null;

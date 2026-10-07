@@ -6,7 +6,7 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ghCallsSince, ghWrapper, lanePaths, run, serverEnv, setup, signedIn, toolEnv } from "./lib.mjs";
-import { HISTORY, Seed, branchOf, generationOf, inState, scenarios } from "./seed.mjs";
+import { BULK, DESCRIPTION, HISTORY, LABELS, Seed, bulkBranch, branchOf, generationOf, inState, scenarios } from "./seed.mjs";
 import { table, verb } from "./probe.mjs";
 
 const root = mkdtempSync(join(tmpdir(), "github-lane-test-"));
@@ -70,12 +70,12 @@ describe("the seed", () => {
     expect(shas[0]).toBe(shas[1]);
   });
   test("finds a scenario's generations by branch name and opens the next one beside a used one", () => {
-    expect(branchOf("draft", 1)).toBe("seed/draft");
-    expect(branchOf("draft", 3)).toBe("seed/draft-g3");
-    expect(generationOf("draft", "seed/draft")).toBe(1);
-    expect(generationOf("draft", "seed/draft-g3")).toBe(3);
-    expect(generationOf("draft", "seed/draft-other")).toBe(0);
-    expect(generationOf("open-clean", "seed/open-clean-g2")).toBe(2);
+    expect(branchOf("feature/changelog", 1)).toBe("feature/changelog");
+    expect(branchOf("feature/changelog", 3)).toBe("feature/changelog-3");
+    expect(generationOf("feature/changelog", "feature/changelog")).toBe(1);
+    expect(generationOf("feature/changelog", "feature/changelog-3")).toBe(3);
+    expect(generationOf("feature/changelog", "feature/changelog-notes")).toBe(0);
+    expect(generationOf("docs/usage-headings", "docs/usage-headings-2")).toBe(2);
   });
   test("knows when a pull request is where its scenario wants it", () => {
     const open = { state: "open", draft: false, merged_at: null, mergeable_state: "clean" };
@@ -92,10 +92,23 @@ describe("the seed", () => {
   test("the second account adds its own, the reviewed and the cross-repository pull requests", () => {
     const one = scenarios({ second: null }).map((s) => s.key);
     const two = scenarios({ second: "lane-second" });
-    expect(one).toEqual(["open-clean", "draft", "closed", "merged", "conflict", "failing", "running", "behind", "many-files"]);
+    expect(one).toEqual(["open-clean", "draft", "closed", "merged", "conflict", "failing", "running", "behind", "many-files", "stack-bottom", "stack-top"]);
+    expect(two.find((s) => s.key === "stack-top")?.after).toBe("stack-bottom");
     expect(two.filter((s) => s.author === "second").map((s) => s.key)).toEqual(["second-review", "cross-repo"]);
     expect(two.find((s) => s.key === "cross-repo")?.fork).toBe(true);
     expect(Object.keys(two.find((s) => s.key === "many-files")!.files).length).toBe(310);
+  });
+});
+
+describe("the playground stays neutral (user decision 2026-10-07)", () => {
+  test("no name, title, body, label, message or file the seed writes mentions the tooling", () => {
+    const words = /t3|sandbox|exact|clone|lane|probe|fixture/i;
+    const texts: string[] = [DESCRIPTION, ...LABELS.flat(), bulkBranch(BULK)];
+    for (const [, message, files] of HISTORY) texts.push(message as string, ...Object.entries(files as Record<string, string>).flat());
+    for (const spec of scenarios({ second: "someone" })) texts.push(spec.branch, spec.title, spec.body, ...Object.entries(spec.files).flat(), ...(spec.labels ?? []), ...(spec.statuses ?? []).flat());
+    expect(texts.filter((text) => words.test(text))).toEqual([]);
+    // Bodies carry only neutral `<!-- ref:… -->` markers, from the seed and the probe alike.
+    for (const file of ["seed.mjs", "probe.mjs"]) expect(readFileSync(join(import.meta.dir, file), "utf8").match(/<!-- (?!ref:)\S+/g)).toBe(null);
   });
 });
 
