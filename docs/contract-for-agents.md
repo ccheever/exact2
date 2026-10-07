@@ -1066,6 +1066,11 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   over the routes and the native bars on every host, as later siblings do in CSS.
 - A modal route (`navigationPresentation="modal"`) paints its own background; the
   route under it is dimmed.
+- A sheet's heights are `navigationDetent`, space-separated words: `large`,
+  `medium`, a point height or `fit-content` (the route's content height; a menu or
+  a short dialog). A literal with another word is refused. Under `fit-content` no
+  child may grow to fill the route (`flex-grow`, `height="100%"`), or the sheet
+  measures itself; iOS alone sizes a sheet (LLP 1075.003 §9.11).
 - Without tabs, the routes are the root's own children, laid out the same way.
 - Tests reach a tab by `tap`, or deliver a location as `type <root> "/saved"` (LLP
   1038 D11), which calls the root's `navigate`. On the web a CLI drive goes back as

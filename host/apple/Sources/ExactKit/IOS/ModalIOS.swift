@@ -6,15 +6,18 @@ import UIKit
 private final class ModalController: UIViewController, UIGestureRecognizerDelegate {
     weak var host: ModalHost?
     let routeID: UInt32
+    /// The route a `fit-content` detent measures (LLP 1075.003 §9.11).
+    private weak var route: NodeView?
     var retiringRoot: NodeView?
     var retiringNavigation: UIViewController?
     /// The keyboard probe and a freeze's pixels: what this controller adds
     /// to its view beside the viewport (LLP 1080.001 D3).
     private(set) var probe: UIView?
     private(set) var pixels: UIView?
-    init(host: ModalHost, routeID: UInt32, fullscreen: Bool, detent: String?) {
+    init(host: ModalHost, route: NodeView, fullscreen: Bool, detent: String?) {
         self.host = host
-        self.routeID = routeID
+        routeID = route.id
+        self.route = route
         super.init(nibName: nil, bundle: nil)
         #if os(tvOS)
         // tvOS has no sheets; every modal covers the screen.
@@ -31,20 +34,14 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
               let sheet = sheetPresentationController,
               detentValue != value || sheet.detents.isEmpty else { return }
         detentValue = value
+        let content = { [weak self] in self?.route?.content.height }
         let configure = {
-            // Authored points exclude the bottom safe area, which UIKit adds.
+            // Authored points and `fit-content` exclude the bottom safe
+            // area, which UIKit adds.
             // One resting height leaves overscroll and dismissal with UIKit;
             // several (`"300 large"`, LLP 1075.003 from James's review) make
             // the sheet resizable among them, from the first, with its grabber.
-            let detents = (value ?? "").split(separator: " ").enumerated().compactMap { index, word -> UISheetPresentationController.Detent? in
-                switch word {
-                case "large": return .large()
-                case "medium": return .medium()
-                default:
-                    guard let height = Double(word), height.isFinite, height > 0 else { return nil }
-                    return .custom(identifier: .init("authored-\(index)")) { context in min(CGFloat(height), context.maximumDetentValue) }
-                }
-            }
+            let detents = ModalHost.detents(value, content: content)
             sheet.detents = detents.isEmpty ? [.large()] : detents
             sheet.selectedDetentIdentifier = sheet.detents.first?.identifier
             sheet.prefersGrabberVisible = detents.count > 1
@@ -52,6 +49,16 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         }
         if viewIfLoaded?.window != nil { sheet.animateChanges(configure) }
         else { configure() }
+        #endif
+    }
+    /// The route's content extent changed: a `fit-content` detent resolves
+    /// again, animated as UIKit animates a detent change, in the same sheet.
+    func contentChanged() {
+        #if !os(tvOS)
+        guard modalPresentationStyle == .pageSheet, let sheet = sheetPresentationController,
+              (detentValue ?? "").split(separator: " ").contains("fit-content") else { return }
+        if viewIfLoaded?.window != nil { sheet.animateChanges { sheet.invalidateDetents() } }
+        else { sheet.invalidateDetents() }
         #endif
     }
     required init?(coder: NSCoder) { nil }
@@ -149,7 +156,7 @@ private final class Presentation {
          background: UIViewController, node: NodeView?, home: UIView, owner: UIViewController) {
         self.route = route
         kind = route.props["navigationPresentation"] ?? "modal"
-        controller = ModalController(host: host, routeID: route.id, fullscreen: kind == "fullscreen", detent: route.props["navigationDetent"])
+        controller = ModalController(host: host, route: route, fullscreen: kind == "fullscreen", detent: route.props["navigationDetent"])
         self.navigation = navigation
         self.background = background
         backgroundNode = node
@@ -252,6 +259,31 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
 
     init(presenter: Presenter) { self.presenter = presenter }
 
+    #if os(iOS)
+    /// A `navigationDetent`'s words as UIKit detents, in order; an unknown
+    /// word is skipped. `content` is the route's laid-out content height,
+    /// nil or zero before it is measured.
+    static func detents(_ value: String?, content: @escaping () -> CGFloat?) -> [UISheetPresentationController.Detent] {
+        (value ?? "").split(separator: " ").enumerated().compactMap { index, word in
+            switch word {
+            case "large": return .large()
+            case "medium": return .medium()
+            case "fit-content":
+                // @ref LLP 1075.003 §9.11 — the route's content, which its
+                // box (the sheet) does not change; before it is measured,
+                // the sheet's maximum.
+                return .custom(identifier: .init("fit-content-\(index)")) { context in
+                    guard let height = content(), height > 0 else { return context.maximumDetentValue }
+                    return min(height.rounded(.up), context.maximumDetentValue)
+                }
+            default:
+                guard let height = Double(word), height.isFinite, height > 0 else { return nil }
+                return .custom(identifier: .init("authored-\(index)")) { context in min(CGFloat(height), context.maximumDetentValue) }
+            }
+        }
+    }
+    #endif
+
     func canDismissByBackdrop(_ id: UInt32) -> Bool {
         guard let layer = layers.last, layer.route.id == id, layer.route.props["closedby"] == "any",
               !inTransition else { return false }
@@ -324,6 +356,12 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
             layer.controller.isModalInPresentation = refusesDismissal(of: layer.route)
             layer.controller.updateDetent(layer.route.props["navigationDetent"])
         }
+    }
+
+    /// A route's content extent changed (a `content` op): its sheet's
+    /// `fit-content` detent follows.
+    func contentChanged(_ node: NodeView) {
+        for layer in layers where layer.route === node { layer.controller.contentChanged() }
     }
 
     /// The image a zoom's end shows: the node itself, or the first image

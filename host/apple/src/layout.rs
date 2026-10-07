@@ -206,9 +206,18 @@ impl<D: DataSource> Host<D> {
             }
             let parent = node.parent.and_then(|p| kernel.node(p)).map(|p| p.frame);
             let rel = relative(node.frame, parent);
-            let content = (style::effective_overflow(&node)
-                != (Overflow::Visible, Overflow::Visible))
-                .then(|| content_size(&node, kernel));
+            // A sheet sized to its route's content reads that extent too
+            // (LLP 1075.003 §9.11), whatever the route's overflow.
+            let fits = node
+                .props
+                .str(PropId::NavigationDetent)
+                .is_some_and(|d| d.split(' ').any(|w| w == "fit-content"));
+            let content = if fits {
+                Some(fitted_size(&node, kernel))
+            } else {
+                (style::effective_overflow(&node) != (Overflow::Visible, Overflow::Visible))
+                    .then(|| content_size(&node, kernel))
+            };
             // An ancestor hint may change without touching the editor. Pass
             // its effective value through native containment, or clear it to
             // restore the platform default when the last declaration disappears.

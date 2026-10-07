@@ -1081,6 +1081,7 @@ package final class Presenter {
         case .content:
             v.content = CGSize(width: op.w, height: op.h)
             v.fitScroll()
+            if v.props["navigationDetent"] != nil { modals.contentChanged(v) }
         default: break
         }
     }
