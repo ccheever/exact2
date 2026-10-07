@@ -1,0 +1,17 @@
+// X05 variant B: the same app with a navigation root; the root's `navigate` hears the URL as a location.
+routes nav
+  home "/"
+  notfound
+
+component X05UrlScheme
+  state got = "none"
+  action back
+    nav = back(nav)
+  action follow(location: string)
+    got = location
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow testId="root" width="100%" height="100%"
+      each e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` position="absolute" inset=0 padding=24
+          text `received: ${got}` testId="got"
+          text `route: ${e.name} ${e.url}` testId="route"
