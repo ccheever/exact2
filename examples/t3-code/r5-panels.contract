@@ -137,9 +137,9 @@ component R5PrSurfaceBody
           scroll flex=1 min-height=0 width="100%" testId="pull-request-scroll"
             column width="100%" padding-bottom=64 box-sizing="border-box"
               when scheme == "dark"
-                PrdHeader(detail=detail, scheme="dark", reload=reload, act=act, copy=copy)
+                PrdHeader(detail=detail, scheme="dark", reload=reload, act=act, copy=copy, local=local)
               else
-                PrdHeader(detail=detail, scheme="light", reload=reload, act=act, copy=copy)
+                PrdHeader(detail=detail, scheme="light", reload=reload, act=act, copy=copy, local=local)
               row width="100%" padding-left=16 padding-right=16 padding-top=8 padding-bottom=8 box-sizing="border-box" border-top-width=1 border-bottom-width=1 border-top-style="solid" border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" align-items="center" gap=8 role="navigation" aria-label="Pull request tabs"
                 row height=28 padding=2 gap=2 box-sizing="border-box" border-radius=10 background-color="light-dark(#d4d4d766, #ffffff08)" align-items="center" role="tablist"
                   PrdTab(label="Summary", active=(tab == "summary"), press=setTab("summary"), testId="pull-request-tab-summary")

@@ -11,8 +11,8 @@ import type { Native } from './protocol';
 import { pushToast } from './toast';
 import { fileIconToken } from './timeline-files';
 import { lineTokens } from './timeline-diff-syntax';
-import { EDITORS, preferredEditor, rememberEditor } from './shell-details';
-import { workspaceOf, panelState, type Surface, type PanelState } from './r4-surfaces-panel';
+import { EDITORS, lastEditor, preferredEditor, rememberEditor } from './shell-details';
+import { openFileSurface, workspaceOf, panelState, type Surface, type PanelState } from './r4-surfaces-panel';
 import { markdownDocument, tableRows, type Document } from './r4-surfaces-render';
 import { textWidth } from './pages-text-width';
 import { filesPrefs, type FilesPrefs } from './r5-panels-prefs';
@@ -25,6 +25,9 @@ import { canUseMarkdownFileShellActions, loadSshAliases, openInEditorHere, openI
 import { fileComment, fileCommentLines, fileCommentOpen, type FileLine } from './diff-file-comments'; // diff-review: line comments on the preview
 import { filesMediaView, NO_MEDIA, type MediaView } from './media-views'; // media-actions: image and video files with their menu
 import { letGo } from './let-go';
+import { filesTreeMenu, showContextMenu } from './context-menu-actions'; // context-menu-gaps
+import { availableEditorIds, markdownFileMenuItems, revealLabelFor } from './context-menus';
+import { mediaMimeTypeFromExtension } from './media-source';
 
 export type TreeRow = { id: string; path: string; name: string; depth: number; directory: boolean; expanded: boolean; selected: boolean; token: string; ignored: boolean; guides: { id: string; left: number }[] };
 export type Crumb = { id: string; label: string; path: string; current: boolean; directory: boolean };
@@ -205,6 +208,7 @@ export function pendingPaths(client: T3Client): Set<string> {
 /** `shelllocal:surface-files-*`. */
 export async function filesLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
   if (op === 'link-menu') { await markdownFileMenu(client, native, id); return ''; }
+  if (op === 'row-menu') { await filesTreeMenu(client, native, id); return ''; } // context-menu-actions.ts
   const state = filesState(client), preferences = prefsOf(client);
   if (op === 'toggle') {
     if (state.expanded.has(id)) { state.expanded.delete(id); state.expandAll = false; }
@@ -262,38 +266,43 @@ export async function filesLocal(client: T3Client, native: Native, op: string, i
   return '';
 }
 
-/** ChatMarkdown: editor/reveal actions exist only for a resolved local environment. */
+/**
+ * ChatMarkdown's file-link menu (context-menus.ts markdownFileMenuItems): "Preview media" for a
+ * media file, the open item named for the preferred editor and the server-worded reveal only for
+ * a resolved local environment, then the copies.
+ */
 export async function markdownFileMenu(client: T3Client, native: Native, target: string): Promise<void> {
   if (!target) return;
   const environment = client.environmentId, origin = client.origin;
   await loadSshAliases(native);
   const remote = remoteOpenFor(client);
   const canOpen = canUseMarkdownFileShellActions(environment || null, remote.state.mode, remote.resolved);
-  const raw: unknown[] = Array.isArray(client.config.availableEditors) ? client.config.availableEditors : [];
-  const available = raw.filter((id): id is string => typeof id === 'string' && EDITORS.some(([editor]) => editor === id));
-  const editor = preferredEditor(available, '');
-  const canReveal = canOpen && client.config.shellRevealInFileManager === true && available.includes('file-manager');
-  const items = [
-    ...(canOpen && editor ? [{ id: 'open', label: `Open in ${EDITORS.find(([id]) => id === editor)?.[1] ?? editor}` }] : []),
-    ...(canReveal ? [{ id: 'reveal', label: 'Reveal in Finder' }] : []),
-    { id: 'copy-relative', label: 'Copy relative path' }, { id: 'copy-full', label: 'Copy full path' },
-  ];
-  const access = client.restAccess(native);
-  const result = obj(await access.call({ op: 'contextMenu', items }));
-  if (client.environmentId !== environment || client.origin !== origin) return;
-  const picked = str(result.clicked);
-  if (!items.some(item => item.id === picked)) return;
+  const available = availableEditorIds(client.config);
+  const editor = preferredEditor(available, lastEditor(client)) || null;
+  const filePath = target.replace(/:\d+(?::\d+)?$/, ''), name = baseName(filePath), dot = name.lastIndexOf('.');
+  const canPreviewMedia = !!client.threadId && dot >= 0 && mediaMimeTypeFromExtension(name.slice(dot)) !== null;
+  const items = markdownFileMenuItems({ canPreviewMedia, canOpen, preferredEditor: editor, revealLabel: revealLabelFor(client.config, environment || null) });
+  const picked = await showContextMenu(client, native, items);
+  if (!picked || client.environmentId !== environment || client.origin !== origin) return;
+  // The clone has no expanded media dialog for a reply's file links: the media opens where a click on the link opens it, the Files surface's preview.
+  if (picked === 'preview-media') { await openFileSurface(client, native, target, 0); return; }
   // Recheck after the native menu closes; a menu from another route cannot execute there.
   const current = remoteOpenFor(client);
   if (picked === 'open' || picked === 'reveal') {
     if (!canUseMarkdownFileShellActions(environment || null, current.state.mode, current.resolved)) return;
-    if (picked === 'open') await openInEditorHere(client, native, target, editor);
-    else await access.request('shell.openInEditor', { cwd: target.replace(/:\d+(?::\d+)?$/, ''), editor: 'file-manager', reveal: true });
+    const failed = (description: string): void => { pushToast(client, { kind: 'error', title: picked === 'open' ? 'Unable to open file' : 'Unable to reveal file', description, stacked: true }); };
+    try {
+      if (picked === 'reveal') { await client.restAccess(native).request('shell.openInEditor', { cwd: filePath, editor: 'file-manager', reveal: true }); return; }
+      // useOpenInPreferredEditor: resolveAndPersistPreferredEditor, then open.
+      if (!editor) return failed(`No available editor can open ${target} in environment ${environment}.`);
+      rememberEditor(client, editor);
+      if (!await openInEditorHere(client, native, target, editor)) failed('An error occurred.');
+    } catch (error) { if (letGo(error)) throw error; failed(error instanceof Error && error.message ? error.message : 'An error occurred.'); }
     return;
   }
   const root = workspaceOf(client).cwd.replace(/\/+$/, '');
   const text = picked === 'copy-relative' && root && target.startsWith(`${root}/`) ? target.slice(root.length + 1) : target;
-  await access.call({ op: 'copyText', text });
+  await client.restAccess(native).call({ op: 'copyText', text });
 }
 
 function allExpanded(state: FilesState): boolean {

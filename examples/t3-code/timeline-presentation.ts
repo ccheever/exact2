@@ -26,6 +26,7 @@ import { closeTableMenu, tableMenuAction } from './r8-keys-table-menu'; // lane 
 import { preparationFailureRunId, retryableActivities } from './r11-upstream-retry'; // lane r11-upstream: Retry a failed workspace preparation
 import { numericDateFormatter, timestampFormatter } from './timestamp-format'; // desktop-shell-details: the host's locale
 import { letGo } from './let-go';
+import { pullRequestLinkMenu } from './context-menu-actions'; // context-menu-gaps
 
 /** formatShortTimestamp: the wall-clock time alone, in the selected format. */
 export function shortTime(value: unknown, format: string): string {
@@ -75,6 +76,7 @@ const scoped = (client: T3Client, kind: string, id: string) => `${client.threadI
 export async function chatLocal(client: T3Client, native: Native, op: string, id: string, value: string, storage?: Files): Promise<string> {
   if (op === 'run-terminal' && storage) { await runTerminalCommand(client, native, storage, value.trim()); return ''; }
   if (op.startsWith('surface-')) return surfaceLocal(client, native, op.slice(8), id, value); // r4-surfaces: the right panel's surfaces (window chatLocal)
+  if (op === 'pr-link-menu') { await pullRequestLinkMenu(client, native, value); return ''; } // context-menu-gaps: the detail header's number
   if (op.startsWith('git-')) return gitChatLocal(client, native, op.slice(4), id, value); // lane r4-git (r4-git-route.ts)
   if (op.startsWith('media-')) return mediaLocal(client, native, op.slice(6), id, value, { urlOf: attachmentId => cachedAttachmentUrl(client, attachmentId), // media-actions (media-views.ts)
     openFile: relativePath => openFileSurface(client, native, relativePath, 0), forgetAttachment: attachmentId => forgetAttachmentUrl(client, attachmentId) });

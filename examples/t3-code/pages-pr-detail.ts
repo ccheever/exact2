@@ -62,7 +62,7 @@ export function emptyDetail() {
     comments: [] as { key: string; bodyId: string; author: string; avatar: string; initial: string; age: string; kind: string }[], commentCount: 0, commentsLabel: 'Comments (0)',
     timeline: [] as { key: string; kind: string; title: string; detail: string; age: string; author: string; avatar: string; initial: string }[],
     canEdit: false, canClose: false, canReopen: false, canDraft: false, canReady: false, canMerge: false, canUpdateBranch: false, canReview: false, canLabel: false,
-    projectId: '', host: '', hostName: 'GitHub', code: [] as { id: string; code: string; icon: string; tokens: { id: string; text: string; cls: string }[] }[],
+    projectId: '', host: '', hostName: 'GitHub', linkMenu: '', code: [] as { id: string; code: string; icon: string; tokens: { id: string; text: string; cls: string }[] }[],
     // r4-timeline: Settings → Appearance code font, size and word wrap for the Markdown.
     md: { codeFont: 'ui-monospace', codeSize: 13, wrap: true, chips: [] as ChipView[], runCommands: [] as string[] }, diffScheme: 'red-green',
   };
@@ -123,6 +123,7 @@ export function presentDetail(view: PrDetailView, detail: Obj, activity: Obj | n
     files: `${count(num(detail.changedFiles))} ${num(detail.changedFiles) === 1 ? 'file' : 'files'}`, additions: `+${count(num(detail.additions))}`, deletions: `-${count(num(detail.deletions))}`,
     checksSummary: summarizeChecks(checks), checksTone: checksTone(checks), projectId: str(detail.projectId), host: hostOf(str(detail.url)),
     hostName: HOST_NAMES[str(detail.provider)] ?? 'GitHub',
+    linkMenu: `${str(detail.provider)} ${str(detail.url)}`, // context-menu-gaps: the number's right-click
   });
   view.reviewers = arr(activity?.reviewers ?? detail.reviewers).map(person).map(({ key, login, avatar, initial }) => ({ key, login, avatar, initial }));
   view.labels = arr(detail.labels).map(label => labelChip(str(label.name), labelColor(label.color)));
