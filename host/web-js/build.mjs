@@ -1,4 +1,4 @@
-import { moduleDirectory } from '../../scripts/app.mjs';
+import { hatchWords, moduleDirectory } from '../../scripts/app.mjs';
 // The web build's JS target: `bun host/web-js/build.mjs <app> [--plan <baked app.plan>] [--out <dir>]`.
 //
 // 1. `exact-web-js js` compiles the plan (the app's Contract, or a baked
@@ -16,7 +16,7 @@ import { moduleDirectory } from '../../scripts/app.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, posix, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, normalize, posix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { transformSync } from 'rolldown/utils';
 import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants, webCompiler } from './module.mjs';
@@ -80,17 +80,56 @@ const rust = !!manifest.rust?.module || bakes;
 const ts = existsSync(resolve(appDir, 'app.ts')) && !(rust && opt('--data'));
 const mixed = rust && ts;
 const appTs = resolve(appDir, 'app.ts');
+// The manifest's `typescript.sources` mounts (js/bake/src/lib.rs `mounts`):
+// `./<name>/…` from the app's own modules resolves into that directory in
+// every load this build makes (the module read below, the server and page
+// bundles), as the type check's capture lays it out.
+const tsMounts = Object.entries(manifest.typescript?.sources ?? {}).map(([name, path]) => [name, realpathSync(resolve(appDir, path))]);
+// As the bake refuses them (js/bake/src/lib.rs `mounts`): a file reachable
+// through two mounts would have two places in the layout.
+for (const [i, [a, aDir]] of tsMounts.entries()) for (const [b, bDir] of tsMounts.slice(i + 1)) {
+  if (aDir === bDir || aDir.startsWith(bDir + sep) || bDir.startsWith(aDir + sep)) {
+    console.error(`error: typescript.sources.${a} and typescript.sources.${b} overlap; mount directories that do not contain each other`);
+    process.exit(1);
+  }
+}
+const appRoots = [...new Set([resolve(appDir), realpathSync(appDir)])];
+const within = (path, dir) => path === dir || path.startsWith(dir + sep);
+// Where a file sits in the captured layout (the app at the root, each mount
+// under its name), and back: an import resolves there, from any importer.
+const logical = path => {
+  const mount = tsMounts.find(([, dir]) => within(path, dir));
+  if (mount) return join(mount[0], relative(mount[1], path));
+  const root = appRoots.find(dir => within(path, dir));
+  return root === undefined ? null : relative(root, path);
+};
+const physical = path => {
+  const [first, ...rest] = path.split(sep);
+  const mount = tsMounts.find(([name]) => name === first);
+  return mount ? resolve(mount[1], ...rest) : resolve(appRoots[0], path);
+};
+function mounted(spec, importer) {
+  if (!tsMounts.length || !importer || !/^\.\.?\//.test(spec)) return null;
+  const from = logical(dirname(importer));
+  if (from === null) return null;
+  const target = normalize(join(from, spec));
+  if (target === '..' || target.startsWith('..' + sep) || isAbsolute(target)) return null;
+  const base = physical(target);
+  return [base, `${base}.ts`, `${base}.js`, resolve(base, 'index.ts')].find(path => statSync(path, { throwIfNoEntry: false })?.isFile()) ?? null;
+}
+const mountResolver = build => build.onResolve({ filter: /^\.\.?\// }, args => { const path = mounted(args.path, args.importer); return path ? { path } : undefined; });
+if (tsMounts.length) Bun.plugin({ name: 'exact-mounts', setup: mountResolver });
 const devLogic = [];
 // Native modules (LLP 1024): the app's module artifact, `modules/web/` beside
 // the page as `modules/`, with the web host's adapter (native.js).
 const pageModules = existsSync(resolve(moduleDirectory(appDir, 'web'), 'index.js'));
-// The page module's container hooks (LLP 1075.003.000 §3.7): their glue loads
+// The page module's container, app and window hatches (LLP 1075.003.000 §3.7, 1075.003.000.001 §2.1): their glue loads
 // only for a page module that exports one. Its exports are read by Bun's
 // parser, never run: a browser module may touch the DOM as it loads. An
 // `export *` may export one.
 const pageSource = pageModules ? readFileSync(resolve(moduleDirectory(appDir, 'web'), 'index.js'), 'utf8') : '';
 const pageExports = pageModules ? new Bun.Transpiler({ loader: 'js' }).scan(pageSource) : { exports: [], imports: [] };
-const containerHooks = pageExports.exports.some(n => ['navigation', 'route', 'routeEnded', 'tabs'].includes(n))
+const containerHatches = pageExports.exports.some(n => ['navigation', 'route', 'routeEnded', 'tabs', 'app', 'appEnded', 'window', 'windowEnded'].includes(n))
   || /\bexport\s*\*\s*from\b/.test(pageSource);
 // The surfaces the app's GPU module draws (its crate's surface table); any
 // other surface is drawn by a data source on Canvas 2D, which the backend
@@ -104,7 +143,7 @@ const compiler = webCompiler();
 const cargo = spawnSync(compiler.cmd, [...compiler.pre, 'js', input, '-o', gen, ...(production ? [] : ['--sites']), ...(devReload ? ['--dev-reload'] : [])], { cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
 if (cargo.status !== 0) process.exit(cargo.status ?? 1);
 compiler.done();
-for (const f of ['rt.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js', 'focus.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['rt.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js', 'focus.js', 'backdrop.js']) cpSync(resolve(here, f), resolve(gen, f));
 // Canvas 2D surfaces (a loaded chunk: this runtime's engine over the web
 // host's own replayer) are drawn by the Rust data module, or by a
 // TypeScript source's `draw` in the page (ts-draw.js, in the same chunk).
@@ -167,6 +206,7 @@ async function typecheck() {
   const capture = (from, to, top) => {
     for (const entry of readdirSync(from, { withFileTypes: true })) {
       const name = entry.name, path = resolve(from, name);
+      if ((manifest.host?.macos?.resources ?? []).some(resource => path === resolve(appDir, resource.from))) continue;
       if (['.git', 'node_modules', 'target', 'dist'].includes(name) || name.startsWith('.exact-js-bake-') || (top && name === 'app.contract.d.ts')) continue;
       // The app's dot directories (`.exact/`: an agent's evidence, logs, runtime files) are no source, as in js/bake's capture.
       if (top && name.startsWith('.') && entry.isDirectory()) continue;
@@ -274,6 +314,8 @@ writeFileSync(resolve(gen, 'main.js'), [
   "  const state = app();",
   ...(devReload ? ["  finishDev();"] : []),
   "  globalThis.exact = Object.assign(globalThis.exact ?? {}, { ready: true, journal, clock, advance, commit, data, state, inflight, views: Views, viewId, After, resources: Resources, mutations: Mutations });",
+  // The hatch words the web handles, when app.json gives words their platforms (LLP 1075.003.000.001 §4.3, §5): a word it leaves out is shown and never called (hatches.js).
+  ...(manifest.hatches && !Array.isArray(manifest.hatches) ? [`  globalThis.exact.hatchWords = ${JSON.stringify(hatchWords(manifest, 'web'))};`] : []),
   // A development page counts its work and samples its frames (LLP 1079); the agent adapter, only when the agent drives it.
   // The served plan's digest, which a development page's `perf` names (LLP 1079 D2).
   ...(production ? [] : [`  globalThis.exact.plan = ${JSON.stringify(createHash('sha256').update(readFileSync(opt('--plan') ? resolve(opt('--plan')) : resolve(gen, 'app.plan'))).digest('hex'))};`, "  develop(globalThis.exact).catch(console.error);", "  if (clock.agent) globalThis.exact.ready = import('./agent.js').then(m => m.install(globalThis.exact));"]),
@@ -286,9 +328,9 @@ writeFileSync(resolve(gen, 'main.js'), [
     "inflight.n++;",
     `if (wait || ${mixed}) load().then(start); else { start(); requestAnimationFrame(() => setTimeout(load)); }`,
   ] : ['start();']),
-  ...(containerHooks ? ["requestAnimationFrame(() => requestAnimationFrame(() => import('./hooks.js').then(m => m.containers())));"] : []),
+  ...(containerHatches ? ["requestAnimationFrame(() => requestAnimationFrame(() => import('./hatches.js').then(m => m.containers())));"] : []),
 ].join('\n'));
-for (const f of ['agent.js', 'perf.js', 'seam.js', 'rust-data.js', 'list.js', 'facts.js', 'symbols.js', 'motion.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'format.js', 'hooks.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js', 'shared.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['agent.js', 'perf.js', 'seam.js', 'rust-data.js', 'list.js', 'facts.js', 'symbols.js', 'motion.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'format.js', 'hatches.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js', 'shared.js']) cpSync(resolve(here, f), resolve(gen, f));
 // The web host's own pieces, loaded after first paint (motion.js, a pan, `select`, text flow, rt.js `pr`, native.js, rt.js `geo`, media.js, notify.js, sounds.js).
 for (const f of ['frames.js', 'motion-glue.js', 'group-glue.js', 'input-glue.js', 'markup-editor.js', 'textflow-glue.js', 'timer-glue.js', 'presence-glue.js', 'native-glue.js', 'geometry-glue.js', 'resize-glue.js', 'media-glue.js', 'notify-glue.js', 'sound-glue.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
 // Virtualized lists' browser half, the web host's own, loaded after first paint.
@@ -375,16 +417,17 @@ const scopedModule = (code, id) => {
     const path = relative(root, id);
     return path === '' || !isAbsolute(path) && path !== '..' && !path.startsWith('..' + sep);
   })) return null;
-  // And the clock, timers and Math.random refused by name (LLP 1027.000 D3).
+  // And the clock, timers and Math.random refused by name (LLP 1027.000 D3),
+  // and the browser's own I/O, as the wasm target's realm refuses it.
   const bound = ['fetch', 'Date', 'Math', 'Intl', 'setTimeout', 'setInterval', 'requestAnimationFrame', 'requestIdleCallback',
-    'clearTimeout', 'clearInterval', 'cancelAnimationFrame', 'cancelIdleCallback', 'performance'];
+    'clearTimeout', 'clearInterval', 'cancelAnimationFrame', 'cancelIdleCallback', 'performance', 'XMLHttpRequest', 'WebSocket', 'EventSource'];
   const result = transformSync(id, code, { inject: { ...Object.fromEntries(bound.map(name => [name, [resolve(gen, 'ts-fetch.js'), name]])),
     ...Object.fromEntries(['globalThis', 'window', 'self'].map(name => [name, [resolve(gen, 'ts-fetch.js'), 'appGlobal']])) } });
   if (result.errors.length) throw new Error(result.errors.map(e => e.message).join('\n'));
   return result.code;
 };
 const bundle = async (options) => {
-  const r = await Bun.build({ ...options, plugins: [{ name: 'source-grants', setup(build) {
+  const r = await Bun.build({ ...options, plugins: [{ name: 'exact-mounts', setup: mountResolver }, { name: 'source-grants', setup(build) {
     build.onLoad({ filter: /\.[cm]?[jt]sx?$/ }, ({ path }) => { const contents = scopedModule(readFileSync(path, 'utf8'), path); return contents == null ? undefined : { contents, loader: 'js' }; });
   } }] });
   for (const m of r.logs) console.error(String(m));
@@ -397,7 +440,7 @@ if (how !== 'none') await bundle({ entrypoints: [resolve(gen, 'main-server.js')]
 // bytes a page downloads before its runtime is up.
 {
   const { rolldown } = await import('rolldown');
-  const b = await rolldown({ input: resolve(gen, 'main.js'), plugins: [{ name: 'source-grants', transform: scopedModule }], logLevel: 'warn', onLog: (level, log) => console.error(log.message) });
+  const b = await rolldown({ input: resolve(gen, 'main.js'), plugins: [{ name: 'exact-mounts', resolveId: (source, importer) => mounted(source, importer) }, { name: 'source-grants', transform: scopedModule }], logLevel: 'warn', onLog: (level, log) => console.error(log.message) });
   // In a development reload build, put the TypeScript data module and every
   // helper it imports in one chunk the page really loads. Its emitted bytes,
   // rather than watcher filenames or source mtimes, are the logic revision.

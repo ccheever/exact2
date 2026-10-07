@@ -51,9 +51,11 @@ pub enum DecodeError {
     BadBackgroundImage,
     /// Invalid or unsupported CSS `box-shadow` (LLP 1077 D4).
     BadBoxShadow,
+    /// Invalid or unsupported CSS `backdrop-filter` (LLP 1053.000 D1).
+    BadBackdropFilter,
     /// Invalid CSS `rotate` axis (LLP 1077 D8).
     BadRotateAxis,
-    /// Invalid `symbol-palette` (LLP 1077 D10).
+    /// Invalid `-exact-symbol-palette` (LLP 1077 D10).
     BadSymbolPalette,
     /// Invalid or unsupported CSS `text-shadow` (LLP 1077 D3).
     BadTextShadow,
@@ -61,7 +63,7 @@ pub enum DecodeError {
     BadMaskImage,
     /// Invalid CSS `corner-shape` (LLP 1077 D1).
     BadCornerShape,
-    /// Invalid `drag-timeline` (LLP 1057.003).
+    /// Invalid `-exact-drag-timeline` (LLP 1057.003).
     BadDragTimeline,
     /// Invalid `animation-timeline` (LLP 1057.003).
     BadAnimationTimeline,

@@ -20,7 +20,7 @@ use std::fmt;
 pub enum Capability {
     /// `markup="markdown"` text: its source styled as pieces.
     Markdown,
-    /// Springs and holds: a `transition` that can be a `spring()`, and the
+    /// Springs and holds: a `transition` that can be a `-exact-spring()`, and the
     /// gestures that hold a value (a swipe, a height, transform or reorder
     /// drag). CSS plays every other transition.
     Motion,
@@ -51,7 +51,7 @@ pub enum Capability {
     /// `input type="file"` and `showPicker` (LLP 1069.002): a plan with a
     /// file input, or whose code runs the command.
     Picker,
-    /// Drag timelines (LLP 1057.003): `drag-timeline`, `animation-timeline`,
+    /// Drag timelines (LLP 1057.003): `-exact-drag-timeline`, `animation-timeline`,
     /// `animation-range` and `timeline-scope`, their grammar, lowering and
     /// name lookup. A timeline follows a held value, so it uses motion too.
     Timelines,
@@ -63,7 +63,7 @@ pub enum Capability {
     Effects,
     /// CSS animations (LLP 1055 D5): the `animation` shorthand's and
     /// `@keyframes`' grammars, for a plan that declares keyframes or binds
-    /// `animation` or `exit-animation`.
+    /// `animation` or `-exact-exit-animation`.
     Animations,
     /// `background-image`'s gradients (LLP 1066): its grammar, for a plan
     /// that binds the row.
@@ -88,11 +88,16 @@ pub enum Capability {
     /// `showNotification` and `closeNotification` (rules/DEFERRED.md,
     /// 2026-10-04): a plan whose code runs one.
     Notifications,
+    /// A native grouped list: a `list` whose appearance is `auto`, which
+    /// Contract marks with `listStyle` (LLP 1084 D2). A native host draws it
+    /// with the platform's list; the web draws its authored nodes, so the web
+    /// links nothing for it (LLP 1047.001 D2).
+    GroupedLists,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 23] = [
+    pub const ALL: [Capability; 24] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -116,6 +121,7 @@ impl Capability {
         Capability::Dataset,
         Capability::Tabs,
         Capability::Notifications,
+        Capability::GroupedLists,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -144,7 +150,14 @@ impl Capability {
             Capability::Dataset => "dataset",
             Capability::Tabs => "tabs",
             Capability::Notifications => "notifications",
+            Capability::GroupedLists => "grouped_lists",
         }
+    }
+
+    /// The capability `name` names ([`Capability::name`]), as a manifest's
+    /// `link` list does (LLP 1047 D8).
+    pub fn from_name(name: &str) -> Option<Capability> {
+        Capability::ALL.into_iter().find(|c| c.name() == name)
     }
 
     const fn bit(self) -> u32 {
@@ -240,6 +253,7 @@ pub fn uses(plan: &Plan) -> Uses {
                     uses = uses.with(Capability::Collections);
                 }
                 Some(PropId::BackgroundMaterial) => uses = uses.with(Capability::Materials),
+                Some(PropId::ListStyle) => uses = uses.with(Capability::GroupedLists),
                 Some(PropId::Dataset) => uses = uses.with(Capability::Dataset),
                 Some(PropId::AccessibilityControls) => uses = uses.with(Capability::Tabs),
                 Some(PropId::Type) if can_be(binding, &|v| v == "file") => {
@@ -248,7 +262,7 @@ pub fn uses(plan: &Plan) -> Uses {
                 _ => {}
             },
             BindingKind::Style => {
-                if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::BackdropBlur) {
+                if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::BackdropFilter) {
                     uses = uses.with(Capability::Backdrop);
                 }
                 if matches!(

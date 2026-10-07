@@ -292,6 +292,8 @@ fn build_sources(
     if compat.inputs["store"]["L"] != "0" {
         return Err("module clients currently require deploy.store.<platform> = 0; signed module delivery is not implemented".into());
     }
+    // What an Apple archive links, as its compatibility inputs name it (LLP 1047.001 D2).
+    let linked = (platform != "web").then(|| exact_bake::apple_link(&compat, "exact_apple"));
     std::fs::write(out.join("compat.json"), compat.to_json()).map_err(|e| e.to_string())?;
     let rust_updates = compat.inputs["rustMode"] != "off"
         && compat.inputs["rustModule"]
@@ -341,6 +343,12 @@ fn build_sources(
             entry.push_str(&contract::web_linked(&plan, &compat.inputs));
         }
         std::fs::write(out.join("logic.rs"), entry).map_err(|e| e.to_string())?;
+        // An Apple entry names what it links (LLP 1047.001 D3) beside it, for
+        // `host!(…; linked = EXACT_LINKED)`; an entry that does not include it
+        // links every capability, as before.
+        if let Some(linked) = linked {
+            std::fs::write(out.join("linked.rs"), linked).map_err(|e| e.to_string())?;
+        }
     }
     // Each captured source by name, not the app directory: Cargo scans a named
     // directory recursively, and an app outside this repo keeps its `target/`
@@ -506,6 +514,18 @@ fn mounts(root: &Path) -> Result<Vec<(String, PathBuf)>, String> {
         }
         out.push((name.clone(), dir));
     }
+    // A file reachable through two mounts would have two places in the
+    // capture, and the web build could resolve its imports from the other:
+    // mounts may not overlap.
+    for (i, (a, a_dir)) in out.iter().enumerate() {
+        for (b, b_dir) in &out[i + 1..] {
+            if a_dir.starts_with(b_dir) || b_dir.starts_with(a_dir) {
+                return Err(format!(
+                    "typescript.sources.{a} and typescript.sources.{b} overlap; mount directories that do not contain each other"
+                ));
+            }
+        }
+    }
     Ok(out)
 }
 
@@ -543,6 +563,21 @@ fn contract_inputs(app: &Path) -> Result<BTreeMap<PathBuf, Option<Vec<u8>>>, Str
 /// resolve to unrelated files on the producer machine.
 fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
     let mounts = mounts(root)?;
+    let manifest = root.join("app.json");
+    let native: Vec<PathBuf> = if manifest.exists() {
+        let json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(manifest).map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())?;
+        json.pointer("/host/macos/resources")
+            .and_then(|v| v.as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v.get("from").and_then(|v| v.as_str()))
+            .map(|p| root.join(p))
+            .collect()
+    } else {
+        Vec::new()
+    };
     fn walk(
         root: &Path,
         at: &Path,
@@ -550,6 +585,7 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
         total: &mut usize,
         mounts: &[(String, PathBuf)],
         prefix: &Path,
+        native: &[PathBuf],
     ) -> Result<(), String> {
         for entry in std::fs::read_dir(at).map_err(|e| e.to_string())? {
             let entry = entry.map_err(|e| e.to_string())?;
@@ -573,6 +609,9 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
                 continue;
             }
             let path = entry.path();
+            if native.contains(&path) {
+                continue;
+            }
             let relative = path.strip_prefix(root).unwrap();
             let kind = entry.file_type().map_err(|e| e.to_string())?;
             if let Some((_, dir)) = mounts.iter().find(|(m, _)| at == root && **m == *name) {
@@ -607,7 +646,7 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
                 continue;
             }
             if kind.is_dir() {
-                walk(root, &path, out, total, mounts, prefix)?;
+                walk(root, &path, out, total, mounts, prefix, native)?;
             } else if captured {
                 if !kind.is_file() {
                     return Err(format!("source is not a regular file: {}", path.display()));
@@ -625,12 +664,28 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
     }
     let mut result = BTreeMap::new();
     let mut total = 0;
-    walk(root, root, &mut result, &mut total, &mounts, Path::new(""))?;
+    walk(
+        root,
+        root,
+        &mut result,
+        &mut total,
+        &mounts,
+        Path::new(""),
+        &native,
+    )?;
     for (name, dir) in &mounts {
         // Only what TypeScript imports: a shared core's tests and fixtures
         // stay behind (the bundle takes only what `app.ts` reaches anyway).
         let mut mounted = BTreeMap::new();
-        walk(dir, dir, &mut mounted, &mut total, &[], Path::new(name))?;
+        walk(
+            dir,
+            dir,
+            &mut mounted,
+            &mut total,
+            &[],
+            Path::new(name),
+            &[],
+        )?;
         result.extend(
             mounted
                 .into_iter()

@@ -1,4 +1,4 @@
-# wgpu-hal 30.0.1 — seven local patches: five in the Metal backend, two in Vulkan's
+# wgpu-hal 30.0.1 — eight local patches: five in the Metal backend, three in Vulkan's
 
 Complete crates.io archive, including the upstream MIT/Apache licenses and
 `.cargo_vcs_info.json`. No feature change or dependency upgrade. Every changed
@@ -144,6 +144,22 @@ PRESENT not ordered the tracker emits PRESENT → PRESENT, and present
 submits that barrier alone: a second submission, fence and kick per canvas
 frame. Nothing on a queue touches an image in PRESENT, so the barrier is
 never needed. Upstreamable (arguably a wgpu-core fix instead).
+
+## 8. A texture over an `AHardwareBuffer` (Vulkan, Android)
+
+`src/vulkan/adapter.rs`, `src/vulkan/device.rs`. The device enables
+`VK_ANDROID_external_memory_android_hardware_buffer` (and
+`VK_EXT_queue_family_foreign`, which it requires) where the driver has them,
+and `Device::texture_from_hardware_buffer` makes a texture whose memory is the
+buffer's, as `texture_from_dmabuf_fd` does for a DMA-buf. A canvas renders
+into buffers the platform's renderer draws as hardware bitmaps, in its own
+pass, instead of presenting to a swapchain the compositor then samples
+(Android: one `vkQueuePresentKHR`, one `dequeueBuffer` and one
+`SurfaceTexture` update fewer per canvas frame). Such a texture is rendered
+into every frame, so its views and framebuffers are kept as a swapchain
+image's are (patch 6) and released in `destroy_texture`: without that
+PowerVR made and tore down a render target per frame (`vkmem_free` 200 ms/s,
+measured). Upstreamable.
 
 ## Updating
 

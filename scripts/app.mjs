@@ -1,3 +1,4 @@
+import { macResourceMappings, macResourceInventory } from '../host/apple/assets.mjs';
 // Where an app lives. Inside this repo an app is `apps/<name>` — its crates
 // normally belong to the root workspace and build into `target/`; an explicit
 // package.workspace uses that workspace's lock and target. Outside it (weird-castle:
@@ -28,7 +29,6 @@ import { homedir, tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { BINARYEN } from '../host/web/stages.mjs';
-
 import { createHash } from 'node:crypto';
 import { prepareRustBundle } from './rust.mjs';
 import { throwContractErrors } from './contract-diagnosis.mjs';
@@ -36,7 +36,6 @@ import { filesystem } from './filesystem.mjs';
 import { startSweep } from './sweep.mjs';
 import { installProblems } from './install-page.mjs';
 import { gameDefaults, lintGame, prepareGame } from '../game/app/shells.mjs';
-
 /** rustup puts cargo in `~/.cargo/bin` and a login profile puts that on PATH;
  * a non-interactive shell (an agent's, a launchd job's) often skips the
  * profile, and every cargo spawn below then fails as ENOENT. Every script that
@@ -51,10 +50,8 @@ export function cargoOnPath(env = process.env, home = homedir()) {
   return true;
 }
 cargoOnPath(); process.env.HERMES_LEAN_SYS_OFFLINE = '1';
-
 /** Every Cargo process Exact starts refuses implicit Hermes acquisition. */
 export function cargoEnvironment(env = process.env) { return { ...env, HERMES_LEAN_SYS_OFFLINE: '1' }; }
-
 // @ref llp/1046.006.000-render-hooks.rfc.md#d5-shaders-that-live-with-the-game
 /** Explicit source roots, relative to app.json. Only packaged names reach a host. */
 export function shaderRoots(app) {
@@ -126,7 +123,6 @@ export function copyShaders(app, target, {replace=false} = {}) {
   if (files.size) mkdirSync(target, {recursive:true});
   for (const [name, bytes] of files) writeFileSync(resolve(target,name), bytes);
 }
-
 // @ref LLP 1009 D6 — one artifact per module, loaded by the surfaces it owns.
 /** The GPU artifacts beside the primary `<app>-gpu`: module `m` is the crate
  * `<app>-gpu-m` and owns exactly the surface names listed for it. */
@@ -146,7 +142,6 @@ function gpuModuleProblems(manifest) {
   }
   return problems;
 }
-
 /** Existing locks are binding; the root workspace and generated game shells require theirs. */
 export const cargoReproducibilityFlags = (app, workspace = app.workspace) =>
   (resolve(workspace) === ROOT || (app.manifest.game && resolve(workspace) === resolve(app.workspace)) || (existsSync(resolve(workspace, 'Cargo.toml')) && existsSync(resolve(workspace, 'Cargo.lock')))) ? ['--locked', '--offline'] : [];
@@ -170,7 +165,6 @@ export function injectedProfiles(app, workspace = app.workspace) {
   for (const [name, table] of Object.entries(profiles)) walk(['profile', key(name)], table);
   return flags;
 }
-
 /** The root's crates.io patches as they must appear in an outside workspace
  * at `from`: each vendored crate, by a path relative to it. Two copies of taffy
  * or cosmic-text in one build fail far from the cause, so `exact new` writes
@@ -244,6 +238,7 @@ function checkOutsideLock(workspace) {
   if (result.status !== 0) throw new Error(`cargo metadata --locked --offline in ${workspace}:\n${result.stderr || result.error?.message}\nTo update the lock explicitly, run \`cargo metadata --offline --format-version 1\` in ${workspace} (without --offline when Cargo's cache lacks a crate, as after an offline \`exact new\`).`);
 }
 
+export const hatchWords = (manifest, platform, h = manifest?.hatches ?? []) => (Array.isArray(h) ? [...h] : Object.keys(h).filter(w => h[w].includes(platform))).sort(); // the hatch words `platform`'s module handles (LLP 1075.003.000.001 §5; the bake's `hatches_on`): a plain list is every platform's
 export const runnerOwnedSource = name => ['exactDelivery', 'exactViewport', 'exactSurface'].includes(name);
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -559,7 +554,7 @@ export function resolveApp(nameOrCrate) {
      * executor `modules/web/index.js`. Empty tags: the app has no module
      * views; its web executor may still answer `native.later` on the page
      * (LLP 1067 D5), and its Swift still makes the artifact, for `later` and
-     * the hooks (LLP 1075.003 §3.2). */
+     * the hatches (LLP 1075.003 §3.2). */
     modulesFor(platform) {
       const folder = moduleDirectory(dir, platform);
       const under = suffix => existsSync(folder) ? readdirSync(folder).filter(f => f.endsWith(suffix)).sort().map(f => resolve(folder, f)) : [];
@@ -598,6 +593,7 @@ export function readManifest(dir, name) {
       : p);
   if (!problems.length) problems.push(...installProblems(parsed), ...gpuModuleProblems(parsed), ...documentTypeProblems(parsed), ...appleIconProblems(parsed, dir));
   if (problems.length) throw new Error(`${path} does not conform to scripts/app.schema.json:\n  ${problems.join('\n  ')}`);
+  macResourceMappings(parsed);
   return { host: {}, deploy: {}, ...parsed };
 }
 
@@ -898,6 +894,9 @@ export const linuxBinary = (app, bin = app.crate('linux')) => resolve(app.target
 /** The command that builds it. An app outside this repo gets the root's
  * profiles on the command line, as its Apple build does (injectedProfiles). */
 export const linuxBuild = (app, bin = null) => ['cargo', 'build', ...injectedProfiles(app), '--profile', HOST_DEV, '-p', app.crate('linux'), ...(bin ? ['--bin', bin] : [])];
+/** The executable (and Apple bundle) as Xcode and Visual Studio name a project's: the app's name, less what a file name cannot carry (LLP 1030 D2); `windowsFile` is a Windows build's name for a Cargo product. */
+export const executableName = (app) => app.displayName.replace(/[<>:"/\\|?*\x00-\x1f]/g, '-').replace(/^[. ]+|[. ]+$/g, '') || app.id.split('.').pop();
+export const windowsFile = (app, path) => basename(path) === `${app.crate('windows')}.exe` ? `${executableName(app)}.exe` : basename(path);
 export function bakeTarget(platform) {
   if (platform === 'web') return 'wasm32-unknown-unknown';
   if (platform === 'ios') return 'aarch64-apple-ios';
@@ -1180,13 +1179,14 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
         'package.json', 'bun.lock', 'node_modules/@sqlite.org/sqlite-wasm/package.json']) add(resolve(ROOT, path));
     }
   }
-  const metadata={app:app.manifest.app,host:app.manifest.host?.[platform]??{},icons:app.manifest.icons??[],delivery:compat.delivery,store:compat.inputs.store,keys:compat.inputs.keys};
+  const nativeResources = platform === 'macos' ? macResourceInventory(app) : [];
+  const metadata={...(nativeResources.length ? {nativeResources} : {}),app:app.manifest.app,host:app.manifest.host?.[platform]??{},icons:app.manifest.icons??[],delivery:compat.delivery,store:compat.inputs.store,keys:compat.inputs.keys};
   const configuration={target,units:orderedBuild([...new Map(units.map(u=>[canonicalBuild(u),u])).values()]),builders:orderedBuild([...new Map(builders.map(u=>[canonicalBuild(u),u])).values()]),rustc:buildCommand('rustc',['-vV'],app,env).stdout,flags:{...Object.fromEntries(['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','MACOSX_DEPLOYMENT_TARGET','IPHONEOS_DEPLOYMENT_TARGET'].map((k)=>[k,env[k]??null])),...(env.EXACT_WEB_LINK?{EXACT_WEB_LINK:env.EXACT_WEB_LINK}:{}),...(env.EXACT_WEB_SIZE?{EXACT_WEB_SIZE:env.EXACT_WEB_SIZE}:{})}};
   const files=[...inputs.values()].sort((a,b)=>a.name<b.name?-1:a.name>b.name?1:0);
   const fingerprint={files:files.map(({name,sha256})=>({name,sha256})),absent:[...absent.keys()].sort(),configuration,metadata};
   const products=roots.flatMap((r)=>messages.filter((m)=>m.reason==='compiler-artifact'&&m.package_id===r.package&&m.target.name===r.name).flatMap((m)=>m.filenames)).filter((p)=>!p.endsWith('.d')).map((path)=>prepared.get(path)??path).map((path)=>{const info=statSync(path);return {path,bytes:info.size,sha256:hashes.of(path,info)};});
   hashes.save();
-  return {version:1,...(env.EXACT_RUST_BUNDLE?{rust:resolve(rootOutput,'rust')}:{}),trust:env.EXACT_UPDATE_TRUST??'development',compat,graph:bundleGraph,binary:{sha256:buildHash(canonicalBuild(fingerprint)),...fingerprint,inputs:files,directories:[...directories.values()],missing:[...absent.values()]},products};
+  return {version:1,...(env.EXACT_RUST_BUNDLE?{rust:resolve(rootOutput,'rust')}:{}),trust:env.EXACT_UPDATE_TRUST??'development',compat,graph:bundleGraph,binary:{...(nativeResources.length ? {nativeResourceApp:{dir:app.dir,manifest:app.manifest}} : {}),sha256:buildHash(canonicalBuild(fingerprint)),...fingerprint,inputs:files,directories:[...directories.values()],missing:[...absent.values()]},products};
 }
 
 /** Ephemeral output ownership shared by Apple builders and Cargo bakes.
@@ -1357,8 +1357,7 @@ export function classifyArtifacts(candidate, cohort, signingKey = null) {
       for(const [name,arities] of Object.entries(need)) for(const arity of arities) if(!cohort.surfaceCalls?.[name]?.includes(arity)) fail(`.${name}/${arity} (not demanded by the installed plan)`);
     } else if(key==='gpuSurfaces') {
       for(const surface of need) if(!have.gpuSurfaces?.some(s=>canonicalBuild(s)===canonicalBuild(surface))) fail(`.${surface.name} (interface ${surface.interface})`);
-    } else if(key==='executors') {
-      for(const executor of need) if(!have.executors?.includes(executor)) fail(`.${executor}`);
+    } else if(key==='executors'||key==='hatches') { for(const item of need) if(!have[key]?.includes(item)) fail(key==='hatches'?`.${item} (handled by this platform's module, not by the installed one)`:`.${item}`); // hatches: LLP 1075.003.000.001 §4.3, a cohort from before the capability handles none
     } else if(key==='grantCeiling') {
       const grants=new Set((have.grantCeiling??'').split('\n').filter(Boolean));
       if(need===null||have.grantCeiling===null) fail(' (unknown baked grants)');
@@ -1388,6 +1387,7 @@ export function developmentCandidate(build, plan, assets, surfaces) {
  * came from the previous compiler receipt, including absent watched inputs. */
 export function pendingBuildInputs(build) {
   const changed=[];
+  try {if(build.binary.nativeResourceApp && canonicalBuild(macResourceInventory(build.binary.nativeResourceApp)) !== canonicalBuild(build.binary.metadata.nativeResources)) changed.push('host.macos.resources');} catch {changed.push('host.macos.resources');}
   for(const file of build.binary.inputs) {
     try {if(!statSync(file.path).isFile()||buildHash(readFileSync(file.path))!==file.sha256)changed.push(file.name);}
     catch {changed.push(file.name);}

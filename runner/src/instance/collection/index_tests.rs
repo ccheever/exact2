@@ -489,7 +489,7 @@ fn end_follow_accepts_integer_dom_scroll_height_rounding() {
     assert_eq!(index.max_offset(viewport) - dom_bottom, 0.078_125);
     let anchor = index.capture_anchor(dom_bottom, viewport, true).unwrap();
     let reader = index
-        .capture_anchor(index.max_offset(viewport) - 0.500_001, viewport, true)
+        .capture_anchor(index.max_offset(viewport) - 1.0, viewport, true)
         .unwrap();
     let disabled = index.capture_anchor(dom_bottom, viewport, false).unwrap();
     assert!(
@@ -498,7 +498,7 @@ fn end_follow_accepts_integer_dom_scroll_height_rounding() {
     );
     assert!(
         !reader.follows_end,
-        "reader farther than half a pixel stays anchored"
+        "a reader a whole pixel up stays anchored"
     );
     assert!(!disabled.follows_end);
     index.replace_keys(keys(3)).unwrap();
@@ -527,13 +527,38 @@ fn end_follow_accepts_browser_integer_scroll_range_rounding() {
 }
 
 #[test]
-fn end_follow_rounding_tolerance_is_half_a_logical_pixel_on_every_host() {
-    // The .5 boundary is inclusive at small, medium and large extents alike.
+fn end_follow_accepts_webkit_flooring_a_fractional_scroll_range() {
+    // Seen in WebKit (synthetic-lists conformance, 2026-10-07): rows sum to
+    // 210.72 px in a 140 px port; Chrome scrolls to 71, WebKit stops at 70,
+    // 0.72 short of the end. Both are at the end, so both follow it.
+    let mut index = index(&[28.375, 29.594, 31.594, 29.594, 33.594, 28.375, 29.594]);
+    let viewport = 140.0;
+    for reported in [70.0, 71.0] {
+        assert!(
+            index
+                .capture_anchor(reported, viewport, true)
+                .unwrap()
+                .follows_end,
+            "{reported}"
+        );
+    }
+    let anchor = index.capture_anchor(70.0, viewport, true).unwrap();
+    index.replace_keys(keys(8)).unwrap();
+    assert_eq!(
+        index.restore_anchor(&anchor, viewport).unwrap(),
+        index.max_offset(viewport)
+    );
+}
+
+#[test]
+fn end_follow_slack_is_less_than_one_logical_pixel_on_every_host() {
+    // Less than END_SLACK short follows; a whole pixel short does not, at
+    // small, medium and large extents alike.
     for (height, viewport) in [(100.0, 20.0), (1_048_576.0, 512.0), (268_435_456.0, 512.0)] {
         let mut index = index(&[height]);
         let maximum = index.max_offset(viewport);
-        let boundary = maximum - 0.5;
-        let outside = boundary - 0.000_001;
+        let outside = maximum - END_SLACK;
+        let boundary = outside + 0.001;
         let following = index.capture_anchor(boundary, viewport, true).unwrap();
         let reading = index.capture_anchor(outside, viewport, true).unwrap();
         assert!(following.follows_end, "height={height}");

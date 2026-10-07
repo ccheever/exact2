@@ -150,7 +150,7 @@ check('resize snaps an active move and takes new boxes without a move', async ()
 });
 
 check('an interrupted spring uses the seeked time, including its delay and velocity', async () => {
-  const spring = card.replace('1000 0 linear', '0 100 spring(300, 30, 1)');
+  const spring = card.replace('1000 0 linear', '0 100 spring(300, 30, 1)'); // the private row (css.rs layout_transition_css; LLP 1081 D5)
   await fixture(`<div id="card" style="${spring}"></div>`);
   await style(spring + ';margin-left:100px');
   await evaluate('seek(250)');

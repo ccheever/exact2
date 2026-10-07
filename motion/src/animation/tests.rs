@@ -37,7 +37,7 @@ fn the_shorthand_assigns_parts_as_css_does() {
     assert_eq!(Animations::parse("none").unwrap(), Animations::NONE);
     assert_eq!(Animations::parse("a 1s, b 2s").unwrap().0.len(), 2);
     assert!(Animations::parse("a 1s 2s 3s").is_err());
-    assert!(Animations::parse("a spring(100, 10, 1) 1s").is_err());
+    assert!(Animations::parse("a -exact-spring(100, 10, 1) 1s").is_err());
     assert!(Animations::parse("a -1s").is_err());
     assert!(Animations::parse("a b").is_err());
 }

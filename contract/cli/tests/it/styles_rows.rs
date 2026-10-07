@@ -50,7 +50,7 @@ fn order_moves_a_flex_item_and_a_bound_order_moves_it_again() {
 /// background or a tint is the keyword, which each host paints in `color`.
 #[test]
 fn inherit_unset_and_currentcolor_are_csss() {
-    let src = "style Loud\n  color=\"#ff0000\"\ncomponent A\n  state on = false\n  action flip\n    on = not on\n  view\n    column color=\"#0000ff\"\n      text \"a\" testId=\"inherit\" class=Loud color=\"inherit\"\n      text \"b\" testId=\"bound\" color=(on ? \"unset\" : \"#00ff00\")\n      view testId=\"swatch\" background-color=\"currentcolor\"\n      image \"symbol:add\" testId=\"icon\" tint-color=\"currentColor\" alt=\"Add\"\n      input testId=\"field\" value=\"\" enterkeyhint=\"send\"\n";
+    let src = "style Loud\n  color=\"#ff0000\"\ncomponent A\n  state on = false\n  action flip\n    on = not on\n  view\n    column color=\"#0000ff\"\n      text \"a\" testId=\"inherit\" class=Loud color=\"inherit\"\n      text \"b\" testId=\"bound\" color=(on ? \"unset\" : \"#00ff00\")\n      view testId=\"swatch\" background-color=\"currentcolor\"\n      image \"symbol:add\" testId=\"icon\" -exact-tint-color=\"currentColor\" alt=\"Add\"\n      input testId=\"field\" value=\"\" enterkeyhint=\"send\"\n";
     let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
     let mut r = Runner::boot(
         plan,
@@ -113,11 +113,15 @@ fn position_area_places_a_popover_in_the_admitted_subset_only() {
         "top span-right",
         "top span-all",
         "center",
+        "right span-bottom",
     ] {
         contract::compile(&popover(value)).unwrap_or_else(|e| panic!("{value}: {e}"));
     }
     for value in [
         "left",
+        "right",
+        "right span-top",
+        "span-bottom right",
         "top left",
         "span-all top",
         "top span-left",

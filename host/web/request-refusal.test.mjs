@@ -658,6 +658,34 @@ export function answer(name, args, store, storage) {
   }
 });
 
+test('the web build retains every ambient diagnostic with its source location', () => {
+  // Diagnostic paths can resemble warnings or Cargo's progress lines.
+  for (const file of ['logic clock.ts', 'warning clock.ts', 'Compiling clock.ts']) {
+    const dir = mkdtempSync(resolve(tmpdir(), 'exact web diagnostics-'));
+    try {
+      writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Diagnostics', app: { id: 'test.exact.diagnostics', name: 'Diagnostics' }, rust: false }));
+      writeFileSync(resolve(dir, 'app.contract'), 'component App\n  resource message = message() as shape string\n  view\n    text message\n');
+      writeFileSync(resolve(dir, 'app.ts'), `import { prefix } from './${file}';\nexport const appId = 'test.exact.diagnostics';\nexport const grants = '';\nexport const answer: import('./app.contract.d.ts').Answer = () => prefix;\n`);
+      writeFileSync(resolve(dir, file), [
+        "export const prefix = 'hello';",
+        'export const a = () => Date.now();',
+        'export const b = () => globalThis.setTimeout(() => {}, 1);',
+        "export const c = () => Date['now']();",
+        'export const d = () => Math[`random`]();',
+        '',
+      ].join('\n'));
+      const built = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), 'diagnostics', '--render', 'none'], {
+        cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: dir, EXACT_WEB_DIST: resolve(dir, 'dist') },
+      });
+      expect(built.status, built.stderr).toBe(1);
+      for (const [line, api] of [[2, 'Date.now()'], [3, 'setTimeout()'], [4, 'Date.now()'], [5, 'Math.random()']]) {
+        expect(built.stderr, built.stderr).toContain(`${file}:${line}:24: ${api} is unavailable in data sources`);
+      }
+      expect(built.stderr).toContain('the web build (the JS target) failed');
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  }
+}, 60_000);
+
 // LLP 1027.000 D3 on the JS target: the app's modules get guarded bindings
 // in place of the page's clock, Math.random and timers, injected as the web
 // build injects them, and Hermes's fixture of aliases refuses with Hermes's words.
@@ -700,6 +728,47 @@ test("the JS target refuses a data module's clock, randomness and timers as Herm
     expect(answer('intl', [0])).toBe('1970/1970/1970/1970');
     // The page's own are untouched.
     expect([globalThis.Date, Math.random, typeof Date.now()]).toEqual([page.Date, page.random, 'number']);
+  } finally {
+    delete globalThis.exact;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// LLP 1016.000 D3 on the JS target: a data module's own socket, request or
+// event source refuses with the wasm target's words (module-glue.js), in every
+// spelling, so no frame leaves past the grants (#126).
+test("the JS target refuses a data module's own WebSocket, XMLHttpRequest and EventSource as the wasm target does", async () => {
+  const { transformSync } = await import('rolldown/utils');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-io-'));
+  const build = readFileSync(resolve(ROOT, 'host/web-js/build.mjs'), 'utf8');
+  const bound = JSON.parse(/const bound = (\[[^\]]*\]);/.exec(build)[1].replaceAll("'", '"').replace(/\s+/g, ''));
+  const guards = resolve(dir, 'ts-fetch.js');
+  cpSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), guards);
+  writeFileSync(resolve(dir, 'admission.js'), 'export const fetchWith = () => Promise.reject(new Error("no fetch here"));\n');
+  writeFileSync(resolve(dir, 'admission-data.js'), 'export const tsGrantSet = null;\n');
+  const source = resolve(dir, 'source.js');
+  writeFileSync(source, `const io = { WebSocket, XMLHttpRequest, EventSource };
+const forms = {
+  bare: name => ({ WebSocket: () => new WebSocket('ws://127.0.0.1:9/x'), XMLHttpRequest: () => new XMLHttpRequest(), EventSource: () => new EventSource('http://127.0.0.1:9/x') })[name](),
+  global: name => new globalThis[name]('ws://127.0.0.1:9/x'), window: name => new window[name]('ws://127.0.0.1:9/x'),
+  self: name => new self[name]('ws://127.0.0.1:9/x'), alias: name => new io[name]('ws://127.0.0.1:9/x'),
+  call: name => globalThis[name]('ws://127.0.0.1:9/x'), reflect: name => Reflect.construct(globalThis[name], ['ws://127.0.0.1:9/x']),
+};
+globalThis.exact = { answer: (form, name) => { try { forms[form](name); return 'opened'; } catch (e) { return e.message; } } };
+`);
+  const app = transformSync(source, readFileSync(source, 'utf8'), { inject: { ...Object.fromEntries(bound.map(name => [name, [guards, name]])),
+    ...Object.fromEntries(['globalThis', 'window', 'self'].map(name => [name, [guards, 'appGlobal']])) } });
+  expect(app.errors).toEqual([]);
+  writeFileSync(resolve(dir, 'app.js'), app.code);
+  const page = globalThis.WebSocket;
+  try {
+    await import(`${pathToFileURL(resolve(dir, 'app.js')).href}?io=${Date.now()}`);
+    const { answer } = globalThis.exact;
+    for (const name of ['WebSocket', 'XMLHttpRequest', 'EventSource'])
+      for (const form of ['bare', 'global', 'window', 'self', 'alias', 'call', 'reflect'])
+        expect(answer(form, name), `${form} ${name}`).toBe(`${name} is unavailable in data sources`);
+    // The page's own, which the runtime's stream opens, is untouched.
+    expect(globalThis.WebSocket).toBe(page);
   } finally {
     delete globalThis.exact;
     rmSync(dir, { recursive: true, force: true });

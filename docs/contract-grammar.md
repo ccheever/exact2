@@ -143,7 +143,7 @@ lacks — the line it has for that file, extended, or a new one — and `contrac
 fmt --uses <root.contract>` writes them (`bun exact.mjs update` does too, for an
 app outside this repo). A name two files declare, or one the compiler gave on a
 collision (`Card__ui`), is left to the author and said. The keyframes an `animation`, `animation-name` or
-`exit-animation` literal names, and a `clock(Name)` literal, resolve in the
+`-exact-exit-animation` literal names, and a `-exact-clock(Name)` literal, resolve in the
 file that writes them; a name computed at run time is matched as written. Beside
 a computed value, a word is renamed when it is the name whatever the value is;
 one that is the name for some values and a keyword for others (`${x} linear
@@ -686,7 +686,7 @@ link sheet.
 ## Events
 
 An event binding is an action reference or partially applied action. Captured
-arguments precede the event payload. The table contains all 57 handler names.
+arguments precede the event payload. The table contains all 59 handler names.
 Numeric multi-argument payload ordering should be copied from the feature's
 working fixture, not inferred from JavaScript's Event interface.
 
@@ -694,7 +694,7 @@ working fixture, not inferred from JavaScript's Event interface.
 | --- | --- |
 | A string, then optionally an `InputEvent` | `change`, `input` on a text field, textarea, `select`, date or time input, and `type="radio"` (the radio's `value`); an action taking one more parameter also hears the [target](#form-controls-radio-inputevent-setselectionrange) |
 | One string | `message`, `error` |
-| A string, then optionally a `KeyboardEvent` | `key`: the key's name; an action taking one more parameter also hears the [modifiers](#keys) |
+| A string, then optionally a `KeyboardEvent` | `key` (DOM's `keydown`) and `keyup`: the key's name; an action taking one more parameter also hears the [modifiers, the physical key and whether it repeats](#keys) |
 | Two numbers, then optionally a `ScrollEvent` | `scroll`: left and top; an action taking one more parameter also hears the scroller's extents (below) |
 | Two numbers, then optionally a `DOMRectReadOnly` | `resize` given an action: the content box's width and height; an action taking one more parameter also hears its `contentRect` (below). A string `resize` is CSS's property |
 | One boolean | `hover`; `fullscreenchange` (whether the video is now full screen) |
@@ -975,8 +975,8 @@ textarea id="editor" value=source input=edited select=selected
 
 ### Keys
 
-`key` is the DOM's `keydown`, on every host (web, macOS, iOS and iPadOS with a
-hardware keyboard, Linux):
+`key` is the DOM's `keydown` and `keyup` its `keyup`, on every host (web,
+macOS, iOS and iPadOS with a hardware keyboard, Linux):
 
 - **Where.** The key goes to the focused element: a field or textarea being
   edited, a `button`, or any element with a `press`, `focus`, `blur` or `key`
@@ -988,13 +988,37 @@ hardware keyboard, Linux):
   included (`"a"`, `"A"`, `"7"`, `" "`, `"/"`), or the key's name (`"Enter"`,
   `"Escape"`, `"Tab"`, `"Backspace"`, `"Delete"`, `"ArrowUp"`…, `"Home"`,
   `"End"`, `"PageUp"`, `"PageDown"`, `"F1"`…, `"Shift"`). Every key is heard,
-  printable ones in a field included. Keys an input method is composing are
-  its own.
+  printable ones in a field included. On macOS and iOS, keys an input
+  method is composing are its own, but for two: a modifier's own press and
+  release (so a Shift let go mid-syllable is still a keyup), and a ⌘ chord,
+  whose keydown commits the composed text first: the field's `input` hears
+  the text, then the chord's `key` handlers run and read the value Chrome's
+  would (there the page's value already holds the composed text). A
+  composer's ⌘Enter `key` action sends what was typed. On macOS such a chord
+  presses no `aria-keyshortcuts` button, as the web's skip a key that came
+  composing. On the web, Chrome hands the `key` handlers every key while
+  composing (`isComposing`, which Contract does not carry) and commits
+  nothing first.
 - **Modifiers.** An action that takes one more parameter, typed
   `KeyboardEvent`, hears the event too: the record `{ key: string, shiftKey:
-  bool, ctrlKey: bool, altKey: bool, metaKey: bool }`, the DOM's fields
-  (`altKey` is Option and `metaKey` Command on a Mac). A key typed with
-  Control or Meta held is a shortcut: it types nothing.
+  bool, ctrlKey: bool, altKey: bool, metaKey: bool, code: string, repeat:
+  bool }`, the DOM's fields (`altKey` is Option and `metaKey` Command on a
+  Mac). A key typed with Control or Meta held is a shortcut: it types
+  nothing. `code` is the physical key, whatever the layout or input source
+  types there (`"KeyB"`, `"Digit1"`, `"Space"`, `"MetaLeft"`), so a shortcut
+  can match the key under a Korean or Russian layout; `""` where the host
+  cannot tell (a software keyboard's key). `repeat` is true on the keydowns
+  the platform repeats while a key is held, so an action can act once per
+  press (iOS reports none: UIKit's presses carry no auto-repeat).
+- **Release.** `keyup` hears the key coming up, at the focus, bubbling as
+  `key` does (`stopPropagation()` stops it the same way), with the same
+  name and record (`repeat` is false). A modifier's release is one too
+  (`key` `"Meta"`), and its own flag is no longer held (`metaKey` is true
+  on Meta's keydown, false on its keyup), so an app shows a "⌘ held" hint
+  between the two. A keyup reaches the focus whatever took the keydown (a
+  shortcut, a `preventDefault()`). It has no default to prevent on a native
+  host. An element with a `keyup` handler takes the focus, as one with
+  `key` does.
 - **Then the default.** After the handlers, the key does what it would have:
   a character is typed into the focused field, Backspace deletes, Enter
   commits an input (its `change`, when its value changed, as HTML's does)
@@ -1036,6 +1060,36 @@ the platform's users press: `(e.metaKey or e.ctrlKey) and k == "s"` saves on a
 Mac and elsewhere. The driver presses chords in Playwright's spelling (`type
 "composer" key "Shift+Enter"`, `key "Meta+s"`).
 
+Hints while ⌘ is held, and a held ⌘W that closes one panel, not one per
+repeat, by the physical key whatever the layout types. Held modifiers are
+tracked as a page tracks them: every keydown and keyup says what is held,
+and losing the window's focus forgets it, since a key let go while another
+app or window has the focus sends no keyup, here as in Chrome. A page's
+`window` `blur` listener is `exactPage().hasFocus` turning false, the gate of
+a task that clears the flag:
+
+```text
+action down(k: string, e: KeyboardEvent)
+  hints = e.metaKey
+  if e.metaKey and e.code == "KeyW" and not e.repeat
+    closed = closed + 1
+    preventDefault()
+action up(k: string, e: KeyboardEvent)
+  hints = e.metaKey
+action forget()
+  hints = false
+task release when hints and not page.hasFocus
+  after(1, forget)
+```
+
+`resource page = exactPage() as shape Page` (`hasFocus: bool`), `column
+key=down keyup=up`, and `when hints and page.hasFocus` around the hints. The
+driver holds and releases a key with `type "list" key "Meta" down` and `key
+"Meta" up`, takes the focus away with `prefer has-focus false` (then `clock
++1` for the task), and `key "a" for 1200` repeats a key while held, as a
+keyboard does (the first repeat 500 ms after the down, then every 83 ms, on
+the virtual clock).
+
 - **A game's canvas.** A key at a canvas whose world takes input, or at a
   node inside one, goes the same way first: a shortcut takes it, then the
   `key` handlers from the focus out hear it, and one that calls
@@ -1058,13 +1112,17 @@ Mac and elsewhere. The driver presses chords in Playwright's spelling (`type
 - **The Mac's menu bar.** Every button whose chord holds ⌘ is also a menu
   item, titled by its `aria-label` (or its text), placed by its chord as
   Apple's HIG places one: ⌘, is Settings…; ⌘[ ⌘] and a `tablist`'s tabs are
-  Go; ⌘Z ⇧⌘Z ⌘X ⌘C ⌘V ⌘A ⌘D ⌘F ⌘G ⇧⌘G are Edit; ⌘= ⌘+ ⌘- ⌘0 and any ⌃⌘
-  chord are View; the rest are File. One whose chord is the host's own Edit
-  item's (Undo, Redo, Cut, Copy, Paste, Select All) takes that item's place,
-  so Edit ▸ Undo is the app's "Undo Move"; any other host item whose chord a
-  button declares keeps its place without the chord (File ▸ Close Window
-  beside the app's ⌘W). Drop the chord while a field is being edited and the
-  host's text Undo, Cut, Copy and Paste come back (studio diary R16).
+  Go; ⌘Z ⇧⌘Z ⌘X ⌘C ⌘V ⇧⌘V ⌥⇧⌘V ⌘A ⌘D ⌘F ⌘G ⇧⌘G are Edit; ⌘= ⌘+ ⌘- ⌘0 and
+  any ⌃⌘ chord are View; the rest are File. One whose chord is the host's own
+  Edit item's (Undo, Redo, Cut, Copy, Paste, Select All) takes that item's
+  place, so Edit ▸ Undo is the app's "Undo Move"; a paste variant (⇧⌘V,
+  ⌥⇧⌘V) follows Paste, as Paste and Match Style does in TextEdit, Safari and
+  Chrome ("Paste as Text"); the rest follow Select All. Any other host item
+  whose chord a button declares keeps its place without the chord (File ▸
+  Close Window beside the app's ⌘W). Drop the chord while a field is being
+  edited and the host's text Undo, Cut, Copy and Paste come back (studio
+  diary R16). Edit also holds Speech ▸ Start Speaking and Stop Speaking, which
+  read the selected text aloud, in a field or out of one (#141).
 
 ### Focus order: `tabindex`
 
@@ -1104,7 +1162,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `focus(id)` | [Markdown Stress](../apps/markdown-stress/app.contract) |
 | `format(id, command[, argument])`: a Markdown editor's toolbar command ([Markdown](#markdown-markup-format-select)) | [Markdown Stress](../apps/markdown-stress/app.contract) |
 | `blur()`, `blur(id)` | [Messages](../apps/messages/app.contract), [keyboard-bar corpus](../contract/corpus/keyboard-bar.contract) |
-| `selectText(...)` | [Messages Legacy](../apps/messages-legacy/app.contract) |
+| `selectText(...)` | No app fixture; the hosts' field selection, such as [`FieldSelections.swift`](../host/apple/Sources/ExactKit/FieldSelections.swift) |
 | `setSelectionRange(id, start, end[, direction])`: a text field's selection, by its `id` ([form controls](#form-controls-radio-inputevent-setselectionrange)) | [radios conformance](../host/web-js/conformance/radios.contract), [control tests](../contract/cli/tests/it/controls.rs) |
 | `copyText(text)` | [Messages](../apps/messages/app.contract) |
 | `openURL(url)` | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js) |

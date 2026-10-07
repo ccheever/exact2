@@ -93,7 +93,7 @@ final class PresenceIOSTests: XCTestCase {
     }
 
     /// Measured again when what sizes it changes: a segment's title, the
-    /// text size, a hook's background image; not otherwise.
+    /// text size, a hatch's background image; not otherwise.
     func testASegmentedTablistIsMeasuredAgainWhenWhatSizesItChanges() throws {
         let p = tabBarFixture()
         defer { p.reset() }
@@ -108,12 +108,12 @@ final class PresenceIOSTests: XCTestCase {
         let control = try XCTUnwrap(p.segments.control(of: 10))
         drainIntrinsicSizes()
         XCTAssertEqual(reports.last ?? nil, control.intrinsicContentSize)
-        // A hook's background image, taller than the control.
+        // A hatch's background image, taller than the control.
         let tall = UIGraphicsImageRenderer(size: CGSize(width: 4, height: 60)).image { _ in }
         control.setBackgroundImage(tall, for: .normal, barMetrics: .default)
         p.segments.sync()
         drainIntrinsicSizes()
-        XCTAssertEqual((reports.last ?? nil)?.height, control.intrinsicContentSize.height, "a hook's look is measured")
+        XCTAssertEqual((reports.last ?? nil)?.height, control.intrinsicContentSize.height, "a hatch's look is measured")
         control.setBackgroundImage(nil, for: .normal, barMetrics: .default)
         p.segments.sync()
         drainIntrinsicSizes()

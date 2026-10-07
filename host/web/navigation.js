@@ -51,12 +51,17 @@ function historyURL(path) {
 }
 const stamp = (index, op) => ({ exact: index, id: op.top, url: op.url });
 
+/** The selected route's Back control (1035.001 D1: the `id` the root's `navigationBack` names), pressable or not. */
+const backControl = nav => { const route = selectedRoute(nav); return route && [...route.querySelectorAll("[id]")].find(node => node.id === nav.getAttribute("navigationBack")); };
+/** Press the Back control; else why it was not pressed. */
 function pressBack(nav) {
-  const route = selectedRoute(nav);
-  if (!route || ["modal", "fullscreen"].includes(route.getAttribute("navigationPresentation")) && route.getAttribute("closedby") === "none") return;
-  const control = [...route.querySelectorAll("[id]")].find(node => node.id === nav.getAttribute("navigationBack"));
-  if (control && !control.matches(":disabled") && !control.closest("[inert]")
-      && control.getClientRects().length && getComputedStyle(control).visibility === "visible") control.click();
+  const route = selectedRoute(nav), control = backControl(nav);
+  if (!route) return "no route is selected";
+  if (["modal", "fullscreen"].includes(route.getAttribute("navigationPresentation")) && route.getAttribute("closedby") === "none") return `route ${route.getAttribute("navigationKey")} is closedby="none"`;
+  if (!control) return `route ${route.getAttribute("navigationKey")} has no id="${nav.getAttribute("navigationBack")}" control`;
+  if (control.matches(":disabled") || control.closest("[inert]") || !control.getClientRects().length || getComputedStyle(control).visibility !== "visible")
+    return `its id="${control.id}" control is disabled, inert or not shown`;
+  control.click();
 }
 
 function go(to, from, finish = () => {}) {
@@ -103,11 +108,16 @@ function popped({ j, state, url }) {
   const target = owned ? entry.url : url;
   const nav = root.querySelector("[navigationBack]");
   const routes = routesOf(nav), selected = routes.indexOf(selectedRoute(nav));
-  const back = owned && j === cursor - 1 && selected > 0
+  // A completed pop presses the selected route's Back control. A route with
+  // none (a screen with no Back button) still goes back, as the web's Back
+  // does: the root's `navigate` with the entry's URL, as any other traversal.
+  const beneath = owned && j === cursor - 1 && selected > 0
     && routes[selected - 1].getAttribute("navigationKey") === String(entry.id);
+  const back = beneath && !!backControl(nav);
+  let why = null;
   pop = {};
   try {
-    if (back) pressBack(nav);
+    if (back) why = pressBack(nav);
     else navigate(target);
     const accepted = back ? last?.top === entry.id : pop.op?.url === target;
     if (accepted) {
@@ -123,8 +133,8 @@ function popped({ j, state, url }) {
         commit(op);
       }
     } else {
-      if (back) log("history: Back refused; restoring the entry");
-      else log(`history: navigate ${JSON.stringify(target)} refused; restoring the entry`);
+      if (back) log(`history: Back refused: ${why ?? `pressing the Back control did not select entry ${entry.id}`}; restoring the entry`);
+      else log(`history: ${beneath ? `Back to ${JSON.stringify(target)} refused: route ${nav.getAttribute("navigationKey")} has no id="${nav.getAttribute("navigationBack")}" control, and` : `navigate ${JSON.stringify(target)} refused:`} the navigation root's navigate handler (navigate=…) committed no router change, or the root has none; restoring the entry`);
       if (j !== null && j !== cursor) go(cursor, j);
       else history.replaceState(written[cursor], "", historyURL(written[cursor].url));
     }
@@ -240,7 +250,7 @@ export const navigation = {
         }
       }
     }
-    // The page module's container hooks, when it has them (LLP 1075.003.000 §3.7).
+    // The page module's container hatches, when it has them (LLP 1075.003.000 §3.7).
     globalThis.exact?.onProject?.(root);
   },
   observation(root) {
@@ -332,7 +342,7 @@ export function afterPaintPieces(load, o) {
   } };
 }
 
-// @ref LLP 1063 — exit-animation and layout-transition play in
+// @ref LLP 1063 — -exact-exit-animation and -exact-layout-transition play in
 // `presence-glue.js`, fetched when a batch first carries either row. A batch
 // with an exit that arrives before the module does waits for it, and every
 // batch after it waits behind it, so no exit is lost and order holds; the
@@ -766,31 +776,32 @@ export const onPreferences = (changed) => queries().forEach(([q]) => q.addEventL
 // bit 0 `document.visibilityState == "hidden"`, bit 1 `!navigator.onLine`,
 // bit 2 `typeof navigator.share === "function"` (LLP 1069.003 D5), bit 3
 // `typeof showOpenFilePicker === "function"` (LLP 1069.010 D2; studio diary
-// R31). Under the agent the drive's values stand in (visible, online, a
-// share sheet, the pickers: LLP 1069.000 D6), set by `prefer`'s `page`
-// group; the machine is never read.
+// R31), bit 4 `!document.hasFocus()` (#114), told again at the window's
+// `focus` and `blur`. Under the agent the drive's values stand in (visible,
+// online, a share sheet, the pickers, focus: LLP 1069.000 D6), set by
+// `prefer`'s `page` group; the machine is never read.
 export function pageReporter(agent, platform = globalThis) {
-  const facts = { "visibility-state": "visible", online: true, "can-share": true, "can-open-files": true, "root-font-size": 16 };
+  const facts = { "visibility-state": "visible", online: true, "can-share": true, "can-open-files": true, "has-focus": true, "root-font-size": 16 };
   // @ref LLP 1069.000 D3 — the root font size: the document element's
   // computed `font-size`, the browser's setting unless a page sets it; under
   // the agent the drive sets it on the element (`prefer root-font-size`).
   // The app's own size (`appRootFontSize`) is set over it and read past.
   const rootFontSize = () => agent ? facts["root-font-size"] : beneathApp(platform, () => parseFloat(platform.getComputedStyle(platform.document.documentElement).fontSize) || 16);
-  const read = () => agent ? { ...facts } : { "visibility-state": platform.document.visibilityState === "hidden" ? "hidden" : "visible", online: platform.navigator.onLine !== false, "can-share": typeof platform.navigator.share === "function", "can-open-files": typeof platform.showOpenFilePicker === "function" };
-  const bits = () => { const f = read(); return (f["visibility-state"] === "hidden" ? 1 : 0) | (f.online ? 0 : 2) | (f["can-share"] ? 4 : 0) | (f["can-open-files"] ? 8 : 0); };
+  const read = () => agent ? { ...facts } : { "visibility-state": platform.document.visibilityState === "hidden" ? "hidden" : "visible", online: platform.navigator.onLine !== false, "can-share": typeof platform.navigator.share === "function", "can-open-files": typeof platform.showOpenFilePicker === "function", "has-focus": typeof platform.document.hasFocus !== "function" || platform.document.hasFocus() };
+  const bits = () => { const f = read(); return (f["visibility-state"] === "hidden" ? 1 : 0) | (f.online ? 0 : 2) | (f["can-share"] ? 4 : 0) | (f["can-open-files"] ? 8 : 0) | (f["has-focus"] ? 0 : 16); };
   const prefer = (page) => {
     const next = { ...facts };
     for (const [name, raw] of Object.entries(page ?? {})) {
       const value = String(raw);
       if (name === "visibility-state" && (value === "visible" || value === "hidden")) next[name] = value;
-      else if ((name === "online" || name === "can-share" || name === "can-open-files") && (value === "true" || value === "false")) next[name] = value === "true";
+      else if ((name === "online" || name === "can-share" || name === "can-open-files" || name === "has-focus") && (value === "true" || value === "false")) next[name] = value === "true";
       else if (name === "root-font-size" && Number(value) > 0 && Number.isFinite(Number(value))) next[name] = Number(value);
       else throw new Error(`prefer: ${name}: ${value} is not a page fact this host sets`);
     }
     Object.assign(facts, next);
     if (page?.["root-font-size"] !== undefined) platform.document.documentElement.style.fontSize = `${facts["root-font-size"]}px`;
   };
-  const onChange = (changed) => { if (agent) return; platform.document.addEventListener("visibilitychange", changed); platform.addEventListener("online", changed); platform.addEventListener("offline", changed); };
+  const onChange = (changed) => { if (agent) return; platform.document.addEventListener("visibilitychange", changed); for (const name of ["online", "offline", "focus", "blur"]) platform.addEventListener(name, changed); };
   return { bits, read: () => ({ ...read(), "root-font-size": rootFontSize() }), prefer, onChange, rootFontSize };
 }
 

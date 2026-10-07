@@ -64,6 +64,11 @@ use exact_plan::{EventKind, Plan};
 use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
 pub use height::{HeightOwnerChange, HeightOwnerDisposition, HeightOwnerError};
 use height_drag::{HeightDrag, HeightHandle};
+#[path = "activation.rs"]
+mod activation;
+#[cfg(test)]
+#[path = "activation_tests.rs"]
+mod activation_tests;
 #[cfg(test)]
 #[path = "box_motion_tests.rs"]
 mod box_motion_tests;
@@ -98,6 +103,9 @@ pub enum HostError {
     Runner(RunnerError),
     Layout(String),
     Delivery(String),
+    /// The plan uses capabilities this archive doesn't link, by name
+    /// (LLP 1047.001 D5): `Unlinked("grouped_lists")`.
+    Unlinked(String),
     RuntimeIdExhausted,
 }
 
@@ -130,8 +138,8 @@ pub struct Host<D: DataSource> {
     mirror: IdMap<ViewId, Mirror>,
     keys: IdMap<NodeKey, ViewId>,
     inline_runs: IdMap<ViewId, (ViewId, Vec<EventKind>)>,
-    /// Hook words journaled as having no view here (an inline run's).
-    viewless_hooks: std::collections::BTreeSet<String>,
+    /// Hatch words journaled as having no view here (an inline run's).
+    viewless_hatches: std::collections::BTreeSet<String>,
     /// SVG scenes and lowered CSS animations (LLP 1055 D4, D7).
     svg: svg::SvgState,
     /// 2D canvases whose replays the presenter has not caught up with: a
@@ -183,6 +191,9 @@ pub struct Host<D: DataSource> {
     /// or grants that do not parse).
     secrets: Option<Platform>,
     data_activated: bool,
+    /// The session's wake (`listen`), which a pending activation leaves
+    /// with the data source.
+    preload_wake: exact_runner::PreloadWake,
     /// The update store's last line this host journaled, so a sync after
     /// a check writes it once.
     update_line: Option<String>,
@@ -284,6 +295,7 @@ impl<D: DataSource> Host<D> {
             None,
             "/",
             None,
+            crate::link::Links::ALL,
             |_| {},
         )?;
         host.commit_boot();
@@ -307,6 +319,7 @@ impl<D: DataSource> Host<D> {
         candidate_delivery: Option<exact_runner::Delivery>,
         launch: &str,
         region: Option<crate::content_region::ContentRegionRegistration>,
+        links: crate::link::Links<D>,
         prepare: impl FnOnce(&Plan),
     ) -> Result<(Host<D>, String), HostError> {
         Self::boot_stored_after_decode_mode(
@@ -323,6 +336,7 @@ impl<D: DataSource> Host<D> {
             launch,
             region,
             None,
+            links,
             prepare,
         )
     }
@@ -342,6 +356,7 @@ impl<D: DataSource> Host<D> {
         launch: &str,
         region: Option<crate::content_region::ContentRegionRegistration>,
         native: Option<crate::content_region::NativeProjectionLimits>,
+        links: crate::link::Links<D>,
         prepare: impl FnOnce(&Plan),
     ) -> Result<(Host<D>, String), HostError> {
         if let Some(json) = compat {
@@ -353,11 +368,13 @@ impl<D: DataSource> Host<D> {
             }
         }
         let plan = plan_bytes.decode().map_err(HostError::Plan)?;
-        // Native hosts link every row's grammar (LLP 1053.000 §2).
-        exact_kernel::style::link_backdrop_filter();
-        exact_kernel::style::link_segments();
-        exact_kernel::style::link_wide_colors();
-        exact_kernel::timeline::link();
+        // Before anything is built from it (LLP 1047.001 D5).
+        if let Some(names) = crate::link::missing(&plan, crate::link::linked()) {
+            return Err(HostError::Unlinked(names));
+        }
+        // The grammars this archive links (LLP 1047.001 D3; every one for a
+        // public boot, LLP 1053.000 §2).
+        links.grammars.link();
         let kernel = Kernel::new(measurer);
         let facts = candidate_delivery.unwrap_or_else(|| {
             let mut facts = exact_runner::Delivery::default();
@@ -372,10 +389,19 @@ impl<D: DataSource> Host<D> {
         // An `app:/data` image shows from the first frame, before storage
         // is configured and whether or not anything was picked (D7).
         crate::picker::know_roots(data.app_id());
-        let mut runner = Runner::boot_with_delivery(
-            plan, data, kernel, carried, snapshot, facts, viewport, launch,
+        let mut runner = Runner::boot_with_delivery_linked(
+            links.runner,
+            plan,
+            data,
+            kernel,
+            carried,
+            snapshot,
+            facts,
+            viewport,
+            launch,
         )
         .map_err(HostError::Runner)?;
+        runner.set_device_links(links.device);
         // @ref LLP 1079 D1 — a development build measures its work.
         runner.measure_unless_production(compat, true);
         if let Some(action) = region.and_then(|r| r.activate) {
@@ -410,7 +436,7 @@ impl<D: DataSource> Host<D> {
             mirror: IdMap::default(),
             keys: IdMap::default(),
             inline_runs: IdMap::default(),
-            viewless_hooks: Default::default(),
+            viewless_hatches: Default::default(),
             svg: svg::SvgState::new(cfg!(any(target_os = "ios", target_os = "tvos"))),
             canvas_held: IdSet::default(),
             canvas_kept: Default::default(),
@@ -455,6 +481,7 @@ impl<D: DataSource> Host<D> {
             viewport: (viewport.width as f32, viewport.height as f32),
             now_ms: 0.0,
             data_activated: false,
+            preload_wake: Default::default(),
             secrets,
             update_line: None,
             delivery,
@@ -649,6 +676,7 @@ impl<D: DataSource> Host<D> {
 
     /// Take the source's announced topics, waking the host (LLP 1016.002).
     pub fn listen(&mut self, wake: std::sync::Arc<dyn Fn() + Send + Sync>) {
+        self.preload_wake.set(wake.clone());
         self.runner.listen(wake);
     }
 
@@ -670,33 +698,6 @@ impl<D: DataSource> Host<D> {
     /// The hosts the app may reach (LLP 1016 D6), as the data crate declares them.
     pub fn grants(&mut self) -> String {
         self.runner.data().grants().to_string()
-    }
-
-    /// Load deferred app logic only after the presenter reports first pixel.
-    pub fn activate_data(&mut self) -> String {
-        if self.data_activated {
-            return self.commit(&[], None);
-        }
-        match self.runner.data_ref().preload() {
-            Ok(false) => return "{\"ops\":[],\"pending\":true}".into(),
-            Err(error) => return self.commit(&[], Some(format!("prepare data: {error:?}"))),
-            Ok(true) => {}
-        }
-        if let Err(error) = Self::activate_source(self.runner.data()) {
-            return self.commit(&[], Some(format!("activate data: {error:?}")));
-        }
-        self.data_activated = true;
-        match self.runner.data_ready() {
-            Ok(Some(receipt)) => self.commit(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ),
-            Ok(None) => self.commit(&[], None),
-            Err(error) => self.commit(&[], Some(format!("data ready: {error:?}"))),
-        }
     }
 
     /// What the last commit kept or forgot, into the platform's store (LLP

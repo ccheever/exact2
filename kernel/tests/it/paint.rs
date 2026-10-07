@@ -394,7 +394,8 @@ fn an_appearance_change_transitions_and_a_dropped_row_retires() {
 
 #[test]
 fn paint_transition_names_and_colour_keyframes_round_trip_the_wire() {
-    let t = Transitions::parse("border-color 1s, box-shadow 2s, tint-color 3s, color 4s").unwrap();
+    let t = Transitions::parse("border-color 1s, box-shadow 2s, -exact-tint-color 3s, color 4s")
+        .unwrap();
     assert_eq!(t.0[0].property, TransitionProperty::BorderColor);
     let a = crate::keyframed(
         "k 1s @keyframes k{from{background-color:light-dark(rgba(255,0,0,1),rgba(0,128,0,1))}to{--exact-tint:rgba(0,0,255,0.5)}}",
@@ -435,7 +436,7 @@ fn paint_transition_names_and_colour_keyframes_round_trip_the_wire() {
     assert!((from.dark[0].1.y - 128.0 / 255.0).abs() < 1e-6, "{from:?}");
 }
 
-/// An `exit-animation` that names a colour owns it while the node lives, so
+/// An `-exact-exit-animation` that names a colour owns it while the node lives, so
 /// the engine has the value its exit plays over when the node leaves (LLP
 /// 1063). A `currentcolor` side that draws is the host's to paint in the
 /// presented `color`.

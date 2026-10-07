@@ -348,7 +348,10 @@ final class MenuHost: NSObject {
     }
 
     func isMenuShaped(_ pop: NodeView) -> Bool {
-        let rows = pop.container.subviews.compactMap { $0 as? NodeView }.filter { $0.props["contextPreview"] != "true" }
+        // A popover inside the menu (a submenu authored in its parent) is no
+        // row of it: closed, it is `display: none` on the web.
+        let rows = pop.container.subviews.compactMap { $0 as? NodeView }
+            .filter { $0.props["contextPreview"] != "true" && $0.props["popover"] == nil }
         func textOnly(_ node: NodeView) -> Bool {
             node.kind == "text" && node.container.subviews.compactMap { $0 as? NodeView }.allSatisfy(textOnly)
         }
@@ -363,58 +366,106 @@ final class MenuHost: NSObject {
             return images.count <= 1 && content.allSatisfy { textOnly($0) || images.contains($0) }
         }
     }
-    /// `pop`'s button menu, opened from `source` (nil only when a test
-    /// builds one with no invoker).
+    /// LLP 1021 §5, "Submenus": the popover `row` opens as a submenu, a
+    /// menu-shaped one (D3) its `popovertarget` names to toggle or show,
+    /// not a confirmation, and not already on `path` (the popovers from the
+    /// presented one down to `row`'s): a row that names one of those is an
+    /// item, as one opening any other popover is.
+    func submenu(of row: NodeView, path: [NodeView]) -> NodeView? {
+        guard let presenter, row.isButton, let name = row.props["popovertarget"], row.props["popovertargetaction"] != "hide",
+              let sub = presenter.carrying("popover").first(where: { $0.props["id"] == name }),
+              !isConfirmation(sub), !path.contains(where: { $0 === sub }), isMenuShaped(sub) else { return nil }
+        return sub
+    }
+    /// `pop`'s button menu, opened from `source` (nil for a context menu,
+    /// and when a test builds one with no invoker).
     func menu(of pop: NodeView, from source: NodeView? = nil) -> NSMenu {
+        let menu = items(of: pop, path: [], from: source, presentation: presentation(of: pop), once: Picked())
+        // The popover's `aria-label` titles the menu ("Open location in"). A
+        // submenu has none: the item that opens it names it.
+        if let heading = pop.props["accessibilityLabel"], !heading.isEmpty { menu.insertItem(.sectionHeader(title: heading), at: 0) }
+        return menu
+    }
+    /// The menu of `pop`, reached through `path`'s openers (each row that
+    /// opened the next popover): an item per button row, a separator per
+    /// `hr`, and a submenu per row that opens a menu-shaped popover.
+    private func items(of pop: NodeView, path: [Step], from source: NodeView?, presentation: Int, once: Picked) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
-        let once = Picked()
-        // The popover's `aria-label` titles the menu ("Open location in").
-        if let heading = pop.props["accessibilityLabel"], !heading.isEmpty { menu.addItem(.sectionHeader(title: heading)) }
+        let popovers = path.compactMap(\.parent) + [pop]
         for case let row as NodeView in pop.container.subviews {
             if row.props["contextPreview"] == "true" { continue } // a context menu's preview (§5.1)
+            if row.props["popover"] != nil { continue } // a submenu authored inside its parent
             if row.props["semanticTag"] == "hr" { menu.addItem(.separator()); continue }
             guard row.isButton else { continue }
+            if let sub = submenu(of: row, path: popovers) {
+                let item = NSMenuItem(title: title(of: row), action: nil, keyEquivalent: "")
+                item.submenu = items(of: sub, path: path + [Step(row, in: pop)], from: source, presentation: presentation, once: once)
+                item.isEnabled = !row.disabled && !row.inert && shown(row, in: popovers + [sub])
+                item.image = image(of: row)
+                menu.addItem(item)
+                continue
+            }
             let item = NSMenuItem(title: title(of: row), action: #selector(pick(_:)), keyEquivalent: "")
             item.target = self
-            item.representedObject = Pick(row, in: pop, from: source, presentation: presentation(of: pop),
+            item.representedObject = Pick(row, in: pop, path: path, from: source, presentation: presentation,
                                           title: item.title, once: once)
             item.state = row.props["accessibilityChecked"] == "true" ? .on : .off
             // As a chooser's: a hidden or inert row is shown, never chosen.
-            item.isEnabled = !row.disabled && !row.inert && shown(row, in: pop)
+            item.isEnabled = !row.disabled && !row.inert && shown(row, in: popovers)
             item.image = image(of: row)
             menu.addItem(item)
         }
         return menu
     }
-    /// One menu's items share this: the first item taken is its only one.
+    /// One menu's items share this, its submenus' too: the first item taken
+    /// is its only one.
     private final class Picked { var taken = false }
+    /// A row that opened a submenu, in the popover that holds it.
+    private struct Step {
+        weak var opener: NodeView?
+        weak var parent: NodeView?
+        init(_ opener: NodeView, in parent: NodeView) { self.opener = opener; self.parent = parent }
+    }
     /// An item's row as the menu showed it, in which presentation, opened
-    /// from which invoker.
+    /// from which invoker, through which submenus.
     private final class Pick: NSObject {
         weak var row: NodeView?
         weak var pop: NodeView?
         weak var source: NodeView?
+        let path: [Step]
         let invoked: Bool
         let presentation: Int
         let title: String
         let once: Picked
         var cancelled = false
-        init(_ row: NodeView, in pop: NodeView, from source: NodeView?, presentation: Int, title: String, once: Picked) {
-            self.row = row; self.pop = pop; self.source = source; invoked = source != nil
+        init(_ row: NodeView, in pop: NodeView, path: [Step], from source: NodeView?, presentation: Int, title: String, once: Picked) {
+            self.row = row; self.pop = pop; self.path = path; self.source = source; invoked = source != nil
             self.presentation = presentation; self.title = title; self.once = once
         }
     }
     /// Still the row the menu showed: live, in its popover, enabled, shown,
-    /// under the same title (a reused id is not that row); its invoker still
-    /// opening that popover, which has not been presented again since.
+    /// under the same title (a reused id is not that row); each submenu's
+    /// opener still in its popover, enabled and shown, opening the next;
+    /// the invoker still opening the presented popover, which has not been
+    /// presented again since.
     private func valid(_ pick: Pick) -> Bool {
         guard !pick.cancelled, let row = pick.row, let pop = pick.pop, live(row), live(pop),
               row.isDescendant(of: pop), row.isButton, !row.disabled, !row.inert,
-              shown(row, in: pop), title(of: row) == pick.title,
-              presentation(of: pop) == pick.presentation else { return false }
+              title(of: row) == pick.title else { return false }
+        var popovers: [NodeView] = []
+        for (i, step) in pick.path.enumerated() {
+            let next = i + 1 < pick.path.count ? pick.path[i + 1].parent : pop
+            guard let opener = step.opener, let parent = step.parent, let next, live(opener), live(parent),
+                  opener.isDescendant(of: parent), opens(opener, next), submenu(of: opener, path: popovers + [parent]) === next,
+                  !opener.disabled, !opener.inert else { return false }
+            popovers.append(parent)
+        }
+        popovers.append(pop)
+        guard let root = popovers.first, presentation(of: root) == pick.presentation,
+              pick.path.allSatisfy({ $0.opener.map { shown($0, in: popovers) } ?? false }), shown(row, in: popovers) else { return false }
         guard pick.invoked else { return true }
-        return pick.source.map { invokes($0, pop) } ?? false
+        return pick.source.map { invokes($0, root) } ?? false
     }
     /// An item picked: recorded now, its row pressed on the next main-queue
     /// turn, once, as a chooser's is (ChooserMac.swift): AppKit sends the
@@ -434,9 +485,11 @@ final class MenuHost: NSObject {
     }
     /// Not hidden by the page — `node`'s or an ancestor's `display: none`
     /// or hiding — though `pop` is hidden in place while a menu presents it.
-    func shown(_ node: NodeView, in pop: NodeView) -> Bool {
+    func shown(_ node: NodeView, in pop: NodeView) -> Bool { shown(node, in: [pop]) }
+    /// The same, `pops` (a menu and the submenus down to `node`) hidden in place.
+    func shown(_ node: NodeView, in pops: [NodeView]) -> Bool {
         !sequence(first: node as NSView, next: { self.parent(of: $0) }).contains { view in
-            (view as? NodeView)?.style["display"]?.string == "none" || (view.isHidden && view !== pop)
+            (view as? NodeView)?.style["display"]?.string == "none" || (view.isHidden && !pops.contains { $0 === view })
         }
     }
     func title(of v: NodeView) -> String {
@@ -446,8 +499,12 @@ final class MenuHost: NSObject {
         // A custom button whose face fits shows it too: a symbol-only row its
         // label (LLP 1069.011.000 D5); other content keeps its text.
         if v.isButton, let face = v.face, face.fits, let shown = face.shown { return shown }
+        // Its accessible name: an `aria-hidden` child (a submenu row's `›`,
+        // which the platform menu draws itself) is not part of it.
         return v.container.subviews
-            .compactMap { ($0 as? NodeView).map(title(of:)) }
+            .compactMap { $0 as? NodeView }
+            .filter { $0.props["accessibilityElementsHidden"] != "true" }
+            .map(title(of:))
             .filter { !$0.isEmpty }
             .joined(separator: " ")
     }

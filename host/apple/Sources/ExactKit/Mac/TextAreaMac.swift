@@ -2,7 +2,7 @@
 #if os(macOS)
 import AppKit
 
-final class TextArea: NSTextView {
+package final class TextArea: NSTextView {
     // Each editor owns its native undo history. An authoritative external
     // source update can reset this editor without clearing another field's
     // actions from a window-wide manager.
@@ -14,27 +14,27 @@ final class TextArea: NSTextView {
         editor.bookmark = selectedRange()
         owner?.textDidChange(Notification(name: NSText.didChangeNotification, object: self))
     })
-    override var undoManager: UndoManager? { textUndo.manager }
+    package override var undoManager: UndoManager? { textUndo.manager }
 
     weak var owner: NodeView?
-    var markup: MarkupEditor?
+    package var markup: MarkdownEditing?
 
     // The ARIA states AppKit has no property for (`NodeView.ariaAttribute`).
-    override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+    package override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
         super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { owner?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
     }
-    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+    package override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
         owner?.ariaAttribute(attribute.rawValue) ?? super.accessibilityAttributeValue(attribute)
     }
 
-    override func resignFirstResponder() -> Bool {
+    package override func resignFirstResponder() -> Bool {
         if let markup, !hasMarkedText() { markup.bookmark = selectedRange() }
         return super.resignFirstResponder()
     }
     /// `focus` as the web fires it: when the editor takes the focus, not at
     /// its first edit (`textDidBeginEditing`; jukebox F23). `blur` is
     /// `textDidEndEditing`, which AppKit posts whenever the focus leaves.
-    override func becomeFirstResponder() -> Bool {
+    package override func becomeFirstResponder() -> Bool {
         let ok = super.becomeFirstResponder()
         // A selection a script set while it had no focus (x2apps codeedit #2).
         if ok, let owner { owner.presenter?.fieldSelections.focused(owner) }
@@ -43,12 +43,12 @@ final class TextArea: NSTextView {
         return ok
     }
 
-    override func insertNewline(_ sender: Any?) {
+    package override func insertNewline(_ sender: Any?) {
         if markup != nil, !hasMarkedText(), owner?.formatMarkup("newline") == true { return }
         super.insertNewline(sender)
     }
 
-    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+    package override func performKeyEquivalent(with event: NSEvent) -> Bool {
         // An embedded/agent window need not own NSApp.keyWindow, so the
         // menu's responder lookup may miss its editor. Route the ordinary
         // undo chord straight to this text view's native manager.
@@ -73,14 +73,14 @@ final class TextArea: NSTextView {
         return super.performKeyEquivalent(with: event)
     }
 
-    @objc func copyPlainText(_ sender: Any?) {
+    @objc package func copyPlainText(_ sender: Any?) {
         guard markup != nil, selectedRange().length > 0,
-              let plain = MarkupCommands.plain((string as NSString).substring(with: selectedRange())) else { return }
+              let plain = MarkdownLink.installed?.plain((string as NSString).substring(with: selectedRange())) else { return }
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(plain, forType: .string)
     }
     // DOM's clipboard events, before the editor's own (#125, Clipboard.swift).
-    override func copy(_ sender: Any?) {
+    package override func copy(_ sender: Any?) {
         NodeView.fieldEdit(owner, #selector(NodeView.copy(_:))) {
             guard markup != nil else { super.copy(sender); return }
             let selection = selectedRange()
@@ -90,11 +90,11 @@ final class TextArea: NSTextView {
         }
     }
 
-    override func cut(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.cut(_:))) { super.cut(sender) } }
-    override func paste(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.paste(_:))) { super.paste(sender) } }
+    package override func cut(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.cut(_:))) { super.cut(sender) } }
+    package override func paste(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.paste(_:))) { super.paste(sender) } }
 
     var placeholder = "" { didSet { needsDisplay = true } }
-    override func draw(_ dirtyRect: NSRect) {
+    package override func draw(_ dirtyRect: NSRect) {
         super.draw(dirtyRect)
         if string.isEmpty, !placeholder.isEmpty {
             (placeholder as NSString).draw(in: bounds, withAttributes: [
@@ -170,7 +170,7 @@ extension NodeView {
     func configureMarkup() {
         guard let f = textArea as? TextArea else { return }
         if props["markup"] == "markdown" {
-            if f.markup == nil { f.markup = MarkupEditor() }
+            if f.markup == nil { f.markup = MarkdownLink.installed?.editor() }
         } else if let editor = f.markup, !f.hasMarkedText() {
             guard let storage = f.textStorage else { return }
             editor.detach(storage)
@@ -216,10 +216,10 @@ extension NodeView {
         f.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         f.setFrameSize(NSSize(width: scroller.contentSize.width, height: max(f.frame.height, scroller.contentSize.height)))
     }
-    func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+    package func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
         TextInputLimit.allows(textView.string, range: affectedCharRange, replacement: replacementString ?? "", props: props)
     }
-    func textDidChange(_ notification: Notification) {
+    package func textDidChange(_ notification: Notification) {
         guard let f = textArea else { return }
         if let editor = (f as? TextArea)?.markup, editor.applying || editor.styling { return }
         f.needsDisplay = true
@@ -229,17 +229,17 @@ extension NodeView {
         restyleMarkup()
         publishMarkupSelection()
     }
-    func textDidBeginEditing(_ notification: Notification) {
+    package func textDidBeginEditing(_ notification: Notification) {
         presenter?.collections.pinsChanged()
         publishMarkupSelection(force: true)
     }
-    func textViewDidChangeSelection(_ notification: Notification) {
+    package func textViewDidChangeSelection(_ notification: Notification) {
         guard let f = textArea as? TextArea, let editor = f.markup, !editor.applying, !editor.styling, !f.hasMarkedText() else { return }
         if f.window?.firstResponder === f { editor.bookmark = f.selectedRange() }
         restyleMarkup()
         publishMarkupSelection()
     }
-    func textDidEndEditing(_ notification: Notification) {
+    package func textDidEndEditing(_ notification: Notification) {
         presenter?.collections.pinsChanged()
         showFieldFocus(false)
         presenter?.commitEdit(id, textArea?.string ?? "", change: handlers.contains("change"))

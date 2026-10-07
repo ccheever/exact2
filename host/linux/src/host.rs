@@ -19,6 +19,8 @@ use exact_plan::Plan;
 use exact_runner::{Carried, DataSource, Event, Outcome, RequestOut, Runner, RunnerError, Timed};
 use std::collections::BTreeMap;
 
+#[path = "activation.rs"]
+mod activation;
 #[path = "arrange.rs"]
 mod arrange;
 #[path = "content_region/host.rs"]
@@ -108,6 +110,8 @@ pub struct Host<D: DataSource> {
     /// those nodes and what it plays, and a count of changes to them.
     lowering: bool,
     lowered: std::collections::HashMap<u64, u8>,
+    /// Whether colour transitions are lowered too (`lower.rs`).
+    lower_colors: bool,
     lowered_epoch: u64,
     /// The epoch each lowered node's plays last changed at.
     lowered_changed: std::collections::HashMap<u64, u64>,
@@ -115,6 +119,9 @@ pub struct Host<D: DataSource> {
         u64,
         Vec<(exact_motion::Property, exact_motion::PlayedTransition)>,
     >,
+    /// The executor's wake, which a pending activation leaves with the data
+    /// source, so the display loop doesn't poll.
+    preload_wake: exact_runner::PreloadWake,
     router_op: Option<exact_runner::RouterChange>,
     navigation: crate::navigation::Navigation,
     presence: presence::Presence,
@@ -209,10 +216,10 @@ impl<D: DataSource> Host<D> {
         region: Option<crate::content_region::ContentRegionRegistration>,
     ) -> Result<(Host<D>, Option<String>), HostError> {
         // @ref LLP 1075.003.000 §3.3 — this host has no native objects for a
-        // hook to reach: a plan that marks nodes is told so once, at boot.
-        let hooked = plan.bindings.iter().any(|b| {
+        // hatch to reach: a plan that marks nodes is told so once, at boot.
+        let hatched = plan.bindings.iter().any(|b| {
             b.kind == exact_plan::BindingKind::Prop
-                && exact_kernel::PropId::from_wire(b.id) == Some(exact_kernel::PropId::Hook)
+                && exact_kernel::PropId::from_wire(b.id) == Some(exact_kernel::PropId::Hatch)
         });
         // @ref LLP 1100 D10 — this host draws sRGB only.
         exact_kernel::style::wide::set_available(exact_color::Wide::in_srgb);
@@ -263,9 +270,11 @@ impl<D: DataSource> Host<D> {
             data_activated: false,
             lowering: false,
             lowered: Default::default(),
+            lower_colors: false,
             lowered_epoch: 0,
             lowered_changed: Default::default(),
             played: Default::default(),
+            preload_wake: Default::default(),
             router_op: None,
             navigation: Default::default(),
             presence: Default::default(),
@@ -315,9 +324,9 @@ impl<D: DataSource> Host<D> {
         let error = host.layout().err();
         host.observe_layout();
         host.present();
-        if hooked {
+        if hatched {
             host.runner.log(
-                "hook: this host has no native objects; hooked nodes are shown and never called",
+                "hatch: this host has no native objects; hatched nodes are shown and never called",
             );
         }
         Ok((host, error))
@@ -682,62 +691,6 @@ impl<D: DataSource> Host<D> {
         self.runner.log(line);
     }
 
-    fn configure_storage(&mut self) -> Result<(), exact_runner::DataError> {
-        let app_id = self.runner.data().app_id().to_string();
-        let Some(([data, cache, temporary], _)) = crate::picker::app_dirs(&app_id)? else {
-            return Ok(());
-        };
-        // An authored test's store starts empty every run (`agent --test`):
-        // emptied at the boot that read it, so this is a no-op unless that failed.
-        crate::picker::empty_fresh_tree(&app_id)?;
-        // What `app:/` names for the picker and an image's source (LLP
-        // 1069.002 D4, D7); the last launch's picks go.
-        crate::picker::set_roots(data.clone(), cache.clone(), temporary.clone());
-        self.runner.data().configure_storage(data, cache, temporary)
-    }
-
-    /// Activate deferred data only after the presenter has produced first pixel.
-    /// Returns whether a data-ready commit needs presenting and dispatching.
-    pub fn activate_data(&mut self) -> Result<bool, String> {
-        if self.data_activated {
-            return Ok(false);
-        }
-        if !self
-            .runner
-            .data_ref()
-            .preload()
-            .map_err(|e| format!("prepare data: {e:?}"))?
-        {
-            return Ok(false);
-        }
-        if let Err(error) = self
-            .configure_storage()
-            .and_then(|()| self.runner.data().activate())
-        {
-            return Err(format!("activate data: {error:?}"));
-        }
-        self.data_activated = true;
-        match self.runner.data_ready() {
-            Ok(Some(receipt)) => match self.commit(
-                &[Timed {
-                    at_ms: self.now_ms,
-                    receipt,
-                }],
-                None,
-            ) {
-                Some(error) => Err(error),
-                None => Ok(true),
-            },
-            Ok(None) => Ok(false),
-            Err(error) => Err(format!("data ready: {error:?}")),
-        }
-    }
-
-    /// Deferred image preparation needs another turn after first pixel.
-    pub fn data_pending(&self) -> bool {
-        !self.data_activated
-    }
-
     /// The work behind a continuation, dispatched on this thread after the
     /// commit that handed it out (LLP 1027.002 D3).
     pub fn dispatch_work(&mut self, token: u64) -> exact_runner::Dispatch {
@@ -753,6 +706,7 @@ impl<D: DataSource> Host<D> {
     /// also wake (LLP 1016.002).
     pub fn executor(&mut self) -> crate::executor::Executor {
         let executor = crate::executor::Executor::start(&self.grants());
+        self.preload_wake.set(executor.waker());
         self.runner.listen(executor.waker());
         executor
     }

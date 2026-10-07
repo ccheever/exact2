@@ -1,18 +1,24 @@
-//! CSS `backdrop-filter: blur(σ)` on the CPU painter (LLP 1053.000 D2): the
+//! CSS `backdrop-filter` on the CPU painter (LLP 1053.000 D2): the
 //! pixels already painted under the border box — in the current layer, so
-//! an opacity group is its own backdrop root, as CSS's is — blurred by the
-//! shared island rasterizer's Gaussian and put back inside the box, under
+//! an opacity group is its own backdrop root, as CSS's is — filtered by the
+//! shared rasterizer's blur and saturation, then put back inside the box, under
 //! the current clip.
 
 use super::{rounded_rect, Raster};
 use crate::paint::Shape;
+use exact_kernel::style::{BackdropFilter, BackdropOp};
 use tiny_skia::{
     BlendMode, FillRule, FilterQuality, IntSize, Paint, Pattern, Pixmap, Point, SpreadMode,
     Transform,
 };
 
 impl Raster {
-    pub(super) fn blur_backdrop(&mut self, shape: &Shape, sigma: f32, ts: Transform) {
+    pub(super) fn filter_backdrop(
+        &mut self,
+        shape: &Shape,
+        filter: &BackdropFilter,
+        ts: Transform,
+    ) {
         let Some(path) = rounded_rect(shape) else {
             return;
         };
@@ -73,7 +79,16 @@ impl Raster {
         }
         // σ in device pixels: the transform's area scale.
         let k = (dev.sx * dev.sy - dev.kx * dev.ky).abs().sqrt();
-        exact_svg_raster::backdrop_blur(&mut pixels, w, h, sigma * k);
+        for op in &filter.0 {
+            match op {
+                BackdropOp::Blur(sigma) => {
+                    exact_svg_raster::backdrop_blur(&mut pixels, w, h, sigma * k)
+                }
+                BackdropOp::Saturate(amount) => {
+                    exact_svg_raster::backdrop_saturate(&mut pixels, *amount)
+                }
+            }
+        }
         let Some(patch) =
             IntSize::from_wh(w as u32, h as u32).and_then(|s| Pixmap::from_vec(pixels, s))
         else {

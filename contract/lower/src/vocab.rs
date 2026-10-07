@@ -3,7 +3,8 @@
 //! `tags.rs`'s `tag`, `attr`, `renamed` and `html_tag` are `match`
 //! expressions with no table to iterate; `build.rs` scans their arms'
 //! patterns into candidates, and this module keeps the ones the live lookup
-//! admits, so the list cannot claim a name the compiler refuses. The rules
+//! admits, so the list cannot claim a name the compiler refuses. The style
+//! names are a table, `style_names::STYLE_NAMES` (LLP 1081 D8), read whole. The rules
 //! no lookup lists (the `head` fields, the attributes admitted only on some
 //! tags, the two open sets) are named here beside them.
 
@@ -66,9 +67,14 @@ pub fn tags() -> Vec<(&'static str, Tag)> {
         .collect()
 }
 
-/// Every attribute, by name.
+/// Every attribute, by name: the scanned arms of `attr`, and the style
+/// names, which are a table (`style_names::STYLE_NAMES`, LLP 1081 D8).
 pub fn attrs() -> Vec<(&'static str, AttrTarget)> {
-    sorted(ATTR_CANDIDATES)
+    let styles: Vec<&'static str> = crate::style_names::STYLE_NAMES
+        .iter()
+        .map(|(n, ..)| *n)
+        .collect();
+    sorted(&[ATTR_CANDIDATES, &styles].concat())
         .into_iter()
         .filter_map(|n| tags::attr(n).map(|t| (n, t)))
         .collect()
@@ -227,13 +233,19 @@ mod tests {
         for name in ["column", "feSpotLight", "rect", "clipPath", "head"] {
             assert!(TAG_CANDIDATES.contains(&name), "tag `{name}` missed");
         }
+        assert!(
+            ATTR_CANDIDATES.contains(&"press"),
+            "attribute `press` missed"
+        );
+        // Style names are a table, not scanned arms (LLP 1081 D8).
+        let listed: Vec<&str> = attrs().into_iter().map(|(n, _)| n).collect();
         for name in [
             "padding",
-            "press",
             "animation-play-state",
             "overscroll-behavior",
+            "-exact-press-scale",
         ] {
-            assert!(ATTR_CANDIDATES.contains(&name), "attribute `{name}` missed");
+            assert!(listed.contains(&name), "attribute `{name}` missed");
         }
         assert!(RENAMED_CANDIDATES.contains(&"keyboardAvoiding"));
         assert!(HTML_CANDIDATES.contains(&"h6"));

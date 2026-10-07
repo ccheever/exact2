@@ -125,7 +125,7 @@ the CSS property is the row's name with `-` for `_` (`font_size` →
 values are already CSS spellings), with the exceptions a table names
 (`text_color`→`color`, `position_type`→`position`, `border_radius_top_left`→
 `border-top-left-radius`, the four `shadow_*` rows → one `box-shadow`,
-`backdrop_blur`→`backdrop-filter: blur()`). Units by rule: dimensions and
+`backdrop_filter`→the ordered CSS `backdrop-filter` list). Units by rule: dimensions and
 lengths in `px`, percentages, `auto`; unitless where CSS is (`flex-grow`,
 `opacity`, `z-index`, `font-weight`, `scale`); `rotate` in `deg`;
 `translate` as two lengths or percentages (a `calc()` of the two where an
@@ -244,7 +244,10 @@ with no navigate handler. `bun scripts/smoke.mjs web` explicitly runs this
 Chrome sweep through `host/web/tests/navigation.mjs`; its Cargo entry is
 `#[ignore]`, never a silent pass without Chrome or a built dist.
 A disabled completed-pop
-control journals `history: Back refused; restoring the entry`, with no press.
+control journals `history: Back refused: <why>; restoring the entry`, with no press;
+a route with no Back control goes back by the root's `navigate`, as any other
+traversal (2026-10-03: browser Back from a screen with no Back button was
+refused, which the web never does).
 Both boot exports receive UTF-8 `location.pathname + location.search` through
 the input buffer (after plan bytes for `exact_boot_plan`); module reboot keeps
 the current host URL, as it keeps the viewport. A fresh page opens the address

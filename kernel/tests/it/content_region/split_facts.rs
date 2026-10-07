@@ -418,7 +418,10 @@ fn append_sources(k: &mut Kernel, count: usize, flex: bool) {
     k.apply(0, 0, &ops).unwrap();
 }
 fn many_sources(count: usize, flex: bool) -> Kernel {
-    let mut k = fixture();
+    many_sources_with(count, flex, Box::<MonospaceMeasurer>::default())
+}
+fn many_sources_with(count: usize, flex: bool, measurer: Box<dyn TextMeasurer>) -> Kernel {
+    let mut k = fixture_with(measurer);
     append_sources(&mut k, count, flex);
     k
 }
@@ -477,8 +480,10 @@ fn canonical_source_overflow_refuses_193_without_omitting_a_paragraph() {
 fn scalar_overflow_is_separate_from_192_source_admission() {
     // This deliberately uses content-dependent flex widths; if it does not
     // exercise M768, retain that fixture failure before changing its shape.
+    // A height-bound measurer keeps a fact per height: under a height-free one
+    // (monospace) these 192 paragraphs fit in 768 facts.
     exhausted(
-        many_sources(192, true),
+        many_sources_with(192, true, Box::new(HeightBound)),
         "split scalar fact budget exhausted",
     );
 }
@@ -773,4 +778,46 @@ fn stale_parked_final_reservation_allows_shell_before_request_drop_and_resume() 
     drop(old_q);
     let c = complete(&mut k, 280.);
     assert!(!Rc::ptr_eq(&a, &c));
+}
+
+/// Measures as monospace does, but reads like a measurer whose metrics could
+/// depend on the height offered (`height_free` keeps its default, false).
+struct HeightBound;
+impl TextMeasurer for HeightBound {
+    fn measure(&mut self, r: &TextMeasureRequest<'_>) -> TextMetrics {
+        MonospaceMeasurer::default().measure(r)
+    }
+}
+
+/// A flex column with a definite height asks its text at one width under
+/// more than one height. Under a height-free measurer (monospace, the Linux
+/// and terminal hosts) those are one scalar fact; under one that may read the
+/// height, each stays its own exact fact. The paint is the same either way.
+#[test]
+fn height_free_facts_answer_every_height_at_a_width() {
+    let facts = |measurer: Box<dyn TextMeasurer>| {
+        let mut k = fixture_with(measurer);
+        let mut column = StyleProps::default();
+        column.mask = mask(&[StyleId::Display, StyleId::FlexDirection, StyleId::Height]);
+        column.display = Display::Flex;
+        column.flex_direction = FlexDirection::Column;
+        column.height = Dimension::Points(120.);
+        k.apply(
+            0,
+            0,
+            &[Op::SetStyle {
+                id: 3,
+                patch: Box::new(column),
+            }],
+        )
+        .unwrap();
+        split(&mut k);
+        let p = complete(&mut k, 400.);
+        let frame = p.frame(key(&k, 4), Frame::default()).unwrap();
+        (k.region_retention().accepted_facts, frame)
+    };
+    let (free, free_frame) = facts(Box::<MonospaceMeasurer>::default());
+    let (bound, bound_frame) = facts(Box::new(HeightBound));
+    assert!(free < bound, "height-free {free} facts against {bound}");
+    assert_eq!(free_frame, bound_frame, "the same geometry");
 }

@@ -1141,7 +1141,7 @@ keyframes leave
   to opacity=0
 component A
   view
-    text "a" exit-animation="leave 1s infinite"
+    text "a" -exact-exit-animation="leave 1s infinite"
 ---
 == lower-timeline-row
 # A timeline drives paint rows only in v1 (LLP 1057.003 Q1).
@@ -1176,12 +1176,12 @@ component A
 == lower-attr-value
 component A
   view
-    button press-scale=0
+    button -exact-press-scale=0
       text "a"
 ---
 == lower-keyframe-property
 keyframes give
-  to press-scale=0.97
+  to -exact-press-scale=0.97
 component A
   view
     text "a"

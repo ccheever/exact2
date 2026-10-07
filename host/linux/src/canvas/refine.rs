@@ -2,6 +2,13 @@
 //! retire there), and how soon what it mounts must be painted.
 use super::*;
 
+/// The share of the window's lead an unhurried paint counts on, and the
+/// moves it comes early by: a step is smoothed over the last few, and the
+/// reader runs two a frame, so travel that picks up, or a pass that ran a
+/// step late, still finds its rows painted.
+const UNHURRIED_LEAD: f32 = 0.75;
+const UNHURRIED_FRAMES: u32 = 2;
+
 impl<D: DataSource + Default> CanvasHost<D> {
     /// When only scrollers whose rows the last paint drew moved since it,
     /// and nothing else it showed changed: the move, instead of a paint.
@@ -27,6 +34,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         let _s = Section::begin(c"exact refine");
         let started = std::time::Instant::now();
         let limit = limit.or_else(|| self.travel.limit());
+        self.sliced = limit.is_some();
         // A row's cost is measured only where it is used: while the feed
         // travels fast (two walks to the list each pass otherwise, 2% of
         // crypto's scrolling).
@@ -52,6 +60,19 @@ impl<D: DataSource + Default> CanvasHost<D> {
         }
         self.rows_before = before;
         wanted
+    }
+
+    /// Whether a paint may wait for the frame rows mounted out of view can
+    /// first show, rather than come within [`MOVES_MOUNTED`] moves of their
+    /// pass. Those paints were most of a fling's (crypto at 6,000 px/s: 34 a
+    /// second, one in three vsyncs, for 36 rows a second), and all a row
+    /// needed of them when it came into view was its layers' new tracks,
+    /// which now go with a move. It holds while passes fill whole windows:
+    /// what one mounts then lies a viewport past the view, which is what
+    /// [`crate::travel::Travel::passed`] counts on. A sliced pass (fast
+    /// travel, rows left pending) mounts nearer, so its paint comes as before.
+    pub(super) fn unhurried(&self) -> bool {
+        self.move_tracks && self.lead && !self.sliced
     }
 
     /// The feed's mounted rows, as (view, epoch): a new pair is a row this
@@ -105,8 +126,16 @@ impl<D: DataSource + Default> CanvasHost<D> {
             .feed
             .and_then(|id| self.p.host().kernel().node(id))
             .map_or(self.viewport.1, |n| n.frame.height);
-        let soon = self.moves.min(MOVES_MOUNTED).saturating_sub(self.moved);
-        let due = self.travel.passed(lead, soon);
+        let unhurried = self.unhurried();
+        let (lead, soon) = if unhurried {
+            (lead * UNHURRIED_LEAD, self.moves)
+        } else {
+            (lead, self.moves.min(MOVES_MOUNTED))
+        };
+        let due = self
+            .travel
+            .passed(lead, soon.saturating_sub(self.moved))
+            .map(|frames| frames.saturating_sub(if unhurried { UNHURRIED_FRAMES } else { 0 }));
         let before = self.p.still();
         let wanted = self.p.refine_deferred(true);
         // Only the pass changed the kernel (rows out of view): no paint now.

@@ -34,7 +34,7 @@ extension NodeView {
         // tvOS has no pointer interactions.
         #if !os(tvOS)
         let effect = style["hover_effect"]?.string ?? "auto"
-        // Only the interaction this row added: a native hook's stays.
+        // Only the interaction this row added: a native hatch's stays.
         let ours = interactions.compactMap { $0 as? UIPointerInteraction }.first { $0.delegate is HoverEffect }
         guard effect != "auto", effect != "none" else {
             if let ours { removeInteraction(ours) }
@@ -71,7 +71,7 @@ final class HoverEffect: NSObject, UIPointerInteractionDelegate {
 }
 #endif
 
-/// D15: a paragraph whose text changed under `content-transition: numeric`
+/// D15: a paragraph whose text changed under `-exact-content-transition: numeric`
 /// rolls in from below (from above for `numeric-countdown`), as SwiftUI's
 /// numeric text does. The whole line rolls: the raster is one picture.
 enum NumeralRoll {

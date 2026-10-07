@@ -278,7 +278,7 @@ extension Presenter {
                 }
                 node.liveText = text
             } else { node.liveText = nil }
-            guard session?.autofocusHeld != true, !autofocusProcessed.contains(ObjectIdentifier(node)), node.props["autofocus"] == "true",
+            guard session?.autofocusHeld != true, launchAutofocusReleased || session?.booted != true, !autofocusProcessed.contains(ObjectIdentifier(node)), node.props["autofocus"] == "true",
                   node.accessibilityVisible, !node.disabled, node.bounds.width > 0, node.bounds.height > 0 else { continue }
             #if os(macOS)
             guard let window = node.window else { continue }
@@ -429,8 +429,23 @@ extension Presenter {
     func focusPlace(tree json: String) -> FocusPlace? {
         focusedNode.flatMap { FocusTree(json)?.place(of: $0.id) }
     }
+    /// A booted session's launch autofocus has not run yet: the agent's settle waits for it.
+    var launchAutofocusPending: Bool { session?.booted == true && !launchAutofocusReleased }
+    /// Runs a booted session's first autofocus the turn after its first activation, as UIKit apps focus
+    /// in `viewDidAppear`. Showing the iOS keyboard or AppKit field editor earlier delays that frame.
+    func releaseLaunchAutofocus() {
+        guard !launchAutofocusReleased else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !launchAutofocusReleased, session?.state != .destroyed else { return }
+            launchAutofocusReleased = true
+            syncAccessibility()
+        }
+    }
+
     func restoreFocus(_ kept: FocusPlace?, tree json: String) {
-        for node in views.values where node.props["autofocus"] == "true" { autofocusProcessed.insert(ObjectIdentifier(node)) }
+        // A restart that finds a focus ends the launch autofocus. One that finds none before the release leaves it pending.
+        if kept != nil { launchAutofocusReleased = true }
+        if launchAutofocusReleased { for node in views.values where node.props["autofocus"] == "true" { autofocusProcessed.insert(ObjectIdentifier(node)) } }
         guard let kept, let id = FocusTree(json)?.view(at: kept), let node = views[id], node.accessibilityVisible,
               !node.disabled, node.bounds.width > 0, node.bounds.height > 0 else { return }
         #if os(macOS)

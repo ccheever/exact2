@@ -1033,7 +1033,7 @@ if (deckFixture) {
       await m.clock('+125');
       let l = await m.layout();
       check(w(l, 'linear') === 75, `at 125 ms of a 250 ms linear scale 1→2 the box is ${w(l, 'linear')} wide, not 75`);
-      check(near(w(l, 'spring'), 86.55, 0.5), `at 125 ms the spring(180, 12, 1) box is ${w(l, 'spring')} wide (both hosts: 86.55)`);
+      check(near(w(l, 'spring'), 86.55, 0.5), `at 125 ms the -exact-spring(180, 12, 1) box is ${w(l, 'spring')} wide (both hosts: 86.55)`);
       check(w(l, 'timed') === 50, `the timer has not fired yet: ${w(l, 'timed')}`);
       await m.clock('+125');
       l = await m.layout();
@@ -1281,6 +1281,8 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
     const f = await open({host, browser: 'chrome', plan, ...(host === 'macos' ? {env:{EXACT_DEV_PLAN:plan}} : {})});
     try {
       let t = await f.tree();
+      // Apple hosts focus a launch autofocus the turn after the first frame, which may follow `ready`.
+      for (let i = 0; i < 40 && byTestId(t, 'first')?.focused !== true; i++) { await sleep(25); t = await f.tree(); }
       check(byTestId(t, 'first')?.focused === true, 'autofocus takes focus after mount');
       const axName = async (id) => { const ax = (await f.tree(null, {ax: true})).ax; return ax.unavailable ? (host === 'linux' ? 'unavailable' : null) : ax.elements.find(e => e.testId === id)?.name; }; // LLP 1080.002
       check(await axName('first') === (host === 'linux' ? 'unavailable' : 'Increment'), 'button name is its text, as the platform exposes it'); check(host === 'linux' || await axName('labelled') === '20 sheckles', 'a label names a text, as the platform exposes it');

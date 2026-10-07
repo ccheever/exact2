@@ -676,10 +676,16 @@ fn inside_cluster(text: &str, end: usize) -> bool {
         return false;
     };
     !hard_break(previous)
-        && text[end..]
-            .chars()
-            .next()
-            .is_some_and(|ch| joins_previous(ch, previous) && !(complex(ch) && complex(previous)))
+        && text[end..].chars().next().is_some_and(|ch| {
+            joins_previous(ch, previous)
+                && !(complex(ch) && complex(previous))
+                // No-break glue after a space or a hyphen starts a piece (UAX #14 LB12a).
+                && !(break_property(ch as u32) == BreakClass::NonBreakingGlue
+                    && matches!(
+                        break_property(previous as u32),
+                        BreakClass::Space | BreakClass::After | BreakClass::Hyphen
+                    ))
+        })
 }
 
 /// Where a line may end, as UTF-8 byte offsets, the last `text.len()`: the

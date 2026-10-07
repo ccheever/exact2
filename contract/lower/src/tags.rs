@@ -368,7 +368,9 @@ pub fn attr_valued(name: &str, value: &contract_syntax::Expr) -> Option<AttrTarg
 }
 /// Look up an attribute.
 pub fn attr(name: &str) -> Option<AttrTarget> {
-    let styles = |rows: &'static [StyleId]| AttrTarget::Styles(rows);
+    if let Some(target) = crate::style_names::lookup(name) {
+        return Some(target);
+    }
     Some(match name {
         // handlers (the web's events, LLP 1005 §3)
         "loadedmetadata" => AttrTarget::Handler("loadedmetadata"),
@@ -424,6 +426,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "focus" => AttrTarget::Handler("focus"),
         "blur" => AttrTarget::Handler("blur"),
         "key" => AttrTarget::Handler("key"),
+        // DOM's `keyup`: a key's release, bubbling as `key` does (#140).
+        "keyup" => AttrTarget::Handler("keyup"),
         "submit" => AttrTarget::Handler("submit"),
         "load" => AttrTarget::Handler("load"),
         "message" => AttrTarget::Handler("message"),
@@ -516,7 +520,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // @ref LLP 1075.003 §3.5 — the route's content scroll view, by HTML id.
         "navigationScroll" => AttrTarget::Prop(p("navigationScroll")),
         // @ref LLP 1075.003.000 — the node the app's native code receives.
-        "hook" => AttrTarget::Prop(p("hook")),
+        "hatch" => AttrTarget::Prop(p("hatch")),
         "closedby" => AttrTarget::Prop(p("closedby")),
         "contextTarget" => AttrTarget::Prop(p("contextTarget")),
         "contextMagnify" => AttrTarget::Prop(p("contextMagnify")),
@@ -704,312 +708,22 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "pointsAtY" => AttrTarget::Prop(p("pointsAtY")),
         "pointsAtZ" => AttrTarget::Prop(p("pointsAtZ")),
         "limitingConeAngle" => AttrTarget::Prop(p("limitingConeAngle")),
-        "filter" => styles(&[StyleId::Filter]),
-        "mix-blend-mode" => styles(&[StyleId::MixBlendMode]),
-        "isolation" => styles(&[StyleId::Isolation]),
-        "flood-color" => styles(&[StyleId::FloodColor]),
-        "flood-opacity" => styles(&[StyleId::FloodOpacity]),
-        "lighting-color" => styles(&[StyleId::LightingColor]),
-        "color-interpolation-filters" => styles(&[StyleId::ColorInterpolationFilters]),
-        "mask" => styles(&[StyleId::SvgMask]),
-        "mask-type" => styles(&[StyleId::MaskType]),
         "markerWidth" => AttrTarget::Prop(p("markerWidth")),
         "markerHeight" => AttrTarget::Prop(p("markerHeight")),
         "refX" => AttrTarget::Prop(p("refX")),
         "refY" => AttrTarget::Prop(p("refY")),
         "orient" => AttrTarget::Prop(p("orient")),
         "markerUnits" => AttrTarget::Prop(p("markerUnits")),
-        "marker-start" => styles(&[StyleId::MarkerStart]),
-        "marker-mid" => styles(&[StyleId::MarkerMid]),
-        "marker-end" => styles(&[StyleId::MarkerEnd]),
-        "marker" => styles(&[StyleId::MarkerStart, StyleId::MarkerMid, StyleId::MarkerEnd]),
         // @ref LLP 1055.000 D11 — SVG text's positions (`x`, `y`, `dx`,
         // `dy` on `text`/`tspan` lower to these) and its alignment.
         "textX" => AttrTarget::Prop(p("textX")),
         "textY" => AttrTarget::Prop(p("textY")),
         "textDx" => AttrTarget::Prop(p("textDx")),
         "textDy" => AttrTarget::Prop(p("textDy")),
-        "text-anchor" => styles(&[StyleId::TextAnchor]),
-        "dominant-baseline" => styles(&[StyleId::DominantBaseline]),
-        "pointer-events" => styles(&[StyleId::PointerEvents]),
-        "clip-rule" => styles(&[StyleId::ClipRule]),
-        "stop-color" => styles(&[StyleId::StopColor]),
-        "stop-opacity" => styles(&[StyleId::StopOpacity]),
-        "paint-order" => styles(&[StyleId::PaintOrder]),
         "x1" => AttrTarget::Prop(p("x1")),
         "y1" => AttrTarget::Prop(p("y1")),
         "x2" => AttrTarget::Prop(p("x2")),
         "y2" => AttrTarget::Prop(p("y2")),
-        // SVG 2 presentation and geometry properties: CSS rows (LLP 1055 D2).
-        "fill" => styles(&[StyleId::Fill]),
-        "stroke" => styles(&[StyleId::Stroke]),
-        "stroke-width" => styles(&[StyleId::StrokeWidth]),
-        "stroke-linecap" => styles(&[StyleId::StrokeLinecap]),
-        "stroke-linejoin" => styles(&[StyleId::StrokeLinejoin]),
-        "stroke-miterlimit" => styles(&[StyleId::StrokeMiterlimit]),
-        "stroke-dasharray" => styles(&[StyleId::StrokeDasharray]),
-        "stroke-dashoffset" => styles(&[StyleId::StrokeDashoffset]),
-        "fill-opacity" => styles(&[StyleId::FillOpacity]),
-        "stroke-opacity" => styles(&[StyleId::StrokeOpacity]),
-        "fill-rule" => styles(&[StyleId::FillRule]),
-        "x" => styles(&[StyleId::X]),
-        "y" => styles(&[StyleId::Y]),
-        "rx" => styles(&[StyleId::Rx]),
-        "ry" => styles(&[StyleId::Ry]),
-        // @ref LLP 1055.000 D5 — transforms on SVG elements.
-        "transform" => styles(&[StyleId::Transform]),
-        "transform-origin" => styles(&[StyleId::TransformOrigin]),
-        "transform-box" => styles(&[StyleId::TransformBox]),
-        "vector-effect" => styles(&[StyleId::VectorEffect]),
-        "visibility" => styles(&[StyleId::Visibility]),
-        "cx" => styles(&[StyleId::Cx]),
-        "cy" => styles(&[StyleId::Cy]),
-        "r" => styles(&[StyleId::R]),
-        // CSS Animations (LLP 1055 D5): the shorthand is the row; the
-        // longhands compose into it before lowering (`svg::compose_animation`).
-        "animation"
-        | "animation-name"
-        | "animation-duration"
-        | "animation-timing-function"
-        | "animation-delay"
-        | "animation-iteration-count"
-        | "animation-direction"
-        | "animation-fill-mode"
-        | "animation-play-state" => styles(&[StyleId::Animation]),
-        // style rows, by their CSS property names
-        "white-space" => styles(&[StyleId::WhiteSpace]),
-        "overflow-wrap" => styles(&[StyleId::OverflowWrap]),
-        "field-sizing" => styles(&[StyleId::FieldSizing]),
-        "scroll-snap-type" => styles(&[StyleId::ScrollSnapType]),
-        "scrollbar-width" => styles(&[StyleId::ScrollbarWidth]),
-        "touch-action" => styles(&[StyleId::TouchAction]),
-        "clip-path" => styles(&[StyleId::ClipPath]),
-        // @ref LLP 1043.000 §3 D1
-        "wrap-flow" => styles(&[StyleId::WrapFlow]),
-        "shape-outside" => styles(&[StyleId::ShapeOutside]),
-        "shape-margin" => styles(&[StyleId::ShapeMargin]),
-        "scroll-snap-align" => styles(&[StyleId::ScrollSnapAlign]),
-        "line-clamp" => styles(&[StyleId::LineClamp]),
-        "text-overflow" => styles(&[StyleId::TextOverflow]),
-        // @ref LLP 1053 §0 G4 — `normal` and `tabular-nums`; others refused by name.
-        "font-variant-numeric" => styles(&[StyleId::FontVariantNumeric]),
-        "text-decoration" | "border" | "border-top" | "border-right" | "border-bottom"
-        | "border-left" => AttrTarget::Shorthand,
-        // @ref LLP 1093 — CSS multi-column layout and the break rules inside
-        // it. The shorthands, and the two longhands with keywords a row does
-        // not hold (`auto` columns, `thin`/`medium`/`thick` rules), project
-        // through `shorthands`.
-        "columns" | "column-count" | "column-rule" | "column-rule-width" => AttrTarget::Shorthand,
-        "column-width" => styles(&[StyleId::ColumnWidth]),
-        "column-fill" => styles(&[StyleId::ColumnFill]),
-        "column-rule-style" => styles(&[StyleId::ColumnRuleStyle]),
-        "column-rule-color" => styles(&[StyleId::ColumnRuleColor]),
-        "widows" => styles(&[StyleId::Widows]),
-        "orphans" => styles(&[StyleId::Orphans]),
-        "break-before" => styles(&[StyleId::BreakBefore]),
-        "break-after" => styles(&[StyleId::BreakAfter]),
-        "break-inside" => styles(&[StyleId::BreakInside]),
-        "resize" => styles(&[StyleId::Resize]),
-        "user-select" => styles(&[StyleId::UserSelect]),
-        // @ref LLP 1021 §5 — on a popover, its implicit anchor the invoker.
-        "position-area" => styles(&[StyleId::PositionArea]),
-        "text-decoration-line" => styles(&[StyleId::TextDecorationLine]),
-        // @ref LLP 1064 D5
-        "text-transform" => styles(&[StyleId::TextTransform]),
-        "font-size" => styles(&[StyleId::FontSize]),
-        "font-weight" => styles(&[StyleId::FontWeight]),
-        "font-style" => styles(&[StyleId::FontStyle]),
-        "font-family" => styles(&[StyleId::FontFamily]),
-        "color" => styles(&[StyleId::TextColor]),
-        "background-color" => styles(&[StyleId::BackgroundColor]),
-        // @ref LLP 1066 — `none` or one linear/radial gradient.
-        "background-image" => styles(&[StyleId::BackgroundImage]),
-        // @ref LLP 1066 D7 — `fixed`: the gradient box is the viewport.
-        "background-attachment" => styles(&[StyleId::BackgroundAttachment]),
-        // @ref LLP 1077 D1–D3
-        "mask-image" => styles(&[StyleId::MaskImage]),
-        "text-shadow" => styles(&[StyleId::TextShadow]),
-        "corner-shape" => styles(&[StyleId::CornerShape]),
-        "background-clip" => styles(&[StyleId::BackgroundClip]),
-        // @ref LLP 1077 D7 — the Compat Standard's names; the shorthand
-        // binds both rows, each taking its part.
-        "-webkit-text-stroke" => styles(&[StyleId::TextStrokeWidth, StyleId::TextStrokeColor]),
-        "-webkit-text-stroke-width" => styles(&[StyleId::TextStrokeWidth]),
-        "-webkit-text-stroke-color" => styles(&[StyleId::TextStrokeColor]),
-        "caret-color" => styles(&[StyleId::CaretColor]),
-        // @ref LLP 1069.001 D6 — a form control's tint and whether the
-        // platform draws it.
-        "accent-color" => styles(&[StyleId::AccentColor]),
-        "appearance" => styles(&[StyleId::Appearance]),
-        "tint-color" => styles(&[StyleId::TintColor]),
-        "opacity" => styles(&[StyleId::Opacity]),
-        // @ref LLP 1064 D1 — one value, each row takes its part of the parse.
-        "box-shadow" => styles(&[StyleId::BoxShadow]),
-        // @ref LLP 1053.000 D1 — `none` or one `blur(<length>)`; the rest of
-        // CSS's filter functions are refused by name.
-        "backdrop-filter" => styles(&[StyleId::BackdropBlur]),
-        "letter-spacing" => styles(&[StyleId::LetterSpacing]),
-        // The reader diary: book typography's first-line indent and CSS's
-        // hyphenation (`manual` honours soft hyphens; `auto` adds the
-        // language's own points where the host has a dictionary).
-        "text-indent" => styles(&[StyleId::TextIndent]),
-        "hyphens" => styles(&[StyleId::Hyphens]),
-        "line-height" => styles(&[StyleId::LineHeight]),
-        "text-align" => styles(&[StyleId::TextAlign]),
-        "gap" => styles(&[StyleId::RowGap, StyleId::ColumnGap]),
-        "row-gap" => styles(&[StyleId::RowGap]),
-        "column-gap" => styles(&[StyleId::ColumnGap]),
-        "padding" => styles(&[
-            StyleId::PaddingTop,
-            StyleId::PaddingRight,
-            StyleId::PaddingBottom,
-            StyleId::PaddingLeft,
-        ]),
-        "padding-top" => styles(&[StyleId::PaddingTop]),
-        "padding-right" => styles(&[StyleId::PaddingRight]),
-        "padding-bottom" => styles(&[StyleId::PaddingBottom]),
-        "padding-left" => styles(&[StyleId::PaddingLeft]),
-        "margin" => styles(&[
-            StyleId::MarginTop,
-            StyleId::MarginRight,
-            StyleId::MarginBottom,
-            StyleId::MarginLeft,
-        ]),
-        "margin-top" => styles(&[StyleId::MarginTop]),
-        "margin-right" => styles(&[StyleId::MarginRight]),
-        "margin-bottom" => styles(&[StyleId::MarginBottom]),
-        "margin-left" => styles(&[StyleId::MarginLeft]),
-        "border-radius" => styles(&[
-            StyleId::BorderRadiusTopLeft,
-            StyleId::BorderRadiusTopRight,
-            StyleId::BorderRadiusBottomRight,
-            StyleId::BorderRadiusBottomLeft,
-        ]),
-        "border-top-left-radius" => styles(&[StyleId::BorderRadiusTopLeft]),
-        "border-top-right-radius" => styles(&[StyleId::BorderRadiusTopRight]),
-        "border-bottom-left-radius" => styles(&[StyleId::BorderRadiusBottomLeft]),
-        "border-bottom-right-radius" => styles(&[StyleId::BorderRadiusBottomRight]),
-        "border-width" => styles(&[
-            StyleId::BorderWidthTop,
-            StyleId::BorderWidthRight,
-            StyleId::BorderWidthBottom,
-            StyleId::BorderWidthLeft,
-        ]),
-        "border-top-width" => styles(&[StyleId::BorderWidthTop]),
-        "border-right-width" => styles(&[StyleId::BorderWidthRight]),
-        "border-bottom-width" => styles(&[StyleId::BorderWidthBottom]),
-        "border-left-width" => styles(&[StyleId::BorderWidthLeft]),
-        "border-style" => styles(&[
-            StyleId::BorderStyleTop,
-            StyleId::BorderStyleRight,
-            StyleId::BorderStyleBottom,
-            StyleId::BorderStyleLeft,
-        ]),
-        "border-top-style" => styles(&[StyleId::BorderStyleTop]),
-        "border-right-style" => styles(&[StyleId::BorderStyleRight]),
-        "border-bottom-style" => styles(&[StyleId::BorderStyleBottom]),
-        "border-left-style" => styles(&[StyleId::BorderStyleLeft]),
-        "border-color" => styles(&[
-            StyleId::BorderColorTop,
-            StyleId::BorderColorRight,
-            StyleId::BorderColorBottom,
-            StyleId::BorderColorLeft,
-        ]),
-        "border-top-color" => styles(&[StyleId::BorderColorTop]),
-        "border-right-color" => styles(&[StyleId::BorderColorRight]),
-        "border-bottom-color" => styles(&[StyleId::BorderColorBottom]),
-        "border-left-color" => styles(&[StyleId::BorderColorLeft]),
-        "width" => styles(&[StyleId::Width]),
-        "height" => styles(&[StyleId::Height]),
-        "min-width" => styles(&[StyleId::MinWidth]),
-        "min-height" => styles(&[StyleId::MinHeight]),
-        "max-width" => styles(&[StyleId::MaxWidth]),
-        "max-height" => styles(&[StyleId::MaxHeight]),
-        "cursor" => styles(&[StyleId::Cursor]),
-        "flex" => AttrTarget::Flex,
-        // @ref LLP 1053 G3 — the longhand: `flex-basis` stays `auto`, unlike `flex`.
-        "flex-grow" => styles(&[StyleId::FlexGrow]),
-        "flex-shrink" => styles(&[StyleId::FlexShrink]),
-        "flex-basis" => styles(&[StyleId::FlexBasis]),
-        "flex-wrap" => styles(&[StyleId::FlexWrap]),
-        "flex-direction" => styles(&[StyleId::FlexDirection]),
-        // @ref LLP 1053 — CSS `direction` (inherited), not a flex direction.
-        "direction" => styles(&[StyleId::Direction]),
-        // @ref LLP 1053 G1 — `auto || <ratio>`.
-        "aspect-ratio" => styles(&[StyleId::AspectRatio]),
-        // @ref LLP 1057.003 D1 — drag timelines, CSS scroll-driven animations' shape.
-        "drag-timeline" => styles(&[StyleId::DragTimeline]),
-        "animation-timeline" => styles(&[StyleId::AnimationTimeline]),
-        "animation-range" => styles(&[StyleId::AnimationRange]),
-        // @ref LLP 1055 D13 — when a list row's animations start.
-        "animation-trigger" => styles(&[StyleId::AnimationTrigger]),
-        // @ref LLP 1057.003 D4 — CSS `timeline-scope`.
-        "timeline-scope" => styles(&[StyleId::TimelineScope]),
-        "display" => styles(&[StyleId::Display]),
-        "grid-auto-flow" => styles(&[StyleId::GridAutoFlow]),
-        "grid-template-columns" => styles(&[StyleId::GridTemplateColumns]),
-        "grid-template-rows" => styles(&[StyleId::GridTemplateRows]),
-        "grid-column" => styles(&[StyleId::GridColumn]),
-        "grid-row" => styles(&[StyleId::GridRow]),
-        "align-items" => styles(&[StyleId::AlignItems]),
-        "align-content" => styles(&[StyleId::AlignContent]),
-        "align-self" => styles(&[StyleId::AlignSelf]),
-        "box-sizing" => styles(&[StyleId::BoxSizing]),
-        "object-fit" => styles(&[StyleId::ObjectFit]),
-        "justify-content" => styles(&[StyleId::JustifyContent]),
-        "justify-items" => styles(&[StyleId::JustifyItems]),
-        "position" => styles(&[StyleId::PositionType]),
-        "inset" => styles(&[StyleId::Top, StyleId::Right, StyleId::Bottom, StyleId::Left]),
-        "top" => styles(&[StyleId::Top]),
-        "left" => styles(&[StyleId::Left]),
-        "right" => styles(&[StyleId::Right]),
-        "bottom" => styles(&[StyleId::Bottom]),
-        "overflow" => styles(&[StyleId::OverflowX, StyleId::OverflowY]),
-        "overflow-x" => styles(&[StyleId::OverflowX]),
-        "overflow-y" => styles(&[StyleId::OverflowY]),
-        "overscroll-behavior" => {
-            styles(&[StyleId::OverscrollBehaviorX, StyleId::OverscrollBehaviorY])
-        }
-        "overscroll-behavior-x" => styles(&[StyleId::OverscrollBehaviorX]),
-        "overscroll-behavior-y" => styles(&[StyleId::OverscrollBehaviorY]),
-        "scroll-behavior" => styles(&[StyleId::ScrollBehavior]),
-        "z-index" => styles(&[StyleId::ZIndex]),
-        "order" => styles(&[StyleId::Order]),
-        "transition" => styles(&[StyleId::Transition]),
-        // @ref LLP 1063 — played as the node leaves; its names resolve against
-        // the plan's keyframes as `animation`'s do (LLP 1055 D5).
-        "exit-animation" => styles(&[StyleId::ExitAnimation]),
-        // @ref LLP 1063 — how the laid-out box moves when layout moves it.
-        "layout-transition" => styles(&[StyleId::LayoutTransition]),
-        "interpolate-size" => styles(&[StyleId::InterpolateSize]),
-        // @ref LLP 1077 D8 — one value to two rows: x and y (their lengths,
-        // and their percentages of the box, chess diary #4), and z; the
-        // angle, and its axis.
-        "translate" => styles(&[
-            StyleId::Translate,
-            StyleId::TranslatePercent,
-            StyleId::TranslateZ,
-        ]),
-        "scale" => styles(&[StyleId::Scale]),
-        "rotate" => styles(&[StyleId::Rotate, StyleId::RotateAxis]),
-        "perspective" => styles(&[StyleId::Perspective]),
-        "perspective-origin" => styles(&[StyleId::PerspectiveOrigin]),
-        "backface-visibility" => styles(&[StyleId::BackfaceVisibility]),
-        // @ref LLP 1077 §5 — declared rows CSS has no name for.
-        "symbol-rendering" => styles(&[StyleId::SymbolRendering]),
-        "symbol-palette" => styles(&[StyleId::SymbolPalette]),
-        "symbol-value" => styles(&[StyleId::SymbolValue]),
-        "symbol-effect" => styles(&[StyleId::SymbolEffect]),
-        "press-haptic" => styles(&[StyleId::PressHaptic]),
-        "content-transition" => styles(&[StyleId::ContentTransition]),
-        "scroll-edge-effect" => styles(&[StyleId::ScrollEdgeEffect]),
-        "hover-effect" => styles(&[StyleId::HoverEffect]),
-        "smart-invert" => styles(&[StyleId::SmartInvert]),
-        "dynamic-range-limit" => styles(&[StyleId::DynamicRangeLimit]),
-        // @ref LLP 1034 §8 — a subtree's colour scheme.
-        "color-scheme" => styles(&[StyleId::ColorScheme]),
-        // @ref LLP 1061 D1 — host-owned press feedback; not a motion target.
-        "press-scale" => styles(&[StyleId::PressScale]),
         _ => return None,
     })
 }
@@ -1057,10 +771,10 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "flexDirection" => "flex-direction",
         "flexGrow" => "flex-grow",
         "aspectRatio" => "aspect-ratio",
-        "dragTimeline" => "drag-timeline",
+        "dragTimeline" | "drag-timeline" => "-exact-drag-timeline",
         "animationTimeline" => "animation-timeline",
         "animationRange" => "animation-range",
-        "animationTrigger" => "animation-trigger",
+        "animationTrigger" | "animation-trigger" => "-exact-animation-trigger",
         "timelineScope" => "timeline-scope",
         "transformOrigin" => "transform-origin",
         "align" | "alignItems" => "align-items",
@@ -1084,6 +798,20 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "interactiveWidget" | "keyboardAvoidingView" | "keyboardAvoiding" => "interactive-widget",
         "secureTextEntry" => "type",
         "onClick" | "onPress" => "press",
+        // LLP 1081 D2: the names Exact invents are spelled `-exact-`.
+        "tint-color" => "-exact-tint-color",
+        "exit-animation" => "-exact-exit-animation",
+        "layout-transition" => "-exact-layout-transition",
+        "press-scale" => "-exact-press-scale",
+        "symbol-rendering" => "-exact-symbol-rendering",
+        "symbol-palette" => "-exact-symbol-palette",
+        "symbol-value" => "-exact-symbol-value",
+        "symbol-effect" => "-exact-symbol-effect",
+        "press-haptic" => "-exact-press-haptic",
+        "content-transition" => "-exact-content-transition",
+        "scroll-edge-effect" => "-exact-scroll-edge-effect",
+        "hover-effect" => "-exact-hover-effect",
+        "smart-invert" => "-exact-smart-invert",
         "onChange" | "onChangeText" | "onInput" => "input",
         "className" | "class" | "style" => return None,
         _ => return None,

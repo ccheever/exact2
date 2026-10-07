@@ -222,7 +222,7 @@ pub struct Kernel {
     /// Keeps nothing ([`Kernel::detached`]).
     detached: bool,
     /// List rows mounted out of their port that hold an animation waiting
-    /// for the row to show (`animation-trigger: view`, LLP 1055 D13).
+    /// for the row to show (`-exact-animation-trigger: view`, LLP 1055 D13).
     pub(crate) awaiting: crate::id::IdSet<ViewId>,
 }
 
@@ -1295,7 +1295,9 @@ mod locality_tests {
         )
         .unwrap();
         let r = k.compute_layout(1, offer).unwrap();
-        assert_eq!(k.tree().boundary_replays, 0);
+        // The contained edit is replayed at its box though the coupled one
+        // sends a root pass after it; the result is a fresh layout's.
+        assert_eq!(k.tree().boundary_replays, 1);
         assert!(r.changed.contains(&k.node(5).unwrap().key));
         equal_fresh(&k, offer);
         // Style and topology edits after deferred text invalidation must flush it.

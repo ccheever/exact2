@@ -42,7 +42,7 @@ const SOURCE: &str = r#"component App
       button testId="remove" press=remove width=80 height=24
       when shown
         column testId="clip" width=320.25 height=200.5 overflow="hidden" padding=0 border-width=0
-          column id="photo" testId="photo" width="100%" height="100%" box-sizing="border-box" padding=0 border-width=0 translate=`${x}px ${y}px` scale=zoom transition="translate spring(180, 12, 1), scale spring(180, 12, 1)"
+          column id="photo" testId="photo" width="100%" height="100%" box-sizing="border-box" padding=0 border-width=0 translate=`${x}px ${y}px` scale=zoom transition="translate -exact-spring(180, 12, 1), scale -exact-spring(180, 12, 1)"
             column testId="handle" transformDragFor=reference transformgeometry=geometry transformrelease=finish
       text `${released}/${measured}/${bw}` testId="result"
 "#;
@@ -370,7 +370,7 @@ fn geometry_retarget_and_new_none_declaration_arrive_while_held_before_cancellat
     let source = SOURCE
         .replace("writes measured, bw\n", "writes measured, bw, x, zoom\n")
         .replace("    bw = w\n", "    bw = w\n    if w > 400\n      x = 99\n      zoom = 2\n")
-        .replace("transition=\"translate spring(180, 12, 1), scale spring(180, 12, 1)\"", "transition=(bw > 400 ? \"none\" : \"translate spring(180, 12, 1), scale spring(180, 12, 1)\")");
+        .replace("transition=\"translate -exact-spring(180, 12, 1), scale -exact-spring(180, 12, 1)\"", "transition=(bw > 400 ? \"none\" : \"translate -exact-spring(180, 12, 1), scale -exact-spring(180, 12, 1)\")");
     let (mut host, mut p, _) = boot_source(&source);
     accepted(&p.send(&mut host));
     p.op = 11;
@@ -904,7 +904,7 @@ const TIMED: &str = r#"component App
     away = true
   view
     column testId="clip" width=320.25 height=200.5 overflow="hidden" padding=0 border-width=0
-      column id="photo" testId="photo" width="100%" height="100%" box-sizing="border-box" padding=0 border-width=0 transition="translate spring(180, 12, 1), scale spring(180, 12, 1)"
+      column id="photo" testId="photo" width="100%" height="100%" box-sizing="border-box" padding=0 border-width=0 transition="translate -exact-spring(180, 12, 1), scale -exact-spring(180, 12, 1)"
         column testId="handle" transformDragFor="photo" transformgeometry=geometry transformrelease=finish
 "#;
 
@@ -970,7 +970,7 @@ fn release_and_geometry_actions_run_at_the_inputs_time_after_an_idle_clock() {
 /// snap rather than spring.
 const RACED: &str = r#"component App
   state reference = "photo"
-  state curve = "translate spring(180, 12, 1), scale spring(180, 12, 1)"
+  state curve = "translate -exact-spring(180, 12, 1), scale -exact-spring(180, 12, 1)"
   state released = 0
   state measured = 0
   state unbindArmed = false
@@ -1091,7 +1091,7 @@ const REFUSING: &str = r#"component App
     column
       button testId="arm" press=arm width=80 height=24
       column testId="clip" width=320.25 height=200.5 overflow="hidden" padding=0 border-width=0
-        column id="photo" testId="photo" width="100%" height="100%" box-sizing="border-box" padding=0 border-width=0 transition="translate spring(180, 12, 1)"
+        column id="photo" testId="photo" width="100%" height="100%" box-sizing="border-box" padding=0 border-width=0 transition="translate -exact-spring(180, 12, 1)"
           column testId="handle" transformDragFor="photo" transformgeometry=geometry transformrelease=finish
 "#;
 

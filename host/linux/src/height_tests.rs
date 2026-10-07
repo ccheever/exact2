@@ -13,7 +13,7 @@ impl DataSource for Empty {
     }
 }
 fn boot(measurer: Box<dyn TextMeasurer>) -> Host<Empty> {
-    Host::boot(&contract::compile("component App\n  view\n    box width=400 height=300\n      box testId=\"panel\" width=300 height=180 box-sizing=\"border-box\" transition=\"height spring(300,30,1), translate spring(300,30,1)\"\n        text \"words wrapping in the panel\"\n").unwrap().encode(), Empty, measurer, 400., 300.).unwrap().0
+    Host::boot(&contract::compile("component App\n  view\n    box width=400 height=300\n      box testId=\"panel\" width=300 height=180 box-sizing=\"border-box\" transition=\"height -exact-spring(300,30,1), translate -exact-spring(300,30,1)\"\n        text \"words wrapping in the panel\"\n").unwrap().encode(), Empty, measurer, 400., 300.).unwrap().0
 }
 fn panel(h: &Host<Empty>) -> ViewId {
     h.kernel()

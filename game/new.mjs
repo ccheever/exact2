@@ -165,10 +165,14 @@ component ${title.replaceAll(' ', '')}
   resource greeting = greeting("${title}") as shape Greeting
   view
     main testId="root"
+      viewport-fit="cover"
       width="100%"
       height="100%"
       box-sizing="border-box"
-      padding=24
+      padding-top="calc(env(safe-area-inset-top) + 24px)"
+      padding-right="calc(env(safe-area-inset-right) + 24px)"
+      padding-bottom="calc(env(safe-area-inset-bottom) + 24px)"
+      padding-left="calc(env(safe-area-inset-left) + 24px)"
       background-color="light-dark(#ffffff, #111111)"
       text greeting.text font-size=28 color="light-dark(#111111, #eeeeee)" testId="greeting"
 `,
@@ -228,7 +232,8 @@ fn embedded_data() -> ExactEmbeddedData {
         .placed(TYPESCRIPT_PLACEMENT)
 }
 include!(concat!(env!("OUT_DIR"), "/logic.rs"));
-exact_apple::host!(AppData, PLAN, COMPAT, None, std::ptr::null(), app_data);
+include!(concat!(env!("OUT_DIR"), "/linked.rs"));
+exact_apple::host!(AppData, PLAN, COMPAT, None, std::ptr::null(), app_data; linked = EXACT_LINKED);
 `,
     'web/Cargo.toml': `[package]
 name = "${name}-web"

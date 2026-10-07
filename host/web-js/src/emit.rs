@@ -952,7 +952,7 @@ impl Em<'_> {
         let (mut attrs, content, extra) = rows::attributes(element, &parts.props);
         let mut css = parts.css.clone();
         css.push_str(&extra);
-        // @ref LLP 1063 — `layout-transition` and `exit-animation` are custom
+        // @ref LLP 1063 — `-exact-layout-transition` and `-exact-exit-animation` are custom
         // properties the web host's presence-glue.js reads from the element's
         // own declaration: inline, as the live host writes every row, not
         // the class (a class's custom property would be inherited).
@@ -989,7 +989,7 @@ impl Em<'_> {
         let on = kinds.iter().any(|k| {
             matches!(
                 k.name(),
-                "focus" | "blur" | "key" | "press" | "copy" | "cut" | "paste"
+                "focus" | "blur" | "key" | "keyup" | "press" | "copy" | "cut" | "paste"
             )
         });
         // An authored `tabindex` is explicit and wins, a negative one
@@ -1246,6 +1246,7 @@ impl Em<'_> {
                 | EventKind::Focus
                 | EventKind::Blur
                 | EventKind::Key
+                | EventKind::Keyup
                 | EventKind::Submit
                 | EventKind::Load
                 | EventKind::Message

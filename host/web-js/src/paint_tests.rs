@@ -3,6 +3,61 @@ use exact_kernel::{NodeType, PropId, StyleId};
 use exact_plan::{builder::PlanBuilder, BindingKind, BindingsRow, Plan, Value};
 use std::collections::BTreeMap;
 
+#[test]
+fn dynamic_backdrop_grammar_agrees_with_the_kernel() {
+    use exact_kernel::style::BackdropFilter;
+    exact_kernel::style::link_backdrop_filter();
+    let cases: Vec<_> = [
+        "none",
+        "blur()",
+        "blur(0)",
+        "blur(+0e5)",
+        "blur(2.5PX)",
+        "saturate()",
+        "saturate(0)",
+        "saturate(180%)",
+        "SATURATE(+1.14)",
+        "blur(12px) saturate(1.14)",
+        "saturate(1.8) blur(4px)",
+        "saturate(-1)",
+        "saturate(-1e-50)",
+        "saturate(1.)",
+        "saturate(1 %)",
+        "saturate(2px)",
+        "saturate(NaN)",
+        "saturate(inf)",
+        "saturate(1e100)",
+        "saturate(1) saturate(2)",
+        "blur(1px) blur(2px)",
+        "blur(1e-100)",
+        "blur(3.4028235e38px)",
+        "blur(1.)",
+        "blur(-1px)",
+        "brightness(1.2)",
+        "none saturate(1)",
+        "saturate (1)",
+        "saturate(1) none",
+        "",
+        "4",
+    ]
+    .into_iter()
+    .map(|css| match BackdropFilter::check(css) {
+        Ok(value) => (css, Some(value.css()), None),
+        Err(reason) => (css, None, Some(reason)),
+    })
+    .collect();
+    let output = std::process::Command::new("bun")
+        .args(["-e", "const {backdropValue}=await import('./backdrop.js');for(const [input,expected,reason] of JSON.parse(process.argv[1])){let why=null;const actual=backdropValue(input,n=>why=n);if(actual!==expected||why!==reason)throw Error(JSON.stringify({input,expected,actual,reason,why}));}"])
+        .arg(serde_json::to_string(&cases).unwrap())
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
 fn fixture_plan(root: &str, nodes: &str) -> Plan {
     let mut builder = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
     let mut ids = BTreeMap::new();
@@ -136,6 +191,9 @@ component Paint
       box testId="arm-follower"
       box testId="motion" transition=(changed ? "1s opacity" : "1s color")
       box testId="filter" filter=(changed ? "blur(0px)" : "none")
+      box testId="backdrop" backdrop-filter=(changed ? "saturate(1)" : "none")
+      box testId="backdrop-pair" backdrop-filter=(changed ? "blur(4px) saturate(1.8)" : "saturate(0) blur(4px)")
+      box testId="backdrop-refused" backdrop-filter="saturate(" + toString(changed ? -1 : 0) + ")"
       box testId="identity" scale=(changed ? 1 : 2)
       box testId="copies"
         each n in filter(keys, n => n != (changed ? 2 : 4)) key=n
@@ -348,8 +406,18 @@ fn write_case(dir: &std::path::Path, plan: &Plan, steps: &[&str]) {
                 })
             })
             .collect();
+        let backdrop: BTreeMap<_, _> = kernel
+            .paint_order()
+            .into_iter()
+            .filter_map(|(id, _)| {
+                let node = kernel.node(id).unwrap();
+                node.props
+                    .str(PropId::TestId)
+                    .map(|name| (name.to_owned(), node.style.backdrop_filter.css()))
+            })
+            .collect();
         snapshots.push(serde_json::json!({"action": action, "isolation": isolation,
-            "zIndex": z_index, "paint": paint}));
+            "zIndex": z_index, "paint": paint, "backdrop": backdrop}));
     }
     std::fs::write(
         dir.join("steps.json"),
@@ -393,7 +461,7 @@ fn bound_transition_stacking_matches_kernel() {
         "opacity",
         "all",
         "ease",
-        "spring()",
+        "-exact-spring()",
         "linear(0, 1)",
         "opacity scale 1s",
         "opacity 1s ease linear",
@@ -416,7 +484,7 @@ fn bound_transition_stacking_matches_kernel() {
         "opacity 1s)",
         "opacity 1s cubic-bezier(0, 0, 1, 1))",
         "layout 1s",
-        "tint-color 1s",
+        "-exact-tint-color 1s",
         "--exact-tint 1s",
         "--exact-shadow-color 1s",
     ]
@@ -464,13 +532,13 @@ fn bound_transition_stacking_matches_kernel() {
         "linear(0 -1%, 1)",
         "linear(0, 1 101%)",
         "linear(0, NaN)",
-        "spring()",
-        "spring(300, 30, 1)",
-        "spring(0, 30, 1)",
-        "spring(300, -1, 1)",
-        "spring(300, 30, 0)",
-        "spring(300, 30)",
-        "spring(300, 30, 1e309)",
+        "-exact-spring()",
+        "-exact-spring(300, 30, 1)",
+        "-exact-spring(0, 30, 1)",
+        "-exact-spring(300, -1, 1)",
+        "-exact-spring(300, 30, 0)",
+        "-exact-spring(300, 30)",
+        "-exact-spring(300, 30, 1e309)",
     ];
     for property in properties {
         for easing in easings {

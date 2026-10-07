@@ -286,6 +286,9 @@ public final class Agent {
                 reply += "," + tail.dropFirst()
             }
             Agent.raw(reply)
+        // `perf hatches` (LLP 1075.003.000.001 §3.3): the hatches' calls, timed, and what their code recorded.
+        case "perf" where req["hatches"] as? Bool == true:
+            Agent.reply(session.hatchPerf())
         // `perf frames` is this host's (LLP 1079 D4); `perf <target>` is the runner's, below.
         case "perf" where req["frames"] as? Bool == true:
             Agent.reply(session.clock != nil ? ["virtual": true] : session.sampler?.reply(late: req["late"] as? Int ?? 20) ?? ["unavailable": true])
@@ -330,7 +333,7 @@ public final class Agent {
         out.write(Data((json + "\n").utf8))
     }
 
-    static func r2(_ x: CGFloat) -> Double { (Double(x) * 100).rounded() / 100 }
+    package static func r2(_ x: CGFloat) -> Double { (Double(x) * 100).rounded() / 100 }
 
     // Whole logical points, with an area ceiling to keep this diagnostic
     // from asking the software painter for arbitrarily large allocations.
@@ -395,6 +398,7 @@ public final class Agent {
             case ("online", "true"), ("online", "false"): facts.onLine = value == "true"
             case ("can-share", "true"), ("can-share", "false"): facts.canShare = value == "true"
             case ("can-open-files", "true"), ("can-open-files", "false"): facts.canOpenFiles = value == "true"
+            case ("has-focus", "true"), ("has-focus", "false"): facts.hasFocus = value == "true"
             case ("root-font-size", _) where (Double(value) ?? 0) > 0 && Double(value)!.isFinite: facts.rootFontSize = Double(value)!
             default: return ["error": "prefer: \(name): \(value) is not a page fact this host sets"]
             }
@@ -418,7 +422,8 @@ public final class Agent {
                           "color-gamut": DisplayPreferences.gamut,
                           "dynamic-range": DisplayPreferences.highDynamicRange ? "high" : "standard"],
                 "page": ["visibility-state": PageFacts.hidden ? "hidden" : "visible",
-                         "online": PageFacts.onLine, "can-share": PageFacts.canShare, "can-open-files": PageFacts.canOpenFiles, "root-font-size": PageFacts.rootFontSize],
+                         "online": PageFacts.onLine, "can-share": PageFacts.canShare, "can-open-files": PageFacts.canOpenFiles,
+                         "has-focus": PageFacts.hasFocus(session.view?.window), "root-font-size": PageFacts.rootFontSize],
                 "fold": presenter.fold.env]
     }
 
@@ -514,7 +519,7 @@ public final class Agent {
         if settle { target = max(from, self.settle() ?? from) }
         guard var to = target, to.isFinite else { return ["error": "clock needs \"to\" (ms) or \"settle\": true"] }
         guard to >= from else { return ["error": "the clock cannot go backwards (\(from) → \(to))"] }
-        var rounds = 0
+        var rounds = 0, hatchDrains = 0
         var world = Canvases.WorldClock()
         func reply(_ landed: Double, _ settled: Bool? = nil, reason: String? = nil) -> [String: Any] {
             var out = world.reply
@@ -538,6 +543,15 @@ public final class Agent {
             // Every list reported and filled where it shows, nested ones
             // included, before the fixed point is read (LLP 1070 G3).
             if settle { presenter.settlePump() }
+            // What hatches asked of elements (LLP 1075.003.000.001 §2.5): drained
+            // here, on the thread this loop holds, each drain a snapshot. A hatch
+            // whose acts keep causing acts is named after 16.
+            if settle, presenter.elements.inFlight > 0 {
+                hatchDrains += 1
+                if hatchDrains > 16 { return reply(landed, false, reason: "hatches") }
+                presenter.elements.drain()
+                continue
+            }
             world = session.canvases.clock(settle: settle)
             // A jump does not wait for what is still in flight on real time
             // (a store's, a worker's, the network's): the reply names how much,
@@ -558,6 +572,15 @@ public final class Agent {
                 continue
             }
             let next = max(landed, self.settle() ?? landed, world.settleAt ?? landed)
+            // Work the launch queued for a later main-queue turn (module views
+            // after activation's commit, LLP 1024 D3; the launch autofocus,
+            // LLP 1035.000 D9) runs before the fixed point; what it started
+            // (a `load` or focus handler's request) is then checked again.
+            if next <= landed && !world.pending && launchQueued() {
+                rounds += 1
+                if rounds >= 16 || !drainLaunch(until: deadline) { return reply(landed, false, reason: "transition") }
+                continue
+            }
             if next <= landed && !world.pending {
                 // A responder or presentation completion can enqueue a keyboard
                 // resize before its animation exists. Require an idle native turn
@@ -654,6 +677,7 @@ public final class Agent {
         for _ in 0..<16 {
             while !session.dataActivated && Date() < deadline { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
             if !session.dataActivated { return ["clock": from, "settled": false, "reason": "data"] }
+            if !drainLaunch(until: deadline) { return ["clock": from, "settled": false, "reason": "data"] }
             if !waitForReplies(until: deadline) { return ["clock": from, "settled": false, "reason": "requests"] }
             let batch = session.runtime.landThen()
             session.apply(batch)
@@ -672,6 +696,18 @@ public final class Agent {
               let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
               let b = o["background"] as? [String: Any] else { return 0 }
         return (b["queued"] as? Int ?? 0) + (b["inFlight"] as? Int ?? 0)
+    }
+
+    /// Whether the launch left work for a later main-queue turn.
+    func launchQueued() -> Bool { session.natives.activationQueued || session.presenter.launchAutofocusPending }
+
+    /// Turn the run loop until that work has run, or until `deadline`.
+    func drainLaunch(until deadline: Date) -> Bool {
+        while launchQueued() {
+            if Date() >= deadline { return false }
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        }
+        return true
     }
 
     /// How many requests the runner has in flight (`state.pending`).

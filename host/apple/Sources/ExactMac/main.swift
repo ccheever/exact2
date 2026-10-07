@@ -159,6 +159,9 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     init(label: String, first: Bool) {
         self.label = label
         session = exact.makeSession(delegate: adapter, label: label)
+        // Each document's window is its session's own; the process is several
+        // sessions', so none owns it (LLP 1075.003.000.001 §2.1.1).
+        session.hatchesOwnWindow = true
         if ExactEnv.agentFreezes { session.clock = 0 }
         if first, let url = launchURL {
             if ExactDevelopmentLink.claims(url) { launchDevelopmentURL = url }
@@ -421,6 +424,16 @@ final class Delegate: NSObject, NSApplicationDelegate {
         return .terminateLater
     }
     var quitting: StorageHold?
+    /// The quit is decided, however it came (⌘Q, the app menu, an Apple
+    /// Event, the last window closing): every session still live goes now,
+    /// synchronously, so each native module's `destroy()` runs before the
+    /// process ends ("destroyed with the session", LLP 1067.000 D3). A closed
+    /// window's own teardown (`windowWillClose`) waits for the next turn of
+    /// the run loop, which the last window's never gets; `destroy()` runs
+    /// once whichever comes first. Nothing is held (LLP 1069.010 Q4).
+    func applicationWillTerminate(_ notification: Notification) {
+        for session in exact.sessions { session.destroy() }
+    }
     func applicationDidFinishLaunching(_ notification: Notification) {
         ExactEnv.stamp("didFinishLaunching")
         finishLaunching()

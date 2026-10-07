@@ -51,7 +51,7 @@ const SOURCE: &str = r#"component App
       text `${count}/${received}/${speed}` testId="result"
       column display=display testId="ancestor"
         when shown
-          column id="sheet" testId="sheet" height=extent max-height=400 box-sizing="border-box" transition="height spring(180, 12, 1)"
+          column id="sheet" testId="sheet" height=extent max-height=400 box-sizing="border-box" transition="height -exact-spring(180, 12, 1)"
             when first
               column testId="handle" heightDragFor=reference heightrelease=snap
             when second
@@ -605,7 +605,7 @@ fn malformed_typed_release_does_not_change_host_clock_or_action_state() {
 #[test]
 fn overdue_timer_retains_height_hold_and_lowers_unrelated_action_motion() {
     let source = SOURCE.replace("  view\n", "  action tick\n    extent = 240\n    count = count + 1\n  task clock mount\n    every(100, tick)\n  view\n")
-        .replace("testId=\"result\"", "testId=\"result\" opacity=(count == 0 ? 1 : 0.5) transition=\"opacity spring(180, 12, 1)\"");
+        .replace("testId=\"result\"", "testId=\"result\" opacity=(count == 0 ? 1 : 0.5) transition=\"opacity -exact-spring(180, 12, 1)\"");
     let (mut host, _) = boot_source(&source);
     let held = begin(&mut host, "handle", 400.0, 150.0);
     let batch = host.advance(175.0);
@@ -676,10 +676,10 @@ fn accepted_receipt_cancellation_starts_at_receipt_time_and_retargets_from_elaps
 #[test]
 fn accepted_cancellation_uses_latest_zero_duration_or_removed_transition() {
     for transition in ["none", "height 0ms linear"] {
-        let source = SOURCE.replace("  state reference =", "  state transition = \"height spring(180, 12, 1)\"\n  state reference =")
+        let source = SOURCE.replace("  state reference =", "  state transition = \"height -exact-spring(180, 12, 1)\"\n  state reference =")
             .replace("  action unbind\n    reference = \"missing\"",
                 &format!("  action unbind\n    reference = \"missing\"\n    transition = \"{transition}\""))
-            .replace("transition=\"height spring(180, 12, 1)\"", "transition=transition");
+            .replace("transition=\"height -exact-spring(180, 12, 1)\"", "transition=transition");
         let (mut host, _) = boot_source(&source);
         let held = begin(&mut host, "handle", 300.0, 100.0);
         let cancelled = press(&mut host, "unbind", 200.0);
@@ -702,10 +702,10 @@ fn accepted_cancellation_uses_latest_zero_duration_or_removed_transition() {
 
 #[test]
 fn accepted_cancellation_uses_latest_target_spring_and_delay_while_still_held() {
-    let source = SOURCE.replace("  state reference =", "  state declaration = \"height spring(180, 12, 1)\"\n  state reference =")
+    let source = SOURCE.replace("  state reference =", "  state declaration = \"height -exact-spring(180, 12, 1)\"\n  state reference =")
         .replace("  action unbind\n    reference = \"missing\"",
-            "  action unbind\n    reference = \"missing\"\n    extent = 240\n    declaration = \"height 0s spring(120, 8, 2) 50ms\"")
-        .replace("transition=\"height spring(180, 12, 1)\"", "transition=declaration");
+            "  action unbind\n    reference = \"missing\"\n    extent = 240\n    declaration = \"height 0s -exact-spring(120, 8, 2) 50ms\"")
+        .replace("transition=\"height -exact-spring(180, 12, 1)\"", "transition=declaration");
     let (mut host, _) = boot_source(&source);
     let held = begin(&mut host, "handle", 300.0, 100.0);
     let batch = press(&mut host, "unbind", 200.0);

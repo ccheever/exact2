@@ -26,6 +26,7 @@ impl<D: DataSource> Host<D> {
             None,
             "/",
             Some(registration),
+            crate::link::Links::ALL,
             |_| {},
         )?;
         host.commit_boot();
@@ -195,6 +196,7 @@ impl<D: DataSource> Host<D> {
             "/",
             Some(registration),
             Some(limits),
+            crate::link::Links::ALL,
             |_| {},
         )?;
         host.commit_boot();

@@ -113,7 +113,8 @@ export function reply(target, tags) {
   if (all.length > SITES) { truncated = true; all.length = SITES; }
   const sites = all.map(site => {
     const w = at(site);
-    return { site, instances: live.get(site), live: w.created - w.retired, ...w };
+    // A hatched site's row names its hatch's calls and time (LLP 1075.003.000.001 §3.3).
+    return { site, instances: live.get(site), live: w.created - w.retired, ...w, ...(globalThis.exact?.hatchPerf?.site(site) ?? {}) };
   });
   return { ...tags, seq: clock.epoch, plan: globalThis.exact?.plan ?? null, sites, walked, truncated };
 }
@@ -141,7 +142,9 @@ export async function develop(exact) {
   const sampler = createFrameSampler({
     origin: () => clock.start ?? 0, target: 'js', covers: ['input', 'scroll', 'commits', 'animations', 'canvas'],
     log: line => journal.push(`t=${clock.now} ${line}`),
-    gather: async () => ({ journal: { from: journal.start, next: journal.start + journal.length, lines: journal.slice() }, perf: reply(root, tags()) }),
+    // With the hatches (LLP 1075.003.000.001 §3.3), read in this same turn, so the sections agree.
+    gather: async () => ({ journal: { from: journal.start, next: journal.start + journal.length, lines: journal.slice() }, perf: reply(root, tags()),
+      ...(exact.hatchState ? { hatches: { state: exact.hatchState(), perf: exact.hatchPerf.reply(tags()) } } : {}) }),
   });
   // A commit's transactions are known once it returns: the epoch moves after its `After`.
   let mark = clock.epoch;

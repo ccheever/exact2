@@ -150,7 +150,7 @@ fn grant_sets() -> String {
         "net.fetch https://fixture.exact.test\n",
         "secret.keep dpop\n",
         "net.fetch https://api.castle.xyz\nsecret.keep castle.session\n",
-        "fs.read app:/data\nfs.write app:/data\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n",
+        "fs.read app:/data\nfs.write app:/data\nfs.read doc:/\nfs.write doc:/\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n",
         "fs.read app:/\nfs.write app:/\nsqlite.open app:/data",
         "fs.read app:/data/move\nfs.write app:/data/move",
         "fs.read app:/data",
@@ -290,7 +290,7 @@ try {
     const checkpoint=async result=>{for(let i=0;result.continuation&&i<20;i++)result=await run(result.continuation);return result;};
     const oldDate=Date, oldNow=Date.now, oldRandom=Math.random;
     const guest=document.createElement('iframe');document.getElementById('exact-root').append(guest);
-    const guestBox=guest.getBoundingClientRect(), pageHeight=document.documentElement.scrollHeight;
+    const guestBox=guest.getBoundingClientRect();
     if(guestBox.width!==300||guestBox.height!==150)throw new Error('guest iframe lost its 300x150 box');
     const guestDate=guest.contentWindow.Date;
     const identity=admit({appId:'test.browser.module',grants:'secret.keep token'});
@@ -327,7 +327,14 @@ try {
     const module = await prepare(loaded,identity);
     const privateFrames=[...document.querySelectorAll('iframe')].filter(frame=>frame!==guest);
     if(privateFrames.length!==1||privateFrames.some(frame=>frame.getClientRects().length))throw new Error('private module iframe participates in layout');
-    if(document.documentElement.scrollHeight!==pageHeight)throw new Error('private module grew document scroll height');
+    // The private frames' own share of the page's height, measured at once: the page with them and without
+    // them (display:none). The height at the guest's creation is no baseline; the page's own content may
+    // still be growing (the check failed 1 run in 4 that way).
+    const withFrames=document.documentElement.scrollHeight;
+    for(const frame of privateFrames)frame.style.setProperty('display','none');
+    const withoutFrames=document.documentElement.scrollHeight;
+    for(const frame of privateFrames)frame.style.removeProperty('display');
+    if(withFrames!==withoutFrames)throw new Error(`private module grew document scroll height (${withoutFrames} to ${withFrames})`);
     const answer=(source,args=[])=>call({op:'answer',id:module.id,source,args,store:[['token','old']],grants:['token']});
     const results=[];
     for(const name of ['alias','random','constructor','intl'])results.push(await checkpoint(answer(name)));
@@ -556,7 +563,9 @@ try {
       constructor(...args){super(...args);workersCreated++;}
       terminate(){workersTerminated++;return super.terminate();}
     };
-    const storageIdentity=admit({appId:'dev.exact.storage-test',grants:'fs.read app:/data\nfs.write app:/data\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n'});
+    // The fixture's own grants (js/tests/fixtures/storage.ts, js/tests/it/storage.rs GRANTS): its module declares
+    // them, and admission refuses a module whose declaration differs from the admitted one.
+    const storageIdentity=admit({appId:'dev.exact.storage-test',grants:'fs.read app:/data\nfs.write app:/data\nfs.read doc:/\nfs.write doc:/\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n'});
     const beforeStorage=(await indexedDB.databases()).length;
     let storage=await prepare(await payload(fixtures.storage,storageIdentity),storageIdentity);
     if((await indexedDB.databases()).length!==beforeStorage)throw new Error('prepare opened storage');
@@ -617,32 +626,60 @@ try {
     storage=await prepare(await payload(fixtures.storage.replaceAll(storageIdentity.appId,secondIdentity.appId),secondIdentity),secondIdentity);
     if(await storageCall('list')!=='')throw new Error('app storage isolation');
     storage.dispose();
-    history.replaceState(null,'','/?agent=1');
-    storage=await prepare(await payload(fixtures.storage,storageIdentity),storageIdentity);
-    if(!(await storageCall('bake')).includes('unavailable in agent mode'))throw new Error('agent mode disk access');
-    storage.dispose();history.replaceState(null,'','/');
+    // Agent mode is the launch URL's (its navigation entry, 18d0dec29), which a
+    // router's replaceState cannot change: stand in that entry, as the storage
+    // service test does (f6072f214).
+    const navigationEntries=performance.getEntriesByType;
+    performance.getEntriesByType=type=>type==='navigation'?[{name:location.origin+'/?agent=1'}]:navigationEntries.call(performance,type);
+    try {
+      storage=await prepare(await payload(fixtures.storage,storageIdentity),storageIdentity);
+      if(!(await storageCall('bake')).includes('unavailable in agent mode'))throw new Error('agent mode disk access');
+      storage.dispose();
+    } finally {performance.getEntriesByType=navigationEntries;}
     const abandonedSource=`let invocation=0;globalThis.exact={abi:1,appId:'dev.exact.storage-test',grants:${JSON.stringify(storageIdentity.grants)},answer(source,args,store,storage){
       if(invocation++===0){void storage.fs.stat('app:/data').then(()=>store.set('session','orphan'));throw new Error('abandoned');}
       return storage.fs.stat('app:/data').then(()=>({text:'current'}));}};`;
+    // LLP 1097 D7: an abandoned call's storage is the background's, and an answer queued behind it parks until a
+    // background round delivers it, as the runner's background ticket runs one: start the answer, run the rounds
+    // while the background holds the queue's head, then take the answer.
+    const drained=async(realm,source,args,store,grants)=>{
+      const answer=invoke(realm,source,args,store,grants);
+      for(let round=0;round<20&&call({op:'background',id:realm.id}).head;round++)await run(call({op:'background-round',id:realm.id}).token);
+      return answer;
+    };
     const abandoned=await prepare(await payload(abandonedSource,storageIdentity),storageIdentity);
     const first=await invoke(abandoned,'work',[],[],['session']);
-    const next=await invoke(abandoned,'work',[],[],['session']);
+    const next=await drained(abandoned,'work',[],[],['session']);
     if(first.tag!==2||next.value?.text!=='current'||next.writes.length)throw new Error('abandoned completion entered another invocation');
     abandoned.dispose();
-    const abandonedOpenSource=`let invocation=0;globalThis.exact={abi:1,appId:'dev.exact.storage-test',grants:${JSON.stringify(storageIdentity.grants)},answer(source,args,store,storage){
-      if(invocation++===1){void storage.sqlite.open('app:/data/notes.db').then(db=>{store.set('session','orphan');return db.close();});throw new Error('abandoned open');}
+    // LLP 1097 D7 (Charlie, 2026-10-07): a let-go chain keeps running; the host never closes a handle
+    // for it, so the chain closes its own in a finally. Its store write fails there (the background
+    // has no store) while the close still runs, and the next open finds the database free.
+    const openChain=close=>`let invocation=0;globalThis.exact={abi:1,appId:'dev.exact.storage-test',grants:${JSON.stringify(storageIdentity.grants)},answer(source,args,store,storage){
+      if(invocation++===1){void storage.sqlite.open('app:/data/notes.db').then(${close?"async db=>{try{store.set('session','orphan');}finally{await db.close();}}":"db=>{store.set('session','orphan');return db.close();}"});throw new Error('abandoned open');}
       return storage.sqlite.open('app:/data/notes.db').then(db=>db.close()).then(()=>({text:'current'}),()=>({text:'busy'}));}};`;
-    const abandonedOpen=await prepare(await payload(abandonedOpenSource,storageIdentity),storageIdentity);
+    const abandonedOpen=await prepare(await payload(openChain(true),storageIdentity),storageIdentity);
     await invoke(abandonedOpen,'work',[],[],['session']);
     if((await invoke(abandonedOpen,'work',[],[],['session'])).tag!==2)throw new Error('open abandonment fixture');
     let released=false;
     for(let attempt=0;attempt<20&&!released;attempt++){
-      const result=await invoke(abandonedOpen,'work',[],[],['session']);
-      if(result.writes.length)throw new Error('abandoned open ran app callback');
+      const result=await drained(abandonedOpen,'work',[],[],['session']);
+      if(result.writes.length)throw new Error("abandoned open's store write landed");
       released=result.value?.text==='current';
     }
-    if(!released)throw new Error('abandoned open kept its database locked');
+    if(!released)throw new Error('abandoned open kept its database locked though it closed it in a finally');
+    const closedLines=abandonedOpen.journal();
+    if(!closedLines.some(l=>/unhandled rejection/.test(l)))throw new Error(`the let-go chain's store write did not fail: ${JSON.stringify(closedLines)}`);
+    if(closedLines.some(l=>/is still open/.test(l)))throw new Error(`a closed database was reported open: ${JSON.stringify(closedLines)}`);
     abandonedOpen.dispose();
+    // Without the finally the database stays open, and the journal says so and how to fix it.
+    const leakingOpen=await prepare(await payload(openChain(false),storageIdentity),storageIdentity);
+    await invoke(leakingOpen,'work',[],[],['session']);
+    await invoke(leakingOpen,'work',[],[],['session']);
+    let leakLines=[];
+    for(let attempt=0;attempt<20&&!leakLines.some(l=>/is still open/.test(l));attempt++){await drained(leakingOpen,'work',[],[],['session']);leakLines=leakLines.concat(leakingOpen.journal());}
+    if(!leakLines.some(l=>l.includes('app:/data/notes.db is still open')&&l.includes('finally { db.close() }')))throw new Error(`a let-go chain's open database was not journaled: ${JSON.stringify(leakLines)}`);
+    leakingOpen.dispose();
     const {createFileSystem}=await import('/storage-fs.js');
     const {createSqlite}=await import('/storage-sqlite.js');
     const fsApp='test.browser.file-operations', fsGrants='fs.read app:/\nfs.write app:/\nsqlite.open app:/data';
@@ -941,15 +978,17 @@ try {
       await click('action');await click('editor');await type('ready');
       const active=await evaluate(`({dispatch:startup.dispatch,value:document.getElementById('editor').value,disabled:document.getElementById('disabled').disabled})`);
       assert.equal(active.dispatch.some(event=>event.id===2&&event.kind===0),true,'ready button dispatches');
-      assert.equal(active.dispatch.some(event=>event.id===3&&event.kind===1),true,'ready input dispatches edits');
+      // A text field's committed value is kind 41, its selection then its value (navigation.js `controlEvent`, x2apps codeedit #2); kind 1 is a non-text control's `change`, as the range's below.
+      assert.equal(active.dispatch.some(event=>event.id===3&&event.kind===41&&event.value.includes('ready')),true,'ready input dispatches edits');
       assert.equal(active.value.includes('ready'),true);assert.equal(active.disabled,true,'authored disabled state survives activation');
       assert.deepEqual(await evaluate(`['disabled-on-activation','enabled-on-activation'].map(id=>document.getElementById(id).disabled)`),[true,false],'activation prop changes override originally authored disabled state');
       // The range is controlled (LLP 1069.001): an edit reaches the app, and the
-      // control shows the app's value, which this stub never changes.
+      // control keeps the person's value until its bound value changes, which this
+      // stub never does (D4, amended 2026-10-04: the web never snapped a valued control back).
       const rangeEdits=`startup.dispatch.filter(event=>event.id===6&&event.kind===1).map(event=>event.value)`;
       await rangeKeyboard();
       assert.deepEqual(await evaluate(rangeEdits),['51'],'activated range accepts native keyboard editing');
-      assert.equal(await evaluate(`document.getElementById('range').value`),'50','the range shows the value the app holds');
+      assert.equal(await evaluate(`document.getElementById('range').value`),'51','the range keeps the person\'s value while the bound value is unchanged');
       await click('range');
       const edits=await evaluate(rangeEdits);
       assert.equal(edits.length,2,'keyboard and pointer range edits both dispatch');

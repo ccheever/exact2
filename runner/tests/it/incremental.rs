@@ -196,6 +196,9 @@ fn event(rng: &mut Rng, kind: EventKind) -> Option<Event> {
         EventKind::Focus => Event::Focus,
         EventKind::Blur => Event::Blur,
         EventKind::Key => Event::key(rng.pick(&["Enter", "Escape", "Shift+ArrowDown", "a"])),
+        EventKind::Keyup => {
+            Event::of_host_kind(43, rng.pick(&["Meta\nMetaLeft\nfalse", "a\nKeyA\nfalse"])).unwrap()
+        }
         EventKind::Submit => Event::Submit,
         EventKind::Load => Event::Load,
         EventKind::Message => Event::Message(text(rng)),
@@ -645,8 +648,10 @@ fn every_app_plan_updates_incrementally_exactly_as_it_does_in_full() {
                                         deferred,
                                     );
                                     eprintln!("{app} seed {seed}: {commits} commits");
+                                    // A plan with nothing to press (the hello
+                                    // app's one text) commits nothing, rightly.
                                     assert!(
-                                        commits >= steps / 4,
+                                        plan.handlers.is_empty() || commits >= steps / 4,
                                         "{app} seed {seed}: only {commits} commits"
                                     );
                                     commits

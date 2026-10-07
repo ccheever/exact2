@@ -28,7 +28,7 @@ extension NodeView {
         }
         return false
     }
-    func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldRequireFailureOf other: UIGestureRecognizer) -> Bool {
+    package func gestureRecognizer(_ gesture: UIGestureRecognizer, shouldRequireFailureOf other: UIGestureRecognizer) -> Bool {
         // A swipe waits for the screen-edge back gesture to fail, as UIKit's
         // own swipe actions and Signal's swipe to reply do: from the edge, back wins.
         #if os(iOS)

@@ -158,6 +158,10 @@ fn state(r: &mut Runner<Oracle>, plan: &Plan, out: &mut Vec<String>) {
 
 /// Boot `plan` against `oracle`, deliver `events`, and return the
 /// observation lines and the source (with its transcript).
+///
+/// An event is delivered as every host delivers one, at the current time
+/// (`Runner::dispatch_at`): the work already due fires first, then the
+/// event, which runs even when that work refused (`Contract.Observe.dispatchAt`).
 pub fn run(plan: Plan, oracle: Oracle, events: &[Event]) -> (Vec<String>, Option<Oracle>) {
     let mut out = vec!["== boot".to_string()];
     let kept = oracle.handle();
@@ -199,13 +203,15 @@ pub fn run(plan: Plan, oracle: Oracle, events: &[Event]) -> (Vec<String>, Option
         let was = r.is_poisoned();
         let result = match e {
             Event::Tap(t) => match find(&r, t) {
-                Some(view) => r.dispatch(view, HostEvent::Press).map(drop),
+                Some(view) => deliver(&mut r, view, HostEvent::Press),
                 None => Err(exact_runner::RunnerError::UnknownView(0)),
             },
             Event::Type(t, s) => match find(&r, t) {
-                Some(view) => r
-                    .dispatch(view, HostEvent::Change(ControlValue::Text(s.clone())))
-                    .map(drop),
+                Some(view) => deliver(
+                    &mut r,
+                    view,
+                    HostEvent::Change(ControlValue::Text(s.clone())),
+                ),
                 None => Err(exact_runner::RunnerError::UnknownView(0)),
             },
             Event::Clock(ms) => {
@@ -249,11 +255,9 @@ pub fn site(plan: Plan, oracle: Oracle, events: &[Event], test_id: &str) -> Opti
     .ok()?;
     for e in events {
         let _ = match e {
-            Event::Tap(t) => find(&r, t).map(|v| r.dispatch(v, HostEvent::Press).map(drop)),
-            Event::Type(t, s) => find(&r, t).map(|v| {
-                r.dispatch(v, HostEvent::Change(ControlValue::Text(s.clone())))
-                    .map(drop)
-            }),
+            Event::Tap(t) => find(&r, t).map(|v| deliver(&mut r, v, HostEvent::Press)),
+            Event::Type(t, s) => find(&r, t)
+                .map(|v| deliver(&mut r, v, HostEvent::Change(ControlValue::Text(s.clone())))),
             Event::Clock(ms) => {
                 let to = r.now_ms() + ms;
                 Some(r.advance(to).map(drop))
@@ -265,4 +269,30 @@ pub fn site(plan: Plan, oracle: Oracle, events: &[Event], test_id: &str) -> Opti
     }
     let view = find(&r, test_id)?;
     r.site_of(view).map(|(node, _)| node.0 as usize)
+}
+
+/// One event at the runner's current time, as a host delivers it: a host
+/// attaches a listener only where the view handles the event
+/// (`Runner::handlers_of`), so an event the view has no handler for reaches
+/// nothing and fires nothing due; one it handles fires what is due first
+/// (`Runner::dispatch_at`), and the event's refusal, else the due work's, is
+/// the outcome (`Contract.Observe.dispatchAt`).
+fn deliver(
+    r: &mut Runner<Oracle>,
+    view: ViewId,
+    event: HostEvent,
+) -> Result<(), exact_runner::RunnerError> {
+    let kind = match &event {
+        HostEvent::Press => Some(exact_plan::EventKind::Press),
+        HostEvent::Change(_) => Some(exact_plan::EventKind::Change),
+        _ => None,
+    };
+    if !kind.is_some_and(|k| r.handlers_of(view).contains(&k)) {
+        return r.dispatch(view, event).map(drop);
+    }
+    let now = r.now_ms();
+    match r.dispatch_at(view, event, now).error {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
 }

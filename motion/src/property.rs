@@ -18,13 +18,13 @@
 //! of legacy colours (LLP 1055.000 D6).
 //!
 //! Paint motion (LLP 1062) adds the four border sides' colours, a symbol's
-//! `tint-color`, and `box-shadow` as two engine properties: its geometry
+//! `-exact-tint-color`, and `box-shadow` as two engine properties: its geometry
 //! (offset and blur, in points) and its colour, the shadow's opacity folded
 //! into the alpha, so a shadow from `none` is CSS's transparent, zero-length
 //! padding.
 //!
 //! `layout` is not a CSS property: it is a node's laid-out box in its parent
-//! (origin and size), which a `layout-transition` row animates (LLP 1063).
+//! (origin and size), which a `-exact-layout-transition` row animates (LLP 1063).
 //! It is never authored in `transition` or `@keyframes`, so it is outside
 //! [`Property::ALL`] and never on the wire.
 //!
@@ -80,7 +80,7 @@ pub enum Property {
     BorderBottomColor = 19,
     /// `border-left-color`.
     BorderLeftColor = 20,
-    /// `tint-color`, a symbol image's colour.
+    /// `-exact-tint-color`, a symbol image's colour.
     TintColor = 21,
     /// `box-shadow`'s offset and blur radius, points (`x`, `y`, `z`).
     BoxShadow = 22,
@@ -89,7 +89,7 @@ pub enum Property {
     ShadowColor = 23,
     /// The laid-out box in the parent, in points: origin (`x`, `y`) and size
     /// (`z` wide, `w` high) (LLP 1063). Its target is layout's answer,
-    /// observed by a host after layout; only a node's `layout-transition` row
+    /// observed by a host after layout; only a node's `-exact-layout-transition` row
     /// moves it, never `transition`.
     Layout = 24,
     /// SVG 2 `d`, a path's data (LLP 1055.000 D15). Its slot's value is a
@@ -178,7 +178,7 @@ impl Property {
             Property::BorderRightColor => "border-right-color",
             Property::BorderBottomColor => "border-bottom-color",
             Property::BorderLeftColor => "border-left-color",
-            Property::TintColor => "tint-color",
+            Property::TintColor => "-exact-tint-color",
             Property::BoxShadow => "box-shadow",
             Property::ShadowColor => "box-shadow-color",
             Property::Layout => "layout",
@@ -187,8 +187,8 @@ impl Property {
     }
 
     /// The name a browser knows the property by: [`Property::name`], but
-    /// `tint-color`, which the web host carries as the registered custom
-    /// property `--exact-tint` (LLP 1062 D6).
+    /// `-exact-tint-color`, which the web host carries as the registered
+    /// custom property `--exact-tint` (LLP 1062 D6).
     pub fn css_name(self) -> &'static str {
         match self {
             Property::TintColor => "--exact-tint",
@@ -196,9 +196,18 @@ impl Property {
         }
     }
 
-    /// From an authorable CSS property name; `box-shadow`'s colour half has
-    /// none. `tint-color` also answers to its [`Property::css_name`], the
-    /// name a keyframes rule carries it by.
+    /// From a name an author writes; `box-shadow`'s colour half has none,
+    /// and the host's own `--exact-tint` is not one (LLP 1081 D5).
+    pub fn from_author_name(name: &str) -> Option<Property> {
+        Property::ALL
+            .into_iter()
+            .find(|p| *p != Property::ShadowColor && p.name() == name)
+    }
+
+    /// From a name in stored plan text: an author name, or the
+    /// [`Property::css_name`] a serialized keyframes rule carries
+    /// `-exact-tint-color` by (LLP 1081 D5). Author text goes through
+    /// [`Property::from_author_name`].
     pub fn from_name(name: &str) -> Option<Property> {
         Property::ALL
             .into_iter()
@@ -227,7 +236,7 @@ impl Property {
         )
     }
 
-    /// Whether a `spring()` drives the property as physics, carrying
+    /// Whether a `-exact-spring()` drives the property as physics, carrying
     /// velocity across an interruption. The web lowers these springs to
     /// frames; every other property (paint, SVG geometry and paint) plays a
     /// spring as its curve from rest, a CSS `linear()` easing, on every host

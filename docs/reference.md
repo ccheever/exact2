@@ -55,17 +55,15 @@ not require `HOME`. App and scratch
 identities and `app:/` path components must be safe Windows leaves; drive, UNC,
 backslash traversal, alternate-stream and reserved-device forms are refused.
 
-Snapback4 consumers use release **0.2.30**: the CLI and browser device are pinned
-in `bun.lock`; Cargo pins native devices and schema compilers to the matching
-release source commit `a397218e2332964ebe29aa1d30918c436713cc8a`.
-Run `bun install --frozen-lockfile` before baking Messages Legacy, and use the pinned CLI
-with `bun run --bun snapback4` from an app directory.
-Messages Legacy and the optional `exact-snapback4` adapter belong to the separate
-`snapback4/` Cargo workspace. Its lock carries the private source; root Cargo
-commands need no Snapback access. The `messages-legacy` build commands select
-that workspace automatically; direct Cargo commands use
-`--manifest-path snapback4/Cargo.toml`. External consumers keep their path
-dependency on `snapback4/`.
+Snapback4 consumers use release **0.4.13**: the CLI is pinned in `bun.lock`;
+Cargo pins the device and its client to the matching release source commit
+`67b2ce28a3823f3dd1728dc4a2421995e1b12ac8`. `snapback4/` is one client for an
+app's Rust and TypeScript on every host ([its README](../snapback4/README.md)):
+the protocol in Rust without I/O, the native device, the web's wasm, and the
+TypeScript driver an app mounts with `typescript.sources`. The client is its
+own Cargo workspace, `snapback4/`; its lock carries the private source, so
+root Cargo commands need no Snapback access. Direct Cargo commands use
+`--manifest-path snapback4/Cargo.toml`; apps depend on `snapback4/` by path.
 
 The canonical [Messages](../apps/messages/README.md) app is the Exact port of Expo's
 chat demo, with model conversations through a local OpenRouter service. It belongs
@@ -265,6 +263,23 @@ verifying that owner is no longer running. Failed packaging retains the previous
 complete product. `EXACT_MAC_BIN` remains an explicit diagnostic override, checked
 against the selected app's embedded identity before the driver launches it.
 
+An app can ship macOS helper executables and resource trees separately from
+its baked assets. Keep the tree in a dedicated directory beside `app.json`:
+
+```json
+{"host":{"macos":{"resources":[{"from":"server","to":"Resources/server"}]}}}
+```
+
+`mac --bundle` copies it to `Contents/Resources/server`, preserving file modes,
+names such as `node_modules/@scope`, and relative symlinks within the tree.
+These files have no bake size cap and are excluded from TypeScript capture and
+web assets. `from` cannot overlap source, asset or output roots; `to` must name
+a private subtree of `Resources/`, `Helpers/` or `Frameworks/`. Mach-O helpers
+and libraries are signed before the outer bundle; `exact release` signs them
+with its release identity. Resource changes require a new binary, not an asset
+update. Find `Resources/server` through `Bundle.main.resourceURL` from a native
+module. This field applies only to macOS bundles.
+
 ## Open the same development URL on Apple hosts
 
 Start `bun host/web/dev.mjs` and open a printed URL in your browser. Build
@@ -361,7 +376,7 @@ on the web and these on Hermes (macOS, iOS, Linux):
 | `crypto.getRandomValues`, `crypto.randomUUID`, `crypto.subtle` | Inside an answer; `subtle` digests (SHA-256/384/512) and ECDSA P-256 keys (LLP 1069.005), and refuses the rest by name |
 | `AbortController`, `AbortSignal` | `AbortSignal.timeout()` refuses: no timers |
 | `queueMicrotask`, `Promise` | |
-| `Intl.NumberFormat`, `Intl.DateTimeFormat`, `Intl.Collator`, `localeCompare`, `toLocaleString` | Date formatting needs an explicit timestamp. No `Intl.PluralRules`, `RelativeTimeFormat`, `ListFormat`, `Segmenter`, `DisplayNames` or `Locale` (Apple's engine; Linux's is built `--intl`). Apple's engine has no `notation: "compact"`: the prelude formats its short display as Chrome does for a decimal in en, en-GB, en-IN, de, fr, fr-CA, es, es-MX, it, pt, pt-PT, nl, sv, da, nb, fi, pl, ru, uk, cs, tr, ja, zh, zh-TW, ko, hi, he, id, th and vi (and their regions); `compactDisplay: "long"`, another locale or a compact currency is printed in full and said once in the logs. It rounds a tie to even where Chrome rounds it away (`¥1,234` for 1234.5 yen), and has no `formatToParts` |
+| `Intl.NumberFormat`, `Intl.DateTimeFormat`, `Intl.Collator`, `localeCompare`, `toLocaleString` | Date formatting needs an explicit timestamp. No `Intl.PluralRules`, `RelativeTimeFormat`, `ListFormat`, `Segmenter` or `DisplayNames` (Apple's engine; Linux's is built `--intl`). `Intl.Locale` is the prelude's on every Hermes host (the engine has none): a tag parsed and canonicalized as Chrome does, its options and getters, and `getWeekInfo()` with Chrome's `{firstDay, weekend}` from CLDR's week data, by the tag's region, its `-u-rg-`, or its language's likely region (two-letter languages and a few others; another reads Monday and a Saturday-Sunday weekend), and `-u-fw-`. It has no `maximize`, `minimize` or other `get…()` list, does not canonicalize aliases (`iw` stays `iw`, `en-840` keeps `840`, and its week is then the default, Monday, where Chrome's is `en-US`'s), a formatter given a `Locale` object rather than its string uses the default locale, and `structuredClone` copies a `Locale` as `{}` where Chrome refuses it. Apple's `ja-JP` long date puts a space before the weekday (`10月6日 火曜日`, Chrome `10月6日火曜日`). Apple's engine has no `notation: "compact"`: the prelude formats its short display as Chrome does for a decimal in en, en-GB, en-IN, de, fr, fr-CA, es, es-MX, it, pt, pt-PT, nl, sv, da, nb, fi, pl, ru, uk, cs, tr, ja, zh, zh-TW, ko, hi, he, id, th and vi (and their regions); `compactDisplay: "long"`, another locale or a compact currency is printed in full and said once in the logs. It rounds a tie to even where Chrome rounds it away (`¥1,234` for 1234.5 yen), and has no `formatToParts` |
 | `console` | To the runner's logs after each answer and reply, including refused calls; available through the agent's `logs` on native hosts |
 
 Not in a data module, by design (LLP 1027.000): timers (`setTimeout`,
@@ -374,7 +389,11 @@ page's (LLP 1027.000 D3), so an app that reads the clock fails in the web loop
 as it would on a device. The type check cannot see the difference, but every
 build refuses a direct use in a module `app.ts` reaches, by file and line
 (`logic.ts:2:28: Date.now() is unavailable in data sources; …`), so a test that
-runs the module under Bun, which has no such guard, cannot hide it. Development JS builds name a derive
+runs the module under Bun, which has no such guard, cannot hide it.
+Literal bracket access such as `Date['now']()` and `globalThis['setTimeout']()`
+gets the same diagnostic as dot access, including in the web build's summary.
+Aliases and dynamic property keys still reach the runtime guard.
+Development JS builds name a derive
 whose value fails its type check and report failed resource/source dependencies
 that it read.
 ES2024's resizable `ArrayBuffer`, shared memory and the RegExp `v` flag are not

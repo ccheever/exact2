@@ -153,13 +153,14 @@ long-reply drive are in `/tmp/messages-line-clamp/verification.json`. Mixed-run
 token styling still differs from the browser's paragraph-styled ellipsis, and
 the browser fixture does not show the token on a right-aligned line; full text raster
 parity remains open. `overflow-wrap` travels through `ExactMeasureRequest`
-and the paragraph cache. Normal and `break-word` break at the last public
-Unicode line-break boundary whose content fits (CoreText's own opportunities
-differ); when none fits, normal lets the word overflow and `break-word`
-splits it at the last cluster that fits. `anywhere` keeps CoreText's
-breaking and measures min-content by composed-character clusters; the other
-modes measure the widest piece between those same Unicode boundaries, not
-only between spaces (2026-10-05: a URL in a chat bubble had sized its box to
+and the paragraph cache. Every mode breaks at the last of Chrome's
+line-break opportunities whose content fits, the shared walker's
+(`exact_text_line_breaks`, `textflow/src/walker.rs`; 2026-10-06, #128: the
+public Unicode boundaries broke a path after each `/`); when none fits,
+normal lets the word overflow, and `break-word` and `anywhere` split it at
+the last cluster that fits. `anywhere` measures min-content by
+composed-character clusters; the other modes measure the widest piece
+between those same opportunities, not only between spaces (2026-10-05: a URL in a chat bubble had sized its box to
 the whole URL, then overflowed it). A forward cursor consumes line
 boundaries once rather than searching the whole list for every line.
 The normal/break-word/anywhere/restored fixture agrees with the browser's
@@ -550,8 +551,9 @@ The crate argument names the app; `scripts/app.mjs` (`resolveApp`, 2026-08-30)
 turns it into a directory, a cargo workspace, and a target directory — `apps/<name>`
 in this repo, or `EXACT_APP_DIR` for an app outside it (weird-castle) — and cargo
 runs there while `EXACT_LIB_DIR` points the Swift packages at that target. The
-bundle id is `com.exact.<name>`; `ExactMac`/`ExactIOS.app` are the one output slot
-per host. LLP 1007 §7 has the shape.
+bundle id and name come from its manifest, and the executable and its `.app` are
+named for the app, as Xcode names them (LLP 1030 D2, "The executable's name").
+LLP 1007 §7 has the shape.
 
 `node host/apple/build.mjs [--run]` — `cargo build --release -p
 caltrain-apple`, then `swift build -c release` against it. `node

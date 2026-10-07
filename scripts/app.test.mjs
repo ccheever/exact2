@@ -193,14 +193,16 @@ async function fixture(body) {
     return resolve(root, dir);
   };
   try {
-    for (const path of ['scripts/app.mjs','scripts/contract-diagnosis.mjs','scripts/filesystem.mjs','scripts/rust.mjs','scripts/install-page.mjs','scripts/sweep.mjs','scripts/app.schema.json','host/web/stages.mjs','game/app/shells.mjs','game/.cargo/config.toml']) {
+    for (const path of ['scripts/app.mjs','scripts/contract-diagnosis.mjs','scripts/filesystem.mjs','scripts/rust.mjs','scripts/install-page.mjs','scripts/sweep.mjs','scripts/app.schema.json','host/web/stages.mjs','host/apple/assets.mjs','game/app/shells.mjs','game/.cargo/config.toml']) {
       write(path, readFileSync(resolve(import.meta.dir,'..',path)));
     }
     const { resolveApp: localResolveApp, cargoReproducibilityFlags: flags } = await import(resolve(root,'scripts/app.mjs'));
     const {prepareGame} = await import(resolve(root,'game/app/shells.mjs'));
     write('rust-toolchain.toml', readFileSync(resolve(import.meta.dir,'../rust-toolchain.toml')));
     const deps = ['exact-game','exact-game-render','exact-game-app','exact-game-bake','exact-runner','exact-web','exact-web-capabilities','exact-apple','exact-linux','exact-windows','wasm-bindgen','wasm-bindgen-futures','web-sys'];
-    write('Cargo.toml', '[workspace]\nmembers=["stub"]\nresolver="2"\n'); pkg('stub','root-stub');
+    write('Cargo.toml', '[workspace]\nmembers=["stub","contract"]\nresolver="2"\n'); pkg('stub','root-stub');
+    pkg('contract','contract'); // This fixture has no Contract package imports.
+    write('contract/src/main.rs', 'fn main() { println!("{}", r#"{\"packages\":[],\"sources\":[],\"consulted\":[]}"#); }');
     write('game/Cargo.toml', '[workspace]\nmembers=["deps/*","ordinary/*"]\nexclude=["games"]\nresolver="2"\n[workspace.package]\nversion="0.1.0"\nedition="2021"\nlicense="MIT"\n[workspace.dependencies]\n' + deps.map(n=>`${n}={path="deps/${n}"}`).join('\n'));
     for (const dep of deps) pkg(`game/deps/${dep}`, dep);
     write('game/bake/src/files.rs', 'pub fn bake_game_level<G>(_: impl AsRef<std::path::Path>) -> Result<(), String> { Ok(()) }\n');
@@ -395,8 +397,8 @@ test('rendered tree keeps focus; an accessible name is tree --ax\'s (LLP 1080.00
 test('a native hangup names how the app ended, its crash reports, and only its last 20 lines', async () => {
   const { hangup } = await import('./agent.mjs');
   const hostLines = Array.from({ length: 30 }, (_, i) => `app: line ${i}`);
-  const hung = hangup({ what: 'the app hung up', pid: 999999, exit: { code: null, signal: 'SIGKILL' }, reports: ['/r/ExactIOS-1.ips'], hostLines });
-  assert.match(hung, /^the app hung up \(killed by SIGKILL\)\ncrash report: \/r\/ExactIOS-1\.ips\napp: line 10\n/);
+  const hung = hangup({ what: 'the app hung up', pid: 999999, exit: { code: null, signal: 'SIGKILL' }, reports: ['/r/Caltrain-1.ips'], hostLines });
+  assert.match(hung, /^the app hung up \(killed by SIGKILL\)\ncrash report: \/r\/Caltrain-1\.ips\napp: line 10\n/);
   assert.doesNotMatch(hung, /line 9\n/);
   assert.match(hangup({ what: 'clock did not answer', pid: process.pid }), /^clock did not answer \(pid \d+ still running\)$/);
   assert.match(hangup({ what: 'the app hung up', pid: 999999 }), /\(pid 999999 gone\)$/);
@@ -1470,3 +1472,24 @@ test('Swift under modules/apple is the app module even when it has no views', as
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('native resource snapshot preserves ignored scoped packages, executable bits and links', () => fixture(({app,root,dir,write,run})=>{
+  const resolved=app();resolved.cargoPackage('gpu');
+  run('cargo',['generate-lockfile','--offline']);
+  run('cargo',['generate-lockfile','--offline','--manifest-path','game/Cargo.toml']);
+  write('.gitignore','**/node_modules/\n');
+  write('game/games/foo/server/helper','#!/bin/sh\necho helper ran\n');
+  chmodSync(resolve(dir,'server/helper'),0o755);
+  const {symlinkSync,readlinkSync}=require('node:fs');
+  symlinkSync('helper',resolve(dir,'server/link'));
+  run('git',['init','-q']);run('git',['add','.']);
+  run('git',['-c','user.name=Fixture','-c','user.email=fixture@example.invalid','commit','-qm','fixture']);
+  write('game/games/foo/server/node_modules/@scope/pkg/index.js','captured ignored dependency');
+  const snapshot=snapshotOf(resolved,{dirty:true},root);
+  try {
+    const staged=materializeSnapshot(snapshot,resolve(root,'target/run'),resolved);
+    assert.equal(readFileSync(resolve(staged.app.dir,'server/node_modules/@scope/pkg/index.js'),'utf8'),'captured ignored dependency');
+    assert.equal(statSync(resolve(staged.app.dir,'server/helper')).mode&0o777,0o755);
+    assert.equal(readlinkSync(resolve(staged.app.dir,'server/link')),'helper');
+  } finally {disposeSnapshot(snapshot);}
+}),60000);

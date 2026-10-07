@@ -282,3 +282,28 @@ fn removing_a_node_forgets_its_clock() {
     e.remove(LOCK);
     assert_eq!(e.animation_clock(LOCK), None);
 }
+
+/// A resume from where an animation was held shows what the hold showed, so
+/// it presents nothing (a list row's waiting animation starting as the row
+/// shows is not a reason to paint the row again, LLP 1055 D13); the frames
+/// after it move.
+#[test]
+fn a_resume_from_its_held_time_presents_nothing_until_time_passes() {
+    let mut e = Engine::new();
+    e.set_animations(LOCK, &row("pulse 1s paused")).unwrap();
+    assert!(
+        !e.frame().is_empty(),
+        "the held first keyframe is presented"
+    );
+    e.advance(3.0).unwrap();
+    assert!(e.frame().is_empty());
+    e.set_animations(LOCK, &row("pulse 1s")).unwrap();
+    assert_eq!(start(&e, LOCK), 3.0);
+    assert!(
+        e.frame().is_empty(),
+        "the same value at the same local time"
+    );
+    e.advance(3.5).unwrap();
+    assert!(!e.frame().is_empty());
+    assert!((opacity(&e, LOCK) - 0.7).abs() < 0.2);
+}

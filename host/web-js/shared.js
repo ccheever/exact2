@@ -1,7 +1,7 @@
 // Shared elements on the web (LLP 1013.000 D7): CSS View Transitions, the
 // browser's own, for the commits that hand a `sharedElement` name from one
 // element to another. Loaded after first paint with presence-glue.js, by a
-// plan with a `layout-transition` (rt.js `pr`), which a pair needs at one
+// plan with a `-exact-layout-transition` (rt.js `pr`), which a pair needs at one
 // end at least; until then a commit cuts.
 //
 // Before a commit's flush, the named elements inside each region or list
@@ -9,12 +9,14 @@
 // tree update runs inside `document.startViewTransition`: the leavers get a
 // `view-transition-name` before the browser captures the old state; in the
 // update, after the flush, each name's new holder gets the same one, its
-// group the pair's curve (the arriver's `layout-transition`, else the
+// group the pair's curve (the arriver's `-exact-layout-transition`, else the
 // leaver's; a spring as `linear()`), and is scrolled into view. A leaver
 // still there keeps its name (it moves, as the browser moves it). With no
 // pair that has a curve the transition is skipped and the update still
 // runs. The browser calls the update asynchronously: until it has run, later
 // commits' updates wait behind it, in order.
+
+import { hold, within } from './focus.js';
 
 const NAME = '[data-shared-element]';
 let pending = null; // the tails waiting for a transition's update
@@ -39,10 +41,10 @@ function leavers(queue) {
   return out;
 }
 
-/** A `layout-transition` as the group's duration, delay and timing
+/** A `-exact-layout-transition` as the group's duration, delay and timing
  * function. The row is carried as the host writes it: times in
  * milliseconds without a unit (`300 0 ease`), or with one as authored. */
-function curve(el) {
+export function curve(el) {
   const text = el?.style.getPropertyValue('--exact-layout-transition').trim();
   if (!text || text === 'none') return null;
   const decl = text.split(/,(?![^(]*\))/).pop().trim(); // the last declaration; a spring's commas are inside it
@@ -87,7 +89,14 @@ function ident() { return `exact-se-${++serial}`; }
  * flush may hand a name on. Returns what `tail` returns, or true when it
  * waits for the browser. */
 export function commit(tail, queue, inflight, after) {
-  if (pending) { pending.push(tail); return true; }
+  // A deferred tree update keeps the press that caused it (focus.js), so a field it mounts may still
+  // take the focus from the pressed control.
+  const deferred = () => {
+    const held = hold(), run = () => { run.ran = true; return within(held, tail); };
+    run.release = () => held?.release();
+    return run;
+  };
+  if (pending) { pending.push(deferred()); return true; }
   if (typeof document.startViewTransition !== 'function' || matchMedia('(prefers-reduced-motion: reduce)').matches) return tail();
   const old = leavers(queue);
   if (!old.size) return tail();
@@ -105,14 +114,15 @@ export function commit(tail, queue, inflight, after) {
   // Only the pairs move: the root and unpaired leavers are not shown.
   style ??= document.head.appendChild(document.createElement('style'));
   style.textContent = ':root{view-transition-name:none}';
-  pending = [tail];
+  pending = [deferred()];
   inflight.n++;
   let paired = false, result = true;
   const rules = [], named = [...old.keys()];
   const t = document.startViewTransition(() => {
     const tails = pending;
     pending = null;
-    result = tails.map(f => f())[0];
+    // A tail that throws skips the rest; their presses are let go all the same (focus.js).
+    try { result = tails.map(f => f())[0]; } finally { for (const f of tails) if (!f.ran) f.release(); }
     // A leaver is gone, or kept only as an exit ghost (its own or an
     // ancestor's): it has left. One that stayed keeps its name and moves.
     const gone = new Map(); // name → the leavers that left
