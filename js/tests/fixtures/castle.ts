@@ -189,6 +189,29 @@ function answer(source: string, args: unknown[], store: Store): unknown {
       all[1] = 7; // a write after the call changes nothing sent
       return sent.then(r => r.text());
     }
+    // Fetch's refusals of a body, before any request: any body on a GET or
+    // HEAD, and what Web IDL's BufferSource leaves out. A detached buffer is
+    // no bytes. "unsupported" where the engine has no such buffer.
+    case "oddUpload": {
+      const B = ArrayBuffer as unknown as { new (n: number, o?: { maxByteLength: number }): ArrayBuffer; prototype: { transfer?: () => ArrayBuffer } };
+      let init: RequestInit;
+      if (args[0] === "get") init = { body: new ArrayBuffer(0) };
+      else if (args[0] === "head") init = { method: "HEAD", body: new Uint8Array(1) };
+      else if (args[0] === "shared") {
+        if (typeof SharedArrayBuffer === "undefined") return "unsupported";
+        init = { method: "POST", body: new Uint8Array(new SharedArrayBuffer(2)) };
+      } else if (args[0] === "resizable") {
+        const b = new B(3, { maxByteLength: 6 }) as ArrayBuffer & { resizable?: boolean };
+        if (b.resizable !== true) return "unsupported";
+        init = { method: "POST", body: new Uint8Array(b) };
+      } else {
+        const b = new Uint8Array([1, 2]).buffer as ArrayBuffer & { transfer?: () => ArrayBuffer };
+        if (typeof b.transfer !== "function") return "unsupported";
+        b.transfer();
+        init = { method: "POST", body: new Uint8Array(b) };
+      }
+      return fetch("https://api.castle.xyz/blob", init).then(r => r.text(), (e: Error) => `refused: ${e.message}`);
+    }
     // A deadline for the whole exchange: a timeout rejects with its kind.
     case "timed": return fetch("https://api.castle.xyz/slow", { exactTimeout: args[0] } as RequestInit)
       .then(r => r.text(), (e: { kind: string; message: string }) => `failed: ${e.kind}: ${e.message}`);

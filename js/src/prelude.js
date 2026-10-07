@@ -773,9 +773,19 @@
     // (LLP 1069.002 D4: `readFile`'s bytes as an upload's body). Anything
     // else is a string, as before.
     var raw = init ? init.body : undefined, bytes = null;
-    // A detached buffer is the fetch's rejection, not a throw out of `fetch`.
-    try { if (raw instanceof ArrayBuffer || ArrayBuffer.isView(raw)) bytes = new Uint8Array(copyBytes(raw, "fetch")); }
-    catch (e) { return Promise.reject(e); }
+    // Fetch's Request refuses a body on a GET or HEAD, an empty one too.
+    if (raw != null && (method === "GET" || method === "HEAD"))
+      return Promise.reject(new TypeError("fetch: a " + method + " request cannot have a body"));
+    // Web IDL's BufferSource: a view on a SharedArrayBuffer and a resizable
+    // buffer are refused; a detached buffer is a copy of no bytes.
+    if (raw instanceof ArrayBuffer || ArrayBuffer.isView(raw)) {
+      var backing = ArrayBuffer.isView(raw) ? raw.buffer : raw;
+      if (typeof SharedArrayBuffer !== "undefined" && backing instanceof SharedArrayBuffer)
+        return Promise.reject(new TypeError("fetch: a body on a SharedArrayBuffer is not a BufferSource"));
+      if (backing.resizable === true)
+        return Promise.reject(new TypeError("fetch: a body on a resizable ArrayBuffer is not a BufferSource"));
+      bytes = raw.byteLength === 0 ? new Uint8Array(0) : new Uint8Array(copyBytes(raw, "fetch"));
+    }
     var body = bytes || raw == null ? "" : String(raw);
     // LLP 1041 §8.4: an explicit promise about both operation and settlement.
     // Browsers ignore this native scheduling hint; their admission is unchanged.
