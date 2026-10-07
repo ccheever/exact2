@@ -1,13 +1,13 @@
 ---
 name: 20261007-settings-model-picker
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: implemented
 verification: unverified
-delivery: none
+delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
-branch: null
-pr_url: null
+branch: feat(example)/t3-code-settings-model-picker
+pr_url: https://github.com/ccheever/exact2/pull/246
 verified_commit: null
 ---
 
@@ -91,7 +91,38 @@ comparison. Account authentication is not needed to prove these controls with an
 | Text generation | Use a catalog with an unsupported provider/model | Unsupported choices follow the reference's visibility/disabled rules and cannot be saved | Fixture test and capture |
 | Keyboard | Open, search, move through providers/results, choose and dismiss with Escape | Reference keyboard navigation and focus return; current thread selection stays unchanged | Bounded live drive |
 
+## Progress
+
+2026-10-08, draft PR #246 (`e9fbc8ef4`). Both General model rows now open the composer's
+picker, with no fork. The shared parts are `pickerCatalog` with a `PickerTarget`, and `ModelPicker` with an `anchor`.
+`settings-model-picker.ts` adapts the catalog to the settings scope. `settings-core.ts`
+`scopedModelReason` ports `useScopedModelDisabledReason`: it disables rows, refuses picks and supplies the toast text.
+Picks write through the existing `settings-core` command. Mixed rows show a neutral
+trigger. In Settings, the picker's provider and jump keys act on the settings catalog. Escape closes
+the picker, not Settings. Unit tests cover every acceptance row (`settings-model-picker.test.ts`, 9 tests).
+No live row has run yet: both allowed sessions failed in the drive's setup (below).
+
+The brief's provider-sign-in lane logins no longer exist (the `t3-code-provider-sign-in-and-install`
+worktree is gone). The lane catalog uses fixture credentials instead, with no real account:
+- Codex: an API-key auth file with a placeholder.
+- Claude: a placeholder `ANTHROPIC_API_KEY` in the instance environment.
+
+Both probe `ready` / `authenticated`: Codex 0.151.0 with 5 models, all legacy, and Claude 2.1.293 with 12.
+
+## Attempts and evidence
+
+| Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
+| --- | --- | --- | --- | --- |
+| 1 (2026-10-08) | `e9fbc8ef4` | `bun test examples/t3-code` 2520 pass / 1 skip / 0 fail (205 files); strict `tsc` clean; contract build 2628 slots, 46 resources; `cargo test -p t3-code-macos --lib` 11 pass; caps within (`app.contract` 1,499 lines); five checks: build 0, test 3383 pass / 0 fail / 33 ignored (94 binaries), clippy 0, fmt 0, boot 0 | [checks.txt](https://github.com/ccheever/exact2/blob/db93d8b98ef678b3be35ff249371538ef183b85b/settings-model-picker/checks.txt) | — |
+| Live session 1 (18:20Z) | dev build of `e9fbc8ef4` sources, lane port 16810 | Failed in setup: the development build has no bundled `t3-runtime`, so "This machine" did not start (`T3_LOCAL_RUNTIME_DIR` unset). No flow ran | [live-attempts.md](https://github.com/ccheever/exact2/blob/56cd563cc93a3785951b6e72693d12ebb9e3941e/settings-model-picker/live-attempts.md) | — |
+| Live session 2, retry (18:22Z) | same | Server up in 2 s, providers ready in 3 s. The drive treated the still-inert main window as decided, and every tap was refused. No flow ran | same | live session budget used |
+
 ## Next action
 
-Prepare a settings adapter for the existing model catalog/picker, then implement and run the
-affected app tests and a rebuilt macOS comparison before changing verification status.
+One more live macOS session, requested from the coordinator. The drive (`target/smp/drive.mjs`, uncommitted) already
+sets `T3_LOCAL_RUNTIME_DIR` and waits for the first-run decision. The base app for the before images is built in
+the evidence-base worktree. The session should run every acceptance row's flow and capture:
+- before/after pairs of General with each model picker open
+- after-only images for search, empty search, favorites, legacy, scope and keyboard
+
+Then upload the images to `t3-code-evidence/settings-model-picker/` and change `verification`.
