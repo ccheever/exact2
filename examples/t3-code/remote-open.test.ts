@@ -186,7 +186,7 @@ describe('Files and Markdown use the focused environment route', () => {
     const owner = new T3Client();
     owner.origin = origin; owner.generation = 0; owner.environmentId = 'env'; owner.projectId = 'p';
     owner.shell.projects = [{ id: 'p', title: 'project', workspaceRoot: '/srv/project' }];
-    owner.config = { availableEditors: ['idea', 'cursor', 'file-manager'], shellRevealInFileManager: true };
+    owner.config = { availableEditors: ['idea', 'cursor', 'file-manager'], shellRevealInFileManager: true, shellRevealInFileManagerKind: 'finder' };
     const calls: Obj[] = [];
     let picked = '';
     const native: Native = { available: true, watch() {}, later: async (input: unknown) => {

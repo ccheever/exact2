@@ -226,6 +226,8 @@ export function presentRow(entry: Obj, now: number, selected: string) {
     labels: arr(entry.labels).slice(0, 3).map(label => labelChip(str(label.name), labelColor(label.color))),
     firstLabel: arr(entry.labels).slice(0, 1).map(label => labelChip(str(label.name), labelColor(label.color))),
     moreLabels: Math.max(0, arr(entry.labels).length - 1), projectId: str(entry.projectId), host: str(entry.host),
+    // context-menu-gaps: the number's right-click (pageslocal:pr-link-menu) names the host it was read from.
+    linkMenu: `${str(entry.provider)} ${str(entry.url)}`,
   };
 }
 export type PrRow = ReturnType<typeof presentRow>;

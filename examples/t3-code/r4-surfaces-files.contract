@@ -307,7 +307,8 @@ component R4TreeRowView
   action hover(value: bool)
     over = value
   view
-    button press=local(row.directory ? "surface-files-toggle" : "surface-file", row.path, "tree") hover=hover role="treeitem" aria-label=row.name aria-expanded=row.expanded aria-selected=row.selected testId=`tree-${row.path}` width="100%" height=24 padding-left=(6.8 + row.depth * 18.7) padding-right=6 box-sizing="border-box" gap=4.4 border-radius=5 border-width=0 position="relative" display="flex" flex-direction="row" align-items="center" background-color=(row.selected ? "light-dark(#27272a1f, #f5f5f51f)" : over ? "light-dark(#27272a0d, #f5f5f50d)" : "#00000000") opacity=(row.ignored ? 0.5 : 1)
+    // context-menu-gaps: FileBrowserPanel's right-click menu (Open, reveal, Open with ▸, Copy mention, Add to chat).
+    button press=local(row.directory ? "surface-files-toggle" : "surface-file", row.path, "tree") contextmenu=local("surface-files-row-menu", row.path, "") hover=hover role="treeitem" aria-label=row.name aria-expanded=row.expanded aria-selected=row.selected testId=`tree-${row.path}` width="100%" height=24 padding-left=(6.8 + row.depth * 18.7) padding-right=6 box-sizing="border-box" gap=4.4 border-radius=5 border-width=0 position="relative" display="flex" flex-direction="row" align-items="center" background-color=(row.selected ? "light-dark(#27272a1f, #f5f5f51f)" : over ? "light-dark(#27272a0d, #f5f5f50d)" : "#00000000") opacity=(row.ignored ? 0.5 : 1)
       each guide in row.guides key=guide.id
         box position="absolute" left=guide.left top=0 bottom=0 width=1 background-color="light-dark(#71717b40, #81818140)"
       when row.directory
