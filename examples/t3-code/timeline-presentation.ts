@@ -12,7 +12,7 @@ import { eventRow } from './timeline-events';
 import { messageCodeBlocks } from './timeline-highlight';
 import { planAction, planBody, planCollapsible, planSaveView, proposedPlanTitle } from './timeline-plan';
 import { treeRows } from './timeline-tree';
-import { cachedAttachmentUrl, forgetAttachmentUrl, imagePreviewAction, imagePreviewView, messageAttachments } from './timeline-attachments';
+import { cachedAttachmentUrl, forgetAttachmentUrl, forgetMediaPreviewUrl, imagePreviewAction, imagePreviewView, messageAttachments } from './timeline-attachments';
 import { revealCitation } from './r5-composer-citation';
 import { jumpToTurn, minimapCurrent, minimapItems, nativeTurns, type MinimapRow } from './timeline-minimap';
 import { diagramPreviewAction, diagramPreviewView, messageDiagrams, retryMermaid } from './timeline-mermaid';
@@ -79,7 +79,7 @@ export async function chatLocal(client: T3Client, native: Native, op: string, id
   if (op === 'pr-link-menu') { await pullRequestLinkMenu(client, native, value); return ''; } // context-menu-gaps: the detail header's number
   if (op.startsWith('git-')) return gitChatLocal(client, native, op.slice(4), id, value); // lane r4-git (r4-git-route.ts)
   if (op.startsWith('media-')) return mediaLocal(client, native, op.slice(6), id, value, { urlOf: attachmentId => cachedAttachmentUrl(client, attachmentId), // media-actions (media-views.ts)
-    openFile: relativePath => openFileSurface(client, native, relativePath, 0), forgetAttachment: attachmentId => forgetAttachmentUrl(client, attachmentId) });
+    openFile: relativePath => openFileSurface(client, native, relativePath, 0), forgetAttachment: attachmentId => { if (!forgetMediaPreviewUrl(client, attachmentId)) forgetAttachmentUrl(client, attachmentId); } });
   const view = timelineView(client);
   if (op === 'item-detail') { setTurnItemOpen(client, id, value === 'open'); return ''; }
   if (op === 'history') {

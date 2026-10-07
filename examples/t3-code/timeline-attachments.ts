@@ -12,6 +12,7 @@ import { assetUrl } from './settings-b-icons';
 import { imageChipInks } from './r4-timeline-chips';
 import { videoMimeType } from './r4-composer-video'; // lane r6-media: sent videos (UserVideoAttachment)
 import { markdownMedia, markdownMediaUrls } from './media-views'; // media-actions: the transcript's host-path media
+import { letGo } from './let-go';
 import { encodeMediaSource } from './media-actions';
 
 export interface MessageImage { id: string; name: string; snapshot: boolean; appName: string; appInitial: string; windowTitle: string; accessible: boolean; video: boolean }
@@ -71,10 +72,13 @@ export async function attachmentUrls(client: T3Client, native: Native | null | u
   // media-actions: the visible messages' Markdown media on host paths (`media:<path>`, `media-failed:<path>`).
   const thread = obj(client.projection.thread), project = (client.shell?.projects ?? []).find(entry => entry.id === (thread.projectId ?? client.projectId));
   const root = str(thread.worktreePath) || str(project?.workspaceRoot);
+  const media = (await markdownMediaUrls(client, native, root, now)).map(item => ({ ...item, ...NO_INKS }));
+  // context-menu-gaps: the linked media's signed URL (signed again after Retry video; a refusal is `failed:<key>`).
   const preview = activeMediaPreview(client);
-  const media = (await markdownMediaUrls(client, native, root, now, preview ? [preview.path] : [])).flatMap(item =>
-    // the dialog reads a refused signature as `failed:<id>`
-    item.id.startsWith('media-failed:') ? [{ ...item, ...NO_INKS }, { id: `failed:media:${item.id.slice('media-failed:'.length)}`, url: '', ...NO_INKS }] : [{ ...item, ...NO_INKS }]);
+  if (preview && !preview.url) {
+    try { preview.url = await signMediaFile(client, native, preview.path); } catch (error) { if (letGo(error)) throw error; }
+  }
+  if (preview) media.push(preview.url ? { id: preview.key, url: preview.url, ...NO_INKS } : { id: `failed:${preview.key}`, url: '', ...NO_INKS });
   return { items: [...await withAccents(client, native, items, videoIds), ...failed.map(item => ({ ...item, ...NO_INKS })), ...media] };
 }
 
@@ -112,21 +116,39 @@ export function imagePreviewAction(client: T3Client, op: string, id: string, val
   throw new ClientError(`Unknown image action: ${op}`);
 }
 // context-menu-gaps: ChatMarkdown's "Preview media" on a file link (resolveMarkdownMediaPreview): the
-// same dialog with the one media item, signed as a `media-file` of the shown thread
-// (markdownImageGallery finds no inline image for a link, so it is the only item).
-type MediaPreview = { threadId: string; path: string; key: string; name: string; video: boolean; root: string };
+// media is signed on its environment as a `media-file` of the shown thread first (a failure is the caller's
+// "Media unavailable" toast and no dialog), then the same dialog shows it alone (markdownImageGallery finds
+// no inline image for a link). Leaving the thread drops it, as the reference resets its preview.
+type MediaPreview = { threadId: string; path: string; key: string; name: string; video: boolean; root: string; url: string };
 const mediaPreviews = new WeakMap<T3Client, MediaPreview | null>();
-export function openMarkdownMediaPreview(client: T3Client, filePath: string, root: string): void {
+async function signMediaFile(client: T3Client, native: Native, path: string): Promise<string> {
+  if (!native.available || client.connection !== 'connected' || !client.threadId) throw new ClientError('Reconnect to this environment and open the media again.');
+  const result = obj(await client.rpc(native, 'assets.createUrl', { resource: { _tag: 'media-file', path, threadId: client.threadId } }));
+  const url = assetUrl(client.origin, str(result.relativeUrl));
+  if (!url) throw new ClientError('The environment returned an invalid media URL.');
+  return url;
+}
+export async function openMarkdownMediaPreview(client: T3Client, native: Native, filePath: string, root: string): Promise<void> {
   const path = filePath.replace(/:\d+(?::\d+)?$/, '');
   const media = markdownMedia('', path, '', root);
   if (media.access !== 'environment' || !media.source) throw new ClientError('Reconnect to this environment and open the media again.');
+  const threadId = client.threadId, url = await signMediaFile(client, native, path);
+  if (client.threadId !== threadId) return;
   previews.set(client, null);
-  mediaPreviews.set(client, { threadId: client.threadId, path, key: media.key, name: path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1), video: media.kind === 'video', root });
+  mediaPreviews.set(client, { threadId, path, key: media.key, name: path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1), video: media.kind === 'video', root, url });
 }
 const activeMediaPreview = (client: T3Client): MediaPreview | null => {
   const media = mediaPreviews.get(client);
-  return media && media.threadId === client.threadId ? media : null;
+  if (media && media.threadId !== client.threadId) { mediaPreviews.set(client, null); return null; }
+  return media ?? null;
 };
+/** Retry video on the linked media: sign it again (useAssetUrlRefresh). */
+export function forgetMediaPreviewUrl(client: T3Client, key: string): boolean {
+  const media = activeMediaPreview(client);
+  if (!media || media.key !== key) return false;
+  media.url = '';
+  return true;
+}
 export function imagePreviewView(client: T3Client) {
   const media = activeMediaPreview(client);
   if (media) {

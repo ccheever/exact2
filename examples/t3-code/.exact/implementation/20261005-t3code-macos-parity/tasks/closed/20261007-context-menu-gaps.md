@@ -49,7 +49,9 @@ clone's existing menus: `sidebar-menu.ts` builds items, the host shows them nati
 | --- | --- | --- | --- | --- | --- |
 | Files tree menu | a thread with a workspace, Files open | right-click a file row | the five reference items; "Open with ▸" lists the detected editors | macOS | AppKit test of the template, drive record |
 | Pull request link menu | the Pull Requests page with a row | right-click the row's number | "Copy link", "Open on GitHub" | macOS | unit test of the items, drive record |
-| Chat file link menu | a reply with a media file link and a code file link | right-click each | "Preview media" on the media link; open and reveal labels as the reference | macOS | unit test of the items |
+| Chat file link menu | a reply with a media file link and a code file link | right-click each | "Preview media" on the media link; open and reveal labels as the reference | macOS | unit test of the items, drive record |
+| Preview media | the media link's menu | pick Preview media | the expanded media dialog with the link's media (resolveMarkdownMediaPreview) | macOS | unit test, drive record |
+| Right-click hookup | — | `context-menu-hookup.test.ts` | the nodes carry the handlers; their ops reach the native `contextMenu` op | — | unit test |
 | Native layout | — | `contextmenu` AppKit binary | submenu parent never picked; a child's id is the pick; empty children are a plain item | macOS | `macos/tests/contextmenu/file-menus.swift` (4 tests) |
 
 ## Implementation
@@ -69,18 +71,21 @@ open item is always shown when shell actions are allowed, named for the preferre
 used, else the first available), and the reveal label comes from `shellRevealInFileManagerKind`, else
 `environment.platform.os`. Opening a link uses the module's `terminalOpenExternal` (http/https only).
 
-Declared differences:
+"Preview media" opens the expanded media dialog (`timeline-attachments.ts` `openMarkdownMediaPreview`, the
+same `ImagePreviewDialog` the sent attachments use) with the link's media alone, signed with
+`assets.createUrl` as a `media-file` of the shown thread before the dialog opens (a refusal is the
+reference's "Media unavailable" toast and no dialog), its media actions from the media's own source
+(`imagePreviewSource`), as `resolveMarkdownMediaPreview` and `markdownImageGallery` give for a link (no
+inline image matches it, so it is the only item). Retry video signs it again; leaving the thread drops it.
 
-- "Preview media" on a reply's media file link opens the file in the Files surface's media preview,
-  which is where a click on that link already goes in the clone; the reference opens its expanded media
-  dialog. The clone has no expanded dialog for reply file links (in-app follow-up, not a framework limit).
-- Excluded by scope: "Open in integrated browser" (Browser surface, X1); menu item icons.
+Declared differences: none. Excluded by scope: "Open in integrated browser" (Browser surface, X1); menu item icons.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| 1 (2026-10-07) | staged tree on `4f523ef5c`, source `c4485a7d…` (attempt 2) | `bun test examples/t3-code` 2289 tests, 0 fail, 1 skip (+34: `context-menus.test.ts` 26, `context-menu-actions.test.ts` 8); strict tsc (`--target ES2023 --lib ES2023,DOM`) clean; contract build 2543 slots, 45 resources; `cargo test -p t3-code-macos --lib` 11/0; `contextmenu` AppKit binary 18/0 (+4 `FileMenuTests`); caps within budget; macOS bundle builds. Verify runner attempt 1 passed, attempt 2 (after review fixes) passed with `source_unchanged: true` | [recipe](../../evidence/20261007-context-menu-gaps/recipe.json), [report](../../evidence/20261007-context-menu-gaps/attempt2-report.json), [review](../../evidence/20261007-context-menu-gaps/review.md), drive record below | none |
+| 1 (2026-10-07) | staged tree on `4f523ef5c`, source `c4485a7d…` (attempt 2) | `bun test examples/t3-code` 2289 tests, 0 fail, 1 skip (+34: `context-menus.test.ts` 26, `context-menu-actions.test.ts` 8); strict tsc (`--target ES2023 --lib ES2023,DOM`) clean; contract build 2543 slots, 45 resources; `cargo test -p t3-code-macos --lib` 11/0; `contextmenu` AppKit binary 18/0 (+4 `FileMenuTests`); caps within budget; macOS bundle builds. Verify runner attempt 1 passed, attempt 2 (after review fixes) passed with `source_unchanged: true` | [recipe](../../evidence/20261007-context-menu-gaps/recipe.json), [review](../../evidence/20261007-context-menu-gaps/review.md), drive 1 below | none |
+| 2 (2026-10-07, coordinator follow-up) | `6281fd187` + review fixes, attempt 5 report | Preview media builds the expanded media dialog (signed first, Retry, dropped on thread change); `context-menu-hookup.test.ts` (2) and preview tests (+2); `bun test examples/t3-code` 2293 tests, 0 fail, 1 skip; strict tsc clean; contract build 2543 slots; caps within budget; `contextmenu` AppKit 18/0; bundle builds; verify runner attempt 5 passed with `source_unchanged: true` | [report](../../evidence/20261007-context-menu-gaps/attempt5-report.json), [review](../../evidence/20261007-context-menu-gaps/review.md), drive 2 below | none |
 
 Drive (one session, 2026-10-07, under `.t3-live-drive-lock`): lane server `1e2ecbd975` runtime on
 127.0.0.1:16481 with an isolated HOME/CODEX_HOME/XDG/T3CODE_HOME, a fixture repository (`README.md`,
@@ -97,15 +102,43 @@ AFTER   this branch (pid 14104): right-click README.md → Open · Reveal in Fin
         click "Open with" → submenu Cursor · VS Code · Zed (the lane server's detected editors); Escape closes it
 ```
 
-Not driven live: the pull request number menu (a Pull Requests row needs a signed-in GitHub or the
-fake GitHub fixture, task `20261005-fake-github-fixture`, not built) and the chat file-link menu (a reply
-needs an authenticated provider turn). Both are covered by `context-menu-actions.test.ts` (the items sent
-to the native op and what each pick does) and `file-menus.swift` (the native layout).
+Drive 2 (one session, 2026-10-07 13:06, under `.t3-live-drive-lock`; a 11:36 attempt was abandoned before
+any input because the screen was locked). Same lane server, now with lane-only fixtures (`target/lane-cmg`,
+not committed):
 
-Evidence (before/after):
+- a fake Codex: `bin/codex` runs the reference's own mock app-server peer
+  (`apps/server/src/provider/testFixtures/codexCollabMockPeer.mjs`, copied) with a scripted reply,
+  "Here is the screenshot [screen.png](…/shots/screen.png) and the entry point [index.ts](…/src/index.ts)."
+  One `message.dispatch` from the lane RPC script produced it; no provider account was used.
+- a fake GitHub CLI: `bin/gh` answers `auth token`, `api user` and the GraphQL search and detail reads for
+  `t3-fixture/menu-demo` #7 from canned JSON and logs every call; the fixture repository's `origin` is that
+  identity behind a dead proxy and a `/dev/null` push URL. No network, no real account; this is not the
+  held `20261005-fake-github-fixture` task.
+- lane-only preferences: each app is a copy of its bundle with its own bundle id
+  (`com.exact.t3code.lanecmg.before` / `.after`, ad-hoc signed), so its preferences domain and data root are
+  the lane's. The user's `com.exact.t3code.macos` domain hashes the same before and after the drive
+  (`acc150dd…`); the lane's Keychain item was deleted.
 
-| Menu | Before | After |
-| --- | --- | --- |
-| Files tree row | ![files](https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/context-menu-gaps/01-files-tree-row-menu-before-after.png) | (same image) |
-| Pull request number (text) | no menu (the platform's default) | Copy link · Open on GitHub (GitLab, Forgejo, Bitbucket, Azure DevOps, else "Open on host") |
-| Chat file link, media (text) | Open in Cursor (only with an editor) · Reveal in Finder (fixed label) · Copy relative path · Copy full path | Preview media · Open in Cursor / Open in editor · Reveal in Finder / File Explorer / Files (server) · Copy relative path · Copy full path |
+```
+BEFORE  base copy (pid 43864): media link → Open in Cursor · Reveal in Finder · Copy relative path · Copy full path
+        code link → the same four; PR row #7 → no menu; detail header #7 → no menu
+AFTER   branch copy (pid 79828): media link → Preview media · Open in Cursor · Reveal in Finder · Copy relative path · Copy full path
+        Preview media → the expanded media dialog with screen.png, its name and close
+        code link → Open in Cursor · Reveal in Finder · Copy relative path · Copy full path
+        PR row #7 → Copy link · Open on GitHub; detail header #7 → Copy link · Open on GitHub
+```
+
+Drive 2 ran on `6281fd187`. The second review's fixes came after it (sign before opening, Retry, drop on
+thread change); their success path shows the same dialog and the changed paths are unit-tested
+(`context-menu-actions.test.ts`), not re-driven (the drive budget was spent).
+
+Evidence (before/after, one image per menu):
+
+| Menu | Image |
+| --- | --- |
+| Files tree row | ![files](https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/context-menu-gaps/01-files-tree-row-menu-before-after.png) |
+| Chat file link, media | ![media](https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/context-menu-gaps/02-chat-media-link-menu-before-after.png) |
+| Chat file link, code | ![code](https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/context-menu-gaps/03-chat-code-link-menu-before-after.png) (unchanged in this fixture: an editor is available and the server is macOS) |
+| Preview media | ![preview](https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/context-menu-gaps/04-preview-media-dialog-before-after.png) |
+| Pull Requests row number | ![row](https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/context-menu-gaps/05-pr-row-number-menu-before-after.png) |
+| Pull request detail header number | ![detail](https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/context-menu-gaps/06-pr-detail-number-menu-before-after.png) |
