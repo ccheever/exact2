@@ -18,7 +18,7 @@ generic oracle/trace infrastructure or full T0 matrix.
 
 ## Provider sign-in follow-ups, 2026-10-08
 
-PR #238's unverified rows and closed/deferred decisions are preserved in
+PR #238's unverified rows and deferred decisions are preserved in
 [provider sign-in verification follow-up](tasks/20261008-provider-sign-in-verification-followup.md).
 The remaining app-wide focus finding is [dialog shortcut focus](tasks/20261008-dialog-shortcut-focus.md).
 These stay separate from merging the provider implementation; existing ownership of URL auth

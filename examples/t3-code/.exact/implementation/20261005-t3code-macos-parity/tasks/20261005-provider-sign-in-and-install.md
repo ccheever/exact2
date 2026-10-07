@@ -148,8 +148,9 @@ copy `T3 Code (Lane PSI).app` with its own bundle id, lane server `t3` 0.0.46-ni
   The lane login writes its own Keychain item (`Claude Code-credentials-752055b3`, the suffix is
   the hash of the lane config dir); the user's items were not addressed by it.
 - **Cursor:** the in-app Sign in opened Cursor's page and the user signed in; the server returned
-  403 `plan_required`. Closed by the user's decision: the user's Cursor account is on the free
-  plan (403 plan_required); the user has no Pro account. The reference returns the same.
+  403 `plan_required` on the user's free account; the reference returns the same. Successful
+  sign-in remains unverified. User clarification 2026-10-08: test again with a Cursor Pro
+  account when one is available.
 - **Antigravity Google sign-in, Gemini CLI (ACP):** the user chose not to sign in (both
   instances disabled in the lane). The first Gemini enable hit the client's 30 s request timeout
   while the server downloaded the agent; a retry after the download succeeded.
@@ -200,8 +201,8 @@ real Antigravity runtime with real input). Rows not run, with the reason:
 - **Subscription trace** and **Oracle pixel pairs:** user decision 2026-10-06: oracle/trace tools
   are not built. The RPC facts come from the fixture proxy's log; the UI is compared with the
   reference source.
-- **Real sign-in (attended):** Codex and Claude signed in; Cursor closed by the user's decision
-  (free plan, 403 `plan_required`; no Pro account); Antigravity Google and the ACP agent (Gemini
+- **Real sign-in (attended):** Codex and Claude signed in; Cursor awaits verification with a Pro account
+  (the free-account attempt returned 403 `plan_required`); Antigravity Google and the ACP agent (Gemini
   CLI): the user chose not to sign in. Sign out / Change account with a real account: skipped to
   keep the Codex and Claude lane logins (fixture-verified).
 - `ProviderSettingsPanel.environment.test.tsx:584` (URL-auth action) belongs to
@@ -215,7 +216,7 @@ buttons (`settings-shortcuts.contract` `keyboard-dispatch`), in every dialog, no
 Review and merge PR #238 into `feat(example)/t3-code`. The remaining verification and each
 item's disposition are tracked in [provider sign-in verification follow-up](20261008-provider-sign-in-verification-followup.md).
 The app-wide focus finding has its own [dialog shortcut focus task](20261008-dialog-shortcut-focus.md).
-Cursor remains closed by the user's decision; Google/ACP and real-account sign-out/change
-remain unverified. Publishing [X49](../issues/20261007-x49-progress-value-accessibility.md)
+Cursor remains unverified until tested with a Pro account; Google/ACP and real-account
+sign-out/change also remain unverified. Publishing [X49](../issues/20261007-x49-progress-value-accessibility.md)
 upstream still needs the user's approval. Merging this implementation does not complete
 these follow-ups.
