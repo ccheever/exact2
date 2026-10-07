@@ -1,0 +1,309 @@
+// @ref llp/1106.002-design-system-parity.spec.md#typography-and-font-assets
+// Native menus/time/header are root callbacks; no desktop dropdown substitution.
+use SettingsColors, SettingsTextRoles, SettingsSectionLabel from "./settings.contract"
+shape ScheduledTaskRow
+  id: string
+  title: string
+  subtitle: string
+  error: string
+  canOperate: bool
+  enabled: bool
+  webhook: bool
+  first: bool
+shape ScheduledTaskSection
+  id: string
+  title: string
+  error: string
+  loading: bool
+  emptyMessage: string
+  rows: list<ScheduledTaskRow>
+shape ScheduledTasksData
+  ready: bool
+  error: string
+  emptyMessage: string
+  canCreate: bool
+  sections: list<ScheduledTaskSection>
+shape ScheduledChoice
+  id: string
+  label: string
+  selected: bool
+shape ScheduledModel
+  id: string
+  instanceId: string
+  model: string
+  label: string
+  provider: string
+  selected: bool
+  disabled: bool
+  legacy: bool
+  driver: string
+shape ScheduledOption
+  id: string
+  label: string
+  boolean: bool
+  on: bool
+  choices: list<ScheduledChoice>
+shape ScheduledRuntime
+  id: string
+  label: string
+  description: string
+  selected: bool
+shape ScheduledEditorData
+  present: bool
+  id: number
+  title: string
+  error: string
+  busy: bool
+  saved: bool
+  dirty: bool
+  canSave: bool
+  connected: bool
+  missing: bool
+  environmentId: string
+  environmentLabel: string
+  editing: bool
+  name: string
+  prompt: string
+  projectId: string
+  modelLabel: string
+  projects: list<ScheduledChoice>
+  environments: list<ScheduledChoice>
+  workspace: string
+  baseRef: string
+  checkoutPath: string
+  startFromOrigin: bool
+  mode: string
+  repeatLabel: string
+  time: string
+  interval: string
+  age: string
+  enabled: bool
+  days: list<ScheduledChoice>
+  signatureConfigured: bool
+  webhookAddress: string
+  webhookCopyable: bool
+  webhookNote: string
+  models: list<ScheduledModel>
+  options: list<ScheduledOption>
+  runtimes: list<ScheduledRuntime>
+  branches: list<ScheduledChoice>
+  branchQuery: string
+  branchError: string
+  hasMore: bool
+component SettingsScheduledTasks
+  props
+    data: ScheduledTasksData
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    danger: string
+    bottom: number
+    open: action
+    menu: action
+  view
+    scroll flex=1 min-height=0 background-color=colors.sheet id="scheduled-tasks-scroll"
+      column padding-left=17.5 padding-right=17.5 padding-top=14 padding-bottom=bottom gap=17.5 font-family="DM Sans"
+        when length(data.error) > 0
+          text data.error color=danger role="alert" font-size=roles.body.size
+        when length(data.emptyMessage) > 0
+          text data.emptyMessage color=colors.muted font-size=roles.body.size
+        each section in data.sections key=section.id
+          column gap=7
+            SettingsSectionLabel(title=section.title, colors=colors, roles=roles)
+            when length(section.error) > 0
+              text section.error color=danger role="alert" font-size=roles.footnote.size
+            when section.loading
+              text "Loading scheduled tasks…" color=colors.muted font-size=roles.body.size
+            when length(section.emptyMessage) > 0
+              text section.emptyMessage color=colors.muted font-size=roles.body.size padding=14
+            column background-color=colors.grouped border-radius=24 overflow="hidden"
+              each task in section.rows key=task.id
+                row align-items="center" border-top-width=(task.first ? 0 : 1) border-top-style="solid" border-top-color=colors.borderSubtle
+                  button press=open(section.id, task.id) flex=1 min-width=0 padding=14 aria-label=task.title
+                    column gap=3.5 align-items="flex-start"
+                      text task.title font-size=roles.headline.size line-height=`${roles.headline.line}px` font-weight=500 line-clamp=1 color=colors.foreground
+                      text task.subtitle font-size=roles.footnote.size line-height=`${roles.footnote.line}px` line-clamp=2 color=colors.muted
+                      when length(task.error) > 0
+                        text task.error font-size=roles.footnote.size line-clamp=2 color=danger
+                  button press=menu(section.id, task.id) width=44 height=44 padding=0 aria-label=`Actions for ${task.title}`
+                    t3-symbol symbol-name="ellipsis" point-size=18 symbol-tint=colors.icon width=18 height=18
+component ScheduledSelectRow
+  props
+    label: string
+    value: string
+    disabled: bool
+    select: action
+    colors: SettingsColors
+    roles: SettingsTextRoles
+  view
+    button press=select() disabled=disabled padding=14 min-height=49 box-sizing="border-box" opacity=(disabled ? 0.45 : 1)
+      row align-items="center" gap=10.5
+        text label font-size=roles.body.size color=colors.foreground
+        view flex=1
+        text value font-size=roles.body.size color=colors.muted line-clamp=1
+        t3-symbol symbol-name="chevron.up.chevron.down" point-size=12 symbol-tint=colors.chevron width=12 height=12
+component ScheduledField
+  props
+    label: string
+    value: string
+    placeholder: string
+    disabled: bool
+    field: action
+    colors: SettingsColors
+    roles: SettingsTextRoles
+  view
+    column padding-left=14 padding-right=14 padding-top=10.5 padding-bottom=10.5 gap=7
+      text label font-size=roles.footnote.size color=colors.muted
+      input value=value input=field disabled=disabled placeholder=placeholder aria-label=label min-height=28 color=colors.foreground font-size=roles.body.size font-family="DM Sans" background-color="transparent" border-width=0 padding=0
+component SettingsScheduledEditor
+  props
+    data: ScheduledEditorData
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    danger: string
+    bottom: number
+    field: action
+    menu: action
+    navigate: action
+    save: action
+    copyWebhook: action
+    rotateWebhook: action
+  action toggleEnabled(value: bool)
+    field("enabled", value ? "true" : "false")
+  view
+    scroll flex=1 min-height=0 background-color=colors.sheet id="scheduled-editor-scroll"
+      column gap=17.5 padding-left=17.5 padding-right=17.5 padding-top=14 padding-bottom=bottom font-family="DM Sans"
+        when not data.present
+          text "Open a scheduled task form first." color=colors.muted font-size=roles.body.size
+        else
+          when length(data.error) > 0
+            text data.error color=danger role="alert" font-size=roles.footnote.size
+          when data.missing
+            text "This task no longer exists." color=danger font-size=roles.body.size
+          column border-radius=24 background-color=colors.grouped overflow="hidden"
+            ScheduledSelectRow(label="Runs on", value=data.environmentLabel, disabled=(data.editing or data.busy), select=menu("environment"), colors=colors, roles=roles)
+          column gap=7
+            SettingsSectionLabel(title="Task", colors=colors, roles=roles)
+            column border-radius=24 background-color=colors.grouped overflow="hidden"
+              ScheduledField(label="Name", value=data.name, placeholder="Check for issues", disabled=data.busy, field=field("title"), colors=colors, roles=roles)
+              column gap=7 padding=14 border-top-width=1 border-top-style="solid" border-top-color=colors.borderSubtle
+                text "Prompt" color=colors.muted font-size=roles.footnote.size
+                textarea value=data.prompt input=field("prompt") disabled=data.busy placeholder="What should this task do?" aria-label="Prompt" min-height=126 color=colors.foreground font-family="DM Sans" font-size=roles.body.size background-color="transparent" border-width=0 padding=0
+          column gap=7
+            SettingsSectionLabel(title="Context", colors=colors, roles=roles)
+            column border-radius=24 background-color=colors.grouped overflow="hidden"
+              each project in data.projects key=project.id
+                when project.selected
+                  ScheduledSelectRow(label="Project", value=project.label, disabled=data.busy, select=menu("project"), colors=colors, roles=roles)
+              when length(data.projects) == 0
+                ScheduledSelectRow(label="Project", value="No projects available", disabled=true, select=menu("project"), colors=colors, roles=roles)
+              ScheduledSelectRow(label="Model", value=data.modelLabel, disabled=data.busy, select=navigate("SettingsScheduledTaskModel"), colors=colors, roles=roles)
+              ScheduledSelectRow(label="Workspace", value=(data.workspace == "root" ? "Project checkout" : data.workspace == "existing_worktree" ? "Specific checkout" : "New worktree"), disabled=data.busy, select=menu("workspace"), colors=colors, roles=roles)
+              when data.workspace == "worktree"
+                ScheduledSelectRow(label="Branch", value=data.baseRef, disabled=data.busy, select=navigate("SettingsScheduledTaskBranch"), colors=colors, roles=roles)
+              when data.workspace == "existing_worktree"
+                ScheduledField(label="Checkout path", value=data.checkoutPath, placeholder="/path/to/checkout", disabled=data.busy, field=field("checkoutPath"), colors=colors, roles=roles)
+          column gap=7
+            SettingsSectionLabel(title="Schedule", colors=colors, roles=roles)
+            row border-radius=7 background-color=colors.subtle padding=2
+              button flex=1 min-height=32 press=field("mode", "fixed_time") disabled=data.busy background-color=(data.mode == "fixed_time" ? colors.grouped : "transparent") border-radius=6
+                text "At a time" font-size=roles.footnote.size color=colors.foreground
+              button flex=1 min-height=32 press=field("mode", "interval") disabled=data.busy background-color=(data.mode == "interval" ? colors.grouped : "transparent") border-radius=6
+                text "Interval" font-size=roles.footnote.size color=colors.foreground
+              button flex=1 min-height=32 press=field("mode", "webhook") disabled=data.busy background-color=(data.mode == "webhook" ? colors.grouped : "transparent") border-radius=6
+                text "On webhook" font-size=roles.footnote.size color=colors.foreground
+            column border-radius=24 background-color=colors.grouped overflow="hidden"
+              when data.mode == "fixed_time"
+                ScheduledSelectRow(label="Time", value=data.time, disabled=data.busy, select=menu("time"), colors=colors, roles=roles)
+                ScheduledSelectRow(label="Repeat", value=data.repeatLabel, disabled=data.busy, select=menu("repeat"), colors=colors, roles=roles)
+              else when data.mode == "interval"
+                ScheduledField(label="Every (minutes)", value=data.interval, placeholder="15", disabled=data.busy, field=field("intervalMinutes"), colors=colors, roles=roles)
+              else
+                ScheduledField(label="Maximum delivery age (minutes)", value=data.age, placeholder="Run every held request", disabled=data.busy, field=field("maxDeliveryAgeMinutes"), colors=colors, roles=roles)
+              row padding=14 align-items="center"
+                text "Enabled" flex=1 color=colors.foreground font-size=roles.body.size
+                input type="checkbox" switch checked=data.enabled change=toggleEnabled disabled=data.busy aria-label="Enabled" accent-color=colors.switchOn background-color=colors.switchOff margin=0
+            when data.mode == "fixed_time"
+              text "Time uses the environment's time zone, which may differ from your phone's." color=colors.muted font-size=roles.footnote.size
+            when data.mode == "webhook"
+              when data.signatureConfigured
+                text "Signature check configured on desktop/web." color=colors.muted font-size=roles.footnote.size
+              when length(data.webhookAddress) > 0
+                text data.webhookAddress color=colors.foreground font-size=roles.footnote.size overflow-wrap="anywhere"
+                row gap=14
+                  button press=copyWebhook() disabled=(not data.webhookCopyable) min-height=44
+                    text "Copy URL" color=colors.link font-size=roles.footnote.size
+                  button press=rotateWebhook() disabled=(not data.canSave) min-height=44
+                    text "Rotate URL" color=colors.link font-size=roles.footnote.size
+              when length(data.webhookNote) > 0
+                text data.webhookNote color=colors.muted font-size=roles.footnote.size
+          button press=save() disabled=(not data.canSave) min-height=42 border-radius=14 background-color=colors.primary opacity=(data.canSave ? 1 : 0.45)
+            text (data.busy ? "Saving…" : data.editing ? "Save changes" : "Create task") color=colors.primaryForeground font-weight=500 font-size=roles.body.size
+component SettingsScheduledModel
+  props
+    data: ScheduledEditorData
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    bottom: number
+    field: action
+    menu: action
+  view
+    scroll flex=1 min-height=0 background-color=colors.sheet
+      column padding=17.5 padding-bottom=bottom gap=14 font-family="DM Sans"
+        when not data.present
+          text "Open a scheduled task form first." color=colors.muted font-size=roles.body.size
+        else
+          column border-radius=24 background-color=colors.grouped overflow="hidden"
+            each model in data.models key=model.id
+              button press=field("model", model.id) disabled=(data.busy or model.disabled) padding=14 role="radio" aria-checked=model.selected
+                row align-items="center" gap=10.5 opacity=(model.disabled ? 0.45 : 1)
+                  column flex=1 align-items="flex-start" gap=3.5
+                    text model.label color=colors.foreground font-size=roles.body.size
+                    text model.provider color=colors.muted font-size=roles.footnote.size
+                  when model.selected
+                    t3-symbol symbol-name="checkmark" point-size=16 symbol-tint=colors.icon width=16 height=16
+          each option in data.options key=option.id
+            ScheduledSelectRow(label=option.label, value=(option.boolean ? (option.on ? "On" : "Off") : "Choose"), disabled=data.busy, select=menu(`option:${option.id}`), colors=colors, roles=roles)
+          SettingsSectionLabel(title="Permissions", colors=colors, roles=roles)
+          column border-radius=24 background-color=colors.grouped overflow="hidden"
+            each mode in data.runtimes key=mode.id
+              button press=field("runtimeMode", mode.id) disabled=data.busy padding=14 role="radio" aria-checked=mode.selected
+                row align-items="center" gap=10.5
+                  column flex=1 align-items="flex-start" gap=3.5
+                    text mode.label color=colors.foreground font-size=roles.body.size
+                    text mode.description color=colors.muted font-size=roles.footnote.size
+                  when mode.selected
+                    t3-symbol symbol-name="checkmark" point-size=16 symbol-tint=colors.icon width=16 height=16
+component SettingsScheduledBranch
+  props
+    data: ScheduledEditorData
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    danger: string
+    bottom: number
+    field: action
+    search: action
+    more: action
+  action origin(value: bool)
+    field("startFromOrigin", value ? "true" : "false")
+  view
+    scroll flex=1 min-height=0 background-color=colors.sheet
+      column padding=17.5 padding-bottom=bottom gap=14 font-family="DM Sans"
+        when not data.present
+          text "Open a scheduled task form first." color=colors.muted font-size=roles.body.size
+        else
+          input value=data.branchQuery input=search placeholder="Search branches" aria-label="Search branches" min-height=44 padding-left=14 padding-right=14 border-radius=14 background-color=colors.grouped border-width=0 color=colors.foreground font-size=roles.body.size
+          row padding=14 align-items="center" background-color=colors.grouped border-radius=14
+            text "Start from origin" flex=1 color=colors.foreground font-size=roles.body.size
+            input type="checkbox" switch checked=data.startFromOrigin change=origin disabled=data.busy aria-label="Start from origin" accent-color=colors.switchOn background-color=colors.switchOff margin=0
+          when length(data.branchError) > 0
+            text data.branchError color=danger role="alert" font-size=roles.footnote.size
+          column background-color=colors.grouped border-radius=24 overflow="hidden"
+            each branch in data.branches key=branch.id
+              button press=field("baseRef", branch.id) disabled=data.busy padding=14 role="radio" aria-checked=branch.selected
+                row align-items="center" gap=10.5
+                  text branch.label flex=1 text-align="left" color=colors.foreground font-size=roles.body.size
+                  when branch.selected
+                    t3-symbol symbol-name="checkmark" point-size=16 symbol-tint=colors.icon width=16 height=16
+          when data.hasMore
+            button press=more() min-height=44
+              text "Load more" color=colors.link font-size=roles.body.size

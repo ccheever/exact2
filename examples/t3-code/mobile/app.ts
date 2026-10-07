@@ -1,3 +1,9 @@
+import { mobileAutomationPrepare, mobileAutomationSnapshot, mobileAutomationCommand } from './settings-scheduled-flow';
+import { mobileVoiceAction, mobileVoiceSnapshot, mobileVoiceStatus } from './voice-data';
+import { mobileVoiceColors } from './voice-colors';
+import { mobileAttachmentDocument, EMPTY_ATTACHMENT_DOCUMENT, type AttachmentDocumentSnapshot } from './attachment-document';
+import { mobileAttachmentMenu, mobileAttachmentDocumentAction } from './attachment-document-actions';
+import { mobileTerminalPrepare, mobileTerminalAction, mobileTerminalEvent, mobileTerminalCapture, mobileTerminalAttachOutput } from './terminal-mobile';
 import { mobileReviewColors } from './review-colors';
 import { mobileReviewRead, mobileReviewSnapshot, mobileReviewAction } from './review-data';
 import { mobileFilesRead, mobileFilesSnapshot, mobileFilesAction, mobileFileRead, mobileFileSnapshot } from './file-data';
@@ -6,7 +12,7 @@ import { settingsProviderNative, mobileProviderAccounts, mobileProviderAccountsS
 import { mobileMediaPrepare, mobileMediaShare, mobileMediaForget } from './media-preview';
 import { mobileComposerAttachmentAction, mobileComposerAttachments, mobileComposerAttachmentPreviews } from './composer-attachments';
 // @ref llp/1106.003-pairing-and-transport.decision.md#decision
-import { mobileClient, mobileSnapshot, mobileCommand, mobilePairingFields } from './client';
+import { mobileClient, mobileNative, mobileSnapshot, mobileCommand, mobilePairingFields } from './client';
 import { mobileEnvironmentDetail, mobileEnvironmentDetailCommand } from './environment-detail';
 import { obj } from './shared/domain';
 import { mobileShelves, mobileToggleShelf, mobileHomeView } from './home-state';
@@ -18,15 +24,40 @@ import { mobileAgentActivity } from './agent-activity';
 import { mobileComposerSettings, mobileComposerSettingsAction } from './composer-settings';
 import { mobileNewTask, mobileNewTaskPrepare, mobileNewTaskAction } from './new-task';
 import { mobileThread, mobileThreadPrepare } from './thread';
-import { mobileLayoutFacts, homeChromeEvent, homeChromeView, settingsRoot, settingsScopeEvent } from './root-presentation';
+import { mobileLayoutFacts, mobileScheduledHeader, homeChromeEvent, homeChromeView, settingsRoot, settingsScopeEvent } from './root-presentation';
 import { connectionView } from './presentation';
-import { bridgeReply, type Files, type Native } from './shared/protocol';
+import { bridgeReply, nativeFiles, type Files, type Native } from './shared/protocol';
 
 export const appId = 'com.exact.t3code.ios';
-export const grants = 'device.camera purpose.camera';
+export const grants = 'device.camera purpose.camera device.microphone purpose.microphone';
 
 export function answer(source: string, args: unknown[], _store?: unknown, storage?: Files, native?: Native | null) {
   if (native) native = settingsProviderNative(native);
+  if (source === 'automationPrepare') return mobileAutomationPrepare(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? ''), String(args[4] ?? ''), Number(args[5]), native);
+  if (source === 'automationSnapshot') {
+    const snapshot = mobileAutomationSnapshot();
+    return args[1] === true ? { ...snapshot, editor: { ...snapshot.editor, busy: true, canSave: false, webhookCopyable: false } } : snapshot;
+  }
+  if (source === 'automationCommand') return mobileAutomationCommand(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? ''), Number(args[4]), native).then(result => ({ ...result, requestRoute: String(args[5] ?? '') }));
+  if (source === 'scheduledHeader') return mobileScheduledHeader(args);
+  if (source === 'voiceFocus') return { owner: args[0] === true ? mobileClient.draftKey : '', label: String(args[1] || 'Draft') };
+  if (source === 'voiceColors') return mobileVoiceColors(String(args[0]), String(args[1]));
+  if (source === 'voiceStatus') return native?.available ? mobileVoiceStatus(mobileNative(native)) : { available: false, locale: '', reason: '', session: '', event: 0, eventKind: '', error: '', uri: '', elapsed: 0, levels: [], phase: 'idle' };
+  if (source === 'voiceSnapshot') {
+    const snapshot = mobileVoiceSnapshot(String(args[0]), mobileClient, Number(args[1]));
+    return args[4] === true ? { ...snapshot, confirmationEnabled: false } : snapshot;
+  }
+  if (source === 'voiceAction') {
+    if (!native?.available) return { revision: mobileClient.revision, message: 'Voice input is unavailable.', data: mobileVoiceSnapshot(String(args[2])) };
+    const handle = mobileNative(native);
+    return mobileVoiceAction(String(args[0]), -1, -1, String(args[1]), String(args[2]), handle, nativeFiles(handle));
+  }
+  if (source === 'terminalView') return mobileTerminalPrepare(String(args[0] ?? ''), String(args[1]), String(args[2]), Number(args[3]), Number(args[4]), args[5] === true ? native : null);
+  if (source === 'terminalAction') return mobileTerminalAction(String(args[0]), String(args[1]), String(args[2] ?? ''), native, storage!);
+  if (source === 'terminalMenu') return mobileTerminalAction('menu', String(args[0]), JSON.stringify({ tabs: args[1], readOnly: args[2] === true, fontSize: Number(args[3]) }), native, storage!);
+  if (source === 'terminalEvent') return mobileTerminalEvent(String(args[0]), String(args[1]));
+  if (source === 'terminalCapture') return mobileTerminalCapture(String(args[0]), Number(args[1]), Number(args[2]));
+  if (source === 'terminalAttach') return mobileTerminalAttachOutput(String(args[0]), String(args[1]), Number(args[2]), Number(args[3]), Number(args[4]), native, storage!);
   if (source === 'reviewColors') return mobileReviewColors(String(args[0]), String(args[1]));
   if (source === 'reviewSnapshot') return mobileReviewSnapshot(args[0] === 'dark', mobileClient, args[1] === true);
   if (source === 'reviewPrepare') return mobileReviewRead(native, String(args[0] ?? ''), args[1] === 'dark');
@@ -45,6 +76,20 @@ export function answer(source: string, args: unknown[], _store?: unknown, storag
   if (source === 'providerAccounts') return mobileProviderAccounts(String(args[0]), args[1] === true, native, native?.available === true);
   if (source === 'providerAction') return mobileProviderCommand(String(args[0]), String(args[1]), String(args[2]), native);
   if (source === 'providerField') return mobileProviderField(String(args[0]), String(args[1]), String(args[2]));
+  if (source === 'attachmentDocument') {
+    if (args[5] !== true || !args[6]) return EMPTY_ATTACHMENT_DOCUMENT;
+    return mobileAttachmentDocument(String(args[0]), String(args[1]), String(args[2]), args[3] === true, args[4] === 'dark', Number(args[7]), false, native);
+  }
+  if (source === 'attachmentNativePreview') {
+    let value; try { value = obj(JSON.parse(String(args[0]))); } catch { value = {}; }
+    return { identifier: String(value.identifier ?? ''), name: String(value.name ?? ''), kind: String(value.kind ?? ''), sourceJSON: String(args[0]), ready: !!value.identifier, error: '' };
+  }
+  if (source === 'attachmentNativeEvent') {
+    let value; try { value = obj(JSON.parse(String(args[0]))); } catch { value = {}; }
+    return { identifier: value.identifier === args[1] ? String(value.identifier) : '', message: String(value.message ?? ''), operation: 'native-error', removed: false, sourceJSON: '' };
+  }
+  if (source === 'attachmentMenu') return mobileAttachmentMenu(args[0] as AttachmentDocumentSnapshot, args[1] === true);
+  if (source === 'attachmentDocumentAction') return mobileAttachmentDocumentAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), args[4] as AttachmentDocumentSnapshot, native, storage!);
   if (source === 'mediaPreview') {
     if (args[5] !== true) return { identifier: '', name: '', kind: '', sourceJSON: '', ready: false, error: '' };
     return mobileMediaPrepare(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), native, mobileClient, String(args[3] ?? ''), String(args[4] ?? ''));
@@ -66,7 +111,7 @@ export function answer(source: string, args: unknown[], _store?: unknown, storag
   if (source === 'appearance') {
     const preferences = normalizeMobilePreferences(args[0]);
     const resolved = resolveMobileAppearance(preferences, String(args[1] ?? 'light'));
-    return { scheme: resolved.scheme, themeId: resolved.themeId, baseFontSize: resolved.baseFontSize,
+    return { scheme: resolved.scheme, themeId: resolved.themeId, baseFontSize: resolved.baseFontSize, terminalFontSize: resolved.terminalFontSize,
       themeMode: preferences.themeMode, enterBehavior: preferences.composerEnterBehavior, groupingMode: preferences.projectGroupingMode };
   }
   if (source === 'settingsRoot') return settingsRoot(args);

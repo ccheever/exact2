@@ -1,3 +1,4 @@
+// @ref llp/1106.009-mobile-settings.decision.md#root-and-native-lifetime
 // @ref llp/1106.003-pairing-and-transport.decision.md#decision
 // T3 Code 365aa87982 SettingsServerControlsRouteScreen/settings-scoped-server.
 import { mobileClient } from './client';

@@ -1,3 +1,4 @@
+import { mobileVoiceObserveDraft } from './voice-data';
 // upstream 365aa87982 mobile pairing.ts and connection/platform.ts; shared reducers remain unchanged.
 // @ref llp/1106.003-pairing-and-transport.decision.md#mobile-adaptations
 import { T3Client } from './shared/client';
@@ -62,6 +63,7 @@ export function mobilePairingTarget(host: string, code: string): { origin: strin
  */
 export function mobileNative(native: Native): Native {
   return { available: native.available, watch: topic => native.watch(topic), later: request => {
+    mobileVoiceObserveDraft(mobileClient);
     const operation = obj(request), payload = obj(operation.payload);
     const mobileWrite = operation.op === 'request' && payload.creationSource === 'web'
       && (operation.method === 'orchestration.launchThread'
@@ -91,6 +93,7 @@ export function mobileRoutingRows(sources: ReturnType<typeof environmentSources>
 export async function mobileSnapshot(nativeInput: Native | null | undefined, suppliedStorage: Files) {
   const { native, storage } = answerHandles(nativeInput, suppliedStorage);
   await mobileClient.refresh(native, storage);
+  mobileVoiceObserveDraft(mobileClient);
   let focusedStatus = {}, savedCatalog = fleet.saved, preferencesText = '{}', routingReady = false;
   if (native?.available) {
     try {
@@ -135,6 +138,10 @@ export async function mobileSnapshot(nativeInput: Native | null | undefined, sup
 
 /** Root mutation arguments are [operation, id/host, value/code, numericValue]. */
 export async function mobileCommand(args: unknown[], nativeInput: Native | null | undefined, suppliedStorage: Files) {
+  try { return await runMobileCommand(args, nativeInput, suppliedStorage); }
+  finally { mobileVoiceObserveDraft(mobileClient); }
+}
+async function runMobileCommand(args: unknown[], nativeInput: Native | null | undefined, suppliedStorage: Files) {
   const { native, storage } = answerHandles(nativeInput, suppliedStorage);
   if (!native?.available) return { revision: mobileClient.revision, message: 'Open T3 Code on your iPhone or iPad to connect.' };
   let op = str(args[0]), id = str(args[1]), value = str(args[2]);

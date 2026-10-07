@@ -229,6 +229,7 @@ private struct T3SettingsHeaderConfig: Decodable {
     let routeKey: String; let close: Bool; let back: Bool; let filtered: Bool; let all: Bool
     let selectedCount: Int; let projectKey: String; let projectLabel: String
     let environments: [Environment]; let projects: [Project]
+    let addActionID: String?; let addEnabled: Bool?
 }
 private final class T3SettingsHeaderPort: ExactNativeInstance {
     private weak var owner: T3SettingsNavigation?
@@ -261,6 +262,11 @@ private final class T3SettingsHeaderPort: ExactNativeInstance {
         let filter = UIBarButtonItem(image: UIImage(systemName: config.filtered ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease"), menu: menu)
         filter.accessibilityLabel = "Filter settings environments and projects"; filter.accessibilityIdentifier = "settings-scope"
         right = [filter]
+        if let id = config.addActionID {
+            let add = UIBarButtonItem(image: UIImage(systemName: "plus"), primaryAction: UIAction { [weak route] _ in route?.element(id)?.click() })
+            add.accessibilityLabel = "New scheduled task"; add.isEnabled = config.addEnabled == true
+            right.insert(add, at: 0)
+        }
         if config.close {
             let close = UIBarButtonItem(image: UIImage(systemName: "xmark"), primaryAction: UIAction { [weak self] _ in self?.emit("close") })
             close.accessibilityLabel = "Close settings"; close.accessibilityIdentifier = "settings-close"

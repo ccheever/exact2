@@ -5,6 +5,7 @@ import UIKit
 final class T3MobileTerminal {
     let sessions: T3MobileTerminalSessions
     private struct WeakView { weak var value: T3MobileTerminalView? }
+    private let menu = T3MobileTerminalMenu()
     private var views: [String: WeakView] = [:]
     init(transport: T3Transport) { sessions = T3MobileTerminalSessions.of(transport) }
     func makeView(props: [String: String], events: ExactNativeEvents) throws -> ExactNativeInstance {
@@ -15,6 +16,12 @@ final class T3MobileTerminal {
     func perform(_ request: [String: Any], reply: @escaping ([String: Any]) -> Void) {
         let generation = request["generation"] as? Int ?? 0
         func answer(_ value: [String: Any]) { reply(["ok": true, "generation": generation, "value": value]) }
+        if request["op"] as? String == "mobileTerminalPermissions" {
+            let environment = request["environmentId"] as? String ?? "", read = request["read"] as? Bool ?? false, operate = request["operate"] as? Bool ?? false
+            sessions.permissions(environment: environment, read: read, operate: operate)
+            for entry in views.values { entry.value?.permissions(environment: environment, read: read, operate: operate) }
+            answer([:]); return
+        }
         if request["op"] as? String == "terminalRetain" {
             sessions.retain(Set(request["sessions"] as? [String] ?? [])); answer([:]); return
         }
@@ -22,15 +29,21 @@ final class T3MobileTerminal {
               let view = views[key]?.value else {
             reply(["ok": false, "generation": generation, "error": ["kind": "Terminal", "message": "This terminal is no longer open."]]); return
         }
+        if request["action"] as? String == "menu" {
+            do { try menu.present(source: request["value"] as? String ?? "", anchor: view.view) { choice in answer(["choice": choice]) } }
+            catch { reply(["ok": false, "generation": generation, "error": ["kind": "Terminal", "message": error.localizedDescription]]) }
+            return
+        }
         do { try view.control(request["action"] as? String ?? "", value: request["value"] as? String ?? ""); answer([:]) }
         catch { reply(["ok": false, "generation": generation, "error": ["kind": "Terminal", "message": error.localizedDescription]]) }
     }
-    func destroy() { for entry in Array(views.values) { entry.value?.destroy() }; views.removeAll(); sessions.destroy() }
+    func destroy() { menu.destroy(); for entry in Array(views.values) { entry.value?.destroy() }; views.removeAll(); sessions.destroy() }
 }
 
 final class T3MobileTerminalView: ExactNativeInstance {
     private weak var owner: T3MobileTerminal?
     private let surface = T3MobileTerminalSurface()
+    private var accessory: T3MobileTerminalAccessory?
     private var session: T3MobileTerminalSession?
     private var key = "", status = "", modifier = "", host = "unknown"
     private var writes: [String] = [], writing = false, alive = true
@@ -43,7 +56,11 @@ final class T3MobileTerminalView: ExactNativeInstance {
             guard let self, let session, let cols = value["cols"] as? Int, let rows = value["rows"] as? Int else { return }
             owner.sessions.resize(session, cols: cols, rows: rows)
         }
-        surface.onCapture = { [weak self] value in self?.emit(["type": "capture", "text": value["text"] as? String ?? ""]) }
+        surface.onCapture = { [weak self] value in
+            let text = value["text"] as? String ?? ""
+            if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { self?.systemMessage("There is no visible output to attach.") }
+            else { self?.emit(["type": "capture", "text": text]) }
+        }
     }
     override func setProps(_ props: [String: String]) throws {
         guard let text = props["terminal-source"], let source = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
@@ -61,8 +78,10 @@ final class T3MobileTerminalView: ExactNativeInstance {
                 worktreePath: source["worktreePath"] as? String ?? "", env: source["env"] as? [String: String] ?? [:], readOnly: source["readOnly"] as? Bool ?? true)
             owner.register(self, key: key)
         }
-        surface.readOnly = source["readOnly"] as? Bool ?? true
-        session?.readOnly = surface.readOnly
+        let nextReadOnly = source["readOnly"] as? Bool ?? true
+        if nextReadOnly { writes.removeAll(); modifier = "" }
+        surface.readOnly = nextReadOnly
+        if let session { owner.sessions.setReadOnly(nextReadOnly, session: session) }
         surface.autoFocus = source["autoFocus"] as? Bool ?? false
         host = source["hostPlatform"] as? String ?? "unknown"
         let size = source["fontSize"] as? Double ?? 10.5
@@ -72,19 +91,38 @@ final class T3MobileTerminalView: ExactNativeInstance {
         surface.backgroundColorHex = source["background"] as? String ?? "#0a0a0a"
         surface.foregroundColorHex = source["foreground"] as? String ?? "#adadb1"
         surface.mutedForegroundColorHex = source["mutedForeground"] as? String ?? "#8E8E95"
+        if accessory?.host != host {
+            let next = T3MobileTerminalAccessory(host: host) { [weak self] action, value in
+                guard let self else { return }
+                if action == "clear" { modifier = ""; accessory?.selectModifier(""); emit(["type": "action", "action": "clear"]); return }
+                do { try control(action, value: value) } catch { systemMessage(error.localizedDescription) }
+            }
+            accessory = next
+        }
+        accessory?.colors(background: source["background"] as? String ?? "#0a0a0a", foreground: source["foreground"] as? String ?? "#adadb1", border: source["border"] as? String ?? "#2e2e30")
+        surface.setKeyboardAccessory(surface.readOnly ? nil : accessory)
         if let session { sessionChanged(session) }
     }
     func sessionChanged(_ session: T3MobileTerminalSession) {
         guard alive, self.session === session else { return }
         surface.initialBuffer = session.output.text
         let next = Self.json(["status": session.status, "error": session.error ?? "", "label": session.label, "lifecycle": session.lifecycleVersion])
-        if next != status { status = next; emit(["type": "status", "status": session.status, "error": session.error ?? "", "label": session.label]) }
+        if next != status { status = next; emit(["type": "status", "status": session.status, "version": session.version, "error": session.error ?? "", "label": session.label]) }
+    }
+    func permissions(environment: String, read: Bool, operate: Bool) {
+        guard let parts = (try? JSONSerialization.jsonObject(with: Data(key.utf8))) as? [String], parts.first == environment else { return }
+        if !operate { writes.removeAll(); modifier = ""; accessory?.selectModifier(""); surface.readOnly = true; surface.setKeyboardAccessory(nil) }
+        if !read {
+            surface.initialBuffer = ""
+            if let session { owner?.sessions.unbind(self, from: session) }
+            owner?.unregister(self, key: key); session = nil; key = ""
+        }
     }
     func systemMessage(_ message: String) { emit(["type": "error", "message": message]) }
     private func emit(_ value: [String: Any]) { guard alive else { return }; var value = value; value["key"] = key; events.change(Self.json(value)) }
     private func input(_ data: String) {
         guard alive, !surface.readOnly, !data.isEmpty else { return }
-        let armed = modifier; modifier = ""
+        let armed = modifier; modifier = ""; accessory?.selectModifier("")
         if !armed.isEmpty { emit(["type": "modifier", "value": ""]) }
         if data.lowercased() == "v", armed == (host == "mac" ? "meta" : "ctrl") { paste(); return }
         if armed == "meta" { enqueue("\u{1b}" + data) }
@@ -108,7 +146,7 @@ final class T3MobileTerminalView: ExactNativeInstance {
         if !chunk.isEmpty { writes.append(chunk) }; flush()
     }
     private func flush() {
-        guard alive, !writing, !writes.isEmpty, let session, let owner else { return }
+        guard alive, !surface.readOnly, !writing, !writes.isEmpty, let session, let owner else { return }
         writing = true; let data = writes.removeFirst()
         owner.sessions.write(data, to: session, from: self) { [weak self] in
             guard let self else { return }; writing = false
@@ -124,15 +162,15 @@ final class T3MobileTerminalView: ExactNativeInstance {
     }
     func control(_ action: String, value: String) throws {
         guard alive else { throw ExactNativeRefusal("This terminal is no longer open.") }
-        if action == "capture" { surface.captureRequest += 1; return }
+        if action == "capture" { surface.dismissKeyboard(); surface.captureRequest += 1; return }
         if action == "hide-keyboard" { surface.dismissKeyboard(); return }
         guard !surface.readOnly else { throw ExactNativeRefusal("This connection does not have permission to operate terminals.") }
         switch action {
         case "show-keyboard": surface.focusRequest += 1
         case "modifier":
             guard ["ctrl", "meta"].contains(value) else { throw ExactNativeRefusal("Unknown terminal modifier.") }
-            modifier = modifier == value ? "" : value; emit(["type": "modifier", "value": modifier])
-        case "paste": modifier = ""; emit(["type": "modifier", "value": ""]); paste()
+            modifier = modifier == value ? "" : value; accessory?.selectModifier(modifier); emit(["type": "modifier", "value": modifier])
+        case "paste": modifier = ""; accessory?.selectModifier(""); emit(["type": "modifier", "value": ""]); paste()
         case "input": input(value)
         default: throw ExactNativeRefusal("Unknown terminal control.")
         }
