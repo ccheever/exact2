@@ -68,9 +68,9 @@ Nightly toast's buttons and then to `shortcut-settings.open` and `shortcut-navig
 Framework (checked on main `462308f9c`, nothing newer): exact2's only modal with host focus
 containment is a `dialog` opened by an invoker button; `showModal(id)` from an action is carried by
 the terminal host only (macOS logs "unknown command showModal", the web refuses it) and
-`aria-modal` keeps no Tab inside (LLP 1080.003 §4) — [X51](../issues/20261008-x51-state-driven-modal-focus.md).
+`aria-modal` keeps no Tab inside (LLP 1080.003 §4) — [X53](../issues/20261008-x53-state-driven-modal-focus.md).
 On macOS a date input, a time input and a `select` are no Tab stops at all (the web's are) —
-[X50](../issues/20261008-x50-macos-form-controls-tab-order.md). The clone-side fix below is the
+[X52](../issues/20261008-x52-macos-form-controls-tab-order.md). The clone-side fix below is the
 narrowest that matches the reference without them.
 
 ## What was built
@@ -123,7 +123,7 @@ agent screenshots, `docs/agent-pitfalls.md`), uploaded to `t3-code-evidence/dial
 | --- | --- | --- |
 | 1. Settings › Providers confirmation (fixture-backed) | pass (agent): the Remove confirmation of a real downloaded runtime; no account involved | drive 2, image 02 |
 | 2. Tab and Shift+Tab past the last control, focused elements and accessibility tree; another dialog | pass (agent) on six dialogs: Providers Remove, title-menu Delete, terminal close (⌘W and the trash button), Custom snooze, sidebar Delete, Add Environment; `tree --ax` marks `Cancel [focused]`. Real keys: deferred to the real-input batch — screen locked (user away) | drives 1–6, images 01–04 |
-| 3. No dispatcher or inert Settings control takes focus; focus follows the visible controls both ways | pass (agent): every Tab and Shift+Tab stays in the dialog and wraps in the reference order (base reaches the toast, the sidebar and `shortcut-settings.open`/`shortcut-navigation.back`); Date, Time and Unit in Custom snooze are skipped by the host (X50) | drives 1–6 |
+| 3. No dispatcher or inert Settings control takes focus; focus follows the visible controls both ways | pass (agent): every Tab and Shift+Tab stays in the dialog and wraps in the reference order (base reaches the toast, the sidebar and `shortcut-settings.open`/`shortcut-navigation.back`); Date, Time and Unit in Custom snooze are skipped by the host (X52) | drives 1–6 |
 | 4. Escape sends nothing and returns focus to the trigger; Return on Confirm sends exactly one operation | pass (agent): Escape → trigger on all six (Remove button, title, terminal, row ×2, "Add environment"), no `thread.delete`/`thread.snooze` receipt and no `provider.install.remove` span from them; Return on Confirm → exactly one `thread.delete` receipt and exactly one `ws.rpc.provider.install.remove` span | drives 2–6, 8 |
 | 5. Shortcuts with the dialog closed (a configured one, one with a text field focused), and with one open | pass (agent), identical on base and branch: ⌘K, ⌘1, ⌘, , composer + ⌘K; ⌘K over Custom snooze and over Add Environment; ⌘W reaches the hidden `shortcut-terminal.close` | drives 7, 9 |
 | Tests | `dialog-focus.test.ts` (7) and the `dialogReturn` test in `sidebar.test.ts` fail on the base sources (all 8) and pass here; `bun test examples/t3-code` 2519 pass, 1 skip, 0 fail (base 2511, 1 skip) | runner report |
@@ -134,7 +134,7 @@ Not done or not verified, each with its blocker:
 - Real-keyboard rows (2 with real keys, the focus ring itself): deferred to the real-input batch — screen
   locked (user away). Steps below.
 - Date, Time and the Unit select in Custom snooze are no Tab stops on macOS: framework,
-  [X50](../issues/20261008-x50-macos-form-controls-tab-order.md).
+  [X52](../issues/20261008-x52-macos-form-controls-tab-order.md).
 - Dialogs without their own trap no longer reach the dispatch buttons, but keep the rest of their
   base behavior: a showing toast is still a Tab stop from the provider wizard, the theme dialogs and
   Restore defaults (their page is inert), and the scheduled-task, project, SnapShot and
@@ -142,7 +142,7 @@ Not done or not verified, each with its blocker:
   focus and could freeze the page, review B1). AppConfirm opened by a composer image remove or a
   right-panel tab close keeps the focus on its trigger (no focus return exists for them). A sidebar
   dialog gives the focus back to its thread's row, not to whatever held it before (a ⌘-chord typed in
-  the composer). All need the host's modal: framework, [X51](../issues/20261008-x51-state-driven-modal-focus.md);
+  the composer). All need the host's modal: framework, [X53](../issues/20261008-x53-state-driven-modal-focus.md);
   per-dialog traps are the stopgap used here.
 - The dispatch buttons stay exposed to VoiceOver as 1×1 buttons (unchanged; a `tabindex` does not hide
   them, and the reference has no such elements). Recorded as a follow-up, not this task's focus path.
@@ -186,16 +186,17 @@ Compose base/after pairs per step with `pair.py` (as images 01–04) and upload 
 2026-10-08: reproduced on `da4f4512f` with agent drives; scratch-app checks of the framework (1×1
 buttons are Tab stops on the web and macOS, `tabindex=-1` keeps their chords, `showModal(id)` is not
 carried on macOS or the web, date/time/select are no macOS Tab stops); fix, tests and drives; real keys
-deferred (screen locked).
+deferred (screen locked). Later: the local issue drafts renumbered X52 and X53 (X50 and X51 are taken by
+#247 and #252); that commit changes records and one test comment only, and the new tests still pass (42).
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
 | 1 (2026-10-08) | branch tree before the review repairs | agent drives 1–9 (base and branch); review round 1 FAIL (B1) | `agent-focus-drives.txt` §1–9, `review.md` | B1 |
-| 2 (2026-10-08) | `b3390af6d` (runner fingerprint in `attempt1-report.json`, `source_unchanged: true`; the commit compared equal) | runner passed every check it runs: new tests 42 pass; `bun test examples/t3-code` 2519 pass / 1 skip / 0 fail; strict `tsc`; `contract build` (2631 slots, 2738 actions, 59420 nodes); `cargo test -p t3-code-macos --lib` 11 pass; caps. Five checks: build, test (3383 pass / 0 fail / 33 ignored, 94 binaries), clippy, fmt, caps, boot green. Drives §10 on the rebuilt app; review round 2 PASS | `agent-focus-drives.txt` §10, images 01–04, `attempt1-report.json`, `review.md` | real-input batch (screen locked); X50; X51 |
+| 2 (2026-10-08) | `b3390af6d` (runner fingerprint in `attempt1-report.json`, `source_unchanged: true`; the commit compared equal) | runner passed every check it runs: new tests 42 pass; `bun test examples/t3-code` 2519 pass / 1 skip / 0 fail; strict `tsc`; `contract build` (2631 slots, 2738 actions, 59420 nodes); `cargo test -p t3-code-macos --lib` 11 pass; caps. Five checks: build, test (3383 pass / 0 fail / 33 ignored, 94 binaries), clippy, fmt, caps, boot green. Drives §10 on the rebuilt app; review round 2 PASS | `agent-focus-drives.txt` §10, images 01–04, `attempt1-report.json`, `review.md` | real-input batch (screen locked); X52; X53 |
 
 ## Next action
 
 Review the draft [PR #255](https://github.com/ccheever/exact2/pull/255). The coordinator runs "Real-input
-batch steps" when the screen is unlocked; X50 and X51 wait for the user's publication decision.
+batch steps" when the screen is unlocked; X52 and X53 wait for the user's publication decision.

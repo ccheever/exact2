@@ -2,7 +2,7 @@
 // sources as context-menu-hookup.test.ts reads its handlers. Sequential focus follows tree order on every
 // host and skips a node whose `tabindex` is negative (HTML's rule, LLP 1088 D7.3), so a component's
 // controls in source order, less those, are its reference Tab order. On macOS the host also skips date,
-// time and select inputs (X50); they are kept here, as the reference has them. These checks guard the
+// time and select inputs (X52); they are kept here, as the reference has them. These checks guard the
 // wiring; the behavior is proven by the macOS drives in tasks/20261008-dialog-shortcut-focus.md.
 import { describe, expect, test } from 'bun:test';
 import { readdirSync } from 'node:fs';

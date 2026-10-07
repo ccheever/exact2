@@ -1,5 +1,5 @@
 ---
-name: 20261008-x50-macos-form-controls-tab-order
+name: 20261008-x52-macos-form-controls-tab-order
 plan: 20261005-t3code-macos-parity
 status: draft
 kind: framework-gap
@@ -8,7 +8,7 @@ upstream_url: null
 reproduced_on: d82fb6a47 (feature branch on main 1f19b2400's framework; main 462308f9c unchanged)
 ---
 
-# X50: on macOS, `input type="date"`, `input type="time"` and `select` are not Tab stops
+# X52: on macOS, `input type="date"`, `input type="time"` and `select` are not Tab stops
 
 ## Summary
 

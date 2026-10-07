@@ -88,8 +88,8 @@ publication was performed during this local audit.
 
 | Issue | Capability | Kind | Blocks | Status |
 | --- | --- | --- | --- | --- |
-| [X50](20261008-x50-macos-form-controls-tab-order.md) | `input type="date"`/`"time"` and `select` as Tab stops on macOS | framework-gap | [dialog-shortcut-focus](../tasks/20261008-dialog-shortcut-focus.md) (nonblocking: Custom snooze's other stops are in order) | reproduced on a scratch app on the feature branch's framework (main `1f19b2400`; `tabbable` unchanged on main `462308f9c`); draft, not published |
-| [X51](20261008-x51-state-driven-modal-focus.md) | A modal opened from state (`showModal(id)` on macOS and the web): focus in, Tab trapped, focus back | framework-gap | [dialog-shortcut-focus](../tasks/20261008-dialog-shortcut-focus.md) (per-dialog traps meanwhile) | reproduced on a scratch app (macOS "unknown command showModal", web refused); draft, not published |
+| [X52](20261008-x52-macos-form-controls-tab-order.md) | `input type="date"`/`"time"` and `select` as Tab stops on macOS | framework-gap | [dialog-shortcut-focus](../tasks/20261008-dialog-shortcut-focus.md) (nonblocking: Custom snooze's other stops are in order) | reproduced on a scratch app on the feature branch's framework (main `1f19b2400`; `tabbable` unchanged on main `462308f9c`); draft, not published |
+| [X53](20261008-x53-state-driven-modal-focus.md) | A modal opened from state (`showModal(id)` on macOS and the web): focus in, Tab trapped, focus back | framework-gap | [dialog-shortcut-focus](../tasks/20261008-dialog-shortcut-focus.md) (per-dialog traps meanwhile) | reproduced on a scratch app (macOS "unknown command showModal", web refused); draft, not published |
 
 ## Upstream issues (filed 2026-10-06)
 

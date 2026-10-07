@@ -1,5 +1,5 @@
 ---
-name: 20261008-x51-state-driven-modal-focus
+name: 20261008-x53-state-driven-modal-focus
 plan: 20261005-t3code-macos-parity
 status: draft
 kind: framework-gap
@@ -8,7 +8,7 @@ upstream_url: null
 reproduced_on: d82fb6a47 (feature branch on main 1f19b2400's framework; main 462308f9c unchanged)
 ---
 
-# X51: a dialog an app opens from state has no host focus containment on macOS or the web
+# X53: a dialog an app opens from state has no host focus containment on macOS or the web
 
 ## Summary
 
