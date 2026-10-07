@@ -544,6 +544,8 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact setup [--check]        install pinned Rust, wasm-bindgen, Binaryen and
                                this machine's host/iOS/tvOS Hermes bundles;
                                fetch the crates every bake reads offline
+  exact hatch <word> [<app>]   an access hatch: a stub for each target the app builds
+                               (--app, --window for those scopes), and app.json's entry
   exact list                   the apps in this repo
   exact new <path> [--update]  a new app outside this repo, using this checkout;
                                --update follows a moved checkout or a new patch
@@ -561,12 +563,190 @@ release needs a "Developer ID Application" certificate and notarytool
 credentials in the keychain; it says how to get each if one is missing.
 EXACT_DEVELOPER_ID and EXACT_NOTARY_PROFILE name them explicitly.`;
 
+/** `exact hatch <word> [<app>]`, `exact hatch --app [<app>]`, `exact hatch --window [<app>]` (LLP 1075.003.000.001 §5):
+ *  an access hatch's stub for each target the app builds. A word is added to app.json `hatches` with the platforms
+ *  stubs were written for; each stub has the hatch's moments, an end that undoes what built added, a region and one
+ *  diagnostics line, and says what a hatched node gives up there. An app with no module gets each platform's. The
+ *  files are the app's from then on. The app is `<app>`, or `EXACT_APP_DIR`'s (an app `exact new` made). */
+export function hatch(args, say = console.log) {
+  const scope = args.includes('--app') ? 'app' : args.includes('--window') ? 'window' : 'element';
+  const names = args.filter(a => !a.startsWith('--')), word = scope === 'element' ? names.shift() : null;
+  if (scope === 'element' && !/^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$/.test(word ?? '')) throw new Error('hatch: name a word, lowercase letters and digits joined by "-" (exact hatch avatar), or --app, or --window');
+  const app = resolveApp(names[0]), dir = app.dir, manifestPath = resolve(dir, 'app.json');
+  const manifest = existsSync(manifestPath) ? JSON.parse(readFileSync(manifestPath, 'utf8')) : {};
+  const title = manifest.app?.name ?? manifest.name ?? app.name;
+  const camel = (word ?? scope).replace(/-([a-z0-9])/g, (_, c) => c.toUpperCase()), Camel = camel[0].toUpperCase() + camel.slice(1);
+  const wrote = [], todo = [];
+  const write = (path, text) => { if (existsSync(path)) return false; mkdirSync(resolve(path, '..'), { recursive: true }); writeFileSync(path, text); wrote.push(path); return true; };
+  // A line added above a marker in a file this verb wrote; in a module of the app's own there is none, and the line is shown.
+  const mark = (path, marker, line, why) => {
+    const text = readFileSync(path, 'utf8'), at = text.indexOf(marker);
+    if (text.includes(line.trim())) return;
+    if (at < 0) return todo.push(`${path}: ${why}\n    ${line.trim()}`);
+    const start = text.lastIndexOf('\n', at) + 1;
+    writeFileSync(path, text.slice(0, start) + line + '\n' + text.slice(start));
+  };
+  const platforms = [];
+  if (existsSync(resolve(dir, 'apple'))) {
+    platforms.push(...['ios', 'macos'].filter(p => !manifest.host || manifest.host[p]));
+    const mod = resolve(dir, 'modules/apple'), has = existsSync(mod) && readdirSync(mod).some(f => f.endsWith('.swift'));
+    const main = has ? readdirSync(mod).map(f => resolve(mod, f)).find(f => readFileSync(f, 'utf8').includes('// exact:element')) ?? resolve(mod, readdirSync(mod).find(f => f.endsWith('.swift'))) : resolve(mod, 'Hatches.swift');
+    if (!has) write(main, `// ${title}'s native module on Apple: its access hatches. Written by \`exact hatch\`; yours from here.
+// A hatch is handed the platform object Exact built (a view, a window), configures it, and changes Contract
+// state only by acting on authored nodes: click(), focus(), blur(), input(text). The app works without it
+// (EXACT_HATCHES=off in a development build). \`perf hatches\`, \`state\` and \`logs\` show what each one did.
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
+
+final class AppHatches: ExactModule {
+    override func element(_ element: ExactElement) {
+        // exact:element (exact hatch adds a word's line above this one)
+    }
+
+    override func elementEnded(_ element: ExactElement) {
+        // exact:elementEnded
+    }
+
+    override func app(_ app: ExactApp) {
+        // exact:app
+    }
+
+    override func appEnded(_ app: ExactApp) {
+        // exact:appEnded
+    }
+
+    override func window(_ window: ExactWindow) {
+        // exact:window
+    }
+
+    override func windowEnded(_ window: ExactWindow) {
+        // exact:windowEnded
+    }
+}
+
+let exactModule: ExactModule.Type = AppHatches.self
+`);
+    const stub = resolve(mod, `${Camel}Hatch.swift`);
+    if (scope === 'element') {
+      write(stub, `// The \`${word}\` hatch on Apple: a node marked hatch="${word}" hands this code its view. Yours to edit.
+// What it gives up: on iOS a hatched node is a view of its own, not a flat leaf, and its list row is not
+// reused unless the hatch sets \`element.reusable\` and undoes what it adds. On macOS, nothing beyond the call.
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
+
+/// Built (\`element.isNew\`) and changed (a \`data-*\` word moved): configure what Exact made, above Exact's own.
+func ${camel}Hatch(_ element: ExactElement) {
+    guard let view = element.view else { return }
+    if element.isNew {
+        // Say what you add, bound to it, so the agent's tree shows whose it is:
+        // element.owns(view: added, "what it is and why")
+        element.diagnostics.log("built on \\(type(of: view))")
+    }
+}
+
+/// The node is leaving, its view still there: take back everything built added.
+func ${camel}HatchEnded(_ element: ExactElement) {
+}
+`);
+      mark(main, '// exact:elementEnded', `        if element.hatch == .${camel} { ${camel}HatchEnded(element) }`, 'call it from your module\'s elementEnded(_:)');
+      mark(main, '// exact:element ', `        if element.hatch == .${camel} { ${camel}Hatch(element) }`, 'call it from your module\'s element(_:)');
+    } else {
+      const type = scope === 'app' ? 'ExactApp' : 'ExactWindow';
+      write(stub, `// The ${scope} hatch on Apple (LLP 1075.003.000.001 §2.1). Yours to edit.
+// ${scope === 'app' ? '`app.application` is nil unless the embedder gave this session the process; `app.prefersColorScheme` and the other facts are the ones Contract sees.' : '`window.window` is nil unless the window is this session\'s own (`window.exclusive`); its frame and moments are always there.'}
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
+
+/// When the hatches connect (\`${scope}.isNew\`), and when ${scope === 'app' ? 'a fact changes' : 'its size or safe area changes'}.
+func ${scope}Hatch(_ ${scope}: ${type}) {
+    ${scope === 'app' ? '// app.owns(appearance: "what you set app-wide")' : '// window.owns(recognizer: added, "what it does", surface: true)'}
+}
+
+/// ${scope === 'app' ? 'The session is ending or reloading' : 'The session is leaving the window'}: undo what the hatch set.
+func ${scope}HatchEnded(_ ${scope}: ${type}) {
+}
+`);
+      mark(main, `// exact:${scope}Ended`, `        ${scope}HatchEnded(${scope})`, `call it from your module's ${scope}Ended(_:)`);
+      mark(main, `// exact:${scope}\n`, `        ${scope}Hatch(${scope})`, `call it from your module's ${scope}(_:)`);
+    }
+  }
+  if (existsSync(resolve(dir, 'web'))) {
+    platforms.push('web');
+    const mod = resolve(dir, 'modules/web'), main = resolve(mod, 'index.js');
+    write(main, `// ${title}'s page module: its access hatches on the web. Written by \`exact hatch\`; yours from here.
+// A hatch is handed the DOM element Exact built, configures it, and changes Contract state only by acting on
+// authored nodes: e.click(), e.focus(), e.blur(), e.input(text). The app works without it (?hatches=off on a
+// development page). \`perf hatches\`, \`state\` and \`logs\` show what each one did.
+const hatches = {};
+// exact:hatches (exact hatch adds a word's line above this one)
+
+export function element(e) { hatches[e.hatch]?.element?.(e); }
+export function elementEnded(e) { hatches[e.hatch]?.elementEnded?.(e); }
+`);
+    const file = `hatch-${word ?? scope}.js`;
+    if (scope === 'element') {
+      write(resolve(mod, file), `// The \`${word}\` hatch on the web: a node marked hatch="${word}" hands this code its element. Yours to edit.
+// What it gives up: nothing beyond the call. Leave the node's own box, position and children to Exact.
+
+/** Built (\`e.isNew\`) and changed (a \`data-*\` word moved, in \`e.data\`). */
+export function element(e) {
+  if (e.isNew) {
+    // Say what you add, bound to it, so the agent's tree shows whose it is:
+    // e.owns(added, 'what it is and why');
+    e.diagnostics.log(\`built on <\${e.element.localName}>\`);
+  }
+}
+
+/** The node is leaving: take back everything built added. */
+export function elementEnded(e) {
+}
+`);
+      mark(main, '// exact:hatches', `import * as ${camel}Hatch from './${file}';\nhatches[${JSON.stringify(word)}] = ${camel}Hatch;`, 'import it and call its element and elementEnded from yours');
+    } else {
+      write(resolve(mod, file), `// The ${scope} hatch on the web (LLP 1075.003.000.001 §2.1). Yours to edit.
+// ${scope === 'app' ? 'The page is the app\'s own: its facts (`a.prefersColorScheme`, `a.visibilityState`, …) are the ones Contract sees.' : 'The page\'s window; `w.frame` is its inner size. Reach the global as `globalThis` in a file that exports `window`.'}
+
+/** When the page module connects (\`isNew\`), and when ${scope === 'app' ? 'a fact changes' : 'its size changes'}. */
+export function built(${scope[0]}) {
+}
+
+/** The page is going: undo what the hatch set. */
+export function ended(${scope[0]}) {
+}
+`);
+      mark(main, '// exact:hatches', `import * as ${scope}Hatch from './${file}';\nexport function ${scope}(x) { ${scope}Hatch.built(x); }\nexport function ${scope}Ended(x) { ${scope}Hatch.ended(x); }`, `import it and export ${scope} and ${scope}Ended from yours`);
+    }
+  }
+  if (!platforms.length) throw new Error(`hatch: ${app.name} builds no target a hatch can be written for yet (apple/ or web/)`);
+  if (scope === 'element') {
+    // The declaration (§5): the word, with the platforms a stub was written for. A list means every platform.
+    const had = manifest.hatches;
+    if (Array.isArray(had)) { if (!had.includes(word)) had.push(word); }
+    else manifest.hatches = { ...(had ?? {}), [word]: [...new Set([...(had?.[word] ?? []), ...platforms])] };
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n');
+  }
+  say(`${scope === 'element' ? `hatch="${word}"` : `the ${scope} hatch`} for ${platforms.join(', ')}${wrote.length ? `:\n  wrote ${wrote.map(f => f.slice(dir.length + 1)).join('\n  wrote ')}` : ': its files were already there'}`);
+  if (scope === 'element') say(`  app.json hatches: ${JSON.stringify(manifest.hatches)}\n  mark a node in app.contract: column hatch="${word}"`);
+  for (const line of todo) say(`  to do, in ${line}`);
+  return { wrote, todo, platforms };
+}
+
 function main(argv) {
   const [verb, name, ...rest] = argv;
   if (!verb || verb === '--help' || verb === '-h' || verb === 'help') return console.log(USAGE);
   if (verb === 'setup') return setup({check: name === '--check'});
   if (verb === 'list') return list();
   if (verb === 'contract') return process.exit(contract(argv.slice(1)));
+  if (verb === 'hatch') return hatch(argv.slice(1));
   if (verb === 'new') {
     // Flags may come before the path: `exact new --game ./my-game`.
     const args = argv.slice(1), path = args.find(arg => !arg.startsWith('--'));

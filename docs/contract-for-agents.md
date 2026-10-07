@@ -48,6 +48,7 @@ This guide is documentation, not an additional policy layer. Documents in
 | Network, authentication, storage, sorting, domain algorithms | App TypeScript/Rust data module |
 | Device facts | Reserved source with an admitted shape |
 | A system control (button, list, switch, picker, menu, tabs, bars) | Contract's native form ([below](#views-layout-and-interaction)); an app native module only where none exists |
+| What only the platform's own object can do (a gesture recognizer, a bar's look, drawing into a view) | An access hatch: `hatch="word"` on the node, native code handed its view ([reference](reference.md#access-hatches)); `bun exact.mjs hatch <word>` writes the stubs |
 | Canvas 2D drawing | Data module's canvas surface |
 | GPU scene or game | Optional GPU/game artifact |
 | App identity, grants/deploy selection, module placement | App manifest and data-module declarations |
