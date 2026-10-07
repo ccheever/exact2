@@ -27,5 +27,14 @@
       "web": "0",
       "linux": "0"
     }
-  }
+  },
+  "modules": [
+    "t3-symbol",
+    "t3-qr-scanner"
+  ],
+  "data": [
+    "mobile-form-sheet",
+    "mobile-scan-action",
+    "mobile-scanner-open"
+  ]
 }

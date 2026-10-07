@@ -67,13 +67,17 @@ each measure. No performance result has been measured at this revision.
 
 ## Implementation and evidence
 
-[observed] M0 currently has a Contract root, a TypeScript source importing the
+[observed] M0 established a Contract root, a TypeScript source importing the
 shared pairing parser, and a `t3-code-ios` crate registered in the root workspace.
 Three Bun source tests pass, including a check that the copied parser still
 matches the adopted desktop source. The direct parent import fails with TS2307 in the
 bake. The pinned-copy native bake and iPhone launch passed. A driver field edit
 produced `https://server.example`, with no pending or failed requests, and a
-screenshot confirms it is drawn. Later milestones have no claimed implementation or parity.
+screenshot confirms it is drawn.
+
+[observed] M1 now has the reviewed library map,1872 pinned color tokens, bundled DM Sans files and iOS image assets. The oracle has30 clean ordinary showcase images and66 route capture attempts, distinguishing redirects and guards. Upstream activity stubs and missing fixture records prevent the remaining captures. These are oracle evidence, not Exact parity.
+
+[observed] M2 adds the shared client closure, UIKit transport, connection forms, scanner, environment details and permission-aware maintenance. M3 has a Home projection and shelf persistence; native chrome is still being integrated. The root Contract, app Cargo checks and focused helper tests have passed at preparatory checkpoints. Three full native build failures after a worktree relocation exhausted the repository's fix loop; the prepared module-discovery guards typecheck, but another full native build awaits a human decision. M2 pairing and all later screen parity remain unproved. M4 transcript preparation is not yet connected to the root. M5–M11 remain work.
 
 Code: [root](../examples/t3-code/mobile/app.contract),
 [source](../examples/t3-code/mobile/app.ts),
@@ -84,7 +88,7 @@ in the implementation worktree; these are not published artifacts.
 ## Open questions
 
 - Gap 001: the bake refuses parent imports. When can the pinned copy be removed?
-- Which transport dependencies need UIKit adapters, and which protocol shapes differ?
+- Will live pairing, credential persistence and lifecycle drives confirm the prepared UIKit adapters?
 - Which native controls and navigation forms match the pinned reference on both devices?
 - Can every performance target be met within app scope?
 

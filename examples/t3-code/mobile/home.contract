@@ -1,0 +1,219 @@
+// @ref llp/1106.004-home-projection.decision.md#decision
+// Upstream 365aa87982 HomeScreen, thread-list-v2-items, EmptyState (screen pane).
+// @ref llp/1106.002-design-system-parity.spec.md#typography-and-font-assets
+shape HomeColors
+  foreground: string
+  muted: string
+  secondary: string
+  tertiary: string
+  border: string
+  borderSubtle: string
+  primary: string
+  primaryForeground: string
+  iconSubtle: string
+  warning: string
+  inputStatus: string
+  workingStatus: string
+  dangerForeground: string
+  done: string
+
+shape HomeItem
+  key: string
+  kind: string
+  id: string
+  environmentId: string
+  threadId: string
+  section: string
+  title: string
+  projectTitle: string
+  projectPresent: bool
+  branch: string
+  environmentLabel: string
+  machineSymbol: string
+  status: string
+  statusTone: string
+  time: string
+  error: string
+  card: bool
+  pinned: bool
+  queued: bool
+  expanded: bool
+  disabled: bool
+  count: number
+  last: bool
+  trailingDivider: bool
+  selected: bool
+  favicon: string
+  iconKind: string
+  iconText: string
+  iconColor: string
+  iconSurface: string
+  iconSize: number
+  searchExcerpt: string
+
+component Home
+  props
+    items: list<HomeItem>
+    emptyTitle: string
+    emptyDetail: string
+    loading: bool
+    addEnvironment: bool
+    bottomClearance: number
+    selectThread: action
+    toggleShelf: action
+    showMore: action
+    addConnection: action
+    colors: HomeColors
+  view
+    when length(items) == 0
+      column flex=1
+        align-items="center"
+        justify-content="center"
+        padding-left=28
+        padding-right=28
+        padding-bottom=bottomClearance
+        column max-width=430 width="100%"
+          align-items="center"
+          box-sizing="border-box"
+          padding=28
+          text emptyTitle font-size=21
+            line-height="28px"
+            font-weight=700
+            color=colors.foreground
+            text-align="center"
+            testId="home-empty-title"
+          text emptyDetail margin-top=7
+            font-size=16
+            line-height="24px"
+            color=colors.muted
+            text-align="center"
+            testId="home-empty-detail"
+          when addEnvironment
+            button press=addConnection
+              margin-top=17.5
+              border-radius=9999
+              background-color=colors.primary
+              padding-left=17.5
+              padding-right=17.5
+              padding-top=10.5
+              padding-bottom=10.5
+              testId="home-add-environment"
+              text "Add environment" color=colors.primaryForeground font-size=14 line-height="19px" font-weight=700
+    else
+      list id="home-list" flex=1 min-height=0
+        virtualized=true
+        estimated-item-height=72
+        testId="home-thread-list"
+        each item in items key=item.key
+          HomeListItem(item=item, bottomClearance=bottomClearance, selectThread=selectThread, toggleShelf=toggleShelf, showMore=showMore, colors=colors)
+
+component HomeListItem
+  props
+    item: HomeItem
+    bottomClearance: number
+    selectThread: action
+    toggleShelf: action
+    showMore: action
+    colors: HomeColors
+  derive statusColor = item.statusTone == "approval" or item.statusTone == "limited" ? colors.warning : item.statusTone == "input" ? colors.inputStatus : item.statusTone == "working" ? colors.workingStatus : item.statusTone == "failed" ? colors.dangerForeground : item.statusTone == "done" ? colors.done : colors.tertiary
+  view
+    column padding-bottom=(item.last ? bottomClearance : 0)
+      when item.kind == "shelf"
+        button press=toggleShelf(item.section)
+          disabled=item.disabled
+          margin-top=14
+          margin-bottom=5.25
+          padding=0
+          padding-left=17.5
+          padding-right=17.5
+          aria-label=`${item.count} ${item.section} threads`
+          aria-expanded=item.expanded
+          testId=`home-shelf-${item.section}`
+          row align-items="center" gap=8.75
+            text item.title font-size=13 line-height="17px" font-weight=500 color=(item.section == "snoozed" ? colors.secondary : colors.tertiary)
+            view flex=1 height=1 background-color=(item.section == "snoozed" ? colors.primary : colors.border) opacity=(item.section == "snoozed" ? 0.2 : 1)
+            t3-symbol symbol-name=(item.expanded ? "chevron.up" : "chevron.down") point-size=10 symbol-weight="regular" symbol-tint=colors.muted width=10 height=10
+      else when item.kind == "more"
+        button press=showMore
+          position="relative"
+          margin-left=14
+          margin-right=14
+          margin-top=7
+          border-radius=7
+          padding-top=8.75
+          padding-bottom=8.75
+          aria-label=`Show more settled threads`
+          testId="home-show-more"
+          svg position="absolute" top=0 left=0 width="100%" height="100%" pointer-events="none"
+            rect x=0 y=0 width="100%" height="100%" rx=7 fill="none" stroke=colors.border stroke-width=1 stroke-dasharray="3 3"
+          text item.title font-size=13 line-height="17px" font-weight=500 color=colors.muted
+      else
+        button press=selectThread(item.id)
+          padding=0
+          text-align="left"
+          aria-label=(item.queued ? `${item.title}, messages queued to send` : item.title)
+          testId=`home-thread-${item.key}`
+          when item.card
+            column padding-left=17.5 padding-right=17.5 padding-top=8.75 padding-bottom=8.75
+              row align-items="center" gap=5.25
+                when item.projectPresent
+                  HomeProjectIcon(item=item, colors=colors)
+                text item.projectTitle flex=1 min-width=0 line-clamp=1 text-overflow="ellipsis"
+                  font-size=14 line-height="19px" font-weight=500 color=colors.muted
+                when item.queued
+                  t3-symbol symbol-name="tray.and.arrow.up" point-size=12 symbol-weight="regular" symbol-tint=colors.muted width=12 height=12
+                when item.pinned
+                  t3-symbol symbol-name="pin" point-size=11 symbol-weight="regular" symbol-tint=colors.muted width=11 height=11
+                text (length(item.status) > 0 ? item.status : item.time) font-size=13 line-height="17px" color=statusColor
+              text item.title margin-top=3.5 font-size=16 line-height="23px" font-weight=500 color=colors.foreground line-clamp=2 text-overflow="ellipsis"
+              when length(item.searchExcerpt) > 0
+                text item.searchExcerpt margin-top=3.5 font-size=13 line-height="17px" color=colors.muted line-clamp=1 text-overflow="ellipsis"
+              row margin-top=3.5 align-items="center" gap=7
+                when length(item.error) > 0
+                  text item.error flex=1 font-size=13 line-height="17px" color=statusColor line-clamp=1 text-overflow="ellipsis"
+                else
+                  row flex=1 min-width=0 align-items="center" gap=3.5
+                    text min-width=0 flex-shrink=1 font-size=13 line-height="17px" line-clamp=1 text-overflow="ellipsis"
+                      text item.branch font-family="Menlo" color=colors.muted
+                      when length(item.branch) > 0 and length(item.environmentLabel) > 0
+                        text "  ·  " color=colors.muted
+                      text item.environmentLabel color=colors.tertiary
+                    when length(item.environmentLabel) > 0
+                      t3-symbol symbol-name=item.machineSymbol point-size=11 symbol-weight="regular" symbol-tint=colors.tertiary width=11 height=11 flex-shrink=0
+            when item.trailingDivider
+              view height=1 margin-left=17.5 background-color=colors.borderSubtle
+          else
+            row min-height=44
+              box-sizing="border-box"
+              align-items="center"
+              gap=8.75
+              padding-left=17.5
+              padding-right=17.5
+              padding-top=7
+              padding-bottom=7
+              when item.projectPresent
+                column opacity=0.4
+                  HomeProjectIcon(item=item, colors=colors)
+              column flex=1 min-width=0
+                text item.title font-size=16 line-height="23px" color=colors.muted line-clamp=1 text-overflow="ellipsis"
+                when length(item.searchExcerpt) > 0
+                  text item.searchExcerpt font-size=13 line-height="17px" color=colors.muted line-clamp=1 text-overflow="ellipsis"
+              when item.queued
+                t3-symbol symbol-name="tray.and.arrow.up" point-size=12 symbol-weight="regular" symbol-tint=colors.muted width=12 height=12
+              text item.time font-family="Menlo" font-size=14 line-height="19px" color=(item.section == "snoozed" ? colors.muted : colors.tertiary)
+
+component HomeProjectIcon
+  props
+    item: HomeItem
+    colors: HomeColors
+  view
+    column width=15 height=15 flex-shrink=0 align-items="center" justify-content="center"
+      when item.iconKind == "emoji"
+        text item.iconText font-size=12 line-height="15px" text-align="center"
+      else when item.iconKind == "monogram"
+        column width=15 height=15 border-radius=3.75 background-color=item.iconSurface align-items="center" justify-content="center"
+          text item.iconText font-family="Menlo" font-size=item.iconSize line-height="15px" font-weight=700 color=item.iconColor text-align="center" line-clamp=1
+      else when length(item.favicon) > 0
+        image item.favicon width=15 height=15 object-fit="contain" border-radius=2.4 aria-label=`${item.projectTitle} favicon`
+      else
+        t3-symbol symbol-name="folder.fill" point-size=15 symbol-weight="regular" symbol-tint=colors.iconSubtle width=15 height=15

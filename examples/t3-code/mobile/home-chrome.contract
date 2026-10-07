@@ -1,0 +1,16 @@
+// @ref llp/1106.002-design-system-parity.spec.md#semantic-colors
+// A transparent native overlay owns only Home chrome. Place last in a relative
+// route-sized box. Its empty area passes touches through to the authored list.
+component HomeChrome
+  props
+    configuration: string
+    event: action
+  view
+    t3-home-chrome configuration=configuration
+      change=event
+      position="absolute"
+      top=0
+      right=0
+      bottom=0
+      left=0
+      testId="home-chrome"
