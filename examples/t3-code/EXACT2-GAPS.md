@@ -46,6 +46,7 @@ REF = `~/Documents/work/3.open-source/t3code`. X2 = exact2 main.
 | X46 | A build step that makes app assets before the Apple bundle copies `assets/` | The terminal page (`terminal-host/build.mjs` output) | build | run `bun terminal-host/build.mjs` (app.json `commands.terminal`) before the bundle build; without it the terminal stays blank and its status names the load error |
 | X47 | A focus ring on a custom pressable box ([#179](https://github.com/ccheever/exact2/issues/179), filed 2026-10-07) | Keyboard focus on the clone's custom buttons, rows and toggles | host | none: fixed by main #189 (in the branch since adopt-main-fixes-r3); the ring was seen under real Tab presses (`20261007-real-input-checks`) |
 | X49 | A progress value for assistive technology: no `progress` element and no `aria-valuenow`/`aria-valuetext` (local draft, not published) | The Antigravity runtime download bar (`<progress aria-label="Antigravity download">`) | contract/host | a drawn track and fill with `role="progressbar"` and the percentage as `aria-description`; the status text carries the byte counts |
+| X50 | A click inside an open popover also reaches the page under it, on macOS (local draft, unconfirmed: not reproduced in a one-file app) | The theme editor's colour popover: a click on the plane pressed the Dark toggle or focused the name field under it | host | the popover box takes `press` and `retainFocus=true` (`theme-color-picker.contract`) |
 
 
 ## Current state on the pin (2026-10-06, exact2 `c12832e82`)
