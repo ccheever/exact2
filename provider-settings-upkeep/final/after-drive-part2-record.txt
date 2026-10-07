@@ -1,0 +1,30 @@
+2026-10-07T19:18:17.169Z == pair Mac Studio (fixture)
+2026-10-07T19:18:34.249Z == list popover: end-aligned under the icon, tooltip closes on press, Escape returns focus
+2026-10-07T19:18:34.258Z   (no close-connection)
+2026-10-07T19:18:40.932Z hover tooltip: "Update available"
+2026-10-07T19:18:41.604Z after press: tooltip=null popover={"phase":"open","popover":2131,"source":2128}
+2026-10-07T19:18:41.615Z trigger frame (keys props,depth,parent,focused,children,id,type,handlers) popover frame (keys focused,children,handlers,parent,depth,type,props,id)
+2026-10-07T19:18:42.148Z shot popover-list-codex
+2026-10-07T19:18:42.609Z after Escape: settings=true popover=null focus=provider-advisory-list-codex
+2026-10-07T19:18:42.610Z == keyboard: Enter on the focused icon opens, Tab moves inside, Escape returns
+2026-10-07T19:18:42.622Z focus: provider-advisory-list-codex
+2026-10-07T19:18:43.077Z after Enter: popover={"source":2128,"phase":"open","popover":2131} focus=provider-advisory-list-codex
+2026-10-07T19:18:43.515Z Tab inside: provider-advisory-list-codex-action
+2026-10-07T19:18:44.019Z shot popover-keyboard
+2026-10-07T19:18:44.484Z after Escape: settings=true popover=null focus=provider-advisory-list-codex
+2026-10-07T19:18:44.484Z == editor popover (Claude), end-aligned
+2026-10-07T19:18:46.824Z trigger frame (keys handlers,parent,children,type,props,id,depth,focused) popover frame (keys id,handlers,props,children,parent,focused,type,depth)
+2026-10-07T19:18:47.337Z shot popover-editor-claude
+2026-10-07T19:18:47.803Z after Escape: settings=true popover=null focus=provider-advisory-editor-claudeAgent
+2026-10-07T19:18:47.803Z == narrow 840x620 and dark
+2026-10-07T19:18:52.149Z shot popover-narrow
+2026-10-07T19:18:53.716Z shot popover-editor-narrow
+2026-10-07T19:18:59.512Z shot popover-dark
+2026-10-07T19:19:01.091Z shot popover-editor-dark
+2026-10-07T19:19:02.409Z == real update: lane-local Codex on server c (npm prefix under target/)
+2026-10-07T19:19:02.432Z   (tap connection-settings refused: view 3159 is hidden or inert)
+2026-10-07T19:19:18.922Z ERROR in real update: lane-local Codex on server c (npm prefix under target/): Error: clock: the clock cannot go backwards (59100.0 → 59099.99999999999)
+    at op (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/scripts/agent.mjs:927:44)
+    at async clock (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/scripts/agent.mjs:1242:80)
+    at async <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/drive3.mjs:32:46)
+    at async <anonymous> (/Users/daehyeonmun/orca/work
