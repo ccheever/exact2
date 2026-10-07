@@ -87,7 +87,7 @@ Filed as [#114](https://github.com/ccheever/exact2/issues/114). Main #219 (`6af6
 `exactPage().hasFocus` is `document.hasFocus()` on every host (macOS: the app is active and the session's window
 is key), it is told again on window focus changes, and the agent sets it with `prefer has-focus`. Notification
 click actions and the app badge continue as the policy issue [#224](https://github.com/ccheever/exact2/issues/224)
-(refused by DEFERRED). In the feature branch since main `261dd4e10` ([adopt-main-fixes-r5](../tasks/20261007-adopt-main-fixes-r5.md)).
+(refused by DEFERRED). In the feature branch since main `261dd4e10` ([adopt-main-fixes-r5](../tasks/closed/20261007-adopt-main-fixes-r5.md)).
 
 Adopted:
 - **Thread notifications.** `app.contract` declares `resource page = exactPage() as shape Page` and hands
