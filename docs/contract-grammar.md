@@ -697,7 +697,7 @@ working fixture, not inferred from JavaScript's Event interface.
 | A string, then optionally a `KeyboardEvent` | `key`: the key's name; an action taking one more parameter also hears the [modifiers](#keys) |
 | Two numbers, then optionally a `ScrollEvent` | `scroll`: left and top; an action taking one more parameter also hears the scroller's extents (below) |
 | Two numbers, then optionally a `DOMRectReadOnly` | `resize` given an action: the content box's width and height; an action taking one more parameter also hears its `contentRect` (below). A string `resize` is CSS's property |
-| One boolean | `hover` |
+| One boolean | `hover`; `fullscreenchange` (whether the video is now full screen) |
 | One boolean, then optionally an `InputEvent` | `change`, `input` on a checkbox or `switch` |
 | One number | `timeupdate`, `durationchange` |
 | One number, then optionally an `InputEvent` | `change`, `input` on `type="range"` |
@@ -1085,7 +1085,7 @@ negative value and keeps UIKit's geometric order.
 The current command name inventory is:
 
 `blur`, `copyText`, `deliveryActivate`, `deliveryCheck`, `fastSeek`, `focus`, `format`,
-`load`, `openURL`, `selectText`, `setSelectionRange`, `setScheme`, `showPicker`, `share`, `saveFile`,
+`load`, `openURL`, `selectText`, `setSelectionRange`, `setScheme`, `setRootFontSize`, `showPicker`, `share`, `saveFile`,
 `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `scrollIntoView`,
 `showNotification`, `closeNotification`, `haptic`, `postMessage`, `reload`, `close`,
 `playSound`, `playSounds`, `stopSounds`
@@ -1106,6 +1106,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `copyText(text)` | [Messages](../apps/messages/app.contract) |
 | `openURL(url)` | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js) |
 | `setScheme(...)` | [Caltrain](../apps/caltrain/app.contract), [Markdown](../apps/markdown/app.contract) |
+| `setRootFontSize(px)`, `setRootFontSize("medium")`: CSS's `:root { font-size }`, the root font size every `rem` follows, in px above 0, laid out in the action's own commit; `px` lengths stay. It stands over the host's own size (the browser's setting, iOS Dynamic Type, 16 on macOS and Linux), as an author's `html { font-size: 20px }` stands over a browser's font-size setting, and `"medium"` hands the size back to the host. A literal of 0 or less is refused here, a computed one in the log when it runs. Not kept across a launch: set it again from a mount task (LLP 1069.000 D3) | [rem tests](../contract/cli/tests/it/rem.rs) |
 | `share(...)` | [share corpus](../contract/corpus/share.contract) |
 | `showNotification(title=, body=, tag=, showTrigger=)`, `closeNotification(tag)`: a local notification by the Notification API's names, now or at `showTrigger` (epoch milliseconds); a newer one with the same `tag` replaces it, and `closeNotification` takes it away, shown or waiting. Needs the grant `device.notifications <strings key>`; see [notifications](reference.md#notifications) | [notify corpus](../contract/corpus/notify.contract) |
 | `showPicker(id)`, export `saveFile(id, from, suggestedName)`: the host copies the `app:/` file `from` to where the person chooses; `change` at `id` carries the chosen name, `cancel` a dismissal. `saveFile(id, text=…, suggestedName=…)` saves the text itself (UTF-8), no file written first and no grant, so "export what's on screen" is one press | [picker tests](../contract/cli/tests/it/picker.rs), [Fieldnotes](../apps/fieldnotes/app.contract), [Linux's save tests](../host/linux/src/presenter/save_tests.rs) |

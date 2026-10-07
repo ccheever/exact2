@@ -40,9 +40,11 @@ license = "MIT"
 taffy = { path = "vendor/taffy" }
 # Pinned 0.19.0, font admission and span reservation fixes; see vendor/cosmic-text/EXACT-PATCHES.md.
 cosmic-text = { path = "vendor/cosmic-text" }
-# wgpu-hal 30.0.1 with two Metal patches (no empty command buffers; a frame's
-# presentations on its submit); see vendor/wgpu-hal/EXACT-PATCHES.md. exact-gpu's
-# build script refuses a workspace without this line.
+# wgpu-hal 30.0.1 with Metal patches (no empty command buffers; a frame's
+# presentations on its submit) and Vulkan ones (a swapchain image's views and
+# framebuffers kept; no PRESENT-to-PRESENT barrier); see
+# vendor/wgpu-hal/EXACT-PATCHES.md. exact-gpu's build script refuses a
+# workspace without this line.
 wgpu-hal = { path = "vendor/wgpu-hal" }
 
 # A production bake for an Apple target says `lto = "fat"` on Cargo's command

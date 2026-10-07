@@ -34,8 +34,13 @@ impl<D: DataSource> Presenter<D> {
             return box_hit();
         };
         let content = exact_kernel::svg::scene::content_box(&node);
-        let scene =
-            crate::paint::resolve_with(kernel, &node, content, &|id| self.host.presented(id));
+        let scene = crate::paint::resolve_with(
+            kernel,
+            &node,
+            content,
+            &|id| self.host.presented(id),
+            &|id| self.host.presented_path(id),
+        );
         scene
             .hit((x - b.rect.0 - content.0, y - b.rect.1 - content.1))
             // A root-none can still contain an explicitly auto child. The

@@ -39,7 +39,7 @@ exact-runner = { path = "../../runner" }
 # The executor for a request that leaves the process (LLP 1016 D2): ibex2's
 # standard library for a Rust consumer (ibex LLP 0068) — rustls off Apple
 # (its OQ2) — from the sibling checkout, as the Apple host takes it.
-ibex2 = { path = "../../vendor/ibex2", default-features = false }
+ibex2 = { path = "../../vendor/ibex/crates/ibex2", default-features = false }
 sha2 = "0.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

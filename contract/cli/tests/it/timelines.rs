@@ -39,7 +39,7 @@ fn the_rows_reach_the_kernel_and_a_computed_animation_keeps_its_binding() {
             .clone()
     };
     assert_eq!(
-        style(&r, "photo").drag_timeline,
+        style(&r, "photo").rare.drag_timeline,
         DragTimeline {
             name: Some("--dismiss".into()),
             axis: Axis::Y
@@ -47,13 +47,13 @@ fn the_rows_reach_the_kernel_and_a_computed_animation_keeps_its_binding() {
     );
     let backdrop = style(&r, "backdrop");
     assert_eq!(
-        backdrop.animation_timeline,
+        backdrop.rare.animation_timeline,
         AnimationTimeline(Some("--dismiss".into()))
     );
     assert_eq!(backdrop.animation_range, AnimationRange(Some([0.0, 300.0])));
     assert_eq!(backdrop.animation.0[0].name, "fade");
     assert_eq!(
-        style(&r, "clip").timeline_scope,
+        style(&r, "clip").rare.timeline_scope,
         TimelineScope::Names("--dismiss".into())
     );
     // The backdrop and the photo are siblings: the clip's scope finds it.
@@ -81,7 +81,7 @@ fn the_rows_reach_the_kernel_and_a_computed_animation_keeps_its_binding() {
     let backdrop = style(&r, "backdrop");
     assert!(backdrop.animation.0.is_empty(), "zoomed, nothing follows");
     assert_eq!(
-        backdrop.animation_timeline,
+        backdrop.rare.animation_timeline,
         AnimationTimeline(Some("--dismiss".into()))
     );
 }

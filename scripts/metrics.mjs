@@ -811,13 +811,19 @@ if (long) {
 const WEB_CORE_KIB = { realworld: 304, 'video-player': 249, caltrain: 310 };
 
 // The web's gate since 2026-10-02: KiB of brotli-11 app.js, the runtime and the
-// app as one ES module, which is what each app's web build ships (LLP 1071).
+// app as one ES module, which is what each app's web build ships (LLP 1071); since
+// 2026-10-06 the production build's (Charlie: gate what ships, not the development
+// build's tools).
 // Over one is a VIOLATION the async lane files against the commit. Each is the
 // size that day (d09bfd087: Caltrain 17,159 B, RealWorld 28,721 B, the video
 // player 7,226 B) plus ~2 KiB. Raise one only on purpose, with the reason here;
 // lower it when a cut lands. Pieces loaded on demand (the GPU glue, Canvas 2D,
 // the markup editor) are not in it.
-const JS_TARGET_KIB = { realworld: 30, 'video-player': 9, caltrain: 19 };
+// Caltrain raised 19 → 28 (Charlie, 2026-10-06): 26.8 KiB shipped on 2026-10-06, grown
+// by real features (browser-side grant checks, media, commands, pointer events, the
+// router, paint order, its TV screens); a cut lane follows. RealWorld (38.5 KiB) and the
+// video player (18.7 KiB) are over and stay over until Charlie rules or a cut lands.
+const JS_TARGET_KIB = { realworld: 30, 'video-player': 9, caltrain: 28 };
 
 // 8. Long: web bytes by capability (LLP 1047 D9), for the three apps the
 // size work tracks. Each app's app.wasm as shipped (raw, gzip, brotli-11),
@@ -904,14 +910,20 @@ if (long) {
           if (staged.length) measured.stages = Object.fromEntries(staged.map((name) => [name.split('.')[0], br(readFileSync(resolve(dist, 'stages', name)))]));
         }
       }
-      // What the app ships: its JS target build's app.js (LLP 1071), the gated number.
+      // What the app ships: its JS target's production app.js (LLP 1071), the gated number, built as
+      // delivery builds it (scripts/deploy.mjs: `host/web-js/build.mjs --production` over a plan) over the
+      // development build's plan. The development build's app.js, which also links its tools (perf, the
+      // seams, the meters), is reported beside it, not gated (Charlie, 2026-10-06: gate what ships).
       {
-        const dist = resolve(ROOT, 'target/metrics-bytes', `${name}-js`);
-        const b = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), target.crate('web')], { cwd: ROOT, env: { ...process.env, EXACT_APP_DIR: target.dir, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
+        const sizes = (file) => { const js = readFileSync(file); return { raw: js.length, gzip: gzipSync(js, { level: 9 }).length, brotli: brotliCompressSync(js, { params: { [constants.BROTLI_PARAM_QUALITY]: 11, [constants.BROTLI_PARAM_SIZE_HINT]: js.length } }).length }; };
+        const dist = resolve(ROOT, 'target/metrics-bytes', `${name}-js`), shipped = `${dist}-production`;
+        const env = { ...process.env, EXACT_APP_DIR: target.dir, EXACT_WEB_DIST: dist };
+        const b = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), target.crate('web')], { cwd: ROOT, env, stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
         if (b.status !== 0 || !existsSync(resolve(dist, 'app.js'))) measured.js = { failed: b.status !== 0 ? failure(b) : 'no app.js: not a JS target build' };
         else {
-          const js = readFileSync(resolve(dist, 'app.js'));
-          measured.js = { raw: js.length, gzip: gzipSync(js, { level: 9 }).length, brotli: brotliCompressSync(js, { params: { [constants.BROTLI_PARAM_QUALITY]: 11, [constants.BROTLI_PARAM_SIZE_HINT]: js.length } }).length };
+          measured.js_dev = sizes(resolve(dist, 'app.js'));
+          const p = spawnSync(process.execPath, [resolve(ROOT, 'host/web-js/build.mjs'), name, '--plan', resolve(dist, 'app.plan'), '--out', shipped, '--production'], { cwd: ROOT, env, stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
+          measured.js = p.status !== 0 || !existsSync(resolve(shipped, 'app.js')) ? { failed: p.status !== 0 ? failure(p) : 'no production app.js' } : sizes(resolve(shipped, 'app.js'));
         }
       }
       out.web_bytes[name] = measured;
@@ -991,7 +1003,7 @@ if (long) {
   for (const [name, m] of Object.entries(out.web_bytes ?? {})) {
     const parts = m.code ? Object.entries(m.code).filter(([, b]) => b >= 1024).sort((a, b) => b[1] - a[1]).map(([k, b]) => `${k} ${kib(b)}`).join(' · ') : 'names unavailable';
     const shipped = m.js, limit = JS_TARGET_KIB[name];
-    if (shipped) rows.push([`web app.js: ${name}`, shipped.failed ? 'FAILED' : kib(shipped.raw), shipped.failed ?? `${(shipped.brotli / 1024).toFixed(1)} KiB brotli-11${limit === undefined ? '' : `; budget ${limit} KiB, ${shipped.brotli <= limit * 1024 ? 'within' : 'VIOLATION'}`}, ${(shipped.gzip / 1024).toFixed(1)} KiB gzip`]);
+    if (shipped) rows.push([`web app.js: ${name}`, shipped.failed ? 'FAILED' : kib(shipped.raw), shipped.failed ?? `${(shipped.brotli / 1024).toFixed(1)} KiB brotli-11 production${limit === undefined ? '' : `; budget ${limit} KiB, ${shipped.brotli <= limit * 1024 ? 'within' : 'VIOLATION'}`}, ${(shipped.gzip / 1024).toFixed(1)} KiB gzip${m.js_dev ? `; development build ${(m.js_dev.brotli / 1024).toFixed(1)} KiB (not gated)` : ''}`]);
     const ceiling = WEB_CORE_KIB[name];
     const noted = ceiling === undefined ? '' : `; reference ${ceiling} KiB, ${m.brotli <= ceiling * 1024 ? 'within' : 'over'} (not gated)`;
     rows.push([`wasm core: ${name}`, m.failed ? 'FAILED' : kib(m.raw), m.failed ?? `${kib(m.brotli)} brotli-11${noted}, ${kib(m.gzip)} gzip; ${parts}`]);

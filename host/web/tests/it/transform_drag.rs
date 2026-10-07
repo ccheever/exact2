@@ -827,3 +827,254 @@ fn geometry_action_failure_cannot_leave_previous_pair_alive() {
         assert!(reply.contains(&format!("\"token\":\"{token}\"")), "{reply}");
     }
 }
+
+/// A drag's release and its handle's geometry arrive from the gesture, not
+/// through `dispatch_at`, after the page sat idle: nothing moved the runner's
+/// clock since boot. Their actions run at the input's time, so `now()` is
+/// that time and an `after` the release arms counts from it, not from the
+/// clock's last value (it fired at the very next advance: a flung photo's
+/// viewer closed the frame after the fling, Bluesky clone b09).
+const TIMED: &str = r#"component App
+  state away = false
+  state landed = 0
+  state releasedAt = -1
+  state measuredAt = -1
+  task fly when away
+    after(300, land)
+  action land
+    landed = landed + 1
+  action geometry(w: number, h: number, pw: number, ph: number)
+    measuredAt = now()
+  action finish(px: number, py: number, s: number, vx: number, vy: number, vs: number)
+    releasedAt = now()
+    away = true
+  view
+    column testId="clip" width=320.25 height=200.5 overflow="hidden" padding=0 border-width=0
+      column id="photo" testId="photo" width="100%" height="100%" box-sizing="border-box" padding=0 border-width=0 transition="translate spring(180, 12, 1), scale spring(180, 12, 1)"
+        column testId="handle" transformDragFor="photo" transformgeometry=geometry transformrelease=finish
+"#;
+
+#[test]
+fn release_and_geometry_actions_run_at_the_inputs_time_after_an_idle_clock() {
+    let (mut host, mut p, _) = boot_source(TIMED);
+    p.now = 4000.0;
+    accepted(&p.send(&mut host));
+    assert_eq!(
+        count(&host, "measuredAt"),
+        4000.0,
+        "the geometry action's now()"
+    );
+    p.op = 11;
+    p.values = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0];
+    p.now = 5000.0;
+    let reply = p.send(&mut host);
+    accepted(&reply);
+    p.tokens = [
+        quoted(&reply, "translateToken"),
+        quoted(&reply, "scaleToken"),
+    ];
+    p.op = 13;
+    p.values = [0.0, 120.0, 1.0, 0.0, 0.0, 0.0];
+    p.now = 5010.0;
+    let reply = p.send(&mut host);
+    accepted(&reply);
+    assert!(reply.contains("\"committed\":true"), "{reply}");
+    assert_eq!(
+        count(&host, "releasedAt"),
+        5010.0,
+        "the release action's now()"
+    );
+    for token in p.tokens {
+        assert!(host
+            .end_hold(
+                token,
+                HoldEnd::Release {
+                    velocity: MotionValue::ZERO
+                },
+                5010.0
+            )
+            .unwrap()
+            .is_some());
+    }
+    host.advance(5100.0);
+    assert_eq!(
+        count(&host, "landed"),
+        0.0,
+        "armed at 5010, not at the clock's 4000"
+    );
+    host.advance(5309.0);
+    assert_eq!(count(&host, "landed"), 0.0);
+    host.advance(5310.0);
+    assert_eq!(
+        count(&host, "landed"),
+        1.0,
+        "due exactly 300 ms after the release"
+    );
+}
+
+/// Timers due by a gesture's own event fire before it, and what they leave
+/// is what the event meets: a timer that unbinds the photo ends the gesture
+/// (the release action does not run, the pair is released as refused), and
+/// one that drops the transition before new geometry makes the cancellation
+/// snap rather than spring.
+const RACED: &str = r#"component App
+  state reference = "photo"
+  state curve = "translate spring(180, 12, 1), scale spring(180, 12, 1)"
+  state released = 0
+  state measured = 0
+  state unbindArmed = false
+  state dropArmed = false
+  task unbindLater when unbindArmed
+    after(100, unbind)
+  task dropLater when dropArmed
+    after(100, drop)
+  action unbind
+    reference = "absent"
+  action drop
+    curve = "none"
+  action armUnbind
+    unbindArmed = true
+  action armDrop
+    dropArmed = true
+  action geometry(w: number, h: number, pw: number, ph: number)
+    measured = measured + 1
+  action finish(px: number, py: number, s: number, vx: number, vy: number, vs: number)
+    released = released + 1
+  view
+    column
+      button testId="arm-unbind" press=armUnbind width=80 height=24
+      button testId="arm-drop" press=armDrop width=80 height=24
+      column testId="clip" width=320.25 height=200.5 overflow="hidden" padding=0 border-width=0
+        column id="photo" testId="photo" width="100%" height="100%" box-sizing="border-box" padding=0 border-width=0 transition=curve
+          column testId="handle" transformDragFor=reference transformgeometry=geometry transformrelease=finish
+"#;
+
+fn raced_hold(arm: &str) -> (Host<NoData>, Packet) {
+    let (mut host, mut p, _) = boot_source(RACED);
+    accepted(&p.send(&mut host));
+    press(&mut host, arm, 1000.0);
+    p.op = 11;
+    p.values = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0];
+    p.now = 1050.0;
+    let reply = p.send(&mut host);
+    accepted(&reply);
+    p.tokens = [
+        quoted(&reply, "translateToken"),
+        quoted(&reply, "scaleToken"),
+    ];
+    p.op = 12;
+    p.values = [0.0, 40.0, 1.0, 0.0, 0.0, 0.0];
+    p.now = 1060.0;
+    accepted(&p.send(&mut host));
+    (host, p)
+}
+
+#[test]
+fn a_timer_that_unbinds_the_photo_before_its_release_ends_the_gesture() {
+    let (mut host, mut p) = raced_hold("arm-unbind");
+    // The unbind is due at 1100; the release comes at 1200, with nothing
+    // having advanced the runner since the press.
+    p.op = 13;
+    p.values = [0.0, 60.0, 1.0, 0.0, 0.0, 0.0];
+    p.now = 1200.0;
+    let reply = p.send(&mut host);
+    assert!(reply.contains("\"committed\":false"), "{reply}");
+    assert!(
+        reply.contains("binding changed before its event"),
+        "{reply}"
+    );
+    assert_eq!(
+        count(&host, "released"),
+        0.0,
+        "the release action never ran"
+    );
+    assert_eq!(
+        host.runner().slot("reference"),
+        Some(&Value::str("absent")),
+        "the timer's commit is kept"
+    );
+}
+
+#[test]
+fn a_timer_that_drops_the_transition_before_new_geometry_snaps_the_cancel() {
+    let (mut host, mut p) = raced_hold("arm-drop");
+    let photo = p.identity[2];
+    p.op = 10;
+    p.values = [300.0, 200.5, 300.0, 200.5, 0.0, 0.0];
+    p.identity[4] = 2;
+    p.tokens = [0; 2];
+    p.now = 1200.0;
+    let reply = p.send(&mut host);
+    accepted(&reply);
+    assert!(reply.contains("\"committed\":true"), "{reply}");
+    assert_eq!(count(&host, "measured"), 2.0);
+    assert!(
+        !host
+            .springs()
+            .engine()
+            .is_active(photo, Property::Translate),
+        "the cancel met the timer's `transition: none` and snapped"
+    );
+}
+
+/// A timer due by the release that refuses (its action writes a number no
+/// row takes) is reported, and the release still runs and commits; and new
+/// geometry that changes nothing still commits the timers due by then.
+const REFUSING: &str = r#"component App
+  state n = 0
+  state released = 0
+  state armed = false
+  state ticked = 0
+  task bad when armed
+    after(100, explode)
+  task tick when armed
+    after(50, count)
+  action explode
+    n = 1 / 0
+  action count
+    ticked = ticked + 1
+  action arm
+    armed = true
+  action geometry(w: number, h: number, pw: number, ph: number)
+    n = n
+  action finish(px: number, py: number, s: number, vx: number, vy: number, vs: number)
+    released = released + 1
+  view
+    column
+      button testId="arm" press=arm width=80 height=24
+      column testId="clip" width=320.25 height=200.5 overflow="hidden" padding=0 border-width=0
+        column id="photo" testId="photo" width="100%" height="100%" box-sizing="border-box" padding=0 border-width=0 transition="translate spring(180, 12, 1)"
+          column testId="handle" transformDragFor="photo" transformgeometry=geometry transformrelease=finish
+"#;
+
+#[test]
+fn a_refusing_timer_is_reported_and_the_release_still_commits() {
+    let (mut host, mut p, _) = boot_source(REFUSING);
+    accepted(&p.send(&mut host));
+    press(&mut host, "arm", 1000.0);
+    // Unchanged geometry at 1060: the 50 ms timer is due and commits.
+    p.now = 1060.0;
+    p.identity[4] = 2;
+    let reply = p.send(&mut host);
+    assert!(reply.contains("\"accepted\":true"), "{reply}");
+    assert_eq!(count(&host, "ticked"), 1.0, "{reply}");
+    p.op = 11;
+    p.values = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0];
+    p.now = 1070.0;
+    let reply = p.send(&mut host);
+    accepted(&reply);
+    p.tokens = [
+        quoted(&reply, "translateToken"),
+        quoted(&reply, "scaleToken"),
+    ];
+    p.op = 13;
+    p.values = [0.0, 30.0, 1.0, 0.0, 0.0, 0.0];
+    p.now = 1200.0;
+    let reply = p.send(&mut host);
+    assert!(reply.contains("\"committed\":true"), "{reply}");
+    assert!(
+        !reply.contains("\"error\":null"),
+        "the timer's refusal is reported: {reply}"
+    );
+    assert_eq!(count(&host, "released"), 1.0);
+}

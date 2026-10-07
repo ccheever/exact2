@@ -5,7 +5,12 @@
 // (LLP 1075 D1) while a route can pop, else a shown button that declares
 // `aria-keyshortcuts="Escape"` (the key macOS presses it with). With neither,
 // its recognizer is removed, so Menu reaches tvOS and leaves the app, as
-// tvOS requires at an app's root.
+// tvOS requires at an app's root. A keyboard's Space presses no node here:
+// UIKit turns an unhandled Space into the remote's Play/Pause. A scroll
+// container with nothing focusable inside is a remote stop itself, as the
+// web's keyboard-focusable scrollers are (Chrome 130): the remote's arrow
+// clicks scroll it until its edge, then go on to the next stop; a swipe on
+// the touch surface moves the focus out at once, so a long one is no trap.
 #if os(tvOS)
 import UIKit
 
@@ -15,8 +20,35 @@ extension NodeView {
     override var canBecomeFocused: Bool {
         if let index = explicitTabIndex, index < 0 { return false }
         if cssVisibilityHidden { return false } // no remote stop, nor Select (e28279b3b)
-        return canBecomeFirstResponder || (!disabled && !inert && handlers.contains("press"))
+        return canBecomeFirstResponder || (!disabled && !inert && handlers.contains("press")) || focusableScroller
     }
+
+    /// A scroll container that can scroll and holds no focusable node.
+    var focusableScroller: Bool {
+        guard let scroll, !inert, scroll.canScroll else { return false }
+        return !scroll.holdsFocusableNode
+    }
+
+    /// An arrow click's direction: the remote's press, or a keyboard's
+    /// arrow key (the Simulator sends both for one click).
+    static func arrowHeading(_ press: UIPress) -> UIFocusHeading? {
+        switch press.type {
+        case .upArrow: return .up
+        case .downArrow: return .down
+        case .leftArrow: return .left
+        case .rightArrow: return .right
+        default: break
+        }
+        switch press.key?.keyCode {
+        case .keyboardUpArrow: return .up
+        case .keyboardDownArrow: return .down
+        case .keyboardLeftArrow: return .left
+        case .keyboardRightArrow: return .right
+        default: return nil
+        }
+    }
+    /// The arrow presses a scroller stepped on, whose ends it takes too.
+    static var steppedPresses = Set<ObjectIdentifier>()
 
     override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
         super.didUpdateFocus(in: context, with: coordinator)
@@ -33,10 +65,62 @@ extension NodeView {
         }
     }
 
-    /// Whether `presses` hold Select for this node; a Select going down presses it.
+    /// Whether `presses` hold Select for this node; a Select going down
+    /// presses it. On a focusable scroller, an arrow click it can take
+    /// scrolls it; at its edge the click goes on to move the focus. Swipes
+    /// are not presses: they move the focus as anywhere else.
     func remoteSelect(_ presses: Set<UIPress>, down: Bool) -> Bool {
+        if focusableScroller, let press = presses.first(where: { NodeView.arrowHeading($0) != nil }), let heading = NodeView.arrowHeading(press) {
+            // A press's end goes where its start went.
+            let key = ObjectIdentifier(press)
+            if !down { return NodeView.steppedPresses.remove(key) != nil }
+            guard scroll?.remoteStep(heading) == true else { return false }
+            NodeView.steppedPresses.insert(key)
+            return true
+        }
         guard presses.contains(where: { $0.type == .select }), !disabled, !cssVisibilityHidden, handlers.contains("press") else { return false }
         if down { presenter?.press(id) }
+        return true
+    }
+}
+
+extension ScrollView {
+    /// How far it can scroll on each axis it scrolls.
+    private var maxOffset: CGPoint {
+        let inset = adjustedContentInset
+        return CGPoint(x: scrollsX ? contentSize.width + inset.left + inset.right - bounds.width : 0,
+                       y: scrollsY ? contentSize.height + inset.top + inset.bottom - bounds.height : 0)
+    }
+    var canScroll: Bool { maxOffset.x > 1 || maxOffset.y > 1 }
+
+    var holdsFocusableNode: Bool {
+        var pending: [UIView] = subviews
+        while let view = pending.popLast() {
+            if let node = view as? NodeView, node.canBecomeFocused { return true }
+            pending.append(contentsOf: view.subviews)
+        }
+        return false
+    }
+
+    /// Scrolls most of a screenful toward `heading`, when there is more that
+    /// way; false at the edge, where the move leaves.
+    func remoteStep(_ heading: UIFocusHeading) -> Bool {
+        let inset = adjustedContentInset, end = maxOffset
+        let now = CACurrentMediaTime()
+        // One input is one step: the Simulator (and a keyboard) sends an
+        // arrow both as a key and as the remote's press, milliseconds apart.
+        if let last = remoteStepTarget, now - last.at < 0.06 { return true }
+        // A step's animation runs about 0.3 s; a press during it adds to its target.
+        let pending = remoteStepTarget.flatMap { now - $0.at < 0.35 ? $0.offset : nil }
+        let start = pending ?? contentOffset
+        var offset = start
+        if heading.contains(.down) { offset.y = min(offset.y + bounds.height * 0.8, end.y - inset.top) }
+        else if heading.contains(.up) { offset.y = max(offset.y - bounds.height * 0.8, -inset.top) }
+        else if heading.contains(.right) { offset.x = min(offset.x + bounds.width * 0.8, end.x - inset.left) }
+        else if heading.contains(.left) { offset.x = max(offset.x - bounds.width * 0.8, -inset.left) }
+        guard abs(offset.x - start.x) > 0.5 || abs(offset.y - start.y) > 0.5 else { return false }
+        remoteStepTarget = (offset, now)
+        setContentOffset(offset, animated: true)
         return true
     }
 }
@@ -108,6 +192,44 @@ final class FocusGuides {
     }
 }
 
+extension Presenter {
+    /// While a video's full-screen player shows, AVKit handles the remote:
+    /// the session's own Menu and Play/Pause recognizers come off.
+    var remoteKeysSuspended: Bool { views.values.contains { $0.video?.isFullscreen == true } }
+    func remoteKeysChanged() {
+        menuKey.sync()
+        playPauseKey.sync()
+    }
+}
+
+/// The remote's Play/Pause: the first video on screen plays or pauses, as
+/// its own controls would. Present only while a video is mounted.
+final class PlayPauseKey: NSObject {
+    unowned let presenter: Presenter
+    private var tap: UITapGestureRecognizer?
+
+    init(presenter: Presenter) { self.presenter = presenter }
+
+    private var video: VideoView? {
+        presenter.views.values.filter { $0.video != nil && $0.window != nil }.min { $0.id < $1.id }?.video
+    }
+
+    func sync() {
+        let wanted = video != nil && !presenter.remoteKeysSuspended
+        if wanted, tap == nil, let view = presenter.session?.view {
+            let recognizer = UITapGestureRecognizer(target: self, action: #selector(playPause))
+            recognizer.allowedPressTypes = [NSNumber(value: UIPress.PressType.playPause.rawValue)]
+            view.addGestureRecognizer(recognizer)
+            tap = recognizer
+        } else if !wanted, let recognizer = tap {
+            recognizer.view?.removeGestureRecognizer(recognizer)
+            tap = nil
+        }
+    }
+
+    @objc private func playPause() { video?.togglePlayPause() }
+}
+
 /// The Menu recognizer, present only while Menu goes back.
 final class MenuKey: NSObject {
     unowned let presenter: Presenter
@@ -116,7 +238,7 @@ final class MenuKey: NSObject {
     init(presenter: Presenter) { self.presenter = presenter }
 
     func sync() {
-        let wanted = presenter.navigation.menuGoesBack || escapeControl != nil
+        let wanted = !presenter.remoteKeysSuspended && (presenter.navigation.menuGoesBack || escapeControl != nil)
         if wanted, tap == nil, let view = presenter.session?.view {
             let recognizer = UITapGestureRecognizer(target: self, action: #selector(menu))
             recognizer.allowedPressTypes = [NSNumber(value: UIPress.PressType.menu.rawValue)]

@@ -1104,7 +1104,7 @@ public final class ExactSession {
                     app.deliver { [weak self] in self?.presenter.scrollElementIntoView(args) }
                     continue
                 }
-                if name == "fastSeek" || name == "load" {
+                if name == "fastSeek" || name == "load" || name == "requestFullscreen" {
                     app.deliver { [weak self] in self?.presenter.mediaCommand(name, args) }
                     continue
                 }
@@ -1124,7 +1124,7 @@ public final class ExactSession {
                     app.deliver { [weak self] in self?.presenter.formatElement(args) }
                     continue
                 }
-                if ["playSound", "playSounds", "stopSounds"].contains(name) { continue } // the runner's own: its voice table's `sound` op plays them (LLP 1096 D8)
+                if ["playSound", "playSounds", "stopSounds", "setRootFontSize"].contains(name) { continue } // the runner's own: its voice table's `sound` op plays them (LLP 1096 D8); the root font size is laid out already (LLP 1069.000 D3)
                 if app.handleCommand(name) { continue }
                 app.deliver { [weak self] in guard let self else { return }; delegate?.exactSession(self, command: name, args: args) }
             }

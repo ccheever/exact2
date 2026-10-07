@@ -830,6 +830,19 @@ fn timer_demand_scheme_command_marks_its_visual_effect() {
     assert!(p.brush.dark && p.dirty());
 }
 #[test]
+fn timer_root_font_size_command_is_laid_out_by_the_runner() {
+    // LLP 1069.000 D3: the app's `:root { font-size }`; this host has nothing to run.
+    let source = "component App\n  action tick\n    setRootFontSize(20)\n  task timer mount\n    every(250, tick)\n  view\n    view width=\"10rem\" height=\"2rem\"\n";
+    let (mut p, _, _) = timer_primed(source);
+    assert!(p.advance(250.).is_none());
+    assert_eq!(p.host.runner().root_font_size(), 20.0);
+    assert!(p.dirty());
+    p.run_commands(Empty::default);
+    assert!(p.commands.is_empty());
+    // The host's own 16 stays beneath it, for a new runner of this launch.
+    assert_eq!(p.host.runner().host_root_font_size(), 16.0);
+}
+#[test]
 fn timer_demand_focus_retirement_and_scroll_clamp_are_independent() {
     for focus_only in [true, false] {
         let (mut p, _, _) = timer_primed(IDLE_TIMER);

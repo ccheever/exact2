@@ -22,7 +22,7 @@ mod shape;
 pub mod transform;
 
 pub use length::{Length, Viewport};
-pub use path::{parse_d, parse_d_whole, parse_points, Path, Seg};
+pub use path::{parse_d, parse_d_motion, parse_d_whole, parse_points, Path, Seg};
 pub use scene::{Item, Kind, Scene, Shape, Transform};
 pub use shape::{circle, dash_scale, ellipse, geometry, view_box, view_box_transform, ViewBox};
 pub use transform::{Affine, TransformList, TransformOrigin};

@@ -222,6 +222,48 @@ CSS starts an animation when an element that has it is inserted, so an inserted 
 
 A row that stays mounted while its data changes keeps its node, so a live tick redraws the line at once with no replay. The pulse keeps its phase while `cx`/`cy` move it to the new last point, which is what the browser does. On Apple, a geometry change during the draw-in re-lowers the dash animation with the new length and the *same* begin time, so its phase is kept.
 
+### D13. When an animation in a list row starts: `animation-trigger`
+
+**Added 2026-10-06, after D1–D12 landed; numbered in the order it was decided.**
+
+D8's rule has a consequence on a virtualized list. The list mounts rows ahead of its port (a viewport of lead, more at speed), so an animation that starts when its node is inserted has run, or finished, before its row arrives. Measured on the crypto list (Pixel 10 Pro XL): at 1,000 dp/s a row is mounted about 0.9 s before it shows and its 600 ms draw-in is never seen; at 3,000 dp/s and up every row on screen shows the last half of it.
+
+**Ruling (Charlie, 2026-10-06):** "would be nice to have this be an option the developer can choose. i think the default should be the one that looks better feels better higher framerate, etc. if we have to pick one go with that".
+
+**The option.** A style row, `animation-trigger`, with two values:
+- `view` (the default): a node inside a row that a virtualized list mounted out of its port holds its animations at their start, exactly as `animation-play-state: paused` holds them, until the row first overlaps the port. Then they start, from their start. Anywhere else (no list above it, or a row mounted where it already shows) it is `none`.
+- `none`: the animations start when the node is inserted (CSS Animations 1 §3; D8).
+
+The name is the one CSS's scroll-triggered animations use for the same idea (a time-based animation started by a view condition). The values are ours: that proposal's grammar is still moving, and this is the one case of it we need. It is once per mount: a row that leaves the port and returns does not replay; a row bound to another item (LLP 1078) is a new mount and waits again if it is out of the port.
+
+**Why `view` is the default.** Both were measured on crypto, Pixel 10 Pro XL, three interleaved fling runs each, against Views (which starts its draw-in when the row comes on screen):
+
+| | 1k | 3k | 6k | 12k | 24k |
+|---|---|---|---|---|---|
+| CPU+GPU mW, `none` | 284 | 363 | 386 | 379 | 422 |
+| CPU+GPU mW, `view` | 322 | 351 | 360 | 355 | 385 |
+| CPU+GPU mW, Views | 334 | 319 | 309 | 321 | 355 |
+| CPU ms/s, `none` | 903 | 1302 | 1399 | 1385 | 1449 |
+| CPU ms/s, `view` | 990 | 1167 | 1213 | 1266 | 1355 |
+| path masks (hwuiTask) ms/s, `none` | 22 | 276 | 281 | 175 | 124 |
+| path masks ms/s, `view` | 119 | 168 | 139 | 83 | 48 |
+
+Frame rate is 120 for both at every speed, and late frames are the same (19 and 23 of about 14,000). What differs is what is seen and what it costs:
+- With `none`, a slow scroll never shows the draw-in the developer wrote: rows arrive finished. With `view` it plays as each row arrives, at every speed at which a row can be read.
+- With `view` a fast fling shows less of each line (a row is on screen for a tenth of a second), as Views does; with `none` it shows more, because the animation is already half done.
+- `view` costs less from 3,000 dp/s up (it draws the short first half of each path where `none` draws the long second half, and animates nothing out of view) and more at 1,000 dp/s, where it is drawing an animation `none` never showed.
+
+An animation written for a row is written to be seen, so `view` is the default. `none` is one attribute away for a list whose rows should arrive settled.
+
+**How it is built.** The list knows which rows it mounted out of the port and when a host's report puts one in it (`runner/src/instance/collection/shown.rs`); it tells the kernel, which knows whether anything below that row waits (`Kernel::await_view`, `reveal`). While a row waits, the kernel hands motion that node's `animation` row with every entry paused (`Kernel::animation_row`); the commit that reveals the row names it in `CommitReceipt::revealed`, and `motion_sync` restates the row unpaused, which the engine starts as a resumed animation. A plan without `@keyframes` tracks nothing, and a row with no waiting animation costs no commit. Rows built before the first report wait for it.
+
+**Hosts.**
+- **Linux and Android:** built; the engine's plays carry the hold, and the Android reader's lowered layers read it.
+- **Apple:** the same `motion_sync` feeds its engine, and a held play is one it already lowers as paused. Not run on a device for this change; owed.
+- **Web:** not built, and declared in LLP 1001. The browser starts a CSS animation at insertion. The JS target emits no declaration for the row; to match, its list runtime would set `animation-play-state: paused` on a row it mounts out of the port and clear it when the row intersects (an `IntersectionObserver` on the list, or the window arithmetic it already does). On the wasm target the glue would write the paused row from `Kernel::animation_row` and rewrite it for `revealed`.
+
+**Not in scope:** visibility in anything but the row's own list (a row of an inner list waits for the outer row too, since the kernel looks up through every waiting row, but a list scrolled out of a page's own scroller is not looked at); a trigger that replays; non-list content.
+
 ### D9. The fill policy (LLP 1050.000)
 
 **Animations do not change what is built or when.**

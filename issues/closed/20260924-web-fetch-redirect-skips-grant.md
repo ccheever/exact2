@@ -8,7 +8,7 @@
 **Date:** 2026-09-24
 **Related:** LLP 1027 D6; LLP 1016
 
-An app whose only network grant is one origin can still read a response from another origin. The web host checks `granted()` on the URL it is about to request, then tells the browser to follow redirects. The body that comes back is whatever the final response was. Native fetch admits the origin again on every hop and says why: a grant for `a.example` must not become a grant for `b.example` because `a.example` answered with a `Location` (`vendor/ibex2/src/stdlib/fetch.rs`, `fetch_stream`).
+An app whose only network grant is one origin can still read a response from another origin. The web host checks `granted()` on the URL it is about to request, then tells the browser to follow redirects. The body that comes back is whatever the final response was. Native fetch admits the origin again on every hop and says why: a grant for `a.example` must not become a grant for `b.example` because `a.example` answered with a `Location` (`vendor/ibex/crates/ibex2/src/stdlib/fetch.rs`, `fetch_stream`).
 
 `host/web/glue.js` sets `redirect: "follow"` unless the call is a bundled-asset GET or carries an explicit source scope. Ordinary app fetches are the follow path. Nothing after `fetch` compares `response.url` to the grant.
 

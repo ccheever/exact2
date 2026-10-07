@@ -83,6 +83,11 @@ pub struct CommitReceipt {
     /// animations from their start). The kernel never fills it; the producer
     /// that rebinds does.
     pub renewed: Vec<NodeKey>,
+    /// List rows that showed in their port for the first time since they
+    /// were mounted out of it ([`crate::Kernel::reveal`]; LLP 1055 D13):
+    /// the animations below them that waited for that start now. The
+    /// producer that mounts rows fills it, as it does `renewed`.
+    pub revealed: Vec<NodeKey>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -935,7 +940,7 @@ fn leaving_with(arena: &NodeArena, slot: u32) -> Option<&exact_motion::Animation
         },
         Some(_) => return None,
     };
-    Some(&arena.style(own).exit_animation).filter(|a| !a.0.is_empty())
+    Some(&arena.style(own).rare.exit_animation).filter(|a| !a.0.is_empty())
 }
 
 /// Push the arena's child list for `parent` into the layout engine. A `Text`
