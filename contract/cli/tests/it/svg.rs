@@ -250,7 +250,7 @@ fn stage_three_references_and_servers() {
     let s = node("s");
     assert_eq!(s.node_type, NodeType::SvgStop);
     assert_eq!(s.props.str(PropId::Offset), Some("50%"));
-    assert_eq!(s.style.stop_opacity, 0.5);
+    assert_eq!(s.style.rare.stop_opacity, 0.5);
     let u = node("u");
     assert_eq!(u.node_type, NodeType::SvgUse);
     assert_eq!(u.props.str(PropId::Href), Some("#i"));
@@ -270,7 +270,7 @@ fn stage_four_clipping() {
     );
     let k = r.kernel();
     let rect = k.node_by_key(k.find_by_test_id("r")[0]).unwrap();
-    assert_eq!(rect.style.clip_path.url(), Some("c"));
+    assert_eq!(rect.style.rare.clip_path.url(), Some("c"));
     assert!(
         refused("component A\n  view\n    column clip-path=\"url(#c)\"\n")
             .contains("clips SVG elements")
@@ -357,7 +357,7 @@ fn stage_eight_masks_and_patterns() {
     let p = node("p");
     assert_eq!(p.node_type, NodeType::SvgPattern);
     assert_eq!(p.props.str(PropId::PatternTransform), Some("rotate(45)"));
-    assert_eq!(node("r").style.svg_mask.url(), Some("m"));
+    assert_eq!(node("r").style.rare.svg_mask.url(), Some("m"));
     let svg =
         |body: &str| format!("component A\n  view\n    svg width=10 height=10\n      {body}\n");
     assert!(refused(&svg("rect maskUnits=\"userSpaceOnUse\"")).contains("lower-attr-tag"));
@@ -381,7 +381,7 @@ fn stage_nine_filters() {
     let fl = node("fl");
     assert_eq!(fl.node_type, NodeType::SvgFe);
     assert_eq!(fl.props.str(PropId::Fe), Some("feFlood"));
-    assert_eq!(fl.style.flood_opacity, 0.45);
+    assert_eq!(fl.style.rare.flood_opacity, 0.45);
     let o = node("o");
     assert_eq!(o.props.str(PropId::In), Some("a"));
     assert_eq!(o.props.str(PropId::FeDx), Some("3"));
@@ -411,4 +411,24 @@ fn stage_ten_geometry_and_blend() {
         refused("component A\n  view\n    column mix-blend-mode=\"multiply\"\n")
             .contains("lower-attr-tag")
     );
+}
+
+// LLP 1055.000 D15 (issue #123): a path's `d` is a transition property, as
+// CSS names it; `all` covers it. No keyframe names it yet.
+#[test]
+fn d_transitions_and_all_covers_it() {
+    use exact_motion::Property;
+    let r = boot(
+        "component A\n  view\n    svg width=10 height=10\n      path testId=\"p\" d=\"M0 0 L5 5\" transition=\"d 400ms linear\"\n      path testId=\"q\" d=\"M0 0 L5 5\" transition=\"all 400ms linear\"\n",
+    );
+    let k = r.kernel();
+    for id in ["p", "q"] {
+        let n = k.node_by_key(k.find_by_test_id(id)[0]).unwrap();
+        let t = n.style.transition.matching(Property::D).expect("covers d");
+        assert_eq!(t.duration, 0.4);
+    }
+    assert!(refused(
+        "keyframes morph\n  from d=\"M0 0 L5 5\"\n  to d=\"M0 0 L9 9\"\ncomponent A\n  view\n    svg width=10 height=10\n      path d=\"M0 0 L5 5\" animation=\"morph 1s\"\n"
+    )
+    .contains("lower-"));
 }

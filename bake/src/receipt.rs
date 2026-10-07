@@ -251,16 +251,19 @@ fn asset_cards(app: &Path, out: &Path, manifest: &Manifest) -> Result<Vec<Value>
             outputs.push(PathBuf::from(path));
         }
     }
-    let roots = [app.join("assets"), app.join("deck")].into_iter().chain(
-        inventory["roots"]
-            .as_array()
-            .ok_or("missing shader roots")?
-            .iter()
-            .map(|v| PathBuf::from(v.as_str().unwrap())),
-    );
-    let paths = roots
-        .map(|path| watch::optional_tree(&path, &outputs))
-        .collect::<std::collections::BTreeSet<_>>();
+    println!("cargo:rerun-if-env-changed=EXACT_ASSET_ROOTS");
+    let declared = std::env::var("EXACT_ASSET_ROOTS").ok();
+    let roots = ["assets", "deck"]
+        .into_iter()
+        .filter_map(|root| watch::asset_tree(app, root, &outputs, declared.as_deref()))
+        .chain(
+            inventory["roots"]
+                .as_array()
+                .ok_or("missing shader roots")?
+                .iter()
+                .map(|v| watch::optional_tree(Path::new(v.as_str().unwrap()), &outputs)),
+        );
+    let paths = roots.collect::<std::collections::BTreeSet<_>>();
     for path in paths {
         println!("cargo:rerun-if-changed={}", path.display());
     }

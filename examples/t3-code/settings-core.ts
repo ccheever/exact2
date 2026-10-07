@@ -34,7 +34,7 @@ export type CoreRow = {
   /** ScopedSwitch: the selected targets disagree (D15); the switch draws its thumb centred and a press turns it on everywhere. */
   mixed: boolean;
   note: string; min: number; max: number; step: number; target: string; placeholder: string; suffix: string; info: string; divider: boolean;
-  layers: CoreOption[]; layerTitle: string; amount: number; menuWidth: number;
+  layers: CoreOption[]; layerTitle: string; amount: number; previewSize: number; menuWidth: number;
   /** About → Mobile app's QR codes (settings-mobile-beta.ts); empty on every other row. */
   qr: QrMark[];
 };
@@ -46,7 +46,7 @@ const option = (value: string, label: string, selected: boolean, extra: Partial<
 export function coreRow(id: string, title: string, description: string, kind: string, extra: Partial<CoreRow> = {}): CoreRow {
   return { id, title, description, status: '', kind, checked: false, value: '', label: '', icon: '', width: 160, options: [], value2: '', label2: '',
     options2: [], driver: '', badge: '', badgeColor: '', inheritance: '', inheritanceSummary: '', resettable: false, resetLabel: title.toLowerCase(), disabled: false, inert: false, mixed: false,
-    note: '', min: 0, max: 0, step: 1, target: '', placeholder: '', suffix: '', info: '', divider: false, layers: [], layerTitle: '', amount: 0, menuWidth: 0, qr: [], ...extra };
+    note: '', min: 0, max: 0, step: 1, target: '', placeholder: '', suffix: '', info: '', divider: false, layers: [], layerTitle: '', amount: 0, previewSize: 0, menuWidth: 0, qr: [], ...extra };
 }
 
 // ── Device (client) settings ───────────────────────────────────────────────

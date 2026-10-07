@@ -963,7 +963,7 @@ fn moving_exclusions_equal_fresh_replay_and_rehydration() {
     ball.top = Dimension::Points(0.);
     ball.mask.set(StyleId::Top);
     ball.wrap_flow = WrapFlow::Both;
-    ball.shape_outside = ShapeOutside::parse("circle()").unwrap();
+    ball.rare.shape_outside = ShapeOutside::parse("circle()").unwrap();
     for row in [
         StyleId::PositionType,
         StyleId::WrapFlow,

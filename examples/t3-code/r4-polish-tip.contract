@@ -22,10 +22,10 @@ component TipCard2
     detail: string
     shown: bool
   view
-    column max-width=320 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 gap=2 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" opacity=(shown ? 1 : 0) transition=(shown ? "opacity 150ms ease 600ms" : "opacity 0ms") pointer-events="none" role="tooltip" aria-hidden=(not shown) testId="tooltip"
-      text label font-size=12 line-height="16.5px" white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
+    column max-width="20rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.125rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" opacity=(shown ? 1 : 0) transition=(shown ? "opacity 150ms ease 600ms" : "opacity 0ms") pointer-events="none" role="tooltip" aria-hidden=(not shown) testId="tooltip"
+      text label font-size="0.75rem" line-height="1.03125rem" white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
       when detail != ""
-        text detail font-size=12 line-height="16.5px" white-space="nowrap" color="light-dark(#71717b, #818181)"
+        text detail font-size="0.75rem" line-height="1.03125rem" white-space="nowrap" color="light-dark(#71717b, #818181)"
 
 // The resize rail itself is r5-shell.contract's SidebarWindowRail; its tooltip is SidebarEdgeTips'.
 
@@ -41,6 +41,8 @@ component TipCard2
 //   up from the bottom); Settings aligns to its start at 8pt, Pull Requests and
 //   Usage are centred at 60 and 60 or 96pt.
 component SidebarEdgeTips
+  inject
+    rem: number
   props
     width: number
     hoverId: string
@@ -48,19 +50,19 @@ component SidebarEdgeTips
     newThreadDetail: string
     pullRequests: bool
   view
-    row position="absolute" left=(width + 11) top=0 bottom=0 align-items="center" pointer-events="none" z-index=140
+    row position="absolute" left=(width + 0.6875 * rem) top=0 bottom=0 align-items="center" pointer-events="none" z-index=140
       TipCard(label="Drag to resize sidebar", shown=(hoverId == "sidebar-rail"))
-    row position="absolute" left=(width - 278) width=400 top=0 height=58 align-items="flex-end" justify-content="center" pointer-events="none" z-index=140
+    row position="absolute" left=(width - 17.375 * rem) width="25rem" top=0 height="3.625rem" align-items="flex-end" justify-content="center" pointer-events="none" z-index=140
       TipCard(label="Filter threads by project", shown=(hoverId == "sidebar-filter"))
-    row position="absolute" left=(width - 250) width=400 top=0 height=58 align-items="flex-end" justify-content="center" pointer-events="none" z-index=140
+    row position="absolute" left=(width - 15.625 * rem) width="25rem" top=0 height="3.625rem" align-items="flex-end" justify-content="center" pointer-events="none" z-index=140
       TipCard(label="Add project", shown=(hoverId == "sidebar-add-project"))
-    row position="absolute" left=(width - 222) width=400 top=0 height=58 align-items="flex-end" justify-content="center" pointer-events="none" z-index=140
+    row position="absolute" left=(width - 13.875 * rem) width="25rem" top=0 height="3.625rem" align-items="flex-end" justify-content="center" pointer-events="none" z-index=140
       TipCard2(label=newThread, detail=newThreadDetail, shown=(hoverId == "sidebar-new-thread"))
-    row position="absolute" left=8 bottom=40 pointer-events="none" z-index=140
+    row position="absolute" left="0.5rem" bottom="2.5rem" pointer-events="none" z-index=140
       TipCard(label="Settings", shown=(hoverId == "sidebar-settings"))
-    row position="absolute" left=-140 width=400 bottom=40 justify-content="center" pointer-events="none" z-index=140
+    row position="absolute" left="-8.75rem" width="25rem" bottom="2.5rem" justify-content="center" pointer-events="none" z-index=140
       TipCard(label="Pull Requests", shown=(hoverId == "sidebar-pull-requests"))
-    row position="absolute" left=(pullRequests ? -104 : -140) width=400 bottom=40 justify-content="center" pointer-events="none" z-index=140
+    row position="absolute" left=(pullRequests ? "-6.5rem" : "-8.75rem") width="25rem" bottom="2.5rem" justify-content="center" pointer-events="none" z-index=140
       TipCard(label="Usage", shown=(hoverId == "sidebar-usage"))
 
 // SidebarProviderUpdatePill: an update in flight or its outcome; the body opens Settings › Providers.
@@ -80,17 +82,17 @@ component ProviderPill
     overClose = value
   derive ink = tone == "warning" ? "#fe9a00" : tone == "error" ? "light-dark(#e7000b, #fb2c36)" : "light-dark(#27272a, #f1f3f7)"
   view
-    column position="relative" margin-left=8 margin-right=8 margin-top=4 margin-bottom=4 flex-shrink=0
-      row width="100%" min-height=28 box-sizing="border-box" border-radius=10 overflow="hidden" align-items="center" background-color=(tone == "warning" ? "#fe9a001f" : tone == "error" ? "light-dark(#e7000b1f, #fb2c361f)" : "light-dark(#f4f4f5, #0a0a0a)") testId="sidebar-provider-pill"
-        button press=open hover=setBody aria-label=description testId="sidebar-provider-pill-open" flex=1 min-width=0 padding-left=8 padding-right=8 padding-top=6 padding-bottom=6 box-sizing="border-box" gap=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+    column position="relative" margin-left="0.5rem" margin-right="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" flex-shrink=0
+      row width="100%" min-height="1.75rem" box-sizing="border-box" border-radius="0.625rem" overflow="hidden" align-items="center" background-color=(tone == "warning" ? "#fe9a001f" : tone == "error" ? "light-dark(#e7000b1f, #fb2c361f)" : "light-dark(#f4f4f5, #0a0a0a)") testId="sidebar-provider-pill"
+        button press=open hover=setBody aria-label=description testId="sidebar-provider-pill-open" flex=1 min-width=0 padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" gap="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
           SidebarIcon(name=(tone == "loading" ? "loader" : tone == "success" ? "circle-check" : tone == "error" ? "triangle-alert" : "download"), size=14, color=ink)
-          text title flex=1 min-width=0 font-size=11 line-height="16px" font-weight=500 text-align="left" color=ink
+          text title flex=1 min-width=0 font-size="0.6875rem" line-height="1rem" font-weight=500 text-align="left" color=ink
         when dismissible
-          button press=dismiss hover=setClose aria-label="Dismiss provider update notice" testId="sidebar-provider-pill-dismiss" width=20 height=20 margin-right=4 padding=0 flex-shrink=0 border-radius=6 border-width=0 background-color="#00000000" opacity=(overClose ? 1 : 0.7) display="flex" flex-direction="row" align-items="center" justify-content="center"
+          button press=dismiss hover=setClose aria-label="Dismiss provider update notice" testId="sidebar-provider-pill-dismiss" width="1.25rem" height="1.25rem" margin-right="0.25rem" padding=0 flex-shrink=0 border-radius="0.375rem" border-width=0 background-color="#00000000" opacity=(overClose ? 1 : 0.7) display="flex" flex-direction="row" align-items="center" justify-content="center"
             SidebarIcon(name="x", size=14, color=(tone == "warning" ? "#fe9a00" : "light-dark(#e7000b, #fb2c36)"))
       when description != ""
-        row position="absolute" bottom="100%" left=-200 right=(dismissible ? -176 : -200) padding-bottom=4 justify-content="center" pointer-events="none" z-index=140
+        row position="absolute" bottom="100%" left="-12.5rem" right=(dismissible ? "-11rem" : "-12.5rem") padding-bottom="0.25rem" justify-content="center" pointer-events="none" z-index=140
           TipCard(label=description, shown=(overBody and not overClose))
       when dismissible
-        row position="absolute" bottom="100%" right=-196 width=420 padding-bottom=4 justify-content="center" pointer-events="none" z-index=140
+        row position="absolute" bottom="100%" right="-12.25rem" width="26.25rem" padding-bottom="0.25rem" justify-content="center" pointer-events="none" z-index=140
           TipCard(label="Dismiss until provider status changes", shown=overClose)

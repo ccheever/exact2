@@ -132,7 +132,7 @@ impl Painter {
             }
             for (x, y, w, h) in rects {
                 let pad = if n.node_type == NodeType::Text {
-                    n.computed_style(StyleMask::INHERITED).font_size
+                    n.computed_row(exact_kernel::StyleId::FontSize, |s| s.font_size)
                 } else {
                     2.0
                 };

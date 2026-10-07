@@ -60,7 +60,7 @@ for (const [name, rootCss, nodesField, probesField, , exactField] of cases) {
   const src = resolve(work, `case${i}.contract`), plan = resolve(work, `case${i}.plan`), shot = resolve(work, `case${i}.png`);
   i++;
   writeFileSync(src, contract(name, rootCss, nodes));
-  const built = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', src, '-o', plan], { cwd: root, encoding: 'utf8' });
+  const built = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', src, '-o', plan], { cwd: root, encoding: 'utf8', env: { ...process.env, HERMES_LEAN_SYS_OFFLINE: '1' } });
   if (built.status !== 0) { failures.push(`${name}: the plan did not compile: ${built.stderr.trim().split('\n').pop()}`); continue; }
   const shotOp = host === 'macos' && !defaultCapture ? `screenshot ${shot} window` : `screenshot ${shot}`;
   const drove = spawnSync('bun', ['scripts/agent.mjs', host, '--plan', plan, 'clock settle', shotOp], { cwd: root, encoding: 'utf8', env: process.env });

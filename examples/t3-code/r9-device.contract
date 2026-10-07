@@ -17,9 +17,9 @@ component R9DevFoldingControls
     folding: R9DevFolding
     local: action
   view
-    column flex-shrink=0 align-items="center" gap=8 role="group" aria-label=(folding.kind == "duo" ? "iPhone Duo stands" : "Android fold controls") testId="device-folding"
+    column flex-shrink=0 align-items="center" gap="0.5rem" role="group" aria-label=(folding.kind == "duo" ? "iPhone Duo stands" : "Android fold controls") testId="device-folding"
       each group in folding.groups key=group.id
-        column flex-shrink=0 align-items="center" gap=4 padding=4 border-radius=999 border-width=1 border-style="solid" border-color="light-dark(#e4e4e780, #ffffff0a)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" box-shadow="0 1px 2px #0000000d" role="group" aria-label=group.label testId=`device-folding-${group.id}`
+        column flex-shrink=0 align-items="center" gap="0.25rem" padding="0.25rem" border-radius="62.4375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e780, #ffffff0a)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" box-shadow="0 1px 2px #0000000d" role="group" aria-label=group.label testId=`device-folding-${group.id}`
           each stand in group.stands key=stand.id
             R9DevStandButton(stand=stand, enabled=folding.enabled, press=local(`surface-r6dev-${folding.kind}`, "", stand.id))
       when folding.error != ""
@@ -36,7 +36,7 @@ component R9DevStandButton
   view
     // lane r10-device: the stand's TooltipPopup side="left" (r10-device.contract); a disabled button still shows it, as Base UI's trigger does.
     box position="relative" flex-shrink=0
-      button press=press hover=hover disabled=(not enabled) aria-label=stand.label aria-checked=stand.selected testId=`device-stand-${stand.id}` width=32 height=32 padding=0 border-radius=8 border-width=0 opacity=(enabled ? 1 : 0.64) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(stand.selected ? "light-dark(#fafafae6, #ffffff07)" : over and enabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+      button press=press hover=hover disabled=(not enabled) aria-label=stand.label aria-checked=stand.selected testId=`device-stand-${stand.id}` width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 opacity=(enabled ? 1 : 0.64) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(stand.selected ? "light-dark(#fafafae6, #ffffff07)" : over and enabled ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
         R9DevDuoGlyph(pose=stand.glyph, color=(stand.selected ? r9devInk() : r9devMuted()))
       R10DevLeftTip(label=stand.tip, shown=over)
 
@@ -46,7 +46,7 @@ component R9DevDuoGlyph
     pose: string
     color: string
   view
-    svg width=28 height=28 viewBox=(pose == "laptop" or pose == "tent" ? "0 0 22 16" : "0 0 24 32") color=color fill="none" stroke="currentColor" stroke-width=(pose == "laptop" or pose == "tent" ? 1.25 : 1.8) stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+    svg width="1.75rem" height="1.75rem" viewBox=(pose == "laptop" or pose == "tent" ? "0 0 22 16" : "0 0 24 32") color=color fill="none" stroke="currentColor" stroke-width=(pose == "laptop" or pose == "tent" ? 1.25 : 1.8) stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
       when pose == "laptop"
         path d="M2.7351 12.9857 L15.8128 11.4159 L14.4114 3.3787 C14.1943 2.134 13.1275 1.2319 12.0283 1.3639 L2.9308 2.4559 C1.8317 2.5879 1.1167 3.7038 1.3337 4.9485 L2.7351 12.9857 Z M2.7351 12.9857 L15.8128 11.4159 L19.9103 12.8914 C20.5449 13.1199 20.1683 13.4121 19.0692 13.5441 L9.9717 14.6361 C8.8725 14.7681 7.4672 14.6898 6.8326 14.4612 L2.7351 12.9857 Z"
       when pose == "tent"

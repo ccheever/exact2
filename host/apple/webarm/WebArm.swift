@@ -75,6 +75,13 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
     /// The origin a direct guest's messages must come from.
     var expectedOrigin: String?
     var pageBridge = false
+    /// The guest is a bundled page: its failed sub-resources are logged.
+    var localGuest = false
+    /// A bundled page's origin: loopback HTTP, a secure context (as the web
+    /// dev loop's `http://127.0.0.1` page is) that WebKit holds to no
+    /// mixed-content blocking. Under an `https:` origin WebKit refuses every
+    /// `http:` sub-resource, loopback included, which Chrome loads (#135).
+    static let localOrigin = "http://exact.localhost"
     static let template: WKWebViewConfiguration = {
         let template = WKWebViewConfiguration()
         _ = template.preferences
@@ -118,6 +125,13 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
             in: world))
         controller.addUserScript(WKUserScript(
             source: "if (window.parent === window.top && window !== window.top) window.webkit.messageHandlers.exactAgent.postMessage('ready')",
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false,
+            in: world))
+        // A sub-resource WebKit refuses or fails to load fires `error` on its
+        // element and is otherwise silent; for a bundled page the host logs it.
+        controller.addUserScript(WKUserScript(
+            source: "addEventListener('error', e => { const t = e.target; if (!(t instanceof Element)) return; const u = t.currentSrc || t.src || t.href; if (typeof u === 'string' && u) window.webkit.messageHandlers.exactAgent.postMessage({ failed: u }) }, true)",
             injectionTime: .atDocumentStart,
             forMainFrameOnly: false,
             in: world))
@@ -207,9 +221,11 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         // An HTTPS wrapper would block an HTTP guest as mixed content even
         // when the app explicitly allows it through ATS. Match the remote
         // HTTP guest's scheme; WebKit still enforces ATS and the iframe's
-        // sandbox. Local documents keep their existing HTTPS origin.
-        let scheme = web?.scheme?.lowercased() == "http" ? "http" : "https"
-        wrapperURL = URL(string: "\(scheme)://exact.invalid/frame/\(id)/index.html")!
+        // sandbox. A local document is served at `localOrigin`.
+        let origin = local != nil ? WebArm.localOrigin
+            : web?.scheme?.lowercased() == "http" ? "http://exact.invalid" : "https://exact.invalid"
+        wrapperURL = URL(string: "\(origin)/frame/\(id)/index.html")!
+        localGuest = local != nil && error == nil
         #if os(iOS)
         // iOS lays a top-level document out by its viewport `<meta>` (980
         // CSS px without one); a frame ignores it and takes its box. Only a
@@ -318,7 +334,7 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
     func guestOrigin(remote: String?, local: Bool) -> String? {
         let tokens = Set((sandbox ?? "").split(whereSeparator: { $0.isWhitespace }).map(String.init))
         if sandbox != nil, !tokens.contains("allow-same-origin") { return "null" }
-        if local { return "https://exact.invalid" }
+        if local { return WebArm.localOrigin }
         guard let remote, let url = URL(string: remote),
               let scheme = url.scheme?.lowercased(),
               (scheme == "http" || scheme == "https"),
@@ -361,6 +377,27 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         return try? String(contentsOf: file, encoding: .utf8)
     }
 
+    /// What most likely refused a bundled page's sub-resource. The page sees
+    /// only that it failed; ATS applies in an app bundle (not the bare
+    /// executable the agent runs) to `http:` on a named, non-local host.
+    static func whyFailed(_ source: String) -> String {
+        guard let url = URL(string: source), url.scheme?.lowercased() == "http",
+              let host = url.host?.lowercased(), host.contains("."), !host.hasSuffix(".local"), !host.hasSuffix(".localhost"),
+              host.rangeOfCharacter(from: CharacterSet(charactersIn: "0123456789.:").inverted) != nil,
+              Bundle.main.bundleURL.pathExtension == "app"
+        else { return "the request failed; is its server running?" }
+        let ats = Bundle.main.object(forInfoDictionaryKey: "NSAppTransportSecurity") as? [String: Any]
+        if ats?["NSAllowsArbitraryLoadsInWebContent"] as? Bool == true || ats?["NSAllowsArbitraryLoads"] as? Bool == true {
+            return "the request failed; is its server running?"
+        }
+        #if os(macOS)
+        let os = "macos"
+        #else
+        let os = "ios"
+        #endif
+        return "App Transport Security refuses http: to a named host; app.json's host.\(os).appTransportSecurity can allow it"
+    }
+
     func errorDocument(_ message: String) -> String {
         "<!doctype html><meta charset=utf-8><style>body{font:14px system-ui;padding:16px;color:#6b1d1d;background:#fff3f3}</style><p>\(attribute(message))</p>"
     }
@@ -383,6 +420,12 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
             return
         }
         if message.name == "exactAgent" {
+            if let body = message.body as? [String: Any] {
+                if localGuest, let failed = body["failed"] as? String {
+                    FileHandle.standardError.write(Data("exact: iframe \(src ?? ""): \(failed) did not load (\(WebArm.whyFailed(failed)))\n".utf8))
+                }
+                return
+            }
             if !message.frameInfo.isMainFrame, guestFrame == nil { guestFrame = message.frameInfo }
             return
         }

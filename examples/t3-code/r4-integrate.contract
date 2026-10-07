@@ -17,6 +17,6 @@ component SidebarPrBadge
   derive tone = (recede ? "light-dark(#71717bb3, #818181b3)" : t.badgeState == "" ? "light-dark(#71717b, #818181)" : prdTone(t.badgeState))
   view
     // r5-panels: the glyph and number wear the badge's state tone (muted until a snapshot arrives).
-    row gap=2 align-items="center" flex-shrink=0
+    row gap="0.125rem" align-items="center" flex-shrink=0
       PgIcon(name=t.badgeIcon, size=12, color=tone)
-      text t.badge font-size=12 font-variant-numeric="tabular-nums" color=tone
+      text t.badge font-size="0.75rem" font-variant-numeric="tabular-nums" color=tone

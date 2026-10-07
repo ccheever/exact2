@@ -85,6 +85,17 @@ impl Tree {
         }
         find_collection(&self.children, view).map(Collection::snapshot)
     }
+    /// `view`'s mounted rows as (wrapper, epoch) into `out` (cleared first):
+    /// which rows are mounted and bound to what, without their geometry.
+    pub fn collection_mounted(&self, view: ViewId, out: &mut Vec<(ViewId, u64)>) {
+        out.clear();
+        if !self.has_collections {
+            return;
+        }
+        if let Some(collection) = find_collection(&self.children, view) {
+            out.extend(collection.mounted.iter().map(|r| (r.wrapper, r.epoch)));
+        }
+    }
     /// Each mounted list's view, data generation and whether it runs along
     /// x, with no snapshot: what a host compares between layouts to know
     /// whose rows its data moved.
@@ -771,4 +782,9 @@ fn first_root_bounded<'a>(
         }
     }
     Err("collection row has no authored root")
+}
+
+/// The mounted collections as a batch's JSON, through [`super::super::LISTS`].
+pub(in crate::instance) fn collections_json(tree: &Tree) -> String {
+    super::snapshots_json(&tree.collections())
 }

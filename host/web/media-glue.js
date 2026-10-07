@@ -7,7 +7,7 @@ const numbers = { volume: [0, 1, 1], playbackRate: [0.25, 4, 1], currentTime: [0
 // MediaError's four (HTML), `not-allowed` for a play the browser refused and
 // `invalid-value` for a number out of range. Apple's VideoArm.swift says the same.
 const errorCodes = [null, 'aborted', 'network', 'decode', 'src-not-supported'];
-const mediaEvents = new Set(['loadedmetadata','durationchange','timeupdate','play','playing','pause','ended','waiting','seeking','seeked','ratechange','volumechange','error','canplay']);
+const mediaEvents = new Set(['loadedmetadata','durationchange','timeupdate','play','playing','pause','ended','waiting','seeking','seeked','ratechange','volumechange','error','canplay','fullscreenchange']);
 function syncPlayback(el) {
   const state = states.get(el), props = el.exactMedia.props;
   if (!state || state.retired) return;
@@ -107,7 +107,7 @@ globalThis.exact.installMedia = (el, send) => {
   for (const name of mediaEvents) el.addEventListener(name, () => {
     if (name === 'loadedmetadata' && state.seek !== null) { el.currentTime = state.seek; state.seek = null; }
     if (early.delete(name)) return;
-    const payload = name === 'timeupdate' ? el.currentTime : name === 'durationchange' ? el.duration : name === 'error' ? errorCodes[el.error?.code] ?? 'src-not-supported' : '';
+    const payload = name === 'timeupdate' ? el.currentTime : name === 'durationchange' ? el.duration : name === 'error' ? errorCodes[el.error?.code] ?? 'src-not-supported' : name === 'fullscreenchange' ? String(document.fullscreenElement === el) : '';
     if (typeof payload !== 'number' || Number.isFinite(payload)) emit(name, String(payload));
     if (!state.retired) played(el, name); // a retired element publishes nothing more (LLP 1098 D6)
   });

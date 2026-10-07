@@ -24,7 +24,7 @@ acceptance rows wait for the issue or carry its difference until it is resolved.
 | --- | --- | --- | --- | --- |
 | [X1](20261005-x01-chromium-cdp-browser-surface.md) | An embedded browser engine that an app can drive (Browser surface) | framework-policy + framework-gap | browser-surface, right-panel-tab-menu, t3-connect-sign-in | draft |
 | [X2](20261005-x02-app-developer-tools.md) | A developer-tools inspector for the app's own UI (View › Toggle Developer Tools) | framework-policy | app-developer-tools, desktop-shell-details, terminal-surface | draft |
-| [X3](20261005-x03-root-font-size.md) | An app-settable root font size, the base of `rem` | framework-gap | interface-font-size, interface-font-size-conversion | draft |
+| [X3](closed/20261005-x03-root-font-size.md) | An app-settable root font size, the base of `rem` | framework-gap | interface-font-size, interface-font-size-conversion | upstream #102 closed (main #185); adopted |
 | [X4](20261005-x04-bundle-helper-executables.md) | Helper executables and large resource trees in the `.app` | framework-gap | embedded-server-runtime, portable-app-download, this-machine-network-access | draft |
 | [X5](20261005-x05-url-scheme-delivery.md) | A custom-scheme URL delivered to a data source or module when no route takes it | framework-gap | app-activation, managed-codex-chatgpt, provider-sign-in-and-install, t3-connect-sign-in | draft |
 | [X6](20261005-x06-module-quit-shutdown.md) | A module hook at quit that can delay termination for a bounded time | framework-gap | app-activation, app-update-feed, embedded-server-runtime, managed-codex-chatgpt, telemetry | draft |

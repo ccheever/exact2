@@ -16,15 +16,15 @@ component ProjectIconMark
     size: number
   view
     when kind == "lucide"
-      svg width=size height=size viewBox="0 0 24 24" color=ink fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true testId="project-icon-preview"
+      svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=ink fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true testId="project-icon-preview"
         path d=d
     else
       when kind == "emoji"
-        box width=size height=size display="flex" align-items="center" justify-content="center" flex-shrink=0 testId="project-icon-preview"
-          text emoji font-size=(size * 0.8) line-height=`${size * 0.8}px`
+        box width=`${size / 16}rem` height=`${size / 16}rem` display="flex" align-items="center" justify-content="center" flex-shrink=0 testId="project-icon-preview"
+          text emoji font-size=`${size * 0.8 / 16}rem` line-height=`${size * 0.8 / 16}rem`
       else
         when src != ""
-          image src width=size height=size border-radius=(size / 4) object-fit="contain" flex-shrink=0 aria-hidden=true testId="project-icon-preview"
+          image src width=`${size / 16}rem` height=`${size / 16}rem` border-radius=`${size / 64}rem` object-fit="contain" flex-shrink=0 aria-hidden=true testId="project-icon-preview"
         else
           MonogramTile(text=text, width=textWidth, ink=ink, surface=surface, size=size)
 
@@ -37,6 +37,6 @@ component MonogramTile
     surface: string
     size: number
   view
-    box width=size height=size border-radius=(size / 4) overflow="hidden" display="flex" align-items="center" justify-content="center" flex-shrink=0 background-color=surface testId="project-icon-preview"
+    box width=`${size / 16}rem` height=`${size / 16}rem` border-radius=`${size / 64}rem` overflow="hidden" display="flex" align-items="center" justify-content="center" flex-shrink=0 background-color=surface testId="project-icon-preview"
       // textLength (6 or 12 of 16 units, spacingAndGlyphs) widens the mono glyphs about 1.2×.
-      text text font-family="ui-monospace" font-size=(size * 8.25 / 16) line-height=`${size * 10 / 16}px` font-weight=700 color=ink white-space="nowrap" transform="scale(1.2, 1)" margin-top=(size * 0.06)
+      text text font-family="ui-monospace" font-size=`${size * 8.25 / 256}rem` line-height=`${size * 10 / 256}rem` font-weight=700 color=ink white-space="nowrap" transform="scale(1.2, 1)" margin-top=`${size * 0.06 / 16}rem`

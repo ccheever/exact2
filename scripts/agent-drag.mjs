@@ -31,7 +31,7 @@ export async function duringOp(s, op) {
 /**
  * `tap <target> drag …` (LLP 1080.000 §11): one whole gesture from `from`
  * (an offset from the target's box, its middle by default), a finger or,
- * with `mouse`, the left button: press `press`
+ * with `mouse`, the left button, `modifiers` held throughout: press `press`
  * ms, one straight drag by (dx, dy) over `over` ms, hold `hold` ms, lift;
  * `during` thunks run while the finger is down after the move, before the
  * hold (kanban F14: a screenshot during a drag shows it moved), when no
@@ -43,7 +43,7 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
   // `drag to B [at x y]` (LLP 1094 D12): the delta from both boxes at the press, to B's middle or to (x, y) from its
   // top left; B unmounted or off screen is refused by name. An autoscrolling drag is `drag dx dy hold ms`.
   if (opts.to !== undefined) opts = { ...opts, ...await toward(s, node, opts) };
-  const { dx, dy, from, mouse = false, press = 0, over = 250, hold = 0, during = [] } = opts, drag = { dx, dy, press, over, hold, during }, said = { dx, dy, press, over, hold, ...(mouse ? { mouse } : {}), ...(opts.to !== undefined ? { to: opts.to } : {}) };
+  const { dx, dy, from, mouse = false, modifiers, press = 0, over = 250, hold = 0, during = [] } = opts, drag = { dx, dy, press, over, hold, during }, said = { dx, dy, press, over, hold, ...(mouse ? { mouse } : {}), ...(modifiers ? { modifiers } : {}), ...(opts.to !== undefined ? { to: opts.to } : {}) };
   // `mouse` (files diary F10): the left button, where the carrier's contact
   // is otherwise a finger (the web's); a desktop host's contact is the mouse.
   if (mouse && (carrier.touches || ['ios', 'host-ios'].includes(host))) throw new Error('drag: mouse is a desktop pointer\'s; an iOS contact is a finger');
@@ -80,7 +80,8 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
     // The contact starts here, through the carrier, at the point `tap … down at` would use (review A1): `tap` refuses
     // `mouse` beside `down`, its click form. `mouse` holds the left button on the web, Linux and Windows; a macOS
     // contact already is the mouse.
-    try { down = await carrier.input(node.id, 'down', { x: start[0], y: start[1], ...(mouse && !['macos', 'mac', 'host'].includes(host) ? { mouse } : {}) }); }
+    // `modifiers` are held from the press to the lift (#107: a Shift-drag extends a selection).
+    try { down = await carrier.input(node.id, 'down', { x: start[0], y: start[1], ...(mouse && !['macos', 'mac', 'host'].includes(host) ? { mouse } : {}), ...(modifiers ? { modifiers } : {}) }); }
     catch (error) { throw await tapRefusal(s, target, error); }
     if (down.error) throw new Error(`drag: down: ${(await tapRefusal(s, target, new Error(down.error))).message}`);
     if (down.delivery !== 'unsupported') {

@@ -67,7 +67,7 @@ final class T3KeyRecorderView: NSView {
     }
     override func keyDown(with event: NSEvent) { owner?.capture(event) }
     override func draw(_ dirtyRect: NSRect) {
-        let font = NSFont.monospacedSystemFont(ofSize: 13, weight: .regular)
+        let font = NSFont.monospacedSystemFont(ofSize: T3RootFont.rem(13), weight: .regular)
         let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.placeholderTextColor]
         let text = NSAttributedString(string: placeholder, attributes: attributes)
         let size = text.size()
@@ -77,11 +77,14 @@ final class T3KeyRecorderView: NSView {
 
 final class T3KeyRecorder: ExactNativeInstance {
     private let field = T3KeyRecorderView(frame: .zero)
+    private var rootFont: NSObjectProtocol?
     init(props: [String: String], events: ExactNativeEvents) {
         super.init(events: events)
         field.owner = self
         apply(props)
+        rootFont = NotificationCenter.default.addObserver(forName: T3RootFont.changed, object: nil, queue: .main) { [weak field] _ in field?.needsDisplay = true }
     }
+    deinit { if let rootFont { NotificationCenter.default.removeObserver(rootFont) } }
     override var view: ExactNativeView { field }
     override var focusTarget: ExactNativeView? { field }
     private func apply(_ props: [String: String]) {

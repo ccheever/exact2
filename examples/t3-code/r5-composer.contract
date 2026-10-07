@@ -13,7 +13,7 @@ component R5LabelProbe
     xs: bool
   view
     box hook="t3-anchor" data-anchor=name display="flex" flex-direction="row" flex-shrink=0
-      text (label == "" ? " " : label) font-size=(xs ? 12 : 14) font-weight=(xs ? 400 : 500) line-height=(xs ? "16px" : "20px") white-space="nowrap" flex-shrink=0
+      text (label == "" ? " " : label) font-size=(xs ? "0.75rem" : "0.875rem") font-weight=(xs ? 400 : 500) line-height=(xs ? "1rem" : "1.25rem") white-space="nowrap" flex-shrink=0
 
 component R5ComposerLabelProbes
   props

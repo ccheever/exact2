@@ -4,9 +4,8 @@
 
 #![deny(missing_docs)]
 
-#[path = "../../hermes.rs"]
-#[allow(dead_code)]
-mod hermes;
+#[path = "../../package_tool.rs"]
+mod package_tool;
 mod resident;
 #[cfg(test)]
 mod sources_tests;
@@ -14,6 +13,7 @@ pub use resident::Producer;
 
 use contract::DataSource;
 use exact_js::Module;
+use package_tool::package_tool;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -367,7 +367,7 @@ pub struct Tools {
     pub tsc: PathBuf,
     /// The bundler (`EXACT_ROLLDOWN`).
     pub rolldown: PathBuf,
-    /// The compiler paired with the host's lean Hermes (`EXACT_HERMESC`).
+    /// The compiler paired with the host's verified lean Hermes bundle.
     pub hermesc: PathBuf,
 }
 
@@ -377,51 +377,21 @@ impl Default for Tools {
         let tool = |key: &str, fallback: PathBuf| {
             std::env::var_os(key).map(PathBuf::from).unwrap_or(fallback)
         };
-        let arch = if std::env::consts::ARCH == "aarch64" {
-            "arm64"
-        } else {
-            "x64"
-        };
         Self {
-            tsc: tool("EXACT_TSC", hermes::package_tool(&root, "tsc")),
-            rolldown: tool("EXACT_ROLLDOWN", hermes::package_tool(&root, "rolldown")),
-            hermesc: tool(
-                "EXACT_HERMESC",
-                if cfg!(target_os = "windows") {
-                    hermes::compiler().unwrap_or_else(|e| panic!("{e}"))
-                } else if cfg!(target_os = "linux") {
-                    root.join(format!("../ibex/tools/hermes-vanilla/hermesc-linux-{arch}"))
-                } else {
-                    // js/build.rs's fallback: the machine's cache when there is no sibling ibex.
-                    let sibling =
-                        root.join(format!("../ibex/tools/hermes-vanilla/hermesc-macos-{arch}"));
-                    let cache = Path::new(&std::env::var_os("HOME").unwrap_or_default())
-                        .join(".cache/exact/hermes-macos");
-                    if std::env::var_os("EXACT_HERMES_DIR").is_none()
-                        && !root.join("../ibex").exists()
-                        && cache.join("engine").is_dir()
-                    {
-                        cache.join("hermesc")
-                    } else {
-                        sibling
-                    }
-                },
-            ),
+            tsc: tool("EXACT_TSC", package_tool(&root, "tsc")),
+            rolldown: tool("EXACT_ROLLDOWN", package_tool(&root, "rolldown")),
+            hermesc: PathBuf::from(hermes_lean_sys::HERMESC_PATH),
         }
     }
 }
 
 impl Tools {
     fn check_engine(&self) -> Result<(), String> {
-        #[cfg(windows)]
-        {
-            let install = hermes::resolve("x86_64-pc-windows-msvc", Some(&self.hermesc))?;
-            if exact_js::ENGINE_INPUTS != Some(install.receipt_sha256.as_str()) {
-                return Err(
-                    "Windows Hermes install differs from the linked executor; rebuild the producer"
-                        .into(),
-                );
-            }
+        if exact_js::ENGINE_INPUTS != hermes_lean_sys::LEAN_ENGINE_DIGEST {
+            return Err(
+                "Hermes compiler bundle differs from the linked executor; rebuild the producer"
+                    .into(),
+            );
         }
         Ok(())
     }

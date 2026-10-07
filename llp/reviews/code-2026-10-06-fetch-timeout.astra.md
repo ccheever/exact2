@@ -5,7 +5,7 @@ Found defects in `df7677f15`:
 
 2. **[P1] Web JS body timeouts lack the promised error kind.** [admission.js:43](/Users/admin/projects/exact2-wt-ft/host/web-js/admission.js:43) returns the browser response at headers. Subsequent `.text()`, `.json()`, or body-reader failures bypass its catch. Reproduced: headers succeed, the body stalls, and reading rejects with `TimeoutError` and no `kind`, instead of `FetchError` kind `"Timeout"`.
 
-3. **[P1] Rustls DNS resolution can outlive the deadline indefinitely.** [rustls_http.rs:207](/Users/admin/projects/exact2-wt-ft/vendor/ibex2/src/transport/rustls_http.rs:207) deliberately invokes synchronous resolution with `NotHappening`. Cancellation is checked only after resolution returns. The deadline thread therefore cannot release a request—or its ordered lane—while DNS is blocked.
+3. **[P1] Rustls DNS resolution can outlive the deadline indefinitely.** [rustls_http.rs:207](/Users/admin/projects/exact2-wt-ft/vendor/ibex/crates/ibex2/src/transport/rustls_http.rs:207) deliberately invokes synchronous resolution with `NotHappening`. Cancellation is checked only after resolution returns. The deadline thread therefore cannot release a request—or its ordered lane—while DNS is blocked.
 
 4. **[P2] Adding a deadline overrides `Request.signal`.** [admission.js:42](/Users/admin/projects/exact2-wt-ft/host/web-js/admission.js:42) combines only `init.signal`, ignoring a signal supplied through the input `Request`. Reproduced: an already-aborted `Request` rejects without `exactTimeout`, but succeeds with it.
 
@@ -15,7 +15,7 @@ Found defects in `df7677f15`:
 
 7. **[P2] Deadline-thread creation failure silently removes deadline enforcement.** [executor_core.rs:909](/Users/admin/projects/exact2-wt-ft/host/apple/src/executor_core.rs:909) discards the spawn error. On Apple, the fallback is an idle timeout, so a trickling response can continue beyond the whole-exchange deadline. Other failures are classified `Network`, since `passed` remains false.
 
-8. **[P2] Longer rustls deadlines retain the 10-second connection timeout.** [rustls_http.rs:489](/Users/admin/projects/exact2-wt-ft/vendor/ibex2/src/transport/rustls_http.rs:489) overrides total/receive limits but leaves `timeout_connect(10s)` intact. A 30-second request can therefore fail during connect/TLS at 10 seconds with `Network`, contradicting the stated guarantee that transport limits expire after the deadline.
+8. **[P2] Longer rustls deadlines retain the 10-second connection timeout.** [rustls_http.rs:489](/Users/admin/projects/exact2-wt-ft/vendor/ibex/crates/ibex2/src/transport/rustls_http.rs:489) overrides total/receive limits but leaves `timeout_connect(10s)` intact. A 30-second request can therefore fail during connect/TLS at 10 seconds with `Network`, contradicting the stated guarantee that transport limits expire after the deadline.
 
 9. **[P2] The documented Rust support needs qualification.** [logic/abi/src/lib.rs:206](/Users/admin/projects/exact2-wt-ft/logic/abi/src/lib.rs:206) explicitly refuses every timed request crossing the Rust module ABI. That avoids silent loss, but means the LLP’s unqualified `Request::timeout(ms)` claim does not hold for separately loaded Rust modules.
 

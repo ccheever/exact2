@@ -125,3 +125,18 @@ export function checkMenu(presentation: Obj, rows: CheckRow[], extra: string[] =
   return { width: Math.max(MENU_MIN, widest + 10, actions),
     probes: uniqueProbes([...rows.flatMap(row => [probe(row.label, 14, 400), probe(row.status, 12, 400)]), ...extra.map(label => probe(label, 14, 400))]) };
 }
+
+/**
+ * The menu and tooltip sizes above are px at the root size 16 (the probes lay their texts out in px and
+ * the paddings are the reference's rem utilities at 16); the menus' own rows are rem, so each size follows
+ * the Interface font size (the root font size) as the reference's rem-sized popups do.
+ */
+export const ROOT_SIZED_MENU_FIELDS = ['effortMenuWidth', 'runtimeMenuWidth', 'effortMenuHeight', 'runtimeMenuHeight',
+  'moreMenuWidth', 'restingMoreMenuWidth', 'moreMenuHeight', 'restingMoreMenuHeight', 'sendTipWidth'] as const;
+export function atRootFontSize<T extends object>(row: T, rootFontSize: number): T {
+  if (rootFontSize === 16) return row;
+  const out = { ...row } as Record<string, unknown>;
+  for (const field of ROOT_SIZED_MENU_FIELDS) if (typeof out[field] === 'number') out[field] = (out[field] as number) * rootFontSize / 16;
+  return out as T;
+}
+
