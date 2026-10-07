@@ -1,0 +1,64 @@
+# pr-conversation-and-refresh: agent-mode stand-ins for the real-input rows (screen locked, user away)
+# The coordinator approved one normal-launch real-input session; the screen was locked (CGSSessionScreenIsLocked=1),
+# so the rows ran in agent mode instead and the real-input versions are deferred to the real-input batch
+# (task record, "Real-input batch steps"). No real-input lock was taken; the lane copy built for the session
+# (T3 Code (Lane PRC).app, com.exact.t3code.laneprc) was never launched.
+
+attempt 1: 2026-10-07T19:16:44.177Z [session] app pid 1645
+attempt 1: 2026-10-07T19:17:18.225Z [session] #115 open: true
+attempt 1: 2026-10-07T19:17:18.378Z [session] shot tip-reviewer
+attempt 1: 2026-10-07T19:17:18.389Z [session] hover pull-request-reviewer-daehyeonmun2021: tooltips shown []
+attempt 1: 2026-10-07T19:17:19.359Z [session] shot collapse-before
+attempt 1: 2026-10-07T19:17:19.360Z [session] scroll box {"x":641,"y":52,"w":639,"h":788}; after a 900 pt wheel the Comments heading is at {"x":641,"y":52,"w":523,"h":40}
+attempt 1: 2026-10-07T19:17:20.304Z [session] shot collapse-after
+attempt 1: 2026-10-07T19:17:20.312Z [session] after pressing it: the Comments heading is at {"x":641,"y":433,"w":523,"h":40}; expanded undefined
+attempt 1: 2026-10-07T19:17:23.324Z [session] ERROR Error: key: unsupported key Return
+attempt 1:     at nativeKey (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-pr-conversation-and-refresh/scripts/agent-keys.mjs:216:28)
+attempt 1:     at processTicksAndRejections (native:7:39)
+attempt 1: 2026-10-07T19:17:23.415Z [session] shot error
+attempt 1: 2026-10-07T19:17:23.432Z [session] closed; this process's kept file: $TMPDIR/exact-agent-1645-2/data/t3-code.json
+
+2026-10-07T19:18:04.253Z [session] app pid 7469
+2026-10-07T19:18:31.814Z [session] #115 open: true
+2026-10-07T19:18:31.966Z [session] shot tip-reviewer
+2026-10-07T19:18:31.976Z [session] hover pull-request-reviewer-daehyeonmun2021: tooltips shown []
+2026-10-07T19:18:32.932Z [session] shot collapse-before
+2026-10-07T19:18:32.932Z [session] scroll box {"x":641,"y":52,"w":639,"h":788}; after a 900 pt wheel the Comments heading is at {"x":641,"y":52,"w":523,"h":40}
+2026-10-07T19:18:33.873Z [session] shot collapse-after
+2026-10-07T19:18:33.881Z [session] after pressing it: the Comments heading is at {"x":641,"y":433,"w":523,"h":40}; expanded undefined
+2026-10-07T19:18:37.216Z [session] Tab order from Summary: ["pull-request-comments-order","pull-request-comment-age-IC_kwDOU_luzM8AAAABZ_r6vQ","pull-request-comment-age-IC_kwDOU_luzM8AAAABZ_r5Vw","pull-request-comment-age-PRRC_kwDOU_luzM76zVwB","pull-request-comment-age-PRRC_kwDOU_luzM76zVos","pull-request-comment-age-PRRC_kwDOU_luzM76zVgS","pull-request-comment-age-PRRC_kwDOU_luzM76zUOa","pull-request-comment-age-PRRC_kwDOU_luzM76zUHJ","Enter -> pull-request-comment-age-PRRC_kwDOU_luzM76zUHJ"]
+2026-10-07T19:18:37.302Z [session] shot focus-ring
+2026-10-07T19:18:39.987Z [session] prefer: {"page":{"online":true,"can-share":true,"can-open-files":true,"has-focus":true,"root-font-size":16,"visibility-state":"visible"},"epoch":45,"fold":{"horizontal-viewport-segments":1,"vertical-viewport-segments":1,"device-posture":"continuous","viewport-segments":[]},"clock":32500,"media":{"pr
+2026-10-07T19:18:41.945Z [session] filmed the Checks chevron turning with and without reduced motion
+2026-10-07T19:18:50.496Z [session] shot tip-stale-verdict
+2026-10-07T19:18:50.504Z [session] hover pull-request-timeline-verdict-word-PRR_kwDOU_luzM8AAAABRKMoyQ: tooltips shown []
+2026-10-07T19:18:50.506Z [session] log lines 2191; errors: 0
+2026-10-07T19:18:50.524Z [session] closed; this process's kept file: $TMPDIR/exact-agent-7469-2/data/t3-code.json
+2026-10-07T19:20:17.222Z [relaunch] app pid 15973
+2026-10-07T19:20:17.223Z [relaunch] gave this process the previous session's t3-code.json (exact-agent-7469-2/data/t3-code.json)
+2026-10-07T19:20:23.197Z [relaunch] ERROR Error: no view matches open-pull-requests by testId, label or text; targets here: toggle-sidebar, sidebar-brand, search-threads, filter-project, add-project, new-thread, sidebar-empty-add-project, connection-settings, open-usage, chat-header, toggle-thread-details, toggle-terminal, …; tree lists live targets, and a virtualized list's row outside its window comes in by key: `tap <list> into <key>` (feed F10)
+    at find (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-pr-conversation-and-refresh/scripts/agent.mjs:1012:40)
+    at async target (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-pr-conversation-and-refresh/scripts/agent.mjs:1002:87)
+    at async tap (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-pr-conversation-and-refresh/scripts/agent.mjs:1042:28)
+    at processTicksAndRejections (native:7:39)
+2026-10-07T19:20:23.294Z [relaunch] shot error
+2026-10-07T19:20:23.303Z [relaunch] closed; this process's kept file: $TMPDIR/exact-agent-15973-2/data/t3-code.json
+2026-10-07T19:20:39.739Z [relaunch] app pid 16920
+2026-10-07T19:20:39.739Z [relaunch] gave this process the previous session's t3-code.json (exact-agent-7469-2/data/t3-code.json; 2 kept details)
+2026-10-07T19:21:04.449Z [relaunch] shot cached-0
+2026-10-07T19:21:04.449Z [relaunch] right after the press (+57 ms): #115 | daehyeonmun2021/playground | #115 | Refresh | Convert to draft | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request | Add input validation
+2026-10-07T19:21:04.462Z [relaunch]   loading ghost on screen: false; conversation ghost: true
+2026-10-07T19:21:04.470Z [relaunch]   pullRequests.detail spans begun by then: []
+2026-10-07T19:21:13.690Z [relaunch] shot cached-live
+2026-10-07T19:21:13.700Z [relaunch] after 9 s: conversation on screen: true
+2026-10-07T19:21:13.706Z [relaunch] pullRequests.detail spans since the press: [{"start":"2026-10-07T19:21:04.370Z","end":"2026-10-07T19:21:04.371Z"}]
+2026-10-07T19:21:13.712Z [relaunch] pullRequests.activity spans since the press: []
+2026-10-07T19:21:13.712Z [relaunch] lane gh calls since the press: ["2026-10-07T19:21:04Z api graphql --hostname github.com -f owner=daehyeonmun2021 -f name=playground -F number=11","2026-10-07T19:21:04Z api graphql --hostname github.com -f owner=daehyeonmun2021 -f name=playground -F number=11","2026-10-07T19:21:04Z pr view 115 --repo github.com/daehyeonmun2021/playground --json author,comments,reviews,co"]
+2026-10-07T19:21:13.712Z [relaunch] the press 2026-10-07T19:21:04.270Z, the first read-back of the panel 2026-10-07T19:21:04.327Z
+2026-10-07T19:21:13.714Z [relaunch] log lines 1667; errors: 0
+2026-10-07T19:21:13.728Z [relaunch] closed; this process's kept file: $TMPDIR/exact-agent-16920-2/data/t3-code.json
+2026-10-07T19:21:30.871Z [motion] app pid 20720
+2026-10-07T19:21:58.916Z [motion] normal: shots at +0, +50, +100, +200 ms after pressing Checks
+2026-10-07T19:22:00.492Z [motion] reduced: shots at +0, +50, +100, +200 ms after pressing Checks
+2026-10-07T19:22:01.352Z [motion] log lines 1995; errors: 0
+2026-10-07T19:22:01.369Z [motion] closed; this process's kept file: $TMPDIR/exact-agent-20720-2/data/t3-code.json
