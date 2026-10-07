@@ -23,7 +23,7 @@ impl Producer {
         let stage = Scratch::new(&std::env::temp_dir())?;
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let standard = |tool: &Path, name: &str| {
-            tool.canonicalize().ok() == super::hermes::package_tool(&root, name).canonicalize().ok()
+            tool.canonicalize().ok() == super::package_tool(&root, name).canonicalize().ok()
                 && tool.exists()
         };
         let compiler = if standard(&tools.tsc, "tsc") && standard(&tools.rolldown, "rolldown") {

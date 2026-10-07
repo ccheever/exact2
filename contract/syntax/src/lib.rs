@@ -94,6 +94,10 @@ pub const HOST_COMMANDS: &[&str] = &[
     "haptic",
     "openURL",
     "load",
+    // `requestFullscreen("id")`: the `video` with that HTML id takes the
+    // screen, as HTML's Element.requestFullscreen(); `fullscreenchange` says
+    // when it did and when it left.
+    "requestFullscreen",
     // `reload()`: the development host boots the app again, as its dev
     // menu's Reload does; a host without a dev menu refuses it.
     "reload",
@@ -102,6 +106,10 @@ pub const HOST_COMMANDS: &[&str] = &[
     // `id` (x2apps codeedit #2): `setSelectionRange("editor", 4, 4)`.
     "setSelectionRange",
     "setScheme",
+    // @ref LLP 1069.000 D3 — `:root { font-size }`: `setRootFontSize(px)`
+    // sets the root size `rem` follows, over the host's; `"medium"` hands it
+    // back. The runner's own; the web also sets it on the document.
+    "setRootFontSize",
     // @ref LLP 1069.002 D2 — `HTMLInputElement.showPicker()` on a file input.
     "showPicker",
     // @ref LLP 1101.001 P5 — `HTMLDialogElement.showModal()` by the dialog's

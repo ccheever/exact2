@@ -401,3 +401,17 @@ pub fn write_color_roles(w: &mut String, colors: &[[String; 6]], rgba: impl Fn(&
     }
     w.push_str("];\n");
 }
+/// `#rrggbb` or `#rrggbbaa` as RGBA.
+fn hex_rgba(hex: &str) -> [u8; 4] {
+    let h = hex
+        .strip_prefix('#')
+        .expect("schema: a tint is #rrggbb[aa]");
+    assert!(matches!(h.len(), 6 | 8), "schema: a tint is #rrggbb[aa]");
+    let byte = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).expect("schema: a tint is hex");
+    [
+        byte(0),
+        byte(2),
+        byte(4),
+        if h.len() == 8 { byte(6) } else { 255 },
+    ]
+}

@@ -61,24 +61,29 @@ impl Painter {
         // @ref LLP 1083.000 D5 — a canvas's placed children first, by
         // projective depth, as the web gives them negative indices by
         // depth; then every other child by its rank, then tree order.
+        // All in flow and none placed (most parents): tree order as it is.
+        let ordered =
+            self.placements.is_empty() && !children.iter().any(|c| walk.ranks.contains_key(c));
         let order: Vec<(ViewId, usize)> = children.iter().copied().zip(0..).collect();
         let mut order = order;
-        order.sort_by(
-            |(a, i), (b, j)| match (self.placements.get(a), self.placements.get(b)) {
-                (Some(a), Some(b)) => a.depth().total_cmp(&b.depth()).then(i.cmp(j)),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                _ => {
-                    let rank = |id: &ViewId| walk.ranks.get(id).copied().unwrap_or(0);
-                    rank(a).cmp(&rank(b)).then(i.cmp(j))
+        if !ordered {
+            order.sort_by(|(a, i), (b, j)| {
+                match (self.placements.get(a), self.placements.get(b)) {
+                    (Some(a), Some(b)) => a.depth().total_cmp(&b.depth()).then(i.cmp(j)),
+                    (Some(_), None) => std::cmp::Ordering::Less,
+                    (None, Some(_)) => std::cmp::Ordering::Greater,
+                    _ => {
+                        let rank = |id: &ViewId| walk.ranks.get(id).copied().unwrap_or(0);
+                        rank(a).cmp(&rank(b)).then(i.cmp(j))
+                    }
                 }
-            },
-        );
+            });
+        }
         let children: Vec<ViewId> = order.into_iter().map(|(id, _)| id).collect();
         // A scroller's rows are its children; a scroller holding one
         // container (a column of settings) keeps that container's children
         // apart instead, so one of them changing records only itself.
-        let rows = self.has_rows(node);
+        let rows = self.has_rows(walk, node);
         let group = rows && !self.rows_wrapper(node.key);
         let wrap = group && self.wraps_rows(walk, &children);
         if group {

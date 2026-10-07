@@ -75,7 +75,7 @@ impl Resolver<'_, '_> {
         vp: Viewport,
         ctm: Affine,
     ) -> Option<Mask> {
-        let id = node.style.svg_mask.url()?;
+        let id = node.style.rare.svg_mask.url()?;
         let target = self.kernel.resolve_id(node.id, id)?;
         let mask = self.kernel.node(target)?;
         if mask.node_type != NodeType::SvgMask {

@@ -1,7 +1,8 @@
 // The driver's keys and typed input: a chord as CDP's key event, the browser's and the
 // native carriers' key paths, a held key, a held device request's target, and the CLI's
-// `type` forms. Split from agent.mjs, which re-exports each.
+// `type` and `tap` forms. Split from agent.mjs, which re-exports each.
 import { randomBytes } from 'node:crypto';
+import { resolve } from 'node:path';
 
 const modifierBits = { Alt: 1, Control: 2, Meta: 4, Shift: 8 };
 const modifierOf = code => /^(Alt|Control|Meta|Shift)(Left|Right)$/.exec(code)?.[1];
@@ -211,6 +212,96 @@ export function mouseContact() {
       return r;
     },
   };
+}
+
+/** The CLI `tap` line's words after `tap` (LLP 1012 §1): `[target, opts]` for `s.tap`, or `[null, opts]` for a
+ * held contact's phase when `held` says one is down (`move [by] <x> <y> [over <ms>]`, `hold [<ms>]`, `up`, `cancel`).
+ * Strict: a word no form uses, a word twice, or a number that is none is refused by name, never dropped (#107:
+ * `tap probe auxclick` was sent as a left click). `drag` and a held request's `tap @N` are the caller's. */
+export function tapWords(args, held = false) {
+  const [first, form, ...rest] = args;
+  const refuse = (why) => { throw new Error(`tap ${args.join(' ')}: ${why}`); };
+  const number = (word, what) => {
+    const n = Number(word);
+    if (word === undefined || word === '' || !Number.isFinite(n)) refuse(`${what} takes a number, not ${word === undefined ? 'nothing' : JSON.stringify(word)}`);
+    return n;
+  };
+  // The options after a form, in any order: `at <x> <y>`, `modifiers <Shift+Meta>`, `over <ms>`, or a flag.
+  const options = (words, allowed) => {
+    const opts = {}, seen = new Set();
+    for (let i = 0; i < words.length;) {
+      const w = words[i];
+      if (!allowed.includes(w)) refuse(`unknown word ${JSON.stringify(w)}; ${allowed.length ? `this form takes ${allowed.map((a) => ({ at: 'at <x> <y>', modifiers: 'modifiers <Shift+Control+Alt+Meta>', over: 'over <ms>' }[a] ?? a)).join(', ')}` : 'this form takes nothing more'}`);
+      if (seen.has(w)) refuse(`${w} twice`);
+      seen.add(w);
+      if (w === 'at') { opts.at = [number(words[i + 1], 'at'), number(words[i + 2], 'at')]; i += 3; }
+      else if (w === 'over') { opts.ms = number(words[i + 1], 'over'); i += 2; }
+      else if (w === 'modifiers') {
+        if (!words[i + 1] || allowed.includes(words[i + 1])) refuse('modifiers takes Shift, Control, Alt or Meta, joined by +');
+        opts.modifiers = words[i + 1]; i += 2;
+      } else { opts[w] = true; i += 1; }
+    }
+    return opts;
+  };
+  if (held && first === 'move') {
+    const by = form === 'by', [a, b, ...more] = by ? rest : [form, ...rest];
+    const point = by ? { dx: number(a, 'move by'), dy: number(b, 'move by') } : { x: number(a, 'move'), y: number(b, 'move') };
+    return [null, { phase: 'move', ...point, ms: 0, ...options(more, ['over', 'modifiers']) }];
+  }
+  if (held && first === 'hold') {
+    if (rest.length) refuse('hold takes one duration');
+    return [null, { phase: 'hold', ms: form === undefined ? 0 : number(form, 'hold') }];
+  }
+  if (held && first === 'up') return [null, { phase: 'up', ...options(args.slice(1), ['modifiers']) }];
+  if (held && first === 'cancel') return [null, { phase: 'cancel', ...options(args.slice(1), []) }];
+  if (form === undefined) return [first, {}];
+  if (form.startsWith('{')) return [first, JSON.parse(args.slice(1).join(' '))];
+  switch (form) {
+    // A click with modifiers held (gallery F20): `tap <target> modifiers Shift+Meta`.
+    case 'modifiers': return [first, options(args.slice(1), ['modifiers'])];
+    case 'down': return [first, { down: true, ...options(rest, ['at', 'modifiers']) }];
+    case 'hover': return [first, { hover: true, ...options(rest, []) }];
+    case 'history': if (rest.length !== 1) refuse('history takes one step, as history -1'); return [first, { history: number(rest[0], 'history') }];
+    case 'mediasession':
+      if (!rest[0] || rest.length > 2) refuse('mediasession <action> [seconds]');
+      return [first, { mediaSession: rest[0], ...(rest[1] !== undefined ? { seconds: number(rest[1], 'mediasession') } : {}) }];
+    case 'pinch': return [first, { pinch: number(rest[0], 'pinch'), ...options(rest.slice(1), ['at']) }];
+    // Files dragged in from outside, each a path (studio diary R19).
+    case 'drop': if (!rest.length) refuse('drop takes one or more paths'); return [first, { drop: rest.map((path) => resolve(path)) }];
+    case 'into': {
+      // tap <list> into <key> [block <v>] [inline <v>]
+      if (rest[0] === undefined) refuse('into takes a key');
+      const into = { key: String(rest[0]) };
+      for (let i = 1; i < rest.length; i += 2) {
+        if (!['block', 'inline'].includes(rest[i]) || rest[i + 1] === undefined || rest[i] in into) refuse(`into: unknown option ${rest[i]}; block <start|center|end|nearest> and inline <…>, each once`);
+        into[rest[i]] = rest[i + 1];
+      }
+      return [first, { into }];
+    }
+    // A wheel at the target's middle or `at` in it, the modifiers held (a pinch is a Control-held wheel; studio diary R3).
+    case 'wheel': return [first, { wheel: [number(rest[0], 'wheel'), number(rest[1], 'wheel')], ...options(rest.slice(2), ['gesture', 'at', 'modifiers']) }];
+    // The mouse's buttons (#107): the left, a double click, the right (`contextmenu`), the middle (`auxclick`), n clicks.
+    case 'mouse': case 'dblclick': case 'contextmenu': case 'auxclick': return [first, { [form]: true, ...options(rest, ['at', 'modifiers']) }];
+    case 'clicks': return [first, { clicks: number(rest[0], 'clicks'), ...options(rest.slice(1), ['at', 'modifiers']) }];
+    default: refuse(`unknown word ${JSON.stringify(form)}; tap <target> [modifiers <M> | down [at <x> <y>] [modifiers <M>] | wheel <dx> <dy> [gesture] [at <x> <y>] [modifiers <M>] | mouse | dblclick | contextmenu | auxclick | clicks <1-3> (each [at <x> <y>] [modifiers <M>]) | hover | drop <path…> | into <key> … | pinch <scale> [at <x> <y>] | history <n> | mediasession <action> [seconds] | drag …]`);
+  }
+}
+
+/** What of a `tap` this carrier cannot deliver as a hand's (#107), or null. AppKit and Chrome carry every form;
+ * elsewhere a middle click, a run of clicks, a wheel or a double click at a point, and modifiers held through a
+ * button other than a plain press's or through a contact answer `unsupported`, never another input. */
+export function pointerGap(host, browser, opts) {
+  if (['macos', 'mac', 'host'].includes(host) || (host === 'web' && (browser ?? 'chrome') === 'chrome')) return null;
+  const held = opts.modifiers ?? opts.drag?.modifiers;
+  const gaps = [
+    opts.auxclick && 'a middle-button click (auxclick)',
+    opts.clicks !== undefined && `clicks ${opts.clicks}`,
+    opts.wheel && opts.at !== undefined && 'a wheel at a point',
+    opts.dblclick && opts.at !== undefined && 'a double click at a point',
+    host === 'web' && opts.mouse && 'a mouse click', // the Playwright carrier has none
+    held && (opts.contextmenu || opts.dblclick || opts.mouse || opts.down || opts.drag || opts.phase) && 'modifiers held through a context menu, a double click, a mouse click, a contact or a drag',
+  ].filter(Boolean);
+  return gaps.length ? `${host === 'web' ? browser : host} does not carry ${gaps.join('; ')} (LLP 1012 §1)` : null;
 }
 
 /** The CLI `type` line. Key, copy and cut stay whitespace-split.

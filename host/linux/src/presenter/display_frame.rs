@@ -182,6 +182,7 @@ impl<D: DataSource> Presenter<D> {
         // afterward moves B into its receipt, without deep-copying any payload.
         let old_paint = self.brush.presentation();
         let old_boxes = std::mem::take(&mut self.boxes);
+        self.boxes_serial += 1;
         self.display.active = true;
         self.display.rendering = true;
         let pixels = self.frame();
@@ -232,6 +233,7 @@ impl<D: DataSource> Presenter<D> {
             boxes: std::mem::replace(&mut self.boxes, old_boxes),
             witness,
         };
+        self.boxes_serial += 1;
         self.display.pending = Some(identity.clone());
         Some(SubmittedFrame {
             pixels,
@@ -259,6 +261,7 @@ impl<D: DataSource> Presenter<D> {
                 let model_scroll = std::mem::take(&mut picture.witness.model_scroll);
                 self.brush.replace_presentation(picture.paint);
                 self.boxes = picture.boxes;
+                self.boxes_serial += 1;
                 self.display.acknowledged = Some(picture.witness);
                 self.retire_acknowledged_pointer();
                 self.acknowledge_collection_scroll(model_scroll);

@@ -78,9 +78,13 @@ impl Event {
         // so the `loadedmetadata`…`canplay` run never admits them. `resize`
         // sits between `drop` and the six; it is not a media event.
         let session = super::media_session::ACTIONS.contains(&kind);
+        // `fullscreenchange` (LLP 1042) is listed after them too: a boolean.
+        let fullscreen = kind == EventKind::Fullscreenchange;
         if !session
+            && !fullscreen
             && !(EventKind::Loadedmetadata as u8..=EventKind::Canplay as u8).contains(&(kind as u8))
             || session && super::media_session::details(value).is_none()
+            || fullscreen && !matches!(value, "true" | "false")
         {
             return None;
         }

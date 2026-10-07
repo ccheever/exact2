@@ -20,7 +20,7 @@ fn name(id: u32, name: &str) -> Op {
 
 fn curve(id: u32, text: &str) -> Op {
     let mut s = StyleProps::default();
-    s.layout_transition = Transitions::parse(text).unwrap();
+    s.rare.layout_transition = Transitions::parse(text).unwrap();
     s.mask.set(StyleId::LayoutTransition);
     Op::SetStyle {
         id,

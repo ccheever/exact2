@@ -19,7 +19,8 @@ extension ExactSession {
     func notify(_ name: String, _ args: [Any]) {
         let text = { (i: Int) -> String? in i < args.count ? args[i] as? String : nil }
         var request: [String: Any] = ["command": name, "agent": ExactEnv.agentMode]
-        for (i, key) in (name == "closeNotification" ? ["tag"] : ["title", "body", "tag"]).enumerated() {
+        let keys = name == "closeNotification" ? ["tag"] : ["title", "body", "tag"]
+        for (i, key) in keys.enumerated() {
             if let value = text(i) { request[key] = value }
         }
         let at = args.count > 3 ? (args[3] as? NSNumber)?.doubleValue : nil

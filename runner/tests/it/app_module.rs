@@ -121,3 +121,131 @@ fn a_rust_source_reaches_the_app_module_the_host_installed() {
     );
     assert_eq!(asked.load(Ordering::SeqCst), 2);
 }
+
+/// Each native request the runner handed out, run by the module now and
+/// its reply kept for the test to deliver: a call that takes a while.
+fn start_native(r: &mut Runner<Source>) -> Vec<(u64, Outcome)> {
+    let mut out = Vec::new();
+    for req in r.take_requests() {
+        let Dispatch::Run(Work::Later(work)) = r.native_work(&req.request) else {
+            panic!("a native call is later work")
+        };
+        let (tx, rx) = std::sync::mpsc::channel();
+        work(Reply::new(move |o| tx.send(o).unwrap()));
+        out.push((req.ticket, rx.recv().unwrap()));
+    }
+    out
+}
+
+fn status(n: f64) -> Option<Value> {
+    Some(Value::record(vec![Value::Number(n)]))
+}
+
+/// LLP 1016.002 D4 (issue #109): a topic announced while the watching
+/// resource's request is in flight does not forget that request. Its reply
+/// lands and shows, then the resource is asked again once, however many
+/// announcements came meanwhile; `pending` holds until that ask lands.
+#[test]
+fn an_announcement_while_a_call_is_in_flight_lets_its_reply_land_then_asks_once_more() {
+    let plan = contract::compile(SOURCE).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Source,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let asked = Arc::new(AtomicUsize::new(0));
+    let count = asked.clone();
+    r.native_slot()
+        .host(Some(Arc::new(move |_: Vec<u8>, reply: Reply| {
+            let n = count.fetch_add(1, Ordering::SeqCst) + 1;
+            reply.send(Outcome::Response(Response {
+                status: 200,
+                headers: Vec::new(),
+                body: format!("{{\"n\":{n}}}").into_bytes(),
+            }));
+        })));
+    r.listen(Arc::new(|| {}));
+    r.data_ready().unwrap();
+    let mut first = start_native(&mut r);
+    assert_eq!(first.len(), 1);
+    let (ticket, reply) = first.remove(0);
+
+    // The topic changes three times while the call is out: nothing new is
+    // asked, and the request in flight is still wanted.
+    for _ in 0..3 {
+        r.native_slot().changed("status");
+        r.apply_announced();
+        assert!(r.take_requests().is_empty(), "no new call while one is out");
+        assert!(r.holds(ticket), "the request in flight is not forgotten");
+    }
+    assert_eq!(r.in_flight(), vec![("status".to_string(), ticket)]);
+
+    // Its reply lands and shows; the same commit asks once more.
+    r.fulfill(ticket, reply).unwrap();
+    assert_eq!(r.resource("status"), status(1.0).as_ref());
+    let mut second = start_native(&mut r);
+    assert_eq!(second.len(), 1, "one more ask for all three announcements");
+    let (next, reply) = second.remove(0);
+    assert_ne!(next, ticket);
+    assert_eq!(r.in_flight(), vec![("status".to_string(), next)]);
+
+    // The newer reply replaces it, and nothing more is asked.
+    r.fulfill(next, reply).unwrap();
+    assert_eq!(r.resource("status"), status(2.0).as_ref());
+    assert!(r.in_flight().is_empty());
+    assert!(r.take_requests().is_empty());
+    assert_eq!(asked.load(Ordering::SeqCst), 2);
+    let journal: Vec<&str> = r.journal().collect();
+    assert!(
+        journal.iter().any(|l| l.ends_with(&format!(
+            "changed status: request {ticket} (status) lands first, then it is asked again"
+        ))),
+        "{journal:#?}"
+    );
+    assert!(
+        !journal.iter().any(|l| l.contains("forget request")),
+        "{journal:#?}"
+    );
+}
+
+/// A reply that fails after the topic changed is still asked again: the
+/// failure is of an answer from before the change.
+#[test]
+fn a_failed_reply_after_an_announcement_is_asked_again() {
+    let plan = contract::compile(SOURCE).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        Source,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let asked = Arc::new(AtomicUsize::new(0));
+    let count = asked.clone();
+    r.native_slot()
+        .host(Some(Arc::new(move |_: Vec<u8>, reply: Reply| {
+            let n = count.fetch_add(1, Ordering::SeqCst) + 1;
+            reply.send(Outcome::Response(Response {
+                status: if n == 1 { 500 } else { 200 },
+                headers: Vec::new(),
+                body: format!("{{\"n\":{n}}}").into_bytes(),
+            }));
+        })));
+    r.listen(Arc::new(|| {}));
+    r.data_ready().unwrap();
+    let (ticket, reply) = start_native(&mut r).remove(0);
+    r.native_slot().changed("status");
+    r.apply_announced();
+    assert!(r.take_requests().is_empty());
+    let _ = r.fulfill(ticket, reply);
+    let mut again = start_native(&mut r);
+    assert_eq!(again.len(), 1, "the failed ask is asked once more");
+    let (next, reply) = again.remove(0);
+    r.fulfill(next, reply).unwrap();
+    assert_eq!(r.resource("status"), status(2.0).as_ref());
+    assert!(r.in_flight().is_empty());
+}

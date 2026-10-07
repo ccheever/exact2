@@ -7,7 +7,7 @@ import {EventEmitter} from 'node:events';
 import {createServer, get} from 'node:http';
 import {existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {parse, relative, resolve, toNamespacedPath} from 'node:path';
+import {parse, relative, resolve} from 'node:path';
 import {PassThrough} from 'node:stream';
 import {closeFilesystemReader, filesystem, filesystemErrorCode} from './filesystem.mjs';
 import {Cdp, captureCdpRequest, cdpFailureContext, copyCdpFailureContext, chromium, closeWindowsBrowser, retainCleanupError, packagedBuildChanges, removeBrowserProfile} from './agent-launch.mjs';
@@ -19,7 +19,7 @@ import {binaryenArchive, binaryenVersion} from './exact.mjs';
 import {buildTreeFile, serveBuildTree, listPublicFiles, publicFileCards, readStaticFile, readStaticFileAsync, staticFile} from '../host/web/serve.mjs';
 import {gameShells} from '../game/app/shells.mjs';
 import {formatProofError, proofFailureRow} from '../game/proof.mjs';
-import {hermesWindowsRoots, readManifest} from './app.mjs';
+import {readManifest} from './app.mjs';
 
 test('JS build trees serve native paths without admitting private or escaping files', async () => {
   const owned=realpathSync(mkdtempSync(resolve(tmpdir(),'exact JS tree café ')));
@@ -94,22 +94,6 @@ test('storage error numbers retain platform meaning and require an exact typed s
   expect(windows('(filesystem code EISDIR) then access refused (os error 5)')).toBe('failed');
   expect(windows('denied: fs.read (filesystem code EISDIR)')).toBe('denied');
   expect(unix('(filesystem code EISDIR)')).toBe('failed');
-});
-
-test.skipIf(process.platform !== 'win32')('Windows Hermes receipt roots capture a real junction install alias', () => {
-  const parent=mkdtempSync(resolve(tmpdir(),'exact-hermes roots café-'));
-  try {
-    const install=resolve(parent,'actual install'), alias=resolve(parent,'selected alias');
-    mkdirSync(install); symlinkSync(install,alias,'junction');
-    const canonical=realpathSync.native(install);
-    expect(realpathSync.native(alias)).toBe(canonical);
-    const roots=hermesWindowsRoots({EXACT_HERMES_DIR:alias});
-    expect(roots).toContain(alias);
-    expect(roots).toContain(toNamespacedPath(alias));
-    expect(roots).toContain(canonical);
-    expect(roots).toContain(toNamespacedPath(canonical));
-    expect(new Set(roots).size).toBe(roots.length);
-  } finally { rmSync(parent,{recursive:true,force:true}); }
 });
 
 test('proof interruption preserves a real CDP timeout message when its stack omits it', async () => {

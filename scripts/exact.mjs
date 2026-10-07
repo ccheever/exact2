@@ -36,7 +36,7 @@ import { createHash } from 'node:crypto';
 import { BINARYEN } from '../host/web/stages.mjs';
 import { delimiter, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
+import { cargoEnvironment, HERMES_INSTALLER, hermesBundle, hermesTarget, resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
 import { createApp, createGame } from '../game/new.mjs';
 import { sdkFetch } from '../game/app/shells.mjs';
 import { appleArtifacts, assertAppleIdentity, macReleaseEntitlements, stripForDistribution } from '../host/apple/build.mjs';
@@ -55,6 +55,43 @@ export const executableIn = (bundle) => resolve(bundle, 'Contents/MacOS/ExactMac
 export const commandOf = (app) => app.manifest.app?.command ?? app.name;
 /** Where `install` puts the app. */
 export const installedAt = (app) => resolve(APPLICATIONS, `${app.displayName}.app`);
+
+/** The cross bundles a Mac's TypeScript builds use, each needed only for its
+ * destination (and only with Xcode). The host bundle is the one required row. */
+export function hermesCrossTargets(os = process.platform, cpu = process.arch) {
+  if (os !== 'darwin') return [];
+  return [
+    { target: cpu === 'x64' ? 'x86_64-apple-ios' : 'aarch64-apple-ios-sim', need: 'iOS Simulator TypeScript' },
+    { target: 'aarch64-apple-ios', need: 'iOS device TypeScript' },
+    { target: 'aarch64-apple-tvos-sim', need: 'tvOS Simulator TypeScript' },
+  ];
+}
+
+/** The simulator bundles `setup` installs after the host's (device bundles are
+ * fetched on demand: `host/apple/build.mjs --device` names the command). */
+export const hermesSetupTargets = (os = process.platform, cpu = process.arch) =>
+  hermesCrossTargets(os, cpu).map(entry => entry.target).filter(target => target !== 'aarch64-apple-ios');
+
+// Locked always: the installer's own lock is committed, and a check must
+// neither rewrite it nor fetch crates (`--offline`); HERMES_LEAN_SYS_OFFLINE
+// only constrains the Hermes resolver, not Cargo.
+const hermesInstallerArguments = (check, targets = []) => [
+  'run', '--locked', ...(check ? ['--offline'] : []), '--manifest-path', HERMES_INSTALLER, '--',
+  ...(check ? ['--check'] : []), ...targets.flatMap(target => ['--target', target]),
+];
+
+/** Ask the vendored resolver itself whether the host bundle (and `targets`, each
+ * validated against the host compiler) is installed and valid. */
+export function checkHermesBundles(env = process.env, execute = spawnSync, os = process.platform, cpu = process.arch, targets = []) {
+  const host = hermesTarget(os, cpu);
+  if (!host) return { ok: false, message: `no pinned bundle exists for ${os}/${cpu}`, fix: '' };
+  const args = hermesInstallerArguments(true, targets);
+  const result = execute('cargo', args, { cwd: ROOT, encoding: 'utf8', env: cargoEnvironment(env) });
+  const stderr = result.stderr?.trim().split(/\r?\n/).filter(Boolean).at(-1);
+  const message = [result.stdout?.trim(), stderr, result.error?.message].filter(Boolean).join('\n');
+  const install = ['cargo', ...hermesInstallerArguments(false, targets)].join(' ');
+  return { ok: result.status === 0, message: message || `cargo exited ${result.status ?? 'without a status'}`, fix: install };
+}
 
 /** Where a shim goes: `EXACT_BIN_DIR`, else the first of these already on PATH, else `~/.local/bin` (made, and named in the advice). */
 export function binDirectory() {
@@ -335,7 +372,7 @@ export function setup({check = false} = {}) {
   const binaryen = resolve(homedir(), '.cache/exact/binaryen', version);
   const run = (cmd, args) => {
     console.log([cmd, ...args].join(' '));
-    const result = spawnSync(cmd, args, {cwd: ROOT, stdio: 'inherit'});
+    const result = spawnSync(cmd, args, {cwd: ROOT, stdio: 'inherit', env: cargoEnvironment()});
     if (result.status !== 0) throw new Error(`${cmd} failed: ${result.error?.message ?? result.status}`);
   };
   const output = (cmd, args) => {
@@ -368,6 +405,14 @@ export function setup({check = false} = {}) {
       } finally { rmSync(stage, {recursive: true, force: true}); }
     }
     run(process.execPath, ['install', '--frozen-lockfile']);
+    if (!hermesTarget()) throw new Error(`the pinned Hermes release has no host bundle for ${process.platform}/${process.arch}`);
+    run('cargo', hermesInstallerArguments(false));
+    // Simulator bundles separately: a failed cross download must not undo the
+    // host install every build needs; `setup --check` reports it on its own row.
+    const cross = hermesSetupTargets();
+    if (cross.length && spawnSync('cargo', hermesInstallerArguments(false, cross), {cwd: ROOT, stdio: 'inherit', env: cargoEnvironment(process.env)}).status !== 0) {
+      console.error(`exact setup: the ${cross.join(', ')} Hermes bundles did not install; Apple simulator TypeScript builds will name the command`);
+    }
     // Every bake resolves offline and locked: the checkout's crates, and the game SDK's for a game's shell.
     run('cargo', [`+${pin.channel}`, 'fetch', '--locked', '--manifest-path', resolve(ROOT, 'Cargo.toml')]);
     console.log('cargo fetch (the game SDK lock, game/app/shells.lock)');
@@ -392,7 +437,7 @@ export function sdkReport(env = process.env) {
   const pin = Bun.TOML.parse(readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8')).toolchain;
   const bindgen = Bun.TOML.parse(readFileSync(resolve(ROOT, 'game/Cargo.toml'), 'utf8')).workspace.dependencies['wasm-bindgen'].replace(/^=/, '');
   const output = (cmd, args) => {
-    const result = spawnSync(cmd, args, {cwd: ROOT, encoding: 'utf8', env});
+    const result = spawnSync(cmd, args, {cwd: ROOT, encoding: 'utf8', env: cmd === 'cargo' ? cargoEnvironment(env) : env});
     return result.status === 0 ? result.stdout.trim() : '';
   };
   const row = (name, have, want, ok, fix, need = null) => ({name, have: have || 'missing', want, ok, fix, required: !need, need});
@@ -428,27 +473,27 @@ export function sdkReport(env = process.env) {
     const xcode = /\.app\/Contents\/Developer$/.test(developer);
     rows.push(row('Xcode', developer, 'Xcode.app', xcode, 'install Xcode, then sudo xcode-select -s /Applications/Xcode.app', 'macOS and iOS'));
   }
-  const hermes = hermesSources(env);
-  rows.push(row('hermesc', hermes.hermesc, 'facebook/hermes pin', hermes.hermescOk, hermes.fix, 'TypeScript apps on native hosts; the web needs none'));
-  if (process.platform === 'darwin') rows.push(row('Hermes engine', hermes.engine, 'facebook/hermes pin', hermes.engineOk, hermes.fix, 'TypeScript on macOS (iOS builds its own)'));
+  const host = checkHermesBundles(env);
+  rows.push(row(
+    `Hermes bundle (${hermesTarget() ?? 'no host bundle'})`,
+    host.ok ? 'verified by hermes-lean-sys' : host.message,
+    'the pinned Ibex release', host.ok, host.fix,
+  ));
+  for (const {target, need} of hermesCrossTargets()) {
+    const cross = checkHermesBundles(env, spawnSync, process.platform, process.arch, [target]);
+    rows.push(row(`Hermes bundle (${target})`, cross.ok ? 'verified by hermes-lean-sys' : 'not installed or invalid',
+      'the pinned Ibex release', cross.ok, cross.fix, need));
+  }
   return rows;
 }
 
-/** Where js/build.rs will look for Hermes, in its order: a named path; the
- * machine cache, only with no sibling ibex at all; the sibling ibex. */
+/** The install-once, digest-addressed Ibex bundle selected by hermes-lean-sys. */
 export function hermesSources(env = process.env) {
-  const ibex = resolve(ROOT, '../ibex'), cache = resolve(env.HOME ?? homedir(), '.cache/exact/hermes-macos');
-  const fromCache = process.platform === 'darwin' && !env.EXACT_HERMES_DIR && !existsSync(ibex) && existsSync(resolve(cache, 'engine'));
-  const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
-  const hermesc = env.EXACT_HERMESC ? resolve(env.EXACT_HERMESC)
-    : process.platform === 'linux' ? resolve(ibex, `tools/hermes-vanilla/hermesc-linux-${arch}`)
-    : fromCache ? resolve(cache, 'hermesc') : resolve(ibex, `tools/hermes-vanilla/hermesc-macos-${arch}`);
-  const engine = env.EXACT_HERMES_DIR ? resolve(env.EXACT_HERMES_DIR) : fromCache ? resolve(cache, 'engine') : resolve(ibex, 'ios/Frameworks-vanilla');
-  const receipt = !fromCache || (() => { try { return readFileSync(resolve(cache, 'engine/hermes-input-receipt.json'), 'utf8').includes('"sourceCommit"'); } catch { return false; } })();
+  const bundle = hermesBundle(hermesTarget(), env);
   return {
-    hermesc: existsSync(hermesc) ? hermesc : '', hermescOk: existsSync(hermesc),
-    engine: existsSync(engine) ? engine : '', engineOk: existsSync(engine) && receipt,
-    fix: `git clone https://github.com/expo/ibex ${ibex} && (cd ${ibex} && ./scripts/build-hermes.sh --vanilla)`,
+    hermesc: existsSync(bundle.hermesc) ? bundle.hermesc : '', hermescOk: existsSync(bundle.hermesc),
+    engine: bundle.installed ? bundle.root : '', engineOk: bundle.installed,
+    fix: bundle.fix,
   };
 }
 
@@ -467,7 +512,7 @@ export function printReport(rows, {onlyMissing = false} = {}) {
  * (an app's, or another checkout's). */
 export function contract(args, env = process.env) {
   const pin = Bun.TOML.parse(readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8')).toolchain.channel;
-  const clean = {...env};
+  const clean = cargoEnvironment(env);
   delete clean.RUSTUP_TOOLCHAIN;
   delete clean.CARGO_TARGET_DIR;
   const binary = resolve(ROOT, 'target/debug', process.platform === 'win32' ? 'contract.exe' : 'contract');
@@ -508,8 +553,9 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact install <app>          put it in ~/Applications and its name on PATH
   exact release <app>          sign with a Developer ID, notarise, staple, package
   exact uninstall <app>        take both away
-  exact setup [--check]        install pinned Rust, wasm-bindgen and Binaryen,
-                               and fetch the crates every bake reads offline
+  exact setup [--check]        install pinned Rust, wasm-bindgen, Binaryen and
+                               this machine's host/iOS/tvOS Hermes bundles;
+                               fetch the crates every bake reads offline
   exact list                   the apps in this repo
   exact new <path> [--update]  a new app outside this repo, using this checkout;
                                --update follows a moved checkout or a new patch

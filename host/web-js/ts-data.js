@@ -120,9 +120,19 @@ const conv = (v, t, target) => { const a = arrays(v, t, answered.get(target)); a
 // the topic (LLP 1016.002).
 const watched = new Map(); // topic -> sources
 let watching = null, page = null, load = null;
+// A resource with a request in flight is not asked now: that request's
+// reply lands, then it is asked again (`t.again`, rt.js), once however many
+// changes came; a stream, or nothing in flight, is asked now (LLP 1016.002
+// D4, the runner's `changed`).
+const changed = (r, topic) => {
+  const t = r.ticket;
+  if (!t || t.stream || t.req?.stream) return R(r);
+  if (!t.again) journal.push(`t=${clock.now} changed ${topic}: ticket ${t.id} (${r.name}) lands first, then it is asked again`);
+  t.again = true;
+};
 const pageModule = () => page ??= load().then(m => m.pageModule({
   agent: clock.agent, now: () => clock.now,
-  changed: topic => commit(() => { const s = watched.get(topic); for (const r of Resources) if (s?.has(r.source)) R(r); }, `native ${topic}`),
+  changed: topic => commit(() => { const s = watched.get(topic); for (const r of Resources) if (s?.has(r.source)) changed(r, topic); }, `native ${topic}`),
 }));
 const native = Object.freeze({
   get available() { return true; },

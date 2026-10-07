@@ -312,6 +312,11 @@ guide's rules don't make obvious.
   ends the page first. Fix: navigate in the mutation's `then`, which runs once the
   write has answered. (Authoring bench, LLP 1087, a2-contacts and t2-todo, 2026-10-05.)
 
+- **Repeating with `pause` mutations.** A `then` cannot send its own mutation
+  (`analyze-then-self-send`), and two mutations whose `then`s send each other
+  are the same loop. To repeat while a condition holds, use a task with `when`
+  and `every`. See "Repeating while a condition holds" in the guide.
+
 ## Sound
 
 - **A scheduled sound plays after Stop.** A sequencer that schedules each step
@@ -511,9 +516,22 @@ guide's rules don't make obvious.
   opt-in. The inner iframe keeps its sandbox and its authored dimensions.
   To drive what a user sees on macOS, build with `bun exact.mjs mac --bundle` and set
   `EXACT_MAC_BIN` to the `.app`'s `Contents/MacOS/ExactMac`; the driver then skips its
-  stale-build check, so rebuild the bundle before each drive. Not covered: an app's
-  own page (`src="assets/…"`) that links an `http:` sub-resource (#135).
+  stale-build check, so rebuild the bundle before each drive. An app's own page
+  (`src="assets/…"`) is served at `http://exact.localhost`: its `http:`
+  sub-resources on loopback load, and one on a named host follows the same ATS
+  setting. A sub-resource that fails is logged (`exact: iframe assets/…: <url>
+  did not load (<reason>)`) (#135).
   (Issue #106, 2026-10-06.)
+
+- **A focus ring never shows in an `agent macos` screenshot.** `type save key Tab`
+  moves the focus (`state` reads it in `focus.logical`), yet neither `screenshot`
+  nor `screenshot … window` shows AppKit's ring. Cause: the agent's app is an
+  accessory whose window is ordered front but never key, and AppKit draws a focus
+  ring only in the key window; nor can a script activate a dev build here (macOS
+  refuses `activate` from the background). Fix: read the focus from `state`, and
+  for the ring itself make the presenter's window an `NSPanel` with
+  `.nonactivatingPanel` in an XCTest (it becomes key without activating the app)
+  and read its pixels with `CGWindowListCreateImage`. (Issue #179, 2026-10-07.)
 
 - **A drive script kept in the app folder makes the build stale.** Editing
   `verify.mjs` beside `app.contract` made the driver refuse the next drive until
@@ -717,3 +735,11 @@ guide's rules don't make obvious.
   terminal failed to initialize". Before telling a person the app is up,
   confirm its process (`pgrep -f <binary>`) and kill a failed window's
   instance before retrying (LLP 1101.002 §0 P16).
+
+- **An external native app rebuilds on every unchanged direct Cargo invocation.**
+  Cargo treats a missing optional `assets`/`deck` input as perpetually dirty;
+  watching its parent recursively would also watch app-local build outputs.
+  Use the host builder (`bun exact.mjs windows` for a generated Windows game).
+  It recomputes `EXACT_ASSET_ROOTS` before each Cargo invocation; the bake watches
+  that inventory for first creation and existing roots for content changes.
+  Do not set this variable to a fixed hand-maintained list for direct Cargo.

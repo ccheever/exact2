@@ -52,6 +52,9 @@ struct Row {
     images: Vec<(ViewId, Option<std::sync::Weak<Bitmap>>)>,
     /// Each node's frame relative to the row's (x, y) and its size.
     frames: Vec<(NodeKey, [f32; 4])>,
+    /// The scrollers inside it and their offsets when recorded: one moved
+    /// (a swipe) records the row again.
+    scrolls: Vec<(ViewId, (f32, f32))>,
     unsupported: bool,
     /// What the row's drawing covers, relative to its origin.
     bounds: Rect4,
@@ -59,6 +62,9 @@ struct Row {
     /// Something in it changed: recorded again before it draws, and kept
     /// as it was when the new recording is the same.
     stale: bool,
+    /// What its subtree lets escape into its list's painting, while nothing
+    /// in it changed ([`Painter::refresh_ranks`]).
+    order: Option<exact_kernel::paint_order::Potentials>,
 }
 
 /// A row being recorded.
@@ -68,6 +74,7 @@ struct Capture {
     images: Vec<(ViewId, Option<std::sync::Weak<Bitmap>>)>,
     text: Vec<(NodeKey, Rc<Paragraph>)>,
     frames: Vec<(NodeKey, [f32; 4])>,
+    scrolls: Vec<(ViewId, (f32, f32))>,
 }
 
 #[derive(Default)]
@@ -89,6 +96,19 @@ pub(super) struct Rows {
     /// The container whose children are its scroller's rows, while it is
     /// walked (see [`Painter::wraps_rows`]).
     wrapper: Option<NodeKey>,
+}
+
+impl Rows {
+    /// Whether the last walk kept rows.
+    pub(super) fn active(&self) -> bool {
+        self.active
+    }
+
+    /// The potentials of the kept row at `key` while nothing in it changed.
+    pub(super) fn order(&self, key: NodeKey) -> Option<exact_kernel::paint_order::Potentials> {
+        let row = self.kept.get(&key)?;
+        row.order.filter(|_| !row.stale)
+    }
 }
 
 /// Room around a row's boxes for what paints outside them (shadows).
@@ -230,12 +250,19 @@ impl Painter {
     }
 
     /// Whether `node`'s children are rows this walk. A scroller inside a
-    /// recording row moves without a commit: that row is not kept.
-    pub(super) fn has_rows(&mut self, node: &NodeRef<'_>) -> bool {
+    /// recording row moves without a commit: the row keeps its offset and
+    /// is recorded again once the offset is another.
+    pub(super) fn has_rows(&mut self, walk: &Walk<'_, '_>, node: &NodeRef<'_>) -> bool {
         let (x, y) = effective_overflow(node);
-        if self.rows.recording.is_some() {
+        if let Some(c) = &mut self.rows.recording {
             if scrolls(x) || scrolls(y) {
-                self.row_refuse();
+                let at = walk
+                    .scene
+                    .scroll
+                    .get(&node.id)
+                    .copied()
+                    .unwrap_or((0.0, 0.0));
+                c.scrolls.push((node.id, at));
             }
             return false;
         }
@@ -321,6 +348,10 @@ impl Painter {
             && row.scale == scale
             && row.size == (node.frame.width, node.frame.height)
             && row
+                .scrolls
+                .iter()
+                .all(|(id, at)| walk.scene.scroll.get(id).copied().unwrap_or((0.0, 0.0)) == *at)
+            && row
                 .images
                 .iter()
                 .all(|(id, kept)| match (walk.scene.images.get(id), kept) {
@@ -391,7 +422,15 @@ impl Painter {
             }
             return;
         }
-        let previous = self.rows.kept.remove(&node.key).map(|old| old.id);
+        let old = self.rows.kept.remove(&node.key);
+        // Potentials found this epoch, else the old recording's when its
+        // subtree is unchanged (recorded again for its size or a picture).
+        let order = self
+            .fresh_order
+            .get(&id)
+            .copied()
+            .or_else(|| old.as_ref().filter(|o| !o.stale).and_then(|o| o.order));
+        let previous = old.map(|old| old.id);
         self.rows.next += 1;
         let start = walk.boxes.len();
         let unsupported = std::mem::replace(&mut self.damage.unsupported, false);
@@ -425,9 +464,16 @@ impl Painter {
         for b in &mut walk.boxes[start..] {
             b.clip = within(b.clip, clip_rect);
         }
+        // What the row can draw: each box within its clip (a scroller's
+        // content box is its whole extent, a horizontal list's thousands of
+        // px wide; only its port shows), one clipped away entirely nothing.
         let covered = boxes
             .iter()
-            .fold(None, |u, b| Some(union(u, b.rect)))
+            .filter_map(|b| match b.clip {
+                None => Some(b.rect),
+                Some(c) => Some(intersect(b.rect, c)).filter(|r| r.2 > 0.0 && r.3 > 0.0),
+            })
+            .fold(None, |u, r| Some(union(u, r)))
             .unwrap_or((origin.0, origin.1, 0.0, 0.0));
         let bounds = (
             covered.0 - origin.0 - MARGIN,
@@ -465,10 +511,12 @@ impl Painter {
                     .into_iter()
                     .map(|(k, f)| (k, [f[0] - x0, f[1] - y0, f[2], f[3]]))
                     .collect(),
+                scrolls: capture.scrolls,
                 unsupported: row_unsupported,
                 bounds,
                 seen: frame,
                 stale: false,
+                order,
             },
         );
     }

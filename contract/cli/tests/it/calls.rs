@@ -945,7 +945,7 @@ fn a_mutation_sent_twice_through_calls_names_the_calls() {
     says(
         "component App\n  mutation saved as shape string then after\n  action commit\n    send saved = save(\"a\")\n  action after\n    commit()\n  view\n    button press=commit testId=\"go\"\n      text \"go\"\n",
         "analyze-then-self-send",
-        "`after` cannot send `saved` (it calls `commit` at line 6, which sends it): it runs when that mutation answers",
+        "`after` cannot send `saved` (it calls `commit` at line 6, which sends it): it runs when that mutation answers. To repeat while a condition holds, declare a root task: `task NAME when COND`, with `every(ms, action)` on the next indented line",
     );
 }
 

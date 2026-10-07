@@ -169,20 +169,27 @@ impl SessionState {
                 .filter(|id| !self.entries.values().any(|e| e.id == **id))
                 .count()
     }
+    fn is_cold(e: &Entry) -> bool {
+        e.requests.is_empty()
+            && matches!(
+                &e.phase,
+                Phase::Ready {
+                    image,
+                    delivery: false,
+                } if image.output.pins() == 0
+            )
+    }
+    /// How many entries are cold, without gathering and sorting them: a
+    /// request and a cancel check the limit, and a list's every new and
+    /// departing picture makes one.
+    fn cold_count(&self) -> usize {
+        self.entries.values().filter(|e| Self::is_cold(e)).count()
+    }
     fn cold_keys(&self) -> Vec<RasterKey> {
         let mut cold: Vec<_> = self
             .entries
             .iter()
-            .filter(|(_, e)| {
-                e.requests.is_empty()
-                    && matches!(
-                        &e.phase,
-                        Phase::Ready {
-                            image,
-                            delivery: false,
-                        } if image.output.pins() == 0
-                    )
-            })
+            .filter(|(_, e)| Self::is_cold(e))
             .map(|(key, entry)| (entry.touched, *key))
             .collect();
         cold.sort_unstable();
@@ -406,6 +413,29 @@ impl Gate {
             }
         }
     }
+    /// [`Gate::wait_decode`] that also returns at a wake that brought no
+    /// decode (`None`): a worker that also reads sources' headers, work that
+    /// arrives as [`RasterSession::wake`], looks for it at once rather than at
+    /// the timeout.
+    pub fn wait_work(&self, timeout: Duration) -> Option<DecodePermit> {
+        let observed = *self.inner.wake.sequence.lock().unwrap();
+        if let Some(permit) = self.next_decode() {
+            return Some(permit);
+        }
+        let sequence = self.inner.wake.sequence.lock().unwrap();
+        if *sequence != observed {
+            drop(sequence);
+            return self.next_decode();
+        }
+        let (sequence, _) = self
+            .inner
+            .wake
+            .changed
+            .wait_timeout(sequence, timeout)
+            .unwrap();
+        drop(sequence);
+        self.next_decode()
+    }
     pub fn stats(&self) -> GateStats {
         let state = self.inner.state.lock().unwrap();
         GateStats {
@@ -519,7 +549,7 @@ impl RasterSession {
         }
         let id = RequestId(identity());
         if let Some(previous) = previous {
-            cancel_request(session, previous, &mut garbage);
+            cancel_request(session, previous, false, &mut garbage);
         }
         if let Some(entry) = session.entries.get_mut(&demand.key) {
             if entry.requests.is_empty() {
@@ -549,6 +579,52 @@ impl RasterSession {
         drop(garbage);
         self.owner.gate.inner.wake.notify();
         Ok(id)
+    }
+    /// The smallest picture of `source` (this `generation` and `variant`)
+    /// decoded or being decoded that covers `at_least` and has at most
+    /// `max_pixels` pixels: a view that asks for it shares that one instead
+    /// of decoding the source again at a size of its own (a list shows one
+    /// photo at several sizes, and each size was a decode and a charge).
+    pub fn covering(
+        &self,
+        source: u64,
+        generation: u64,
+        variant: u32,
+        at_least: PixelSize,
+        max_pixels: u64,
+    ) -> Option<PixelSize> {
+        let state = self.owner.gate.inner.state.lock().unwrap();
+        let session = state.sessions.get(&self.id())?;
+        let from = RasterKey {
+            source,
+            generation,
+            pixels: PixelSize {
+                width: 0,
+                height: 0,
+            },
+            variant: 0,
+        };
+        let to = RasterKey {
+            source,
+            generation,
+            pixels: PixelSize {
+                width: u32::MAX,
+                height: u32::MAX,
+            },
+            variant: u32::MAX,
+        };
+        session
+            .entries
+            .range(from..=to)
+            .filter(|(key, entry)| {
+                key.variant == variant
+                    && key.pixels.width >= at_least.width
+                    && key.pixels.height >= at_least.height
+                    && u64::from(key.pixels.width) * u64::from(key.pixels.height) <= max_pixels
+                    && matches!(entry.phase, Phase::Ready { .. } | Phase::Decoding(_))
+            })
+            .map(|(key, _)| key.pixels)
+            .min_by_key(|p| u64::from(p.width) * u64::from(p.height))
     }
     pub fn status(&self, request: RequestId) -> Option<RequestStatus> {
         let state = self.owner.gate.inner.state.lock().unwrap();
@@ -595,7 +671,7 @@ impl RasterSession {
         let Some(session) = state.sessions.get_mut(&self.id()) else {
             return false;
         };
-        let result = cancel_request(session, request, &mut garbage);
+        let result = cancel_request(session, request, true, &mut garbage);
         enforce_cold_limit(session, &mut garbage);
         drop(state);
         drop(garbage);
@@ -628,7 +704,7 @@ impl RasterSession {
                 .map(|(id, _)| *id)
                 .collect();
             for id in ids {
-                cancel_request(session, id, &mut garbage);
+                cancel_request(session, id, false, &mut garbage);
             }
             let keys: Vec<_> = session
                 .entries
@@ -735,7 +811,7 @@ impl RasterSession {
             stats.delivery_cells = s.cells;
             stats.pending_jobs = s.pending();
             stats.subscribers = s.requests.len();
-            stats.cold_entries = s.cold_keys().len();
+            stats.cold_entries = s.cold_count();
             stats.dedup_hits = s.dedup_hits;
             stats.cancelled = s.cancelled;
             stats.evicted = s.evicted;
@@ -931,7 +1007,14 @@ fn remove_entry(s: &mut SessionState, key: RasterKey, garbage: &mut Vec<Arc<Imag
         }
     }
 }
-fn cancel_request(s: &mut SessionState, request: RequestId, garbage: &mut Vec<Arc<Image>>) -> bool {
+/// `keep`: a decoded picture nobody took yet stays cold (a view that let go
+/// of its request); otherwise it goes, as a replaced or retired one does.
+fn cancel_request(
+    s: &mut SessionState,
+    request: RequestId,
+    keep: bool,
+    garbage: &mut Vec<Arc<Image>>,
+) -> bool {
     let Some(binding) = s.requests.remove(&request) else {
         return false;
     };
@@ -941,11 +1024,18 @@ fn cancel_request(s: &mut SessionState, request: RequestId, garbage: &mut Vec<Ar
     let e = s.entries.get_mut(&key).unwrap();
     e.requests.remove(&request);
     if e.requests.is_empty() {
-        if let Phase::Ready {
-            image,
-            delivery: false,
-        } = &e.phase
-        {
+        let ready = match &e.phase {
+            Phase::Ready { delivery, .. } => keep || !*delivery,
+            _ => false,
+        };
+        if let (true, Phase::Ready { image, delivery }) = (ready, &mut e.phase) {
+            // Decoded, delivered or not: kept cold, as a picture its view let
+            // go of is, for the next view that asks for it. An undelivered one
+            // gives its delivery cell back.
+            if *delivery {
+                *delivery = false;
+                s.cells -= 1;
+            }
             image.unpin();
             e.touched = identity();
         } else {
@@ -960,6 +1050,9 @@ fn cancel_request(s: &mut SessionState, request: RequestId, garbage: &mut Vec<Ar
     true
 }
 fn enforce_cold_limit(s: &mut SessionState, garbage: &mut Vec<Arc<Image>>) {
+    if s.cold_count() <= COLD_ENTRIES {
+        return;
+    }
     let cold = s.cold_keys();
     let excess = cold.len().saturating_sub(COLD_ENTRIES);
     for key in cold.into_iter().take(excess) {

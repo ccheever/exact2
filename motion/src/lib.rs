@@ -20,6 +20,7 @@
 //!   keyframes so the web plays the same curve.
 //! - [`transition`] — the declaration, and CSS's rules for starting,
 //!   interrupting, and reversing a transition.
+//! - [`path`] — a path's `d` as a value, and when two interpolate.
 //! - [`color`] — CSS colours as premultiplied values (LLP 1055.000 D6).
 //! - [`animation`] — CSS `@keyframes` and `animation`, sampled in closed form
 //!   (LLP 1055 D5).
@@ -43,6 +44,7 @@ pub mod engine;
 pub mod gesture;
 pub mod math;
 pub mod parse;
+pub mod path;
 pub mod property;
 pub mod spring;
 pub mod transition;
@@ -60,6 +62,7 @@ pub use engine::{
     PlayedCurve, PlayedTransition, Presentation, SpringDescriptor, SpringFrames, TransformHold,
 };
 pub use parse::ParseError;
+pub use path::{PathCommand, PathValue};
 pub use property::{Property, Value};
 pub use spring::{Keyframe, SpringConfig, SpringError, SpringSample};
 pub use transition::{

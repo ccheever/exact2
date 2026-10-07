@@ -969,3 +969,74 @@ fn geometry_moves_and_blends_resolve() {
         _ => unreachable!(),
     }
 }
+
+/// LLP 1055.000 D15: a path's `d` under `transition` moves through the
+/// engine and the scene draws the path between (the issue #123 chevron);
+/// a pair with other commands changes at once, as Chrome shows it.
+#[test]
+fn a_transitioning_d_draws_the_path_between() {
+    use exact_kernel::svg::Seg;
+    use exact_motion::{Engine, PathValue, Property, Value};
+    struct Shown<'e>(&'e Engine);
+    impl scene::Present for Shown<'_> {
+        fn value(&self, key: exact_kernel::NodeKey, p: Property) -> Option<Value> {
+            self.0.sampled_value(exact_kernel::motion_node(key), p)
+        }
+        fn path(&self, key: exact_kernel::NodeKey) -> Option<PathValue> {
+            self.0.presented_path(exact_kernel::motion_node(key))
+        }
+    }
+    let mut d = Doc::new();
+    let svg = d.node(
+        NodeType::Svg,
+        &[(StyleId::Width, "24"), (StyleId::Height, "24")],
+        &[(PropId::ViewBox, "0 0 24 24")],
+    );
+    let chev = d.node(
+        NodeType::SvgPath,
+        &[(StyleId::Transition, "d 400ms linear")],
+        &[(PropId::D, "M6 9 L12 15 L18 9")],
+    );
+    d.children(svg, &[chev]);
+    d.children(1, &[svg]);
+    d.ops.push(Op::AttachRoot { id: 1 });
+    let mut k = Kernel::with_monospace();
+    let receipt = k.apply(0, 1, &d.ops).unwrap();
+    k.compute_layout(1, Offer::definite(100.0, 100.0)).unwrap();
+    let mut engine = Engine::new();
+    k.motion_sync(&receipt).apply(&mut engine).unwrap();
+    let ys = |k: &Kernel, engine: &Engine| -> Vec<f32> {
+        let node = k.node(svg).unwrap();
+        let s = scene::resolve(k, &node, scene::content_box(&node), &Shown(engine));
+        let Kind::Shape(shape) = &find(&s.items, chev).unwrap().kind else {
+            panic!("a shape")
+        };
+        shape
+            .path
+            .0
+            .iter()
+            .map(|seg| match seg {
+                Seg::Move(_, y) | Seg::Line(_, y) => *y,
+                _ => f32::NAN,
+            })
+            .collect()
+    };
+    let flip = |k: &mut Kernel, engine: &mut Engine, epoch, d: &str| {
+        let receipt = k.apply(0, epoch, &[prop(chev, PropId::D, d)]).unwrap();
+        k.motion_sync(&receipt).apply(engine).unwrap();
+    };
+    assert_eq!(ys(&k, &engine), [9.0, 15.0, 9.0]);
+    flip(&mut k, &mut engine, 2, "M6 15 L12 9 L18 15");
+    assert_eq!(ys(&k, &engine), [9.0, 15.0, 9.0], "the start, at 0 ms");
+    engine.advance(0.2).unwrap();
+    assert_eq!(ys(&k, &engine), [12.0, 12.0, 12.0], "flat at 200 ms");
+    engine.advance(0.4).unwrap();
+    assert_eq!(ys(&k, &engine), [15.0, 9.0, 15.0], "settled on the row");
+    // M L L against M Q: not interpolable, so at once.
+    flip(&mut k, &mut engine, 3, "M4 12 Q12 2 20 12");
+    assert_eq!(
+        engine.presented_path(exact_kernel::motion_node(k.node(chev).unwrap().key)),
+        None
+    );
+    assert!(engine.quiescent());
+}

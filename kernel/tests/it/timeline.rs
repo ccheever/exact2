@@ -102,9 +102,9 @@ fn the_rows_are_css_text_and_refuse_what_is_not_their_grammar() {
     ] {
         s.set_dynamic(id, &StyleValue::Text(css.into())).unwrap();
         let written = match id {
-            StyleId::DragTimeline => s.drag_timeline.css(),
-            StyleId::AnimationTimeline => s.animation_timeline.css(),
-            StyleId::TimelineScope => s.timeline_scope.css(),
+            StyleId::DragTimeline => s.rare.drag_timeline.css(),
+            StyleId::AnimationTimeline => s.rare.animation_timeline.css(),
+            StyleId::TimelineScope => s.rare.timeline_scope.css(),
             _ => s.animation_range.css(),
         };
         assert_eq!(written, canonical, "{css}");
@@ -157,19 +157,19 @@ fn the_rows_round_trip_through_the_wire() {
     k.apply_frame(&wire::encode(0, 1, &ops)).unwrap();
     let style = k.node(1).unwrap().style;
     assert_eq!(
-        style.drag_timeline,
+        style.rare.drag_timeline,
         DragTimeline {
             name: Some("--pan".into()),
             axis: Axis::X
         }
     );
     assert_eq!(
-        style.animation_timeline,
+        style.rare.animation_timeline,
         AnimationTimeline(Some("--dismiss".into()))
     );
     assert_eq!(style.animation_range, AnimationRange(Some([-40.0, 260.5])));
     assert_eq!(
-        style.timeline_scope,
+        style.rare.timeline_scope,
         TimelineScope::Names("--pan, --dismiss".into())
     );
 }

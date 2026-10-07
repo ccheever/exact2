@@ -4,3 +4,8 @@ tap flip
 prefer root-font-size 20
 type size 12
 tap flip
+# #102: the app's root size, over the drive's, refused at 0, handed back.
+tap root18
+prefer root-font-size 24
+tap root0
+tap medium

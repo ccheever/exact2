@@ -229,7 +229,7 @@ fn stops(kernel: &Kernel, chain: &[NodeRef<'_>]) -> Vec<Stop> {
                 };
                 last = offset.clamp(0.0, 1.0).max(last);
                 let style: StyleProps = s.computed_style(StyleMask::INHERITED);
-                let color = match &style.stop_color {
+                let color = match &style.rare.stop_color {
                     Paint::CurrentColor => style.text_color,
                     Paint::Color(c) => *c,
                     _ => ColorValue::Fixed(crate::style::Color(0x0000_00ff)),
@@ -237,7 +237,7 @@ fn stops(kernel: &Kernel, chain: &[NodeRef<'_>]) -> Vec<Stop> {
                 Stop {
                     offset: last,
                     color,
-                    opacity: style.stop_opacity.clamp(0.0, 1.0),
+                    opacity: style.rare.stop_opacity.clamp(0.0, 1.0),
                 }
             })
             .collect();

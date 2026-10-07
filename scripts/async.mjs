@@ -30,6 +30,10 @@
  * last commit it checked, never one commit.
  *
  *   bun scripts/async.mjs --tier 2        watch the second lane
+ *
+ * --newest makes the first lane coalesce the same way. Main outruns a check
+ * that takes an hour (some 500 first-parent commits in 3.5 days, 2026-10-06),
+ * so the lane on the mini runs `--newest --interval 3600` (Charlie, 2026-10-06).
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, openSync, closeSync, readFileSync, writeFileSync } from 'node:fs';
@@ -71,7 +75,7 @@ function checks(sha) {
   const glue = [...new Bun.Glob('host/web/**/*.test.mjs').scanSync({ cwd: WT, onlyFiles: true })].sort().map(file => `./${file}`);
   return [
     ['build', 'cargo', ['build', ...workspace, '--all-targets', '--keep-going']],
-    ['test', 'cargo', ['test', ...workspace, '--lib', '--bins', '--tests', '--no-fail-fast']],
+    ['test', 'env', ['EXACT_PURE_CHROME_REQUIRED=1', 'cargo', 'test', ...workspace, '--lib', '--bins', '--tests', '--no-fail-fast']],
     ...(lane.length ? [['lane', 'cargo', ['test', ...workspace, '--lib', '--bins', '--tests', '--no-fail-fast', '--', '--ignored', ...lane]]] : []),
     ['clippy', 'cargo', ['clippy', ...workspace, '--all-targets', '--keep-going', '--', '-D', 'warnings']],
     ['fmt', 'cargo', ['fmt', '--all', '--', '--check']],
@@ -197,7 +201,7 @@ async function check(sha) {
   mkdirSync(dir, { recursive: true });
   prune();
   git(['checkout', '--detach', '--force', sha], WT);
-  const env = { ...process.env };
+  const env = { ...process.env, HERMES_LEAN_SYS_OFFLINE: '1' };
   delete env.EXACT_UPDATE_TRUST; delete env.CARGO_TARGET_DIR; delete env.EXACT_WEB_BROWSER;
   const installed = spawnSync('bun', ['install', '--frozen-lockfile'], { cwd: WT, env, encoding: 'utf8' });
   const result = { sha, subject: git(['log', '-1', '--format=%s', sha]), checks: {}, failures: [] };
@@ -236,9 +240,10 @@ async function once(state) {
   const pending = state.last
     ? git(['rev-list', '--first-parent', '--reverse', `${state.last}..${tip}`]).split('\n').filter(Boolean)
     : [tip];
-  // The second lane coalesces: only the newest commit is checked.
-  for (const sha of TIER === 2 ? pending.slice(-1) : pending) {
-    const since = TIER === 2 && pending.length > 1 ? state.last : null;
+  // The second lane, and the first under --newest, coalesces: only the newest commit is checked.
+  const newest = TIER === 2 || process.argv.includes('--newest');
+  for (const sha of newest ? pending.slice(-1) : pending) {
+    const since = newest && pending.length > 1 ? state.last : null;
     const result = await check(sha);
     // A commit outside host/apple runs no iOS tests: the last ones stand.
     if (!result.checks.ios) result.failures.push(...(state.failures ?? []).filter(f => f.startsWith('ios: ')));

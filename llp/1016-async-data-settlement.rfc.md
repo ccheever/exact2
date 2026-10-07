@@ -264,6 +264,11 @@ settles. The web build's fetch is the browser's, whose promise settles with
 the reply. A mutation that needs every reply is a `queue`
 mutation (LLP 1092).
 
+*Amended 2026-10-07 by LLP 1016.002 D4 (issue #109):* a device topic's
+re-ask does not forget a request in flight. The reply lands, and that commit
+asks the resource again, forced, once for all the announcements that came
+while the request was out.
+
 A reload (`boot_carrying`, LLP 1005 §6) drops every ticket; the carried
 arguments re-request what has no compiled value. The agent's `clock settle`
 (LLP 1012 §2) waits for in-flight requests as it waits for motion and timers,
@@ -278,7 +283,7 @@ matched whole, never a prefix (as built: the web glue matches `URL.origin`
 the same way). *Amended 2026-09-26 (Charlie, LLP 1054.000 R5):* or
 `scheme://*.domain`, every host strictly under one domain of two labels or
 more, at that scheme and port; a cross-origin redirect drops the request's
-credentials (vendor/ibex2 patch 1). The app's data crate declares its grants as one constant —
+credentials (vendor/ibex/crates/ibex2 patch 1). The app's data crate declares its grants as one constant —
 `pub const GRANTS: &str = "net.fetch https://api.castle.xyz\n";` — that the
 `host!` macros hand to `Host::endow` on Apple and that `glue.js` receives at
 boot (a string list) and checks before `fetch`, so a request outside the grant

@@ -451,7 +451,7 @@ fn transition_and_exit_templates_compute_their_times() {
         "{t:?}"
     );
     assert!((t[1].duration - 2.0).abs() < 1e-6, "{t:?}");
-    let exit = &style.exit_animation.0[0];
+    let exit = &style.rare.exit_animation.0[0];
     assert!(
         (exit.duration - 0.16).abs() < 1e-6 && (exit.delay - 0.02).abs() < 1e-6,
         "{exit:?}"

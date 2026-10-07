@@ -346,7 +346,7 @@ impl Build<'_> {
                             self.sites.keyframes.resolve(&mut patch.animation);
                         }
                         Ok(StyleId::ExitAnimation) => {
-                            self.sites.keyframes.resolve(&mut patch.exit_animation);
+                            self.sites.keyframes.resolve(&mut patch.rare.exit_animation);
                         }
                         Ok(_) => {}
                         // A value its row refuses is unset, as on a kernel.

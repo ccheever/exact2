@@ -708,7 +708,7 @@ impl TextEngine {
 
     pub(crate) fn finish_text_frame(&mut self) {
         self.paragraphs.finish_handoff();
-        self.trim_paragraphs();
+        self.paragraphs.maintain();
     }
 
     pub(crate) fn retiring_accepted<'a>(
@@ -718,6 +718,7 @@ impl TextEngine {
         self.paragraphs.retiring(accepted)
     }
 
+    #[cfg(test)]
     pub(crate) fn trim_paragraphs(&mut self) {
         self.paragraphs.trim(None);
     }

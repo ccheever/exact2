@@ -52,6 +52,7 @@ pub(crate) fn leaver(arena: &NodeArena, slot: u32) -> Option<Leaver> {
 fn layout_curve(arena: &NodeArena, slot: u32) -> Option<Transition> {
     arena
         .style(slot)
+        .rare
         .layout_transition
         .matching(Property::Layout)
         .filter(|t| t.starts())

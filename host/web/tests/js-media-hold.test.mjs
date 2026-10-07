@@ -9,10 +9,10 @@ import { resolve } from 'node:path';
 
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-media-hold-'));
 copyFileSync(resolve(new URL('../../web-js/media.js', import.meta.url).pathname), resolve(dir, 'media.js'));
-writeFileSync(resolve(dir, 'rt.js'), 'export const { onEnd, inflight, journal, data } = globalThis.rtStandIn;\n');
+writeFileSync(resolve(dir, 'rt.js'), 'export const { onEnd, inflight, journal, data, clock } = globalThis.rtStandIn;\n');
 writeFileSync(resolve(dir, 'media-glue.js'), 'globalThis.exact ??= {}; globalThis.exact.installMedia = () => {};\n');
 const inflight = { n: 0 };
-globalThis.rtStandIn = { onEnd() {}, inflight, journal: [], data: { appId: 'com.example' } };
+globalThis.rtStandIn = { onEnd() {}, inflight, journal: [], data: { appId: 'com.example' }, clock: { now: 0, timers: [], agent: false, epoch: 0 } };
 globalThis.requestAnimationFrame = (fn) => { queueMicrotask(() => fn(0)); return 1; };
 
 function element(fields) {
