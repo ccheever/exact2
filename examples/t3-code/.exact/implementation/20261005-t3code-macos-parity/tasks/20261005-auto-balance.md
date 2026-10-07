@@ -1,13 +1,13 @@
 ---
 name: 20261005-auto-balance
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: implemented
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-auto-balance
+pr_url: https://github.com/ccheever/exact2/pull/182
 verified_commit: null
 ---
 
@@ -136,13 +136,47 @@ Required environment: Xcode 27.0, pinned Bun 1.4.2, oracle desktop build, the st
 
 ## Progress
 
-Planned. No branch.
+Implemented on `feat(example)/t3-code-auto-balance` (base 1a50d0df3); verification: unverified.
+
+- `load-balancing.ts`: `chooseLoadBalancedEnvironment` ported unchanged, plus a `HostResourcesSnapshot` decoder.
+- `auto-balance.ts`: ChatView's `automaticEnvironment` / `needsLoadBalancing` / candidate filter /
+  `onAutoEnvironment` / `autoEnvironmentLabel` and onSend's guard. The draft keeps `environmentSelection`
+  and `loadBalancedEnvironmentId` per draft key (`composerControls.balance`, persisted). Host resources
+  load in `cclocal:balance-load`, sent by the root `balanceLoad` task when `branches.balanceFetch`
+  changes (X19), over each machine's own transport with a 5 s deadline (X21; `timeout` on
+  T3Transport's `request`); a result is fresh for 5 s and the window's wall time stands for receipt time.
+  Run on (strip, gitless strip, details panel) leads with "Auto balance" / "Checking machines…" /
+  "Auto balance unavailable"; picking a machine is manual and clears the choice; picking Auto asks
+  again; attachments warn "Keep attachments on this machine".
+- The resolution moves the draft as the reference's effect retargets its projectRef
+  (setDraftThreadContext with `environmentSelection: "auto"` and `loadBalancedEnvironmentId`): the
+  Run on menu's `runOnEnvironment` with the auto selection; text, workspace context, model and modes go
+  with it; a keystroke that reaches the old key while the connection moves follows it; a failed connect
+  puts the draft back ("Could not switch machine"). The composer keeps its owner across the move
+  (`auto-balance-owner.ts`, snapshot `composerOwner`), so the field is not rewritten and keeps its text,
+  caret and focus. A send in flight blocks the resolution; a send waits for a move in flight.
+- `auto-balance-banner.ts` + `auto-balance.contract`: useAutoBalanceUpdateBanner (machine list, counts,
+  title, "N needs/need a manual update", Update all / Update K machines / Retry, dismiss) and
+  ServerUpdatesAction (eligible targets, one confirm for desktop apps through server-update-banner's
+  dialog, per-machine failure toast "<label> update failed"), reusing `updateEnvironment` and the
+  T3Fleet job table. The title opens a popover (`top span-right`, w-80) with one row per machine
+  (progress, failure, "Manual update required" + Copy command or the desktop sentence, "Ready to update
+  to X", "Reconnect this machine to update"). It replaces the single-machine notice on an Auto draft.
+
+Not done / limits: real typing during resolution (attended; the drive types and presses a key through
+the agent); keyboard through Run on / popover and Escape (attended); reduced-motion film; 840×620 and
+dark shots; "Real servers" row (the drive used real reference servers behind a stub proxy, not bare);
+the "stale 20 s" case cannot come from a server (receipt time is the client's), so the drive used a busy
+(0.96) machine and unit tests cover age; oracle and trace-diff not run (not built). The chosen machine
+shows as the reference shows it: the trigger and its tooltip read "Auto balance", and the draft is on
+the chosen machine (the details' version line names its server).
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 | PR #182 | `bun test examples/t3-code` 2208 pass / 1 skip / 0 fail (base 2189 pass, rebased on 24f7f4014); five checks pass (cargo test 3310 pass / 0 fail); strict tsc: 8 errors, all in base terminal files (ES2021+ lib), none in this change, clean with `--lib ES2023,DOM`; contract build 2505 slots, 45 resources; `cargo test -p t3-code-macos --lib` 11 pass; AppKit transport 54/0, fleet 9/0; caps pass; macOS bundle builds | Drives (1280×840; three reference servers 16341/16347/16345 behind a Bun stub proxy 16340/16346/16344 that answers `server.getHostResources` with fixed numbers, rewrites labels/update capabilities, plays a progress-then-failure update; not committed). Drives 1–2 failed in setup (no import candidates; Settings opens on General); drive 3 ran the flow but no candidate (no provider chosen); drive 4 after the fix: each proxy logged `server.getHostResources` once per load (draft open, then Auto pick), `branches.balanceFetch` "" after the load, strip `envMachineLabel` "Auto balance", `envOptions` [auto selected, Build box, Laptop, Studio], composer value "Draft typed while machines are checked" [focused] and the focused environment unchanged; banner "Update available for 3 machines · 1 needs a manual update · Update 2 machines"; popover rows Build box/Studio "Ready to update to 0.0.46-nightly.20261004.1", Laptop "Manual update required" + Copy update command; confirm "Update the T3 Code desktop apps on Studio?"; after Confirm both proxies logged `server.updateServerWithProgress`, tree "Updating 1 machine", Studio "Downloading…", Build box "Download failed", toast "Build box update failed / Download failed". Before drive on the base: "Server update available" + Copy update command, Run on lists the three machines only | The final screenshot drew the old title glyphs at the new width (tree correct); a keyed title node is committed but not re-driven |
+| 2 | #182 review fixes (rebased on 0a7ca50ad) | `bun test examples/t3-code` 2213 pass / 1 skip / 0 fail (base 0a7ca50ad: 2190 pass); strict tsc (`--target ES2023 --lib ES2023,DOM`) clean; contract build 2540 slots, 45 resources; `cargo test -p t3-code-macos --lib` 11 pass; no AppKit binary touched; caps pass; five checks pass (cargo test 3310 pass / 0 fail, clippy, fmt, boot); macOS bundle builds | Drive 5 (lane ports 16420–16425, same stub proxy): the draft resolved on open before typing, so it did not show a move under typing. Drive 6 (the last allowed): Load balancing on, the draft opened on Laptop resolved to Studio at once (state `serverUrl` :16422, `environmentName` "Studio"); Run on › Laptop (manual), typed "Draft typed while machines are checked"; Run on › Auto balance; typed ", and more"; the load moved the draft to Studio; `type composer key KeyZ` gave "…, and morez" (caret at the end), `TextInput#149 [composer] [focused]` (same node), state focus `logical 149`, `composerOwner` unchanged, `details-version-detail` "Client 0.0.46-nightly.20261004.1 · Studio server 0.0.45", trigger and tooltip "Auto balance"; each proxy logged `server.getHostResources` once per load (open, Auto pick); banner, popover, confirm "Update the T3 Code desktop apps on Studio?", then "Updating 1 machine" drawn correctly and toast "Build box update failed". The window's "the answer was let go before this reply" banner shows in the base drive too (pre-existing) | Real typing during resolution and keyboard rows stay attended |
 
 ## Next action
 

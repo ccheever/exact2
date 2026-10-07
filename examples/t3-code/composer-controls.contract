@@ -13,6 +13,7 @@ use TipBubble from "./shell-tip.contract"
 use RowTip from "./r8-pointer-tips.contract" // lane r8-pointer
 use StripPrBadge from "./r7-handoff.contract" // lane r7-handoff
 use AttachmentUrl from "./timeline-attachments.contract" // composer-fidelity G12a
+use NoticeMachines from "./auto-balance.contract" // auto-balance
 
 // The composer footer and its docked banners (lane composer-controls): the
 // toolbar controls (ComposerControl.tsx "sm"/"xs"), the primary actions
@@ -953,12 +954,16 @@ component NoticeRow
                   CcIcon(name="loader", size=12, color="light-dark(#71717b, #818181)", weight=2)
               else
                 CcIcon(name=notice.icon, size=12, color=(notice.iconTone == "error" ? "light-dark(#e7000b, #ff6467)" : "light-dark(#71717b, #818181)"), weight=2)
-        when notice.tip != ""
-          // The title's tooltip: "<server> X → Y", or the update status in full.
-          Tip(label=notice.tip, side="top", align="start", offset=28)
-            text notice.title role=(notice.liveRole == "" ? "none" : notice.liveRole) aria-label=notice.tip font-size=12 font-weight=500 line-height="24px" color="light-dark(#27272a, #f5f5f5)" flex-shrink=0 line-clamp=1 testId=`notice-title-${notice.id}`
+        when length(notice.machines) > 0
+          // auto-balance: the multi-machine banner's title opens its machine list (auto-balance.contract).
+          NoticeMachines(notice=notice, busy=busy, command=command, still=still)
         else
-          text notice.title font-size=12 font-weight=500 line-height="24px" color="light-dark(#27272a, #f5f5f5)" flex-shrink=0 max-width="60%" line-clamp=1
+          when notice.tip != ""
+            // The title's tooltip: "<server> X → Y", or the update status in full.
+            Tip(label=notice.tip, side="top", align="start", offset=28)
+              text notice.title role=(notice.liveRole == "" ? "none" : notice.liveRole) aria-label=notice.tip font-size=12 font-weight=500 line-height="24px" color="light-dark(#27272a, #f5f5f5)" flex-shrink=0 line-clamp=1 testId=`notice-title-${notice.id}`
+          else
+            text notice.title font-size=12 font-weight=500 line-height="24px" color="light-dark(#27272a, #f5f5f5)" flex-shrink=0 max-width="60%" line-clamp=1
         when notice.sep
           text "·" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" flex-shrink=0 aria-hidden=true
         when length(notice.segments) > 0

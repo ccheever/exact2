@@ -508,7 +508,9 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         guard pending.count < 64 else { throw T3Failure(kind: "Busy", message: "Too many server requests are already pending.") }
         let id = nextID(), wire = T3Wire.request(id: id, method: method, payload: request["payload"] ?? [:])
         let text = try T3Wire.encode(wire)
-        pending[id] = Pending(completion: completion, deadline: Date().addingTimeInterval(30), trace: request["trace"] as? Int)
+        // auto-balance: a request may ask for a shorter deadline (server.getHostResources waits 5 s).
+        let wait = min(30, max(1, (request["timeout"] as? NSNumber)?.doubleValue ?? 30))
+        pending[id] = Pending(completion: completion, deadline: Date().addingTimeInterval(wait), trace: request["trace"] as? Int)
         send(text, epoch: generation)
     }
     private func subscribe(_ request: [String: Any], completion: @escaping Completion) throws {

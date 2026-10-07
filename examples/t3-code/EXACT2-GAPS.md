@@ -287,6 +287,14 @@ Task `20261005-media-actions` (`media-actions.*`, `media-views.ts`, `T3MediaActi
 - **An image that fails to decode (X44, [#121](https://github.com/ccheever/exact2/issues/121)).** Fixed on main (#177) and adopted 2026-10-07: an `image`'s `error` now shows "Image unavailable · <alt>" (chat Markdown), "Image unavailable. The file may have been moved or deleted." (expanded image), "Unable to load workspace image." (Files) and "Unable to load image." (attachment preview). Still different: an SVG never draws on Apple (it is an `error`), where the reference's browser draws it; the Files failure text sits at the top of the panel, where the reference centres it.
 - **Rendered HTML over `http://` to a named host (X7, [#106](https://github.com/ccheever/exact2/issues/106), side issue [#135](https://github.com/ccheever/exact2/issues/135)).** Fixed on main (#173) and adopted 2026-10-07: `app.json` allows arbitrary loads in web content, so the bundle loads it as the reference's frame does. #135 (an `http:` sub-resource of a page under the app's own `assets/`) stays open; no clone page is served from `assets/`.
 
+## Auto balance: declared differences
+
+Task `20261005-auto-balance` (`load-balancing.ts`, `auto-balance*.ts`, `auto-balance.contract`).
+- **Host resource timing (X19, X21; [#124](https://github.com/ccheever/exact2/issues/124)).** The load runs in a command a root task sends when the fetch key changes; receipt time is the window's wall time when the load starts (at most the 5 s deadline before the reply). The 5 s deadline is T3Transport's per-request `timeout`.
+- **The machine list popover (X17).** Placed with `position-area="top span-right"`; it does not flip near an edge.
+- **Stale 20 s is not reproducible from a server.** The sample age uses the client's receipt time (`uses client receipt time when host clocks differ`), so no server reply can make a sample 20 s old; unit tests cover the age rule and the drive uses a busy (0.96) machine.
+- **Host finding: a changed text can show its old bitmap in an agent screenshot (not filed).** The macOS host draws a paragraph of at least 16,384 device pixels into a bitmap off the main thread (`Mac/TextRasterMac.swift`), keeps the old bitmap up until the replacement lands (`NodeText.swift` `invalidateText`), parks it at its old size when the frame shrinks (`presentTextRaster` overflow branch), and `settleForPicture` waits for images only. #182's drive drew "Update available for" at the width of "Updating 1 machine". The banner title is a keyed node with a box paint, which AppKit draws on the main thread. The framework fix: `settleForPicture` waits for text raster work and redraws before the capture.
+
 ## Not exact2 asks (stay in the app module)
 
 Keychain credentials, SSH tunnels, VideoToolbox/SceneKit device views, the terminal (WKWebView running REF's Ghostty WASM; no exact2 change needed), notifications, SnapShot capture, the offscreen Mermaid web view, agent export plumbing.

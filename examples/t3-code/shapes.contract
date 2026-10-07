@@ -285,6 +285,8 @@ shape Snapshot
   providerBannerMessage: string
   providerBannerWarning: bool
   serverUrl: string
+  // auto-balance (auto-balance-owner.ts): the open draft's identity; a draft Auto balance moved keeps its earlier one.
+  composerOwner: string
   uncertain: bool
   uncertainMessage: string
   sidebarWidth: number
