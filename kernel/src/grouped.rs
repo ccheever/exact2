@@ -113,6 +113,33 @@ fn text_of(node: &NodeRef<'_>) -> Option<String> {
 }
 
 impl Kernel {
+    /// The group's final row that `display: none` does not hide. A painter
+    /// can resolve this once per group and compare every row with the result.
+    pub fn grouped_last_visible_row(&self, group: ViewId) -> Option<ViewId> {
+        let group = self.node(group)?;
+        self.arena()
+            .children(group.slot)
+            .iter()
+            .rev()
+            .find(|&&slot| self.arena().style(slot).display != Display::None)
+            .map(|&slot| self.arena().local_id(slot))
+    }
+
+    /// Whether this native-list row paints the system separator: a card row
+    /// with a later visible sibling. Painters querying every row resolve the
+    /// group's last visible row once with `grouped_last_visible_row`.
+    pub fn grouped_row_separator(&self, view: ViewId) -> bool {
+        let Some(row) = self.node(view) else {
+            return false;
+        };
+        row.props.bool(PropId::GroupedRowSeparator) == Some(true)
+            && row.style.display != Display::None
+            && row.parent.is_some_and(|parent| {
+                self.grouped_last_visible_row(parent)
+                    .is_some_and(|last| last != view)
+            })
+    }
+
     /// The grouped list `view` is, as it now stands; `None` for a node
     /// without `listStyle`.
     pub fn grouped_list(&self, view: ViewId) -> Option<GroupedList> {

@@ -628,3 +628,89 @@ impl exact_runner::DataSource for ManyItems {
         ))
     }
 }
+
+#[test]
+fn grouped_separators_follow_visible_siblings_without_dom_boxes() {
+    exact_web::link(exact_web_capabilities::ALL);
+    let source = r##"component App
+  state changed = false
+  action toggle
+    changed = not changed
+  view
+    column
+      button "Toggle" press=toggle testId="toggle"
+      row testId="ordinary" padding-left=(changed ? 24 : 16)
+        text "Ordinary"
+      list appearance="auto" width=320 height=280
+        section
+          row width="100%" testId="first"
+            text "Custom row"
+            box flex=1 height=8 background-color="#cccccc"
+            text "42"
+          row width="100%" testId="middle" padding=(changed ? 24 : 16) border-color=(changed ? "#ff0000" : "#0000ff")
+            text "Middle"
+          button appearance="auto" testId="last" display=(changed ? "none" : "flex")
+            text "Native button"
+"##;
+    let plan = contract::compile(source).unwrap();
+    let output = crate::emit::emit(&plan, false, false).unwrap();
+    let ordinary =
+        contract::compile(&source.replace("appearance=\"auto\"", "appearance=\"none\"")).unwrap();
+    let ordinary = crate::emit::emit(&ordinary, false, false).unwrap();
+    assert!(!ordinary.js.contains("grouped-row-hidden"));
+    assert!(!ordinary.js.contains("--exact-grouped-inset"));
+    assert!(output.js.contains("grouped-row-hidden"));
+    let dir = std::env::temp_dir().join(format!("exact-js-grouped-{}", std::process::id()));
+    write_case(&dir, &plan, &[]);
+    let program = r#"
+import assert from 'node:assert/strict';
+import {readFileSync,writeFileSync,mkdirSync,readdirSync,copyFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+import {rolldown} from 'rolldown';
+import {chromium as playwright} from 'playwright-core';
+import {chromium} from './scripts/agent-launch.mjs';
+const dir=process.argv[1],root=process.cwd(),gen=resolve(dir,'.gen');
+mkdirSync(gen,{recursive:true});
+for(const folder of ['host/web','host/web-js'])for(const f of readdirSync(resolve(root,folder)).filter(f=>f.endsWith('.js')))copyFileSync(resolve(root,folder,f),resolve(gen,f));
+for(const f of ['app.js','names.js','paint.js'])copyFileSync(resolve(dir,f),resolve(gen,f));
+writeFileSync(resolve(gen,'entry.js'),`import app from './app.js';app();globalThis.ready=true;`);
+const bundle=await rolldown({input:resolve(gen,'entry.js'),logLevel:'silent',external:['./draw.js']});
+await bundle.write({file:resolve(dir,'client.js'),format:'iife',codeSplitting:false});await bundle.close();
+const base=readFileSync(resolve(root,'host/web/index.html'),'utf8').match(/<style>([\s\S]*?)<\/style>/)[1];
+const css=base+readFileSync(resolve(dir,'app.css'),'utf8');
+const shell=content=>`<!doctype html><html><style>${css}</style><div id="exact-root">${content}</div>`;
+writeFileSync(resolve(dir,'rust-page.html'),shell(readFileSync(resolve(dir,'rust.html'),'utf8')));
+writeFileSync(resolve(dir,'client-page.html'),shell('')+'<script src="./client.js"></script>');
+const server=Bun.serve({hostname:'127.0.0.1',port:0,fetch:req=>{const path=new URL(req.url).pathname;return path==='/favicon.ico'?new Response(null,{status:204}):new Response(Bun.file(resolve(dir,'.'+path)))}});
+const {executable,unavailable}=chromium();if(unavailable)throw Error(unavailable);
+const browser=await playwright.launch({executablePath:executable,headless:true,args:['--no-sandbox']});
+try{
+ const page=await browser.newPage();
+ const snapshot=()=>page.evaluate(()=>Object.fromEntries(['first','middle','last'].map(id=>{const e=document.querySelector(`[data-testid="${id}"]`),s=getComputedStyle(e,'::after');return[id,{separator:s.content==='""',left:s.left,color:s.backgroundColor,children:e.children.length,hidden:e.getAttribute('data-grouped-row-hidden'),inset:getComputedStyle(e).getPropertyValue('--exact-grouped-inset').trim()}]})));
+ await page.goto(`${server.url}rust-page.html`);const rust=await snapshot();
+ assert.equal(rust.first.separator,true);assert.equal(rust.middle.separator,true);assert.equal(rust.last.separator,false);
+ assert.equal(rust.first.left,'16px');assert.equal(rust.middle.color,'rgb(0, 0, 255)');assert.equal(rust.last.inset,'16px');
+ await page.goto(`${server.url}client-page.html`);await page.waitForFunction(()=>globalThis.ready);
+ assert.deepEqual(await snapshot(),rust,'the fresh JS client agrees with the Rust document');
+ await page.evaluate(()=>document.querySelector('[data-testid="toggle"]').click());
+ const hidden=await snapshot();assert.equal(hidden.first.separator,true);assert.equal(hidden.middle.separator,false);assert.equal(hidden.last.hidden,'true');assert.equal(hidden.middle.inset,'24px');assert.equal(await page.evaluate(()=>getComputedStyle(document.querySelector('[data-testid="middle"]')).getPropertyValue('--exact-grouped-separator').trim()),'#ff0000');
+ assert.deepEqual(Object.values(hidden).map(v=>v.children),Object.values(rust).map(v=>v.children),'separator updates add no child boxes');
+ await page.evaluate(()=>document.querySelector('[data-testid="toggle"]').click());assert.deepEqual(await snapshot(),rust,'showing the last row restores its predecessor separator');
+ await page.close();
+}finally{await browser.close();server.stop(true)}
+"#;
+    let result = std::process::Command::new("bun")
+        .args(["-e", program])
+        .arg(&dir)
+        .current_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
+        .output()
+        .expect("Bun runs the browser separator regression");
+    assert!(
+        result.status.success(),
+        "{}\n{}\nfixture: {}",
+        String::from_utf8_lossy(&result.stdout),
+        String::from_utf8_lossy(&result.stderr),
+        dir.display()
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}

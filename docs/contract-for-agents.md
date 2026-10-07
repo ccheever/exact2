@@ -750,6 +750,11 @@ styleable host-policy prop; its names and allowable branches are checked against
 checks in [`controls.rs`](../contract/lower/src/controls.rs), and test the actual
 platform look. Do not assume arbitrary custom paint or typography is admitted.
 
+Grouped-list rows, headers and footers use `border-box`; their system insets
+are internal padding, so `width="100%"` fits the cell. Ordinary boxes and text
+fields retain CSS `content-box`; set `border-box` when their padding and border
+must fit inside the declared width.
+
 **Prefer native controls.** Write the Contract form and each host draws its own
 control; a hand-built lookalike (a painted switch, a row of buttons for tabs, a
 drawn title bar) is a bug. On iOS:

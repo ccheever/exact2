@@ -136,7 +136,7 @@ impl Em<'_> {
         let refuse = |why: &str| Err(format!("node {i}: {why} is not in the JS target"));
         // (name, unit, map): a map is JavaScript of the value (`null` writes none).
         let one = |name: &str, map: Option<String>| vec![(name.to_string(), String::new(), map)];
-        let writes: Vec<(String, String, Option<String>)> = match id {
+        let mut writes: Vec<(String, String, Option<String>)> = match id {
             // @ref LLP 1077 D8 — the `rotate` and `translate` attributes bind
             // these with the same value: the angle's and xy's declaration
             // writes the author's whole text.
@@ -297,6 +297,29 @@ impl Em<'_> {
                 })
                 .collect(),
         };
+        if parts
+            .props
+            .get("data-grouped-row-separator")
+            .is_some_and(|v| v == "true")
+        {
+            match id {
+                StyleId::Display => {
+                    let p = self.uses.rt("P");
+                    let _ = write!(self.out, "{p}({e},\"data-grouped-row-hidden\",()=>({f})()===\"none\"?\"true\":null);");
+                }
+                StyleId::PaddingLeft | StyleId::BorderColorBottom => {
+                    let alias = if id == StyleId::PaddingLeft {
+                        "--exact-grouped-inset"
+                    } else {
+                        "--exact-grouped-separator"
+                    };
+                    if let Some((_, unit, map)) = writes.first().cloned() {
+                        writes.push((alias.into(), unit, map));
+                    }
+                }
+                _ => {}
+            }
+        }
         // A reference (`url(#…)`) names an element by its authored id, which
         // the kernel scopes to the instance (LLP 1055.000 D3): resolved at
         // run time from the node (`Sr`).

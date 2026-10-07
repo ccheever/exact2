@@ -35,6 +35,9 @@
   body { font: 1rem system-ui, sans-serif; }
   button, input, textarea { all: unset; display: block; box-sizing: content-box; cursor: default; }
   select { display: block; }
+  /* A grouped row's inset separator is paint on its existing box. Hidden
+     rows and the final visible row have none; no child or border takes width. */
+  [data-grouped-row-separator="true"]:not([data-grouped-row-hidden="true"]):has(~ [data-grouped-row-separator="true"]:not([data-grouped-row-hidden="true"]))::after { content: ""; position: absolute; pointer-events: none; left: var(--exact-grouped-inset, 16px); right: 0; bottom: 0; height: 1px; background-color: var(--exact-grouped-separator, light-dark(#3c3c431f, #54545880)); }
   /* A link is a bare node too: the UA's link colour, underline and pointer
      go, as a button's control styling does. A \`link\` is block-level like any
      node; a run with an \`href\` stays inline in its paragraph. Markdown's own

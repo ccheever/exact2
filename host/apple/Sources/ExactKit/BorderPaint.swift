@@ -196,3 +196,103 @@ enum BorderPaint {
         return CGPoint(x: a.x + r.x * t, y: a.y + r.y * t)
     }
 }
+
+extension NodeView {
+    /// Grouped chrome is paint inside the row, never a CSS border or an inset
+    /// outside its box. UIKit's list draws its own separator for a carried row.
+    var groupedSeparatorRect: CGRect? {
+        guard props["groupedRowSeparator"] == "true", style["display"]?.string != "none",
+              bounds.width > 0, bounds.height > 0, let parent = superview else { return nil }
+        #if os(iOS)
+        if presenter?.groupedLists?.projects(self) == true { return nil }
+        #endif
+        var at = superview
+        var owner: NodeView?
+        while let view = at {
+            if let node = view as? NodeView { owner = node; break }
+            at = view.superview
+        }
+        if owner?.groupedSeparatorInvalidationPending == true || owner?.groupedBatchApplying == true { return nil }
+        let last: NodeView?
+        if let cached = owner?.groupedLastVisibleRow, owner?.container === parent { last = cached }
+        else {
+            last = parent.subviews.reversed().first { view in
+                guard let node = view as? NodeView else { return false }
+                return node.style["display"]?.string != "none"
+            } as? NodeView
+            if owner?.container === parent { owner?.groupedLastVisibleRow = last }
+        }
+        guard last !== self else { return nil }
+        let uniform = number("border_width")
+        let padding: CGFloat
+        if case .object(let d) = style["padding_left"] {
+            let basis = max(0, bounds.width - number("border_width_left", uniform) - number("border_width_right", uniform))
+            padding = basis * CGFloat(d["pct"]?.number ?? 0) / 100 + CGFloat(d["px"]?.number ?? 0)
+        } else { padding = number("padding_left", 16) }
+        let left = number("border_width_left", uniform) + max(0, padding)
+        let right = bounds.width - number("border_width_right", uniform)
+        let bottom = bounds.height - number("border_width_bottom", uniform)
+        let top = max(number("border_width_top", uniform), bottom - 1)
+        guard right > left, bottom > top else { return nil }
+        return CGRect(x: left, y: top, width: right - left, height: bottom - top)
+    }
+
+    var groupedSeparatorColor: CGColor {
+        if let ink = cgColor("border_color_bottom") { return ink }
+        let c: [CGFloat] = drawsDark ? [84, 84, 88, 128] : [60, 60, 67, 31]
+        return CGColor(srgbRed: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
+    }
+
+    func paintGroupedSeparator(_ context: CGContext) {
+        guard !cssVisibilityHidden, let rect = groupedSeparatorRect else { return }
+        context.setFillColor(groupedSeparatorColor)
+        context.fill(rect)
+    }
+
+    private var groupedBatchApplying: Bool {
+        #if os(macOS)
+        return presenter?.isApplying == true
+        #else
+        return presenter?.applying == true
+        #endif
+    }
+
+    /// A batch can synchronously query box paint while mounting or showing
+    /// rows. Keep the cache invalid until its one deferred repaint sweep.
+    func invalidateGroupedSeparators(knownRow: Bool = false) {
+        guard !groupedSeparatorInvalidationPending, knownRow || groupedLastVisibleRow != nil else { return }
+        if groupedBatchApplying {
+            groupedSeparatorInvalidationPending = true
+            groupedLastVisibleRow = nil
+            presenter?.afterBatch { [weak self] in
+                guard let self else { return }
+                self.groupedSeparatorInvalidationPending = false
+                self.groupedLastVisibleRow = nil
+                self.repaintGroupedSeparators()
+            }
+        } else if groupedLastVisibleRow != nil {
+            groupedLastVisibleRow = nil
+            repaintGroupedSeparators()
+        }
+    }
+
+    private func repaintGroupedSeparators() {
+        for case let row as NodeView in container.subviews where row.props["groupedRowSeparator"] == "true" {
+            #if os(macOS)
+            row.layerPaintCache = nil
+            row.needsDisplay = true
+            #else
+            row.setNeedsDisplay()
+            #endif
+        }
+    }
+
+    func invalidateGroupedSeparatorSiblings() {
+        guard props["groupedRowSeparator"] == "true" else { return }
+        var at = superview
+        while let view = at {
+            if let owner = view as? NodeView { owner.invalidateGroupedSeparators(knownRow: true); return }
+            at = view.superview
+        }
+    }
+}

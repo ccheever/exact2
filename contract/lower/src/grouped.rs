@@ -40,7 +40,7 @@ pub(crate) fn style(tag: &str, attrs: &[Attr]) -> Result<Option<&'static str>, L
                     "lower-grouped-list",
                     "a `list`'s `appearance` is a literal: `\"auto\"` makes it a grouped list. To switch, write `when` with two lists",
                     a.span,
-                )
+                );
             }
         },
         _ => false,
@@ -101,9 +101,14 @@ fn attr(name: &str, value: Expr, span: Span) -> Attr {
 }
 
 /// The sheet rows a native button takes (LLP 1069.011 D6), for a row whose
-/// class made it one: its inset and height, and nothing it refuses.
+/// class made it one: its height, separator and containing block, not its face.
 pub(crate) fn native_rows(sheet: &mut Vec<Attr>) {
-    sheet.retain(|a| matches!(a.name.as_str(), "margin-left" | "min-height"));
+    sheet.retain(|a| {
+        matches!(
+            a.name.as_str(),
+            "min-height" | "position" | "ua:groupedRowSeparator"
+        )
+    });
 }
 
 /// A native button's children without the sheet a row's parts were given:
@@ -176,7 +181,12 @@ pub(crate) fn split(attrs: &[Attr]) -> (Vec<Attr>, Option<Vec<Attr>>) {
     let sheet = sheet
         .into_iter()
         .map(|a| Attr {
-            name: a.name[MARK.len()..].to_owned(),
+            // This private paint marker is never an authored attribute.
+            name: if a.name == "ua:groupedRowSeparator" {
+                a.name.clone()
+            } else {
+                a.name[MARK.len()..].to_owned()
+            },
             ..a
         })
         .collect();
@@ -386,7 +396,7 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
                     "lower-grouped-list",
                     "a section's `background-color` is the literal `\"transparent\"`, which drops its card; the system draws the card otherwise",
                     a.span,
-                )
+                );
             }
         }
     }
@@ -419,6 +429,7 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
         };
         let span = *span;
         let mut rows = vec![
+            s("box-sizing", "border-box", span),
             n("padding-left", if inset { 32.0 } else { 16.0 }, span),
             n("padding-right", if inset { 32.0 } else { 16.0 }, span),
             n("padding-top", if footer { 8.0 } else { 10.0 }, span),
@@ -460,8 +471,7 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
             group.push(n("border-radius", 26.0, span));
         }
     }
-    // Every row draws the separator under it and overlaps the next by its
-    // width; the group clips the last one away (`row`).
+    // Every row owns its separator paint; the last visible row omits it.
     group.push(s("overflow", "hidden", span));
     let body = rows
         .iter()
@@ -546,8 +556,8 @@ fn with(node: &Node, sheet: Vec<Attr>) -> Node {
     }
 }
 
-/// A row and its direct parts: a cell's metrics (52 high, 16 in, the text
-/// at 56 after an icon), its separator from the text to the trailing edge,
+/// A row and its direct parts: a cell's border box (52 high, 16 in, the
+/// text at 56 after an icon), its separator from the text to the trailing edge,
 /// the icon in the leading margin, a value or subtitle in the secondary
 /// colour, an accessory's size and colour; red when `destructive`.
 fn row(node: &Node, separated: bool) -> Node {
@@ -571,7 +581,11 @@ fn row(node: &Node, separated: bool) -> Node {
     if native {
         return with(
             node,
-            vec![n("margin-left", 16.0, span), n("min-height", 52.0, span)],
+            vec![
+                n("min-height", 52.0, span),
+                s("position", "relative", span),
+                attr("groupedRowSeparator", Expr::Bool(separated, span), span),
+            ],
         );
     }
     let tint = |plain: &str| -> Expr {
@@ -593,8 +607,9 @@ fn row(node: &Node, separated: bool) -> Node {
             ),
         }
     };
-    // The row starts at its text: after a leading symbol, a symbol shown
-    // by a condition included, as `part` styles it.
+    // The row spans the cell; its text starts inside its leading padding.
+    // A leading symbol is pulled into that padding by `part`, including one
+    // shown by a condition.
     fn inset(first: Option<&Node>, span: Span) -> Expr {
         match first {
             Some(Node::When {
@@ -622,21 +637,17 @@ fn row(node: &Node, separated: bool) -> Node {
         s("align-items", "center", span),
         n("gap", 8.0, span),
         n("min-height", 52.0, span),
+        s("box-sizing", "border-box", span),
+        s("position", "relative", span),
         attr(
-            "margin-left",
+            "padding-left",
             inset(children.iter().find(|c| !hidden(c)), span),
             span,
         ),
         n("padding-right", 16.0, span),
-        // A card-less section's rows draw no separator (§6.2).
-        n(
-            "border-bottom-width",
-            if separated { 1.0 } else { 0.0 },
-            span,
-        ),
-        s("border-bottom-style", "solid", span),
+        // The system separator is paint, independent of authored borders.
+        attr("groupedRowSeparator", Expr::Bool(separated, span), span),
         s("border-bottom-color", SEPARATOR, span),
-        n("margin-bottom", if separated { -1.0 } else { 0.0 }, span),
         n("font-size", 17.0, span),
         attr("color", tint(LABEL), span),
         s("text-align", "left", span),

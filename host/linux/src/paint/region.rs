@@ -251,7 +251,13 @@ impl Picture {
                 return Err("content mounted node limit".into());
             }
             let frame = publication.frames()[ordinal].frame;
-            let paint = BoxPaint::capture(&node, scene.kernel, painter.dark, frame.width);
+            let paint = BoxPaint::capture(
+                &node,
+                scene.kernel,
+                painter.dark,
+                frame.width,
+                &painter.separator_groups,
+            );
             let geometry = paint.geometry(paint_rect(frame, (0., 0.)));
             let axes = effective_overflow(&node);
             let clips = axes.0 != Overflow::Visible || axes.1 != Overflow::Visible;

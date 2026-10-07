@@ -628,7 +628,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     }
 
     /// A custom row's own views in its cell, at the row's place in its
-    /// group, as tall as the row less the separator the cell draws instead.
+    /// group. UIKit draws the separator inside the cell, independently of any
+    /// CSS border the author gave the row.
     private func carry(_ id: UInt32, into cell: GroupedCell) {
         guard rows[id]?.custom == true, let row = host.presenter.views[id] else { return }
         for case let other as NodeView in cell.contentView.subviews where other !== row { other.removeFromSuperview() }
@@ -638,16 +639,14 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             carriedOrder.append(id)
         }
         guard let place = carried[id] else { return }
-        // A card-less section has no UIKit separator to stand in for the
-        // row's own border, so the row keeps its full height (§6.2).
-        let separator = card(of: id) ? CGFloat(row.style["border_width_bottom"]?.number ?? 0) : 0
-        let height = max(0, place.frame.height - separator)
+        let height = max(0, place.frame.height)
         // Never invalidated here: a cell is configured inside the data
         // source's update; `mount` lays the list out after it.
         if cell.height != height { cell.height = height; resized = true }
         cell.contentView.clipsToBounds = true
         if row.superview !== cell.contentView { cell.contentView.addSubview(row) }
         row.frame = CGRect(origin: CGPoint(x: place.frame.minX, y: 0), size: place.frame.size)
+        row.setNeedsDisplay()
     }
 
     /// Every carried row back in its authored place.

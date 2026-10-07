@@ -239,6 +239,7 @@ impl Painter {
         painter.placements = self.placements.clone();
         painter.canvases = self.canvases.clone();
         painter.flatten = Some(node.id);
+        painter.separator_groups = Rc::clone(&self.separator_groups);
         painter.viewport = (iw, ih);
         painter.backend.begin(iw, ih, self.scale);
         let mut child_walk = Walk {

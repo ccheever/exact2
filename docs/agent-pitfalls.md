@@ -127,12 +127,12 @@ guide's rules don't make obvious.
   that re-tests `now() > toastUntil` there does nothing and the toast stays up
   forever; clear it unconditionally. (LLP 1092 D8; ledger2 #1, chat F7.)
 
-- **A custom row in a grouped list overflows its card on the right.** Cause:
-  the sheet already gives each row its margin (16 pt, or 56 pt after an icon)
-  and a 16-pt trailing padding. A custom row with `width="100%"` adds the
-  margin on top and runs 16 pt past the card. Fix: leave custom row content
-  at its natural width (`flex-grow=1` on the part that should stretch), not
-  `width="100%"`. (Signal Clone, build 15.)
+- **A full-width box with padding overflows.** Bare boxes, input and textarea
+  use CSS `content-box`: their padding and border add to `width="100%"`.
+  Use `box-sizing="border-box"` when the declared width must include them.
+  Grouped-list rows, headers and footers already default to `border-box`;
+  their system insets are padding inside that width. An authored margin or
+  explicit `content-box` still follows normal CSS sizing.
 
 - **A data answer past 16 MiB fails only on the JS target.** A 64 MiB string from
   a Rust source loaded on the wasm web host and on Linux, and on the JS target

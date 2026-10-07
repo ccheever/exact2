@@ -1,0 +1,63 @@
+routes nav
+  tab examples "/"
+
+style Field
+  appearance="none"
+  padding=8
+  border-width=1
+  border-style="solid"
+  border-color="#8e8e93"
+  border-radius=6
+  background-color="#ffffff"
+  color="#1c1c1e"
+  font-size=12
+
+component WidthExamples
+  state taps = 0
+  action count
+    taps = taps + 1
+  view
+    main navigationKey=`${top(nav).id}` width="100%" height="100%" display="flex" flex-direction="column" font-family="system-ui" color="#1c1c1e" background-color="#f2f2f7" testId="root"
+      each t in nav.tabs key=t.name
+        each e in t.stack key=e.id
+          column navigationKey=`${e.id}` navigationScroll="examples-scroll" width="100%" height="100%" min-height=0
+            header display="flex" align-items="center" padding=12
+              text "Full-width controls" aria-level=2 font-size=20 font-weight=600
+            scroll id="examples-scroll" testId="examples-scroll" width="100%" flex=1 min-height=0 overflow-x="hidden"
+              list appearance="auto" listStyle="inset-grouped" width="100%" height=312 flex-shrink=0 testId="grouped-list"
+                section
+                  header width="100%" testId="group-header"
+                    text "GROUPED LIST · 100% ROWS"
+                  row width="100%" height=48 align-items="center" gap=8 testId="custom-row"
+                    image "symbol:sf/chart.bar.fill" width=20 height=20 object-fit="contain" -exact-tint-color="#5856d6"
+                    text "Custom row" font-size=16 width=92
+                    box flex=1 min-width=0 height=8 background-color="#e5e5ea" border-radius=4
+                      box width="62%" height="100%" background-color="#5856d6" border-radius=4
+                    text "42" width=28 flex-shrink=0 font-size=17 text-align="right" testId="custom-value"
+                  row width="100%" height=48 align-items="center" gap=8 testId="symbol-row"
+                    image "symbol:sf/star.fill" width=20 height=20 object-fit="contain" -exact-tint-color="#ff9500"
+                    text "Native symbol row" font-size=16
+                  button appearance="auto" press=count width="100%" testId="native-button-row"
+                    text "Native button"
+                  row width="100%" height=48 align-items="center" gap=8 testId="button-count-row"
+                    text "Button presses" font-size=16 flex=1
+                    text toString(taps) width=28 flex-shrink=0 font-size=17 text-align="right" testId="button-count"
+                  footer width="100%" testId="group-footer"
+                    text "The trailing 42 belongs inside the cell."
+              column padding-left=20 padding-right=20 padding-bottom=24 box-sizing="border-box" width="100%" gap=8 testId="ordinary-examples"
+                text "ORDINARY INPUTS · WIDTH 100%" font-size=12 color="#636366"
+                text "CSS sizing stays explicit outside the native list." font-size=14
+                row width="100%" gap=20 align-items="flex-start" testId="field-comparison"
+                  column flex=1 min-width=0 gap=6 testId="content-box-fields"
+                    text "content-box" font-size=13 font-weight=600
+                    text "Padding adds width" font-size=11 color="#636366"
+                    input class=Field value="Default input" readonly=true width="100%" height=24 aria-label="Content-box input" testId="content-input"
+                    textarea class=Field value="Default textarea" readonly=true width="100%" height=40 aria-label="Content-box textarea" testId="content-textarea"
+                  column flex=1 min-width=0 gap=6 testId="border-box-fields"
+                    text "border-box" font-size=13 font-weight=600
+                    text "Padding stays inside" font-size=11 color="#636366"
+                    input class=Field value="Fitted input" readonly=true width="100%" height=42 box-sizing="border-box" aria-label="Border-box input" testId="fitted-input"
+                    textarea class=Field value="Fitted textarea" readonly=true width="100%" height=58 box-sizing="border-box" aria-label="Border-box textarea" testId="fitted-textarea"
+                row width="100%" justify-content="space-between" padding=12 box-sizing="border-box" background-color="#ffffff" border-radius=8 testId="ordinary-full-row"
+                  text "Ordinary border-box row" font-size=13
+                  text "99" font-size=15 font-weight=600 testId="ordinary-value"

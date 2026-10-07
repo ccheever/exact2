@@ -141,3 +141,50 @@ fn a_lone_plain_text_is_its_boxs_text_content() {
         "{grown}"
     );
 }
+
+#[test]
+fn grouped_row_visibility_and_inset_follow_styles_only_commits() {
+    let plan = contract::compile(
+        r##"component App
+  state hidden = false
+  action toggle
+    hidden = not hidden
+  view
+    column
+      button "Toggle" press=toggle testId="toggle"
+      list appearance="auto" width=320 height=240
+        section
+          row testId="first" width="100%"
+            text "First"
+          row testId="last" width="100%" display=(hidden ? "none" : "flex") padding-left=(hidden ? 24 : 16) border-bottom-color=(hidden ? "#ff0000" : "#0000ff")
+            text "Last"
+"##,
+    )
+    .unwrap();
+    let (mut host, first) = Host::boot(
+        &plan.encode(),
+        caltrain_data::Caltrain,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(first.contains("data-grouped-row-separator"), "{first}");
+    assert!(!first.contains("data-grouped-row-hidden"), "{first}");
+    let last = view_with_test_id(&host, "last");
+    let toggle = view_with_test_id(&host, "toggle");
+    let off = host.dispatch(toggle, Event::Press);
+    let hidden = format!("{{\"op\":\"props\",\"id\":{last},\"set\":{{\"data-grouped-row-hidden\":\"true\"}},\"clear\":[]}}");
+    assert!(off.contains(&hidden), "{off}");
+    let style = format!("{{\"op\":\"style\",\"id\":{last},\"css\":\"");
+    let css = off.split_once(&style).unwrap().1.split('"').next().unwrap();
+    assert!(css.contains("--exact-grouped-inset:24px;"), "{css}");
+    assert!(
+        css.contains("--exact-grouped-separator:rgba(255,0,0,1);"),
+        "{css}"
+    );
+    let on = host.dispatch(toggle, Event::Press);
+    let shown = format!(
+        "{{\"op\":\"props\",\"id\":{last},\"set\":{{}},\"clear\":[\"data-grouped-row-hidden\"]}}"
+    );
+    assert!(on.contains(&shown), "{on}");
+}

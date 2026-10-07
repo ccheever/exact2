@@ -47,6 +47,8 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
     var columnRecord: ColumnRecord?  // LLP 1093 D7: fragments or columns
     var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
     var liveText: String?
+    weak var groupedLastVisibleRow: NodeView?
+    var groupedSeparatorInvalidationPending = false
     package var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
     package var style: NodeStyle = [:]
     /// What the host's own writers hid (a covered route, a tab a native control
@@ -1197,8 +1199,12 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         f.render(layer, clip: resolvedClipMask(), scale: window?.screen.scale ?? traitCollection.displayScale, dark: drawsDark)
     }
 
+    package override func willMove(toSuperview newSuperview: UIView?) {
+        invalidateGroupedSeparatorSiblings(); super.willMove(toSuperview: newSuperview)
+    }
     package override func didMoveToSuperview() {
         super.didMoveToSuperview()
+        invalidateGroupedSeparatorSiblings()
         paintOrderMoved()
         if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
         // A box styled before it joined its parent learns its material now.
@@ -1217,6 +1223,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
         let old = style
         style = s
         if old["display"] != s["display"] || old["visibility"] != s["visibility"] { isHidden = hostHidden }
+        if old["display"] != s["display"] { invalidateGroupedSeparatorSiblings() }
         if old["color_scheme"] != s["color_scheme"] { applyColorScheme() }
         updateSymbol(); syncDynamicRange(from: old)
         (clipPath, clipRule) = (ClipPath.path(s["clip_path"]), ClipPath.rule(s["clip_path"]))
@@ -1397,6 +1404,7 @@ package final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, U
             let colors = ["top", "right", "bottom", "left"].map { color("border_color_" + $0, top).cgColor }
             let radii = BorderPaint.radii(style, in: bounds)
             BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii, shape: CornerShape(style["corner_shape"]))
+            paintGroupedSeparator(ctx)
         }
         if !cssVisibilityHidden, kind == "image", symbolView == nil, flightLook == nil || imageLayer == nil, let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border

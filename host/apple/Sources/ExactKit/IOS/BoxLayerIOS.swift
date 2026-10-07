@@ -205,8 +205,9 @@ extension NodeView {
         let widths = sides.map { number("border_width_" + $0, uniform) }
         let top = color("border_color_top", .clear)
         let colors = sides.map { color("border_color_" + $0, top).cgColor }
+        let separator = groupedSeparatorRect
         let width = widths[0]
-        let oneBorder = widths.allSatisfy { $0 == width } && (width == 0 || colors.allSatisfy { $0 == colors[0] })
+        let oneBorder = separator == nil && widths.allSatisfy { $0 == width } && (width == 0 || colors.allSatisfy { $0 == colors[0] })
         // One radius over the corners that have one; CSS's reduction first,
         // and Core Animation's own limit (half the shorter side) not reached.
         let radii = cornerRadii(in: bounds)
@@ -232,9 +233,9 @@ extension NodeView {
         // mitred join is that same colour, so their union paints the same,
         // and the view keeps no backing store of its size for a hairline.
         let drawn = widths.indices.filter { widths[$0] > 0 }
-        let sideColor = drawn.first.map { colors[$0] }
+        let sideColor = separator == nil ? drawn.first.map { colors[$0] } : groupedSeparatorColor
         let edges = !oneBorder && !own && radii.allSatisfy { $0 == 0 } && drawn.allSatisfy { colors[$0] == sideColor }
-        boxDrawn = !away && (!((oneBorder || edges) && oneRadius && (shape == nil || continuous)) || gradientDraws || backgroundClip != "border-box") && (fill != nil || gradient || widths.contains { $0 > 0 })
+        boxDrawn = !away && (!((oneBorder || edges) && oneRadius && (shape == nil || continuous)) || gradientDraws || backgroundClip != "border-box") && (fill != nil || gradient || widths.contains { $0 > 0 } || separator != nil)
         let onLayer = !boxDrawn
         var corners: CACornerMask = []
         let masks: [CACornerMask] = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
@@ -281,6 +282,7 @@ extension NodeView {
                          CGRect(x: 0, y: 0, width: widths[3], height: h)] where rect.width > 0 && rect.height > 0 {
                 path.addRect(rect)
             }
+            if let rect = separator { path.addRect(rect) }
             if shape.path != path { shape.path = path }
             if shape.fillColor != border { shape.fillColor = border }
             return

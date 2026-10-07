@@ -26,6 +26,7 @@ use exact_kernel::{
     Dimension, Display, Kernel, NodeRef, NodeType, ObjectFit, Overflow, PropId, StyleId, StyleMask,
     StyleProps, ViewId,
 };
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 use std::sync::Arc;
@@ -156,6 +157,7 @@ struct BoxPaint {
     clip: exact_kernel::BackgroundClip,
     corners: Option<exact_kernel::corner::CornerShape>,
     widths: [f32; 4],
+    grouped_separator: Option<(f32, [u8; 4])>,
     colors: [[u8; 4]; 4],
     background: [u8; 4],
     gradients: Vec<gradient::Captured>,
@@ -180,11 +182,26 @@ fn paint_rect(frame: exact_kernel::Frame, offset: (f32, f32)) -> Rect4 {
     )
 }
 impl BoxPaint {
-    fn capture(node: &NodeRef<'_>, kernel: &Kernel, dark: bool, w: f32) -> Self {
+    fn capture(
+        node: &NodeRef<'_>,
+        kernel: &Kernel,
+        dark: bool,
+        w: f32,
+        groups: &SeparatorGroups,
+    ) -> Self {
         let s = node.style;
         let widths = s.border_widths();
         let current = node.computed_row(StyleId::TextColor, |s| s.text_color);
         let colors = s.border_colors(current);
+        let grouped_separator = node.props.bool(PropId::GroupedRowSeparator) == Some(true)
+            && node.style.display != Display::None
+            && node.parent.is_some_and(|parent| {
+                *groups
+                    .borrow_mut()
+                    .entry(parent)
+                    .or_insert_with(|| kernel.grouped_last_visible_row(parent))
+                    != Some(node.id)
+            });
         let env = kernel.env();
         let pad = |d: Dimension| match d.resolve(&env) {
             Dimension::Points(p) => p,
@@ -213,6 +230,26 @@ impl BoxPaint {
             corners: Some(s.rare.corner_shape).filter(|c| !c.is_round()),
             clip: s.background_clip,
             widths,
+            grouped_separator: grouped_separator.then(|| {
+                let inset = if s.mask.has(StyleId::PaddingLeft) {
+                    let basis = (w - widths[3] - widths[1]).max(0.0);
+                    match s.padding_left.resolve(&env) {
+                        Dimension::Percent(p) => basis * p / 100.0,
+                        Dimension::Calc(p, x) => basis * p / 100.0 + x,
+                        _ => pad(s.padding_left),
+                    }
+                } else {
+                    16.0
+                };
+                let ink = if s.mask.has(StyleId::BorderColorBottom) {
+                    rgba(colors[2].resolve(dark))
+                } else if dark {
+                    [84, 84, 88, 128]
+                } else {
+                    [60, 60, 67, 31]
+                };
+                (inset, ink)
+            }),
             colors: colors.map(|c| rgba(c.resolve(dark))),
             background: match material {
                 // The material's tint where the author painted no background,
@@ -360,7 +397,29 @@ impl BoxPaint {
     }
     /// The border, one fill per colour, joined as the web joins sides.
     fn borders(&self, geometry: &BoxGeometry) -> Vec<border::BorderFill> {
-        border::border_fills(&geometry.outer, self.widths, self.colors)
+        let mut fills = border::border_fills(&geometry.outer, self.widths, self.colors);
+        let (x, y, w, h) = geometry.outer.rect;
+        if let Some((inset, ink)) = self.grouped_separator {
+            let left = x + self.widths[3] + inset.max(0.0);
+            let right = x + w - self.widths[1];
+            let bottom = y + h - self.widths[2];
+            let top = (y + self.widths[0]).max(bottom - 1.0);
+            if right > left && bottom > top {
+                fills.push(border::BorderFill {
+                    region: vec![
+                        border::PathOp::Move(left, top),
+                        border::PathOp::Line(right, top),
+                        border::PathOp::Line(right, bottom),
+                        border::PathOp::Line(left, bottom),
+                        border::PathOp::Close,
+                    ],
+                    clip: None,
+                    color: ink,
+                    ring: None,
+                });
+            }
+        }
+        fills
     }
 }
 type ProjectiveHit = ([f32; 9], Rect4, Option<Rect4>, [[f32; 3]; 2]);
@@ -478,6 +537,10 @@ pub struct Frame {
 
 pub use backend::Backend;
 
+// One last-visible lookup per group in a paint, shared by normal, retained
+// and projected walks; keep its allocation for the next frame.
+type SeparatorGroups = Rc<RefCell<HashMap<ViewId, Option<ViewId>>>>;
+
 /// The painter: the walk over one backend.
 pub struct Painter {
     /// The text engine, shared with the kernel's measurer.
@@ -521,6 +584,7 @@ pub struct Painter {
     svg_layers: Vec<(ViewId, Presented)>,
     /// How many boxes the last walk painted: the next one's room.
     boxes_hint: usize,
+    separator_groups: SeparatorGroups,
 }
 
 // O(painted owners) references and numeric publication metadata, not copied
@@ -614,6 +678,7 @@ impl Painter {
             flatten: None,
             rows: Default::default(),
             boxes_hint: 0,
+            separator_groups: Rc::default(),
             svg_layers: Vec::new(),
         }
     }
@@ -654,6 +719,7 @@ impl Painter {
 
     /// Paint the scene into a viewport of the given size (points).
     pub fn paint(&mut self, scene: &Scene<'_>, viewport: (f32, f32)) -> Result<Frame, String> {
+        self.separator_groups.borrow_mut().clear();
         self.paint_selected(scene, viewport, None, None)
     }
 
@@ -667,6 +733,7 @@ impl Painter {
         collection_limits: &BTreeMap<ViewId, f32>,
         actions: &mut RegionActions<'_>,
     ) -> Result<Frame, String> {
+        self.separator_groups.borrow_mut().clear();
         region.validate_scale(self.scale)?;
         self.validate_region_presentation(scene, region)?;
         if self.backend.name() == "gpu" {
@@ -984,8 +1051,14 @@ impl Painter {
         let shown = (walk.scene.presented)(node.id);
         // Paint motion's values over the captured box (LLP 1055.000 D6,
         // LLP 1062 D5): background, border sides and shadow.
-        let paint =
-            BoxPaint::capture(node, walk.scene.kernel, self.dark, rect.2).presented(&shown.colors);
+        let paint = BoxPaint::capture(
+            node,
+            walk.scene.kernel,
+            self.dark,
+            rect.2,
+            &self.separator_groups,
+        )
+        .presented(&shown.colors);
         let geometry = paint.geometry(rect);
         // @ref LLP 1063 — a layout transition's size is the surface's alone.
         let surface = paint.geometry(shown.surface(rect));

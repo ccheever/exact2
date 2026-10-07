@@ -207,6 +207,31 @@ pub(super) fn touch_scoped(kernel: &Kernel, node: &NodeRef<'_>) -> bool {
 
 /// [`host_css`], from a node's facts.
 pub fn host_css_of(node: &NodeFacts<'_>, mut css: String, tag: &str) -> String {
+    if node.props.bool(PropId::GroupedRowSeparator) == Some(true) {
+        // The separator is paint on the row, never a border or a child box.
+        let value = |name: &str, fallback: &str| {
+            css.split(';')
+                .filter_map(|d| d.strip_prefix(name))
+                .next_back()
+                .unwrap_or(fallback)
+                .to_string()
+        };
+        let inset = value(
+            "padding-left:",
+            if node.node_type == NodeType::Pressable
+                || (node.node_type == NodeType::Control
+                    && node.props.str(PropId::Type) == Some("button"))
+            {
+                "16px"
+            } else {
+                "0px"
+            },
+        );
+        let color = value("border-bottom-color:", "light-dark(#3c3c431f, #54545880)");
+        css.push_str(&format!(
+            "--exact-grouped-inset:{inset};--exact-grouped-separator:{color};"
+        ));
+    }
     if tag == "span" && !node.is_inline_run() && !css.split(';').any(|d| d.starts_with("display:"))
     {
         css.push_str("display:block;");
@@ -715,6 +740,11 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
 /// [`props_for`], from a node's facts.
 pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     let mut out = SortedMap::new();
+    if node.props.bool(PropId::GroupedRowSeparator) == Some(true)
+        && node.style.display == exact_kernel::Display::None
+    {
+        out.insert("data-grouped-row-hidden".into(), "true".into());
+    }
     if node.style.wrap_flow == exact_kernel::WrapFlow::Both {
         out.insert("data-wrap-flow".into(), "both".into());
     }
@@ -958,6 +988,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::LightY => "y",
             PropId::LightZ => "z",
             PropId::ButtonStyle => "data-button-style",
+            PropId::GroupedRowSeparator => "data-grouped-row-separator",
             other if matches!(node.node_type, NodeType::SvgFe | NodeType::SvgFilter) => {
                 other.name()
             }

@@ -234,12 +234,24 @@ final class GroupedListIOSTests: XCTestCase {
         let cell = try cell(p, 21)
         XCTAssertTrue(row.superview === cell.contentView, "carried into its cell")
         XCTAssertEqual(row.frame.minX, 16, "at its place in its group")
-        XCTAssertEqual(cell.bounds.height, 60, accuracy: 0.5, "the row less the separator the cell draws")
+        XCTAssertEqual(cell.bounds.height, 61, accuracy: 0.5, "the authored border remains inside the carried row")
         XCTAssertTrue(host(p).projects(row))
         host(p).prepare()
         XCTAssertTrue(row.superview === p.views[5]?.container, "back where the presenter put it")
         XCTAssertEqual(row.frame, CGRect(x: 16, y: 52, width: 354, height: 61))
         XCTAssertFalse(host(p).projects(row))
+    }
+
+    func testACarriedRowKeepsItsAuthoredBorderAndUsesUIKitSeparator() throws {
+        let p = presenter { self.model(custom: true) }
+        let row = try XCTUnwrap(p.views[21])
+        row.props["groupedRowSeparator"] = "true"
+        row.applyStyle(["border_width_bottom": 4, "border_color_bottom": [255, 0, 0, 255]])
+        p.apply(wireBatch([["op": "frame", "id": 21, "x": 0.0, "y": 52.0, "w": 370.0, "h": 64.0]]))
+        row.applyBoxLayer()
+        XCTAssertNil(row.groupedSeparatorRect, "UIKit owns the carried row's system separator")
+        XCTAssertEqual(try cell(p, 21).bounds.height, 64, accuracy: 0.5)
+        XCTAssertEqual(row.style["border_width_bottom"]?.number, 4)
     }
 
     /// The symbol's tint is the sheet's (D7), the author's over its own: the

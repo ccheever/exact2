@@ -65,6 +65,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var columnRecord: ColumnRecord?  // LLP 1093 D7: fragments or columns
     var cachedTextLayout: (width: CGFloat, paragraph: Paragraph)?
     var liveText: String?
+    weak var groupedLastVisibleRow: NodeView?
+    var groupedSeparatorInvalidationPending = false
     var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
     var style: NodeStyle = [:]
     /// What the host's own writers hid (a covered route, a tab a native control
@@ -943,7 +945,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     // Empty container layers carry geometry and children, with no bitmap.
-    private(set) var hasBoxPaint = false
+    private var styleBoxPaint = false
+    var hasBoxPaint: Bool { styleBoxPaint || props["groupedRowSeparator"] == "true" }
     override var wantsUpdateLayer: Bool {
         if let readerParagraph, readerParagraph.hasPixels {
             return !hasBoxPaint && !Capture.capturing && canvasAbove == nil
@@ -989,14 +992,14 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let origin = style["transform_origin"]
         let old = style
         style = s
-        if old["display"] != s["display"] { isHidden = hostHidden }
+        if old["display"] != s["display"] { isHidden = hostHidden; invalidateGroupedSeparatorSiblings() }
         if old["cursor"] != s["cursor"] { window?.invalidateCursorRects(for: self) }
         if old["color_scheme"] != s["color_scheme"] { applyColorScheme() }
         if s["transform_origin"] != origin { applyTransform() }
         applySpace(changedFrom: old)
         syncDynamicRange(from: old)
         let uniformBorder = number("border_width")
-        hasBoxPaint = s["background_color"] != nil || s["background_image"] != nil
+        styleBoxPaint = s["background_color"] != nil || s["background_image"] != nil
             || number("border_width_top", uniformBorder) > 0
             || number("border_width_right", uniformBorder) > 0
             || number("border_width_bottom", uniformBorder) > 0
@@ -1137,8 +1140,12 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         f.render(layer, clip: resolvedClipMask(), scale: window?.backingScaleFactor ?? 2, dark: drawsDark)
     }
 
+    override func viewWillMove(toSuperview newSuperview: NSView?) {
+        invalidateGroupedSeparatorSiblings(); super.viewWillMove(toSuperview: newSuperview)
+    }
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
+        invalidateGroupedSeparatorSiblings()
         if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
         paintOrderMoved()
     }
@@ -1281,6 +1288,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             let colors = ["top", "right", "bottom", "left"].map { color("border_color_" + $0, top).cgColor }
             let radii = BorderPaint.radii(style, in: bounds)
             BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii, shape: CornerShape(style["corner_shape"]))
+            paintGroupedSeparator(ctx)
         }
         if !cssVisibilityHidden, kind == "image", symbolView == nil, flightLook == nil || imageLayer == nil, !(layerBoxEligible && !Capture.capturing && imageLayer != nil), let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border

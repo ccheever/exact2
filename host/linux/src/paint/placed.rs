@@ -46,6 +46,7 @@ impl Painter {
         painter.dark = self.dark;
         painter.placements = self.placements.clone();
         painter.placements.remove(&id);
+        painter.separator_groups = Rc::clone(&self.separator_groups);
         painter.viewport = (f.width, f.height);
         painter.backend.begin(f.width, f.height, self.scale);
         let mut child_walk = Walk {

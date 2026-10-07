@@ -1076,7 +1076,13 @@ iOS draws UIKit's own list (`UICollectionView` with a list configuration); the
 other hosts draw a sheet measured from it, and your own attributes replace any
 of its rows. A section's own `margin-top` or `margin-bottom` is the space iOS
 leaves there too, collapsed with its neighbour's as on the web (LLP 1084 §6.4).
-See [the grouped-list fixture](../scripts/fixtures/grouped-list.contract)
+Rows, headers and footers default to `box-sizing="border-box"`, so their
+system padding fits inside `width="100%"`. A row's separator is decoration,
+not an extra border or layout node; your own borders retain normal CSS sizing.
+Native button rows keep the button's own chrome inside its box. Outside a
+grouped list, bare boxes and text fields still default to `content-box`.
+See [the grouped-list fixture](../scripts/fixtures/grouped-list.contract),
+[the full-width sizing screen](../scripts/fixtures/grouped-box-sizing.contract)
 and LLP 1084.
 
 ## Navigation and documents

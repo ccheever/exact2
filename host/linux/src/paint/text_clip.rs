@@ -33,7 +33,7 @@ impl Painter {
         {
             return;
         }
-        let paint = BoxPaint::capture(node, kernel, self.dark, rect.2);
+        let paint = BoxPaint::capture(node, kernel, self.dark, rect.2, &self.separator_groups);
         let geometry = paint.geometry(rect);
         let Some(mut fill) = self.island(rect, |p, t| {
             if paint.background[3] > 0 {
