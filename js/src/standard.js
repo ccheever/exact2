@@ -153,8 +153,8 @@
   // other `get…()` lists (docs/reference.md).
   if (global.Intl && typeof global.Intl.Locale !== 'function') (function () {
     var FIRST = { 7: 'AG AS BD BR BS BT BW BZ CA CO DM DO ET GT GU HK HN ID IL IN IS JM JP KE KH KR LA MH MM MO MT MX MZ NI NP PA PE PH PK PR PT PY SA SG SV TH TT TW UM US VE VI WS YE ZA ZW',
-      6: 'AE AF BH DJ DZ EG IQ IR JO KW LY OM QA SD SY', 5: 'MV' };
-    var WEEKEND = { 56: 'AE BH DZ EG IL IQ JO KW LY OM QA SA SD SY YE', 45: 'AF', 7: 'IN UG', 5: 'IR' };
+      6: 'AF BH DJ DZ EG IQ IR JO KW LY OM QA SD SY', 5: 'MV' };
+    var WEEKEND = { 56: 'BH DZ EG IL IQ JO KW LY OM QA SA SD SY YE', 45: 'AF', 7: 'IN UG', 5: 'IR' };
     var LIKELY = 'aaET aeIR afZA amET arEG asIN bhIN bnBD chGU crCA dvMV dzBT enUS faIR gnPY guIN heIL hiIN idID ikUS inID isIS iuCA iwIL jaJP jvID jwID kiKE kmKH knIN koKR ksIN lgUG loLA mhMH mlIN mrIN mtMT myMM ndZW neNP nrZA nvUS ojCA omET orIN paIN psAF ptBR quPE saIN sdPK smWS snZW ssZA stZA suID taIN teIN thTH tiET tlPH tnZA tsZA urPK veZA xhZA zuZA ' +
       'undUS filPH yueHK ckbIQ hawUS chrUS cebPH kokIN maiIN satIN mniIN doiIN brxIN zh-HantTW zh-BopoTW yue-HansCN pa-ArabPK sd-DevaIN az-ArabIR ku-ArabIQ uz-ArabAF tg-ArabPK';
     function table(source) {
@@ -232,6 +232,7 @@
       var text = slots.has(tag) ? slots.get(tag).tag : String(tag);
       if (text === '') throw new RangeError("First argument to Intl.Locale constructor can't be empty or missing");
       var parts = parse(text);
+      if (options === null) throw new TypeError('Cannot convert undefined or null to object');
       options = options === undefined ? {} : Object(options);
       [['language', LANGUAGE], ['script', SCRIPT], ['region', REGION]].forEach(function (field) {
         var value = option(options, field[0]);
@@ -239,6 +240,13 @@
         if (!field[1].test(value.toLowerCase()) || value.indexOf('-') >= 0) invalid();
         parts[field[0]] = value.toLowerCase();
       });
+      // `variants` replaces the tag's: each a variant subtag, none twice.
+      var variants = option(options, 'variants');
+      if (variants !== undefined) {
+        variants = variants.toLowerCase().split('-');
+        variants.forEach(function (variant, k) { if (!VARIANT.test(variant) || variants.indexOf(variant) !== k) invalid(); });
+        parts.variants = variants;
+      }
       [['calendar', 'ca'], ['collation', 'co'], ['firstDayOfWeek', 'fw'], ['hourCycle', 'hc', ['h11', 'h12', 'h23', 'h24']],
         ['caseFirst', 'kf', ['upper', 'lower', 'false']], ['numeric', 'kn'], ['numberingSystem', 'nu']].forEach(function (field) {
         var value = option(options, field[0], field[2]);
@@ -269,8 +277,9 @@
     define('getWeekInfo', function getWeekInfo() {
       var p = slot(this).parts, rg = /^([a-z]{2})[a-z0-9]{1,4}$/.exec(p.keywords.rg || '');
       var region = rg ? rg[1].toUpperCase() : p.region ? p.region.toUpperCase() : p.script && likely[p.language + '-' + p.script[0].toUpperCase() + p.script.slice(1)] || likely[p.language];
+      // The ISO 8601 calendar's week starts on Monday wherever it is.
       var fw = DAYS.indexOf(p.keywords.fw), end = weekend[region] || '67';
-      return { firstDay: fw >= 0 ? fw + 1 : +(first[region] || 1), weekend: end.split('').map(Number) };
+      return { firstDay: fw >= 0 ? fw + 1 : p.keywords.ca === 'iso8601' ? 1 : +(first[region] || 1), weekend: end.split('').map(Number) };
     });
     defineProperty(proto, Symbol.toStringTag, { value: 'Intl.Locale', configurable: true });
     defineProperty(global.Intl, 'Locale', { value: Locale, writable: true, configurable: true });
