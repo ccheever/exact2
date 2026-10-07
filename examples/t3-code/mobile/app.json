@@ -64,7 +64,8 @@
     "t3-information-notice",
     "t3-mobile-browser",
     "t3-mobile-devices",
-    "t3-preview-menu"
+    "t3-preview-menu",
+    "t3-workspace-layout"
   ],
   "data": [
     "mobile-form-sheet",

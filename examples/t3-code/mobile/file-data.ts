@@ -18,31 +18,50 @@ export interface FileTreeSnapshot { owner: string; revision: number; title: stri
 export interface FileSnapshot { owner: string; revision: number; path: string; title: string; subtitle: string;
   loading: boolean; error: string; contents: string; rows: ReviewRow[]; truncated: boolean; notice: string;
   markdown: boolean; initialRowId: string }
-interface Access { owner: string; allowed: boolean; checking: boolean; error: string; serial: number }
+type ReadLane = 'tree' | 'file';
+interface Access { owner: string; allowed: boolean; permissionError: string; revocation: number;
+  tree: { checking: boolean; error: string; serial: number }; file: { checking: boolean; error: string; serial: number } }
 const accesses = new WeakMap<T3Client, Access>();
 function accessOf(client: T3Client): Access {
   const owner = reviewOwner(client); let access = accesses.get(client);
   if (!access || access.owner !== owner) {
-    access = { owner, allowed: false, checking: false, error: '', serial: 0 };
+    access = { owner, allowed: false, permissionError: '', revocation: 0,
+      tree: { checking: false, error: '', serial: 0 }, file: { checking: false, error: '', serial: 0 } };
     accesses.set(client, access);
   }
   return access;
 }
 const message = (error: unknown) => error instanceof Error ? error.message : 'Files unavailable';
-async function allow(client: T3Client, nativeInput: Native | null | undefined, owner: string) {
+/** Tree and source panes may read concurrently. Newer requests supersede only
+ * their own pane; an actual permission failure revokes both panes and all older
+ * in-flight authorizations. Shared directory/file caches and RPC stay unchanged. */
+async function allow(client: T3Client, nativeInput: Native | null | undefined, owner: string, lane: ReadLane) {
   assertReviewOwner(client, owner);
-  const access = accessOf(client), serial = ++access.serial; access.allowed = false; access.checking = true; access.error = '';
-  if (!nativeInput?.available || !client.ready || !workspaceOf(client).cwd) {
-    access.checking = false; throw new ClientError('Connect and select a workspace to view its files.');
-  }
-  const guarded = reviewNative(client, letGoAware(mobileNative(nativeInput)), owner);
-  const check = () => { if (serial !== access.serial) throw new ClientError('A newer files request replaced this one.', 'superseded'); };
-  const native: Native = { ...guarded, later: async request => { check(); const result = await guarded.later(request); check(); return result; } };
+  const access = accessOf(client), request = access[lane], serial = ++request.serial, revocation = access.revocation;
+  request.checking = true; request.error = '';
+  const check = () => {
+    assertReviewOwner(client, owner);
+    if (serial !== request.serial || revocation !== access.revocation)
+      throw new ClientError('A newer files request or permission change replaced this one.', 'superseded');
+  };
   try {
-    access.allowed = await reviewFileAccess(client, native);
-    if (!access.allowed) throw new ClientError('This connection cannot read host files.');
-  } finally { if (serial === access.serial) access.checking = false; }
-  return native;
+    if (!nativeInput?.available || !client.ready || !workspaceOf(client).cwd)
+      throw new ClientError('Connect and select a workspace to view its files.');
+    const guarded = reviewNative(client, letGoAware(mobileNative(nativeInput)), owner);
+    const native = { ...guarded, assertCurrent: check, later: async (input: Parameters<Native['later']>[0]) => {
+      check(); const result = await guarded.later(input); check(); return result;
+    } };
+    const allowed = await reviewFileAccess(client, native);
+    check();
+    if (!allowed) throw new ClientError('This connection cannot read host files.');
+    access.allowed = true; access.permissionError = '';
+    return native;
+  } catch (error) {
+    if (serial === request.serial && accessOf(client) === access && !letGo(error)) {
+      access.allowed = false; access.permissionError = message(error); access.revocation++;
+    }
+    throw error;
+  } finally { if (serial === request.serial) request.checking = false; }
 }
 
 /** Merge only directories reachable from the actual root; search adds its own results. */
@@ -65,9 +84,9 @@ export function mobileFileTreeProjection(client: T3Client, selectedPath: string)
 }
 export function mobileFilesSnapshot(selectedPath = '', client: T3Client = mobileClient): FileTreeSnapshot {
   const access = accessOf(client), state = filesState(client), query = state.query;
-  const error = access.error || (access.allowed ? state.errors.get('') || (query.trim() ? state.search?.error : '') || [...state.errors.values()][0] || '' : '');
+  const error = access.permissionError || access.tree.error || (access.allowed ? state.errors.get('') || (query.trim() ? state.search?.error : '') || [...state.errors.values()][0] || '' : '');
   return { owner: access.owner, revision: client.revision, title: workspaceOf(client).projectName || 'Files', query, selectedPath,
-    rows: access.allowed ? mobileFileTreeProjection(client, selectedPath) : [], loading: access.checking || state.loading > 0,
+    rows: access.allowed ? mobileFileTreeProjection(client, selectedPath) : [], loading: access.tree.checking || state.loading > 0,
     error, truncated: access.allowed && !!query.trim() && state.search?.truncated === true,
     emptyTitle: error ? 'Files unavailable' : 'No files found', emptyDetail: error || (query.trim() ? 'Try a different search.' : 'The workspace is empty.') };
 }
@@ -75,11 +94,12 @@ export function mobileFilesSnapshot(selectedPath = '', client: T3Client = mobile
 export async function mobileFilesRead(query: string, selectedPath: string, nativeInput: Native | null | undefined, client: T3Client = mobileClient) {
   const access = accessOf(client), owner = access.owner;
   try {
-    const native = await allow(client, nativeInput, owner);
+    const native = await allow(client, nativeInput, owner, 'tree');
     await ensureTree(client, native);
-    assertReviewOwner(client, owner);
+    native.assertCurrent();
     if (query !== filesState(client).query || query.trim() && !filesState(client).search) await filesLocal(client, native, 'search', '', query);
-  } catch (error) { if (letGo(error)) throw error; if (accessOf(client) === access) access.error = message(error); }
+    native.assertCurrent();
+  } catch (error) { if (letGo(error)) throw error; if (accessOf(client) === access) access.tree.error = message(error); }
   finally { client.revision++; }
   return mobileFilesSnapshot(selectedPath, client);
 }
@@ -88,7 +108,7 @@ export async function mobileFilesAction(owner: string, op: string, path: string,
   let error = '';
   try {
     assertReviewOwner(client, owner);
-    const native = await allow(client, nativeInput, owner), state = filesState(client);
+    const native = await allow(client, nativeInput, owner, 'tree'), state = filesState(client);
     if (op === 'toggle') {
       if (!mobileFileTreeProjection(client, selectedPath).some(row => row.path === path && row.directory)) throw new ClientError('That directory is no longer available.');
       await filesLocal(client, native, 'toggle', path, '');
@@ -101,7 +121,8 @@ export async function mobileFilesAction(owner: string, op: string, path: string,
         if (!state.expanded.has(directory)) await filesLocal(client, native, 'toggle', directory, '');
       }
     } else throw new ClientError('Unsupported files action.');
-  } catch (cause) { if (letGo(cause)) throw cause; error = message(cause); if (reviewOwner(client) === owner) accessOf(client).error = error; }
+    native.assertCurrent();
+  } catch (cause) { if (letGo(cause)) throw cause; error = message(cause); if (reviewOwner(client) === owner) accessOf(client).tree.error = error; }
   finally { client.revision++; }
   return { message: error, data: mobileFilesSnapshot(selectedPath, client) };
 }
@@ -115,7 +136,7 @@ export function mobileFileSnapshot(path: string, dark = false, initialLine = 0, 
   const absolute = path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path) || path.startsWith('\\\\');
   return { owner: access.owner, revision: client.revision, path, title: path.split(/[\\/]/).at(-1) || 'File',
     subtitle: absolute ? parent : [workspaceOf(client).projectName, parent].filter(Boolean).join(' · '),
-    loading: access.checking || state.loading > 0, error: access.error || read?.error || '', contents,
+    loading: access.file.checking || state.loading > 0, error: access.permissionError || access.file.error || read?.error || '', contents,
     rows: read && !read.error ? lines.map((text, at) => ({ ...reviewRow(`source-line:${at}`, 'line'), path, text: text.replace(/\t/g, '    '),
       oldNumber: '', newNumber: String(at + 1), lineIndex: at, change: 'context', selected: at === target, tokens: tokens[at] ?? [] })) : [],
     truncated: read?.truncated === true, notice: read?.truncated ? 'Preview limited to the first 1 MB of a truncated file.' : '',
@@ -126,10 +147,11 @@ export async function mobileFileRead(path: string, nativeInput: Native | null | 
   const access = accessOf(client), owner = access.owner;
   try {
     if (!path || path.includes('\0')) throw new ClientError('Choose a file to view.');
-    const native = await allow(client, nativeInput, owner);
+    const native = await allow(client, nativeInput, owner, 'file');
     // ensureFile performs projects.readFile through shared client, and marks directory results.
     await ensureFile(client, native, path, refresh);
-  } catch (error) { if (letGo(error)) throw error; if (accessOf(client) === access) access.error = message(error); }
+    native.assertCurrent();
+  } catch (error) { if (letGo(error)) throw error; if (accessOf(client) === access) access.file.error = message(error); }
   finally { client.revision++; }
   return mobileFileSnapshot(path, dark, initialLine, client);
 }

@@ -23,6 +23,21 @@ enum T3MobileNavigation {
         let item = route.controller.navigationItem
         item.largeTitleDisplayMode = .never
         item.backButtonDisplayMode = .minimal
+        // Custom symbol views paint the authored header; Exact's bar projection
+        // accepts its built-in image vocabulary. Decorate the public bar items
+        // by their authored accessibility labels, retaining their targets/actions.
+        let symbols = ["Show sidebar": "sidebar.left", "Hide sidebar": "sidebar.left",
+                       "New task": "square.and.pencil", "Terminal": "terminal",
+                       "Review changes": "plus.forwardslash.minus", "Files": "folder",
+                       "Agents": "person.2", "Terminal options": "terminal",
+                       "New scheduled task": "plus", "Filter usage environments": "line.3.horizontal.decrease",
+                       "Refresh usage": "arrow.clockwise"]
+        for button in (item.leftBarButtonItems ?? []) + (item.rightBarButtonItems ?? []) {
+            if let label = button.accessibilityLabel, let symbol = symbols[label] {
+                button.image = UIImage(systemName: symbol)
+                button.tintColor = tint
+            }
+        }
         // The authored native header remains the title source. A sheet's fractional
         // resting heights must be projected through navigationDetent by the root.
         guard let id = scanActionID, !id.isEmpty else { return }

@@ -28,6 +28,9 @@ final class T3MobileModule: ExactModule {
             let instance = T3MobileDocumentHTML(dataRoot: module.documentRoot, audioSession: module.audioSession, events: events)
             try instance.setProps(props); return instance
         },
+        "t3-workspace-layout": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
+            try module.workspace.makeView(props: props, events: events)
+        },
         "t3-layout-facts": T3LayoutFacts.factory,
         "t3-archive-spinner": T3ArchiveSpinner.factory,
         "t3-media-presenter": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
@@ -48,6 +51,7 @@ final class T3MobileModule: ExactModule {
     private let activity: T3ActivityReporter
     private var alive = true
     let homeChrome = T3HomeChrome()
+    private lazy var workspace = T3MobileWorkspace(homeChrome: homeChrome)
     let settingsNavigation = T3SettingsNavigation()
     private let alerts = T3MobileAlerts()
     private let releases = T3ReleasePages()
@@ -91,6 +95,8 @@ final class T3MobileModule: ExactModule {
                         activity: activity, changed: context.changed)
         super.init(context: context)
     }
+
+    override func tabContainer(_ contents: ExactTabContents) -> UIViewController? { workspace.container(contents) }
 
     override func navigation(_ navigation: ExactNavigation) {
         T3MobileNavigation.configure(navigation)
@@ -217,6 +223,7 @@ final class T3MobileModule: ExactModule {
 
     override func destroy() {
         alive = false
+        workspace.destroy()
         scheduledControls.destroy()
         voice.destroy()
         terminal.destroy()
@@ -254,6 +261,7 @@ final class T3MobileModule: ExactModule {
          "t3-archive-spinner": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-symbol": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-qr-scanner": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
+         "t3-workspace-layout": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-layout-facts": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-home-chrome": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") }]
     }

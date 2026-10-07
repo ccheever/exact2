@@ -53,6 +53,7 @@ shape HomeItem
 
 component Home
   props
+    listId: string
     items: list<HomeItem>
     emptyTitle: string
     emptyDetail: string
@@ -101,7 +102,7 @@ component Home
               testId="home-add-environment"
               text "Add environment" color=colors.primaryForeground font-size=14 line-height="19px" font-weight=700
     else
-      list id="home-list" flex=1 min-height=0
+      list id=listId flex=1 min-height=0
         virtualized=true
         estimated-item-height=72
         testId="home-thread-list"
