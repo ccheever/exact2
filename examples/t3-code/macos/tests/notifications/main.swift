@@ -26,6 +26,7 @@ final class T3NotificationsTests: XCTestCase {
         XCTAssertEqual(value["authorization"] as? String, "unavailable")
         XCTAssertEqual(value["agent"] as? Bool, true)
         XCTAssertEqual(value["opened"] as? String, "")
+        XCTAssertNil(value["active"], "the window's focus is the page's exactPage().hasFocus (exact2 #219), not the module's")
         let authorize = request(module, ["op": "notifyAuthorize", "generation": 4])["value"] as? [String: Any] ?? [:]
         XCTAssertEqual(authorize["requested"] as? Bool, false)
         let post = request(module, ["op": "notifyPost", "title": "Thread completed", "body": "Fixture", "tag": "env:t1", "threadId": "t1"])
@@ -49,7 +50,7 @@ final class T3NotificationsTests: XCTestCase {
         NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: NSApp)
         XCTAssertEqual(module.pending, [])
         XCTAssertNil(NSApp.dockTile.badgeLabel)
-        XCTAssertEqual(changes, [], "focus announces nothing; the shell reads it when it asks")
+        XCTAssertEqual(changes, [], "focus announces nothing: the page has its own focus fact")
         module.record(tag: "env:t3")
         _ = request(module, ["op": "notifyClear"])
         XCTAssertNil(NSApp.dockTile.badgeLabel)

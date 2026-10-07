@@ -452,6 +452,11 @@ final class MenuTests: XCTestCase {
         for title in ["Undo", "Redo"] { edit.addItem(withTitle: title, action: nil, keyEquivalent: "") }
         edit.addItem(.separator())
         for title in ["Cut", "Copy", "Paste", "Delete", "Select All"] { edit.addItem(withTitle: title, action: nil, keyEquivalent: "") }
+        // The host's Edit ends with its own Speech since exact2 #226 (DevMenuMac.swift).
+        edit.addItem(.separator())
+        let speech = NSMenu(title: "Speech")
+        for title in ["Start Speaking", "Stop Speaking"] { speech.addItem(withTitle: title, action: nil, keyEquivalent: "") }
+        edit.addItem(withTitle: "Speech", action: nil, keyEquivalent: "").submenu = speech
         bar.addItem(withTitle: "Edit", action: nil, keyEquivalent: "").submenu = edit
         let view = NSMenu(title: "View")
         view.addItem(withTitle: "Enter Full Screen", action: nil, keyEquivalent: "f")
@@ -459,7 +464,9 @@ final class MenuTests: XCTestCase {
         let menus = T3Menus()
         menus.augment(bar)
         menus.augment(bar)
+        // DesktopApplicationMenu.ts's Edit: one Speech, the host's.
         XCTAssertEqual(edit.items.map { $0.isSeparatorItem ? "—" : $0.title }, ["Undo", "Redo", "—", "Cut", "Copy", "Paste", "Paste as Text", "Delete", "—", "Select All", "—", "Speech"])
+        XCTAssertEqual(edit.items.filter { $0.title == "Speech" }.count, 1)
         let pasteText = edit.item(withTitle: "Paste as Text")!
         XCTAssertEqual(pasteText.keyEquivalent, "v")
         XCTAssertEqual(pasteText.keyEquivalentModifierMask, [.command, .shift])

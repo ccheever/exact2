@@ -5,7 +5,7 @@ import type { Files, Native } from './protocol';
 import { toasts } from './toast';
 import { ageLabel, effectiveSnoozed, isWoke, orderKeyBetween, planReorder, recedes, sectionOf, sidebarStatus, snoozeWakeLabel,
   sortActive, sortPinned, topStatus, unseenCompletion, wokeAt, workingDuration, capabilities, sidebarVisible } from './sidebar-model';
-import { bulkMenuItems, nativeTemplate, threadMenuItems } from './sidebar-menu';
+import { bulkMenuItems, menuRows, nativeTemplate, threadMenuItems } from './sidebar-menu';
 import { sidebarSnapshot, terminalProcessCount } from './sidebar-view';
 import { legacySidebarSnapshot } from './legacy-sidebar-view';
 import { threadItems } from './palette';
@@ -34,7 +34,7 @@ function fake(threads: Obj[], options: { caps?: Obj; settings?: Obj; threadId?: 
     shell: { projects: [{ id: 'p1', title: 'Parity fixture', workspaceRoot: '/fixture' }, { id: 'p2', title: 'Other', workspaceRoot: '/other' }], threads, sequence: 1 },
     config: { environment: { capabilities: { ...ALL_CAPS, ...(options.caps ?? {}) } }, providers: [], keybindings: [] },
     environmentId: 'env', threadId: options.threadId ?? '', projectId: 'p1', query: '', connection: 'connected', writable: true, ready: true,
-    presentation: {}, local: { drafts: {}, snapshotDrafts: {}, snapshotReleases: [], deviceSettings: { timestampFormat: '24-hour' }, clientSettings: { confirmThreadArchive: false, confirmThreadDelete: true, confirmThreadUnpin: false, sidebarWorkingShelfEnabled: false, ...(options.settings ?? {}) }, sidebarWidth: 256 },
+    presentation: {}, local: { drafts: {}, snapshotDrafts: {}, snapshotReleases: [], composerControls: { contexts: {} }, deviceSettings: { timestampFormat: '24-hour' }, clientSettings: { confirmThreadArchive: false, confirmThreadDelete: true, confirmThreadUnpin: false, sidebarWorkingShelfEnabled: false, ...(options.settings ?? {}) }, sidebarWidth: 256 },
     projectGroups() { return [{ key: 'g1', name: 'Parity fixture', members: [{ id: 'p1' }] }, { key: 'g2', name: 'Other', members: [{ id: 'p2' }] }]; },
     restAccess: () => ({
       ids: async (count: number) => Array.from({ length: count }, () => `c${ids++}`),
@@ -189,6 +189,42 @@ describe('thread action menus (threadActionMenu.logic.ts, Sidebar.logic.ts bulk 
     const row = nativeTemplate([{ id: 'a', label: 'A' }, { id: 'b', label: 'B', separatorBefore: true }, { id: 'd', label: 'Delete', destructive: true }]);
     expect(row.map(entry => entry.type)).toEqual(['item', 'separator', 'item', 'item']);
     expect(row[3]).toMatchObject({ destructive: true, enabled: true });
+  });
+});
+
+describe('the rows\' context popover (sidebar-row.contract ThreadMenu, DraftMenu; exact2 #223)', () => {
+  test('menu rows: each submenu row after its parent, separators as buildTemplate places them, checks and the destructive row', () => {
+    const caps = capabilities({ environment: { capabilities: ALL_CAPS } });
+    const rows = menuRows(threadMenuItems({ branch: 'main', projectFilter: null, isPinned: false, isSettled: false, autoSettleEnabled: true, isSnoozed: false,
+      canSnoozeNow: true, isRegeneratingTitle: false, isRunning: false, caps, presets: [{ id: 'hour', label: 'In 1 hour', wakeLabel: '13:00' }] }));
+    expect(rows.filter(row => row.parent === '').map(row => `${row.separated ? '— ' : ''}${row.label}${row.sub ? ' ▸' : ''}`)).toEqual(['New thread on main', 'Pin thread',
+      'Settle thread', 'Snooze ▸', '— Rename thread', 'Regenerate title', 'Mark unread', 'Auto-settle behavior ▸', '— Copy ▸', 'Project settings', '— Archive thread', 'Delete']);
+    expect(rows.filter(row => row.parent === 'snooze').map(row => `${row.separated ? '— ' : ''}${row.label}`)).toEqual(['In 1 hour (13:00)', '— Custom…']);
+    expect(rows.filter(row => row.parent === 'auto-settle').map(row => [row.id, row.check, row.checked])).toEqual([['auto-settle:enabled', true, true], ['auto-settle:disabled', true, false]]);
+    expect(rows.filter(row => row.parent === 'copy').map(row => row.id)).toEqual(['copy-path', 'copy-branch', 'copy-thread-id']);
+    expect(rows.find(row => row.id === 'delete')).toMatchObject({ destructive: true, check: false, sub: false });
+  });
+
+  test('each row carries its menu; a selected row the bulk one; a choice runs as the menu\'s did', async () => {
+    const { client, calls } = fake([shell('a', { branch: 'feature/x', worktreePath: '/wt/a' }), shell('b'), shell('c')]);
+    const rows = sidebarSnapshot(client, NOW, helpers).threads;
+    expect(rows.find(row => row.id === 'a')!.menu.filter(entry => entry.parent === 'copy').map(entry => entry.label)).toEqual(['Path', 'Branch', 'Thread ID']);
+    await sidebarCommand(client, native, files, 'menu-choice', 'a', 'copy-path');
+    expect(calls.filter(call => call.op === 'copyText').map(call => call.text)).toEqual(['/wt/a']);
+    expect(calls.filter(call => call.op === 'sidebarMenu')).toEqual([]); // no module menu for a pointer's choice
+    sidebarSession(client).selection = ['b', 'c'];
+    const selected = sidebarSnapshot(client, NOW, helpers).threads;
+    expect(selected.find(row => row.id === 'b')!.menu.filter(entry => entry.parent === '').map(entry => entry.label)).toEqual(['Settle (2)', 'Snooze (2)', 'Regenerate titles (2)', 'Mark unread (2)', 'Delete (2)']);
+    expect(selected.find(row => row.id === 'a')!.menu[0]!.label).toBe('New thread on feature/x');
+  });
+
+  test('the draft row\'s menu and its choices', async () => {
+    const { client, calls } = fake([shell('a')], { threadId: 'a' });
+    client.local.drafts['env:new:p2'] = 'Sketch the parser';
+    const draft = sidebarSnapshot(client, NOW, helpers).sidebar.drafts.find(entry => entry.id === 'p2')!;
+    expect(draft.menu.map(entry => `${entry.parent}/${entry.label}`)).toEqual(['/Copy', 'copy/Path', '/Project settings', '/Discard draft']);
+    await sidebarCommand(client, native, files, 'draft-choice', 'p2', 'copy-path');
+    expect(calls.filter(call => call.op === 'copyText').map(call => call.text)).toEqual(['/other']);
   });
 });
 

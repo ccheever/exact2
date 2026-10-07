@@ -26,12 +26,12 @@ final class StubAssets: URLProtocol {
     override func stopLoading() {}
 }
 
-private let panelsResolve: ExactHooks.ResolveFn = { _, _, _, _, _ in 0 }
-private let panelsAct: ExactHooks.ActFn = { _, _, _ in 0 }
-private let panelsLog: ExactHooks.LogFn = { _, _, _ in }
-private let panelsDelegate: ExactHooks.DelegateFn = { _, _, _ in }
+private let panelsResolve: ExactHatches.ResolveFn = { _, _, _, _, _ in 0 }
+private let panelsAct: ExactHatches.ActFn = { _, _, _ in 0 }
+private let panelsLog: ExactHatches.LogFn = { _, _, _ in }
+private let panelsDelegate: ExactHatches.DelegateFn = { _, _, _ in }
 /// Exact's hook table with no host behind it: `element.focus()` is refused, as before a node exists.
-private func makeHooks() -> ExactHooks {
+private func makeHooks() -> ExactHatches {
     let table = UnsafeMutableRawPointer.allocate(byteCount: 40, alignment: 8)
     table.initializeMemory(as: UInt8.self, repeating: 0, count: 40)
     table.storeBytes(of: UInt32(40), as: UInt32.self)
@@ -39,7 +39,7 @@ private func makeHooks() -> ExactHooks {
     table.storeBytes(of: unsafeBitCast(panelsAct, to: UnsafeRawPointer.self), toByteOffset: 16, as: UnsafeRawPointer.self)
     table.storeBytes(of: unsafeBitCast(panelsLog, to: UnsafeRawPointer.self), toByteOffset: 24, as: UnsafeRawPointer.self)
     table.storeBytes(of: unsafeBitCast(panelsDelegate, to: UnsafeRawPointer.self), toByteOffset: 32, as: UnsafeRawPointer.self)
-    return ExactHooks(host: nil, table: UnsafeRawPointer(table))!
+    return ExactHatches(host: nil, table: UnsafeRawPointer(table))!
 }
 private func tick(_ seconds: TimeInterval = 0.05) { let end = Date(timeIntervalSinceNow: seconds); while Date() < end { RunLoop.current.run(mode: .default, before: end) } }
 
@@ -65,7 +65,7 @@ final class FileEditorFixture {
     /// The press began editing: the editor mounts (a new `t3-file-editor` node) and its hook runs.
     func mount() {
         lines.addSubview(editor)
-        let element = ExactElement(hook: .t3FileEditor, id: "file-editor", node: 7, hooks: hooks)
+        let element = ExactElement(hatch: .t3FileEditor, id: "file-editor", node: 7, hatches: hooks)
         element.view = editor; element.platform = editor
         T3FileEditor.install(element)
         tick()
@@ -127,7 +127,7 @@ final class PanelsTests: XCTestCase {
         XCTAssertEqual(f.editor.selectedRange().location, (f.editor.string as NSString).length)
         // The editor mounts once per press: a later hook call on the same node changes nothing.
         f.window.makeFirstResponder(f.composer)
-        let element = ExactElement(hook: .t3FileEditor, id: "file-editor", node: 7, hooks: f.hooks)
+        let element = ExactElement(hatch: .t3FileEditor, id: "file-editor", node: 7, hatches: f.hooks)
         element.view = f.editor; element.platform = f.editor; element.isNew = false
         T3FileEditor.install(element); tick()
         XCTAssertTrue(f.window.firstResponder === f.composer)

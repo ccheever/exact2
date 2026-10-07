@@ -1,10 +1,17 @@
 // The thread action menu (threadActionMenu.logic.ts buildThreadActionMenuItems)
 // and the multi-select bulk menu (Sidebar.tsx handleMultiSelectContextMenu;
 // Sidebar.logic.ts buildBulk*). Items are the contracts' ContextMenuItem: the
-// desktop shell turns them into a native menu (ElectronMenu.ts), and so does
-// this app's module (T3Sidebar.swift).
-import { str, type Obj } from './domain';
-import type { Caps } from './sidebar-model';
+// desktop shell turns them into a native menu (ElectronMenu.ts). A row's
+// right-click shows them as the sidebar's context popover (`menuRows`,
+// sidebar-row.contract RowMenu), which macOS presents as an NSMenu with its
+// submenus (exact2 #223); a menu the keyboard opens at the focused row is the
+// module's (T3Sidebar.swift, `nativeTemplate`), since a context popover opens
+// only from the pointer.
+import { arr, str, type Obj } from './domain';
+import type { T3Client } from './client';
+import { canSnooze, capabilities, effectiveSnoozed, sectionOf, type Caps } from './sidebar-model';
+import { sidebarPrefs, sidebarSession } from './sidebar-state';
+import { snoozePresets } from './sidebar-presentation';
 
 export interface MenuItem {
   id: string; label: string;
@@ -18,6 +25,21 @@ export interface ThreadMenuState {
   projectFilter: { label: string; isActive: boolean } | null;
   isPinned: boolean; isSettled: boolean; autoSettleEnabled: boolean; isSnoozed: boolean; canSnoozeNow: boolean;
   isRegeneratingTitle: boolean; isRunning: boolean; caps: Caps; presets: MenuPreset[];
+}
+
+type Scope = { key: string; name: string; ids: Set<string> };
+/** handleThreadContextMenu's state for one thread; `scopes` are the sidebar's project groups (projectScopes). */
+export function threadMenuState(client: T3Client, thread: Obj, header: boolean, scopes: Scope[], now: number): ThreadMenuState & { scope: Scope | undefined } {
+  const caps = capabilities(client.config), prefs = sidebarPrefs(client);
+  const scope = scopes.find(group => group.ids.has(str(thread.projectId)));
+  const section = sectionOf(thread, caps, now, client.local.clientSettings?.sidebarWorkingShelfEnabled === true);
+  return {
+    branch: str(thread.branch), projectFilter: header || !scope ? null : { label: scope.name, isActive: prefs.scope === scope.key },
+    isPinned: thread.pinnedAt != null, isSettled: caps.settlement && thread.settledOverride === 'settled' && section === 'settled',
+    autoSettleEnabled: thread.autoSettleDisabledAt == null, isSnoozed: caps.snooze && effectiveSnoozed(thread, now),
+    canSnoozeNow: canSnooze(thread, now), isRegeneratingTitle: thread.titleRegeneration != null || sidebarSession(client).regenerating.has(str(thread.id)),
+    isRunning: !canArchive(thread), caps, presets: snoozePresets(now, client.local.deviceSettings.timestampFormat), scope,
+  };
 }
 
 export function threadMenuItems(state: ThreadMenuState): MenuItem[] {
@@ -80,6 +102,18 @@ export function bulkMenuItems(state: BulkMenuState): MenuItem[] {
   return items;
 }
 
+/** handleMultiSelectContextMenu over the selected rows painted now (`threads`). */
+export function bulkMenuState(client: T3Client, threads: Obj[], now: number) {
+  const caps = capabilities(client.config), session = sidebarSession(client);
+  const presets = snoozePresets(now, client.local.deviceSettings.timestampFormat);
+  const pinned = caps.pinning ? threads.filter(thread => thread.pinnedAt != null) : [];
+  const supported = caps.titleRegeneration ? threads : [];
+  const regeneratable = supported.filter(thread => thread.titleRegeneration == null && !session.regenerating.has(str(thread.id)));
+  const items = bulkMenuItems({ count: threads.length, pinnedCount: pinned.length, canSnooze: caps.snooze && threads.every(thread => canSnooze(thread, now)),
+    regeneratable: regeneratable.length, regenerationSupported: supported.length, presets });
+  return { items, presets, pinned, regeneratable, ids: threads.map(thread => str(thread.id)) };
+}
+
 /** models.ts threadRuntimeCanArchive: never detach a provider mid-turn. */
 export function canArchive(thread: Obj): boolean {
   const status = str(thread.activityRunStatus ?? thread.status);
@@ -100,5 +134,28 @@ export function nativeTemplate(items: MenuItem[]): Obj[] {
       ...(typeof item.checked === 'boolean' ? { checked: item.checked } : {}), destructive: item.destructive === true && !item.children?.length,
       ...(item.children?.length ? { children: nativeTemplate(item.children) } : {}) });
   }
+  return out;
+}
+
+/**
+ * One row of a context popover menu (sidebar-row.contract RowMenu): `parent` names the
+ * submenu row that holds it ("" at the top), `sub` opens a submenu, `separated` draws the
+ * separator ElectronMenu.ts buildTemplate puts before it, `check` is a checkable row.
+ */
+export interface MenuRow { id: string; label: string; parent: string; sub: boolean; disabled: boolean; check: boolean; checked: boolean; destructive: boolean; separated: boolean }
+export function menuRows(items: MenuItem[]): MenuRow[] {
+  const out: MenuRow[] = [];
+  const walk = (template: Obj[], parent: string) => {
+    let separated = false;
+    for (const entry of template) {
+      if (entry.type === 'separator') { separated = true; continue; }
+      const sub = entry.type === 'submenu';
+      out.push({ id: str(entry.id), label: str(entry.label), parent, sub, disabled: entry.enabled === false,
+        check: typeof entry.checked === 'boolean', checked: entry.checked === true, destructive: entry.destructive === true, separated });
+      separated = false;
+      if (sub) walk(arr(entry.children), str(entry.id));
+    }
+  };
+  walk(nativeTemplate(items), '');
   return out;
 }

@@ -6,13 +6,13 @@ import XCTest
 // delegate proxy, driven by real key events through NSWindow.sendEvent.
 
 var pressedNodes: [UInt32] = [] // queuekey.swift reads it too
-private let editorResolve: ExactHooks.ResolveFn = { _, _, _, _, _ in 0 }
-private let editorAct: ExactHooks.ActFn = { _, node, action in
+private let editorResolve: ExactHatches.ResolveFn = { _, _, _, _, _ in 0 }
+private let editorAct: ExactHatches.ActFn = { _, node, action in
     if action == 0 { pressedNodes.append(node) }
     return 0
 }
-private let editorLog: ExactHooks.LogFn = { _, _, _ in }
-private let editorDelegate: ExactHooks.DelegateFn = { _, _, _ in }
+private let editorLog: ExactHatches.LogFn = { _, _, _ in }
+private let editorDelegate: ExactHatches.DelegateFn = { _, _, _ in }
 
 /// Stands in for Exact's node: the text view's real delegate.
 final class InnerDelegate: NSObject, NSTextViewDelegate {
@@ -23,7 +23,7 @@ final class InnerDelegate: NSObject, NSTextViewDelegate {
 
 final class EditorFixture {
     let table = UnsafeMutableRawPointer.allocate(byteCount: 40, alignment: 8)
-    let hooks: ExactHooks
+    let hooks: ExactHatches
     let window: NSWindow
     let scroller = NSScrollView(frame: NSRect(x: 0, y: 0, width: 400, height: 120))
     let editor = NSTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 120))
@@ -42,7 +42,7 @@ final class EditorFixture {
         table.storeBytes(of: unsafeBitCast(editorAct, to: UnsafeRawPointer.self), toByteOffset: 16, as: UnsafeRawPointer.self)
         table.storeBytes(of: unsafeBitCast(editorLog, to: UnsafeRawPointer.self), toByteOffset: 24, as: UnsafeRawPointer.self)
         table.storeBytes(of: unsafeBitCast(editorDelegate, to: UnsafeRawPointer.self), toByteOffset: 32, as: UnsafeRawPointer.self)
-        hooks = ExactHooks(host: nil, table: UnsafeRawPointer(table))!
+        hooks = ExactHatches(host: nil, table: UnsafeRawPointer(table))!
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 420, height: 200), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         editor.isEditable = true
@@ -53,7 +53,7 @@ final class EditorFixture {
         scroller.documentView = editor
         window.contentView?.addSubview(scroller)
         window.makeFirstResponder(editor)
-        element = ExactElement(hook: .t3Composer, id: "composer", node: 1, hooks: hooks)
+        element = ExactElement(hatch: .t3Composer, id: "composer", node: 1, hatches: hooks)
         element.view = scroller
         element.platform = editor
         element.data = ExactData(["snapshot-owner": "owner-a"])
@@ -61,7 +61,7 @@ final class EditorFixture {
     }
 
     func key(_ name: String, node: UInt32) {
-        let key = ExactElement(hook: .t3ComposerKey, id: name, node: node, hooks: hooks)
+        let key = ExactElement(hatch: .t3ComposerKey, id: name, node: node, hatches: hooks)
         key.data = ExactData(["anchor": name])
         keys[name] = key
         composer.install(key)
@@ -212,7 +212,7 @@ final class ComposerEditorTests: XCTestCase {
         fixture.down(); fixture.up(); fixture.returnKey(); fixture.tab()
         XCTAssertEqual(pressedNodes, [11, 12, 13, 13])
         XCTAssertEqual(fixture.editor.string, "/m", "the menu keys never edit the prompt")
-        let send = ExactElement(hook: .t3Send, id: "send-message", node: 2, hooks: fixture.hooks)
+        let send = ExactElement(hatch: .t3Send, id: "send-message", node: 2, hatches: fixture.hooks)
         let sendView = NSView(frame: NSRect(x: 0, y: 0, width: 10, height: 10))
         fixture.window.contentView?.addSubview(sendView)
         send.view = sendView

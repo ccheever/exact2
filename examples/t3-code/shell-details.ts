@@ -8,7 +8,7 @@ import { arr, obj, str, num, type Obj } from './domain';
 import type { Native } from './protocol';
 import { lineageView } from './shell-lineage';
 import { inlineOpen, shellPrefs } from './shell-prefs';
-import { watchVcsStatus } from './shell-vcs';
+import { refreshVcsOnFocus, watchVcsStatus } from './shell-vcs';
 import { draftContext, previousWorktree } from './composer-controls-branch';
 import { isLoopback } from './settings-b-fleet';
 import { machineKind } from './connections';
@@ -97,10 +97,11 @@ export const detailsKey = (client: T3Client) => client.draftKey;
  * and is open unless this thread closed it (ThreadDetailsCard, upstream
  * 429c625a85); otherwise it is the header's popover, fetched only while open.
  */
-export async function shellDetails(client: T3Client, native: Native | null | undefined, open: boolean, threadId: string, wide = false, now = 0, rightGap = 0) {
+/** `focused`: the window has the focus and is visible (exactPage(), exact2 #219); the card's Git actions refresh the status when it returns. */
+export async function shellDetails(client: T3Client, native: Native | null | undefined, open: boolean, threadId: string, wide = false, now = 0, rightGap = 0, focused = true) {
   const inline = wide && inlineOpen(client, detailsKey(client));
   if (!(inline || (open && !wide)) || !native?.available || !client.ready || !client.projectId) {
-    if (native?.available && client.ready) await watchVcsStatus(client, native, '', now);
+    if (native?.available && client.ready) { await watchVcsStatus(client, native, '', now); await refreshVcsOnFocus(client, native, '', focused); }
     return empty;
   }
   const thread = client.shell.threads.find(entry => entry.id === threadId);
@@ -116,6 +117,7 @@ export async function shellDetails(client: T3Client, native: Native | null | und
   const label = (id: string) => EDITORS.find(([candidate]) => candidate === id)?.[1] ?? id;
   // subscribeVcsStatus while the card is shown (shell-vcs.ts); a closed card ends the stream below.
   const { status, error } = await watchVcsStatus(client, native, cwd, now);
+  await refreshVcsOnFocus(client, native, cwd, focused); // GitActionsControl: vcs.refreshStatus when the window regains the focus
   const action = quickAction(status);
   // The Changes row reads the branch's totals when the server reports them (upstream d1034d62b2).
   const totals = obj(status?.branchChanges ?? status?.workingTree);

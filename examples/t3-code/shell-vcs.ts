@@ -3,9 +3,10 @@
 // applyGitStatusStreamEvent / mergeGitStatusParts): one `subscribeVcsStatus`
 // stream for the card's workspace while the card is shown, folded snapshot →
 // localUpdated → remoteUpdated into one status. The card is open by default
-// beside chat, so it never asks `vcs.refreshStatus` on its own: that command
-// can wait on a remote fetch (the reference sends it on window focus and when
-// a git menu opens). The client's event drain hands each entry here (client.ts).
+// beside chat, so it asks `vcs.refreshStatus` (which can wait on a remote fetch)
+// only when the reference's GitActionsControl does: when the window regains the
+// focus or becomes visible (`refreshVcsOnFocus`, exactPage(): exact2 #219) and
+// when a git menu opens. The client's event drain hands each entry here (client.ts).
 //
 // The stream's first events can be drained before the subscribe reply reaches
 // the answer that asked (or that reply can be dropped with an abandoned
@@ -107,3 +108,19 @@ export async function watchVcsStatus(client: T3Client, native: Native, cwd: stri
 }
 /** r7-handoff: the streamed status for `cwd` when the card follows (or recently followed) it, without asking. */
 export function peekVcsStatus(client: T3Client, cwd: string): Obj | null { const state = states.get(client); return !state || !cwd ? null : state.cwd === cwd ? state.status ?? state.recent.get(cwd) ?? null : state.recent.get(cwd) ?? null; }
+
+const focusSeen = new WeakMap<T3Client, boolean>();
+/**
+ * GitActionsControl's window listeners: `focus`, and `visibilitychange` to visible, ask
+ * vcs.refreshStatus for the card's workspace. `focused` is the window having the focus
+ * while visible (exactPage()); a rise asks once. The reference's 250 ms debounce merges
+ * a focus and a visibility change that come together, which here are one answer's
+ * arguments already (a data module has no timer, X19).
+ */
+export async function refreshVcsOnFocus(client: T3Client, native: Native, cwd: string, focused: boolean): Promise<boolean> {
+  const previous = focusSeen.get(client);
+  focusSeen.set(client, focused);
+  if (!focused || previous !== false || !cwd) return false;
+  try { await client.restAccess(native).request('vcs.refreshStatus', { cwd }); return true; }
+  catch (error) { if (letGo(error)) throw error; return false; }
+}
