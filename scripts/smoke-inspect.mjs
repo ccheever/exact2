@@ -58,9 +58,10 @@ export async function httpFrameSmoke({ host, open, check }) {
     const failed = `${url}missing.css did not load`;
     const guest = (tree, id) => byTestId(tree, id)?.guest?.find(n => n.id === 'result')?.text;
     // Before #115 the PDF's bytes were the text of an HTML body, which has
-    // no element to outline; WebKit's PDF document has its annotation layer.
+    // no element to outline; WebKit's PDF document has its annotation layer
+    // (a refused load's error page outlines too, so the layer is named).
     const pdf = (tree) => byTestId(tree, 'local-pdf');
-    const pdfShown = (tree) => pdf(tree)?.loading === false && pdf(tree).guest?.length > 0;
+    const pdfShown = (tree) => pdf(tree)?.loading === false && !!pdf(tree).guest?.some(n => n.id === 'annotationContainer');
     let tree, state;
     for (let i = 0; i < 100; i++) {
       tree = await s.tree(); state = await s.state();
