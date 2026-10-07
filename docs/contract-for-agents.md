@@ -716,8 +716,15 @@ list with no bound at all, in its first 390×844 frame, so look at the list in e
 layout it takes. It takes `estimated-item-height`. A horizontal one needs a
 literal `display="flex"` and a literal positive `height`, takes
 `estimated-item-width`, and refuses wrapping, reversed or right-to-left flow, a
-nonzero `gap`, main-axis padding, `justify-content` other than `flex-start`, and
-`reorderdrop`. `reorderdrop` belongs only on a vertical `list virtualized=true`
+nonzero `gap`, `justify-content` other than `flex-start`, and `reorderdrop`.
+Main-axis padding (`padding-top`/`-bottom`, a row list's `-left`/`-right`) is
+CSS's room before the first row and after the last, inside the scroll content:
+room under a header laid over the list, or over a tab bar
+(`padding-bottom="calc(env(safe-area-inset-bottom) + 49px)"`). It takes a
+number, an `env()` length or its `calc()`, or a computed number, not a
+percentage; the end that `reachend`, `scrollFollowEnd` and `scroll-start="end"`
+reach is past it, and on iOS the pull-to-refresh spinner draws below
+`padding-top`. `reorderdrop` belongs only on a vertical `list virtualized=true`
 (each row's handle names it with `reorderFor`); the compiler refuses it on any
 other element, where no host could drag. Lists that share a `reorderGroup`
 (each with a `reorderdrop`, an `id` and string keys) exchange rows: the drop

@@ -321,6 +321,15 @@ impl Tree {
     pub(crate) fn has_collection(&self, view: ViewId) -> bool {
         find_collection(&self.children, view).is_some()
     }
+    /// Before a report on `view`: the padding its layout resolved after its
+    /// rows, `[bottom, right]`, which the scroll range runs past the rows'
+    /// end (@ref LLP 1010 §6.9). Offsets count from the first row, so the
+    /// padding before it is the host's to subtract.
+    pub(crate) fn set_collection_end_padding(&mut self, view: ViewId, padding: [f64; 2]) {
+        if let Some(collection) = find_collection_mut(&mut self.children, view) {
+            collection.set_end_padding(padding);
+        }
+    }
     /// Publish one fresh set of host measurement identities after a deferred
     /// edge's state change settles. No keys, data or row bodies are evaluated.
     /// Reuses the hosts' bounded feedback scheduling, even for unchanged rows.

@@ -152,7 +152,7 @@ impl Collection {
             }
             Align::Nearest => current,
         };
-        at.clamp(0.0, (self.index.total_height() - port).max(0.0))
+        at.clamp(0.0, self.index.max_offset(port))
     }
     /// Start a request for the row keyed `key`: its window is built at the
     /// destination now, and the host is told to move there before it paints.

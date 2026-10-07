@@ -136,27 +136,48 @@ fn disabled_lists_and_ordinary_scrolls_remain_valid_inside_virtual_rows() {
     }
 }
 
+/// Main-axis padding is CSS's room before the first row and after the last
+/// (LLP 1010 §6.9): a number, an `env()` inset or its `calc()`, computed as
+/// a number too; a percentage, or a computed string that could be one, is
+/// refused.
 #[test]
-fn virtual_container_vertical_padding_requires_literal_zero() {
+fn virtual_container_vertical_padding_takes_lengths_not_percentages() {
     for name in ["padding", "padding-top", "padding-bottom"] {
-        for value in ["16", "64", "grow"] {
+        for value in [
+            "16",
+            "grow",
+            "\"env(safe-area-inset-top)\"",
+            "\"calc(env(safe-area-inset-bottom) + 49px)\"",
+            "(grow > 0 ? 92 : \"env(safe-area-inset-top)\")",
+        ] {
+            let s = source(&format!("virtualized=true height=200 {name}={value}"));
+            contract::compile(&s).unwrap_or_else(|e| panic!("{name}={value}: {e}"));
+        }
+        for value in [
+            "\"10%\"",
+            "\"calc(10% + 8px)\"",
+            "bound",
+            "(grow > 0 ? 8 : \"5%\")",
+        ] {
             let s = source(&format!("virtualized=true height=200 {name}={value}"));
             let error = contract::compile(&s).unwrap_err();
             assert_eq!(error.id, "lower-collection-flow", "{name}={value}: {error}");
-            assert!(error.message.contains("inside measured rows"), "{error}");
-            assert!(error.message.contains("inset"), "{error}");
+            assert!(error.message.contains("percentage"), "{error}");
         }
         let styled = format!(
             "style Insets\n  {name}=64\n{}",
             source("virtualized=true height=200 class=Insets")
         );
-        assert_eq!(
-            contract::compile(&styled).unwrap_err().id,
-            "lower-collection-flow"
-        );
-        contract::compile(&styled.replace("class=Insets", &format!("class=Insets {name}=0")))
-            .unwrap();
+        contract::compile(&styled).unwrap();
     }
+    // The shorthand's main-axis sides are what count: `0 0 10%`'s bottom.
+    contract::compile(&source(
+        "virtualized=true height=200 padding=\"92 4% 49 4%\"",
+    ))
+    .unwrap();
+    let e =
+        contract::compile(&source("virtualized=true height=200 padding=\"0 0 10%\"")).unwrap_err();
+    assert_eq!(e.id, "lower-collection-flow", "{e}");
 }
 #[test]
 fn horizontal_container_padding_and_measured_row_spacing_still_compile() {

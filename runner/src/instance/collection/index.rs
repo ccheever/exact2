@@ -97,6 +97,9 @@ pub(crate) struct SizeIndex {
     estimate: f64,
     epoch: u64,
     next_generation: u64,
+    /// The list's main-axis padding after its last row (@ref LLP 1010
+    /// §6.9): the scroll range runs this far past the rows' end.
+    trailing: f64,
     #[cfg(test)]
     rebuilds: usize,
 }
@@ -122,6 +125,7 @@ impl SizeIndex {
             estimate,
             epoch: 1,
             next_generation: 0,
+            trailing: 0.0,
             #[cfg(test)]
             rebuilds: 0,
         })
@@ -320,6 +324,20 @@ impl SizeIndex {
 
     pub(crate) fn total_height(&self) -> f64 {
         self.tree.total()
+    }
+
+    /// The rows and the padding after them: past every offset a port takes.
+    pub(crate) fn scroll_extent(&self) -> f64 {
+        self.total_height() + self.trailing
+    }
+
+    /// The padding after the last row, as the list's layout resolved it.
+    pub(crate) fn set_trailing(&mut self, trailing: f64) {
+        self.trailing = if trailing.is_finite() {
+            trailing.max(0.0)
+        } else {
+            0.0
+        };
     }
 
     /// First row whose bottom is strictly after `offset`; zero-height prefixes
@@ -605,8 +623,10 @@ impl SizeIndex {
         first..last
     }
 
-    fn max_offset(&self, viewport: f64) -> f64 {
-        (self.total_height() - viewport).max(0.0)
+    /// The farthest a port of `viewport` scrolls: the rows and the padding
+    /// after them, less the port (offsets count from the first row's start).
+    pub(crate) fn max_offset(&self, viewport: f64) -> f64 {
+        (self.total_height() + self.trailing - viewport).max(0.0)
     }
 
     fn clamp_offset(&self, offset: f64, viewport: f64) -> Result<f64, IndexError> {

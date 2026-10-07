@@ -38,9 +38,9 @@ const INPUT = ['wheel', 'touchstart', 'keydown', 'pointerdown'];
 // Every main-axis read and write goes through one of these.
 const AXES = {
   y: { offset: 'scrollTop', client: 'clientHeight', crossClient: 'clientWidth', scrollSize: 'scrollHeight', overflow: 'overflowY',
-    start: 'top', end: 'bottom', size: 'height', clientStart: 'clientTop', padStart: 'paddingTop', crossPads: ['paddingLeft', 'paddingRight'] },
+    start: 'top', end: 'bottom', size: 'height', clientStart: 'clientTop', padStart: 'paddingTop', padEnd: 'paddingBottom', crossPads: ['paddingLeft', 'paddingRight'] },
   x: { offset: 'scrollLeft', client: 'clientWidth', crossClient: 'clientHeight', scrollSize: 'scrollWidth', overflow: 'overflowX',
-    start: 'left', end: 'right', size: 'width', clientStart: 'clientLeft', padStart: 'paddingLeft', crossPads: ['paddingTop', 'paddingBottom'] },
+    start: 'left', end: 'right', size: 'width', clientStart: 'clientLeft', padStart: 'paddingLeft', padEnd: 'paddingRight', crossPads: ['paddingTop', 'paddingBottom'] },
 };
 
 export function applyCollectionFeedback(batch, applyBatch) {
@@ -121,14 +121,16 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     ? { start: 0, main: doc.documentElement[A.client], cross: doc.documentElement[A.crossClient] }
     : { start: port.getBoundingClientRect()[A.start] + port[A.clientStart], main: port[A.client], cross: port[A.crossClient] };
   // `raw`: the port's start edge from the list's content origin; `cross`: the
-  // rows' available cross size, after the list's cross-axis padding.
+  // rows' available cross size, after the list's cross-axis padding;
+  // `trailing`: the padding after the rows (LLP 1010 §6.9), for the JS
+  // target's runner (the wasm runner reads its own layout).
   function geometry(s) {
     if (!s.el.isConnected || !s.el.getClientRects().length) return null;
     const A = AXES[s.axis], css = getComputedStyle(s.el), port = viewport(s.port, A);
     const origin = s.el.getBoundingClientRect()[A.start] + s.el[A.clientStart] + number(css[A.padStart])
       - (s.el === s.port ? s.port[A.offset] : 0);
     return { raw: port.start - origin, portMain: port.main, portCross: port.cross,
-      cross: s.el[A.crossClient] - number(css[A.crossPads[0]]) - number(css[A.crossPads[1]]) };
+      cross: s.el[A.crossClient] - number(css[A.crossPads[0]]) - number(css[A.crossPads[1]]), trailing: number(css[A.padEnd]) };
   }
   const dimensionsOf = g => `${g.portCross},${g.portMain},${g.cross}`;
   function liveView(s, element) {
@@ -260,7 +262,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
           return { view: row.view, epoch: row.epoch, size: rect[A.size] };
         });
       } else if (releases.includes(s)) {
-        g = { raw: old.offset, portCross: old.port_cross, portMain: old.port_main, cross: old.cross };
+        g = { raw: old.offset, portCross: old.port_cross, portMain: old.port_main, cross: old.cross, trailing: old.trailing };
       } else continue;
       scrollChanged(s);
       // The jump's target, clamped as the browser will: reported before it
@@ -274,8 +276,8 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
       s.dimensions = dimensions;
       const facts = { view: s.snapshot.view, revision: s.snapshot.revision, scroll_sequence: s.sequence,
         offset: Math.max(0, g.raw + (s.animating != null ? (s.owed ?? s.animating) - s.port[A.offset] : s.clamp?.at === s.port[A.offset] ? s.clamp.from - s.clamp.at : 0)), port_main: g.portMain, port_cross: g.portCross, cross: g.cross,
-        focus_view: pins[0], interaction_view: pins[1], measurements };
-      const signature = [facts.offset, facts.scroll_sequence, dimensions, ...pins,
+        focus_view: pins[0], interaction_view: pins[1], measurements, trailing: g.trailing };
+      const signature = [facts.offset, facts.scroll_sequence, dimensions, facts.trailing, ...pins,
         ...measurements.flatMap(r => [r.view, r.epoch, r.size])].join('|');
       for (const [el, value] of measuredSizes) if (s.observed.has(el)) s.observed.set(el, value);
       if (s.signature === signature && jump == null && !s.snapshot.pending) continue;

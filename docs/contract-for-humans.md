@@ -433,7 +433,10 @@ A virtualized list has exactly one direct `each`, whose body has one flow root.
 A vertical list needs a real height bound (`height`, `max-height`, or growing
 `flex` in a bounded parent). A horizontal one needs a literal `display="flex"` and
 a literal positive `height`, takes `estimated-item-width`, and refuses a nonzero
-`gap`, main-axis padding, and `justify-content` other than `flex-start`.
+`gap` and `justify-content` other than `flex-start`. Padding along the list's
+axis is room before the first row and after the last, as in CSS: a length or an
+`env()` inset, not a percentage. On iOS a list's pull-to-refresh spinner draws
+below its `padding-top`, so a header laid over that padding does not hide it.
 Virtualized lists nest one level deep (an inner vertical list needs a literal
 `height` or `max-height`); deeper nesting, masonry, wrapping, reversed lists, and
 RTL horizontal collections are not supported.

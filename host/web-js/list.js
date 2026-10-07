@@ -78,7 +78,7 @@ function positive(t, band, out, n = 1, s = 0, e = t.base) {
 }
 
 class SizeIndex {
-  constructor(est) { this.est = est; this.order = []; this.pos = new Map(); this.h = []; this.gen = []; this.me = []; this.epoch = 1; this.next = 0; this.t = tree([], []); }
+  constructor(est) { this.est = est; this.order = []; this.pos = new Map(); this.h = []; this.gen = []; this.me = []; this.epoch = 1; this.next = 0; this.t = tree([], []); this.trailing = 0; }
   get len() { return this.h.length; }
   replace(keys) {
     if (keys.length === this.order.length && keys.every((k, i) => k === this.order[i])) return;
@@ -116,7 +116,9 @@ class SizeIndex {
     setT(this.t, i, h); this.h[i] = h; this.me[i] = this.epoch; setEpoch(this.t, i, this.epoch);
     return true;
   }
-  maxOffset(port) { return Math.max(0, this.total - port); }
+  // The padding after the last row (LLP 1010 §6.9) runs the range past the rows' end.
+  get extent() { return this.total + this.trailing; }
+  maxOffset(port) { return Math.max(0, this.extent - port); }
   clamp(offset, port) { return Math.max(0, Math.min(offset, this.maxOffset(port))); }
   band(s, e) {
     const first = find(this.t, s, false) ?? this.len;
@@ -253,11 +255,11 @@ class Collection {
   anchor() { const g = this.geometry; return g && this.index.anchor(this.anchorOffset(g.offset), g.port_main, this.follows()); }
   // ------------------------------------------------ scroll-start: end (start.rs)
   follows() { return this.followEnd || this.atEnd; }
-  anchorOffset(offset) { return this.atEnd ? this.index.total : offset; }
+  anchorOffset(offset) { return this.atEnd ? this.index.extent : offset; }
   /** Before any report: the last rows, and the host told to start at the end. */
   startAtEnd() {
     if (!this.atEnd || this.geometry || !this.index.len) return;
-    this.startOffset = this.index.total;
+    this.startOffset = this.index.extent;
     this.correction = { scrollSequence: 0, offset: this.startOffset };
   }
   /** Travel in two reports running is the reader's, as for an into-view
@@ -599,7 +601,7 @@ class Collection {
     const start = this.index.prefix(p) + before, size = Math.max(0, this.index.h[p] - before - after), port = this.geometry?.port_main ?? 0;
     const at = align === "start" ? start : align === "center" ? start + size / 2 - port / 2 : align === "end" ? start + size - port
       : start < current ? start : start + size > current + port ? (size > port ? start : start + size - port) : current;
-    return Math.min(Math.max(at, 0), Math.max(this.index.total - port, 0));
+    return Math.min(Math.max(at, 0), this.index.maxOffset(port));
   }
   /** Start a request: its window is built at the destination now, and the
    * host told to move there before it paints (the correction). */
@@ -770,6 +772,8 @@ function report(bytes, f, fill) {
   f = { ...f, revision: Number(f.revision), scroll_sequence: Number(f.scroll_sequence), focus_view: f.focus_view ?? null, interaction_view: f.interaction_view ?? null };
   fill = { velocity: fill?.velocity ?? 0, limit: Number.isInteger(fill?.limit) ? fill.limit : null, ancestorMoving: !!fill?.ancestorMoving };
   const c = Lists.get(f.view);
+  // The list's resolved padding after its rows, which the browser half reads.
+  if (c && Number.isFinite(f.trailing)) c.index.trailing = Math.max(0, f.trailing);
   const byView = c?.prepare(f);
   if (!byView) return true;
   const cats = [f.focus_view != null, f.interaction_view != null];

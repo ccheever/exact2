@@ -105,6 +105,16 @@ impl<D: DataSource> Runner<D> {
         }
         let view = feedback.view;
         let mut tree = self.tree.take().expect("booted");
+        // @ref LLP 1010 §6.9 — the list's end padding as its layout resolved
+        // it (`env()`, a host's cover and a computed value included).
+        let padding = self
+            .kernel
+            .node(view)
+            .and_then(|node| self.kernel.resolved_padding(node.key))
+            .map_or([0.0; 2], |(_, _, right, bottom)| {
+                [bottom as f64, right as f64]
+            });
+        tree.set_collection_end_padding(view, padding);
         let mut ids = std::mem::take(&mut self.ids);
         let result = {
             let mut update = Update::new(self.env(&[], &[]), &self.sites, &mut ids);

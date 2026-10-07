@@ -148,6 +148,24 @@ class ScrollView: UIScrollView {
     }
 }
 
+#if !os(tvOS)
+/// UIKit's pull-to-refresh control, drawn below the scroller's `padding-top`
+/// (@ref LLP 1010 §6.9, the one rule a padded list takes that CSS has no
+/// word for: React Native's `progressViewOffset`). The padding is in the
+/// content, so a header laid over it keeps the spinner out of sight; drawn
+/// here, the spinner shows between that header and the first row as the
+/// pull opens, and stays there while the app refreshes. UIKit sets the
+/// control's frame as the pull goes and leaves its bounds' origin alone, so
+/// the drawing moves, not the frame, and moving it again is a no-op.
+final class PaddedRefreshControl: UIRefreshControl {
+    override func layoutSubviews() {
+        let top = (superview?.superview as? NodeView)?.number("padding_top") ?? 0
+        if bounds.origin.y != -top { bounds.origin.y = -top }
+        super.layoutSubviews()
+    }
+}
+#endif
+
 extension NodeView {
     /// A `refresh` handler on a scroll container is UIKit's pull-to-refresh:
     /// the control fires the event; the app's `refreshing` going false ends it.
@@ -157,7 +175,7 @@ extension NodeView {
         guard let sv = scroll else { return }
         if handlers.contains("refresh") {
             if sv.refreshControl == nil {
-                let control = UIRefreshControl()
+                let control = PaddedRefreshControl()
                 control.addTarget(self, action: #selector(pulledToRefresh), for: .valueChanged)
                 sv.refreshControl = control
             }

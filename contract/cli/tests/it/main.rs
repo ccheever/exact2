@@ -20,6 +20,7 @@ mod collection_axis;
 mod collection_bounds;
 mod collection_edge_async;
 mod collection_edges;
+mod collection_inset;
 mod collection_into_view;
 mod collection_nest;
 mod collection_reuse;

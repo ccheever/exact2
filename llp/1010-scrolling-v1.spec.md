@@ -715,9 +715,10 @@ exactly one policy owns the list. The initial supported
 shape is a bounded vertical list with one direct keyed `each`, whose body
 has one normal-flow element root. Wrap multiple or conditional roots in a
 column. Absolute/overlapping rows and alternate container layouts are rejected.
-Vertical scroll-container padding is also rejected until the feedback protocol
-models content insets. Put top/end spacing inside measured first/last rows;
-horizontal padding is represented by the host's actual offered row width.
+Vertical scroll-container padding was also rejected until the feedback protocol
+modelled content insets; since 2026-10-07 main-axis padding is CSS's room
+before the first row and after the last (§6.9). Cross-axis padding is
+represented by the host's actual offered row width.
 The compiler keeps one row template; records and compact key/height metadata
 remain O(N). Only selected rows own instances, local slots and kernel views.
 
@@ -1005,3 +1006,83 @@ Tests: `SmoothCollectionIOSTests`
 `an_opening_at_a_half_pixel_end_settles_and_then_follows_smoothly`,
 `an_end_moved_by_less_than_half_a_point_is_still_followed` and
 `a_row_anchors_small_moves_still_correct`.
+
+### 6.9 Main-axis padding is a content inset (2026-10-07)
+
+Approved by Charlie 2026-10-06, via the lead. Consumer: the Bluesky clone,
+whose feed is a FlatList with `contentContainerStyle` padding: room under a
+header laid over the list and room over the tab bar. Without it the clone
+put a 92-point fake first row in its data, and its pull-to-refresh spinner
+showed behind the header.
+
+**Surface.** A virtualized list takes `padding-top` and `padding-bottom`
+(`padding-left` and `padding-right` on a row list), and the `padding`
+shorthand's main-axis sides, in the forms padding takes elsewhere: a
+number, `env(safe-area-inset-*)`, `calc(env(…) ± px)`, a choice between
+those, or a computed number. `lower-collection-flow` refuses a percentage
+(a literal `%`, in a choice or a `calc()` too) and a computed string, which
+could be one: Apple's hosts place rows from the authored padding, which has
+no containing block to resolve a percentage against. Nothing else is new.
+
+**Meaning, as in CSS.** The padding is inside the scroll content: room
+before the first row and after the last. `scrollTop` 0 is the very top,
+padding showing. `scrollIntoView(block="start")` puts a row at the
+scroller's top edge (`scrollTop` is the row's start plus the padding), as a
+padded CSS scroller does. `reachend`, a followed end (`scrollFollowEnd`) and
+`scroll-start="end"` are at the true end: the last row with the padding
+after it showing.
+
+**The one non-CSS rule.** A scroller's pull-to-refresh control (iOS, the
+only host with one) draws below its `padding-top`, React Native's
+`progressViewOffset`: a header laid over the padding hides nothing of it,
+and it shows between the header and the first row. Every scroller with a
+`refresh` handler takes it; with no padding nothing moves.
+
+**How.** The feedback protocol already counted offsets from the first row's
+start (§6.5's Ubuntu fold: Linux subtracts the authored origin; Apple
+subtracts the content box, `CollectionIOS.swift`/`CollectionMac.swift`
+`geometry`; the web subtracts `padding-top` in `collection-glue.js`
+`geometry`), and each host already adds the padding back to a correction and
+sizes its content as the rows plus both paddings. What was missing was the
+end: the runner took the range's end to be the rows' end, `total - port`,
+so at the true end it pulled the port back by `padding-bottom`, a followed
+end stopped short of it, and a clamped `scrollIntoView` with it. Now:
+
+- The runner reads the list's resolved padding from its kernel's last
+  layout (`Kernel::resolved_padding`) before every report (`Runner::
+  collection_feedback_filled`, `Tree::set_collection_end_padding`), so
+  `env()`, a host's cover (LLP 1075.003 §3.5) and a computed value are
+  followed at no cost but that read. The size index's range runs that far
+  past the rows (`SizeIndex::max_offset`, `scroll_extent`): the clamp, the
+  followed end, a kept row, an inner list's kept position, the opening at
+  the end and `scrollIntoView`'s clamp all take it. Rows and spacers are
+  unchanged; the window is `[offset, offset + port]` on the rows, so at the
+  top the padding's height of port overlaps the window's lead.
+- The web JS target's `list.js` mirrors it (`SizeIndex.trailing`,
+  `extent`), from `trailing`, the padding after the rows that the browser
+  half now reads with the rest of a list's geometry.
+- iOS: the padding stays in the content, not `UIScrollView.contentInset`.
+  The Apple host already lays rows out in the content box from the kernel's
+  frames and reports from it, the scroll event already reads CSS's 0 at the
+  top, and a content inset would make `contentOffset` negative at the top
+  and need every reader (the scroll event, chaining, corrections, the
+  agent) to subtract it. `PaddedRefreshControl` moves the control's drawing
+  down by `padding-top` (its bounds' origin; UIKit sets its frame as the
+  pull goes). macOS: the flipped document view is the rows and both
+  paddings, as before. Linux: nothing changed (`geometry` already read both
+  paddings).
+
+**Deviations.** A `block="center"` or `block="end"` `scrollIntoView` of a
+row near the top clamps at the first row's start, not at `scrollTop` 0: an
+offset never counts back into the padding before the first row. `reachstart`
+fires for a port anywhere in that padding, which is before the first row.
+Linux still refuses reorder facts for a list with main-axis padding
+(`reorder_facts_current`), so a padded list does not reorder there.
+
+Tests: `collection_inset.rs` (row 0 below the padding, the true end kept
+with `reachend`, a followed end, `scroll-start="end"`, `scrollIntoView`
+start and its clamp, through a host that reports from the first row's
+start), `collection_bounds.rs` and `collection_axis.rs` (the forms taken and
+refused), `trailing_padding_extends_the_range_past_the_rows` (index), the
+web conformance plan `listinset`, and `RefreshInsetIOSTests` (written and
+type-checked; the iOS simulator was down, so it has not run).

@@ -71,6 +71,7 @@ impl Lowerer<'_> {
         {
             return err("lower-collection-unbounded", "a virtualized list needs height, max-height, or flex constraining its vertical scrollport", span);
         }
+        self.collection_inset(attrs, row, scope)?;
         self.collection_flow(attrs, Some(row))?;
         let [Node::Each { body, .. }] = children else {
             return err(
@@ -260,26 +261,51 @@ impl Lowerer<'_> {
         Ok(())
     }
 
+    /// Main-axis padding on a virtualized list (@ref LLP 1010 §6.9): CSS's
+    /// room before the first row and after the last, inside the scroll
+    /// content. It takes what padding takes elsewhere (a number,
+    /// `env(safe-area-inset-*)`, `calc(env(…) ± px)`), computed too: the
+    /// runner reads the list's resolved padding from layout at every report.
+    /// A percentage is refused: Apple's hosts place rows from the authored
+    /// padding, which has no containing block to resolve one against.
+    fn collection_inset(&self, attrs: &[Attr], row: bool, scope: &Scope) -> Result<(), LowerError> {
+        let (names, sides): (&[&str], [usize; 2]) = if row {
+            (&["padding", "padding-left", "padding-right"], [3, 1])
+        } else {
+            (&["padding", "padding-top", "padding-bottom"], [0, 2])
+        };
+        for a in attrs.iter().filter(|a| names.contains(&a.name.as_str())) {
+            let main = match super::values::sides(&a.name, &a.value)? {
+                Some(four) if a.name == "padding" => sides.map(|i| four[i].clone()).to_vec(),
+                _ => vec![a.value.clone()],
+            };
+            for value in &main {
+                self.inset_value(a, value, scope)?;
+            }
+        }
+        Ok(())
+    }
+    fn inset_value(&self, a: &Attr, value: &Expr, scope: &Scope) -> Result<(), LowerError> {
+        match value {
+            Expr::Str(s, _) if s.contains('%') => err("lower-collection-flow", format!("`{}` on a virtualized list is a length: a percentage resolves against the containing block's width, which the list's windowing does not follow; write points or `env(safe-area-inset-*)`", a.name), a.span),
+            Expr::Str(..) | Expr::Number(..) => Ok(()),
+            Expr::Ternary(_, yes, no, _) => {
+                self.inset_value(a, yes, scope)?;
+                self.inset_value(a, no, scope)
+            }
+            _ => match contract_types::infer(value, scope, &self.types.shapes) {
+                Ok(Ty::Number) => Ok(()),
+                // The value's own binding names a type error.
+                Err(_) => Ok(()),
+                Ok(_) => err("lower-collection-flow", format!("a computed `{}` on a virtualized list is a number (points): a computed string could be a percentage, which the list's windowing does not follow; choose between literal lengths instead", a.name), a.span),
+            },
+        }
+    }
+
     fn collection_flow(&self, attrs: &[Attr], row: Option<bool>) -> Result<(), LowerError> {
         let container = row.is_some();
         let horizontal = row == Some(true);
-        let main_padding: &[&str] = if horizontal {
-            &["padding", "padding-left", "padding-right"]
-        } else {
-            &["padding", "padding-top", "padding-bottom"]
-        };
         for a in attrs {
-            if container
-                && main_padding.contains(&a.name.as_str())
-                && numeric_literal(&a.value) != Some(0.0)
-            {
-                let (axis, cross) = if horizontal {
-                    ("left/right", "padding-top and padding-bottom")
-                } else {
-                    ("top/end", "padding-left and padding-right")
-                };
-                return err("lower-collection-flow", format!("`{}` on a virtualized list container requires literal zero; put {axis} spacing inside measured rows until a collection inset policy is supported ({cross} remain allowed)", a.name), a.span);
-            }
             let allowed = match a.name.as_str() {
                 "position" => {
                     matches!(&a.value, Expr::Str(s, _) if s == "relative" || s == "static")

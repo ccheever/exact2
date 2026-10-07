@@ -243,6 +243,14 @@ impl Collection {
     pub(super) fn follow_end(&mut self, enabled: bool) {
         self.follow_end = enabled;
     }
+    /// The list's resolved padding after its last row on each axis, `[bottom,
+    /// right]`, from the layout a report follows (@ref LLP 1010 §6.9).
+    fn set_end_padding(&mut self, [bottom, right]: [f64; 2]) {
+        self.index.set_trailing(match self.axis {
+            ListAxis::Vertical => bottom,
+            ListAxis::Horizontal => right,
+        });
+    }
     fn invalidate_height_estimates(&mut self) -> Result<(), InstanceError> {
         // A confirmed zero cannot remain the estimate of invalidated content:
         // it would hide newly nonempty rows from every geometric window. Track
