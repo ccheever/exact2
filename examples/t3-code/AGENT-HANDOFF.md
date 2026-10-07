@@ -80,6 +80,27 @@ ops one by one: `local` (device-only ops) and `formCommand` (errors that go to t
 a new op in an existing prefix needs neither. The `composer`, `menus` and `r5-panels`
 XCTests define their own `exactModule` and leave out `T3Module*.swift` (README recipe).
 
+## Real-GitHub lane
+
+Task `20261007-real-github-lane`, 2026-10-07 (user decision: "The work that used a fake GitHub now connects
+to the real GitHub"; the user signs in personally). It replaces the fake `gh` of rounds 6–11 (`lanes/r6-pr`
+and its copies) and the never-built `20261005-fake-github-fixture`. Recipe: `tools/github-lane/README.md`.
+
+| What | Where |
+|---|---|
+| Shared lane dir (`T3_GITHUB_LANE_SHARED`) | the base checkout's `target/t3-ui-parity/github-lane`: `gh/` primary account (owns the sandbox), `gh-second/` second account (collaborator, fork), `sandbox.json` (repository, logins, seeded numbers; no tokens) |
+| Per-checkout lane (`T3_GITHUB_LANE`) | `target/github-lane`: `bin/<account>/gh` wrappers, `home/<account>` (`.zprofile`, `.gitconfig`), `servers/<account>` (T3 home, Codex, Claude, XDG, tmp, sandbox clone, `server.log`), `logs/gh-calls.tsv`, `logs/probe-*.json` |
+| Server | the staged release (`bun examples/t3-code/stage-runtime.mjs`) or `T3_LANE_SERVER`; ports 16520 (primary), 16521 (second) |
+| Commands | `bun tools/github-lane/lane.mjs setup / whoami / start <account> / which <account> / project <account> / pair <account> / stop <account>`; `bun tools/github-lane/seed.mjs`; `bun tools/github-lane/probe.mjs` |
+
+Rules: the lane never reads `~/.config/gh`, the keyring or a token; sign-in is the user's, with
+`--insecure-storage` into the lane config dirs (the keychain default would overwrite the machine's own
+`gh` item). The wrapper refuses to run without the lane dir's own token. The lane touches only the
+sandbox and the second account's fork; seed writes are idempotent, the probe writes only to its own
+`probe/<run>/…` pull requests. Leave the sandbox, the fork and both logins in place for the later pull
+request tasks. A live drive pairs a lane app copy (its own bundle id) with the primary lane server
+(`lane.mjs pair primary` writes the single-use URL to a 0600 file; never print it).
+
 ## Interface font size
 
 Tasks `20261005-interface-font-size` and `-conversion` (both closed), 2026-10-07, PR #206. Settings › Appearance ›
@@ -353,8 +374,8 @@ Recipe (one session, one lane copy; the tools are in `lanes/r9-input/tools` and
 6. R2: hover a thread row and keep the pointer still; Settle it with its row action, press
    ⌘Z within 5 s without moving: the row that comes back under the pointer is hovered (its
    actions show), the old one is not; move away: nothing stays painted.
-7. R3: open a draft in a disposable repository with the fake gh (`lanes/r6-pr/fakegh`), branch
-   picker, type `#101`, Checkout pull request: the field's text is selected (typing `102`
+7. R3: open a draft in the real-GitHub lane's sandbox project (`tools/github-lane`), branch
+   picker, type `#<n>` of a seeded open pull request (`sandbox.json`), Checkout pull request: the field's text is selected (typing `102`
    replaces it); type `1`, `0`, `2` quickly: "Resolving pull request..." stays until about
    450 ms after the last key (film with `shot.sh` every 50 ms).
 8. R9: make five fixture threads (`lanes/r11-integrate-up/steps/prep.py` does it through the
@@ -421,20 +442,12 @@ Recipe (one session, one lane copy; the tools are in `lanes/r9-input/tools` and
   reads. `repos/many-refs` has 251 refs for paging.
 - Native hit-testing also ignores overflow: a child drawn outside its parent's frame
   (negative margin) takes no press; widen the parent instead (fix 2 above).
-- `lanes/r6-pr/` (round 6, pull request row): `fakegh/` is a local GitHub CLI stand-in (`gh.mjs`
-  over `state.json`; `state.seed.json` restores it) that serves the HEAD server's pull request reads
-  (auth, `api user`, the core detail and viewer-permission GraphQL, `pr view/list`, `repo view`,
-  stacks) and applies `pr merge` / `pr ready` to its own state; every other write is refused and no
-  call leaves the machine (`calls.ndjson` logs them). The lane backend finds it first because the
-  isolated home's `.zprofile` prepends `fakegh/bin` (the server rebuilds PATH from a login shell).
-  `repos/pr-demo` has `origin` = `https://github.com/t3-fixture/pr-demo.git` (the identity) behind a
-  repo-local `http.proxy=127.0.0.1:9` guard and a `/dev/null` push URL; the PR heads live in the bare
-  `repos/pr-demo-origin.git`, which `gh repo view` names as the clone URL. PRs 101 conflicting
-  (Resolve), 102 failing (Fix), 103 draft (Ready), 104 and 107 merged by the drives, 105 running,
-  106 unlinked (tab icon from detail). Removing a hand-off worktree under a running server leaves its
-  status stream dying and the reference's detail reads interrupted: restart the backend after resetting
-  the repo. Steps: `steps/overlays.py <theme> <size>` (`OVERLAY_NS`), `steps/effects.py
-  resolve|fix|ready|merge`, `steps/tab.py`; `tools/refcells.py`, `tools/pairs-all.py`.
+- `lanes/r6-pr/` (round 6, pull request row) used a local GitHub CLI stand-in (`fakegh/`, PRs
+  101–107 in its own state file). Superseded by the real-GitHub lane above: use the sandbox's seeded
+  `conflict` (Resolve), `failing` (Fix), `draft` (Ready), `open-clean` (Merge) and `running` pull
+  requests instead. The later rounds' mentions of the fake gh below are history. Removing a hand-off
+  worktree under a running server leaves its status stream dying and the reference's detail reads
+  interrupted: restart the lane server after resetting the clone.
 - Driver pitfalls: zsh does not split `$var` (use `sh` scripts); agent key names are
   `Enter`/`Escape` ("Return" is typed as text); at 1280 the provider banner × sits under
   the docked card (a tap there opens the card's menu); a partly visible sidebar row
@@ -633,10 +646,10 @@ Recipe (one session, one lane copy; the tools are in `lanes/r9-input/tools` and
 7. Grants: notifications (banner, sound, click opens the thread); SnapShots capture;
    Open in Cursor from the card and the Files subheader.
 8. Network: Wi-Fi off/on with a thread open; background and foreground the app.
-9. Credentials (optional, disposable accounts only): PR row detail (state, checks,
-   Ready), linked PR checks/review, PR checkout from the branch picker, Publish
+9. Credentials (the real-GitHub lane's sandbox and lane logins only): PR row detail (state,
+   checks, Ready), linked PR checks/review, PR checkout from the branch picker, Publish
    repository, Commit, push & PR, Pull Requests list.
-10. Pull request row (disposable repository with a linked PR, or the lane's fake gh): hover the
+10. Pull request row (the real-GitHub lane's sandbox, a thread linked to a seeded pull request): hover the
     row with a real pointer (card opens above, flips near the window edge), open the checks
     popover and "Show all", press a check's Details (opens the browser), Resolve/Fix (worktree,
     draft prompt, "Checkout ready" toast), Ready and Merge (confirm sheet, toast).
@@ -655,8 +668,8 @@ Recipe (one session, one lane copy; the tools are in `lanes/r9-input/tools` and
 13. Sidebar Working counter and worktree setup counters advance in real time during a New
     worktree send with a Setup script; the scroll-to-end pill beside the 840 attachment sheet
     after scrolling the transcript up with a real wheel.
-14. Pull request hand-off with a worktree setup script (disposable repository, fake gh or a
-    disposable account): Resolve/Fix; the worktree's setup script runs once for the draft's
+14. Pull request hand-off with a worktree setup script (the real-GitHub lane's sandbox project
+    with a setup script): Resolve/Fix; the worktree's setup script runs once for the draft's
     thread; quit and relaunch, send the draft: the thread that starts is the one the setup
     terminal belongs to. Hover the composer's pull request chip with a real pointer (fill,
     tooltip list) and press it (opens the pull request surface).

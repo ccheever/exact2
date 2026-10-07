@@ -68,7 +68,7 @@ is "Nothing has happened…" (`contract:489`), the reference says "No activity y
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged (oracle shots, trace diff) | pending |
-| merged task PR | [20261005-fake-github-fixture](20261005-fake-github-fixture.md) | pending | Activity, thread, injection verbs served | pending |
+| merged task PR | [20261007-real-github-lane](20261007-real-github-lane.md) | pending | Sandbox seeded (`second-review` conversation); probe rows for `activity`, `threadComments` and `subscribeRefreshes` decoded; injection by unit tests | pending |
 | scheduling preference | [20261005-main-fix-adoption](closed/20261005-main-fix-adoption.md) | pending | Merged first if popover/tooltip Contract is edited | pending |
 | merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 
@@ -107,14 +107,14 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and the
 
 | Criterion | Setup/reset and fixture | Action or command | Expected result | Required platform | Proof |
 | --- | --- | --- | --- | --- | --- |
-| Conversation complete | Fake gh, profile `admin-reviewer`: PR 103 with 14 comments (4 bots), APPROVED + CHANGES_REQUESTED reviews, 3 threads (1 resolved, 1 outdated), 1 dismissed review | `bun scripts/agent.mjs macos --json tree "tap pr-row-103" state` then scroll Summary | 10 recent comments, "Show 4 older comments (4 hidden)", "4 bot comments", resolved/dismissed group, location line with "Outdated", reviewer outcomes | macOS, 1280×840 | tree JSON + shots |
+| Conversation complete | Sandbox `second-review` seen by the primary account (admin reviewer): comments from both accounts, a dismissed and a standing request-changes review, an approval on `primary-review`, threads (1 resolved, 1 outdated, 1 of 12 comments); the task seeds the extra comments the counts need (the seed is idempotent); bot comments by unit test (no bot account) | `bun scripts/agent.mjs macos --json tree "tap pr-row-103" state` then scroll Summary | 10 recent comments, "Show 4 older comments (4 hidden)", "4 bot comments", resolved/dismissed group, location line with "Outdated", reviewer outcomes | macOS, 1280×840 | tree JSON + shots |
 | Visual parity | Same, reference desktop oracle on the same fixture | `target/t3-ui-parity/electron-oracle.mjs` pairs for Summary, Timeline, Checks open | Pairs at 1280×840 and 840×620, light and dark; every moved cell is fixed, or declared in `EXACT2-GAPS.md` with an issue link | macOS | pair table |
-| Activity error | `failNext` on `pr view --json author,comments,…` | Open PR; press Retry | Error text and Retry (not "No comments yet."); Retry recovers; one extra `pullRequests.activity` in the trace | macOS | tree, trace |
-| Loading | `delay` 2000 ms on activity | Open PR; `clock +500`; `clock settle` | Detail ghost, then conversation/timeline ghosts, then content with no layout jump | macOS, both sizes | shots, `layout` |
-| Truncated notice | `failNext` on the `reviewThreads(` query | Open PR | Notice text equals the reference's; counts from the read | macOS | shot + oracle pair |
+| Activity error | Unit test: an injected failure of `pullRequests.activity` | Open PR; press Retry | Error text and Retry (not "No comments yet."); Retry recovers; one extra `pullRequests.activity` in the trace | macOS | tree, trace |
+| Loading | Unit test: a delayed `pullRequests.activity` reply (2000 ms) | Open PR; `clock +500`; `clock settle` | Detail ghost, then conversation/timeline ghosts, then content with no layout jump | macOS, both sizes | shots, `layout` |
+| Truncated notice | Unit test: an activity with `reviewThreadsTruncated` | Open PR | Notice text equals the reference's; counts from the read | macOS | shot + oracle pair |
 | Timeline | Same PR | Toggle order; read counts; stale verdict after a later commit | `aria-label`s switch; verdict rows standalone; stale text "before the latest commits" in the accessibility tree | macOS | `tree --ax` |
-| Server-announced refresh | Panel open; edit fake state (new comment), probe sends `pullRequests.invalidate{}` | Wait `clock +2000` | New comment appears with no Refresh press; `calls.ndjson` shows one detail and one activity read; trace shows one `subscribeRefreshes`, closed when the panel closes | macOS | log, trace |
-| Cached detail | Seeded snapshot; `delay` on detail | Relaunch (named storage), open the PR | Cached title and stats show first, then update | macOS | shots |
+| Server-announced refresh | Panel open; post a comment on GitHub with the second account's lane gh, the probe sends `pullRequests.invalidate{}` | Wait `clock +2000` | New comment appears with no Refresh press; `logs/gh-calls.tsv` shows one detail and one activity read; trace shows one `subscribeRefreshes`, closed when the panel closes | macOS | log, trace |
+| Cached detail | Seeded snapshot; unit test with a delayed detail reply | Relaunch (named storage), open the PR | Cached title and stats show first, then update | macOS | shots |
 | Trace parity | Scenario `pr-conversation` on clone and reference | `target/t3-ui-parity/trace-diff.mjs pr-conversation` | Read multisets equal (detail, activity, checks, summary, stack, linkedThreads) except allowed, reasoned differences | macOS | diff report |
 | Ported tests | `bun test examples/t3-code` | Original names kept: "pull request activity refresh", "review thread comment pages", "ordering comments", "review verdicts", "pull request timeline", "cached pull request detail"; `useLiveRefresh` pure cases ("waits five minutes between automatic host reads", "does not read again for every window tabbed through", "reads once for a window hidden an hour, not once per interval it missed", …) | Pass; React-hook-only cases classified n/a-ui in the header | macOS | log |
 | Keyboard and a11y | — | Tab through section headers, order toggle, "Show older…", Retry; `Space`/`Return` | Focus ring visible; `aria-expanded` flips; icon buttons named | macOS | `tree --ax` |
@@ -125,7 +125,7 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and the
 Task-owned source paths: `examples/t3-code/pages-pr-detail.ts`, `pages-pr-detail.contract`,
 new `pages-pr-summary.*`, `pages-pr-timeline.*`, `pages-pr-logic.ts` (ported modules + tests),
 `r6-pr-logic.ts` (`readableFailure`), `app.contract` (arguments only), `AGENT-HANDOFF.md` (matrix row).
-Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, fake gh, reference oracle; no credentials. Attended and normal-launch rows use a lane build with `T3_LOCAL_HOME=<lane>/t3-home` and `T3_LOCAL_PORT=<lane port 16xxx>` (see `20261005-embedded-server-runtime`).
+Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, the real-GitHub lane (sandbox, shared lane config dirs, two accounts; `tools/github-lane`), reference oracle; no credentials beyond the lane logins. Attended and normal-launch rows use a lane build with `T3_LOCAL_HOME=<lane>/t3-home` and `T3_LOCAL_PORT=<lane port 16xxx>` (see `20261005-embedded-server-runtime`).
 
 ## Progress
 
@@ -141,4 +141,4 @@ Planned. No branch.
 
 ## Next action
 
-Starts when the user lifts the sign-in hold: `prepare` from `feat(example)/t3-code`, covering sign-in rows with lane fixtures (fake provider, seeded data).
+Starts after [20261007-real-github-lane](20261007-real-github-lane.md) merges: `prepare` from `feat(example)/t3-code` on its shared lane login and sandbox (`examples/t3-code/tools/github-lane/README.md`), with a unit-test fallback for injected failures and delays and for the read, triage and read-only-author profiles.
