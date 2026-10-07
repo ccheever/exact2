@@ -1,0 +1,27 @@
+// Anchor probe (#138 X23d): a plain `scroll` box scrolled to its middle,
+// then content above the port changes size or is inserted.
+shape Row
+  id: string
+
+component AnchorProbe
+  resource rows = rows(60) as shape list<Row>
+  resource extra = rows(5) as shape list<Row>
+  state folded = false
+  state added = false
+  action fold
+    folded = not folded
+  action add
+    added = not added
+  view
+    column testId="root" height="100%" display="flex" flex-direction="column"
+      row gap=8 padding=8
+        button "fold header" press=fold testId="fold"
+        button "insert 5 rows above" press=add testId="add"
+      scroll flex=1 min-height=0 testId="plain"
+        column height=(folded ? 0 : 48) background-color="#fc8" testId="header"
+          text "header (48 px)" padding=8
+        when added
+          each r in extra key=r.id
+            text `inserted ${r.id}` height=40 background-color="#8cf" border-bottom="1px solid #ccc" testId=`n-${r.id}`
+        each r in rows key=r.id
+          text `row ${r.id}` height=30 padding-left=8 border-bottom="1px solid #ccc" testId=`p-${r.id}`
