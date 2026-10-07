@@ -1,0 +1,14 @@
+# New and changed tests, run against the base sources (da4f4512f + records #244, extracted) and against this branch
+
+## Base
+(fail) host failures and delays (injected; real GitHub does not fail or stall on request) > a failed detail read shows the reference's unavailable state with the host's words, and a GitHub link [1.21ms]
+(fail) host failures and delays (injected; real GitHub does not fail or stall on request) > a failed activity read leaves the detail standing (the conversation is optional) [0.44ms]
+(fail) host failures and delays (injected; real GitHub does not fail or stall on request) > a slow host: the panel shows its ghost at once, reads, and shows the pull request when the answer lands [5000.00ms]
+error: Cannot find module './pages-pr-logic' from 'examples/t3-code/pages-pr-logic.test.ts'
+error: Cannot find module './pages-pr-summary' from 'examples/t3-code/pages-pr-conversation.test.ts'
+ 9 pass
+ 5 fail
+
+## Branch
+ 113 pass
+ 0 fail
