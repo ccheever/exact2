@@ -1,0 +1,9 @@
+server: listening 8791, 8792
+server 8791: open
+server 8792: open
+server 8791: received ping from module
+server 8792: received ping from module
+server 8791: open
+server 8791: close 1006 
+server 8792: close 1006 
+server 8791: close 1006 
