@@ -1,0 +1,194 @@
+exact2 #126 — every host refuses a data module's own WebSocket/XMLHttpRequest/EventSource alike
+before: origin/main 78286adc1; after: daehyeon/fix-126-module-socket-global-agreement
+app: target/repro/x21-websocket-send (the issue's app; the module's globals reached through an alias, `const io: any = globalThis`); echo server on 127.0.0.1:28791
+
+## macos before: agent "clock data" "clock +500 real" tree logs
+{"incarnation":1,"clock":0,"epoch":2,"settled":true}
+{"incarnation":1,"clock":500,"epoch":2,"real":501}
+epoch 2 · incarnation 1 · clock 500 ms · 7 nodes
+View#1 [root]
+  Text#2 [text] "message: hello from server"
+  Text#3 [can-send] "mapper socket: undefined; global WebSocket: undefined"
+  Text#4 [direct] "new WebSocket threw: TypeError: undefined cannot be used as a constructor."
+  Text#5 [kinds] "typeof WebSocket: undefined; typeof XMLHttpRequest: undefined; typeof EventSource: undefined"
+  Text#6 [xhr] "new XMLHttpRequest() threw: TypeError: undefined cannot be used as a constructor."
+  Text#7 [event-source] "new EventSource(url) threw: TypeError: undefined cannot be used as a constructor."
+t=0 boot: 7 nodes, epoch 1
+t=0 direct shows its build-time answer until its source answers
+t=0 kinds shows its build-time answer until its source answers
+t=0 query feed: feed
+t=0 query direct: direct
+t=0 direct answered: equal to its build-time answer
+t=0 query kinds: kinds
+t=0 kinds answered: equal to its build-time answer
+t=0 request 1 (feed): GET ws://127.0.0.1:28791/ws
+t=0 data_ready (3 asked again) → epoch 1 (+0 −0 ~0)
+t=0 fulfil 1 (feed) [message, 17 bytes; wall 4 ms] → epoch 2 (+0 −0 ~2)
+  app: 2026-10-07 16:53:14.693 X21 Websocket Send[37480:125206514] ApplePersistence=NO
+
+## macos after: agent "clock data" "clock +500 real" tree logs
+{"epoch":2,"incarnation":1,"settled":true,"clock":0}
+{"clock":500,"epoch":2,"incarnation":1,"real":502}
+epoch 2 · incarnation 1 · clock 500 ms · 7 nodes
+View#1 [root]
+  Text#2 [text] "message: hello from server"
+  Text#3 [can-send] "mapper socket: undefined; global WebSocket: function"
+  Text#4 [direct] "new WebSocket threw: Error: WebSocket is unavailable in data sources"
+  Text#5 [kinds] "typeof WebSocket: function; typeof XMLHttpRequest: function; typeof EventSource: function"
+  Text#6 [xhr] "new XMLHttpRequest() threw: Error: XMLHttpRequest is unavailable in data sources"
+  Text#7 [event-source] "new EventSource(url) threw: Error: EventSource is unavailable in data sources"
+t=0 boot: 7 nodes, epoch 1
+t=0 direct shows its build-time answer until its source answers
+t=0 kinds shows its build-time answer until its source answers
+t=0 query feed: feed
+t=0 query direct: direct
+t=0 direct answered: equal to its build-time answer
+t=0 query kinds: kinds
+t=0 kinds answered: equal to its build-time answer
+t=0 request 1 (feed): GET ws://127.0.0.1:28791/ws
+t=0 data_ready (3 asked again) → epoch 1 (+0 −0 ~0)
+t=0 fulfil 1 (feed) [message, 17 bytes; wall 5 ms] → epoch 2 (+0 −0 ~2)
+  app: 2026-10-07 17:05:47.558 X21 Websocket Send[89697:125445594] ApplePersistence=NO
+
+## web-js before: agent "clock data" "clock +500 real" tree logs
+web-js: exact-web-js as this machine already compiled it from these sources (~/.cache/exact/web-modules/1c6c88664a5ce29ed27891d1/4c42445f7e4da98e)
+<exact2>/target/repro/x21-websocket-send/target/web-dist/.gen: app.js 1497 B, app.css 201 B, 0 warnings
+<exact2>/target/repro/x21-websocket-send/target/web-dist: built
+{"clock":0,"settled":true}
+{"clock":500,"real":514}
+epoch 3 · incarnation 1 · clock 500 ms · 7 nodes
+View#1 [root]
+  Text#2 [text] "message: hello from server"
+  Text#3 [can-send] "mapper socket: undefined; global WebSocket: function"
+  Text#4 [direct] "new WebSocket threw: Error: WebSocket is unavailable in data sources"
+  Text#5 [kinds] "typeof WebSocket: function; typeof XMLHttpRequest: function; typeof EventSource: function"
+  Text#6 [xhr] "new XMLHttpRequest() threw: Error: XMLHttpRequest is unavailable in data sources"
+  Text#7 [event-source] "new EventSource(url) threw: Error: EventSource is unavailable in data sources"
+t=0 boot: 7 nodes, epoch 1
+t=0 reply 2; wall 0 ms
+t=0 message 1; wall 34 ms
+  chrome: Trying to load the allocator multiple times. This is *not* supported.
+
+## web-js after: agent "clock data" "clock +500 real" tree logs
+<exact2>/target/repro/x21-websocket-send/target/web-dist/.gen: app.js 1497 B, app.css 201 B, 0 warnings
+<exact2>/target/repro/x21-websocket-send/target/web-dist: built
+{"clock":0,"settled":true}
+{"clock":500,"real":503}
+epoch 3 · incarnation 1 · clock 500 ms · 7 nodes
+View#1 [root]
+  Text#2 [text] "message: hello from server"
+  Text#3 [can-send] "mapper socket: undefined; global WebSocket: function"
+  Text#4 [direct] "new WebSocket threw: Error: WebSocket is unavailable in data sources"
+  Text#5 [kinds] "typeof WebSocket: function; typeof XMLHttpRequest: function; typeof EventSource: function"
+  Text#6 [xhr] "new XMLHttpRequest() threw: Error: XMLHttpRequest is unavailable in data sources"
+  Text#7 [event-source] "new EventSource(url) threw: Error: EventSource is unavailable in data sources"
+t=0 boot: 7 nodes, epoch 1
+t=0 reply 2; wall 1 ms
+t=0 message 1; wall 20 ms
+  chrome: Trying to load the allocator multiple times. This is *not* supported.
+
+## web-wasm before: agent "clock data" "clock +500 real" tree logs
+{"clock":0,"settled":true,"epoch":4,"incarnation":1}
+{"clock":500,"epoch":4,"incarnation":1,"real":502}
+epoch 4 · incarnation 1 · clock 500 ms · 7 nodes
+View#1 [root]
+  Text#2 [text] "message: hello from server"
+  Text#3 [can-send] "mapper socket: undefined; global WebSocket: function"
+  Text#4 [direct] "new WebSocket threw: Error: WebSocket is unavailable in data sources"
+  Text#5 [kinds] "typeof WebSocket: function; typeof XMLHttpRequest: function; typeof EventSource: function"
+  Text#6 [xhr] "new XMLHttpRequest() threw: Error: XMLHttpRequest is unavailable in data sources"
+  Text#7 [event-source] "new EventSource(url) threw: Error: EventSource is unavailable in data sources"
+t=0 boot: 7 nodes, epoch 1
+t=0 direct shows its build-time answer until its source answers
+t=0 kinds shows its build-time answer until its source answers
+t=0 query feed: feed
+t=0 query direct: direct
+t=0 query kinds: kinds
+t=0 continuation 1 (feed): executor token 1
+t=0 continuation 2 (direct): executor token 2
+t=0 continuation 3 (kinds): executor token 3
+t=0 data_ready (3 asked again) → epoch 1 (+0 −0 ~0)
+t=0 feed: the reply asks for one more request
+t=0 request 4 (feed): GET ws://127.0.0.1:28791/ws
+t=0 fulfil 1 (feed) [HTTP 200, 226 bytes] → epoch 1 (+0 −0 ~0)
+t=0 direct answered: replaces its build-time answer
+t=0 fulfil 2 (direct) [HTTP 200, 169 bytes] → epoch 2 (+0 −0 ~1)
+t=0 kinds answered: replaces its build-time answer
+t=0 fulfil 3 (kinds) [HTTP 200, 374 bytes] → epoch 3 (+0 −0 ~3)
+t=0 fulfil 4 (feed) [message, 17 bytes] → epoch 4 (+0 −0 ~2)
+  chrome: Trying to load the allocator multiple times. This is *not* supported.
+
+## web-wasm after: agent "clock data" "clock +500 real" tree logs
+{"clock":0,"settled":true,"epoch":2,"incarnation":1}
+{"clock":500,"epoch":2,"incarnation":1,"real":505}
+epoch 2 · incarnation 1 · clock 500 ms · 7 nodes
+View#1 [root]
+  Text#2 [text] "message: hello from server"
+  Text#3 [can-send] "mapper socket: undefined; global WebSocket: function"
+  Text#4 [direct] "new WebSocket threw: Error: WebSocket is unavailable in data sources"
+  Text#5 [kinds] "typeof WebSocket: function; typeof XMLHttpRequest: function; typeof EventSource: function"
+  Text#6 [xhr] "new XMLHttpRequest() threw: Error: XMLHttpRequest is unavailable in data sources"
+  Text#7 [event-source] "new EventSource(url) threw: Error: EventSource is unavailable in data sources"
+t=0 boot: 7 nodes, epoch 1
+t=0 direct shows its build-time answer until its source answers
+t=0 kinds shows its build-time answer until its source answers
+t=0 query feed: feed
+t=0 query direct: direct
+t=0 query kinds: kinds
+t=0 continuation 1 (feed): executor token 1
+t=0 continuation 2 (direct): executor token 2
+t=0 continuation 3 (kinds): executor token 3
+t=0 data_ready (3 asked again) → epoch 1 (+0 −0 ~0)
+t=0 feed: the reply asks for one more request
+t=0 request 4 (feed): GET ws://127.0.0.1:28791/ws
+t=0 fulfil 1 (feed) [HTTP 200, 226 bytes] → epoch 1 (+0 −0 ~0)
+t=0 direct answered: equal to its build-time answer
+t=0 fulfil 2 (direct) [HTTP 200, 169 bytes] → epoch 1 (+0 −0 ~0)
+t=0 kinds answered: equal to its build-time answer
+t=0 fulfil 3 (kinds) [HTTP 200, 374 bytes] → epoch 1 (+0 −0 ~0)
+t=0 fulfil 4 (feed) [message, 17 bytes] → epoch 2 (+0 −0 ~2)
+  chrome: Trying to load the allocator multiple times. This is *not* supported.
+
+## build of the issue's own direct form (new (globalThis as any).WebSocket(url), app.ts:24:18)
+### web-js-build-direct-before
+<exact2>/target/repro/x21-websocket-send/target/web-dist/.gen: app.js 1497 B, app.css 201 B, 0 warnings
+<exact2>/target/repro/x21-websocket-send/target/web-dist: built
+exit 0
+### web-js-build-direct-after
+<exact2>/target/repro/x21-websocket-send/target/web-dist/.gen: app.js 1497 B, app.css 201 B, 0 warnings
+app.ts:24:18: WebSocket is unavailable in data sources
+error: x21-websocket-send: app.ts failed the type check every host's build runs
+x21-websocket-send: the web build (the JS target) failed; the wasm target is internal (--wasm)
+exit 1
+### mac-build-direct-before
+host/apple: target/repro/x21-websocket-send/target/clients/ebf167c530ab20c9f3f314f8/com.example.x21-websocket-send/macos/aarch64-apple-darwin/embedded/development/standalone/X21 Websocket Send (cargo 4.1 s, swift 1.1 s, arms 0.0 s, modules 0.0 s, package 0.4 s; signed 0F0D033A); GPU: no GPU crate; web arm: libexact_web.dylib
+exit 0
+### mac-build-direct-after
+bake X21 Websocket Send: "<exact2>/js/bake/../../node_modules/.bin/rolldown refused: … [plugin captured-sources] <stage>/app.ts\nError: app.ts:24:18: WebSocket is unavailable in data sources
+exit 1
+### wasm-build-direct-before
+exit 0
+### wasm-build-direct-after
+app.ts:24:18: WebSocket is unavailable in data sources
+exit 1
+
+## echo server log (all drives, in order)
+server: listening http://127.0.0.1:28791/
+server: GET /ws
+server: open
+server: close 1006 
+server: GET /ws
+server: open
+server: close 1006 
+server: GET /ws
+server: open
+server: close 1006 
+server: GET /ws
+server: open
+server: close 1001 
+server: GET /ws
+server: open
+server: close 1006 
+server: GET /ws
+server: open
+server: close 1006 
