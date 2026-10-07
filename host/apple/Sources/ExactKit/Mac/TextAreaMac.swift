@@ -79,13 +79,19 @@ final class TextArea: NSTextView {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(plain, forType: .string)
     }
+    // DOM's clipboard events, before the editor's own (#125, Clipboard.swift).
     override func copy(_ sender: Any?) {
-        guard markup != nil else { super.copy(sender); return }
-        let selection = selectedRange()
-        guard selection.length > 0 else { return }
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString((string as NSString).substring(with: selection), forType: .string)
+        NodeView.fieldEdit(owner, #selector(NodeView.copy(_:))) {
+            guard markup != nil else { super.copy(sender); return }
+            let selection = selectedRange()
+            guard selection.length > 0 else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString((string as NSString).substring(with: selection), forType: .string)
+        }
     }
+
+    override func cut(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.cut(_:))) { super.cut(sender) } }
+    override func paste(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.paste(_:))) { super.paste(sender) } }
 
     var placeholder = "" { didSet { needsDisplay = true } }
     override func draw(_ dirtyRect: NSRect) {
@@ -274,6 +280,15 @@ extension NSTextView {
 final class Field: NSTextField {
     override class var cellClass: AnyClass? { get { FieldCell.self } set {} }
     override func becomeFirstResponder() -> Bool { focused(delegate) { super.becomeFirstResponder() } }
+}
+/// The editor an input's field takes while the node or an ancestor hears
+/// `copy`, `cut` or `paste` (`FieldCell.fieldEditor(for:)`): the window's
+/// shared one, which fires none of them, otherwise.
+final class FieldEditor: NSTextView {
+    var owner: NodeView? { (delegate as? NSTextField)?.delegate as? NodeView }
+    override func copy(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.copy(_:))) { super.copy(sender) } }
+    override func cut(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.cut(_:))) { super.cut(sender) } }
+    override func paste(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.paste(_:))) { super.paste(sender) } }
 }
 final class SecureField: NSSecureTextField {
     override class var cellClass: AnyClass? { get { SecureFieldCell.self } set {} }
