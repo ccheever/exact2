@@ -1,6 +1,7 @@
 // A mutation's `then`: armed by the commit its answer landed in, it runs
 // as its own commit at the next clock advance, or first when the next event
-// arrives (as every host's `dispatch_at` does), never inside the tap.
+// arrives (as every host's `dispatch_at` does), never inside the commit that
+// sent it.
 shape Ack
   ok: bool
 

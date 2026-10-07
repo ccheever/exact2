@@ -73,7 +73,12 @@ web build's `on()`). The outcome is the event's when it failed, else the due
 work's. An event the target has no handler for reaches nothing and fires
 nothing, as a host attaches a listener only where one is declared. Such a step
 is at most two of `Reachable`'s, an advance then a dispatch, so
-`observe_step_sound` (BootSound.lean) carries `dont_go_wrong` to it.
+`observe_step_sound` (BootSound.lean) carries `dont_go_wrong` to it. The
+semantics names the target by its `testId` after the advance, where the
+runner keeps the view it picked before it: a due commit that renames the
+target's `testId`, or replaces it with another element of the same `testId`,
+is outside what an observed step models (the hosts differ there too: the web
+build's `on()` runs the listener it already holds).
 
 ```
 cargo run -p contract-difftest -- corpus                    # every test block in corpus/
