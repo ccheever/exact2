@@ -12,9 +12,9 @@ REF = `~/Documents/work/3.open-source/t3code`. X2 = exact2 main.
 | X1 | Embedded Chromium + CDP | Browser surface (preview browser, agent browser automation) | policy + build | none (not built) |
 | X2 | Developer Tools for the app UI | View › Toggle Developer Tools | policy (DEFERRED) | none |
 | X3 | App-settable root font size (`rem` base) (fixed on main #185, adopted) | Interface font size (12–20 px) | framework feature | none: `setRootFontSize` from app.contract `rootFont`; Contract lengths in `rem` (`font-size-map.json`) |
-| X4 | Helper executables and large resource trees in the bundle | Embedded local T3 server | build | archive in `assets/`, unpack at launch (planned) |
+| X4 | Helper executables and large resource trees in the bundle | Embedded local T3 server | build | fixed by main #215; the release archive ships as a native resource tree and is unpacked at first launch (U3; #215 re-signs Mach-O without entitlements) |
 | X5 | Custom URL scheme delivered to the app | `t3code://` deep links, provider sign-in return | host | none |
-| X6 | Module shutdown time at quit | Stop the embedded server cleanly | host | none |
+| X6 | Module shutdown time at quit | Stop the embedded server cleanly | host | fixed by main #200; the server stops in `destroy()` (and from `atexit` for the agent driver's `exit(0)`) |
 | X7 | ATS keys from `app.json` (fixed on main #173, adopted) | Rendered HTML / web views that load `http://` from host names | build | none: `app.json` `host.macos.appTransportSecurity` |
 | X8 | Pointer input for native views in the agent | Agent tests of terminal, browser, device views | agent API | none on main since #186; attended rows convert as their tasks re-drive them |
 | X9 | Root component across files; resources in child components | Large apps (`app.contract` near 1,500 lines) | contract | split views, keep state in root |
@@ -52,9 +52,9 @@ Each open item was reproduced for its upstream issue on exact2 `4c893fef6`, whic
 | ID | Issue | Current state on the pin | Workaround kept |
 |---|---|---|---|
 | X3 | [#102](https://github.com/ccheever/exact2/issues/102) (+ #136, #137) | Fixed on main (#185 `setRootFontSize`; #176 the web JS target keeps `rem`; #159 refuses a string on a number-only row), adopted 2026-10-07 (interface-font-size): the clone sets the root font size from the setting and sizes its Contract lengths in `rem` where the reference does. Contract `calc()` takes percent ± px only, so a length that adds a layout px value to a rem one multiplies the root size in (the top bars). | none |
-| X4 | [#103](https://github.com/ccheever/exact2/issues/103) | Open. `assets/` is still the only bundle tree, with mode 0644 and the path-segment rule. | archive plan (embedded server not built) |
+| X4 | [#103](https://github.com/ccheever/exact2/issues/103) | Fixed by main #215 (`host.macos.resources`), merged in embedded-server-runtime (2026-10-07). | archive in `server-runtime/` → `Resources/t3-runtime`, unpacked into `<T3 home>/runtime/versions` |
 | X5 | [#104](https://github.com/ccheever/exact2/issues/104) | Open. A scheme URL reaches only a navigation root's `navigate`. | none |
-| X6 | [#105](https://github.com/ccheever/exact2/issues/105) | Open. No module quit hook; `destroy()` does not run at ⌘Q. | none |
+| X6 | [#105](https://github.com/ccheever/exact2/issues/105) | Fixed by main #200: `destroy()` runs at every quit; merged in embedded-server-runtime (2026-10-07). | pid file and next-launch reaper (crash only); `atexit` stop for the agent driver's `exit(0)` |
 | X7 | [#106](https://github.com/ccheever/exact2/issues/106) (+ #135) | Fixed on main (#173), adopted 2026-10-07 (adopt-main-fixes-shell): `app.json` sets `host.macos.appTransportSecurity.allowsArbitraryLoadsInWebContent`, and the bundle's rendered HTML loads `http://` from a named host. #135 (an `http:` sub-resource of the app's own `assets/` page) is fixed by main #184 (a bundled page is served at `http://exact.localhost`; loopback `http:` loads, a failed load is logged); nothing to adopt: no clone page is served from `assets/`. | none |
 | X8 | [#107](https://github.com/ccheever/exact2/issues/107) | Fixed by main #186 (merged 2026-10-07, adopt-main-fixes-r3): `tap … auxclick`, `clicks 1–3`, `wheel … at x y`, `modifiers` held through a contact or drag, and every agent mouse and wheel event goes through `NSApplication.sendEvent`, so module monitors see it. | partly adopted: the agent rows (terminal, device, panel, diff, tab middle click) are driven; with real input (`20261007-real-input-checks`) middle click, cursor shapes, drags out of the window and terminal double-click/right-click pass, but a real drag in the terminal selects nothing in either build (open, X8 file) |
 | X9 | [#108](https://github.com/ccheever/exact2/issues/108) | Open on main; fix built. `app.contract` holds every resource. | split views, root keeps state |
@@ -146,7 +146,7 @@ X1 ([#100](https://github.com/ccheever/exact2/issues/100)) and X2 ([#101](https:
 - The bake sends every asset as base64, with a 256 MiB buffer (`scripts/filesystem.mjs`). The runtime is 134 MB before Node.
 - `app.json` has no field for helper executables.
 
-**Current state.** Not built. Plan: pack the runtime and Node into Apple Archive parts of ≤ 60 MiB in `assets/`, and unpack them into the data folder at first launch.
+**Current state (2026-10-07, embedded-server-runtime).** Main #215 added `host.macos.resources`. The official release archive (77 MB) ships as one file in `Contents/Resources/t3-runtime` and is unpacked into `<T3 home>/runtime/versions/<version>` at first launch (about 3 s), keeping the release's signatures. Shipping the tree itself would let #215 re-sign `t3` without its JIT entitlements; under `exact release`'s hardened runtime it then aborts at start.
 
 **Support needed.** An `app.json` field for helper executables and resource trees that keeps file modes and allows any file name, signed with the bundle. Needed only if the archive workaround fails or is too slow.
 
@@ -165,6 +165,8 @@ X1 ([#100](https://github.com/ccheever/exact2/issues/100)) and X2 ([#101](https:
 **Reviewed.** On main there is no `applicationWillTerminate`; ⌘Q returns `.terminateNow` (`ExactMac/main.swift:400-413`). `destroy()` runs only from `Session.destroy` on `windowWillClose` (`ExactKit/Session.swift:1378-1398`); whether that runs at ⌘Q is unconfirmed. Governing: LLP 1069.010 Q4, D7.
 
 **Support needed.** A module hook at quit that can delay termination for a bounded time.
+
+**Current state (2026-10-07, embedded-server-runtime).** Main #200: `applicationWillTerminate` destroys every session, so `destroy()` runs synchronously at quit. The server stop there (≤ 5 s) measured 0.79 s. The agent driver's end of drive still exits without it; the module also stops from `atexit`.
 
 ## X7. ATS keys from `app.json`
 
