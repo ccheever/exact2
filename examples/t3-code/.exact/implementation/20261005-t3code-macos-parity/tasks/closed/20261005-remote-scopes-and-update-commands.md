@@ -3,7 +3,7 @@ name: 20261005-remote-scopes-and-update-commands
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: passed
-delivery: none
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-remote-scopes-and-update-commands

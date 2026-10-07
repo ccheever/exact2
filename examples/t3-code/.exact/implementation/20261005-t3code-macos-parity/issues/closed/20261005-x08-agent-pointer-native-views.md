@@ -102,7 +102,7 @@ Correction: the draft's premise was wrong. On exact2 main the agent already send
 
 ## Merged upstream; partly adopted (2026-10-07)
 
-The fix landed as main PR #186 (#107 closed) and reached the feature branch with main `cff90b364` in task [20261007-adopt-main-fixes-r3](../../tasks/20261007-adopt-main-fixes-r3.md). Adopted there:
+The fix landed as main PR #186 (#107 closed) and reached the feature branch with main `cff90b364` in task [20261007-adopt-main-fixes-r3](../../tasks/closed/20261007-adopt-main-fixes-r3.md). Adopted there:
 
 - The right-panel tab's middle click (`RightPanelTabsInput.swift`, a local monitor) is an agent row: `tap panel-tab-<id> auxclick`. Driving it showed a clone bug: the monitor tested `view.visibleRect`, which an unclipped NSView reports beyond its bounds, so every tab matched and the first one in the dictionary closed (a middle click on Files closed Diff). The hit test is now `bounds ∩ visibleRect`; `macos/tests/contextmenu/tab-input.swift` has a two-tab case that fails on the old test. Live: BEFORE (base driver, no `auxclick`) the tap is a plain left press and both tabs stay; AFTER the Files tab closes and Diff stays.
 - Comments in `T3Sidebar.swift`, `T3Timeline.swift` and `T3PanelsNative.swift` say which agent forms their monitors now see (`tap … mouse modifiers`, `tap … wheel`, `tap … mouse at x y`).
@@ -131,7 +131,7 @@ HID events, lane bundle copies, base `4f523ef5c` against the branch) in
 | Cursor shapes | terminal I-beam, drawer edge up-down resize, chat arrow, theme editor header open hand, grip crosshair, in both builds — pass |
 | A drag out of the window and back | theme editor header released outside the window: the panel follows and stays inside it, both builds — pass |
 | Terminal double-click, right-click | word selected with the Add to chat / Copy popup; Add to chat / Copy / Paste menu — pass |
-| Terminal drag selection | pass in both builds, inside the terminal and out of the window and back (re-run in [terminal-real-drag](../../tasks/20261007-terminal-real-drag.md)); the first run's "fails" was the drive's, not the app's |
+| Terminal drag selection | pass in both builds, inside the terminal and out of the window and back (re-run in [terminal-real-drag](../../tasks/closed/20261007-terminal-real-drag.md)); the first run's "fails" was the drive's, not the app's |
 | Sidebar rail drag and double-click reset | pass (branch) |
 
 Still not covered, with reasons: following a link (opens the user's browser or editor), sign-in terminal
@@ -141,5 +141,5 @@ ran), IME and Korean 2-Set (input method, not pointer). None of these waits for 
 ## Adopted (2026-10-07, terminal-real-drag)
 
 The last open row, terminal drag selection under a real pointer, selects in both builds once the drive leaves no
-native popup open ([20261007-terminal-real-drag](../../tasks/20261007-terminal-real-drag.md)). Every pointer row of
+native popup open ([20261007-terminal-real-drag](../../tasks/closed/20261007-terminal-real-drag.md)). Every pointer row of
 the blocked tasks is an agent row or has passed with real input; X8 is adopted and closed.

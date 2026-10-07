@@ -1,7 +1,7 @@
 ---
 name: 20261005-round12-wrapup
 plan: 20261005-t3code-macos-parity
-implementation: in-progress
+implementation: implemented
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
@@ -28,7 +28,7 @@ ticket. Before any edit, archive the tree (for example
 
 ## Scope and exclusions
 
-Included (IDs from [research](../research.md) §Round 12):
+Included (IDs from [research](../../research.md) §Round 12):
 
 | ID | Gap | Clone files | Reference |
 | --- | --- | --- | --- |
@@ -50,7 +50,7 @@ Excluded: anything else from the upstream range (`20261005-upstream-timeline-and
 
 ## Context and guidance
 
-Parent specification: [spec](../spec.md). Paths above: clone paths are relative to the
+Parent specification: [spec](../../spec.md). Paths above: clone paths are relative to the
 mc-orch app directory; reference paths are relative to `apps/web/src/` unless they start
 with `packages/` or `apps/`, at T3 Code `1e2ecbd975` (the fixture runtime is `f870c419fc`).
 The round-12 task text and the real-input failure descriptions are copied into the next
@@ -135,10 +135,10 @@ already carries the uncommitted framework edit `js/src/parking.rs` + `js/src/lib
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X23](../issues/20261005-x23-scroll-restore-offsets.md) | Scroll restore by key (F1 wheel, thread switch) | `EXACT2-GAPS.md` X23; clone `R9Input.swift` settle tail | nonblocking (workaround exists; the real-wheel check stays attended) | keep the workaround; record the attended result in X23 |
-| [X13](../issues/20261005-x13-hover-keys-during-pan.md) | Hover and keys during a pan (sweep rows) | `EXACT2-GAPS.md` X13 | nonblocking (not in this ticket's scope) | none |
-| [X14](../issues/closed/20261005-x14-parked-native-reply.md) | Native replies after a let-go answer | mc-orch tree carries the framework edit at `c1522fdac` | nonblocking here (the old base already includes the edit); matters in `20261005-clone-on-exact2-main` | none |
-| [X8](../issues/closed/20261005-x08-agent-pointer-native-views.md) | Pointer input into native views (F2 Files editor click) | `EXACT2-GAPS.md` X8 | nonblocking (AppKit test + attended row) | none |
+| [X23](../../issues/20261005-x23-scroll-restore-offsets.md) | Scroll restore by key (F1 wheel, thread switch) | `EXACT2-GAPS.md` X23; clone `R9Input.swift` settle tail | nonblocking (workaround exists; the real-wheel check stays attended) | keep the workaround; record the attended result in X23 |
+| [X13](../../issues/20261005-x13-hover-keys-during-pan.md) | Hover and keys during a pan (sweep rows) | `EXACT2-GAPS.md` X13 | nonblocking (not in this ticket's scope) | none |
+| [X14](../../issues/closed/20261005-x14-parked-native-reply.md) | Native replies after a let-go answer | mc-orch tree carries the framework edit at `c1522fdac` | nonblocking here (the old base already includes the edit); matters in `20261005-clone-on-exact2-main` | none |
+| [X8](../../issues/closed/20261005-x08-agent-pointer-native-views.md) | Pointer input into native views (F2 Files editor click) | `EXACT2-GAPS.md` X8 | nonblocking (AppKit test + attended row) | none |
 
 ## Implementation notes
 
@@ -255,26 +255,4 @@ Preparation record (2026-10-05 23:25 KST):
 
 ## Next action
 
-Proceed to the main-import preparation under the latest user direction to stop repeated UI
-verification and fixes once implementation is adequate. No further pixel matrix or physical-input
-retry is a prerequisite. This does **not** turn the unrun rows into passes.
-
-### Session continuation, 2026-10-06
-
-- Workspace inspected: this branch was clean at `21b0b3d3c`; the authoritative round-12
-  implementation remains the untracked mc-orch app tree at base `c1522fdac`.
-- Preserved that tree before further work in this checkout's
-  `target/preserve/t3-code-resume-20261006/round12-before.tar.gz`, SHA-256
-  `483949e913d5a1866468736ca90a2c86ee8a9df98c406430f73f2785b145482c`.
-  Inspected all 560 files; no symlinks. The source worktree was not imported or reset.
-- One-pass checks on the actual round-12 tree: pinned Bun 1.4.2, 1147 tests passed,
-  0 failed; strict TypeScript check passed; Contract build passed (1865 slots,
-  41 resources, 41819 nodes); `cargo test -p t3-code-macos --lib` passed 7/0
-  with the pinned Hermes paths set. First Cargo attempt lacked those environment
-  variables; provisioning was present, and supplying them resolved the failure.
-- Evidence: `target/preserve/t3-code-resume-20261006/bun-test.log` and `cargo-lib.log`.
-- `snapshot`, physical F1/F2/F3 Finish, and the live F4 held-request case remain unverified.
-  Earlier AppKit/build/agent results above are historical evidence, not rerun results.
-  Independent review has not been performed. No new UI drives or pixel fixes were made.
-- Round-12 implementation is adequate to proceed to import preparation with these
-  verification limitations recorded; full verification status remains `unverified`.
+None. Superseded on 2026-10-06: the round-12 tree was imported into `feat(example)/t3-code` (base PR #99), and every later task builds on it. The rows recorded unverified above (`snapshot`, physical F1–F3 Finish, the live F4 held request) were not re-run under this ticket.

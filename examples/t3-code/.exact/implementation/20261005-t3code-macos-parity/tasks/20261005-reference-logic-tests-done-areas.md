@@ -1,13 +1,13 @@
 ---
 name: 20261005-reference-logic-tests-done-areas
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
-delivery: none
+implementation: blocked
+verification: blocked
+delivery: closed-unmerged
 repository: https://github.com/ccheever/exact2
 base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+branch: feat(example)/t3-code-reference-logic-tests-done-areas
+pr_url: https://github.com/ccheever/exact2/pull/151
 verified_commit: null
 ---
 
@@ -93,7 +93,7 @@ Checked sources and time: local issue drafts in [issues](../issues/README.md), `
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X36](../issues/closed/20261005-x36-data-runtime-intl-locale.md) | Locale-aware `Intl` in the data runtime | Date, time and number tests use `Intl`; fixed by main #204 (#118: `Intl.Locale`, `getWeekInfo()` as Chrome), adopted in [adopt-main-fixes-r4](20261007-adopt-main-fixes-r4.md) | none | Port the rows; the `ja-JP` long-date space and a `Locale` object passed to a formatter are main's documented differences |
+| [X36](../issues/closed/20261005-x36-data-runtime-intl-locale.md) | Locale-aware `Intl` in the data runtime | Date, time and number tests use `Intl`; fixed by main #204 (#118: `Intl.Locale`, `getWeekInfo()` as Chrome), adopted in [adopt-main-fixes-r4](closed/20261007-adopt-main-fixes-r4.md) | none | Port the rows; the `ja-JP` long-date space and a `Locale` object passed to a formatter are main's documented differences |
 | [X19](../issues/20261005-x19-data-source-timers.md) | Timers in data sources | Ported tests use a `now` argument | nonblocking | None |
 | none found | Mapping and classification | — | none | — |
 
@@ -123,6 +123,8 @@ Required environment: the read-only reference checkout for the map and title che
 
 ## Progress
 
+2026-10-06: dropped (user decision). The user closed #151, the map, as unnecessary.
+
 Planned.
 
 ## Attempts and evidence
@@ -133,4 +135,4 @@ Planned.
 
 ## Next action
 
-`prepare` after `20261005-clone-on-exact2-main` merges. When this ticket is verified, port tickets per area are created from the map (a planned plan revision); this ticket creates none. The plan's integrated acceptance checks that no `later-ticket` row remains.
+None unless the user reverses the 2026-10-06 decision.

@@ -142,7 +142,7 @@ publication only after approval). X23a–d may be split into separate reports.
 ## Merged upstream; partly fixed (2026-10-07, adopt-main-fixes-r4)
 
 [#138](https://github.com/ccheever/exact2/issues/138) was closed by main #210 (`b84fb5974`), in the feature
-branch since main `463acda68` ([20261007-adopt-main-fixes-r4](../tasks/20261007-adopt-main-fixes-r4.md)):
+branch since main `463acda68` ([20261007-adopt-main-fixes-r4](../tasks/closed/20261007-adopt-main-fixes-r4.md)):
 macOS and iOS anchor a plain `scroll` box as CSS scroll anchoring does, so a box above the port that
 changes size or is inserted no longer moves the reader's content (X23d; #138's probe moved −48 pt before).
 
