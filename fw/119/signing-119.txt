@@ -1,0 +1,70 @@
+# before (origin/main cff90b364)
+## signingOrder() + ad-hoc codesign, as exact release does
+signingOrder:
+  Fixture.app/Contents/MacOS/libexact_web.dylib
+  Fixture.app
+$ codesign --force --sign - --options runtime Fixture.app/Contents/MacOS/libexact_web.dylib  -> exit 0
+$ codesign --force --sign - --options runtime Fixture.app  -> exit 1
+Fixture.app: replacing existing signature
+Fixture.app: code object is not signed at all
+In subcomponent: Fixture.app/Contents/Helpers/Inner.app
+
+$ codesign --verify --deep --strict -v Fixture.app
+Fixture.app: code has no resources but signature indicates they must be present
+exit 1
+
+$ codesign -dv Fixture.app/Contents/Resources/assets/helper
+Fixture.app/Contents/Resources/assets/helper: code object is not signed at all
+
+$ codesign -dv Fixture.app/Contents/MacOS/spawn-helper
+Fixture.app/Contents/MacOS/spawn-helper: code object is not signed at all
+
+$ codesign -dv Fixture.app/Contents/Helpers/Inner.app
+Fixture.app/Contents/Helpers/Inner.app: code object is not signed at all
+
+$ codesign --verify --strict -v Fixture.app/Contents/Resources/assets/helper
+Fixture.app/Contents/Resources/assets/helper: code object is not signed at all
+In architecture: arm64
+exit 1
+
+# after (this branch)
+## signingOrder() + ad-hoc codesign, as exact release does
+signingOrder:
+  Fixture.app/Contents/MacOS/spawn-helper
+  Fixture.app/Contents/MacOS/libexact_web.dylib
+  Fixture.app/Contents/Resources/assets/helper
+  Fixture.app/Contents/Helpers/Inner.app
+  Fixture.app
+$ codesign --force --sign - --options runtime Fixture.app/Contents/MacOS/spawn-helper  -> exit 0
+$ codesign --force --sign - --options runtime Fixture.app/Contents/MacOS/libexact_web.dylib  -> exit 0
+$ codesign --force --sign - --options runtime Fixture.app/Contents/Resources/assets/helper  -> exit 0
+$ codesign --force --sign - --options runtime Fixture.app/Contents/Helpers/Inner.app  -> exit 0
+$ codesign --force --sign - --options runtime Fixture.app  -> exit 0
+
+$ codesign --verify --deep --strict -v Fixture.app
+Fixture.app: valid on disk
+Fixture.app: satisfies its Designated Requirement
+exit 0
+
+$ codesign -dv Fixture.app/Contents/Resources/assets/helper
+Identifier=helper-55554944ce61f010822b33fa804a39e282d47650
+CodeDirectory v=20500 size=272 flags=0x10002(adhoc,runtime) hashes=2+2 location=embedded
+Signature=adhoc
+TeamIdentifier=not set
+
+$ codesign -dv Fixture.app/Contents/MacOS/spawn-helper
+Identifier=spawn-helper-55554944b17ccc8d143d381c9cb3aaa75a042b45
+CodeDirectory v=20500 size=278 flags=0x10002(adhoc,runtime) hashes=2+2 location=embedded
+Signature=adhoc
+TeamIdentifier=not set
+
+$ codesign -dv Fixture.app/Contents/Helpers/Inner.app
+Identifier=com.example.fixture.inner
+CodeDirectory v=20500 size=282 flags=0x10002(adhoc,runtime) hashes=2+3 location=embedded
+Signature=adhoc
+TeamIdentifier=not set
+
+$ codesign --verify --strict -v Fixture.app/Contents/Resources/assets/helper
+Fixture.app/Contents/Resources/assets/helper: valid on disk
+Fixture.app/Contents/Resources/assets/helper: satisfies its Designated Requirement
+exit 0
