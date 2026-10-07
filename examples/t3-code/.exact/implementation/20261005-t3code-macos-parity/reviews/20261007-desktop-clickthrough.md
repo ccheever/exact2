@@ -84,7 +84,7 @@ use the settled captures cited by the individual tasks.
 
 | Record | Confirmed difference | Disposition |
 | --- | --- | --- |
-| [Invalid pairing URL](../tasks/20261007-invalid-pairing-url-validation.md) | Reference validates malformed Welcome input inline; Exact shows a generic connection failure both inline and globally | New app behavior task |
+| [Invalid pairing URL](../tasks/closed/20261007-invalid-pairing-url-validation.md) | Reference validates malformed Welcome input inline; Exact shows a generic connection failure both inline and globally | New app behavior task |
 | [Installed font picker](../tasks/20261007-installed-font-picker.md) | Reference enumerates installed families and rejects proportional Code fonts; Exact offers a fixed generic catalog | New app task, blocked by X48 for arbitrary family application |
 | [Settings model picker](../tasks/20261007-settings-model-picker.md) | General's model menu lacks the reference's search, provider navigation, favorites and legacy grouping | New app behavior task |
 | [Theme color picker](../tasks/20261007-theme-color-picker.md) | Exact swatch popup offers fixed presets; reference offers arbitrary hue/saturation/brightness and RGB input | New app behavior task |
