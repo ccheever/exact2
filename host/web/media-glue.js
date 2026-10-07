@@ -47,6 +47,7 @@ function syncVisibility(el) {
 function update(el) {
   const state = states.get(el), props = el.exactMedia.props;
   const changed = name => props[name] !== state.applied[name];
+  if (changed('src')) state.load++;
   for (const name of booleans) {
     el.toggleAttribute(name, props[name] === 'true');
     if (name === 'muted' && changed(name)) el.muted = props[name] === 'true';
@@ -86,24 +87,33 @@ function run(el, name, seconds) {
     return;
   }
   el.load();
+  state.load++;
   state.seek = props.currentTime == null ? null : Number(props.currentTime);
   state.paused = undefined;
   syncPlayback(el);
 }
-globalThis.exact.installMedia = (el, send) => {
+// `later()`: null when the host takes a report now, else a promise of when it
+// can (the wasm page's data executor, which may come after the opening
+// `durationchange`).
+globalThis.exact.installMedia = (el, send, later = () => null) => {
   if (states.has(el)) { update(el); return; }
   // A retired element delivers nothing: a late report from a player the tree
-  // removed would reach whatever now holds its place (jukebox F6, F20).
+  // removed would reach whatever now holds its place (jukebox F6, F20). A
+  // report that waits is sent in order, unless a new load began meanwhile:
+  // it was the old source's.
   const emit = (name, payload = '') => {
-    if (!state.retired && el.isConnected && el.exactMedia.handlers.includes(name)) send(`${name}\n${payload}`);
+    if (state.retired || !el.isConnected || !el.exactMedia.handlers.includes(name)) return;
+    const waiting = later(), load = state.load;
+    if (!waiting) send(`${name}\n${payload}`);
+    else waiting.then(() => { if (!state.retired && state.load === load) send(`${name}\n${payload}`); });
   };
-  const state = { applied: {}, seek: null, threshold: null, visibilityBlocked: false, retired: false, latched: false, offsets: { seekbackwardOffset: 10, seekforwardOffset: 10 }, emit, error(code, message) { if (!state.retired) console.warn(`exact: ${el.localName} ${code}: ${message}`); emit('error', code); } };
+  const state = { load: 0, applied: {}, seek: null, threshold: null, visibilityBlocked: false, retired: false, latched: false, offsets: { seekbackwardOffset: 10, seekforwardOffset: 10 }, emit, error(code, message) { if (!state.retired) console.warn(`exact: ${el.localName} ${code}: ${message}`); emit('error', code); } };
   states.set(el, state);
   // What the glue reported for itself on attaching (below): HTML sets
   // `readyState` before its queued event fires, so the event may still come;
   // it is not reported twice. A new load (`emptied`) forgets them.
   const early = new Set();
-  el.addEventListener('emptied', () => early.clear());
+  el.addEventListener('emptied', () => { early.clear(); state.load++; });
   for (const name of mediaEvents) el.addEventListener(name, () => {
     if (name === 'loadedmetadata' && state.seek !== null) { el.currentTime = state.seek; state.seek = null; }
     if (early.delete(name)) return;

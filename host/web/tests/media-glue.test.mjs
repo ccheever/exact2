@@ -8,7 +8,7 @@ globalThis.IntersectionObserver ??= class { observe() {} disconnect() {} };
 await import('../media-glue.js');
 
 /** An `<audio>` as the glue drives it: seeks, loads and plays are counted. */
-function audio(props, { readyState = 4, error = null, handlers = ['error', 'seeked', 'loadedmetadata'] } = {}) {
+function audio(props, { readyState = 4, error = null, handlers = ['error', 'seeked', 'loadedmetadata'], later } = {}) {
   const listeners = {}, el = {
     localName: 'audio', readyState, error, isConnected: true, paused: true, seeks: [], loads: 0, plays: 0, attrs: new Set(),
     exactMedia: { props, handlers }, duration: NaN,
@@ -21,7 +21,7 @@ function audio(props, { readyState = 4, error = null, handlers = ['error', 'seek
     fire(name) { for (const f of listeners[name] ?? []) f(); },
   };
   const sent = [];
-  globalThis.exact.installMedia(el, text => sent.push(text));
+  globalThis.exact.installMedia(el, text => sent.push(text), later);
   el.sent = sent;
   return el;
 }
@@ -100,4 +100,35 @@ test('a player with metadata but no data yet makes its opening seek on attaching
   expect(el.sent).toEqual(['loadedmetadata\n', 'seeking\n', 'seeked\n']);
   // No bound time: no seek, as the wasm host makes none.
   expect(audio({ src: 'a.mp3' }, { readyState: 1 }).seeks).toEqual([]);
+});
+
+test('a report before the host can take it waits, in order, and a new load drops what the old source said', async () => {
+  // The wasm page takes reports once its data executor is ready, which may
+  // come after the opening durationchange (lost under load: duration 0 and
+  // remaining -0:00 for the session, Video Player).
+  let open, ready = false;
+  const when = new Promise(r => { open = r; });
+  const el = audio({ src: 'a.mp4' }, { readyState: 0, handlers: ['durationchange', 'timeupdate'], later: () => ready ? null : when });
+  el.duration = 10; el.fire('durationchange'); el.fire('timeupdate');
+  expect(el.sent).toEqual([]);
+  ready = true; open(); await when;
+  expect(el.sent).toEqual(['durationchange\n10', 'timeupdate\n0']);
+  el.fire('timeupdate');
+  expect(el.sent.at(-1)).toEqual('timeupdate\n0');
+
+  // The source changes before readiness: the old one's reports are dropped,
+  // the new one's kept. A reload (`emptied`) and a removal drop them too.
+  let open2, ready2 = false;
+  const when2 = new Promise(r => { open2 = r; });
+  const b = audio({ src: 'a.mp4' }, { readyState: 0, handlers: ['durationchange', 'timeupdate'], later: () => ready2 ? null : when2 });
+  b.duration = 10; b.fire('durationchange');
+  b.exactMedia.props.src = 'b.mp4'; globalThis.exact.installMedia(b);
+  b.duration = 20; b.fire('durationchange');
+  b.fire('timeupdate'); b.fire('emptied');
+  b.duration = 30; b.fire('durationchange');
+  const c = audio({ src: 'a.mp4' }, { readyState: 0, handlers: ['durationchange'], later: () => ready2 ? null : when2 });
+  c.duration = 10; c.fire('durationchange'); globalThis.exact.removeMedia(c);
+  ready2 = true; open2(); await when2;
+  expect(b.sent).toEqual(['durationchange\n30']);
+  expect(c.sent).toEqual([]);
 });
