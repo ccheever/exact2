@@ -216,7 +216,7 @@ At 16 every probed box equals the before build's. No `setRootFontSize … refuse
 
 ## Real input (2026-10-07, real-input-checks)
 
-The two rows above that waited for a real hand ran in [20261007-real-input-checks](../20261007-real-input-checks.md)
+The two rows above that waited for a real hand ran in [20261007-real-input-checks](20261007-real-input-checks.md)
 on a normally launched lane bundle copy (own bundle id, paired with a lane server): Settings › Appearance ›
 Interface font size set to 20 with real clicks on the dropdown, the UI scaled at once; a real held ⌘Q (the
 clone's default quit mode), a relaunch of the same copy: `t3-code.json` holds `fontSizeInterface: 20` and

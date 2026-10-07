@@ -102,7 +102,7 @@ Checked sources and time: plan issue drafts in [issues](../issues/README.md), 20
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
 | [X1](../issues/20261005-x01-chromium-cdp-browser-surface.md) | Embedded browser engine and Charlie's waiver | `EXACT2-GAPS.md` X1 | blocking | Wait for the decision; then complete the **P** rows |
-| [X8](../issues/20261005-x08-agent-pointer-native-views.md) | Pointer input for native views | `EXACT2-GAPS.md` X8 | nonblocking (workaround: `(attended session)`) | Page clicks, drags, annotate drawing and resize handles on the guest are attended; handles in Contract are agent-driven |
+| [X8](../issues/closed/20261005-x08-agent-pointer-native-views.md) | Pointer input for native views | `EXACT2-GAPS.md` X8 | nonblocking (workaround: `(attended session)`) | Page clicks, drags, annotate drawing and resize handles on the guest are attended; handles in Contract are agent-driven |
 | [X21](../issues/20261005-x21-two-way-websocket.md) | Two-way WebSocket | LLP 1016.000 receive-only | nonblocking (workaround: Swift transport) | Add the preview RPCs and the `previewAutomation.*` stream to `T3Transport.swift` |
 | [X22](../issues/20261005-x22-reactive-layout-facts.md) | Slot rect of the guest view | `t3-frame` hooks | nonblocking (workaround exists) | Report the slot's rect to the native view |
 | [X25](../issues/20261005-x25-keyboard-keyup-code-capture.md) | Key facts and the `previewFocus` context | native key monitors | nonblocking | The guest swallows keys; forward ⌘R, ⌘L, ⌘= ⌘- ⌘0 as `PreviewKeyboard.ts` does |

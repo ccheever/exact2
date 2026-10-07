@@ -85,7 +85,7 @@ Checked sources and time: plan issue drafts in [issues](../../issues/README.md),
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X8](../../issues/20261005-x08-agent-pointer-native-views.md) | Pointer input for native views | `EXACT2-GAPS.md` X8 | nonblocking (workaround: `(attended session)`) | Tabs and toolbar are Contract: the agent drives them; clicks inside the terminal canvas are attended |
+| [X8](../../issues/closed/20261005-x08-agent-pointer-native-views.md) | Pointer input for native views | `EXACT2-GAPS.md` X8 | nonblocking (workaround: `(attended session)`) | Tabs and toolbar are Contract: the agent drives them; clicks inside the terminal canvas are attended |
 | [X25](../../issues/20261005-x25-keyboard-keyup-code-capture.md) | Key facts, repeat, capture phase | `EXACT2-GAPS.md` X25 | nonblocking (workaround: native key monitors) | Repeat guard and focus fact in `R8Keys*`/`R9Input` style code |
 | [X15](../../issues/closed/20261005-x15-non-latin-key-equivalents.md) | Chords under Korean 2-Set | `R10Connect.swift` | nonblocking | Check ⌘D, ⌘N, ⌘W, ⌃L in the terminal under Korean 2-Set 2026-10-07: #110 closed by main #168, which covers declared chords and the host's command items only; `R10Connect.swift` and the key-code fallbacks stay (adopt-main-fixes-input). |
 | [X26](../../issues/20261005-x26-app-menu-control.md) | App menu items and key equivalents | `EXACT2-GAPS.md` X26 | nonblocking | ⌘W and ⌘N must not trigger the menu while a terminal has focus |
