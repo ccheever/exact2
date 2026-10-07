@@ -1,0 +1,71 @@
+adopt-main-fixes-r4: live SSH-at-quit drive, 2026-10-07 (KST). Lane copies of the base (887b2491b, T3Ssh observer, pre-#200) and the branch.
+Two saved SSH targets per copy; fake-ssh.sh tunnels (node children) to a lane HTTP server on 16643; keys posted to the lane pid only.
+Excluded runs: after-attempt1-503 (remote answered 503, tunnels torn down at their ready deadline), after-attempt2-orca (orca hotkey refused, app exit cause unrecorded).
+
+== BEFORE ==
+16:14:26 [before] prepared <scratch>/lane-apps/T3 Lane r4 before.app (com.exact.t3code.laner4.before) from <workspaces>/t3-code-evidence-base/target/clients/0d02a3550eba6edce4b12b59/com.exact.t3code.macos/macos/T3 Code (Exact).app
+16:14:26 [before] launched pid 3846
+16:14:27 [before] tunnels (pid local remote): 3901 46055 16643;3927 44159 16643;
+16:14:36 [before] app 3846 alive=yes; tunnels now: 3901 46055 16643;3927 44159 16643;
+16:14:36 [before] close: posted ⌘w to 3846 (com.exact.t3code.laner4.before)
+16:14:36 [before]   app 3846: 348 ms
+16:14:36 [before]   tunnel 3901 (:46055): gone at 348 ms; listener on 46055: none
+16:14:36 [before]   tunnel 3927 (:44159): gone at 348 ms; listener on 44159: none
+16:14:36 [before] launched pid 4680
+16:14:37 [before] tunnels (pid local remote): 4762 44159 16643;4832 46055 16643;
+16:14:45 [before] app 4680 alive=yes; tunnels now: 4762 44159 16643;4832 46055 16643;
+16:14:45 [before] quit-ae: Apple Event quit to com.exact.t3code.laner4.before
+16:14:45 [before]   app 4680: 103 ms
+16:14:46 [before]   tunnel 4762 (:44159): gone at 103 ms; listener on 44159: none
+16:14:46 [before]   tunnel 4832 (:46055): gone at 103 ms; listener on 46055: none
+16:14:46 [before] launched pid 5468
+16:14:47 [before] tunnels (pid local remote): 5544 44160 16643;5560 46056 16643;
+16:14:55 [before] app 5468 alive=yes; tunnels now: 5544 44160 16643;5560 46056 16643;
+16:14:56 [before] cmdq: posted ⌘q ⌘q to 5468 (com.exact.t3code.laner4.before)
+16:14:56 [before]   app 5468: 557 ms
+16:14:56 [before]   tunnel 5544 (:44160): gone at 557 ms; listener on 44160: none
+16:14:56 [before]   tunnel 5560 (:46056): gone at 557 ms; listener on 46056: none
+16:15:31 [before] cleaned up com.exact.t3code.laner4.before
+
+== AFTER ==
+16:12:47 [after] launched pid 98029
+16:12:49 [after] tunnels (pid local remote): 98076 46055 16643;98093 44159 16643;
+16:13:09 [after] app 98029 alive=yes; tunnels now: 98076 46055 16643;98093 44159 16643;
+16:13:14 [after] posted ⌘w to 98029 (com.exact.t3code.laner4.after) (last window close)
+16:13:18 [after] app 98029: gone
+16:13:18 [after]   tunnel 98076 (127.0.0.1:46055 -> 16643): gone; listener on 46055: none
+16:13:18 [after]   tunnel 98093 (127.0.0.1:44159 -> 16643): gone; listener on 44159: none
+16:13:40 [after] launched pid 99950
+16:13:41 [after] tunnels (pid local remote): 103 44159 16643;122 46055 16643;
+16:13:49 [after] app 99950 alive=yes; tunnels now: 103 44159 16643;122 46055 16643;
+16:13:49 [after] quit-ae: Apple Event quit to com.exact.t3code.laner4.after
+16:13:50 [after]   app 99950: 224 ms
+16:13:50 [after]   tunnel 103 (:44159): gone at 224 ms; listener on 44159: none
+16:13:50 [after]   tunnel 122 (:46055): gone at 224 ms; listener on 46055: none
+16:13:56 [after] launched pid 2109
+16:13:57 [after] tunnels (pid local remote): 2129 46056 16643;2154 44160 16643;
+16:14:05 [after] app 2109 alive=yes; tunnels now: 2129 46056 16643;2154 44160 16643;
+16:14:06 [after] cmdq: posted ⌘q ⌘q to 2109 (com.exact.t3code.laner4.after)
+16:14:06 [after]   app 2109: 588 ms
+16:14:06 [after]   tunnel 2129 (:46056): gone at 588 ms; listener on 46056: none
+16:14:06 [after]   tunnel 2154 (:44160): gone at 588 ms; listener on 44160: none
+16:14:06 [after] launched pid 2704
+16:14:07 [after] tunnels (pid local remote): 2738 44161 16643;2748 46057 16643;
+16:14:15 [after] app 2704 alive=yes; tunnels now: 2738 44161 16643;2748 46057 16643;
+16:14:16 [after] close: posted ⌘w to 2704 (com.exact.t3code.laner4.after)
+16:14:16 [after]   app 2704: 359 ms
+16:14:16 [after]   tunnel 2738 (:44161): gone at 359 ms; listener on 44161: none
+16:14:16 [after]   tunnel 2748 (:46057): gone at 359 ms; listener on 46057: none
+16:15:06 [after] launched pid 6314
+16:15:07 [after] tunnels (pid local remote): 6349 44161 16643;6368 46057 16643;
+16:15:15 [after] app 6314 alive=yes; tunnels now: 6349 44161 16643;6368 46057 16643;
+16:15:15 [after] control: SIGKILL to recorded app pid 6314 (no teardown can run)
+16:15:18 [after] app 6314: gone
+16:15:19 [after]   tunnel 6349 (127.0.0.1:44161 -> 16643): alive, ppid 1; listener on 44161: 6349 
+16:15:19 [after]   tunnel 6368 (127.0.0.1:46057 -> 16643): alive, ppid 1; listener on 46057: 6368 
+16:15:19 [after] killed recorded pid 6349
+16:15:19 [after] killed recorded pid 6368
+16:15:20 [after] app 6314: gone
+16:15:20 [after]   tunnel 6349 (127.0.0.1:44161 -> 16643): gone; listener on 44161: none
+16:15:20 [after]   tunnel 6368 (127.0.0.1:46057 -> 16643): gone; listener on 46057: none
+16:15:31 [after] cleaned up com.exact.t3code.laner4.after
