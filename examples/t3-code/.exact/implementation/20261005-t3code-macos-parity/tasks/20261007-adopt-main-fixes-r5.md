@@ -7,7 +7,7 @@ delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-adopt-main-fixes-r5
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/236
 verified_commit: null
 ---
 
@@ -163,7 +163,7 @@ Findings for follow-ups (not this task):
 
 ## Next action
 
-Review the PR. Not done, each with its blocker:
+Review the PR ([#236](https://github.com/ccheever/exact2/pull/236)). Not done, each with its blocker:
 - **The bundle builds only with a local `otool` shim on main `261dd4e10`.** Blocker: #234.
 - **Menus opened from the keyboard** at a focused row still use `T3Sidebar.swift`. Blocker: #235.
 - **The Files tree's (Open with ▸) and the legacy sidebar project's right-click menus** are still the module's
