@@ -1,0 +1,167 @@
+# pr-conversation-and-refresh live drive records (agent mode, 1280x840 then 840x620; lane server 127.0.0.1:16720, real GitHub via the lane gh)
+
+## Attempt 1 (branch build e991c4b84's predecessor WIP 0d583f1b3): found the refresh-stream baseline bug and stacked sticky headings
+2026-10-07T18:35:13.795Z [after-session] app pid 28691
+2026-10-07T18:35:29.835Z [after-session] connected: sidebar shows Pull Requests
+2026-10-07T18:35:36.838Z [after-session] list rows: 99
+2026-10-07T18:35:40.422Z [after-session] right after the press: pull-request-loading
+2026-10-07T18:35:40.601Z [after-session] shot load-0
+2026-10-07T18:35:41.667Z [after-session] +0.3 s: pull-request-scroll pull-request-comments pull-request-comments-truncated pull-request-comments-older pull-request-finished-comments
+2026-10-07T18:35:41.762Z [after-session] shot load-1
+2026-10-07T18:35:42.490Z [after-session] +1.0 s: pull-request-scroll pull-request-comments pull-request-comments-truncated pull-request-comments-older pull-request-finished-comments
+2026-10-07T18:35:42.578Z [after-session] shot load-2
+2026-10-07T18:35:46.617Z [after-session] settled: pull-request-scroll pull-request-comments pull-request-comments-truncated pull-request-comments-older pull-request-finished-comments
+2026-10-07T18:35:46.720Z [after-session] shot summary-top
+2026-10-07T18:35:46.727Z [after-session] summary-top: #115 | daehyeonmun2021/playground | Refresh | Convert to draft | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request | Add input validation | daehyeon-mun | · | updated 4h ago | gh pr checkout 115 | main | feature/input-validation | 1 file | +11 | -0 | Summary | Timeline | No checks reported | Reviewers | daehyeonmun2021 — Changes requested | Labels | needs-review | Description | Adds a small validator. | Checks | Comments (20) | Newest first | This conversation is longer than this page reads in one go. The most recent 17 are here; open it on the host to read the rest. | 4h ago | 10/7/2026, 10:54:38 PM · Open comment on host | Updated: the problems are sorted now. Please take another look. | daehyeonmun2021 | 10/7/2026, 10:54:37 PM · Open comment on host | Thanks for this. I left notes inline. | 10/7/2026, 10:54:36 PM
+2026-10-07T18:35:46.809Z [after-session] ax summary-reviewers saved
+2026-10-07T18:35:48.841Z [after-session] shot summary-comments
+2026-10-07T18:35:48.847Z [after-session] summary-comments: This conversation is longer than this page reads in one go. The most recent 17 are here; open it on the host to read the rest. | daehyeon-mun | 4h ago | 10/7/2026, 10:54:38 PM · Open comment on host | Updated: the problems are sorted now. Please take another look. | daehyeonmun2021 | 10/7/2026, 10:54:37 PM · Open comment on host | Thanks for this. I left notes inline. | 10/7/2026, 10:54:36 PM | Changes requested | Still needs the empty-input case. | 10/7/2026, 10:54:19 PM · Open comment on host | src/validate.js:11 | Reply 8 on the naming question. | 10/7/2026, 10:54:16 PM · Open comment on host | Reply 7 on the naming question. | 10/7/2026, 10:54:13 PM · Open comment on host | Reply 6 on the naming question. | 10/7/2026, 10:53:45 PM · Open comment on host | 10/7/2026, 10:53:43 PM · Open comment on host | Reply 5 on the naming question. | 10/7/2026, 10:53:41 PM · Open comment on host | R
+2026-10-07T18:35:49.718Z [after-session] shot summary-older
+2026-10-07T18:35:51.269Z [after-session] shot summary-finished
+2026-10-07T18:35:52.067Z [after-session] shot summary-finished-open
+2026-10-07T18:35:52.071Z [after-session] summary-groups: This conversation is longer than this page reads in one go. The most recent 17 are here; open it on the host to read the rest. | daehyeon-mun | 4h ago | 10/7/2026, 10:54:38 PM · Open comment on host | Updated: the problems are sorted now. Please take another look. | daehyeonmun2021 | 10/7/2026, 10:54:37 PM · Open comment on host | Thanks for this. I left notes inline. | 10/7/2026, 10:54:36 PM | Changes requested | Still needs the empty-input case. | 10/7/2026, 10:54:19 PM · Open comment on host | src/validate.js:11 | Reply 8 on the naming question. | 10/7/2026, 10:54:16 PM · Open comment on host | Reply 7 on the naming question. | 10/7/2026, 10:54:13 PM · Open comment on host | Reply 6 on the naming question. | 10/7/2026, 10:53:45 PM · Open comment on host | 10/7/2026, 10:53:43 PM · Open comment on host | Reply 5 on the naming question. | 10/7/2026, 10:53:41 PM · Open comment on host | R
+2026-10-07T18:35:52.763Z [after-session] summary-order: Oldest first
+2026-10-07T18:35:53.498Z [after-session] summary-checks: (no pull-request-checks: no view matches pull-request-checks by testId, label or text; targets here: togg)
+2026-10-07T18:35:54.600Z [after-session] shot timeline
+2026-10-07T18:35:54.602Z [after-session] timeline: 2 comments | 2 authors · 4h ago | daehyeonmun2021 | Changes requested | 4h ago | 10/7/2026, 10:54:36 PM | Still needs the empty-input case. | 9 comments | Review dismissed | 10/7/2026, 10:53:31 PM | A few things before this lands. | 4 comments | 1 author · 4h ago | daehyeon-mun | Pull request opened | 10/7/2026, 10:53:23 PM | Sort the reported problems | 3f31a2e | 4d ago | 10/3/2026, 6:00:00 PM | +1 | -1 | Add input validation | 6428a17 | 5d ago | 10/2/2026, 6:01:00 PM | +11 | -0
+2026-10-07T18:35:54.604Z [after-session] timeline-counts: 20 | · | 2 | Newest first
+2026-10-07T18:35:55.310Z [after-session] timeline-order: Oldest first
+2026-10-07T18:35:55.418Z [after-session] shot timeline-oldest
+2026-10-07T18:35:56.260Z [after-session] shot timeline-group-open
+2026-10-07T18:35:57.832Z [after-session] summary-after-tabs: Oldest first
+2026-10-07T18:35:57.939Z [after-session] shot summary-after-tabs
+2026-10-07T18:36:05.675Z [after-session] shot stale-summary
+2026-10-07T18:36:05.733Z [after-session] ax stale-reviewers saved
+2026-10-07T18:36:06.674Z [after-session] shot stale-timeline
+2026-10-07T18:36:06.676Z [after-session] stale-timeline: Trim tabs as well | 2730c72 | 14m ago | 10/8/2026, 3:20:43 AM | +1 | -1 | daehyeon-mun | Approved | Approved earlier changes | 15m ago | 10/8/2026, 3:19:43 AM | Approved: trimming first reads well. | daehyeonmun2021 | Pull request opened | 10/8/2026, 3:19:38 AM | Trim the input first | c2ee86f | 5d ago | 10/2/2026, 6:01:00 PM | -0
+2026-10-07T18:36:06.721Z [after-session] ax stale-timeline saved
+2026-10-07T18:36:14.424Z [after-session] shot approved-timeline
+2026-10-07T18:36:14.436Z [after-session] approved-counts: (no pull-request-timeline-counts: no view matches pull-request-timeline-counts by testId, label or text; targets h)
+2026-10-07T18:36:15.387Z [after-session] shot refresh-before
+2026-10-07T18:36:16.264Z [after-session] posted a comment on #116 as the second account: id 6044369556
+2026-10-07T18:36:32.862Z [after-session] pullRequests.invalidate {} sent to the lane server
+2026-10-07T18:36:37.929Z [after-session] refresh-after: daehyeon-mun | 4h ago | 10/7/2026, 10:54:51 PM · Open comment on host | One small thing for later: the Using section could link the helpers. | 10/7/2026, 10:54:49 PM | Approved | Approved: the headings read better.
+2026-10-07T18:36:38.020Z [after-session] shot refresh-after
+2026-10-07T18:36:38.022Z [after-session] gh calls since the post: ["api -X POST repos/daehyeonmun2021/playground/issues/116/comments -f body=Looks good to me.  <!-- ref:live-refresh --> --jq .id"]
+2026-10-07T18:36:44.573Z [after-session] 840 right after the press: pull-request-loading
+2026-10-07T18:36:44.739Z [after-session] shot narrow-load-0
+2026-10-07T18:36:48.823Z [after-session] shot narrow-summary
+2026-10-07T18:36:48.827Z [after-session] log lines 4086; errors: 0
+
+## Attempt 2 (retry, branch build): session
+2026-10-07T18:43:02.199Z [after-session] app pid 79735
+2026-10-07T18:43:16.763Z [after-session] connected: sidebar shows Pull Requests
+2026-10-07T18:43:22.952Z [after-session] list rows: 99
+2026-10-07T18:43:26.524Z [after-session] right after the press: pull-request-loading
+2026-10-07T18:43:26.687Z [after-session] shot load-0
+2026-10-07T18:43:27.881Z [after-session] +0.3 s: pull-request-scroll pull-request-comments pull-request-comments-truncated pull-request-comments-older pull-request-finished-comments
+2026-10-07T18:43:27.966Z [after-session] shot load-1
+2026-10-07T18:43:28.689Z [after-session] +1.0 s: pull-request-scroll pull-request-comments pull-request-comments-truncated pull-request-comments-older pull-request-finished-comments
+2026-10-07T18:43:28.772Z [after-session] shot load-2
+2026-10-07T18:43:32.798Z [after-session] settled: pull-request-scroll pull-request-comments pull-request-comments-truncated pull-request-comments-older pull-request-finished-comments
+2026-10-07T18:43:32.884Z [after-session] shot summary-top
+2026-10-07T18:43:32.889Z [after-session] summary-top: #115 | daehyeonmun2021/playground | Refresh | Convert to draft | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request | Add input validation | daehyeon-mun | · | updated 4h ago | gh pr checkout 115 | main | feature/input-validation | 1 file | +11 | -0 | Summary | Timeline | No checks reported | Reviewers | daehyeonmun2021 — Changes requested | Labels | needs-review | Description | Adds a small validator. | Checks | Comments (20) | Newest first | This conversation is longer than this page reads in one go. The most recent 17 are here; open it on the host to read the rest. | 4h ago | 10/7/2026, 10:54:38 PM · Open comment on host | Updated: the problems are sorted now. Please take another look. | daehyeonmun2021 | 10/7/2026, 10:54:37 PM · Open comment on host | Thanks for this. I left notes inline. | 10/7/2026, 10:54:36 PM
+2026-10-07T18:43:32.945Z [after-session] ax summary-reviewers saved
+2026-10-07T18:43:34.800Z [after-session] shot summary-comments
+2026-10-07T18:43:34.804Z [after-session] summary-comments: This conversation is longer than this page reads in one go. The most recent 17 are here; open it on the host to read the rest. | daehyeon-mun | 4h ago | 10/7/2026, 10:54:38 PM · Open comment on host | Updated: the problems are sorted now. Please take another look. | daehyeonmun2021 | 10/7/2026, 10:54:37 PM · Open comment on host | Thanks for this. I left notes inline. | 10/7/2026, 10:54:36 PM | Changes requested | Still needs the empty-input case. | 10/7/2026, 10:54:19 PM · Open comment on host | src/validate.js:11 | Reply 8 on the naming question. | 10/7/2026, 10:54:16 PM · Open comment on host | Reply 7 on the naming question. | 10/7/2026, 10:54:13 PM · Open comment on host | Reply 6 on the naming question. | 10/7/2026, 10:53:45 PM · Open comment on host | 10/7/2026, 10:53:43 PM · Open comment on host | Reply 5 on the naming question. | 10/7/2026, 10:53:41 PM · Open comment on host | R
+2026-10-07T18:43:35.549Z [after-session] shot summary-older
+2026-10-07T18:43:36.941Z [after-session] shot summary-finished
+2026-10-07T18:43:37.672Z [after-session] shot summary-finished-open
+2026-10-07T18:43:37.676Z [after-session] summary-groups: This conversation is longer than this page reads in one go. The most recent 17 are here; open it on the host to read the rest. | daehyeon-mun | 4h ago | 10/7/2026, 10:54:38 PM · Open comment on host | Updated: the problems are sorted now. Please take another look. | daehyeonmun2021 | 10/7/2026, 10:54:37 PM · Open comment on host | Thanks for this. I left notes inline. | 10/7/2026, 10:54:36 PM | Changes requested | Still needs the empty-input case. | 10/7/2026, 10:54:19 PM · Open comment on host | src/validate.js:11 | Reply 8 on the naming question. | 10/7/2026, 10:54:16 PM · Open comment on host | Reply 7 on the naming question. | 10/7/2026, 10:54:13 PM · Open comment on host | Reply 6 on the naming question. | 10/7/2026, 10:53:45 PM · Open comment on host | 10/7/2026, 10:53:43 PM · Open comment on host | Reply 5 on the naming question. | 10/7/2026, 10:53:41 PM · Open comment on host | R
+2026-10-07T18:43:38.338Z [after-session] summary-order: Oldest first
+2026-10-07T18:43:38.997Z [after-session] summary-checks: No checks reported.
+2026-10-07T18:43:39.085Z [after-session] shot summary-checks
+2026-10-07T18:43:40.098Z [after-session] shot timeline
+2026-10-07T18:43:40.100Z [after-session] timeline: 2 comments | 2 authors · 4h ago | daehyeonmun2021 | Changes requested | 4h ago | 10/7/2026, 10:54:36 PM | Still needs the empty-input case. | 9 comments | Review dismissed | 10/7/2026, 10:53:31 PM | A few things before this lands. | 4 comments | 1 author · 4h ago | daehyeon-mun | Pull request opened | 10/7/2026, 10:53:23 PM | Sort the reported problems | 3f31a2e | 4d ago | 10/3/2026, 6:00:00 PM | +1 | -1 | Add input validation | 6428a17 | 5d ago | 10/2/2026, 6:01:00 PM | +11 | -0
+2026-10-07T18:43:40.100Z [after-session] timeline-counts: 20 | · | 2 | Newest first
+2026-10-07T18:43:40.771Z [after-session] timeline-order: Oldest first
+2026-10-07T18:43:40.853Z [after-session] shot timeline-oldest
+2026-10-07T18:43:41.626Z [after-session] shot timeline-group-open
+2026-10-07T18:43:43.166Z [after-session] summary-after-tabs: Oldest first
+2026-10-07T18:43:43.258Z [after-session] shot summary-after-tabs
+2026-10-07T18:43:50.965Z [after-session] shot stale-summary
+2026-10-07T18:43:51.009Z [after-session] ax stale-reviewers saved
+2026-10-07T18:43:51.935Z [after-session] shot stale-timeline
+2026-10-07T18:43:51.936Z [after-session] stale-timeline: Trim tabs as well | 2730c72 | 22m ago | 10/8/2026, 3:20:43 AM | +1 | -1 | daehyeon-mun | Approved | Approved earlier changes | 23m ago | 10/8/2026, 3:19:43 AM | Approved: trimming first reads well. | daehyeonmun2021 | Pull request opened | 10/8/2026, 3:19:38 AM | Trim the input first | c2ee86f | 5d ago | 10/2/2026, 6:01:00 PM | -0
+2026-10-07T18:43:51.975Z [after-session] ax stale-timeline saved
+2026-10-07T18:44:00.506Z [after-session] shot approved-timeline
+2026-10-07T18:44:00.508Z [after-session] approved-counts: 2 | · | 1 | Newest first
+2026-10-07T18:44:01.429Z [after-session] shot refresh-before
+2026-10-07T18:44:01.430Z [after-session] refresh-before: daehyeon-mun | 4h ago | 10/7/2026, 10:54:51 PM · Open comment on host | One small thing for later: the Using section could link the helpers. | 10/7/2026, 10:54:49 PM | Approved | Approved: the headings read better.
+2026-10-07T18:44:02.314Z [after-session] posted a comment on #116 as the second account: id 6044499371
+2026-10-07T18:44:18.894Z [after-session] pullRequests.invalidate {} sent to the lane server
+2026-10-07T18:44:23.928Z [after-session] refresh-after: daehyeon-mun | just now | 10/8/2026, 3:44:01 AM · Open comment on host | Looks good to me. | 4h ago | 10/7/2026, 10:54:51 PM · Open comment on host | One small thing for later: the Using section could link the helpers. | 10/7/2026, 10:54:49 PM | Approved | Approved: the headings read better.
+2026-10-07T18:44:24.015Z [after-session] shot refresh-after
+2026-10-07T18:44:24.015Z [after-session] gh calls since the post: ["api -X POST repos/daehyeonmun2021/playground/issues/116/comments -f body=Looks good to me.  <!-- ref:live-refresh --> --jq .id","auth token --hostname github.com","api graphql --hostname github.com -f owner=daehyeonmun2021 -f name=playground -F number=116 -f headRef=refs/pull/116/head -f query=query($ow","pr view 116 --repo github.com/daehyeonmun2021/playground --json author,comments,reviews,commits","api graphql --hostname github.com -f owner=daehyeonmun2021 -f name=playground -F number=116 -F cursor=null -f query=query($owner: String!, $","api graphql --hostname github.com --input -"]
+2026-10-07T18:44:24.017Z [after-session] server RPCs after the invalidate: {"pullRequests.detail":1,"pullRequests.activity":1,"pullRequests.list":1,"pullRequests.invalidate":1}
+2026-10-07T18:44:24.670Z [after-session] deleted the comment 6044499371 again (status 0)
+2026-10-07T18:44:31.311Z [after-session] 840 right after the press: pull-request-scroll pull-request-comments pull-request-comments-truncated pull-request-comments-older pull-request-finished-comments
+2026-10-07T18:44:31.410Z [after-session] shot narrow-load-0
+2026-10-07T18:44:35.502Z [after-session] shot narrow-summary
+2026-10-07T18:44:36.456Z [after-session] shot narrow-timeline
+2026-10-07T18:44:36.458Z [after-session] server RPCs this session: {"pullRequests.detail":5,"pullRequests.activity":5,"pullRequests.list":11,"pullRequests.listStats":1,"pullRequests.invalidate":1}
+2026-10-07T18:44:36.462Z [after-session] log lines 3060; errors: 0
+
+## Attempt 2: relaunch (agent mode keeps the app's preference file per process; see the task record)
+2026-10-07T18:44:45.637Z [after-relaunch] app pid 95838
+2026-10-07T18:44:59.706Z [after-relaunch] connected: sidebar shows Pull Requests
+2026-10-07T18:45:08.044Z [after-relaunch] list rows: 99
+2026-10-07T18:45:11.638Z [after-relaunch] right after the press: pull-request-loading
+2026-10-07T18:45:11.784Z [after-relaunch] shot relaunch-0
+2026-10-07T18:45:11.787Z [after-relaunch] relaunch-0-header: #115 | daehyeonmun2021/playground | Refresh | Convert to draft | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request | Add input validation | daehyeon-mun | · | updated 4h ago | gh pr checkout 115 | main | feature/input-validation | 1 file | +11 | -0 | Summary | Timeline | No checks reported | Reviewers | None | Labels | needs-review | Description | Checks | Comments (0) | Newest first
+2026-10-07T18:45:13.055Z [after-relaunch] +0.8 s: pull-request-scroll pull-request-comments pull-request-comments-truncated pull-request-comments-older pull-request-finished-comments
+2026-10-07T18:45:13.145Z [after-relaunch] shot relaunch-1
+2026-10-07T18:45:17.175Z [after-relaunch] settled: pull-request-scroll pull-request-comments pull-request-comments-truncated pull-request-comments-older pull-request-finished-comments
+2026-10-07T18:45:17.265Z [after-relaunch] shot relaunch-2
+2026-10-07T18:45:17.268Z [after-relaunch] server RPCs this session: {"pullRequests.detail":1,"pullRequests.activity":1,"pullRequests.list":4,"pullRequests.listStats":1}
+2026-10-07T18:45:17.270Z [after-relaunch] log lines 2072; errors: 0
+
+## Before (base da4f4512f build, same steps)
+2026-10-07T18:46:47.082Z [before-session] app pid 18166
+2026-10-07T18:47:00.610Z [before-session] connected: sidebar shows Pull Requests
+2026-10-07T18:47:08.332Z [before-session] list rows: 99
+2026-10-07T18:47:11.997Z [before-session] right after the press: pull-request-loading
+2026-10-07T18:47:12.112Z [before-session] shot load-0
+2026-10-07T18:47:13.391Z [before-session] +0.3 s: pull-request-scroll pull-request-comments
+2026-10-07T18:47:13.478Z [before-session] shot load-1
+2026-10-07T18:47:14.199Z [before-session] +1.0 s: pull-request-scroll pull-request-comments
+2026-10-07T18:47:14.288Z [before-session] shot load-2
+2026-10-07T18:47:18.317Z [before-session] settled: pull-request-scroll pull-request-comments
+2026-10-07T18:47:18.408Z [before-session] shot summary-top
+2026-10-07T18:47:18.410Z [before-session] summary-top: #115 | daehyeonmun2021/playground | Refresh | Convert to draft | Open on GitHub | Copy link | ⇧⌘C | Copy PR number | ⇧⌘K | Close pull request | Add input validation | daehyeon-mun | · | updated 4h ago | gh pr checkout 115 | main | feature/input-validation | 1 file | +11 | -0 | Summary | Timeline | No checks reported | Reviewers | daehyeonmun2021 | Labels | needs-review | Description | Adds a small validator. | Checks | Comments (20) | 4h ago | Updated: the problems are sorted now. Please take another look. | Thanks for this. I left notes inline. | Still needs the empty-input case. | A few things before this lands.
+2026-10-07T18:47:18.419Z [before-session] ax summary-reviewers: tree: no view matches pull-request-reviewers
+2026-10-07T18:47:19.855Z [before-session] shot summary-comments
+2026-10-07T18:47:19.857Z [before-session] summary-comments: daehyeon-mun | 4h ago | Updated: the problems are sorted now. Please take another look. | daehyeonmun2021 | Thanks for this. I left notes inline. | Still needs the empty-input case. | A few things before this lands.
+2026-10-07T18:47:19.904Z [before-session] summary-groups: daehyeon-mun | 4h ago | Updated: the problems are sorted now. Please take another look. | daehyeonmun2021 | Thanks for this. I left notes inline. | Still needs the empty-input case. | A few things before this lands.
+2026-10-07T18:47:19.931Z [before-session] summary-order: (no pull-request-comments-order: no view matches pull-request-comments-order by testId, label or text; targets he)
+2026-10-07T18:47:20.602Z [before-session] summary-checks: No checks reported
+2026-10-07T18:47:20.717Z [before-session] shot summary-checks
+2026-10-07T18:47:21.670Z [before-session] shot timeline
+2026-10-07T18:47:21.672Z [before-session] timeline: daehyeon-mun | Add input validation | 5d ago | 6428a17 | Sort the reported problems | 4d ago | 3f31a2e | daehyeonmun2021 | reviewed | 4h ago | A few things before this lands. | requested changes | Still needs the empty-input case. | commented | Thanks for this. I left notes inline. | Updated: the problems are sorted now. Please take another look.
+2026-10-07T18:47:21.682Z [before-session] timeline-counts: (no pull-request-timeline-counts: no view matches pull-request-timeline-counts by testId, label or text; targets h)
+2026-10-07T18:47:21.699Z [before-session] timeline-order: (no pull-request-timeline-order: no view matches pull-request-timeline-order by testId, label or text; targets he)
+2026-10-07T18:47:21.787Z [before-session] shot timeline-oldest
+2026-10-07T18:47:22.659Z [before-session] summary-after-tabs: (no pull-request-comments-order: no view matches pull-request-comments-order by testId, label or text; targets he)
+2026-10-07T18:47:22.744Z [before-session] shot summary-after-tabs
+2026-10-07T18:47:30.405Z [before-session] shot stale-summary
+2026-10-07T18:47:30.413Z [before-session] ax stale-reviewers: tree: no view matches pull-request-reviewers
+2026-10-07T18:47:31.341Z [before-session] shot stale-timeline
+2026-10-07T18:47:31.342Z [before-session] stale-timeline: daehyeonmun2021 | Trim the input first | 5d ago | c2ee86f | daehyeon-mun | approved these changes | 27m ago | Approved: trimming first reads well. | Trim tabs as well | 26m ago | 2730c72
+2026-10-07T18:47:31.385Z [before-session] ax stale-timeline saved
+2026-10-07T18:47:39.895Z [before-session] shot approved-timeline
+2026-10-07T18:47:39.904Z [before-session] approved-counts: (no pull-request-timeline-counts: no view matches pull-request-timeline-counts by testId, label or text; targets h)
+2026-10-07T18:47:40.829Z [before-session] shot refresh-before
+2026-10-07T18:47:40.830Z [before-session] refresh-before: daehyeon-mun | 4h ago | One small thing for later: the Using section could link the helpers. | Approved: the headings read better.
+2026-10-07T18:47:41.742Z [before-session] posted a comment on #116 as the second account: id 6044559738
+2026-10-07T18:47:58.525Z [before-session] pullRequests.invalidate {} sent to the lane server
+2026-10-07T18:48:03.577Z [before-session] refresh-after: daehyeon-mun | 4h ago | One small thing for later: the Using section could link the helpers. | Approved: the headings read better.
+2026-10-07T18:48:03.678Z [before-session] shot refresh-after
+2026-10-07T18:48:03.678Z [before-session] gh calls since the post: ["api -X POST repos/daehyeonmun2021/playground/issues/116/comments -f body=Looks good to me.  <!-- ref:live-refresh --> --jq .id"]
+2026-10-07T18:48:03.685Z [before-session] server RPCs after the invalidate: {"pullRequests.invalidate":1}
+2026-10-07T18:48:04.750Z [before-session] deleted the comment 6044559738 again (status 0)
+2026-10-07T18:48:11.364Z [before-session] 840 right after the press: pull-request-loading
+2026-10-07T18:48:11.447Z [before-session] shot narrow-load-0
+2026-10-07T18:48:15.557Z [before-session] shot narrow-summary
+2026-10-07T18:48:16.497Z [before-session] shot narrow-timeline
+2026-10-07T18:48:16.503Z [before-session] server RPCs this session: {"pullRequests.detail":4,"pullRequests.activity":4,"pullRequests.list":9,"pullRequests.listStats":1,"pullRequests.invalidate":1}
+2026-10-07T18:48:16.508Z [before-session] log lines 2889; errors: 0
