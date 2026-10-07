@@ -1,0 +1,31 @@
+{
+  "$schema": "../../../scripts/app.schema.json",
+  "name": "T3 Code",
+  "short_name": "T3 Code",
+  "id": "com.exact.t3code.ios",
+  "start_url": "/",
+  "display": "standalone",
+  "app": {
+    "id": "com.exact.t3code.ios",
+    "name": "T3 Code"
+  },
+  "rust": "off",
+  "host": {
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ],
+      "localNetworking": true
+    }
+  },
+  "deploy": {
+    "store": {
+      "ios": "0",
+      "macos": "0",
+      "web": "0",
+      "linux": "0"
+    }
+  }
+}
