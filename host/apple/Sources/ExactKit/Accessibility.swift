@@ -420,6 +420,8 @@ extension Presenter {
     func focusPlace(tree json: String) -> FocusPlace? {
         focusedNode.flatMap { FocusTree(json)?.place(of: $0.id) }
     }
+    /// A booted session's launch autofocus has not run yet: the agent's settle waits for it.
+    var launchAutofocusPending: Bool { session?.booted == true && !launchAutofocusReleased }
     /// Runs a booted session's first autofocus the turn after its first activation, as UIKit apps focus
     /// in `viewDidAppear`. Showing the iOS keyboard or AppKit field editor earlier delays that frame.
     func releaseLaunchAutofocus() {
