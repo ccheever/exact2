@@ -1,0 +1,71 @@
+===== after-lifecycle/cli.txt
+--- SIGSTOP server 40910 (04:23:35)
+### 30a-first  (04:23:35)  t3 app <lane>/projects/epsilon --base-dir <lane>/t3-home
+### 30b-ctrl-c  (04:23:36)  t3 app <lane>/projects/theta --base-dir <lane>/t3-home
+--- SIGINT the second CLI (pid 43263) (04:23:38)
+exit 130  (1.86 s)
+--- SIGCONT server (04:23:39)
+Opened <lane>/projects/epsilon in T3 Code.
+exit 0  (4.21 s)
+--- projects in t3-home (after the cancelled one) (04:23:39)
+alpha|<lane>/projects/alpha
+epsilon|<lane>/projects/epsilon
+--- SIGSTOP server 40910 (04:23:44)
+### 31-expired  (04:23:44)  t3 app <lane>/projects/zeta --base-dir <lane>/t3-home
+DesktopAppRequestFailedError: T3 Code could not open <lane>/projects/zeta (request-timeout).
+exit 1  (5.43 s)
+--- SIGCONT server (04:23:50)
+--- projects in t3-home (after the expiry (the server got the request before it expired)) (04:23:52)
+alpha|<lane>/projects/alpha
+epsilon|<lane>/projects/epsilon
+zeta|<lane>/projects/zeta
+--- SIGKILL server 40910 (04:23:56)
+### 32-primary-reconnecting  (04:23:56)  t3 app <lane>/projects/eta --base-dir <lane>/t3-home
+DesktopAppRequestFailedError: T3 Code could not open <lane>/projects/eta (request-timeout).
+exit 1  (5.78 s)
+--- projects in t3-home (after the restart) (04:24:02)
+alpha|<lane>/projects/alpha
+epsilon|<lane>/projects/epsilon
+zeta|<lane>/projects/zeta
+--- Local environment off; socket: (04:24:09)
+ls: $TMPDIR/t3code-501/55b411b92e964d4addd4e9d1.sock: No such file or directory
+### 33-local-off  (04:24:09)  t3 app <lane>/projects/alpha --base-dir <lane>/t3-home
+DesktopAppUnreachableError: Could not reach the T3 Code desktop app. Start or update the desktop app on this machine, then run `t3 app` again. A running T3 Code server is not enough.
+exit 1  (0.42 s)
+--- Local environment on again; socket: (04:24:20)
+$TMPDIR/t3code-501/55b411b92e964d4addd4e9d1.sock
+### 34-local-on  (04:24:20)  t3 app <lane>/projects/alpha --base-dir <lane>/t3-home
+Opened <lane>/projects/alpha in T3 Code.
+exit 0  (0.49 s)
+--- socket after the drive ended (04:24:27)
+ls: $TMPDIR/t3code-501/55b411b92e964d4addd4e9d1.sock: No such file or directory
+--- projects in t3-home (end) (04:24:27)
+alpha|<lane>/projects/alpha
+epsilon|<lane>/projects/epsilon
+zeta|<lane>/projects/zeta
+
+===== after-lifecycle/app-activation-log.txt
+t3.activation: watching the window 201593 for its close
+t3.activation: desktop app control socket ready at $TMPDIR/t3code-501/55b411b92e964d4addd4e9d1.sock
+t3.activation: request 65c9b8da-5cbe-4ff7-ba94-624bb52e6a9b arrived
+t3.activation: request 65c9b8da-5cbe-4ff7-ba94-624bb52e6a9b handed to the window
+t3.activation: request 5d421d33-86e4-45d0-97b5-08e0912df768 arrived
+t3.activation: request 5d421d33-86e4-45d0-97b5-08e0912df768: its command line closed the connection
+t3.activation: request 5d421d33-86e4-45d0-97b5-08e0912df768 answered: renderer-unavailable The command closed before T3 Code was ready.
+t3.activation: request 65c9b8da-5cbe-4ff7-ba94-624bb52e6a9b answered: opened project 4c797ec3-a029-4b82-95eb-82d9611ce4fa thread 9985480f-bdd2-4c83-9d8a-9bd252c56ecb
+t3.activation: request 4fa89603-5b4f-44a9-a868-664791821205 arrived
+t3.activation: request 4fa89603-5b4f-44a9-a868-664791821205 handed to the window
+t3.activation: request 4fa89603-5b4f-44a9-a868-664791821205 answered: request-timeout The desktop app did not finish opening the project in time.
+t3.activation: request 728a5ae0-0743-41ac-9ae3-33f2f5321856 arrived
+t3.activation: request 728a5ae0-0743-41ac-9ae3-33f2f5321856 answered: request-timeout The desktop app did not finish opening the project in time.
+t3.activation: desktop app control socket ready at $TMPDIR/t3code-501/55b411b92e964d4addd4e9d1.sock
+t3.activation: request 7c2e0799-0c3b-4c64-85cf-9e180e8f4acf arrived
+t3.activation: request 7c2e0799-0c3b-4c64-85cf-9e180e8f4acf handed to the window
+t3.activation: request 7c2e0799-0c3b-4c64-85cf-9e180e8f4acf answered: opened project 0263fbc4-181b-4d0a-a532-98b48c340d1e thread 29d98bf2-7df5-488f-a059-d0a51327e578
+
+===== after-lifecycle/pids.txt
+agent pid 40720
+server pid 40910
+new server pid 46356
+agent exit 0
+
