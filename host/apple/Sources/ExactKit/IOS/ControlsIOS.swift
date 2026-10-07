@@ -197,7 +197,8 @@ final class ControlHost: NSObject {
             let box = owner.contentBox()
             // A slider's track spans its box, as the web's does; a native
             // button fills it, its chrome inside (LLP 1069.011 D6); the
-            // others keep their own size, centred.
+            // others keep their own size. A select aligns its closed value
+            // inside the box; unstyled controls stay centred.
             if control is NativeButtonIOS {
                 // The box is the button's alignment rect, as its natural size is.
                 let frame = control.frame(forAlignmentRect: box)
@@ -208,7 +209,17 @@ final class ControlHost: NSObject {
                 #else
                 let width = control is UISlider ? box.width : natural.width
                 #endif
-                assign(control, \.frame, CGRect(x: box.midX - width / 2, y: box.midY - natural.height / 2,
+                var x = box.midX - width / 2
+                #if os(iOS)
+                if owner.props["type"] == "select" {
+                    switch selectAlignment(owner) {
+                    case .left: x = box.minX
+                    case .right: x = box.maxX - width
+                    default: break
+                    }
+                }
+                #endif
+                assign(control, \.frame, CGRect(x: x, y: box.midY - natural.height / 2,
                                                 width: width, height: natural.height))
             }
             if reported[owner.id] != natural {
