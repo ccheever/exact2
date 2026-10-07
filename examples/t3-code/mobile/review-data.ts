@@ -17,7 +17,7 @@ import { reviewFileRows, reviewPatch, reviewRow, reviewSuppression, type ReviewF
 
 export interface ReviewSection { id: string; title: string; subtitle: string; selected: boolean }
 export interface ReviewSnapshot {
-  owner: string; revision: number; sectionId: string; patchRequest: string; title: string; subtitle: string; sections: ReviewSection[];
+  owner: string; revision: number; navigationRevision: number; sectionId: string; patchRequest: string; title: string; subtitle: string; sections: ReviewSection[];
   files: ReviewFile[]; rows: ReviewRow[]; loading: boolean; error: string; notice: string; raw: string;
   emptyTitle: string; emptyDetail: string; additions: number; deletions: number; selectedPath: string;
   selectionTitle: string; canComment: boolean; commentOpen: boolean; commentPath: string; commentRange: string;
@@ -41,7 +41,7 @@ function stateOf(client: T3Client): State {
   }
   return state;
 }
-export const EMPTY_MOBILE_REVIEW: ReviewSnapshot = { owner: '', revision: 0, sectionId: '', patchRequest: '', title: 'Review changes', subtitle: '', sections: [], files: [], rows: [],
+export const EMPTY_MOBILE_REVIEW: ReviewSnapshot = { owner: '', revision: 0, navigationRevision: 0, sectionId: '', patchRequest: '', title: 'Review changes', subtitle: '', sections: [], files: [], rows: [],
   loading: false, error: '', notice: '', raw: '', emptyTitle: 'No review diffs', emptyDetail: '', additions: 0, deletions: 0, selectedPath: '',
   selectionTitle: '', canComment: false, commentOpen: false, commentPath: '', commentRange: '', commentPreview: '', commentCount: 0 };
 const snapshots = new WeakMap<State, { version: number; dark: boolean; draft: string; blocked: boolean; data: ReviewSnapshot }>();
@@ -123,15 +123,15 @@ export function mobileReviewSnapshot(dark = false, client: T3Client = mobileClie
       if (row.kind !== 'line') continue;
       for (const entry of comments) {
         if (entry.comment.sectionId !== state.selected || entry.comment.filePath !== file.path || entry.comment.endIndex !== row.lineIndex) continue;
-        rows.push({ ...reviewRow(`comment:${entry.contextId}`, 'comment'), path: entry.contextId, title: entry.comment.rangeLabel,
+        rows.push({ ...reviewRow(`comment:${entry.contextId}`, 'comment'), path: entry.contextId, filePath: file.path, title: entry.comment.rangeLabel,
           text: entry.comment.text, detail: entry.comment.diff, action: 'delete-comment' });
       }
     }
   }
   const comment = state.pick?.composerOwner === composerOwner ? commentFromPick(state, '', 'preview') : null;
   const totals = section?.source?.files ?? files;
-  const data: ReviewSnapshot = { owner: state.owner, revision: client.revision, sectionId: state.selected, patchRequest: patchRequest(section), title: section?.title ?? 'Review changes', subtitle: section?.subtitle ?? '',
-    sections: state.sections.map(({ id, title, subtitle }) => ({ id, title, subtitle, selected: id === state.selected })), files, rows,
+  const data: ReviewSnapshot = { owner: state.owner, revision: client.revision, navigationRevision: state.navigationSerial, sectionId: state.selected, patchRequest: patchRequest(section), title: section?.title ?? 'Review changes', subtitle: section?.subtitle ?? '',
+    sections: state.sections.map(({ id, title, subtitle }) => ({ id, title, subtitle, selected: id === state.selected })), files, rows: rows.map(row => row.kind === 'comment' ? row : { ...row, filePath: row.path }),
     loading: state.loading, error: state.error, notice: parsed.notice, raw: !files.length && parsed.text ? parsed.text : '',
     emptyTitle: section ? 'No changes' : 'No review diffs', emptyDetail: section ? parsed.text ? parsed.rawReason : section.subtitle || 'This diff is empty.' : 'This thread has no ready turn diffs and the worktree diff is empty.',
     additions: totals.reduce((sum, file) => sum + file.additions, 0), deletions: totals.reduce((sum, file) => sum + file.deletions, 0), selectedPath: files.some(file => file.path === state.selectedPath) ? state.selectedPath : '',
@@ -145,7 +145,7 @@ export function mobileReviewSnapshot(dark = false, client: T3Client = mobileClie
 /** Real shared RPC reads. A grant must resolve before cached host files become visible. */
 export async function mobileReviewRead(nativeInput: Native | null | undefined, sectionId = '', dark = false, refresh = false, client: T3Client = mobileClient): Promise<ReviewSnapshot> {
   const state = stateOf(client), serial = ++state.serial;
-  state.version++;
+  state.navigationSerial++; state.version++;
   if (!nativeInput?.available || !client.ready || !client.threadId) {
     state.sections = []; state.error = 'Connect and select a thread to review its changes.'; return mobileReviewSnapshot(dark, client);
   }
@@ -193,9 +193,28 @@ export async function mobileReviewRead(nativeInput: Native | null | undefined, s
 
 /** The caller sends the snapshot owner with every action, including delayed modal Save. */
 export async function mobileReviewAction(owner: string, op: string, id: string, value: string, n: number,
-  nativeInput: Native | null | undefined, suppliedStorage: Files, dark = false, client: T3Client = mobileClient) {
+  nativeInput: Native | null | undefined, suppliedStorage: Files, dark = false, client: T3Client = mobileClient, routeId = '') {
   let message = '', navigation = ''; const actionState = stateOf(client);
   let navigationSerial = actionState.navigationSerial, navigationSection = actionState.selected;
+  // Native viewport reports are read-side selection, never a navigation or retry.
+  // Reject a queued report from a prior route, refresh, section or explicit file pick.
+  if (op === 'viewport') {
+    const unchanged = () => ({ message: '', navigation: '', data: mobileReviewSnapshot(dark, client) });
+    let event: Obj;
+    try { event = obj(JSON.parse(id)); } catch { return unchanged(); }
+    const section = actionState.sections.find(row => row.id === actionState.selected);
+    if (!routeId || event.routeId !== routeId || event.owner !== owner || owner !== actionState.owner
+      || event.sectionId !== actionState.selected || event.navigationRevision !== actionState.navigationSerial
+      || typeof event.path !== 'string' || event.path !== '' && !sectionFiles(section).some(row => row.file.path === event.path)) return unchanged();
+    let changed = actionState.selectedPath !== event.path;
+    actionState.selectedPath = event.path;
+    if (event.path && section?.lazy) {
+      const at = section.lazy.files.findIndex(file => file.path === event.path);
+      changed = requestFiles(section.lazy, [at, at + 1, at + 2]).length > 0 || changed;
+    }
+    if (changed) { actionState.version++; client.revision++; }
+    return unchanged();
+  }
   try {
     assertReviewOwner(client, owner);
     if (!nativeInput?.available) throw new ClientError('Review is available in the native app.');
@@ -263,7 +282,7 @@ export async function mobileReviewAction(owner: string, op: string, id: string, 
         if (op === 'file') { state.selectedPath = id; state.collapsed.delete(key); navigation = `file:${id}`; }
         if (section?.lazy && section.source && (op !== 'toggle' || !state.collapsed.has(key))) {
           const at = section.lazy.files.findIndex(file => file.path === id);
-          if (op === 'retry' || file.error) retryFile(section.lazy, id);
+          if (op === 'retry' || file.error && (op === 'file' || op === 'toggle')) retryFile(section.lazy, id);
           requestFiles(section.lazy, [at, at + 1, at + 2]);
           if (op !== 'file') await loadFilePatches(section.lazy, section.source, false, (method, payload) => client.rpc(native, method, payload));
         }

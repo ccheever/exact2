@@ -315,7 +315,7 @@ component MobileRouteContent
           option "Changed files" value=""
           each file in reviewData.files key=file.id
             option file.name value=file.path
-      ReviewView(data=reviewData, colors=reviewLook, wrap=reviewWrap, action=reviewAction, refresh=refreshReview, loadMore=loadReviewFiles)
+      ReviewView(data=reviewData, colors=reviewLook, wrap=reviewWrap, action=reviewAction, refresh=refreshReview, loadMore=loadReviewFiles, routeId=routeId, focused=focused)
     else when routeName == "threadReviewComment"
       ReviewCommentComposer(data=reviewData, value=reviewComment, colors=reviewLook, change=editReviewComment, submit=submitReviewComment)
     else when routeName == "threadFiles"

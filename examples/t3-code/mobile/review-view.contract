@@ -10,6 +10,10 @@ component ReviewView
     action: action
     refresh: action
     loadMore: action
+    routeId: string
+    focused: bool
+  action visibleFile(value: string)
+    action("viewport", value, 0)
   view
     column flex=1 min-height=0 background-color=colors.sheet font-family="DM Sans"
       when data.error != ""
@@ -35,9 +39,12 @@ component ReviewView
                 view overflow-x="auto" margin-top=10.5
                   text data.raw font-family="Menlo" font-size=10.5 line-height="17px" white-space="pre" color=colors.foreground
       else
-        list id="review-diff" flex=1 min-height=0 virtualized=true estimated-item-height=22 refresh=refresh reachend=loadMore
+        t3-review-viewport width=0 height=0 review-owner=data.owner review-section=data.sectionId review-route=routeId
+          review-navigation-revision=`${data.navigationRevision}` review-focused=focused change=visibleFile
+        list id="review-diff" hook="mobile-review-list" data-mobile-review-owner=data.owner data-mobile-review-section=data.sectionId data-mobile-review-route=routeId flex=1 min-height=0 virtualized=true estimated-item-height=22 refresh=refresh reachend=loadMore
           each row in data.rows key=row.id
-            column
+            column hook="mobile-review-row" data-mobile-review-owner=data.owner data-mobile-review-section=data.sectionId
+              data-mobile-review-route=routeId data-mobile-review-path=row.filePath
               when row.kind == "file"
                 row margin-left=8 margin-right=8 margin-top=6 margin-bottom=6 min-height=44
                   border-radius=10 background-color=colors.card align-items="center" padding-left=10 padding-right=10 gap=5

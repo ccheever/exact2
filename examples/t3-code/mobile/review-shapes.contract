@@ -37,6 +37,7 @@ shape ReviewRow
   id: string
   kind: string
   path: string
+  filePath: string
   text: string
   title: string
   detail: string
@@ -72,6 +73,7 @@ shape ReviewSection
   selected: bool
 
 shape ReviewSnapshot
+  navigationRevision: number
   owner: string
   revision: number
   sectionId: string

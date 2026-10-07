@@ -28,6 +28,9 @@ final class T3MobileModule: ExactModule {
             let instance = T3MobileDocumentHTML(dataRoot: module.documentRoot, audioSession: module.audioSession, events: events)
             try instance.setProps(props); return instance
         },
+        "t3-review-viewport": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
+            try module.reviewViewport.makeView(props: props, events: events)
+        },
         "t3-inspector-chrome": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
             try module.inspectorChrome.makeView(props: props, events: events)
         },
@@ -55,6 +58,7 @@ final class T3MobileModule: ExactModule {
     private let activity: T3ActivityReporter
     private var alive = true
     let homeChrome = T3HomeChrome()
+    private let reviewViewport = T3MobileReviewViewport()
     private let inspectorChrome = T3MobileInspector()
     lazy var workspace = T3MobileWorkspace(homeChrome: homeChrome, inspector: inspectorChrome)
     let settingsNavigation = T3SettingsNavigation()
@@ -120,12 +124,14 @@ final class T3MobileModule: ExactModule {
         informationLegal.configure(route)
     }
     override func element(_ element: ExactElement) {
+        if element.hook == .mobileReviewList || element.hook == .mobileReviewRow { reviewViewport.configure(element) }
         if element.hook == .mobileVoiceEditor {
             voice.editor.configure(element, owner: element.data[.mobileVoiceOwner] ?? "",
                 selectionRevision: Int(element.data[.mobileVoiceSelectionRevision] ?? "0") ?? 0)
         }
     }
     override func elementEnded(_ element: ExactElement) {
+        if element.hook == .mobileReviewList || element.hook == .mobileReviewRow { reviewViewport.end(element) }
         if element.hook == .mobileVoiceEditor { voice.editor.end(element) }
     }
     override func routeEnded(_ route: ExactRoute) { inspectorChrome.end(route); homeChrome.end(route); settingsNavigation.end(route); scheduledNavigation.end(route); informationLegal.end(route) }
@@ -263,6 +269,7 @@ final class T3MobileModule: ExactModule {
     override func destroy() {
         alive = false
         scratchClock.destroy()
+        reviewViewport.destroy()
         workspace.destroy(); inspectorChrome.destroy()
         scheduledControls.destroy()
         voice.destroy()
@@ -301,6 +308,7 @@ final class T3MobileModule: ExactModule {
          "t3-archive-spinner": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-symbol": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-qr-scanner": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
+         "t3-review-viewport": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-inspector-chrome": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-workspace-layout": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-layout-facts": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
