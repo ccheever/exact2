@@ -1419,7 +1419,9 @@ swipe, where the web's tap scrolls the row to it, and `--touch platform`, as in
 `bun exact.mjs test ios --touch platform`, makes every tap a real touch),
 `type "id" "text"` (sets the value), `type "id" "text" append` (after the value
 the tree shows, as typing after a prefill), or `type "id" key "Name"`
-(`down`, `up`, or `for <ms>` on the virtual clock),
+(`down`, `up` — its `keyup` handlers hear it — or `for <ms>` on the virtual
+clock, repeating as a held key does: a keydown with `repeat` true 500 ms after
+the down, then every 83 ms),
 `type "id" paste "text"` (⌘V on macOS, Ctrl+V elsewhere, then the paste; a `key` handler that `preventDefault()`s that chord keeps it from landing), `type "id" copy`, `type "id" cut`, `pick "id" "path"…` or
 `pick "id" cancel` (a held picker or export, by its node or capability as
 above; paths are the test file's), `clock settle|data|+ms|+ms real|ms` (`data`:
@@ -1454,7 +1456,8 @@ focuses the target if it takes the focus (else leaves the focus where it is)
 and presses the key as a keyboard would on every host: its `key` handlers,
 then its default — `"7"` types into a field, `"Enter"` submits it (a
 textarea's breaks the line), `"Space"` presses a button, `"r"` reaches an
-`aria-keyshortcuts="r"` button. A chord holds its modifiers for the key, in
+`aria-keyshortcuts="r"` button — then releases it through the `keyup`
+handlers at the focus. A chord holds its modifiers for the key, in
 Playwright's spelling: `"Shift+Enter"`, `"Meta+s"`, `"Control+Alt+ArrowLeft"`
 ([keys](contract-grammar.md#keys)). Not every interactive
 driver operation is a test-file statement. `contract test` parses and prints JSON;

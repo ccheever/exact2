@@ -956,7 +956,7 @@ final class NativeViews {
         case 2: presenter.hover(owner, text == "true")
         case 3: presenter.focus(id)
         case 4: presenter.blur(id)
-        case 5: presenter.key(id, text)
+        case 5: presenter.key(id, KeyPress(text))
         case 6: presenter.submit(id)
         case 7: presenter.load(id)
         default: presenter.message(id, text)

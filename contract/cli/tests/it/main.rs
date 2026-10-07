@@ -51,6 +51,7 @@ mod insets;
 mod instance;
 mod instance_work;
 mod keyframes;
+mod keyup;
 mod lint;
 mod lists;
 mod locals;
