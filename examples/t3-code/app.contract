@@ -75,6 +75,12 @@ component T3Code
     after(20000, disconnectDelayElapsed)
   action disconnectDelayElapsed
     disconnectDelayKey = data.serverUpdate.unavailable
+  // auto-balance (auto-balance.ts; X19, X21): an unresolved Auto draft asks its machines' host resources, at the window's time.
+  mutation balanceLoaded as shape Change refreshes data
+  task balanceLoad when branches.balanceFetch != "" key=branches.balanceFetch
+    after(1, balanceLoadNow)
+  action balanceLoadNow
+    send balanceLoaded = command("cclocal:balance-load", branches.balanceFetch, `${wallTime.epochAtZero + now()}`, 0)
   state noticeExit = ""
   state noticeExitOp = ""
   state noticeExitTarget = ""
@@ -596,7 +602,7 @@ component T3Code
     diffUserWidth = diffWidth
   derive conversationWidth = viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - ((data.diffOpen or rightPanel or shell.panel.open) and not narrowDiff ? diffWidth : 0)
   derive composerLeft = (data.sidebarOpen ? sidebarWidth : 0) + (canvas.ready ? canvas.left : (conversationWidth - min(data.look.chatMax, conversationWidth - 40)) / 2) // the chat lane (chat-canvas-view.ts)
-  derive composerOwner = `${data.serverUrl}:${data.projectId}:${data.threadId}`
+  derive composerOwner = data.composerOwner // `${serverUrl}:${projectId}:${threadId}`; a draft Auto balance moved keeps its own (auto-balance-owner.ts)
   derive composerText = draftOwner == `${composerOwner}${data.requestKey}` ? draft : data.draft
   action closeOptions
     optionsOpen = ""

@@ -26,6 +26,7 @@ import { tableMenuSnapshot } from './r8-keys-table-menu'; // lane r8-keys
 import { sidebarMinimumWidth, workspaceControlsLeft } from './r12-sidebar-width'; // lane r12-sidebar
 import { adoptHostLocale } from './timestamp-format'; // desktop-shell-details: the Mac's locale, from the status presentation (T3Locale.swift)
 import { serverUpdateView } from './server-update-notices'; // server-update-banner
+import { composerOwner } from './auto-balance-owner'; // auto-balance
 
 const modes: Record<string, string> = {
   'approval-required': 'Ask for approval', 'auto-accept-edits': 'Auto-accept edits',
@@ -132,7 +133,7 @@ export function snapshot(client: T3Client, now = 0) {
   return {
     revision: client.revision, alertClip: alertClip(client.presentation), ...providerBanner(provider), available: client.available, connected: client.connection === 'connected',
     connecting: ['connecting', 'reconnecting'].includes(client.connection), syncComplete: client.ready,
-    status: connectionMessage, serverUrl: client.origin,
+    status: connectionMessage, serverUrl: client.origin, composerOwner: composerOwner(client), // auto-balance: a moved draft keeps its owner
     uncertain: pending?.uncertain === true,
     uncertainMessage: pending?.uncertain ? `${pending.description} may already have reached T3. Reconnect and check the thread before retrying.` : '',
     sidebarWidth: client.local.sidebarWidth, sidebarMinWidth: sidebarMinimumWidth(client.local.clientSettings?.fontSizeInterface, fullScreen), controlsLeft: workspaceControlsLeft(client.local.clientSettings?.fontSizeInterface, fullScreen), sidebarOpen: client.local.sidebarOpen, query: client.query,

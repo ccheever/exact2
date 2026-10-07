@@ -16,6 +16,7 @@ import { dismissResumeCompaction } from './r3-composer-controls-resume';
 import { dispatchSelection } from './composer-ultrathink'; // composer-fidelity: modelOptionsForDispatch
 import { composerNow, clearStaged, nextTurnCommands, planFollowUp, proposedPlanTitle, requireProvider, resumeState, stagedFor,
   PLAN_IMPLEMENTATION_PROMPT_PREFIX, type ComposerControlsPrefs } from './composer-controls';
+import { loadHostResources } from './auto-balance'; // auto-balance
 
 /** A select row picks one of its options; a boolean row is On or Off (buildProviderOptionSelectionsFromDescriptors). */
 export function applyOptionChoice(descriptors: Obj[], current: Obj[], id: string, value: string): Obj[] {
@@ -236,6 +237,7 @@ export async function composerLocal(client: T3Client, _native: Native, _storage:
   if (op === 'branch-menu') return branchMenu(client, _native, value);
   // The compact strip's workspace trigger has no context menu (BranchToolbar's MobileRunContextSelector).
   if (op === 'noop') return '';
+  if (op === 'balance-load') return loadHostResources(client, _native, id, Number(value) || 0); // auto-balance: the machines' host resources
   if (op === 'usage-limits') { openUsageLimits(client, composerNow(client)); return ''; }
   if (op === 'usage-limits-dismiss') { closeUsageLimits(client); return ''; }
   if (op === 'queued-cancel') { cancelQueuedEdit(client); return ''; }

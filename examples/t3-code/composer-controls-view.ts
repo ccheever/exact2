@@ -6,6 +6,8 @@
 // tasks progress), threadSync.ts and ComposerTasksBadge.tsx.
 import { projectCloneBlock, projectCloneNotice } from './project-clones-live';
 import { systemComposerNotices } from './server-update-notices';
+import { autoBalanceState } from './auto-balance'; // auto-balance
+import { autoBalanceNotices, type MachineRow } from './auto-balance-banner'; // auto-balance
 import { arr, obj, str, num, type Obj } from './domain';
 import { activeRun, providerAvailable } from './protocol';
 import type { T3Client } from './client';
@@ -151,10 +153,12 @@ export type ComposerNotice = { id: string; variant: string; icon: string; title:
   /** Why the action is disabled (its tooltip), '' when it is enabled; the id the dismiss command receives. */
   actionReason: string; dismissId: string; segments: NoticeSegment[];
   /** server-update-banner: the title's and the actions' tooltips, a red icon, a "·" before the description, the title's live role. */
-  tip: string; actionTip: string; action2Tip: string; iconTone: string; sep: boolean; liveRole: string };
+  tip: string; actionTip: string; action2Tip: string; iconTone: string; sep: boolean; liveRole: string;
+  /** auto-balance: the multi-machine banner's popover rows and its title's accessible name. */
+  machines: MachineRow[]; menuLabel: string };
 const notice = (value: Partial<ComposerNotice> & { id: string; title: string }): ComposerNotice => ({ variant: 'info', icon: '', description: '',
   action: '', actionLabel: '', action2: '', action2Label: '', dismiss: '', dismissLabel: '', priority: 2, lines: [], actionReason: '', dismissId: '', segments: [],
-  tip: '', actionTip: '', action2Tip: '', iconTone: '', sep: false, liveRole: '', ...value });
+  tip: '', actionTip: '', action2Tip: '', iconTone: '', sep: false, liveRole: '', machines: [], menuLabel: '', ...value });
 
 const BACKGROUND_KINDS: Record<string, { order: number; singular: string; plural: string }> = {
   subagent: { order: 0, singular: 'subagent', plural: 'subagents' }, command: { order: 1, singular: 'command', plural: 'commands' },
@@ -202,7 +206,8 @@ export function composerNotices(client: T3Client, now: number): ComposerNotice[]
   const clone = projectCloneNotice(client);
   const cloneItem = clone ? [notice({ ...clone, icon: 'download', priority: clone.variant === 'info' ? 0 : 2 })] : [];
   // systemComposerBannerItems (server-update-notices.ts): the environment's offline and server-version notices.
-  const system = systemComposerNotices(client).map(item => notice(item));
+  // auto-balance: an Auto draft shows one banner for every machine's update instead of the single-machine notice.
+  const system = [...systemComposerNotices(client, { automaticEnvironment: autoBalanceState(client).automatic }), ...autoBalanceNotices(client)].map(item => notice(item));
   if (!client.threadId) return rankNotices([...usageNotices(client, now).map(item => notice(item)), ...cloneItem, ...system]);
   const shell = client.shell.threads.find(thread => thread.id === client.threadId) ?? {};
   const capabilities = obj(obj(client.config.environment).capabilities);
