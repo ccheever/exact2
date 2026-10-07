@@ -29,6 +29,11 @@ Included (missing or partial; sources in "Context"):
 
 Excluded: sign-in and install (`20261005-provider-sign-in-and-install`), Codex managed flow (`20261005-managed-codex-chatgpt`), the WSL per-environment update rows (`ProviderUpdateEnvironmentRows`, `ProviderUpdateLaunchNotification.environments.ts`), the sidebar update pill (done: `sidebar-provider-pill.ts`; its reference tests are mapped by `20261005-reference-logic-tests-done-areas`), email redaction (`20261005-provider-sign-in-and-install`), the ChatGPT account instance id and the Add ChatGPT account dialog (`20261005-managed-codex-chatgpt`).
 
+PR #238 handoff (2026-10-08): the reference
+`ProviderSettingsPanel.environment.test.tsx:584` URL-auth action case was excluded from
+provider-sign-in-and-install. It remains owned here by the URL auth acceptance row below;
+see [verification follow-up](20261008-provider-sign-in-verification-followup.md).
+
 ## Context and guidance
 
 Parent specification: [spec](../spec.md). Paths: `C/` = `examples/t3-code/`; `W/` = `apps/web/src/components/` at T3 Code `1e2ecbd975`. Line numbers are from the mc-orch tree on 2026-10-05; `20261005-hot-file-split` moves code, so find it by symbol. Tools are named by their `target/t3-ui-parity/…` path (committed under `examples/t3-code/tools/` with the same relative paths, decision U23).

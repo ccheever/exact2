@@ -212,6 +212,10 @@ buttons (`settings-shortcuts.contract` `keyboard-dispatch`), in every dialog, no
 
 ## Next action
 
-Review and merge PR #238 into `feat(example)/t3-code`. Publishing X49 upstream needs the user's
-approval. The rows above stay open until a Cursor Pro account or the user's Google/ACP sign-in
-exists.
+Review and merge PR #238 into `feat(example)/t3-code`. The remaining verification and each
+item's disposition are tracked in [provider sign-in verification follow-up](20261008-provider-sign-in-verification-followup.md).
+The app-wide focus finding has its own [dialog shortcut focus task](20261008-dialog-shortcut-focus.md).
+Cursor remains closed by the user's decision; Google/ACP and real-account sign-out/change
+remain unverified. Publishing [X49](../issues/20261007-x49-progress-value-accessibility.md)
+upstream still needs the user's approval. Merging this implementation does not complete
+these follow-ups.

@@ -16,6 +16,14 @@ last missing-route UI fixture. Implementation commit: `762f501cb`.
 The PR remains unmerged. Feature acceptance does not close the parent's separate
 generic oracle/trace infrastructure or full T0 matrix.
 
+## Provider sign-in follow-ups, 2026-10-08
+
+PR #238's unverified rows and closed/deferred decisions are preserved in
+[provider sign-in verification follow-up](tasks/20261008-provider-sign-in-verification-followup.md).
+The remaining app-wide focus finding is [dialog shortcut focus](tasks/20261008-dialog-shortcut-focus.md).
+These stay separate from merging the provider implementation; existing ownership of URL auth
+(provider-settings-upkeep) and progress accessibility (X49) is unchanged.
+
 ## Knowledge snapshot
 
 Library revision: `20261005-platforms-v3` (platforms, performance, testing-and-debugging
