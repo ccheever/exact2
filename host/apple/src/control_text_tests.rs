@@ -88,6 +88,7 @@ fn boot(measurer: CachedChrome) -> Result<(Host<NoData>, String), crate::HostErr
         None,
         "/",
         None,
+        crate::link::Links::ALL,
         |runner| {
             let mut env = runner.kernel().env();
             env.control_text_styles = Some(styles(17.0));
