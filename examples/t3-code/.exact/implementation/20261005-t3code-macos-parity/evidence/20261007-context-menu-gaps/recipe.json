@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "source_paths": [
+    "examples/t3-code/context-menus.ts",
+    "examples/t3-code/context-menus.test.ts",
+    "examples/t3-code/context-menu-actions.ts",
+    "examples/t3-code/context-menu-actions.test.ts",
+    "examples/t3-code/r4-surfaces-files.ts",
+    "examples/t3-code/r4-surfaces-files.contract",
+    "examples/t3-code/pages-prs.ts",
+    "examples/t3-code/pages-prs.contract",
+    "examples/t3-code/pages-pr-detail.ts",
+    "examples/t3-code/pages-pr-detail.contract",
+    "examples/t3-code/pages-commands.ts",
+    "examples/t3-code/remote-open.test.ts",
+    "examples/t3-code/modules/apple/T3ContextMenu.swift",
+    "examples/t3-code/macos/tests/contextmenu",
+    "examples/t3-code/timeline-presentation.ts",
+    "examples/t3-code/r5-panels.contract",
+    "examples/t3-code/context-menu-hookup.test.ts",
+    "examples/t3-code/timeline-attachments.ts",
+    "examples/t3-code/timeline-attachments.contract",
+    "examples/t3-code/timeline-attachments.test.ts",
+    "examples/t3-code/r6-media.test.ts",
+    "examples/t3-code/media-views.ts",
+    "examples/t3-code/shapes.contract",
+    "examples/t3-code/app-overlays.contract"
+  ],
+  "checks": [
+    {
+      "name": "clone unit tests",
+      "argv": [
+        "/Users/daehyeonmun/.bun-1.4.2/bin/bun",
+        "test",
+        "examples/t3-code"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 300,
+      "required": true
+    },
+    {
+      "name": "contextmenu AppKit XCTests (README recipe for one binary)",
+      "argv": [
+        "/bin/bash",
+        "examples/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261007-context-menu-gaps/swift-contextmenu.sh"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 900,
+      "required": true
+    },
+    {
+      "name": "macOS bundle builds (contract build, Swift, Rust; EXACT_APP_DIR=examples/t3-code, Bun 1.4.2 first on PATH)",
+      "argv": [
+        "/Users/daehyeonmun/.bun-1.4.2/bin/bun",
+        "host/apple/build.mjs",
+        "t3-code-macos",
+        "--bundle"
+      ],
+      "cwd": ".",
+      "timeout_seconds": 1500,
+      "required": true
+    }
+  ]
+}
