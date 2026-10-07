@@ -1,5 +1,6 @@
 // A mutation's `then`: armed by the commit its answer landed in, it runs
-// as its own commit at the next clock advance, never inside the tap.
+// as its own commit at the next clock advance, or first when the next event
+// arrives (as every host's `dispatch_at` does), never inside the tap.
 shape Ack
   ok: bool
 
@@ -32,10 +33,12 @@ test "armed again by each answer"
   clock +40
   tap "poke"
   tap "poke"
-  clock +5
   expect state after == 1
+  expect state stamp == 40
+  clock +5
+  expect state after == 2
   expect state stamp == 40
   tap "poke"
   clock +1
-  expect state after == 2
+  expect state after == 3
   expect state stamp == 45

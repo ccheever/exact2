@@ -17,7 +17,7 @@ tested against it, differentially and at random.
 | `Contract/Big.lean` | The same semantics as inductive big-step relations, with proofs that the interpreter is sound and complete for them and that they are deterministic. |
 | `Contract/Axiomatic.lean` | An axiomatic semantics: a Hoare logic for action bodies, proved sound against the operational semantics, plus the transaction laws (a refused action changes nothing, reads see the pre-state, the last write wins). |
 | `Contract/Invariant.lean` | Invariants of runs: the configurations a program reaches from boot by any events (`Reachable`), and the rules that prove a property of all of them (`Reachable.invariant`, `Reachable.slotIn`). |
-| `Contract/Observe.lean` | The canonical observation a differential run compares. |
+| `Contract/Observe.lean` | The canonical observation a differential run compares, and how an observed event is delivered (`dispatchAt`: the work due first, as every host's `dispatch_at`). |
 | `Contract/Vm.lean` | A model of the expression VM (`runner/src/vm.rs`) for the opcodes expressions and action bodies use, over instructions with symbolic operands, and a decoder from the plan's bytes (`plan/tables/format.json`, `opcodes`). |
 | `Contract/Lower.lean` | A compiler from the semantics' expressions and statements to VM code, mirroring `contract/lower` (`expr.rs`, `stmts.rs`) instruction for instruction. |
 | `Contract/VmFacts.lean`, `Lower{Types,Sim,Spec,Proof,Lists,Calls,Correct,Stmt}.lean` | Its correctness proof (below). |
@@ -64,6 +64,16 @@ each. The two texts must match line for line. Data sources are a seeded oracle
 that answers any call with a value of the declared shape. The runner's
 transcript of that oracle becomes the Lean side's oracle, so if the semantics
 makes a call the runner didn't, that is a divergence.
+
+An event is delivered as every host delivers one, at the current time: the
+work already due (a timer, a mutation's `then`, a queue's next send) fires
+first, then the event, which runs even when that work refused
+(`Observe.dispatchAt`, `CompSem.cdispatchAt`; the runner's `dispatch_at`; the
+web build's `on()`). The outcome is the event's when it failed, else the due
+work's. An event the target has no handler for reaches nothing and fires
+nothing, as a host attaches a listener only where one is declared. Such a step
+is at most two of `Reachable`'s, an advance then a dispatch, so
+`observe_step_sound` (BootSound.lean) carries `dont_go_wrong` to it.
 
 ```
 cargo run -p contract-difftest -- corpus                    # every test block in corpus/
