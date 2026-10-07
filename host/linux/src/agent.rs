@@ -375,8 +375,14 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                     return error(&format!("key: unsupported key {key}"));
                 };
                 let phase = field_str(line, "phase");
-                let r = p.type_key(id, code, logical, phase.as_deref() != Some("up"), false);
+                let up = phase.as_deref() == Some("up");
+                // A modifier's own key holds it while down, as a keyboard's
+                // does: Meta's keydown says `metaKey`, its keyup no longer
+                // does (#140). A held key's later down is a repeat.
+                p.hold_modifier(code, !up);
+                let r = p.type_key(id, code, logical, !up, field_bool(line, "repeat") && !up);
                 if phase.is_none() && r.is_ok() {
+                    p.hold_modifier(code, false);
                     let _ = p.type_key(id, code, logical, false, false);
                 }
                 for (on, code) in modifiers {

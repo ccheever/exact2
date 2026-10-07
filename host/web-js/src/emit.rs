@@ -989,7 +989,7 @@ impl Em<'_> {
         let on = kinds.iter().any(|k| {
             matches!(
                 k.name(),
-                "focus" | "blur" | "key" | "press" | "copy" | "cut" | "paste"
+                "focus" | "blur" | "key" | "keyup" | "press" | "copy" | "cut" | "paste"
             )
         });
         // An authored `tabindex` is explicit and wins, a negative one
@@ -1246,6 +1246,7 @@ impl Em<'_> {
                 | EventKind::Focus
                 | EventKind::Blur
                 | EventKind::Key
+                | EventKind::Keyup
                 | EventKind::Submit
                 | EventKind::Load
                 | EventKind::Message

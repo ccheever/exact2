@@ -285,7 +285,8 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
       const release = async () => { await up(); heldKeys.delete(opts.key); await frame(); return reply('up'); };
       try {
         for (const phase of opts.phase == null ? ['down', 'up'] : [opts.phase]) {
-          if (phase === 'down') { for (const key of keys) await page.keyboard.down(key); heldKeys.set(opts.key, keys); }
+          // A repeat presses the held key again, which Playwright reports as `repeat` (#140).
+          if (phase === 'down') { for (const key of opts.repeat ? keys.slice(-1) : keys) await page.keyboard.down(key); heldKeys.set(opts.key, keys); }
           else { await up(); heldKeys.delete(opts.key); }
         }
         await frame();

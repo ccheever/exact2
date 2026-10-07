@@ -151,11 +151,14 @@ extension Agent {
         // paste skipped the key and hid that bug). Copy and cut stay the event.
         // The page's shortcuts hear the chord before the handlers, as the
         // web's capture listener does: a button declaring Meta+V takes it.
+        // Its release comes up through the `keyup` handlers last, whatever
+        // took the down, as the web driver's (#140).
+        defer { if edit == "paste" { v.presenter?.keyUp(at: v, "v", held: "Meta+", code: "KeyV") } }
         if edit == "paste", let presenter = v.presenter {
             if pasteShortcut(v, presenter) {
                 return ["typed": Int(v.id), "clipboard": edit, "shortcut": true, "delivery": "recognized"]
             }
-            if presenter.keyDown(at: v, "v", held: "Meta+") {
+            if presenter.keyDown(at: v, "v", held: "Meta+", code: "KeyV") {
                 return ["typed": Int(v.id), "clipboard": edit, "delivery": "recognized"]
             }
         }

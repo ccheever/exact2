@@ -21,7 +21,7 @@ final class TextField: UITextField {
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         heard = nil
         let remaining=owner?.pressedControls(presses,down:false) ?? presses
-        if !remaining.isEmpty {super.pressesEnded(remaining,with:event)}
+        if !remaining.isEmpty {owner?.editorKeyUp(remaining); super.pressesEnded(remaining,with:event)}
     }
     override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         heard = nil
@@ -93,7 +93,7 @@ final class TextArea: UITextView {
     }
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         let remaining=owner?.pressedControls(presses,down:false) ?? presses
-        if !remaining.isEmpty {super.pressesEnded(remaining,with:event)}
+        if !remaining.isEmpty {owner?.editorKeyUp(remaining); super.pressesEnded(remaining,with:event)}
     }
     override func pressesCancelled(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         let remaining=owner?.pressedControls(presses,down:false) ?? presses

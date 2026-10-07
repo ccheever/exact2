@@ -742,7 +742,7 @@ public final class ExactSession {
         presenter.onHover = { [unowned self] id, over in apply(runtime.hover(id, over: over, now: now())) }
         presenter.onFocus = { [unowned self] id in apply(runtime.focus(id, now: now())) }
         presenter.onBlur = { [unowned self] id in apply(runtime.blur(id, now: now())) }
-        presenter.onKey = { [unowned self] id, name in apply(runtime.key(id, name, now: now())) }
+        presenter.onKey = { [unowned self] id, press in apply(runtime.key(id, press.payload, up: press.up, now: now())) }
         presenter.onContextmenu = { [unowned self] id in apply(runtime.contextmenu(id, now: now())) }
         presenter.onSwiperight = { [unowned self] id in apply(runtime.swiperight(id, now: now())) }
         presenter.onRefresh = { [unowned self] id in apply(runtime.refresh(id, now: now())) }

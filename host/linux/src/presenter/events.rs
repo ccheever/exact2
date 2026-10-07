@@ -1,6 +1,7 @@
 //! The events beyond press and change (LLP 1005 §3), as the web and Apple
 //! hosts dispatch them: `focus` and `blur` as the focus moves from node to
-//! node, `key` by the web's name at the focused node, `submit` for Enter in a
+//! node, `key` and `keyup` by the web's name at the focused node with the
+//! physical key (`code`) and auto-repeat (#140), `submit` for Enter in a
 //! single-line input, and `hover` in and out as the pointer crosses nodes.
 use super::*;
 
@@ -132,16 +133,23 @@ impl<D: DataSource> Presenter<D> {
         }
     }
 
-    /// A key at the focused node, by the web's name: every `key` handler at
-    /// or above it hears it, innermost first, as a keydown bubbles — the path
-    /// fixed before the first runs; one that called `stopPropagation()` is
-    /// the last. True when one called `preventDefault()`:
-    /// the caller skips the key's default action (docs/contract-grammar.md#events).
-    pub(crate) fn key_event(&mut self, name: &str, now_ms: f64) -> (Option<String>, bool) {
+    /// A key at the focused node, by the web's name, with its physical key
+    /// (`code`, "" when unknown) and whether it is an auto-repeat: every
+    /// `key` handler (`kind`; `keyup` for a release, #140) at or above it
+    /// hears it, innermost first, as a keydown bubbles — the path fixed
+    /// before the first runs; one that called `stopPropagation()` is the
+    /// last. True when one called `preventDefault()`: the caller skips the
+    /// key's default action (docs/contract-grammar.md#events).
+    pub(crate) fn key_event(
+        &mut self,
+        kind: EventKind,
+        name: &str,
+        code: &str,
+        repeat: bool,
+        now_ms: f64,
+    ) -> (Option<String>, bool) {
         let mut path = Vec::new();
-        let mut at = self
-            .focus
-            .and_then(|id| self.handler_target(id, EventKind::Key));
+        let mut at = self.focus.and_then(|id| self.handler_target(id, kind));
         while let Some(id) = at {
             path.push(id);
             at = self
@@ -149,13 +157,24 @@ impl<D: DataSource> Presenter<D> {
                 .kernel()
                 .node(id)
                 .and_then(|n| n.parent)
-                .and_then(|p| self.handler_target(p, EventKind::Key));
+                .and_then(|p| self.handler_target(p, kind));
         }
         let (mut error, mut prevented) = (None, false);
         for id in path {
+            let key = exact_runner::KeyboardEvent {
+                key: name.to_owned(),
+                code: code.to_owned(),
+                repeat: repeat && kind == EventKind::Key,
+                held: self.modifiers(),
+            };
+            let event = if kind == EventKind::Keyup {
+                Event::Keyup(key)
+            } else {
+                Event::Key(key)
+            };
             error = error.or(self
                 .host
-                .dispatch_at(id, Event::Key(name.to_owned(), self.modifiers()), now_ms)
+                .dispatch_at(id, event, now_ms)
                 .or(self.after_commit()));
             let queued = self.commands.len();
             self.commands.retain(|c| c.name != "preventDefault");
@@ -168,6 +187,22 @@ impl<D: DataSource> Presenter<D> {
             }
         }
         (error, prevented)
+    }
+
+    /// A key's release at the focus: its `keyup` handlers (#140), by the
+    /// name its keydown had (`Space` is " "). A release has no default here.
+    pub(crate) fn key_up(&mut self, key: &str, code: &str, now_ms: f64) {
+        let name = match key {
+            "Space" => " ",
+            "NumpadEnter" => "Enter",
+            name => name,
+        };
+        if let Some(e) = self
+            .key_event(EventKind::Keyup, name, code, false, now_ms)
+            .0
+        {
+            eprintln!("exact: {e}");
+        }
     }
 
     /// Enter in a single-line input: the web's implicit submission, at the

@@ -99,6 +99,18 @@ impl<D: DataSource> Presenter<D> {
     /// handler — itself or an ancestor — as on the web; a paste carries
     /// `text` as the clipboard's. This host has no clipboard of its own.
     pub fn clipboard(&mut self, id: ViewId, edit: &str, text: &str) -> Result<String, String> {
+        let r = self.clipboard_event(id, edit, text);
+        // The paste's chord comes up through the `keyup` handlers last,
+        // whatever took its down, as the web driver's (#140).
+        if edit == "paste" {
+            self.hold_modifier("ControlLeft", true);
+            self.key_up("v", "KeyV", self.host.now());
+            self.hold_modifier("ControlLeft", false);
+        }
+        r
+    }
+
+    fn clipboard_event(&mut self, id: ViewId, edit: &str, text: &str) -> Result<String, String> {
         let kind = match edit {
             "copy" => EventKind::Copy,
             "cut" => EventKind::Cut,
@@ -147,7 +159,7 @@ impl<D: DataSource> Presenter<D> {
             let (error, prevented) = if self.shortcut("v", false, now) {
                 (None, true)
             } else {
-                self.key_event("v", now)
+                self.key_event(EventKind::Key, "v", "KeyV", false, now)
             };
             self.hold_modifier("ControlLeft", false);
             if let Some(e) = error {
@@ -188,6 +200,11 @@ impl<D: DataSource> Presenter<D> {
         repeat: bool,
     ) -> Result<String, String> {
         self.restore_controls();
+        // A release's `keyup` handlers at the focus first (#140), whatever
+        // took its down; then the release goes where its press went.
+        if !down {
+            self.key_up(key, code, self.host.now());
+        }
         let contact = if code == "Space" {
             u32::MAX - 1
         } else {
@@ -276,7 +293,11 @@ impl<D: DataSource> Presenter<D> {
                     ));
                 }
             }
-            let heard = if down { self.canvas_key(id, key) } else { None };
+            let heard = if down {
+                self.canvas_key(id, key, code, repeat)
+            } else {
+                None
+            };
             if heard == Some(true)
                 || self.surface_input(id, serde_json::json!({"t":"key","code":code,"key":key,"down":down,"repeat":repeat,"at":self.host.now()}))
                 || heard.is_some()
@@ -310,7 +331,7 @@ impl<D: DataSource> Presenter<D> {
                 ));
             }
             if !(activation && repeat) {
-                self.key_down(name, self.host.now());
+                self.key_down_with(name, code, repeat, self.host.now());
             }
         }
         Ok(format!("{{\"typed\":{id},\"delivery\":\"recognized\"}}"))
@@ -320,7 +341,7 @@ impl<D: DataSource> Presenter<D> {
     /// handlers there and above, the target focused first as a keyboard's
     /// focus is: Some(prevented) when they heard it, None when the target
     /// takes no focus (the world alone has the key, as before).
-    fn canvas_key(&mut self, id: ViewId, key: &str) -> Option<bool> {
+    fn canvas_key(&mut self, id: ViewId, key: &str, code: &str, repeat: bool) -> Option<bool> {
         if self.focus != Some(id) {
             if !self.focusable(id) {
                 return None;
@@ -333,7 +354,8 @@ impl<D: DataSource> Presenter<D> {
             return None;
         }
         let name = if key == "Space" { " " } else { key };
-        let (error, prevented) = self.key_event(name, self.host.now());
+        let (error, prevented) =
+            self.key_event(EventKind::Key, name, code, repeat, self.host.now());
         if let Some(e) = error {
             eprintln!("exact: {e}");
         }
@@ -413,6 +435,12 @@ impl<D: DataSource> Presenter<D> {
     /// breaks a textarea's line; Backspace deletes; a character is typed —
     /// each an edit the runner hears as one `change`.
     pub(crate) fn key_down(&mut self, name: &str, now_ms: f64) {
+        self.key_down_with(name, "", false, now_ms);
+    }
+
+    /// [`Self::key_down`] with the key's physical position (`code`) and
+    /// whether it is an auto-repeat, which its `KeyboardEvent` carries.
+    pub(crate) fn key_down_with(&mut self, name: &str, code: &str, repeat: bool, now_ms: f64) {
         // The page's shortcuts first, focus or none (`shortcuts.rs`).
         if self.shortcut(name, false, now_ms) {
             return;
@@ -441,7 +469,7 @@ impl<D: DataSource> Presenter<D> {
         if self.group_key(id, name, now_ms) {
             return;
         }
-        let (error, prevented) = self.key_event(name, now_ms);
+        let (error, prevented) = self.key_event(EventKind::Key, name, code, repeat, now_ms);
         if let Some(e) = error {
             eprintln!("exact: {e}");
         }

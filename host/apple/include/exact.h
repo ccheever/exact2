@@ -351,6 +351,9 @@ uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
  * 40 = a text field's input, 41 its change, 42 its select (UTF-8
  *      start,end,direction,text: UTF-16 offsets, forward|backward|none, then
  *      the whole value verbatim; x2apps codeedit #2);
+ * 6 = key (keydown) and 43 = keyup (#140): UTF-8 chord (`Shift+Meta+b`),
+ *      optionally newline, KeyboardEvent.code (`KeyB`, "" unknown), newline,
+ *      true|false for repeat;
  * any other kind is refused with an error batch.
  * Format lists are space-separated command tokens. Link keeps the remaining bytes.
  * A change's text, key's name, or guest message is the payload in the input

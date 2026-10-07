@@ -686,7 +686,7 @@ link sheet.
 ## Events
 
 An event binding is an action reference or partially applied action. Captured
-arguments precede the event payload. The table contains all 57 handler names.
+arguments precede the event payload. The table contains all 59 handler names.
 Numeric multi-argument payload ordering should be copied from the feature's
 working fixture, not inferred from JavaScript's Event interface.
 
@@ -694,7 +694,7 @@ working fixture, not inferred from JavaScript's Event interface.
 | --- | --- |
 | A string, then optionally an `InputEvent` | `change`, `input` on a text field, textarea, `select`, date or time input, and `type="radio"` (the radio's `value`); an action taking one more parameter also hears the [target](#form-controls-radio-inputevent-setselectionrange) |
 | One string | `message`, `error` |
-| A string, then optionally a `KeyboardEvent` | `key`: the key's name; an action taking one more parameter also hears the [modifiers](#keys) |
+| A string, then optionally a `KeyboardEvent` | `key` (DOM's `keydown`) and `keyup`: the key's name; an action taking one more parameter also hears the [modifiers, the physical key and whether it repeats](#keys) |
 | Two numbers, then optionally a `ScrollEvent` | `scroll`: left and top; an action taking one more parameter also hears the scroller's extents (below) |
 | Two numbers, then optionally a `DOMRectReadOnly` | `resize` given an action: the content box's width and height; an action taking one more parameter also hears its `contentRect` (below). A string `resize` is CSS's property |
 | One boolean | `hover`; `fullscreenchange` (whether the video is now full screen) |
@@ -975,8 +975,8 @@ textarea id="editor" value=source input=edited select=selected
 
 ### Keys
 
-`key` is the DOM's `keydown`, on every host (web, macOS, iOS and iPadOS with a
-hardware keyboard, Linux):
+`key` is the DOM's `keydown` and `keyup` its `keyup`, on every host (web,
+macOS, iOS and iPadOS with a hardware keyboard, Linux):
 
 - **Where.** The key goes to the focused element: a field or textarea being
   edited, a `button`, or any element with a `press`, `focus`, `blur` or `key`
@@ -992,9 +992,24 @@ hardware keyboard, Linux):
   its own.
 - **Modifiers.** An action that takes one more parameter, typed
   `KeyboardEvent`, hears the event too: the record `{ key: string, shiftKey:
-  bool, ctrlKey: bool, altKey: bool, metaKey: bool }`, the DOM's fields
-  (`altKey` is Option and `metaKey` Command on a Mac). A key typed with
-  Control or Meta held is a shortcut: it types nothing.
+  bool, ctrlKey: bool, altKey: bool, metaKey: bool, code: string, repeat:
+  bool }`, the DOM's fields (`altKey` is Option and `metaKey` Command on a
+  Mac). A key typed with Control or Meta held is a shortcut: it types
+  nothing. `code` is the physical key, whatever the layout or input source
+  types there (`"KeyB"`, `"Digit1"`, `"Space"`, `"MetaLeft"`), so a shortcut
+  can match the key under a Korean or Russian layout; `""` where the host
+  cannot tell (a software keyboard's key). `repeat` is true on the keydowns
+  the platform repeats while a key is held, so an action can act once per
+  press (iOS reports none: UIKit's presses carry no auto-repeat).
+- **Release.** `keyup` hears the key coming up, at the focus, bubbling as
+  `key` does (`stopPropagation()` stops it the same way), with the same
+  name and record (`repeat` is false). A modifier's release is one too
+  (`key` `"Meta"`), and its own flag is no longer held (`metaKey` is true
+  on Meta's keydown, false on its keyup), so an app shows a "⌘ held" hint
+  between the two. A keyup reaches the focus whatever took the keydown (a
+  shortcut, a `preventDefault()`). It has no default to prevent on a native
+  host. An element with a `keyup` handler takes the focus, as one with
+  `key` does.
 - **Then the default.** After the handlers, the key does what it would have:
   a character is typed into the focused field, Backspace deletes, Enter
   commits an input (its `change`, when its value changed, as HTML's does)
@@ -1035,6 +1050,26 @@ action compose(k: string, e: KeyboardEvent)
 the platform's users press: `(e.metaKey or e.ctrlKey) and k == "s"` saves on a
 Mac and elsewhere. The driver presses chords in Playwright's spelling (`type
 "composer" key "Shift+Enter"`, `key "Meta+s"`).
+
+Hints while ⌘ is held, and a held ⌘W that closes one panel, not one per
+repeat, by the physical key whatever the layout types:
+
+```text
+action down(k: string, e: KeyboardEvent)
+  if k == "Meta"
+    hints = true
+  if e.metaKey and e.code == "KeyW" and not e.repeat
+    closed = closed + 1
+    preventDefault()
+action up(k: string)
+  if k == "Meta"
+    hints = false
+```
+
+`column key=down keyup=up`. The driver holds and releases a key with `type
+"list" key "Meta" down` and `key "Meta" up`, and `key "a" for 1200` repeats it
+while held, as a keyboard does (the first repeat 500 ms after the down, then
+every 83 ms, on the virtual clock).
 
 - **A game's canvas.** A key at a canvas whose world takes input, or at a
   node inside one, goes the same way first: a shortcut takes it, then the

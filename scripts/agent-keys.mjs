@@ -130,7 +130,8 @@ export async function browserKey({id, opts, evaluate, ask, call, frame}) {
     return reply('up');
   };
   try {
-    for (const phase of opts.phase == null ? ['down', 'up'] : [opts.phase]) await call('Input.dispatchKeyEvent', { type: phase === 'down' ? 'keyDown' : 'keyUp', code, key, windowsVirtualKeyCode: vk, modifiers, location, ...(phase === 'down' && text === '\r' ? { text } : {}) });
+    // A held key's later down is the platform's auto-repeat (`KeyboardEvent.repeat`, #140).
+    for (const phase of opts.phase == null ? ['down', 'up'] : [opts.phase]) await call('Input.dispatchKeyEvent', { type: phase === 'down' ? 'keyDown' : 'keyUp', code, key, windowsVirtualKeyCode: vk, modifiers, location, ...(phase === 'down' && text === '\r' ? { text } : {}), ...(phase === 'down' && opts.repeat ? { autoRepeat: true } : {}) });
     await frame();
   } catch (error) { if (opts.phase === 'down') error.release = release; throw error; }
   return { ...reply(opts.phase), ...(opts.phase === 'down' ? { release } : {}) };
@@ -152,26 +153,42 @@ export async function nativeKey({id, opts, ask}) {
   } catch (error) { if (releaseKey) error.release = release; throw error; }
 }
 
-/** Held-key form: one resolved carrier, including release after a failed clock. */
+/** The auto-repeat a held key makes (#140), at macOS's default rate (`NSEvent.keyRepeatDelay` and
+ * `keyRepeatInterval` with nothing set): the first repeat 500 ms after the down, then one every 83 ms. A
+ * modifier alone does not repeat, as AppKit's flags change does not. */
+export const KEY_REPEAT = { delay: 500, interval: 83 };
+const repeats = key => !/^(Shift|Control|Alt|Meta)(Left|Right)?$/.test(String(key).replace(/^(?:(?:Shift|Control|Alt|Meta)\+(?=.))+/, ''));
+
+/** Held-key form: one resolved carrier, including release after a failed clock. While held, the key
+ * repeats on the virtual clock ([`KEY_REPEAT`]): each repeat a keydown whose `repeat` is true. */
 export async function typeFor({node, target, options, carrier, clock, tagged, delivery, host, timing}) {
   const {for: duration, ...held} = options, key = String(held.key), steps = [];
   let release;
-  const send = async phase => {
-    const args = [target, {...held, phase}];
+  const send = async (phase, repeat = false) => {
+    const args = [target, {...held, phase, ...(repeat ? {repeat} : {})}];
     try {
-      const result = phase === 'up' && release ? await release() : await carrier.input(node.id, 'key', {...held, key, phase, ownedRelease:true});
+      const result = phase === 'up' && release ? await release() : await carrier.input(node.id, 'key', {...held, key, phase, ...(repeat ? {repeat} : {ownedRelease:true})});
       const {release: ownedRelease, ...r} = result;
-      if (phase === 'down') release = ownedRelease;
+      if (phase === 'down' && !repeat) release = ownedRelease;
       const reply = await tagged({...r, typed:node.id, target, delivery:r.delivery ?? delivery, carrier:host, mode:timing});
       steps.push({op:'type', args, reply});
     } catch (error) { release ??= error.release; steps.push({op:'type', args, error:error.message}); throw error; }
   };
+  const advance = async ms => {
+    const args = [`+${ms}`];
+    try { steps.push({op:'clock', args, reply:await clock(args[0])}); }
+    catch (error) { steps.push({op:'clock', args, error:error.message}); throw error; }
+  };
   let failure;
   try {
     await send('down');
-    const args = [`+${duration}`];
-    try { steps.push({op:'clock', args, reply:await clock(args[0])}); }
-    catch (error) { steps.push({op:'clock', args, error:error.message}); throw error; }
+    let at = 0;
+    for (let next = KEY_REPEAT.delay; repeats(key) && next < duration; next += KEY_REPEAT.interval) {
+      await advance(next - at);
+      at = next;
+      await send('down', true);
+    }
+    await advance(duration - at);
   } catch (error) { failure = error; }
   finally { try { await send('up'); } catch (error) { failure ??= error; } }
   if (failure) { failure.steps = steps; throw failure; }

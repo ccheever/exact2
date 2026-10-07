@@ -955,8 +955,9 @@ a `list<Picked>` for a file input. An action taking one more parameter also
 hears the target as the event leaves it, an `InputEvent`: its `value` (a
 checkbox's own), `checked`, and a text field's `selectionStart`, `selectionEnd`
 and `selectionDirection` ([form controls](contract-grammar.md#form-controls-radio-inputevent-setselectionrange)).
-`hover` carries a boolean; `key` carries a key name, and to an action that
-takes one more parameter its `KeyboardEvent` (the modifiers). Captured arguments precede
+`hover` carries a boolean; `key` (keydown) and `keyup` carry a key name, and to an action that
+takes one more parameter its `KeyboardEvent` (the modifiers, the physical key `code` and
+whether it is an auto-`repeat`). Captured arguments precede
 the payload: `input=edit(item.id)` calls the bound action with the id followed
 by the new text. This syntax is binding, not immediate evaluation.
 

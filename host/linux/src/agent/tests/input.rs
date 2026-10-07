@@ -409,3 +409,72 @@ fn aria_keyshortcuts_press_their_button_before_the_key_handlers() {
     key(&mut p, pad, "F13");
     assert_eq!(log(&mut p), format!("{before}close;key:F13;"));
 }
+
+/// #140: a key's release runs the focus's `keyup` handlers, a modifier's
+/// too, and both events carry the physical key and the auto-repeat — from
+/// the agent's requests and from a hardware keyboard alike. A modifier's own
+/// keydown holds it; its keyup no longer does, as DOM's flags say.
+#[test]
+fn keyup_hears_a_release_and_both_carry_code_and_repeat() {
+    let plan = contract::compile(
+        r#"component App
+  state log = ""
+  action down(k: string, e: KeyboardEvent)
+    log = `${log}d:${k}:${e.code}:${e.repeat}:${e.metaKey};`
+  action up(k: string, e: KeyboardEvent)
+    log = `${log}u:${k}:${e.code}:${e.repeat}:${e.metaKey};`
+  view
+    column width=300
+      box key=down keyup=up testId="cell" width=80 height=24
+      text log testId="log" height=20
+"#,
+    )
+    .unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    let k = p.host().kernel();
+    let cell = k.node_by_key(k.find_by_test_id("cell")[0]).unwrap().id;
+    let log = |p: &mut Presenter<NoData>| {
+        let k = p.host().kernel();
+        let id = k.node_by_key(k.find_by_test_id("log")[0]).unwrap().id;
+        let text = k.node(id).unwrap().props.str(exact_kernel::PropId::Text);
+        text.unwrap_or("").to_string()
+    };
+    for request in [
+        r#""key":"Meta","phase":"down""#,
+        r#""key":"Meta","phase":"up""#,
+        r#""key":"a","phase":"down""#,
+        r#""key":"a","phase":"down","repeat":true"#,
+        r#""key":"a","phase":"up""#,
+        r#""key":"Meta+b""#,
+    ] {
+        let reply = handle(&mut p, &format!(r#"{{"op":"type","id":{cell},{request}}}"#));
+        assert!(!reply.contains("error"), "{request}: {reply}");
+    }
+    assert_eq!(
+        log(&mut p),
+        "d:Meta:MetaLeft:false:true;u:Meta:MetaLeft:false:false;\
+         d:a:KeyA:false:false;d:a:KeyA:true:false;u:a:KeyA:false:false;\
+         d:b:KeyB:false:true;u:b:KeyB:false:true;"
+    );
+    // A hardware keyboard's ⌘W, held then released, then ⌘ released.
+    let before = log(&mut p).len();
+    p.hardware_key("MetaLeft", "Meta", true, false);
+    p.hardware_key("KeyW", "w", true, false);
+    p.hardware_key("KeyW", "w", true, true);
+    p.hardware_key("KeyW", "w", false, false);
+    p.hardware_key("MetaLeft", "Meta", false, false);
+    assert_eq!(
+        &log(&mut p)[before..],
+        "d:Meta:MetaLeft:false:true;d:w:KeyW:false:true;d:w:KeyW:true:true;\
+         u:w:KeyW:false:true;u:Meta:MetaLeft:false:false;"
+    );
+}

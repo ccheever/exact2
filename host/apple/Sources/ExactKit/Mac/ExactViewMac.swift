@@ -169,10 +169,11 @@ public final class ExactView: NSView {
             // Route declared commands first, scoped to this session's focused view.
             shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp]) { [weak self] event in
                 guard let self, event.window === self.window else { return event }
-                // A modifier pressed is a keydown on the web (`"Shift"`); to
-                // AppKit a flags change, which goes on to it either way.
+                // A modifier pressed is a keydown on the web (`"Shift"`), and
+                // released a keyup (#140); to AppKit a flags change, which
+                // goes on to it either way.
                 if event.type == .flagsChanged {
-                    if self.ownsShortcutFocus() { _ = self.session.presenter.keyDown(event) }
+                    if self.ownsShortcutFocus() { _ = self.session.presenter.keyDown(event); self.session.presenter.keyUp(event) }
                     return event
                 }
                 if event.type != .keyDown && event.type != .keyUp {
