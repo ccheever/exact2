@@ -1409,3 +1409,52 @@ fn css_flex_factor_order_and_intrinsic_basis_refusals_are_precise() {
         );
     }
 }
+
+#[test]
+fn both_decoration_lines_are_written_as_css_in_either_order() {
+    let r = boot("component App\n  view\n    column\n      text \"a\" text-decoration-line=\"underline line-through\" testId=\"a\"\n      text \"b\" text-decoration-line=\"line-through underline\" testId=\"b\"\n");
+    for id in ["a", "b"] {
+        assert_eq!(
+            style_of(&r, id).text_decoration_line,
+            exact_kernel::TextDecorationLine::UnderlineLineThrough,
+            "{id}"
+        );
+    }
+    let e = refused("text-decoration-line=\"underline-line-through\"");
+    assert!(
+        e.message.contains("is spelled `underline line-through`"),
+        "{e}"
+    );
+    let e = refused("text-decoration=\"underline-line-through\"");
+    assert!(
+        e.message.contains("is spelled `underline line-through`"),
+        "{e}"
+    );
+}
+
+#[test]
+fn a_computed_decoration_and_a_class_take_the_css_pair_in_either_order_and_case() {
+    let mut r = boot("style Both\n  text-decoration-line=\"Line-Through Underline\"\nstyle Plain\n  opacity=1\n\ncomponent App\n  state n = 0\n  state deco = \"line-through underline\"\n  action next\n    n = n + 1\n    deco = n == 0 ? \"underline\" : \"overline\"\n  view\n    column\n      button \"Next\" press=next testId=\"next\"\n      text \"a\" text-decoration-line=deco testId=\"a\"\n      text \"b\" class=(n == 0 ? Both : Plain) testId=\"b\"\n");
+    let line = |r: &Runner<NoData>, id| style_of(r, id).text_decoration_line;
+    use exact_kernel::TextDecorationLine as L;
+    assert_eq!(line(&r, "a"), L::UnderlineLineThrough);
+    assert_eq!(line(&r, "b"), L::UnderlineLineThrough);
+    let next = r
+        .kernel()
+        .node_by_key(r.kernel().find_by_test_id("next")[0])
+        .unwrap()
+        .id;
+    r.dispatch(next, exact_runner::Event::Press).unwrap();
+    assert_eq!(line(&r, "a"), L::Underline);
+    assert_eq!(
+        line(&r, "b"),
+        L::None,
+        "the class without the row clears it"
+    );
+    r.dispatch(next, exact_runner::Event::Press).unwrap();
+    assert_eq!(
+        line(&r, "a"),
+        L::None,
+        "a value no host draws clears the row"
+    );
+}

@@ -1293,7 +1293,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
             Codec::ColorValue => "value.color_value(id)?".to_string(),
             Codec::KeywordColor(keyword) => format!("value.keyword_color(id, {keyword:?})?"),
             Codec::Vec2 => "value.vec2(id)?".to_string(),
-            Codec::Enum(name) if matches!(name.as_str(), "GridAutoFlow" | "JustifyItems") => format!(
+            Codec::Enum(name) if matches!(name.as_str(), "GridAutoFlow" | "JustifyItems" | "TextDecorationLine") => format!(
                 "{name}::from_css(value.text(id)?).ok_or(StyleValueError::UnknownEnumValue {{ style: id }})?"
             ),
             Codec::Enum(name) => format!(

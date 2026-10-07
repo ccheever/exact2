@@ -530,6 +530,16 @@ pub(crate) fn check_style_value(
         }
         // @ref LLP 1043.000 §3 D1 — keep the full wire vocabulary, narrow authoring.
         if let Expr::Str(v, _) = value {
+            // @ref LLP 1081 D2 — the pair is CSS's two keywords.
+            if rows.contains(&StyleId::TextDecorationLine)
+                && v.to_ascii_lowercase().contains("underline-line-through")
+            {
+                return err(
+                    "lower-attr-value",
+                    "`underline-line-through` is spelled `underline line-through`, CSS's two keywords (LLP 1081)",
+                    span,
+                );
+            }
             if rows.contains(&StyleId::Resize)
                 && matches!(
                     v.as_str(),

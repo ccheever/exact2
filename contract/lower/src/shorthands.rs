@@ -276,11 +276,12 @@ fn decoration(text: &str, span: Span) -> Result<String, LowerError> {
             "underline" if !underline && !none => underline = true,
             "line-through" if !strike && !none => strike = true,
             "solid" | "currentcolor" | "auto" => {},
+            "underline-line-through" => return err("lower-css-shorthand", "`underline-line-through` is spelled `underline line-through`, CSS's two keywords (LLP 1081)", span),
             _ => return err("lower-css-shorthand", format!("CSS text-decoration component `{word}` is not implemented; native text painters support underline and line-through with solid currentcolor at the platform's default thickness"), span),
         }
     }
     match (underline, strike) {
-        (true, true) => Ok("underline-line-through".into()),
+        (true, true) => Ok("underline line-through".into()),
         (true, false) => Ok("underline".into()),
         (false, true) => Ok("line-through".into()),
         _ => Ok("none".into()),

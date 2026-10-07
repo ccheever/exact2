@@ -265,9 +265,6 @@ fn css_text_in(
             (StyleId::ColorScheme, RowValue::Enum("normal")) => {
                 out.push_str("color-scheme:inherit;")
             }
-            (StyleId::TextDecorationLine, RowValue::Enum("underline-line-through")) => {
-                out.push_str("text-decoration-line:underline line-through;")
-            }
             (StyleId::LineClamp, RowValue::Number(n)) => {
                 if *n > 0.0 {
                     // The legacy clamp requires an old flex box and clipping. It
