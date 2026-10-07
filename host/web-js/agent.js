@@ -265,6 +265,8 @@ export function install(exact) {
       // `perf <target>` (LLP 1079 D2): the plan sites under a view, with their work (perf.js).
       case 'perf': {
         if (req.frames) return { virtual: true }; // the agent's clock presents no frame (LLP 1079 D4)
+        // `perf hatches` (LLP 1075.003.000.001 §3.3): the hatches' calls, timed, and what their code counted (hatches.js).
+        if (req.hatches) return exact.hatchPerf ? exact.hatchPerf.reply(tags()) : { ...tags(), seq: exact.clock.epoch, plan: exact.plan ?? null, measuring: exact.plan != null, hatches: {}, calls: [], tickets: 0, counters: {}, timings: {}, rejected: 0, abandoned: 0, limited: 0 };
         let el = document.getElementById('exact-root');
         // The view `tree` names (review b5-c 1).
         if (req.target != null) { const hit = targetOf(all(), req.target); if (!hit) return { error: `no view matches ${req.target}` }; el = views.get(hit.id); }
@@ -398,7 +400,7 @@ export function install(exact) {
         // The module's storage (LLP 1097 D8), as the runner's `state.background`.
         const background = exact.data?.background?.();
         const faults = faultsJson();
-        return { slots, derives, resources, pending, streams, ...(faults.length ? { faults } : {}), ...(background ? { background } : {}), tasks, queued, notifications: exact.notices ?? [], ...(exact.sounds ? { sounds: exact.sounds.state(req.sounds === 'all') } : {}), head, focus, language, storage, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, mediaSession: exact.mediaSession?.state(id) ?? { owner: null, claimants: [], actions: [], playbackState: 'none', published: 'none' }, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.surfaceRefusals ? { surfaceRefusals: exact.surfaceRefusals() } : {}), reorder: exact.reorderState?.() ?? null, ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...(exact.hatchStats ? { hatches: exact.hatchStats } : {}), ...tags() };
+        return { slots, derives, resources, pending, streams, ...(faults.length ? { faults } : {}), ...(background ? { background } : {}), tasks, queued, notifications: exact.notices ?? [], ...(exact.sounds ? { sounds: exact.sounds.state(req.sounds === 'all') } : {}), head, focus, language, storage, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, mediaSession: exact.mediaSession?.state(id) ?? { owner: null, claimants: [], actions: [], playbackState: 'none', published: 'none' }, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.surfaceRefusals ? { surfaceRefusals: exact.surfaceRefusals() } : {}), reorder: exact.reorderState?.() ?? null, ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...(exact.hatchState ? { hatches: exact.hatchState() } : {}), ...tags() };
       }
       // The page group (LLP 1069.000 D6), where the plan reads `exactPage` (facts.js); else the drive's facts
       // held here, so `root-font-size` still sets the root element's size `rem` follows (D3), as glue.js does.

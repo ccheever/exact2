@@ -58,20 +58,35 @@ export function destroy(h) {
 
 // The hatches on the web (LLP 1075.003.000): the badge takes a context menu of
 // its own, an interaction Exact leaves to the app; each row's dot hatch does
-// nothing; every call is counted where the smoke reads it.
+// nothing; every call is counted where the smoke reads it. Each also says what
+// it did through its diagnostics (LLP 1075.003.000.001 §3.2): a counter per
+// moment, and for the badge a line, a span from its mount to its end and a
+// snapshot of its last tone.
 const calls = (globalThis.exactFixtureHatches ??= {});
 const count = (e, moment) => { const key = `${e.hatch}:${moment}`; calls[key] = (calls[key] ?? 0) + 1; };
+const shown = new WeakMap();
 
 export function element(e) {
-  count(e, e.isNew ? 'built' : 'changed');
-  if (e.hatch === 'badge' && e.isNew) e.element.addEventListener('contextmenu', (event) => event.preventDefault());
+  const moment = e.isNew ? 'built' : 'changed';
+  count(e, moment);
+  e.diagnostics.count(moment);
+  if (e.hatch !== 'badge') return;
+  e.diagnostics.log(`${moment}, tone ${e.data.tone}`);
+  e.diagnostics.publish('tone', { tone: e.data.tone, moment });
+  if (!e.isNew) return;
+  shown.set(e, e.diagnostics.begin('shown'));
+  e.element.addEventListener('contextmenu', (event) => event.preventDefault());
 }
 
-export function elementEnded(e) { count(e, 'ended'); }
+export function elementEnded(e) {
+  count(e, 'ended');
+  e.diagnostics.count('ended');
+  shown.get(e)?.end();
+}
 
 // The container hatches on the web: each counted, as the element hatches are.
 const tally = (key) => { calls[key] = (calls[key] ?? 0) + 1; };
-export function navigation() { tally('navigation:built'); }
+export function navigation() { tally('navigation:built'); globalThis.exact.diagnostics.count('navigations'); }
 export function route() { tally('route:built'); }
 export function routeEnded() { tally('route:ended'); }
 export function tabs() { tally('tabs:built'); }

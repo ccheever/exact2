@@ -113,7 +113,8 @@ export function reply(target, tags) {
   if (all.length > SITES) { truncated = true; all.length = SITES; }
   const sites = all.map(site => {
     const w = at(site);
-    return { site, instances: live.get(site), live: w.created - w.retired, ...w };
+    // A hatched site's row names its hatch's calls and time (LLP 1075.003.000.001 §3.3).
+    return { site, instances: live.get(site), live: w.created - w.retired, ...w, ...(globalThis.exact?.hatchPerf?.site(site) ?? {}) };
   });
   return { ...tags, seq: clock.epoch, plan: globalThis.exact?.plan ?? null, sites, walked, truncated };
 }

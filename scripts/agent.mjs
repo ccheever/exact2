@@ -13,7 +13,7 @@
 //   A word a form does not use is refused by name; a form a carrier cannot deliver as a hand's answers `delivery: "unsupported"` (#107).
 //   tap @N <choice> | type @N <value>   (a held device request, by ticket: LLP 1069.007 D4)
 //   tap @<id> <choice> | type @<id> <value>   (by the node it answers at, or its capability: files F11)
-//   clock <ms|+ms|+ms real|settle|data> | resize <w>x<h> | close | sample <x> <y> […] (extended linear sRGB under view points, LLP 1100 D12) | prefer <media feature or page fact> <value> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>]
+//   clock <ms|+ms|+ms real|settle|data> | resize <w>x<h> | close | sample <x> <y> […] (extended linear sRGB under view points, LLP 1100 D12) | prefer <media feature or page fact> <value> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>] | perf hatches [during "<op>" …]
 //   bun scripts/agent.mjs trace <file> | trace --phone <name|udid> | trace --device   (a development session's trace, LLP 1079 D5: no app runs; a phone's last, copied off it)
 // A target is a testId, a view id, or else a view's exact label or text (interactive first; several refuse,
 // naming them; `tap "Sky off"` quotes several words); each op is one argument (quote it).

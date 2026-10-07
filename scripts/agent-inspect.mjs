@@ -266,6 +266,19 @@ export async function perfOp(s, args, line, step) {
     if (live !== undefined && !(Number.isInteger(live) && live > 0 && live <= 120000)) throw Error('perf frames live <ms>: a whole number of milliseconds, 1–120000');
     return s.perf(null, { frames: true, late, ...(live !== undefined ? { live } : {}) });
   }
+  // `perf hatches` (LLP 1075.003.000.001 §3.3): the hatches' calls and what their code counted.
+  if (args[0] === 'hatches') {
+    // The Linux host calls no hatch until its stage (§8 stage 4).
+    if (s.host === 'linux') throw Error('perf hatches: the linux host calls no hatches yet (LLP 1075.003.000.001 §8 stage 4)');
+    const read = () => s.op({ op: 'perf', hatches: true });
+    const at = line.search(/\sduring\s/);
+    if (at < 0) return read();
+    const ops = [...line.slice(at).matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(m => JSON.parse(`"${m[1]}"`));
+    if (!ops.length) throw Error('perf hatches during: quote each op, as perf hatches during "tap start" "clock +1000"');
+    const before = await read();
+    for (const op of ops) await step(op);
+    return hatchDelta(before, await read());
+  }
   const target = args[0] && args[0] !== 'during' ? args[0] : undefined;
   const at = line.search(/\sduring\s/);
   if (at < 0) return s.perf(target);
@@ -298,7 +311,38 @@ export function perfDelta(a, b) {
   return { ...b, sites, from: { seq: a.seq, clock: a.clock } };
 }
 
+function renderHatchPerf(r) {
+  const ms = v => `${Math.round(v * 100) / 100} ms`;
+  const lines = [`perf hatches: seq ${r.seq}${r.from ? ` (from ${r.from.seq})` : ''}, plan ${r.plan?.slice(0, 12) ?? 'unknown'}${r.measuring ? '' : '; not measuring (a production build collects nothing)'}${r.truncated ? '; truncated' : ''}`];
+  for (const [name, h] of Object.entries(r.hatches)) lines.push(`  ${name}: ${h.calls} calls, ${ms(h.ms)}, worst ${ms(h.worst)}`);
+  for (const c of r.calls) if (c.site != null) lines.push(`    ${c.hatch} site ${c.site} ${c.moment}: ${c.calls} calls, ${ms(c.ms)}`);
+  for (const [scope, names] of Object.entries(r.counters)) for (const [name, n] of Object.entries(names)) lines.push(`  count ${scope} ${name}: ${n}`);
+  for (const [scope, names] of Object.entries(r.timings)) for (const [name, t] of Object.entries(names))
+    lines.push(`  timing ${scope} ${name}: ${t.count} samples, sum ${ms(t.sum)}, max ${ms(t.max)}, p50 ${ms(t.p50)}, p95 ${ms(t.p95)}${t.dropped ? `, ${t.dropped} dropped from the ring` : ''}${t.measured ? ' (measured)' : ''}`);
+  if (r.rejected || r.abandoned || r.limited) lines.push(`  refused: ${r.rejected} calls past a bound or badly named, ${r.abandoned} spans abandoned, ${r.limited} log lines over the rate`);
+  return lines.join('\n');
+}
+
+/** Two `perf hatches` reads' difference: calls, time and counters, each
+ * cumulative, subtracted; the samples' percentiles are the later read's.
+ * Refused across a changed plan or incarnation, as `perfDelta` is. */
+export function hatchDelta(a, b) {
+  if (!a.plan || !b.plan) throw Error('perf hatches: a read names no plan; no difference is defined');
+  if (a.truncated) throw Error('perf hatches: the first read was partial; no difference is defined');
+  if (a.plan !== b.plan) throw Error(`perf hatches: the plan changed between the reads (${a.plan?.slice(0, 12)} → ${b.plan?.slice(0, 12)}); no difference is defined`);
+  if (a.incarnation !== b.incarnation) throw Error(`perf hatches: incarnation ${a.incarnation} → ${b.incarnation} between the reads; no difference is defined`);
+  const less = (x, was, keys) => { const d = { ...x }; for (const k of keys) if (typeof x[k] === 'number') d[k] = x[k] - (was?.[k] ?? 0); return d; };
+  const key = c => `${c.hatch}\n${c.site ?? ''}\n${c.moment}`, before = new Map(a.calls.map(c => [key(c), c]));
+  const calls = b.calls.map(c => less(c, before.get(key(c)), ['calls', 'ms']));
+  const hatches = Object.fromEntries(Object.entries(b.hatches).map(([name, h]) => [name, less(h, a.hatches[name], ['calls', 'ms'])]));
+  const counters = Object.fromEntries(Object.entries(b.counters).map(([scope, names]) => [scope, less(names, a.counters[scope], Object.keys(names))]));
+  const timings = Object.fromEntries(Object.entries(b.timings).map(([scope, names]) => [scope,
+    Object.fromEntries(Object.entries(names).map(([name, t]) => [name, less(t, a.timings[scope]?.[name], ['count', 'sum'])]))]));
+  return { ...b, hatches, calls, counters, timings, from: { seq: a.seq, clock: a.clock } };
+}
+
 function renderPerf(r) {
+  if (r.calls && r.hatches) return renderHatchPerf(r);
   if (r.virtual) return 'virtual clock: no frame was presented (LLP 1079 D4); `perf frames live <ms>` measures a live window';
   if (r.unavailable) return 'this host observes no presented frames';
   if (r.lifetime) {
