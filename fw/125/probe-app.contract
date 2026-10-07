@@ -1,0 +1,25 @@
+// #125 probe: clipboard events on native text fields.
+component Clip125
+  state body = "see @a.ts now"
+  state line = "one line"
+  state log = ""
+  state blocked = 0
+  action edited(v: string)
+    body = v
+  action lined(v: string)
+    line = v
+  action pasted(e: ClipboardEvent)
+    log = `${log}paste[${e.text}] `
+  action copied(e: ClipboardEvent)
+    log = `${log}copy `
+  action cutted(e: ClipboardEvent)
+    log = `${log}cut `
+  action refuse(e: ClipboardEvent)
+    blocked = blocked + 1
+    preventDefault()
+  view
+    main testId="root" padding=24 display="flex" flex-direction="column" gap=12
+      textarea id="editor" testId="editor" value=body input=edited paste=pasted copy=copied cut=cutted
+      input id="line" testId="line" value=line input=lined paste=refuse
+      text `log: ${log}` testId="log"
+      text `blocked ${blocked}` testId="blocked"
