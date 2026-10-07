@@ -1493,7 +1493,7 @@ component App
         view role="tab" aria-controls="inspector-panel" aria-selected=false
           text "Inspector"
       t3-workspace-layout workspace-configuration=workspace.configuration change=inspectorEvent position="absolute" width=0 height=0 aria-hidden=true
-      t3-layout-facts change=layoutChanged position="absolute" inset=0 aria-hidden=true
+      t3-layout-facts change=layoutChanged position="absolute" inset=0 aria-hidden=true pointer-events="none"
       when voiceData.globalVisible
         column position="absolute" right=0 bottom=(max(layout.safeBottom, 12) + 64)
           VoiceGlobalPill(data=voiceData, colors=voiceLook, expanded=voicePillExpanded, width=min(320, viewport.width - 24), action=voiceAction, expand=expandVoicePill)
