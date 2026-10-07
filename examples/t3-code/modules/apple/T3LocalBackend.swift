@@ -278,9 +278,20 @@ final class T3LocalBackend: @unchecked Sendable {
         lock.lock()
         listeners.removeValue(forKey: ObjectIdentifier(owner))
         let last = listeners.isEmpty
+        lock.unlock()
+        if last { stopAndWait() }
+    }
+
+    /// A process exit that skips the sessions' teardown (the agent driver's end of drive calls
+    /// `exit(0)`, exact2 Agent.swift `exitAfterStorage`) still stops the server: the same bounded stop
+    /// runs from `atexit`. It does nothing when the backend already stopped.
+    private static let exitHook: Void = { atexit { T3LocalBackend.shared.stopAndWait() } }()
+
+    private func stopAndWait() {
+        lock.lock()
         let current = manager
         lock.unlock()
-        guard last, let current else { return }
+        guard let current else { return }
         let done = DispatchSemaphore(value: 0), pidFile = self.pidFile
         T3LocalBackendManager.stopAll([current], timeoutMs: 5_000) {
             // A server that outlived the bound keeps its record, so the next launch reaps it.
@@ -351,6 +362,7 @@ final class T3LocalBackend: @unchecked Sendable {
             $0["port"] = port; $0["httpBaseUrl"] = httpBaseUrl.absoluteString; $0["wsBaseUrl"] = "ws://127.0.0.1:\(port)"
             $0["version"] = version; $0["t3Home"] = home.path; $0["state"] = "starting"
         }
+        _ = Self.exitHook
         lock.lock(); self.manager = manager; let stillWanted = !listeners.isEmpty; lock.unlock()
         if stillWanted { queue.async { manager.start() } }
     }
