@@ -348,3 +348,20 @@ test('a close during a rebuild is carried out when the rebuild ends', async () =
   faults.openDelay = 0;
   expect(faults.handles).toBe(0);
 }, 60_000);
+
+test('a refresh that fails before its answer lets the next one go', async () => {
+  let failing = true;
+  const dir = join(scratch, 'refresh');
+  const client = await Snapback.open({
+    app: 'test.exact.snapback4', name: 'inbox', origin, viewer: 'dev:rory',
+    headers: () => { if (failing) throw new Error('no credential yet'); return { 'x-snapback-persona': 'rory' }; },
+    storage: storage(dir, {}), wasm: `file://${wasm}`,
+  });
+  await expect(client.refreshSession(Date.now())).rejects.toThrow(/no credential yet/);
+  failing = false;
+  // A persona cannot be refreshed, but the request goes: not E_BUSY.
+  const second = await client.refreshSession(Date.now());
+  expect(second.ok).toBe(false);
+  expect(second.ok ? '' : second.denied.code).not.toBe('E_BUSY');
+  await client.close();
+}, 60_000);

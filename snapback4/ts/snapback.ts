@@ -226,9 +226,13 @@ export class Snapback {
     // One at a time: a caller while one is in flight shares its answer.
     this.refreshing ??= (async () => {
       const request = ok<{ fetch: Request }>(await this.call({ op: 'refresh' }));
-      const reply = await this.exchange(request.fetch);
-      try { return ok<Refreshed>(await this.call({ op: 'refreshed', exchange: request.fetch.exchange, reply, now: clock(now) })); }
-      catch (error) {
+      // Whatever stops this before its answer is delivered (`headers()`
+      // throwing, a closed client) lets the refresh go; cancelling one already
+      // answered does nothing.
+      try {
+        const reply = await this.exchange(request.fetch);
+        return ok<Refreshed>(await this.call({ op: 'refreshed', exchange: request.fetch.exchange, reply, now: clock(now) }));
+      } catch (error) {
         await this.call({ op: 'cancel', exchange: request.fetch.exchange }).catch(() => undefined);
         throw error;
       }
