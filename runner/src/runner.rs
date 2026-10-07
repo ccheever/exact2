@@ -365,8 +365,7 @@ pub struct Runner<D: DataSource> {
     canvases: Option<Box<dyn canvas2d::CanvasEngine>>,
     /// Requests in flight (LLP 1016): at most one per resource or mutation.
     pending: Vec<PendingReq>,
-    /// This commit let a request go: `conclude` tells the source what is
-    /// still in flight.
+    /// This commit let a request go: `conclude` tells the source what is still in flight.
     forgot: bool,
     /// Resources refused ordered admission, asked again once the last
     /// ordered refusal has settled (`release_refused`).
@@ -376,14 +375,12 @@ pub struct Runner<D: DataSource> {
     /// `pending` as flags, by resource and by mutation, for expressions.
     pending_res: Vec<bool>,
     pending_mut: Vec<bool>,
-    /// Mutations whose answer landed in the commit being made; their `then`
-    /// actions are armed once it stands (LLP 1016.001).
+    /// Mutations whose answer landed in the commit being made; their `then` actions are armed once it stands (LLP 1016.001).
     landed: Vec<usize>,
     /// Sends made before the data source was ready, by mutation, sent at
     /// `data_ready` (LLP 1027 D4): pending meanwhile, one per mutation.
     unsent: Vec<(usize, String, Vec<Value>)>,
-    /// When each mutation's `then` action is due, as a one-shot timer:
-    /// infinite until an answer lands.
+    /// When each mutation's `then` action is due, as a one-shot timer: infinite until an answer lands.
     then_due: Vec<f64>,
     /// `queue` mutations' waiting sends, `next`s and stalls (LLP 1092).
     queues: queue::Queues,
@@ -392,9 +389,9 @@ pub struct Runner<D: DataSource> {
     background: background::Background,
     /// Files picked this run, for `app:/tmp/picked/` names (LLP 1069.002 D3).
     picked_count: u64,
-    /// Second edges waiting for the first action's async targets to settle.
+    /// Second edges waiting for the first action's async targets to settle,
+    /// and lists whose edge waits for their covered route to show (`collection.rs`).
     deferred_edges: Vec<(u32, Vec<Target>)>,
-    /// Lists whose edge waits for their covered route to show (`collection.rs`).
     held_edges: Vec<u32>,
     /// Requests for the host, since the last take.
     requests: Vec<RequestOut>,

@@ -14,6 +14,7 @@
 // fields to the next; the page's title and description follow it as the web
 // host's `documentHead` writes them (document-glue.js), the page's own title
 // where no head sets one.
+import { unselected } from "./navigation.js";
 
 /** The active head's fields by prop name (`headTitle` …): what a renderer
  * reads (render.mjs), and the agent's `state.head`. */
@@ -38,8 +39,8 @@ function covered(p, c) {
   return key != null && own != null && own !== key && p.hasAttribute("navigationBack")
     && [].some.call(p.childNodes, r => r.getAttribute?.("navigationKey") === key);
 }
-/** Whether `e` lies under a route its navigation root has not selected (runner/src/head.rs `inactive`). */
-export function inactive(e) { for (let c = e, p = e.parentNode; p; c = p, p = p.parentNode) if (covered(p, c)) return true; return false; }
+/** Whether `e` lies under a route or a tabpanel its navigation root leaves unselected (runner/src/head.rs `inactive`). */
+export function inactive(e) { for (let p = e.parentNode; p; p = p.parentNode) if (p.hasAttribute?.("navigationBack") && unselected(p).some(off => off.contains(e))) return true; return false; }
 function publish() {
   const root = document.getElementById("exact-root"), live = [], next = {}, depth = {};
   // Each active head with its place: its own and each ancestor's position

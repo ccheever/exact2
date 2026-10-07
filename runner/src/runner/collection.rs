@@ -176,7 +176,11 @@ impl<D: DataSource> Runner<D> {
                 tree.rearm_collection_edge(view, edges.first);
                 if !self.held_edges.contains(&view) {
                     self.held_edges.push(view);
-                    let name = if edges.first == EventKind::Reachstart { "reachstart" } else { "reachend" };
+                    let name = if edges.first == EventKind::Reachstart {
+                        "reachstart"
+                    } else {
+                        "reachend"
+                    };
                     self.log(format!(
                         "{name} view {view} waits: its list is on a covered route; it is offered when the route shows"
                     ));
@@ -256,7 +260,10 @@ impl<D: DataSource> Runner<D> {
             if self.inactive(view) {
                 self.held_edges.push(view);
             } else {
-                self.tree.as_mut().expect("booted").wake_collection_edge(view)?;
+                self.tree
+                    .as_mut()
+                    .expect("booted")
+                    .wake_collection_edge(view)?;
             }
         }
         Ok(())
