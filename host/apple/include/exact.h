@@ -30,7 +30,7 @@
 #include <stdint.h>
 
 /* The ABI's version: part of the compatibility id (LLP 1030 D3a). */
-#define EXACT_ABI_VERSION 12
+#define EXACT_ABI_VERSION 13
 
 #ifdef __cplusplus
 extern "C" {

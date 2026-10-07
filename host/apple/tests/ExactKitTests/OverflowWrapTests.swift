@@ -153,7 +153,7 @@ final class OverflowWrapTests: XCTestCase {
     /// The region worker breaks as the ordinary paragraph does, forced
     /// breaks and emergency breaks included.
     func testRegionWorkerBreaksAsTheParagraphDoes() {
-        for wrap in [0, 1] {
+        for wrap in [0, 1, 2] {
             for text in ["Look " + url, "hi\n   world", "aa hello\r\nworld", "aa hello   \nworld", "Look " + String(repeating: "a", count: 60), "WWW\u{00AD}q", "hi WWW \u{00AD}q"] {
                 var s = spec(text, wrap: wrap); s.whiteSpace = 1
                 let source = RegionTextSource.capture(s, engine: engine)
