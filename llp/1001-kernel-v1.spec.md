@@ -208,10 +208,24 @@ reader scrolls; if the node disappears, a surviving visible candidate can hold
 the position. With none left, iOS clamps the old offset to the new extent.
 An inactive iOS route retains an unpinned offset across a temporary viewport
 clamp, restoring it when space permits; a new drag or explicit scroll write wins.
-macOS still preserves the numeric offset in all cases. An explicit `scrollTop` assignment wins. Web uses
+macOS anchors that case as a plain scroller (below). An explicit `scrollTop` assignment wins. Web uses
 ResizeObserver and commit boundaries; Apple snapshots before each batch and
-restores after layout. The opt-in policy is not a complete native implementation
-of CSS `overflow-anchor` selection and suppression rules.
+restores after layout.
+Every other scroll container (not a list, which the runner anchors, LLP 1010
+§6.6) follows CSS Scroll Anchoring, `overflow-anchor: auto` being CSS's
+default (#138 X23d): the browser does it on the web; on macOS and iOS
+(`ScrollAnchoring.swift`) the host selects, before each batch, the first box in
+tree order that is fully visible in the port, descending into a partly visible
+one, skipping boxes with no area, `display: none`, fixed or sticky boxes and an
+absolute box whose containing block is outside the scroller; a nested
+scroller is a candidate but not its content. After layout it moves the offset
+by the anchor's movement, clamped. As in CSS, nothing is anchored at offset 0,
+and the adjustment is suppressed when the anchor is gone or when a layout
+property (an inset, margin, padding, size, position or transform) changed in the
+batch on the anchor or a box between it and the scroller, or a box in the
+scroller became or stopped being absolutely positioned. Not built: the
+`overflow-anchor` property (`none` to opt out), the priority candidates (a
+focused editable, a find-in-page match), the inline axis, and Linux.
 `inert` (prop 20, boolean, absent/false by default) is now authorable through
 Contract. It preserves layout while requesting subtree input, focus and
 accessibility exclusion. The browser uses HTML inertness; iOS enforces the

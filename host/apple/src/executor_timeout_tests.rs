@@ -83,6 +83,7 @@ impl Transport for SlowRedirects {
 }
 
 #[test]
+#[ignore = "async lane: waits on the wall clock (a 180 ms deadline across slow redirect hops, under 3 s), timing-sensitive on a loaded machine; bun scripts/async.mjs runs it"]
 fn the_executor_deadline_bounds_a_slow_redirect_chain_as_one_exchange() {
     let opened = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let grants = "net.fetch https://example.test";

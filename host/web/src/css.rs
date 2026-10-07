@@ -710,6 +710,7 @@ pub fn transition_css(t: &Transitions) -> (String, bool) {
                     // sides as their shorthand.
                     TransitionProperty::All => Property::ALL
                         .into_iter()
+                        .chain([Property::D])
                         .filter(|p| !p.springs() && *p != Property::ShadowColor)
                         .map(|p| match p {
                             Property::BorderTopColor => "border-color",
@@ -1002,6 +1003,7 @@ mod writer_tests {
                 "border-color",
                 "--exact-tint",
                 "box-shadow",
+                "d",
                 ""
             ]
         );

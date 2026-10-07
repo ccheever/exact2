@@ -43,7 +43,7 @@ impl AnimationPlay {
     }
 
     /// Whether it animates a property the engine samples.
-    fn sampled(&self, lowered: &[bool; Property::COUNT + 1], forced: bool) -> bool {
+    fn sampled(&self, lowered: &[bool; Property::SLOTS], forced: bool) -> bool {
         forced
             || self
                 .animation
@@ -200,13 +200,13 @@ impl Engine {
     /// tracks their starts and pauses but never samples them into frames or
     /// keeps the clock busy for them. The web lowers every property.
     pub fn set_lowered(&mut self, lowered: bool) {
-        self.lowered = [lowered; Property::COUNT + 1];
+        self.lowered = [lowered; Property::SLOTS];
     }
 
     /// Lower only these properties' animations (Apple: the ones Core
     /// Animation plays faithfully); the engine samples the rest per frame.
     pub fn set_lowered_properties(&mut self, properties: &[Property]) {
-        self.lowered = [false; Property::COUNT + 1];
+        self.lowered = [false; Property::SLOTS];
         for p in properties {
             self.lowered[*p as usize] = true;
         }

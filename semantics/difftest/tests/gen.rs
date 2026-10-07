@@ -23,6 +23,7 @@ fn larger_programs_compile() {
         actions: 6,
         depth: 4,
         events: 30,
+        ..Size::default()
     };
     refusals(&size, seeds() / 4);
 }

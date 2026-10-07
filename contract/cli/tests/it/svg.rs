@@ -412,3 +412,23 @@ fn stage_ten_geometry_and_blend() {
             .contains("lower-attr-tag")
     );
 }
+
+// LLP 1055.000 D15 (issue #123): a path's `d` is a transition property, as
+// CSS names it; `all` covers it. No keyframe names it yet.
+#[test]
+fn d_transitions_and_all_covers_it() {
+    use exact_motion::Property;
+    let r = boot(
+        "component A\n  view\n    svg width=10 height=10\n      path testId=\"p\" d=\"M0 0 L5 5\" transition=\"d 400ms linear\"\n      path testId=\"q\" d=\"M0 0 L5 5\" transition=\"all 400ms linear\"\n",
+    );
+    let k = r.kernel();
+    for id in ["p", "q"] {
+        let n = k.node_by_key(k.find_by_test_id(id)[0]).unwrap();
+        let t = n.style.transition.matching(Property::D).expect("covers d");
+        assert_eq!(t.duration, 0.4);
+    }
+    assert!(refused(
+        "keyframes morph\n  from d=\"M0 0 L5 5\"\n  to d=\"M0 0 L9 9\"\ncomponent A\n  view\n    svg width=10 height=10\n      path d=\"M0 0 L5 5\" animation=\"morph 1s\"\n"
+    )
+    .contains("lower-"));
+}

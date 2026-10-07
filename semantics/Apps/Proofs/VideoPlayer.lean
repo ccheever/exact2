@@ -16,15 +16,17 @@ theorem paused_bool : ∀ c, Reachable videoPlayer c → SlotIn "paused" IsBool 
   have keeps : ∀ c name args rows, BodyKeeps videoPlayer "paused" IsBool c name args rows :=
     fun _ _ _ _ => BodyKeeps.of_wp fun a ha _ => by
       simp only [videoPlayer, List.mem_cons, List.mem_nil_iff, or_false] at ha
-      rcases ha with rfl | rfl | rfl | rfl | rfl | rfl <;>
-        simp [wp, assignPre, Keeps, Effects.write, Effects.rowWrite, Effects.command, IsBool]
+      -- One case per action, however many the app declares.
+      repeat' first | (rcases ha with rfl | ha) | subst ha
+      all_goals simp [wp, assignPre, Keeps, Effects.write, Effects.rowWrite, Effects.command, IsBool]
       -- `toggle` writes `not paused`, a bool whatever it read.
       intro v hv _
       rcases hv with ⟨-, rfl⟩ | ⟨-, rfl⟩ <;> simp
   refine Reachable.slotIn (by decide) ?_ (fun c _ a _ _ _ _ _ _ _ _ _ => keeps c a _ _) (fun c a _ _ => keeps c a _ _)
   rintro v (⟨st, hst, hn, -, hv⟩ | ⟨m, hm, -⟩ | ⟨hr, -⟩)
   · simp only [videoPlayer, List.mem_cons, List.mem_nil_iff, or_false] at hst
-    rcases hst with rfl | rfl | rfl <;> simp at hn
+    repeat' first | (rcases hst with rfl | hst) | subst hst
+    all_goals simp at hn
     rcases hv with ⟨h, -⟩ | ⟨_, hv⟩
     · cases h
     · rw [EvalR.bool_iff] at hv; exact ⟨_, hv⟩

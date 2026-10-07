@@ -15,7 +15,7 @@ const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-baked-'));
 const webJs = name => resolve(new URL(`../../web-js/${name}`, import.meta.url).pathname);
 for (const f of ['rt.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'notify.js']) copyFileSync(webJs(f), resolve(dir, f));
 copyFileSync(resolve(new URL('../notify-glue.js', import.meta.url).pathname), resolve(dir, 'notify-glue.js'));
-for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'textField', 'settleRadios', 'animationClocks', 'launchLocation'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'],
+for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'textField', 'settleRadios', 'animationClocks', 'launchLocation'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'], 'focus.js': ['autofocus', 'press'],
   'media.js': ['media', 'mediaProp', 'mediaOn', 'mediaPiece', 'requestFullscreen'], 'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'],
   'svg-transform.js': ['svgTransform'], 'dataset.js': ['ds'], 'hooks.js': ['hk'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber', 'x_toFixed', 'x_formatDecimal'] }))
   writeFileSync(resolve(dir, file), names.map(n => `export const ${n} = () => {};`).join('\n') + (file === 'media.js' ? '\nexport const MEDIA_EVENTS = new Set();' : ''));
@@ -151,11 +151,11 @@ test('a key handler stops and prevents its event while a view transition holds t
   globalThis.requestAnimationFrame = f => setTimeout(f, 0);
   globalThis.document = { getElementById: () => ({}) };
   try {
-    const { on, act, C, pr, pieces } = await import(resolve(dir, 'rt.js'));
+    const { on, onKey, act, C, pr, pieces } = await import(resolve(dir, 'rt.js'));
     pr({}); await pieces();
     const listeners = [];
     const el = { addEventListener: (type, f) => listeners.push([type, f]) };
-    on(el, 'key', act(() => { C('preventDefault', []); C('stopPropagation', []); }));
+    on(el, 'key', act(() => { C('preventDefault', []); C('stopPropagation', []); }), onKey);
     const ev = { key: 'Enter', defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } };
     for (const [type, f] of listeners) if (type === 'keydown') f(ev);
     expect(typeof globalThis.heldTail).toBe('function'); // the tree update waits for the transition
@@ -263,6 +263,14 @@ test('indexOf and split are the web methods, on the caller\'s list steps', async
 // replacing its older one), and otherwise asks permission once and posts
 // through the Notification API, now or at `showTrigger` while the page is
 // open; a tag's `closeNotification` takes away a shown or a waiting one.
+// `requestFullscreen` in a plan with no video or audio, where media.js is not installed
+// (`useMedia`): the same refusal media.js journals for an id that names no video.
+test('requestFullscreen without media refuses as media.js does', async () => {
+  const { Hosts, journal } = await import(resolve(dir, 'rt.js'));
+  Hosts.requestFullscreen('player');
+  expect(journal.at(-1).replace(/^t=\S+ /, '')).toBe('requestFullscreen: refused: no video with id "player"');
+});
+
 test('notifications: refused without the grant, listed under the agent, else posted by the Notification API', async () => {
   const { Hosts, clock, data, journal } = await import(resolve(dir, 'rt.js'));
   await import(resolve(dir, 'notify.js'));
@@ -408,7 +416,7 @@ test('an input runs a due then before its own action', async () => {
   // Runner::dispatch_at moves the clock first, so a focus answer's `then` runs
   // at the start of the input that follows and reads the value it landed, not
   // the one this input writes (synthetic-then: wasm " a3 T3 T2 T12").
-  const { mut, sig, W, commit, on, clock } = await import(resolve(dir, 'rt.js') + '?dispatch-at');
+  const { mut, sig, W, commit, on, onValue, clock } = await import(resolve(dir, 'rt.js') + '?dispatch-at');
   clock.agent = true;
   const slot = sig(0);
   const m = mut('quick', slot, []);
@@ -417,7 +425,7 @@ test('an input runs a due then before its own action', async () => {
   m.then = () => seen.push('T' + slot());
   m.due = clock.now;
   const el = new EventTarget();
-  on(el, 'input', () => { commit(() => W(slot, 12)); seen.push('E' + slot()); });
+  on(el, 'input', () => { commit(() => W(slot, 12)); seen.push('E' + slot()); }, onValue);
   el.dispatchEvent(new Event('input'));
   expect(seen).toEqual(['T2', 'E12']);
 });
@@ -438,7 +446,7 @@ test('an async source failure remains named when its retained value breaks a der
 // draft first and the action submitted it. The field's next key or edit now runs the pending submit first, before the
 // edit applies, so a submit that clears the field keeps the arriving text.
 test('a submit runs before the field\'s next key or edit applies; the edit lands after it', async () => {
-  const { on } = await import(resolve(dir, 'rt.js'));
+  const { on, onSubmit } = await import(resolve(dir, 'rt.js'));
   const saved = globalThis.addEventListener;
   try {
     // The handler's own field, both paths; an Enter that bubbled from a textarea inside the handler's element.
@@ -448,7 +456,7 @@ test('a submit runs before the field\'s next key or edit applies; the edit lands
       const el = { localName: tag, value: 'Buy milk', addEventListener: (type, f, capture) => field.push([type, f, capture]),
         removeEventListener: (type, f) => { const i = field.findIndex(([t, g]) => t === type && g === f); if (i >= 0) field.splice(i, 1); } };
       const added = [];
-      on(el, 'submit', () => { added.push(el.value); el.value = ''; }); // the action submits the draft and clears the bound field
+      on(el, 'submit', () => { added.push(el.value); el.value = ''; }, onSubmit); // the action submits the draft and clears the bound field
       const enter = { key: 'Enter', isComposing: false, defaultPrevented: false, target: { localName: origin, isContentEditable: false } };
       for (const [type, f] of field.slice()) if (type === 'keydown') f(enter); // the field's own listener
       for (const [type, f] of win.splice(0)) if (type === 'keydown') f(enter); // the window's, last on the path
@@ -461,4 +469,37 @@ test('a submit runs before the field\'s next key or edit applies; the edit lands
       expect(field.filter(([, , capture]) => capture)).toEqual([]);
     }
   } finally { globalThis.addEventListener = saved; }
+});
+
+
+test('clipboard handlers preserve the default unless prevented and restore the enclosing event', async () => {
+  const { on, onClipboard, Hosts } = await import(resolve(dir, 'rt.js'));
+  const event = () => ({ defaultPrevented: false, stopped: false,
+    clipboardData: { getData: () => 'clipboard text' },
+    preventDefault() { this.defaultPrevented = true; },
+    stopPropagation() { this.stopped = true; } });
+  for (const kind of ['copy', 'cut', 'paste']) {
+    for (const prevent of [false, true]) {
+      let listener;
+      const el = { addEventListener: (_, f) => { listener = f; } };
+      on(el, kind, value => {
+        expect(value).toEqual(['clipboard text']);
+        if (prevent) Hosts.preventDefault();
+      }, onClipboard);
+      const ev = event();
+      listener(ev);
+      expect([ev.stopped, ev.defaultPrevented]).toEqual([true, prevent]);
+      Hosts.preventDefault();
+      expect(ev.defaultPrevented).toBe(prevent);
+    }
+  }
+  let outerListener, innerListener;
+  on({ addEventListener: (_, f) => { innerListener = f; } }, 'copy', () => { throw new Error('clipboard failure'); }, onClipboard);
+  on({ addEventListener: (_, f) => { outerListener = f; } }, 'paste', () => {
+    expect(() => innerListener(event())).toThrow('clipboard failure');
+    Hosts.preventDefault();
+  }, onClipboard);
+  const outer = event();
+  outerListener(outer);
+  expect(outer.defaultPrevented).toBe(true);
 });

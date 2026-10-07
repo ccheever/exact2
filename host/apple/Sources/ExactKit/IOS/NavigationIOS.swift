@@ -9,10 +9,10 @@ import UIKit
 final class RouteController: UIViewController {
     let node: NodeView
     var key: String { node.props["navigationKey"] ?? "" }
-    /// What Exact last projected into the navigation item, and that plus the
-    /// words the route hook last saw; whether the hook has run; the header
+    /// What Exact last projected into the navigation item, and that plus
+    /// what the route hook last saw; whether the hook has run; the header
     /// lifted into the bar; the content scroll view a hook was handed.
-    var projectedSource: String?, projected: String?, backSource: String?
+    var projectedSource: BarSource?, projected: HookSource?, backSource: String?
     var hooked = false
     weak var lifted: NodeView?
     weak var host: NavigationHost?
@@ -548,6 +548,14 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// programmatic change, or nothing yet) — for `state.navigation`.
     private var lastTransition = "idle"
     private var interactiveTransition = false
+    /// A stack moving: Exact's own push or pop, or the person's swipe; and
+    /// (`started`) one begun by Exact or the finger, without the coordinator
+    /// a finished transition is still winding down in `didShow`.
+    var transitioning: Bool {
+        // A rotation's or resize's coordinator moves no controller: not one.
+        started || ([primaryNavigation].compactMap { $0 } + presentedNavigations).contains { $0.transitionCoordinator?.viewController(forKey: .from) != nil }
+    }
+    var started: Bool { changing || interactiveTransition }
 
     /// For `state.navigation` (LLP 1035.002 D2): the route the root names,
     /// UIKit's stack by key, and the transition's phase — observations.
@@ -759,6 +767,9 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             }
             // At rest: a large title's insets are sampled now (§9.10).
             coversChanged()
+            #if os(iOS)
+            presenter.resolveStatusBar(settled: true)
+            #endif
         }
         let source = interactiveSource
         interactiveSource = nil

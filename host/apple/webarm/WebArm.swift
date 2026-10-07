@@ -1,6 +1,7 @@
 // The Apple iframe arm: WebKit stays in this dylib, loaded at the first
 // iframe commit (@ref LLP 1020 D2/D3). The presenters see only its C ABI.
 import Foundation
+import UniformTypeIdentifiers
 import WebKit
 
 #if os(macOS)
@@ -55,7 +56,8 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
     let world = WKContentWorld.world(name: "exact.agent")
     let webView: WKWebView
     var src: String?
-    var suppliedDocument: String?
+    /// A local `src`'s bytes, as the host read them (`exact_web_set_document`).
+    var suppliedDocument: Data?
     var sandbox: String?
     var srcInitialized = false
     var sandboxInitialized = false
@@ -75,6 +77,13 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
     /// The origin a direct guest's messages must come from.
     var expectedOrigin: String?
     var pageBridge = false
+    /// The guest is a bundled page: its failed sub-resources are logged.
+    var localGuest = false
+    /// A bundled page's origin: loopback HTTP, a secure context (as the web
+    /// dev loop's `http://127.0.0.1` page is) that WebKit holds to no
+    /// mixed-content blocking. Under an `https:` origin WebKit refuses every
+    /// `http:` sub-resource, loopback included, which Chrome loads (#135).
+    static let localOrigin = "http://exact.localhost"
     static let template: WKWebViewConfiguration = {
         let template = WKWebViewConfiguration()
         _ = template.preferences
@@ -118,6 +127,13 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
             in: world))
         controller.addUserScript(WKUserScript(
             source: "if (window.parent === window.top && window !== window.top) window.webkit.messageHandlers.exactAgent.postMessage('ready')",
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false,
+            in: world))
+        // A sub-resource WebKit refuses or fails to load fires `error` on its
+        // element and is otherwise silent; for a bundled page the host logs it.
+        controller.addUserScript(WKUserScript(
+            source: "addEventListener('error', e => { const t = e.target; if (!(t instanceof Element)) return; const u = t.currentSrc || t.src || t.href; if (typeof u === 'string' && u) window.webkit.messageHandlers.exactAgent.postMessage({ failed: u }) }, true)",
             injectionTime: .atDocumentStart,
             forMainFrameOnly: false,
             in: world))
@@ -201,15 +217,21 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         guestFrame = nil
         serving = true
         revoked = false
+        if error == nil, let file = src.flatMap(localFile) {
+            serveFile(file.0, type: file.1)
+            return
+        }
         let local = error.map(errorDocument) ?? src.flatMap(localDocument)
         let remote = local == nil ? src.flatMap(remoteSource) : nil
         let web = remote.flatMap(URL.init(string:)).flatMap { ["http", "https"].contains($0.scheme?.lowercased() ?? "") ? $0 : nil }
         // An HTTPS wrapper would block an HTTP guest as mixed content even
         // when the app explicitly allows it through ATS. Match the remote
         // HTTP guest's scheme; WebKit still enforces ATS and the iframe's
-        // sandbox. Local documents keep their existing HTTPS origin.
-        let scheme = web?.scheme?.lowercased() == "http" ? "http" : "https"
-        wrapperURL = URL(string: "\(scheme)://exact.invalid/frame/\(id)/index.html")!
+        // sandbox. A local document is served at `localOrigin`.
+        let origin = local != nil ? WebArm.localOrigin
+            : web?.scheme?.lowercased() == "http" ? "http://exact.invalid" : "https://exact.invalid"
+        wrapperURL = URL(string: "\(origin)/frame/\(id)/index.html")!
+        localGuest = local != nil && error == nil
         #if os(iOS)
         // iOS lays a top-level document out by its viewport `<meta>` (980
         // CSS px without one); a frame ignores it and takes its box. Only a
@@ -236,6 +258,23 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         let response = HTTPURLResponse(url: wrapperURL, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers)!
         webView.loadSimulatedRequest(URLRequest(url: wrapperURL, cachePolicy: .reloadIgnoringLocalCacheData),
                                      response: response, responseData: Data((local ?? "").utf8))
+    }
+
+    /// A local file that is not text (a PDF, an image) is the web view's
+    /// own document under its content type, as Chrome shows such
+    /// a frame by the type its server sent: WebKit's PDF view for a PDF, not
+    /// its bytes as HTML text (#115, @ref LLP 1020 §10).
+    func serveFile(_ bytes: Data, type: String) {
+        let url = URL(string: "\(WebArm.localOrigin)/frame/\(id)/index.html")!
+        wrapperURL = url
+        localGuest = true
+        direct = true
+        setPageBridge(false)
+        expectedOrigin = guestOrigin(remote: nil, local: true)
+        var headers = ["Content-Type": type.hasPrefix("text/") ? "\(type); charset=utf-8" : type]
+        if let sandbox { headers["Content-Security-Policy"] = "sandbox \(sandbox)" }
+        let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: headers)!
+        webView.loadSimulatedRequest(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData), response: response, responseData: bytes)
     }
 
     /// Whether a document's viewport `<meta>` asks for the device width at
@@ -318,7 +357,7 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
     func guestOrigin(remote: String?, local: Bool) -> String? {
         let tokens = Set((sandbox ?? "").split(whereSeparator: { $0.isWhitespace }).map(String.init))
         if sandbox != nil, !tokens.contains("allow-same-origin") { return "null" }
-        if local { return "https://exact.invalid" }
+        if local { return WebArm.localOrigin }
         guard let remote, let url = URL(string: remote),
               let scheme = url.scheme?.lowercased(),
               (scheme == "http" || scheme == "https"),
@@ -335,11 +374,28 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         return text.replacingOccurrences(of: "<", with: "\\u003c")
     }
 
+    /// A local `src` whose file type is not text: its bytes and content type.
+    /// Text (HTML, XHTML, XML, plain text) keeps the box-width document an
+    /// iOS frame needs (`fitsItsBox`); no extension, or an unknown type, too.
+    func localFile(_ source: String) -> (Data, String)? {
+        let path = source.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)[0]
+            .split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false)[0]
+        let ext = (String(path) as NSString).pathExtension
+        guard !ext.isEmpty, let file = UTType(filenameExtension: ext), !file.conforms(to: .text),
+              let type = file.preferredMIMEType?.lowercased(), let bytes = localBytes(source) else { return nil }
+        return (bytes, type)
+    }
+
     func localDocument(_ source: String) -> String? {
+        localBytes(source).map { String(decoding: $0, as: UTF8.self) }
+    }
+
+    func localBytes(_ source: String) -> Data? {
         if let suppliedDocument { return suppliedDocument }
         // Hosted http(s) decks keep their URL. A scheme-less src — including
         // `URL(string:)` returning nil for a leading-dot relative path — is a
-        // file under EXACT_ASSETS, inlined as srcdoc. Query and fragment
+        // file under EXACT_ASSETS: an HTML one inlined as srcdoc, another
+        // served under its type. Query and fragment
         // are URL metadata, not part of the filesystem path.
         if let scheme = URL(string: source)?.scheme?.lowercased(),
            scheme == "http" || scheme == "https" || scheme == "data" || scheme == "about" || scheme == "blob" {
@@ -358,7 +414,28 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
         let file = base.appendingPathComponent(String(relative))
             .resolvingSymlinksInPath().standardizedFileURL
         guard file.path == root || file.path.hasPrefix(root.hasSuffix("/") ? root : root + "/") else { return nil }
-        return try? String(contentsOf: file, encoding: .utf8)
+        return try? Data(contentsOf: file)
+    }
+
+    /// What most likely refused a bundled page's sub-resource. The page sees
+    /// only that it failed; ATS applies in an app bundle (not the bare
+    /// executable the agent runs) to `http:` on a named, non-local host.
+    static func whyFailed(_ source: String) -> String {
+        guard let url = URL(string: source), url.scheme?.lowercased() == "http",
+              let host = url.host?.lowercased(), host.contains("."), !host.hasSuffix(".local"), !host.hasSuffix(".localhost"),
+              host.rangeOfCharacter(from: CharacterSet(charactersIn: "0123456789.:").inverted) != nil,
+              Bundle.main.bundleURL.pathExtension == "app"
+        else { return "the request failed; is its server running?" }
+        let ats = Bundle.main.object(forInfoDictionaryKey: "NSAppTransportSecurity") as? [String: Any]
+        if ats?["NSAllowsArbitraryLoadsInWebContent"] as? Bool == true || ats?["NSAllowsArbitraryLoads"] as? Bool == true {
+            return "the request failed; is its server running?"
+        }
+        #if os(macOS)
+        let os = "macos"
+        #else
+        let os = "ios"
+        #endif
+        return "App Transport Security refuses http: to a named host; app.json's host.\(os).appTransportSecurity can allow it"
     }
 
     func errorDocument(_ message: String) -> String {
@@ -383,6 +460,12 @@ private final class WebArm: NSObject, WKScriptMessageHandler, WKNavigationDelega
             return
         }
         if message.name == "exactAgent" {
+            if let body = message.body as? [String: Any] {
+                if localGuest, let failed = body["failed"] as? String {
+                    FileHandle.standardError.write(Data("exact: iframe \(src ?? ""): \(failed) did not load (\(WebArm.whyFailed(failed)))\n".utf8))
+                }
+                return
+            }
             if !message.frameInfo.isMainFrame, guestFrame == nil { guestFrame = message.frameInfo }
             return
         }
@@ -561,7 +644,7 @@ public func exactWebSetSrc(_ handle: UnsafeMutableRawPointer?, _ bytes: UnsafePo
 
 @_cdecl("exact_web_set_document")
 public func exactWebSetDocument(_ handle: UnsafeMutableRawPointer?, _ bytes: UnsafePointer<UInt8>?, _ length: UInt32, _ present: UInt32) {
-    arm(handle)?.suppliedDocument = present == 0 ? nil : String(decoding: UnsafeBufferPointer(start: bytes, count: Int(length)), as: UTF8.self)
+    arm(handle)?.suppliedDocument = present == 0 ? nil : Data(UnsafeBufferPointer(start: bytes, count: Int(length)))
 }
 
 @_cdecl("exact_web_set_sandbox")

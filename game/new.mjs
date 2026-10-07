@@ -84,6 +84,7 @@ export function createGame(destination, directory = import.meta.dir, options = {
   bun exact.mjs test web      build (wasm), then run app.test.contract
   bun exact.mjs agent web tree  inspect or drive the game
   bun exact.mjs mac --run     build and launch on this Mac
+  bun exact.mjs windows --run build and launch on Windows
   bun exact.mjs prove         the proof's first baseline (pins.json)`;
   }
   return `Created ${local ? destination : `game/games/${name}`}\n  bun ${script('dev.mjs')} ${argument}\n  bun ${script('prove.mjs')} ${argument}
@@ -411,6 +412,7 @@ Commands, from this directory:
 | \`bun exact.mjs test web\` | build the web game if needed, then run \`app.test.contract\` (also \`macos\`, \`ios\`) |
 | \`bun exact.mjs agent web "tap play" "type world key ArrowRight for 800" "screenshot out.png"\` | drive the game as a person would |
 | \`bun exact.mjs mac --run\`, \`bun exact.mjs ios --run\` | build and launch natively |
+| \`bun exact.mjs windows --run\` | build and launch the standalone Windows game; omit \`--run\` to package only |
 | \`bun exact.mjs prove\`, then \`bun proof.mjs web\` | the proof: a first baseline in \`pins.json\`, then real-host checks against it |
 | \`bun exact.mjs update\` | after exact2 moves; it rewrites \`exact.mjs\` and this block |
 | app.json \`"commands": {"replay": ["bun", "tools/replay.mjs"]}\` | the game's own verbs: \`bun exact.mjs replay web\` runs \`bun tools/replay.mjs web\` here |
@@ -490,6 +492,7 @@ const verbs = {
   feedback: ['scripts/feedback.mjs'],${game ? `
   // A game's own: its hostless Rust tests and its proof's baseline (exact2's game/README.md).
   'test-rust': ['game/app/shells.mjs', import.meta.dir, '--test'],
+  windows: ['host/windows/build.mjs', '${name}'],
   prove: ['game/prove.mjs', import.meta.dir],` : ''}
 };
 // The app's own verbs (paint, minesweeper, ledger: a regenerated file dropped the ones added here): app.json's

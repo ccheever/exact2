@@ -17,6 +17,8 @@ final class Presenter {
     /// what the main thread spent on a list window, a batch, a text slice.
     static let signposts = OSSignposter(subsystem: "com.exact.host", category: "scroll")
     var autofocusProcessed: Set<ObjectIdentifier> = []
+    /// Set the turn after the session's first activation. A booted session's autofocus waits for it.
+    var launchAutofocusReleased = false
     /// The session this presenter shows (LLP 1031 D1).
     weak var session: ExactSession?
     /// The document: the roots live here, content-sized like a page.
@@ -54,6 +56,8 @@ final class Presenter {
     let glassGroups = GlassGroups()
     /// Views with an authored offset waiting for their frames.
     var pendingScrolls: Set<UInt32> = []
+    /// The batch's suppression triggers for scroll anchoring (`ScrollAnchoring.swift`).
+    var anchorChanges = ScrollAnchoring.Changes()
     var heightBindings: [UInt32: HeightDragBinding] = [:]
     var transformBindings: [UInt32: TransformDragBinding] = [:]
     lazy var transformGeometry = TransformGeometryHost(self)
@@ -692,6 +696,9 @@ final class Presenter {
     var onPointer: ((UInt32, PointerKind, PointerSample) -> Void)?
     /// The node the primary button went down on, until it comes up.
     var pointerHeld: UInt32?
+    /// The last input was a pointer's press, not a key: a focus it, or a
+    /// handler it ran, moves shows no ring (`:focus-visible`, `FocusMac.swift`).
+    var focusByPointer = false
     /// The view AppKit sends the held button's drags and up to: the one it
     /// went down on, perhaps a child of the held node, kept in the window
     /// until the button comes up even if a batch removes it (`MouseChainMac`).
@@ -890,6 +897,7 @@ final class Presenter {
         viewport.invalidateDocumentFit()
         collections.beginBatch(batch)
         toolbar.prepare()
+        anchorChanges.reset()
         for id in scrollers where !collections.owns(id) { views[id]?.captureScrollPosition() }
         if let e = batch.error { FileHandle.standardError.write(Data("exact: \(e)\n".utf8)) }
         if let text = session?.text {
@@ -982,8 +990,9 @@ final class Presenter {
                 views[id]?.applyFlow(op.payload["shapes"] as? [[String: Any]] ?? [])
             case .style:
                 guard let v = views[id] ?? leaving[id]?.view else { continue }
-                let color = v.style["text_color"]
+                let color = v.style["text_color"], old = v.style
                 v.applyStyle(op.style)
+                anchorChanges.note(id, from: old, to: v.style)
                 if v.surface != nil { v.applySurface() }
                 // Paint motion re-sends a style per frame (LLP 1055.000 D6);
                 // a view that paints in an appearance of its own says so

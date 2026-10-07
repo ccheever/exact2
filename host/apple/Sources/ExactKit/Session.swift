@@ -367,6 +367,7 @@ public final class ExactSession {
     /// agent's `clock data` waits for it before a test's first step.
     private var dataGeneration: Int?
     var dataActivated: Bool { dataGeneration == generation }
+    private var pendingActivation: (generation: Int, token: UInt64)? // retried on the session's wake
     private var updateToken: UInt64 = 0
 
     let runtime: Runtime
@@ -376,6 +377,7 @@ public final class ExactSession {
     #endif
     var text: TextEngine
     let presenter: Presenter
+    var launchLocation: String? // a pre-boot `openURL`'s location, until the first frame (LaunchURL.swift)
     private var textPressure: DispatchSourceMemoryPressure?
     let canvases: Canvases
     let webviews: WebViews
@@ -567,7 +569,9 @@ public final class ExactSession {
         let rt = ExactRuntime(UInt(bitPattern: ctx))
         DispatchQueue.main.async {
             guard let s = ExactSession.live[rt]?.session else { return }
-            s.whenIdle { [weak s] in guard let s else { return }; s.apply(s.runtime.pump(now: s.now())) }
+            s.whenIdle { [weak s] in guard let s else { return }; s.apply(s.runtime.pump(now: s.now()))
+                if let p = s.pendingActivation { s.pendingActivation = nil; if p.generation == s.generation { s.activatedGeneration = nil; s.firstDrawn(generation: p.generation, token: p.token) } } // a redraw never retries it
+            }
         }
     }
 
@@ -819,13 +823,13 @@ public final class ExactSession {
             // replaced its host.
             routerOp = nil
             generation += 1
-            if booted { presenter.reset(); forgetAppearances() }
+            if booted { presenter.reset(); forgetAppearances(); presenter.launchAutofocusReleased = false } // a fresh boot's autofocus waits again
             booted = true
             text.commitFonts()
             AppFiles.learn(runtime) // before the first frame's `app:/` images load (LLP 1069.002 D7)
         }
         apply(batch)
-        if batch.error == nil { tellTime() }
+        if batch.error == nil { tellTime(); refuseUnheardLaunch() }
         // A fresh runner must receive the view's current viewport and insets.
         if batch.error == nil { view?.rebooted() }
         applyMs = (CACurrentMediaTime() - tApply) * 1000
@@ -910,6 +914,7 @@ public final class ExactSession {
         AppFiles.learn(runtime)
         apply(batch)
         tellTime()
+        refuseUnheardLaunch()
         view?.rebooted()
         autofocusHeld = false
         if restart { presenter.restoreFocus(kept, tree: agent("{\"op\":\"tree\"}")) }
@@ -1124,7 +1129,7 @@ public final class ExactSession {
                     app.deliver { [weak self] in self?.presenter.formatElement(args) }
                     continue
                 }
-                if ["playSound", "playSounds", "stopSounds"].contains(name) { continue } // the runner's own: its voice table's `sound` op plays them (LLP 1096 D8)
+                if ["playSound", "playSounds", "stopSounds", "setRootFontSize"].contains(name) { continue } // the runner's own: its voice table's `sound` op plays them (LLP 1096 D8); the root font size is laid out already (LLP 1069.000 D3)
                 if app.handleCommand(name) { continue }
                 app.deliver { [weak self] in guard let self else { return }; delegate?.exactSession(self, command: name, args: args) }
             }
@@ -1168,14 +1173,10 @@ public final class ExactSession {
             guard let self, state != .destroyed, generation == drawnGeneration else { return }
             // The app module is ready before any source can call it: its load
             // never lands inside a `native.call`'s budget (LLP 1067.000 D8).
-            natives.prepareAppModule()
+            natives.prepareAppModule(); presenter.releaseLaunchAutofocus() // the next turn, never waiting on a loading source
             let batch = runtime.dataReady()
             if batch.pending {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                    guard let self, generation == drawnGeneration, state != .destroyed else { return }
-                    activatedGeneration = nil
-                    firstDrawn(generation: drawnGeneration, token: token)
-                }
+                pendingActivation = (drawnGeneration, token) // the generation stays activated: only the source's wake retries
                 return
             }
             AppFiles.learn(runtime) // the roots storage configured
@@ -1186,7 +1187,7 @@ public final class ExactSession {
                 app.firstPixel(token)
             }
             canvases.loadIfNeeded()
-            natives.loadIfNeeded() // @ref LLP 1024 D3 — the turn after first draw
+            natives.activateAfterCommit { [weak self] in self.map { $0.state != .destroyed && $0.generation == drawnGeneration } ?? false } // @ref LLP 1024 D3
             drainSurfaceWork()
             frames.run(frames.motion || canvases.wantsFrames)
             frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
@@ -1401,7 +1402,7 @@ public final class ExactSession {
     @discardableResult public func openURL(_ url: URL) -> Bool {
         guard state != .destroyed else { return false }
         let location = runtime.location(of: url.absoluteString)
-        if !booted { runtime.launch(location); return true }
+        if !booted { runtime.launch(location); launchLocation = location; return true }
         return navigate(location)
     }
     /// A link the reader followed — a `link href`, a text run's `href`, a
@@ -1417,10 +1418,7 @@ public final class ExactSession {
     }
     @discardableResult public func navigate(_ location: String) -> Bool {
         guard state != .destroyed, booted else { return false }
-        guard let node = presenter.views.values.first(where: { $0.props["navigationBack"] != nil && $0.handlers.contains("navigate") }) else {
-            log("navigate refused: no navigation root handler")
-            return false
-        }
+        guard let node = navigationRoot else { log("navigate refused: no navigation root handler"); return false }
         let batch = runtime.navigate(node.id, location, now: now())
         apply(batch)
         return batch.error == nil

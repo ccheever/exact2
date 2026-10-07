@@ -23,6 +23,13 @@
 //   plan whose first lines say `// data: <app>` runs on that app's dist
 //   instead, for its sources and the capabilities it links; one that says
 //   `// agent: timeZone=<zone> epoch=<ms>` is driven with those facts.
+//   Every page freezes media time (`mediaClock: 'frozen'`: rate 0 from a
+//   media element's first load): a playing video would otherwise follow the
+//   wall clock, so two pages read different positions; play, pause and seeks
+//   still happen as the app drives them. In --browser mode both engines also
+//   take a fixed body line height (scripts/agent-launch.mjs `parityScript`),
+//   since `line-height: normal` is each engine's own font metric; authored
+//   line heights still compare.
 //   --linux adds a second reference beside the wasm page: the Rust runner
 //   headless on the Linux host (`agent.mjs linux`, the data app's release
 //   binary, built by --build), driven by the same steps on the same plan,
@@ -262,14 +269,18 @@ async function drive(t, report, fail, dir, ws, js) {
     // A plan's `// agent: timeZone=… epoch=…` line: the drive's facts, on both.
     const facts = Object.fromEntries([...(t.contract ? /^\/\/ agent: (.*)$/m.exec(readFileSync(t.contract, 'utf8'))?.[1] ?? '' : '').matchAll(/(\w+)=(\S+)/g)].map(([, k, v]) => [k, k === 'epoch' ? Number(v) : v]));
     if (crossBrowser) {
-      try { J = await open({ host: 'web', browser: crossBrowser, app: t.app, ...facts, url: js.url }); }
+      // Both engines hold media time and the default line height equal (agent-launch.mjs `parityScript`):
+      // `line-height: normal` is each engine's own font metric (Firefox 20 px where Chrome is 18 at 16px
+      // system-ui, in plain HTML), so the comparison measures what the page does, not the font's metric.
+      const parity = { mediaClock: 'frozen', lineHeight: '1.2' };
+      try { J = await open({ host: 'web', browser: crossBrowser, app: t.app, ...facts, url: js.url, ...parity }); }
       catch (e) { return fail(`${other}-open`, e.message.replace(/\s+/g, ' ').trim()); }
-      try { W = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, url: t.urls ? ws.url : js.url }); }
+      try { W = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, url: t.urls ? ws.url : js.url, ...parity }); }
       catch (e) { return fail(`${reference}-open`, e.message.replace(/\s+/g, ' ').trim()); }
     } else {
-      try { W = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, ...(t.contract ? { webDist: t.wasm, plan: t.plan } : { url: ws.url }) }); }
+      try { W = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, ...(t.contract ? { webDist: t.wasm, plan: t.plan } : { url: ws.url }) , mediaClock: 'frozen' }); }
       catch (e) { return fail(`${reference}-open`, e.message.split('\n')[0]); }
-      try { J = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, url: js.url }); }
+      try { J = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, url: js.url , mediaClock: 'frozen' }); }
       catch (e) { return fail(`${other}-open`, e.message.split('\n')[0]); }
     }
     const linux = crossBrowser || t.urls ? null : linuxFor(t);

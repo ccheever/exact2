@@ -146,7 +146,7 @@ guide's rules don't make obvious.
   needs) is a scroll container, and `touch-action` is resolved from the touched element
   up to its nearest scroll container (Pointer Events), so the grip's `none` is never
   consulted: where the page can scroll the browser takes a touch that starts on the
-  title, and nothing lifts or is logged. A mouse, or a finger on the grip's
+  title, and nothing lifts; the journal says `reorder: the browser took the touch contact on a grip to scroll before it lifted` and names the scroll container (LLP 1102 §3.17). A mouse, or a finger on the grip's
   padding, works. Driven at phone size on the web: the card stays; without the overflow,
   or with `touch-action="none"` (or `pointer-events="none"`) on the title, it moves. Fix:
   put `touch-action="none"` on that text too. (Authoring bench, LLP 1087, r32 and r33
@@ -155,12 +155,13 @@ guide's rules don't make obvious.
 - **A second card drag right after a drop does nothing.** A drag that starts before
   the last one's session ends is refused (LLP 1094 D8): the drop is held until its move
   shows (a second at most; [the agent guide](contract-for-agents.md#views-layout-and-interaction),
-  boards), then the card lands (about 250 ms on the web). No diagnostic names the
-  refusal, and the agent's `drag to` reply reads like a success. A board whose drop
+  boards). A new drag ends the landing that follows at once (LLP 1102 §3.18), so only
+  the hold refuses; the journal says `reorder: a drag refused: the last drop is held
+  until its move shows`, and the agent's `drag to` reply carries it as `note` (LLP 1102
+  §3.17). A board whose drop
   sends a mutation that `refreshes` its cards holds until storage answers, so a quick
   second drag is easy to lose (a person's, or a test's: two `drag to` steps in a row).
-  Fix: in a test or drive put `clock settle` between drags; it is needed even when the
-  move shows at once, since the landing still holds the session. Showing the move in
+  Fix: in a test or drive put `clock settle` between drags. Showing the move in
   the drop's own commit (the board in state the action writes, saved through the
   mutation) only removes the wait for storage, which shortens what a person meets. (Authoring bench, LLP
   1087, r26 and r29 t4-kanban, 2026-10-05.)
@@ -296,6 +297,11 @@ guide's rules don't make obvious.
   ends the page first. Fix: navigate in the mutation's `then`, which runs once the
   write has answered. (Authoring bench, LLP 1087, a2-contacts and t2-todo, 2026-10-05.)
 
+- **Repeating with `pause` mutations.** A `then` cannot send its own mutation
+  (`analyze-then-self-send`), and two mutations whose `then`s send each other
+  are the same loop. To repeat while a condition holds, use a task with `when`
+  and `every`. See "Repeating while a condition holds" in the guide.
+
 ## Sound
 
 - **A scheduled sound plays after Stop.** A sequencer that schedules each step
@@ -360,7 +366,7 @@ guide's rules don't make obvious.
   the web (both targets) a text field is re-set only when what its binding reads
   changes, so an unchanged binding does not overwrite the edit. Fix: bind the field to draft state that `edit` always writes, and on commit
   (`change`, Enter, `blur`) write the accepted value or reset the draft to it, which
-  changes the bound value and redraws the field. (Authoring bench, LLP 1087, t2-todo:
+  changes the bound value and redraws the field; the guide's "Editing a value: the field's contract" has the recipe. (Authoring bench, LLP 1087, t2-todo:
   two builders, about 10 minutes each, 2026-10-04; t1-tip, a normalized count,
   2026-10-05.)
 
@@ -373,13 +379,6 @@ guide's rules don't make obvious.
   the answer. Fix: bind it to state the action writes at once (`terms = value`, then
   `send`), and seed that state from the saved record as a form does. (Authoring bench,
   LLP 1087, codex17 t7-wizard, 2026-10-05.)
-
-- **`autofocus` on a field an action shows does not focus it on the web.** The JS
-  target honours `autofocus` once, at boot; a field mounted later by an action keeps
-  the focus where it was (the pressed button). Fix: give the field an `id` and call
-  `focus("field")` (the `id`, not the `testId`) in the action that shows it. (LLP 1035.000 D9 says a node mounted later may autofocus, as
-  the wasm target does; the JS target's gap is in QUEUE.md.) (Authoring bench, LLP
-  1087, r27 t2-todo, 2026-10-05.)
 
 - **A test `drag` is a touch unless `mouse` is set.** `tap "chart" drag 20 0`
   is a finger (`pointerType` `touch`) on the web, so a `pointerup` that treats
@@ -485,9 +484,22 @@ guide's rules don't make obvious.
   opt-in. The inner iframe keeps its sandbox and its authored dimensions.
   To drive what a user sees on macOS, build with `bun exact.mjs mac --bundle` and set
   `EXACT_MAC_BIN` to the `.app`'s `Contents/MacOS/ExactMac`; the driver then skips its
-  stale-build check, so rebuild the bundle before each drive. Not covered: an app's
-  own page (`src="assets/…"`) that links an `http:` sub-resource (#135).
+  stale-build check, so rebuild the bundle before each drive. An app's own page
+  (`src="assets/…"`) is served at `http://exact.localhost`: its `http:`
+  sub-resources on loopback load, and one on a named host follows the same ATS
+  setting. A sub-resource that fails is logged (`exact: iframe assets/…: <url>
+  did not load (<reason>)`) (#135).
   (Issue #106, 2026-10-06.)
+
+- **A focus ring never shows in an `agent macos` screenshot.** `type save key Tab`
+  moves the focus (`state` reads it in `focus.logical`), yet neither `screenshot`
+  nor `screenshot … window` shows AppKit's ring. Cause: the agent's app is an
+  accessory whose window is ordered front but never key, and AppKit draws a focus
+  ring only in the key window; nor can a script activate a dev build here (macOS
+  refuses `activate` from the background). Fix: read the focus from `state`, and
+  for the ring itself make the presenter's window an `NSPanel` with
+  `.nonactivatingPanel` in an XCTest (it becomes key without activating the app)
+  and read its pixels with `CGWindowListCreateImage`. (Issue #179, 2026-10-07.)
 
 - **A drive script kept in the app folder makes the build stale.** Editing
   `verify.mjs` beside `app.contract` made the driver refuse the next drive until
@@ -594,7 +606,9 @@ guide's rules don't make obvious.
 - **An agent drive shows the app's defaults (a mock, an empty store) though
   the app's files are there.** Cause: without `--storage <name>` every
   `storage.fs` call in the data module throws "storage is unavailable in agent
-  mode…", and a module that catches a missing config file falls back silently.
+  mode…", and a module that catches a missing config file falls back silently
+  (the drive says so once on stderr, `note: a data source was refused storage`, on
+  every carrier: beside the op on the web, at the drive's end on a native one).
   The installed app's own files are not the drive's: a named scratch store lives
   apart (on iOS under `Library/Caches/exact/<app id>/agent/<name>/data`). Fix:
   `--storage <name>`, and copy the files the drive needs (a config, a saved
@@ -691,3 +705,27 @@ guide's rules don't make obvious.
   terminal failed to initialize". Before telling a person the app is up,
   confirm its process (`pgrep -f <binary>`) and kill a failed window's
   instance before retrying (LLP 1101.002 §0 P16).
+
+- **An external native app rebuilds on every unchanged direct Cargo invocation.**
+  Cargo treats a missing optional `assets`/`deck` input as perpetually dirty;
+  watching its parent recursively would also watch app-local build outputs.
+  Use the host builder (`bun exact.mjs windows` for a generated Windows game).
+  It recomputes `EXACT_ASSET_ROOTS` before each Cargo invocation; the bake watches
+  that inventory for first creation and existing roots for content changes.
+  Do not set this variable to a fixed hand-maintained list for direct Cargo.
+
+- **macOS helpers belong in a native resource tree, not `assets/`.** Assets are
+  baked update bytes with portable names and capture limits. To ship a helper
+  and its package tree, keep them in `server/` beside `app.json` and declare
+  `"host": { "macos": { "resources": [{ "from": "server", "to": "Resources/server" }] } }`.
+  `bun exact.mjs mac --bundle` copies the tree to `Contents/Resources/server`.
+  Executable modes, spaces, `@scope` names and relative links within the tree
+  survive; files above 64 MiB are allowed. Source and asset roots cannot be
+  used as native resource roots. Links must resolve inside the declared tree.
+  The tree is excluded from TypeScript capture and web assets. Its files,
+  modes and link targets are binary inputs, so changes require a new binary.
+  Snapshot-based delivery captures this tree, including ignored dependencies;
+  use `--dirty` when those files differ from the committed source. Mach-O helpers and libraries are signed in
+  the bundle, which changes their signature bytes; other files stay identical.
+  `exact release` signs these files with the release identity before sealing
+  the outer bundle. This field is macOS-only. (Issue #103, 2026-10-07.)

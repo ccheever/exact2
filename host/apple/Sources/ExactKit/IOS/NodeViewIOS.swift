@@ -878,7 +878,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     // display:none removes the CSS box, but retains its stored scroll position.
     // UIKit/AppKit collapse the native extent; keep that transient reset out of
     // scroll events and restore only when the box returns.
-    private var hasScrollLayoutBox: Bool {
+    var hasScrollLayoutBox: Bool {
         var ancestor: UIView? = self
         while let current = ancestor {
             if let node = current as? NodeView, node.style["display"]?.string == "none" { return false }
@@ -891,8 +891,11 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         beforeLayoutScroll = scroll?.contentOffset
         followedScroll = nil
         readingAnchors.removeAll(keepingCapacity: true)
+        scrollAnchor = nil
         guard props["scrollFollowEnd"] == "true", let sv = scroll else {
-            activeReadingAnchor = nil; anchoredScrollTop = nil; retainedScrollTop = nil; return
+            activeReadingAnchor = nil; anchoredScrollTop = nil; retainedScrollTop = nil
+            if let sv = scroll { captureScrollAnchor(sv) }
+            return
         }
         let maximum = max(-sv.adjustedContentInset.top, sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)
         // A retained route can gain height when another route hides the keyboard.
@@ -926,8 +929,11 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         anchors(in: sv)
     }
     func restoreScrollPosition() {
-        defer { followedScroll = nil; readingAnchors.removeAll(keepingCapacity: true) }
-        guard props["scrollFollowEnd"] == "true", let sv = scroll else { return }
+        defer { followedScroll = nil; readingAnchors.removeAll(keepingCapacity: true); scrollAnchor = nil }
+        guard props["scrollFollowEnd"] == "true", let sv = scroll else {
+            if let sv = scroll { restoreScrollAnchor(sv) }
+            return
+        }
         let minimum = -sv.adjustedContentInset.top
         let maximum = max(minimum, sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)
         let prior = followedScroll ?? (top: maximum, end: true)

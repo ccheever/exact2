@@ -536,6 +536,29 @@ impl<J: DataSource, R: DataSource> DataSource for Mixed<J, R> {
         let rust = self.rust.preload()?;
         Ok(javascript && rust)
     }
+    /// Wakes when either loading half finishes, so a failure in one is seen
+    /// while the other still loads.
+    fn when_preloaded(&self, wake: Box<dyn FnOnce() + Send>) {
+        match (self.javascript.preload(), self.rust.preload()) {
+            (Ok(false), Ok(false)) => {
+                type Wake = Box<dyn FnOnce() + Send>;
+                let once = std::sync::Arc::new(std::sync::Mutex::new(Some(wake)));
+                let fire = |once: std::sync::Arc<std::sync::Mutex<Option<Wake>>>| -> Wake {
+                    Box::new(move || {
+                        let wake = once.lock().unwrap_or_else(|e| e.into_inner()).take();
+                        if let Some(wake) = wake {
+                            wake()
+                        }
+                    })
+                };
+                self.javascript.when_preloaded(fire(once.clone()));
+                self.rust.when_preloaded(fire(once));
+            }
+            (Ok(false), Ok(true)) => self.javascript.when_preloaded(wake),
+            (Ok(true), Ok(false)) => self.rust.when_preloaded(wake),
+            _ => wake(),
+        }
+    }
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
         if self.owner(source)? {
             self.rust.query(source, args)

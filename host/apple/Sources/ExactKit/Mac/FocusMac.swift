@@ -1,0 +1,67 @@
+// A node's focus as AppKit asks for it: who takes it and is a Tab stop, what
+// taking and losing it tells the app, and the ring a focused pressable shows
+// where Chrome's `:focus-visible` matches — after the keyboard, never after a
+// pointer's press.
+#if os(macOS)
+import AppKit
+
+extension NodeView {
+    /// A node with focus, blur, or key handlers takes the focus (an input's
+    /// field does by itself): the web's rule that only a focusable element
+    /// hears these. A pressable is in the tab order the way a `<button>` is.
+    /// A paragraph takes the focus too, for selection, but plain text is
+    /// never a Tab stop on the web. An explicit `tabindex` makes any box
+    /// focusable, and a Tab stop only when ≥ 0 (LLP 1088 D7.3).
+    override var acceptsFirstResponder: Bool {
+        if formDisabled || inert || isHiddenOrHasHiddenAncestor || cssVisibilityHidden { return false }
+        if field != nil || textArea != nil { return false }
+        return props["semanticTag"] == "dialog" || isParagraph || explicitTabIndex != nil || tabbable || isRadio
+    }
+    var tabbable: Bool {
+        if let index = explicitTabIndex { return index >= 0 }
+        return kind == "button" || isNativeButton || canvases?.wantsInput(id) == true || pressable || !handlers.isDisjoint(with: Self.focusEvents)
+            || reorderKeys || radioTabStop // a grouped grip takes the keys (LLP 1094 D9); a radio group one stop (x2apps survey #2)
+    }
+    /// Sequential focus follows the web: a button is in the loop even when
+    /// macOS "Keyboard navigation" is off (that setting would otherwise
+    /// skip every non-field).
+    override var canBecomeKeyView: Bool { acceptsFirstResponder && tabbable }
+    override func becomeFirstResponder() -> Bool {
+        guard !formDisabled else { return false }
+        let ok = super.becomeFirstResponder()
+        if ok { focusVisible = presenter?.focusByPointer != true }
+        if ok { presenter?.collections.pinsChanged(); presenter?.selection.focusEntered(self) }
+        if ok, handlers.contains("focus") { presenter?.focus(id) }
+        return ok
+    }
+    override func resignFirstResponder() -> Bool {
+        let ok = super.resignFirstResponder()
+        if ok { focusVisible = false; presenter?.selection.focusLeft() }
+        if ok { presenter?.collections.pinsChanged() }
+        if ok && !isSurfaceControl { inputCanvas?.canvasInput?.blur() }
+        if ok, handlers.contains("blur") { presenter?.blur(id) }
+        return ok
+    }
+    /// A focused pressable's ring, AppKit's exterior one around its rounded
+    /// box, as Chrome outlines a focused `<button>` or `tabindex` box. AppKit
+    /// draws no mask whose bounds are empty, which keeps it off a box that
+    /// is not pressable, a field (its own ring) and a focus that is not
+    /// visible.
+    override var focusRingMaskBounds: NSRect { field == nil && pressable && focusVisible ? bounds : .zero }
+    override func drawFocusRingMask() {
+        guard field == nil, pressable else { return }
+        roundedPath(in: bounds).fill()
+    }
+}
+
+extension Presenter {
+    /// A key that is not a shortcut chord (Tab and Shift-Tab included): the
+    /// focus is visible from here, as Chrome's `:focus-visible` matches at a
+    /// focus the keyboard moved, or used after a click had moved it.
+    func keyboardUsed(_ event: NSEvent, in window: NSWindow?) {
+        guard event.type == .keyDown, event.modifierFlags.intersection([.command, .control, .option]).isEmpty else { return }
+        focusByPointer = false
+        (window ?? event.window).flatMap { $0.firstResponder as? NodeView }?.focusVisible = true
+    }
+}
+#endif

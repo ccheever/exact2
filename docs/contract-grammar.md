@@ -887,12 +887,15 @@ handler, itself or an ancestor — so a node with one takes the focus, as a
 `key` node does. An action that takes one more parameter gets a
 `ClipboardEvent` whose `text` is the clipboard's plain text: what is pasted,
 and empty on `copy` and `cut`, as the DOM's is until a listener sets it — the
-action writes the clipboard with `copyText`. A field's own paste still
-inserts the text. On macOS and iOS, a text field's or textarea's editing is
-the platform's and fires none of the three (the web's fires them); the
-driver's `type <id> paste <text>` delivers a paste carrying that text, and
-`type <id> copy` and `type <id> cut` the others, without touching the
-system clipboard.
+action writes the clipboard with `copyText`. In an `input` or `textarea`
+the event comes first and the field's own cut, copy or paste follows,
+unless the action calls `preventDefault()`, which cancels it as the DOM's
+does (a paste then inserts nothing): on the web and on macOS and iOS alike,
+where the field's editor fires the three (a password field's on macOS
+fires none). The driver's `type <id> paste <text>` delivers a paste
+carrying that text, and `type <id> copy` and `type <id> cut` the others,
+without touching the system clipboard; at a field, an unprevented paste
+inserts the text.
 
 ```text
 action pasteAt(cell: string, e: ClipboardEvent)
@@ -1085,7 +1088,7 @@ negative value and keeps UIKit's geometric order.
 The current command name inventory is:
 
 `blur`, `copyText`, `deliveryActivate`, `deliveryCheck`, `fastSeek`, `focus`, `format`,
-`load`, `openURL`, `selectText`, `setSelectionRange`, `setScheme`, `showPicker`, `share`, `saveFile`,
+`load`, `openURL`, `selectText`, `setSelectionRange`, `setScheme`, `setRootFontSize`, `showPicker`, `share`, `saveFile`,
 `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `scrollIntoView`,
 `showNotification`, `closeNotification`, `haptic`, `postMessage`, `reload`, `close`,
 `playSound`, `playSounds`, `stopSounds`
@@ -1106,6 +1109,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `copyText(text)` | [Messages](../apps/messages/app.contract) |
 | `openURL(url)` | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js) |
 | `setScheme(...)` | [Caltrain](../apps/caltrain/app.contract), [Markdown](../apps/markdown/app.contract) |
+| `setRootFontSize(px)`, `setRootFontSize("medium")`: CSS's `:root { font-size }`, the root font size every `rem` follows, in px above 0, laid out in the action's own commit; `px` lengths stay. It stands over the host's own size (the browser's setting, iOS Dynamic Type, 16 on macOS and Linux), as an author's `html { font-size: 20px }` stands over a browser's font-size setting, and `"medium"` hands the size back to the host. A literal of 0 or less is refused here, a computed one in the log when it runs. Not kept across a launch: set it again from a mount task (LLP 1069.000 D3) | [rem tests](../contract/cli/tests/it/rem.rs) |
 | `share(...)` | [share corpus](../contract/corpus/share.contract) |
 | `showNotification(title=, body=, tag=, showTrigger=)`, `closeNotification(tag)`: a local notification by the Notification API's names, now or at `showTrigger` (epoch milliseconds); a newer one with the same `tag` replaces it, and `closeNotification` takes it away, shown or waiting. Needs the grant `device.notifications <strings key>`; see [notifications](reference.md#notifications) | [notify corpus](../contract/corpus/notify.contract) |
 | `showPicker(id)`, export `saveFile(id, from, suggestedName)`: the host copies the `app:/` file `from` to where the person chooses; `change` at `id` carries the chosen name, `cancel` a dismissal. `saveFile(id, text=…, suggestedName=…)` saves the text itself (UTF-8), no file written first and no grant, so "export what's on screen" is one press | [picker tests](../contract/cli/tests/it/picker.rs), [Fieldnotes](../apps/fieldnotes/app.contract), [Linux's save tests](../host/linux/src/presenter/save_tests.rs) |

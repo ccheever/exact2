@@ -38,7 +38,7 @@ mod collection;
 mod source;
 pub use source::{
     Announce, BackgroundState, DataError, DataSource, InFlight, Interrupt, Native, NativeCall,
-    NativeHandler, Target, BACKGROUND,
+    NativeHandler, PreloadWake, Target, BACKGROUND,
 };
 mod delivery;
 mod device;
@@ -86,9 +86,7 @@ pub struct Command {
     pub name: String,
     /// Its arguments.
     pub args: Vec<Value>,
-    /// The node whose input ran the action, when a host event did: where a
-    /// command that shows system UI anchors it (LLP 1069.003 D3). `None` for
-    /// a timer, an answer, or anything else no input dispatched.
+    /// The node whose input ran the action, when a host event did: where a command that shows system UI anchors it (LLP 1069.003 D3). `None` for a timer, an answer, or anything else no input dispatched.
     pub source: Option<ViewId>,
 }
 
@@ -124,8 +122,7 @@ pub enum RunnerError {
         plan: u64,
         kernel: u64,
     },
-    /// The plan belongs to another app (LLP 1023 D5): its header names one
-    /// identity, this binary's data crate another.
+    /// The plan belongs to another app (LLP 1023 D5): its header names one identity, this binary's data crate another.
     AppMismatch {
         plan: String,
         host: String,
@@ -149,8 +146,7 @@ pub enum RunnerError {
     InvalidEvent {
         event: &'static str,
     },
-    /// A control's `input` or `change` carries a value it could never
-    /// report (LLP 1069.001 D4): a select's value no enabled option has.
+    /// A control's `input` or `change` carries a value it could never report (LLP 1069.001 D4): a select's value no enabled option has.
     InvalidValue {
         event: &'static str,
         reason: String,
@@ -166,8 +162,7 @@ pub enum RunnerError {
     },
     /// Derives and resources depend on each other in a cycle; nothing settles.
     Cycle,
-    /// An earlier update failed after the instance tree had begun to change;
-    /// the runner no longer matches its kernel and must be restarted (D5).
+    /// An earlier update failed after the instance tree had begun to change; the runner no longer matches its kernel and must be restarted (D5).
     Poisoned,
     /// `advance` was given a non-finite time.
     NonFiniteClock,
@@ -212,8 +207,7 @@ pub enum RunnerError {
         action: String,
         param: String,
     },
-    /// An action argument or a slot write is a string longer than
-    /// [`crate::vm::MAX_STRING`] bytes.
+    /// An action argument or a slot write is a string longer than [`crate::vm::MAX_STRING`] bytes.
     StringTooLong {
         name: String,
     },
@@ -286,6 +280,9 @@ struct PendingReq {
     keepable: Option<Request>,
     /// An answer that keeps coming (LLP 1016.000): what it has delivered.
     stream: Option<StreamCount>,
+    /// A topic its resource watches changed while it was in flight: its
+    /// reply lands, then the resource is asked again (LLP 1016.002 D4).
+    ask_again: bool,
 }
 
 /// An open stream's messages so far, and those the host coalesced away
@@ -368,8 +365,7 @@ pub struct Runner<D: DataSource> {
     canvases: Option<Box<dyn canvas2d::CanvasEngine>>,
     /// Requests in flight (LLP 1016): at most one per resource or mutation.
     pending: Vec<PendingReq>,
-    /// This commit let a request go: `conclude` tells the source what is
-    /// still in flight.
+    /// This commit let a request go: `conclude` tells the source what is still in flight.
     forgot: bool,
     /// Resources refused ordered admission, asked again once the last
     /// ordered refusal has settled (`release_refused`).
@@ -379,14 +375,12 @@ pub struct Runner<D: DataSource> {
     /// `pending` as flags, by resource and by mutation, for expressions.
     pending_res: Vec<bool>,
     pending_mut: Vec<bool>,
-    /// Mutations whose answer landed in the commit being made; their `then`
-    /// actions are armed once it stands (LLP 1016.001).
+    /// Mutations whose answer landed in the commit being made; their `then` actions are armed once it stands (LLP 1016.001).
     landed: Vec<usize>,
     /// Sends made before the data source was ready, by mutation, sent at
     /// `data_ready` (LLP 1027 D4): pending meanwhile, one per mutation.
     unsent: Vec<(usize, String, Vec<Value>)>,
-    /// When each mutation's `then` action is due, as a one-shot timer:
-    /// infinite until an answer lands.
+    /// When each mutation's `then` action is due, as a one-shot timer: infinite until an answer lands.
     then_due: Vec<f64>,
     /// `queue` mutations' waiting sends, `next`s and stalls (LLP 1092).
     queues: queue::Queues,
@@ -395,8 +389,10 @@ pub struct Runner<D: DataSource> {
     background: background::Background,
     /// Files picked this run, for `app:/tmp/picked/` names (LLP 1069.002 D3).
     picked_count: u64,
-    /// Second edges waiting for the first action's async targets to settle.
+    /// Second edges waiting for the first action's async targets to settle,
+    /// and lists whose edge waits for their covered route to show (`collection.rs`).
     deferred_edges: Vec<(u32, Vec<Target>)>,
+    held_edges: Vec<u32>,
     /// Requests for the host, since the last take.
     requests: Vec<RequestOut>,
     /// Resources an action asked to re-request; consumed by the next settle
@@ -477,6 +473,8 @@ pub struct Runner<D: DataSource> {
     notifications: Vec<crate::notify::Notice>,
     /// The voice table (LLP 1096 D5): what the app's sounds scheduled.
     sounds: crate::sound::Sounds,
+    /// The app's `setRootFontSize` over the host's size (LLP 1069.000 D3).
+    root_font: root_font::RootFont,
     /// Auth sessions (LLP 1069.006): live ones, and answers to deliver.
     auth: crate::auth::Sessions,
     /// The device capabilities linked (LLP 1047 D3): [`DeviceLinks`].
@@ -846,6 +844,7 @@ impl<D: DataSource> Runner<D> {
             batch: 0,
             commands: Vec::new(),
             sounds: Default::default(),
+            root_font: Default::default(),
             into_view: Vec::new(),
             scrolled: Default::default(),
             resized: Vec::new(),
@@ -872,6 +871,7 @@ impl<D: DataSource> Runner<D> {
             refused_asks: Vec::new(),
             failed_args: Vec::new(),
             deferred_edges: Vec::new(),
+            held_edges: Vec::new(),
             requests: Vec::new(),
             refresh_next: Vec::new(),
             reread_next: Vec::new(),

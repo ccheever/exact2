@@ -369,7 +369,7 @@ final class NativeViews {
         #if os(macOS)
         let standard = Bundle.main.executableURL!.deletingLastPathComponent().appendingPathComponent("libexact_modules.dylib").path
         #else
-        let standard = (Bundle.main.privateFrameworksPath ?? Bundle.main.bundlePath) + "/libexact_modules.dylib"
+        let standard = embeddedModule(framework: "ExactModules", dylib: "libexact_modules.dylib")
         #endif
         let trust = ((GpuModule.bakedCompatibility["inputs"] as? [String: Any])?["trust"] as? String) ?? "development"
         guard trust != "production", let override = ExactEnv.environment["EXACT_MODULES"], !override.isEmpty else { return standard }
@@ -391,12 +391,43 @@ final class NativeViews {
         entries[owner.id] = NativeEntry(owner: owner)
     }
 
-    /// The paint gate: the turn after the first drawn frame (the GPU
-    /// module's), and every later batch. The first call loads the artifact.
+    /// Opens the paint gate once activation has run, then on every batch.
+    /// The first call that finds a view loads the artifact.
     func loadIfNeeded() {
-        guard !gateOpen, !entries.isEmpty else { return }
+        guard activationRan, !gateOpen, !entries.isEmpty else { return }
         gateOpen = true
         for entry in entries.values.sorted(by: { $0.id < $1.id }) where entry.state == "loading" && !entry.name.isEmpty { attach(entry) }
+    }
+
+    /// Views wait for activation's frame to commit, so a slow view (a map
+    /// takes tens of ms) does not delay that frame or pending input.
+    private var activationRan = false
+    func activated() {
+        activationRan = true
+        loadIfNeeded()
+    }
+
+    /// True from activation until `activated` runs (or a stale session's turn
+    /// passes): the agent's settle counts it as work in flight.
+    var activationQueued: Bool { queuedActivations > 0 }
+    private var queuedActivations = 0
+    /// Calls `activated` after activation's Core Animation commit, if `live()`
+    /// still holds. A plain main-queue hop can run before that commit: the run
+    /// loop drains queued blocks before its before-waiting and exit observers,
+    /// where Core Animation commits (order 2000000). Exit covers a turn that
+    /// never waits.
+    func activateAfterCommit(_ live: @escaping () -> Bool) {
+        queuedActivations += 1
+        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue, false, 2_000_001) { [weak self] _, _ in
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if live() { activated() }
+                // A view's events are main-queue blocks its creation queued (`load`):
+                // the count drops after them, so the agent's settle sees their handlers.
+                DispatchQueue.main.async { [weak self] in self?.queuedActivations -= 1 }
+            }
+        }
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
     }
 
     private func table() -> Result<NativeTable, NativeFailure> {
@@ -635,7 +666,7 @@ final class NativeViews {
     /// instance, without an artifact or a runtime.
     static func install(table: UnsafeRawPointer) { NativeProcess.table = NativeTable.read(table, path: "test") }
     static func uninstallTable() { NativeProcess.table = nil }
-    func install(module: UnsafeMutableRawPointer) { instance = module; gateOpen = true }
+    func install(module: UnsafeMutableRawPointer, gateOpen open: Bool = true) { instance = module; gateOpen = open }
     /// Tests: the process's artifact from a file and this session's module
     /// made from it now, as the paint gate makes it (its hooks connect).
     func installArtifact(_ path: String) {

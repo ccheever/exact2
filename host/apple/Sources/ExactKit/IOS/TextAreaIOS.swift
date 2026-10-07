@@ -48,6 +48,10 @@ final class TextField: UITextField {
         if heard != "Backspace", let owner, !owner.disabled, owner.presenter?.keyDown(at: owner, "Backspace") == true { return }
         super.deleteBackward()
     }
+    // DOM's clipboard events, before the field's own (#125, Clipboard.swift).
+    override func copy(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.copy(_:))) { super.copy(sender) } }
+    override func cut(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.cut(_:))) { super.cut(sender) } }
+    override func paste(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.paste(_:))) { super.paste(sender) } }
 }
 
 final class TextArea: UITextView {
@@ -138,12 +142,17 @@ final class TextArea: UITextView {
         UIPasteboard.general.string = plain
         #endif
     }
+    // DOM's clipboard events, before the editor's own (#125, Clipboard.swift).
     override func copy(_ sender: Any?) {
-        guard markup != nil else { super.copy(sender); return }
-        #if !os(tvOS)
-        if selectedRange.length > 0 { UIPasteboard.general.string = (text as NSString).substring(with: selectedRange) }
-        #endif
+        NodeView.fieldEdit(owner, #selector(NodeView.copy(_:))) {
+            guard markup != nil else { super.copy(sender); return }
+            #if !os(tvOS)
+            if selectedRange.length > 0 { UIPasteboard.general.string = (text as NSString).substring(with: selectedRange) }
+            #endif
+        }
     }
+    override func cut(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.cut(_:))) { super.cut(sender) } }
+    override func paste(_ sender: Any?) { NodeView.fieldEdit(owner, #selector(NodeView.paste(_:))) { super.paste(sender) } }
     // Keep TextKit's line pitch equal to the authored CSS line box. Updating
     // storage attributes preserves the value and selected range; replacing
     // attributedText would reset a selection (including a read-only one).

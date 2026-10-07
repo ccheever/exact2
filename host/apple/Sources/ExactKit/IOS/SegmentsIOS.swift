@@ -9,6 +9,10 @@ import UIKit
 private final class ExactSegmentedControl: UISegmentedControl {
     let ownerID: UInt32
     var icons: [Int: (source: AnyObject, size: CGSize, label: String)] = [:]
+    /// The selection last reported or applied. A finger moves the selection
+    /// before the change is reported (on iOS 26 after the lift, as the
+    /// selection settles); until then the control keeps the newer choice.
+    var settled = UISegmentedControl.noSegment
     init(ownerID: UInt32) {
         self.ownerID = ownerID
         super.init(items: [])
@@ -373,13 +377,18 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
                 control.setEnabled(!tab.disabled, forSegmentAt: index)
             }
             let selected = tabs.firstIndex { $0.props["accessibilitySelected"] == "true" } ?? UISegmentedControl.noSegment
-            if control.selectedSegmentIndex != selected { control.selectedSegmentIndex = selected }
+            // A choice the finger made and the control has not reported yet
+            // stays; resetting it would make the report name the old segment.
+            let pending = control.isTracking || control.selectedSegmentIndex != control.settled
+            if control.selectedSegmentIndex != selected, !pending { control.selectedSegmentIndex = selected }
+            if control.selectedSegmentIndex == selected { control.settled = selected }
             owner.bringSubviewToFront(control)
             measure(owner, control)
         }
     }
 
     @objc private func changed(_ sender: ExactSegmentedControl) {
+        sender.settled = sender.selectedSegmentIndex
         guard let ids = members[sender.ownerID], ids.indices.contains(sender.selectedSegmentIndex),
               let tab = presenter.views[ids[sender.selectedSegmentIndex]], !tab.disabled,
               let owner = presenter.views[sender.ownerID], available(owner) else { sync(); return }
