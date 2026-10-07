@@ -1,0 +1,104 @@
+2026-10-07T19:09:22.318Z == pair Mac Studio; the launch prompt, its Update and the outcome
+2026-10-07T19:09:38.325Z toasts after connect: ["toast-title-2: Updates Available: 2 providers","toast-description-2: Install the update now or review provider settings."]
+2026-10-07T19:09:38.837Z shot launch-prompt
+2026-10-07T19:09:38.847Z prompt toast 2: Updates Available: 2 providers; action Update; secondary Settings
+2026-10-07T19:09:49.934Z toasts while running: ["toast-title-4: Update Available: Claude v2.1.123","toast-description-4: Claude can be updated from provider settings."]
+2026-10-07T19:09:50.435Z shot launch-running
+2026-10-07T19:10:03.453Z toasts after: ["toast-title-4: Update Available: Claude v2.1.123","toast-description-4: Claude can be updated from provider settings."]
+2026-10-07T19:10:03.946Z shot launch-outcome
+2026-10-07T19:10:03.947Z fixture reset
+2026-10-07T19:10:05.458Z == add Laptop
+2026-10-07T19:10:18.944Z connected: ["http://127.0.0.1:16020/ · Connected","http://127.0.0.1:16021/ · Connected"]
+2026-10-07T19:10:18.944Z == providers list, Update all tooltip (toasts dismissed)
+2026-10-07T19:10:22.713Z header: update-all="Update all"; triggers ["provider-advisory-list-codex","provider-advisory-list-claudeAgent","provider-advisory-editor-codex"]
+2026-10-07T19:10:23.225Z shot providers-list
+2026-10-07T19:10:23.977Z tooltip: "Mac Studio: Codex, Claude Daehyeon’s MacBook Pro: Claude"
+2026-10-07T19:10:24.486Z shot update-all-tooltip
+2026-10-07T19:10:24.486Z == list popover: hover tooltip, open, Escape keeps Settings and returns focus
+2026-10-07T19:10:25.256Z hover tooltip: "Update available"
+2026-10-07T19:10:25.928Z popover: "Update available Update available: install v0.151.0. Update now or, update manually using npm install -g @openai/codex@latest" focus=provider-advisory-list-codex
+2026-10-07T19:10:26.441Z shot popover-list-codex
+2026-10-07T19:10:26.449Z open: {"source":2496,"phase":"open","popover":2499}
+2026-10-07T19:10:26.904Z after Escape: settings=true popover=null focus=provider-advisory-list-codex
+2026-10-07T19:10:26.908Z == editor popover (Claude: compatibility warning, Install vX)
+2026-10-07T19:10:29.258Z editor popover: "Unsupported version Claude 2.1.110 is not supported by this T3 Code release. Install v2.1.120. Install v2.1.120"
+2026-10-07T19:10:29.769Z shot popover-editor-claude
+2026-10-07T19:10:29.777Z open: {"popover":2837,"source":2834,"phase":"open"}
+2026-10-07T19:10:30.238Z after Escape: settings=true popover=null focus=provider-advisory-editor-claudeAgent
+2026-10-07T19:10:30.239Z == Copy update command (Codex, editor)
+2026-10-07T19:10:34.054Z toasts: ["toast-title-6: Codex update command copied","toast-description-6: Run it in a terminal when you are ready to update."] clipboard="npm install -g @openai/codex@latest"
+2026-10-07T19:10:34.566Z shot copy-command-toast
+2026-10-07T19:10:35.005Z == Update now (Codex on Mac Studio)
+2026-10-07T19:10:37.856Z action label: "Update now"
+2026-10-07T19:10:45.396Z while updating: null
+2026-10-07T19:10:45.897Z shot update-now-running
+2026-10-07T19:10:51.927Z after: version="v0.151.0" triggers=[] toasts=[]
+2026-10-07T19:10:52.436Z shot update-now-after
+2026-10-07T19:10:52.437Z fixture reset
+2026-10-07T19:10:54.451Z == Update all on both machines (toasts dismissed first)
+2026-10-07T19:10:55.291Z before: "Update all"
+2026-10-07T19:11:11.090Z pending: "Update all"
+2026-10-07T19:11:11.594Z shot update-all-running
+2026-10-07T19:11:20.613Z result toasts: []
+2026-10-07T19:11:21.119Z shot update-all-result
+2026-10-07T19:11:21.120Z fixture reset
+2026-10-07T19:11:22.636Z == ACP: icon, URL auth (link recorded, accepted, then expired)
+2026-10-07T19:11:24.354Z icons: ["acp-icon-failed","acp-icon-failed"]
+2026-10-07T19:11:24.360Z url auth: "Continue with Google to finish signing in to Gemini CLI. https://accounts.google.com/o/oauth2/v2/auth?client_id=lane-fixture Continue authentication"
+2026-10-07T19:11:24.864Z shot acp-editor-top
+2026-10-07T19:11:27.147Z after continue: toasts=[] log lines naming the URL=[]
+2026-10-07T19:11:29.425Z after second continue: ["toast-title-8: Authentication request expired","toast-description-8: Refresh the provider and start the authentication flow again."]
+2026-10-07T19:11:29.931Z shot acp-url-auth-expired
+2026-10-07T19:11:29.932Z == ACP native sessions: list, more, import, delete (Escape keeps it, Confirm deletes), log out
+2026-10-07T19:11:34.409Z sessions: ["acp-session-gemini-session-7f2a","acp-session-gemini-session-3c91"] picker="Upkeep demo"
+2026-10-07T19:11:36.685Z after more: ["acp-session-gemini-session-7f2a","acp-session-gemini-session-3c91","acp-session-gemini-session-a044"]
+2026-10-07T19:11:37.190Z shot acp-sessions
+2026-10-07T19:11:39.470Z import: "Imported" toasts=["toast-title-9: ACP session imported"]
+2026-10-07T19:11:41.489Z confirm: "Permanently delete native ACP session \"Investigate flaky upload test\"? Cancel Confirm"
+2026-10-07T19:11:42.012Z shot acp-delete-confirm
+2026-10-07T19:11:42.461Z after Escape: confirm=false sessions=["acp-session-gemini-session-7f2a","acp-session-gemini-session-3c91","acp-session-gemini-session-a044"] focus=acp-delete-gemini-session-3c91
+2026-10-07T19:11:46.009Z after Confirm: ["acp-session-gemini-session-7f2a","acp-session-gemini-session-a044"] toasts=["toast-title-10: ACP session deleted"]
+2026-10-07T19:11:46.514Z shot acp-sessions-after
+2026-10-07T19:11:49.343Z log out: ["toast-title-11: Logged out of ACP agent"] sessions=[]
+2026-10-07T19:11:49.344Z == ACP agent providers: list, invalid headers, save, disable
+2026-10-07T19:11:53.884Z providers: ["acp-provider-google","acp-provider-openrouter"] google="google Configured · Required Save gemini gemini openai"
+2026-10-07T19:11:54.393Z shot acp-providers
+2026-10-07T19:11:57.112Z invalid headers: ["toast-title-12: Invalid provider headers","toast-description-12: Headers must be a JSON object with string values."]
+2026-10-07T19:12:01.502Z saved: ["toast-title-13: ACP provider configured"]
+2026-10-07T19:12:03.514Z disable confirm: "Disable ACP provider \"openrouter\"? Cancel Confirm"
+2026-10-07T19:12:06.932Z disabled: ["toast-title-14: ACP provider disabled"] row="openrouter Disabled Save openai"
+2026-10-07T19:12:07.462Z shot acp-providers-after
+2026-10-07T19:12:07.462Z == custom model options editor
+2026-10-07T19:12:09.791Z editor: ["custom-model-editor-gpt-5.5-lane","custom-model-name-gpt-5.5-lane","custom-model-copy-gpt-5.5-lane","custom-model-copy-gpt-5.5-lane-menu","custom-model-copy-gpt-5.5-lane-option-gpt-5.5","custom-model-empty-gpt-5.5-lane","custom-model-add-reasoningEffort","custom-model-add-serviceTier","custom-model-add-custom","custom-model-save","custom-model-cancel-edit"]
+2026-10-07T19:12:10.301Z shot cm-editor-open
+2026-10-07T19:12:14.320Z validation: "Option 2 needs an id."
+2026-10-07T19:12:14.822Z shot cm-editor-error
+2026-10-07T19:12:18.857Z copied: ["custom-model-option-0","custom-model-option-1"]
+2026-10-07T19:12:22.862Z after save: editor=false row="Lane GPT gpt-5.5-lane custom Fast mode · Reasoning"
+2026-10-07T19:12:24.562Z reopened: options=["custom-model-option-0","custom-model-option-1"] name=""
+2026-10-07T19:12:25.071Z shot cm-editor-reopened
+2026-10-07T19:12:25.517Z after Escape: editor=false settings=true
+2026-10-07T19:12:25.517Z == the composer offers the saved options
+2026-10-07T19:12:28.673Z picker rows naming the custom model: ["model-gpt-5.5-lane"]
+2026-10-07T19:12:30.827Z shot composer-model
+2026-10-07T19:12:32.284Z composer options: ["effort-low","effort-medium","effort-high","effort-default","effort-fast"] label="Lane GPT Lane GPT · ⇧⌘M"
+2026-10-07T19:12:32.781Z shot composer-options
+2026-10-07T19:12:33.407Z == narrow 840x620 and dark
+2026-10-07T19:12:34.942Z   (no close-connection)
+2026-10-07T19:12:41.277Z shot providers-narrow
+2026-10-07T19:12:42.396Z shot popover-narrow
+2026-10-07T19:12:48.190Z shot popover-dark
+2026-10-07T19:12:49.516Z == keyboard: Tab to the icon, Return opens, Escape returns; reduced motion
+2026-10-07T19:12:52.981Z Tab from the Codex row: ["provider-advisory-list-codex","provider-enable-codex","settings-provider-claudeAgent","provider-advisory-list-claudeAgent"]
+2026-10-07T19:12:52.993Z trigger button id 6147
+2026-10-07T19:12:55.711Z focus before Return: provider-accent
+2026-10-07T19:12:55.718Z   (key Return at 7090 refused: key: unsupported key Return)
+2026-10-07T19:12:56.151Z after Return: popover=null focus=provider-accent
+2026-10-07T19:12:56.589Z Tab inside: provider-display-name
+2026-10-07T19:12:56.596Z   (key Escape at provider-advisory-list-codex-popover refused: view 6150 is hidden or inert)
+2026-10-07T19:12:57.034Z after Escape: settings=true popover=null focus=provider-display-name
+2026-10-07T19:12:58.201Z reduced motion: {"phase":"open","popover":6149,"source":6146}
+2026-10-07T19:12:58.712Z shot popover-reduced-motion
+2026-10-07T19:12:59.463Z == wizard registry icons
+2026-10-07T19:13:07.272Z wizard icons: ["acp-icon-failed","acp-icon-failed","acp-icon-failed","acp-icon-failed","acp-icon-failed","acp-icon-failed","acp-icon-failed","acp-icon-failed","acp-icon-failed","acp-icon-failed","acp-icon-failed","acp-icon-failed","acp-icon-failed","acp-icon-failed","acp-icon-failed","acp-icon-failed","acp-icon-failed","acp-icon-failed","acp-icon-failed","acp-icon-failed","acp-icon-failed"] agents=["acp-agent-list","acp-agent-agoragentic-acp","acp-agent-amp-acp","acp-agent-auggie","acp-agent-autohand","acp-agent-claude-acp"]
+2026-10-07T19:13:07.795Z shot wizard-acp
