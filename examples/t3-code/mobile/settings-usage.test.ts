@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from 'bun:test';
+import { readFileSync } from 'node:fs';
 import { mobileClient } from './client';
 import { obj, type Obj } from './shared/domain';
 import type { Native } from './shared/protocol';
@@ -75,4 +76,20 @@ test('opening a usage link preserves the selected time window and does not reque
   expect(change.message).toBe('');expect(change.refresh).toBe(false);expect(mobileAutomationSnapshot().now).toBe(now);
   expect(calls.slice(before).map(call=>call.op)).toEqual(['mobileOpenURL']);
   await mobileAutomationPrepare('settings','{}','','','',now,opener);
+});
+
+test('nonempty usage provider rows project only declared UI fields',()=>{
+  const summary:Obj={contractVersion:6,sources:[{status:'ok',fingerprint:{provider:'claude',hostId:'host',resolvedHomePath:'/home'},distinctSessions:1}],
+    buckets:[{provider:'claude',model:'model',day:'2026-10-07',costUsd:2,totals:{uncachedInputTokens:1000}}]};
+  const contract=readFileSync(new URL('./settings-usage.contract',import.meta.url),'utf8');
+  const declared=contract.split('shape UsageProvider\n')[1]?.split('shape UsageValue')[0]??'';
+  const keys=[...declared.matchAll(/^  (\w+):/gm)].map(match=>match[1]).sort();
+  expect(keys).toHaveLength(7);
+  for(const metric of ['cost','tokens']){
+    const data=mobileUsagePresentation({tab:'usage',window:mobileUsageWindow(30,now),metric,now,presentations:new Map(),external:false,
+      sources:[{id:'a',label:'A',connected:true,summary,error:'',canRead:true,canWrite:false,canManage:false,config:{}}]});
+    expect(data.providers).toHaveLength(1);
+    expect(Object.keys(data.providers[0]!).sort()).toEqual(keys);
+    expect(data.providers[0]).toMatchObject({id:'claude',label:'Claude Code',value:metric==='cost'?'$2.00':'1K',share:'100.0%'});
+  }
 });

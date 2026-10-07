@@ -2,8 +2,8 @@
 // @ref llp/1106-t3-code-ios.rfc.md#architecture
 import { mobileClient, mobileNative } from './client';
 import { mobileStreamOwner } from './browser-mobile-owner';
-import { mobileBrowserRead, mobileBrowserSnapshot, mobileBrowserStatus, mobileBrowserAction, mobileBrowserRelease, type MobilePreviewMenu } from './browser-mobile-data';
-import { mobileDevicesRead, mobileDevicesSnapshot, mobileDevicesStatus, mobileDevicesAction } from './devices-mobile-data';
+import { mobileBrowserRead, mobileBrowserSnapshot, mobileBrowserStatus, mobileBrowserAction, mobileBrowserRelease, type MobilePreviewMenu, type MobileBrowserSnapshot } from './browser-mobile-data';
+import { mobileDevicesRead, mobileDevicesSnapshot, mobileDevicesStatus, mobileDevicesAction, type MobileDevicesSnapshot } from './devices-mobile-data';
 import { type Native } from './shared/protocol';
 import { arr, obj, str } from './shared/domain';
 let observedOwner = '';
@@ -15,8 +15,10 @@ export async function mobilePreviewPrepare(owner: string, native?: Native | null
   if (owner) await Promise.all([mobileBrowserRead(owner, handle), mobileDevicesRead(owner, handle)]);
   return { revision: mobileClient.revision };
 }
-export function mobilePreviewStatus(kind: string, owner: string, active: boolean, native?: Native | null) {
-  if (kind === 'browser') return active && owner && native?.available ? mobileBrowserStatus(owner, mobileNative(native)) : mobileBrowserSnapshot(owner);
+export function mobileBrowserPreviewStatus(owner: string, active: boolean, native?: Native | null): MobileBrowserSnapshot | Promise<MobileBrowserSnapshot> {
+  return active && owner && native?.available ? mobileBrowserStatus(owner, mobileNative(native)) : mobileBrowserSnapshot(owner);
+}
+export function mobileDevicesPreviewStatus(owner: string, active: boolean, native?: Native | null): MobileDevicesSnapshot | Promise<MobileDevicesSnapshot> {
   return active && owner && native?.available ? mobileDevicesStatus(owner, mobileNative(native)) : mobileDevicesSnapshot(owner);
 }
 export async function mobilePreviewAction(kind: string, owner: string, operation: string, value: string, native?: Native | null) {

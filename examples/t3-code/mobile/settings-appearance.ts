@@ -72,6 +72,7 @@ export function settingsAppearanceView(input: unknown, systemScheme: string, rea
   };
 }
 export function settingsChoices(route: string, preferences: MobilePreferences, ready: boolean) {
+  if (!route) return { key: '', title: '', footer: '', ready: false, options: [] };
   if (route === 'SettingsKeyboard') return { key: 'composerEnterBehavior', title: 'Return key',
     footer: 'Applies to the composer when a hardware keyboard is connected.', ready,
     options: [ { value: 'send', label: 'Send message', description: 'Return sends the message. Shift-Return inserts a new line.' },
