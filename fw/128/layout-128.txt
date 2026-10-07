@@ -1,0 +1,16 @@
+# #128 probe (420x600), `bun exact.mjs agent <host> --size 420x600 layout`
+## Chrome (agent web)
+#2 [codewrap] Text 24,36 200×75
+#3 [breakword] Text 24,123 200×75
+#4 [menlo-anywhere] Text 24,210 200×75
+#5 [menlo-breakword] Text 24,297 200×75
+## macOS before (origin/main cff90b364)
+#2 [codewrap] Text 24,36 200×80
+#3 [breakword] Text 24,128 200×80
+#4 [menlo-anywhere] Text 24,220 200×75
+#5 [menlo-breakword] Text 24,307 200×75
+## macOS after (this branch)
+#2 [codewrap] Text 24,36 200×80
+#3 [breakword] Text 24,128 200×80
+#4 [menlo-anywhere] Text 24,220 200×75
+#5 [menlo-breakword] Text 24,307 200×75
