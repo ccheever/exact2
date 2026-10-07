@@ -1,9 +1,9 @@
+use MobileQueueSnapshot from "./queue.contract"
 use GitColors, MobileGitSnapshot, MobileGitResult from "./git-overview.contract"
 use MobileGitBranchesSnapshot, MobileGitBranchResult from "./git-branches.contract"
 use InspectorState, InspectorContext, InspectorChange, InspectorPresentation, WorkspaceEvent, MobileInspectorContent from "./workspace-inspector.contract"
 use MobileRouteContent from "./route-content.contract"
 use MobileWorkspace, WorkspaceEntry, WorkspaceParams, WorkspaceOptions, WorkspaceNavigation from "./mobile-workspace.contract"
-use MobileRootHeader from "./root-header.contract"
 use SettingsThreadPreferences, ThreadPreferencesData from "./settings-thread-preferences.contract"
 use SettingsProjectOverview, SettingsProjectData from "./settings-project.contract"
 use SettingsWrite, StreamingAssistant, StreamingHapticState, AppLink, MediaCompletion, Appearance, SettingsView, SettingsScopeEvent, MobileLayout, HomeChromeView, ChromeEvent, ThreadSelection, HomeView, HomePreferences, Time, Viewport, PairingFields, Theme, Camera, Notice, Snapshot, ScheduledHeader, AutomationChange, VoiceFocus, PreviewOwner, PreviewMenus, InformationRoute, InformationRead, InformationConfiguration, InformationChange, Change from "./app-shapes.contract"
@@ -16,33 +16,24 @@ use SettingsAutomation, AutomationPrepared, AutomationData, AutomationResult fro
 use VoiceGlobalPill, VoiceSnapshot, VoiceStatus, VoiceResult, VoiceColors from "./voice-controls.contract"
 use MobileAttachmentDocument, AttachmentDocumentSnapshot, AttachmentDocumentMenu, AttachmentDocumentAction from "./attachment-document.contract"
 use MobileTerminal, MobileTerminalCaptureView, MobileTerminalSnapshot, MobileTerminalResult, MobileTerminalEvent, MobileTerminalCapture from "./terminal-mobile.contract"
-use ReviewView, ReviewCommentComposer from "./review-view.contract"
 use ReviewSnapshot, ReviewResult, ReviewColors from "./review-shapes.contract"
 use MobileFileTree, FileTreeSnapshot, FileTreeResult from "./file-tree.contract"
 use MobileFileView, FileSnapshot from "./file-view.contract"
 use SettingsServer, ServerSettingsData from "./settings-server.contract"
 use SettingsProviderAccounts, ProviderSettingsData from "./settings-provider.contract"
 use MediaPreview, MediaPreviewSnapshot from "./media-preview.contract"
-use ComposerAttachmentStrip from "./composer-attachments.contract"
 use ComposerAttachmentsSnapshot from "./composer-attachment-shapes.contract"
 use SettingsRoot, SettingsRootData, SettingsHeader, SettingsChoices, SettingsChoicesData, MobilePreferencesResource from "./settings.contract"
 use SettingsAppearance, SettingsAppearanceData from "./settings-appearance.contract"
 use Archive, ArchiveData, ArchiveColors from "./archive.contract"
 use AgentActivity, AgentActivityData, AgentActivityColors from "./agent-activity.contract"
 // @ref llp/1106.003-pairing-and-transport.decision.md#decision
-use Connect, ConnectionColors from "./connect.contract"
 use EnvironmentDetail, EnvironmentDetailData from "./environment-detail.contract"
 use HomeChrome from "./home-chrome.contract"
-use ThreadFeed, ThreadApprovals from "./thread.contract"
-use ComposerSettings, ComposerChoices from "./composer-settings.contract"
 use NewTaskFlowSnapshot, NewTaskFlowResult from "./new-task-flow.contract"
-use NewTaskProjects, NewTaskEnvironments, NewTaskBranches, NewTaskHero, NewTaskWorkspace from "./new-task.contract"
 use ComposerSettingsSnapshot, ComposerActionResult, ComposerColors, NewTaskSnapshot, NewTaskResult, NewTaskPreparation from "./composer-shapes.contract"
-use ThreadComposer from "./thread-composer.contract"
 use ThreadSnapshot, ThreadColors from "./thread-shapes.contract"
 use Home, HomeItem, HomeColors from "./home.contract"
-use Scanner from "./scanner.contract"
-use Environments, EnvironmentRow, GitHubRoutingSettings, GitHubRoutingRow from "./environments.contract"
 
 // @ref llp/1106.002-design-system-parity.spec.md#typography-and-font-assets
 font "DM Sans"
@@ -53,6 +44,7 @@ font "DM Sans"
 routes nav
   home "/"
     thread "/threads/:threadEnvironment/:threadId"
+    threadQueue "/threads/:threadEnvironment/:threadId/queue"
     threadBrowser "/threads/:threadEnvironment/:threadId/browser"
     threadDevices "/threads/:threadEnvironment/:threadId/devices"
     threadTerminal "/threads/:threadEnvironment/:threadId/terminal"
@@ -586,6 +578,14 @@ component App
           streamHaptics = concat(streamHaptics, [StreamingHapticState(routeId=hapticFeed.routeId, owner=hapticFeed.owner, id=hapticFeed.id, textLength=hapticFeed.textLength, lastAt=0)])
   resource threadLook = threadColors(appearance.scheme, appearance.themeId) as shape ThreadColors
   resource threadData = threadView(data.revision, wallTime.epochAtZero + elapsed, appearance.scheme, top(nav).params.threadEnvironment, top(nav).params.threadId, startsWith(top(nav).name, "thread")) as shape ThreadSnapshot
+  resource queueData = queueSnapshot(`${top(nav).id}`, top(nav).name == "threadQueue" and workspaceRouteReady, wallTime.epochAtZero + elapsed, data.revision) as shape MobileQueueSnapshot
+  mutation queuePrepared as shape Change refreshes queueData
+  task prepareQueueThumbnails when top(nav).name == "threadQueue" and workspaceRouteReady and queueData.visit == `${top(nav).id}` and queueData.thumbnailRequest != "" and not pending(queuePrepared) key=`${queueData.owner}:${queueData.visit}:${queueData.thumbnailRequest}`
+    after(1, loadQueueThumbnails)
+  action loadQueueThumbnails
+    send queuePrepared = queuePrepare(queueData.owner, queueData.visit, queueData.thumbnailRequest, wallTime.epochAtZero + now())
+  task dismissEmptyQueue when top(nav).name == "threadQueue" and workspaceRouteReady and queueData.visit == `${top(nav).id}` and queueData.environmentId == data.environmentId and queueData.threadId == data.threadId and queueData.dismiss key=top(nav).id
+    nav = back(nav)
   mutation routeSelected as shape ThreadSelection refreshes data then didLoadRouteThread
   action didLoadRouteThread
     match routeSelected
@@ -617,8 +617,13 @@ component App
     composerFocused = value
   action threadAction(op: string, id: string, value: string)
     if top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
-      lastOperation = "thread-action"
-      send changed = command(op, id, value, `${wallTime.epochAtZero + now()}`, taskGuardOwner, taskGuardRoute)
+      if op == "queue-open"
+        blur()
+        composerFocused = false
+        nav = push(nav, path("threadQueue", data.environmentId, data.threadId))
+      else
+        lastOperation = "thread-action"
+        send changed = command(op, id, value, `${wallTime.epochAtZero + now()}`, taskGuardOwner, taskGuardRoute)
   derive workspaceRouteReady = data.ready and top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
   mutation answerFilesPrepared as shape InformationRead refreshes threadData, data
   task prepareAnswerFiles when workspaceRouteReady and (top(nav).name == "thread" or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")) and threadData.environmentId == data.environmentId and threadData.threadId == data.threadId and threadData.answerFilesRequest != "" and not pending(answerFilesPrepared) key=`${threadData.answerFilesOwner}:${threadData.answerFilesRequest}`
@@ -1244,7 +1249,7 @@ component App
   mutation removal as shape Notice then didConfirmRemove
   mutation scanned as shape PairingFields then didScan
   resource parsed = pairingFields(host) as shape PairingFields
-  mutation changed as shape Change refreshes data, threadData then didChange
+  mutation changed as shape Change refreshes data, threadData, queueData then didChange
   task rem mount
     after(1, rootFont)
   action rootFont
@@ -1420,15 +1425,16 @@ component App
             data-mobile-form-sheet=(entry.name == "connections" or entry.name == "connect")
             data-mobile-scan-action=(entry.name == "connect" ? "scan-qr" : "")
             data-mobile-scanner-open=scannerOpen
-            navigationScroll=(entry.name == "home" ? (length(home.items) > 0 ? "home-list" : "") : (entry.name == "thread" or (entry.name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")) ? (length(threadData.rows) > 0 ? "thread-feed" : "") : entry.name == "gitOverview" ? "git-overview-scroll" : entry.name == "gitCommit" ? "git-commit-scroll" : entry.name == "gitConfirm" ? "git-confirm-scroll" : entry.name == "gitBranches" ? "git-branches-scroll" : entry.name == "threadReview" ? "review-diff" : entry.name == "threadFiles" ? "workspace-files" : entry.name == "threadFile" ? "file-source" : entry.name == "settingsScheduledTasks" ? "scheduled-tasks-scroll" : entry.name == "settingsScheduledNew" or entry.name == "settingsScheduledEdit" ? "scheduled-editor-scroll" : entry.name == "settingsThreads" ? "settings-thread-preferences-scroll" : entry.name == "settingsProjectOverview" ? "settings-project-scroll" : entry.name == "settingsNotifications" ? "settings-notifications-scroll" : entry.name == "settingsUsage" ? "settings-usage-scroll" : startsWith(entry.name, "settingsScheduled") or entry.name == "settingsUsageAccount" ? "" : entry.name == "settings" ? "settings-scroll" : entry.name == "settingsServer" ? "settings-server-scroll" : entry.name == "settingsProviders" ? "settings-provider-scroll" : entry.name == "settingsAppearance" ? "settings-appearance-scroll" : entry.name == "settingsChoice" ? "settings-choice-scroll" : entry.name == "archive" ? (length(archiveData.items) > 0 ? "archive-list" : "") : `scroll-${entry.id}`)
-            navigationPresentation=(startsWith(entry.name, "git") or entry.name == "connections" or entry.name == "connect" or entry.name == "threadTerminalCapture" or entry.name == "settingsLegal" or entry.name == "threadBrowser" or entry.name == "threadDevices" ? "modal" : "")
+            navigationScroll=(entry.name == "threadQueue" ? "mobile-queue-scroll" : entry.name == "home" ? (length(home.items) > 0 ? "home-list" : "") : (entry.name == "thread" or (entry.name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")) ? (length(threadData.rows) > 0 ? "thread-feed" : "") : entry.name == "gitOverview" ? "git-overview-scroll" : entry.name == "gitCommit" ? "git-commit-scroll" : entry.name == "gitConfirm" ? "git-confirm-scroll" : entry.name == "gitBranches" ? "git-branches-scroll" : entry.name == "threadReview" ? "review-diff" : entry.name == "threadFiles" ? "workspace-files" : entry.name == "threadFile" ? "file-source" : entry.name == "settingsScheduledTasks" ? "scheduled-tasks-scroll" : entry.name == "settingsScheduledNew" or entry.name == "settingsScheduledEdit" ? "scheduled-editor-scroll" : entry.name == "settingsThreads" ? "settings-thread-preferences-scroll" : entry.name == "settingsProjectOverview" ? "settings-project-scroll" : entry.name == "settingsNotifications" ? "settings-notifications-scroll" : entry.name == "settingsUsage" ? "settings-usage-scroll" : startsWith(entry.name, "settingsScheduled") or entry.name == "settingsUsageAccount" ? "" : entry.name == "settings" ? "settings-scroll" : entry.name == "settingsServer" ? "settings-server-scroll" : entry.name == "settingsProviders" ? "settings-provider-scroll" : entry.name == "settingsAppearance" ? "settings-appearance-scroll" : entry.name == "settingsChoice" ? "settings-choice-scroll" : entry.name == "archive" ? (length(archiveData.items) > 0 ? "archive-list" : "") : `scroll-${entry.id}`)
+            navigationPresentation=(entry.name == "threadQueue" or startsWith(entry.name, "git") or entry.name == "connections" or entry.name == "connect" or entry.name == "threadTerminalCapture" or entry.name == "settingsLegal" or entry.name == "threadBrowser" or entry.name == "threadDevices" ? "modal" : "")
+            navigationDetent=(entry.name == "threadQueue" ? "medium large" : "")
             position="absolute"
             inset=0
             background-color=look.sheet
             display="flex"
             flex-direction="column"
             MobileRouteContent(
-              gitData=gitData, gitBranchesData=gitBranchesData, gitCommitMessage=gitCommitMessage, gitNewBranch=gitNewBranch, gitWorktreeBase=gitWorktreeBase, gitWorktreeBranch=gitWorktreeBranch,
+              queueData=queueData, gitData=gitData, gitBranchesData=gitBranchesData, gitCommitMessage=gitCommitMessage, gitNewBranch=gitNewBranch, gitWorktreeBase=gitWorktreeBase, gitWorktreeBranch=gitWorktreeBranch,
               gitLook=gitLook, gitAction=gitAction, gitBranchAction=gitBranchAction, gitField=gitField, refreshGit=refreshGit, openGit=openGit, toggleInspector=toggleInspector,
               routeName=entry.name, routeId=`${entry.id}`, modelOption=entry.params.modelOption, focused=(entry.id == top(nav).id), notificationSettings=notificationSettings, viewport=viewport,
               workspace=workspace, voiceFocus=voiceFocus, voiceData=voiceData, voiceLook=voiceLook, appearance=appearance, look=look,

@@ -1,3 +1,5 @@
+import { mobileQueueSnapshot, mobileQueueCommand } from './queue';
+import { mobileQueuePrepare } from './queue-read';
 import { mobileThreadAnswerFilesPrepare } from './thread';
 import { mobileGitColors } from './git-colors';
 import { mobileGitSnapshot, mobileGitRead, mobileGitAction } from './git-overview';
@@ -237,8 +239,11 @@ export function answer(source: string, args: unknown[], _store?: unknown, storag
       title: String(args[1] ?? ''), message: String(args[2] ?? '') }).then(reply =>
       ({ choice: reply.ok ? String(obj(reply.value).choice ?? 'cancel') : 'cancel' }));
   }
+  if (source === 'queueSnapshot') return mobileQueueSnapshot(str(args[0]), args[1] === true, Number(args[2]));
+  if (source === 'queuePrepare') return mobileQueuePrepare(str(args[0]), str(args[1]), str(args[2]), Number(args[3]), native);
   if (source === 'command') {
     const operation = String(args[0] ?? ''), key = String(args[1] ?? '');
+    if (operation.startsWith('queue:')) return mobileQueueCommand(args, native, storage!);
     const separator = key.indexOf('\n');
     const origin = separator < 0 ? key : key.slice(0, separator);
     const environmentId = separator < 0 ? '' : key.slice(separator + 1);

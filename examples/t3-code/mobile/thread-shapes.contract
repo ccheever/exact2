@@ -126,6 +126,7 @@ shape ThreadPreparation
   revision: number
   pending: bool
 shape ThreadColors
+  glassFallback: string
   screen: string
   foreground: string
   secondary: string

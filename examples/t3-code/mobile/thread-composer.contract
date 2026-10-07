@@ -3,6 +3,7 @@
 // @ref llp/1106.008-mobile-voice.decision.md#presentation
 use ThreadComposerState, ThreadColors from "./thread-shapes.contract"
 use ProviderIcon from "./provider-icon.contract"
+use MobileQueueTrigger from "./queue-trigger.contract"
 use VoiceSnapshot, VoiceColors, VoiceStartAction, VoiceDictationToolbar, VoiceErrorStatus from "./voice-controls.contract"
 component ThreadComposer
   props
@@ -41,6 +42,9 @@ component ThreadComposer
   view
     column padding-left=12 padding-right=12 padding-top=(expanded ? 8 : 6) padding-bottom=(bottomInset + (expanded ? 8 : 6)) font-family="DM Sans"
       column width="100%" max-width=contentMaxWidth align-self="center"
+        when data.queueCount > 0
+          MobileQueueTrigger(count=data.queueCount, maxWidth=(contentMaxWidth * 0.45), foreground=colors.foreground, muted=colors.muted, border=colors.border, background=colors.glassFallback, action=action)
+          view height=8
         when data.modelUnavailable
           button press=openModelSettings padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 text-align="left"
             text "Model unavailable. Open model settings." font-size=13 line-height="17px" color=colors.foreground

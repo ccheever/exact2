@@ -81,7 +81,7 @@ export function mobileThreadColors(scheme: string, palette = 't3-code') {
   const tokens = themes[variant] ?? themes[dark ? 'dark' : 'light'];
   const token = (name: string) => tokens[`--color-${name}`];
   return {
-    screen: token('screen'), foreground: token('foreground'), secondary: token('foreground-secondary'),
+    screen: token('screen'), glassFallback: token('glass-fallback'), foreground: token('foreground'), secondary: token('foreground-secondary'),
     muted: token('foreground-muted'), iconSubtle: token('icon-subtle'), border: token('border'),
     borderSubtle: token('border-subtle'), subtle: token('subtle'), userBubble: token('user-bubble'),
     userForeground: token('user-bubble-foreground'), primary: token('primary'), primaryForeground: token('primary-foreground'),

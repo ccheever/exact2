@@ -1,0 +1,20 @@
+// FloatingWorkingControl queue segment, pinned365aa87982. The complete animated
+// status/preview/glass composition remains separate from this reachable control.
+// @ref llp/1106.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
+component MobileQueueTrigger
+  props
+    count: number
+    maxWidth: number
+    foreground: string
+    muted: string
+    border: string
+    background: string
+    action: action
+  view
+    when count > 0
+      button press=action("queue-open", "", "") height=38.5 max-width=maxWidth padding-left=10.5 padding-right=10.5
+        border-radius=999 border-width=1 border-style="solid" border-color=border background-color=background align-self="center"
+        aria-label=`Open queue, ${count} messages` testId="thread-queue-open"
+        row min-width=0 align-items="center" gap=7
+          t3-symbol symbol-name="list.number" point-size=13 symbol-weight="regular" symbol-tint=muted width=13 height=13
+          text `${count} queued` min-width=0 flex-shrink=1 font-size=12 font-weight=500 line-clamp=1 text-overflow="ellipsis" color=foreground
