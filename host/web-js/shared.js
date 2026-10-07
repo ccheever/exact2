@@ -16,7 +16,7 @@
 // runs. The browser calls the update asynchronously: until it has run, later
 // commits' updates wait behind it, in order.
 
-import { hold } from './focus.js';
+import { hold, within } from './focus.js';
 
 const NAME = '[data-shared-element]';
 let pending = null; // the tails waiting for a transition's update
@@ -91,7 +91,11 @@ function ident() { return `exact-se-${++serial}`; }
 export function commit(tail, queue, inflight, after) {
   // A deferred tree update keeps the press that caused it (focus.js), so a field it mounts may still
   // take the focus from the pressed control.
-  const deferred = () => { const let_go = hold(); return () => { try { return tail(); } finally { let_go(); } }; };
+  const deferred = () => {
+    const held = hold(), run = () => { run.ran = true; return within(held, tail); };
+    run.release = () => held?.release();
+    return run;
+  };
   if (pending) { pending.push(deferred()); return true; }
   if (typeof document.startViewTransition !== 'function' || matchMedia('(prefers-reduced-motion: reduce)').matches) return tail();
   const old = leavers(queue);
@@ -117,7 +121,8 @@ export function commit(tail, queue, inflight, after) {
   const t = document.startViewTransition(() => {
     const tails = pending;
     pending = null;
-    result = tails.map(f => f())[0];
+    // A tail that throws skips the rest; their presses are let go all the same (focus.js).
+    try { result = tails.map(f => f())[0]; } finally { for (const f of tails) if (!f.ran) f.release(); }
     // A leaver is gone, or kept only as an exit ghost (its own or an
     // ancestor's): it has left. One that stayed keeps its name and moves.
     const gone = new Map(); // name → the leavers that left

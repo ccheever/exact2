@@ -989,7 +989,13 @@
       query: function (sql, params) { return storageCall(raw, "query", [sql, params]); },
       prepare: function (sql) { return storageCall(raw, "prepare", [sql], statement); },
       transaction: function (commands) { return storageCall(raw, "transaction", [commands]); },
-      close: function () { openDatabases.delete(handle); return storageCall(raw, "close", []); },
+      // A close counts once issued; one refused or failed leaves the database open, and tracked.
+      close: function () {
+        openDatabases.delete(handle);
+        var closing = storageCall(raw, "close", []);
+        closing.then(null, function () { openDatabases.add(handle); });
+        return closing;
+      },
     });
   }
   var files = { directories: Object.freeze({ data:"app:/data", cache:"app:/cache", temporary:"app:/tmp" }) };
@@ -998,7 +1004,8 @@
   });
   var storage = Object.freeze({ fs:Object.freeze(files), sqlite:Object.freeze({
     open:function (path) {
-      var by = moving && currentCall && currentCall.replied ? background : currentCall;
+      // Its owner as storageCall reckons it: storage after an answer replied is the background's.
+      var by = moving && (currentCall ? currentCall.replied : !initializing) ? background : currentCall;
       return storageCall(nativeStorage && nativeStorage.sqlite, "open", [path], function (raw) { return database(raw, path, by); });
     },
   }) });
@@ -1218,7 +1225,8 @@
         if (call.lost) return;
         call.status = "done"; call.value = v;
       }, function (e) {
-        if (call.lost) return;
+        // A lost call's answer is not delivered, but a database it left open still is said.
+        if (call.lost) { leftOpen(); return; }
         call.status = "failed"; call.error = e;
         leftOpen();
       });

@@ -193,17 +193,18 @@ function queued(what, run) {
   });
 }
 let toldAgent = false;
-// The databases open now, with their paths and when each opened: an answer that fails with one it
-// opened still open is journaled (LLP 1097 D7). The host does not close a handle an app may keep or
-// share (Charlie, 2026-10-07), and the next open would find it locked. A close counts once issued.
+// The databases open now, each with the answer that opened it (LLP 1097 D7). The host does not
+// close a handle an app may keep or share (Charlie, 2026-10-07); one left open by background work
+// that failed is journaled instead, since the next open would find it locked.
 const openDatabases = new Set();
-let opened = 0;
-// On a failure (an answer's own rejection, or a rejection nothing handled): each database whose
-// open an answer issued that has since settled (its chain runs on in the background), or that
-// opened while a failing answer ran (`since`).
-function leftOpen(since = Infinity) {
+let pendingAnswers = 0;
+// On a failure (an answer's own rejection, or a rejection nothing handled): each database opened by
+// an answer that has since settled or replied (its chain runs on in the background). One opened by
+// a continuation, after its answer's synchronous part, has no known owner here: it counts only
+// when no answer is still pending, so a live answer's handle is never taken for background work's.
+function leftOpen() {
   for (const h of openDatabases) {
-    if (h.told || !(h.call?.settled || h.seq >= since)) continue;
+    if (h.told || !(h.call ? h.call.settled : pendingAnswers === 0)) continue;
     h.told = true;
     journal.push(`t=${clock.now} storage: ${h.path} is still open after a failure in background work that opened it: if that work owns it, close it in a finally (finally { db.close() }), or the next open finds it locked (LLP 1097 D7)`);
   }
@@ -236,10 +237,16 @@ function storageOf(grants) {
     [m, (...args) => queued(`${m} ${path}`, () => o[m](...args)).then(then ? v => then(v, path) : undefined)])));
   const statement = (s, path) => wrap(s, { execute: null, query: null, close: null }, path);
   const database = (d, path, call) => {
-    const handle = { path, seq: opened++, call, told: false };
+    const handle = { path, call, told: false };
     openDatabases.add(handle);
     const db = wrap(d, { execute: null, query: null, prepare: statement, transaction: null, close: null }, path);
-    return Object.freeze({ ...db, close: (...args) => { openDatabases.delete(handle); return db.close(...args); } });
+    // A close counts once issued; one refused or failed leaves the database open, and tracked.
+    return Object.freeze({ ...db, close: (...args) => {
+      openDatabases.delete(handle);
+      const closing = db.close(...args);
+      closing.catch(() => openDatabases.add(handle));
+      return closing;
+    } });
   };
   const methods = ['readFile', 'writeFile', 'atomicWriteFile', 'appendFile', 'readdir', 'mkdir', 'rm', 'stat', 'rename', 'copyFile', 'realpath'];
   return Object.freeze({
@@ -295,13 +302,18 @@ export function install(data, mixed = false, modules = null) {
     // The store as the module sees it (LLP 1018): a read marks the answer.
     const seen = createSecretFacade(store, tsGrantSet, kept);
     asking = target ?? name; watching = name;
-    const call = answering.call = { stream: null }, since = opened;
+    const call = answering.call = { stream: null };
     let r;
     try { r = source.answer(name, args.map((a, i) => named(a, params[i])), seen, storage, modules ? native : null); } catch (e) { call.settled = true; throw e; } finally { asking = ''; watching = null; answering.call = null; }
     const target_ = target ?? name;
     const shaped = types ? v => checked(name, v, result) : v => v;
-    if (call.stream) return { stream: opener(call.stream, v => conv(shaped(v), result, target_)), store: seen.read };
-    if (r && typeof r.then === 'function') return { promise: r.then(v => (call.settled = true, conv(shaped(v), result, target_)), e => { call.settled = true; leftOpen(since); throw e; }), store: seen.read };
+    // A stream's answer has replied once it returns (LLP 1016.000): what runs on is background work.
+    if (call.stream) { call.settled = true; return { stream: opener(call.stream, v => conv(shaped(v), result, target_)), store: seen.read }; }
+    if (r && typeof r.then === 'function') {
+      pendingAnswers++;
+      const settle = () => { call.settled = true; pendingAnswers--; };
+      return { promise: r.then(v => (settle(), conv(shaped(v), result, target_)), e => { settle(); leftOpen(); throw e; }), store: seen.read };
+    }
     call.settled = true;
     return { v: conv(shaped(r), result, target_), store: seen.read };
   };
