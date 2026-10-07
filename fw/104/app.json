@@ -1,0 +1,40 @@
+{
+  "$schema": "/Users/daehyeonmun/orca/workspaces/exact2/fix-104-cold-url-no-root-log/scripts/app.schema.json",
+  "name": "X05 Url Scheme",
+  "short_name": "X05 Url Scheme",
+  "id": "com.example.x05-url-scheme",
+  "start_url": "/",
+  "display": "standalone",
+  "app": {
+    "id": "com.example.x05-url-scheme",
+    "name": "X05 Url Scheme"
+  },
+  "host": {
+    "ios": {
+      "minimumOS": "17.0",
+      "deviceFamily": [
+        "iphone",
+        "ipad"
+      ]
+    },
+    "macos": {
+      "minimumOS": "14.0",
+      "window": {
+        "width": 900,
+        "height": 700
+      },
+      "urlSchemes": [
+        "exactreprox05"
+      ]
+    },
+    "web": {}
+  },
+  "deploy": {
+    "store": {
+      "web": "0",
+      "macos": "0",
+      "ios": "0",
+      "linux": "0"
+    }
+  }
+}
