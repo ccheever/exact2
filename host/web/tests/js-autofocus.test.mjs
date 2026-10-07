@@ -1,7 +1,7 @@
 // The JS target's `autofocus` at mount (host/web-js/focus.js; LLP 1035.000 D9, LLP 1102 §3.19):
 // the wasm host's focusController rule. A field mounted by a later commit takes the focus from the
 // body or from the control just pressed, once; never from another focused field. The DOM is a stand-in.
-import { test, expect } from 'bun:test';
+import { test, expect, afterAll } from 'bun:test';
 
 const field = (name, { shown = true, disabled = false, inert = false } = {}) => ({
   name, shown, disabled, inert, focused: 0,
@@ -14,15 +14,22 @@ const field = (name, { shown = true, disabled = false, inert = false } = {}) => 
 const body = { name: 'body' };
 let mounted = [];
 const root = { querySelectorAll: () => mounted };
+const had = { document: Object.getOwnPropertyDescriptor(globalThis, 'document'), style: Object.getOwnPropertyDescriptor(globalThis, 'getComputedStyle') };
 globalThis.document = { body, activeElement: body };
 globalThis.getComputedStyle = () => ({ visibility: 'visible' });
+// Test files share one process: the stand-ins go when this file is done.
+afterAll(() => {
+  for (const [name, d] of [['document', had.document], ['getComputedStyle', had.style]]) {
+    if (d) Object.defineProperty(globalThis, name, d); else delete globalThis[name];
+  }
+});
 globalThis.queueMicrotask ??= (f) => Promise.resolve().then(f);
-const { autofocus, press } = await import('../../web-js/focus.js');
+const { autofocus, press, offerAll } = await import('../../web-js/focus.js');
 
 test('a field mounted after a press takes the focus from the pressed button, once', async () => {
   const start = field('start');
   mounted = [];
-  autofocus(root, true); // boot: nothing to focus
+  autofocus(root); // boot: nothing to focus
   start.focus(); // the tap focused its button
   press(start);
   const name = field('name');
@@ -45,7 +52,7 @@ test('a mounted field never takes the focus from another field', () => {
   expect(document.activeElement).toBe(typing);
 });
 
-test('a hidden, disabled or inert field waits; the boot offers the rest no second time', () => {
+test('a hidden, disabled or inert field waits, and takes the focus once it is shown', () => {
   document.activeElement = body;
   const hidden = field('hidden', { shown: false }), off = field('off', { disabled: true }), shown = field('shown');
   mounted = [hidden, off, shown];
@@ -53,11 +60,17 @@ test('a hidden, disabled or inert field waits; the boot offers the rest no secon
   expect(shown.focused).toBe(1);
   expect(hidden.focused + off.focused).toBe(0);
   document.activeElement = body;
-  const a = field('a'), b = field('b');
-  mounted = [a, b];
-  autofocus(root, true); // a boot: the first takes it, the rest are marked offered
-  expect(a.focused).toBe(1);
-  document.activeElement = body;
+  hidden.shown = true;
   autofocus(root);
-  expect(b.focused).toBe(0);
+  expect(hidden.focused).toBe(1);
+});
+
+test('a carried restart offers every rebuilt field: none takes the focus later', () => {
+  document.activeElement = body;
+  const a = field('a', { shown: false }), b = field('b');
+  mounted = [a, b];
+  offerAll(root);
+  a.shown = true;
+  autofocus(root);
+  expect(a.focused + b.focused).toBe(0);
 });

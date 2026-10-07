@@ -114,11 +114,14 @@ impl<D: DataSource> Runner<D> {
     /// session's value, which a reader of only the final frame never sees
     /// (LLP 1102 §3.17).
     pub(super) fn revalidated(&mut self, i: usize, shown: Option<&ResourceState>, answer: &Value) {
-        let Some(shown) = shown.filter(|s| self.stale[i]) else {
+        let Some(shown) = shown.filter(|_| self.stale[i]) else {
             return;
         };
+        // A stale value that is neither build-time nor a placeholder is one the
+        // last session left (a kept answer; its `kept_seed` mark is consumed
+        // at activation, before the answer lands).
         let compiled = shown.value.is_compiled();
-        if !compiled && !shown.kept_seed {
+        if !compiled && shown.placeholder {
             return;
         }
         let same = crate::compare::equivalent(shown.value.get(&self.plan), answer);

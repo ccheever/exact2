@@ -264,7 +264,7 @@ export function groupController({ views, collections, request, applyBatch, now, 
   function keydown(b, e) {
     if (e.target !== b.el || e.key !== ' ' || e.repeat) return;
     if (cur?.phase === 'landing') cur.landNow();
-    if (cur) { refused(); return; }
+    if (cur) { if (!e.defaultPrevented) refused(); return; } // the key session's own Space drop is no refusal
     // The keys' contact takes the row's interaction pin as a finger's does;
     // the mapping reports it before the pin is retained.
     collections.reorderContact(b.el, -1);

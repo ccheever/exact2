@@ -42,7 +42,7 @@ export async function duringOp(s, op) {
 // What the host journaled about a reorder during the drag (LLP 1102 §3.17): a lift refused while
 // the last drop's session holds, or a touch the browser took, which a reply would otherwise read as
 // a success. Advice only: a journal read that fails or is slow says nothing.
-const quick = (p) => Promise.race([p, new Promise((done) => setTimeout(() => done(null), 2000))]).catch(() => null);
+const quick = (p) => Promise.race([p.catch(() => null), new Promise((done) => setTimeout(() => done(null), 2000))]);
 async function journalMark(s) { return (await quick(s.op({ op: 'logs', since: Number.MAX_SAFE_INTEGER })))?.next ?? null; }
 async function reorderNotes(s, since) {
   if (since == null) return [];
