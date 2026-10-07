@@ -73,3 +73,31 @@ WebKit: 88, 29, 64, 373, and 110 non-layout. What is left is no longer glyph dri
   - synthetic-segments (12 each): no Viewport Segments API.
   - synthetic-keys `key field a for 700` (a held key's auto-repeat, #140): Chrome's field reads `go`, Firefox's `goaaaa`. Chrome's held-key path (`browserKey`) sends no `text` for a printable key, so neither the down nor its repeats type; the same on main at 0bd99f606 (main: 225 keys lines, of which the key logs; this lane: 137, only this step outside layout). Not fixed here.
 
+
+## Finishing the calibration (2026-10-07, lane/xbrowser-finish)
+
+Every remaining class was probed in plain HTML in Chromium, Firefox and WebKit (Playwright 1.63.0 on the mini) and then fixed, sized out of the fixture, or named known with that evidence. Three blind review rounds (Astra, Grok) narrowed the known entries to exact steps and fields, with geometry pinned to the measured value pairs and tree and state rows matched by anchored patterns.
+
+| Item | Plain HTML | Outcome |
+|---|---|---|
+| Radios, ArrowRight on the last radio | Chrome and Firefox wrap to the first radio; WebKit stays | WebKit's convention: known at that step only; `radios.steps` taps red after it, so later steps start equal. No exact2 bug: the JS target and the wasm host follow Chrome. |
+| WebKit tabindex: root and the "disabled" box focused | WebKit's Tab skips buttons; clicking a button focuses its nearest focusable ancestor | WebKit's convention: known, focus mark only, exact records. The `disabled` box has `tabindex=0`, which HTML keeps focusable. |
+| Native control sizes (textarea, input, select, range, date, time, checkbox) | each engine's own intrinsic size (e.g. a checkbox in a stretching column: Chrome and Firefox 400 px wide, WebKit 12) | Fixtures size their incidental controls (budget, mounted, rem, controls, early; keys' textarea keeps its authored height). Apps keep theirs: markdown's path field (a text input's automatic minimum width in a flex row: Chrome 164, Firefox 194, WebKit 182.25 px, the app's numbers) and video-player's select (Firefox 156.83 against 141) are known at their measured pairs. |
+| Viewport segments and posture | `window.viewport` exists only in Chrome; `navigator.devicePosture` nowhere without emulation | Known at the segment steps, exact. |
+| Long-text wrapping | generic families differ: system-ui 16px 459.9 px (Chrome, WebKit) against 462.9 (Firefox) for the same 60 characters; `ui-monospace` is SF Mono only in WebKit | Known at measured pairs for markdown-stress (both), and textflow, fieldnotes, duo-lab and completion-storm (Firefox). WebKit's textflow scroll offset is not explained (its serif and system-ui match Chrome's) and stays failing. |
+| Media session readback | WebKit updates `playbackState` from the page's media; Chrome and Firefox return the declared value | Known per step, exact. |
+| Media rate counts | the harness's frozen clock fired its own `ratechange`s before or after the page's handlers | **Fixed in the harness:** the freeze is now invisible (`parityScript`): real rates 0, the page's own `playbackRate`/`defaultPlaybackRate` with real-setter validation and load-time resets, and the freeze's own trusted events swallowed. This also turned Chrome conformance (wasm vs JS) for synthetic-media, media-session and video-player green (27 failures on main to 0). |
+| Firefox `<audio>` on a video-only file | Firefox refuses it (MEDIA_ERR_SRC_NOT_SUPPORTED); `<video>` plays | Known for `sounds`, exact. |
+| Firefox headless fullscreen | innerWidth becomes 1366 | Known at the two fullscreen steps, measured pairs; playback still compared. |
+| Firefox collapsed setSelectionRange | no select event, direction "forward" | Known, exact. |
+| Firefox focus scrolling (synthetic-keys) | Chrome reveals a partly hidden focused field, Firefox does not | Known at measured pairs (the page column's scroll offset is not reported, so the comparison cannot cancel it). |
+| Realworld's ♥ | 14px sans-serif `♥ 2`: Chrome and WebKit 43.69 px, Firefox 37.98 | Known at measured pairs. |
+| Media session on the Playwright carrier | — | **Fixed:** `mediasession` goes through `exact.mediaSession.act`, as on Chrome, without needing a box. |
+| Held key (#140) | — | **Fixed:** Chrome's `browserKey` sends a key's text with its down, so a held printable key types and repeats; Control and Meta chords carry none. Firefox's `key field a for 700` now matches. |
+
+**Final counts** (all 24 apps and the synthetic fixtures): Firefox 0 failures (679 known); WebKit 9 failure lines from three causes (934 known), all left open on purpose:
+- `synthetic-startend` `long.sy`: Chrome 91,784 against WebKit 91,782 at four steps. Plain HTML of a comparable 1,900-row list gives equal scroll heights in Chrome and WebKit, so this is not shown to be an engine difference.
+- `synthetic-lists tap say`: `transcript.sy` Chrome 166 against WebKit 70, deterministic (3 of 3), though the two screenshots at that step show the same rows. Unexplained; worth a look at `scrollFollowEnd` in WebKit.
+- WebKit `textflow` `tap pause` and `clock +60000`: `textflow.y` and the document scroll offset, 215 against 130 (above).
+
+The issue stays open for those three.

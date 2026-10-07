@@ -519,6 +519,17 @@ test('a chord presses its modifiers as their own keys around the key, as a keybo
   expect(held.size).toBe(0);
 });
 
+test('a held printable key types with its down and each repeat; a Control chord types nothing (#140)', async () => {
+  const sent = [], call = async (method, event) => sent.push(event);
+  const down = await browserKey({id:3,opts:{key:'a',phase:'down'},evaluate:async()=>true,ask:async()=>({ok:true}),call,frame:async()=>{}});
+  await browserKey({id:3,opts:{key:'a',phase:'down',repeat:true},evaluate:async()=>true,ask:async()=>({ok:true}),call,frame:async()=>{}});
+  await down.release();
+  expect(sent.map(e => [e.type, e.text ?? null, e.autoRepeat ?? false])).toEqual([['keyDown','a',false], ['keyDown','a',true], ['keyUp',null,false]]);
+  sent.length = 0;
+  await browserKey({id:3,opts:{key:'Control+a'},evaluate:async()=>true,ask:async()=>({ok:true}),call,frame:async()=>{}});
+  expect(sent.filter(e => e.text != null)).toEqual([]);
+});
+
 test('browser function keys reach the focused game with their platform key identity', async () => {
   for(const [key,vk] of [['F1',112],['F2',113],['F12',123],['F24',135]]) {
     const calls=[];
