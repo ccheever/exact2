@@ -20,6 +20,7 @@ import { READ_OPS, WRITE_OPS, runOps, type OpOut } from './client-ops';
 import { groupingModes, message, projectPath } from './client-shared';
 import { letGo } from './let-go';
 import { fleet } from './settings-b-fleet';
+import { readLocalBackend, unknownLocalBackend, type LocalBackendStatus } from './local-backend';
 import { groupLabel } from './r6-polish-groups';
 import { adoptModelPrefs } from './settings-b-models';
 import { type RequestDraft } from './requests';
@@ -55,6 +56,8 @@ const scopeStrings = (value: unknown): string[] => Array.isArray(value) ? value.
 const DEFAULT_ORIGIN = 'http://127.0.0.1:3773'; // T3's default server address (README)
 export class T3Client {
   available = false;
+  /** The embedded server's status (local-backend.ts); "This machine" reads it. */
+  localBackend: LocalBackendStatus = unknownLocalBackend();
   revision = 0;
   generation = -1;
   environmentId = '';
@@ -307,6 +310,7 @@ export class T3Client {
       this.adoptStatus(obj(status.value), status.generation);
       await reconnectOnLaunch(this, native, obj(status.value)); // r8-pointer D14: a relaunch reconnects (r8-pointer-reconnect.ts)
       await fleet.sync(native, launchFocus(this)); // settings-b: background environments (settings-b-fleet.ts)
+      this.localBackend = await readLocalBackend(native); // the embedded server (local-backend.ts)
       await this.flushSnapshotReleases(native, storage);
       if (this.connection !== 'connected') { if (this.local.deviceSettings.snapShotEnabled) await this.adoptSnapshots(native, storage); return; }
       if (this.synchronizedGeneration !== this.generation) await this.synchronize(native);

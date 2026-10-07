@@ -4,7 +4,10 @@ A macOS client for an existing T3 Code server. Contract draws the interface;
 TypeScript owns the client state and projections; an app-local Swift module
 handles HTTP, WebSocket RPC, Keychain credentials, the composer's text view, menus,
 notifications and window chrome. Provider execution, workspaces, Git and conversation
-history remain on the T3 server. The app does not bundle or modify T3 Code.
+history remain on the T3 server. The app carries the official T3 server release (the CLI
+archive of the release built from the reference pin, unmodified; `server-runtime/runtime-pin.json`)
+and runs it as its own local server (20261005-embedded-server-runtime; "This machine" is built on it
+by 20261005-local-primary-environment). It does not modify T3 Code.
 
 ## Reference and verification status
 
@@ -79,8 +82,27 @@ Exact repository root:
 bun install --frozen-lockfile
 export EXACT_APP_DIR="$PWD/examples/t3-code"
 bun examples/t3-code/terminal-host/build.mjs   # the terminal page into assets/ (ignored; EXACT2-GAPS X46)
+bun examples/t3-code/stage-runtime.mjs         # the embedded T3 server into server-runtime/ (ignored; network once)
 bun host/apple/build.mjs t3-code-macos --bundle --run
 ```
+
+The embedded server. `stage-runtime.mjs` downloads the release archive named by
+`server-runtime/runtime-pin.json`, accepts it only when its SHA-256, the release's `SHA256SUMS`
+and the pin agree, checks the signatures of its Mach-O files, runs `t3 --version`, starts it once on
+a scratch home and a lane port, and puts the archive and its manifest beside the pin (`--offline`
+reuses the cache in `.runtime-cache/`). The bundle carries that folder as
+`Contents/Resources/t3-runtime` (`app.json` `host.macos.resources`). At the first launch the app
+unpacks it into `<T3 home>/runtime/versions/<version>` and starts `t3 --bootstrap-fd 0` with the
+desktop envelope; it restarts the server with T3 Code's backoff, keeps its failure log in
+`<T3 home>/userdata/logs/server-child.log`, and stops it when the app quits. A development build
+starts it only with an isolated home and a lane port, never `~/.t3` or 3773:
+
+```sh
+T3_LOCAL_HOME=/tmp/lane/t3-home T3_LOCAL_PORT=16437 bun host/apple/build.mjs t3-code-macos --bundle --run
+```
+
+Without both variables its status is `refused` and nothing starts. Only the packaged build
+(`distribution.json` in its Resources) uses `~/.t3` and the port scan from 3773, as T3 Code does.
 
 Start your existing T3 installation with `t3`, or use its normal source-checkout
 startup command. Configure and authenticate at least one provider in T3 Code.

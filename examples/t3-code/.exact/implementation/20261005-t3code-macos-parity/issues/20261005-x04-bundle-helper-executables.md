@@ -101,3 +101,28 @@ assets, hashed into the binary receipt (a change needs a new binary) and signed 
 signer's ordering. Unverified upstream: Developer ID signing of such a tree (no identity on the PR's
 machine). The clone bundles no server yet, so nothing is adopted here: `20261005-embedded-server-runtime`
 and `20261005-portable-app-download` use it in place of the archive plan.
+
+## Resolved upstream (main #215) and adopted by embedded-server-runtime (2026-10-07)
+
+Filed as [#103](https://github.com/ccheever/exact2/issues/103) and fixed by main PR #215 ("Support signed macOS
+helper and native resource trees", `a582e9818`), merged into the branch of
+[20261005-embedded-server-runtime](../tasks/closed/20261005-embedded-server-runtime.md) with main `463acda68`. Main
+built option **A**: `app.json` `host.macos.resources` copies a directory beside `app.json` into `Contents/Resources|Helpers|Frameworks/<name>`
+with modes, any names and in-tree relative links kept, outside the bake (no base64, no buffer or per-file cap), and
+signs the Mach-O files in it before the outer bundle (`exact release` with the release identity).
+
+Adopted in embedded-server-runtime:
+
+| Item from "App adoption" | Result |
+| --- | --- |
+| Remove the part-splitting stage | Done: no parts. `stage-runtime.mjs` puts the release archive, its pin and manifest in `server-runtime/`, carried as `Contents/Resources/t3-runtime` (bundle 59.5 → 133.8 MB; `codesign --verify --deep --strict` passes) |
+| Remove the first-launch unpack, point the server at the bundle | Not done, by measurement and U3: #215 re-signs every Mach-O file in the tree, which replaces the server's Developer ID signature and drops its entitlements; signed as `exact release` signs (`--options runtime`, no entitlements), the release's `t3` aborts at start (V8 "Failed to reserve virtual memory for CodeRange", exit 133). The archive keeps the release's bytes, and U3 places the unpacked runtime in `<T3 home>/runtime/versions`; the unpack keeps every signature (11/11 pass) |
+| `issue-close`: no parts, clean-account launch | No parts: yes. The clean-account launch is `20261005-portable-app-download`'s row; that task re-runs its executable-bit and signature audit rows on #215 |
+
+Residual for the framework (not blocking this plan): native resource trees are re-signed without each file's own
+entitlements (`codesign --force --sign … ` without `--preserve-metadata=entitlements`, `host/apple/build.mjs` and the
+release signer), so a JIT helper shipped as a tree breaks under the hardened runtime. Report it upstream with
+`issue-open` if a task needs to ship such a helper as a tree.
+
+Status: fixed upstream; adopted here; stays open for `20261005-portable-app-download` and
+`20261005-this-machine-network-access`, which adopt it in their own rows.

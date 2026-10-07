@@ -69,6 +69,7 @@ final class T3Module: ExactModule {
         composer.launcher = launcher
         chrome.changed = changed // desktop-shell-details: full screen publishes t3.status (T3FullScreen.swift)
         DispatchQueue.main.async { [sidebar] in sidebar.install() }
+        attachLocalBackend(context) // the embedded server (T3Module+Local.swift)
     }
     override func later(_ request: [String: Any], reply: ExactReply) {
         if let key = request["fleet"] as? String { return fleet.perform(key, request) { reply.send($0) } }
@@ -77,7 +78,7 @@ final class T3Module: ExactModule {
     /// Each area's ops (T3Module+<Area>.swift), in turn: an area answers the ops it owns and
     /// calls `next` for the rest; what no area owns goes to the transport. No two areas share
     /// an op. A feature adds its area's method in its own file and one entry here.
-    private static let areas: [(T3Module) -> ([String: Any], ExactReply, () -> Void) -> Void] = [T3Module.connectionOps, T3Module.fileOps, T3Module.timelineOps, T3Module.deviceOps, T3Module.sidebarOps, T3Module.snapshotOps, T3Module.composerOps, T3Module.windowOps, T3Module.shellOps, T3Module.mediaOps, T3Module.terminalOps]
+    private static let areas: [(T3Module) -> ([String: Any], ExactReply, () -> Void) -> Void] = [T3Module.connectionOps, T3Module.fileOps, T3Module.timelineOps, T3Module.deviceOps, T3Module.sidebarOps, T3Module.snapshotOps, T3Module.composerOps, T3Module.windowOps, T3Module.shellOps, T3Module.mediaOps, T3Module.terminalOps, T3Module.localOps]
     private func route(_ request: [String: Any], reply: ExactReply, from index: Int) {
         guard index < Self.areas.count else { return forward(request, reply: reply) }
         Self.areas[index](self)(request, reply) { self.route(request, reply: reply, from: index + 1) }
@@ -118,7 +119,7 @@ final class T3Module: ExactModule {
         if element.hook == .t3SnapshotTile, let view = element.view { snapShot.removeTile(view: view) }
         if element.hook == .t3Composer { snapShot.removeComposer(key: ObjectIdentifier(element)) }
     }
-    override func destroy() { activity.destroy(); panelTabs.destroy(); toolIcons.destroy(); timelineTips.destroy(); r10.destroy(); r9.destroy(); sidebar.destroy(); notifications.destroy(); snapShot.destroy(); composer.destroy(); video.destroy(); media.destroy(); devices.destroy(); intent.destroy(); frames.destroy(); scrollEnds.destroy(); chrome.destroy(); menus.destroy(); timeline.destroy(); turns.destroy(); transport.destroy(); fleet.destroy(); ssh.destroy() }
+    override func destroy() { activity.destroy(); panelTabs.destroy(); toolIcons.destroy(); timelineTips.destroy(); r10.destroy(); r9.destroy(); sidebar.destroy(); notifications.destroy(); snapShot.destroy(); composer.destroy(); video.destroy(); media.destroy(); devices.destroy(); intent.destroy(); frames.destroy(); scrollEnds.destroy(); chrome.destroy(); menus.destroy(); timeline.destroy(); turns.destroy(); transport.destroy(); fleet.destroy(); ssh.destroy(); T3LocalBackend.shared.detach(self) }
 }
 
 let exactModule: ExactModule.Type = T3Module.self

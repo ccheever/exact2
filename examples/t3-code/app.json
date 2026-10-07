@@ -25,7 +25,8 @@
   ],
   "commands": {
     "terminal": ["bun", "terminal-host/build.mjs"],
-    "verify-terminal": ["bun", "terminal-host/verify-vendor.mjs"]
+    "verify-terminal": ["bun", "terminal-host/verify-vendor.mjs"],
+    "runtime": ["bun", "stage-runtime.mjs"]
   },
   "hooks": [
     "t3-composer",
@@ -60,7 +61,8 @@
         "height": 840,
         "minWidth": 840,
         "minHeight": 620
-      }
+      },
+      "resources": [{ "from": "server-runtime", "to": "Resources/t3-runtime" }]
     }
   },
   "deploy": {

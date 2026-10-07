@@ -5,16 +5,29 @@ import Foundation
 /// packages/client-runtime/src/connection/errors.ts mapRemoteEnvironmentError).
 /// The scope names live in TypeScript (`remote-scopes.ts`); this file sends the `scope` it is given.
 enum T3RemoteAuth {
+    /// `clientMetadataTokenExchangeFields`: the label, device type and OS a session is listed with.
+    struct Client {
+        var label: String
+        var deviceType = "desktop"
+        var os: String?
+        /// What this app sends for a paired environment.
+        static let remote = Client(label: "Exact T3 for Mac", os: "macos")
+        /// The embedded server's own session: DesktopLocalEnvironmentAuth.ts sends only these two.
+        static let localDesktop = Client(label: "T3 Code Desktop")
+    }
+
     /// The `/oauth/token` form body. `scope` is sent only when the caller named one, as
-    /// remote.ts spreads `scope` only when `scopes` is given.
-    static func exchangeForm(credential: String, scope: String) -> Data {
+    /// remote.ts spreads `scope` only when `scopes` is given (the embedded server's exchange
+    /// names none, so it is granted every scope).
+    static func exchangeForm(credential: String, scope: String = "", client: Client = .remote) -> Data {
         var fields = [
             "grant_type": "urn:ietf:params:oauth:grant-type:token-exchange",
             "subject_token": credential,
             "subject_token_type": "urn:t3:params:oauth:token-type:environment-bootstrap",
             "requested_token_type": "urn:ietf:params:oauth:token-type:access_token",
-            "client_label": "Exact T3 for Mac", "client_device_type": "desktop", "client_os": "macos",
+            "client_label": client.label, "client_device_type": client.deviceType,
         ]
+        if let os = client.os { fields["client_os"] = os }
         if !scope.isEmpty { fields["scope"] = scope }
         return T3Endpoint.form(fields)
     }
