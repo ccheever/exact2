@@ -1,0 +1,30 @@
+===== normal-quit/record.txt
+launched pid 56345
+--- socket (04:25:32)
+drwx------ $TMPDIR/t3code-501
+srw------- $TMPDIR/t3code-501/55b411b92e964d4addd4e9d1.sock
+--- t3 app <lane>/projects/gamma (04:25:32)
+Opened <lane>/projects/gamma in T3 Code.
+app pid 56345, server pid 56494
+--- SIGSTOP server 56494; t3 app <lane>/projects/kappa (04:25:32)
+--- quit (Apple Event: tell application id to quit) (04:25:35)
+--- CLI returned at 04:25:35 (04:25:35)
+DesktopAppRequestFailedError: T3 Code could not open <lane>/projects/kappa (renderer-unavailable).
+exit 1
+--- app exited (04:25:42)
+--- socket after the quit (04:25:42)
+ls: $TMPDIR/t3code-501/55b411b92e964d4addd4e9d1.sock: No such file or directory
+--- projects (04:25:42)
+alpha
+gamma
+
+===== normal-quit/app-activation-log.txt
+t3.activation: watching the window 201609 for its close
+t3.activation: desktop app control socket ready at $TMPDIR/t3code-501/55b411b92e964d4addd4e9d1.sock
+t3.activation: request 448230a7-b13a-4b7e-b196-eae2a1d7eb35 arrived
+t3.activation: request 448230a7-b13a-4b7e-b196-eae2a1d7eb35 handed to the window
+t3.activation: request 448230a7-b13a-4b7e-b196-eae2a1d7eb35 answered: opened project a0fa0ac7-3629-476a-9d92-4c15638d7ba9 thread 262bd0b0-7476-44a1-809a-a449dcc0da16
+t3.activation: request 2779b348-f7dd-4bef-a1e2-84dc2d8306fa arrived
+t3.activation: request 2779b348-f7dd-4bef-a1e2-84dc2d8306fa handed to the window
+t3.activation: request 2779b348-f7dd-4bef-a1e2-84dc2d8306fa answered: renderer-unavailable The T3 Code window closed before it opened the project.
+
