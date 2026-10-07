@@ -152,11 +152,18 @@ export const ACTION_HINT: Record<string, string> = {
 };
 const OPERATION_PREFIX = /^Pull request operation \w+ failed:\s*/iu;
 const TOOL_NOISE = [/^(github|gitlab|bitbucket|azure devops)?\s*(cli|api)?\s*(command\s*)?failed\.?$/iu, /^exited? with (code|status) \d+\.?$/iu, /^unknown error\.?$/iu];
-/** readableFailure: the host's own sentence when it said one, else what to check. */
-export function readableFailure(raw: string, hint: string): string {
+/** How much of a host's own message a toast can carry before it stops being read. */
+const FAILURE_DETAIL_MAX_LENGTH = 320;
+/**
+ * readableFailure (pullRequestDetail.logic.ts, completed by pr-conversation-and-refresh): the host's
+ * own sentence when it said one — without the operation it arrived wrapped in — and otherwise what
+ * to go and check; an Error, a string, or anything else (which says nothing, so the hint).
+ */
+export function readableFailure(failure: unknown, hint: string): string {
+  const raw = failure instanceof Error ? failure.message : typeof failure === 'string' ? failure : '';
   const detail = raw.replace(OPERATION_PREFIX, '').trim();
-  if (!detail || TOOL_NOISE.some(pattern => pattern.test(detail))) return hint;
-  return detail.length <= 320 ? detail : `${detail.slice(0, 319)}…`;
+  if (detail.length === 0 || TOOL_NOISE.some(pattern => pattern.test(detail))) return hint;
+  return detail.length <= FAILURE_DETAIL_MAX_LENGTH ? detail : `${detail.slice(0, FAILURE_DETAIL_MAX_LENGTH - 1)}…`;
 }
 /** PullRequestActionInput: the reference (an absent host is the project's own) plus the action and, for a merge, its method. */
 export function actionPayload(reference: Obj, action: 'merge' | 'ready', mergeMethod?: MergeMethod): Obj {
