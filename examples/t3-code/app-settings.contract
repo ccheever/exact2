@@ -164,7 +164,7 @@ component SettingsWindow
     coreRestoreConfirm: action
   view
     when settingsOpen
-      row position="absolute" left=0 top=0 width="100%" height="100%" background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) inert=(connecting or (settingsThemeDialog != "" and settingsThemeDialog != "create" and settingsThemeDialog != "edit" and settingsThemeDialog != "duplicate") or settingsRestoreOpen) role="dialog" aria-label="Settings" testId="settings-dialog"
+      row position="absolute" left=0 top=0 width="100%" height="100%" background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) inert=(connecting or (settingsThemeDialog != "" and settingsThemeDialog != "create" and settingsThemeDialog != "edit" and settingsThemeDialog != "duplicate") or settingsRestoreOpen or providerDialog != "") role="dialog" aria-label="Settings" testId="settings-dialog"
         when data.sidebarOpen
           SettingsNav(controlsLeft=data.controlsLeft, nav=settingsNavigation, route=settingsRoute, query=settingsQuery, width=max(max(208, data.sidebarMinWidth), min(sidebarWidth, viewport.width / 5)), pal=settingsCore.palette, active=0, artwork=data.look.artwork, menuOpen=(settingsMenu != "" or settingsRestoreOpen or settingsEscapeHeld or snapshotSetupOpen), edit=editSettingsQuery, onKey=coreSearchKey, pick=corePick, clear=coreClearSearch, back=closeModal, toggle=toggleSidebar)
         column flex=1 min-width=0 height="100%" box-sizing="border-box"
