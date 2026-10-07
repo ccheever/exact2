@@ -1,8 +1,8 @@
 ---
 name: 20261005-desktop-oracle-and-trace
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
+implementation: blocked
+verification: blocked
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: daehyeon/t3-code
@@ -126,6 +126,8 @@ permission for native chrome captures.
 
 ## Progress
 
+2026-10-06: not to be built (user decision). Tasks whose acceptance rows need the reference oracle or the trace diff record those rows as not run, and this ticket is no longer a prerequisite of any task.
+
 Planned.
 
 ## Attempts and evidence
@@ -136,4 +138,4 @@ Planned.
 
 ## Next action
 
-`prepare` after the clone-on-main PR merges and the apparatus is approved.
+None unless the user reverses the 2026-10-06 decision.

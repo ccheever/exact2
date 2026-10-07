@@ -93,7 +93,7 @@ Next: `issue-open` (reproduce, search for duplicates, prepare the report for the
 ## Fixed upstream; available, not adopted here (2026-10-07, adopt-main-fixes-r4)
 
 [#103](https://github.com/ccheever/exact2/issues/103) was closed by main #215 (`8d8fb0db9`), in the feature
-branch since main `463acda68` ([20261007-adopt-main-fixes-r4](../tasks/20261007-adopt-main-fixes-r4.md)).
+branch since main `463acda68` ([20261007-adopt-main-fixes-r4](../tasks/closed/20261007-adopt-main-fixes-r4.md)).
 `app.json` `host.macos.resources: [{from, to}]` copies an app-relative tree to a private destination under
 `Contents` (for example `Resources/server` or `Helpers/server`) with its file modes, internal relative
 symlinks, scoped and spaced names and files above 64 MiB; the tree is outside TypeScript capture and web

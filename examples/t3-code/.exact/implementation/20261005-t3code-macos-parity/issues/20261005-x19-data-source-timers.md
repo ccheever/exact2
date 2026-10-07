@@ -100,7 +100,7 @@ Main #192 (merged before the feature branch's base) is documentation: the `analy
 diagnostic and the agents' guide point at a gated task (`task NAME when COND` with `every` or `after`) for
 "repeat or wait while a condition holds". The clone has no `pause`-mutation loop of the kind #192 warns
 about. Three of its mount polls were a gated task's job and are converted
-([20261007-adopt-main-fixes-r4](../tasks/20261007-adopt-main-fixes-r4.md)): the Pull Requests search
+([20261007-adopt-main-fixes-r4](../tasks/closed/20261007-adopt-main-fixes-r4.md)): the Pull Requests search
 (`every(250)` checking `now() - typedAt`, so the query applied 250–500 ms after the last keystroke) is now
 the reference's 250 ms debounce (`task prSearchSettle when … key=prQuery` with `after(250, …)`); a
 terminal's close confirm and a thread the module opened (both read from the shell snapshot on a 500 ms

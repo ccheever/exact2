@@ -1,7 +1,7 @@
 ---
 name: 20261005-fake-github-fixture
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: blocked
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
@@ -146,6 +146,8 @@ Required environment: Bun 1.4.2, the pinned reference runtime copy, no network.
 
 ## Progress
 
+2026-10-06: on hold (user decision). Tasks that need a sign-in (GitHub, provider accounts, T3 Connect) do not start until the user lifts the hold.
+
 Planned. No branch.
 
 ## Attempts and evidence
@@ -156,6 +158,4 @@ Planned. No branch.
 
 ## Next action
 
-Decisions needed before `prepare`: the apparatus approval (U2), the fake's location is decided (U23: `examples/t3-code/tools/fakegh/`), and whether other hosts' CLIs get fakes (U21;
-otherwise their UI states are covered by capability-driven unit tests only). Then `prepare` once
-`20261005-clone-on-exact2-main` and `20261005-desktop-oracle-and-trace` have merged, then `implement`.
+Starts when the user lifts the sign-in hold: `prepare` from `feat(example)/t3-code`, covering sign-in rows with lane fixtures (fake provider, seeded data).

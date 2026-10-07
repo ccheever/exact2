@@ -73,7 +73,7 @@ Checked sources and time: planning pass 2026-10-05 against the local drafts in `
 | --- | --- | --- | --- | --- |
 | [X40](../issues/20261005-x40-app-update-feed.md) | Decision, and a module API to the delivery system | scope decision; not in the library | blocking | `issue-open`, then the user decides |
 | [X39](../issues/20261005-x39-telemetry.md) | Control pipe (part 3) for server-triggered updates | scope decision | blocking for item 8 only | decide part 3 |
-| [X6](../issues/20261005-x06-module-quit-shutdown.md) | Bounded delay at quit | main #200 (#105) runs `destroy()` at quit; no bounded hold on `463acda68` ([adopt-main-fixes-r4](20261007-adopt-main-fixes-r4.md)) | nonblocking (install stops the server itself) | none |
+| [X6](../issues/20261005-x06-module-quit-shutdown.md) | Bounded delay at quit | main #200 (#105) runs `destroy()` at quit; no bounded hold on `463acda68` ([adopt-main-fixes-r4](closed/20261007-adopt-main-fixes-r4.md)) | nonblocking (install stops the server itself) | none |
 | [X26](../issues/20261005-x26-app-menu-control.md) | App menu control | `EXACT2-GAPS.md` X26 | nonblocking (the menu item exists) | none |
 
 ## Implementation notes

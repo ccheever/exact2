@@ -1,9 +1,9 @@
 ---
 name: 20261005-terminal-drawer
 plan: 20261005-t3code-macos-parity
-implementation: in-progress
+implementation: implemented
 verification: unverified
-delivery: open
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-terminal-drawer
@@ -243,6 +243,8 @@ physical Korean IME, three-scope authorization, and visual/motion rows.
 
 Review the repairs and evidence on PR #175. Keep the overall ticket active until the remaining
 acceptance rows have direct evidence.
+
+2026-10-07 (records sync): merged into `feat(example)/t3-code` by #175 (`1a50d0df3`); verification stays as recorded above.
 
 ## Expanded verification, 2026-10-07
 
