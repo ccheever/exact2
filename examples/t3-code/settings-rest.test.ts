@@ -1,3 +1,4 @@
+import { redactedPlaceholder } from './redacted-text';
 import { describe, test, expect } from 'bun:test';
 import { params, storagePatch, resolveWorktreeCleanup, keybindingPayload } from './settings-rest-commands';
 import { commandLabel, pillParts, shortcutLabel, parseWhen, printWhen, whenEditor, whenVariables, buildRows, commandOptions, conflictLabels, conflictText, rowId } from './keybinding-view';
@@ -226,7 +227,9 @@ describe('source control and integrations (scoped rows)', () => {
       sourceControlProviders: [{ kind: 'github', label: 'GitHub', status: 'available', version: { _tag: 'Some', value: 'gh 2' }, installHint: 'x', executable: 'gh', auth: { status: 'authenticated', account: { _tag: 'Some', value: 'secret-account' } } }] });
     expect(found.vcs[0]).toMatchObject({ comingSoon: true, summary: 'Support for Jujutsu is coming soon.', dot: 'muted' });
     expect(found.providers[0]).toMatchObject({ version: 'gh 2', summary: 'Authenticated', account: true, enabled: true });
-    expect(JSON.stringify(found)).not.toContain('secret-account');
+    // RedactedText draws the same-shape placeholder until this item's own reveal (provider-sign-in-and-install, D14).
+    expect(found.providers[0]).toMatchObject({ accountValue: 'secret-account', accountPlaceholder: redactedPlaceholder('secret-account') });
+    expect(found.vcs[0]).toMatchObject({ accountValue: '', accountPlaceholder: '' });
     expect(toolVersion(undefined)).toBe('Version unknown');
     expect(toolVersion({ installedVersions: [], requiredVersion: '1.2' })).toBe('Not installed');
     expect(toolVersion({ installedVersions: ['1.0', '1.10', '1.9'], requiredVersion: '2' })).toBe('v1.10');

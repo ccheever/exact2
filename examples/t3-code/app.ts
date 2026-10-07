@@ -14,7 +14,7 @@ import { archivedSettings, licenseSettings, storageSettings } from './settings-d
 import { T3Client } from './client';
 import { composerEditorView, composerWorkspaceView, refreshComposerWorkspace } from './composer-editor';
 import { composerBranches } from './composer-controls-branch';
-import { providerPage, providerWizard, acpRegistry, providerFieldValues } from './providers';
+import { providerPage, providerWizard, acpRegistry, providerFieldValues, providerSetupStreams, wizardSetupStreams } from './providers';
 import { connectionsPage } from './connections';
 import { iconPicker } from './settings-b-icons';
 import { sshHostsView } from './settings-b-ssh';
@@ -40,7 +40,7 @@ import { highlightSlice, startHighlightTurn } from './r12-render-highlight';
 import { noteServerUpdateClock } from './server-update-notices'; // server-update-banner
 import { terminalDrawerView, terminalOpen } from './terminal-drawer-view';
 import { terminalFocused } from './terminal-focus';
-import { watchProviderAuth, providerAuthOp } from './provider-auth-terminal'; // terminal-drawer
+import { watchProviderSetup, providerSetupOp } from './provider-setup'; // provider-sign-in-and-install: the Account and Runtime rows' streams and commands
 import { autoBalancePrepare } from './auto-balance'; // auto-balance: Settings › Load balancing, read for the composer
 import { letGoAware } from './let-go'; // a let-go answer's native calls reject as 'superseded', never as an error
 
@@ -88,17 +88,17 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
   if (source === 'sshPromptAnswer') return sshPromptAnswer(native, String(args[0] || ''), String(args[1] || ''));
   if (source === 'settingsBSshHosts') return sshHostsView(client, native, args[0] === true, String(args[1] ?? '')); // settings-b-ssh.ts
   if (source === 'settingsBPicker') return iconPicker(client, native, String(args[0] || ''), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? ''), String(args[4] || ''), String(args[5] || ''), Number(args[6]) || 0); // settings-b-icons.ts
-  if (source === 'providerPage') { const id = String(args[0] || '') || providerPage(client, '', Number(args[3]) || 0).editors[0]?.id || ''; if (native?.available) await watchProviderAuth(client, native, id); return providerPage(client, id, Number(args[3]) || 0); }
-  if (source === 'providerWizard') return providerWizard(client, args[0] === true, Number(args[1]) || 0, String(args[2] || 'codex'), args[3] === true, String(args[4] || ''), args[5] === true, String(args[6] || ''));
+  if (source === 'providerPage') { if (native?.available) await watchProviderSetup(client, native, 'page', args[1] === true ? providerSetupStreams(client, String(args[0] || '')) : { auth: [], install: [] }); return providerPage(client, String(args[0] || ''), Number(args[3]) || 0); }
+  if (source === 'providerWizard') { if (native?.available) await watchProviderSetup(client, native, 'wizard', wizardSetupStreams(client, args[0] === true, Number(args[1]) || 0)); return providerWizard(client, args[0] === true, Number(args[1]) || 0, String(args[2] || 'codex'), args[3] === true, String(args[4] || ''), args[5] === true, String(args[6] || '')); }
   if (source === 'acpRegistry') return acpRegistry(client, native, String(args[0] || ''), args[1] === true, Object.values(obj(obj(client.config.settings).providerInstances)).filter(entry => obj(entry).driver === 'acpRegistry').map(entry => str(obj(obj(entry).config).agentId)));
-  if (source === 'providerChange' && args[0] === 'provider-auth-event') { if (native?.available) await providerAuthOp(client, native, 'provider-auth-event', String(args[1] || ''), JSON.stringify({ value: String(args[3] ?? '') })); return { revision: ++client.revision, message: '' }; }
+  if (source === 'providerChange' && String(args[0] || '').startsWith('setup:')) { if (native?.available) await providerSetupOp(client, native, String(args[0]), String(args[1] || ''), String(args[2] ?? ''), String(args[3] ?? '')); return { revision: ++client.revision, message: '' }; }
   if (source === 'providerChange') return client.command(String(args[0] || ''), String(args[1] || ''), args[0] === 'favorite-model' ? String(args[2] || '') : JSON.stringify({ key: String(args[2] ?? ''), value: String(args[3] ?? '') }), 0, native, storage);
   if (source === 'providerAdd') return client.command('provider-add', String(args[2] || ''), JSON.stringify({ driver: args[0], label: args[1], accentColor: args[3], fields: providerFieldValues(String(args[0] || ''), args.slice(4, 9).map(value => String(value ?? ''))) }), 0, native, storage);
   if (source === 'keybindingSettings') return keybindingSettings(client, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, String(args[3] || ''), String(args[4] || ''), String(args[5] || ''), String(args[6] || ''));
   if (source === 'saveKeybinding') return client.command('keybinding-save', String(args[0]), JSON.stringify({ previous: args[1], command: args[2], key: args[3], when: args[4] }), 0, native, storage);
   if (source === 'scheduledSettings') return scheduledPage(client, native, String(args[0] || ''), String(args[1] || ''), String(args[2] || ''), String(args[3] || ''), args[4] === true, Number(args[5]) || 0, String(args[8] || ''), String(args[9] || ''), String(args[10] || '')); // live-automations: the scope's machine, project and checkout
   if (source === 'saveScheduledTask') return client.command('task-save', String(args[0]), JSON.stringify(taskFromArguments(args)), 0, native, storage);
-  if (source === 'sourceControlPage') return sourceControlPage(client, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, viewState(client).rescan, viewState(client).reveal);
+  if (source === 'sourceControlPage') return sourceControlPage(client, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, viewState(client).rescan);
   if (source === 'keyboardDispatch') return keyboardDispatchSource(client, args);
   if (source === 'projectsView') { const legacy = String(args[2] || ''); const group = !args[0] && legacy ? client.projectGroups().find(candidate => candidate.members.some(member => member.id === legacy)) : undefined; return projectsView(client, group ? group.key : String(args[0] || ''), group ? legacy : String(args[1] || ''), args[3] === true, native); }
   if (source === 'integrationsPage') return integrationsPage(client, native, String(args[0] || ''), String(args[1] || ''), args[2] === true, String(args[5] || ''), String(args[6] || ''), String(args[7] || ''));

@@ -28,6 +28,7 @@ use SettingsRestoreDialog from "./settings-core-body.contract"
 use SettingsADialogs from "./settings-a-dialogs.contract"
 use ProvidersPanel from "./providers.contract"
 use ProviderPage from "./providers.contract"
+use ProviderSetupConfirm from "./providers-setup.contract"
 use AddProviderDialog from "./providers-wizard.contract"
 use ProviderWizard from "./providers-wizard.contract"
 use AcpRegistry from "./providers-wizard.contract"
@@ -155,6 +156,7 @@ component SettingsWindow
     providerUi: action
     providerOp: action
     providerAccent: action
+    setupBusy: bool
     projectsSettings: ProjectsPage
     settingsThemeSubject: string
     coreThemeChange: action
@@ -194,7 +196,7 @@ component SettingsWindow
               when settingsRoute == "connections"
                 ConnectionsPanel(page=connectionsPage, width=min(1024, viewport.width - (data.sidebarOpen ? max(208, min(sidebarWidth, viewport.width / 5)) : 0) - 12) - 48, busy=commandPending, error=(connecting or pendingModal != "" ? "" : modalError), add=openConnection, op=connectionOp, remove=connectionAskRemove, menu=connectionMenu, toggleMenu=connectionToggleMenu, addRoute=openRoute, still=viewport.prefersReducedMotion)
               when settingsRoute == "providers"
-                ProvidersPanel(page=providerPage, scheme=(data.look.mode == "dark" or (data.look.mode == "system" and viewport.prefersColorScheme == "dark") ? "dark" : "light"), width=min(1024, viewport.width - (data.sidebarOpen ? max(208, min(sidebarWidth, viewport.width / 5)) : 0) - 12) - 48, height=viewport.height, busy=commandPending, error=(providerDialog == "" ? modalError : ""), select=providerUi("select"), op=providerOp, accent=providerAccent, ui=providerUi)
+                ProvidersPanel(page=providerPage, scheme=(data.look.mode == "dark" or (data.look.mode == "system" and viewport.prefersColorScheme == "dark") ? "dark" : "light"), width=min(1024, viewport.width - (data.sidebarOpen ? max(208, min(sidebarWidth, viewport.width / 5)) : 0) - 12) - 48, height=viewport.height, busy=commandPending, setupBusy=setupBusy, error=(providerDialog == "" ? modalError : ""), select=providerUi("select"), op=providerOp, accent=providerAccent, ui=providerUi)
               when settingsRoute == "projects"
                 ProjectsPanel(data=projectsSettings, busy=commandPending, error=(restEditor == "" ? modalError : ""), choose=coreScope, rest=rest, restInput=restInput, raw=restRaw, open=restOpen)
               when modalError != "" and settingsRoute != "projects" and settingsRoute != "scheduled-tasks" and settingsRoute != "source-control" and settingsRoute != "integrations" and settingsRoute != "keybindings" and settingsRoute != "storage" and settingsRoute != "archived" and not snapshotSetupOpen
@@ -275,6 +277,7 @@ component SettingsModals
     providerOp: action
     providerPage: ProviderPage
     providerTarget: string
+    setupBusy: bool
     connectionRemove: string
     connectionsPage: ConnectionsPage
     connectionAskRemove: action
@@ -287,7 +290,7 @@ component SettingsModals
       AddEnvironmentDialog(origin=origin, credential=credential, pairFields=pairFields, connected=data.connected, available=data.available, viewportHeight=viewport.height, busy=commandPending, error=modalError, sshHosts=sbSshHosts, sshHost=sbSshHost, editOrigin=editOrigin, editCredential=editCredential, submit=connectionOp("environment-add", origin, credential), set=sbSet, ssh=connectionOp, close=closeConnection, routeTarget=routeTarget, routeLabel=routeLabel)
     when providerDialog == "add"
       each session in providerWizard.sessions key=session.key
-        AddProviderDialog(wizard=providerWizard, acp=acpAgents, step=wizardStep, attempted=wizardAttempted, labelSet=wizardLabelSet, label=wizardLabel, idSet=wizardIdSet, id=wizardId, query=acpQuery, manual=wizardManual, viewportHeight=viewport.height, busy=commandPending, error=modalError, ui=providerUi, add=providerAdd, op=providerOp)
+        AddProviderDialog(wizard=providerWizard, acp=acpAgents, step=wizardStep, attempted=wizardAttempted, labelSet=wizardLabelSet, label=wizardLabel, idSet=wizardIdSet, id=wizardId, query=acpQuery, manual=wizardManual, viewportHeight=viewport.height, scheme=(data.look.mode == "dark" or (data.look.mode == "system" and viewport.prefersColorScheme == "dark") ? "dark" : "light"), busy=commandPending, setupBusy=setupBusy, error=modalError, ui=providerUi, add=providerAdd, op=providerOp)
     when providerDialog == "chatgpt"
       each session in providerWizard.sessions key=session.key
         ChatGptAccountDialog(busy=commandPending, error=modalError, close=providerUi("close", ""), create=providerOp("provider-chatgpt", ""))
@@ -298,6 +301,14 @@ component SettingsModals
       each hub in providerPage.hubs key=hub.id
         when hub.id == providerTarget
           HubRemoveDialog(hub=hub, busy=commandPending, cancel=providerUi("close", ""), confirm=providerOp("provider-hub-remove", "", hub.id, "", true))
+    // provider-sign-in-and-install: Sign out (the Account row) and Remove (the Antigravity runtime) ask first.
+    when providerDialog == "setup-logout" or providerDialog == "setup-remove"
+      each editor in providerPage.editors key=editor.key
+        when editor.id == providerTarget
+          each account in (providerDialog == "setup-logout" ? editor.setup.account : []) key=account.key
+            ProviderSetupConfirm(what=providerDialog, instanceId=editor.id, title=account.signOutTitle, body=account.signOutBody, busy=setupBusy, op=providerOp, ui=providerUi)
+          each runtime in (providerDialog == "setup-remove" ? editor.setup.runtime : []) key=runtime.key
+            ProviderSetupConfirm(what=providerDialog, instanceId=editor.id, title=runtime.removeTitle, body=runtime.removeBody, busy=setupBusy, op=providerOp, ui=providerUi)
     when connectionRemove != ""
       each environment in connectionsPage.environments key=environment.key
         when environment.key == connectionRemove

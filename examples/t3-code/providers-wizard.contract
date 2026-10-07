@@ -8,6 +8,9 @@ use DriverMark from "./provider-icons.contract"
 use ProviderOption from "./providers.contract"
 use ProviderHub from "./providers.contract"
 use ProviderMark from "./icons.contract"
+use ProviderWizardAuth from "./providers-setup.contract"
+use ProviderWizardAuthStep from "./providers-setup.contract"
+use AppConfirm from "./shell-panels.contract"
 
 shape WizardDriver
   id: string
@@ -50,6 +53,8 @@ shape ProviderWizard
   fields: list<WizardField>
   environment: string
   prepared: list<AcpAgent>
+  created: string
+  auth: list<ProviderWizardAuth>
 shape AcpRegistry
   ready: bool
   status: string
@@ -63,9 +68,10 @@ component WizardStep
     title: string
     summary: string
     current: number
+    disabled: bool
     go: action
   view
-    button press=go("step", `${number}`) flex=1 min-width=0 height="2.25rem" box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.5rem" padding-bottom="0.5rem" gap="0.5rem" border-radius="0.625rem" border-width=(current == number ? 1 : 0) border-style="solid" border-color="light-dark(#0000000d, #ffffff0d)" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" background-color=(current == number ? "light-dark(#ffffff, #111111)" : "#00000000") box-shadow=(current == number ? "0 1px 2px #0000000d" : "none") aria-label=(summary == "" ? `${title}, step ${number + 1}` : `${title}, step ${number + 1}, ${summary}`) testId=`wizard-step-${number}`
+    button press=go("step", `${number}`) disabled=disabled flex=1 min-width=0 height="2.25rem" box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.5rem" padding-bottom="0.5rem" gap="0.5rem" border-radius="0.625rem" border-width=(current == number ? 1 : 0) border-style="solid" border-color="light-dark(#0000000d, #ffffff0d)" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" background-color=(current == number ? "light-dark(#ffffff, #111111)" : "#00000000") box-shadow=(current == number ? "0 1px 2px #0000000d" : "none") aria-label=(summary == "" ? `${title}, step ${number + 1}` : `${title}, step ${number + 1}, ${summary}`) testId=`wizard-step-${number}`
       box width="1.25rem" height="1.25rem" border-radius="624.9375rem" flex-shrink=0 display="flex" align-items="center" justify-content="center" box-sizing="border-box" border-style="solid" border-width=1 border-color=(current > number ? "light-dark(#1b4ed8, #346bf1)" : (current == number ? "light-dark(#1b4ed84d, #346bf14d)" : "light-dark(#0000001a, #ffffff1a)")) background-color=(current > number ? "light-dark(#1b4ed8, #346bf1)" : (current == number ? "light-dark(#1d4ed81a, #316cf51a)" : "light-dark(#ffffff, #ffffff0d)"))
         when current > number
           PvIcon(name="check", size=14, color="#ffffff")
@@ -91,7 +97,9 @@ component AddProviderDialog
     query: string
     manual: bool
     viewportHeight: number
+    scheme: string
     busy: bool
+    setupBusy: bool
     error: string
     ui: action
     add: action
@@ -103,6 +111,15 @@ component AddProviderDialog
   state f4 = ""
   state accentOpen = false
   state accent = ""
+  state signOutOpen = false
+  action askSignOut
+    signOutOpen = true
+  action confirmSignOut
+    signOutOpen = false
+    op("setup:auth-logout", wizard.created, "", "", true)
+  action cancelSignOut
+    signOutOpen = false
+    focus(`provider-sign-out-${wizard.created}`)
   action setField(index: number, value: string)
     if index == 0
       f0 = value
@@ -126,6 +143,8 @@ component AddProviderDialog
   derive shownLabel = labelSet ? label : wizard.label
   derive shownId = idSet ? id : wizard.instanceId
   derive lastStep = isAcp ? 1 : 2
+  // Once an ACP instance is created the wizard is on its Sign in step (AddProviderInstanceDialog setWizardStep(2)).
+  derive shownStep = wizard.created != "" ? 2 : step
   view
     column class=PvOverlay testId="add-provider-overlay"
       column width="100%" max-width="48rem" max-height=(viewportHeight - 2 * rem) box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" position="relative" overflow="hidden" role="dialog" aria-label="Add provider" testId="add-provider-dialog"
@@ -133,12 +152,12 @@ component AddProviderDialog
           text "Add provider" font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
           text `Add an account or configure a provider on ${wizard.environment}.` font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
           row width="100%" height="2.75rem" box-sizing="border-box" padding="0.25rem" gap="0.25rem" border-radius="0.875rem" border-style="solid" border-width=1 border-color="light-dark(#0000000d, #ffffff0d)" background-color="light-dark(#fcfcfc, #ffffff0a)" role="list" aria-label="Setup progress"
-            WizardStep(number=0, title="Provider", summary=(step > 0 ? (isAcp ? wizard.label : wizard.driverLabel) : ""), current=step, go=ui)
-            WizardStep(number=1, title="Identity", summary=(step > 1 ? wizard.preview : ""), current=step, go=ui)
-            WizardStep(number=2, title=(isAcp ? "Sign in" : "Config"), summary="", current=step, go=ui)
+            WizardStep(number=0, title="Provider", summary=(shownStep > 0 ? (isAcp ? wizard.label : wizard.driverLabel) : ""), current=shownStep, disabled=(wizard.created != ""), go=ui)
+            WizardStep(number=1, title="Identity", summary=(shownStep > 1 ? wizard.preview : ""), current=shownStep, disabled=(wizard.created != ""), go=ui)
+            WizardStep(number=2, title=(isAcp ? "Sign in" : "Config"), summary="", current=shownStep, disabled=(wizard.created != ""), go=ui)
         scroll width="100%" flex=1 min-height=0 box-sizing="border-box" border-top-style="solid" border-top-width=1 border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#0000000d, #ffffff0d)" background-color="light-dark(#fcfcfccc, #ffffff05)" testId="add-provider-panel"
           column width="100%" box-sizing="border-box" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.25rem" padding-bottom="1.25rem" gap=0
-            when step == 0
+            when shownStep == 0
               column width="100%" gap="0.5rem"
                 text "Provider" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
                 row width="100%" gap="0.75rem" flex-wrap="wrap" role="radiogroup" aria-label="Provider"
@@ -207,7 +226,7 @@ component AddProviderDialog
                                     PvIcon(name="external", size=14, color="light-dark(#71717b, #818181)")
                                 button press=op("acp-prepare", "", agent.id, agent.name, true) class=PvOutline height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" font-size="0.75rem" disabled=(agent.added or busy) aria-label=`${agent.added ? "Already added" : (busy ? "Preparing" : "Add")} ${agent.name}` testId=`acp-add-${agent.id}`
                                   text (agent.added ? "Added" : "Add") font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-            when step == 1
+            when shownStep == 1
               column width="100%" gap="0.25rem" min-height=(isAcp ? "18rem" : "0px")
                 each agent in wizard.prepared key=agent.id
                   row width="100%" gap="0.75rem" padding-bottom="0.75rem" margin-bottom="1rem" align-items="flex-start" justify-content="space-between" border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)"
@@ -230,7 +249,7 @@ component AddProviderDialog
                     button press=toggleAccent class=PvIconButton width="1.75rem" height="1.75rem" background-color=(accent == "" ? "#00000000" : accent) aria-label=`${accent == "" ? "Add" : "Change"} accent color for ${shownLabel == "" ? wizard.driverLabel : shownLabel}` aria-expanded=accentOpen testId="new-provider-accent"
                       when accent == ""
                         PvIcon(name="plus", size=16, color="light-dark(#71717b, #818181)")
-            when step == 2 and not isAcp
+            when shownStep == 2 and not isAcp
               column width="100%" gap="0.25rem"
                 when length(wizard.fields) == 0
                   text "This driver has no required configuration. You can add the instance now." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
@@ -238,32 +257,38 @@ component AddProviderDialog
                   column width="100%" gap="0.25rem"
                     each field in wizard.fields key=field.key
                       WizardFieldRow(field=field, value=(field.index == 0 ? f0 : (field.index == 1 ? f1 : (field.index == 2 ? f2 : (field.index == 3 ? f3 : f4)))), set=setField)
-            when step == 2 and isAcp
-              column width="100%" gap="0.5rem" testId="acp-sign-in"
-                text "Sign in" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-                text "The ACP agent was added. Sign in from its provider settings once the server reports its authentication methods." font-size="0.75rem" line-height="1.125rem" color="light-dark(#71717b, #818181)"
-            when error != "" and step > 0
+            // ProviderWizardAuthenticationStep: the created agent's Account row (AddProviderInstanceDialog createdInstanceId).
+            each auth in wizard.auth key=auth.instanceId
+              ProviderWizardAuthStep(auth=auth, scheme=scheme, wide=true, busy=setupBusy, op=op, askSignOut=askSignOut)
+            when error != "" and shownStep > 0
               text error font-size="0.75rem" line-height="1rem" padding-top="0.75rem" role="alert" color="light-dark(#e7000b, #ff6467)" testId="add-provider-error"
         row width="100%" box-sizing="border-box" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" gap="0.5rem" justify-content="flex-end" align-items="center" flex-shrink=0
-          button press=ui(step == 0 ? "close" : "step", step == 0 ? "" : "back") class=(step == 0 ? PvGhost : PvOutline) height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" disabled=busy aria-keyshortcuts=(step == 0 ? "Escape" : "") testId=(step == 0 ? "close-add-provider" : "wizard-back")
-            text (step == 0 ? "Cancel" : "Back") font-size="0.875rem" line-height="1.25rem" font-weight=500 color=(step == 0 ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
-          when step == 0 and wizard.driver == "codex" and not manual
-            button press=ui("step", "next") class=PvOutline testId="configure-manually"
-              text "Configure manually" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-            button press=ui("open", "chatgpt") class=PvPrimary disabled=busy testId="continue-with-chatgpt"
-              ProviderMark(driver="codex", size=16, color="#ffffff")
-              text "Continue with ChatGPT" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
-          when (step == 0 and (wizard.driver != "codex" or manual)) or (step == 1 and not isAcp)
-            button press=ui("step", "next") class=PvPrimary disabled=busy testId="wizard-next"
-              text "Next" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
-          when step == lastStep and not (isAcp and step == 2)
-            button press=add(wizard.driver, shownLabel, idSet ? id : "", accent, f0, f1, f2, f3, f4) class=PvPrimary disabled=busy testId="create-provider"
-              text (busy ? "Adding..." : (isAcp ? "Continue to sign-in" : "Add instance")) font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
-          when isAcp and step == 2
-            button press=ui("close", "") class=PvPrimary testId="wizard-finish"
-              text "Done" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
+          // WizardFooter of the Sign in step: Done once signed in, else Skip for now; held while a sign-in runs.
+          each auth in wizard.auth key=auth.instanceId
+            button press=ui("close", "") class=(auth.signedIn ? PvPrimary : PvOutline) disabled=auth.active opacity=(auth.active ? 0.64 : 1) testId="wizard-finish"
+              text (auth.signedIn ? "Done" : "Skip for now") font-size="0.875rem" line-height="1.25rem" font-weight=500 color=(auth.signedIn ? "#ffffff" : "light-dark(#27272a, #f5f5f5)")
+          when wizard.created == ""
+            button press=ui(step == 0 ? "close" : "step", step == 0 ? "" : "back") class=(step == 0 ? PvGhost : PvOutline) height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" disabled=busy aria-keyshortcuts=(step == 0 ? "Escape" : "") testId=(step == 0 ? "close-add-provider" : "wizard-back")
+              text (step == 0 ? "Cancel" : "Back") font-size="0.875rem" line-height="1.25rem" font-weight=500 color=(step == 0 ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
+            when step == 0 and wizard.driver == "codex" and not manual
+              button press=ui("step", "next") class=PvOutline testId="configure-manually"
+                text "Configure manually" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+              button press=ui("open", "chatgpt") class=PvPrimary disabled=busy testId="continue-with-chatgpt"
+                ProviderMark(driver="codex", size=16, color="#ffffff")
+                text "Continue with ChatGPT" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
+            when (step == 0 and (wizard.driver != "codex" or manual)) or (step == 1 and not isAcp)
+              button press=ui("step", "next") class=PvPrimary disabled=busy testId="wizard-next"
+                text "Next" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
+            when step == lastStep
+              button press=add(wizard.driver, shownLabel, idSet ? id : "", accent, f0, f1, f2, f3, f4) class=PvPrimary disabled=busy testId="create-provider"
+                text (busy ? "Adding..." : (isAcp ? "Continue to sign-in" : "Add instance")) font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
         button press=ui("close", "") class=PvIconButton width="2rem" height="2rem" position="absolute" top="0.5rem" right="0.5rem" aria-label="Close" aria-keyshortcuts="Escape" disabled=busy testId="close-add-provider-x"
           PvIcon(name="x", size=16, color="light-dark(#71717b, #818181)")
+      // The Sign in step's Sign out confirmation (dialogs.confirm) over the wizard.
+      when signOutOpen
+        each auth in wizard.auth key=auth.instanceId
+          each account in auth.account key=account.key
+            AppConfirm(title=account.signOutTitle, body=account.signOutBody, destructive=false, busy=setupBusy, cancel=cancelSignOut, confirm=confirmSignOut)
 
 // A plain-group SettingsRow inside the wizard (title left, control right).
 component WizardRow

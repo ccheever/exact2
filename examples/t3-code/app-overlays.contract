@@ -116,6 +116,7 @@ component WindowOverlays
     selectModel: action
     searchModels: action
     selectProvider: action
+    openProviderSettings: action
     command: action
     paletteOpen: bool
     palette: PaletteView
@@ -157,7 +158,7 @@ component WindowOverlays
     toastAct: action
   view
     when modelsOpen
-      ModelPicker(data=data, session=popoverSession, catalog=catalog, viewport=viewport, query=modelQuery, left=composerLeft, bottom=(data.composer.toolbarTop > 0 ? viewport.height - data.composer.toolbarTop - (resting ? 4 : 2) + 4 : (resting ? 75 : 71) * rem / 16), busy=commandPending, close=closeModels, select=selectModel, search=searchModels, chooseRail=selectProvider, command=command)
+      ModelPicker(data=data, session=popoverSession, catalog=catalog, viewport=viewport, query=modelQuery, left=composerLeft, bottom=(data.composer.toolbarTop > 0 ? viewport.height - data.composer.toolbarTop - (resting ? 4 : 2) + 4 : (resting ? 75 : 71) * rem / 16), busy=commandPending, closePicker=closeModels, select=selectModel, search=searchModels, chooseRail=selectProvider, command=command, openSetup=openProviderSettings)
     when paletteOpen
       CommandPalette(view=palette, query=paletteQuery, highlight=paletteHighlight, scroll=paletteScroll, busy=paletteBusy, viewport=viewport, scheme=viewport.prefersColorScheme, edit=paletteEdit, onKey=paletteKey, run=paletteRun, hover=paletteHover, close=paletteClose, back=paletteKey("Back"), flag=paletteFlag)
     when detailsOpen and conversationWidth < 984 and viewport.prefersColorScheme == "dark"
