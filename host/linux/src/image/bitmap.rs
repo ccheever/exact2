@@ -6,24 +6,53 @@ use tiny_skia::Pixmap;
 /// GPU Blob, scene and renderer-cache owner. Natural pixels are layout units.
 pub struct Bitmap {
     // Field order matters: pixels are destroyed before the last charge drops.
-    pixels: Pixmap,
+    pixels: Pixels,
     natural: (u32, u32),
     _charge: AllocationCharge,
     // No backedge to the backend, session, payload or runtime.
     _source: Option<std::sync::Arc<super::workers::SourceOwner>>,
 }
+/// Where a decoded picture's pixels are.
+pub(super) enum Pixels {
+    /// On the heap.
+    Cpu(Pixmap),
+    /// In a GPU buffer a reader draws from ([`super::hardware`]).
+    #[cfg(target_os = "android")]
+    Hardware(super::hardware::Hardware),
+}
+impl From<Pixmap> for Pixels {
+    fn from(pixels: Pixmap) -> Self {
+        Pixels::Cpu(pixels)
+    }
+}
+impl Pixels {
+    fn cpu(&self) -> &Pixmap {
+        match self {
+            Pixels::Cpu(p) => p,
+            #[cfg(target_os = "android")]
+            Pixels::Hardware(h) => h.pixels(),
+        }
+    }
+    fn size(&self) -> (u32, u32) {
+        match self {
+            Pixels::Cpu(p) => (p.width(), p.height()),
+            #[cfg(target_os = "android")]
+            Pixels::Hardware(h) => h.size(),
+        }
+    }
+}
 impl Bitmap {
     #[cfg(test)]
     pub(crate) fn new(pixels: Pixmap, natural: (u32, u32), charge: AllocationCharge) -> Self {
         Self {
-            pixels,
+            pixels: pixels.into(),
             natural,
             _charge: charge,
             _source: None,
         }
     }
     pub(super) fn from_source(
-        pixels: Pixmap,
+        pixels: Pixels,
         natural: (u32, u32),
         charge: AllocationCharge,
         source: std::sync::Arc<super::workers::SourceOwner>,
@@ -51,20 +80,43 @@ impl Bitmap {
     }
     /// Decoded width, used only for sampling the backing pixels.
     pub fn width(&self) -> u32 {
-        self.pixels.width()
+        self.pixels.size().0
     }
     /// Decoded height, used only for sampling the backing pixels.
     pub fn height(&self) -> u32 {
-        self.pixels.height()
+        self.pixels.size().1
+    }
+    /// The decoded pixels' bytes, wherever they are.
+    pub fn bytes(&self) -> u64 {
+        let (w, h) = self.pixels.size();
+        u64::from(w) * u64::from(h) * 4
+    }
+    /// Whether a reader can draw from these pixels where they are (a GPU
+    /// buffer) instead of copying them.
+    pub fn shared(&self) -> bool {
+        #[cfg(target_os = "android")]
+        if matches!(self.pixels, Pixels::Hardware(_)) {
+            return true;
+        }
+        false
+    }
+    /// The GPU buffer holding the pixels (an `AHardwareBuffer*`, alive while
+    /// this is), when they were decoded into one.
+    #[cfg(target_os = "android")]
+    pub fn hardware(&self) -> Option<*mut std::ffi::c_void> {
+        match &self.pixels {
+            Pixels::Hardware(h) => Some(h.buffer()),
+            Pixels::Cpu(_) => None,
+        }
     }
     /// Borrow the immutable pixels; this never detaches them from their charge.
     pub fn pixels(&self) -> tiny_skia::PixmapRef<'_> {
-        self.pixels.as_ref()
+        self.pixels.cpu().as_ref()
     }
 }
 impl AsRef<[u8]> for Bitmap {
     fn as_ref(&self) -> &[u8] {
-        self.pixels.data()
+        self.pixels.cpu().data()
     }
 }
 

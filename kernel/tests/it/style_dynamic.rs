@@ -343,7 +343,7 @@ fn grid_css_values_reach_set_dynamic_in_every_style_value_shape() {
         assert_eq!(got, want, "{id:?}");
     }
 
-    let before = style.grid_template_columns.clone();
+    let before = style.rare.grid_template_columns.clone();
     assert_eq!(
         style.set_dynamic(
             StyleId::GridTemplateColumns,
@@ -353,7 +353,7 @@ fn grid_css_values_reach_set_dynamic_in_every_style_value_shape() {
             style: StyleId::GridTemplateColumns,
         })
     );
-    assert_eq!(style.grid_template_columns, before);
+    assert_eq!(style.rare.grid_template_columns, before);
 
     style
         .set_dynamic(

@@ -55,12 +55,25 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         #endif
     }
     required init?(coder: NSCoder) { nil }
+    #if os(iOS)
+    // LLP 1105 D6: UIKit asks a presented controller that covers the screen;
+    // it answers the presenter's one resolved style, as the root does.
+    override var preferredStatusBarStyle: UIStatusBarStyle { host?.presenter.statusBar.style ?? .default }
+    #endif
     private var backdropTap: UITapGestureRecognizer?
     /// Each appearance, the first and one after a cancelled interactive dismissal.
     var appeared: (() -> Void)?
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         appeared?()
+        #if os(iOS)
+        // Back after a cancelled drag or zoom dismissal, which no completion
+        // resolves: what landed during the gesture shows now (LLP 1105 D5).
+        // The finished coordinator may still be installed: only a newly
+        // started push or pop holds the style.
+        let resolve = { [weak self] in self?.host?.presenter.resolveStatusBar(settled: true) }
+        if !(transitionCoordinator?.animate(alongsideTransition: nil, completion: { _ in resolve() }) ?? false) { resolve() }
+        #endif
         guard backdropTap == nil, let container = presentationController?.containerView else { return }
         let tap = UITapGestureRecognizer(target: self, action: #selector(tappedBackdrop))
         tap.delegate = self
@@ -214,6 +227,28 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     var coordinateView: UIView? { layers.last?.controller.viewIfLoaded }
     var owner: UIViewController? { layers.last?.controller }
     var routes: [(node: NodeView, kind: String)] { layers.map { ($0.route, $0.kind) } }
+    #if os(iOS)
+    /// The topmost presented route the status bar sits over (LLP 1105 D2): a
+    /// full-screen one always; a sheet only at its large detent on a
+    /// compact-width screen. Nil when the bar is over the screen behind.
+    /// The topmost covering presentation's navigation view (its routes and
+    /// their pushes, not the app's root nodes that ride along with the
+    /// viewport); nil when the bar is over the primary screen. Every
+    /// presentation's navigation view, which the primary screen's scope
+    /// leaves out; and every presentation's whole view, where a node may sit.
+    var statusBarScope: (covering: UIView?, presented: [UIView], views: [UIView]) {
+        let covering = layers.last { layer in
+            let c = layer.controller
+            if c.modalPresentationStyle == .overFullScreen { return true }
+            guard let sheet = c.sheetPresentationController, c.traitCollection.horizontalSizeClass == .compact else { return false }
+            return (sheet.selectedDetentIdentifier ?? sheet.detents.first?.identifier) == .large
+        }
+        return (covering?.navigation.viewIfLoaded, layers.compactMap { $0.navigation.viewIfLoaded }, layers.compactMap { $0.controller.viewIfLoaded })
+    }
+    /// Every presented controller re-reads the style with the root (D6):
+    /// UIKit asks the topmost one that covers, which a sheet over it may hide.
+    func statusBarChanged() { for layer in layers { layer.controller.setNeedsStatusBarAppearanceUpdate() } }
+    #endif
 
     init(presenter: Presenter) { self.presenter = presenter }
 
@@ -397,6 +432,10 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
             if guarded { UIView.performWithoutAnimation { controller?.view.alpha = 1 } }
             guard let self, let layer else { return }
             layer.presenting = false
+            #if os(iOS)
+            // Up: what the bar sits over now (LLP 1105 D5).
+            presenter.resolveStatusBar()
+            #endif
             DispatchQueue.main.async { [weak self, weak layer] in
                 guard let self, let layer else { return }
                 if layers.contains(where: { $0 === layer }) {
@@ -458,6 +497,10 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
             guard let self, dismissing === layer else { return }
             dismissing = nil
             retiring.removeAll { $0 === layer }
+            #if os(iOS)
+            // Gone: what the bar sits over now (LLP 1105 D5).
+            presenter.resolveStatusBar()
+            #endif
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 drainRetired()
@@ -518,6 +561,16 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
             layer.controller.retiringNavigation = presenter.navigation.preserveModalContent(in: layer.controller)
             closeTop(animated: false, refit: false)
         }
+    }
+}
+#endif
+
+#if os(iOS)
+// A sheet dragged between detents moves what the status bar sits over
+// with no batch (LLP 1105 D5).
+extension ModalHost: UISheetPresentationControllerDelegate {
+    func sheetPresentationControllerDidChangeSelectedDetentIdentifier(_ sheetPresentationController: UISheetPresentationController) {
+        presenter.resolveStatusBar()
     }
 }
 #endif

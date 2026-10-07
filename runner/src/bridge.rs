@@ -235,6 +235,6 @@ mod tests {
             0,
         )
         .unwrap();
-        assert_eq!(style.grid_template_columns.css(), "100%");
+        assert_eq!(style.rare.grid_template_columns.css(), "100%");
     }
 }

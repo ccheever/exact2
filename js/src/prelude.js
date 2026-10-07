@@ -699,8 +699,8 @@
   }
   // The operation in flight's owner, or null.
   function headOwner() { return head ? owner(head.call) : null; }
-  var abortHooks = global.__ibex2_abort;
-  delete global.__ibex2_abort;
+  var abortHooks = global.__exact_ibex2_abort_hooks;
+  delete global.__exact_ibex2_abort_hooks;
   function watchAbort(signal, aborted) {
     if (abortHooks) return abortHooks.subscribe(signal, aborted);
     signal.addEventListener("abort", aborted);
@@ -712,29 +712,10 @@
     return p;
   }
 
-  function Headers(init) {
-    this._h = [];
-    if (init instanceof Headers) init = init._h;
-    if (Array.isArray(init)) for (var i = 0; i < init.length; i++) this.append(init[i][0], init[i][1]);
-    else if (init && typeof init === "object") for (var k in init) if (Object.prototype.hasOwnProperty.call(init, k)) this.append(k, init[k]);
-  }
-  Headers.prototype.append = function (k, v) { this._h.push([String(k).toLowerCase(), String(v)]); };
-  Headers.prototype.set = function (k, v) { this.delete(k); this.append(k, v); };
-  Headers.prototype.delete = function (k) { k = String(k).toLowerCase(); this._h = this._h.filter(function (e) { return e[0] !== k; }); };
-  Headers.prototype.get = function (k) {
-    k = String(k).toLowerCase();
-    var v = this._h.filter(function (e) { return e[0] === k; }).map(function (e) { return e[1]; });
-    return v.length ? v.join(", ") : null;
-  };
-  Headers.prototype.has = function (k) { return this.get(k) !== null; };
-  Headers.prototype.entries = function () { return this._h.slice(); };
-  Headers.prototype.forEach = function (f) { this._h.forEach(function (e) { f(e[1], e[0]); }); };
-  Headers.prototype.toJSON = function () { return this._h.slice(); };
-
   function Response(r) {
     this.status = r.status;
     this.ok = r.status >= 200 && r.status < 300;
-    this.headers = new Headers(r.headers);
+    this.headers = new global.Headers(r.headers);
     this._text = r.body;
     this._b64 = r.bodyBase64;
   }
@@ -753,7 +734,6 @@
   }
   FetchError.prototype = Object.create(Error.prototype);
 
-  global.Headers = Headers;
   global.Response = Response;
   global.fetch = function (url, init) {
     var call = currentCall;
@@ -773,7 +753,7 @@
     }
     if (call.letGo) return Promise.reject(new FetchError({ kind: "Aborted", message: "the answer was let go before this fetch" }));
     var method = init && init.method ? String(init.method).toUpperCase() : "GET";
-    var headers = new Headers(init && init.headers).entries();
+    var headers = Array.from(new global.Headers(init && init.headers).entries());
     var body = init && init.body != null ? String(init.body) : "";
     // LLP 1041 §8.4: an explicit promise about both operation and settlement.
     // Browsers ignore this native scheduling hint; their admission is unchanged.

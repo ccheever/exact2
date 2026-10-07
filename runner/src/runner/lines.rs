@@ -76,6 +76,25 @@ pub(super) fn kept(ticket: u64, name: &str) -> String {
     )
 }
 
+/// A watched topic changed while a request was in flight (LLP 1016.002 D4).
+pub(super) fn waits_for(topic: &str, ticket: u64, name: &str) -> String {
+    text!(
+        "changed {}: request {} ({}) lands first, then it is asked again",
+        topic,
+        ticket,
+        name
+    )
+}
+
+/// That request's reply landed (or failed): the resource is asked again.
+pub(super) fn asked_again(ticket: u64, name: &str) -> String {
+    text!(
+        "{}: asked again, a watched topic changed while request {} was in flight",
+        name,
+        ticket
+    )
+}
+
 pub(super) fn forgot(ticket: u64, name: &str) -> String {
     text!("forget request {} ({})", ticket, name)
 }

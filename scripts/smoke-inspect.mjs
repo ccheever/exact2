@@ -18,10 +18,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // host supplies a wrapper (#106). Loopback IP needs no ATS exception, so
 // the existing smoke app can exercise the WebKit path without changing
 // its manifest. The named-host ATS opt-in is verified on a built bundle.
+// A bundled page (`local.html`) loads a loopback `http:` stylesheet, as
+// Chrome does from a secure page, and the host logs one that fails (#135).
 export async function httpFrameSmoke({ host, open, check }) {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-http-frames-'));
   const source = resolve(dir, 'app.contract'), plan = resolve(dir, 'app.plan');
-  const server = createServer((_req, res) => {
+  const server = createServer((req, res) => {
+    if (req.url === '/style.css') { res.writeHead(200, { 'Content-Type': 'text/css' }); return res.end('body { background: rgb(26, 127, 55) }'); }
+    if (req.url === '/missing.css') { res.writeHead(404); return res.end(); }
     res.writeHead(200, { 'Content-Type': 'text/html', 'Cache-Control': 'no-store' });
     // No viewport meta: a top-level iOS load would report 980, not 300.
     res.end('<!doctype html><p id="result">script blocked</p><script>document.getElementById("result").textContent = "script ran at " + innerWidth + " origin " + self.origin; parent.postMessage("http-ready", "*")</script>');
@@ -30,6 +34,7 @@ export async function httpFrameSmoke({ host, open, check }) {
   try {
     await new Promise((done, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', done); });
     const url = `http://127.0.0.1:${server.address().port}/`;
+    writeFileSync(resolve(dir, 'local.html'), `<!doctype html><link rel="stylesheet" href="${url}style.css"><link rel="stylesheet" href="${url}missing.css"><p id="result">unstyled</p><script>addEventListener("load", () => { document.getElementById("result").textContent = getComputedStyle(document.body).backgroundColor + " secure " + isSecureContext })</script>`);
     writeFileSync(source, `component Frames
   state received = ""
   action message(payload)
@@ -39,16 +44,18 @@ export async function httpFrameSmoke({ host, open, check }) {
       iframe src="${url}" width=300 height=70 testId="http-open"
       iframe src="${url}" sandbox="" width=300 height=70 testId="http-blocked"
       iframe src="${url}" sandbox="allow-scripts" message=message width=300 height=70 testId="http-scripts"
+      iframe src="local.html" width=300 height=70 testId="local-http"
 `);
     const built = spawnSync('cargo', ['run', '-q', '--profile', HOST_DEV, '-p', 'contract', '--', 'build', source, '-o', plan], { cwd: resolve(import.meta.dir, '..'), encoding: 'utf8' });
     if (!check(built.status === 0, `${host} HTTP iframe fixture compiles: ${built.stderr}`)) return;
-    s = await open({ host, plan });
-    const expected = { 'http-open': `script ran at 300 origin ${new URL(url).origin}`, 'http-blocked': 'script blocked', 'http-scripts': 'script ran at 300 origin null' };
+    s = await open({ host, plan, env: { EXACT_ASSETS: dir } });
+    const expected = { 'http-open': `script ran at 300 origin ${new URL(url).origin}`, 'http-blocked': 'script blocked', 'http-scripts': 'script ran at 300 origin null', 'local-http': 'rgb(26, 127, 55) secure true' };
+    const failed = `${url}missing.css did not load`;
     const guest = (tree, id) => byTestId(tree, id)?.guest?.find(n => n.id === 'result')?.text;
     let tree, state;
     for (let i = 0; i < 100; i++) {
       tree = await s.tree(); state = await s.state();
-      if (Object.entries(expected).every(([id, text]) => byTestId(tree, id)?.loading === false && guest(tree, id) === text) && state.slots.received === 'http-ready') break;
+      if (Object.entries(expected).every(([id, text]) => byTestId(tree, id)?.loading === false && guest(tree, id) === text) && state.slots.received === 'http-ready' && s.carrier.hostLines.some(l => l.includes(failed))) break;
       await sleep(50);
     }
     for (const [id, text] of Object.entries(expected)) {
@@ -56,6 +63,7 @@ export async function httpFrameSmoke({ host, open, check }) {
       check(guest(tree, id) === text, `${host} ${id}: expected ${text}, got ${JSON.stringify(guest(tree, id))}`);
     }
     check(state.slots.received === 'http-ready', `${host} HTTP sandboxed guest did not deliver its message`);
+    check(s.carrier.hostLines.some(l => l.includes(failed)), `${host} a bundled page's failed sub-resource was not logged: ${s.carrier.hostLines.slice(-5).join(' | ')}`);
   } catch (error) { check(false, `${host} HTTP iframe fixture: ${error.message}`); }
   finally { try { await s?.close(); } finally { await new Promise(done => server.close(done)); rmSync(dir, { recursive: true, force: true }); } }
 }

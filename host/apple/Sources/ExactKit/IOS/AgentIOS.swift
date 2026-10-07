@@ -256,6 +256,12 @@ extension Agent {
         let i = presenter.insets
         let env: [String: Any] = ["safe-area-inset-top": Agent.r2(i.top), "safe-area-inset-right": Agent.r2(i.right), "safe-area-inset-bottom": Agent.r2(i.bottom), "safe-area-inset-left": Agent.r2(i.left), "keyboard-inset-height": Agent.r2(presenter.keyboardInset)].merging(presenter.fold.env) { a, _ in a }
         var reply: [String: Any] = ["clock": session.now(), "viewport": ["w": Agent.r2(vp.bounds.width), "h": Agent.r2(vp.bounds.height)], "env": env, "nodes": nodes]
+        #if os(iOS)
+        // The status bar's style Exact asks for (LLP 1105 D7), and the node that decided it.
+        let bar = presenter.statusBar
+        reply["statusBar"] = ["style": bar.style == .lightContent ? "light-content" : bar.style == .darkContent ? "dark-content" : "default",
+                              "source": bar.source.map { Int($0) } ?? NSNull()] as [String: Any]
+        #endif
         // The device's screen, where the viewport sits on it (LLP 1035.002
         // D4's `screen` space) and the scene's interface orientation: what a
         // real touch's aim is checked against (LLP 1080.000 D4).

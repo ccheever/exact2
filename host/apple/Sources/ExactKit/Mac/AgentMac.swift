@@ -367,9 +367,13 @@ extension Agent {
     /// the path a click takes, with the run loop turning between the steps
     /// of a timed move so AppKit tracks them as it would a hand's. Every
     /// other operation answers while the button is down. Mouse cancellation
-    /// releases the platform contact and clears the driver ownership.
+    /// releases the platform contact and clears the driver ownership. The
+    /// `down`'s `modifiers` are held in every event of the contact, and a
+    /// `move` or `up` that names others holds those from it on (#107).
     func contact(_ phase: String, _ req: [String: Any]) -> [String: Any] {
         guard let win = presenter.viewport.window else { return ["error": "no window"] }
+        guard let named = Agent.heldModifiers(req) else { return ["error": "tap: modifiers are Shift, Control, Alt and Meta, joined by +"] }
+        if req["modifiers"] != nil, phase == "hold" || phase == "cancel" { return ["error": "tap \(phase): modifiers ride on down, move and up"] }
         let clip = presenter.viewport.contentView
         let toWindow = { (p: CGPoint) -> NSPoint in clip.convert(NSPoint(x: p.x + clip.bounds.origin.x, y: p.y + clip.bounds.origin.y), to: nil) }
         // The contact's own timeline (LLP 1057 §10.6): a timed move's events
@@ -378,7 +382,7 @@ extension Agent {
         // the driver's round trips between requests.
         let send = { [self] (type: NSEvent.EventType, p: CGPoint) in
             let t = contactClock
-            if let e = NSEvent.mouseEvent(with: type, location: toWindow(p), modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1) {
+            if let e = NSEvent.mouseEvent(with: type, location: toWindow(p), modifierFlags: contactFlags, timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1) {
                 presenter.menus.pointer(e)
                 // Through the application, as a hand's event comes: its local
                 // monitors see it (a grouped drag's, whose grip is hidden while
@@ -397,6 +401,7 @@ extension Agent {
             contactClock = ProcessInfo.processInfo.systemUptime
             // The button is down: the pointer no longer rests where it hovered.
             presenter.agentPointer = nil
+            contactFlags = named
             send(.leftMouseDown, p)
             contact = p
             return ["contact": Int(v.id), "phase": "down", "at": at(p), "delivery": "platform"]
@@ -405,6 +410,7 @@ extension Agent {
             let to = CGPoint(x: req["x"] as? Double ?? from.x + (req["dx"] as? Double ?? 0), y: req["y"] as? Double ?? from.y + (req["dy"] as? Double ?? 0))
             guard to.x.isFinite, to.y.isFinite else { return ["error": "move needs finite coordinates"] }
             let ms = max(0, req["ms"] as? Double ?? 0)
+            if req["modifiers"] != nil { contactFlags = named }
             let steps = max(1, Int(ms / 16))
             for i in 1...steps {
                 let t = CGFloat(i) / CGFloat(steps)
@@ -425,14 +431,17 @@ extension Agent {
         case "up":
             guard let p = contact else { return ["error": "no contact is down"] }
             contactClock += 1.0 / 60
+            if req["modifiers"] != nil { contactFlags = named }
             send(.leftMouseUp, p)
             contact = nil
+            contactFlags = []
             return ["phase": "up", "at": at(p), "delivery": "platform"]
         case "cancel":
             guard let p = contact else { return ["error": "no contact is down"] }
             contactClock += 1.0 / 60
             send(.leftMouseUp, p)
             contact = nil
+            contactFlags = []
             return ["phase": "cancel", "at": at(p), "delivery": "platform"]
         default:
             return ["error": "unknown phase \(phase) (down, move, hold, up, cancel)"]
@@ -451,7 +460,7 @@ extension Agent {
                 return ["error": "tap #\(node.id): its middle is outside the viewport; scroll it into view first"]
             }
         }
-        if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil, req["mouse"] == nil,
+        if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil, req["mouse"] == nil, req["auxclick"] == nil, req["clicks"] == nil,
            let id = req["id"] as? UInt32, let run = presenter.inlineText(id), let node = presenter.textHost(id) {
             guard node.window != nil, !node.inert, !node.disabled, !run.hidden else { return ["error": "inline node #\(id) is unavailable"] }
             if req["hover"] as? Bool != true, node.activateInline(id) { return ["tapped": Int(id), "delivery": "host-activation", "native": "inline-text"] }
@@ -459,7 +468,7 @@ extension Agent {
 
         if let phase = req["phase"] as? String { return contact(phase, req) }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
-           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil, req["mouse"] == nil,
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil, req["mouse"] == nil, req["auxclick"] == nil, req["clicks"] == nil,
            let activated = presenter.toolbar.activate(node) {
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "NSToolbarItem"]
                 : ["error": "native toolbar item #\(id) is unavailable"]
@@ -468,13 +477,13 @@ extension Agent {
             return ["error": "native toolbar geometry is system-owned; only button host activation is supported"]
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
-           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil, req["mouse"] == nil,
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil, req["mouse"] == nil, req["auxclick"] == nil, req["clicks"] == nil,
            let activated = presenter.controls.activate(node) {
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "control"]
                 : ["error": "control #\(id) is disabled, inert or not shown"]
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
-           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil, req["mouse"] == nil,
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil, req["mouse"] == nil, req["auxclick"] == nil, req["clicks"] == nil,
            let activated = presenter.segments.activate(node) {
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "segmented-control"]
                 : ["error": "native segment #\(id) is unavailable"]
@@ -558,43 +567,20 @@ extension Agent {
             // and outside the session clock; `layout` reports the overscroll
             // it leaves behind.
             guard wheel.allSatisfy(\.isFinite) else { return ["error": "wheel deltas must be finite"] }
-            // A wheel is the mouse's, where it then rests (CDP's `mouseWheel` moves it there too).
+            // The modifiers held (studio diary R3: ⌘-scroll; a pinch is Control's).
+            guard let flags = Agent.heldModifiers(req) else { return ["error": "tap: modifiers are Shift, Control, Alt and Meta, joined by +"] }
+            // A wheel is the mouse's, where it then rests (CDP's `mouseWheel` moves it there too):
+            // the target's middle, or `at` in it.
             presenter.agentPointer = p
             let gesture = req["gesture"] as? Bool == true
-            // The modifiers held (studio diary R3: ⌘-scroll; a pinch is Control's).
-            var flags: NSEvent.ModifierFlags = []
-            for name in (req["modifiers"] as? String ?? "").split(separator: "+") {
-                guard let flag = ["Shift": NSEvent.ModifierFlags.shift, "Control": .control, "Alt": .option, "Meta": .command][String(name)] else { return ["error": "tap: unknown modifier \(name)"] }
-                flags.insert(flag)
-            }
-            let whole = { (d: Double) -> Int32 in Int32(min(max(d.rounded(), -1_000_000), 1_000_000)) }
-            let screen = win.convertPoint(toScreen: p)
-            let location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.height ?? 0) - screen.y)
-            let target = win.contentView?.hitTest(p) ?? v
-            // CGScrollPhase: began 1, changed 2, ended 4.
             let halfX: Double = wheel[0] / 2
             let halfY: Double = wheel[1] / 2
-            let restX: Double = wheel[0] - halfX
-            let restY: Double = wheel[1] - halfY
-            var steps: [(phase: Int64, dx: Double, dy: Double)] = [(0, wheel[0], wheel[1])]
-            if gesture {
-                steps = [(1, halfX, halfY), (2, restX, restY), (4, 0, 0)]
-            }
-            for (phase, dx, dy) in steps {
-                guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: -whole(dy), wheel2: -whole(dx), wheel3: 0) else { return ["error": "no wheel event"] }
-                cg.location = location
-                cg.flags = CGEventFlags(rawValue: UInt64(flags.rawValue))
-                if gesture {
-                    // A trackpad's deltas are continuous; without this the
-                    // event reads as a wheel's notches and the phase is moot.
-                    cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
-                    cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
-                }
-                guard let e = NSEvent(cgEvent: cg) else { return ["error": "no wheel event"] }
-                target.scrollWheel(with: e)
-            }
+            let began: Int64 = 1, changed: Int64 = 2, ended: Int64 = 4, none: Int64 = 0
+            let steps: [(phase: Int64, dx: Double, dy: Double)] = gesture
+                ? [(began, halfX, halfY), (changed, wheel[0] - halfX, wheel[1] - halfY), (ended, 0, 0)] : [(none, wheel[0], wheel[1])]
+            guard Agent.wheel(steps, gesture: gesture, at: p, in: win, flags: flags) else { return ["error": "no wheel event at a window point (CGEventSetWindowLocation)"] }
             session.presenter.settlePump()
-            return ["tapped": Int(v.id), "wheel": wheel, "gesture": gesture, "at": at]
+            return ["tapped": Int(v.id), "wheel": wheel, "gesture": gesture, "at": at, "delivery": "platform"]
         }
         if let scale = req["pinch"] as? Double {
             // A trackpad pinch: magnify events (began, changed…, ended) whose
@@ -631,27 +617,22 @@ extension Agent {
             session.presenter.settlePump()
             return ["tapped": Int(node.id), "at": at, "drop": paths.count, "delivery": "presenter"]
         }
-        // A right click (minesweeper F8): the right button down and up at the
-        // point through the window, as a mouse's are routed; `rightMouseUp`
-        // answers it on the node with a `contextmenu` handler.
-        if req["contextmenu"] as? Bool == true {
-            let t = ProcessInfo.processInfo.systemUptime
-            let eventNumber = AgentMouseRelease.nextEventNumber()
-            guard let down = NSEvent.mouseEvent(with: .rightMouseDown, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: 1, pressure: 1),
-                  let up = NSEvent.mouseEvent(with: .rightMouseUp, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: 1, pressure: 0)
-            else { return ["error": "no mouse event"] }
-            win.sendEvent(down)
-            win.sendEvent(up)
-            return ["tapped": Int(v.id), "at": at, "contextmenu": true, "delivery": "platform"]
-        }
         // The modifiers held through the click (gallery F20: shift-click).
-        var held: NSEvent.ModifierFlags = []
-        for name in (req["modifiers"] as? String ?? "").split(separator: "+") {
-            guard let flag = ["Shift": NSEvent.ModifierFlags.shift, "Control": .control, "Alt": .option, "Meta": .command][String(name)] else { return ["error": "tap: unknown modifier \(name)"] }
-            held.insert(flag)
+        guard let held = Agent.heldModifiers(req) else { return ["error": "tap: modifiers are Shift, Control, Alt and Meta, joined by +"] }
+        // A right click (minesweeper F8), or the middle button's (`auxclick`,
+        // #107): the button down and up at the point through the application,
+        // as a mouse's are routed; `rightMouseUp` answers it on the node with
+        // a `contextmenu` handler.
+        if req["contextmenu"] as? Bool == true || req["auxclick"] as? Bool == true {
+            let right = req["contextmenu"] as? Bool == true
+            guard Agent.otherClick(right ? .right : .center, at: p, in: win, clicks: 1, flags: held) else { return ["error": "no mouse event at a window point (CGEventSetWindowLocation)"] }
+            return ["tapped": Int(v.id), "at": at, right ? "contextmenu" : "auxclick": true, "delivery": "platform"]
         }
-        // A double click is two real clicks, the second with clickCount 2.
-        for clicks in 1...(req["dblclick"] as? Bool == true ? 2 : 1) {
+        // A double click is two real clicks, the second with clickCount 2;
+        // `clicks n` is n, each with the count so far (a triple click selects a line).
+        let count = req["clicks"] == nil ? (req["dblclick"] as? Bool == true ? 2 : 1) : req["clicks"] as? Int ?? 0
+        guard (1...3).contains(count) else { return ["error": "tap: clicks is 1, 2 or 3"] }
+        for clicks in 1...count {
             let t = ProcessInfo.processInfo.systemUptime
             let eventNumber = AgentMouseRelease.nextEventNumber()
             guard let down = NSEvent.mouseEvent(with: .leftMouseDown, location: p, modifierFlags: held, timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: clicks, pressure: 1),
@@ -662,14 +643,16 @@ extension Agent {
             // Put this click's release in the queue before entering that loop.
             NSApp.postEvent(up, atStart: true)
             presenter.menus.pointer(down)
-            win.sendEvent(down)
+            // Through the application, as a hand's click comes: its local
+            // monitors see it, then the window (#107).
+            NSApp.sendEvent(down)
             // The queue's wrapper identifies the release, but its window location
             // is re-derived from the window server's and lands elsewhere by the
             // window's screen offset: a pointer tap pressed down and released
             // outside its button. Send this click's own release.
             presenter.menus.pointer(up)
             if release.takeQueued(from: NSApp) != nil {
-                win.sendEvent(up)
+                NSApp.sendEvent(up)
             }
         }
         return ["tapped": Int(v.id), "at": at, "delivery": "platform"]

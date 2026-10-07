@@ -692,6 +692,9 @@ final class Presenter {
     var onPointer: ((UInt32, PointerKind, PointerSample) -> Void)?
     /// The node the primary button went down on, until it comes up.
     var pointerHeld: UInt32?
+    /// The last input was a pointer's press, not a key: a focus it, or a
+    /// handler it ran, moves shows no ring (`:focus-visible`, `FocusMac.swift`).
+    var focusByPointer = false
     /// The view AppKit sends the held button's drags and up to: the one it
     /// went down on, perhaps a child of the held node, kept in the window
     /// until the button comes up even if a batch removes it (`MouseChainMac`).

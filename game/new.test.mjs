@@ -83,7 +83,7 @@ test('a newly generated game builds, refuses empty pins and captures without edi
   }
 }, 600000);
 
-test('generated commands run from an external author directory with quoted paths', () => {
+test('generated commands run from an external author directory with quoted paths', async () => {
   const directory=realpathSync(mkdtempSync(resolve(tmpdir(), "game commands' workspace-")));
   const app=resolve(directory,'outside-game');mkdirSync(app);
   const quote=value=>`'${value.replaceAll("'", "'\\''")}'`;
@@ -92,23 +92,34 @@ test('generated commands run from an external author directory with quoted paths
     assert.equal(created.status,0,created.stderr);
     // Its commands are its own runner's verbs, as an app's are (LLP 1086; the platformer's diary, R1).
     const verbs=created.stdout.split('\n').filter(line=>line.startsWith('  bun exact.mjs ')).map(line=>line.trim().split(/\s+/)[2]);
-    assert.deepEqual(verbs,['test-rust','web','test','agent','mac','prove'],created.stdout);
+    assert.deepEqual(verbs,['test-rust','web','test','agent','mac','windows','prove'],created.stdout);
     const runner=readFileSync(resolve(app,'exact.mjs'),'utf8');
     for (const verb of verbs) assert.ok(new RegExp(`^  '?${verb}'?: \\[`,'m').test(runner),verb);
-    assert.match(readFileSync(resolve(app,'AGENTS.md'),'utf8'),/<!-- exact:begin[^]*an Exact game[^]*game\/README\.md[^]*## The authoring diary[^]*<!-- exact:end -->/);
+    assert.match(readFileSync(resolve(app,'AGENTS.md'),'utf8'),/<!-- exact:begin[^]*an Exact game[^]*game[\\/]README\.md[^]*## The authoring diary[^]*<!-- exact:end -->/);
     const inspect=resolve(directory,'inspect command.mjs');
     writeFileSync(inspect,`import {readFileSync} from 'node:fs'; import {resolve} from 'node:path';
       const [script,...args]=process.argv.slice(2); const path=resolve(script); readFileSync(path);
       console.log(JSON.stringify({path,args}));`);
-    const run=command=>{
-      const result=spawnSync('/bin/sh',['-c',command.replace(/^bun /,`${quote(process.execPath)} ${quote(inspect)} `)],{cwd:app,encoding:'utf8'});
-      assert.equal(result.status,0,`${command}\n${result.stderr}`);
-      return JSON.parse(result.stdout);
+    const run=async command=>{
+      const raw=command.replace(/^bun /,`${quote(process.execPath)} ${quote(inspect)} `);
+      const result=await Bun.$`${{raw}}`.cwd(app).quiet().nothrow();
+      assert.equal(result.exitCode,0,`${command}\n${result.stderr}`);
+      return JSON.parse(result.stdout.toString());
     };
+    // Execute the generated Windows verb against a recording SDK, without
+    // building or opening a host. Argument and app-path forwarding are real.
+    const sdk=resolve(directory,'recording SDK');
+    mkdirSync(resolve(sdk,'host/windows'),{recursive:true});
+    writeFileSync(resolve(sdk,'host/windows/build.mjs'),`console.log(JSON.stringify({args:process.argv.slice(2),app:process.env.EXACT_APP_DIR}));`);
+    const windows=spawnSync(process.execPath,['exact.mjs','windows','--release','--run'],{cwd:app,env:{...process.env,EXACT2:sdk},encoding:'utf8'});
+    assert.equal(windows.status,0,windows.stderr);
+    const forwarded=JSON.parse(windows.stdout);
+    assert.deepEqual(forwarded.args,['outside-game','--release','--run']);
+    assert.equal(realpathSync.native(forwarded.app),realpathSync.native(app));
     const readme=readFileSync(resolve(app,'README.md'),'utf8');
     assert.ok(!readme.includes('/path/to/exact2'),readme);
     const documented=[...readme.matchAll(/`(bun [^`]+)`/g)].map(match=>match[1]);
-    const resolved=documented.map(run);
+    const resolved=await Promise.all(documented.map(run));
     assert.ok(resolved.some(command=>command.path===resolve(import.meta.dir,'prove.mjs')));
     assert.ok(resolved.some(command=>command.path===resolve(import.meta.dir,'app/shells.mjs')));
   } finally {rmSync(directory,{recursive:true,force:true});}

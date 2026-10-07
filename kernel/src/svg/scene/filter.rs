@@ -745,17 +745,17 @@ impl Resolver<'_, '_> {
 
     /// `flood-color` with `flood-opacity`, straight sRGB.
     fn flood(&self, style: &crate::generated::StyleProps) -> [f32; 4] {
-        let c = match &style.flood_color {
+        let c = match &style.rare.flood_color {
             Paint::CurrentColor => style.text_color.resolve(false),
             Paint::Color(c) => c.resolve(false),
             _ => crate::style::Color(0x0000_00ff),
         };
-        rgba(c, style.flood_opacity)
+        rgba(c, style.rare.flood_opacity)
     }
 
     /// `lighting-color`, straight sRGB.
     fn lighting_color(&self, style: &crate::generated::StyleProps) -> [f32; 3] {
-        let c = match &style.lighting_color {
+        let c = match &style.rare.lighting_color {
             Paint::CurrentColor => style.text_color.resolve(false),
             Paint::Color(c) => c.resolve(false),
             _ => crate::style::Color(0xffff_ffff),

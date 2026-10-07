@@ -160,6 +160,8 @@ pub struct Presenter<D: DataSource> {
     pub(crate) control_bindings: BTreeMap<(u32, u32), crate::surfaces::ControlBinding>,
     pub(crate) control_contact: Option<(ViewId, f32, f32)>,
     boxes: Vec<PaintedBox>,
+    /// Bumped whenever `boxes` is replaced.
+    boxes_serial: u64,
     pub(crate) dirty: bool,
     /// The app's `setScheme` (`None`: follow the system) and the system's
     /// appearance, which only an agent sets here (LLP 1061 D5).
@@ -392,6 +394,7 @@ impl<D: DataSource> Presenter<D> {
             control_contact: None,
             control_bindings: BTreeMap::new(),
             boxes: Vec::new(),
+            boxes_serial: 0,
             dirty: true,
             scheme: (None, false),
             segments: Vec::new(),

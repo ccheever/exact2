@@ -17,7 +17,12 @@ extension ControlHost {
         #endif
         var config = UIButton.Configuration.plain()
         config.indicator = .popup
+        #if os(tvOS)
+        // The focused button is a filled pill; its text needs room inside it.
+        config.contentInsets = NSDirectionalEdgeInsets(top: 12, leading: 24, bottom: 12, trailing: 24)
+        #else
         config.contentInsets = .zero
+        #endif
         let button = UIButton(configuration: config)
         button.showsMenuAsPrimaryAction = true
         button.changesSelectionAsPrimaryAction = true

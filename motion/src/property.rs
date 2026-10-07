@@ -27,6 +27,12 @@
 //! (origin and size), which a `layout-transition` row animates (LLP 1063).
 //! It is never authored in `transition` or `@keyframes`, so it is outside
 //! [`Property::ALL`] and never on the wire.
+//!
+//! `d` is SVG 2's path data as a property (LLP 1055.000 D15). A path is not a
+//! [`Value`]: the engine's `d` slot holds a transition's progress, 0 to 1,
+//! and the paths at its two ends live beside it ([`crate::path`]). It is
+//! named by `transition` (never `@keyframes` yet), so it is outside
+//! [`Property::ALL`]; a `transition` row carries it by its own code.
 
 /// One animatable property.
 #[repr(u8)]
@@ -86,6 +92,10 @@ pub enum Property {
     /// observed by a host after layout; only a node's `layout-transition` row
     /// moves it, never `transition`.
     Layout = 24,
+    /// SVG 2 `d`, a path's data (LLP 1055.000 D15). Its slot's value is a
+    /// running transition's progress from one path to the next; the paths
+    /// are [`crate::path::PathValue`]s the engine keeps beside it.
+    D = 25,
 }
 
 impl Property {
@@ -120,6 +130,10 @@ impl Property {
 
     /// How many properties there are on the wire.
     pub const COUNT: usize = 24;
+
+    /// How many properties the engine has slots for: the wire's, then
+    /// [`Property::Layout`] and [`Property::D`].
+    pub const SLOTS: usize = Property::COUNT + 2;
 
     /// The paint properties: repainted, never laid out. A native host's
     /// paint pass owns them (LLP 1062 D2): CSS's box colours and
@@ -168,6 +182,7 @@ impl Property {
             Property::BoxShadow => "box-shadow",
             Property::ShadowColor => "box-shadow-color",
             Property::Layout => "layout",
+            Property::D => "d",
         }
     }
 

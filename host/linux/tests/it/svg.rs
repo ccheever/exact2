@@ -173,3 +173,51 @@ fn every_symbol_role_draws_its_path() {
         .collect();
     assert!(empty.is_empty(), "roles that draw nothing: {empty:?}");
 }
+
+/// LLP 1055.000 D15 (issue #123): a path's `d` under `transition` morphs
+/// on the agent's clock, as Chrome does: the chevron is flat half way, and
+/// stands the other way when it settles.
+#[test]
+fn a_transitioning_d_morphs_the_path() {
+    const MORPH: &str = "component App\n  state open = false\n  action flip\n    open = not open\n  view\n    column\n      button press=flip testId=\"flip\"\n        text \"Flip\"\n      svg testId=\"icon\" width=96 height=96 viewBox=\"0 0 24 24\"\n        path fill=\"none\" stroke=\"#000000\" stroke-width=2 d=(open ? \"M6 15 L12 9 L18 15\" : \"M6 9 L12 15 L18 9\") transition=\"d 400ms linear\"\n";
+    let plan = contract::compile(MORPH).unwrap_or_else(|e| panic!("{e}"));
+    let (mut p, error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (200., 200.),
+        1.,
+        std::env::temp_dir(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let id = |p: &Presenter<NoData>, name: &str| {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
+    };
+    let icon = id(&p, "icon");
+    // The rows of the icon with ink in them: its height in points.
+    let ink = |p: &mut Presenter<NoData>| {
+        let b = *p.boxes().iter().find(|b| b.id == icon).unwrap();
+        let frame = p.frame();
+        (0..96u32)
+            .filter(|y| {
+                (0..96u32).any(|x| {
+                    let c = frame
+                        .pixel(b.rect.0 as u32 + x, b.rect.1 as u32 + y)
+                        .unwrap()
+                        .demultiply();
+                    c.alpha() > 200 && c.red() < 100
+                })
+            })
+            .count()
+    };
+    let rest = ink(&mut p);
+    assert!((28..=34).contains(&rest), "a chevron: {rest}");
+    p.tap(id(&p, "flip")).unwrap();
+    p.tick(200.);
+    let flat = ink(&mut p);
+    assert!(flat <= 10, "flat half way: {flat}");
+    p.tick(500.);
+    assert_eq!(ink(&mut p), rest, "settled the other way");
+}

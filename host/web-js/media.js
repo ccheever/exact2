@@ -8,13 +8,13 @@
 // tree has ended is retired: its player stops and it reports nothing more,
 // so a late `pause`, `timeupdate` or refused play never reaches whatever now
 // holds its place (jukebox F1, F5, F6, F20).
-import { onEnd, inflight, journal, data } from "./rt.js";
+import { onEnd, inflight, journal, data, clock } from "./rt.js";
 
 // The media session's actions (LLP 1098 D2, D6): the glue sends them as it
 // sends the element's events, with `seekOffset seekTime fastSeek`.
 const SESSION = ["seekbackward", "seekforward", "seekto", "previoustrack", "nexttrack", "stop"];
 const BOOL = new Set(["autoplay", "controls", "loop", "muted", "playsinline", "disablepictureinpicture", "disableremoteplayback"]);
-export const MEDIA_EVENTS = new Set(["loadedmetadata", "durationchange", "timeupdate", "play", "playing", "pause", "ended", "waiting", "seeking", "seeked", "ratechange", "volumechange", "error", "canplay", ...SESSION]);
+export const MEDIA_EVENTS = new Set(["loadedmetadata", "durationchange", "timeupdate", "play", "playing", "pause", "ended", "waiting", "seeking", "seeked", "ratechange", "volumechange", "error", "canplay", "fullscreenchange", ...SESSION]);
 let Glue = null, Install = null;
 // Nodes whose props changed: handed to the glue together after the commit
 // that built or changed them, when they are in the document.
@@ -140,6 +140,15 @@ export function mediaOn(e, kind, f) {
     const at = ev.detail.indexOf("\n"), name = ev.detail.slice(0, at), payload = ev.detail.slice(at + 1);
     if (name !== kind || e.$media.retired) return;
     if (SESSION.includes(kind)) { const [offset, time, fast] = payload.split(" "); f([kind, Number(offset), Number(time), fast === "1"]); }
-    else if (kind === "timeupdate" || kind === "durationchange") f(Number(payload)); else if (kind === "error") f(payload); else f();
+    else if (kind === "timeupdate" || kind === "durationchange") f(Number(payload)); else if (kind === "error") f(payload); else if (kind === "fullscreenchange") f(payload === "true"); else f();
   });
 }
+
+// `requestFullscreen("id")` (rt.js's Hosts): the video with that HTML id takes
+// the screen, as HTML's Element.requestFullscreen(); the glue reports
+// `fullscreenchange`.
+export const requestFullscreen = id => {
+  const el = document.getElementById(String(id ?? ""));
+  if (!el?.$media) return journal.push(`t=${clock.now} requestFullscreen: refused: no video with id "${id}"`);
+  el.requestFullscreen().catch(e => journal.push(`t=${clock.now} requestFullscreen: refused: ${e.name}`));
+};

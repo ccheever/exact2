@@ -2,7 +2,7 @@
 // wasm web host runs it (host/web/glue.js, navigation.js), so a command the
 // compiler admits (contract/types/src/checks.rs `HOST_COMMANDS`) is one this
 // runtime carries (files diary F5: `selectText` was refused here).
-import { setFieldSelection } from "./navigation.js";
+import { setFieldSelection, appRootFontSize } from "./navigation.js";
 export const commands = say => ({
   // The field's own method, by its id (x2apps codeedit #2); commands run
   // once the commit's tree is in place, so a value set beside it is there.
@@ -32,6 +32,9 @@ export const commands = say => ({
     else if ((x.pendingPosts ??= []).filter(p => p.name === name).length >= 64) say(`postMessage: dropped: 64 posts already wait for surface "${name}"`);
     else x.pendingPosts.push({ name, text, at, generation: 0 });
   },
+  // `:root { font-size }` (LLP 1069.000 D3): the stylesheet's `rem` rows
+  // follow it; checked here, where no runner checked it first.
+  setRootFontSize: v => appRootFontSize(v, say),
   // The page's own reload: every web page has one, where a native host
   // needs its dev menu's.
   reload: () => location.reload(),

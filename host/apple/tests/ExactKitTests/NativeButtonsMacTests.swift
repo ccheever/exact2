@@ -77,6 +77,46 @@ final class NativeButtonsMacTests: XCTestCase {
         XCTAssertEqual(pressed, [4], "outside its ancestor's box: no press, as on iOS")
     }
 
+    /// #179: a custom button's ring is AppKit's exterior one around its own
+    /// box, which AppKit draws only for non-empty mask bounds.
+    func testCustomButtonExposesItsFocusMaskToAppKit() throws {
+        let p = presenter(box(1, handlers: ["press"]) + box(2)
+                          + [["op": "roots", "ids": [1, 2]]], faces: [:])
+        let button = try XCTUnwrap(p.views[1]), plain = try XCTUnwrap(p.views[2])
+        XCTAssertTrue(window.makeFirstResponder(button))
+        XCTAssertEqual(button.focusRingType, .exterior)
+        XCTAssertFalse(button.focusRingMaskBounds.isEmpty, "AppKit skips a mask with empty bounds")
+        XCTAssertEqual(button.focusRingMaskBounds, NSRect(x: 0, y: 0, width: 300, height: 40))
+        p.apply(wireBatch([["op": "frame", "id": 1, "x": 20.0, "y": 10.0, "w": 24.0, "h": 24.0]]))
+        XCTAssertEqual(button.focusRingMaskBounds, NSRect(x: 0, y: 0, width: 24, height: 24), "mask coordinates stay local after resize")
+        XCTAssertTrue(plain.focusRingMaskBounds.isEmpty, "noninteractive boxes have no focus mask")
+    }
+
+    /// Chrome's `:focus-visible`: a click focuses a custom button without
+    /// its ring; a key used there, or a Tab to the next, shows it.
+    func testAClickFocusesWithoutTheRingAndTheKeyboardShowsIt() throws {
+        let p = presenter(box(1, handlers: ["press"]) + box(2, handlers: ["press"])
+                          + [["op": "frame", "id": 2, "x": 0.0, "y": 50.0, "w": 300.0, "h": 40.0], ["op": "roots", "ids": [1, 2]]], faces: [:])
+        let first = try XCTUnwrap(p.views[1]), second = try XCTUnwrap(p.views[2])
+        p.flushKeyViewLoop()
+        let at = first.convert(NSPoint(x: 10, y: 10), to: nil)
+        let down = try XCTUnwrap(NSEvent.mouseEvent(with: .leftMouseDown, location: at, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        first.mouseDown(with: down)
+        XCTAssertTrue(window.firstResponder === first, "a click focuses it")
+        XCTAssertTrue(first.focusRingMaskBounds.isEmpty, "a click's focus is not visible")
+        let key = { (chars: String, code: UInt16) in
+            try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: self.window.windowNumber, context: nil, characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code))
+        }
+        XCTAssertFalse(p.routeKey(try key(" ", 49), focused: true, in: window))
+        XCTAssertEqual(first.focusRingMaskBounds, first.bounds, "a key used at the focus shows its ring")
+        let tab = try key("\t", 48)
+        XCTAssertFalse(p.routeKey(tab, focused: true, in: window))
+        first.keyDown(with: tab)
+        XCTAssertTrue(window.firstResponder === second, "Tab moves on")
+        XCTAssertEqual(second.focusRingMaskBounds, second.bounds, "a Tab's focus is visible")
+        XCTAssertTrue(first.focusRingMaskBounds.isEmpty, "the ring left with the focus")
+    }
+
     func testAGlassButtonIsIsolatedInItsGroup() throws {
         guard #available(macOS 26.0, *) else { throw XCTSkip("Liquid Glass is macOS 26") }
         let p = presenter(box(1, ["glassGroup": "24"]) + native(2) + native(3, x: 130)

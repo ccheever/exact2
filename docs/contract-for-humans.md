@@ -1213,6 +1213,12 @@ transform properties, not layout ones such as `width`. Styles remain
 literal-only. CSS easing and the admitted `spring(…)` timing function, which
 belongs only inside `transition`, are not interchangeable guesses: copy the
 appropriate [motion fixture](../contract/corpus/spring.contract).
+In a `list virtualized=true` row, an animation waits until its row first
+shows in the list (`animation-trigger="view"`, the default), because the list
+builds rows before they scroll in; `animation-trigger="none"` starts it when
+the row is built, so the row arrives settled. The web build does not hold it
+yet.
+
 `exit-animation`, `layout-transition`, and presentation timelines
 (`drag-timeline`, `animation-timeline`, `animation-range`, `timeline-scope`) are
 declared extensions with bounded behavior, not arbitrary layout animation.

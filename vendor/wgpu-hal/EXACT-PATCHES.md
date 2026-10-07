@@ -1,4 +1,4 @@
-# wgpu-hal 30.0.1 — five local patches, all in the Metal backend
+# wgpu-hal 30.0.1 — seven local patches: five in the Metal backend, two in Vulkan's
 
 Complete crates.io archive, including the upstream MIT/Apache licenses and
 `.cargo_vcs_info.json`. No feature change or dependency upgrade. Every changed
@@ -111,8 +111,44 @@ canvas reference moved by R +3, G −3, B +1 at the bright end). On macOS
 `Srgb` sets `kCGColorSpaceSRGB`; iOS is unchanged. The web shows a canvas as
 sRGB, so this is the browser's picture too. **Upstreamable as it stands.**
 
+## 6. A swapchain image's views and framebuffers outlive the frame (Vulkan)
+
+`src/vulkan/mod.rs`, `src/vulkan/device.rs`, `src/vulkan/command.rs`,
+`src/vulkan/adapter.rs`, `src/vulkan/swapchain/native.rs`.
+wgpu-core makes a new texture for every acquired swapchain image, the GPU
+module a new view of it every frame, and wgpu-hal caches framebuffers per
+command encoder, emptied whenever the encoder is reset — so an animated
+canvas made a `VkImageView` and a `VkFramebuffer` every frame and destroyed
+both a few frames later. On PowerVR (Pixel 10) each framebuffer is a render
+target the driver sets up at the first kick (`RGXAddRenderTarget`, ~15% of
+the thread flushing the xheavy shader row) and tears down on its
+`vkmem_free` thread (~80–100 ms/s at 120 Hz).
+
+Now each swapchain image has one identity for the swapchain's life
+(`NativeSwapchain::identities`), a view of it is made once per image and
+view description and kept on the device (`DeviceShared::surface_views`;
+`TextureView::cached`, which `destroy_texture_view` leaves alone), and a
+render pass whose attachments are all such views uses the device's
+framebuffer (`DeviceShared::surface_framebuffers`). Both go when the
+swapchain's resources are released (`forget_surface_images`, after its
+`vkDeviceWaitIdle`), or with the device. Nothing a caller can observe
+changes but the count of views and framebuffers made. Upstreamable.
+
+## 7. PRESENT is an ordered texture usage (Vulkan)
+
+`src/vulkan/adapter.rs`: `get_ordered_texture_usages` includes `PRESENT`.
+wgpu-core's submit leaves a drawable in PRESENT, and `Queue::present` asks
+the device tracker for PRESENT again expecting no barrier ("If it's already
+in PRESENT, this produces no barriers and we can skip the submission"); with
+PRESENT not ordered the tracker emits PRESENT → PRESENT, and present
+submits that barrier alone: a second submission, fence and kick per canvas
+frame. Nothing on a queue touches an image in PRESENT, so the barrier is
+never needed. Upstreamable (arguably a wgpu-core fix instead).
+
 ## Updating
 
 Take the new archive whole, reapply the marked places (`git diff` against the
-pristine archive is about 330 lines), and run `cargo test -p exact-gpu` on
+pristine archive is about 500 lines), and run `cargo test -p exact-gpu` on
 macOS: `frame.rs` fails if a frame commits more than one buffer a canvas.
+Patches 6 and 7 show only in an Android profile of an animated canvas (no
+`RGXAddRenderTarget` or `vkmem_free` per frame, one submit per frame).

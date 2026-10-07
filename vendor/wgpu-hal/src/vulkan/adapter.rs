@@ -2934,6 +2934,9 @@ impl super::Adapter {
 
             texture_identity_factory: super::ResourceIdentityFactory::new(),
             texture_view_identity_factory: super::ResourceIdentityFactory::new(),
+            // EXACT (EXACT-PATCHES.md, 6).
+            surface_views: Mutex::new(Default::default()),
+            surface_framebuffers: Mutex::new(Default::default()),
             empty_descriptor_set_layout,
         });
 
@@ -3245,7 +3248,12 @@ impl crate::Adapter for super::Adapter {
     // We just don't want to insert barriers between inclusive uses
     // See https://github.com/gfx-rs/wgpu/issues/8853
     fn get_ordered_texture_usages(&self) -> wgt::TextureUses {
-        wgt::TextureUses::INCLUSIVE
+        // EXACT (EXACT-PATCHES.md, 7): PRESENT to PRESENT needs no barrier
+        // (nothing on the queue touches an image in that state). Without it
+        // wgpu-core's `Queue::present` finds a "transition" for a texture the
+        // frame's submit already left in PRESENT and submits it alone: a
+        // second submission, fence and kick every canvas frame.
+        wgt::TextureUses::INCLUSIVE | wgt::TextureUses::PRESENT
     }
 }
 

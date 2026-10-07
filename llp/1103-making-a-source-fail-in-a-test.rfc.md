@@ -125,7 +125,7 @@ About three and a half lane-days.
 
 ## 5. Open questions
 
-1. Prefix or glob? A prefix is enough for the bench's apps. CDP's patterns allow `*`. Proposed: prefix now, `*` later if asked.
+1. Prefix or glob? A prefix is enough for the bench's apps. CDP's patterns allow `*`. **Decided (Charlie, 2026-10-06):** prefix now, `*` later if asked.
 2. Streams are deferred (D5): their opens go through separate admission and transport.
 
 ## 6. Revisions
@@ -190,7 +190,7 @@ About three and a half lane-days.
   Both take one `<prefix>[\t<times>]` line per fault, and a reload's whole entry is `<prefix>\t<times>\t<left>\t<hits>\t<armed>`. A production build honors neither:
   - a native one drops every `EXACT_AGENT_*` variable before the host or the runner reads one (LLP 1069.007 D2);
   - a web bake compiles the reader out with `AGENT_ADMITTED`.
-- During a drive, it is a form of `prefer`, not another operation: the network is the environment, as `online` is (LLP 1012 §1 keeps ten). On the wire it is `{"op":"prefer","faults":{"fail":…,"times":…}}`, `{…{"pass":…}}`, or `{…{}}` to read; the command line spells it `fail fetch …` and `pass fetch …`. Each carrier hands it to its table: the runner on native, the page on the web. `state.faults` lists the table when it is not empty, and `--fail-fetch <prefix>` arms one at open (and for every test, with `--test`).
+- During a drive, it is a form of `prefer`, not another operation: the network is the environment, as `online` is (LLP 1012 §1 keeps ten). Charlie accepted this on 2026-10-06; revisit if faults grow past failing (holding a request, staged statuses). On the wire it is `{"op":"prefer","faults":{"fail":…,"times":…}}`, `{…{"pass":…}}`, or `{…{}}` to read; the command line spells it `fail fetch …` and `pass fetch …`. Each carrier hands it to its table: the runner on native, the page on the web. `state.faults` lists the table when it is not empty, and `--fail-fetch <prefix>` arms one at open (and for every test, with `--test`).
 - A replacement runner, from a development reload, carries the table as it is (`Carried::faults`). A JS-target development page reloads with its launch URL, as it carries no state.
 
 **Tests.**

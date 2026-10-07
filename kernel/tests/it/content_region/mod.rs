@@ -1087,7 +1087,7 @@ fn review_grid_baseline_dependency_requires_refusal_or_ordinary_shell_parity() {
     let mut root = StyleProps::default();
     root.mask = mask(&[StyleId::Display, StyleId::GridTemplateColumns]);
     root.display = Display::Grid;
-    root.grid_template_columns =
+    root.rare.grid_template_columns =
         GridTracks::from_tracks(vec![GridTrack::Points(200.), GridTrack::Points(200.)]);
     k.apply(
         0,
@@ -1137,7 +1137,7 @@ fn region_receipt_carries_resolved_exclusions_with_selected_frames() {
     ball.left = Dimension::Points(60.);
     ball.position_type = PositionType::Absolute;
     ball.wrap_flow = WrapFlow::Both;
-    ball.shape_outside = ShapeOutside::parse("circle()").unwrap();
+    ball.rare.shape_outside = ShapeOutside::parse("circle()").unwrap();
     ball.mask = mask(&[
         StyleId::Width,
         StyleId::Height,

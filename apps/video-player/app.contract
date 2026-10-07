@@ -1,8 +1,42 @@
 // @ref LLP 1042 — a stable video leaf, resized by the keyboard's viewport.
+// @ref LLP 1039 — the viewport's media features: its width chooses the
+// layout; no pointer (a TV's remote) chooses the larger, across-a-room sizes.
+shape Viewport
+  width: number
+  pointer: string
+
 component VideoPlayer
+  resource viewport = exactViewport() as shape Viewport
+  derive wide = viewport.width >= 700
+  derive tv = viewport.pointer == "none"
+  // Text and control sizes: a TV's are read from across a room.
+  derive label = tv ? 24 : 14
+  derive pad = tv ? 18 : 12
+  derive corner = tv ? 16 : 12
+  derive small = tv ? 18 : 12
   state note = ""
   state paused = false
   state failure = ""
+  // Where the video is, from `timeupdate`, and how long it is.
+  state position = 0
+  state duration = 0
+  // Back and Forward move a target; the seek waits until the presses stop
+  // (`quiet` ticks of 100 ms), so repeated presses are one seek.
+  state target = 0
+  state pending = false
+  state quiet = 0
+  // The `currentTime` last sent. A seek to the same time is not a change,
+  // so it is sent 1 ms later.
+  state seekTo = 0
+  state fullscreen = false
+  // The video shown: the bundled one by default, else a sample over HTTPS.
+  state source = "assets/motion.mp4"
+  // Where the bar shows: a pending Back or Forward target before its seek.
+  derive shown = pending ? target : position
+  derive filled = duration > 0 ? min(100, shown / duration * 100) : 0
+  // Whole seconds left, so elapsed and remaining add up to the length.
+  derive remaining = max(0, floor(duration) - floor(shown))
+  derive described = source == "assets/motion.mp4" ? "An animated color study" : "A sample video clip"
   action edit(value)
     note = value
   action toggle
@@ -15,21 +49,95 @@ component VideoPlayer
     failure = message
   action done
     focus("done")
+  action timed(seconds)
+    position = seconds
+  action measured(seconds)
+    duration = seconds
+  action rewind
+    target = 0
+    pending = false
+    seekTo = (seekTo == 0 ? 0.001 : 0)
+    position = 0
+  action back
+    target = max(0, (pending ? target : position) - 10)
+    pending = true
+    quiet = 0
+  action forward
+    target = min(duration, (pending ? target : position) + 10)
+    pending = true
+    quiet = 0
+  action settle
+    quiet = quiet + 1
+    if pending and quiet >= 6
+      seekTo = (target == seekTo ? target + 0.001 : target)
+      position = target
+      pending = false
+  // A new video starts from its beginning, with no seek pending.
+  action choose(value)
+    source = value
+    position = 0
+    duration = 0
+    target = 0
+    pending = false
+    seekTo = 0
+    failure = ""
+  // Full screen fills the screen (`cover`, the picture cropped, not
+  // stretched); set before the request, so it opens filled.
+  action enterFullscreen
+    fullscreen = true
+    requestFullscreen("video")
+  action fullscreenChanged(on)
+    fullscreen = on
+
+  task seeking mount
+    every(100, settle)
   view
-    column testId="player-app" interactive-widget="resizes-content" height="100%" box-sizing="border-box" padding=20 gap=16 background-color="#11151c" color="#f5f7fa"
-      row justify-content="space-between" align-items="center" flex-shrink=0
+    column testId="player-app" interactive-widget="resizes-content" height="100%" box-sizing="border-box" padding=(tv ? 40 : 20) gap=(tv ? 24 : 16) background-color="#11151c" color="#f5f7fa"
+      // Narrow (a phone), the buttons go under the title and wrap.
+      view display="flex" flex-direction=(wide ? "row" : "column") justify-content="space-between" align-items=(wide ? "center" : "flex-start") gap=12 flex-shrink=0
         column gap=4
-          text "VIDEO" font-size=11 font-weight=700 letter-spacing=2 color="#94a3b8"
-          text "Room to watch." font-size=26 font-weight=600
-        button testId="toggle" press=toggle aria-label="Play or pause" padding=12 background-color="#273244" border-radius=12
-          text (paused ? "Play" : "Pause") font-size=14
-      video "assets/motion.mp4" testId="video" aria-label="An animated color study" controls=true autoplay=true muted=true loop=true playsinline=true preload="auto" paused=paused play=playing pause=stopped error=failed width="100%" flex=1 min-height=0 object-fit="contain" overflow="hidden" background-color="#000000" border-radius=16
+          text "VIDEO" font-size=(tv ? 16 : 11) font-weight=700 letter-spacing=2 color="#94a3b8"
+          text "Room to watch." font-size=(tv ? 40 : 26) font-weight=600
+        row gap=(tv ? 16 : 10) align-items="center" flex-wrap="wrap"
+          button testId="rewind" press=rewind aria-label="Rewind to the start" padding=pad background-color="#273244" border-radius=corner
+            text "Rewind" font-size=label
+          button testId="back" press=back aria-label="Back 10 seconds" padding=pad background-color="#273244" border-radius=corner
+            text "Back" font-size=label
+          button testId="toggle" press=toggle aria-label="Play or pause" padding=pad background-color="#273244" border-radius=corner
+            text (paused ? "Play" : "Pause") font-size=label
+          button testId="forward" press=forward aria-label="Forward 10 seconds" padding=pad background-color="#273244" border-radius=corner
+            text "Forward" font-size=label
+          button testId="fullscreen" press=enterFullscreen aria-label="Full screen" padding=pad background-color="#273244" border-radius=corner
+            text "Full screen" font-size=label
+      row gap=10 align-items="center" justify-content=(wide ? "flex-end" : "flex-start") flex-shrink=0
+        text "Video" font-size=label color="#94a3b8"
+        select value=source change=choose testId="source" aria-label="Video to show"
+          option "Color study (built in)" value="assets/motion.mp4"
+          option "Sample clip (web)" value="https://www.learningcontainer.com/wp-content/uploads/2020/05/sample-mp4-file.mp4"
+      video source id="video" testId="video" aria-label=described controls=true autoplay=true muted=true loop=true playsinline=true preload="auto" paused=paused currentTime=seekTo play=playing pause=stopped error=failed timeupdate=timed durationchange=measured fullscreenchange=fullscreenChanged width="100%" flex=1 min-height=0 object-fit=(fullscreen ? "cover" : "contain") overflow="hidden" background-color="#000000" border-radius=16
+      // Progress: the elapsed time, the share played, the time left.
+      row gap=12 align-items="center" flex-shrink=0 testId="progress"
+        TimeLabel(seconds=shown, sign="", size=(tv ? 20 : 13))
+        view flex=1 height=(tv ? 10 : 6) border-radius=(tv ? 5 : 3) background-color="#273244" overflow="hidden" aria-label="Playback position"
+          view height="100%" width=`${filled}%` background-color="#bed6ff" testId="progress-fill"
+        TimeLabel(seconds=remaining, sign="-", size=(tv ? 20 : 13))
       when failure != ""
-        text failure testId="video-error" color="#fca5a5" font-size=12 flex-shrink=0
+        text failure testId="video-error" color="#fca5a5" font-size=small flex-shrink=0
       column gap=10 flex-shrink=0
-        text "Keep watching. Leave a thought." font-size=16 font-weight=600
+        text "Keep watching. Leave a thought." font-size=(tv ? 24 : 16) font-weight=600
         row gap=10 align-items="center"
-          input appearance="none" id="note" testId="note" aria-label="Your note" placeholder="Tap here to bring up the keyboard" value=note input=edit submit=done flex=1 min-width=0 padding=14 box-sizing="border-box" font-size=16 border-radius=12 background-color="#202938" color="#f5f7fa"
-          button id="done" testId="done" press=done padding=14 background-color="#bed6ff" border-radius=12
-            text "Done" color="#102540" font-weight=600
-        text "The picture makes room while you type." font-size=12 color="#94a3b8"
+          input appearance="none" id="note" testId="note" aria-label="Your note" placeholder="Tap here to bring up the keyboard" value=note input=edit submit=done flex=1 min-width=0 padding=(tv ? 20 : 14) box-sizing="border-box" font-size=(tv ? 24 : 16) border-radius=corner background-color="#202938" color="#f5f7fa"
+          button id="done" testId="done" press=done padding=(tv ? 20 : 14) background-color="#bed6ff" border-radius=corner
+            text "Done" font-size=(tv ? 24 : 16) color="#102540" font-weight=600
+        text "The picture makes room while you type." font-size=small color="#94a3b8"
+
+// Seconds as m:ss, after `sign` ("-" for the time left).
+component TimeLabel
+  props
+    seconds: number
+    sign: string
+    size: number
+  derive minutes = floor(seconds / 60)
+  derive rest = floor(seconds) - minutes * 60
+  view
+    text `${sign}${minutes}:${rest < 10 ? "0" : ""}${rest}` font-size=size color="#94a3b8"

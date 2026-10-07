@@ -267,7 +267,7 @@
     "attributes": {
       "patterns": [
         {
-          "match": "(?<![A-Za-z0-9_\\-])(?:press|change|input|cancel|select|hover|focus|blur|key|submit|load|message|contextmenu|dblclick|swiperight|refresh|scroll|pan|panrelease|loadedmetadata|durationchange|timeupdate|play|playing|pause|ended|waiting|seeking|seeked|ratechange|volumechange|error|canplay|seekbackward|seekforward|seekto|previoustrack|nexttrack|stop|navigate|heightrelease|transformgeometry|transformrelease|reorderdrop|reachstart|reachend)(?![A-Za-z0-9_]|-[A-Za-z])(?=\\s*=(?!=))",
+          "match": "(?<![A-Za-z0-9_\\-])(?:press|change|input|cancel|select|hover|focus|blur|key|submit|load|message|contextmenu|dblclick|swiperight|refresh|scroll|pan|panrelease|loadedmetadata|durationchange|fullscreenchange|timeupdate|play|playing|pause|ended|waiting|seeking|seeked|ratechange|volumechange|error|canplay|seekbackward|seekforward|seekto|previoustrack|nexttrack|stop|navigate|heightrelease|transformgeometry|transformrelease|reorderdrop|reachstart|reachend)(?![A-Za-z0-9_]|-[A-Za-z])(?=\\s*=(?!=))",
           "name": "support.function.event.exact-contract"
         },
         {

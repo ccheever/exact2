@@ -91,6 +91,119 @@ pub fn redirect_stdio() {
         .ok();
 }
 
+/// Let go of the read-only pages of the library holding `at` (its code,
+/// constants and the bytes it carries, such as the plan): each is dropped from this process's
+/// page tables and comes back, from the page cache, the next time it is
+/// touched. What boot alone touched (decoding the plan, the app's baked
+/// data, one-time setup) then stops counting toward the process. The
+/// writable segments (relocated data, `.data`, `.bss`) are left alone.
+/// Returns the bytes let go of.
+fn release_pages_of(at: *const c_void) -> usize {
+    /// The loader's view of an ELF64 file header, up to the program headers.
+    #[repr(C)]
+    struct Header {
+        ident: [u8; 16],
+        _kind: u16,
+        _machine: u16,
+        _version: u32,
+        _entry: u64,
+        phoff: u64,
+        _shoff: u64,
+        _flags: u32,
+        _ehsize: u16,
+        phentsize: u16,
+        phnum: u16,
+    }
+    /// A program header's loadable type and writable flag (ELF's `PT_LOAD`, `PF_W`).
+    const PT_LOAD: u32 = 1;
+    const PF_W: u32 = 2;
+    // Only this library's own headers are read (`dl_iterate_phdr` would touch
+    // the first page of every library in the process, ~11 MB of mappings).
+    // SAFETY: `Dl_info` is plain pointers, for which zero is a valid value.
+    let mut info: libc::Dl_info = unsafe { std::mem::zeroed() };
+    // SAFETY: `dladdr` fills `info` for an address inside a loaded object
+    // (`at` is in one: this library, or a module it opened and keeps).
+    if unsafe { libc::dladdr(at, &mut info) } == 0 || info.dli_fbase.is_null() {
+        return 0;
+    }
+    let base = info.dli_fbase as usize;
+    // SAFETY: `dli_fbase` is where the loader mapped this library's first
+    // segment, which starts with its ELF header; the program headers it
+    // names are in that segment (the loader read them from there).
+    let headers = unsafe {
+        let header = &*(base as *const Header);
+        if header.ident[..4] != *b"\x7fELF"
+            || header.phentsize as usize != std::mem::size_of::<libc::Elf64_Phdr>()
+        {
+            return 0;
+        }
+        std::slice::from_raw_parts(
+            (base + header.phoff as usize) as *const libc::Elf64_Phdr,
+            header.phnum as usize,
+        )
+        .to_vec()
+    };
+    // SAFETY: sysconf has no preconditions.
+    let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) }.max(4096) as usize;
+    let mut released = 0;
+    for h in headers {
+        if h.p_type != PT_LOAD || h.p_flags & PF_W != 0 {
+            continue;
+        }
+        let start = (base + h.p_vaddr as usize).next_multiple_of(page);
+        let end = (base + (h.p_vaddr + h.p_filesz) as usize) / page * page;
+        // SAFETY: a read-only, file-backed private mapping of this library:
+        // dropping its pages loses nothing (they read back from the file
+        // unchanged) and no Rust reference observes it.
+        if end > start
+            && unsafe { libc::madvise(start as *mut c_void, end - start, libc::MADV_DONTNEED) } == 0
+        {
+            released += end - start;
+        }
+    }
+    released
+}
+
+/// The libraries this app loads besides its own (the GPU module, LLP 1009),
+/// each by an address inside it: their read-only pages go too.
+static MODULES: std::sync::Mutex<Vec<usize>> = std::sync::Mutex::new(Vec::new());
+
+/// `at`'s library is the app's and stays loaded: [`release_library_pages`]
+/// lets go of its pages too.
+pub fn release_module_pages_too(at: *const c_void) {
+    MODULES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push(at as usize);
+}
+
+/// [`release_pages_of`] this library and the modules registered with
+/// [`release_module_pages_too`]; the bytes let go of.
+pub fn release_library_pages() -> usize {
+    let mut released = release_pages_of(release_library_pages as *const c_void);
+    for at in MODULES.lock().unwrap_or_else(|e| e.into_inner()).iter() {
+        released += release_pages_of(*at as *const c_void);
+    }
+    released
+}
+
+/// [`release_library_pages`] once, `after` this call, on a thread of its
+/// own: boot's one-time work (the plan's decode, the app's baked data, setup)
+/// is over by then, and what the app goes on to use comes back as it runs.
+/// Later calls do nothing.
+pub fn release_library_pages_after(after: std::time::Duration) {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        let _ = std::thread::Builder::new()
+            .name("exact-release".into())
+            .stack_size(64 * 1024)
+            .spawn(move || {
+                std::thread::sleep(after);
+                trace(c"exact release pages", release_library_pages);
+            });
+    });
+}
+
 /// What the app's Kotlin side asks of the render thread.
 pub enum Command {
     /// Scroll whatever is under the viewport's center by this many pixels
@@ -215,21 +328,7 @@ pub fn background_priority() {
 /// scheduler, which wakes it on a little core: a tap's commit there took two
 /// to three times as long. Whether the mask was set.
 pub fn fast_cores() -> bool {
-    let mut tops: Vec<(usize, u64)> = Vec::new();
-    for cpu in 0..libc::CPU_SETSIZE {
-        let dir = format!("/sys/devices/system/cpu/cpu{cpu}");
-        if !std::path::Path::new(&dir).exists() {
-            break;
-        }
-        let top = std::fs::read_to_string(format!("{dir}/cpufreq/cpuinfo_max_freq"));
-        if let Some(top) = top.ok().and_then(|t| t.trim().parse().ok()) {
-            tops.push((cpu, top));
-        }
-    }
-    let Some(slowest) = tops.iter().map(|t| t.1).min() else {
-        return false;
-    };
-    let fast: Vec<usize> = tops.iter().filter(|t| t.1 > slowest).map(|t| t.0).collect();
+    let fast = fast_set();
     if fast.is_empty() {
         return false;
     }
@@ -237,11 +336,33 @@ pub fn fast_cores() -> bool {
     // (every index is below CPU_SETSIZE); the call reads it for its duration.
     unsafe {
         let mut set: libc::cpu_set_t = std::mem::zeroed();
-        for cpu in fast {
+        for &cpu in fast {
             libc::CPU_SET(cpu, &mut set);
         }
         libc::sched_setaffinity(0, std::mem::size_of::<libc::cpu_set_t>(), &set) == 0
     }
+}
+
+/// The cores outside the slowest cluster, read once (a thread widens its
+/// mask to them again after every tap it was colocated for,
+/// `crate::android_hint::colocate`).
+pub fn fast_set() -> &'static [usize] {
+    static FAST: std::sync::OnceLock<Vec<usize>> = std::sync::OnceLock::new();
+    FAST.get_or_init(|| {
+        let mut tops: Vec<(usize, u64)> = Vec::new();
+        for cpu in 0..libc::CPU_SETSIZE {
+            let dir = format!("/sys/devices/system/cpu/cpu{cpu}");
+            if !std::path::Path::new(&dir).exists() {
+                break;
+            }
+            let top = std::fs::read_to_string(format!("{dir}/cpufreq/cpuinfo_max_freq"));
+            if let Some(top) = top.ok().and_then(|t| t.trim().parse().ok()) {
+                tops.push((cpu, top));
+            }
+        }
+        let slowest = tops.iter().map(|t| t.1).min().unwrap_or(0);
+        tops.iter().filter(|t| t.1 > slowest).map(|t| t.0).collect()
+    })
 }
 
 /// Open an atrace section on this thread (close it with [`section_end`]).

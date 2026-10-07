@@ -54,6 +54,11 @@ shape Session
 // to `Session` is reset here, or the app does not compile.
 fn nextSession(noteId: string, ended: Session): Session = Session(noteId=noteId, savedId="", draft=none, original=none, version=ended.version + 1, confirmDelete=false)
 
+// @ref LLP 1039 — no pointer is a TV's remote, whose focus ring is drawn
+// outside the focused note: the list leaves room for it.
+shape Viewport
+  pointer: string
+
 component Fieldnotes
   state query = ""
   state session = Session(noteId="", savedId="", draft=none, original=none, version=0, confirmDelete=false)
@@ -83,6 +88,8 @@ component Fieldnotes
   derive backupText = match status { case some(s) => s.backupText, case none => "" }
   // The share sheet, where the host has one (LLP 1069.003 D5).
   resource page = exactPage() as shape Page
+  resource viewport = exactViewport() as shape Viewport
+  derive tv = viewport.pointer == "none"
 
   action search(value)
     query = value
@@ -236,7 +243,7 @@ component Fieldnotes
               button press=closeSearch testId="close-search" aria-label="Close search" aria-keyshortcuts="Escape" padding=10 border-radius=8 background-color="#e9eee4"
                 image "symbol:close" font-size=18 font-weight=400 tint-color="#31554a"
             scroll testId="note-list" flex=1 min-height=160
-              column gap=10
+              column gap=10 padding=(tv ? 10 : 0)
                 when length(library.notes) == 0
                   column padding=20 gap=8
                     text (query == "" ? "Your notebook starts here." : "No matching notes.") font-family="serif" font-size=22 testId="empty-notebook"

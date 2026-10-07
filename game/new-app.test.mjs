@@ -15,16 +15,18 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     createApp(dir);
     assert.deepEqual(outsideWorkspaceProblems(dir), []);
     assert.ok(existsSync(resolve(dir, 'app.test.contract')));
+    assert.deepEqual(readFileSync(resolve(dir, '.cargo/config.toml')), readFileSync(resolve(import.meta.dir, '../.cargo/config.toml')));
     // The diary instructions travel in full inside the generated block, and .exact/ stays local.
     const agents = () => readFileSync(resolve(dir, 'AGENTS.md'), 'utf8');
     assert.match(agents(), /<!-- exact:begin[^]*## The authoring diary[^]*### Needed[^]*<!-- exact:end -->/);
+    assert.match(agents(), /one-time installer[^]*exact\.mjs[^]*setup[^]*forced offline for Hermes/);
     assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/\.exact\/$/m);
     // Execute the generated dispatcher against fake SDK entry points: cwd may
     // be anywhere, but the source and test file must still name this app.
     const sdk = resolve(parent, 'sdk');
     for (const file of ['host/web/build.mjs', 'scripts/agent.mjs', 'scripts/exact.mjs']) {
       mkdirSync(resolve(sdk, file, '..'), { recursive: true });
-      writeFileSync(resolve(sdk, file), 'console.log(JSON.stringify({args:process.argv.slice(2),app:process.env.EXACT_APP_DIR}));');
+      writeFileSync(resolve(sdk, file), 'console.log(JSON.stringify({args:process.argv.slice(2),app:process.env.EXACT_APP_DIR,offline:process.env.HERMES_LEAN_SYS_OFFLINE}));');
     }
     const testArgs = host => [host, '--app', 'field-log', '--test', resolve(realpathSync(dir), 'app.test.contract')];
     for (const [command, args] of [
@@ -39,7 +41,7 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     ]) {
       const result = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...command], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
       assert.equal(result.status, 0, result.stderr);
-      assert.deepEqual(JSON.parse(result.stdout), { args, app: realpathSync(dir) });
+      assert.deepEqual(JSON.parse(result.stdout), { args, app: realpathSync(dir), offline: '1' });
     }
     // chat F19, calendar F13: the files named, from the current directory (a glob too), each run in turn.
     mkdirSync(resolve(dir, 'tests'));
@@ -63,6 +65,7 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     const manifest = readFileSync(resolve(dir, 'Cargo.toml'), 'utf8');
     writeFileSync(resolve(dir, 'Cargo.toml'), manifest.replace(/^taffy = .*\n/m, ''));
     writeFileSync(resolve(dir, 'rust-toolchain.toml'), '[toolchain]\nchannel = "1.0.0"\n');
+    writeFileSync(resolve(dir, '.cargo/config.toml'), '[env]\nHERMES_LEAN_SYS_OFFLINE = "0"\n');
     const [patches, toolchain] = outsideWorkspaceProblems(dir);
     assert.match(patches, /must name exact2's vendored taffy\. Use .*:\n\[patch\.crates-io\]\ntaffy = /);
     assert.match(toolchain, /pins 1\.0\.0; exact2 builds with /);
@@ -77,6 +80,7 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     assert.ok(!agents().includes('stale'));
     assert.equal(readFileSync(resolve(dir, '.gitignore'), 'utf8'), '/target/\n/.exact/\n');
     assert.deepEqual(outsideWorkspaceProblems(dir), []);
+    assert.deepEqual(readFileSync(resolve(dir, '.cargo/config.toml')), readFileSync(resolve(import.meta.dir, '../.cargo/config.toml')));
     assert.ok(!readFileSync(web, 'utf8').includes('/nowhere'));
     const appTest = resolve(dir, 'app.test.contract');
     assert.match(readFileSync(appTest, 'utf8'), /the greeting loads/, 'update preserves existing tests');

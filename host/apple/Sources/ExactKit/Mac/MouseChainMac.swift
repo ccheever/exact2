@@ -117,6 +117,7 @@ extension NodeView {
     /// `pointermove`; it is held until the button comes up, wherever that is,
     /// and its drags are that node's moves (LLP 1056 §3 stage 3).
     func pointerPressed(_ event: NSEvent?) {
+        presenter?.focusByPointer = true
         presenter?.flushHoverMove()
         guard let presenter, presenter.pointerHeld == nil else { return }
         var next: NSView? = self

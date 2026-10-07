@@ -83,6 +83,7 @@ extension Presenter {
     /// in this session (the shortcuts and handlers are its).
     func routeKey(_ event: NSEvent, focused: Bool, in window: NSWindow? = nil) -> Bool {
         if focused {
+            keyboardUsed(event, in: window)
             if event.type == .keyDown && shortcuts.perform(event) { return true }
             if keyDown(event, in: window) { return true }
         }
