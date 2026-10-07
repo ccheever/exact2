@@ -1,3 +1,10 @@
+use ReviewView, ReviewCommentComposer from "./review-view.contract"
+use ReviewSnapshot, ReviewResult, ReviewColors from "./review-shapes.contract"
+use MobileFileTree, FileTreeSnapshot, FileTreeResult from "./file-tree.contract"
+use MobileFileView, FileSnapshot from "./file-view.contract"
+use SettingsServer, ServerSettingsData from "./settings-server.contract"
+use SettingsProviderAccounts, ProviderSettingsData from "./settings-provider.contract"
+use MediaPreview, MediaPreviewSnapshot from "./media-preview.contract"
 use ComposerAttachmentStrip from "./composer-attachments.contract"
 use ComposerAttachmentsSnapshot from "./composer-attachment-shapes.contract"
 use SettingsRoot, SettingsRootData, SettingsHeader, SettingsChoices, SettingsChoicesData, MobilePreferencesResource from "./settings.contract"
@@ -27,7 +34,13 @@ font "DM Sans"
 routes nav
   home "/"
   thread "/threads/:threadEnvironment/:threadId"
+  threadReview "/threads/:threadEnvironment/:threadId/review"
+  threadReviewComment "/threads/:threadEnvironment/:threadId/review/comment"
+  threadFiles "/threads/:threadEnvironment/:threadId/files"
+  threadFile "/threads/:threadEnvironment/:threadId/files/:filePath"
   threadMedia "/threads/:threadEnvironment/:threadId/attachments/:attachmentId"
+  threadDraftMedia "/threads/:threadEnvironment/:threadId/draft-attachments/:attachmentId"
+  newTaskMedia "/new/:threadEnvironment/attachments/:attachmentId"
   threadModel "/threads/:threadEnvironment/:threadId/model"
   threadModelOption "/threads/:threadEnvironment/:threadId/model/options/:modelOption"
   threadRuntime "/threads/:threadEnvironment/:threadId/model/runtime"
@@ -35,6 +48,8 @@ routes nav
   threadAgents "/threads/:threadEnvironment/:threadId/agents"
   settings "/settings"
   archive "/settings/archive"
+  settingsServer "/settings/server/:serverPage"
+  settingsProviders "/settings/provider-accounts"
   settingsAppearance "/settings/appearance"
   settingsChoice "/settings/preferences/:settingsChoice"
   newTask "/new"
@@ -51,13 +66,19 @@ routes nav
   environmentDetail "/settings/environments/:environmentKey"
   notfound
 
+shape MediaCompletion
+  identifier: string
+  message: string
 shape Appearance
+  enterBehavior: string
   scheme: string
   themeId: string
   themeMode: string
   baseFontSize: number
   groupingMode: string
 shape SettingsView
+  serverScope: string
+  environmentIds: string
   root: SettingsRootData
   header: string
 shape SettingsScopeEvent
@@ -146,10 +167,53 @@ component App
   mutation detailChanged as shape Change refreshes data, detail
   state settingsSelection = ""
   derive settingsRouteKey = match first(filter(stack(nav), route => route.name == "settings")) { case some(route) => `${route.id}`, case none => "settings" }
-  resource settingsData = settingsRoot(preferences.serialized, viewport.prefersColorScheme, data.environments, layout.safeBottom, settingsRouteKey, settingsSelection) as shape SettingsView
+  resource settingsData = settingsRoot(preferences.serialized, viewport.prefersColorScheme, data.environments, layout.safeBottom, settingsRouteKey, settingsSelection, data.revision) as shape SettingsView
   resource settingsAppearance = settingsAppearance(preferences.serialized, viewport.prefersColorScheme, preferences.ready, layout.safeBottom) as shape SettingsAppearanceData
   resource settingsChoice = settingsChoices(top(nav).params.settingsChoice, preferences.serialized, preferences.ready) as shape SettingsChoicesData
-  mutation preferenceChanged as shape Change refreshes preferences, shelves then didPreferenceChange
+  resource serverSettings = serverSettings(top(nav).params.serverPage, settingsData.serverScope, top(nav).name == "settingsServer", data.revision) as shape ServerSettingsData
+  resource providerPrepared = providerAccounts(settingsData.environmentIds, top(nav).name == "settingsProviders", data.revision) as shape ProviderSettingsData
+  resource providerAccounts = providerSnapshot(settingsData.environmentIds, top(nav).name == "settingsProviders", providerPrepared) as shape ProviderSettingsData
+  mutation serverSettingChanged as shape Change refreshes serverSettings, data then didServerSettingChange
+  mutation providerChanged as shape Change refreshes providerPrepared, providerAccounts then didProviderChange
+  mutation providerFieldChanged as shape Change refreshes providerAccounts
+  state providerLogoutKey = ""
+  mutation providerLogoutConfirmation as shape Notice then didConfirmProviderLogout
+  action serverSettingChange(key: string, value: string)
+    send serverSettingChanged = serverSettingChange(top(nav).params.serverPage, settingsData.serverScope, key, value)
+  action didServerSettingChange
+    match serverSettingChanged
+      case some(result)
+        if result.message != ""
+          send notice = alert("info", "Could not save setting", result.message)
+      case none
+        settingsSelection = settingsSelection
+  action providerAction(op: string, key: string, value: string)
+    if op == "reveal" or op == "choose-cancel"
+      send providerFieldChanged = providerAction(op, key, value)
+    else
+      send providerChanged = providerAction(op, key, value)
+  action providerField(key: string, name: string, value: string)
+    send providerFieldChanged = providerField(key, name, value)
+  action didProviderChange
+    match providerChanged
+      case some(result)
+        if result.message != ""
+          send notice = alert("info", "Provider account", result.message)
+      case none
+        settingsSelection = settingsSelection
+  action providerSignOut(key: string, title: string, message: string)
+    providerLogoutKey = key
+    send providerLogoutConfirmation = alert("sign-out", title, message)
+  action didConfirmProviderLogout
+    match providerLogoutConfirmation
+      case some(result)
+        if result.choice == "sign-out"
+          providerAction("logout-confirmed", providerLogoutKey, "")
+      case none
+        providerLogoutKey = ""
+  action settingsEnvironment(key: string)
+    nav = push(nav, path("environmentDetail", key))
+  mutation preferenceChanged as shape Change refreshes preferences, shelves, data then didPreferenceChange
   mutation appearanceApplied as shape Change
   mutation settingsEvent as shape SettingsScopeEvent then didSettingsEvent
   task applyTheme when preferences.ready key=appearance.themeMode
@@ -180,6 +244,10 @@ component App
       openEnvironments()
     else if target == "SettingsAppearance"
       nav = push(nav, path("settingsAppearance"))
+    else if target == "SettingsProviderAccounts"
+      nav = push(nav, path("settingsProviders"))
+    else if target == "SettingsEnvironmentNewThreads" or target == "SettingsEnvironmentSourceControl" or target == "SettingsEnvironmentAgentBehavior" or target == "SettingsEnvironmentMaintenance"
+      nav = push(nav, path("settingsServer", target))
     else if target == "SettingsArchive"
       nav = push(nav, path("archive"))
     else if target == "SettingsKeyboard" or target == "SettingsFollowUp" or target == "SettingsOrganization" or target == "SettingsProjectGrouping"
@@ -257,6 +325,123 @@ component App
     if top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
       lastOperation = "thread-action"
       send changed = command(op, id, value, `${wallTime.epochAtZero + now()}`)
+  derive workspaceRouteReady = data.ready and top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
+  resource reviewLook = reviewColors(appearance.scheme, appearance.themeId) as shape ReviewColors
+  resource reviewData = reviewSnapshot(appearance.scheme, top(nav).name == "threadReview" or top(nav).name == "threadReviewComment", data.revision) as shape ReviewSnapshot
+  mutation reviewPrepared as shape ReviewSnapshot refreshes reviewData
+  mutation reviewChanged as shape ReviewResult refreshes reviewData, data then didReviewChange
+  state reviewWrap = false
+  state reviewComment = ""
+  state reviewCommentOwner = ""
+  mutation reviewDismissed as shape ReviewResult refreshes reviewData
+  task dismissReviewComment when reviewCommentOwner != "" and top(nav).name != "threadReviewComment" key=reviewCommentOwner
+    after(1, dismissReviewComment)
+  action dismissReviewComment
+    send reviewDismissed = reviewAction(reviewCommentOwner, "cancel", "", "", 0, appearance.scheme)
+    reviewCommentOwner = ""
+  task prepareReview when top(nav).name == "threadReview" and workspaceRouteReady key=`${top(nav).id}:${reviewData.owner}`
+    after(1, prepareReview)
+  action prepareReview
+    send reviewPrepared = reviewPrepare("", appearance.scheme)
+  action openReview
+    nav = push(nav, path("threadReview", data.environmentId, data.threadId))
+  action reviewAction(op: string, path: string, n: number)
+    if workspaceRouteReady
+      send reviewChanged = reviewAction(reviewData.owner, op, path, "", n, appearance.scheme)
+  action reviewSection(value: string)
+    reviewAction("section", value, 0)
+  action reviewFile(value: string)
+    if value != ""
+      reviewAction("file", value, 0)
+      scrollIntoView("review-diff", `file:${value}`, block="start")
+  action refreshReview
+    reviewAction("refresh", "", 0)
+  action loadReviewFiles
+    match first(filter(reviewData.files, file => file.pending))
+      case some(file)
+        reviewAction("visible", file.path, 0)
+      case none
+        reviewWrap = reviewWrap
+  action didReviewChange
+    match reviewChanged
+      case some(result)
+        if result.message != ""
+          send notice = alert("info", "Review changes", result.message)
+        else if workspaceRouteReady and result.data.owner == reviewData.owner
+          if result.data.commentOpen and top(nav).name == "threadReview"
+            reviewComment = ""
+            reviewCommentOwner = result.data.owner
+            nav = push(nav, path("threadReviewComment", data.environmentId, data.threadId))
+          else if not result.data.commentOpen and top(nav).name == "threadReviewComment"
+            nav = back(nav)
+      case none
+        reviewComment = reviewComment
+  action editReviewComment(value: string)
+    reviewComment = value
+  action submitReviewComment
+    if workspaceRouteReady
+      send reviewChanged = reviewAction(reviewCommentOwner, "save", "", reviewComment, 0, appearance.scheme)
+  action toggleReviewWrap
+    reviewWrap = not reviewWrap
+  state filesQuery = ""
+  state selectedFile = ""
+  state fileWrap = false
+  state filePreview = true
+  resource filesData = filesSnapshot(selectedFile, data.revision) as shape FileTreeSnapshot
+  resource fileData = fileSnapshot(top(nav).params.filePath, appearance.scheme, 0, data.revision) as shape FileSnapshot
+  mutation filesPrepared as shape FileTreeSnapshot refreshes filesData
+  mutation filesChanged as shape FileTreeResult refreshes filesData then didFilesChange
+  mutation filePrepared as shape FileSnapshot refreshes fileData
+  task prepareFiles when top(nav).name == "threadFiles" and workspaceRouteReady key=`${top(nav).id}:${filesData.owner}:${filesQuery}`
+    after(200, prepareFiles)
+  task prepareFile when top(nav).name == "threadFile" and workspaceRouteReady key=`${top(nav).id}:${fileData.owner}`
+    after(1, prepareFile)
+  action prepareFiles
+    send filesPrepared = filesPrepare(filesQuery, selectedFile)
+  action prepareFile
+    send filePrepared = filePrepare(top(nav).params.filePath, appearance.scheme, 0, false)
+  action openFiles
+    filesQuery = ""
+    nav = push(nav, path("threadFiles", data.environmentId, data.threadId))
+  action editFilesQuery(value: string)
+    filesQuery = value
+  action toggleDirectory(path: string)
+    send filesChanged = filesAction(filesData.owner, "toggle", path, selectedFile)
+  action refreshFiles
+    send filesChanged = filesAction(filesData.owner, "refresh", "", selectedFile)
+  action didFilesChange
+    match filesChanged
+      case some(result)
+        if result.message != ""
+          send notice = alert("info", "Files", result.message)
+      case none
+        selectedFile = selectedFile
+  action openFile(path: string)
+    selectedFile = path
+    nav = push(nav, path("threadFile", data.environmentId, data.threadId, path))
+  action refreshFile
+    send filePrepared = filePrepare(top(nav).params.filePath, appearance.scheme, 0, true)
+  action toggleFileWrap
+    fileWrap = not fileWrap
+  action toggleFilePreview
+    filePreview = not filePreview
+  derive mediaActive = top(nav).name == "threadMedia" or top(nav).name == "threadDraftMedia" or top(nav).name == "newTaskMedia"
+  derive mediaScope = top(nav).name == "threadMedia" ? "transcript" : "composer"
+  resource mediaData = mediaPreview(mediaScope, top(nav).params.attachmentId, `${top(nav).id}`, top(nav).params.threadEnvironment, top(nav).params.threadId, mediaActive, data.environmentId, data.threadId, data.generation) as shape MediaPreviewSnapshot
+  mutation mediaCompleted as shape MediaCompletion then didMediaComplete
+  action mediaComplete(value: string)
+    send mediaCompleted = mediaCompletion(value, mediaData.identifier)
+  action didMediaComplete
+    match mediaCompleted
+      case some(result)
+        if mediaActive and result.identifier != "" and result.identifier == mediaData.identifier
+          if result.message != ""
+            send notice = alert("info", "Could not preview file", result.message)
+          nav = back(nav)
+      case none
+        composerFocused = false
+  action openDraftMedia(id: string)
+    nav = push(nav, startsWith(top(nav).name, "newTask") ? path("newTaskMedia", data.environmentId, id) : path("threadDraftMedia", data.environmentId, data.threadId, id))
   action openMedia(id: string)
     nav = push(nav, path("threadMedia", data.environmentId, data.threadId, id))
   resource composerAttachments = composerAttachments(data.revision) as shape ComposerAttachmentsSnapshot
@@ -325,7 +510,7 @@ component App
     newTaskOperation = kind
     send taskChanged = newTaskAction(kind, id, value)
   action didTaskChange
-    if newTaskOperation != "draft" and newTaskOperation != "send"
+    if newTaskOperation != "draft" and newTaskOperation != "send" and newTaskOperation != "send-alternate"
       newTaskContextRevision = newTaskContextRevision + 1
     match taskChanged
       case some(result)
@@ -575,7 +760,7 @@ component App
           data-mobile-form-sheet=(entry.name == "connections" or entry.name == "connect")
           data-mobile-scan-action=(entry.name == "connect" ? "scan-qr" : "")
           data-mobile-scanner-open=scannerOpen
-          navigationScroll=(entry.name == "home" ? (length(home.items) > 0 ? "home-list" : "") : entry.name == "thread" ? (length(threadData.rows) > 0 ? "thread-feed" : "") : entry.name == "settings" ? "settings-scroll" : entry.name == "settingsAppearance" ? "settings-appearance-scroll" : entry.name == "settingsChoice" ? "settings-choice-scroll" : entry.name == "archive" ? (length(archiveData.items) > 0 ? "archive-list" : "") : `scroll-${entry.id}`)
+          navigationScroll=(entry.name == "home" ? (length(home.items) > 0 ? "home-list" : "") : entry.name == "thread" ? (length(threadData.rows) > 0 ? "thread-feed" : "") : entry.name == "threadReview" ? "review-diff" : entry.name == "threadFiles" ? "workspace-files" : entry.name == "threadFile" ? "file-source" : entry.name == "settings" ? "settings-scroll" : entry.name == "settingsServer" ? "settings-server-scroll" : entry.name == "settingsProviders" ? "settings-provider-scroll" : entry.name == "settingsAppearance" ? "settings-appearance-scroll" : entry.name == "settingsChoice" ? "settings-choice-scroll" : entry.name == "archive" ? (length(archiveData.items) > 0 ? "archive-list" : "") : `scroll-${entry.id}`)
           navigationPresentation=(entry.name == "connections" or entry.name == "connect" ? "modal" : "")
           position="absolute"
           inset=0
@@ -585,7 +770,7 @@ component App
           header height=44 flex-shrink=0 align-items="center" justify-content="space-between"
             button id="back" press=back aria-label="Back" testId=`back-${entry.name}`
               image "symbol:back" width=20 height=20
-            text (entry.name == "connect" ? "Add environment" : entry.name == "home" ? "T3 Code" : entry.name == "environmentDetail" ? detail.title : entry.name == "thread" ? threadData.title : entry.name == "settings" ? "Settings" : entry.name == "settingsAppearance" ? "Appearance" : entry.name == "settingsChoice" ? settingsChoice.title : entry.name == "archive" ? "Archived Threads" : entry.name == "threadAgents" ? "Agents" : entry.name == "newTaskProjects" ? "Project" : entry.name == "newTaskEnvironments" ? "Environment" : entry.name == "newTaskBranches" ? "Branch" : entry.name == "threadModel" or entry.name == "newTaskModel" ? "Model" : entry.name == "threadRuntime" or entry.name == "newTaskRuntime" ? "Runtime" : entry.name == "threadModelFilter" or entry.name == "newTaskModelFilter" ? "Providers" : entry.name == "threadModelOption" or entry.name == "newTaskModelOption" ? "Model options" : entry.name == "newTask" ? "New task" : "Environments")
+            text (entry.name == "connect" ? "Add environment" : entry.name == "home" ? "T3 Code" : entry.name == "environmentDetail" ? detail.title : entry.name == "threadReview" ? "Review changes" : entry.name == "threadReviewComment" ? "Leave a comment" : entry.name == "threadFiles" ? filesData.title : entry.name == "threadFile" ? fileData.title : entry.name == "thread" ? threadData.title : entry.name == "settings" ? "Settings" : entry.name == "settingsServer" ? serverSettings.title : entry.name == "settingsProviders" ? "Provider accounts" : entry.name == "settingsAppearance" ? "Appearance" : entry.name == "settingsChoice" ? settingsChoice.title : entry.name == "archive" ? "Archived Threads" : entry.name == "threadAgents" ? "Agents" : entry.name == "newTaskProjects" ? "Project" : entry.name == "newTaskEnvironments" ? "Environment" : entry.name == "newTaskBranches" ? "Branch" : entry.name == "threadModel" or entry.name == "newTaskModel" ? "Model" : entry.name == "threadRuntime" or entry.name == "newTaskRuntime" ? "Runtime" : entry.name == "threadModelFilter" or entry.name == "newTaskModelFilter" ? "Providers" : entry.name == "threadModelOption" or entry.name == "newTaskModelOption" ? "Model options" : entry.name == "newTask" ? "New task" : "Environments")
               role="heading"
               aria-level=2
               font-size=18
@@ -597,6 +782,10 @@ component App
               button press=addEnvironment aria-label="Add environment" testId="add-environment"
                 image "symbol:add" width=20 height=20
             when entry.name == "thread"
+              button press=openReview aria-label="Review changes" testId="thread-review"
+                t3-symbol symbol-name="plus.forwardslash.minus" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
+              button press=openFiles aria-label="Files" testId="thread-files"
+                t3-symbol symbol-name="folder" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
               button press=openAgents aria-label="Agents" testId="thread-agents"
                 t3-symbol symbol-name="person.2" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
           when entry.name == "home"
@@ -605,11 +794,50 @@ component App
           else when entry.name == "thread"
             ThreadFeed(data=threadData, horizontalPadding=16, userBubbleMaxWidth=max(0, (viewport.width - 32) * 0.85), bottomClearance=14, action=threadAction, openMedia=openMedia, colors=threadLook)
             ThreadApprovals(data=threadData, action=threadAction, colors=threadLook)
-            ComposerAttachmentStrip(data=composerAttachments, remove=removeAttachment, colors=threadLook)
-            ThreadComposer(data=threadData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=(composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)), contentMaxWidth=viewport.width, focusChanged=composerFocus, editDraft=editDraft, action=threadAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
+            ComposerAttachmentStrip(data=composerAttachments, open=openDraftMedia, remove=removeAttachment, colors=threadLook)
+            ThreadComposer(enterBehavior=appearance.enterBehavior, data=threadData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=(composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)), contentMaxWidth=viewport.width, focusChanged=composerFocus, editDraft=editDraft, action=threadAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
+          else when entry.name == "threadReview"
+            row gap=10 padding=14
+              select value=reviewData.sectionId change=reviewSection aria-label="Diff section" flex=1 min-width=0
+                each section in reviewData.sections key=section.id
+                  option section.title value=section.id
+              button press=toggleReviewWrap aria-label="Toggle line wrapping" aria-pressed=reviewWrap
+                t3-symbol symbol-name="text.word.spacing" point-size=18 symbol-tint=reviewLook.icon width=20 height=20
+            when length(reviewData.files) > 0
+              select value=reviewData.selectedPath change=reviewFile aria-label="Changed file" margin-left=14 margin-right=14
+                option "Changed files" value=""
+                each file in reviewData.files key=file.id
+                  option file.name value=file.path
+            ReviewView(data=reviewData, colors=reviewLook, wrap=reviewWrap, action=reviewAction, refresh=refreshReview, loadMore=loadReviewFiles)
+          else when entry.name == "threadReviewComment"
+            ReviewCommentComposer(data=reviewData, value=reviewComment, colors=reviewLook, change=editReviewComment, submit=submitReviewComment)
+          else when entry.name == "threadFiles"
+            input value=filesQuery input=editFilesQuery placeholder="Search files" margin=14 aria-label="Search files"
+            MobileFileTree(data=filesData, colors=reviewLook, toggle=toggleDirectory, select=openFile, refresh=refreshFiles)
+          else when entry.name == "threadFile"
+            row gap=14 padding=14
+              text fileData.subtitle flex=1 min-width=0 line-clamp=1 color=reviewLook.muted font-size=12
+              when fileData.markdown
+                button press=toggleFilePreview aria-label="Toggle Markdown preview" aria-pressed=filePreview
+                  t3-symbol symbol-name="eye" point-size=18 symbol-tint=reviewLook.icon width=20 height=20
+              button press=toggleFileWrap aria-label="Toggle line wrapping" aria-pressed=fileWrap
+                t3-symbol symbol-name="text.word.spacing" point-size=18 symbol-tint=reviewLook.icon width=20 height=20
+            MobileFileView(data=fileData, colors=reviewLook, wrap=fileWrap, preview=filePreview, refresh=refreshFile)
+          else when entry.name == "threadMedia" or entry.name == "threadDraftMedia" or entry.name == "newTaskMedia"
+            when entry.id == top(nav).id
+              when mediaData.ready
+                MediaPreview(data=mediaData, completed=mediaComplete)
+              else when mediaData.error != ""
+                text mediaData.error padding=21 color=look.colors.dangerForeground
+              else
+                text "Loading preview…" padding=21 color=look.colors.muted
           else when entry.name == "settings"
             SettingsRoot(data=settingsData.root, navigate=openSetting)
             SettingsHeader(configuration=settingsData.header, event=settingsHeaderEvent)
+          else when entry.name == "settingsServer"
+            SettingsServer(data=serverSettings, colors=settingsData.root.colors, roles=settingsData.root.roles, danger=look.colors.dangerForeground, bottom=settingsData.root.bottom, change=serverSettingChange, environment=settingsEnvironment)
+          else when entry.name == "settingsProviders"
+            SettingsProviderAccounts(data=providerAccounts, colors=settingsData.root.colors, roles=settingsData.root.roles, danger=look.colors.dangerForeground, bottom=settingsData.root.bottom, action=providerAction, field=providerField, signOut=providerSignOut)
           else when entry.name == "settingsAppearance"
             SettingsAppearance(data=settingsAppearance, change=changePreference)
           else when entry.name == "settingsChoice"
@@ -653,8 +881,8 @@ component App
           else when entry.name == "newTask" and newTaskData.draft
             NewTaskHero(data=newTaskData, chooseProject=chooseNewProject, chooseEnvironment=chooseNewEnvironment, colors=composerLook)
             NewTaskWorkspace(data=newTaskData, action=taskAction, chooseBranch=chooseNewBranch, colors=composerLook)
-            ComposerAttachmentStrip(data=composerAttachments, remove=removeAttachment, colors=threadLook)
-            ThreadComposer(data=newTaskData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=(composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)), contentMaxWidth=viewport.width, focusChanged=composerFocus, editDraft=editNewDraft, action=taskAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
+            ComposerAttachmentStrip(data=composerAttachments, open=openDraftMedia, remove=removeAttachment, colors=threadLook)
+            ThreadComposer(enterBehavior=appearance.enterBehavior, data=newTaskData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=(composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)), contentMaxWidth=viewport.width, focusChanged=composerFocus, editDraft=editNewDraft, action=taskAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
           else when entry.name == "newTask" or entry.name == "newTaskProjects"
             input value=newTaskQuery input=editNewQuery placeholder="Search projects" margin=16 aria-label="Search projects"
             NewTaskProjects(data=newTaskData, action=taskAction, colors=composerLook)

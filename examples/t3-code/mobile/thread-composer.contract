@@ -6,6 +6,7 @@ component ThreadComposer
   props
     data: ThreadComposerState
     expanded: bool
+    enterBehavior: string
     dark: bool
     bottomInset: number
     contentMaxWidth: number
@@ -15,6 +16,16 @@ component ThreadComposer
     pickAttachments: action
     openModelSettings: action
     colors: ThreadColors
+  // Source applies these shortcuts to hardware keyboards; software Return stays a newline.
+  action typedKey(key: string)
+    if (enterBehavior == "send" and key == "Enter") or (enterBehavior == "newline" and key == "Meta+Enter")
+      preventDefault()
+      if data.canSend
+        action("send", "", "")
+    else if (enterBehavior == "send" and key == "Meta+Enter") or (enterBehavior == "newline" and key == "Shift+Meta+Enter")
+      preventDefault()
+      if data.canSend
+        action("send-alternate", "", "")
   view
     column padding-left=12 padding-right=12 padding-top=(expanded ? 8 : 6) padding-bottom=(bottomInset + (expanded ? 8 : 6)) font-family="DM Sans"
       column width="100%" max-width=contentMaxWidth align-self="center"
@@ -30,7 +41,7 @@ component ThreadComposer
                 column width=44 height=44 align-items="center" justify-content="center"
                   t3-symbol symbol-name="plus" point-size=20 symbol-weight="regular" symbol-tint=colors.iconSubtle width=20 height=20
             // Keep one editor plan site while focus changes compact geometry.
-            textarea value=data.draft input=editDraft focus=focusChanged(true) blur=focusChanged(false) placeholder=data.placeholder
+            textarea value=data.draft input=editDraft key=typedKey focus=focusChanged(true) blur=focusChanged(false) placeholder=data.placeholder
               height=(expanded ? 72 : 36) max-height=160 flex=(expanded ? 0 : 1) min-width=0
               padding-left=(expanded ? 14 : 4) padding-right=(expanded ? 14 : 4) padding-top=(expanded ? 4 : 6) padding-bottom=(expanded ? 4 : 6)
               box-sizing="border-box" font-family="DM Sans" font-size=16 line-height="23px" color=colors.foreground

@@ -94,11 +94,11 @@ export function mobileThreadComposer(client: T3Client): ThreadComposerState {
   const provider = arr(client.config.providers).find(provider => provider.instanceId === client.providerId);
   const model = arr(provider?.models).find(model => model.slug === client.modelId), modelReady = !!provider && providerAvailable(provider) && !!model;
   const modelUnavailable = client.connection === 'connected' && !modelReady;
-  const requests = requestPresentation(client), followUp = followUpBehavior(client);
+  const requests = requestPresentation(client), followUp = running && !queue.canSteer ? 'queue' : followUpBehavior(client);
   const action = primaryAction(client, threadPhase(client.projection));
   const blockedReason = client.pending?.uncertain ? 'Check the synchronized thread before retrying.'
     : requests.approvals.length ? 'Resolve this approval request to continue.' : requests.questions.length ? 'Answer the pending question to continue.'
-    : action.sendStatus || (running && followUp === 'steer' && !queue.canSteer ? 'The active provider does not support steering.' : '');
+    : action.sendStatus;
   const canOperate = client.writable, canStop = canOperate && !client.pending && !client.busy && running;
   // Offline-outbox admission is not the desktop transport's contract; preserve its real refusal until the mobile outbox exists.
   const canSend = canOperate && !client.pending && !client.busy && modelReady && !!client.projectId && !blockedReason && (!!client.draft.trim() || client.snapshotDrafts.length > 0);

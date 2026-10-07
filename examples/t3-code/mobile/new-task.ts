@@ -12,6 +12,7 @@ import { fleet, type EnvironmentFleet } from './shared/settings-b-fleet';
 import { environmentOptions } from './shared/r4-git-env';
 import { draftContext, composerBranches, patchDraftContext } from './shared/composer-controls-branch';
 import { branchState, cardBranchView, startFromOrigin } from './shared/r4-git-branch';
+import { mobileSend } from './composer-behavior';
 import { mobileDraftChanged } from './draft';
 import { isScratch, scratchRootOf } from './shared/r12-threads-scratch';
 
@@ -109,7 +110,8 @@ export async function mobileNewTaskAction(kind: string, id: string, value: strin
     return { ...result(saved.message), revision: saved.revision };
   }
   if (state.busy) return result('Wait for the current task change to finish.');
-  const command = (op: string, id = '', value = '') => client === mobileClient ? mobileCommand([op, id, value], nativeInput, suppliedStorage) : client.command(op, id, value, 0, native, storage);
+  const command = (op: string, id = '', value = '') => client === mobileClient ? mobileCommand([op, id, value], nativeInput, suppliedStorage)
+    : op === 'send-alternate' ? mobileSend(client, true, native, storage) : client.command(op, id, value, 0, native, storage);
   const run = async (op: string, id = '', value = '') => { const response = await command(op, id, value); if (response.message) throw new ClientError(response.message); };
   state.busy = true; state.error = '';
   try {
@@ -150,10 +152,10 @@ export async function mobileNewTaskAction(kind: string, id: string, value: strin
       const ends = obj(client.presentation.scrollEnds);
       client.presentation.scrollEnds = { ...ends, 'scroll:details-refs': Number(ends['scroll:details-refs'] ?? 0) + 1 };
     }
-    else if (kind === 'send') {
+    else if ((kind === 'send' || kind === 'send-alternate')) {
       if (client.threadId) throw new ClientError('Open a new task draft before sending.');
       const environmentId = client.environmentId, projectId = client.projectId, generation = client.generation;
-      await run('send');
+      await run(kind);
       const submitted = !!client.threadId && environmentId === client.environmentId && projectId === client.projectId && generation === client.generation;
       return result('', submitted);
     } else throw new ClientError('Unknown new task action.');

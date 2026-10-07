@@ -1,0 +1,59 @@
+// Pinned365aa87982 ComposerTextView key commands and followUpBehavior.ts.
+// @ref llp/1106.005-composer-and-transcript.decision.md#settings-ownership
+import type { T3Client } from './shared/client';
+import { obj } from './shared/domain';
+import { bridgeReply, ClientError, type Native, type Files } from './shared/protocol';
+import { queueState } from './shared/composer-controls-queue';
+import { threadPhase } from './shared/composer-presentation';
+import { letGo } from './shared/let-go';
+import { normalizeMobilePreferences } from './settings-preferences';
+
+/** The mobile preference file is authoritative; this is only the shared reducer's input. */
+export function applyMobileComposerBehavior(client: T3Client, input: unknown) {
+  const preferences = normalizeMobilePreferences(input);
+  client.local.clientSettings.followUpBehavior = preferences.followUpBehavior;
+}
+
+/** The authored mobile key/button action already resolved its chord. Do not apply
+ * desktop server bindings, which can turn Command-Return into a background launch.
+ * This native response is local input attribution, not a server result.
+ */
+export function mobileSubmissionNative(native: Native, alternate: boolean, afterPresentation?: () => void, assertOwner?: () => void): Native {
+  let dispatched = false;
+  return { available: native.available, watch: topic => native.watch(topic), later: async input => {
+    const request = obj(input);
+    if (!dispatched) assertOwner?.();
+    if (request.op === 'composerSendIntent') return { ok: true, generation: request.generation ?? 0,
+      value: { source: 'mobile', modifiers: alternate ? 'meta' : '', ageMs: 0 } };
+    // Once the authored write starts, shared pending reconciliation owns its outcome.
+    // A successful launch intentionally changes the selected thread afterward.
+    if (request.op === 'request' && ['orchestration.dispatchCommand', 'orchestration.launchThread'].includes(String(request.method))) dispatched = true;
+    const response = await native.later(input);
+    if (!dispatched) assertOwner?.();
+    if (request.op === 'devicePresentation') afterPresentation?.();
+    return response;
+  } };
+}
+
+export async function mobileSend(client: T3Client, alternate: boolean, native: Native, storage: Files) {
+  const identity = () => JSON.stringify([client.generation, client.threadEpoch, client.origin, client.environmentId, client.projectId,
+    client.threadId, client.draftKey, client.providerId, client.modelId, client.modelOptions, client.runtimeMode, client.interactionMode]);
+  const owner = identity();
+  const assertOwner = () => { if (owner !== identity()) throw new ClientError('The draft or model changed before the message could be sent.', 'superseded'); };
+  try {
+    const reply = await bridgeReply(native, { op: 'mobilePreferences' });
+    if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind);
+    assertOwner();
+    const canSteer = queueState(client.projection).canSteer;
+    const apply = () => {
+      applyMobileComposerBehavior(client, reply.value);
+      // Pinned mobile collapses unsupported steering into a normal queued follow-up.
+      if (threadPhase(client.projection) === 'running' && !canSteer) client.local.clientSettings.followUpBehavior = 'queue';
+    };
+    apply();
+    return await client.command('send', '', '', 0, mobileSubmissionNative(native, alternate && canSteer, apply, assertOwner), storage);
+  } catch (error) {
+    if (letGo(error)) throw error;
+    return { revision: client.revision, message: error instanceof Error ? error.message : 'Could not send the message.' };
+  }
+}
