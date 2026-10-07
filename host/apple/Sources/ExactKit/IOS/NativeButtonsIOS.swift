@@ -41,12 +41,46 @@ final class NativeButtonIOS: UIButton {
     var isGlass = false
     /// The configuration drawn, its name in the table's iOS column.
     var drawn = "bordered"
+    /// Only a button that is itself a carried grouped-list row uses the
+    /// cell's content margins. Its node remains the authored row slot.
+    weak var groupedRowContent: UIView?
+    private(set) var groupedRowInsets: UIEdgeInsets = .zero
+
+    @discardableResult func layout(in box: CGRect) -> Bool {
+        let insets = groupedRowContent?.layoutMargins ?? .zero
+        let changed = groupedRowInsets != insets
+        groupedRowInsets = insets
+        let content = CGRect(x: box.minX + insets.left, y: box.minY + insets.top,
+                             width: max(0, box.width - insets.left - insets.right),
+                             height: max(0, box.height - insets.top - insets.bottom))
+        let frame = frame(forAlignmentRect: content)
+        if self.frame != frame { self.frame = frame }
+        return changed
+    }
+
+    /// The row slot needs room for both the control and its native margins.
+    func slotSize(_ size: CGSize) -> CGSize {
+        CGSize(width: size.width + groupedRowInsets.left + groupedRowInsets.right,
+               height: size.height + groupedRowInsets.top + groupedRowInsets.bottom)
+    }
+
     override var canBecomeFocused: Bool { false }
 }
 
 extension NodeView {
     /// A `button appearance="auto"` (LLP 1069.011 D3).
     var isNativeButton: Bool { kind == "control" && props["type"] == "button" }
+
+    /// UIKit supplies the content margins when this button is the whole
+    /// grouped-list row; nested and standalone buttons keep their own box.
+    package func setGroupedNativeButtonContent(_ content: UIView?) {
+        guard let button = presenter?.controls.controls[id] as? NativeButtonIOS else { return }
+        button.groupedRowContent = content
+        let changed = button.layout(in: contentBox())
+        // A cell can resolve new margins after the batch's intrinsic flush.
+        // Restore is temporary and never asks for another projection pass.
+        if changed, content != nil, let presenter, !presenter.applying { presenter.requestProjectionSync() }
+    }
 
     /// Where a native control sits: the glass slot's content when the
     /// glass-group pass made one (D9), else the node.

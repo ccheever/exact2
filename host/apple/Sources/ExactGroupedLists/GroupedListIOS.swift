@@ -646,6 +646,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         cell.contentView.clipsToBounds = true
         if row.superview !== cell.contentView { cell.contentView.addSubview(row) }
         row.frame = CGRect(origin: CGPoint(x: place.frame.minX, y: 0), size: place.frame.size)
+        row.setGroupedNativeButtonContent(cell.contentView)
         row.setNeedsDisplay()
     }
 
@@ -655,6 +656,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             guard let place = carried[id], let row = host.presenter.views[id] else { continue }
             if row.superview !== place.parent { place.parent.insertSubview(row, at: min(place.index, place.parent.subviews.count)) }
             row.frame = place.frame
+            row.setGroupedNativeButtonContent(nil)
         }
         carried.removeAll()
         carriedOrder.removeAll()
@@ -709,6 +711,15 @@ final class GroupedCollectionView: UICollectionView, GroupedScroller {}
 final class GroupedCell: UICollectionViewListCell {
     var row: UInt32?
     var height: CGFloat?
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        // Standard cells have no carried row or native button to lay out.
+        guard height != nil else { return }
+        // UIKit can update content margins after carry, during cell layout.
+        for case let row as NodeView in contentView.subviews {
+            row.setGroupedNativeButtonContent(contentView)
+        }
+    }
     override func preferredLayoutAttributesFitting(_ attributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
         guard let height else { return super.preferredLayoutAttributesFitting(attributes) }
         let fitted = attributes.copy() as! UICollectionViewLayoutAttributes

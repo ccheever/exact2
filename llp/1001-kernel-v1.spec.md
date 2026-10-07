@@ -1120,6 +1120,16 @@ with its tint, as iOS does on the web and Linux; inherited typography is
 reset on the web's native face; Linux draws no symbol. Its size is the
 platform's, as any control's is.
 
+Declared iOS presentation exception: when a native button is itself a row
+of a grouped list, its authored box is the cell slot and its existing
+`UIButton` is inset by that cell's content margins. Its reported intrinsic
+row size includes the platform control's natural size plus those margins,
+including after Dynamic Type or cell-margin changes. The slot's width and
+height remain the kernel's; margins larger than the box leave a zero-size
+control interior. This adds no view or kernel node. A button inside an
+authored custom row, a standalone button, and the other hosts keep their
+ordinary native-button layout (LLP 1084 D5).
+
 ### Window toolbars
 
 Charlie requested native window-toolbar presentation for Interview on 2026-09-15;

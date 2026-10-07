@@ -102,7 +102,8 @@ A row of any other shape is **custom**: a raster image, a third text, a nested b
 - **A tap** is the collection view's own selection. UIKit highlights the row, deselects it, and presses it. Rows that are not buttons, or are disabled, do not highlight.
 - **A custom row's node is carried into its cell** and given back before every batch, as LLP 1008 §9 carries a swipe row's.
   - It sits at its place in the group: its kernel x, top at 0.
-  - The cell is the row's kernel height less the row's bottom border. The cell's content view clips, so the separator the cell draws replaces the sheet's.
+  - The cell keeps the row's kernel height, including any authored border. The cell's content view clips, and UIKit owns the system separator independently of that border.
+  - A native button used as the row keeps this authored slot; its existing `UIButton` sits inside the cell's current content margins. Its intrinsic row size is the platform control's natural size plus those margins. This iOS-only presentation policy adds no view or kernel node. Native buttons inside custom rows and on the other hosts keep their ordinary layout.
 - **Insets follow the authored scroll.** The collection view copies that scroll's `contentInsetAdjustmentBehavior`, `contentInset` and indicator insets.
 - **A plain list's footers are not pinned.** UIKit pins them by default and shades the rows under them (§2); a settings footer belongs under its rows.
 

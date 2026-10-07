@@ -66,6 +66,201 @@ final class GroupedListIOSTests: XCTestCase {
         return try XCTUnwrap(l.cell(id) as? UICollectionViewListCell, "row \(id) has a cell")
     }
 
+    private func nativeButtonsPresenter(intrinsic: (([(UInt32, CGSize?)]) -> Void)? = nil) -> Presenter {
+        ExactGroupedLists.install()
+        let p = Presenter()
+        p.onIntrinsic = intrinsic
+        host(p).model = { id in
+            guard id == 1 else { return nil }
+            return GroupedListModel(sections: [
+                .init(view: 2, header: nil, footer: nil, rows: [Row(view: 10, custom: true), Row(view: 11, custom: true)]),
+            ])
+        }
+        p.buttonFace = { id in
+            var face = ButtonFace()
+            face.title = id == 10 ? "Direct" : id == 12 ? "Nested" : "Standalone"
+            return face
+        }
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        let create = { (id: Int, kind: String, props: [String: String]) -> [String: Any] in
+            var style: [String: Any] = ["text_color": [0, 0, 0, 255]]
+            if kind == "control" { style["appearance"] = "auto" }
+            return ["op": "create", "id": id, "kind": kind, "props": props,
+                    "handlers": kind == "control" ? ["press"] : [], "style": style]
+        }
+        let frame = { (id: Int, x: Double, y: Double, w: Double, h: Double) -> [String: Any] in
+            ["op": "frame", "id": id, "x": x, "y": y, "w": w, "h": h]
+        }
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "list", "props": ["listStyle": "inset-grouped"], "style": ["overflow_y": "scroll"]],
+            create(2, "view", ["semanticTag": "section"]), create(3, "view", [:]),
+            create(10, "control", ["type": "button", "accessibilityRole": "button"]),
+            create(11, "view", [:]),
+            create(12, "control", ["type": "button", "accessibilityRole": "button"]),
+            create(20, "control", ["type": "button", "accessibilityRole": "button"]),
+            ["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [3]],
+            ["op": "children", "id": 3, "ids": [10, 11]], ["op": "children", "id": 11, "ids": [12]],
+            ["op": "roots", "ids": [1, 20]],
+            frame(1, 0, 0, 402, 874), frame(2, 0, 0, 402, 104), frame(3, 16, 0, 370, 104),
+            frame(10, 0, 0, 370, 52), frame(11, 0, 52, 370, 52),
+            frame(12, 16, 8, 120, 34), frame(20, 0, 740, 120, 34),
+        ]))
+        return p
+    }
+
+    private func groupedButtonRect(_ bounds: CGRect, in cell: UICollectionViewListCell) -> CGRect {
+        let content = cell.contentView
+        let guide = content.layoutMarginsGuide.layoutFrame
+        let left = guide.minX - content.bounds.minX, right = content.bounds.maxX - guide.maxX
+        let top = guide.minY - content.bounds.minY, bottom = content.bounds.maxY - guide.maxY
+        // UIKit's cell can be wider than the kernel's row; apply its insets to the authored slot.
+        return CGRect(x: bounds.minX + left, y: bounds.minY + top,
+                      width: max(0, bounds.width - left - right), height: max(0, bounds.height - top - bottom))
+    }
+
+    private func assertAlignmentRect(_ button: NativeButtonIOS, _ expected: CGRect,
+                                     file: StaticString = #filePath, line: UInt = #line) {
+        let actual = button.alignmentRect(forFrame: button.frame)
+        XCTAssertEqual(actual.minX, expected.minX, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actual.minY, expected.minY, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actual.width, expected.width, accuracy: 0.001, file: file, line: line)
+        XCTAssertEqual(actual.height, expected.height, accuracy: 0.001, file: file, line: line)
+    }
+
+    func testOnlyDirectNativeButtonRowsUseUIKitContentMarginsAndRestoreTheirBounds() throws {
+        let p = nativeButtonsPresenter()
+        let row = try XCTUnwrap(p.views[10])
+        let native = try XCTUnwrap(p.controls.controls[10] as? NativeButtonIOS)
+        let nested = try XCTUnwrap(p.controls.controls[12] as? NativeButtonIOS)
+        let standalone = try XCTUnwrap(p.controls.controls[20] as? NativeButtonIOS)
+        let projected = try cell(p, 10)
+        XCTAssertTrue(row.superview === projected.contentView)
+        XCTAssertEqual(row.frame, CGRect(x: 0, y: 0, width: 370, height: 52), "the authored row remains the cell slot")
+        XCTAssertEqual(projected.bounds.height, 52, accuracy: 0.5)
+        assertAlignmentRect(native, groupedButtonRect(row.bounds, in: projected))
+        assertAlignmentRect(nested, try XCTUnwrap(p.views[12]).bounds)
+        assertAlignmentRect(standalone, try XCTUnwrap(p.views[20]).bounds)
+        XCTAssertEqual(try XCTUnwrap(p.views[11]).frame.size, CGSize(width: 370, height: 52))
+
+        // Trait refresh mounts the list before syncing controls: insets must survive that order.
+        host(p).sync(changed: [])
+        p.controls.sync()
+        assertAlignmentRect(native, groupedButtonRect(row.bounds, in: projected))
+        let before = projected.contentView.layoutMarginsGuide.layoutFrame
+        projected.contentView.layoutMargins = UIEdgeInsets(top: 5, left: 22, bottom: 7, right: 26)
+        projected.setNeedsLayout()
+        projected.layoutIfNeeded()
+        let after = projected.contentView.layoutMarginsGuide.layoutFrame
+        XCTAssertNotEqual(after, before, "a cell layout can change its content margins")
+        assertAlignmentRect(native, groupedButtonRect(row.bounds, in: projected))
+
+        host(p).prepare()
+        XCTAssertTrue(row.superview === p.views[3]?.container)
+        XCTAssertEqual(row.frame, CGRect(x: 0, y: 0, width: 370, height: 52))
+        p.controls.sync()
+        assertAlignmentRect(native, row.bounds)
+        assertAlignmentRect(nested, try XCTUnwrap(p.views[12]).bounds)
+        assertAlignmentRect(standalone, try XCTUnwrap(p.views[20]).bounds)
+    }
+
+    func testProjectedNativeButtonRowsKeepAuthoredSizeAndClampSmallContentBoxes() throws {
+        let p = nativeButtonsPresenter()
+        let row = try XCTUnwrap(p.views[10])
+        let native = try XCTUnwrap(p.controls.controls[10] as? NativeButtonIOS)
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 250.0, "h": 72.0]]))
+        let projected = try cell(p, 10)
+        XCTAssertEqual(row.frame.size, CGSize(width: 250, height: 72))
+        XCTAssertEqual(projected.bounds.height, 72, accuracy: 0.5)
+        let margins = projected.contentView.layoutMargins
+        let actual = native.alignmentRect(forFrame: native.frame)
+        XCTAssertEqual(actual.minX, margins.left, accuracy: 0.001)
+        XCTAssertEqual(actual.minY, margins.top, accuracy: 0.001)
+        XCTAssertEqual(actual.width, 250 - margins.left - margins.right, accuracy: 0.001)
+        XCTAssertEqual(actual.height, 72 - margins.top - margins.bottom, accuracy: 0.001)
+
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 12.0, "h": 10.0]]))
+        _ = try cell(p, 10)
+        XCTAssertEqual(row.frame.size, CGSize(width: 12, height: 10), "the projection does not resize the authored slot")
+        let clamped = native.alignmentRect(forFrame: native.frame)
+        XCTAssertEqual(clamped.width, 0, accuracy: 0.001)
+        XCTAssertEqual(clamped.height, 0, accuracy: 0.001)
+    }
+
+    private func drainProjectionTurns() {
+        let done = expectation(description: "projection and intrinsic publication")
+        DispatchQueue.main.async { DispatchQueue.main.async { done.fulfill() } }
+        wait(for: [done], timeout: 2)
+    }
+
+    func testNativeButtonRowIntrinsicSizeIncludesMarginsAndRemainsStable() throws {
+        var reports: [(UInt32, CGSize?)] = []
+        let p = nativeButtonsPresenter { reports.append(contentsOf: $0) }
+        let row = try XCTUnwrap(p.views[10])
+        let native = try XCTUnwrap(p.controls.controls[10] as? NativeButtonIOS)
+        let nested = try XCTUnwrap(p.controls.controls[12] as? NativeButtonIOS)
+        let standalone = try XCTUnwrap(p.controls.controls[20] as? NativeButtonIOS)
+        let projected = try cell(p, 10)
+        func published(_ id: UInt32) throws -> CGSize {
+            try XCTUnwrap(reports.last(where: { $0.0 == id })?.1)
+        }
+        func assertRowMeasurement(file: StaticString = #filePath, line: UInt = #line) throws {
+            let actual = try published(10)
+            let raw = native.naturalSize, margins = projected.contentView.layoutMargins
+            XCTAssertEqual(actual.width, raw.width + margins.left + margins.right, accuracy: 0.001, file: file, line: line)
+            XCTAssertEqual(actual.height, raw.height + margins.top + margins.bottom, accuracy: 0.001, file: file, line: line)
+        }
+        drainProjectionTurns()
+        try assertRowMeasurement()
+        XCTAssertEqual(try published(12), nested.naturalSize, "a nested button reports only its control")
+        XCTAssertEqual(try published(20), standalone.naturalSize, "a standalone button reports only its control")
+        var count = reports.count
+        p.apply(wireBatch([]))
+        p.controls.sync()
+        drainProjectionTurns()
+        XCTAssertEqual(reports.count, count, "restoring and remounting publishes no raw/slot-size oscillation")
+
+        let regular = native.naturalSize
+        window.traitOverrides.preferredContentSizeCategory = .accessibilityExtraExtraExtraLarge
+        window.layoutIfNeeded()
+        native.setNeedsLayout()
+        native.layoutIfNeeded()
+        projected.setNeedsLayout()
+        projected.layoutIfNeeded()
+        p.controls.sync()
+        drainProjectionTurns()
+        let large = native.naturalSize
+        XCTAssertGreaterThan(large.height, regular.height, "UIKit's actual Dynamic Type measurement grows")
+        try assertRowMeasurement()
+        let required = try published(10)
+        // Simulate the kernel applying the reported natural row height, rather than a fixed authored height.
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 370.0, "h": Double(required.height)]]))
+        _ = try cell(p, 10)
+        XCTAssertEqual(row.bounds.height, required.height, accuracy: 0.001)
+        XCTAssertEqual(native.alignmentRect(forFrame: native.frame).height, large.height, accuracy: 0.001,
+                       "the auto-sized row leaves the full platform control height inside its margins")
+        drainProjectionTurns()
+
+        projected.contentView.layoutMargins = UIEdgeInsets(top: 11, left: 23, bottom: 13, right: 29)
+        projected.setNeedsLayout()
+        projected.layoutIfNeeded()
+        drainProjectionTurns()
+        try assertRowMeasurement()
+        XCTAssertGreaterThan(try published(10).height, required.height, "late cell margins trigger a new slot measurement")
+        count = reports.count
+        p.apply(wireBatch([]))
+        p.controls.sync()
+        drainProjectionTurns()
+        XCTAssertEqual(reports.count, count, "unchanged syncs publish nothing")
+
+        host(p).prepare()
+        p.controls.sync()
+        drainProjectionTurns()
+        XCTAssertEqual(try published(10), native.naturalSize, "a restored button reports its ordinary natural size")
+    }
+
     func testItIsAUICollectionViewListInTheListsBoxOverItsHiddenScroll() throws {
         let p = presenter { self.model() }
         let l = try list(p)

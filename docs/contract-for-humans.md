@@ -1079,7 +1079,12 @@ leaves there too, collapsed with its neighbour's as on the web (LLP 1084 §6.4).
 Rows, headers and footers default to `box-sizing="border-box"`, so their
 system padding fits inside `width="100%"`. A row's separator is decoration,
 not an extra border or layout node; your own borders retain normal CSS sizing.
-Native button rows keep the button's own chrome inside its box. Outside a
+On iOS, a native button used as the row keeps its authored row box, while
+its `UIButton` sits inside the cell's own content margins. The natural row
+size includes those margins, so Dynamic Type has room to grow the control;
+explicit width and height still size the row slot. This is a native
+presentation exception; standalone buttons, buttons inside custom rows,
+and native buttons on other hosts keep their ordinary layout. Outside a
 grouped list, bare boxes and text fields still default to `content-box`.
 See [the grouped-list fixture](../scripts/fixtures/grouped-list.contract),
 [the full-width sizing screen](../scripts/fixtures/grouped-box-sizing.contract)

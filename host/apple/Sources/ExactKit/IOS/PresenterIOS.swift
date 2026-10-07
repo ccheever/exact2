@@ -974,12 +974,13 @@ package final class Presenter {
         playPauseKey.sync()
         #endif
         segments.sync()
-        controls.sync(contents: batch.controls, touched: touchedIDs)
+        controls.sync(contents: batch.controls, touched: touchedIDs, deferIntrinsic: true)
         menus.sync()
         glassGroups.reconcile()
         let changed = touchedAndAbove(touchedIDs)
         swipeActions.sync(changed: changed)
         groupedLists?.sync(changed: changed)
+        controls.flushIntrinsicSizes()
         positionContexts()
         syncAccessibility(changed: changed)
     }
