@@ -100,13 +100,6 @@ fn dump(k: &Kernel, id: ViewId, out: &mut String) {
     out.push(']');
 }
 
-fn list(r: &Runner<Rows>) -> String {
-    let k = r.kernel();
-    let mut out = String::new();
-    dump(k, r.collections()[0].view, &mut out);
-    out
-}
-
 /// One report at `top`: its receipt and how many rows it rebound.
 fn report(r: &mut Runner<Rows>, top: f64) -> (Vec<exact_kernel::CommitReceipt>, usize) {
     let result = r.collection_feedback(facts(r, top)).unwrap();
@@ -136,18 +129,28 @@ fn a_rebound_row_shows_what_a_built_one_does() {
     ] {
         report(&mut fresh, top);
         rebound += report(&mut reused, top).1;
-        assert_eq!(list(&fresh), list(&reused), "at {top}");
         let (a, b) = (&fresh.collections()[0], &reused.collections()[0]);
-        assert_eq!(
-            a.rows
+        // Every row of the window, as a built one: its subtree and its place.
+        for row in &a.rows {
+            let same = b
+                .rows
                 .iter()
-                .map(|r| (r.index, r.start))
-                .collect::<Vec<_>>(),
-            b.rows
-                .iter()
-                .map(|r| (r.index, r.start))
-                .collect::<Vec<_>>()
-        );
+                .find(|r| r.index == row.index)
+                .unwrap_or_else(|| panic!("row {} is not mounted at {top}", row.index));
+            assert_eq!(row.start, same.start, "row {} at {top}", row.index);
+            let (mut built, mut bound) = (String::new(), String::new());
+            dump(fresh.kernel(), row.view, &mut built);
+            dump(reused.kernel(), same.view, &mut bound);
+            assert_eq!(built, bound, "row {} at {top}", row.index);
+        }
+        // What it holds past the window for the rows it needs next: few,
+        // and whole rows of their own items.
+        let held: Vec<_> = b
+            .rows
+            .iter()
+            .filter(|r| a.rows.iter().all(|w| w.index != r.index))
+            .collect();
+        assert!(held.len() <= 4, "{} rows held at {top}", held.len());
         // Nothing a rebound row showed is left in the kernel's other indexes.
         for row in &b.rows {
             let key = reused
@@ -167,7 +170,26 @@ fn a_rebound_row_shows_what_a_built_one_does() {
         }
     }
     assert!(rebound > 0, "the scroll rebound no row");
-    assert_eq!(fresh.kernel().live_count(), reused.kernel().live_count());
+    // The kernel holds the window's rows, the held ones and nothing else of
+    // a row: no node of an item a rebind replaced.
+    let (a, b) = (&fresh.collections()[0], &reused.collections()[0]);
+    let nodes = |k: &Kernel, rows: &[exact_runner::CollectionRow]| -> usize {
+        fn count(k: &Kernel, id: ViewId) -> usize {
+            1 + k
+                .node(id)
+                .unwrap()
+                .children()
+                .into_iter()
+                .map(|c| count(k, c))
+                .sum::<usize>()
+        }
+        let list = k.node(rows[0].view).unwrap().parent.unwrap();
+        k.live_count() - count(k, list)
+    };
+    assert_eq!(
+        nodes(fresh.kernel(), &a.rows),
+        nodes(reused.kernel(), &b.rows)
+    );
 }
 
 #[test]
