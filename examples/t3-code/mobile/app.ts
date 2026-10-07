@@ -53,7 +53,7 @@ import { connectionView } from './presentation';
 import { bridgeReply, ClientError, nativeFiles, type Files, type Native } from './shared/protocol';
 
 export const appId = 'com.exact.t3code.ios';
-export const grants = 'device.camera purpose.camera device.microphone purpose.microphone';
+export const grants = 'device.camera purpose.camera\ndevice.microphone purpose.microphone';
 
 // Each generated source has its own checked result type; no union assertion crosses the ABI.
 const sources: Sources = {
