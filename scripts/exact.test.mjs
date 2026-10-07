@@ -217,10 +217,14 @@ test('exact hatch writes each target\'s stub, wires it in, and declares the word
     // A Linux crate gets one hatches file, each word an arm and its functions, and is told what its build.rs owes.
     mkdirSync(resolve(dir, 'linux'));
     const linux = hatch(['unread-dot'], () => {});
-    assert.ok(linux.platforms.includes('linux') && linux.todo.some(line => line.includes('rust_hatches')));
+    assert.ok(linux.platforms.includes('linux') && linux.todo.some(line => line.includes('rust_hatch_entry')));
     const rust = readFileSync(resolve(dir, 'modules/linux/hatches.rs'), 'utf8');
     assert.ok(rust.includes('"unread-dot" => unread_dot_hatch(element, context),') && rust.includes('fn unread_dot_hatch_ended<H: Hatches>'));
     assert.deepEqual(JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8')).hatches['unread-dot'], ['ios', 'web', 'linux']);
+    // A build.rs that already asks for the app's hatches owes nothing: the first file only makes it run again.
+    rmSync(resolve(dir, 'modules/linux'), { recursive: true });
+    writeFileSync(resolve(dir, 'linux/build.rs'), 'fn main() { let _ = contract::native::rust_hatch_entry; }\n');
+    assert.deepEqual(hatch(['unread-dot'], () => {}).todo.filter(line => line.includes('build.rs')), []);
     // In a module of the app's own, with no marker, the lines to add are shown, not written.
     rmSync(resolve(dir, 'modules/apple'), { recursive: true });
     mkdirSync(resolve(dir, 'modules/apple'));

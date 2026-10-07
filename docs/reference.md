@@ -826,8 +826,8 @@ called again when one changes.
 object to hand over. A hatch there is Rust: one type that implements
 `exact_linux::Hatches` in `modules/linux/*.rs` (or `modules/android/`,
 `modules/windows/`), named once with `pub type ExactHatches = App;` and
-included by the app's Linux crate (`contract::native::rust_hatches` in its
-`build.rs`, as `apps/native-fixture/linux/build.rs`). Its handle carries the
+included by the app's Linux crate (`contract::native::rust_hatch_entry` in its
+`build.rs`, which the Rust-data apps here already call). Its handle carries the
 node's box and words, the same acts, and two things in place of a view:
 `element.overlay().draw(|c, w, h| …)`, a Canvas 2D recording that replaces the
 last one whole, clipped to the node and painted over it; and

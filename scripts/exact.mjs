@@ -727,8 +727,8 @@ export function ended(${scope[0]}) {
     }
   }
   if (existsSync(resolve(dir, 'linux'))) {
-    // Linux, and Windows over the same presenter: one file the app's Linux crate includes (its build.rs, as
-    // apps/native-fixture/linux/build.rs: contract::native::rust_hatches and run_with_hatches).
+    // Linux, and Windows and Android over the same presenter: one file the app's Linux crate includes (its
+    // build.rs, as apps/native-fixture/linux/build.rs: contract::native::rust_hatch_entry).
     platforms.push('linux');
     const main = resolve(dir, 'modules/linux/hatches.rs'), snake = (word ?? scope).replaceAll('-', '_');
     if (write(main, `// ${title}'s hatches on a painting host (Linux, and Windows over the same presenter). Written by
@@ -746,6 +746,7 @@ impl Hatches for AppHatches {
             // exact:element (exact hatch adds a word's arm above this one)
             _ => {}
         }
+        let _ = context;
     }
 
     fn element_ended(&mut self, element: &Element, context: &mut Context<'_, Self>) {
@@ -753,6 +754,7 @@ impl Hatches for AppHatches {
             // exact:elementEnded
             _ => {}
         }
+        let _ = context;
     }
 
     fn app(&mut self, app: &App, context: &mut Context<'_, Self>) {
@@ -779,7 +781,12 @@ impl Hatches for AppHatches {
 pub type ExactHatches = AppHatches;
 
 // exact:functions (exact hatch adds a word's functions above this line)
-`)) todo.push(`${resolve(dir, 'linux/build.rs')}: include the hatches in the app's Linux crate, as apps/native-fixture/linux/build.rs does\n    contract::native::rust_hatches(&app_dir, &manifest, "linux") and run_with_hatches::<AppData, hatches::ExactHatches>(PLAN, COMPAT, HatchKey::WORDS)`);
+`)) {
+      // The crate's build script includes the file. One that asks for its hatches only has to run again (a new mtime).
+      const build = resolve(dir, 'linux/build.rs'), text = existsSync(build) ? readFileSync(build, 'utf8') : '';
+      if (/\brust_hatch(es|_entry)\b/.test(text)) writeFileSync(build, text);
+      else todo.push(`${build}: include the hatches in the app's Linux crate, as apps/native-fixture/linux/build.rs does\n    contract::native::rust_hatch_entry(&app_dir, &manifest, &target) gives the entry's text and the run call its main makes`);
+    }
     if (scope === 'element') {
       mark(main, '// exact:functions', `/// The \`${word}\` hatch: built (\`element.is_new()\`) and changed (a \`data-*\` word or the box's size moved).
 /// What it gives up here: nothing beyond the call.
