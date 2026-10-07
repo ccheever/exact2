@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { environmentDetailProjection, mobileCanUpdateProvider, mobileSessionGrants, mobileReleaseChannel, newestMobileRelease, mobileProviderIconURL } from './environment-detail';
+import { mobileEnvironmentSource, environmentDetailProjection, mobileCanUpdateProvider, mobileSessionGrants, mobileReleaseChannel, newestMobileRelease, mobileProviderIconURL } from './environment-detail';
 import { environmentSources } from './shared/connections';
 import { showcaseCloudEnvironments, showcaseDisplayURL, showcaseSubmittedURL } from './showcase';
 
@@ -100,4 +100,13 @@ test('focused provider refresh uses real auth permissions and the ordinary RPC d
     expect((await mobileEnvironmentDetailCommand('refresh-providers', key, '', native)).message).toContain('permission');
     expect(requests.some(request => request.op === 'request')).toBe(false);
   } finally { Object.assign(mobileClient, before); }
+});
+
+test('public environment identity resolves uniquely without changing exact-key ownership', () => {
+  const first = { key: 'origin-one\nserver', environmentId: 'server' };
+  const second = { key: 'origin-two\nserver', environmentId: 'server' };
+  expect(mobileEnvironmentSource([first], 'server')).toBe(first);
+  expect(mobileEnvironmentSource([first, second], 'server')).toBeNull();
+  expect(mobileEnvironmentSource([first, second], first.key)).toBe(first);
+  expect(mobileEnvironmentSource([first], 'missing')).toBeNull();
 });

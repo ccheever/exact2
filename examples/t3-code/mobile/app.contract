@@ -1,3 +1,5 @@
+use AppLink, MediaCompletion, Appearance, SettingsView, SettingsScopeEvent, MobileLayout, HomeChromeView, ChromeEvent, ThreadSelection, HomeView, HomePreferences, Time, Viewport, PairingFields, Theme, Camera, Notice, Snapshot, ScheduledHeader, AutomationChange, VoiceFocus, PreviewOwner, PreviewMenus, InformationRoute, InformationRead, InformationConfiguration, InformationChange, Change from "./app-shapes.contract"
+use SettingsNotifications, NotificationsData from "./settings-notifications.contract"
 use MobileBrowser, MobileBrowserSnapshot, MobilePreviewColors, MobilePreviewButton from "./browser-mobile.contract"
 use MobileDevices, MobileDevicesSnapshot from "./devices-mobile.contract"
 use SettingsInformation, InformationData from "./settings-information.contract"
@@ -41,182 +43,77 @@ font "DM Sans"
 
 routes nav
   home "/"
-  thread "/threads/:threadEnvironment/:threadId"
-  threadBrowser "/threads/:threadEnvironment/:threadId/browser"
-  threadDevices "/threads/:threadEnvironment/:threadId/devices"
-  threadTerminal "/threads/:threadEnvironment/:threadId/terminal"
-  threadTerminalCapture "/threads/:threadEnvironment/:threadId/terminal/output"
-  threadReview "/threads/:threadEnvironment/:threadId/review"
-  threadReviewComment "/threads/:threadEnvironment/:threadId/review/comment"
-  threadFiles "/threads/:threadEnvironment/:threadId/files"
-  threadFile "/threads/:threadEnvironment/:threadId/files/:filePath"
-  threadMedia "/threads/:threadEnvironment/:threadId/attachments/:attachmentId"
-  threadDraftMedia "/threads/:threadEnvironment/:threadId/draft-attachments/:attachmentId"
-  newTaskMedia "/new/:threadEnvironment/attachments/:attachmentId"
-  threadModel "/threads/:threadEnvironment/:threadId/model"
-  threadModelOption "/threads/:threadEnvironment/:threadId/model/options/:modelOption"
-  threadRuntime "/threads/:threadEnvironment/:threadId/model/runtime"
-  threadModelFilter "/threads/:threadEnvironment/:threadId/model/providers"
-  threadAgents "/threads/:threadEnvironment/:threadId/agents"
-  settings "/settings"
-  archive "/settings/archive"
-  settingsServer "/settings/server/:serverPage"
-  settingsProviders "/settings/provider-accounts"
-  settingsAppearance "/settings/appearance"
-  settingsChoice "/settings/preferences/:settingsChoice"
-  settingsScheduledTasks "/settings/scheduled"
-  settingsScheduledNew "/settings/scheduled/new"
-  settingsScheduledEdit "/settings/scheduled/edit"
-  settingsScheduledModel "/settings/scheduled/model"
-  settingsScheduledBranch "/settings/scheduled/branch"
-  settingsAbout "/settings/about"
-  settingsClientStorage "/settings/client-storage"
-  settingsDiagnostics "/settings/diagnostics"
-  settingsOpenSourceLicenses "/settings/open-source-licenses"
-  settingsOpenSourceLicense "/settings/open-source-licenses/:entryKey"
-  settingsLegal "/settings/legal"
-  settingsUsage "/settings/usage"
-  settingsUsageAccount "/settings/usage/account/:usageAccount/:usageWindow/:usageKind"
-  newTask "/new"
-  newTaskProjects "/new/projects"
-  newTaskEnvironments "/new/environments"
-  newTaskBranches "/new/branches"
-  newTaskModel "/new/model"
-  newTaskModelOption "/new/model/options/:modelOption"
-  newTaskRuntime "/new/model/runtime"
-  newTaskModelFilter "/new/model/providers"
-  connections "/connections"
-  connect "/connections/new"
-  environments "/settings/environments"
-  environmentDetail "/settings/environments/:environmentKey"
-  notfound
+    thread "/threads/:threadEnvironment/:threadId"
+    threadBrowser "/threads/:threadEnvironment/:threadId/browser"
+    threadDevices "/threads/:threadEnvironment/:threadId/devices"
+    threadTerminal "/threads/:threadEnvironment/:threadId/terminal"
+    threadTerminalCapture "/threads/:threadEnvironment/:threadId/terminal/output"
+    threadReview "/threads/:threadEnvironment/:threadId/review"
+    threadReviewComment "/threads/:threadEnvironment/:threadId/review/comment"
+    threadFiles "/threads/:threadEnvironment/:threadId/files"
+    threadFile "/threads/:threadEnvironment/:threadId/files/:filePath"
+    threadMedia "/threads/:threadEnvironment/:threadId/attachments/:attachmentId"
+    threadDraftMedia "/threads/:threadEnvironment/:threadId/draft-attachments/:attachmentId"
+    newTaskMedia "/new/:threadEnvironment/attachments/:attachmentId"
+    threadModel "/threads/:threadEnvironment/:threadId/model"
+    threadModelOption "/threads/:threadEnvironment/:threadId/model/options/:modelOption"
+    threadRuntime "/threads/:threadEnvironment/:threadId/model/runtime"
+    threadModelFilter "/threads/:threadEnvironment/:threadId/model/providers"
+    threadAgents "/threads/:threadEnvironment/:threadId/agents"
+    settings "/settings"
+    settingsAuth "/settings/auth"
+    settingsWaitlist "/settings/waitlist"
+    settingsNotifications "/settings/notifications"
+    connectOnboarding "/connect-onboarding"
+    archive "/settings/archive"
+    settingsServer "/settings/server/:serverPage"
+    settingsProviders "/settings/provider-accounts"
+    settingsAppearance "/settings/appearance"
+    settingsChoice "/settings/preferences/:settingsChoice"
+    settingsScheduledTasks "/settings/scheduled"
+    settingsScheduledNew "/settings/scheduled/new"
+    settingsScheduledEdit "/settings/scheduled/edit"
+    settingsScheduledModel "/settings/scheduled/model"
+    settingsScheduledBranch "/settings/scheduled/branch"
+    settingsAbout "/settings/about"
+    settingsClientStorage "/settings/client-storage"
+    settingsDiagnostics "/settings/diagnostics"
+    settingsOpenSourceLicenses "/settings/open-source-licenses"
+    settingsOpenSourceLicense "/settings/open-source-licenses/:entryKey"
+    settingsLegal "/settings/legal"
+    settingsUsage "/settings/usage"
+    settingsUsageAccount "/settings/usage/account/:usageAccount/:usageWindow/:usageKind"
+    newTask "/new"
+    newTaskProjects "/new/projects"
+    newTaskEnvironments "/new/environments"
+    newTaskBranches "/new/branches"
+    newTaskModel "/new/model"
+    newTaskModelOption "/new/model/options/:modelOption"
+    newTaskRuntime "/new/model/runtime"
+    newTaskModelFilter "/new/model/providers"
+    connections "/connections"
+    connect "/connections/new"
+    environments "/settings/environments"
+    environmentDetail "/settings/environments/:environmentKey"
+    notfound
 
-shape MediaCompletion
-  identifier: string
-  message: string
-shape Appearance
-  enterBehavior: string
-  scheme: string
-  themeId: string
-  themeMode: string
-  baseFontSize: number
-  terminalFontSize: number
-  groupingMode: string
-shape SettingsView
-  serverScope: string
-  environmentIds: string
-  root: SettingsRootData
-  header: string
-shape SettingsScopeEvent
-  selection: string
-  close: bool
-shape MobileLayout
-  safeTop: number
-  safeBottom: number
-  liquidGlass: bool
-shape HomeChromeView
-  configuration: string
-  environmentId: string
-  projectKey: string
-  bottomClearance: number
-  emptyClearance: number
-  toolbarContentInset: number
-shape ChromeEvent
+shape AccountEntry
   kind: string
-  value: string
-shape ThreadSelection
-  requestRoute: string
-  revision: number
-  message: string
-  environmentId: string
-  threadId: string
-shape HomeView
-  items: list<HomeItem>
-  emptyTitle: string
-  emptyDetail: string
-  loading: bool
-  addEnvironment: bool
-shape HomePreferences
-  loaded: bool
-  workingEnabled: bool
-  workingExpanded: bool
-  snoozedExpanded: bool
-  settledExpanded: bool
-shape Time
-  epochAtZero: number
-shape Viewport
-  width: number
-  height: number
-  prefersColorScheme: string
-  prefersReducedMotion: bool
-shape PairingFields
-  source: string
-  host: string
-  code: string
-shape Theme
-  screen: string
-  sheet: string
-  foreground: string
-  secondary: string
-  secondaryForeground: string
-  colors: ConnectionColors
-shape Camera
-  status: string
-shape Notice
-  choice: string
-shape Snapshot
-  nativeAvailable: bool
-  revision: number
-  ready: bool
-  busy: bool
-  error: string
-  environmentId: string
-  threadId: string
-  projectId: string
-  generation: number
-  environmentLabel: string
-  status: string
-  projectCount: number
-  threadCount: number
-  environments: list<EnvironmentRow>
-  routing: list<GitHubRoutingRow>
-shape ScheduledHeader
-  configuration: string
-shape AutomationChange
-  revision: number
-  message: string
   route: string
-  closed: bool
-  refresh: bool
-  debounce: bool
-  accountKey: string
-  windowId: string
-  windowKind: string
   requestRoute: string
-shape VoiceFocus
-  owner: string
-  label: string
-shape PreviewOwner
-  owner: string
-shape PreviewMenus
-  selection: string
-  options: string
-shape InformationRoute
-  active: bool
-  title: string
-shape InformationRead
-  revision: number
-shape InformationConfiguration
-  configuration: string
-shape InformationChange
-  revision: number
-  message: string
-  requestRoute: string
-shape Change
-  revision: number
-  message: string
-
 component App
+  resource accountEntry = accountEntry(top(nav).name, depth(nav) > 1, `${top(nav).id}`) as shape AccountEntry
+  resource notificationSettings = notificationSettings() as shape NotificationsData
+  task enterAccount when accountEntry.kind != "" key=top(nav).id
+    after(1, redirectAccount)
+  action redirectAccount
+    if accountEntry.requestRoute == `${top(nav).id}`
+      if accountEntry.kind == "back"
+        nav = back(nav)
+      else if accountEntry.route == "settings"
+        nav = replace(nav, path("settings"))
+      else
+        nav = open(nav, path("home"))
   resource viewport = exactViewport() as shape Viewport
   resource voiceFocus = voiceFocus((top(nav).name == "thread" and workspaceRouteReady) or top(nav).name == "newTask", top(nav).name == "thread" ? threadData.title : "New task", data.revision) as shape VoiceFocus
   resource voiceStatus = voiceStatus(data.revision) as shape VoiceStatus
@@ -503,7 +400,7 @@ component App
   action didSelectThread
     match selected
       case some(result)
-        if result.message != ""
+        if result.requestRoute == `${top(nav).id}` and result.message != ""
           send notice = alert("info", "Could not open thread", result.message)
         else if result.requestRoute == `${top(nav).id}` and result.threadId != "" and (top(nav).params.threadEnvironment != result.environmentId or top(nav).params.threadId != result.threadId)
           nav = push(nav, path("thread", result.environmentId, result.threadId))
@@ -1036,8 +933,27 @@ component App
         submitted = false
       case none
         submitted = false
+  mutation followed as shape AppLink then didFollow
+  state launchRouteId = `${top(nav).id}`
+  state launchLocation = top(nav).url
+  resource initialLink = appLink(launchLocation, launchRouteId, true) as shape AppLink
+  state linkBootResolved = false
+  task resolveColdLink when not linkBootResolved key=launchRouteId
+    after(1, followColdLink)
+  action followColdLink
+    linkBootResolved = true
+    if initialLink.requestRoute == `${top(nav).id}`
+      if initialLink.location != top(nav).url
+        nav = open(nav, initialLink.location)
   action follow(url: string)
-    nav = go(nav, url)
+    send followed = appLink(url, `${top(nav).id}`, false)
+  action didFollow
+    match followed
+      case some(result)
+        if not result.ignore and result.requestRoute == `${top(nav).id}`
+          nav = open(nav, result.location)
+      case none
+        composerFocused = composerFocused
   action scan
     if scannerOpen
       scannerOpen = false
@@ -1153,18 +1069,18 @@ component App
           data-mobile-form-sheet=(entry.name == "connections" or entry.name == "connect")
           data-mobile-scan-action=(entry.name == "connect" ? "scan-qr" : "")
           data-mobile-scanner-open=scannerOpen
-          navigationScroll=(entry.name == "home" ? (length(home.items) > 0 ? "home-list" : "") : entry.name == "thread" ? (length(threadData.rows) > 0 ? "thread-feed" : "") : entry.name == "threadReview" ? "review-diff" : entry.name == "threadFiles" ? "workspace-files" : entry.name == "threadFile" ? "file-source" : entry.name == "settingsScheduledTasks" ? "scheduled-tasks-scroll" : entry.name == "settingsScheduledNew" or entry.name == "settingsScheduledEdit" ? "scheduled-editor-scroll" : entry.name == "settingsUsage" ? "settings-usage-scroll" : startsWith(entry.name, "settingsScheduled") or entry.name == "settingsUsageAccount" ? "" : entry.name == "settings" ? "settings-scroll" : entry.name == "settingsServer" ? "settings-server-scroll" : entry.name == "settingsProviders" ? "settings-provider-scroll" : entry.name == "settingsAppearance" ? "settings-appearance-scroll" : entry.name == "settingsChoice" ? "settings-choice-scroll" : entry.name == "archive" ? (length(archiveData.items) > 0 ? "archive-list" : "") : `scroll-${entry.id}`)
+          navigationScroll=(entry.name == "home" ? (length(home.items) > 0 ? "home-list" : "") : entry.name == "thread" ? (length(threadData.rows) > 0 ? "thread-feed" : "") : entry.name == "threadReview" ? "review-diff" : entry.name == "threadFiles" ? "workspace-files" : entry.name == "threadFile" ? "file-source" : entry.name == "settingsScheduledTasks" ? "scheduled-tasks-scroll" : entry.name == "settingsScheduledNew" or entry.name == "settingsScheduledEdit" ? "scheduled-editor-scroll" : entry.name == "settingsNotifications" ? "settings-notifications-scroll" : entry.name == "settingsUsage" ? "settings-usage-scroll" : startsWith(entry.name, "settingsScheduled") or entry.name == "settingsUsageAccount" ? "" : entry.name == "settings" ? "settings-scroll" : entry.name == "settingsServer" ? "settings-server-scroll" : entry.name == "settingsProviders" ? "settings-provider-scroll" : entry.name == "settingsAppearance" ? "settings-appearance-scroll" : entry.name == "settingsChoice" ? "settings-choice-scroll" : entry.name == "archive" ? (length(archiveData.items) > 0 ? "archive-list" : "") : `scroll-${entry.id}`)
           navigationPresentation=(entry.name == "connections" or entry.name == "connect" or entry.name == "threadTerminalCapture" or entry.name == "settingsLegal" or entry.name == "threadBrowser" or entry.name == "threadDevices" ? "modal" : "")
           position="absolute"
           inset=0
           background-color=look.sheet
           display="flex"
           flex-direction="column"
-          when entry.name != "threadDevices"
+          when entry.name != "threadDevices" and entry.name != "settingsAuth" and entry.name != "settingsWaitlist" and entry.name != "connectOnboarding"
             header height=44 flex-shrink=0 align-items="center" justify-content="space-between"
               button id="back" press=back aria-label="Back" testId=`back-${entry.name}`
                 image "symbol:back" width=20 height=20
-              text (entry.name == "settingsAbout" ? "About T3 Code" : entry.name == "settingsClientStorage" ? "Client Storage" : entry.name == "settingsDiagnostics" ? "Diagnostics" : entry.name == "settingsOpenSourceLicenses" ? "Open source licenses" : entry.name == "settingsOpenSourceLicense" ? "License notice" : entry.name == "settingsLegal" ? "Legal" : entry.name == "threadMedia" or entry.name == "threadDraftMedia" or entry.name == "newTaskMedia" ? mediaData.name : entry.name == "connect" ? "Add environment" : entry.name == "home" ? "T3 Code" : entry.name == "environmentDetail" ? detail.title : entry.name == "threadBrowser" ? browserData.title : entry.name == "threadDevices" ? devicesData.title : entry.name == "threadTerminal" ? "Terminal" : entry.name == "threadTerminalCapture" ? "Visible terminal output" : entry.name == "threadReview" ? "Review changes" : entry.name == "threadReviewComment" ? "Leave a comment" : entry.name == "threadFiles" ? filesData.title : entry.name == "threadFile" ? fileData.title : entry.name == "thread" ? threadData.title : entry.name == "settingsScheduledTasks" ? "Scheduled Tasks" : entry.name == "settingsScheduledNew" ? "New scheduled task" : entry.name == "settingsScheduledEdit" ? "Edit scheduled task" : entry.name == "settingsScheduledModel" ? "Model" : entry.name == "settingsScheduledBranch" ? "Base branch" : entry.name == "settingsUsage" ? "Usage" : entry.name == "settingsUsageAccount" ? automationData.account.label : entry.name == "settings" ? "Settings" : entry.name == "settingsServer" ? serverSettings.title : entry.name == "settingsProviders" ? "Provider accounts" : entry.name == "settingsAppearance" ? "Appearance" : entry.name == "settingsChoice" ? settingsChoice.title : entry.name == "archive" ? "Archived Threads" : entry.name == "threadAgents" ? "Agents" : entry.name == "newTaskProjects" ? "Project" : entry.name == "newTaskEnvironments" ? "Environment" : entry.name == "newTaskBranches" ? "Branch" : entry.name == "threadModel" or entry.name == "newTaskModel" ? "Model" : entry.name == "threadRuntime" or entry.name == "newTaskRuntime" ? "Runtime" : entry.name == "threadModelFilter" or entry.name == "newTaskModelFilter" ? "Providers" : entry.name == "threadModelOption" or entry.name == "newTaskModelOption" ? "Model options" : entry.name == "newTask" ? "New task" : "Environments")
+              text (entry.name == "settingsNotifications" ? "Notifications" : entry.name == "settingsAbout" ? "About T3 Code" : entry.name == "settingsClientStorage" ? "Client Storage" : entry.name == "settingsDiagnostics" ? "Diagnostics" : entry.name == "settingsOpenSourceLicenses" ? "Open source licenses" : entry.name == "settingsOpenSourceLicense" ? "License notice" : entry.name == "settingsLegal" ? "Legal" : entry.name == "threadMedia" or entry.name == "threadDraftMedia" or entry.name == "newTaskMedia" ? mediaData.name : entry.name == "connect" ? "Add environment" : entry.name == "home" ? "T3 Code" : entry.name == "environmentDetail" ? detail.title : entry.name == "threadBrowser" ? browserData.title : entry.name == "threadDevices" ? devicesData.title : entry.name == "threadTerminal" ? "Terminal" : entry.name == "threadTerminalCapture" ? "Visible terminal output" : entry.name == "threadReview" ? "Review changes" : entry.name == "threadReviewComment" ? "Leave a comment" : entry.name == "threadFiles" ? filesData.title : entry.name == "threadFile" ? fileData.title : entry.name == "thread" ? threadData.title : entry.name == "settingsScheduledTasks" ? "Scheduled Tasks" : entry.name == "settingsScheduledNew" ? "New scheduled task" : entry.name == "settingsScheduledEdit" ? "Edit scheduled task" : entry.name == "settingsScheduledModel" ? "Model" : entry.name == "settingsScheduledBranch" ? "Base branch" : entry.name == "settingsUsage" ? "Usage" : entry.name == "settingsUsageAccount" ? automationData.account.label : entry.name == "settings" ? "Settings" : entry.name == "settingsServer" ? serverSettings.title : entry.name == "settingsProviders" ? "Provider accounts" : entry.name == "settingsAppearance" ? "Appearance" : entry.name == "settingsChoice" ? settingsChoice.title : entry.name == "archive" ? "Archived Threads" : entry.name == "threadAgents" ? "Agents" : entry.name == "newTaskProjects" ? "Project" : entry.name == "newTaskEnvironments" ? "Environment" : entry.name == "newTaskBranches" ? "Branch" : entry.name == "threadModel" or entry.name == "newTaskModel" ? "Model" : entry.name == "threadRuntime" or entry.name == "newTaskRuntime" ? "Runtime" : entry.name == "threadModelFilter" or entry.name == "newTaskModelFilter" ? "Providers" : entry.name == "threadModelOption" or entry.name == "newTaskModelOption" ? "Model options" : entry.name == "newTask" ? "New task" : "Environments")
                 role="heading"
                 aria-level=2
                 font-size=18
@@ -1288,6 +1204,8 @@ component App
             SettingsProviderAccounts(data=providerAccounts, colors=settingsData.root.colors, roles=settingsData.root.roles, danger=look.colors.dangerForeground, bottom=settingsData.root.bottom, action=providerAction, field=providerField, signOut=providerSignOut)
           else when entry.name == "settingsAppearance"
             SettingsAppearance(data=settingsAppearance, change=changePreference)
+          else when entry.name == "settingsNotifications"
+            SettingsNotifications(data=notificationSettings, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom)
           else when entry.name == "settingsChoice"
             SettingsChoices(data=settingsChoice, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom, change=changePreference)
           else when entry.name == "archive"

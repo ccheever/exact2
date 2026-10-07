@@ -1,3 +1,6 @@
+import { mobileAccountRouteEntry } from './settings-account';
+import { mobileNotificationsSettings } from './settings-notifications';
+import { mobileAppLink } from './navigation-links';
 import { mobilePreviewOwner, mobilePreviewPrepare, mobilePreviewStatus, mobilePreviewAction, mobilePreviewMenus, mobilePreviewMenuAction } from './mobile-preview-flow';
 import { mobilePreviewColors } from './browser-mobile-colors';
 import { MOBILE_INFORMATION_ROUTES, mobileInformationPrepare, mobileInformationSnapshot, mobileInformationCommand, mobileInformationLegalConfiguration } from './settings-information';
@@ -37,6 +40,12 @@ export const grants = 'device.camera purpose.camera device.microphone purpose.mi
 
 export function answer(source: string, args: unknown[], _store?: unknown, storage?: Files, native?: Native | null) {
   if (native) native = settingsProviderNative(native);
+  if (source === 'notificationSettings') return mobileNotificationsSettings();
+  if (source === 'accountEntry') {
+    const entry = mobileAccountRouteEntry(String(args[0]), args[1] === true);
+    return { kind: entry?.kind ?? '', route: entry?.kind === 'replace' ? entry.route : '', requestRoute: String(args[2]) };
+  }
+  if (source === 'appLink') return mobileAppLink(String(args[0]), String(args[1]), args[2] === true);
   if (source === 'previewOwner') return mobilePreviewOwner(args[0] === true);
   if (source === 'previewPrepare') return mobilePreviewPrepare(String(args[0]), native);
   if (source === 'previewColors') return mobilePreviewColors(String(args[0]), String(args[1]));

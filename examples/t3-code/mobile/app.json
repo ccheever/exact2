@@ -31,6 +31,9 @@
         "QuartzCore",
         "-framework",
         "UIKit"
+      ],
+      "urlSchemes": [
+        "t3code"
       ]
     }
   },

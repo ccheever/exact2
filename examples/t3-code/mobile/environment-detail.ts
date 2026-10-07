@@ -87,13 +87,20 @@ export function environmentDetailProjection(source: Source | null, session: Obj 
   };
 }
 
+/** Public links name a server ID; app actions retain the exact route key. Refuse ambiguous IDs. */
+export function mobileEnvironmentSource<T extends { key: string; environmentId: string }>(sources: readonly T[], key: string): T | null {
+  const exact = sources.find(source => source.key === key);
+  if (exact) return exact;
+  const matches = sources.filter(source => source.environmentId === key);
+  return matches.length === 1 ? matches[0]! : null;
+}
 async function selectedEnvironment(key: string, native: Native) {
   const saved = await savedList(native);
   const status = await bridgeReply(native, { op: 'status' });
-  const source = environmentSources(mobileClient, saved, fleet.entries, status.ok ? obj(status.value) : {}).find(entry => entry.key === key) ?? null;
+  const source = mobileEnvironmentSource(environmentSources(mobileClient, saved, fleet.entries, status.ok ? obj(status.value) : {}), key);
   if (source) source.label = str(saved.find(entry => entry.environmentId === source.environmentId)?.mobileLabel) || source.label;
-  const remote = source?.focused ? native : EnvironmentFleet.native(native, key);
-  const generation = source?.focused ? mobileClient.generation : fleet.entries.get(key)?.generation ?? -1;
+  const remote = source?.focused ? native : EnvironmentFleet.native(native, source?.key ?? key);
+  const generation = source?.focused ? mobileClient.generation : fleet.entries.get(source?.key ?? key)?.generation ?? -1;
   return { source, remote, generation };
 }
 async function call(remote: Native, generation: number, request: Obj): Promise<Obj> {
