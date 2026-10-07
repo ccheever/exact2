@@ -16,9 +16,11 @@ import { fanoutSelections } from './r3-composer-controls-fanout';
 import { REF_PAGE, firstPage, morePages, refsStatus, scrollEnds } from './r5-composer-paging';
 import { checkoutItems, type CheckoutItem } from './r9-connect-checkout'; // lane r9-connect: the picker's checkout item
 import { peekVcsStatus } from './shell-vcs';
+import { sendRead, type SentRead } from './let-go';
+import { composerNow } from './composer-controls';
 
 type Refs = { cwd: string; query: string; refs: Obj[]; total: number; nextCursor: number | null; loaded: boolean; generation: number; stale: boolean; ends: number; loadingMore?: boolean };
-interface BranchState { open: string; query: string; refs: Refs | null; origin: Map<string, boolean>; pendingBranch: string; picked: boolean }
+interface BranchState { open: string; query: string; refs: Refs | null; origin: Map<string, boolean>; pendingBranch: string; picked: boolean; refsSent?: SentRead }
 const states = new WeakMap<T3Client, BranchState>();
 export function branchState(client: T3Client): BranchState {
   let state = states.get(client);
@@ -56,13 +58,18 @@ export function originLabel(client: T3Client, branch: string): string {
   return known && known.isRemote !== true ? `origin/${branch}` : branch;
 }
 
-async function loadRefs(client: T3Client, native: Native, cwd: string, query: string): Promise<Refs> {
+async function loadRefs(client: T3Client, native: Native, cwd: string, query: string, now: number): Promise<Refs> {
   const state = branchState(client), current = state.refs;
   const search = sanitizeNewRefName(query).slice(0, 256);
   const list = (cursor?: number) => client.restAccess(native).request('vcs.listRefs', { cwd, limit: REF_PAGE, ...(search ? { query: search } : {}), ...(cursor === undefined ? {} : { cursor }) });
   // r5-composer: a scroll toward the list's end loads the next page (r5-composer-paging.ts).
   if (current && current.cwd === cwd && current.query === query && current.generation === client.generation && !current.stale)
     return Object.assign(current, await morePages(current, client.presentation, 'details-refs', list));
+  // One read per workspace and query (activeBranchRefQuery is one cached query): an answer let go before
+  // the reply (the card is asked again on every 500 ms tick) does not send another (let-go.ts sendRead).
+  const sent = sendRead(state.refsSent, `${client.generation}\n${cwd}\n${query}`, now);
+  if (!sent) throw new ClientError('The refs are on their way.', 'pending');
+  state.refsSent = sent;
   const result = await list();
   const next: Refs = { cwd, query, ...firstPage(result, scrollEnds(client.presentation, 'details-refs')), loaded: true, generation: client.generation, stale: false };
   state.refs = next;
@@ -83,12 +90,12 @@ export type CardBranch = Awaited<ReturnType<typeof cardBranchView>>;
 const hiddenView = { show: false, open: false, label: '', value: '', disabled: true, query: '', refs: [] as { name: string; badge: string; selected: boolean; index: number }[],
   creatable: '', status: '', empty: '', enterOp: '', enterValue: '', originShown: false, originOn: false, count: 0, picked: false, checkout: [] as CheckoutItem[] };
 /** The branch row and its picker for the card's workspace (`cwd`). */
-export async function cardBranchView(client: T3Client, native: Native, cwd: string, root: string, isRepo: boolean) {
+export async function cardBranchView(client: T3Client, native: Native, cwd: string, root: string, isRepo: boolean, now = 0) {
   const state = branchState(client);
   if (!isRepo || !cwd) { state.open = ''; return hiddenView; }
   const strip = await composerBranches(client, native, false, '', true);
   let refs: Refs | null = null;
-  try { refs = await loadRefs(client, native, cwd, state.query.trim()); } catch { refs = state.refs && state.refs.cwd === cwd ? state.refs : null; }
+  try { refs = await loadRefs(client, native, cwd, state.query.trim(), Math.max(now, composerNow(client))); } catch { refs = state.refs && state.refs.cwd === cwd ? state.refs : null; }
   const thread = client.threadId ? obj(client.projection.thread) : null;
   const context = draftContext(client);
   const worktreePath = thread ? str(thread.worktreePath) : context.worktreePath;
@@ -124,7 +131,7 @@ export async function cardBranchView(client: T3Client, native: Native, cwd: stri
 export function branchLocal(client: T3Client, op: string, id: string, value: string): string {
   const state = branchState(client);
   // The row and the chevron open their popovers (the host toggles them); the picker starts a fresh search.
-  if (op === 'open') { state.open = id; state.query = ''; state.picked = false; if (state.refs) state.refs.stale = true; return ''; }
+  if (op === 'open') { state.open = id; state.query = ''; state.picked = false; state.refsSent = undefined; if (state.refs) state.refs.stale = true; return ''; }
   if (op === 'query') { state.query = value.slice(0, 256); return ''; }
   if (op === 'origin') {
     if (client.threadId) throw new ClientError('A started thread keeps its workspace.');
@@ -149,7 +156,7 @@ export async function branchCommand(client: T3Client, native: Native, storage: F
   }
   state.pendingBranch = op === 'branch-create' ? sanitizeNewRefName(name) : known?.isRemote === true ? name.replace(/^[^/]+\//, '') : name;
   try { await selectBranch(client, native, storage, name, op === 'branch-create', known); }
-  finally { state.pendingBranch = ''; if (state.refs) state.refs.stale = true; }
+  finally { state.pendingBranch = ''; state.refsSent = undefined; if (state.refs) state.refs.stale = true; }
   return '';
 }
 
