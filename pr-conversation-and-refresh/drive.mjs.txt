@@ -1,0 +1,149 @@
+// pr-conversation-and-refresh live drive (not committed): bun drive.mjs <repo> <label> <session|relaunch>
+// One macOS agent session against the primary lane server (127.0.0.1:16720, real GitHub through the lane gh).
+// Pairs with a fresh single-use token (never printed), opens the Pull Requests page and the seeded pull requests.
+import { appendFileSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+const [repo, label, mode = 'session'] = process.argv.slice(2);
+const MINE = '/Users/daehyeonmun/orca/workspaces/exact2/t3-code-pr-conversation-and-refresh';
+const L = resolve(import.meta.dir), out = resolve(L, `out-${label}`); mkdirSync(out, { recursive: true });
+process.env.EXACT_APP_DIR = resolve(repo, 'examples/t3-code');
+const { open } = await import(resolve(repo, 'scripts/agent.mjs'));
+const lane = await import(resolve(MINE, 'examples/t3-code/tools/github-lane/lane.mjs'));
+const lib = await import(resolve(MINE, 'examples/t3-code/tools/github-lane/lib.mjs'));
+const paths = lib.lanePaths();
+const origin = 'http://127.0.0.1:16720';
+const tag = `${label}-${mode}`;
+const rec = (line) => { const text = `${new Date().toISOString()} [${tag}] ${line}`; appendFileSync(resolve(out, `record.txt`), text + '\n'); console.log(text); };
+const s = await open({ host: 'macos', size: [1280, 840], env: { HOME: resolve(L, `apphome-${label}`) }, storage: `prc-${label}`, epoch: Date.now(),
+  onProcess: (p) => {
+    writeFileSync(resolve(L, `${tag}-app.pid`), String(p.pid)); rec(`app pid ${p.pid}`);
+    // Agent mode keeps the app's preference file per process ($TMPDIR/exact-agent-<pid>-<rt>/data, T3Storage.dataRoot), so a
+    // relaunch is given the file the previous session wrote, before its first answer reads it.
+    if (mode === 'relaunch' && process.env.PRC_PREFS) {
+      const dir = resolve(process.env.TMPDIR ?? '/tmp', `exact-agent-${p.pid}-2`, 'data'); mkdirSync(dir, { recursive: true });
+      writeFileSync(resolve(dir, 't3-code.json'), readFileSync(process.env.PRC_PREFS)); rec(`seeded ${dir}/t3-code.json from the previous session's file`);
+    }
+  } });
+const nodes = async () => (await s.tree()).nodes;
+const ids = async () => (await nodes()).map((n) => n.testId ?? n.props?.testId).filter(Boolean);
+const has = async (id) => (await ids()).includes(id);
+const settle = async (ms = 600) => { await s.clock(`+${ms} real`); await s.clock('settle'); };
+const tapIf = async (id, opts) => { if (await has(id)) { await s.tap(id, opts); await settle(); return true; } return false; };
+const shot = async (name) => { await s.screenshot(resolve(out, `${tag}-${name}.png`), true); rec(`shot ${name}`); };
+/** Which of the panel's states are on screen, by test id. */
+const STATES = ['pull-request-loading', 'pull-request-error', 'pull-request-scroll', 'pull-request-conversation-ghost', 'pull-request-timeline-ghost', 'pull-request-comments', 'pull-request-activity-error-compact',
+  'pull-request-comments-truncated', 'pull-request-comments-older', 'pull-request-bot-comments', 'pull-request-finished-comments', 'pull-request-timeline-counts'];
+const phase = async (name) => { const present = new Set(await ids()); rec(`${name}: ${STATES.filter((id) => present.has(id)).join(' ') || '(none of the panel states)'}`); };
+/** The text and labels under a view, for the record (no tokens can be on these pages). */
+const texts = async (target) => {
+  try { const t = await s.tree(target); return t.nodes.flatMap((n) => [n.text, n.props?.text, n.props?.['aria-label'], n.label].filter((v) => typeof v === 'string' && v.trim())).map((v) => v.trim()); }
+  catch (e) { return [`(no ${target}: ${e.message.slice(0, 80)})`]; }
+};
+const dump = async (name, target) => { const t = await texts(target); writeFileSync(resolve(out, `${tag}-${name}.txt`), [...new Set(t)].join('\n')); rec(`${name}: ${[...new Set(t)].slice(0, 40).join(' | ').slice(0, 900)}`); };
+const ax = async (name, target) => { try { const t = await s.tree(target, { ax: true }); writeFileSync(resolve(out, `${tag}-${name}-ax.json`), JSON.stringify(t, null, 1)); rec(`ax ${name} saved`); } catch (e) { rec(`ax ${name}: ${e.message.slice(0, 200)}`); } };
+const openPr = async (n, wait = true) => {
+  await s.type('pull-requests-search', `#${n}`); await settle(3500);
+  if (!(await has(`pr-row-${n}`))) { await settle(4000); }
+  await s.tap(`pr-row-${n}`);
+  if (wait) await settle(4000);
+};
+/** Toasts from the lane server's provider status (a Codex update) would cover the panel's header. */
+const clearToasts = async () => { for (const id of (await ids()).filter((id) => id.startsWith('toast-dismiss-'))) { try { await s.tap(id); await settle(300); } catch {} } };
+const TRACE = resolve(MINE, 'target/github-lane/servers/primary/t3home/userdata/logs/server.trace.ndjson');
+const rpcCounts = () => { const counts = {}; for (const line of readFileSync(TRACE, 'utf8').split('\n')) { const m = /"name":"ws\.rpc\.(pullRequests\.[a-zA-Z]+)"/.exec(line); if (m) counts[m[1]] = (counts[m[1]] ?? 0) + 1; } return counts; };
+const delta = (a, b) => Object.fromEntries(Object.keys(b).filter((k) => (b[k] ?? 0) !== (a[k] ?? 0)).map((k) => [k, (b[k] ?? 0) - (a[k] ?? 0)]));
+const logOffset = () => { try { return statSync(paths.ghLog).size; } catch { return 0; } };
+const ghSince = (offset) => readFileSync(paths.ghLog, 'utf8').slice(offset).split('\n').filter(Boolean).map((line) => line.split('\t').slice(-1)[0].trim().slice(0, 140));
+
+try {
+  await settle(2000);
+  if (await has('welcome-pairing-link')) {
+    await s.type('welcome-pairing-link', `${origin}/pair#token=${lane.pairingToken('primary')}`);
+    await s.tap('welcome-pair'); await settle(5000);
+  }
+  for (const id of ['welcome-continue', 'welcome-agents-continue', 'welcome-skip-import']) await tapIf(id);
+  await settle(3000);
+  rec(`connected: ${(await ids()).includes('open-pull-requests') ? 'sidebar shows Pull Requests' : 'no Pull Requests entry'}`);
+  await clearToasts();
+  const atStart = rpcCounts();
+  await s.tap('open-pull-requests'); await settle(5000); await clearToasts();
+  rec(`list rows: ${(await ids()).filter((id) => id.startsWith('pr-row-')).length}`);
+
+  if (mode === 'relaunch') {
+    // The kept detail (t3-code.json) paints before the live read answers.
+    await openPr(115, false);
+    await phase('right after the press'); await shot('relaunch-0');
+    await dump('relaunch-0-header', 'pull-request-panel');
+    await settle(800); await phase('+0.8 s'); await shot('relaunch-1');
+    await settle(4000); await phase('settled'); await shot('relaunch-2');
+  } else {
+    // Loading: the ghost, then the conversation ghost, then the content.
+    await s.type('pull-requests-search', '#115'); await settle(3500);
+    await clearToasts();
+    await s.tap('pr-row-115');
+    await phase('right after the press'); await shot('load-0');
+    await s.clock('+300 real'); await phase('+0.3 s'); await shot('load-1');
+    await s.clock('+700 real'); await phase('+1.0 s'); await shot('load-2');
+    await settle(4000); await phase('settled'); await shot('summary-top');
+    await dump('summary-top', 'pull-request-panel');
+    await ax('summary-reviewers', 'pull-request-reviewers');
+    // The conversation: the truncated notice, the window, the groups.
+    await tapIf('pull-request-comments-toggle'); await tapIf('pull-request-comments-toggle'); // close and reopen (aria-expanded flips)
+    if (await has('pull-request-comments-older')) { await s.tap('pull-request-comments-older', { hover: true }); await settle(400); }
+    await shot('summary-comments');
+    await dump('summary-comments', 'pull-request-comments');
+    if (await tapIf('pull-request-comments-older')) await shot('summary-older');
+    await tapIf('pull-request-comments-fewer');
+    if (await tapIf('pull-request-finished-comments-toggle')) await shot('summary-finished');
+    const finished = (await ids()).filter((id) => id.startsWith('pull-request-finished-toggle-'));
+    if (finished[0]) { await s.tap(finished[0]); await settle(); await shot('summary-finished-open'); }
+    await dump('summary-groups', 'pull-request-comments');
+    // Order toggle and its label.
+    await tapIf('pull-request-comments-order'); await dump('summary-order', 'pull-request-comments-order');
+    // Checks section and a check row.
+    await tapIf('pull-request-checks-toggle'); await dump('summary-checks', 'pull-request-checks'); await shot('summary-checks');
+    // Timeline: rows, counts, order, a section opened.
+    await s.tap('pull-request-tab-timeline'); await settle(800); await shot('timeline');
+    await dump('timeline', 'pull-request-timeline'); await dump('timeline-counts', 'pull-request-timeline-counts');
+    await tapIf('pull-request-timeline-order'); await dump('timeline-order', 'pull-request-timeline-order'); await shot('timeline-oldest');
+    const group = (await ids()).find((id) => id.startsWith('pull-request-timeline-group-toggle-'));
+    if (group) { await s.tap(group); await settle(); await shot('timeline-group-open'); }
+    await tapIf('pull-request-timeline-order');
+    // Back to Summary: the order and the open groups are still as left (both tabs stay mounted).
+    await s.tap('pull-request-tab-summary'); await settle(800); await dump('summary-after-tabs', 'pull-request-comments-order'); await shot('summary-after-tabs');
+    // A stale verdict (#144): approved before the latest commit.
+    await openPr(144); await shot('stale-summary'); await ax('stale-reviewers', 'pull-request-reviewers');
+    await s.tap('pull-request-tab-timeline'); await settle(800); await shot('stale-timeline'); await dump('stale-timeline', 'pull-request-timeline'); await ax('stale-timeline', 'pull-request-timeline');
+    // Approvals (#116) and the server-announced refresh.
+    await openPr(116); await clearToasts(); await s.tap('pull-request-tab-timeline'); await settle(800); await shot('approved-timeline'); await dump('approved-counts', 'pull-request-timeline-counts');
+    await s.tap('pull-request-tab-summary'); await settle(800); await shot('refresh-before'); await dump('refresh-before', 'pull-request-comments');
+    const offset = logOffset();
+    const env = lib.toolEnv(paths, 'second');
+    const posted = lib.run(lib.ghPath(paths, 'second'), ['api', '-X', 'POST', 'repos/daehyeonmun2021/playground/issues/116/comments', '-f', 'body=Looks good to me.\n\n<!-- ref:live-refresh -->', '--jq', '.id'], { env });
+    rec(`posted a comment on #116 as the second account: id ${posted.stdout.trim()}`);
+    await settle(16000); // past the server's 15 s detail cache
+    const beforeInvalidate = rpcCounts();
+    const conn = await lane.connectTo('primary');
+    await conn.request('pullRequests.invalidate', {}); conn.close();
+    rec('pullRequests.invalidate {} sent to the lane server');
+    await s.clock('+2000 real'); await settle(3000);
+    await dump('refresh-after', 'pull-request-comments'); await shot('refresh-after');
+    rec(`gh calls since the post: ${JSON.stringify(ghSince(offset))}`);
+    rec(`server RPCs after the invalidate: ${JSON.stringify(delta(beforeInvalidate, rpcCounts()))}`);
+    const id = posted.stdout.trim();
+    const removed = lib.run(lib.ghPath(paths, 'second'), ['api', '-X', 'DELETE', `repos/daehyeonmun2021/playground/issues/comments/${id}`], { env, allowFail: true });
+    rec(`deleted the comment ${id} again (status ${removed.status})`);
+    // Closing the panel lets the stream go.
+    await tapIf('pull-request-close'); await settle(1500);
+    // The narrow window: the same panel at 840x620.
+    await s.resize(840, 620); await settle(800);
+    await openPr(115, false); await phase('840 right after the press'); await shot('narrow-load-0'); await settle(4000); await clearToasts(); await shot('narrow-summary');
+    await s.tap('pull-request-tab-timeline'); await settle(800); await shot('narrow-timeline');
+  }
+  rec(`server RPCs this session: ${JSON.stringify(delta(atStart, rpcCounts()))}`);
+  const logs = await s.logs();
+  writeFileSync(resolve(out, `${tag}-logs.json`), JSON.stringify(logs, null, 1));
+  rec(`log lines ${logs.lines.length}; errors: ${logs.lines.filter((l) => /error|refused|failed/i.test(JSON.stringify(l))).length}`);
+} catch (e) { rec(`ERROR ${e.stack?.slice(0, 1200)}`); try { await shot('error'); writeFileSync(resolve(out, `${tag}-error-tree.json`), JSON.stringify(await s.tree(), null, 1)); } catch {} }
+finally { await s.close?.(); }
+process.exit(0);
