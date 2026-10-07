@@ -9,6 +9,8 @@ import { toasts } from './toast';
 import { filesTreeMenu, pullRequestLinkMenu } from './context-menu-actions';
 import { filesState, markdownFileMenu } from './r4-surfaces-files';
 import { resetRemoteEditorsForTests } from './remote-open';
+import { imagePreviewAction, imagePreviewView } from './timeline-attachments';
+import { markdownMediaUrls } from './media-views';
 
 function fixture(config: Obj = {}) {
   resetRemoteEditorsForTests();
@@ -108,10 +110,36 @@ describe('Chat file link menu', () => {
       { id: 'copy-relative', label: 'Copy relative path' }, { id: 'copy-full', label: 'Copy full path' }]);
   });
 
+  test('Preview media opens the expanded media dialog with the link\'s media, as a media-file of the thread', async () => {
+    const { owner, native, pick } = fixture();
+    pick('preview-media');
+    await markdownFileMenu(owner, native, '/srv/project/shots/a.png');
+    const view = imagePreviewView(owner);
+    expect(view).toMatchObject({ imagePreviewId: 'media:/srv/project/shots/a.png', imagePreviewName: 'a.png', imagePreviewVideo: false, imagePreviewPrevious: false, imagePreviewNext: false, imagePreviewPosition: '' });
+    expect(JSON.parse(view.imagePreviewSource)).toMatchObject({ kind: 'image', name: 'a.png', asset: { resource: { _tag: 'media-file', path: '/srv/project/shots/a.png' } }, reference: { kind: 'file', relativePath: 'shots/a.png' } });
+    const video = fixture();
+    video.pick('preview-media');
+    await markdownFileMenu(video.owner, video.native, '/srv/project/clips/b.mp4');
+    expect(imagePreviewView(video.owner)).toMatchObject({ imagePreviewId: 'media:/srv/project/clips/b.mp4', imagePreviewVideo: true });
+    imagePreviewAction(video.owner, 'image-close', '', '');
+    expect(imagePreviewView(video.owner).imagePreviewId).toBe('');
+  });
+
   test('reveal strips the line and asks the file manager to reveal', async () => {
     const { owner, native, requests, pick } = fixture();
     pick('reveal');
     await markdownFileMenu(owner, native, '/srv/project/src/index.ts:12');
     expect(requests).toEqual([{ method: 'shell.openInEditor', cwd: '/srv/project/src/index.ts', editor: 'file-manager', reveal: true }]);
   });
+});
+
+// resolveMarkdownMediaPreview: the dialog's media is signed on the owning environment as a `media-file` of the thread.
+test('the previewed link is signed as a media-file of the thread', async () => {
+  const requests: Obj[] = [];
+  const client = { threadId: 't', environmentId: 'env', origin: 'http://127.0.0.1:41857', ready: true, connection: 'connected', projection: { visibleTurnItems: [] },
+    rpc: async (_native: unknown, method: string, payload: Obj) => { requests.push({ method, ...payload }); return { relativeUrl: '/api/assets/x?sig=1' }; } };
+  const native = { available: true } as unknown as Native;
+  const urls = await markdownMediaUrls(client as never, native, '/srv/project', 1, ['/srv/project/shots/a.png']);
+  expect(requests).toEqual([{ method: 'assets.createUrl', resource: { _tag: 'media-file', path: '/srv/project/shots/a.png', threadId: 't' } }]);
+  expect(urls.map(entry => entry.id)).toEqual(['media:/srv/project/shots/a.png']);
 });

@@ -16,7 +16,15 @@
     "examples/t3-code/modules/apple/T3ContextMenu.swift",
     "examples/t3-code/macos/tests/contextmenu",
     "examples/t3-code/timeline-presentation.ts",
-    "examples/t3-code/r5-panels.contract"
+    "examples/t3-code/r5-panels.contract",
+    "examples/t3-code/context-menu-hookup.test.ts",
+    "examples/t3-code/timeline-attachments.ts",
+    "examples/t3-code/timeline-attachments.contract",
+    "examples/t3-code/timeline-attachments.test.ts",
+    "examples/t3-code/r6-media.test.ts",
+    "examples/t3-code/media-views.ts",
+    "examples/t3-code/shapes.contract",
+    "examples/t3-code/app-overlays.contract"
   ],
   "checks": [
     {

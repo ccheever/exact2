@@ -136,10 +136,15 @@ export function markdownMediaChips(text: string, root: string): { href: string; 
 }
 
 /** Signed URLs for the visible messages' host-path media (`media:<path>`; `media-failed:<path>` when refused). */
-export async function markdownMediaUrls(client: T3Client, native: Native, root: string, now: number): Promise<{ id: string; url: string }[]> {
+export async function markdownMediaUrls(client: T3Client, native: Native, root: string, now: number, linked: string[] = []): Promise<{ id: string; url: string }[]> {
   const out: { id: string; url: string }[] = [];
   if (!client.threadId) return out;
   const wanted = new Map<string, MarkdownMedia>();
+  // context-menu-gaps: a file link's media opened by "Preview media" (its expanded dialog).
+  for (const path of linked) {
+    const media = markdownMedia('', path, '', root);
+    if (media.access === 'environment' && media.source?.asset) wanted.set(media.key, media);
+  }
   for (const row of arr(client.projection.visibleTurnItems)) {
     const text = str(obj(row.item).text);
     for (const image of markdownImages(text)) {
