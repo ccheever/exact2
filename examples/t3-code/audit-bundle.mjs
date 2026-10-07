@@ -19,7 +19,8 @@
 //                 folder): a finding unless bundle-allowlist.json lists it with its reason (the release
 //                 runtime's own bytes carry its CI machine's and its libraries' paths)
 //   dev-file      a leftover development file (source maps, app.contract.d.ts, UI-PARITY-TODO.tmp.md,
-//                 tests and fixtures, .git, .DS_Store)
+//                 tests and fixtures, any hidden name: .git, .DS_Store, `._*`, a build's `.icon-*`), or
+//                 an empty folder
 //   unexpected    a bundle file that no `files` pattern of the allowlist covers (the file-list diff)
 //   runtime-part  the bundled archive's SHA-256 is not the manifest's, or the manifest is not the pin's
 //   runtime-tree  after the first launch: a path that differs from the manifest, an executable that is
@@ -129,7 +130,8 @@ export function dependencyInside(dependency, { file, bundle, rpaths }) {
   return candidates.some(path => (path === bundle || path.startsWith(bundle + sep)) && existsSync(path));
 }
 
-const LEFTOVER = [/\.map$/, /\.map\.json$/, /(^|\/)app\.contract\.d\.ts$/, /(^|\/)UI-PARITY-TODO\.tmp\.md$/, /\.test\.(ts|mjs|js|swift)$/, /(^|\/)fixtures?(\/|$)/, /(^|\/)\.git(\/|$)/, /(^|\/)\.DS_Store$/];
+// Hidden names cover .git, .DS_Store, AppleDouble `._*` and a build's temporary `.icon-*` folder.
+const LEFTOVER = [/\.map$/, /\.map\.json$/, /(^|\/)app\.contract\.d\.ts$/, /(^|\/)UI-PARITY-TODO\.tmp\.md$/, /\.test\.(ts|mjs|js|swift)$/, /(^|\/)fixtures?(\/|$)/, /(^|\/)\.[^/]+(\/|$)/];
 
 /** The allowlist: `files` (globs every bundle path must match) and `allow` (build-path hits with reasons). */
 export function readAllowlist(path) {
@@ -206,6 +208,7 @@ export function audit(app, { t3Home = null, forbid = [], buildRoots = [], allowl
   const entries = walk(bundle);
   for (const entry of entries) {
     if (LEFTOVER.some(pattern => pattern.test(entry.path))) findings.push({ rule: 'dev-file', scope: 'bundle', file: entry.path, detail: 'a development file' });
+    else if (entry.stat.isDirectory() && readdirSync(entry.abs).length === 0) findings.push({ rule: 'dev-file', scope: 'bundle', file: entry.path, detail: 'an empty folder' });
     if (!entry.stat.isFile() && !entry.stat.isSymbolicLink()) continue;
     if (!allowlist.files.some(pattern => new Bun.Glob(pattern).match(entry.path))) findings.push({ rule: 'unexpected', scope: 'bundle', file: entry.path, detail: 'no `files` pattern covers it' });
     if (entry.stat.isFile() && isMachO(entry.abs)) checkMachO(entry.abs, entry.path, 'bundle', facts);

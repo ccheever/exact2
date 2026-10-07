@@ -34,6 +34,7 @@ packaging fix:
 | the app executable | Rust panic locations under the checkout and `~/.cargo/registry` | the native Cargo build passes no `--remap-path-prefix` (the wasm build does: `scripts/app.mjs` `wasmRemapFlags`) |
 | the app executable | `LC_RPATH` `/Applications/Xcode.app/…/usr/lib/swift-6.2/macosx` and `/var/run/com.apple.security.cryptexd/…/Metal.xctoolchain/usr/lib/swift-6.2/macosx` | SwiftPM's back-deployment rpaths; nothing in the app loads from them |
 | `libexact_canvas_gpu.dylib`, `libexact_svg.dylib` | `~/.rustup/toolchains/…/lib/rustlib/…/lib*.rlib` (the linker's debug map) | `exact release`'s `stripForDistribution` strips only the main executable |
+| `Contents/Resources` | an empty `.icon-XXXXXX` folder (mode 700) | `host/apple/assets.mjs` `appIcon` makes `mkdtempSync('.icon-')` and builds into `<that>.iconset`, then removes only the `.iconset` |
 | every `libexact_*.dylib` | an install name that is a build path (`…/target/apple-swift/macos-14.0/arms/<hash>-libexact_web.dylib.<pid>.tmp`, `…/target/apple-modules/…/libexact_canvas_vello.dylib`) | the arms and the kept modules keep the name they were linked under |
 
 ## Why it must be resolved
@@ -48,14 +49,15 @@ For `--distribution` (and therefore `exact release`): remap Rust source paths fo
 target as the wasm build does (checkout to ``, Cargo's home to `cargo`, std to `/rustc/<commit>`);
 give `hermesc` relative source names (run it from the crate's folder) or strip its debug file
 names; `strip -x` every Mach-O file of the bundle; drop absolute rpaths outside `/usr/lib` and
-`/System`; give each bundled dylib an `@rpath/<name>` install name.
+`/System`; give each bundled dylib an `@rpath/<name>` install name; remove `appIcon`'s temporary folder.
 
 ## The clone's workaround (example-local, `package-app.mjs`)
 
 - `CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS` with the three remaps (the native target only, so the
   wasm build's own flags stay).
 - `strip -x` on every file in `Contents/MacOS`, `install_name_tool -delete_rpath` for the toolchain
-  rpaths and `-id @rpath/<name>` for the dylibs, before the ad hoc signature.
+  rpaths and `-id @rpath/<name>` for the dylibs, and the empty `.icon-*` folder removed, before the
+  ad hoc signature.
 - The export lives at the fixed `/tmp/t3-code-package/exact2`, which names no user or checkout; the
   13 hermesc file names under it are the only build paths left and `bundle-allowlist.json` lists
   them with this issue as the reason.

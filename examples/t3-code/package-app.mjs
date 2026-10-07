@@ -18,8 +18,8 @@
 //    toolchain's absolute LC_RPATHs and the build-path install names of its own dylibs removed,
 //    `LICENSE-T3`, and `Contents/Resources/distribution.json` `{"flavor":"packaged"}` (the marker that
 //    makes it use `~/.t3` and the port scan from 3773: T3LocalBackend.swift), then signed ad hoc inside out, checked
-//    with `codesign --verify --deep --strict`, zipped with `ditto -c -k --keepParent` (modes and links
-//    kept) and hashed into `SHA256SUMS`.
+//    with `codesign --verify --deep --strict`, zipped with `ditto -c -k --norsrc --noextattr --keepParent`
+//    (modes and links kept, no AppleDouble entries) and hashed into `SHA256SUMS`.
 // 4. Audit: audit-bundle.mjs over the packaged `.app`, with every --deny as this machine's paths and
 //    the export folder as a build root; a finding fails the package.
 //
@@ -134,6 +134,11 @@ async function inside(work, phase) {
     const id = /cmd LC_ID_DYLIB\n\s+cmdsize \d+\n\s+name (.+?) \(offset/.exec(loads)?.[1];
     if (id && id.startsWith('/')) run('install_name_tool', ['-id', `@rpath/${name}`, file]);
   }
+  // host/apple/assets.mjs `appIcon` leaves its empty mkdtemp folder (`.icon-XXXXXX`) beside the icon (X50).
+  for (const name of readdirSync(join(contents, 'Resources'))) {
+    const path = join(contents, 'Resources', name);
+    if (name.startsWith('.icon-') && readdirSync(path).length === 0) rmSync(path, { recursive: true });
+  }
   writeFileSync(join(contents, 'Resources/distribution.json'), `${JSON.stringify({ flavor: 'packaged' })}\n`);
   // T3 Code's MIT notice travels with the code ported from it.
   copyFileSync(join(here, 'LICENSE-T3'), join(contents, 'Resources/LICENSE-T3'));
@@ -145,7 +150,9 @@ async function inside(work, phase) {
   run('codesign', ['--verify', '--deep', '--strict', '--verbose=1', packaged]);
   const zip = join(out, archiveName(clientVersion()));
   rmSync(zip, { force: true });
-  run('/usr/bin/ditto', ['-c', '-k', '--keepParent', packaged, zip]);
+  // No extended attributes or resource forks: macOS 26 tags every written file with
+  // com.apple.provenance, which ditto would otherwise store as `._*` AppleDouble entries.
+  run('/usr/bin/ditto', ['-c', '-k', '--norsrc', '--noextattr', '--keepParent', packaged, zip]);
   const digest = createHash('sha256').update(readFileSync(zip)).digest('hex');
   writeFileSync(join(out, 'SHA256SUMS'), `${digest}  ${basename(zip)}\n`);
   say(log, `packaged ${basename(zip)} sha256 ${digest}`);

@@ -138,11 +138,13 @@ describe('audit-bundle', () => {
     writeFileSync(join(app, 'Contents/Resources/app.js.map.json'), '{}');
     mkdirSync(join(app, 'Contents/Resources/.git'));
     writeFileSync(join(app, 'Contents/Resources/.git/HEAD'), 'ref: refs/heads/main\n');
+    mkdirSync(join(app, 'Contents/Resources/.icon-AbC123'));
+    mkdirSync(join(app, 'Contents/Resources/empty'));
     sh('codesign', ['--force', '--sign', '-', '--timestamp=none', app]);
     const report = run(app);
     expect(rules(report)).toEqual(['dev-file', 'unexpected']);
     expect(report.findings.filter((finding: { rule: string }) => finding.rule === 'dev-file').map((finding: { file: string }) => finding.file))
-      .toEqual(['Contents/Resources/.git', 'Contents/Resources/.git/HEAD', 'Contents/Resources/app.js.map.json']);
+      .toEqual(['Contents/Resources/.git', 'Contents/Resources/.git/HEAD', 'Contents/Resources/.icon-AbC123', 'Contents/Resources/app.js.map.json', 'Contents/Resources/empty']);
   });
 
   test('the packaged marker, the bundle id and LSMinimumSystemVersion', () => {

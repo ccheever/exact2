@@ -143,10 +143,11 @@ bun examples/t3-code/package-app.mjs          # outputs in target/t3-package/
 (`/tmp/t3-code-package`, a fixed folder that names no user or checkout), builds it there under `sandbox-exec` (`sandbox.sb`: the build may not
 read or write this checkout, `~/.t3` or any `--deny <path>`), runs the stage step (the only
 network use, cached beside the export), builds `host/apple/build.mjs t3-code-macos --bundle
---distribution` ad hoc signed with Rust's source paths remapped, strips the executable's
+--distribution` ad hoc signed with Rust's source paths remapped, strips every Mach-O file's
 local symbols, writes `Contents/Resources/distribution.json` (`{"flavor":"packaged"}`, which makes
 the app use `~/.t3` and the port scan from 3773 as T3 Code does) and `LICENSE-T3`, signs the
-bundle ad hoc inside out, zips it with `ditto -c -k --keepParent` and writes `SHA256SUMS`. It then
+bundle ad hoc inside out, zips it with `ditto -c -k --norsrc --noextattr --keepParent` (no `._*`
+entries) and writes `SHA256SUMS`. It then
 runs `audit-bundle.mjs` over the packaged app (see "Source and checks") and fails on any
 finding.
 
