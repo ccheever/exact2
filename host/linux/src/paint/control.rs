@@ -5,11 +5,27 @@
 //! look (D6).
 
 use super::{rgba, Backend, Rect4, Shape};
-use exact_kernel::{Appearance, NodeRef, PropId, StyleMask};
+use exact_kernel::{Appearance, FieldChrome, NodeRef, PropId, StyleMask};
 use tiny_skia::Transform;
 
 /// Chrome's default accent, `#0075ff`, where `accent-color` is `auto`.
 pub(crate) const ACCENT: [u8; 4] = [0x00, 0x75, 0xff, 0xff];
+
+// LLP 1104 D7: the host's field look, outside the author's box rows.
+const FIELD_BORDER: f32 = 1.0;
+const FIELD_RADIUS: f32 = 6.0;
+const FIELD_PADDING: (f32, f32) = (6.0, 8.0);
+
+pub(crate) fn field_chrome() -> FieldChrome {
+    FieldChrome {
+        top: FIELD_BORDER + FIELD_PADDING.0,
+        right: FIELD_BORDER + FIELD_PADDING.1,
+        bottom: FIELD_BORDER + FIELD_PADDING.0,
+        left: FIELD_BORDER + FIELD_PADDING.1,
+        minimum_height: 0.0,
+        provisional: false,
+    }
+}
 
 /// A control's choice while its bound value is the one it had when the
 /// person chose, as the web build writes an input's `value` only when the
@@ -81,6 +97,19 @@ pub struct MenuPaint {
 pub const MENU_PAD: f32 = 4.0;
 
 impl super::Painter {
+    /// Native text field chrome; text uses the kernel's published content rect.
+    pub(super) fn text_field_chrome(&mut self, rect: Rect4, ts: Transform) -> Shape {
+        let shape = Shape::new(rect, [FIELD_RADIUS; 4]);
+        let (line, fill) = if self.dark {
+            ([0x48, 0x48, 0x4a, 0xff], [0x1c, 0x1c, 0x1e, 0xff])
+        } else {
+            ([0xc6, 0xc6, 0xc8, 0xff], [0xff, 0xff, 0xff, 0xff])
+        };
+        self.backend.fill(&shape, line, ts);
+        self.backend.fill(&shape.inset(FIELD_BORDER), fill, ts);
+        shape
+    }
+
     /// A closed select, or a field that shows a value (LLP 1069.001 D7): a
     /// rounded box with the text, and a chevron when it opens a menu.
     pub(super) fn field_control(
@@ -436,5 +465,48 @@ impl super::Painter {
             .text(&mut engine, &paragraph, &palette, origin, ts);
         drop(engine);
         self.backend.pop_clip();
+    }
+}
+
+#[cfg(test)]
+mod field_tests {
+    use crate::text::{Measurer, TextEngine};
+    use exact_kernel::{
+        ControlFont, FieldChrome, FieldChromeRequest, FieldKind, FontStyle, TextMeasurer,
+    };
+
+    #[test]
+    fn the_host_answers_every_field_kind_and_font_without_a_provisional_frame() {
+        let mut measurer = Measurer(TextEngine::shared());
+        for kind in [
+            FieldKind::Field,
+            FieldKind::SecureField,
+            FieldKind::SearchField,
+            FieldKind::Textarea,
+        ] {
+            for size in [10.0, 16.0, 32.0] {
+                let chrome = measurer.field_chrome(&FieldChromeRequest {
+                    kind,
+                    font: ControlFont {
+                        family: String::new(),
+                        family_id: 0,
+                        size,
+                        weight: 700,
+                        style: FontStyle::Italic,
+                    },
+                });
+                assert_eq!(
+                    chrome,
+                    FieldChrome {
+                        top: 7.0,
+                        right: 9.0,
+                        bottom: 7.0,
+                        left: 9.0,
+                        minimum_height: 0.0,
+                        provisional: false,
+                    }
+                );
+            }
+        }
     }
 }

@@ -925,11 +925,17 @@ impl Painter {
             clip: clip_rect,
             scroll: scrolls.then(|| walk.scene.scroll.get(&id).copied().unwrap_or((0.0, 0.0))),
         });
-        let opacity = if layer.opacity() {
+        let mut opacity = if layer.opacity() {
             1.0
         } else {
             p.opacity.clamp(0.0, 1.0)
         };
+        if node.node_type == NodeType::TextInput
+            && node.style.appearance == exact_kernel::Appearance::Auto
+            && node.props.bool(PropId::Disabled) == Some(true)
+        {
+            opacity *= 0.5;
+        }
         // CSS opacity is paint only: a transparent subtree is still hit (the
         // walk records its boxes) and draws through a backend that draws nothing.
         // Visibility is not that: only this box's own paint is skipped.
@@ -1035,6 +1041,24 @@ impl Painter {
             }
             NodeType::TextInput => {
                 self.row_refuse();
+                let native = node.style.appearance == exact_kernel::Appearance::Auto;
+                let field_shape = native.then(|| self.text_field_chrome(surface.outer.rect, ts));
+                let content = if let Some(c) = node.field_content_rect() {
+                    (rect.0 + c.x, rect.1 + c.y, c.width, c.height)
+                } else if native {
+                    // Region shell publication currently publishes frames without
+                    // field content rects. Its author box still includes chrome;
+                    // use this host's synchronous answer until that path supplies it.
+                    let c = control::field_chrome();
+                    (
+                        content.0 + c.left,
+                        content.1 + c.top,
+                        (content.2 - c.left - c.right).max(0.0),
+                        (content.3 - c.top - c.bottom).max(0.0),
+                    )
+                } else {
+                    content
+                };
                 // Typed text its bound value has not replaced (LLP 1069.001 D4).
                 let value = control::choice(node, walk.scene.chosen.get(&node.id))
                     .unwrap_or_else(|| node.props.str(PropId::Value).unwrap_or(""));
@@ -1108,9 +1132,9 @@ impl Painter {
                     );
                     let at_end = || exact_runner::FieldSelection::at_end(value);
                     self.field_caret(&field, caret, selection.unwrap_or_else(at_end), ts);
-                    if node.props.str(PropId::FieldStyle).is_some() {
+                    if let Some(shape) = &field_shape {
                         let accent = control::accent(node, self.dark).unwrap_or(control::ACCENT);
-                        self.field_ring(&surface.outer, accent, ts);
+                        self.field_ring(shape, accent, ts);
                     }
                 }
             }
