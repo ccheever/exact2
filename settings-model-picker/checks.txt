@@ -1,0 +1,13 @@
+settings-model-picker checks (worktree t3-code-settings-model-picker, commit e9fbc8ef4)
+
+bun test examples/t3-code                  2520 pass, 1 skip, 0 fail (205 files; 2511 pass, 1 skip before the new test file)
+  new: settings-model-picker.test.ts       9 pass (absent on the base: the module did not exist)
+strict tsc (app.ts)                        clean
+contract build app.contract                OK: 2628 slots, 46 resources, 59398 nodes (base 2629 slots)
+cargo test -p t3-code-macos --lib          11 pass
+caps                                       All budgets within cap (app.contract 1,499 lines)
+cargo build --all-targets --keep-going     exit 0
+cargo test --lib --bins --tests --no-fail-fast   3383 passed, 0 failed, 33 ignored (94 binaries)
+cargo clippy --all-targets --keep-going -- -D warnings   exit 0
+cargo fmt --all -- --check                 exit 0
+bun scripts/boot.mjs                       exit 0 (2 modules before first pixel)
