@@ -47,7 +47,7 @@ after (Date and time mode): open snooze-mode-date ; Tab cancel → confirm → c
 after (Duration): ArrowRight → snooze-mode-duration ; Space (mode) ; Tab decrease → amount → increase → cancel →
   confirm → close → mode-duration (wraps) ; Shift+Tab decrease → … ; Home on a toggle → mode-date ;
   Shift+Tab → close ; tap close → row focused
-  Date, Time and the Unit select are skipped: on macOS they are no Tab stops at all (X50, framework).
+  Date, Time and the Unit select are skipped: on macOS they are no Tab stops at all (X52, framework).
 base: nothing focused at open; after tapping "Date and time": mode-date → mode-duration → cancel → confirm →
   toast-secondary-2 → toast-action-2 → toast-dismiss-2 → toggle-sidebar → sidebar-brand (the page behind);
   Shift+Tab stays on toggle-sidebar; Escape there leaves the dialog open.
