@@ -241,6 +241,28 @@ fn a_radius_comparison_never_resolves_below_zero() {
         Ok(Dimension::Points(0.0))
     );
     assert!(text(StyleId::BorderRadiusTopLeft, "-4px").is_err());
+    // Folded to an inset or a viewport length that can go negative: held at 0.
+    let r = text(
+        StyleId::BorderRadiusTopLeft,
+        "calc(env(safe-area-inset-top) - max(8px, 12px))",
+    )
+    .unwrap();
+    assert_eq!(css(r), "max(0px, calc(env(safe-area-inset-top) - 12px))");
+    assert_eq!(r.resolve(&Env::default()), Dimension::Points(0.0));
+    let r = text(StyleId::BorderRadiusTopLeft, "calc(-20vw + max(0px, 0px))").unwrap();
+    assert_eq!(css(r), "max(0px, -20vw)");
+    assert_eq!(
+        text(
+            StyleId::BorderRadiusTopLeft,
+            "calc(env(safe-area-inset-top) + max(2px, 4px))"
+        ),
+        Ok(Dimension::Env(Edge::Top, 4.0))
+    );
+    // `minmax()` is no comparison: the other grammars refuse it as before.
+    assert!(matches!(
+        text(StyleId::Width, "minmax(0px, 1fr)"),
+        Err(StyleValueError::WrongKind { .. })
+    ));
     // A tree with no room left for the wrap is refused, never held negative.
     let deep = format!(
         "{}-4px, env(safe-area-inset-top){}",

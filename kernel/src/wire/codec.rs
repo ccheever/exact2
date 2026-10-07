@@ -711,7 +711,7 @@ mod tests {
         // schema. The literal makes an accidental removal of that coupling a
         // test failure whenever the byte snapshot above is intentionally moved.
         // Recomputed when the schema changes; the digest test prints the value.
-        assert_eq!(SCHEMA_DIGEST, 0x2b46_d3c6_9e50_d43e);
+        assert_eq!(SCHEMA_DIGEST, 0x812d_805f_2fc6_b0c8);
     }
 
     #[test]

@@ -557,16 +557,21 @@ fn token_length(token: &str) -> Result<Val, &'static str> {
 /// A comparison's length on a row that refuses a negative one (a border
 /// radius), never below zero, as CSS clamps a math function to the
 /// property's range (CSS Values 4 §10.12): folded points at 0 or more, a
-/// tree held as `max(0px, …)` (itself when it is already that), refused
+/// tree — or an inset or viewport length it folded to that can go negative
+/// — held as `max(0px, …)` (itself when it is already that), refused
 /// when that wrap passes [`MAX_DEPTH`] or [`MAX_TERMS`].
 pub(super) fn at_least_zero(d: Dimension) -> Result<Dimension, &'static str> {
-    let c = match d {
+    let zero = Expr::Term(Base::Points, 0.0);
+    // What the comparisons folded away to: kept when it cannot go negative.
+    let expr = match d {
         Dimension::Points(p) => return Ok(Dimension::Points(p.max(0.0))),
-        Dimension::Compare(c) => c,
+        Dimension::Env(_, plus) if plus >= 0.0 => return Ok(d),
+        Dimension::Viewport(_, n) if n >= 0.0 => return Ok(d),
+        Dimension::Env(edge, plus) => Expr::Term(Base::Inset(edge), plus),
+        Dimension::Viewport(unit, n) => Expr::Term(Base::Viewport(unit, n), 0.0),
+        Dimension::Compare(c) => c.expr(),
         other => return Ok(other),
     };
-    let zero = Expr::Term(Base::Points, 0.0);
-    let expr = c.expr();
     if let Expr::Pick(Op::Max, args, plus) = &expr {
         if *plus == 0.0 && args.first() == Some(&zero) {
             return Ok(d);
@@ -581,7 +586,14 @@ pub(super) fn at_least_zero(d: Dimension) -> Result<Dimension, &'static str> {
 
 /// Whether a length text names a comparison function, so [`parse`] reads it.
 fn names_comparison(text: &str) -> bool {
-    ["min(", "max(", "clamp("].iter().any(|f| text.contains(f))
+    ["min(", "max(", "clamp("].iter().any(|f| {
+        text.match_indices(f).any(|(at, _)| {
+            !text[..at]
+                .bytes()
+                .next_back()
+                .is_some_and(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        })
+    })
 }
 
 /// A length with `min()`, `max()` or `clamp()` in it, by CSS's grammar —
