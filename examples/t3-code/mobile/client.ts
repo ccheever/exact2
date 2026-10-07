@@ -1,6 +1,7 @@
 // upstream 365aa87982 mobile pairing.ts and connection/platform.ts; shared reducers remain unchanged.
 // @ref llp/1106.003-pairing-and-transport.decision.md#mobile-adaptations
 import { T3Client } from './shared/client';
+import { mobileDraftChanged } from './draft';
 import { decodePrefs, environmentSources, machineKind, savedStatus } from './shared/connections';
 import { connectionRouteAddress, connectionRouteKind, connectionRouteLabel, gitHubRoutingConnectionKey, hasRelayRoute } from './shared/connection-routes';
 import { arr, obj, str, type Obj } from './shared/domain';
@@ -135,6 +136,7 @@ export async function mobileCommand(args: unknown[], nativeInput: Native | null 
   const { native, storage } = answerHandles(nativeInput, suppliedStorage);
   if (!native?.available) return { revision: mobileClient.revision, message: 'Open T3 Code on your iPhone or iPad to connect.' };
   let op = str(args[0]), id = str(args[1]), value = str(args[2]);
+  if (op === 'draft') return mobileDraftChanged(mobileClient, value, native, storage);
   if (op === 'environment-reconnect') {
     try {
       const catalog = await bridgeReply(native, { op: 'environments' });

@@ -9,12 +9,12 @@ const machineSymbols: Record<string, string> = {
   laptop: 'laptopcomputer', 'mac-mini': 'macmini', 'mac-studio': 'macstudio',
 };
 
-export function connectionView(snapshot: Awaited<ReturnType<typeof mobileSnapshot>>, scheme: string) {
-  const theme = mobileTheme(scheme), colors = theme.colors;
+export function connectionView(snapshot: Awaited<ReturnType<typeof mobileSnapshot>>, scheme: string, palette = 't3-code') {
+  const theme = mobileTheme(scheme, palette), colors = theme.colors;
   return {
     nativeAvailable: snapshot.nativeAvailable, revision: snapshot.revision,
     ready: snapshot.ready, busy: snapshot.busy, error: snapshot.error,
-    environmentId: snapshot.environmentId, environmentLabel: snapshot.environmentLabel,
+    environmentId: snapshot.environmentId, threadId: snapshot.threadId, projectId: snapshot.projectId, generation: snapshot.generation, environmentLabel: snapshot.environmentLabel,
     status: snapshot.statusMessage, routing: snapshot.routing, projectCount: snapshot.projects.length, threadCount: snapshot.threads.length,
     environments: snapshot.environments.map(row => {
       const unsupported = row.state === 'unsupported', enabled = row.enabled && !unsupported;
@@ -24,7 +24,7 @@ export function connectionView(snapshot: Awaited<ReturnType<typeof mobileSnapsho
       const statusColor = phase === 'connected' ? colors.statusConnected : retrying ? colors.statusRetrying
         : neutral ? colors.iconMuted : colors.dangerForeground;
       return {
-        id: row.key, label: row.label, url: row.origin, enabled: row.enabled, unsupported,
+        id: row.key, environmentId: row.environmentId, state: phase, machine: row.machine, label: row.label, url: row.origin, enabled: row.enabled, unsupported,
         status: !row.enabled && !unsupported ? 'Off' : statusText(phase, row.error),
         statusColor, statusHaloColor: withAlpha(statusColor, retrying ? 0.5 : neutral ? 0.42 : 0.48),
         machineSymbol: machineSymbols[row.machine] ?? machineSymbols.server,

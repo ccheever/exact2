@@ -1,6 +1,19 @@
+use ComposerAttachmentStrip from "./composer-attachments.contract"
+use ComposerAttachmentsSnapshot from "./composer-attachment-shapes.contract"
+use SettingsRoot, SettingsRootData, SettingsHeader, SettingsChoices, SettingsChoicesData, MobilePreferencesResource from "./settings.contract"
+use SettingsAppearance, SettingsAppearanceData from "./settings-appearance.contract"
+use Archive, ArchiveData, ArchiveColors from "./archive.contract"
+use AgentActivity, AgentActivityData, AgentActivityColors from "./agent-activity.contract"
 // @ref llp/1106.003-pairing-and-transport.decision.md#decision
 use Connect, ConnectionColors from "./connect.contract"
 use EnvironmentDetail, EnvironmentDetailData from "./environment-detail.contract"
+use HomeChrome from "./home-chrome.contract"
+use ThreadFeed, ThreadApprovals from "./thread.contract"
+use ComposerSettings, ComposerChoices from "./composer-settings.contract"
+use NewTaskProjects, NewTaskEnvironments, NewTaskBranches, NewTaskHero, NewTaskWorkspace from "./new-task.contract"
+use ComposerSettingsSnapshot, ComposerActionResult, ComposerColors, NewTaskSnapshot, NewTaskResult, NewTaskPreparation from "./composer-shapes.contract"
+use ThreadComposer from "./thread-composer.contract"
+use ThreadSnapshot, ThreadColors from "./thread-shapes.contract"
 use Home, HomeItem, HomeColors from "./home.contract"
 use Scanner from "./scanner.contract"
 use Environments, EnvironmentRow, GitHubRoutingSettings, GitHubRoutingRow from "./environments.contract"
@@ -13,12 +26,62 @@ font "DM Sans"
 
 routes nav
   home "/"
+  thread "/threads/:threadEnvironment/:threadId"
+  threadMedia "/threads/:threadEnvironment/:threadId/attachments/:attachmentId"
+  threadModel "/threads/:threadEnvironment/:threadId/model"
+  threadModelOption "/threads/:threadEnvironment/:threadId/model/options/:modelOption"
+  threadRuntime "/threads/:threadEnvironment/:threadId/model/runtime"
+  threadModelFilter "/threads/:threadEnvironment/:threadId/model/providers"
+  threadAgents "/threads/:threadEnvironment/:threadId/agents"
+  settings "/settings"
+  archive "/settings/archive"
+  settingsAppearance "/settings/appearance"
+  settingsChoice "/settings/preferences/:settingsChoice"
+  newTask "/new"
+  newTaskProjects "/new/projects"
+  newTaskEnvironments "/new/environments"
+  newTaskBranches "/new/branches"
+  newTaskModel "/new/model"
+  newTaskModelOption "/new/model/options/:modelOption"
+  newTaskRuntime "/new/model/runtime"
+  newTaskModelFilter "/new/model/providers"
   connections "/connections"
   connect "/connections/new"
   environments "/settings/environments"
   environmentDetail "/settings/environments/:environmentKey"
   notfound
 
+shape Appearance
+  scheme: string
+  themeId: string
+  themeMode: string
+  baseFontSize: number
+  groupingMode: string
+shape SettingsView
+  root: SettingsRootData
+  header: string
+shape SettingsScopeEvent
+  selection: string
+  close: bool
+shape MobileLayout
+  safeBottom: number
+  liquidGlass: bool
+shape HomeChromeView
+  configuration: string
+  environmentId: string
+  projectKey: string
+  bottomClearance: number
+  emptyClearance: number
+  toolbarContentInset: number
+shape ChromeEvent
+  kind: string
+  value: string
+shape ThreadSelection
+  requestRoute: string
+  revision: number
+  message: string
+  environmentId: string
+  threadId: string
 shape HomeView
   items: list<HomeItem>
   emptyTitle: string
@@ -60,6 +123,9 @@ shape Snapshot
   busy: bool
   error: string
   environmentId: string
+  threadId: string
+  projectId: string
+  generation: number
   environmentLabel: string
   status: string
   projectCount: number
@@ -72,10 +138,52 @@ shape Change
 
 component App
   resource viewport = exactViewport() as shape Viewport
-  resource look = theme(viewport.prefersColorScheme, "t3-code") as shape Theme
-  resource data = snapshot(viewport.prefersColorScheme) as shape Snapshot
-  resource detail = environmentDetail(params(nav, "environmentKey"), data.revision) as shape EnvironmentDetailData
+  resource preferences = preferences() as shape MobilePreferencesResource
+  resource appearance = appearance(preferences.serialized, viewport.prefersColorScheme) as shape Appearance
+  resource look = theme(appearance.scheme, appearance.themeId) as shape Theme
+  resource data = snapshot(appearance.scheme, appearance.themeId) as shape Snapshot
+  resource detail = environmentDetail(top(nav).params.environmentKey, data.revision) as shape EnvironmentDetailData
   mutation detailChanged as shape Change refreshes data, detail
+  state settingsSelection = ""
+  derive settingsRouteKey = match first(filter(stack(nav), route => route.name == "settings")) { case some(route) => `${route.id}`, case none => "settings" }
+  resource settingsData = settingsRoot(preferences.serialized, viewport.prefersColorScheme, data.environments, layout.safeBottom, settingsRouteKey, settingsSelection) as shape SettingsView
+  resource settingsAppearance = settingsAppearance(preferences.serialized, viewport.prefersColorScheme, preferences.ready, layout.safeBottom) as shape SettingsAppearanceData
+  resource settingsChoice = settingsChoices(top(nav).params.settingsChoice, preferences.serialized, preferences.ready) as shape SettingsChoicesData
+  mutation preferenceChanged as shape Change refreshes preferences, shelves then didPreferenceChange
+  mutation appearanceApplied as shape Change
+  mutation settingsEvent as shape SettingsScopeEvent then didSettingsEvent
+  task applyTheme when preferences.ready key=appearance.themeMode
+    after(1, applyTheme)
+  action applyTheme
+    send appearanceApplied = applyAppearance(preferences.serialized)
+  action changePreference(key: string, value: string)
+    send preferenceChanged = preferenceChange(key, value)
+  action didPreferenceChange
+    match preferenceChanged
+      case some(result)
+        if result.message != ""
+          send notice = alert("info", "Could not save preference", result.message)
+      case none
+        settingsSelection = settingsSelection
+  action settingsHeaderEvent(value: string)
+    send settingsEvent = settingsScopeEvent(value, preferences.serialized, settingsSelection, data.environments)
+  action didSettingsEvent
+    match settingsEvent
+      case some(event)
+        settingsSelection = event.selection
+        if event.close
+          nav = back(nav)
+      case none
+        settingsSelection = settingsSelection
+  action openSetting(target: string)
+    if target == "SettingsEnvironments"
+      openEnvironments()
+    else if target == "SettingsAppearance"
+      nav = push(nav, path("settingsAppearance"))
+    else if target == "SettingsArchive"
+      nav = push(nav, path("archive"))
+    else if target == "SettingsKeyboard" or target == "SettingsFollowUp" or target == "SettingsOrganization" or target == "SettingsProjectGrouping"
+      nav = push(nav, path("settingsChoice", target))
   state targetEnvironment = ""
   state confirmKind = ""
   state confirmKey = ""
@@ -83,11 +191,222 @@ component App
   mutation detailConfirmation as shape Notice then didConfirmDetail
   resource wallTime = exactTime() as shape Time
   state elapsed = 0
+  state layoutJSON = ""
+  resource layout = layoutFacts(layoutJSON) as shape MobileLayout
+  action layoutChanged(value: string)
+    layoutJSON = value
   state homeQuery = ""
+  state homeEnvironment = ""
+  state homeProject = ""
+  derive homeRouteKey = match first(filter(stack(nav), route => route.name == "home")) { case some(route) => `${route.id}`, case none => "home" }
+  resource chrome = homeChrome(homeRouteKey, homeQuery, homeEnvironment, homeProject, appearance.scheme, layout.safeBottom, layout.liquidGlass, data.revision, data.environments, appearance.groupingMode) as shape HomeChromeView
+  mutation chromeEvent as shape ChromeEvent then didChromeEvent
+  mutation searchChanged as shape Change refreshes data
+  task searchDebounce key=homeQuery
+    after(250, searchHome)
+  action searchHome
+    send searchChanged = command("search", "", homeQuery, "0")
+  action homeEvent(value: string)
+    send chromeEvent = homeChromeEvent(value)
+  action didChromeEvent
+    match chromeEvent
+      case some(event)
+        if event.kind == "search"
+          homeQuery = event.value
+          settledCount = 10
+        else if event.kind == "environment"
+          homeEnvironment = event.value
+          homeProject = ""
+          settledCount = 10
+        else if event.kind == "project"
+          homeProject = event.value
+          settledCount = 10
+        else if event.kind == "settings"
+          nav = push(nav, path("settings"))
+        else if event.kind == "environments"
+          openEnvironments()
+        else if event.kind == "compose"
+          nav = push(nav, path("newTask"))
+      case none
+        homeQuery = homeQuery
+  state composerFocused = false
+  derive composerExpanded = composerFocused or top(nav).name == "threadModel" or top(nav).name == "newTaskModel"
+  resource threadLook = threadColors(appearance.scheme, appearance.themeId) as shape ThreadColors
+  resource threadData = threadView(data.revision, wallTime.epochAtZero + elapsed, appearance.scheme, top(nav).params.threadEnvironment, top(nav).params.threadId, startsWith(top(nav).name, "thread")) as shape ThreadSnapshot
+  mutation selected as shape ThreadSelection refreshes data then didSelectThread
+  mutation draftChanged as shape Change refreshes data
+  task selectRouteThread when startsWith(top(nav).name, "thread") and data.ready and (top(nav).params.threadEnvironment != data.environmentId or top(nav).params.threadId != data.threadId) key=top(nav).url
+    after(1, loadRouteThread)
+  action loadRouteThread
+    send selected = selectThread(top(nav).params.threadEnvironment == data.environmentId ? top(nav).params.threadId : `fleet:${top(nav).params.threadEnvironment}:${top(nav).params.threadId}`, `${top(nav).id}`)
+  action didSelectThread
+    match selected
+      case some(result)
+        if result.message != ""
+          send notice = alert("info", "Could not open thread", result.message)
+        else if result.requestRoute == `${top(nav).id}` and result.threadId != "" and (top(nav).params.threadEnvironment != result.environmentId or top(nav).params.threadId != result.threadId)
+          nav = push(nav, path("thread", result.environmentId, result.threadId))
+      case none
+        composerFocused = false
+  action editDraft(value: string)
+    if top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
+      send draftChanged = command("draft", "", value, "0")
+  action composerFocus(value: bool)
+    composerFocused = value
+  action threadAction(op: string, id: string, value: string)
+    if top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
+      lastOperation = "thread-action"
+      send changed = command(op, id, value, `${wallTime.epochAtZero + now()}`)
+  action openMedia(id: string)
+    nav = push(nav, path("threadMedia", data.environmentId, data.threadId, id))
+  resource composerAttachments = composerAttachments(data.revision) as shape ComposerAttachmentsSnapshot
+  action removeAttachment(kind: string, id: string)
+    lastOperation = "attachments"
+    send changed = attachmentAction(kind, id)
+  action pickAttachments
+    lastOperation = "attachments"
+    send changed = attachmentAction("menu", "")
+  action openModelSettings
+    modelQuery = ""
+    modelFilter = ""
+    send modelChanged = composerAction("open", "", "")
+    nav = push(nav, startsWith(top(nav).name, "newTask") ? path("newTaskModel") : path("threadModel", data.environmentId, data.threadId))
+  state modelQuery = ""
+  state modelFilter = ""
+  state modelLegacy = false
+  state newTaskQuery = ""
+  state branchQuery = ""
+  state newTaskOperation = ""
+  state newTaskContextRevision = 0
+  resource composerLook = composerColors(appearance.scheme, appearance.themeId) as shape ComposerColors
+  resource modelData = composerSettings(modelQuery, modelFilter, modelLegacy, data.revision) as shape ComposerSettingsSnapshot
+  resource newTaskBranchesReady = newTaskPrepare(branchQuery, startsWith(top(nav).name, "newTask") and top(nav).name != "newTaskProjects", newTaskContextRevision, data.ready, data.environmentId, data.projectId, data.threadId, data.generation) as shape NewTaskPreparation
+  resource newTaskData = newTaskView(newTaskQuery, data.revision, newTaskBranchesReady.revision, newTaskBranchesReady.loaded) as shape NewTaskSnapshot
+  mutation modelChanged as shape ComposerActionResult refreshes data, modelData then didModelChange
+  mutation taskChanged as shape NewTaskResult refreshes data, newTaskData then didTaskChange
+  action modelAction(kind: string, id: string, value: string)
+    send modelChanged = composerAction(kind, id, value)
+  action didModelChange
+    match modelChanged
+      case some(result)
+        if result.message != ""
+          send notice = alert("info", "Could not update model", result.message)
+        else if result.closed
+          nav = back(nav)
+      case none
+        modelQuery = modelQuery
+  action editModelQuery(value: string)
+    modelQuery = value
+  action toggleLegacy(value: bool)
+    modelLegacy = value
+  action openModelFilter
+    nav = push(nav, startsWith(top(nav).name, "newTask") ? path("newTaskModelFilter") : path("threadModelFilter", data.environmentId, data.threadId))
+  action chooseModelFilter(value: string)
+    modelFilter = value
+    nav = back(nav)
+  action openModelOption(id: string)
+    match first(filter(modelData.options, option => option.id == id))
+      case some(option)
+        if option.boolean
+          modelAction("option", id, option.on ? "false" : "true")
+        else
+          nav = push(nav, startsWith(top(nav).name, "newTask") ? path("newTaskModelOption", id) : path("threadModelOption", data.environmentId, data.threadId, id))
+      case none
+        modelQuery = modelQuery
+  action chooseModelOption(value: string)
+    modelAction("option", top(nav).params.modelOption, value)
+    nav = back(nav)
+  action openRuntime
+    nav = push(nav, startsWith(top(nav).name, "newTask") ? path("newTaskRuntime") : path("threadRuntime", data.environmentId, data.threadId))
+  action chooseRuntime(value: string)
+    modelAction("runtime", "", value)
+    nav = back(nav)
+  action taskAction(kind: string, id: string, value: string)
+    newTaskOperation = kind
+    send taskChanged = newTaskAction(kind, id, value)
+  action didTaskChange
+    if newTaskOperation != "draft" and newTaskOperation != "send"
+      newTaskContextRevision = newTaskContextRevision + 1
+    match taskChanged
+      case some(result)
+        if result.message != ""
+          send notice = alert("info", "Could not update task", result.message)
+        else if result.submitted
+          nav = replace(nav, path("thread", result.environmentId, result.threadId))
+        else if newTaskOperation == "project" or newTaskOperation == "environment" or newTaskOperation == "branch"
+          if top(nav).name != "newTask"
+            nav = back(nav)
+      case none
+        newTaskOperation = ""
+  action editNewDraft(value: string)
+    send draftChanged = command("draft", "", value, "0")
+  action editNewQuery(value: string)
+    newTaskQuery = value
+  action editBranchQuery(value: string)
+    branchQuery = value
+  action chooseNewProject
+    nav = push(nav, path("newTaskProjects"))
+  action chooseNewEnvironment
+    nav = push(nav, path("newTaskEnvironments"))
+  action chooseNewBranch
+    nav = push(nav, path("newTaskBranches"))
+  state archiveQuery = ""
+  state archiveEnvironment = ""
+  state archiveSort = "newest"
+  state archiveRefresh = 0
+  state archiveDeleteEnvironment = ""
+  state archiveDeleteProject = ""
+  state archiveDeleteThread = ""
+  resource archiveLook = archiveColors(appearance.scheme, appearance.themeId) as shape ArchiveColors
+  resource archiveData = archiveView(wallTime.epochAtZero + elapsed, archiveQuery, archiveEnvironment, archiveSort, top(nav).name == "archive", data.revision, archiveRefresh) as shape ArchiveData
+  resource agentLook = agentColors(appearance.scheme, appearance.themeId) as shape AgentActivityColors
+  state agentsElapsed = 0
+  task agentsClock when top(nav).name == "threadAgents" and agents.liveCount > 0
+    every(1000, tickAgents)
+  action tickAgents
+    agentsElapsed = now()
+  resource agents = agentActivity(data.environmentId, data.threadId, wallTime.epochAtZero + max(elapsed, agentsElapsed), data.revision) as shape AgentActivityData
+  mutation archived as shape Change refreshes data, archiveData then didArchiveChange
+  mutation archiveConfirmation as shape Notice then didConfirmArchive
+  action openAgents
+    nav = push(nav, path("threadAgents", data.environmentId, data.threadId))
+  action openAgent(environmentId: string, threadId: string)
+    nav = replace(nav, path("thread", environmentId, threadId))
+  action editArchiveQuery(value: string)
+    archiveQuery = value
+  action editArchiveEnvironment(value: string)
+    archiveEnvironment = value
+  action toggleArchiveSort
+    archiveSort = archiveSort == "newest" ? "oldest" : "newest"
+  action refreshArchive
+    archiveRefresh = archiveRefresh + 1
+  action archiveAction(kind: string, environmentId: string, projectId: string, threadId: string)
+    if kind == "delete"
+      archiveDeleteEnvironment = environmentId
+      archiveDeleteProject = projectId
+      archiveDeleteThread = threadId
+      let title = match first(filter(archiveData.items, item => item.environmentId == environmentId and item.threadId == threadId)) { case some(item) => item.title, case none => "This thread" }
+      send archiveConfirmation = alert("delete", "Delete thread?", `“${title}” will be permanently deleted, including its terminal history.`)
+    else
+      send archived = archiveAction(kind, environmentId, projectId, threadId)
+  action didConfirmArchive
+    match archiveConfirmation
+      case some(result)
+        if result.choice == "delete"
+          send archived = archiveAction("delete", archiveDeleteEnvironment, archiveDeleteProject, archiveDeleteThread)
+      case none
+        archiveDeleteThread = ""
+  action didArchiveChange
+    match archived
+      case some(result)
+        if result.message != ""
+          send notice = alert("info", "Could not update thread", result.message)
+      case none
+        archiveRefresh = archiveRefresh
   state settledCount = 10
   resource shelves = homePreferences() as shape HomePreferences
-  resource homeLook = homeColors(viewport.prefersColorScheme) as shape HomeColors
-  resource home = homeView(data.revision, wallTime.epochAtZero + elapsed, homeQuery, settledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded) as shape HomeView
+  resource homeLook = homeColors(appearance.scheme, appearance.themeId) as shape HomeColors
+  resource home = homeView(data.revision, wallTime.epochAtZero + elapsed, homeQuery, settledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, chrome.environmentId, chrome.projectKey, "", appearance.groupingMode) as shape HomeView
   mutation shelfChanged as shape Change refreshes shelves
   task clock mount
     every(60000, tick)
@@ -97,9 +416,8 @@ component App
     send shelfChanged = toggleShelf(section)
   action showMore
     settledCount = settledCount + 25
-  action selectThread(id: string)
-    lastOperation = "thread"
-    send changed = command("select-thread", id, "", "0")
+  action chooseThread(id: string)
+    send selected = selectThread(id, `${top(nav).id}`)
   state host = ""
   state code = ""
   state formError = ""
@@ -133,6 +451,8 @@ component App
     match changed
       case some(result)
         formError = result.message
+        if result.message != "" and (lastOperation == "thread-action" or lastOperation == "attachments")
+          send notice = alert("info", "Could not complete action", result.message)
         if lastOperation == "save" and result.message == ""
           expanded = ""
         if submitted and result.message == ""
@@ -255,7 +575,7 @@ component App
           data-mobile-form-sheet=(entry.name == "connections" or entry.name == "connect")
           data-mobile-scan-action=(entry.name == "connect" ? "scan-qr" : "")
           data-mobile-scanner-open=scannerOpen
-          navigationScroll=(entry.name == "home" ? (length(home.items) > 0 ? "home-list" : "") : `scroll-${entry.id}`)
+          navigationScroll=(entry.name == "home" ? (length(home.items) > 0 ? "home-list" : "") : entry.name == "thread" ? (length(threadData.rows) > 0 ? "thread-feed" : "") : entry.name == "settings" ? "settings-scroll" : entry.name == "settingsAppearance" ? "settings-appearance-scroll" : entry.name == "settingsChoice" ? "settings-choice-scroll" : entry.name == "archive" ? (length(archiveData.items) > 0 ? "archive-list" : "") : `scroll-${entry.id}`)
           navigationPresentation=(entry.name == "connections" or entry.name == "connect" ? "modal" : "")
           position="absolute"
           inset=0
@@ -265,7 +585,7 @@ component App
           header height=44 flex-shrink=0 align-items="center" justify-content="space-between"
             button id="back" press=back aria-label="Back" testId=`back-${entry.name}`
               image "symbol:back" width=20 height=20
-            text (entry.name == "connect" ? "Add environment" : entry.name == "home" ? "T3 Code" : entry.name == "environmentDetail" ? detail.title : "Environments")
+            text (entry.name == "connect" ? "Add environment" : entry.name == "home" ? "T3 Code" : entry.name == "environmentDetail" ? detail.title : entry.name == "thread" ? threadData.title : entry.name == "settings" ? "Settings" : entry.name == "settingsAppearance" ? "Appearance" : entry.name == "settingsChoice" ? settingsChoice.title : entry.name == "archive" ? "Archived Threads" : entry.name == "threadAgents" ? "Agents" : entry.name == "newTaskProjects" ? "Project" : entry.name == "newTaskEnvironments" ? "Environment" : entry.name == "newTaskBranches" ? "Branch" : entry.name == "threadModel" or entry.name == "newTaskModel" ? "Model" : entry.name == "threadRuntime" or entry.name == "newTaskRuntime" ? "Runtime" : entry.name == "threadModelFilter" or entry.name == "newTaskModelFilter" ? "Providers" : entry.name == "threadModelOption" or entry.name == "newTaskModelOption" ? "Model options" : entry.name == "newTask" ? "New task" : "Environments")
               role="heading"
               aria-level=2
               font-size=18
@@ -276,13 +596,73 @@ component App
             when entry.name == "connections" or entry.name == "environments"
               button press=addEnvironment aria-label="Add environment" testId="add-environment"
                 image "symbol:add" width=20 height=20
+            when entry.name == "thread"
+              button press=openAgents aria-label="Agents" testId="thread-agents"
+                t3-symbol symbol-name="person.2" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
           when entry.name == "home"
-            Home(items=home.items, emptyTitle=home.emptyTitle, emptyDetail=home.emptyDetail, loading=home.loading, addEnvironment=home.addEnvironment, bottomClearance=120, selectThread=selectThread, toggleShelf=toggleHomeShelf, showMore=showMore, addConnection=addEnvironment, colors=homeLook)
-            row position="absolute" bottom="env(safe-area-inset-bottom)" left=20 right=20 justify-content="space-between" padding=14 background-color=look.sheet
-              button press=openConnections testId="open-connections" aria-label="Environments"
-                t3-symbol symbol-name="server.rack" point-size=22 symbol-weight="regular" symbol-tint=look.foreground width=24 height=24
-              button press=openEnvironments testId="open-environment-settings" aria-label="Environment settings"
-                t3-symbol symbol-name="gearshape" point-size=22 symbol-weight="regular" symbol-tint=look.foreground width=24 height=24
+            Home(items=home.items, emptyTitle=home.emptyTitle, emptyDetail=home.emptyDetail, loading=home.loading, addEnvironment=home.addEnvironment, bottomClearance=chrome.bottomClearance, emptyClearance=chrome.emptyClearance, selectThread=chooseThread, toggleShelf=toggleHomeShelf, showMore=showMore, addConnection=addEnvironment, colors=homeLook)
+            HomeChrome(configuration=chrome.configuration, event=homeEvent)
+          else when entry.name == "thread"
+            ThreadFeed(data=threadData, horizontalPadding=16, userBubbleMaxWidth=max(0, (viewport.width - 32) * 0.85), bottomClearance=14, action=threadAction, openMedia=openMedia, colors=threadLook)
+            ThreadApprovals(data=threadData, action=threadAction, colors=threadLook)
+            ComposerAttachmentStrip(data=composerAttachments, remove=removeAttachment, colors=threadLook)
+            ThreadComposer(data=threadData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=(composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)), contentMaxWidth=viewport.width, focusChanged=composerFocus, editDraft=editDraft, action=threadAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
+          else when entry.name == "settings"
+            SettingsRoot(data=settingsData.root, navigate=openSetting)
+            SettingsHeader(configuration=settingsData.header, event=settingsHeaderEvent)
+          else when entry.name == "settingsAppearance"
+            SettingsAppearance(data=settingsAppearance, change=changePreference)
+          else when entry.name == "settingsChoice"
+            SettingsChoices(data=settingsChoice, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom, change=changePreference)
+          else when entry.name == "archive"
+            row padding=16 gap=14
+              input value=archiveQuery input=editArchiveQuery placeholder="Search archived threads" flex=1 min-width=0 aria-label="Search archived threads"
+              button press=toggleArchiveSort aria-label="Sort archived threads"
+                text (archiveSort == "newest" ? "Newest" : "Oldest")
+            select value=archiveEnvironment change=editArchiveEnvironment aria-label="Filter archived threads by environment" margin-left=16 margin-right=16
+              option "All environments" value=""
+              each environment in archiveData.environments key=environment.id
+                option environment.label value=environment.id
+            Archive(data=archiveData, colors=archiveLook, pending=pending(archived), loading=pending(archiveData), width=viewport.width, reduced=viewport.prefersReducedMotion, refresh=refreshArchive, action=archiveAction)
+          else when entry.name == "threadAgents"
+            AgentActivity(data=agents, colors=agentLook, dark=appearance.scheme == "dark", bottomInset=layout.safeBottom, open=openAgent)
+          else when entry.name == "threadModel" or entry.name == "newTaskModel"
+            row gap=14 padding=14
+              button press=modelAction("cancel", "", "") disabled=pending(modelChanged)
+                text "Cancel"
+              input value=modelQuery input=editModelQuery placeholder="Search models" flex=1 min-width=0 aria-label="Search models"
+              button press=openModelFilter aria-label="Filter providers"
+                t3-symbol symbol-name="line.3.horizontal.decrease" point-size=20 symbol-tint=composerLook.icon width=20 height=20
+              button press=modelAction("save", "", "") disabled=(not modelData.canSave or pending(modelChanged))
+                text modelData.saveLabel
+            when modelData.hasLegacy
+              row padding-left=14 padding-right=14 align-items="center"
+                text "Show legacy models" flex=1 font-size=14 color=composerLook.muted
+                input type="checkbox" switch checked=modelLegacy change=toggleLegacy aria-label="Show legacy models"
+            ComposerSettings(data=modelData, dark=appearance.scheme == "dark", action=modelAction, openOptions=openModelOption, openRuntime=openRuntime, colors=composerLook)
+          else when entry.name == "threadModelOption" or entry.name == "newTaskModelOption"
+            match first(filter(modelData.options, option => option.id == entry.params.modelOption))
+              case some(option)
+                ComposerChoices(rows=option.choices, choose=chooseModelOption, colors=composerLook)
+              case none
+                text "This model option is no longer available."
+          else when entry.name == "threadRuntime" or entry.name == "newTaskRuntime"
+            ComposerChoices(rows=modelData.runtimes, choose=chooseRuntime, colors=composerLook)
+          else when entry.name == "threadModelFilter" or entry.name == "newTaskModelFilter"
+            ComposerChoices(rows=modelData.filters, choose=chooseModelFilter, colors=composerLook)
+          else when entry.name == "newTask" and newTaskData.draft
+            NewTaskHero(data=newTaskData, chooseProject=chooseNewProject, chooseEnvironment=chooseNewEnvironment, colors=composerLook)
+            NewTaskWorkspace(data=newTaskData, action=taskAction, chooseBranch=chooseNewBranch, colors=composerLook)
+            ComposerAttachmentStrip(data=composerAttachments, remove=removeAttachment, colors=threadLook)
+            ThreadComposer(data=newTaskData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=(composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)), contentMaxWidth=viewport.width, focusChanged=composerFocus, editDraft=editNewDraft, action=taskAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
+          else when entry.name == "newTask" or entry.name == "newTaskProjects"
+            input value=newTaskQuery input=editNewQuery placeholder="Search projects" margin=16 aria-label="Search projects"
+            NewTaskProjects(data=newTaskData, action=taskAction, colors=composerLook)
+          else when entry.name == "newTaskEnvironments"
+            NewTaskEnvironments(data=newTaskData, action=taskAction, colors=composerLook)
+          else when entry.name == "newTaskBranches"
+            input value=branchQuery input=editBranchQuery placeholder="Search branches" margin=16 aria-label="Search branches"
+            NewTaskBranches(data=newTaskData, action=taskAction, colors=composerLook)
           else
             scroll id=`scroll-${entry.id}` flex=1 min-height=0 keyboardDismissMode="interactive"
               column padding-left=(entry.name == "environmentDetail" ? 0 : entry.name == "environments" ? 17.5 : 20)
@@ -318,8 +698,9 @@ component App
                 when entry.name == "environmentDetail"
                   match first(filter(data.environments, item => item.id == detail.key))
                     case some(connection)
-                      EnvironmentDetail(data=detail, connection=connection, colors=look.colors, dark=viewport.prefersColorScheme == "dark", pending=pending(detailChanged), toggleConnection=toggle, setEnabled=setEnabled, reconnect=reconnect, remove=remove, save=save, action=detailAction)
+                      EnvironmentDetail(data=detail, connection=connection, colors=look.colors, dark=appearance.scheme == "dark", pending=pending(detailChanged), toggleConnection=toggle, setEnabled=setEnabled, reconnect=reconnect, remove=remove, save=save, action=detailAction)
                     case none
                       text "This environment is no longer saved on this device." color=look.colors.muted padding=17.5
                 when entry.name == "notfound"
                   text "Page not found"
+      t3-layout-facts change=layoutChanged position="absolute" inset=0 aria-hidden=true

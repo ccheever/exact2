@@ -1,0 +1,289 @@
+// @ref llp/1106.002-design-system-parity.spec.md#user-preference-and-accessibility-scaling
+// Upstream 365aa87982 appearance/sections and appearance/components.
+use SettingsColors, SettingsTextRoles, SettingsSectionLabel from "./settings.contract"
+shape SettingsWire
+  screen: string
+  card: string
+  primary: string
+  muted: string
+  subtle: string
+  bubble: string
+  border: string
+  drawer: string
+shape SettingsMode
+  id: string
+  label: string
+  selected: bool
+  split: bool
+  left: SettingsWire
+  right: SettingsWire
+shape SettingsOrb
+  base: string
+  accent: string
+  action: string
+  mode: string
+  key: string
+  selected: bool
+  symbol: string
+  ring: string
+  ax: number
+  ay: number
+  px: number
+  py: number
+  middle: number
+  ar: number
+  pr: number
+shape SettingsThemeCard
+  id: string
+  label: string
+  selected: bool
+  orbs: list<SettingsOrb>
+shape SettingsCodeLine
+  id: string
+  number: string
+  before: string
+  keyword: string
+  text: string
+shape SettingsAppearanceData
+  ready: bool
+  bottom: number
+  colors: SettingsColors
+  roles: SettingsTextRoles
+  cards: list<SettingsThemeCard>
+  modes: list<SettingsMode>
+  scheme: string
+  themeId: string
+  baseFontSize: number
+  terminalFontSize: number
+  codeFontSize: number
+  codeWordBreak: bool
+  terminalCustom: bool
+  codeCustom: bool
+  terminalLabel: string
+  codeLabel: string
+  baseLabel: string
+  bodyLine: number
+  sampleSmallSize: number
+  sampleSmallLine: number
+  terminalLine: number
+  terminalForeground: string
+  terminalBackground: string
+  terminalCursor: string
+  codeLine: number
+  codeNumber: number
+  codeLines: list<SettingsCodeLine>
+component SettingsAppearance
+  props
+    data: SettingsAppearanceData
+    change: action
+  view
+    scroll id="settings-appearance-scroll" flex=1 min-height=0 background-color=data.colors.sheet
+      column gap=21 padding-left=17.5 padding-right=17.5 padding-top=14 padding-bottom=data.bottom font-family="DM Sans" testId="settings-appearance"
+        column gap=7
+          SettingsSectionLabel(title="Color scheme", colors=data.colors, roles=data.roles)
+          row gap=7 role="radiogroup"
+            each mode in data.modes key=mode.id
+              button press=change("themeMode", mode.id) disabled=(not data.ready)
+                role="radio" aria-checked=mode.selected aria-label=`${mode.label} appearance` testId=`settings-mode-${mode.id}`
+                min-width=0 flex=1 gap=7 padding=7 box-sizing="border-box" border-radius=24
+                border-width=(mode.selected ? 2 : 1) border-style="solid" border-color=(mode.selected ? data.colors.primary : data.colors.border)
+                background-color=(mode.selected ? data.colors.subtle : data.colors.grouped)
+                SettingsModePreview(mode=mode)
+                text mode.label text-align="center" font-size=data.roles.body.size line-height=`${data.roles.body.line}px` font-weight=(mode.selected ? 700 : 400) color=(mode.selected ? data.colors.foreground : data.colors.muted)
+        column gap=10.5
+          SettingsSectionLabel(title="Themes", colors=data.colors, roles=data.roles)
+          row flex-wrap="wrap" gap=10.5
+            each card in data.cards key=card.id
+              column position="relative" min-width=126 flex-grow=1 flex-shrink=1 flex-basis="47%" gap=10.5
+                padding-left=7 padding-right=7 padding-top=14 padding-bottom=14 box-sizing="border-box" border-radius=24
+                border-width=1 border-style="solid" border-color=data.colors.border background-color=data.colors.grouped
+                button press=change("bothThemeIds", card.id) disabled=(not data.ready)
+                  position="absolute" top=0 right=0 bottom=0 left=0 padding=0 border-radius=24
+                  aria-label=`${card.label} theme` aria-selected=card.selected testId=`settings-theme-${card.id}`
+                row align-items="center" justify-content="center" gap=7 padding-top=3.5 padding-bottom=3.5
+                  each orb in card.orbs key=orb.mode
+                    button press=change(orb.mode == "light" ? "lightThemeId" : "darkThemeId", card.id) disabled=(not data.ready)
+                      width=66 height=66 padding=0 box-sizing="border-box" border-radius=9999 border-width=3 border-style="solid"
+                      border-color=(orb.selected ? data.colors.primary : "transparent") align-items="center" justify-content="center" position="relative"
+                      aria-label=`${card.label} ${orb.mode} theme` aria-selected=orb.selected testId=`settings-theme-${orb.key}`
+                      SettingsThemeOrb(orb=orb)
+                      when orb.selected
+                        column position="absolute" right=-1.75 bottom=-1.75 width=17.5 height=17.5 box-sizing="border-box"
+                          align-items="center" justify-content="center" border-radius=9999 border-width=1 border-style="solid"
+                          border-color=data.colors.border background-color=data.colors.card
+                          t3-symbol symbol-name=orb.symbol point-size=12 symbol-weight="medium" symbol-tint=data.colors.icon width=12 height=12
+                text card.label padding-left=3.5 padding-right=3.5 font-size=data.roles.headline.size line-height=`${data.roles.headline.line}px` font-weight=500 color=data.colors.foreground line-clamp=1 text-overflow="ellipsis" pointer-events="none"
+        column gap=7
+          SettingsSectionLabel(title="Text", colors=data.colors, roles=data.roles)
+          column border-radius=24 overflow="hidden" background-color=data.colors.grouped
+            column gap=3.5 padding=14
+              text "The quick brown fox jumps over the lazy dog." font-size=data.baseFontSize line-height=`${data.bodyLine}px` color=data.colors.foreground testId="settings-text-preview"
+              text "Messages, labels, and headings scale with this size." font-size=data.sampleSmallSize line-height=`${data.sampleSmallLine}px` color=data.colors.muted
+            view height=1 background-color=data.colors.separator
+            SettingsFontSlider(id="baseFontSize", label="Text size", value=data.baseFontSize, valueLabel=data.baseLabel, low=11, high=22, step=1, ready=data.ready, colors=data.colors, roles=data.roles, change=change)
+        column gap=7
+          SettingsSectionLabel(title="Terminal", colors=data.colors, roles=data.roles)
+          column border-radius=24 overflow="hidden" background-color=data.colors.grouped
+            SettingsTerminalPreview(data=data)
+            view height=1 background-color=data.colors.separator
+            SettingsPreferenceSwitch(id="terminalFontSize", icon="terminal", label="Custom font size", checked=data.terminalCustom, onValue=`${data.terminalFontSize}`, offValue="auto", ready=data.ready, colors=data.colors, roles=data.roles, change=change)
+            when data.terminalCustom
+              SettingsFontSlider(id="terminalFontSize", label="Font size", value=data.terminalFontSize, valueLabel=data.terminalLabel, low=6, high=14, step=0.5, ready=data.ready, colors=data.colors, roles=data.roles, change=change)
+        column gap=7
+          SettingsSectionLabel(title="Code & Diffs", colors=data.colors, roles=data.roles)
+          column border-radius=24 overflow="hidden" background-color=data.colors.grouped
+            SettingsCodePreview(data=data)
+            view height=1 background-color=data.colors.separator
+            SettingsPreferenceSwitch(id="codeFontSize", icon="chevron.left.forwardslash.chevron.right", label="Custom font size", checked=data.codeCustom, onValue=`${data.codeFontSize}`, offValue="auto", ready=data.ready, colors=data.colors, roles=data.roles, change=change)
+            when data.codeCustom
+              SettingsFontSlider(id="codeFontSize", label="Font size", value=data.codeFontSize, valueLabel=data.codeLabel, low=8, high=18, step=1, ready=data.ready, colors=data.colors, roles=data.roles, change=change)
+            SettingsPreferenceSwitch(id="codeWordBreak", icon="text.word.spacing", label="Word break", checked=data.codeWordBreak, onValue="true", offValue="false", ready=data.ready, colors=data.colors, roles=data.roles, change=change)
+component SettingsThemeOrb
+  props
+    orb: SettingsOrb
+  view
+    column width=49 height=49 border-radius=9999 overflow="hidden" border-width=1 border-style="solid" border-color=orb.ring box-sizing="border-box"
+      svg viewBox="0 0 64 64" width="100%" height="100%" aria-hidden=true
+        defs
+          radialGradient id=`${orb.key}-accent` cx=orb.ax cy=orb.ay r=orb.ar gradientUnits="userSpaceOnUse"
+            stop offset="0%" stop-color=orb.accent stop-opacity=1
+            stop offset="28%" stop-color=orb.accent stop-opacity=orb.middle
+            stop offset="58%" stop-color=orb.accent stop-opacity=0
+            stop offset="100%" stop-color=orb.accent stop-opacity=0
+          radialGradient id=`${orb.key}-action` cx=orb.px cy=orb.py r=orb.pr gradientUnits="userSpaceOnUse"
+            stop offset="0%" stop-color=orb.action stop-opacity=0.45
+            stop offset="55%" stop-color=orb.action stop-opacity=0
+            stop offset="100%" stop-color=orb.action stop-opacity=0
+        circle cx=32 cy=32 r=32 fill=orb.base
+        circle cx=32 cy=32 r=32 fill=`url(#${orb.key}-action)`
+        circle cx=32 cy=32 r=32 fill=`url(#${orb.key}-accent)`
+component SettingsModePreview
+  props
+    mode: SettingsMode
+  view
+    column position="relative" width=49 height=84 align-self="center" padding=3 box-sizing="border-box" border-radius=16 border-width=1.5 border-style="solid" border-color=mode.left.border background-color=mode.left.drawer
+      row flex=1 overflow="hidden" border-radius=11
+        SettingsPreviewPane(colors=mode.left, compact=mode.split)
+        when mode.split
+          SettingsPreviewPane(colors=mode.right, compact=true)
+      view position="absolute" bottom=6 left="50%" width=14 height=3.5 transform="translateX(-7px)" border-radius=9999 background-color=mode.left.muted
+component SettingsPreviewPane
+  props
+    colors: SettingsWire
+    compact: bool
+  view
+    column flex=1 min-width=0 overflow="hidden" background-color=colors.screen
+      column height=18 gap=(compact ? 1.75 : 3.5) padding-left=(compact ? 3.5 : 5.25) padding-right=(compact ? 3.5 : 5.25) background-color=colors.card
+        row margin-top=7 align-items="center" gap=3.5
+          view width=5.25 height=5.25 border-radius=9999 background-color=colors.primary
+          view height=3.5 flex=1 border-radius=9999 background-color=colors.muted
+      column flex=1 justify-content="space-between" padding-left=(compact ? 3.5 : 5.25) padding-right=(compact ? 3.5 : 5.25) padding-top=7 padding-bottom=7
+        column gap=3.5
+          view height=5.25 width="72%" border-radius=9999 background-color=colors.subtle
+          view height=5.25 width="46%" border-radius=9999 background-color=colors.subtle
+        column align-items="flex-end" gap=3.5 padding-bottom=7
+          view height=10.5 width="78%" border-radius=9999 background-color=colors.bubble
+          view height=3.5 width="38%" border-radius=9999 background-color=colors.muted
+component SettingsFontSlider
+  props
+    id: string
+    label: string
+    value: number
+    valueLabel: string
+    low: number
+    high: number
+    step: number
+    ready: bool
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    change: action
+  view
+    column gap=3.5 padding=14 opacity=(ready ? 1 : 0.45)
+      row gap=14 align-items="center"
+        t3-symbol symbol-name="textformat.size" point-size=22 symbol-weight="regular" symbol-tint=colors.icon width=22 height=22
+        text label flex=1 font-size=roles.headline.size line-height=`${roles.headline.line}px` color=colors.foreground
+        text valueLabel font-size=roles.body.size line-height=`${roles.body.line}px` font-weight=500 color=colors.muted
+      row gap=10.5 align-items="center"
+        t3-symbol symbol-name="textformat.size.smaller" point-size=15 symbol-weight="regular" symbol-tint=colors.iconMuted width=15 height=15
+        t3-settings-slider minimum=`${low}` maximum=`${high}` increment=`${step}` amount=`${value}` enabled=(ready ? "true" : "false")
+          active-color=colors.primary inactive-color=colors.secondaryBorder thumb-color=colors.primaryForeground border-color=colors.border
+          slider-label=label aria-label=label change=change(id) flex=1 height=38.5 testId=`settings-slider-${id}`
+        t3-symbol symbol-name="textformat.size.larger" point-size=22 symbol-weight="regular" symbol-tint=colors.iconMuted width=22 height=22
+component SettingsPreferenceSwitch
+  props
+    id: string
+    icon: string
+    label: string
+    checked: bool
+    onValue: string
+    offValue: string
+    ready: bool
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    change: action
+  action toggle(value: bool)
+    change(id, value ? onValue : offValue)
+  view
+    row gap=14 padding=14 align-items="center" opacity=(ready ? 1 : 0.45)
+      t3-symbol symbol-name=icon point-size=22 symbol-weight="regular" symbol-tint=colors.icon width=22 height=22
+      text label flex=1 min-width=0 font-size=roles.headline.size line-height=`${roles.headline.line}px` color=colors.foreground
+      input type="checkbox" switch checked=checked disabled=(not ready) change=toggle aria-label=label testId=`settings-toggle-${id}` accent-color=colors.switchOn background-color=colors.switchOff margin=0
+component SettingsTerminalPreview
+  props
+    data: SettingsAppearanceData
+  view
+    column padding=14 font-family="Menlo" font-size=data.terminalFontSize line-height=`${data.terminalLine}px` color=data.terminalForeground testId="settings-terminal-preview"
+      text
+        text "→ " color="#0dbe4e"
+        text "t3code " color="#08c0ef"
+        text "git:(" color="#009fff"
+        text "main" color="#ff2e3f"
+        text ")" color="#009fff"
+        text " ✗" color="#ffca00"
+        text " vpr dev"
+      text
+        text "VITE v7.1.1" color="#0dbe4e"
+        text " ready in" color=data.colors.muted
+        text " 1.24s"
+      text
+        text "→ " color="#0dbe4e"
+        text "Local: " color=data.colors.muted
+        text "http://127.0.0.1:5173/" color="#08c0ef" text-decoration-line="underline"
+      text
+        text "✓ 85 passed" color="#0dbe4e"
+        text " △ 2 warnings" color="#ffca00"
+        text " ✗ 0 failed" color="#ff2e3f"
+      text
+        text " READY " color=data.terminalBackground background-color="#0dbe4e"
+        text " watching for changes " color=data.colors.muted
+        text "▏" color=data.terminalCursor
+component SettingsCodePreview
+  props
+    data: SettingsAppearanceData
+  view
+    column padding=14 testId="settings-code-preview"
+      when data.codeWordBreak
+        each line in data.codeLines key=line.id
+          row
+            text line.number width=22 text-align="right" font-family="ui-monospace" font-size=data.codeNumber line-height=`${data.codeLine}px` color=data.colors.iconSubtle
+            column flex=1 min-width=0 padding-left=10.5
+              SettingsCodeSample(line=line, data=data, wrap=true)
+      else
+        row
+          column
+            each line in data.codeLines key=line.id
+              text line.number width=22 text-align="right" font-family="ui-monospace" font-size=data.codeNumber line-height=`${data.codeLine}px` color=data.colors.iconSubtle
+          scroll overflow-x="auto" overflow-y="hidden" flex=1 min-width=0
+            column padding-left=12
+              each line in data.codeLines key=line.id
+                SettingsCodeSample(line=line, data=data, wrap=false)
+component SettingsCodeSample
+  props
+    line: SettingsCodeLine
+    data: SettingsAppearanceData
+    wrap: bool
+  view
+    text font-family="ui-monospace" font-size=data.codeFontSize line-height=`${data.codeLine}px` color=data.colors.foreground white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "anywhere" : "normal")
+      text line.before
+      text line.keyword color=data.colors.link
+      text line.text

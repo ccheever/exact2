@@ -101,9 +101,9 @@ export function mobileThreadComposer(client: T3Client): ThreadComposerState {
     : action.sendStatus || (running && followUp === 'steer' && !queue.canSteer ? 'The active provider does not support steering.' : '');
   const canOperate = client.writable, canStop = canOperate && !client.pending && !client.busy && running;
   // Offline-outbox admission is not the desktop transport's contract; preserve its real refusal until the mobile outbox exists.
-  const canSend = canOperate && !client.pending && !client.busy && modelReady && !!client.projectId && !blockedReason && !!client.draft.trim();
+  const canSend = canOperate && !client.pending && !client.busy && modelReady && !!client.projectId && !blockedReason && (!!client.draft.trim() || client.snapshotDrafts.length > 0);
   const sendLabel = edit ? 'Update queued message' : running ? followUp === 'steer' ? 'Steer' : 'Queue' : 'Send';
-  return { draft: client.draft, placeholder: 'Ask the repo agent, or run a command…', canSend, canStop, showStop: !client.draft.trim() && canStop && !edit,
+  return { draft: client.draft, placeholder: 'Ask the repo agent, or run a command…', canSend, canStop, showStop: !client.draft.trim() && client.snapshotDrafts.length === 0 && canStop && !edit,
     canOperate, showReadOnlyNotice: client.connection === 'connected' && !canOperate, sendLabel, sendSymbol: edit ? 'checkmark' : running ? followUp === 'steer' ? 'arrow.turn.left.up' : 'list.number' : 'arrow.up',
     blockedReason, modelLabel: str(model?.name, client.modelId), providerDriver: str(provider?.driver), providerIconURL: mobileProviderIconURL(provider?.iconUrl),
     modelUnavailable, running, queueCount: queue.queued.length };

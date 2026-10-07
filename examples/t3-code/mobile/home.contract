@@ -59,6 +59,7 @@ component Home
     loading: bool
     addEnvironment: bool
     bottomClearance: number
+    emptyClearance: number
     selectThread: action
     toggleShelf: action
     showMore: action
@@ -71,7 +72,7 @@ component Home
         justify-content="center"
         padding-left=28
         padding-right=28
-        padding-bottom=bottomClearance
+        padding-bottom=emptyClearance
         column max-width=430 width="100%"
           align-items="center"
           box-sizing="border-box"

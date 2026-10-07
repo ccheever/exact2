@@ -10,6 +10,7 @@ component ThreadComposer
     bottomInset: number
     contentMaxWidth: number
     editDraft: action
+    focusChanged: action
     action: action
     pickAttachments: action
     openModelSettings: action
@@ -23,31 +24,30 @@ component ThreadComposer
         column border-radius=(expanded ? 26 : 27) min-height=(expanded ? 140 : 48)
           overflow="hidden" box-sizing="border-box" padding-top=(expanded ? 14 : 2) padding-bottom=(expanded ? 6 : 2)
           background-color=colors.composerSurface border-width=1 border-style="solid" border-color=colors.composerBorder
-          when expanded
-            textarea value=data.draft input=editDraft placeholder=data.placeholder
-              min-height=72 max-height=160 padding-left=14 padding-right=14 padding-top=4 padding-bottom=4
-              font-family="DM Sans" font-size=16 line-height="23px" color=colors.foreground
+          row flex-direction=(expanded ? "column" : "row") align-items=(expanded ? "stretch" : "center")
+            when not expanded
+              button press=pickAttachments width=44 height=44 padding=0 aria-label="Add attachment"
+                column width=44 height=44 align-items="center" justify-content="center"
+                  t3-symbol symbol-name="plus" point-size=20 symbol-weight="regular" symbol-tint=colors.iconSubtle width=20 height=20
+            // Keep one editor plan site while focus changes compact geometry.
+            textarea value=data.draft input=editDraft focus=focusChanged(true) blur=focusChanged(false) placeholder=data.placeholder
+              height=(expanded ? 72 : 36) max-height=160 flex=(expanded ? 0 : 1) min-width=0
+              padding-left=(expanded ? 14 : 4) padding-right=(expanded ? 14 : 4) padding-top=(expanded ? 4 : 6) padding-bottom=(expanded ? 4 : 6)
+              box-sizing="border-box" font-family="DM Sans" font-size=16 line-height="23px" color=colors.foreground
               border-width=0 background-color="transparent" testId="thread-composer"
-            view height=3.5
-            row align-items="center" gap=0
-              button press=pickAttachments width=44 height=44 padding=0 aria-label="Add attachment"
-                column width=44 height=44 align-items="center" justify-content="center"
-                  t3-symbol symbol-name="plus" point-size=20 symbol-weight="regular" symbol-tint=colors.iconSubtle width=20 height=20
-              button press=openModelSettings flex=1 min-width=0 height=38.5 padding-left=7 padding-right=7 aria-label="Model and reasoning settings"
-                row min-width=0 align-items="center" gap=7 justify-content="flex-end"
-                  ProviderIcon(driver=data.providerDriver, size=14, dark=dark, iconUrl=data.providerIconURL)
-                  text data.modelLabel min-width=0 flex-shrink=1 line-clamp=1 text-overflow="ellipsis" font-size=14 line-height="19px" font-weight=500 color=colors.foreground
-                  t3-symbol symbol-name="chevron.down" point-size=10 symbol-weight="regular" symbol-tint=colors.iconSubtle width=10 height=10
-              ThreadSendButton(data=data, action=action, colors=colors)
-          else
-            row align-items="center"
-              button press=pickAttachments width=44 height=44 padding=0 aria-label="Add attachment"
-                column width=44 height=44 align-items="center" justify-content="center"
-                  t3-symbol symbol-name="plus" point-size=20 symbol-weight="regular" symbol-tint=colors.iconSubtle width=20 height=20
-              textarea value=data.draft input=editDraft placeholder=data.placeholder height=36 flex=1 min-width=0
-                padding-left=4 padding-right=4 padding-top=6 padding-bottom=6
-                box-sizing="border-box" font-family="DM Sans" font-size=16 line-height="23px" color=colors.foreground
-                border-width=0 background-color="transparent" testId="thread-composer"
+            when expanded
+              view height=3.5
+              row align-items="center" gap=0
+                button press=pickAttachments width=44 height=44 padding=0 aria-label="Add attachment"
+                  column width=44 height=44 align-items="center" justify-content="center"
+                    t3-symbol symbol-name="plus" point-size=20 symbol-weight="regular" symbol-tint=colors.iconSubtle width=20 height=20
+                button press=openModelSettings flex=1 min-width=0 height=38.5 padding-left=7 padding-right=7 aria-label="Model and reasoning settings"
+                  row min-width=0 align-items="center" gap=7 justify-content="flex-end"
+                    ProviderIcon(driver=data.providerDriver, size=14, dark=dark, iconUrl=data.providerIconURL)
+                    text data.modelLabel min-width=0 flex-shrink=1 line-clamp=1 text-overflow="ellipsis" font-size=14 line-height="19px" font-weight=500 color=colors.foreground
+                    t3-symbol symbol-name="chevron.down" point-size=10 symbol-weight="regular" symbol-tint=colors.iconSubtle width=10 height=10
+                ThreadSendButton(data=data, action=action, colors=colors)
+            else
               ThreadSendButton(data=data, action=action, colors=colors)
         when data.showReadOnlyNotice
           text "This connection cannot control this task. You can still edit your draft." padding-top=7 font-size=13 line-height="17px" color=colors.muted
