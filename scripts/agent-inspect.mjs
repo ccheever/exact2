@@ -290,8 +290,7 @@ export async function perfOp(s, args, line, step) {
   }
   // `perf hatches` (LLP 1075.003.000.001 §3.3): the hatches' calls and what their code counted.
   if (args[0] === 'hatches') {
-    const read
- = () => s.op({ op: 'perf', hatches: true });
+    const read = () => s.op({ op: 'perf', hatches: true });
     const at = line.search(/\sduring\s/);
     if (at < 0) return read();
     const ops = [...line.slice(at).matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(m => JSON.parse(`"${m[1]}"`));

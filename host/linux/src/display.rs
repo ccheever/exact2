@@ -542,7 +542,6 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         // `frame` (timers, then frame tasks), never caught up.
         if !display.pending() && p.wants_frames() {
             last_tick = now;
-
             if let Some(e) = p.animation_frame(now) {
                 eprintln!("exact: {e}");
             }

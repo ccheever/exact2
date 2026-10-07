@@ -27,7 +27,6 @@
 //! - [`presenter`] — scroll, focus, hit-testing, the host-side operations.
 //! - [`hatches`] — access hatches: an app's own code at its nodes' boxes,
 //!   their overlays and the input that lands there (LLP 1075.003.000.001).
-
 //! - [`agent`] — the agent API on stdio (`Agent.swift`'s twin).
 //! - [`executor`] — `ibex2::host` on a worker thread for a request that
 //!   leaves the process (LLP 1016 D2), its wake a socketpair the loop polls.

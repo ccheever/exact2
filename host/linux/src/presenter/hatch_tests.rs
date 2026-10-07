@@ -850,7 +850,6 @@ fn acts_are_queued_run_between_turns_and_journaled_an_input_by_its_length() {
         Some(id(&p, "arm")),
         "an input moves no focus: it is where the tap left it"
     );
-
     let lines = said(&mut p, " hatch element ");
     let has = |part: &str| lines.iter().any(|l| l.ends_with(part));
     assert!(has(": click (delivery: hatch)"), "{lines:?}");

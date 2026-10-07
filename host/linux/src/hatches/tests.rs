@@ -1,9 +1,13 @@
-//! The hatches' store and crash breadcrumb against their bounds (LLP
-//! 1075.003.000.001 §3.2, §4.4). The presenter's half, driven through a
-//! booted plan, is `presenter/hatch_tests.rs`.
+//! The hatches' store, queue and crash breadcrumb against their bounds (LLP
+//! 1075.003.000.001 §2.2.1, §2.5, §3.2, §4.4). The presenter's half, driven
+//! through a booted plan, is `presenter/hatch_tests.rs`.
 use super::breadcrumb::{Breadcrumb, DEPTH_MAX, SLOTS};
 use super::diagnostics::{Store, NAMES, OPEN_SPANS, SAMPLES, SNAPSHOTS};
+use super::session::{ACTS, ACT_BYTES, INPUT_BYTES, OVERLAY_BYTES, OVERLAY_OPS, SNAPSHOT};
+use super::{ActKind, Element, Node, Rect, Shared};
 use serde_json::{json, Map, Value};
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
 
 fn state(store: &Store) -> Value {
     Value::Object(store.state(Map::new()))
@@ -321,4 +325,134 @@ fn a_torn_record_is_passed_over_for_the_last_whole_one() {
         "both are deleted"
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+fn node(shared: &Rc<Shared>, id: u32) -> Rc<Node> {
+    Rc::new(Node {
+        id,
+        word: "probe".into(),
+        html_id: String::new(),
+        scope: Rc::from("element probe"),
+        shared: shared.clone(),
+        live: Cell::new(true),
+        new: Cell::new(true),
+        frame: Cell::new(Rect {
+            x: 0.0,
+            y: 0.0,
+            width: 10.0,
+            height: 10.0,
+        }),
+        data: RefCell::default(),
+    })
+}
+
+fn lines(shared: &Shared) -> Vec<String> {
+    std::mem::take(&mut shared.store().lines)
+}
+
+#[test]
+fn the_act_queue_is_one_bounded_fifo_drained_a_snapshot_at_a_time() {
+    let shared = Rc::new(Shared::new(true));
+    let probe = Element {
+        node: node(&shared, 7),
+    };
+    // 256 acts; one past it is refused by name and counted.
+    (0..ACTS + 3).for_each(|_| probe.click());
+    assert_eq!(shared.in_flight(), ACTS);
+    let refused = lines(&shared);
+    assert_eq!(refused.len(), 3);
+    assert_eq!(
+        refused[0],
+        "element probe #7: click refused: the act queue is full"
+    );
+    // A drain runs the acts queued when it starts, at most 64, in order.
+    assert_eq!(shared.snapshot().len(), SNAPSHOT);
+    probe.focus();
+    let next = shared.snapshot();
+    assert!(next.len() == SNAPSHOT && next.iter().all(|act| act.kind == ActKind::Click));
+    while !shared.snapshot().is_empty() {}
+    assert_eq!(shared.in_flight(), 0);
+    // An input's text: 64 KB each, 1 MB queued; past either it is refused.
+    probe.input(&"x".repeat(INPUT_BYTES + 1));
+    assert_eq!(
+        lines(&shared),
+        ["element probe #7: input refused: 65537 bytes is over 64 KB"]
+    );
+    let text = "x".repeat(INPUT_BYTES);
+    (0..ACT_BYTES / INPUT_BYTES + 1).for_each(|_| probe.input(&text));
+    assert_eq!(shared.in_flight(), ACT_BYTES / INPUT_BYTES);
+    assert_eq!(
+        lines(&shared),
+        ["element probe #7: input refused: the act queue is full"]
+    );
+    // What a drain takes frees its bytes.
+    assert_eq!(shared.snapshot().len(), ACT_BYTES / INPUT_BYTES);
+    probe.input(&text);
+    assert_eq!(shared.in_flight(), 1);
+    // An act from an ended handle does nothing, and is journaled.
+    probe.node.live.set(false);
+    probe.blur();
+    assert_eq!(shared.in_flight(), 1);
+    assert_eq!(
+        lines(&shared),
+        ["element probe #7: blur() after its end does nothing"]
+    );
+}
+
+#[test]
+fn a_recording_is_at_most_4096_ops_and_256_kb_and_the_latest_published_wins() {
+    use exact_canvas::list::{Op, Writer};
+    let shared = Rc::new(Shared::new(true));
+    let probe = node(&shared, 3);
+    let frame = probe.frame.get();
+    let ops = |n: usize| {
+        let mut list = Writer::new();
+        (0..n).for_each(|_| list.op(Op::Save, &[]));
+        list.finish()
+    };
+    // The bound is on the whole recording, however many lists it seals into.
+    assert!(shared.publish(&probe, vec![ops(OVERLAY_OPS)], frame));
+    assert!(shared.publish(
+        &probe,
+        vec![ops(OVERLAY_OPS / 2), ops(OVERLAY_OPS / 2)],
+        frame
+    ));
+    assert!(!shared.publish(
+        &probe,
+        vec![ops(OVERLAY_OPS / 2), ops(OVERLAY_OPS / 2 + 1)],
+        frame
+    ));
+    assert_eq!(
+        lines(&shared),
+        ["element probe #3: overlay refused: 4097 ops is over 4,096"]
+    );
+    let dashes = |n: usize| {
+        let mut list = Writer::new();
+        (0..n).for_each(|_| list.op(Op::LineDash, &[1.0; 8190]));
+        list.finish()
+    };
+    assert!(dashes(4).len() <= OVERLAY_BYTES && dashes(5).len() > OVERLAY_BYTES);
+    assert!(shared.publish(&probe, vec![dashes(4)], frame));
+    assert!(!shared.publish(&probe, vec![dashes(5)], frame));
+    assert!(lines(&shared)[0].ends_with("bytes is over 256 KB"));
+    // Bytes that are not a list are refused whole.
+    assert!(!shared.publish(&probe, vec![b"EC2Dgarbage".to_vec()], frame));
+    assert!(lines(&shared)[0].starts_with("element probe #3: overlay refused: "));
+    // One recording is pending at a time: the latest wins, and a clear is one.
+    assert!(shared.publish(&probe, vec![ops(1)], frame));
+    assert!(shared.publish(&probe, Vec::new(), frame));
+    let taken = shared.take_overlays();
+    assert!(taken.len() == 1 && taken[&3].lists.is_empty() && taken[&3].size == (10.0, 10.0));
+    assert!(shared.take_overlays().is_empty());
+    // A ticket, an `after` and an observer are live until stopped.
+    let (ticket, after, observer) = (shared.frames(), shared.after(5.0), shared.observe(&probe));
+    assert!(shared.live(ticket) && shared.live(after) && shared.live(observer));
+    assert_eq!(shared.observers_on(3), [observer]);
+    shared.stop(observer);
+    shared.stop(after);
+    assert!(shared.live(ticket) && !shared.live(after) && !shared.live(observer));
+    assert!(
+        shared.due_afters(100.0).is_empty(),
+        "a stopped after never fires"
+    );
 }

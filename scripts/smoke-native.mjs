@@ -866,7 +866,6 @@ export async function paintingHatchSmoke({ host, open, check: record, shots }) {
       const at = await picture(s, 'rows');
       // The corner of its box is outside the round dot: the row's white, whatever the edge's antialiasing leaves.
       check(b && near(at(...centre(b)), '#ff3b30') && at(b.x + 0.5, b.y + 0.5).every((c) => c > 224) && near(at(b.x - 2, b.y + b.h / 2), '#ffffff'),
-
         `${host} hatches: a screenshot shows the dot's overlay, clipped to its round box: ${b && at(...centre(b))} at its centre, ${b && at(b.x + 0.5, b.y + 0.5)} at its corner, ${b && at(b.x - 2, b.y + b.h / 2)} beside it`);
       const dots = (await hatches(s)).words?.dot;
       check(dots?.calls?.built > 0 && dots.live === dots.calls.built && dots.overlay?.shown === dots.live, `${host} hatches: each mounted row's dot is hatched and shown: ${JSON.stringify(dots)}`);
