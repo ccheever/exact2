@@ -104,6 +104,9 @@ pub enum HostError {
     Runner(RunnerError),
     Layout(String),
     Delivery(String),
+    /// The plan uses capabilities this archive doesn't link, by name
+    /// (LLP 1047.001 D5): `Unlinked("grouped_lists")`.
+    Unlinked(String),
     RuntimeIdExhausted,
 }
 
@@ -137,8 +140,8 @@ pub struct Host<D: DataSource> {
     mirror: IdMap<ViewId, Mirror>,
     keys: IdMap<NodeKey, ViewId>,
     inline_runs: IdMap<ViewId, (ViewId, Vec<EventKind>)>,
-    /// Hook words journaled as having no view here (an inline run's).
-    viewless_hooks: std::collections::BTreeSet<String>,
+    /// Hatch words journaled as having no view here (an inline run's).
+    viewless_hatches: std::collections::BTreeSet<String>,
     /// SVG scenes and lowered CSS animations (LLP 1055 D4, D7).
     svg: svg::SvgState,
     /// 2D canvases whose replays the presenter has not caught up with: a
@@ -294,6 +297,7 @@ impl<D: DataSource> Host<D> {
             None,
             "/",
             None,
+            crate::link::Links::ALL,
             |_| Ok(()),
         )?;
         host.commit_boot();
@@ -317,6 +321,7 @@ impl<D: DataSource> Host<D> {
         candidate_delivery: Option<exact_runner::Delivery>,
         launch: &str,
         region: Option<crate::content_region::ContentRegionRegistration>,
+        links: crate::link::Links<D>,
         prepare: impl FnOnce(&mut Runner<D>) -> Result<(), HostError>,
     ) -> Result<(Host<D>, String), HostError> {
         Self::boot_stored_after_decode_mode(
@@ -333,6 +338,7 @@ impl<D: DataSource> Host<D> {
             launch,
             region,
             None,
+            links,
             prepare,
         )
     }
@@ -352,6 +358,7 @@ impl<D: DataSource> Host<D> {
         launch: &str,
         region: Option<crate::content_region::ContentRegionRegistration>,
         native: Option<crate::content_region::NativeProjectionLimits>,
+        links: crate::link::Links<D>,
         prepare: impl FnOnce(&mut Runner<D>) -> Result<(), HostError>,
     ) -> Result<(Host<D>, String), HostError> {
         if let Some(json) = compat {
@@ -363,11 +370,13 @@ impl<D: DataSource> Host<D> {
             }
         }
         let plan = plan_bytes.decode().map_err(HostError::Plan)?;
-        // Native hosts link every row's grammar (LLP 1053.000 §2).
-        exact_kernel::style::link_backdrop_filter();
-        exact_kernel::style::link_segments();
-        exact_kernel::style::link_wide_colors();
-        exact_kernel::timeline::link();
+        // Before anything is built from it (LLP 1047.001 D5).
+        if let Some(names) = crate::link::missing(&plan, crate::link::linked()) {
+            return Err(HostError::Unlinked(names));
+        }
+        // The grammars this archive links (LLP 1047.001 D3; every one for a
+        // public boot, LLP 1053.000 §2).
+        links.grammars.link();
         let kernel = Kernel::new(measurer);
         let facts = candidate_delivery.unwrap_or_else(|| {
             let mut facts = exact_runner::Delivery::default();
@@ -382,10 +391,19 @@ impl<D: DataSource> Host<D> {
         // An `app:/data` image shows from the first frame, before storage
         // is configured and whether or not anything was picked (D7).
         crate::picker::know_roots(data.app_id());
-        let mut runner = Runner::boot_with_delivery(
-            plan, data, kernel, carried, snapshot, facts, viewport, launch,
+        let mut runner = Runner::boot_with_delivery_linked(
+            links.runner,
+            plan,
+            data,
+            kernel,
+            carried,
+            snapshot,
+            facts,
+            viewport,
+            launch,
         )
         .map_err(HostError::Runner)?;
+        runner.set_device_links(links.device);
         // @ref LLP 1079 D1 — a development build measures its work.
         runner.measure_unless_production(compat, true);
         if let Some(action) = region.and_then(|r| r.activate) {
@@ -421,7 +439,7 @@ impl<D: DataSource> Host<D> {
             mirror: IdMap::default(),
             keys: IdMap::default(),
             inline_runs: IdMap::default(),
-            viewless_hooks: Default::default(),
+            viewless_hatches: Default::default(),
             svg: svg::SvgState::new(cfg!(any(target_os = "ios", target_os = "tvos"))),
             canvas_held: IdSet::default(),
             canvas_kept: Default::default(),

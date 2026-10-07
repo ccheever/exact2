@@ -113,7 +113,7 @@ size_t exact_text_collapse(const uint8_t *utf8, size_t len, const size_t *lens, 
 size_t exact_material_platform(const uint8_t *name, size_t len, uint8_t platform, const uint8_t **out);
 
 /* LLP 1077 D1. A box outline with shaped corners as one closed polygon: `shape` 4 K values
- * (NaN is -apple-continuous), `radii` 8 (top-left first, horizontal then vertical, reduced).
+ * (NaN is -exact-continuous), `radii` 8 (top-left first, horizontal then vertical, reduced).
  * Writes x,y pairs into `out` when `cap` holds them all; returns the point count. */
 size_t exact_corner_outline(const float *shape, float x, float y, float width, float height,
     const float *radii, float *out, size_t cap);
@@ -367,6 +367,9 @@ uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
  * 40 = a text field's input, 41 its change, 42 its select (UTF-8
  *      start,end,direction,text: UTF-16 offsets, forward|backward|none, then
  *      the whole value verbatim; x2apps codeedit #2);
+ * 6 = key (keydown) and 43 = keyup (#140): UTF-8 chord (`Shift+Meta+b`),
+ *      optionally newline, KeyboardEvent.code (`KeyB`, "" unknown), newline,
+ *      true|false for repeat;
  * any other kind is refused with an error batch.
  * Format lists are space-separated command tokens. Link keeps the remaining bytes.
  * A change's text, key's name, or guest message is the payload in the input

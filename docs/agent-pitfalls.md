@@ -276,7 +276,8 @@ guide's rules don't make obvious.
 
 - **`Date.now()` in a data module passes its Bun tests and fails on the
   device.** Since 2026-10-05 the build refuses a direct use by file and line
-  (`Date.now()`, `new Date()`, `Math.random()`, timers); an alias still gets
+  (`Date.now()`, `new Date()`, `Math.random()`, timers), including literal
+  bracket access such as `Date['now']()`. An alias or dynamic key still gets
   past the build and throws on first use on every host but Bun. Take the time
   from the call's arguments (the Contract's `wallTime.epochAtZero + now()`), as
   every source already receives it. (Signal clone build 34, 2026-10-05.)
@@ -359,6 +360,14 @@ guide's rules don't make obvious.
   `box-sizing`.) **Candidate diagnostic:** the compiler or a development log
   could name the failed condition.
 
+- **A field normalized while the person types fights the typing.** A `task … when
+  people != "${count}"` (or a timer, or an `input` action) that rewrites an
+  emptied field to `"1"` lands between keystrokes: clearing the field and typing
+  `3` reads `13`, for a person as for a test. Fix: keep the raw text while
+  editing and normalize in `change` (Enter or blur), as the guide's "Editing a
+  value: the field's contract" shows. (Authoring bench, LLP 1087, t1-tip,
+  codex, 2026-10-07: per-person share 8.85 for 3 people, because the field read
+  13.)
 - **A text field shows an edit its action refused or normalized.** A field bound with
   `value=text input=edit`, where `edit` ignores a blank value, shows the blank while
   `text` keeps the old value, and the next keystroke builds on what is shown; so does
@@ -415,7 +424,7 @@ guide's rules don't make obvious.
   does nothing. Cause: with `touch-action` at `auto` a horizontal pan is the
   platform's, as in a browser, so the swipe never begins. Fix:
   `touch-action="pan-y"` on the swiped node, which leaves vertical scrolling to the
-  page. Messages also gives the bubble `transition="translate spring(300, 30, 1)"`,
+  page. Messages also gives the bubble `transition="translate -exact-spring(300, 30, 1)"`,
   which moves it with the finger; that does not arm the gesture. (Chat2 DIARY,
   which credited the transition, about 20 minutes; reproduced with `agent ios
   --touch platform`, 2026-10-04.) **Candidate diagnostic:** the compiler could
@@ -461,6 +470,19 @@ guide's rules don't make obvious.
   (Authoring bench, LLP 1087, t2-todo on iOS: about 20 minutes, 2026-10-05.)
 
 ## Driving and testing
+
+- **`xcrun simctl io booted screenshot` can capture the wrong simulator.** With
+  several simulators booted, `booted` names any one of them, not the one the
+  app runs on. Fix: use the UDID the build prints (`… on iPhone 17 <UDID>`), or
+  the agent's own `screenshot`, which targets the app's simulator. (Authoring
+  bench, LLP 1087, t9-profile, 2026-10-07.)
+
+- **A screenshot right after a state change shows a transition's start.** A
+  `transition` (a background colour, an opacity) is held by the driver's clock,
+  so the frame and the computed style still read the old value: the toggle
+  looks unchanged. Fix: `clock settle` (or `clock +N` past the transition)
+  before `screenshot`. (Authoring bench, LLP 1087, t5-pomodoro, 2026-10-07:
+  about 5 minutes and a probe script to find.)
 
 - **A test passes on the web and fails on iOS right after an input that saves.** An
   `expect` straight after `type` or `tap` reads what the input's mutation answered,
@@ -633,6 +655,16 @@ guide's rules don't make obvious.
   writes that must stay together in one `transaction` (SQLite) or one operation.
   (LLP 1097 D4.)
 
+- **A database stays locked after the answer that opened it failed.** An
+  answer that opens a database and fails, or that the runner let go, leaves its
+  chain running in the background; if that chain throws before `db.close()`,
+  the handle stays open and every later open finds the database busy. The host
+  does not close it for you, since an app may keep or share a handle across
+  answers. `logs` says `storage: app:/data/x.db is still open after a failure in
+  background work that opened it`. Fix: close in a finally,
+  `try { … } finally { await db.close(); }`. (LLP 1097 D7, Charlie,
+  2026-10-07.)
+
 ## Working on exact2 itself
 
 - **A bisect that shares another worktree's Cargo target directory builds
@@ -644,7 +676,7 @@ guide's rules don't make obvious.
 
 - **A platform feature looks missing, and you start building it.** Cause: the
   feature already exists under a name you did not search for. Haptics
-  (`haptic()`, `press-haptic`) were proposed as a new gap after they had
+  (`haptic()`, `-exact-press-haptic`) were proposed as a new gap after they had
   landed. Fix: before calling something missing, search
   `docs/contract-for-agents.md` and the LLP index (`ls llp/`, then `grep -ril
   <term> llp`). Name the LLP that lacks it when you report the gap. (Signal

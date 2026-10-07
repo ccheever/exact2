@@ -110,6 +110,8 @@ pub struct Host<D: DataSource> {
     /// those nodes and what it plays, and a count of changes to them.
     lowering: bool,
     lowered: std::collections::HashMap<u64, u8>,
+    /// Whether colour transitions are lowered too (`lower.rs`).
+    lower_colors: bool,
     lowered_epoch: u64,
     /// The epoch each lowered node's plays last changed at.
     lowered_changed: std::collections::HashMap<u64, u64>,
@@ -214,10 +216,10 @@ impl<D: DataSource> Host<D> {
         region: Option<crate::content_region::ContentRegionRegistration>,
     ) -> Result<(Host<D>, Option<String>), HostError> {
         // @ref LLP 1075.003.000 §3.3 — this host has no native objects for a
-        // hook to reach: a plan that marks nodes is told so once, at boot.
-        let hooked = plan.bindings.iter().any(|b| {
+        // hatch to reach: a plan that marks nodes is told so once, at boot.
+        let hatched = plan.bindings.iter().any(|b| {
             b.kind == exact_plan::BindingKind::Prop
-                && exact_kernel::PropId::from_wire(b.id) == Some(exact_kernel::PropId::Hook)
+                && exact_kernel::PropId::from_wire(b.id) == Some(exact_kernel::PropId::Hatch)
         });
         // @ref LLP 1100 D10 — this host draws sRGB only.
         exact_kernel::style::wide::set_available(exact_color::Wide::in_srgb);
@@ -275,6 +277,7 @@ impl<D: DataSource> Host<D> {
             data_activated: false,
             lowering: false,
             lowered: Default::default(),
+            lower_colors: false,
             lowered_epoch: 0,
             lowered_changed: Default::default(),
             played: Default::default(),
@@ -328,9 +331,9 @@ impl<D: DataSource> Host<D> {
         let error = host.layout().err();
         host.observe_layout();
         host.present();
-        if hooked {
+        if hatched {
             host.runner.log(
-                "hook: this host has no native objects; hooked nodes are shown and never called",
+                "hatch: this host has no native objects; hatched nodes are shown and never called",
             );
         }
         Ok((host, error))

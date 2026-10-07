@@ -421,6 +421,13 @@ fn segment_term(tail: &str, indices: &[&str]) -> Result<Dimension, EnvRefusal> {
     ))
 }
 
+/// The `env()` variable families `term` reads, each with its kind (LLP 1081
+/// D8): both are CSS Environment Variables 1's.
+pub const ENV_NAMES: [(&str, &str); 2] = [
+    ("safe-area-inset-", "css CSS Environment Variables 1"),
+    ("viewport-segment-", "css CSS Environment Variables 1"),
+];
+
 fn term(inner: &str) -> Result<Dimension, EnvRefusal> {
     let inner = inner.trim();
     let body = inner
@@ -433,7 +440,7 @@ fn term(inner: &str) -> Result<Dimension, EnvRefusal> {
     }
     let mut words = body.split_whitespace();
     let name = words.next().ok_or(EnvRefusal::UnknownVariable)?;
-    if let Some(edge) = name.strip_prefix("safe-area-inset-") {
+    if let Some(edge) = name.strip_prefix(ENV_NAMES[0].0) {
         let edge = Edge::from_name(edge).ok_or(EnvRefusal::UnknownVariable)?;
         return if words.next().is_some() {
             Err(EnvRefusal::UnknownVariable)
@@ -442,7 +449,7 @@ fn term(inner: &str) -> Result<Dimension, EnvRefusal> {
         };
     }
     let tail = name
-        .strip_prefix("viewport-segment-")
+        .strip_prefix(ENV_NAMES[1].0)
         .ok_or(EnvRefusal::UnknownVariable)?;
     let hooks = LINKED.get().ok_or(EnvRefusal::Unlinked)?;
     let indices: Vec<&str> = words.collect();

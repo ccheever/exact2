@@ -18,19 +18,31 @@
     },
     "data": {
       "type": "array",
-      "description": "The app's data-* words (LLP 1075.003 Q2), without the `data-`: real attributes on the web, read by the app module's hooks on Apple through typed keys the build writes from this list (ExactDataKey). A data-* attribute in the Contract that this list lacks is bake-undeclared-data.",
+      "description": "The app's data-* words (LLP 1075.003 Q2), without the `data-`: real attributes on the web, read by the app module's hatches on Apple through typed keys the build writes from this list (ExactDataKey). A data-* attribute in the Contract that this list lacks is bake-undeclared-data.",
       "items": {
         "type": "string",
         "pattern": "^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$"
       }
     },
-    "hooks": {
-      "type": "array",
-      "description": "The app's hook words (LLP 1075.003.000 Q1): a node marked hook=\"word\" hands its platform object (a UIView or NSView and its kind's UIKit or AppKit object, or a DOM element) to the app module's element hook, which compares it with typed keys the build writes from this list (ExactHookKey). A hooked node leaves the host's fast path. A hook word in the Contract that this list lacks is bake-undeclared-hook.",
-      "items": {
-        "type": "string",
-        "pattern": "^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$"
-      }
+    "hatches": {
+      "description": "The app's hatch words (LLP 1075.003.000 Q1): a node marked hatch=\"word\" hands its platform object (a UIView or NSView and its kind's UIKit or AppKit object, or a DOM element) to the app module's element hatch, which compares it with typed keys the build writes from this list (ExactHatchKey). A hatched node leaves the host's fast path. A hatch word in the Contract that this list lacks is bake-undeclared-hatch. Either a list of words, each handled on every platform the app builds, or an object giving each word the platforms whose module handles it, as {\"avatar\": [\"ios\", \"macos\", \"web\"]} (LLP 1075.003.000.001 §5): a platform the word does not name shows the node and never calls a hatch for it, and its typed keys leave the word out.",
+      "oneOf": [
+        {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$" },
+          "additionalProperties": {
+            "type": "array",
+            "items": { "enum": ["ios", "tvos", "macos", "web", "linux", "windows", "android"] }
+          }
+        }
+      ]
     },
     "gpu": {
       "type": "object",
@@ -150,6 +162,12 @@
       "type": "string",
       "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$"
     },
+    "link": {
+      "type": "array",
+      "items": { "enum": ["markdown", "motion", "collections", "drag", "surfaces", "router", "format", "materials", "backdrop", "share", "documents", "picker", "timelines", "text_transform", "effects", "animations", "gradients", "grid", "geometry", "segments", "dataset", "tabs", "notifications", "grouped_lists"] },
+      "uniqueItems": true,
+      "description": "Capabilities a native production build links before any plan uses them (LLP 1047 D8; LLP 1047.001), so a later bundle may: an archive otherwise links what its plan uses and nothing else, and a bundle that needs more is a new binary. Names are the runner's (`exact_runner::Capability::name`)."
+    },
     "icons": {
       "description": "The app's icons, as the web manifest spells them (`src`, `sizes`, `type`, `purpose`). The native bakes derive their icon sets from these; a distribution build refuses an app without a square one.",
       "type": "array",
@@ -260,6 +278,10 @@
               "description": "The oldest iOS the app runs on, as \"17.0\"; never below 17.0.",
               "type": "string"
             },
+            "optimize": {
+              "enum": ["speed", "size"],
+              "description": "What a production build optimizes the Rust archive and ExactKit for (LLP 1047.001 D9): \"speed\" (opt-level 3, Swift -O) or \"size\" (opt-level z, Swift -Osize -internalize-at-link; on 2026-10-06 a one-text app's 9.8 MB was 6.2). Absent: speed for an app, size for an embed (`build.mjs --embed`). `build.mjs --optimize` overrides it."
+            },
             "designRequiresCompatibility": {
               "type": "boolean",
               "description": "Draw UIKit in its design before iOS 26 (no Liquid Glass), as Apple's UIDesignRequiresCompatibility key did; iOS 27 ignores that key, so the link records the iOS 18 SDK, the last before the new design, and every UIKit behaviour keyed on a later SDK is off. App Store Connect requires uploads to be built with a recent SDK and reads the recorded one. Absent or false: the SDK the app is built with."
@@ -340,6 +362,10 @@
             "minimumOS": {
               "description": "The oldest macOS the app runs on, as \"14.0\"; never below 14.0.",
               "type": "string"
+            },
+            "optimize": {
+              "enum": ["speed", "size"],
+              "description": "What a production build optimizes the Rust archive and ExactKit for (LLP 1047.001 D9): \"speed\" (opt-level 3, Swift -O) or \"size\" (opt-level z, Swift -Osize -internalize-at-link; on 2026-10-06 a one-text app's 9.8 MB was 6.2). Absent: speed for an app, size for an embed (`build.mjs --embed`). `build.mjs --optimize` overrides it."
             },
             "designRequiresCompatibility": {
               "type": "boolean",

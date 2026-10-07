@@ -158,7 +158,7 @@ fn border(name: &str, text: &str, span: Span) -> Result<[String; 3], LowerError>
                 )
                 .is_err()
             {
-                return err("lower-css-shorthand", format!("`{word}` is not an admitted `{name}` width, style or color; widths are nonnegative px/pt lengths or thin/medium/thick"), span);
+                return err("lower-css-shorthand", format!("`{word}` is not an admitted `{name}` width, style or color; widths are nonnegative px/pt lengths or thin/medium/thick{}", crate::values::role_hint(word).unwrap_or_default()), span);
             }
             if color.replace(word.into()).is_some() {
                 return err(
@@ -278,11 +278,12 @@ fn decoration(text: &str, span: Span) -> Result<String, LowerError> {
             "underline" if !underline && !none => underline = true,
             "line-through" if !strike && !none => strike = true,
             "solid" | "currentcolor" | "auto" => {},
-            _ => return err("lower-css-shorthand", format!("CSS text-decoration component `{word}` is not implemented; native text painters support underline and line-through with solid currentcolor at the platform's default thickness"), span),
+            "underline-line-through" => return err("lower-css-shorthand", "`underline-line-through` is spelled `underline line-through`, CSS's two keywords (LLP 1081)", span),
+            _ => return err("lower-css-shorthand", format!("CSS text-decoration component `{word}` is not implemented; native text painters support underline and line-through with solid currentcolor at the platform's default thickness{}", crate::values::role_hint(word).unwrap_or_default()), span),
         }
     }
     match (underline, strike) {
-        (true, true) => Ok("underline-line-through".into()),
+        (true, true) => Ok("underline line-through".into()),
         (true, false) => Ok("underline".into()),
         (false, true) => Ok("line-through".into()),
         _ => Ok("none".into()),

@@ -197,7 +197,7 @@ extension Agent {
         let kernelState = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"state\"}").utf8))) as? [String: Any]
         let kernelLayout = kernelState?["kernelLayout"] as? [String: Any] ?? [:]
         let layout = kernelLayout.merging(["provisional": session.fieldChrome.presentedProvisional]) { _, host in host }
-        return ["layout": layout, "focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window, "pool": pool, "hooks": presenter.elements.observation]
+        return ["layout": layout, "focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window, "pool": pool, "hatches": presenter.elements.observation(presenter.session?.hatchDiagnostics)]
     }
 
     /// A view's box in the viewport: the viewport's content space less its
@@ -391,7 +391,7 @@ extension Agent {
         host.glassAgentFields(&native)
         if presenter.leaves.isPending(host) { native["pending"] = true }
         if let segment = presenter.segments.observation(host) { native["segmentedControl"] = segment }
-        if let grouped = presenter.groupedLists.observation(host) { native["groupedList"] = grouped }
+        if let grouped = presenter.groupedLists?.observation(host) { native["groupedList"] = grouped }
         if let control = presenter.controls.observation(host) { native["control"] = control }
         var responder: UIResponder? = host
         while let current = responder {
@@ -450,7 +450,7 @@ extension Agent {
         if let reply = touchForm(req) { return reply }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil,
-           let node = view(req), node.isDescendant(of: presenter.viewport), !presenter.groupedLists.draws(node.id),
+           let node = view(req), node.isDescendant(of: presenter.viewport), presenter.groupedLists?.draws(node.id) != true,
            // A swipe action's control sits past its row's edge until a swipe
            // reveals it; its tap is the action's (below), wherever it sits.
            !presenter.swipeActions.ownsAction(node.id) {
@@ -495,7 +495,7 @@ extension Agent {
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
-           let reply = presenter.groupedLists.activate(node) {
+           let reply = presenter.groupedLists?.activate(node) {
             return reply
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
@@ -537,7 +537,7 @@ extension Agent {
         // A wheel on what a grouped list draws scrolls that list, even when
         // the node is a custom row's view its cell's reuse took off screen.
         if let wheel = req["wheel"] as? [Double], wheel.count == 2, wheel.allSatisfy(\.isFinite),
-           let id = req["id"] as? Int, let list = presenter.groupedLists.scroller(for: UInt32(id)), presenter.views[UInt32(id)]?.window == nil {
+           let id = req["id"] as? Int, let list = presenter.groupedLists?.scroller(for: UInt32(id)), presenter.views[UInt32(id)]?.window == nil {
             Agent.scroll(from: list, dx: CGFloat(wheel[0]), dy: CGFloat(wheel[1]))
             return ["tapped": id, "wheel": wheel]
         }
@@ -607,7 +607,7 @@ extension Agent {
             guard wheel.allSatisfy(\.isFinite) else { return ["error": "wheel deltas must be finite"] }
             // A row a grouped list draws scrolls that list, wherever its
             // hidden node lies (LLP 1084 D8).
-            Agent.scroll(from: presenter.groupedLists.scroller(for: v.id) ?? hit, dx: CGFloat(wheel[0]), dy: CGFloat(wheel[1]))
+            Agent.scroll(from: presenter.groupedLists?.scroller(for: v.id) ?? hit, dx: CGFloat(wheel[0]), dy: CGFloat(wheel[1]))
             if ExactEnv.agentFreezes { presenter.settlePump() }
             return ["tapped": Int(v.id), "wheel": wheel, "at": at]
         }
@@ -691,7 +691,7 @@ extension Agent {
             var target: UIScrollView? = cur as? ScrollView
             if let waiting = cur as? NodeView, waiting.scrollDormant { waiting.needScroll(); target = waiting.scroll }
             // A grouped list's collection view scrolls in its place (LLP 1084 D8).
-            if target == nil, cur is GroupedCollectionView { target = cur as? UIScrollView }
+            if target == nil, cur is GroupedScroller { target = cur as? UIScrollView }
             if let sv = target {
                 let scrollsX = (sv as? ScrollView)?.scrollsX ?? false, scrollsY = (sv as? ScrollView)?.scrollsY ?? true
                 // Native bars and keyboard avoidance can make the resting
@@ -821,15 +821,36 @@ extension Agent {
             else if let f = v.field { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
             else if v.canBecomeFirstResponder, !v.isFirstResponder { _ = v.becomeFirstResponder() }
             let focus = v.field != nil || v.textArea != nil || v.isFirstResponder || v.handlers.contains("press") ? v : nil
+            // The release's `keyup` handlers at the focus (#140): after the
+            // down, or when a held key comes up. A modifier's own keydown
+            // holds it and its keyup no longer does, as DOM's.
+            let phase = req["phase"] as? String, code = device.code, lone = KeyCodes.modifier(code)
+            let downHeld = lone ? KeyCodes.held(held, name, true) : held, upHeld = lone ? KeyCodes.held(held, name, false) : held
+            // A chord's modifiers are their own keys around it, as a keyboard's
+            // (KeyCodes.modifierPresses; Charlie, 2026-10-07): down in order
+            // before the shortcuts and the key, up in reverse after its keyup,
+            // each keyup without its own bit.
+            let presses = KeyCodes.modifierPresses(key)
+            let heardUp = { [weak presenter, weak focus] in
+                _ = presenter?.keyUp(at: focus, name, held: upHeld, code: code)
+                for (i, m) in presses.enumerated().reversed() {
+                    _ = presenter?.keyUp(at: focus, m.key, held: i > 0 ? presses[i - 1].held : "", code: KeyCodes.device(m.key)?.code ?? "")
+                }
+            }
+            defer {
+                if phase != "down" { heardUp() }
+                if phase == "down", let token = req["releaseKey"] as? String { keyReleases[token] = { heardUp(); return ["phase": "up", "delivery": "recognized"] } }
+            }
+            if phase != "up", req["repeat"] as? Bool != true { for m in presses { _ = presenter.keyDown(at: focus, m.key, held: m.held, code: KeyCodes.device(m.key)?.code ?? "") } }
             // The page's shortcuts first, as the web's capture listener and
             // macOS's `routeKey` hear them (gallery F18, ShortcutsIOS).
             #if os(iOS)
-            if req["phase"] as? String != "up", let node = presenter.shortcut(key: name, held: held, focus: focus ?? presenter.focusedNode) {
+            if phase != "up", let node = presenter.shortcut(key: name, held: held, focus: focus ?? presenter.focusedNode) {
                 presenter.press(node.id)
                 return ["typed": Int(v.id), "key": key, "shortcut": Int(node.id), "delivery": "recognized"]
             }
             #endif
-            if req["phase"] as? String != "up", !presenter.keyDown(at: focus, name, held: held), let focus {
+            if phase != "up", !presenter.keyDown(at: focus, name, held: downHeld, code: code, repeats: req["repeat"] as? Bool == true), let focus {
                 if let f = focus.textArea {
                     if name == "Enter" { f.insertText("\n") } else if name == "Backspace" { f.deleteBackward() }
                     else if Agent.caretKey(name, in: f) {} else if types { f.insertText(name) }

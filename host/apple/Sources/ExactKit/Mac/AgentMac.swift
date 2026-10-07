@@ -144,7 +144,7 @@ extension Agent {
         let kernelLayout = kernelState?["kernelLayout"] as? [String: Any] ?? [:]
         let layout = kernelLayout.merging(["provisional": session.fieldChrome.presentedProvisional]) { _, host in host }
         return ["layout": layout, "focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window,
-                "dialog": presenter.dialogs.observation ?? NSNull(), "hooks": presenter.elements.observation]
+                "dialog": presenter.dialogs.observation ?? NSNull(), "hatches": presenter.elements.observation(presenter.session?.hatchDiagnostics)]
     }
 
     /// A view's box in the viewport: the clip view's space, less its scroll
@@ -714,7 +714,11 @@ extension Agent {
             // for Shift says `shiftKey`; AppKit has it as a flags change, not
             // a key for a responder (chat F8).
             let lone = device.map { KeyCodes.modifier($0.code) } == true
-            if lone { modifiers.insert(["Shift": .shift, "Control": .control, "Alt": .option, "Meta": .command][key] ?? []) }
+            let own: NSEvent.ModifierFlags = lone ? ["Shift": .shift, "Control": .control, "Alt": .option, "Meta": .command][key] ?? [] : []
+            modifiers.insert(own)
+            // Its keyup no longer holds it, as DOM's says (`metaKey` false
+            // on Meta's keyup, #140); a held key's later down is a repeat.
+            let upModifiers = modifiers.subtracting(own), repeats = req["repeat"] as? Bool == true
             // NSWindow delivery bypasses the local event monitor. Share its
             // pressed-control route before making any responder change.
             let phase = req["phase"] as? String
@@ -779,27 +783,59 @@ extension Agent {
             // Both character fields preserve Shift. AppKit interprets a
             // Shift-Tab as BackTab (U+0019), not a forward Tab with flags.
             let characters = code == 48 && modifiers.contains(.shift) ? "\u{19}" : chars
-            guard let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: t, windowNumber: win.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code),
-                  let up = NSEvent.keyEvent(with: .keyUp, location: .zero, modifierFlags: modifiers, timestamp: t, windowNumber: win.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)
+            guard let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: t, windowNumber: win.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: repeats, keyCode: code),
+                  let up = NSEvent.keyEvent(with: .keyUp, location: .zero, modifierFlags: upModifiers, timestamp: t, windowNumber: win.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)
             else { return ["error": "no key event"] }
+            // The release's `keyup` handlers at the focus then (#140), as the
+            // monitor's route hears a keyboard's (`Presenter.keyUp`).
+            // A chord's modifiers are their own keys around it (Charlie, 2026-10-07;
+            // KeyCodes.modifierPresses): down in order, up in reverse after the
+            // key's, each up without its own flag (#140), as a keyboard's.
+            let flagsOf = { (held: String) in NSEvent.ModifierFlags([.shift, .control, .option, .command].enumerated().compactMap { i, f in held.contains(["Shift+", "Control+", "Alt+", "Meta+"][i]) ? f : nil }) }
+            let presses = KeyCodes.modifierPresses(chord)
+            let modifierKeys: [(down: NSEvent, up: NSEvent)] = presses.enumerated().compactMap { i, m in
+                guard let device = KeyCodes.device(m.key), let mac = KeyCodes.mac.first(where: { $0.value == device.code })?.key,
+                      let d = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flagsOf(m.held), timestamp: t, windowNumber: win.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: UInt16(mac)),
+                      let u = NSEvent.keyEvent(with: .keyUp, location: .zero, modifierFlags: flagsOf(i > 0 ? presses[i - 1].held : ""), timestamp: t, windowNumber: win.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: UInt16(mac)) else { return nil }
+                return (d, u)
+            }
+            let heardUp: () -> Void = { [weak presenter, weak win] in
+                presenter?.keyUp(up, in: win)
+                for m in modifierKeys.reversed() { presenter?.keyUp(m.up, in: win) }
+            }
+            // A down a command took still comes up through the handlers.
+            let releaseHeard = { [self] in
+                if phase == nil { heardUp() }
+                if phase == "down", let token = req["releaseKey"] as? String {
+                    keyReleases[token] = { heardUp(); return ["phase": "up", "delivery": "platform"] }
+                }
+            }
             // This driver sends directly to NSWindow, bypassing NSApplication's
             // local monitor. Use the same session command router first.
             presenter.flushKeyViewLoop()
             // The monitor's route (`Presenter.routeKey`): shortcuts, the focus's
             // `key` handlers (a prevented key goes no further), then the menus'
             // and dialogs' defaults.
+            // Each modifier's own keydown first (a held key's repeat finds them down).
+            if phase != "up", !repeats { for m in modifierKeys { _ = presenter.routeKey(m.down, focused: true, in: win) } }
             if phase != "up", presenter.routeKey(down, focused: true, in: win) {
-                if phase != "down" { _ = presenter.menus.key(up) }
+                if phase != "down" { heardUp(); _ = presenter.menus.key(up) }
                 if phase == "down", let release = req["releaseKey"] as? String {
                     // A host command consumed the down; its up belongs to no module instance.
                     keyReleases[release] = { [weak presenter] in
+                        heardUp()
                         _ = presenter?.menus.key(up)
                         return ["phase": "up", "delivery": "recognized"]
                     }
                 }
                 return ["typed": Int(v.id), "key": chord, "value": Agent.shownValue(v.textArea?.string ?? v.field?.stringValue ?? "", of: v)]
             }
-            if v.kind == "native" { return nativeType(v, req, token: nativeToken) }
+            // A native view takes the key itself; the chord's modifiers still come up here.
+            if v.kind == "native" {
+                let reply = nativeType(v, req, token: nativeToken)
+                if phase != "down" { for m in modifierKeys.reversed() { presenter.keyUp(m.up, in: win) } }
+                return reply
+            }
             // Accessory test windows may have a first responder before
             // NSApp has a keyWindow. Deliver to the named responder first.
             // An Edit menu chord (⌘X, ⌘C, ⌘V) first, whether or not a window is
@@ -807,15 +843,19 @@ extension Agent {
             // as the menu would send it (spreadsheet F14: ⌘V's paste).
             let edits: [String: Selector] = ["x": #selector(NSText.cut(_:)), "c": #selector(NSText.copy(_:)), "v": #selector(NSText.paste(_:))]
             if phase != "up", modifiers == .command, let action = edits[key], win.firstResponder?.tryToPerform(action, with: nil) == true {
+                releaseHeard()
                 return ["typed": Int(v.id), "key": chord, "delivery": "platform"]
             }
             if phase != "up", modifiers.contains(.command), v.performKeyEquivalent(with: down) || NSApp.mainMenu?.performKeyEquivalent(with: down) == true {
+                releaseHeard()
                 return ["typed": Int(v.id), "key": chord]
             }
             if phase != "up", !lone { win.sendEvent(down) }
+            if phase != "down" { heardUp() }
             if phase != "down", !lone { win.sendEvent(up) }
             if phase == "down", let token = req["releaseKey"] as? String {
                 keyReleases[token] = { [weak v] in
+                    heardUp()
                     v?.keyUp(with: up)
                     return ["typed": Int(v?.id ?? 0), "phase": "up", "delivery": "platform"]
                 }

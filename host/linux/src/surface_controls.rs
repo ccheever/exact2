@@ -285,13 +285,16 @@ impl<D: DataSource> Presenter<D> {
         // button is gone delivers the down and swallows the up.
         if !down {
             self.shortcut_keys.remove(code);
+            // Its `keyup` handlers at the focus (#140); every release below
+            // returns before `type_key`, which would hear it again.
+            self.key_up(key, code, self.host.now());
         }
         // A Control or Meta chord is a shortcut, as a browser's: the focus's
         // `key` handlers hear it, and no canvas or control starts with it.
         if down && self.held & 0b1100_1100 != 0 {
             if self.focus.is_some() {
                 let name = if code == "NumpadEnter" { "Enter" } else { key };
-                self.key_down(name, self.host.now());
+                self.key_down_with(name, code, repeat, self.host.now());
             }
             return;
         }
@@ -532,6 +535,7 @@ impl<D: DataSource> Presenter<D> {
                                 EventKind::Focus
                                     | EventKind::Blur
                                     | EventKind::Key
+                                    | EventKind::Keyup
                                     | EventKind::Press
                                     // The clipboard's events go to the focus.
                                     | EventKind::Copy

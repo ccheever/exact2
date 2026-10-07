@@ -16,7 +16,7 @@ typealias SymbolConfig = NSImage.SymbolConfiguration
 
 extension NodeView {
     /// The symbol's own tint, or `nil` to follow the platform's accent
-    /// (LLP 1095 stage 2): the initial `tint-color` is `AccentColor`, which the
+    /// (LLP 1095 stage 2): the initial `-exact-tint-color` is `AccentColor`, which the
     /// platform keeps dynamic (iOS inherits the hierarchy's `tintColor`, a
     /// window or app tint included; macOS has `controlAccentColor`), so it is
     /// never resolved to channels here.
@@ -85,7 +85,7 @@ extension NodeView {
         #endif
     }
 
-    /// A new symbol on its view: with `symbol-effect: replace`, the
+    /// A new symbol on its view: with `-exact-symbol-effect: replace`, the
     /// platform's replace transition (D12); else at once.
     func showSymbol(_ image: SymbolImage?, on leaf: SymbolLeaf) {
         if style["symbol_effect"]?.string == "replace", let image, leaf.image != nil {
@@ -122,7 +122,7 @@ extension NodeView {
         }
     }
 
-    /// `press-haptic` (D14): host-owned, at the press, as `press-scale`.
+    /// `-exact-press-haptic` (D14): host-owned, at the press, as `-exact-press-scale`.
     func pressHaptic() {
         guard let kind = style["press_haptic"]?.string, kind != "none" else { return }
         Haptics.play(kind)
@@ -149,7 +149,7 @@ final class SymbolEffectState {
     }
 }
 
-/// The platform's haptics (LLP 1077 D14): `press-haptic`'s kinds and
+/// The platform's haptics (LLP 1077 D14): `-exact-press-haptic`'s kinds and
 /// `haptic()`'s, which adds success, warning and error. macOS plays on a
 /// Force Touch trackpad.
 enum Haptics {

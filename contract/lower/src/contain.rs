@@ -26,7 +26,7 @@ pub const CONTAINS_ABSOLUTE: [StyleId; 16] = [
     StyleId::Rotate,
     StyleId::Transform,
     StyleId::Filter,
-    StyleId::BackdropBlur,
+    StyleId::BackdropFilter,
     StyleId::Animation,
     StyleId::Transition,
     StyleId::LayoutTransition,

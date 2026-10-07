@@ -179,7 +179,7 @@ pub enum AnimationError {
     /// A property keyframes do not animate: half of a `box-shadow` without
     /// the other, or a dark value for no colour of the keyframe.
     NotAnimatable(Property),
-    /// An `exit-animation` that never ends — an `infinite` count, or
+    /// An `-exact-exit-animation` that never ends — an `infinite` count, or
     /// `paused` — would keep its leaving node forever (LLP 1063).
     Endless,
 }
@@ -501,7 +501,7 @@ impl Animations {
     }
 
     /// [`Animations::validate`], and every entry runs to an end: the rule for
-    /// an `exit-animation`, whose node is removed when it ends (LLP 1063).
+    /// an `-exact-exit-animation`, whose node is removed when it ends (LLP 1063).
     pub fn validate_ending(&self) -> Result<(), AnimationError> {
         self.validate()?;
         if self.0.iter().any(|a| a.paused || !a.end_time().is_finite()) {

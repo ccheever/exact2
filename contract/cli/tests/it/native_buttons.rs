@@ -239,7 +239,7 @@ fn its_box_carries_place_size_opacity_transforms_and_accent_only() {
         "button appearance=\"auto\" press=go font-size=20\n  text \"Go\"",
         "button appearance=\"auto\" press=go filter=\"blur(2px)\"\n  text \"Go\"",
         "button appearance=\"auto\" press=go box-sizing=\"content-box\"\n  text \"Go\"",
-        "button appearance=\"auto\" press=go press-scale=0.9\n  text \"Go\"",
+        "button appearance=\"auto\" press=go -exact-press-scale=0.9\n  text \"Go\"",
         "button appearance=\"auto\" press=go backgroundMaterial=\"glass\"\n  text \"Go\"",
         "button appearance=\"auto\" press=go glassGroup=8\n  text \"Go\"",
         "button appearance=\"auto\" press=go transition=\"background-color 200ms\"\n  text \"Go\"",

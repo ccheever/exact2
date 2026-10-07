@@ -219,12 +219,12 @@ fn declared_bytes_are_the_resolved_faces_and_the_painted_geometry() {
             },
             None,
         );
-        let shaped = paragraph
+        let glyph = *paragraph
             .layout_runs()
             .flat_map(|run| run.glyphs.iter())
             .next()
-            .unwrap()
-            .font_id;
+            .unwrap();
+        let shaped = paragraph.lines().faces[glyph.face as usize].id();
         assert_eq!(
             shaped, expected,
             "the {weight} run shaped from its declared bytes"

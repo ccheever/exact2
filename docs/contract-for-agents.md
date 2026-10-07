@@ -436,7 +436,10 @@ half-typed `-` or `1.` survives). That makes the contract:
 
 A field bound straight to the accepted value breaks this: an action that
 normalizes `-2` to the `0` it already held leaves the binding unchanged, so the
-field keeps showing `-2`.
+field keeps showing `-2`. So does normalizing while the person types: a `task … when draft != …`, a
+timer or an `input` action that rewrites the draft (an empty field back to
+`"1"`) puts text back under the caret mid-edit, and the next keystroke lands
+after it (`1` then `3` reads `13`). Normalize only in `change`.
 
 ```contract
 component Quantity
@@ -635,6 +638,10 @@ Use those generated declarations with the existing TypeScript/Rust integration.
 A shape has no exported name in the `.d.ts`: name one by its source,
 `type Recipe = Result<'recipe'>` (a list's element: `Result<'recipes'>[number]`;
 an optional answer is `… | null`, so `NonNullable<Result<'find'>>`).
+`app:/data`, `app:/cache` and `app:/tmp` exist on every host before a source
+runs, so a file directly in one (`app:/data/notes.json`) needs no `mkdir`; a file
+deeper down needs its folder first (`storage.fs.mkdir('app:/data/drafts')`, which
+makes the folders above it too), or the write fails with `ENOENT`.
 The [human guide's data-module section](contract-for-humans.md#writing-the-data-module)
 has a complete `app.ts`: synchronous, `fetch` and SQLite sources, the grants
 each needs (one per line: `['sqlite.open app:/data/books.db', 'net.fetch https://…'].join('\n')`;
@@ -755,7 +762,7 @@ drawn title bar) is a bug. On iOS:
 | `input type="range"` | `UISlider` |
 | `input type="date"`, `"time"`, `"datetime-local"` | `UIDatePicker` |
 | `select` of `option`s | a pop-up button with its menu |
-| `popover="auto" role="menu"` of `button`s, opened by `popovertarget` | `UIMenu` (LLP 1021) |
+| `popover="auto" role="menu"` of `button`s, opened by `popovertarget` (a row whose `popovertarget` names another menu: its submenu) | `UIMenu`, nested (LLP 1021) |
 | `role="tablist"`: each tab a symbol over a label / one text or image | `UITabBar` / `UISegmentedControl`, the tablist at least its native height unless `min-height` says otherwise (LLP 1059) |
 | a route whose first child is a `header` holding one heading and its buttons | the navigation bar; a level-1 heading (`aria-level=1`) is a large title |
 | a route with `navigationPresentation="modal"` | a sheet |
@@ -1142,8 +1149,8 @@ in the viewer's zone, format it in TypeScript with
 `new Intl.DateTimeFormat(time.locale, { timeZone: time.timeZone })`.
 
 Use admitted CSS transitions and keyframes. Check which properties animate and
-which require optional capabilities. `spring(…)` (a `transition` timing
-function), `exit-animation`, `layout-transition`, and presentation timelines have
+which require optional capabilities. `-exact-spring(…)` (a `transition` timing
+function), `-exact-exit-animation`, `-exact-layout-transition`, and presentation timelines have
 specific documented behavior;
 they do not admit arbitrary frame callbacks or a second app-state graph.
 
@@ -1159,6 +1166,39 @@ the scroll from happening; `drop` hands a `DragEvent` whose `files` are `doc:`
 handles of the types `file_handlers` declares. See
 [Pointer](contract-grammar.md#pointer).
 
+`key` is the DOM's keydown and `keyup` its keyup; an action that takes it hears
+a `KeyboardEvent` (`metaKey`, `code`, `repeat`, …). Track a held modifier as a
+page does: set it from the event on every keydown and keyup, and forget it when
+the window loses the focus, since a key let go in another app sends no keyup
+(the page's `window` `blur`). `exactPage().hasFocus` turning false gates the task
+that forgets it, and the hint shows only while the window has the focus:
+
+```contract
+shape Page
+  hasFocus: bool
+
+component Hints
+  resource page = exactPage() as shape Page
+  state meta = false
+  action held(k: string, e: KeyboardEvent)
+    meta = e.metaKey
+  action forget()
+    meta = false
+  task release when meta and not page.hasFocus
+    after(1, forget)
+  view
+    column key=held keyup=held testId="list"
+      when meta and page.hasFocus
+        text "⌘ held"
+```
+
+Drive it with `type "list" key "Meta" down`, `prefer has-focus false` and
+`clock +1`. While an input method composes text in a field on macOS or iOS, a
+modifier's own keys still reach these handlers, and a ⌘ chord commits the
+composed text first (its `input`, then the chord's `key`), so a composer's
+⌘Enter `key` action sends what was typed; a button that declares ⌘Enter is not
+pressed then. See [Keys](contract-grammar.md#keys).
+
 A long-press or right-click menu is a `popover` the node names with
 `contextPopover="<id>"`: its `button` rows (with `popovertarget="<id>"
 popovertargetaction="hide"`) and `hr` separators are the menu, and one row with
@@ -1169,6 +1209,15 @@ lifting and the preview popping into the screen its press pushes; macOS an
 the node. The node's own `contextmenu` action runs first, so one popover can
 serve every row of a list. The agent opens it with `tap <node> contextmenu`
 ([LLP 1021](../llp/1021-menus.rfc.md) §5.1).
+
+A submenu is a row whose `popovertarget` names another menu popover (`Copy ▸
+path / link`): a submenu `NSMenuItem` on macOS, a nested `UIMenu` on iOS, and
+on the web and under the agent the nested popover, opened by `tap <row>`. Place
+it beside its row with `position-area="right span-bottom"`; give its items
+`popovertarget="<outer menu id>" popovertargetaction="hide"` so a choice closes
+the whole menu; write no `press` on the row that opens it (a native menu never
+runs it); and draw the web's `›` as an `aria-hidden` text, since the native
+menus draw their own arrow ([LLP 1021](../llp/1021-menus.rfc.md) §5.2).
 
 `frame(id)` and `measure("literal-id")` are action-only geometry reads returning
 `Geometry` (`x`, `y`, `width`, `height`, `provisional`, `unavailable`). Handle `unavailable` and `provisional`. `frame` reads the last layout's border box
@@ -1196,9 +1245,9 @@ and `inert`; any other known name (`color`, `value`, `command`, `href`) is refus
 so give the module prop another name. Do not
 turn a missing widget or canvas operation into invented Contract syntax.
 
-Haptics are already there (LLP 1077 D14). `press-haptic` (`selection`,
+Haptics are already there (LLP 1077 D14). `-exact-press-haptic` (`selection`,
 `impact-light|medium|heavy|soft|rigid`) plays at touch-down without a round
-trip, as `press-scale` does. `haptic("selection" | "impact-…" | "success" |
+trip, as `-exact-press-scale` does. `haptic("selection" | "impact-…" | "success" |
 "warning" | "error")` is a host command an action runs, for example when a
 drag crosses a threshold. iOS uses the feedback generators; the web vibrates
 where it can; Linux does nothing.
@@ -1217,7 +1266,12 @@ stored size again. Do not multiply a scale factor into every size instead.
 
 Platform facts are reserved sources (`exactViewport`, `exactPage`, `exactDelivery`,
 `exactSurface`, `exactTime`); the bake refuses a declared field the source does
-not have. Use dimensions, media preferences, page facts,
+not have. `exactPage` answers `visibilityState`, `onLine`, `canShare`,
+`canOpenFiles` and `hasFocus` (`document.hasFocus()`: the app's window has the
+system's focus; false while another app or window is in front, so an app can
+choose an in-window message over a system notification). Under the agent each
+is the drive's (`prefer has-focus false`; `state.device`). Use dimensions,
+media preferences, page facts,
 and capability state rather than suffixing files by platform. Preference facts
 inform authored policy; the engine does not automatically remove all motion.
 
@@ -1414,7 +1468,9 @@ swipe, where the web's tap scrolls the row to it, and `--touch platform`, as in
 `bun exact.mjs test ios --touch platform`, makes every tap a real touch),
 `type "id" "text"` (sets the value), `type "id" "text" append` (after the value
 the tree shows, as typing after a prefill), or `type "id" key "Name"`
-(`down`, `up`, or `for <ms>` on the virtual clock),
+(`down`, `up` — its `keyup` handlers hear it — or `for <ms>` on the virtual
+clock, repeating as a held key does: a keydown with `repeat` true 500 ms after
+the down, then every 83 ms),
 `type "id" paste "text"` (⌘V on macOS, Ctrl+V elsewhere, then the paste; a `key` handler that `preventDefault()`s that chord keeps it from landing), `type "id" copy`, `type "id" cut`, `pick "id" "path"…` or
 `pick "id" cancel` (a held picker or export, by its node or capability as
 above; paths are the test file's), `clock settle|data|+ms|+ms real|ms` (`data`:
@@ -1449,9 +1505,20 @@ focuses the target if it takes the focus (else leaves the focus where it is)
 and presses the key as a keyboard would on every host: its `key` handlers,
 then its default — `"7"` types into a field, `"Enter"` submits it (a
 textarea's breaks the line), `"Space"` presses a button, `"r"` reaches an
-`aria-keyshortcuts="r"` button. A chord holds its modifiers for the key, in
+`aria-keyshortcuts="r"` button — then releases it through the `keyup`
+handlers at the focus. A chord holds its modifiers for the key, in
 Playwright's spelling: `"Shift+Enter"`, `"Meta+s"`, `"Control+Alt+ArrowLeft"`
-([keys](contract-grammar.md#keys)). Not every interactive
+([keys](contract-grammar.md#keys)). As a keyboard does, on every host, each
+modifier is its own key first: a `key` handler hears `Shift`, then `Enter`
+(with its `shiftKey`), so a handler that treats any key as typing must skip
+`Shift`, `Control`, `Alt` and `Meta`. A paste is the same (`Control` or `Meta`,
+then `v`), and so is a click or a wheel with `tap … modifiers` on Chrome,
+Firefox, WebKit and Linux, and a right or double click with modifiers on Chrome.
+Each modifier comes up after the key, in reverse, without its own bit, so a
+`keyup` handler hears it too. Still flags only, with no modifier key of their
+own: Apple's taps, a drag's phased `tap … down`/`move`/`up` (Chrome and Apple;
+other carriers refuse modifiers there), and a key a canvas world takes on Apple.
+Not every interactive
 driver operation is a test-file statement. `contract test` parses and prints JSON;
 `agent.mjs <host> --test <file>` actually drives the app.
 
@@ -1544,10 +1611,10 @@ keyframes interpolate the two parts as CSS does a `calc()`. `calc()` itself is
 refused.
 
 Transitions animate translate/scale/rotate/opacity, box paint (color,
-background-color, border colors, tint-color, box-shadow), SVG paint/geometry
+background-color, border colors, -exact-tint-color, box-shadow), SVG paint/geometry
 and the admitted numeric height path. `width` and other general layout
 properties cannot interpolate yet: native layout is not run per frame.
-The diagnostic names this engine limit; `layout-transition` animates a
+The diagnostic names this engine limit; `-exact-layout-transition` animates a
 change in the laid-out box using the existing measured projection.
 
 `cursor` takes CSS cursor keywords (`pointer`, `grab`, `grabbing`, etc.) and
@@ -1638,7 +1705,7 @@ status bar: of what the bar sits over, the declaration painted on top wins, and
 a flip shows in its own batch's frame; `status-bar-animation="fade"` fades it
 (LLP 1105). Other hosts ignore both.
 `currentcolor` takes the node's `color` on borders, `background-color`,
-`tint-color`, text stroke and SVG paint. `unset` clears any row, and `inherit`
+`-exact-tint-color`, text stroke and SVG paint. `unset` clears any row, and `inherit`
 an inherited one (`color`, fonts, `fill`…); `inherit` on a row CSS does not
 inherit is refused. `order` places flex and grid items. An image's accessible
 name is `alt` or `aria-label`; `enterkeyhint` labels a soft keyboard's enter

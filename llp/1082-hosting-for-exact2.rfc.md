@@ -340,7 +340,8 @@ clock" (1030.003 D1). The publisher retries the rest.
   are the app's. A later RFC may offer containers for them on the same tier;
   this one doesn't.
 - Garbage collection of old blobs and releases.
-- Android (`assetlinks.json` is not in `PUBLIC_FILES`; Android is deferred).
+- Android (`assetlinks.json` is not in `PUBLIC_FILES`). Android was deferred when this was
+  written; it was admitted on 2026-10-07, so `assetlinks.json` is owed (QUEUE).
 - Running the JavaScript renderer, or a wasm render core, on Workers (§1.1).
 
 ## 4. Security

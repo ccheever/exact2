@@ -101,6 +101,13 @@ and `prove` (the proof's baseline), its notes point at `game/README.md`, and
 `--update` rewrites only those two, since a game's Cargo workspace is the
 bake's (`.shells/`).
 
+The template's root is full-bleed (2026-10-07, the authoring bench's iOS
+diaries: the status-bar strip was black and finding the fix cost about five
+minutes): `viewport-fit="cover"` on `main`, and padding of
+`calc(env(safe-area-inset-*) + 24px)` on each side, so the background fills
+behind the status bar and the content keeps clear of it. On the web the insets
+are 0 and the page is unchanged.
+
 Not taken:
 
 - **A skill directory in the app.** Skills are discovered per harness, and a

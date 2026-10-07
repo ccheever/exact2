@@ -263,7 +263,7 @@ pub struct Engine {
     // Held presentations, by hold serial, for a release velocity where the
     // platform measures none (LLP 1057.001 §3). Only live holds keep one.
     held: BTreeMap<u64, crate::velocity::VelocityTracker>,
-    // Each node's `layout-transition` declaration (LLP 1063): the only thing
+    // Each node's `-exact-layout-transition` declaration (LLP 1063): the only thing
     // that moves `Property::Layout`, so `transition: all` never covers layout.
     layout: BTreeMap<u64, Transition>,
     // The appearance a keyframe's `light-dark()` colour takes (LLP 1062 D9),
@@ -319,7 +319,7 @@ impl Engine {
         Ok(())
     }
 
-    /// Set a node's `layout-transition` row (LLP 1063): the last declaration
+    /// Set a node's `-exact-layout-transition` row (LLP 1063): the last declaration
     /// that covers every property governs [`Property::Layout`] changes
     /// observed from now on. One that names a property governs nothing, as
     /// `transition: opacity 1s` does not move a box.
@@ -403,7 +403,7 @@ impl Engine {
         }
         let key = (change.node, change.property);
         let now = self.now;
-        // Layout moves only under `layout-transition`; a spring on a
+        // Layout moves only under `-exact-layout-transition`; a spring on a
         // property no spring drives as physics is its curve from rest (LLP
         // 1062 D3).
         let declaration = if change.property == Property::Layout {

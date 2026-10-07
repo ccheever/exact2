@@ -69,7 +69,11 @@ pub struct CRequest {
     pub strut: CRun,
     /// Width offer in points, or [`MAX_CONTENT`] / [`MIN_CONTENT`].
     pub width: f32,
-    /// Height offer in points, or [`MAX_CONTENT`] / [`MIN_CONTENT`].
+    /// Height offer in points, or [`MAX_CONTENT`] / [`MIN_CONTENT`]. Advisory:
+    /// a paragraph's metrics depend only on its width offer (CSS wraps by
+    /// width; `line_clamp` counts lines), and the kernel reuses a width's
+    /// answer across heights (`TextMeasurer::height_free`), so a callback must
+    /// not answer differently by height. ExactKit's never reads it.
     pub height: f32,
     /// 0 start, 1 center, 2 end, 3 justify.
     pub align: u8,
@@ -390,6 +394,13 @@ impl TextMeasurer for CallbackMeasurer {
         sanitize(self.foreign_measure(request, None))
     }
 
+    /// The callback answers by width alone (`CRequest::height`), as the
+    /// Linux and terminal hosts do: a SplitFacts region keeps one fact per
+    /// width, not one per height offer at it (2658f6531).
+    fn height_free(&self) -> bool {
+        true
+    }
+
     /// @ref LLP 1093 D6 — the paragraph's line boxes, from the app's hook.
     fn lines(
         &mut self,
@@ -467,6 +478,22 @@ mod tests {
         let ratio = c_run("", exact_kernel::TextStyle::from_style(&style));
         assert_eq!(ratio.has_line_height, 1);
         assert_eq!(ratio.line_height, 30.0);
+    }
+
+    extern "C" fn fixed(_: *mut c_void, _: *const CRequest) -> CMetrics {
+        CMetrics {
+            width: 10.0,
+            height: 20.0,
+            baseline: 15.0,
+        }
+    }
+
+    /// ExactKit's measure answers by width (CRequest::height is advisory),
+    /// so the kernel may reuse a width's answer across heights.
+    #[test]
+    fn the_callback_measurer_is_height_free() {
+        let m = CallbackMeasurer::new(fixed, std::ptr::null_mut(), None);
+        assert!(m.height_free());
     }
 }
 

@@ -682,7 +682,6 @@ impl LayoutTree {
                 (offer.width, offer.height),
                 (AxisOffer::Definite(_), AxisOffer::Definite(_))
             )
-            && !self.taffy.dirty(root).unwrap_or(true)
             && arena.exclusion_slots.is_empty()
             && arena.flow.is_empty();
         // Both scratch maps keep their capacity from layout to layout.
@@ -715,44 +714,41 @@ impl LayoutTree {
         walks.clear();
         self.deferred = deferred;
         self.walks = walks;
-        // One unrelated dirty source may invalidate the root after the first
-        // boundary was chosen. A regular root pass then handles all sources.
-        if self.taffy.dirty(root).unwrap_or(true) {
-            for node in boundaries {
-                if let Some(parent) = self.taffy.parent(node) {
-                    let r = self.taffy.mark_dirty(parent);
-                    self.note("mark_dirty", r);
-                }
+        // An unrelated source may have invalidated the root (a list whose
+        // rows moved, a change no box contains): the root pass that follows
+        // handles those, and each boundary is still replayed first. Its
+        // caches were cleared through it, so an ancestor that pass computes
+        // again finds this replay's layout or asks the box anew, never an
+        // answer from before the change; a boundary an ordinary source
+        // dirtied through has lost its saved input and is not replayed.
+        // A boundary inside another is replayed first: when its output
+        // stands, nothing above it reads the change, and the outer replay
+        // (for its own sources) finds every box between them as it was. When
+        // it does not, the replay marks its parent, and the outer box is
+        // computed again through it. So a list whose rows moved, a boundary
+        // for its spacers, no longer forfeits the boxes inside a row that
+        // contain the row's own changes (it had every changed row laid out
+        // whole).
+        let depth = |mut node: NodeId| {
+            let mut d = 0usize;
+            while let Some(parent) = self.taffy.parent(node) {
+                d += 1;
+                node = parent;
             }
-            return Vec::new();
-        }
-        // Nested candidates cannot be replayed independently: the outer one
-        // owns the final constraints, so recompute the root in that rare case.
-        if boundaries.iter().any(|&node| {
-            let mut at = self.taffy.parent(node);
-            while let Some(n) = at {
-                if boundaries.contains(&n) {
-                    return true;
-                }
-                at = self.taffy.parent(n);
-            }
-            false
-        }) {
-            for node in boundaries {
-                if let Some(parent) = self.taffy.parent(node) {
-                    let r = self.taffy.mark_dirty(parent);
-                    self.note("mark_dirty", r);
-                }
-            }
-            return Vec::new();
-        }
-        boundaries
+            d
+        };
+        let mut replays: Vec<(usize, NodeId, LayoutInput, taffy::tree::LayoutOutput)> = boundaries
             .into_iter()
             .filter_map(|node| {
                 self.taffy
                     .last_layout_input(node)
-                    .map(|(input, output)| (node, input, output))
+                    .map(|(input, output)| (depth(node), node, input, output))
             })
+            .collect();
+        replays.sort_by(|a, b| b.0.cmp(&a.0).then(u64::from(a.1).cmp(&u64::from(b.1))));
+        replays
+            .into_iter()
+            .map(|(_, node, input, output)| (node, input, output))
             .collect()
     }
 

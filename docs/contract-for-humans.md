@@ -902,6 +902,15 @@ computed value that is refused at run time is dropped and journaled on the web
 as on a Mac (`invalid background-image value …; unset`), never painted by the
 browser alone.
 
+`backdrop-filter` accepts `none`, one `blur()` and/or one `saturate()` in the
+order written. For example, `backdrop-filter="blur(12px) saturate(1.14)"`
+blurs the backdrop, then increases its saturation. `saturate(0)` is grayscale;
+`saturate(180%)` is the same as `saturate(1.8)`. A function may appear only once.
+Web, macOS and Linux apply these functions; iOS/tvOS use the fixed `.light`
+system material approximation. macOS samples only the parent layer's subtree
+and clips children to the filter's border box. `backgroundMaterial` wins when
+both are present, and backdrop filters do not animate.
+
 Bound scroll containers. A typical full-height column gives its scroller
 `flex=1 min-height=0`; an isolated scroller can use a numeric height. A scrolling
 area as tall as all its children is not a usable scrollport. The bake checks
@@ -961,8 +970,9 @@ a `list<Picked>` for a file input. An action taking one more parameter also
 hears the target as the event leaves it, an `InputEvent`: its `value` (a
 checkbox's own), `checked`, and a text field's `selectionStart`, `selectionEnd`
 and `selectionDirection` ([form controls](contract-grammar.md#form-controls-radio-inputevent-setselectionrange)).
-`hover` carries a boolean; `key` carries a key name, and to an action that
-takes one more parameter its `KeyboardEvent` (the modifiers). Captured arguments precede
+`hover` carries a boolean; `key` (keydown) and `keyup` carry a key name, and to an action that
+takes one more parameter its `KeyboardEvent` (the modifiers, the physical key `code` and
+whether it is an auto-`repeat`). Captured arguments precede
 the payload: `input=edit(item.id)` calls the bound action with the id followed
 by the new text. This syntax is binding, not immediate evaluation.
 
@@ -1216,17 +1226,17 @@ component Motion
 Keyframe values are literals or calls to the app's own `fn`s with constant
 arguments (standard functions are refused), and keyframes animate paint and
 transform properties, not layout ones such as `width`. Styles remain
-literal-only. CSS easing and the admitted `spring(…)` timing function, which
+literal-only. CSS easing and the admitted `-exact-spring(…)` timing function, which
 belongs only inside `transition`, are not interchangeable guesses: copy the
 appropriate [motion fixture](../contract/corpus/spring.contract).
 In a `list virtualized=true` row, an animation waits until its row first
-shows in the list (`animation-trigger="view"`, the default), because the list
-builds rows before they scroll in; `animation-trigger="none"` starts it when
+shows in the list (`-exact-animation-trigger="view"`, the default), because the list
+builds rows before they scroll in; `-exact-animation-trigger="none"` starts it when
 the row is built, so the row arrives settled. The web build does not hold it
 yet.
 
-`exit-animation`, `layout-transition`, and presentation timelines
-(`drag-timeline`, `animation-timeline`, `animation-range`, `timeline-scope`) are
+`-exact-exit-animation`, `-exact-layout-transition`, and presentation timelines
+(`-exact-drag-timeline`, `animation-timeline`, `animation-range`, `timeline-scope`) are
 declared extensions with bounded behavior, not arbitrary layout animation.
 
 For direct manipulation, `pan`, `panrelease`, `heightrelease`,
@@ -1297,6 +1307,25 @@ component Responsive
         text "Wide layout"
       else
         text "Compact layout"
+```
+
+`exactPage` answers the page's facts by the web's names: `visibilityState`
+(`"visible"` or `"hidden"`), `onLine`, `canShare`, `canOpenFiles`, and
+`hasFocus`, which is `document.hasFocus()`: true while the app's window has the
+system's focus, false while another app or window is in front. An app that
+tells the person something can show it in the window while it has focus and
+post a notification otherwise.
+
+```contract
+shape Page
+  hasFocus: bool
+
+component Finished
+  resource page = exactPage() as shape Page
+  view
+    main
+      when page.hasFocus
+        text "Build finished" role="status"
 ```
 
 Prefer responsive branches driven by dimensions and actual capabilities to

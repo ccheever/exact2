@@ -9,23 +9,23 @@ extension NodeView {
     /// `submit` handler, the web's implicit submission. Taken here, so it
     /// does not end the editing as AppKit would. Its `key` handlers heard
     /// every key before the editor did (`Presenter.keyDown`).
-    @objc func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+    @objc package func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
         guard selector == #selector(NSResponder.insertNewline(_:)) else { return false }
         presenter?.commitEdit(id, textView.string, change: handlers.contains("change"))
         if handlers.contains("submit") { presenter?.submit(id) }
         return true
     }
-    @objc func controlTextDidBeginEditing(_ obj: Notification) {
+    @objc package func controlTextDidBeginEditing(_ obj: Notification) {
         presenter?.collections.pinsChanged()
         guard let editor = field?.currentEditor() as? NSTextView else { return }
         styleFieldEditor(editor)
     }
-    @objc func controlTextDidEndEditing(_ obj: Notification) {
+    @objc package func controlTextDidEndEditing(_ obj: Notification) {
         presenter?.collections.pinsChanged()
         presenter?.commitEdit(id, field?.stringValue ?? "", change: handlers.contains("change"))
         if handlers.contains("blur") { presenter?.blur(id) }
     }
-    @objc func controlTextDidChange(_ obj: Notification) {
+    @objc package func controlTextDidChange(_ obj: Notification) {
         if let editor = field?.currentEditor() as? NSTextView, !editor.hasMarkedText(), let held = pendingValue { writeValue(held, into: editor) }
         if props["emojiPicker"] == "true", let field {
             let value = field.stringValue

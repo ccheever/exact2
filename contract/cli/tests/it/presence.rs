@@ -1,5 +1,5 @@
-//! LLP 1063: `exit-animation` resolves its keyframes like `animation` and
-//! reaches the receipt of the commit that removes its node; `layout-transition`
+//! LLP 1063: `-exact-exit-animation` resolves its keyframes like `animation` and
+//! reaches the receipt of the commit that removes its node; `-exact-layout-transition`
 //! reaches its row.
 
 use exact_kernel::{Kernel, StyleId};
@@ -67,13 +67,14 @@ fn a_removed_row_leaves_with_its_exit_and_its_sibling_declares_a_layout_transiti
 #[test]
 fn an_endless_exit_is_refused_at_compile_time() {
     let error = contract::compile(
-        "keyframes k\n  to opacity=0\ncomponent App\n  view\n    text \"a\" exit-animation=\"k 1s infinite\"\n",
+        "keyframes k\n  to opacity=0\ncomponent App\n  view\n    text \"a\" -exact-exit-animation=\"k 1s infinite\"\n",
     )
     .unwrap_err();
     assert_eq!(error.id, "lower-exit-endless", "{error}");
-    let error =
-        contract::compile("component App\n  view\n    text \"a\" exit-animation=\"gone 1s\"\n")
-            .unwrap_err();
+    let error = contract::compile(
+        "component App\n  view\n    text \"a\" -exact-exit-animation=\"gone 1s\"\n",
+    )
+    .unwrap_err();
     assert_eq!(error.id, "lower-animation-name");
     assert!(error.message.contains("no `keyframes gone`"), "{error}");
 }

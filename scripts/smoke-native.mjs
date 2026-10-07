@@ -8,8 +8,8 @@
 // shows the boxes and the tokened snapshot answers (Apple); and the failure
 // family — missing artifact, missing factory, wrong ABI, refused props —
 // each yields its named status, an empty box, a log line and a running app.
-// Then the hooks (LLP 1075.003): data-* words, the authored header under the
-// agent, the hooks' journal on iOS, and a push and its Back.
+// Then the hatches (LLP 1075.003): data-* words, the authored header under the
+// agent, the hatches' journal on iOS, and a push and its Back.
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -112,8 +112,8 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     st = await s.state();
     // (A browser's real pointer also hovers and focuses the element first.)
     check(st.slots.events.startsWith(EXPECTED_EVENTS) && st.slots.events.endsWith('press;'), `${host} native: a tap on the box is the node's press: ${JSON.stringify(st.slots.events)}`);
-    // The hooks (LLP 1075.003): the route's data-* words, the authored header
-    // under the agent (one presentation, LLP 1021 D4), the hooks' moments in
+    // The hatches (LLP 1075.003): the route's data-* words, the authored header
+    // under the agent (one presentation, LLP 1021 D4), the hatches' moments in
     // the journal (iOS; macOS projects no routes; the web's are checked
     // below), and a push and its Back.
     t = await s.tree();
@@ -127,47 +127,96 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     logs = await s.logs();
     const journal = `${lines}\n${logs.lines.join('\n')}`;
     if (host === 'ios') {
-      check(/hook: connected/.test(journal) && /hook navigation #1: built[\s\S]*hook route \d+: built/.test(journal), `${host} native: a stack's hook runs before its routes': ${journal.split('\n').filter((l) => /hook/.test(l)).join(' | ')}`);
+      check(/hatch: connected/.test(journal) && /hatch navigation #1: built[\s\S]*hatch route \d+: built/.test(journal), `${host} native: a stack's hatch runs before its routes': ${journal.split('\n').filter((l) => /hatch/.test(l)).join(' | ')}`);
     } else if (host === 'macos') {
       // macOS projects no routes; the web's page module has its own (below).
-      check(!/hook (navigation|route)/.test(journal), `${host} native: no route hook runs on macOS: ${logs.lines.filter((l) => /hook/.test(l)).join(' | ')}`);
+      check(!/hatch (navigation|route)/.test(journal), `${host} native: no route hatch runs on macOS: ${logs.lines.filter((l) => /hatch/.test(l)).join(' | ')}`);
     }
     await s.tap('compose-home'); await settle(s);
     check((await s.state()).slots.composed === 1, `${host} native: the authored Compose runs the handler a bar item presses`);
-    // The window toolbar's hook (macOS, LLP 1075.003.000 §3.7): its display
+    // The window toolbar's hatch (macOS, LLP 1075.003.000 §3.7): its display
     // mode and an item of the app's after Exact's, whose own items still press.
     if (host === 'macos') {
       await s.clock('settle');
       const bar = (await s.state()).window?.toolbar;
-      check(bar?.installed && bar.displayMode === 1 && bar.appItems?.includes('fixture.hooked') && bar.items?.at(-1) === 'fixture.hooked',
-        `${host} native: the toolbar hook sets the display mode and adds an item after Exact's: ${JSON.stringify(bar)}`);
+      check(bar?.installed && bar.displayMode === 1 && bar.appItems?.includes('fixture.hatched') && bar.items?.at(-1) === 'fixture.hatched',
+        `${host} native: the toolbar hatch sets the display mode and adds an item after Exact's: ${JSON.stringify(bar)}`);
       check(bar?.appEnabled?.every(Boolean), `${host} native: the app's own toolbar item is enabled (its target validates it): ${JSON.stringify(bar?.appEnabled)}`);
       await s.tap('toolbar-compose'); await settle(s);
       check((await s.state()).slots.composed === 2, `${host} native: Exact's toolbar item still presses its command`);
     }
     await s.tap('detail'); await settle(s);
     t = await until(s, 'the detail route is pushed', (t) => !!byTestId(t, 'route-detail'));
-    // Hooked nodes (LLP 1075.003.000): the tree shows each word, the hook
+    // Hatched nodes (LLP 1075.003.000): the tree shows each word, the hatch
     // hears a node's mount and its data-* change (`state` counts them; on the
     // web the fixture's page module does), and a development build journals a
     // write to what Exact owns of one (iOS).
-    const webCalls = async () => JSON.parse(await s.carrier.evaluate('JSON.stringify(globalThis.exactFixtureHooks ?? {})'));
-    const hookCalls = async (word) => host === 'web'
+    const webCalls = async () => JSON.parse(await s.carrier.evaluate('JSON.stringify(globalThis.exactFixtureHatches ?? {})'));
+    const hatchCalls = async (word) => host === 'web'
       ? Object.fromEntries(Object.entries(await webCalls()).filter(([k]) => k.startsWith(word + ':')).map(([k, v]) => [k.slice(word.length + 1), v]))
-      : (await s.state()).hooks?.[word]?.calls ?? {};
+      : (await s.state()).hatches?.words?.[word]?.calls ?? {};
     {
       await s.clock('settle');
-      check(byTestId(await s.tree(), 'hooked-badge')?.props.hook === 'badge', `${host} native: the tree shows a node's hook word`);
-      const badge = await hookCalls('badge');
-      check(badge.built === 1 && badge.changed === 1, `${host} native: a hooked node is built, and its data-* change reaches its hook: ${JSON.stringify(badge)}`);
-      // The host's own count of the calls (`state.hooks`), every host alike.
-      const counted = (await s.state()).hooks?.badge;
-      check(counted?.calls?.built === 1 && counted.calls.changed === 1 && counted.live === 1, `${host} native: state.hooks counts the hook's calls: ${JSON.stringify(counted)}`);
+      check(byTestId(await s.tree(), 'hatched-badge')?.props.hatch === 'badge', `${host} native: the tree shows a node's hatch word`);
+      const badge = await hatchCalls('badge');
+      check(badge.built === 1 && badge.changed === 1, `${host} native: a hatched node is built, and its data-* change reaches its hatch: ${JSON.stringify(badge)}`);
+      // The host's own count of the calls (`state.hatches`), every host alike.
+      const counted = (await s.state()).hatches?.words?.badge;
+      check(counted?.calls?.built === 1 && counted.calls.changed === 1 && counted.live === 1, `${host} native: state.hatches counts the hatch's calls: ${JSON.stringify(counted)}`);
+      // What the hatch said of itself, and what Exact timed (LLP
+      // 1075.003.000.001 §3.1–3.3, §8 stage 1): its counters and snapshot in
+      // `state`, its line in `logs`, its calls in `perf hatches`. Reads are
+      // cumulative: a second read is the same.
+      {
+        check(counted?.counters?.built === 1 && counted.counters.changed === 1 && counted.published?.tone?.tone === 'busy',
+          `${host} native: state.hatches carries the hatch's counters and its snapshot: ${JSON.stringify(counted)}`);
+        const said = (await s.op({ op: 'logs', since: 0 })).lines.filter((l) => /hatch element badge: /.test(l)); // the whole journal: an earlier read took `built`
+        check(said.some((l) => /hatch element badge: built, tone info/.test(l)) && said.some((l) => /hatch element badge: changed, tone busy/.test(l)),
+          `${host} native: a hatch's log lines reach the journal under its scope: ${said.join(' | ')}`);
+        const perf = await s.op({ op: 'perf', hatches: true });
+        const timed = perf.hatches?.['element badge'], built = perf.calls?.find((c) => c.hatch === 'element badge' && c.moment === 'built');
+        check(perf.measuring && timed?.calls === 2 && timed.ms >= 0 && timed.worst <= timed.ms && built?.calls === 1 && perf.counters?.['element badge']?.built === 1 && perf.plan,
+          `${host} native: perf hatches times each call and carries the counters: ${JSON.stringify(perf)}`);
+        const again = await s.op({ op: 'perf', hatches: true });
+        // By value: a native host's JSON orders an object's keys as it likes.
+        const canon = (v) => JSON.stringify(v, (_, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x));
+        check(canon(again.calls) === canon(perf.calls) && canon(again.counters) === canon(perf.counters), `${host} native: a perf hatches read changes nothing: ${canon(perf.calls)} then ${canon(again.calls)}`);
+      }
+      // What a hatch asks of an authored node (LLP 1075.003.000.001 §2.5, §8
+      // stage 2): `input` replaces a field's value and Contract hears it, the
+      // journal holding its length and never its text; `clock settle` returns
+      // only once a queued click has committed; and a hatch whose acts keep
+      // causing acts is named by settle after 16 drains, without hanging.
+      {
+        await s.tap('feed'); await settle(s); await s.clock('settle');
+        const all = (await s.op({ op: 'logs', since: 0 })).lines.filter((l) => / hatch /.test(l));
+        check((await s.state()).slots.fed === 'Palo Alto', `${host} native: a hatch's input replaces the field's value in Contract: ${JSON.stringify((await s.state()).slots.fed)}`);
+        check(all.some((l) => /hatch element feed #\d+: input \(9 chars, delivery: hatch\)/.test(l)) && !all.some((l) => /Palo/.test(l)), `${host} native: the journal holds the input's length, never its text: ${all.filter((l) => /feed/.test(l)).join(' | ')}`);
+        await s.tap('arm'); await s.clock('settle');
+        check((await s.state()).slots.hatchPresses === 1, `${host} native: clock settle returns only after a hatch's queued click has committed: ${(await s.state()).slots.hatchPresses}`);
+        await s.tap('loop');
+        const stuck = await s.clock('settle');
+        check(stuck.settled === false && stuck.reason === 'hatches', `${host} native: a hatch whose acts keep causing acts is named by settle: ${JSON.stringify(stuck)}`);
+        await s.tap('stop-loop'); await settle(s);
+        const done = await s.clock('settle'), st = await s.state();
+        check(done.settled === true && st.slots.hatchPresses > 16 && st.hatches?.inFlight === 0, `${host} native: stopped, it settles: ${JSON.stringify(done)} after ${st.slots.hatchPresses} presses`);
+      }
+      // Each platform handles the words app.json gives it (LLP
+      // 1075.003.000.001 §4.3, §5): the fixture's `detail-list` is iOS's
+      // alone, so elsewhere its node is shown, never called, and listed.
+      {
+        const st = (await s.state()).hatches, all = (await s.op({ op: 'logs', since: 0 })).lines.join('\n');
+        const here = host === 'ios' ? ['badge', 'detail-list', 'dot', 'feed', 'presser'] : ['badge', 'dot', 'feed', 'presser'];
+        check(JSON.stringify(st?.platform) === JSON.stringify(here), `${host} native: state.hatches names the words this platform handles: ${JSON.stringify(st?.platform)}`);
+        if (host === 'ios') check(st?.unhandled?.length === 0 && st.words?.['detail-list']?.calls?.built === 1, `${host} native: iOS handles detail-list: ${JSON.stringify(st?.unhandled)}`);
+        else check(st?.unhandled?.length === 1 && st.unhandled[0].word === 'detail-list' && !st.words?.['detail-list'] && /hatch element detail-list: not handled/.test(all) && byTestId(await s.tree(), 'list-detail')?.props.hatch === 'detail-list',
+          `${host} native: a word this platform does not handle is shown, never called, and listed: ${JSON.stringify(st?.unhandled)}`);
+      }
       if (host === 'ios') {
         await s.tap('violate'); await settle(s);
         await s.tap('violate'); await settle(s);
         const owned = (await s.logs()).lines.join('\n');
-        check(/element detail-list #\d+: contentInset changed outside Exact, which owns it/.test(owned), `${host} native: the development check covers hooked nodes`);
+        check(/element detail-list #\d+: contentInset changed outside Exact, which owns it/.test(owned), `${host} native: the development check covers hatched nodes`);
       }
     }
     // An authored scrollTop lands as the browser's (LLP 1075.003 §3.7).
@@ -179,47 +228,47 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     t = await until(s, 'Back pops the detail route', (t) => !byTestId(t, 'route-detail'));
     if (host === 'ios') {
       logs = await s.logs();
-      check(logs.lines.some((l) => /hook route \d+: ended/.test(l)), `${host} native: a popped route's hook hears routeEnded`);
+      check(logs.lines.some((l) => /hatch route \d+: ended/.test(l)), `${host} native: a popped route's hatch hears routeEnded`);
     }
-    // A list whose rows each hold a hooked node: the journal names what the
-    // word gives up and warns for it in a row; a retired row's hook hears
+    // A list whose rows each hold a hatched node: the journal names what the
+    // word gives up and warns for it in a row; a retired row's hatch hears
     // `ended`; on iOS no row holding one is reused (LLP 1075.003.000 §3.3).
     {
       const takes = (await s.state()).pool?.takes;
       await s.tap('rows'); await settle(s);
-      t = await until(s, 'the hooked list shows rows', (t) => !!byTestId(t, 'row-1'));
+      t = await until(s, 'the hatched list shows rows', (t) => !!byTestId(t, 'row-1'));
       await s.clock('settle');
-      check((await hookCalls('dot')).built > 0, `${host} native: each shown row's node is hooked`);
-      await s.tap('hooked-list', { wheel: [0, 4000] }); await settle(s); await s.clock('settle');
-      const dot = await hookCalls('dot');
-      check(dot.ended > 0, `${host} native: a retired row's hook hears ended: ${JSON.stringify(dot)}`);
-      if (host === 'ios') check((await s.state()).pool?.takes === takes, `${host} native: a row holding a hooked node is never reused: ${takes} → ${(await s.state()).pool?.takes}`);
+      check((await hatchCalls('dot')).built > 0, `${host} native: each shown row's node is hatched`);
+      await s.tap('hatched-list', { wheel: [0, 4000] }); await settle(s); await s.clock('settle');
+      const dot = await hatchCalls('dot');
+      check(dot.ended > 0, `${host} native: a retired row's hatch hears ended: ${JSON.stringify(dot)}`);
+      if (host === 'ios') check((await s.state()).pool?.takes === takes, `${host} native: a row holding a hatched node is never reused: ${takes} → ${(await s.state()).pool?.takes}`);
       const said = (await s.logs()).lines.join('\n');
-      const gave = host === 'ios' ? /hook element dot: a view, not a flat leaf; its row is not reused/ : /hook element dot: nothing beyond the call/;
-      check(gave.test(said) && /hook element dot is in a row of list hooked-list/.test(said), `${host} native: the journal says what a hooked node gives up: ${said.split('\n').filter((l) => /hook element dot/.test(l)).slice(0, 3).join(' | ')}`);
-      // A hook that undoes what it adds says so (`reusable`, LLP
+      const gave = host === 'ios' ? /hatch element dot: a view, not a flat leaf; its row is not reused/ : /hatch element dot: nothing beyond the call/;
+      check(gave.test(said) && /hatch element dot is in a row of list hatched-list/.test(said), `${host} native: the journal says what a hatched node gives up: ${said.split('\n').filter((l) => /hatch element dot/.test(l)).slice(0, 3).join(' | ')}`);
+      // A hatch that undoes what it adds says so (`reusable`, LLP
       // 1075.003.000.000 §8): its rows are reused again. The live rows read
-      // the component's state the button flips, so their hooks hear it now.
+      // the component's state the button flips, so their hatches hear it now.
       if (host === 'ios') {
         await s.tap('reuse'); await settle(s); await s.clock('settle');
-        const live = (await s.tree()).nodes.filter((n) => n.props.hook === 'dot');
+        const live = (await s.tree()).nodes.filter((n) => n.props.hatch === 'dot');
         check(live.length > 0 && live.every((n) => n.props.dataset === '{"reuse":"true"}'), `${host} native: the live rows re-read the state the button flips: ${live.length} rows, ${[...new Set(live.map((n) => n.props.dataset))]}`);
         const from = (await s.state()).pool?.takes;
-        await s.tap('hooked-list', { wheel: [0, -4000] }); await settle(s); await s.clock('settle');
+        await s.tap('hatched-list', { wheel: [0, -4000] }); await settle(s); await s.clock('settle');
         const st = await s.state(), freed = (await s.logs()).lines.join('\n');
-        check(st.pool?.takes > from && st.hooks?.dot?.reusable > 0 && /hook element dot: its hook undoes what it adds; its row is reused/.test(freed),
-          `${host} native: a reusable hook's rows are reused: takes ${from} → ${st.pool?.takes}, ${JSON.stringify(st.hooks?.dot)}`);
+        check(st.pool?.takes > from && st.hatches?.words?.dot?.reusable > 0 && /hatch element dot: its hatch undoes what it adds; its row is reused/.test(freed),
+          `${host} native: a reusable hatch's rows are reused: takes ${from} → ${st.pool?.takes}, ${JSON.stringify(st.hatches?.words?.dot)}`);
       }
       await s.tap('back'); await settle(s);
-      t = await until(s, 'Back pops the rows route', (t) => !byTestId(t, 'hooked-list'));
+      t = await until(s, 'Back pops the rows route', (t) => !byTestId(t, 'hatched-list'));
     }
-    // The page module's container hooks (LLP 1075.003.000 §3.7): the root,
+    // The page module's container hatches (LLP 1075.003.000 §3.7): the root,
     // its tablist, each route as it mounts and as it leaves.
     if (host === 'web') {
       await s.clock('settle');
       const c = await webCalls();
       check(c['navigation:built'] === 1 && c['tabs:built'] === 1 && c['route:built'] >= 3 && c['route:ended'] >= 2,
-        `${host} native: the page module's container hooks run as routes mount and leave: ${JSON.stringify(c)}`);
+        `${host} native: the page module's container hatches run as routes mount and leave: ${JSON.stringify(c)}`);
     }
     // A sheet over the tabs, and its Close (LLP 1075.003 §3.7, from James's review).
     // (macOS projects no routes: there the sheet is its route, shown.)
@@ -441,6 +490,102 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
   } catch (error) {
     check(false, `${host} native: the fixture drive stopped: ${error.stack ?? error.message}`);
   } finally { await s.close(); }
+  // Two drives of the same steps agree on what the hatches did (LLP
+  // 1075.003.000.001 §4.6, §8 stage 1): every call's count, every counter,
+  // each span's count and time on the session clock, and the journal's
+  // hatch lines. Measured milliseconds are the wall's and are left out.
+  {
+    const drive = async () => {
+      const d = await open({ host });
+      try {
+        await d.clock('settle');
+        await d.tap('rows'); await settle(d); await d.clock('settle');
+        await d.tap('hatched-list', { wheel: [0, 4000] }); await settle(d); await d.clock('settle');
+        await d.clock('+1000'); await d.clock('settle');
+        const perf = await d.op({ op: 'perf', hatches: true });
+        const calls = perf.calls.map((c) => `${c.hatch} ${c.site ?? ''} ${c.moment} ${c.calls}`).sort();
+        const spans = Object.entries(perf.timings).flatMap(([scope, names]) => Object.entries(names).filter(([, t]) => !t.measured).map(([name, t]) => `${scope} ${name} ${t.count} ${t.sum}`)).sort();
+        const said = (await d.op({ op: 'logs', since: 0 })).lines.filter((l) => / hatch /.test(l));
+        return JSON.stringify({ calls, counters: Object.entries(perf.counters).map(([scope, names]) => [scope, Object.entries(names).sort()]).sort(), spans, said });
+      } finally { await d.close(); }
+    };
+    const first = await drive(), second = await drive();
+    check(first === second && JSON.parse(first).calls.length > 0, `${host} native: two drives agree on every hatch call, counter, span and line: ${first === second ? first.slice(0, 200) : `${first}\n  then ${second}`}`);
+  }
+
+  // The app and window scopes (LLP 1075.003.000.001 §2.1, §8 stage 2), in a
+  // session of their own: both are built as the hatches connect; a fact that
+  // changes is told to `app` once; a new size is told to `window`; the
+  // embedder's grants decide what each is handed.
+  {
+    const d = await open({ host });
+    try {
+      const scopes = async () => (await d.state()).hatches?.scopes ?? {};
+      const waited = async (what, test) => { for (let i = 0; i < 60; i++) { const sc = await scopes(); if (test(sc)) return sc; await d.clock('+50'); await sleep(50); } check(false, `${host} native: ${what}: ${JSON.stringify(await scopes())}`); return scopes(); };
+      let sc = await waited('the app and window hatches are built', (sc) => sc.app?.calls?.built === 1 && sc.window?.calls?.built === 1);
+      const lines = (await d.op({ op: 'logs', since: 0 })).lines;
+      check(lines.some((l) => /hatch app: built/.test(l)) && lines.some((l) => /hatch window: built/.test(l)), `${host} native: the app and window hatches are journaled: ${lines.filter((l) => /hatch (app|window)/.test(l)).join(' | ')}`);
+      const told = sc.module?.published ?? {};
+      // ExactMac's sessions own their windows and none the process; iOS's one session, and a page, own both.
+      check(told.scopes?.exclusive === true && told.scopes.hasWindow === true && told.app?.processOwner === (host !== 'macos') && told.app.hasApplication === (host !== 'macos'),
+        `${host} native: the embedder's grants decide what the hatches are handed: ${JSON.stringify(told)}`);
+      check(told.scopes?.frame?.[0] > 0 && told.app?.visibilityState === 'visible' && told.scopes.scheme === 'light', `${host} native: the window's frame and the app's facts reach the hatches: ${JSON.stringify(told)}`);
+      await d.prefer({ 'prefers-color-scheme': 'dark' });
+      sc = await waited('a changed fact is told to the app hatch', (sc) => sc.app?.calls?.changed >= 1 && sc.module?.published?.scopes?.scheme === 'dark');
+      check(sc.app?.calls?.changed === 1, `${host} native: one change is one call: ${JSON.stringify(sc.app)}`);
+      await d.prefer({ 'prefers-color-scheme': 'light' });
+      await waited('the fact changing back is told too', (sc) => sc.module?.published?.scopes?.scheme === 'light');
+      if (host !== 'ios') {
+        const [w, h] = told.scopes.frame;
+        await d.resize(w - 40, h - 40);
+        sc = await waited('a new size is told to the window hatch', (sc) => sc.window?.calls?.changed >= 1 && sc.module?.published?.scopes?.frame?.[0] === w - 40);
+        await d.resize(w, h);
+      }
+    } catch (error) {
+      check(false, `${host} native: the scopes drive stopped: ${error.stack ?? error.message}`);
+    } finally { await d.close(); }
+  }
+
+  // The crash breadcrumb and the switch its line names (LLP 1075.003.000.001
+  // §4.4, §2.6; Apple): a run that dies inside the badge's hatch is named by
+  // the next launch, once; with `EXACT_HATCHES=off` the module's views and
+  // calls work and no hatch is connected.
+  if (host === 'macos') {
+    // The journal, once a line matching `pattern` is in it (or as it stands after 5 s).
+    const journal = async (d, pattern) => {
+      for (let i = 0; ; i++) {
+        const lines = (await d.op({ op: 'logs', since: 0 })).lines;
+        if (i === 50 || lines.some((l) => pattern.test(l))) return lines;
+        await d.clock('+50'); await sleep(50);
+      }
+    };
+    try {
+      const dying = await open({ host, env: { EXACT_FIXTURE_DIE: 'badge' } }).catch(() => null);
+      // It dies as its hatches connect, after first pixel: wait for the driver to lose it.
+      if (dying) { for (let i = 0; i < 50; i++) { try { await dying.clock('+50'); await sleep(100); } catch { break; } } await dying.close().catch(() => {}); }
+      const next = await open({ host });
+      try {
+        const lines = await journal(next, /hatch: connected/), said = lines.filter((l) => /the last run ended while inside hatch/.test(l));
+        check(said.length === 1 && /ended while inside hatch element badge \(built, call \d+\).*EXACT_HATCHES=off/.test(said[0]), `${host} native: the launch after a death inside a hatch names it: ${said.join(' | ') || lines.filter((l) => /hatch/.test(l)).slice(0, 4).join(' | ')}`);
+        check((await next.state()).hatches?.lastEnd?.length === 1, `${host} native: state.hatches carries the last run's end`);
+      } finally { await next.close(); }
+      const third = await open({ host });
+      try {
+        check(!(await journal(third, /hatch: connected/)).some((l) => /the last run ended/.test(l)), `${host} native: a breadcrumb is read once`);
+      } finally { await third.close(); }
+      const off = await open({ host, env: { EXACT_HATCHES: 'off' } });
+      try {
+        await until(off, 'the module loads with hatches off', (t) => module(t, 'box')?.state === 'ready');
+        const lines = await journal(off, /hatches: off/), st = await off.state();
+        check(lines.some((l) => /hatches: off \(EXACT_HATCHES=off\)/.test(l)) && !lines.some((l) => /hatch (element|toolbar|navigation|route|tabs)/.test(l)) && Object.values(st.hatches?.words ?? {}).every((w) => Object.keys(w.calls ?? {}).length === 0),
+          `${host} native: EXACT_HATCHES=off connects no hatch and calls none: ${lines.filter((l) => / hatch/.test(l)).join(' | ')} ${JSON.stringify(st.hatches?.words)}`);
+        await off.tap('bump'); await off.clock('+50');
+        check((await off.state()).slots.count === 1 && module(await off.tree(), 'box')?.state === 'ready', `${host} native: with hatches off the app and its module's views work`);
+      } finally { await off.close(); }
+    } catch (error) {
+      check(false, `${host} native: the breadcrumb drive stopped: ${error.stack ?? error.message}`);
+    }
+  }
 
   // The failure family's load failures: a session each.
   const failing = async (name, options, pattern, cleanup = () => {}) => {

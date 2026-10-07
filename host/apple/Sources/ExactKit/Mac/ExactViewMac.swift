@@ -7,6 +7,7 @@
 // scrolls inside this view exactly as the standalone host's does.
 #if os(macOS)
 import AppKit
+import AVFoundation
 
 extension ExactSession {
     /// The page's canvas colour (the first root's background): what a
@@ -18,6 +19,19 @@ public final class ExactView: NSView {
     public let session: ExactSession
     public override func selectAll(_ sender: Any?) { session.presenter.selection.selectAll() }
     @objc public func copy(_ sender: Any?) { session.presenter.selection.copy() }
+    /// Edit ▸ Speech over the selected text, as a browser speaks a page's
+    /// selection (#141); a field's `NSTextView` answers first while it has
+    /// the focus. Spoken Content's voice and rate, as AppKit's own.
+    @objc public func startSpeaking(_ sender: Any?) {
+        let text = session.presenter.selection.selectedText()
+        guard !text.isEmpty else { return }
+        let utterance = AVSpeechUtterance(string: text)
+        utterance.prefersAssistiveTechnologySettings = true
+        Self.speech.stopSpeaking(at: .immediate)
+        Self.speech.speak(utterance)
+    }
+    @objc public func stopSpeaking(_ sender: Any?) { Self.speech.stopSpeaking(at: .immediate) }
+    private static let speech = AVSpeechSynthesizer()
     private var lastSize = CGSize.zero
     private var lastDisplayScale: CGFloat = 0
     private var shortcutMonitor: Any?
@@ -137,6 +151,9 @@ public final class ExactView: NSView {
             session.rasters.displayChanged()
         }
         if !session.booted {
+            // A refused boot is terminal (LLP 1031 D8): the session says why
+            // in `bootError`, and a layout does not ask again.
+            if case .failed = session.state { return }
             // An embedder's view boots the session at its first real size;
             // the standalone adapter booted it before the window showed.
             lastSize = size
@@ -147,6 +164,7 @@ public final class ExactView: NSView {
         if size != lastSize {
             lastSize = size
             session.resize(size)
+            session.natives.scopesChanged()
         }
         syncInsets()
     }
@@ -157,9 +175,16 @@ public final class ExactView: NSView {
         fit()
     }
 
+    public override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow !== window { session.natives.windowLeaving(window) }   // its window hatch ends while the window is there
+        super.viewWillMove(toWindow: newWindow)
+    }
+
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        session.natives.scopesChanged()
         if window == nil { session.presenter.menus.reset(); session.presenter.dialogs.reset() }
+        session.tellPage() // `hasFocus` is this window's (#114)
         session.rasters.setPaused(window == nil)
         session.canvases.lifecycle.refresh()
         if session.presenter.toolbar.window !== window { session.presenter.toolbar.detach() }
@@ -170,10 +195,11 @@ public final class ExactView: NSView {
             // Route declared commands first, scoped to this session's focused view.
             shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp]) { [weak self] event in
                 guard let self, event.window === self.window else { return event }
-                // A modifier pressed is a keydown on the web (`"Shift"`); to
-                // AppKit a flags change, which goes on to it either way.
+                // A modifier pressed is a keydown on the web (`"Shift"`), and
+                // released a keyup (#140); to AppKit a flags change, which
+                // goes on to it either way.
                 if event.type == .flagsChanged {
-                    if self.ownsShortcutFocus() { _ = self.session.presenter.keyDown(event) }
+                    if self.ownsShortcutFocus() { _ = self.session.presenter.keyDown(event); self.session.presenter.keyUp(event) }
                     return event
                 }
                 if event.type != .keyDown && event.type != .keyUp {
@@ -225,6 +251,17 @@ public final class ExactView: NSView {
         super.viewDidChangeEffectiveAppearance()
         session.controlTextChanged()
         session.scheme(dark: effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua)
+    }
+}
+
+extension ExactView: NSMenuItemValidation {
+    /// Start Speaking with text selected, Stop Speaking while it speaks.
+    public func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        switch item.action {
+        case #selector(startSpeaking(_:)): !session.presenter.selection.selectedText().isEmpty
+        case #selector(stopSpeaking(_:)): Self.speech.isSpeaking
+        default: true
+        }
     }
 }
 #endif

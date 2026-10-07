@@ -153,8 +153,17 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
   // A correction's offset: smooth only when the correction says so, never
   // by the element's own `scroll-behavior: smooth` (an anchor's shift must
   // land with the rows that moved, before the frame paints).
+  // `s.exact` is where an instant correction put the port and what the browser then read back:
+  // WebKit keeps whole-pixel offsets (a place at 91783.6 reads back 91783), so a later correction
+  // relative to the read-back offset would lose up to a pixel each time, and the reader's row
+  // creep (two corrections: 2 px). It holds only while the port still reads exactly that.
   function place(s, at, smooth) {
-    s.port.scrollTo({ [AXES[s.axis].offset === 'scrollTop' ? 'top' : 'left']: at, behavior: smooth ? 'smooth' : 'instant' });
+    const name = AXES[s.axis].offset;
+    s.port.scrollTo({ [name === 'scrollTop' ? 'top' : 'left']: at, behavior: smooth ? 'smooth' : 'instant' });
+    // Only a rounding residual (under a pixel): a target the browser clamped (an offset below 0 or past
+    // the end) is not where the port is, and a later correction builds on the port.
+    const A = AXES[s.axis], read = s.port[name], max = s.port[A.scrollSize] - s.port[A.client];
+    s.exact = !smooth && at >= 0 && at <= max && Math.abs(at - read) < 1 ? { at, read } : null;
   }
   // A smooth correction (LLP 1070.000 §6.2) is the browser's smooth scroll
   // to `s.animating`. While it runs the sequence stays, nothing is sampled
@@ -203,7 +212,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
       s.clamp = { from: s.clamp?.from ?? s.offset, at }; s.offset = s.clampAt = at;
       return false;
     }
-    s.clamp = s.clampAt = null; s.offset = at; s.sequence++;
+    s.clamp = s.clampAt = null; s.offset = at; s.sequence++; s.exact = null; // the reader's own scroll
     return true;
   }
   function desired(s) {
@@ -309,7 +318,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
   }
   function move(s, at) {
     const name = AXES[s.axis].offset;
-    s.port[name] = at; s.offset = s.port[name]; s.travel = null;
+    s.port[name] = at; s.offset = s.port[name]; s.travel = null; s.exact = null;
   }
   function jumpTo(s, at) {
     if (!states.has(s.snapshot.view)) return;
@@ -507,12 +516,18 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
               // From where the port was: rows leaving above a deep offset
               // shrink the extent first, and the browser's clamp to it is
               // not where the reader is (scrollChanged's `s.clamp`).
-              const was = s.clamp?.at === port[name] ? s.clamp.from : port[name];
+              // The read-back offset, or where the last correction put it while the port still reads
+              // just what the browser made of that: anything that moved it since (the reader, a jump,
+              // an authored offset) is the base instead.
+              const read = port[name], base = s.exact && s.exact.read === read ? s.exact.at : read;
+              const was = s.clamp?.at === read ? s.clamp.from : base;
               s.clamp = s.clampAt = null;
+              const before = port[name];
               place(s, was + correction.offset - done, false);
               s.offset = port[name]; // consume the programmatic scroll echo
-              // Not the reader's travel: its velocity reads on from here.
-              if (s.travel) s.travel.at += port[name] - was;
+              // Not the reader's travel: its velocity reads on from here (by what the browser moved,
+              // never a residual `s.exact` carries).
+              if (s.travel) s.travel.at += port[name] - before;
             }
           }
         } else

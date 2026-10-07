@@ -70,6 +70,11 @@ impl Em<'_> {
             return;
         }
         if let Some((name, value)) = crate::paint::binding(self.plan, kind, b) {
+            let f = if b.kind == BindingKind::Style && b.id == StyleId::BackdropFilter as u16 {
+                format!("()=>{}(({f})(),false)", self.uses.rt("backdropValue"))
+            } else {
+                f.to_string()
+            };
             let p = self.uses.rt("P");
             let _ = write!(
                 self.out,
@@ -110,7 +115,7 @@ impl Em<'_> {
         };
         // A clock (LLP 1055.002) plays on the page's timeline: only a drag
         // timeline's consumer is paused for the drag to seek.
-        let clock = |s: &str| s.trim_start().starts_with("clock(");
+        let clock = |s: &str| s.trim_start().starts_with("-exact-clock(");
         let timeline = binding(StyleId::AnimationTimeline)
             .is_some_and(|t| style::can_be(plan, plan.code(t.expr), &|s| !clock(s)));
         let id = StyleId::from_bit(b.id as u32).ok_or("unknown style row")?;
@@ -158,6 +163,10 @@ impl Em<'_> {
                 "perspective",
                 Some("v=>v==null?v:/^\\s*[+-]?(0+\\.?0*|\\.0+)(px)?\\s*$/i.test(v)?\"none\":typeof v===\"number\"?`${v}px`:v".into()),
             ),
+            StyleId::BackdropFilter => {
+                let check = self.uses.rt("backdropValue");
+                one("backdrop-filter", Some(format!("v=>{check}(v)")))
+            }
             // @ref LLP 1093 §1 — the row's 0 is CSS `auto`, as css.rs writes
             // it. `setProperty("column-count", "0")` does not stick, so the
             // unit sample would journal the refusal and leave a class rule.
@@ -192,7 +201,7 @@ impl Em<'_> {
                     ("overflow".into(), String::new(), when("\"hidden\"")),
                 ]
             }
-            // @ref LLP 1077 D14 — host-owned, as `press-scale`: the custom
+            // @ref LLP 1077 D14 — host-owned, as `-exact-press-scale`: the custom
             // property input-glue.js plays at the press (css.rs).
             StyleId::PressHaptic => {
                 let press = self.uses.rt("pressFeedback");
@@ -206,7 +215,7 @@ impl Em<'_> {
                     .into_iter()
                     .any(|r| binding(r).is_some())
                 {
-                    return refuse("a dynamic `press-scale` beside `scale`, `transition` or `animation`");
+                    return refuse("a dynamic `-exact-press-scale` beside `scale`, `transition` or `animation`");
                 }
                 let press = self.uses.rt("pressFeedback");
                 let _ = write!(self.out, "{press}();");
@@ -220,11 +229,6 @@ impl Em<'_> {
                 ]
             }
             StyleId::FontVariantNumeric => one("font-variant-numeric", None),
-            // `none` at 0, else one `blur()`, or the author's text.
-            StyleId::BackdropBlur => one(
-                "backdrop-filter",
-                Some("v=>typeof v===\"number\"?(v===0?\"none\":`blur(${v}px)`):v".into()),
-            ),
             // SVG's transform grammar, restated as CSS's (kernel TransformList).
             StyleId::Transform => {
                 let t = self.uses.rt("svgTransform");
@@ -252,7 +256,7 @@ impl Em<'_> {
             }
             StyleId::Transition if press => one(
                 "transition",
-                Some("v=>{if(v==null)return v;const p=v.split(/,(?![^(]*\\))/).map(t=>t.trim()).filter(t=>t&&!/spring\\(/.test(t)),o=p.map(t=>t.replace(/^scale(?=\\s)/,\"--exact-scale\")),m=p.filter(t=>/^(scale|all)(\\s|$)/.test(t)).pop();if(m)o.push(\"scale 0s\",m.replace(/^(scale|all)/,\"--exact-scale\"));return o.join(\",\")||\"none\"}".into()),
+                Some(pressed_transition_map()),
             ),
             _ => style::style_writes(b.id, timeline)
                 .map_err(|x| format!("node {i}: {x}"))?
@@ -494,8 +498,8 @@ impl Em<'_> {
     }
 
     /// What an element needs once made: a canvas's surface, a native
-    /// module's mount (LLP 1024 D3), a hooked node's page-module hook (LLP
-    /// 1075.003.000, `data-hook` among its static attributes), and the
+    /// module's mount (LLP 1024 D3), a hatched node's page-module hatch (LLP
+    /// 1075.003.000, `data-hatch` among its static attributes), and the
     /// constant values settled once its tree is in place, as bound ones are
     /// (rt.js `drain`): a select's, which its options carry (calendar diary
     /// F6), and a scroller's offsets (F8).
@@ -523,8 +527,8 @@ impl Em<'_> {
         if tag.contains('-') {
             let _ = write!(self.out, "{}({e});", self.uses.rt("nm"));
         }
-        if attrs.iter().any(|(k, _)| k == "data-hook") {
-            let _ = write!(self.out, "{}({e});", self.uses.rt("hk"));
+        if attrs.iter().any(|(k, _)| k == "data-hatch") {
+            let _ = write!(self.out, "{}({e});", self.uses.rt("ht"));
         }
         // A context menu's popover (LLP 1021 §5.1), named by a literal.
         if attrs.iter().any(|(k, _)| k == "contextpopover") {
@@ -619,8 +623,45 @@ pub(super) fn attributes(
     (attrs, content, css)
 }
 
+/// A pressed node's computed `transition`: an author's entries
+/// ([`crate::style::TRANSITION_ENTRIES`]), with `scale` moved to the
+/// `--exact-scale` the press composes with.
+pub(crate) fn pressed_transition_map() -> String {
+    format!(
+                    "v=>{{if(v==null)return v;{}const o=p.map(t=>t.replace(/^scale(?=\\s)/,\"--exact-scale\")),m=p.filter(t=>/^(scale|all)(\\s|$)/.test(t)).pop();if(m)o.push(\"scale 0s\",m.replace(/^(scale|all)/,\"--exact-scale\"));return o.join(\",\")||\"none\"}}",
+                    crate::style::TRANSITION_ENTRIES
+                )
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_pressed_nodes_computed_transition_is_checked_as_an_authors() {
+        // LLP 1081 D5, as `style`'s map, then `scale` moved to the press's
+        // `--exact-scale`.
+        assert_eq!(
+            crate::style::tests::run(
+                &super::pressed_transition_map(),
+                &[
+                    "-exact-tint-color 1s",
+                    "tint-color 1s, opacity 1s",
+                    "/**/--exact-tint 1s",
+                    "opacity 1s -exact-spring(1, 2, 3), scale 1s",
+                    "press-scale 1s",
+                    "animation-trigger 1s, --exact-π 1s",
+                ]
+            ),
+            serde_json::json!([
+                "--exact-tint 1s",
+                "opacity 1s",
+                "none",
+                "--exact-scale 1s,scale 0s,--exact-scale 1s",
+                "none",
+                "none"
+            ])
+        );
+    }
+
     use crate::style::{
         color_map,
         tests::{role, run},
@@ -628,11 +669,12 @@ mod tests {
 
     /// A bound `filter` (LLP 1095 D1) is written through the colour map:
     /// the emitted binding wraps its value in `color_map(plan)`, which turns
-    /// a role into its CSS, an admitted `platform-color()` literal into its
+    /// a role into its CSS, an admitted `-exact-platform-color()` literal into its
     /// fallback, and refuses one the plan does not hold.
     #[test]
     fn a_bound_filter_goes_through_the_colour_map() {
-        let literal = "drop-shadow(0px 2px 4px platform-color(ios webJsFilterColor, #010203))";
+        let literal =
+            "drop-shadow(0px 2px 4px -exact-platform-color(ios webJsFilterColor, #010203))";
         let source = format!(
             r#"component App
   state on = false
@@ -642,7 +684,7 @@ mod tests {
     column
       button press=flip testId="flip"
         text "Flip"
-      text "Shadow" filter=(on ? "{literal}" : "drop-shadow(0px 2px 4px system-orange)")
+      text "Shadow" filter=(on ? "{literal}" : "drop-shadow(0px 2px 4px -exact-system-orange)")
 "#
         );
         let plan = contract::compile(&source).unwrap();
@@ -660,9 +702,9 @@ mod tests {
             run(
                 &map,
                 &[
-                    "drop-shadow(0px 2px 4px system-orange)",
+                    "drop-shadow(0px 2px 4px -exact-system-orange)",
                     literal,
-                    "drop-shadow(0px 2px 4px platform-color(ios webJsOtherColor, #010203))",
+                    "drop-shadow(0px 2px 4px -exact-platform-color(ios webJsOtherColor, #010203))",
                 ]
             ),
             serde_json::json!([

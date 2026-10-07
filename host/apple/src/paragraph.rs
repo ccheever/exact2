@@ -211,17 +211,17 @@ impl<D: DataSource> Host<D> {
         }
     }
 
-    /// @ref LLP 1075.003.000 §3.3 — a hooked node this host draws without a
-    /// view of its own: its hook reaches nothing here, journaled once a word.
-    fn viewless_hook(&mut self, id: ViewId, why: &str) {
+    /// @ref LLP 1075.003.000 §3.3 — a hatched node this host draws without a
+    /// view of its own: its hatch reaches nothing here, journaled once a word.
+    fn viewless_hatch(&mut self, id: ViewId, why: &str) {
         let word = self
             .runner
             .kernel()
             .node(id)
-            .and_then(|n| n.props.str(PropId::Hook).map(str::to_owned));
-        if let Some(word) = word.filter(|w| self.viewless_hooks.insert(w.clone())) {
+            .and_then(|n| n.props.str(PropId::Hatch).map(str::to_owned));
+        if let Some(word) = word.filter(|w| self.viewless_hatches.insert(w.clone())) {
             self.log(&format!(
-                "hook element {word}: {why}; its hook is not called on this host"
+                "hatch element {word}: {why}; its hatch is not called on this host"
             ));
         }
     }
@@ -231,7 +231,7 @@ impl<D: DataSource> Host<D> {
         if self.svg.element(self.runner.kernel(), id).is_some() {
             let key = self.runner.kernel().node(id).expect("live").key;
             self.keys.insert(key, id);
-            self.viewless_hook(id, "an SVG element is its scene's, not a view");
+            self.viewless_hatch(id, "an SVG element is its scene's, not a view");
             // @ref LLP 1055.000 D17 — the presenter hits it by `pointer-events`.
             self.svg.handlers(id, events.contains(&EventKind::Press));
             return;
@@ -240,7 +240,7 @@ impl<D: DataSource> Host<D> {
             batch.controls = true;
             let key = self.runner.kernel().node(id).expect("live").key;
             self.keys.insert(key, id);
-            self.viewless_hook(id, "an option's content is its control's, not a view");
+            self.viewless_hatch(id, "an option's content is its control's, not a view");
             return;
         }
         self.queue_layout(id);
@@ -250,7 +250,7 @@ impl<D: DataSource> Host<D> {
                 let node = self.runner.kernel().node(id).expect("live");
                 self.keys.insert(node.key, id);
                 self.inline_runs.insert(id, (owner, events.to_vec()));
-                self.viewless_hook(id, "an inline text run is its paragraph's text, not a view");
+                self.viewless_hatch(id, "an inline text run is its paragraph's text, not a view");
                 return;
             }
         }

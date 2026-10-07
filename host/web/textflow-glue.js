@@ -261,6 +261,34 @@ export function createTextFlow({ views, request, advance, present, agentMode, lo
   document.head.append(sheet);
   const mac = /Mac|iPhone|iPad|iPod/.test(navigator.platform);
   let contexts = [], dirty = false, fontsReady = false, disposed = false, pendingSelection = null;
+  // A batch that puts a flowed auto-height paragraph back to its text (`restore`) holds the
+  // paragraph's flowed height until the reflow writes the new one: the unflowed text is shorter, and
+  // a scroller at its end would clamp to it (WebKit kept the clamp when the fragments came back;
+  // Chrome's scroll anchoring undid it), and what follows the paragraph would jump for a frame. The
+  // hold is a rule in this glue's own sheet, `[data-flow-hold]`, at the larger of the flowed height
+  // and the paragraph's own minimum: a host's style write (the wasm host replaces `cssText`) keeps
+  // it, and an authored inline min-height is never written. No scroll offset is written either.
+  const pinned = new Set(), holds = document.createElement('style');
+  document.head.append(holds);
+  const writeHolds = () => { holds.textContent = [...pinned].map(s => `[data-flow-hold="${s.id}"]{min-height:${s.hold}px!important}`).join(''); };
+  function pin(s) {
+    // A definite paragraph keeps its height through `restore`; only an auto one collapses.
+    if (pinned.has(s) || !s.rendered || s.info?.definite || !s.el.style.height) return;
+    // The height `write` stored (layout units, under the paragraph's own box-sizing, as min-height
+    // reads it; never a transformed rect), or its own larger minimum.
+    s.hold = Math.max(parseFloat(s.el.style.height) || 0, parseFloat(getComputedStyle(s.el).minHeight) || 0);
+    s.el.dataset.flowHold = String(s.id); pinned.add(s); writeHolds();
+  }
+  function unpin(s) { delete s.el.dataset.flowHold; pinned.delete(s); writeHolds(); }
+  function unpinAll() { for (const s of pinned) unpin(s); }
+  // After a reflow that ran (`flush`'s `pending`: a calibration still owes a cycle): a paragraph that
+  // flowed again has its new height written, and one that did not (no exclusion meets it now, the
+  // paragraph budget, a refusal) is ordinary text again; both let their held heights go. One still
+  // waiting on a calibration keeps it until the frame that flows it; until fonts are ready, all do.
+  function unpinFlowed(pending) {
+    if (!fontsReady || disposed) return;
+    for (const s of pinned) if (s.rendered || !pending) unpin(s);
+  }
   const clock = createTimerScheduler({ now, advance, present, agentMode, paint: onFrame, raf, cancel, delay, clearDelay });
   const observer = new ResizeObserver(() => invalidate());
   const observed = new Set();
@@ -287,7 +315,7 @@ export function createTextFlow({ views, request, advance, present, agentMode, lo
     metrics.clear();
     for (const p of calibration.values()) p.element?.remove();
     calibration.clear();
-    for (const s of states.values()) { restore(s); s.needsSource = true; s.prepared = false; }
+    for (const s of states.values()) { pin(s); restore(s); s.needsSource = true; s.prepared = false; }
     invalidate();
   }
   document.fonts.ready.then(() => { if (!disposed) { fontsReady = true; refreshFonts(); } });
@@ -611,7 +639,12 @@ export function createTextFlow({ views, request, advance, present, agentMode, lo
         moved ||= round === 0 && snapshot.s.boxes != null && snapshot.s.boxes !== boxes; snapshot.s.boxes = boxes;
       }
       const results = framePhases(snapshots, value => value, compute, write);
-      if (!results.some(r => r.heightChanged) || round >= results.filter(r => r.auto).length) break;
+      // A held paragraph that flowed again has its new height: its hold goes now, inside the loop, so
+      // the paragraphs after it are read where that height puts them (one more round when one went).
+      let released = false;
+      for (const s of pinned) if (s.rendered) { delete s.el.dataset.flowHold; pinned.delete(s); released = true; }
+      if (released) writeHolds();
+      if ((!results.some(r => r.heightChanged) && !released) || round >= results.filter(r => r.auto).length + Number(released)) break;
       for (const s of states.values()) s.box = null;
     }
     restoreSelection(selected);
@@ -630,7 +663,7 @@ export function createTextFlow({ views, request, advance, present, agentMode, lo
   }
   function onFrame() {
     // The scheduler advances first, then paints in this same frame.
-    flush();
+    unpinFlowed(flush());
     if (dirty) wake();
   }
 
@@ -641,7 +674,7 @@ export function createTextFlow({ views, request, advance, present, agentMode, lo
       for (const s of states.values()) {
         const relevant = topology || ops.some(op => ['style', 'props'].includes(op.op) &&
           (op.id === s.id || views.get(op.id)?.contains(s.el) || s.runs.some(r => r.chain.includes(views.get(op.id)))));
-        if (relevant) { pendingSelection ??= selectionSnapshot(); restore(s); s.needsSource = true; s.geometry = null; }
+        if (relevant) { pendingSelection ??= selectionSnapshot(); pin(s); restore(s); s.needsSource = true; s.geometry = null; }
       }
     },
     afterBatch(batch) {
@@ -653,14 +686,20 @@ export function createTextFlow({ views, request, advance, present, agentMode, lo
         const onlyExclusions = batch.ops.every(op => op.op === 'style' && contexts.some(c => c.exclusions.includes(op.id)));
         invalidate(!onlyExclusions);
       }
+      // A batch that put paragraphs back to their text flows them again now, in its own task, so no
+      // frame paints them unflowed; their held heights go once the reflow has written new ones.
+      if (pinned.size) unpinFlowed(flush());
     },
     async settle() {
       await document.fonts.ready; fontsReady = true;
       // Calibration needs a separate write/read cycle, never alternating nodes.
-      for (let i = 0; i < 3 && dirty; i++) { flush(); if (dirty) await new Promise(resolve => raf(resolve)); }
+      let pending = false;
+      for (let i = 0; i < 3 && dirty; i++) { pending = flush(); if (dirty) await new Promise(resolve => raf(resolve)); }
+      unpinFlowed(pending);
     },
     facts(id) { return states.get(id)?.facts ?? null; },
     reset() {
+      unpinAll();
       clock.reset();
       for (const s of states.values()) restore(s);
       request(6, 0, new Uint8Array()); shapes.clear();
@@ -670,7 +709,7 @@ export function createTextFlow({ views, request, advance, present, agentMode, lo
     dispose() {
       this.reset(); disposed = true;
       clock.dispose();
-      document.fonts.removeEventListener('loadingdone', refreshFonts); document.removeEventListener('scroll', invalidate, true); canvas.remove(); sheet.remove();
+      document.fonts.removeEventListener('loadingdone', refreshFonts); document.removeEventListener('scroll', invalidate, true); canvas.remove(); sheet.remove(); holds.remove();
     },
   };
 }

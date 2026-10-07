@@ -222,7 +222,10 @@ struct ReorderScroller {
     let scroll: NSScrollView
     let vertical: Bool
     let rect: CGRect
-    static func chain(from list: NodeView, holding centre: CGPoint) -> [ReorderScroller] {
+    /// D7, amended 2026-10-07: an ancestor joins while it holds the centre,
+    /// or the contact once a ghost held off its middle has carried its centre
+    /// past the edge (that edge's band then measures the centre beyond it).
+    static func chain(from list: NodeView, holding centre: CGPoint, contact: CGPoint? = nil) -> [ReorderScroller] {
         var out: [ReorderScroller] = []
         if let scroll = list.scroll, scroll.window != nil {
             let rect = scroll.contentView.convert(scroll.contentView.bounds, to: nil)
@@ -232,7 +235,7 @@ struct ReorderScroller {
         while let current = view {
             if let node = current as? NodeView, let scroll = node.scroll, scroll.window != nil {
                 let rect = scroll.contentView.convert(scroll.contentView.bounds, to: nil)
-                if rect.contains(centre) {
+                if rect.contains(centre) || contact.map({ rect.contains($0) }) == true {
                     let wide = (scroll.documentView?.frame.width ?? 0) > scroll.contentView.bounds.width + 0.5
                     out.append(ReorderScroller(scroll: scroll, vertical: !wide, rect: rect))
                 }
@@ -277,7 +280,7 @@ extension NodeView {
     }
     /// "Move earlier", "Move later", "Move to previous list", "Move to next
     /// list" on a grouped grip (D9).
-    override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
+    package override func accessibilityCustomActions() -> [NSAccessibilityCustomAction]? {
         guard reorderGroupList != nil else { return super.accessibilityCustomActions() }
         return ReorderGroupStep.actions.map { name, step in
             NSAccessibilityCustomAction(name: name) { [weak self] in self?.reorderAction(step) ?? false }

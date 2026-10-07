@@ -29,6 +29,9 @@ struct Rendered {
     failed: Option<wgpu::SurfaceTexture>,
     /// Ask for its next drawable off the presenter's thread once presented.
     request: bool,
+    /// The buffer it rendered into, for a canvas without a window
+    /// (`crate::buffers`): published when the submit's work is done.
+    buffer: Option<usize>,
 }
 
 impl Module {
@@ -62,6 +65,10 @@ impl Module {
         let gpu = self.gpu.as_ref()?;
         if !inst.bound {
             return Some(false);
+        }
+        #[cfg(target_os = "android")]
+        if inst.ring.is_some() {
+            return self.render_to_buffer(id, frame);
         }
         let target = inst.presentation.as_ref()?;
         let config = inst.config.as_mut()?;
@@ -152,6 +159,67 @@ impl Module {
             texture,
             failed,
             request: off_thread && wants,
+            buffer: None,
+        });
+        if let Some(SurfaceError(e)) = failure {
+            self.error = e;
+            return None;
+        }
+        inst.dirty = false;
+        Some(wants)
+    }
+
+    /// [`Module::render`] for a canvas with buffers: the frame goes into
+    /// the ring's next one.
+    #[cfg(target_os = "android")]
+    fn render_to_buffer(&mut self, id: u32, frame: &Frame) -> Option<bool> {
+        let (w, h) = frame.pixels();
+        let gpu = self.gpu.as_ref()?;
+        let inst = self.instances.get_mut(&id)?;
+        if inst
+            .ring
+            .as_ref()
+            .is_some_and(|r| r.size != (w.max(1), h.max(1)))
+        {
+            inst.ring = crate::buffers::Ring::new(gpu, w, h);
+        }
+        let ring = inst.ring.as_mut()?;
+        ring.settle();
+        let format = crate::buffers::FORMAT;
+        inst.surface.prepare_assets(&gpu.device, &gpu.queue, format);
+        let (slot, view) = ring.target();
+        let frame = Frame {
+            seekable: self.seekable,
+            period_ms: self.period_ms,
+            children_generation: inst.children_generation,
+            shader_generation: shaders::shader_generation(),
+            headroom: 1.0,
+            ..*frame
+        };
+        let open = self.open.get_or_insert_with(|| Open {
+            encoder: gpu
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("exact canvases"),
+                }),
+            canvases: Vec::new(),
+        });
+        let wants = inst.surface.render(
+            &frame,
+            &gpu.device,
+            &gpu.queue,
+            &mut open.encoder,
+            &view,
+            format,
+        );
+        inst.drain();
+        let failure = inst.surface.take_error();
+        open.canvases.push(Rendered {
+            id,
+            texture: None,
+            failed: None,
+            request: false,
+            buffer: failure.is_none().then_some(slot),
         });
         if let Some(SurfaceError(e)) = failure {
             self.error = e;
@@ -183,7 +251,7 @@ impl Module {
         let first: Vec<Arc<AtomicBool>> = open
             .canvases
             .iter()
-            .filter(|c| c.texture.is_some())
+            .filter(|c| c.texture.is_some() || c.buffer.is_some())
             .filter_map(|c| self.instances.get(&c.id))
             .filter(|i| !i.seen.load(Ordering::Acquire))
             .map(|i| i.seen.clone())
@@ -226,6 +294,12 @@ impl Module {
             let Some(inst) = self.instances.get_mut(&c.id) else {
                 continue;
             };
+            #[cfg(target_os = "android")]
+            if let (Some(slot), Some(ring)) = (c.buffer, inst.ring.as_mut()) {
+                ring.submitted(slot, &gpu.queue);
+            }
+            #[cfg(not(target_os = "android"))]
+            let _ = c.buffer;
             inst.surface.submitted();
             inst.drain();
             if let Some(SurfaceError(e)) = inst.surface.take_error() {

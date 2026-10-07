@@ -1,0 +1,55 @@
+{
+  "engine": "exact2",
+  "overall": 8,
+  "overall_why": "I would use this again for a similar game because the headless proof is the whole job: a scripted clock, save/restore in a fresh process, and hash pins let an agent prove growth, watering, money, an offline hour, and a thousand plants without a person, then the same pins held on the web host while it took the screenshots. The tax was real but one-time — types that appear after setup must be registered or restore refuses, the world hash includes the host clock, and a 50 ms timer cannot survive an hour seek — and after those, a full Linux pass was 6.6 seconds. That verification loop matters more than the derive ceremony or the gap between the supplied models and the reference frames.",
+  "subscores": {
+    "setup": 7,
+    "docs": 6,
+    "loop": 8,
+    "verification": 8,
+    "debugging": 7,
+    "assets": 8,
+    "ui": 8,
+    "api": 6,
+    "reliability": 6,
+    "visuals": 7
+  },
+  "citations": {
+    "setup": [
+      "2026-10-06T05:21:19Z — Scaffolded `garden/` with `exact.mjs new --game --assets`. The game SDK crates were not all fetched and Xcode.app is not selected (CLT only); native mac launch is not the proof host."
+    ],
+    "docs": [
+      "2026-10-06T06:25:30Z — First Rust build. `Resource` already implements `Data`, so deriving both failed. `Sky` and the row structs needed `Default` because `Data` requires it. Signed `div_ceil` is still unstable, so page count is integer division. Hostless `Sim::new` leaves setup pending until assets load; tests use `Sim::baked`.",
+      "2026-10-06T06:32:49Z — Linux proof passed P1–P6, then died on P7 at `tap('play')` of the restored process: `unregistered component FruitLook`. A fresh process runs setup before it loads the save, and fruit meshes (and the fence lanterns) are inserted only on a later sync, so they were missing from the schema.",
+      "2026-10-06T06:41:38Z — `run(1 hour)` died with `TimerFireLimit { limit: 4096 }`. The HUD stamp was `every(50)`, so one clock span fired more timers than the runner allows, and it also wrote a different `seen_host_ms` into each process, which the world hash includes. The next Linux run passed P1–P9 with 0 failures in 6.9 s and came back `UNVERIFIED` because `pins.json` was empty."
+    ],
+    "debugging": [
+      "2026-10-06T06:32:49Z — died on P7 at `tap('play')` of the restored process: `unregistered component FruitLook`. … `Game::register` now registers `FruitLook`, `Limbs`, `Lantern`, and the garden resources.",
+      "2026-10-06T06:41:38Z — Second Linux proof got through P7 (ticks matched, hashes did not) and then `run(1 hour)` died with `TimerFireLimit { limit: 4096 }`."
+    ],
+    "api": [
+      "2026-10-06T05:36:33Z — Character `bounds_xz` is one inclusive range for both axes; the garden is clamped by hand. Away is the host gap on the first tick after a restore (`seen_host_ms` saved, `booted` not saved).",
+      "2026-10-06T06:25:30Z — `Resource` already implements `Data`, so deriving both failed. `Sky` and the row structs needed `Default` because `Data` requires it. Hostless `Sim::new` leaves setup pending until assets load; tests use `Sim::baked`.",
+      "2026-10-06T06:32:49Z — `Game::register` now registers `FruitLook`, `Limbs`, `Lantern`, and the garden resources.",
+      "2026-10-06T06:41:38Z — it also wrote a different `seen_host_ms` into each process, which the world hash includes."
+    ],
+    "reliability": [
+      "2026-10-06T06:32:49Z — Linux proof (`bun proof.mjs`) passed P1–P6, then died on P7 at `tap('play')` of the restored process: `unregistered component FruitLook`.",
+      "2026-10-06T06:41:38Z — `run(1 hour)` died with `TimerFireLimit { limit: 4096 }`. … came back `UNVERIFIED` because `pins.json` was empty.",
+      "2026-10-06T06:45:17Z — Linux proof with those pins: `PROOF PASS` in 6.6 s. Web proof: `PROOF PASS` in 116.8 s, pins matched."
+    ],
+    "visuals": [
+      "2026-10-06T06:45:17Z — Looked at all nine and at `reference/arrival.png`. The given art is a different model set from that reference; the HUD, plot, farmer and panels sit in the same places. Arrival shows Restock 4:59 because the shot is after the boot tick (~16 ms), so the 5:00 countdown has already stepped. The rain shot is the Rain sky, not a thunder frame."
+    ]
+  },
+  "top_frictions": [
+    "A fresh process runs setup, then loads the save, and refuses any component that setup never inserted. FruitLook and the lanterns exist only after a later sync, so P7 died until Game::register listed them. The in-process restore test does not catch that.",
+    "The world hash includes seen_host_ms, so two simulations with the same rules disagree when their host clocks differ. A contract every(50) stamp also exceeds TimerFireLimit (4096) on a one-hour seek, so the played hour had to be split into 60 s steps.",
+    "The first Rust build failed on engine rules that are easy to miss: Resource already implements Data, Data requires Default, signed div_ceil is unstable, and Sim::new leaves setup pending until assets load."
+  ],
+  "keep": [
+    "A headless Linux proof with a scripted clock, fresh-process save/restore, and hash pins. Once the pins existed, Linux passed in 6.6 s and the web host reproduced the same pins.",
+    "Asserting the garden as resources and the HUD by testId, so value, watering, market, and the offline hour were checked without looking at pixels. An hour of ticks at about a thousand plants was a few milliseconds.",
+    "The restore error named the missing component and the fix (`world.register::<FruitLook>()` in Game::register), and an empty pins file came back UNVERIFIED instead of a false pass."
+  ]
+}
