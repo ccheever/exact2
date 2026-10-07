@@ -9,10 +9,10 @@ import UIKit
 final class RouteController: UIViewController {
     let node: NodeView
     var key: String { node.props["navigationKey"] ?? "" }
-    /// What Exact last projected into the navigation item, and that plus the
-    /// words the route hook last saw; whether the hook has run; the header
+    /// What Exact last projected into the navigation item, and that plus
+    /// what the route hook last saw; whether the hook has run; the header
     /// lifted into the bar; the content scroll view a hook was handed.
-    var projectedSource: String?, projected: String?, backSource: String?
+    var projectedSource: BarSource?, projected: HookSource?, backSource: String?
     var hooked = false
     weak var lifted: NodeView?
     weak var host: NavigationHost?
