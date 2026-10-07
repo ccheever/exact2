@@ -1468,7 +1468,17 @@ textarea's breaks the line), `"Space"` presses a button, `"r"` reaches an
 `aria-keyshortcuts="r"` button — then releases it through the `keyup`
 handlers at the focus. A chord holds its modifiers for the key, in
 Playwright's spelling: `"Shift+Enter"`, `"Meta+s"`, `"Control+Alt+ArrowLeft"`
-([keys](contract-grammar.md#keys)). Not every interactive
+([keys](contract-grammar.md#keys)). As a keyboard does, on every host, each
+modifier is its own key first: a `key` handler hears `Shift`, then `Enter`
+(with its `shiftKey`), so a handler that treats any key as typing must skip
+`Shift`, `Control`, `Alt` and `Meta`. A paste is the same (`Control` or `Meta`,
+then `v`), and so is a click or a wheel with `tap … modifiers` on Chrome,
+Firefox, WebKit and Linux, and a right or double click with modifiers on Chrome.
+Each modifier comes up after the key, in reverse, without its own bit, so a
+`keyup` handler hears it too. Still flags only, with no modifier key of their
+own: Apple's taps, a drag's phased `tap … down`/`move`/`up` (Chrome and Apple;
+other carriers refuse modifiers there), and a key a canvas world takes on Apple.
+Not every interactive
 driver operation is a test-file statement. `contract test` parses and prints JSON;
 `agent.mjs <host> --test <file>` actually drives the app.
 

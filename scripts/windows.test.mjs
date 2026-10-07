@@ -500,6 +500,25 @@ test.skipIf(process.platform !== 'win32')('release Windows game shells use GUI e
   } finally { rmSync(root,{recursive:true,force:true}); }
 },60000);
 
+test('a chord presses its modifiers as their own keys around the key, as a keyboard does', async () => {
+  const held = new Map(), sent = [];
+  const call = async (method, event) => {
+    sent.push(withHeldModifiers(method, event, held));
+    if (event.type === 'keyUp') held.delete(event.code); else held.set(event.code, event);
+  };
+  await browserKey({id:3,opts:{key:'Shift+Control+Enter'},evaluate:async()=>true,ask:async()=>({ok:true}),call,frame:async()=>{}});
+  expect(sent.map(e => [e.type, e.key, e.modifiers])).toEqual([
+    ['keyDown','Shift',8], ['keyDown','Control',10], ['keyDown','Enter',10], ['keyUp','Enter',10], ['keyUp','Control',8], ['keyUp','Shift',0]]);
+  expect(held.size).toBe(0);
+  // A held key keeps its modifiers down until its up.
+  sent.length = 0;
+  const down = await browserKey({id:3,opts:{key:'Meta+k',phase:'down'},evaluate:async()=>true,ask:async()=>({ok:true}),call,frame:async()=>{}});
+  expect(sent.map(e => [e.type, e.key])).toEqual([['keyDown','Meta'], ['keyDown','k']]);
+  await down.release();
+  expect(sent.map(e => [e.type, e.key])).toEqual([['keyDown','Meta'], ['keyDown','k'], ['keyUp','k'], ['keyUp','Meta']]);
+  expect(held.size).toBe(0);
+});
+
 test('browser function keys reach the focused game with their platform key identity', async () => {
   for(const [key,vk] of [['F1',112],['F2',113],['F12',123],['F24',135]]) {
     const calls=[];
@@ -568,14 +587,17 @@ test('paste sends the platform chord and a prevented keydown skips the clipboard
     return deliverClipboard({id:7, opts:{clipboard, ...(text == null ? {} : {text})}, evaluate, ask, call}).then(() => trace);
   };
 
+  // The chord's modifier is its own key first and last, as a keyboard's (Charlie, 2026-10-07).
+  const [name, code] = process.platform === 'darwin' ? ['Meta', 'MetaLeft'] : ['Control', 'ControlLeft'];
+  const md = ['keyDown', name, code, 0, undefined], mu = ['keyUp', name, code, 0, undefined];
   expect(await drive({clipboard:'paste', text:'secret', prevented:true})).toEqual([
-    'focus', 'listen', ['keyDown', 'v', 'KeyV', mapped.modifiers, undefined], 'flag', ['keyUp', 'v', 'KeyV', mapped.modifiers, undefined], 'unlisten',
+    'focus', 'listen', md, ['keyDown', 'v', 'KeyV', mapped.modifiers, undefined], 'flag', ['keyUp', 'v', 'KeyV', mapped.modifiers, undefined], mu, 'unlisten',
   ]);
   expect(await drive({clipboard:'paste', text:'secret', prevented:false})).toEqual([
-    'focus', 'listen', ['keyDown', 'v', 'KeyV', mapped.modifiers, undefined], 'flag', 'event', ['insert', 'secret'], ['keyUp', 'v', 'KeyV', mapped.modifiers, undefined], 'unlisten',
+    'focus', 'listen', md, ['keyDown', 'v', 'KeyV', mapped.modifiers, undefined], 'flag', 'event', ['insert', 'secret'], ['keyUp', 'v', 'KeyV', mapped.modifiers, undefined], mu, 'unlisten',
   ]);
   expect(await drive({clipboard:'paste', text:'secret', prevented:false, editable:false})).toEqual([
-    'focus', 'listen', ['keyDown', 'v', 'KeyV', mapped.modifiers, undefined], 'flag', 'event', ['keyUp', 'v', 'KeyV', mapped.modifiers, undefined], 'unlisten',
+    'focus', 'listen', md, ['keyDown', 'v', 'KeyV', mapped.modifiers, undefined], 'flag', 'event', ['keyUp', 'v', 'KeyV', mapped.modifiers, undefined], mu, 'unlisten',
   ]);
   expect(await drive({clipboard:'copy'})).toEqual(['focus', 'event']);
   await assert.rejects(drive({clipboard:'paste', text:'secret', prevented:false, failAt:'event'}), /send failed/);
@@ -594,7 +616,7 @@ test('paste sends the platform chord and a prevented keydown skips the clipboard
     },
     call:async (_method, args) => { released.push(args.type); if (args.type === 'keyDown' && !listening) throw new Error('keydown before the listener'); },
   }), /send failed/);
-  expect(released).toEqual(['keyDown', 'keyUp']);
+  expect(released).toEqual(['keyDown', 'keyDown', 'keyUp', 'keyUp']);
   released.length = 0;
   await assert.rejects(deliverClipboard({
     id:7, opts:{clipboard:'paste', text:'x'},

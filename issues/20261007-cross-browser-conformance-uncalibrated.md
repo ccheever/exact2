@@ -39,7 +39,7 @@ Blind review of the approach (Astra and Grok, both SOUND WITH CHANGES; folded): 
 
 ## What remains, by cause
 
-- **Modifier keys (a carrier bug):** issues/20261007-cross-browser-modifier-keys.md. This is most of the remaining state and tree lines (synthetic-keys, synthetic-tabindex).
+- **Modifier keys: fixed (lane/xbrowser-2, Charlie 2026-10-07).** Every host's driver now presses a chord's modifiers as their own keys; Firefox no longer differs from Chrome on any key log (synthetic-tabindex is clean in Firefox; synthetic-keys' remaining lines are layout). issues/closed/20261007-cross-browser-modifier-keys.md.
 - **Native controls' intrinsic sizes (user-agent; candidates for per-node KNOWN, as markdown's file input already is):**
   - text inputs and selects: synthetic-rem `size`, synthetic-budget `in-*`, synthetic-mounted `pick`;
   - textareas: synthetic-keys `area` and `grid`, where Firefox's rows are taller;
@@ -47,7 +47,7 @@ Blind review of the approach (Astra and Grok, both SOUND WITH CHANGES; folded): 
   - checkboxes and radios: synthetic-early and synthetic-controls, where Chrome stretches a checkbox's box across a stretching column (365 px) and WebKit keeps 12 px; synthetic-radios, 2–3 px.
 
   Each such entry should name the node and the followers it moves, with the plain-HTML evidence.
-- **Text metrics (glyph advances and rounding):** small drift, at most 1.6–3.3 px, in synthetic-text, synthetic-styles, synthetic-failed, synthetic-blur, native-fixture, typetour and completion-storm. Larger wrap-driven differences in markdown-stress and textflow (the same text breaks lines differently), and realworld's favourite link, which follows the ♥ glyph's fallback width (5.7 px). In plain HTML, the same 16px system-ui string is 67.28 px wide in Firefox and 67 px in Chrome. Not yet named KNOWN: the decision is whether to name them per node or to give cross-browser layout a text-metric tolerance.
+- **Text metrics (glyph advances and rounding):** small drift, at most 1.6–3.3 px, in synthetic-text, synthetic-styles, synthetic-failed, synthetic-blur, native-fixture, typetour and completion-storm. Larger wrap-driven differences in markdown-stress and textflow (the same text breaks lines differently), and realworld's favourite link, which follows the ♥ glyph's fallback width (5.7 px). In plain HTML, the same 16px system-ui string is 67.28 px wide in Firefox and 67 px in Chrome. **Decided (Charlie, 2026-10-07): a 4 px tolerance** for cross-browser box positions and sizes (scroll offsets 1 px; Chrome conformance unchanged), built in lane/xbrowser-2. It absorbs the 1.6–3.3 px class. **It does not cover accumulated drift**, which was measured and is reported here rather than widened: in markdown-stress, blocks down a 4,900 px reading column drift 4.5–5.5 px at boot, and the 12,000 px column after `toggle-single` differs by 66.5 px (text wrapping differently over a long document); synthetic-rem 4.8 px and synthetic-controls 6.8 px at the root from several such rows.
 - **Viewport segments:** Firefox and WebKit have no Viewport Segments API (Chromium's), so synthetic-segments' `prefer segments` steps differ in state, tree and layout. This is a candidate KNOWN class for that fixture's segment steps.
 - **Unclassified, to look at:**
   - Firefox grants `requestFullscreen` in headless mode (video-player's viewport becomes 1366 wide); Chrome's does not.
@@ -55,4 +55,21 @@ Blind review of the approach (Astra and Grok, both SOUND WITH CHANGES; folded): 
   - WebKit's media session readback is `playing` or `paused` where Chrome's is `none` (video-player, synthetic-media).
   - `mediasession episode seekforward` finds no box for view 2 in both engines.
   - weatherlight's live forecast changed between the Chrome and WebKit pages (05:15 against 05:30), because the fixture reads a live API.
+
+## After the modifier and tolerance changes (2026-10-07, lane/xbrowser-2)
+
+Full pass on the mini, all 24 apps and the synthetic fixtures (FAIL lines, before → after this lane): **Firefox 1,763 → 1,004, WebKit 925 → 666.**
+
+| Firefox layout delta | ≤ 6 px | 6–10 | 10–20 | > 20 | non-layout |
+|---|---|---|---|---|---|
+| lines | 243 | 78 | 77 | 566 | 38 |
+
+WebKit: 88, 29, 64, 373, and 110 non-layout. What is left is no longer glyph drift:
+- **> 20 px: native controls and wrapping.** markdown-stress (274 Firefox lines: wrap over a 12,000 px column), synthetic-keys (130: Firefox's textarea is 52 px tall where Chrome's is 24, and the grid below moves with it), synthetic-budget (36), synthetic-mounted (18: an input 12 px wider), markdown (29), textflow (23), synthetic-segments (26). These are the native-control and wrapping classes above: per-node KNOWN entries with plain-HTML evidence, or a fixture that sizes its controls.
+- **Non-layout:**
+  - WebKit synthetic-radios (46): `ArrowRight` on the blue radio selects it and focuses it in WebKit, where Chrome keeps red. That is an engine's radio arrow-key behavior, or a carrier difference; to look at.
+  - WebKit synthetic-tabindex (5): the root and a disabled view marked focused after Tab (still unclassified, above).
+  - Media (synthetic-media 36 WebKit, 12 Firefox; video-player): the media-session readback and rates above.
+  - synthetic-segments (12 each): no Viewport Segments API.
+  - synthetic-keys `key field a for 700` (a held key's auto-repeat, #140): Chrome's field reads `go`, Firefox's `goaaaa`. Chrome's held-key path (`browserKey`) sends no `text` for a printable key, so neither the down nor its repeats type; the same on main at 0bd99f606 (main: 225 keys lines, of which the key logs; this lane: 137, only this step outside layout). Not fixed here.
 

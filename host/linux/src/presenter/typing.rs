@@ -106,6 +106,8 @@ impl<D: DataSource> Presenter<D> {
             self.hold_modifier("ControlLeft", true);
             self.key_up("v", "KeyV", self.host.now());
             self.hold_modifier("ControlLeft", false);
+            // Control's own keyup after it, without its own bit (Charlie, 2026-10-07).
+            self.key_up("Control", "ControlLeft", self.host.now());
         }
         r
     }
@@ -154,6 +156,12 @@ impl<D: DataSource> Presenter<D> {
         // stay the clipboard event alone.
         if kind == EventKind::Paste {
             self.hold_modifier("ControlLeft", true);
+            // Control's own keydown first, as a keyboard's (Charlie, 2026-10-07).
+            let (error, _) = self.key_event(EventKind::Key, "Control", "ControlLeft", false, now);
+            if let Some(e) = error {
+                self.hold_modifier("ControlLeft", false);
+                return Err(e);
+            }
             // The page's shortcuts hear the chord first, as the web's capture
             // listener does: a button declaring Control+V takes it.
             let (error, prevented) = if self.shortcut("v", false, now) {

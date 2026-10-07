@@ -331,6 +331,17 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 (held.alt, "AltLeft"),
                 (held.meta, "MetaLeft"),
             ];
+            // Each modifier's own keydown reaches the focus first, held from
+            // its own edge on, as a keyboard's (Charlie, 2026-10-07; the web's
+            // `heldForClick`). Contract's `key` hears downs only.
+            let named = field_str(line, "modifiers").unwrap_or_default();
+            for name in named.split('+').filter(|n| !n.is_empty()) {
+                if let Some((_, code)) = codes.iter().find(|(_, c)| c.starts_with(name)) {
+                    p.hold_modifier(code, true);
+                    let now = p.host().now();
+                    p.key_down_with(name, code, false, now);
+                }
+            }
             for (on, code) in codes {
                 if on {
                     p.hold_modifier(code, true);
@@ -341,6 +352,14 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 None if field_bool(line, "hover") => p.hover(id),
                 None => p.tap(id),
             };
+            // The named modifiers come up in reverse, each without its own bit (#140).
+            for name in named.split('+').filter(|n| !n.is_empty()).rev() {
+                if let Some((_, code)) = codes.iter().find(|(_, c)| c.starts_with(name)) {
+                    p.hold_modifier(code, false);
+                    let now = p.host().now();
+                    p.key_up(name, code, now);
+                }
+            }
             for (on, code) in codes {
                 if on {
                     p.hold_modifier(code, false);
@@ -357,38 +376,58 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 return p.clipboard(id, &edit, &text).unwrap_or_else(|e| error(&e));
             }
             if let Some(chord) = field_str(line, "key") {
-                // A chord's modifiers are held for its key (`Shift+Enter`,
-                // `Meta+s`), as a keyboard's are, then released.
-                let (held, key) = exact_runner::KeyModifiers::split(&chord);
-                let modifiers = [
-                    (held.shift, "ShiftLeft"),
-                    (held.ctrl, "ControlLeft"),
-                    (held.alt, "AltLeft"),
-                    (held.meta, "MetaLeft"),
-                ];
-                for (on, code) in modifiers {
-                    if on {
-                        p.hold_modifier(code, true);
-                    }
-                }
+                // A chord's modifiers (`Shift+Enter`, `Meta+s`) go down before
+                // its key and up after it, each its own key event, as a
+                // keyboard's are (Charlie, 2026-10-07; the web's `modifierEdges`).
+                let (_, key) = exact_runner::KeyModifiers::split(&chord);
+                let modifiers = chord_modifiers(&chord);
                 let Some((code, logical)) = driver_key(key) else {
                     return error(&format!("key: unsupported key {key}"));
                 };
                 let phase = field_str(line, "phase");
                 let up = phase.as_deref() == Some("up");
+                let repeat = field_bool(line, "repeat") && !up;
+                // The modifiers pressed so far; a failed edge releases them and
+                // stops. A modifier's keyup no longer carries its own bit (#140).
+                // Only a modifier still held comes up: a failed down already let
+                // its modifiers go, and a later `up` must not release them twice.
+                let release = |p: &mut Presenter<D>, pressed: &[(&str, &str)]| {
+                    for (held, name) in pressed.iter().rev() {
+                        let m = p.modifiers();
+                        let down = match *name {
+                            "Shift" => m.shift,
+                            "Control" => m.ctrl,
+                            "Alt" => m.alt,
+                            _ => m.meta,
+                        };
+                        if down {
+                            p.hold_modifier(held, false);
+                            let _ = p.type_key(id, held, name, false, false);
+                        }
+                    }
+                };
+                // A held key's repeat finds its modifiers down already.
+                if !up && !repeat {
+                    for (i, (held, name)) in modifiers.iter().enumerate() {
+                        p.hold_modifier(held, true);
+                        if let Err(e) = p.type_key(id, held, name, true, false) {
+                            release(p, &modifiers[..=i]);
+                            return error(&e);
+                        }
+                    }
+                }
                 // A modifier's own key holds it while down, as a keyboard's
                 // does: Meta's keydown says `metaKey`, its keyup no longer
                 // does (#140). A held key's later down is a repeat.
                 p.hold_modifier(code, !up);
-                let r = p.type_key(id, code, logical, !up, field_bool(line, "repeat") && !up);
+                let r = p.type_key(id, code, logical, !up, repeat);
                 if phase.is_none() && r.is_ok() {
                     p.hold_modifier(code, false);
                     let _ = p.type_key(id, code, logical, false, false);
                 }
-                for (on, code) in modifiers {
-                    if on {
-                        p.hold_modifier(code, false);
-                    }
+                // A held key keeps its modifiers down until its `up`.
+                if phase.as_deref() != Some("down") || (r.is_err() && !repeat) {
+                    release(p, &modifiers);
                 }
                 return r.unwrap_or_else(|e| error(&e));
             }
@@ -974,6 +1013,26 @@ const FKEYS: [&str; 24] = [
     "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12", "F13", "F14", "F15",
     "F16", "F17", "F18", "F19", "F20", "F21", "F22", "F23", "F24",
 ];
+
+/// A chord's modifiers in the order it names them (`Shift+Control+x` is
+/// Shift, then Control), as `(code, key)`; a modifier alone is the key.
+fn chord_modifiers(chord: &str) -> Vec<(&'static str, &'static str)> {
+    const PREFIXES: [(&str, (&str, &str)); 4] = [
+        ("Shift+", ("ShiftLeft", "Shift")),
+        ("Control+", ("ControlLeft", "Control")),
+        ("Alt+", ("AltLeft", "Alt")),
+        ("Meta+", ("MetaLeft", "Meta")),
+    ];
+    let (mut held, mut rest) = (Vec::new(), chord);
+    while let Some((prefix, modifier)) = PREFIXES
+        .iter()
+        .find(|(prefix, _)| rest.len() > prefix.len() && rest.starts_with(prefix))
+    {
+        held.push(*modifier);
+        rest = &rest[prefix.len()..];
+    }
+    held
+}
 
 /// A driver's key as `(KeyboardEvent.code, KeyboardEvent.key)`, the web
 /// `cdpKey` vocabulary: `p` and `KeyP` are one key, `7` and `Digit7` too,
