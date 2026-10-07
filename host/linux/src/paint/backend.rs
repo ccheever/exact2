@@ -149,6 +149,10 @@ pub trait Backend {
     fn slot_begin(&mut self, _id: ViewId) {}
     /// The picture's drawing ends.
     fn slot_end(&mut self) {}
+    /// The layer just begun is one its reader records again in each frame's
+    /// colour (a `color` or `background-color` transition): it keeps the
+    /// drawing.
+    fn layer_recolored(&mut self) {}
     /// A node its reader animates (`crate::host::lower`): what follows, to
     /// [`Backend::layer_end`], is its layer `key`, moved and faded about
     /// `pivot` in `ts`'s space from `base` (translate x, y, scale, rotate,

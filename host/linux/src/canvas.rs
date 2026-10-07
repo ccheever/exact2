@@ -820,6 +820,10 @@ impl Backend for Recorder {
         true
     }
 
+    fn layer_recolored(&mut self) {
+        self.layers.note_recolored();
+    }
+
     fn layer_end(&mut self) {
         self.layer_close();
     }
