@@ -1,6 +1,7 @@
 # Cross-browser conformance has never been calibrated for most apps
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** WebKit's last three causes were exact2 bugs (end-follow slack, floored correction read-back, flowed-text collapse before a commit), fixed in lane/webkit-scroll; WebKit and Firefox at 0 failures across all 24 apps and the synthetic fixtures
 **Systems:** host/web-js/conform.mjs, host/web-js/conformance/known-firefox.json, host/web-js/conformance/known-webkit.json, scripts/agent-playwright.mjs, scripts/agent-launch.mjs, scripts/async.mjs
 **Author:** Claude (Opus 5.5), triaging the async lane's first run on the mini
 **Date:** 2026-10-07
@@ -95,9 +96,11 @@ Every remaining class was probed in plain HTML in Chromium, Firefox and WebKit (
 | Media session on the Playwright carrier | — | **Fixed:** `mediasession` goes through `exact.mediaSession.act`, as on Chrome, without needing a box. |
 | Held key (#140) | — | **Fixed:** Chrome's `browserKey` sends a key's text with its down, so a held printable key types and repeats; Control and Meta chords carry none. Firefox's `key field a for 700` now matches. |
 
-**Final counts** (all 24 apps and the synthetic fixtures): Firefox 0 failures (679 known); WebKit 9 failure lines from three causes (934 known), all left open on purpose:
-- `synthetic-startend` `long.sy`: Chrome 91,784 against WebKit 91,782 at four steps. Plain HTML of a comparable 1,900-row list gives equal scroll heights in Chrome and WebKit, so this is not shown to be an engine difference.
-- `synthetic-lists tap say`: `transcript.sy` Chrome 166 against WebKit 70, deterministic (3 of 3), though the two screenshots at that step show the same rows. Unexplained; worth a look at `scrollFollowEnd` in WebKit.
-- WebKit `textflow` `tap pause` and `clock +60000`: `textflow.y` and the document scroll offset, 215 against 130 (above).
+**Final counts** (all 24 apps and the synthetic fixtures): Firefox 0 failures (679 known); WebKit 9 failure lines from three causes (934 known). All three were exact2 bugs that Safari users meet, fixed in lane/webkit-scroll:
+- `synthetic-lists tap say` (`transcript.sy` 166 against 70): a followed transcript stopped following its end in WebKit. Its rows sum to 210.72 px in a 140 px port; Chrome rounds the scroll range and scrolls to 71, WebKit floors it and stops at 70, 0.72 short, outside the runner's and the JS target's half-pixel end test. The end now counts within less than a pixel (`END_SLACK`, runner `collection/index.rs` and `start.rs`, the JS target's `list.js`; LLP 1010 amended).
+- `synthetic-startend` `long.sy` (91,784 against 91,782): `collection-glue.js` applied an anchor correction relative to the read-back offset, which WebKit keeps in whole pixels, so each correction lost up to a pixel. It now builds on where the last correction put the port while the port still reads that (a sub-pixel residual only).
+- `textflow` `tap pause` (document 215 against 130): the JS target puts every flowed paragraph back to its text before each commit and flowed it again a frame later, so the page was shorter for a frame and WebKit kept the scroll clamped to it (Chrome's scroll anchoring undid it); pressing pause jumped the page 85 px. The text flow glue (both web hosts) now holds a restored paragraph's flowed height (`[data-flow-hold]`) until a reflow that ran, and reflows in the batch's own task.
 
-The issue stays open for those three.
+Plain-HTML probes showed none of the three is an engine quirk to accept: each was the runtime's.
+
+**Closed** with WebKit and Firefox at 0 failures across all 24 apps and the synthetic fixtures (the known entries stand as calibrated).
