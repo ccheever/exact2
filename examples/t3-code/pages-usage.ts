@@ -3,6 +3,7 @@
 // apps/web/src/components/usage/{UsagePage,UsageProviderChart,usageProviders,
 // usageShortcuts,usagePagePreferences,UsageLimits,UsageLimitsPooled}.tsx and
 // packages/shared/src/{usageFormat,usageMerge,usageLimits}.ts.
+import { resolveOfficialAcpRegistryIconUrl } from './acp-icons';
 import { arr, num, obj, str, type Obj } from './domain';
 import { ClientError, providerAvailable, type Files, type Native } from './protocol';
 import type { T3Client } from './client';
@@ -292,7 +293,7 @@ export function formatDuration(ms: number): string {
   if (hours > 0) return `${hours}h ${minutes}m`;
   return `${minutes}m`;
 }
-export type LimitPool = { key: string; driver: string; label: string; windows: { key: string; label: string; remaining: number; fill: number; pace: string; resets: string; light: string; dark: string }[] };
+export type LimitPool = { key: string; driver: string; icon: string; label: string; windows: { key: string; label: string; remaining: number; fill: number; pace: string; resets: string; light: string; dark: string }[] };
 /** Providers on this environment that report subscription windows (providersWithLimits), one section each. */
 export function limitPools(providers: Obj[], now: number): LimitPool[] {
   const pools = new Map<string, LimitPool>();
@@ -301,7 +302,8 @@ export function limitPools(providers: Obj[], now: number): LimitPool[] {
     const limits = obj(provider.usageLimits);
     if (!provider.usageLimits) continue;
     const driver = str(provider.driver), meta = LIMIT_DRIVERS[driver] ?? { label: str(provider.displayName, driver), color: ['#27272a', '#f5f5f5'] as [string, string] };
-    const pool = pools.get(driver) ?? { key: driver, driver, label: meta.label, windows: [] };
+    // provider-settings-upkeep: an ACP agent's pool draws its registry icon (the live provider's iconUrl).
+    const pool = pools.get(driver) ?? { key: driver, driver, icon: driver === 'acpRegistry' ? resolveOfficialAcpRegistryIconUrl(str(provider.iconUrl)) ?? '' : '', label: meta.label, windows: [] };
     for (const window of arr(limits.windows)) {
       if (pool.windows.some(existing => existing.key === str(window.id))) continue;
       const used = Math.max(0, Math.min(100, num(window.usedPercent))), remaining = Math.round(100 - used);

@@ -564,8 +564,10 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         }
         let id = nextID(), wire = T3Wire.request(id: id, method: method, payload: request["payload"] ?? [:])
         let text = try T3Wire.encode(wire)
-        // auto-balance: a request may ask for a shorter deadline (server.getHostResources waits 5 s).
-        let wait = min(30, max(1, (request["timeout"] as? NSNumber)?.doubleValue ?? 30))
+        // auto-balance: a request may ask for a shorter deadline (server.getHostResources waits 5 s);
+        // provider-settings-upkeep: server.updateProvider runs the provider's installer and asks for up to
+        // 15 minutes (a deadline sends Interrupt, which would stop the update on the server).
+        let wait = min(900, max(1, (request["timeout"] as? NSNumber)?.doubleValue ?? 30))
         pending[id] = Pending(completion: completion, deadline: Date().addingTimeInterval(wait), trace: request["trace"] as? Int)
         if let shareKey {
             sharedReads = sharedReads.filter { pending[$0.value.id] != nil } // ended reads leave
