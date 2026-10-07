@@ -4,8 +4,8 @@
 // app.getSystemLocale() with `_` → `-`; here the native module's `systemLocale`, T3Locale.swift,
 // read with the status presentation). The packaged Electron app's runtime default locale is en-US
 // (it ships only that Chromium locale), while the macOS data runtime's default follows the Mac's
-// region (en-KR on a Korean Mac, #118), so a call the reference leaves at the runtime default
-// passes RUNTIME_LOCALE here.
+// region (en-KR on a Korean Mac; exact2 docs/reference.md: pass the locale explicitly), so a call
+// the reference leaves at the runtime default passes RUNTIME_LOCALE here.
 export const RUNTIME_LOCALE = 'en-US';
 
 /**
@@ -30,8 +30,8 @@ type LocaleWithWeekInfo = { readonly weekInfo?: { readonly firstDay: number }; g
 
 /**
  * First weekday of a locale as a `Date#getDay` index (0 is Sunday), or `undefined` when the runtime
- * has no week data, so callers keep their own default. The macOS data runtime has no `Intl.Locale`
- * (#118): there it answers `undefined`.
+ * has no week data, so callers keep their own default. The macOS data runtime has `Intl.Locale` and
+ * `getWeekInfo()` with Chrome's values since exact2 #204 (#118).
  */
 export function resolveWeekStartsOn(locale: string | undefined): WeekdayIndex | undefined {
   try {

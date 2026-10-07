@@ -18,7 +18,7 @@ impl<D: DataSource> Presenter<D> {
             viewport,
             scale,
             Assets::embedded(assets),
-            choice,
+            PainterBoot::selected(choice),
             None,
             "/",
             Some(region),

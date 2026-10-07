@@ -7,6 +7,16 @@
 #if os(iOS) || os(tvOS)
 import UIKit
 
+/// What a route's bar item is projected from. A change projects it again.
+struct BarSource: Equatable {
+    let header: UInt32?, title: String, level: Int, leading: [String], trailing: [String], group: String, canGoBack: Bool
+}
+
+/// The inputs the route hook last ran with. A change runs it again.
+struct HookSource: Equatable {
+    let bar: BarSource, back: String, navigation: ObjectIdentifier, dataset: String, scroll: ObjectIdentifier?
+}
+
 /// A route whose first child is a `header` holding exactly one heading
 /// (LLP 1035.001 D9's header-shaped route). The bar shows the heading as
 /// its title — large for a level-1 heading, inline for any other — and the
@@ -298,9 +308,12 @@ extension RouteController {
 final class SegmentPress: NSObject {
     weak var host: NavigationHost?
     var tabs: [UInt32] = []
+    /// The selection last reported or applied (`ExactSegmentedControl.settled`).
+    var settled = UISegmentedControl.noSegment
     init(host: NavigationHost) { self.host = host }
     @objc func changed(_ control: UISegmentedControl) {
         let i = control.selectedSegmentIndex
+        settled = i
         guard tabs.indices.contains(i) else { return }
         _ = host?.act(tabs[i], 0)
     }
@@ -426,11 +439,13 @@ extension NavigationHost {
             let canGoBack = index > 0 && canInvokeBack
             let scroll = contentScroll(of: c)
             let dataset = c.node.props["dataset"]
-            let source = "\(shape.map { "\($0.header.id)|\($0.title)|\($0.level)|\($0.leading.map(\.source).joined(separator: "\u{1F}"))|\($0.trailing.map(\.source).joined(separator: "\u{1F}"))|\($0.group?.source ?? "")" } ?? "-")|\(canGoBack)"
+            let source = BarSource(header: shape?.header.id, title: shape?.title ?? "", level: shape?.level ?? 0, leading: shape?.leading.map(\.source) ?? [],
+                                   trailing: shape?.trailing.map(\.source) ?? [], group: shape?.group?.source ?? "", canGoBack: canGoBack)
             // The hook runs again after anything Exact wrote to the item (the
             // Back control the route above gives it, too) and when the route
             // moves to another stack (a root whose tabs changed).
-            let signature = "\(source)|\(c.backSource ?? "")|\(ObjectIdentifier(nav))|\(dataset ?? "")|\(scroll.map { "\(ObjectIdentifier($0))" } ?? "-")"
+            let signature = HookSource(bar: source, back: c.backSource ?? "", navigation: ObjectIdentifier(nav), dataset: dataset ?? "",
+                                       scroll: scroll.map(ObjectIdentifier.init))
             if c.projectedSource != source {
                 c.projectedSource = source
                 project(shape, into: c, canGoBack: canGoBack, shows: shows)
@@ -498,12 +513,16 @@ extension NavigationHost {
         let titles = tabs.map(\.accessibleName)
         if control.numberOfSegments != titles.count {
             control.removeAllSegments()
+            segments.press.settled = UISegmentedControl.noSegment
             for (i, t) in titles.enumerated() { control.insertSegment(withTitle: t, at: i, animated: false) }
         } else {
             for (i, t) in titles.enumerated() where control.titleForSegment(at: i) != t { control.setTitle(t, forSegmentAt: i) }
         }
         let selected = tabs.firstIndex { $0.props["accessibilitySelected"] == "true" } ?? UISegmentedControl.noSegment
-        if control.selectedSegmentIndex != selected { control.selectedSegmentIndex = selected }
+        // A finger's choice not yet reported stays, as in the content's segments (`SegmentHost.sync`).
+        let pending = control.isTracking || control.selectedSegmentIndex != segments.press.settled
+        if control.selectedSegmentIndex != selected, !pending { control.selectedSegmentIndex = selected }
+        if control.selectedSegmentIndex == selected { segments.press.settled = selected }
         control.accessibilityIdentifier = list?.props["testId"]
         segments.fit(titles)
         if c.navigationItem.titleView !== control { c.navigationItem.titleView = control }

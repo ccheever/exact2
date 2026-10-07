@@ -46,7 +46,8 @@ const say = line => { const s = state(), log = s.log ?? globalThis.__exactFaultL
 
 /** Whether a fetch of `url` fails, counting it (the longest live prefix decides); the journal says so. */
 export function takeFault(url) {
-  if (!state().entries.length) return false;
+  // A production bake arms nothing: the folded constant lets its minifier drop the table.
+  if (!AGENT_ADMITTED || !state().entries.length) return false;
   const f = longest(url);
   if (!f) return false;
   f.hits += 1;
@@ -56,7 +57,7 @@ export function takeFault(url) {
 }
 
 /** Whether a fetch of `url` would fail, without counting it: `fetchEarly` starts no GET a fault will fail. */
-export const faultMatches = url => state().entries.length > 0 && longest(url) !== undefined;
+export const faultMatches = url => AGENT_ADMITTED && state().entries.length > 0 && longest(url) !== undefined;
 
 export const faultMessage = url => `fetch failed (driver fault): ${url}`;
 

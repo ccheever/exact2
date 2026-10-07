@@ -658,3 +658,12 @@ fn fast_path_agrees_with_streaming_walker_on_fuzz() {
         }
     }
 }
+
+/// A no-break space after an ordinary one may start a line, as UAX #14 LB12a
+/// and Chrome allow; it still joins a word it follows directly.
+#[test]
+fn a_break_before_no_break_glue_after_a_space_stays() {
+    let text = "hello \u{a0}world";
+    assert_eq!(exact_textflow::line_breaks(text, &[]), [6, text.len()]);
+    assert_eq!(exact_textflow::line_breaks("a\u{a0}b c", &[]), [5, 6]);
+}

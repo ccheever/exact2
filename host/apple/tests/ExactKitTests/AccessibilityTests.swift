@@ -291,5 +291,98 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertEqual(p.pressHeld, "")
         withExtendedLifetime(w) {}
     }
+    /// A booted session's autofocus waits for the turn after its first
+    /// activation. A field mounted after that focuses in its own batch.
+    func testLaunchAutofocusWaitsForTheTurnAfterActivation() throws {
+        let (session, w) = try launchFixture()
+        defer { session.destroy() }
+        let p = session.presenter
+        let edit = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "edit" })
+        XCTAssertNil(p.focusedNode, "the first batch takes no focus")
+        session.drawReceipt()()
+        XCTAssertNil(p.focusedNode, "activation and release are later turns")
+        var afterActivation: NodeView?? = nil
+        DispatchQueue.main.async { afterActivation = .some(p.focusedNode) } // after activation, before the release it queues
+        spin { afterActivation != nil && p.focusedNode != nil }
+        XCTAssertEqual(afterActivation.map { $0 == nil }, true, "the release is the turn after activation")
+        XCTAssertTrue(p.focusedNode === edit)
+        w.makeFirstResponder(nil)
+        let late = NodeView(id: 900, kind: "button", presenter: p)
+        late.frame = NSRect(x: 0, y: 100, width: 100, height: 40); late.props["autofocus"] = "true"
+        p.root.addSubview(late); p.views[late.id] = late
+        p.syncAccessibility()
+        XCTAssertTrue(w.firstResponder === late, "a later mount focuses at once")
+        withExtendedLifetime(w) {}
+    }
+    /// A carried restart before the release leaves the launch autofocus
+    /// pending. After the release, a restart restores the focus it found.
+    func testARestartBeforeTheReleaseKeepsTheLaunchAutofocus() throws {
+        let (session, w) = try launchFixture()
+        defer { session.destroy() }
+        let p = session.presenter
+        XCTAssertTrue(session.apply(plan))
+        XCTAssertNil(p.focusedNode)
+        session.drawReceipt()()
+        spin { p.focusedNode != nil }
+        XCTAssertEqual(p.focusedNode?.props["testId"], "edit")
+        XCTAssertTrue(session.apply(plan))
+        XCTAssertEqual(p.focusedNode?.props["testId"], "edit", "restoreFocus puts it back")
+        withExtendedLifetime(w) {}
+    }
+    /// A restart before the release that cannot restore the focus it found
+    /// consumes the launch autofocus, as any restart with a focus does.
+    func testARestartThatLosesAChosenFocusConsumesTheLaunchAutofocus() throws {
+        let (session, w) = try launchFixture(extra: "      input testId=\"other\" value=\"\"\n")
+        defer { session.destroy() }
+        let p = session.presenter
+        let other = try XCTUnwrap(p.views.values.first { $0.props["testId"] == "other" })
+        XCTAssertTrue(w.makeFirstResponder(other.field ?? other))
+        let replacement = try compile(Self.launchSource)
+        XCTAssertTrue(session.apply(replacement))
+        XCTAssertTrue(session.apply(replacement), "a second restart, with nothing focused, keeps it consumed")
+        session.drawReceipt()()
+        for _ in 0..<2 { // activation's turn, then the turn of the release it queues
+            var ran = false
+            DispatchQueue.main.async { ran = true }
+            spin { ran }
+        }
+        XCTAssertNil(p.focusedNode)
+        p.syncAccessibility() // a later batch's sync: the restarted tree's autofocus stays consumed
+        XCTAssertNil(p.focusedNode)
+        withExtendedLifetime(w) {}
+    }
+    /// Runs the main run loop until `done` holds, for at most `timeout` seconds.
+    private func spin(timeout: TimeInterval = 10, until done: () -> Bool) {
+        let end = Date().addingTimeInterval(timeout)
+        while !done(), Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.005)) }
+        XCTAssertTrue(done(), "timed out")
+    }
+    private static let launchSource = "component App\n  view\n    column width=\"100%\" height=\"100%\"\n      input testId=\"edit\" value=\"draft\" autofocus=true\n"
+    private var plan = Data()
+    private func compile(_ source: String) throws -> Data {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try source.write(to: dir.appendingPathComponent("app.contract"), atomically: true, encoding: .utf8)
+        let compiler = Process()
+        compiler.executableURL = URL(fileURLWithPath: try XCTUnwrap(ProcessInfo.processInfo.environment["EXACT_CONTRACT"]))
+        compiler.arguments = ["build", dir.appendingPathComponent("app.contract").path, "-o", dir.appendingPathComponent("app.plan").path]
+        try compiler.run(); compiler.waitUntilExit()
+        XCTAssertEqual(compiler.terminationStatus, 0)
+        return try Data(contentsOf: dir.appendingPathComponent("app.plan"))
+    }
+    private func launchFixture(extra: String = "") throws -> (ExactSession, NSWindow) {
+        _ = NSApplication.shared
+        plan = try compile(Self.launchSource + extra)
+        let session = ExactApp.shared.makeSession()
+        let view = ExactView(session: session)
+        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: false)
+        w.isReleasedWhenClosed = false
+        let mount = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        w.contentView = mount
+        view.frame = mount.bounds; mount.addSubview(view)
+        XCTAssertNil(session.boot(plan: plan, size: CGSize(width: 400, height: 300)).error)
+        return (session, w)
+    }
 }
 #endif

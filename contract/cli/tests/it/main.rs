@@ -112,3 +112,4 @@ mod viewport;
 mod visible_fields;
 mod visual;
 mod vocab;
+mod vscode_grammar;

@@ -103,6 +103,9 @@ impl<D: DataSource> DataSource for Anonymous<D> {
     fn preload(&self) -> Result<bool, DataError> {
         self.inner.preload()
     }
+    fn when_preloaded(&self, wake: Box<dyn FnOnce() + Send>) {
+        self.inner.when_preloaded(wake)
+    }
     fn activate(&mut self) -> Result<(), DataError> {
         self.inner.activate()
     }

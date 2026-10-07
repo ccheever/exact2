@@ -1,10 +1,10 @@
 ---
 name: 20261005-x37-distribution-signing
 plan: 20261005-t3code-macos-parity
-status: draft
+status: closed-upstream
 kind: framework-gap (unconfirmed)
 blocks: [20261005-portable-app-download]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/119
 reproduced_on: null
 ---
 
@@ -88,3 +88,15 @@ the user whether to keep it or close it by decision.
 ## Status and next action
 Draft; not reproduced on the pinned `main`; not searched upstream; not published.
 Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval; publication only after approval), after the signing decision (U11) is answered at `prepare` of `20261005-portable-app-download`.
+
+## Partly fixed upstream; available, not adopted here (2026-10-07, adopt-main-fixes-r4)
+
+[#119](https://github.com/ccheever/exact2/issues/119) was closed by main #199 (`33aaa0b43`), in the feature
+branch since main `463acda68` ([20261007-adopt-main-fixes-r4](../tasks/20261007-adopt-main-fixes-r4.md)):
+`exact release` signs every nested Mach-O file and code bundle, innermost first, found by its magic bytes,
+with the hardened runtime and a timestamp; #215 reuses that order for local bundles with
+`host.macos.resources`. Not on main (#199's open points): app-declared entitlements
+(`host.macos.entitlements`; nested code is signed with none, so a helper that needs JIT under the hardened
+runtime cannot get it), a pre-seal hook, and a decision on code under `Contents/Resources`; main's QUEUE also
+notes that a Mach-O asset is signed after the bake hashed it. Developer ID signing, notarization and
+stapling were not run upstream (no identity). Not adopted here: `20261005-portable-app-download` uses it.
