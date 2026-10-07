@@ -37,24 +37,24 @@ component ArchivedPanel
     showMenu: action
     close: action
   view
-    column width="100%" gap=32 testId="archived-settings"
+    column width="100%" gap="2rem" testId="archived-settings"
       when error != ""
-        text error font-size=12 line-height="18px" color="light-dark(#dc2626, #f87171)" role="alert" testId="archive-error" padding-left=16
+        text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#dc2626, #f87171)" role="alert" testId="archive-error" padding-left="1rem"
       when length(data.groups) == 0
         SettingsSection(title="Archived threads", sectionId="archive")
-          row width="100%" box-sizing="border-box" padding-top=12 padding-bottom=12 padding-left=16 padding-right=16 testId="archive-empty"
-            column flex=1 min-width=0 gap=6
-              row min-height=20 align-items="center" gap=8
+          row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" testId="archive-empty"
+            column flex=1 min-width=0 gap="0.375rem"
+              row min-height="1.25rem" align-items="center" gap="0.5rem"
                 LucideArchive(size=14, color="light-dark(#71717b, #818181)")
-                text (data.loading ? "Loading archived threads" : (data.error != "" ? "Could not load archived threads" : "No archived threads")) font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
-              text (data.loading ? "Checking connected environments." : (data.error != "" ? data.error : "Archived threads will appear here.")) font-size=12 line-height="18px" color="light-dark(#70707acc, #818181cc)" max-width=576 testId="archive-load-error"
+                text (data.loading ? "Loading archived threads" : (data.error != "" ? "Could not load archived threads" : "No archived threads")) font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+              text (data.loading ? "Checking connected environments." : (data.error != "" ? data.error : "Archived threads will appear here.")) font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" max-width="36rem" testId="archive-load-error"
       each group in data.groups key=group.id
-        column width="100%" gap=10 testId=`archive-group-${group.id}`
-          row min-height=28 padding-left=16 padding-right=16 align-items="center" gap=8 box-sizing="border-box"
-            box width=16 height=16 border-radius=4 display="flex" align-items="center" justify-content="center" flex-shrink=0 background-color=group.surface
-              text group.mark font-family="monospace" font-size=8.25 font-weight=700 line-height="12px" color=group.ink
-            text group.title font-size=14 line-height="20px" color="light-dark(#262629b3, #f5f5f5b3)" role="heading" aria-level=2
-          column width="100%" box-sizing="border-box" border-radius=14 border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff09)" background-color="light-dark(#ffffff66, #11111166)" box-shadow="0 1px 2px #0000000d"
+        column width="100%" gap="0.625rem" testId=`archive-group-${group.id}`
+          row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center" gap="0.5rem" box-sizing="border-box"
+            box width="1rem" height="1rem" border-radius="0.25rem" display="flex" align-items="center" justify-content="center" flex-shrink=0 background-color=group.surface
+              text group.mark font-family="monospace" font-size="0.515625rem" font-weight=700 line-height="0.75rem" color=group.ink
+            text group.title font-size="0.875rem" line-height="1.25rem" color="light-dark(#262629b3, #f5f5f5b3)" role="heading" aria-level=2
+          column width="100%" box-sizing="border-box" border-radius="0.875rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff09)" background-color="light-dark(#ffffff66, #11111166)" box-shadow="0 1px 2px #0000000d"
             each thread in group.threads key=thread.id
               ArchivedRow(thread=thread, busy=(busy or not data.available), menu=(menu == thread.scope), raw=raw, open=open, showMenu=showMenu(thread.scope), close=close)
 
@@ -70,6 +70,6 @@ component ArchivedRow
   view
     column width="100%" position="relative" contextmenu=raw("rest:archive-menu", thread.scope, thread.title) testId=`archived-row-${thread.id}`
       SettingsRow(title=thread.title, description=thread.description, first=thread.first, rowId=`archived-${thread.id}`)
-        button press=raw("unarchive-thread", thread.scope, "") disabled=busy aria-label=`Unarchive ${thread.title}` testId=`unarchive-${thread.id}` display="flex" flex-direction="row" align-items="center" gap=2 box-sizing="border-box" height=24 padding-left=5 padding-right=7 border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" flex-shrink=0 opacity=(busy ? 0.64 : 1)
+        button press=raw("unarchive-thread", thread.scope, "") disabled=busy aria-label=`Unarchive ${thread.title}` testId=`unarchive-${thread.id}` display="flex" flex-direction="row" align-items="center" gap="0.125rem" box-sizing="border-box" height="1.5rem" padding-left="0.3125rem" padding-right="0.4375rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" flex-shrink=0 opacity=(busy ? 0.64 : 1)
           LucideArchiveX(size=14, color="light-dark(#71717b, #818181)")
-          text "Unarchive" font-size=12 font-weight=500 line-height="16px" color="light-dark(#27272a, #f5f5f5)"
+          text "Unarchive" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"

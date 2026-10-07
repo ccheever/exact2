@@ -21,10 +21,10 @@ component DiffDraftCard
       preventDefault()
       save()
   view
-    column width="100%" padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 box-sizing="border-box" background-color="light-dark(#fcfcfc, #0a0a0a)" testId="diff-comment-draft"
-      textarea id="diff-comment-draft-text" value=text input=edit key=keys autofocus=true rows=2 placeholder="Add a comment…" aria-label=`Comment on lines ${rangeLabel}` testId="diff-comment-text" width="100%" min-height=56 padding-left=8 padding-right=8 padding-top=6 padding-bottom=6 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false"
-      row margin-top=6 align-items="center" gap=4
-        text "⌘/Ctrl Enter to send" flex=1 font-size=10 line-height="14px" color="light-dark(#71717ab3, #818181b3)"
+    column width="100%" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" background-color="light-dark(#fcfcfc, #0a0a0a)" testId="diff-comment-draft"
+      textarea id="diff-comment-draft-text" value=text input=edit key=keys autofocus=true rows=2 placeholder="Add a comment…" aria-label=`Comment on lines ${rangeLabel}` testId="diff-comment-text" width="100%" min-height="3.5rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false"
+      row margin-top="0.375rem" align-items="center" gap="0.25rem"
+        text "⌘/Ctrl Enter to send" flex=1 font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717ab3, #818181b3)"
         DiffCommentButton(label="Cancel", primary=false, enabled=true, choose=cancel, testId="diff-comment-cancel")
         DiffCommentButton(label="Comment", primary=true, enabled=(trim(text) != ""), choose=save, testId="diff-comment-save")
 
@@ -39,8 +39,8 @@ component DiffCommentButton
   action hover(over: bool)
     hovering = over
   view
-    button press=choose hover=hover disabled=(not enabled) testId=testId height=24 padding-left=8 padding-right=8 box-sizing="border-box" border-radius=6 border-width=0 opacity=(enabled ? 1 : 0.64) background-color=(primary ? (hovering and enabled ? "light-dark(#1d4ed8, #3b76f6)" : "light-dark(#1b4ed8, #346bf1)") : hovering ? "light-dark(#f4f4f5, #141414)" : "#00000000")
-      text label font-size=12 font-weight=500 line-height="16px" color=(primary ? "#ffffff" : "light-dark(#71717a, #818181)")
+    button press=choose hover=hover disabled=(not enabled) testId=testId height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 opacity=(enabled ? 1 : 0.64) background-color=(primary ? (hovering and enabled ? "light-dark(#1d4ed8, #3b76f6)" : "light-dark(#1b4ed8, #346bf1)") : hovering ? "light-dark(#f4f4f5, #141414)" : "#00000000")
+      text label font-size="0.75rem" font-weight=500 line-height="1rem" color=(primary ? "#ffffff" : "light-dark(#71717a, #818181)")
 
 component DiffCommentCard
   props
@@ -53,9 +53,9 @@ component DiffCommentCard
   action focusing(on: bool)
     focused = on
   view
-    row width="100%" hover=hover gap=10 align-items="flex-start" padding-left=12 padding-right=12 padding-top=10 padding-bottom=10 box-sizing="border-box" border-left-style="solid" border-left-width=2 border-color="light-dark(#1b4ed88c, #346bf18c)" background-color="light-dark(#1b4ed80b, #346bf10b)" testId="diff-comment"
-      box width=14 height=14 margin-top=3 flex-shrink=0
+    row width="100%" hover=hover gap="0.625rem" align-items="flex-start" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" box-sizing="border-box" border-left-style="solid" border-left-width=2 border-color="light-dark(#1b4ed88c, #346bf18c)" background-color="light-dark(#1b4ed80b, #346bf10b)" testId="diff-comment"
+      box width="0.875rem" height="0.875rem" margin-top="0.1875rem" flex-shrink=0
         DiffGlyph(name="message-circle", size=14, color="light-dark(#1b4ed8b3, #346bf1b3)")
-      text text flex=1 min-width=0 white-space="pre-wrap" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" testId="diff-comment-body"
-      button press=remove focus=focusing(true) blur=focusing(false) aria-label="Delete comment" testId="diff-comment-delete" width=24 height=24 margin-top=-2 padding=0 flex-shrink=0 border-radius=6 border-width=0 opacity=(hovering or focused ? 1 : 0) background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+      text text flex=1 min-width=0 white-space="pre-wrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" testId="diff-comment-body"
+      button press=remove focus=focusing(true) blur=focusing(false) aria-label="Delete comment" testId="diff-comment-delete" width="1.5rem" height="1.5rem" margin-top="-0.125rem" padding=0 flex-shrink=0 border-radius="0.375rem" border-width=0 opacity=(hovering or focused ? 1 : 0) background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
         DiffGlyph(name="trash", size=12, color="light-dark(#71717a, #818181)")

@@ -77,7 +77,12 @@ final class R7DeviceAxOverlay: CALayer {
     private(set) var elements: [R7AxElement] = []
     var count: Int { elements.count }
 
-    override init() { super.init(); isGeometryFlipped = false; masksToBounds = false }
+    private var rootFont: NSObjectProtocol?
+    override init() {
+        super.init(); isGeometryFlipped = false; masksToBounds = false
+        rootFont = NotificationCenter.default.addObserver(forName: T3RootFont.changed, object: nil, queue: .main) { [weak self] _ in self?.layoutElements() }
+    }
+    deinit { if let rootFont { NotificationCenter.default.removeObserver(rootFont) } }
     override init(layer: Any) { super.init(layer: layer) }
     required init?(coder: NSCoder) { nil }
 
@@ -100,20 +105,20 @@ final class R7DeviceAxOverlay: CALayer {
             addSublayer(box)
             guard !element.label.isEmpty else { continue }
             // `-top-3.5 left-0 max-w-full truncate rounded-sm bg-info px-1 text-3xs leading-3.5`.
-            let font = NSFont.systemFont(ofSize: 10)
+            let font = NSFont.systemFont(ofSize: T3RootFont.rem(10)), tall = T3RootFont.rem(14), inset = T3RootFont.rem(4) // rem: the Interface font size
             let text = NSAttributedString(string: element.label, attributes: [.font: font, .foregroundColor: NSColor.white])
-            let width = min(ceil(text.size().width) + 8, max(0, box.frame.width))
+            let width = min(ceil(text.size().width) + 2 * inset, max(0, box.frame.width))
             let tag = CALayer()
             tag.backgroundColor = Self.info
-            tag.cornerRadius = 6
+            tag.cornerRadius = T3RootFont.rem(6)
             tag.masksToBounds = true
-            tag.frame = CGRect(x: box.frame.minX, y: box.frame.minY - 14, width: width, height: 14)
+            tag.frame = CGRect(x: box.frame.minX, y: box.frame.minY - tall, width: width, height: tall)
             let label = CATextLayer()
             label.string = text
             label.contentsScale = scale
             label.truncationMode = .end
             label.isWrapped = false
-            label.frame = CGRect(x: 4, y: (14 - ceil(font.ascender - font.descender)) / 2, width: max(0, width - 8), height: ceil(font.ascender - font.descender))
+            label.frame = CGRect(x: inset, y: (tall - ceil(font.ascender - font.descender)) / 2, width: max(0, width - 2 * inset), height: ceil(font.ascender - font.descender))
             tag.addSublayer(label)
             addSublayer(tag)
         }

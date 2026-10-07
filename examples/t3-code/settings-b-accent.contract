@@ -12,6 +12,8 @@ fn sbK(h: number, n: number): number = n + h / 60 - 6 * floor((n + h / 60) / 6)
 fn sbChannel(h: number, s: number, v: number, n: number): number = floor((v - v * s * max(0, min(min(sbK(h, n), 4 - sbK(h, n)), 1))) * 255 + 0.5)
 
 component ProviderAccentPicker
+  inject
+    rem: number
   props
     editorId: string
     title: string
@@ -61,26 +63,26 @@ component ProviderAccentPicker
   derive hueColor = `rgb(${sbChannel(ch, 1, 1, 5)}, ${sbChannel(ch, 1, 1, 3)}, ${sbChannel(ch, 1, 1, 1)})`
   view
     box position="relative" flex-shrink=0
-      button press=open popovertarget=`provider-accent-${editorId}` hover=hover aria-label=`${accent == "" ? "Add" : "Change"} accent color for ${title}` disabled=(not writable) testId="provider-accent" display="flex" flex-direction="row" align-items="center" justify-content="center" width=28 height=28 padding=0 box-sizing="border-box" border-radius=8 border-width=0 background-color=(accent != "" ? accent : (hovered ? "light-dark(#27272914, #f5f5f514)" : "#00000000"))
+      button press=open popovertarget=`provider-accent-${editorId}` hover=hover aria-label=`${accent == "" ? "Add" : "Change"} accent color for ${title}` disabled=(not writable) testId="provider-accent" display="flex" flex-direction="row" align-items="center" justify-content="center" width="1.75rem" height="1.75rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(accent != "" ? accent : (hovered ? "light-dark(#27272914, #f5f5f514)" : "#00000000"))
         when accent == ""
           // Button variant="ghost-muted": muted-foreground, foreground on hover.
           CnGlyph(name="plus", size=16, color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
-      column id=`provider-accent-${editorId}` popover="auto" position="absolute" margin-top=6 width=226
-        column width=226 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffffd5, #171717d5)" box-shadow="0 16px 40px -18px #0000008c" overflow="hidden" role="dialog" aria-label="Accent color" testId="provider-accent-panel"
-          column width=224 background-color="light-dark(#ffffff, #0a0a0a)"
-            box width=224 height=144 position="relative" overflow="hidden" background-color=hueColor pan=dragPlane panrelease=release(editorId, hex) touch-action="none" role="group" aria-label="Accent color saturation and brightness" testId="provider-accent-plane"
+      column id=`provider-accent-${editorId}` popover="auto" position="absolute" margin-top="0.375rem" width="14.125rem"
+        column width="14.125rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffffd5, #171717d5)" box-shadow="0 16px 40px -18px #0000008c" overflow="hidden" role="dialog" aria-label="Accent color" testId="provider-accent-panel"
+          column width="14rem" background-color="light-dark(#ffffff, #0a0a0a)"
+            box width="14rem" height="9rem" position="relative" overflow="hidden" background-color=hueColor pan=dragPlane panrelease=release(editorId, hex) touch-action="none" role="group" aria-label="Accent color saturation and brightness" testId="provider-accent-plane"
               box position="absolute" left=0 top=0 right=0 bottom=0 background-image="linear-gradient(to right, #ffffff, #ffffff00)"
               box position="absolute" left=0 top=0 right=0 bottom=0 background-image="linear-gradient(to top, #000000, #00000000)"
-              box position="absolute" left=(cs * 224 - 6) top=((1 - cv) * 144 - 6) width=12 height=12 box-sizing="border-box" border-radius=9999 border-width=2 border-style="solid" border-color="#ffffff" box-shadow="0 0 0 1px #0000004d, 0 1px 3px #0000004d" testId="provider-accent-plane-thumb"
-            column padding=12 gap=12 box-sizing="border-box"
-              box position="relative" width=200 height=24 display="flex" align-items="center" pan=dragHue panrelease=release(editorId, hex) touch-action="none" role="group" aria-label=`Accent color hue ${floor(ch)}` testId="provider-accent-hue"
-                box width=200 height=10 border-radius=9999 background-image="linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)" box-shadow="inset 0 0 0 1px #0000001f"
-                box position="absolute" left=(ch / 360 * 200 - 8) top=4 width=16 height=16 box-sizing="border-box" border-radius=9999 border-width=2 border-style="solid" border-color="#ffffff" background-color=hueColor box-shadow="0 0 0 1px #0000004d, 0 1px 3px #0000004d" testId="provider-accent-hue-thumb"
-              input value=(hexEditing ? hexDraft : hex) input=editHex submit=op("provider-accent", editorId, "", hexDraft, hexEditing) aria-label="Custom hex accent color" autocorrect="off" spellcheck="false" disabled=(not writable) testId="provider-accent-hex" box-sizing="border-box" width=200 height=30 padding-left=9 padding-right=9 padding-top=4 padding-bottom=4 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" font-family="ui-monospace" font-size=12 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
+              box position="absolute" left=((cs * 224 - 6) * rem / 16) top=(((1 - cv) * 144 - 6) * rem / 16) width="0.75rem" height="0.75rem" box-sizing="border-box" border-radius="624.9375rem" border-width=2 border-style="solid" border-color="#ffffff" box-shadow="0 0 0 1px #0000004d, 0 1px 3px #0000004d" testId="provider-accent-plane-thumb"
+            column padding="0.75rem" gap="0.75rem" box-sizing="border-box"
+              box position="relative" width="12.5rem" height="1.5rem" display="flex" align-items="center" pan=dragHue panrelease=release(editorId, hex) touch-action="none" role="group" aria-label=`Accent color hue ${floor(ch)}` testId="provider-accent-hue"
+                box width="12.5rem" height="0.625rem" border-radius="624.9375rem" background-image="linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)" box-shadow="inset 0 0 0 1px #0000001f"
+                box position="absolute" left=((ch / 360 * 200 - 8) * rem / 16) top="0.25rem" width="1rem" height="1rem" box-sizing="border-box" border-radius="624.9375rem" border-width=2 border-style="solid" border-color="#ffffff" background-color=hueColor box-shadow="0 0 0 1px #0000004d, 0 1px 3px #0000004d" testId="provider-accent-hue-thumb"
+              input value=(hexEditing ? hexDraft : hex) input=editHex submit=op("provider-accent", editorId, "", hexDraft, hexEditing) aria-label="Custom hex accent color" autocorrect="off" spellcheck="false" disabled=(not writable) testId="provider-accent-hex" box-sizing="border-box" width="12.5rem" height="1.875rem" padding-left="0.5625rem" padding-right="0.5625rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" font-family="ui-monospace" font-size="0.75rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
           when accent != ""
-            column padding=4 box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e799, #ffffff0f)"
+            column padding="0.25rem" box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e799, #ffffff0f)"
               // Never disabled: the press marks the command pending, and a button disabled by its
               // own press dropped its popovertarget hide (the popover stayed open over the cleared swatch).
-              button press=op("provider-accent", editorId, "", "", true) popovertarget=`provider-accent-${editorId}` popovertargetaction="hide" testId="provider-accent-clear" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap=6 width="100%" height=28 padding-left=8 padding-right=8 box-sizing="border-box" border-radius=6 border-width=0 background-color="#00000000"
+              button press=op("provider-accent", editorId, "", "", true) popovertarget=`provider-accent-${editorId}` popovertargetaction="hide" testId="provider-accent-clear" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.375rem" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color="#00000000"
                 CnGlyph(name="x", size=14, color="light-dark(#71717b, #9a9a9a)")
-                text "Clear color" font-size=14 line-height="20px" font-weight=500 color="light-dark(#71717b, #9a9a9a)"
+                text "Clear color" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b, #9a9a9a)"

@@ -1,11 +1,11 @@
 ---
 name: 20261005-x03-root-font-size
 plan: 20261005-t3code-macos-parity
-status: draft
+status: adopted
 kind: framework-gap
 blocks: [20261005-interface-font-size, 20261005-interface-font-size-conversion]
-upstream_url: null
-reproduced_on: null
+upstream_url: https://github.com/ccheever/exact2/issues/102
+reproduced_on: exact2 main (PR #185 "Verified" table, before rows)
 ---
 
 # X3: An app-settable root font size, the base of `rem`
@@ -96,5 +96,15 @@ unused `look.fontSize` into the source of that call (or removes it), and replace
 
 ## Status and next action
 
-Draft; not reproduced on the pinned `main`; not searched upstream; not published.
-Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval; publication only after approval).
+Adopted 2026-10-07. Upstream [#102](https://github.com/ccheever/exact2/issues/102) was closed by main
+[#185](https://github.com/ccheever/exact2/pull/185) (`setRootFontSize(px)` on every host, the option A above;
+`"medium"` hands the size back); #176 keeps `rem`/`em` on the web JS target and #159 refuses a string bound to a
+number-only style row. The feature branch merged main `cff90b364` and adopted it in
+[20261005-interface-font-size](../../tasks/closed/20261005-interface-font-size.md) and
+[20261005-interface-font-size-conversion](../../tasks/closed/20261005-interface-font-size-conversion.md):
+app.contract's `rootFont` task calls `setRootFontSize(data.look.fontSize)` (`clampInterfaceFontSize`) at launch and on
+every change, the Contract lengths are `rem` where the reference's are (`font-size-map.json`), and the live drive in the
+task record checks the sizes at 12, 16 and 20.
+
+What the fix does not cover (recorded in the tasks, not a new issue): Contract `calc()` takes `<percent> ± <px>` only,
+so a length that adds a layout px value (the traffic lights inset) to a rem one multiplies the root size in.

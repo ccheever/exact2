@@ -8,17 +8,17 @@ component PvSectionTitle
     title: string
   slot
   view
-    row min-height=28 padding-left=16 padding-right=16 gap=16 align-items="flex-start" justify-content="space-between" box-sizing="border-box" width="100%"
-      row min-height=28 gap=8 align-items="center" min-width=0
-        text title font-size=14 line-height="20px" font-weight=400 color="light-dark(#27272ab3, #f5f5f5b3)" role="heading" aria-level=2
-      row min-height=28 min-width=28 gap=8 align-items="center" justify-content="flex-end"
+    row min-height="1.75rem" padding-left="1rem" padding-right="1rem" gap="1rem" align-items="flex-start" justify-content="space-between" box-sizing="border-box" width="100%"
+      row min-height="1.75rem" gap="0.5rem" align-items="center" min-width=0
+        text title font-size="0.875rem" line-height="1.25rem" font-weight=400 color="light-dark(#27272ab3, #f5f5f5b3)" role="heading" aria-level=2
+      row min-height="1.75rem" min-width="1.75rem" gap="0.5rem" align-items="center" justify-content="flex-end"
         children
 
 // SettingsGroup (grouped): rounded-xl card, border/60, card/40.
 component PvGroup
   slot
   view
-    column width="100%" box-sizing="border-box" border-radius=14 border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff0a)" background-color="light-dark(#ffffff66, #11111166)" overflow="hidden"
+    column width="100%" box-sizing="border-box" border-radius="0.875rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff0a)" background-color="light-dark(#ffffff66, #11111166)" overflow="hidden"
       children
 
 // One SettingsRow. Its own container query (≥ 32rem) puts the control beside
@@ -33,28 +33,28 @@ component PvRow
     divided: bool
   slot
   view
-    column width="100%" box-sizing="border-box" padding-left=16 padding-right=16 padding-top=12 padding-bottom=12 border-top-style="solid" border-top-width=(divided ? 1 : 0) border-color="light-dark(#e3e3e780, #ffffff08)"
+    column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" border-top-style="solid" border-top-width=(divided ? 1 : 0) border-color="light-dark(#e3e3e780, #ffffff08)"
       when wide
-        row width="100%" gap=32 align-items="center"
-          column flex=1 min-width=0 gap=4
-            row min-height=20 align-items="center" gap=6
-              text title font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+        row width="100%" gap="2rem" align-items="center"
+          column flex=1 min-width=0 gap="0.25rem"
+            row min-height="1.25rem" align-items="center" gap="0.375rem"
+              text title font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
             when description != ""
-              text description font-size=12 line-height="18px" max-width=576 color="light-dark(#70707acc, #818181cc)"
+              text description font-size="0.75rem" line-height="1.125rem" max-width="36rem" color="light-dark(#70707acc, #818181cc)"
             when status != ""
-              text status font-size=12 line-height="16px" padding-top=2 color="light-dark(#71717b, #818181)"
-          row flex-shrink=0 min-width=160 gap=8 align-items="center" justify-content="flex-end"
+              text status font-size="0.75rem" line-height="1rem" padding-top="0.125rem" color="light-dark(#71717b, #818181)"
+          row flex-shrink=0 min-width="10rem" gap="0.5rem" align-items="center" justify-content="flex-end"
             children
       else
-        column width="100%" gap=12
-          column min-width=0 gap=4
-            row min-height=20 align-items="center" gap=6
-              text title font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+        column width="100%" gap="0.75rem"
+          column min-width=0 gap="0.25rem"
+            row min-height="1.25rem" align-items="center" gap="0.375rem"
+              text title font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
             when description != ""
-              text description font-size=12 line-height="18px" color="light-dark(#70707acc, #818181cc)"
+              text description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)"
             when status != ""
-              text status font-size=12 line-height="16px" padding-top=2 color="light-dark(#71717b, #818181)"
-          row width="100%" min-width=0 gap=8 align-items="center"
+              text status font-size="0.75rem" line-height="1rem" padding-top="0.125rem" color="light-dark(#71717b, #818181)"
+          row width="100%" min-width=0 gap="0.5rem" align-items="center"
             children
 
 // ui/switch: 30×18 (sm 26×16), 2px inset thumb; primary when on.
@@ -67,39 +67,39 @@ component PvSwitch
     test: string
     toggle: action
   view
-    button press=toggle role="switch" aria-checked=checked aria-label=label disabled=disabled testId=test width=(small ? 26 : 30) height=(small ? 16 : 18) padding=2 border-width=0 border-radius=9999 box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(checked ? "flex-end" : "flex-start") flex-shrink=0 opacity=(disabled ? 0.64 : 1) background-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)")
-      box width=(small ? 12 : 14) height=(small ? 12 : 14) border-radius=9999 background-color="light-dark(#fcfcfc, #0a0a0a)"
+    button press=toggle role="switch" aria-checked=checked aria-label=label disabled=disabled testId=test width=(small ? "1.625rem" : "1.875rem") height=(small ? "1rem" : "1.125rem") padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(checked ? "flex-end" : "flex-start") flex-shrink=0 opacity=(disabled ? 0.64 : 1) background-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)")
+      box width=(small ? "0.75rem" : "0.875rem") height=(small ? "0.75rem" : "0.875rem") border-radius="624.9375rem" background-color="light-dark(#fcfcfc, #0a0a0a)"
 
 // ui/input size=sm: 28px outline field (radius 10, 9px inset, 14px text).
 style PvField
-  box-sizing="border-box" height=28 padding-left=9 padding-right=9 padding-top=4 padding-bottom=4 border-radius=10
+  box-sizing="border-box" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.625rem"
   border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)"
-  background-color="light-dark(#fcfcfc, #ffffff08)" font-size=14 color="light-dark(#27272a, #f5f5f5)"
+  background-color="light-dark(#fcfcfc, #ffffff08)" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)"
 
 // Button variants (ui/button): outline sm, ghost-muted xs and icon sizes.
 style PvOutline
   cursor="pointer"
-  display="flex" flex-direction="row" align-items="center" justify-content="center" gap=6 flex-shrink=0
-  box-sizing="border-box" height=28 padding-left=9 padding-right=9 border-radius=8 border-style="solid" border-width=1
+  display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.375rem" flex-shrink=0
+  box-sizing="border-box" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1
   border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)"
-  font-size=14 font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+  font-size="0.875rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
 style PvGhost
   cursor="pointer"
-  display="flex" flex-direction="row" align-items="center" justify-content="center" gap=4 flex-shrink=0
-  box-sizing="border-box" height=24 padding-left=7 padding-right=7 border-radius=8 border-width=0
-  background-color="#00000000" font-size=12 font-weight=500 color="light-dark(#71717b, #818181)"
+  display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.25rem" flex-shrink=0
+  box-sizing="border-box" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" border-radius="0.5rem" border-width=0
+  background-color="#00000000" font-size="0.75rem" font-weight=500 color="light-dark(#71717b, #818181)"
 style PvIconButton
   cursor="pointer"
   display="flex" align-items="center" justify-content="center" flex-shrink=0
-  box-sizing="border-box" width=24 height=24 padding=0 border-radius=8 border-width=0
+  box-sizing="border-box" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0
   background-color="#00000000" color="light-dark(#71717b, #818181)"
 style PvMicro
   cursor="pointer"
   display="flex" align-items="center" justify-content="center" flex-shrink=0
-  box-sizing="border-box" width=20 height=20 padding=0 border-radius=6 border-width=0
+  box-sizing="border-box" width="1.25rem" height="1.25rem" padding=0 border-radius="0.375rem" border-width=0
   background-color="#00000000" color="light-dark(#71717b, #818181)"
 style PvPrimary
   cursor="pointer"
-  display="flex" flex-direction="row" align-items="center" justify-content="center" gap=6 flex-shrink=0
-  box-sizing="border-box" height=28 padding-left=9 padding-right=9 border-radius=8 border-width=0
-  background-color="light-dark(#1b4ed8, #346bf1)" font-size=14 font-weight=500 color="#ffffff"
+  display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.375rem" flex-shrink=0
+  box-sizing="border-box" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=0
+  background-color="light-dark(#1b4ed8, #346bf1)" font-size="0.875rem" font-weight=500 color="#ffffff"
