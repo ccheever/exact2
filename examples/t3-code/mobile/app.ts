@@ -1,3 +1,5 @@
+import { mobileWorkspace, mobileWorkspaceThreadSelection, mobileWorkspaceFileSelection, type MobileWorkspaceOptions } from './mobile-workspace';
+import { workspaceOf } from './shared/r4-surfaces-panel';
 import { mobileStreamingDescriptor } from './haptics';
 import { mobileNewTaskFlowView, mobileNewTaskFlowAction, mobileNewTaskFlowOwns, mobileNewTaskFlowCurrent } from './new-task-flow';
 import { mobileThreadPreferences, mobileThreadPreferencesCommand } from './settings-thread-preferences';
@@ -44,6 +46,9 @@ export const appId = 'com.exact.t3code.ios';
 export const grants = 'device.camera purpose.camera device.microphone purpose.microphone';
 
 export function answer(source: string, args: unknown[], _store?: unknown, storage?: Files, native?: Native | null) {
+  if (source === 'workspace') return workspace(args);
+  if (source === 'workspaceThreadSelection') return mobileWorkspaceThreadSelection(args[0], args[1] === true, str(args[2]), str(args[3]));
+  if (source === 'workspaceFileSelection') return mobileWorkspaceFileSelection(args[0], args[1] === true, str(args[2]), str(args[3]), str(args[4]));
   if (source === 'newTaskFlow') return newTaskFlow(args, native);
   if (native) native = settingsProviderNative(native);
   const guarded = newTaskGuard(source, args);
@@ -276,4 +281,34 @@ async function threadView(args: unknown[], native?: Native | null) {
   return { ...view, title: '', loaded: false, loading: active === true, rows: [], approvals: [],
     emptyTitle: active ? 'Loading thread' : '', emptyDetail: '', readsNeeded: false,
     composer: { ...view.composer, canSend: false, canStop: false, canOperate: false, draft: '' } };
+}
+
+
+/** Only UI preferences cross from Contract. Workspace/connection facts remain
+ * the actual shared client's, so stale or fabricated option fields cannot
+ * establish an inspector owner. No read or native handle is retained here. */
+function workspace(args: unknown[]) {
+  const raw = obj(args[1]), pane = obj(raw.inspector), role = obj(raw.role);
+  const dimension = (value: unknown) => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, value) : 0;
+  const preference = (value: unknown) => typeof value === 'boolean' ? value : true;
+  const appearance = raw.appearance === 'dark' ? 'dark' : 'light';
+  const selectedThread = mobileClient.shell.threads.some(thread => thread.id === mobileClient.threadId);
+  const hasWorkspace = mobileClient.ready && selectedThread && !!mobileClient.threadId && !!workspaceOf(mobileClient).cwd;
+  const paneRole = pane.role === 'inspector' || pane.role === 'supplementary' ? pane.role : null;
+  const paneKind = (['files', 'git', 'route', 'changed-files'] as const).find(kind => kind === pane.kind);
+  const paneGeneration = typeof pane.generation === 'number' && Number.isSafeInteger(pane.generation) ? pane.generation : -1;
+  const inspector: MobileWorkspaceOptions['inspector'] = str(pane.token) && str(pane.routeId) && paneRole && paneKind
+    ? { token: str(pane.token), routeId: str(pane.routeId), environmentId: str(pane.environmentId), threadId: str(pane.threadId),
+      generation: paneGeneration, role: paneRole, kind: paneKind, selectedPath: str(pane.selectedPath), active: pane.active === true,
+      renderable: pane.renderable === true && hasWorkspace && pane.environmentId === mobileClient.environmentId && pane.threadId === mobileClient.threadId } : null;
+  return mobileWorkspace(args[0], { width: dimension(raw.width), height: dimension(raw.height),
+    primarySidebarPreferredVisible: preference(raw.primarySidebarPreferredVisible),
+    supplementaryPanePreferredVisible: preference(raw.supplementaryPanePreferredVisible),
+    fileInspectorPreferredVisible: preference(raw.fileInspectorPreferredVisible),
+    supplementaryPanePreferredWidth: dimension(raw.supplementaryPanePreferredWidth), fileInspectorPreferredWidth: dimension(raw.fileInspectorPreferredWidth),
+    hasWorkspace, selectedEnvironmentId: mobileClient.environmentId, selectedThreadId: mobileClient.threadId, generation: mobileClient.generation,
+    threadMode: raw.threadMode === 'files' || raw.threadMode === 'git' ? raw.threadMode : '', threadModeOwner: str(raw.threadModeOwner),
+    inspector, role: str(role.token) && str(role.routeId) && (role.value === 'inspector' || role.value === 'supplementary')
+      ? { token: str(role.token), routeId: str(role.routeId), value: role.value } : null,
+    reducedMotion: raw.reducedMotion === true, appearance, background: str(raw.background) || mobileTheme(appearance).screen });
 }

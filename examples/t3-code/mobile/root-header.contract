@@ -1,0 +1,79 @@
+// @ref llp/1106.011-responsive-workspace.decision.md#composition-decision
+// Authored header controls remain the source of native navigation items.
+use MobilePreviewButton, MobilePreviewColors from "./browser-mobile.contract"
+component MobileRootHeader
+  props
+    routeName: string
+    title: string
+    scannerOpen: bool
+    documentMenu: string
+    automationBusy: bool
+    scheduledCanCreate: bool
+    browserMenuConfiguration: string
+    iconColor: string
+    previewColors: MobilePreviewColors
+    browserCount: number
+    devicesCount: number
+    sidebarAvailable: bool
+    sidebarVisible: bool
+    back: action
+    scan: action
+    addEnvironment: action
+    documentAction: action
+    automationAction: action
+    browserMenu: action
+    terminalMenu: action
+    openBrowser: action
+    openDevices: action
+    openTerminal: action
+    openReview: action
+    openFiles: action
+    openAgents: action
+    toggleSidebar: action
+  view
+    header height=44 flex-shrink=0 align-items="center" justify-content="space-between"
+      when sidebarAvailable and routeName != "home"
+        button id="workspace-sidebar-toggle" press=toggleSidebar aria-label=(sidebarVisible ? "Hide sidebar" : "Show sidebar") aria-pressed=sidebarVisible
+          t3-symbol symbol-name="sidebar.left" point-size=20 symbol-tint=iconColor width=20 height=20
+      button id="back" press=back aria-label="Back" testId=`back-${routeName}`
+        image "symbol:back" width=20 height=20
+      text title
+        role="heading"
+        aria-level=2
+        font-size=18
+        font-weight=800
+      when routeName == "settingsLegal"
+        button id="legal-close" press=back aria-label="Close legal document"
+          text "Close"
+      when routeName == "connect"
+        button id="scan-qr" press=scan aria-label=(scannerOpen ? "Close scanner" : "Scan QR code") testId="scan-qr"
+          text (scannerOpen ? "Close scanner" : "Scan QR code")
+      when routeName == "connections" or routeName == "environments"
+        button press=addEnvironment aria-label="Add environment" testId="add-environment"
+          image "symbol:add" width=20 height=20
+      when routeName == "threadMedia" or routeName == "threadDraftMedia" or routeName == "newTaskMedia"
+        t3-document-menu document-menu=documentMenu change=documentAction width=32 height=32
+      when routeName == "settingsScheduledTasks"
+        button id="scheduled-new" press=automationAction("new", "", "", "") disabled=(not scheduledCanCreate or automationBusy) aria-label="New scheduled task"
+          t3-symbol symbol-name="plus" point-size=20 symbol-tint=iconColor width=20 height=20
+      when routeName == "settingsUsage"
+        button press=automationAction("usage-environments", "", "", "") disabled=automationBusy aria-label="Filter usage environments"
+          t3-symbol symbol-name="line.3.horizontal.decrease" point-size=20 symbol-tint=iconColor width=20 height=20
+        button press=automationAction("usage-refresh", "", "", "") disabled=automationBusy aria-label="Refresh usage"
+          t3-symbol symbol-name="arrow.clockwise" point-size=20 symbol-tint=iconColor width=20 height=20
+      when routeName == "threadBrowser"
+        t3-preview-menu configuration=browserMenuConfiguration change=browserMenu width=38.5 height=38.5
+      when routeName == "threadTerminal"
+        button press=terminalMenu aria-label="Terminal options" testId="terminal-options"
+          t3-symbol symbol-name="terminal" point-size=20 symbol-tint=iconColor width=20 height=20
+      when routeName == "thread"
+        MobilePreviewButton(count=browserCount, devices=false, colors=previewColors, action=openBrowser)
+        MobilePreviewButton(count=devicesCount, devices=true, colors=previewColors, action=openDevices)
+        button press=openTerminal aria-label="Terminal" testId="thread-terminal"
+          t3-symbol symbol-name="terminal" point-size=20 symbol-tint=iconColor width=20 height=20
+        button press=openReview aria-label="Review changes" testId="thread-review"
+          t3-symbol symbol-name="plus.forwardslash.minus" point-size=20 symbol-tint=iconColor width=20 height=20
+        button press=openFiles aria-label="Files" testId="thread-files"
+          t3-symbol symbol-name="folder" point-size=20 symbol-tint=iconColor width=20 height=20
+        button press=openAgents aria-label="Agents" testId="thread-agents"
+          t3-symbol symbol-name="person.2" point-size=20 symbol-tint=iconColor width=20 height=20

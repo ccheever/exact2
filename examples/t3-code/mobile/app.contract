@@ -1,3 +1,5 @@
+use MobileWorkspace, WorkspaceEntry, WorkspaceParams, WorkspaceOptions, WorkspaceNavigation from "./mobile-workspace.contract"
+use MobileRootHeader from "./root-header.contract"
 use SettingsThreadPreferences, ThreadPreferencesData from "./settings-thread-preferences.contract"
 use SettingsProjectOverview, SettingsProjectData from "./settings-project.contract"
 use SettingsWrite, StreamingAssistant, StreamingHapticState, AppLink, MediaCompletion, Appearance, SettingsView, SettingsScopeEvent, MobileLayout, HomeChromeView, ChromeEvent, ThreadSelection, HomeView, HomePreferences, Time, Viewport, PairingFields, Theme, Camera, Notice, Snapshot, ScheduledHeader, AutomationChange, VoiceFocus, PreviewOwner, PreviewMenus, InformationRoute, InformationRead, InformationConfiguration, InformationChange, Change from "./app-shapes.contract"
@@ -120,6 +122,37 @@ component App
       else
         nav = open(nav, path("home"))
   resource viewport = exactViewport() as shape Viewport
+  state sidebarPreferredVisible = true
+  state fileInspectorPreferredVisible = true
+  derive workspaceEntries = map(stack(nav), entry => WorkspaceEntry(id=`${entry.id}`, name=entry.name, url=entry.url, params=WorkspaceParams(threadEnvironment=entry.params.threadEnvironment, threadId=entry.params.threadId, filePath=entry.params.filePath)))
+  resource workspace = workspace(workspaceEntries, WorkspaceOptions(width=viewport.width, height=viewport.height, primarySidebarPreferredVisible=sidebarPreferredVisible, supplementaryPanePreferredVisible=true, fileInspectorPreferredVisible=fileInspectorPreferredVisible, reducedMotion=viewport.prefersReducedMotion, appearance=appearance.scheme, background=look.screen), data.revision) as shape MobileWorkspace
+  action toggleSidebar
+    if workspace.workspacePath != "/"
+      if not workspace.sidebarVisible and workspace.sidebarSuppressedByAuxiliary
+        sidebarPreferredVisible = true
+        fileInspectorPreferredVisible = false
+      else
+        sidebarPreferredVisible = not sidebarPreferredVisible
+  action openNewTask
+    nav = push(nav, path("newTask"))
+  action workspaceTab
+    sidebarPreferredVisible = sidebarPreferredVisible
+  mutation workspaceNavigation as shape WorkspaceNavigation then didWorkspaceNavigation
+  action didWorkspaceNavigation
+    match workspaceNavigation
+      case some(result)
+        if result.requestRoute == `${top(nav).id}` and length(filter(stack(nav), entry => `${entry.id}` == result.anchorRouteId and entry.url == result.anchorLocation)) == 1
+          if result.message != ""
+            send notice = alert("info", "Workspace", result.message)
+          else
+            if result.hideFileInspector
+              fileInspectorPreferredVisible = false
+            if result.operation == "push"
+              nav = push(go(nav, result.anchorLocation), result.location)
+            else if result.operation == "replace"
+              nav = replace(go(nav, result.anchorLocation), result.location)
+      case none
+        sidebarPreferredVisible = sidebarPreferredVisible
   resource voiceFocus = voiceFocus((top(nav).name == "thread" and workspaceRouteReady) or (top(nav).name == "newTaskDraft" and newTaskFlow.ready), top(nav).name == "thread" ? threadData.title : "New task", data.revision, taskGuardOwner, taskGuardRoute) as shape VoiceFocus
   resource voiceStatus = voiceStatus(data.revision) as shape VoiceStatus
   resource voiceData = voiceSnapshot(voiceFocus.owner, max(30, viewport.width - 150), voiceStatus, data.revision, pending(voiceChanged)) as shape VoiceSnapshot
@@ -394,12 +427,44 @@ component App
   state homeProject = ""
   derive homeRouteKey = match first(filter(stack(nav), route => route.name == "home")) { case some(route) => `${route.id}`, case none => "home" }
   resource chrome = homeChrome(homeRouteKey, homeQuery, homeEnvironment, homeProject, appearance.scheme, layout.safeBottom, layout.liquidGlass, data.revision, data.environments, appearance.groupingMode) as shape HomeChromeView
+  state sidebarQuery = ""
+  state sidebarEnvironment = ""
+  state sidebarProject = ""
+  state sidebarSettledCount = 10
+  resource sidebarChrome = homeChrome(workspace.sidebarRouteKey, sidebarQuery, sidebarEnvironment, sidebarProject, appearance.scheme, layout.safeBottom, layout.liquidGlass, data.revision, data.environments, appearance.groupingMode, "sidebar") as shape HomeChromeView
+  resource sidebarHome = homeView(data.revision, wallTime.epochAtZero + elapsed, sidebarQuery, sidebarSettledCount, shelves.loaded, shelves.workingEnabled, shelves.workingExpanded, shelves.snoozedExpanded, shelves.settledExpanded, sidebarChrome.environmentId, sidebarChrome.projectKey, `${workspace.environmentId}:${workspace.threadId}`, appearance.groupingMode) as shape HomeView
+  mutation sidebarEvent as shape ChromeEvent then didSidebarEvent
+  action sidebarChromeEvent(value: string)
+    send sidebarEvent = homeChromeEvent(value)
+  action didSidebarEvent
+    match sidebarEvent
+      case some(event)
+        if event.kind == "search"
+          sidebarQuery = event.value
+          sidebarSettledCount = 10
+        else if event.kind == "environment"
+          sidebarEnvironment = event.value
+          sidebarProject = ""
+          sidebarSettledCount = 10
+        else if event.kind == "project"
+          sidebarProject = event.value
+          sidebarSettledCount = 10
+        else if event.kind == "settings"
+          nav = push(nav, path("settings"))
+        else if event.kind == "environments"
+          openEnvironments()
+        else if event.kind == "compose"
+          nav = push(nav, path("newTask"))
+      case none
+        sidebarQuery = sidebarQuery
+  action showMoreSidebar
+    sidebarSettledCount = sidebarSettledCount + 25
   mutation chromeEvent as shape ChromeEvent then didChromeEvent
   mutation searchChanged as shape Change refreshes data
-  task searchDebounce key=homeQuery
+  task searchDebounce key=`${workspace.usesSplitView}:${workspace.usesSplitView ? sidebarQuery : homeQuery}`
     after(250, searchHome)
   action searchHome
-    send searchChanged = command("search", "", homeQuery, "0", taskGuardOwner, taskGuardRoute)
+    send searchChanged = command("search", "", workspace.usesSplitView ? sidebarQuery : homeQuery, "0", taskGuardOwner, taskGuardRoute)
   action homeEvent(value: string)
     send chromeEvent = homeChromeEvent(value)
   action didChromeEvent
@@ -451,19 +516,28 @@ component App
           streamHaptics = concat(streamHaptics, [StreamingHapticState(routeId=hapticFeed.routeId, owner=hapticFeed.owner, id=hapticFeed.id, textLength=hapticFeed.textLength, lastAt=0)])
   resource threadLook = threadColors(appearance.scheme, appearance.themeId) as shape ThreadColors
   resource threadData = threadView(data.revision, wallTime.epochAtZero + elapsed, appearance.scheme, top(nav).params.threadEnvironment, top(nav).params.threadId, startsWith(top(nav).name, "thread")) as shape ThreadSnapshot
+  mutation routeSelected as shape ThreadSelection refreshes data then didLoadRouteThread
+  action didLoadRouteThread
+    match routeSelected
+      case some(result)
+        if result.requestRoute == `${top(nav).id}` and result.message != ""
+          send notice = alert("info", "Could not open thread", result.message)
+      case none
+        composerFocused = composerFocused
   mutation selected as shape ThreadSelection refreshes data then didSelectThread
   mutation draftChanged as shape Change refreshes data
-  task selectRouteThread when startsWith(top(nav).name, "thread") and data.ready and (top(nav).params.threadEnvironment != data.environmentId or top(nav).params.threadId != data.threadId) key=top(nav).url
+  task selectRouteThread when not pending(selected) and not pending(workspaceNavigation) and startsWith(top(nav).name, "thread") and data.ready and (top(nav).params.threadEnvironment != data.environmentId or top(nav).params.threadId != data.threadId) key=top(nav).url
     after(1, loadRouteThread)
   action loadRouteThread
-    send selected = selectThread(top(nav).params.threadEnvironment == data.environmentId ? top(nav).params.threadId : `fleet:${top(nav).params.threadEnvironment}:${top(nav).params.threadId}`, `${top(nav).id}`)
+    if not pending(selected) and not pending(workspaceNavigation)
+      send routeSelected = selectThread(top(nav).params.threadEnvironment == data.environmentId ? top(nav).params.threadId : `fleet:${top(nav).params.threadEnvironment}:${top(nav).params.threadId}`, `${top(nav).id}`)
   action didSelectThread
     match selected
       case some(result)
         if result.requestRoute == `${top(nav).id}` and result.message != ""
           send notice = alert("info", "Could not open thread", result.message)
-        else if result.requestRoute == `${top(nav).id}` and result.threadId != "" and (top(nav).params.threadEnvironment != result.environmentId or top(nav).params.threadId != result.threadId)
-          nav = push(nav, path("thread", result.environmentId, result.threadId))
+        else if result.requestRoute == `${top(nav).id}` and result.threadId != ""
+          send workspaceNavigation = workspaceThreadSelection(workspaceEntries, workspace.usesSplitView, result.environmentId, result.threadId)
       case none
         composerFocused = false
   action editDraft(value: string)
@@ -978,7 +1052,8 @@ component App
   action showMore
     settledCount = settledCount + 25
   action chooseThread(id: string)
-    send selected = selectThread(id, `${top(nav).id}`)
+    if not pending(routeSelected) and not pending(selected) and not pending(workspaceNavigation)
+      send selected = selectThread(id, `${top(nav).id}`)
   state host = ""
   state code = ""
   state formError = ""
@@ -1153,250 +1228,237 @@ component App
       font-size=16
       interactive-widget="resizes-content"
       testId="mobile-root"
-      each entry in stack(nav) key = entry.id
-        column navigationKey=`${entry.id}`
-          data-mobile-scheduled-editor=(entry.name == "settingsScheduledNew" or entry.name == "settingsScheduledEdit")
-          data-mobile-form-sheet=(entry.name == "connections" or entry.name == "connect")
-          data-mobile-scan-action=(entry.name == "connect" ? "scan-qr" : "")
-          data-mobile-scanner-open=scannerOpen
-          navigationScroll=(entry.name == "home" ? (length(home.items) > 0 ? "home-list" : "") : entry.name == "thread" ? (length(threadData.rows) > 0 ? "thread-feed" : "") : entry.name == "threadReview" ? "review-diff" : entry.name == "threadFiles" ? "workspace-files" : entry.name == "threadFile" ? "file-source" : entry.name == "settingsScheduledTasks" ? "scheduled-tasks-scroll" : entry.name == "settingsScheduledNew" or entry.name == "settingsScheduledEdit" ? "scheduled-editor-scroll" : entry.name == "settingsThreads" ? "settings-thread-preferences-scroll" : entry.name == "settingsProjectOverview" ? "settings-project-scroll" : entry.name == "settingsNotifications" ? "settings-notifications-scroll" : entry.name == "settingsUsage" ? "settings-usage-scroll" : startsWith(entry.name, "settingsScheduled") or entry.name == "settingsUsageAccount" ? "" : entry.name == "settings" ? "settings-scroll" : entry.name == "settingsServer" ? "settings-server-scroll" : entry.name == "settingsProviders" ? "settings-provider-scroll" : entry.name == "settingsAppearance" ? "settings-appearance-scroll" : entry.name == "settingsChoice" ? "settings-choice-scroll" : entry.name == "archive" ? (length(archiveData.items) > 0 ? "archive-list" : "") : `scroll-${entry.id}`)
-          navigationPresentation=(entry.name == "connections" or entry.name == "connect" or entry.name == "threadTerminalCapture" or entry.name == "settingsLegal" or entry.name == "threadBrowser" or entry.name == "threadDevices" ? "modal" : "")
-          position="absolute"
-          inset=0
-          background-color=look.sheet
-          display="flex"
-          flex-direction="column"
-          when entry.name != "threadDevices" and entry.name != "settingsAuth" and entry.name != "settingsWaitlist" and entry.name != "connectOnboarding"
-            header height=44 flex-shrink=0 align-items="center" justify-content="space-between"
-              button id="back" press=back aria-label="Back" testId=`back-${entry.name}`
-                image "symbol:back" width=20 height=20
-              text (entry.name == "settingsThreads" ? "Thread behavior" : entry.name == "settingsProjectOverview" ? "Project overview" : entry.name == "settingsNotifications" ? "Notifications" : entry.name == "settingsAbout" ? "About T3 Code" : entry.name == "settingsClientStorage" ? "Client Storage" : entry.name == "settingsDiagnostics" ? "Diagnostics" : entry.name == "settingsOpenSourceLicenses" ? "Open source licenses" : entry.name == "settingsOpenSourceLicense" ? "License notice" : entry.name == "settingsLegal" ? "Legal" : entry.name == "threadMedia" or entry.name == "threadDraftMedia" or entry.name == "newTaskMedia" ? mediaData.name : entry.name == "connect" ? "Add environment" : entry.name == "home" ? "T3 Code" : entry.name == "environmentDetail" ? detail.title : entry.name == "threadBrowser" ? browserData.title : entry.name == "threadDevices" ? devicesData.title : entry.name == "threadTerminal" ? "Terminal" : entry.name == "threadTerminalCapture" ? "Visible terminal output" : entry.name == "threadReview" ? "Review changes" : entry.name == "threadReviewComment" ? "Leave a comment" : entry.name == "threadFiles" ? filesData.title : entry.name == "threadFile" ? fileData.title : entry.name == "thread" ? threadData.title : entry.name == "settingsScheduledTasks" ? "Scheduled Tasks" : entry.name == "settingsScheduledNew" ? "New scheduled task" : entry.name == "settingsScheduledEdit" ? "Edit scheduled task" : entry.name == "settingsScheduledModel" ? "Model" : entry.name == "settingsScheduledBranch" ? "Base branch" : entry.name == "settingsUsage" ? "Usage" : entry.name == "settingsUsageAccount" ? automationData.account.label : entry.name == "settings" ? "Settings" : entry.name == "settingsServer" ? serverSettings.title : entry.name == "settingsProviders" ? "Provider accounts" : entry.name == "settingsAppearance" ? "Appearance" : entry.name == "settingsChoice" ? settingsChoice.title : entry.name == "archive" ? "Archived Threads" : entry.name == "threadAgents" ? "Agents" : entry.name == "newTask" ? "Choose project" : entry.name == "newTaskEnvironments" ? "Environment" : entry.name == "newTaskBranches" ? "Branch" : entry.name == "threadModel" or entry.name == "newTaskModel" ? "Model" : entry.name == "threadRuntime" or entry.name == "newTaskRuntime" ? "Runtime" : entry.name == "threadModelFilter" or entry.name == "newTaskModelFilter" ? "Providers" : entry.name == "threadModelOption" or entry.name == "newTaskModelOption" ? "Model options" : entry.name == "newTaskDraft" ? "New task" : "Environments")
-                role="heading"
-                aria-level=2
-                font-size=18
-                font-weight=800
-              when entry.name == "settingsLegal"
-                button id="legal-close" press=back aria-label="Close legal document"
-                  text "Close"
-              when entry.name == "connect"
-                button id="scan-qr" press=scan aria-label=(scannerOpen ? "Close scanner" : "Scan QR code") testId="scan-qr"
-                  text (scannerOpen ? "Close scanner" : "Scan QR code")
-              when entry.name == "connections" or entry.name == "environments"
-                button press=addEnvironment aria-label="Add environment" testId="add-environment"
-                  image "symbol:add" width=20 height=20
-              when entry.name == "threadMedia" or entry.name == "threadDraftMedia" or entry.name == "newTaskMedia"
-                t3-document-menu document-menu=documentMenu.configuration change=documentAction width=32 height=32
-              when entry.name == "settingsScheduledTasks"
-                button id="scheduled-new" press=automationAction("new", "", "", "") disabled=(not automationData.scheduled.canCreate or pending(automationChanged)) aria-label="New scheduled task"
-                  t3-symbol symbol-name="plus" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
-              when entry.name == "settingsUsage"
-                button press=automationAction("usage-environments", "", "", "") disabled=pending(automationChanged) aria-label="Filter usage environments"
-                  t3-symbol symbol-name="line.3.horizontal.decrease" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
-                button press=automationAction("usage-refresh", "", "", "") disabled=pending(automationChanged) aria-label="Refresh usage"
-                  t3-symbol symbol-name="arrow.clockwise" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
-              when entry.name == "threadBrowser"
-                t3-preview-menu configuration=browserMenus.selection change=browserMenu width=38.5 height=38.5
-              when entry.name == "threadTerminal"
-                button press=terminalMenu aria-label="Terminal options" testId="terminal-options"
-                  t3-symbol symbol-name="terminal" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
-              when entry.name == "thread"
-                MobilePreviewButton(count=browserData.count, devices=false, colors=previewLook, action=openBrowser)
-                MobilePreviewButton(count=devicesData.count, devices=true, colors=previewLook, action=openDevices)
-                button press=openTerminal aria-label="Terminal" testId="thread-terminal"
-                  t3-symbol symbol-name="terminal" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
-                button press=openReview aria-label="Review changes" testId="thread-review"
-                  t3-symbol symbol-name="plus.forwardslash.minus" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
-                button press=openFiles aria-label="Files" testId="thread-files"
-                  t3-symbol symbol-name="folder" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
-                button press=openAgents aria-label="Agents" testId="thread-agents"
-                  t3-symbol symbol-name="person.2" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
-          when entry.name == "home"
-            Home(items=home.items, emptyTitle=home.emptyTitle, emptyDetail=home.emptyDetail, loading=home.loading, addEnvironment=home.addEnvironment, bottomClearance=chrome.bottomClearance, emptyClearance=chrome.emptyClearance, selectThread=chooseThread, toggleShelf=toggleHomeShelf, showMore=showMore, addConnection=addEnvironment, colors=homeLook)
-            HomeChrome(configuration=chrome.configuration, event=homeEvent)
-          else when entry.name == "thread"
-            ThreadFeed(data=threadData, horizontalPadding=16, userBubbleMaxWidth=max(0, (viewport.width - 32) * 0.85), bottomClearance=14, action=threadAction, openMedia=openMedia, colors=threadLook)
-            ThreadApprovals(data=threadData, action=threadAction, colors=threadLook)
-            ComposerAttachmentStrip(data=composerAttachments, open=openDraftMedia, remove=removeAttachment, colors=threadLook)
-            ThreadComposer(voiceDisabled=(data.busy or pending(changed) or pending(taskChanged)), voice=voiceData, voiceOwner=(entry.id == top(nav).id ? voiceFocus.owner : ""), voiceColors=voiceLook, voiceAction=voiceAction, enterBehavior=appearance.enterBehavior, data=threadData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=(composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)), contentMaxWidth=viewport.width, focusChanged=composerFocus, editDraft=editDraft, action=threadAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
-          else when entry.name == "threadBrowser" and entry.id == top(nav).id
-            MobileBrowser(data=browserData, colors=previewLook, active=true, action=browserAction, menuConfiguration=browserMenus.options, menuEvent=browserMenu)
-          else when entry.name == "threadDevices" and entry.id == top(nav).id
-            MobileDevices(data=devicesData, colors=previewLook, active=true, safeAreaTop=layout.safeTop, action=devicesAction, close=back, menuConfiguration=devicesMenus.options, menuEvent=devicesMenu)
-          else when entry.name == "threadTerminal"
-            MobileTerminal(data=terminalData, event=terminalEvent, action=terminalAction)
-          else when entry.name == "threadTerminalCapture"
-            MobileTerminalCaptureView(data=terminalCapture, colors=terminalData.colors, select=selectTerminalLine, attach=attachTerminalOutput)
-          else when entry.name == "threadReview"
-            row gap=10 padding=14
-              select value=reviewData.sectionId change=reviewSection aria-label="Diff section" flex=1 min-width=0
-                each section in reviewData.sections key=section.id
-                  option section.title value=section.id
-              button press=toggleReviewWrap aria-label="Toggle line wrapping" aria-pressed=reviewWrap
-                t3-symbol symbol-name="text.word.spacing" point-size=18 symbol-tint=reviewLook.icon width=20 height=20
-            when length(reviewData.files) > 0
-              select value=reviewData.selectedPath change=reviewFile aria-label="Changed file" margin-left=14 margin-right=14
-                option "Changed files" value=""
-                each file in reviewData.files key=file.id
-                  option file.name value=file.path
-            ReviewView(data=reviewData, colors=reviewLook, wrap=reviewWrap, action=reviewAction, refresh=refreshReview, loadMore=loadReviewFiles)
-          else when entry.name == "threadReviewComment"
-            ReviewCommentComposer(data=reviewData, value=reviewComment, colors=reviewLook, change=editReviewComment, submit=submitReviewComment)
-          else when entry.name == "threadFiles"
-            input value=filesQuery input=editFilesQuery placeholder="Search files" margin=14 aria-label="Search files"
-            MobileFileTree(data=filesData, colors=reviewLook, toggle=toggleDirectory, select=openFile, refresh=refreshFiles)
-          else when entry.name == "threadFile"
-            row gap=14 padding=14
-              text fileData.subtitle flex=1 min-width=0 line-clamp=1 color=reviewLook.muted font-size=12
-              when fileData.markdown
-                button press=toggleFilePreview aria-label="Toggle Markdown preview" aria-pressed=filePreview
-                  t3-symbol symbol-name="eye" point-size=18 symbol-tint=reviewLook.icon width=20 height=20
-              button press=toggleFileWrap aria-label="Toggle line wrapping" aria-pressed=fileWrap
-                t3-symbol symbol-name="text.word.spacing" point-size=18 symbol-tint=reviewLook.icon width=20 height=20
-            MobileFileView(data=fileData, colors=reviewLook, wrap=fileWrap, preview=filePreview, refresh=refreshFile)
-          else when entry.name == "threadMedia" or entry.name == "threadDraftMedia" or entry.name == "newTaskMedia"
-            when entry.id == top(nav).id
-              when mediaData.ready
-                when mediaData.kind == "file" and (documentData.error != "" or documentData.kind == "text" or documentData.kind == "markdown" or documentData.kind == "html")
-                  MobileAttachmentDocument(data=documentData, colors=reviewLook, wrap=settingsAppearance.codeWordBreak, retry=retryDocument, nativeEvent=documentNativeEvent, nativeError=mediaNativeError)
-                  when mediaNativeOpen
-                    MediaPreview(data=mediaViewerData, completed=mediaComplete)
-                else when documentData.kind == "audio"
-                  MobileAttachmentAudio(data=audioData, source=documentData.sourceJSON, active=(not mediaNativeOpen), colors=reviewLook, command=audioControl, status=audioStatusChanged, retry=retryDocument)
-                  when mediaNativeOpen
-                    MediaPreview(data=mediaViewerData, completed=mediaComplete)
-                else when mediaNativeError != ""
-                  column flex=1 align-items="center" justify-content="center" padding=21 gap=7
-                    text "No preview for this file" font-size=18 font-weight=700 color=threadLook.foreground
-                    text mediaNativeError font-size=14 text-align="center" color=threadLook.muted
-                    button press=retryDocument min-height=44
-                      text "Try again" color=threadLook.foreground
-                else when mediaData.kind != "file" or documentData.ready
-                  MediaPreview(data=mediaData, completed=mediaComplete)
-                else
-                  text "Loading file..." padding=21 color=threadLook.muted
-              else when mediaData.error != ""
-                text mediaData.error padding=21 color=look.colors.dangerForeground
-              else
-                text "Loading preview…" padding=21 color=look.colors.muted
-          else when entry.id == top(nav).id and informationRoute.active
-            SettingsInformation(data=informationData, route=entry.name, query=informationQuery, legalConfiguration=informationLegal.configuration, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom, navigate=openInformation, command=informationCommand, queryChanged=informationSearch)
-          else when entry.name == "settings"
-            SettingsRoot(data=settingsData.root, navigate=openSetting)
-            SettingsHeader(configuration=settingsData.header, event=settingsHeaderEvent)
-          else when startsWith(entry.name, "settingsScheduled") or entry.name == "settingsUsage" or entry.name == "settingsUsageAccount"
-            when entry.id == top(nav).id
-              SettingsAutomation(data=automationData, colors=settingsData.root.colors, roles=settingsData.root.roles, danger=look.colors.dangerForeground, bottom=settingsData.root.bottom, dark=(appearance.scheme == "dark"), command=automationAction)
-              when entry.name == "settingsScheduledTasks"
-                SettingsHeader(configuration=scheduledHeader.configuration, event=settingsHeaderEvent)
-          else when entry.name == "settingsThreads"
-            SettingsThreadPreferences(data=threadPreferences, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom, busy=pending(threadPreferencesChanged), change=threadPreferenceChange, preference=changePreference)
-          else when entry.name == "settingsProjectOverview"
-            SettingsProjectOverview(data=projectOverview, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom, busy=pending(projectRenamed), savedRevision=projectSavedRevision, save=renameProject)
-          else when entry.name == "settingsServer"
-            SettingsServer(data=serverSettings, colors=settingsData.root.colors, roles=settingsData.root.roles, danger=look.colors.dangerForeground, bottom=settingsData.root.bottom, change=serverSettingChange, environment=settingsEnvironment)
-          else when entry.name == "settingsProviders"
-            SettingsProviderAccounts(data=providerAccounts, colors=settingsData.root.colors, roles=settingsData.root.roles, danger=look.colors.dangerForeground, bottom=settingsData.root.bottom, action=providerAction, field=providerField, signOut=providerSignOut)
-          else when entry.name == "settingsAppearance"
-            SettingsAppearance(data=settingsAppearance, change=changePreference)
-          else when entry.name == "settingsNotifications"
-            SettingsNotifications(data=notificationSettings, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom)
-          else when entry.name == "settingsChoice"
-            SettingsChoices(data=settingsChoice, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom, change=changePreference)
-          else when entry.name == "archive"
-            row padding=16 gap=14
-              input value=archiveQuery input=editArchiveQuery placeholder="Search archived threads" flex=1 min-width=0 aria-label="Search archived threads"
-              button press=toggleArchiveSort aria-label="Sort archived threads"
-                text (archiveSort == "newest" ? "Newest" : "Oldest")
-            select value=archiveEnvironment change=editArchiveEnvironment aria-label="Filter archived threads by environment" margin-left=16 margin-right=16
-              option "All environments" value=""
-              each environment in archiveData.environments key=environment.id
-                option environment.label value=environment.id
-            Archive(data=archiveData, colors=archiveLook, pending=pending(archived), loading=pending(archiveData), width=viewport.width, reduced=viewport.prefersReducedMotion, refresh=refreshArchive, action=archiveAction)
-          else when entry.name == "threadAgents"
-            AgentActivity(data=agents, colors=agentLook, dark=appearance.scheme == "dark", bottomInset=layout.safeBottom, open=openAgent)
-          else when startsWith(entry.name, "newTask") and entry.name != "newTask" and not newTaskFlow.ready
-            column flex=1 align-items="center" justify-content="center" padding=28 gap=14
-              text (newTaskFlow.message != "" ? newTaskFlow.message : newTaskFlow.title) color=composerLook.muted text-align="center"
-              when newTaskFlow.status == "error"
-                button press=chooseNewProject
-                  text "Choose project"
-          else when entry.name == "threadModel" or entry.name == "newTaskModel"
-            row gap=14 padding=14
-              button press=modelAction("cancel", "", "") disabled=pending(modelChanged)
-                text "Cancel"
-              input value=modelQuery input=editModelQuery placeholder="Search models" flex=1 min-width=0 aria-label="Search models"
-              button press=openModelFilter aria-label="Filter providers"
-                t3-symbol symbol-name="line.3.horizontal.decrease" point-size=20 symbol-tint=composerLook.icon width=20 height=20
-              button press=modelAction("save", "", "") disabled=(not modelData.canSave or pending(modelChanged))
-                text modelData.saveLabel
-            when modelData.hasLegacy
-              row padding-left=14 padding-right=14 align-items="center"
-                text "Show legacy models" flex=1 font-size=14 color=composerLook.muted
-                input type="checkbox" switch checked=modelLegacy change=toggleLegacy aria-label="Show legacy models"
-            ComposerSettings(data=modelData, dark=appearance.scheme == "dark", action=modelAction, openOptions=openModelOption, openRuntime=openRuntime, colors=composerLook)
-          else when entry.name == "threadModelOption" or entry.name == "newTaskModelOption"
-            match first(filter(modelData.options, option => option.id == entry.params.modelOption))
-              case some(option)
-                ComposerChoices(rows=option.choices, choose=chooseModelOption, colors=composerLook)
-              case none
-                text "This model option is no longer available."
-          else when entry.name == "threadRuntime" or entry.name == "newTaskRuntime"
-            ComposerChoices(rows=modelData.runtimes, choose=chooseRuntime, colors=composerLook)
-          else when entry.name == "threadModelFilter" or entry.name == "newTaskModelFilter"
-            ComposerChoices(rows=modelData.filters, choose=chooseModelFilter, colors=composerLook)
-          else when entry.name == "newTaskDraft" and newTaskFlow.ready and newTaskData.draft
-            NewTaskHero(data=newTaskData, chooseProject=chooseNewProject, chooseEnvironment=chooseNewEnvironment, colors=composerLook)
-            NewTaskWorkspace(data=newTaskData, action=taskAction, chooseBranch=chooseNewBranch, colors=composerLook)
-            ComposerAttachmentStrip(data=composerAttachments, open=openDraftMedia, remove=removeAttachment, colors=threadLook)
-            ThreadComposer(voiceDisabled=(data.busy or pending(changed) or pending(taskChanged)), voice=voiceData, voiceOwner=(entry.id == top(nav).id ? voiceFocus.owner : ""), voiceColors=voiceLook, voiceAction=voiceAction, enterBehavior=appearance.enterBehavior, data=newTaskData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=(composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)), contentMaxWidth=viewport.width, focusChanged=composerFocus, editDraft=editNewDraft, action=taskAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
-          else when entry.name == "newTask"
-            input value=newTaskQuery input=editNewQuery placeholder="Search projects" margin=16 aria-label="Search projects"
-            NewTaskProjects(data=newTaskData, action=taskAction, colors=composerLook)
-          else when entry.name == "newTaskEnvironments"
-            NewTaskEnvironments(data=newTaskData, action=taskAction, colors=composerLook)
-          else when entry.name == "newTaskBranches"
-            input value=branchQuery input=editBranchQuery placeholder="Search branches" margin=16 aria-label="Search branches"
-            NewTaskBranches(data=newTaskData, action=taskAction, colors=composerLook)
-          else
-            scroll id=`scroll-${entry.id}` flex=1 min-height=0 keyboardDismissMode="interactive"
-              column padding-left=(entry.name == "environmentDetail" ? 0 : entry.name == "environments" ? 17.5 : 20)
-                padding-right=(entry.name == "environmentDetail" ? 0 : entry.name == "environments" ? 17.5 : 20)
-                padding-top=(entry.name == "environmentDetail" ? 0 : entry.name == "environments" ? 14 : 16)
-                padding-bottom=36
-                gap=(entry.name == "connections" or entry.name == "environments" ? 0 : 14)
-                when entry.name == "connect"
-                  when scannerOpen
-                    Scanner(permission=cameraStatus, active=scannerOpen, request=scan, received=receiveScan, permissionChanged=permissionChanged, colors=look.colors, secondary=look.secondary, secondaryForeground=look.secondaryForeground)
+      display="flex"
+      flex-direction="row"
+      column id="sidebar-panel" role="tabpanel" width=workspace.sidebarContentWidth height="100%" flex-shrink=0 position="relative" overflow="hidden"
+        column navigationKey="t3-workspace-sidebar" position="absolute" inset=0 navigationScroll=(length(sidebarHome.items) > 0 ? "sidebar-list" : "") background-color=look.screen
+          header
+            text "T3 Code" role="heading" aria-level=2
+          when workspace.sidebarMounted
+            Home(listId="sidebar-list", items=sidebarHome.items, emptyTitle=sidebarHome.emptyTitle, emptyDetail=sidebarHome.emptyDetail, loading=sidebarHome.loading, addEnvironment=sidebarHome.addEnvironment, bottomClearance=sidebarChrome.bottomClearance, emptyClearance=sidebarChrome.emptyClearance, selectThread=chooseThread, toggleShelf=toggleHomeShelf, showMore=showMoreSidebar, addConnection=addEnvironment, colors=homeLook)
+            HomeChrome(configuration=sidebarChrome.configuration, event=sidebarChromeEvent)
+      column id="workspace-panel" role="tabpanel" position="relative" width=workspace.contentSettledWidth height="100%" flex-shrink=0 min-width=0
+        each entry in stack(nav) key = entry.id
+          column navigationKey=`${entry.id}`
+            data-mobile-scheduled-editor=(entry.name == "settingsScheduledNew" or entry.name == "settingsScheduledEdit")
+            data-mobile-form-sheet=(entry.name == "connections" or entry.name == "connect")
+            data-mobile-scan-action=(entry.name == "connect" ? "scan-qr" : "")
+            data-mobile-scanner-open=scannerOpen
+            navigationScroll=(entry.name == "home" ? (length(home.items) > 0 ? "home-list" : "") : entry.name == "thread" ? (length(threadData.rows) > 0 ? "thread-feed" : "") : entry.name == "threadReview" ? "review-diff" : entry.name == "threadFiles" ? "workspace-files" : entry.name == "threadFile" ? "file-source" : entry.name == "settingsScheduledTasks" ? "scheduled-tasks-scroll" : entry.name == "settingsScheduledNew" or entry.name == "settingsScheduledEdit" ? "scheduled-editor-scroll" : entry.name == "settingsThreads" ? "settings-thread-preferences-scroll" : entry.name == "settingsProjectOverview" ? "settings-project-scroll" : entry.name == "settingsNotifications" ? "settings-notifications-scroll" : entry.name == "settingsUsage" ? "settings-usage-scroll" : startsWith(entry.name, "settingsScheduled") or entry.name == "settingsUsageAccount" ? "" : entry.name == "settings" ? "settings-scroll" : entry.name == "settingsServer" ? "settings-server-scroll" : entry.name == "settingsProviders" ? "settings-provider-scroll" : entry.name == "settingsAppearance" ? "settings-appearance-scroll" : entry.name == "settingsChoice" ? "settings-choice-scroll" : entry.name == "archive" ? (length(archiveData.items) > 0 ? "archive-list" : "") : `scroll-${entry.id}`)
+            navigationPresentation=(entry.name == "connections" or entry.name == "connect" or entry.name == "threadTerminalCapture" or entry.name == "settingsLegal" or entry.name == "threadBrowser" or entry.name == "threadDevices" ? "modal" : "")
+            position="absolute"
+            inset=0
+            background-color=look.sheet
+            display="flex"
+            flex-direction="column"
+            when entry.name == "home" and workspace.emptyWorkspaceDetail
+              header
+                button press=openNewTask aria-label="New task"
+                  t3-symbol symbol-name="square.and.pencil" point-size=20 symbol-tint=homeLook.foreground width=20 height=20
+                text "" role="heading" aria-level=2
+            else when entry.name != "threadDevices" and entry.name != "settingsAuth" and entry.name != "settingsWaitlist" and entry.name != "connectOnboarding"
+              MobileRootHeader(routeName=entry.name, title=(entry.name == "settingsThreads" ? "Thread behavior" : entry.name == "settingsProjectOverview" ? "Project overview" : entry.name == "settingsNotifications" ? "Notifications" : entry.name == "settingsAbout" ? "About T3 Code" : entry.name == "settingsClientStorage" ? "Client Storage" : entry.name == "settingsDiagnostics" ? "Diagnostics" : entry.name == "settingsOpenSourceLicenses" ? "Open source licenses" : entry.name == "settingsOpenSourceLicense" ? "License notice" : entry.name == "settingsLegal" ? "Legal" : entry.name == "threadMedia" or entry.name == "threadDraftMedia" or entry.name == "newTaskMedia" ? mediaData.name : entry.name == "connect" ? "Add environment" : entry.name == "home" ? "T3 Code" : entry.name == "environmentDetail" ? detail.title : entry.name == "threadBrowser" ? browserData.title : entry.name == "threadDevices" ? devicesData.title : entry.name == "threadTerminal" ? "Terminal" : entry.name == "threadTerminalCapture" ? "Visible terminal output" : entry.name == "threadReview" ? "Review changes" : entry.name == "threadReviewComment" ? "Leave a comment" : entry.name == "threadFiles" ? filesData.title : entry.name == "threadFile" ? fileData.title : entry.name == "thread" ? threadData.title : entry.name == "settingsScheduledTasks" ? "Scheduled Tasks" : entry.name == "settingsScheduledNew" ? "New scheduled task" : entry.name == "settingsScheduledEdit" ? "Edit scheduled task" : entry.name == "settingsScheduledModel" ? "Model" : entry.name == "settingsScheduledBranch" ? "Base branch" : entry.name == "settingsUsage" ? "Usage" : entry.name == "settingsUsageAccount" ? automationData.account.label : entry.name == "settings" ? "Settings" : entry.name == "settingsServer" ? serverSettings.title : entry.name == "settingsProviders" ? "Provider accounts" : entry.name == "settingsAppearance" ? "Appearance" : entry.name == "settingsChoice" ? settingsChoice.title : entry.name == "archive" ? "Archived Threads" : entry.name == "threadAgents" ? "Agents" : entry.name == "newTask" ? "Choose project" : entry.name == "newTaskEnvironments" ? "Environment" : entry.name == "newTaskBranches" ? "Branch" : entry.name == "threadModel" or entry.name == "newTaskModel" ? "Model" : entry.name == "threadRuntime" or entry.name == "newTaskRuntime" ? "Runtime" : entry.name == "threadModelFilter" or entry.name == "newTaskModelFilter" ? "Providers" : entry.name == "threadModelOption" or entry.name == "newTaskModelOption" ? "Model options" : entry.name == "newTaskDraft" ? "New task" : "Environments"), scannerOpen=scannerOpen, documentMenu=documentMenu.configuration, automationBusy=pending(automationChanged), scheduledCanCreate=automationData.scheduled.canCreate, browserMenuConfiguration=browserMenus.selection, iconColor=threadLook.foreground, previewColors=previewLook, browserCount=browserData.count, devicesCount=devicesData.count, sidebarAvailable=workspace.usesSplitView, sidebarVisible=workspace.sidebarVisible, back=back, scan=scan, addEnvironment=addEnvironment, documentAction=documentAction, automationAction=automationAction, browserMenu=browserMenu, terminalMenu=terminalMenu, openBrowser=openBrowser, openDevices=openDevices, openTerminal=openTerminal, openReview=openReview, openFiles=openFiles, openAgents=openAgents, toggleSidebar=toggleSidebar)
+            when entry.name == "home" and workspace.emptyWorkspaceDetail
+              column flex=1 align-items="center" justify-content="center" padding=40 gap=12
+                t3-symbol symbol-name="sidebar.left" point-size=34 symbol-tint=homeLook.iconSubtle width=34 height=34
+                text "Select a thread" font-size=20 font-weight=700
+                text "Choose a thread from the sidebar or start a new task." text-align="center" color=homeLook.muted max-width=360
+                button press=openNewTask border-radius=9999 padding=12 background-color=homeLook.primary
+                  text "New Task" color=homeLook.primaryForeground font-weight=700
+            else when entry.name == "home"
+              Home(listId="home-list", items=home.items, emptyTitle=home.emptyTitle, emptyDetail=home.emptyDetail, loading=home.loading, addEnvironment=home.addEnvironment, bottomClearance=chrome.bottomClearance, emptyClearance=chrome.emptyClearance, selectThread=chooseThread, toggleShelf=toggleHomeShelf, showMore=showMore, addConnection=addEnvironment, colors=homeLook)
+              HomeChrome(configuration=chrome.configuration, event=homeEvent)
+            else when entry.name == "thread"
+              column flex=1 min-height=0 width="100%" max-width=workspace.chatContentMaxWidth align-self="center"
+                ThreadFeed(data=threadData, horizontalPadding=16, userBubbleMaxWidth=max(0, (min(workspace.contentSettledWidth, workspace.chatContentMaxWidth) - 32) * 0.85), bottomClearance=14, action=threadAction, openMedia=openMedia, colors=threadLook)
+                ThreadApprovals(data=threadData, action=threadAction, colors=threadLook)
+                ComposerAttachmentStrip(data=composerAttachments, open=openDraftMedia, remove=removeAttachment, colors=threadLook)
+                ThreadComposer(voiceDisabled=(data.busy or pending(changed) or pending(taskChanged)), voice=voiceData, voiceOwner=(entry.id == top(nav).id ? voiceFocus.owner : ""), voiceColors=voiceLook, voiceAction=voiceAction, enterBehavior=appearance.enterBehavior, data=threadData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=(composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)), contentMaxWidth=min(workspace.contentSettledWidth, workspace.chatContentMaxWidth), focusChanged=composerFocus, editDraft=editDraft, action=threadAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
+            else when entry.name == "threadBrowser" and entry.id == top(nav).id
+              MobileBrowser(data=browserData, colors=previewLook, active=true, action=browserAction, menuConfiguration=browserMenus.options, menuEvent=browserMenu)
+            else when entry.name == "threadDevices" and entry.id == top(nav).id
+              MobileDevices(data=devicesData, colors=previewLook, active=true, safeAreaTop=layout.safeTop, action=devicesAction, close=back, menuConfiguration=devicesMenus.options, menuEvent=devicesMenu)
+            else when entry.name == "threadTerminal"
+              MobileTerminal(data=terminalData, event=terminalEvent, action=terminalAction)
+            else when entry.name == "threadTerminalCapture"
+              MobileTerminalCaptureView(data=terminalCapture, colors=terminalData.colors, select=selectTerminalLine, attach=attachTerminalOutput)
+            else when entry.name == "threadReview"
+              row gap=10 padding=14
+                select value=reviewData.sectionId change=reviewSection aria-label="Diff section" flex=1 min-width=0
+                  each section in reviewData.sections key=section.id
+                    option section.title value=section.id
+                button press=toggleReviewWrap aria-label="Toggle line wrapping" aria-pressed=reviewWrap
+                  t3-symbol symbol-name="text.word.spacing" point-size=18 symbol-tint=reviewLook.icon width=20 height=20
+              when length(reviewData.files) > 0
+                select value=reviewData.selectedPath change=reviewFile aria-label="Changed file" margin-left=14 margin-right=14
+                  option "Changed files" value=""
+                  each file in reviewData.files key=file.id
+                    option file.name value=file.path
+              ReviewView(data=reviewData, colors=reviewLook, wrap=reviewWrap, action=reviewAction, refresh=refreshReview, loadMore=loadReviewFiles)
+            else when entry.name == "threadReviewComment"
+              ReviewCommentComposer(data=reviewData, value=reviewComment, colors=reviewLook, change=editReviewComment, submit=submitReviewComment)
+            else when entry.name == "threadFiles"
+              input value=filesQuery input=editFilesQuery placeholder="Search files" margin=14 aria-label="Search files"
+              MobileFileTree(data=filesData, colors=reviewLook, toggle=toggleDirectory, select=openFile, refresh=refreshFiles)
+            else when entry.name == "threadFile"
+              row gap=14 padding=14
+                text fileData.subtitle flex=1 min-width=0 line-clamp=1 color=reviewLook.muted font-size=12
+                when fileData.markdown
+                  button press=toggleFilePreview aria-label="Toggle Markdown preview" aria-pressed=filePreview
+                    t3-symbol symbol-name="eye" point-size=18 symbol-tint=reviewLook.icon width=20 height=20
+                button press=toggleFileWrap aria-label="Toggle line wrapping" aria-pressed=fileWrap
+                  t3-symbol symbol-name="text.word.spacing" point-size=18 symbol-tint=reviewLook.icon width=20 height=20
+              MobileFileView(data=fileData, colors=reviewLook, wrap=fileWrap, preview=filePreview, refresh=refreshFile)
+            else when entry.name == "threadMedia" or entry.name == "threadDraftMedia" or entry.name == "newTaskMedia"
+              when entry.id == top(nav).id
+                when mediaData.ready
+                  when mediaData.kind == "file" and (documentData.error != "" or documentData.kind == "text" or documentData.kind == "markdown" or documentData.kind == "html")
+                    MobileAttachmentDocument(data=documentData, colors=reviewLook, wrap=settingsAppearance.codeWordBreak, retry=retryDocument, nativeEvent=documentNativeEvent, nativeError=mediaNativeError)
+                    when mediaNativeOpen
+                      MediaPreview(data=mediaViewerData, completed=mediaComplete)
+                  else when documentData.kind == "audio"
+                    MobileAttachmentAudio(data=audioData, source=documentData.sourceJSON, active=(not mediaNativeOpen), colors=reviewLook, command=audioControl, status=audioStatusChanged, retry=retryDocument)
+                    when mediaNativeOpen
+                      MediaPreview(data=mediaViewerData, completed=mediaComplete)
+                  else when mediaNativeError != ""
+                    column flex=1 align-items="center" justify-content="center" padding=21 gap=7
+                      text "No preview for this file" font-size=18 font-weight=700 color=threadLook.foreground
+                      text mediaNativeError font-size=14 text-align="center" color=threadLook.muted
+                      button press=retryDocument min-height=44
+                        text "Try again" color=threadLook.foreground
+                  else when mediaData.kind != "file" or documentData.ready
+                    MediaPreview(data=mediaData, completed=mediaComplete)
                   else
-                    Connect(host=host, code=code, error=formError, submitting=pending(changed), changeHost=editHost, changeCode=editCode, submit=connect, colors=look.colors)
-                when entry.name == "connections" or entry.name == "environments"
-                  Environments(
-                    items=data.environments,
-                    expandedId=expanded,
-                    opensDetails=(entry.name == "environments"),
-                    toggle=toggle,
-                    setEnabled=setEnabled,
-                    reconnect=reconnect,
-                    remove=remove,
-                    save=save,
-                    colors=look.colors
-                  )
-                  GitHubRoutingSettings(
-                    items=data.routing,
-                    saving=pending(changed),
-                    change=changeRouting,
-                    colors=look.colors
-                  )
-                  when formError != ""
-                    text formError color=look.colors.dangerForeground testId="environment-error"
-                when entry.name == "environmentDetail"
-                  match first(filter(data.environments, item => item.id == detail.key))
-                    case some(connection)
-                      EnvironmentDetail(data=detail, connection=connection, colors=look.colors, dark=appearance.scheme == "dark", pending=pending(detailChanged), toggleConnection=toggle, setEnabled=setEnabled, reconnect=reconnect, remove=remove, save=save, action=detailAction)
-                    case none
-                      text "This environment is no longer saved on this device." color=look.colors.muted padding=17.5
-                when entry.name == "notfound"
-                  text "Page not found"
+                    text "Loading file..." padding=21 color=threadLook.muted
+                else when mediaData.error != ""
+                  text mediaData.error padding=21 color=look.colors.dangerForeground
+                else
+                  text "Loading preview…" padding=21 color=look.colors.muted
+            else when entry.id == top(nav).id and informationRoute.active
+              SettingsInformation(data=informationData, route=entry.name, query=informationQuery, legalConfiguration=informationLegal.configuration, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom, navigate=openInformation, command=informationCommand, queryChanged=informationSearch)
+            else when entry.name == "settings"
+              SettingsRoot(data=settingsData.root, navigate=openSetting)
+              SettingsHeader(configuration=settingsData.header, event=settingsHeaderEvent)
+            else when startsWith(entry.name, "settingsScheduled") or entry.name == "settingsUsage" or entry.name == "settingsUsageAccount"
+              when entry.id == top(nav).id
+                SettingsAutomation(data=automationData, colors=settingsData.root.colors, roles=settingsData.root.roles, danger=look.colors.dangerForeground, bottom=settingsData.root.bottom, dark=(appearance.scheme == "dark"), command=automationAction)
+                when entry.name == "settingsScheduledTasks"
+                  SettingsHeader(configuration=scheduledHeader.configuration, event=settingsHeaderEvent)
+            else when entry.name == "settingsThreads"
+              SettingsThreadPreferences(data=threadPreferences, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom, busy=pending(threadPreferencesChanged), change=threadPreferenceChange, preference=changePreference)
+            else when entry.name == "settingsProjectOverview"
+              SettingsProjectOverview(data=projectOverview, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom, busy=pending(projectRenamed), savedRevision=projectSavedRevision, save=renameProject)
+            else when entry.name == "settingsServer"
+              SettingsServer(data=serverSettings, colors=settingsData.root.colors, roles=settingsData.root.roles, danger=look.colors.dangerForeground, bottom=settingsData.root.bottom, change=serverSettingChange, environment=settingsEnvironment)
+            else when entry.name == "settingsProviders"
+              SettingsProviderAccounts(data=providerAccounts, colors=settingsData.root.colors, roles=settingsData.root.roles, danger=look.colors.dangerForeground, bottom=settingsData.root.bottom, action=providerAction, field=providerField, signOut=providerSignOut)
+            else when entry.name == "settingsAppearance"
+              SettingsAppearance(data=settingsAppearance, change=changePreference)
+            else when entry.name == "settingsNotifications"
+              SettingsNotifications(data=notificationSettings, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom)
+            else when entry.name == "settingsChoice"
+              SettingsChoices(data=settingsChoice, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom, change=changePreference)
+            else when entry.name == "archive"
+              row padding=16 gap=14
+                input value=archiveQuery input=editArchiveQuery placeholder="Search archived threads" flex=1 min-width=0 aria-label="Search archived threads"
+                button press=toggleArchiveSort aria-label="Sort archived threads"
+                  text (archiveSort == "newest" ? "Newest" : "Oldest")
+              select value=archiveEnvironment change=editArchiveEnvironment aria-label="Filter archived threads by environment" margin-left=16 margin-right=16
+                option "All environments" value=""
+                each environment in archiveData.environments key=environment.id
+                  option environment.label value=environment.id
+              Archive(data=archiveData, colors=archiveLook, pending=pending(archived), loading=pending(archiveData), width=viewport.width, reduced=viewport.prefersReducedMotion, refresh=refreshArchive, action=archiveAction)
+            else when entry.name == "threadAgents"
+              AgentActivity(data=agents, colors=agentLook, dark=appearance.scheme == "dark", bottomInset=layout.safeBottom, open=openAgent)
+            else when startsWith(entry.name, "newTask") and entry.name != "newTask" and not newTaskFlow.ready
+              column flex=1 align-items="center" justify-content="center" padding=28 gap=14
+                text (newTaskFlow.message != "" ? newTaskFlow.message : newTaskFlow.title) color=composerLook.muted text-align="center"
+                when newTaskFlow.status == "error"
+                  button press=chooseNewProject
+                    text "Choose project"
+            else when entry.name == "threadModel" or entry.name == "newTaskModel"
+              row gap=14 padding=14
+                button press=modelAction("cancel", "", "") disabled=pending(modelChanged)
+                  text "Cancel"
+                input value=modelQuery input=editModelQuery placeholder="Search models" flex=1 min-width=0 aria-label="Search models"
+                button press=openModelFilter aria-label="Filter providers"
+                  t3-symbol symbol-name="line.3.horizontal.decrease" point-size=20 symbol-tint=composerLook.icon width=20 height=20
+                button press=modelAction("save", "", "") disabled=(not modelData.canSave or pending(modelChanged))
+                  text modelData.saveLabel
+              when modelData.hasLegacy
+                row padding-left=14 padding-right=14 align-items="center"
+                  text "Show legacy models" flex=1 font-size=14 color=composerLook.muted
+                  input type="checkbox" switch checked=modelLegacy change=toggleLegacy aria-label="Show legacy models"
+              ComposerSettings(data=modelData, dark=appearance.scheme == "dark", action=modelAction, openOptions=openModelOption, openRuntime=openRuntime, colors=composerLook)
+            else when entry.name == "threadModelOption" or entry.name == "newTaskModelOption"
+              match first(filter(modelData.options, option => option.id == entry.params.modelOption))
+                case some(option)
+                  ComposerChoices(rows=option.choices, choose=chooseModelOption, colors=composerLook)
+                case none
+                  text "This model option is no longer available."
+            else when entry.name == "threadRuntime" or entry.name == "newTaskRuntime"
+              ComposerChoices(rows=modelData.runtimes, choose=chooseRuntime, colors=composerLook)
+            else when entry.name == "threadModelFilter" or entry.name == "newTaskModelFilter"
+              ComposerChoices(rows=modelData.filters, choose=chooseModelFilter, colors=composerLook)
+            else when entry.name == "newTaskDraft" and newTaskFlow.ready and newTaskData.draft
+              NewTaskHero(data=newTaskData, chooseProject=chooseNewProject, chooseEnvironment=chooseNewEnvironment, colors=composerLook)
+              NewTaskWorkspace(data=newTaskData, action=taskAction, chooseBranch=chooseNewBranch, colors=composerLook)
+              ComposerAttachmentStrip(data=composerAttachments, open=openDraftMedia, remove=removeAttachment, colors=threadLook)
+              ThreadComposer(voiceDisabled=(data.busy or pending(changed) or pending(taskChanged)), voice=voiceData, voiceOwner=(entry.id == top(nav).id ? voiceFocus.owner : ""), voiceColors=voiceLook, voiceAction=voiceAction, enterBehavior=appearance.enterBehavior, data=newTaskData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=(composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)), contentMaxWidth=min(workspace.contentSettledWidth, workspace.chatContentMaxWidth), focusChanged=composerFocus, editDraft=editNewDraft, action=taskAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
+            else when entry.name == "newTask"
+              input value=newTaskQuery input=editNewQuery placeholder="Search projects" margin=16 aria-label="Search projects"
+              NewTaskProjects(data=newTaskData, action=taskAction, colors=composerLook)
+            else when entry.name == "newTaskEnvironments"
+              NewTaskEnvironments(data=newTaskData, action=taskAction, colors=composerLook)
+            else when entry.name == "newTaskBranches"
+              input value=branchQuery input=editBranchQuery placeholder="Search branches" margin=16 aria-label="Search branches"
+              NewTaskBranches(data=newTaskData, action=taskAction, colors=composerLook)
+            else
+              scroll id=`scroll-${entry.id}` flex=1 min-height=0 keyboardDismissMode="interactive"
+                column padding-left=(entry.name == "environmentDetail" ? 0 : entry.name == "environments" ? 17.5 : 20)
+                  padding-right=(entry.name == "environmentDetail" ? 0 : entry.name == "environments" ? 17.5 : 20)
+                  padding-top=(entry.name == "environmentDetail" ? 0 : entry.name == "environments" ? 14 : 16)
+                  padding-bottom=36
+                  gap=(entry.name == "connections" or entry.name == "environments" ? 0 : 14)
+                  when entry.name == "connect"
+                    when scannerOpen
+                      Scanner(permission=cameraStatus, active=scannerOpen, request=scan, received=receiveScan, permissionChanged=permissionChanged, colors=look.colors, secondary=look.secondary, secondaryForeground=look.secondaryForeground)
+                    else
+                      Connect(host=host, code=code, error=formError, submitting=pending(changed), changeHost=editHost, changeCode=editCode, submit=connect, colors=look.colors)
+                  when entry.name == "connections" or entry.name == "environments"
+                    Environments(
+                      items=data.environments,
+                      expandedId=expanded,
+                      opensDetails=(entry.name == "environments"),
+                      toggle=toggle,
+                      setEnabled=setEnabled,
+                      reconnect=reconnect,
+                      remove=remove,
+                      save=save,
+                      colors=look.colors
+                    )
+                    GitHubRoutingSettings(
+                      items=data.routing,
+                      saving=pending(changed),
+                      change=changeRouting,
+                      colors=look.colors
+                    )
+                    when formError != ""
+                      text formError color=look.colors.dangerForeground testId="environment-error"
+                  when entry.name == "environmentDetail"
+                    match first(filter(data.environments, item => item.id == detail.key))
+                      case some(connection)
+                        EnvironmentDetail(data=detail, connection=connection, colors=look.colors, dark=appearance.scheme == "dark", pending=pending(detailChanged), toggleConnection=toggle, setEnabled=setEnabled, reconnect=reconnect, remove=remove, save=save, action=detailAction)
+                      case none
+                        text "This environment is no longer saved on this device." color=look.colors.muted padding=17.5
+                  when entry.name == "notfound"
+                    text "Page not found"
+      row role="tablist" display="none"
+        button role="tab" aria-controls="sidebar-panel" aria-selected=false press=workspaceTab
+          text "Sidebar"
+        button role="tab" aria-controls="workspace-panel" aria-selected=true press=workspaceTab
+          text "Workspace"
+      t3-workspace-layout workspace-configuration=workspace.configuration position="absolute" width=0 height=0 aria-hidden=true
       t3-layout-facts change=layoutChanged position="absolute" inset=0 aria-hidden=true
       when voiceData.globalVisible
         column position="absolute" right=0 bottom=(max(layout.safeBottom, 12) + 64)

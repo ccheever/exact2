@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
 import { obj, type Obj } from './shared/domain';
 import type { Native } from './shared/protocol';
-import { mobileFilesRead, mobileFilesAction, mobileFileRead, mobileFilesSnapshot } from './file-data';
+import { mobileFilesRead, mobileFilesAction, mobileFileRead, mobileFileSnapshot, mobileFilesSnapshot } from './file-data';
 import { buildFileTree, flattenFileTree } from './file-tree-model';
 
 function fixture() {
@@ -69,4 +69,61 @@ describe('mobile workspace files', () => {
     expect(mobileFilesSnapshot('', f.client).query).toBe('needle');
     expect(f.calls.filter(call => call.method === 'projects.searchEntries').map(call => obj(call.payload).query)).toEqual(['needle']);
   });
+});
+
+
+test('tree and file permission reads settle independently in either order', async () => {
+  for (const first of ['tree', 'file']) {
+    const f = fixture(); let release!: (value: unknown) => void; let auth = 0;
+    f.hook(request => request.op === 'http' && ++auth === 1 ? new Promise(resolve => { release = resolve; }) : undefined);
+    const pending = first === 'tree' ? mobileFilesRead('', '', f.native, f.client)
+      : mobileFileRead('src/a.ts', f.native, false, 0, false, f.client);
+    if (first === 'tree') await mobileFileRead('src/a.ts', f.native, false, 0, false, f.client);
+    else await mobileFilesRead('', '', f.native, f.client);
+    release({ ok: true, generation: 1, value: { authenticated: true, permissions: ['filesystem:read'] } });
+    await pending;
+    expect(mobileFilesSnapshot('', f.client).rows.map(row => row.path)).toEqual(['src', 'README.md']);
+    expect(mobileFileSnapshot('src/a.ts', false, 0, f.client).contents).toBe('const a = 1;\n\tvalue\n');
+    expect(f.calls.filter(call => call.method === 'projects.readFile')).toHaveLength(1);
+  }
+});
+
+test('tree refresh does not cancel an in-flight file result in the same workspace', async () => {
+  const f = fixture(); let release!: (value: unknown) => void, entered!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  f.hook(request => request.method === 'projects.readFile' ? new Promise(resolve => { release = resolve; entered(); }) : undefined);
+  const file = mobileFileRead('src/a.ts', f.native, false, 0, false, f.client); await started;
+  const tree = await mobileFilesRead('', '', f.native, f.client);
+  await mobileFilesAction(tree.owner, 'refresh', '', '', f.native, f.client);
+  release({ ok: true, generation: 1, value: { contents: 'after refresh', byteLength: 13, truncated: false } });
+  expect((await file).contents).toBe('after refresh');
+  expect(mobileFilesSnapshot('', f.client).rows.length).toBeGreaterThan(0);
+});
+
+test('permission denial revokes both panes and refuses an older in-flight file result', async () => {
+  const f = fixture(); let release!: (value: unknown) => void, entered!: () => void;
+  const started = new Promise<void>(resolve => { entered = resolve; });
+  await mobileFilesRead('', '', f.native, f.client);
+  f.hook(request => request.method === 'projects.readFile' ? new Promise(resolve => { release = resolve; entered(); }) : undefined);
+  const file = mobileFileRead('src/a.ts', f.native, false, 0, false, f.client); await started;
+  f.hook(request => request.op === 'http' ? { ok: true, generation: 1, value: { authenticated: true, permissions: [] } } : undefined);
+  const denied = await mobileFilesRead('', '', f.native, f.client);
+  expect(denied.rows).toEqual([]); expect(denied.error).toContain('cannot read host files');
+  release({ ok: true, generation: 1, value: { contents: 'must not publish', byteLength: 16, truncated: false } });
+  await expect(file).rejects.toMatchObject({ kind: 'superseded' });
+  expect(mobileFileSnapshot('src/a.ts', false, 0, f.client).contents).toBe('');
+  expect(mobileFilesSnapshot('', f.client).rows).toEqual([]);
+});
+
+test('older grant cannot restore either pane after a concurrent permission denial', async () => {
+  const f = fixture(); let release!: (value: unknown) => void; let auth = 0;
+  f.hook(request => request.op === 'http' ? ++auth === 1 ? new Promise(resolve => { release = resolve; })
+    : { ok: true, generation: 1, value: { authenticated: true, permissions: [] } } : undefined);
+  const old = mobileFileRead('src/a.ts', f.native, false, 0, false, f.client);
+  await mobileFilesRead('', '', f.native, f.client);
+  release({ ok: true, generation: 1, value: { authenticated: true, permissions: ['filesystem:read'] } });
+  await expect(old).rejects.toMatchObject({ kind: 'superseded' });
+  expect(f.calls.some(call => call.method)).toBe(false);
+  expect(mobileFileSnapshot('src/a.ts', false, 0, f.client).rows).toEqual([]);
+  expect(mobileFilesSnapshot('', f.client).rows).toEqual([]);
 });

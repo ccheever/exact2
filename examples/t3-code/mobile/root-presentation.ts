@@ -21,13 +21,13 @@ export function homeChromeEvent(input: string) {
 }
 
 export function homeChromeView(args: unknown[]) {
-  const [routeKey, query, environmentId, projectKey, scheme, safeBottom, liquidGlass, _revision, rows, groupingMode] = args;
+  const [routeKey, query, environmentId, projectKey, scheme, safeBottom, liquidGlass, _revision, rows, groupingMode, layout] = args;
   const environments = arr(rows).map(row => ({ environmentId: str(row.id).split('\n')[1] ?? '', label: str(row.label) }))
     .filter(row => row.environmentId);
   const entries = [...fleet.entries.values()];
   const connectingEnvironments = arr(rows).filter(row => row.retrying === true).map(row => ({ environmentLabel: str(row.label) }));
   return mobileHomeChrome({ routeKey: str(routeKey), query: str(query), environmentId: str(environmentId), projectKey: str(projectKey),
-    layout: 'compact', groupingMode: str(groupingMode), scheme: str(scheme), safeBottom: Number(safeBottom) || 0, liquidGlassSupported: liquidGlass === true,
+    layout: layout === 'sidebar' ? 'sidebar' : 'compact', groupingMode: str(groupingMode), scheme: str(scheme), safeBottom: Number(safeBottom) || 0, liquidGlassSupported: liquidGlass === true,
     environments, workspace: {
       connectionError: mobileClient.error || null, connectingEnvironments,
       hasConnectingEnvironment: connectingEnvironments.length > 0,

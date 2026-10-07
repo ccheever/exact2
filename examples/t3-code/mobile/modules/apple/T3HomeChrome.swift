@@ -11,6 +11,7 @@ final class T3HomeChrome {
     private final class ViewRef { weak var value: T3HomeChromeView?; init(_ value: T3HomeChromeView) { self.value = value } }
     private var routes: [String: RouteRef] = [:]
     private var views: [String: ViewRef] = [:]
+    private var hiddenSidebars = Set<String>()
 
     func makeView(props: [String: String], events: ExactNativeEvents) throws -> ExactNativeInstance {
         let instance = T3HomeChromeView(owner: self, events: events)
@@ -25,9 +26,19 @@ final class T3HomeChrome {
         guard routes[route.key]?.value === route else { return }
         views[route.key]?.value?.detach()
         routes.removeValue(forKey: route.key)
+        hiddenSidebars.remove(route.key)
+    }
+    /// The public workspace holder hides only the app-owned sidebar search.
+    /// Keep its query and route attachment; never end editing in the workspace.
+    func hideSidebar(key: String) {
+        hiddenSidebars.insert(key); views[key]?.value?.setWorkspaceHidden(true)
+    }
+    func showSidebar(key: String) {
+        hiddenSidebars.remove(key); views[key]?.value?.setWorkspaceHidden(false)
     }
     fileprivate func bind(_ view: T3HomeChromeView, key: String) {
         views[key] = ViewRef(view)
+        view.setWorkspaceHidden(hiddenSidebars.contains(key))
         if let route = routes[key]?.value { view.attach(route) }
     }
     fileprivate func unbind(_ view: T3HomeChromeView, key: String) {
@@ -90,6 +101,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
     private let fieldDelegate = T3FieldDelegate()
     private var searchController: UISearchController?
     private var settingQuery = false
+    private var workspaceHidden = false
     private var statusWork: DispatchWorkItem?
     private var statusStarted = false
     private var statusShown = false
@@ -108,7 +120,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
         fieldDelegate.editing = { [weak self] active in self?.editing(active) }
         root.layoutChanged = { [weak self] in self?.updateWidth() }
         searchDelegate.changed = { [weak self] text in
-            guard let self, !self.settingQuery else { return }
+            guard let self, !self.settingQuery, !self.workspaceHidden else { return }
             self.emit("search", text)
         }
     }
@@ -130,7 +142,7 @@ private final class T3HomeChromeView: ExactNativeInstance {
         refresh()
     }
     private func emit(_ kind: String, _ value: String = "") {
-        guard alive, let data = try? JSONSerialization.data(withJSONObject: ["kind": kind, "value": value]) else { return }
+        guard alive, !(config?.layout == "sidebar" && workspaceHidden), let data = try? JSONSerialization.data(withJSONObject: ["kind": kind, "value": value]) else { return }
         events.change(String(decoding: data, as: UTF8.self))
     }
     private func menu() -> UIMenu {
@@ -289,6 +301,23 @@ private final class T3HomeChromeView: ExactNativeInstance {
         installedTitle = title
         route.controller.navigationItem.titleView = title
         if animated { UIView.animate(withDuration: 0.25) { title.alpha = 1 } }
+    }
+    fileprivate func setWorkspaceHidden(_ hidden: Bool) {
+        guard workspaceHidden != hidden else { return }
+        workspaceHidden = hidden
+        guard config?.layout == "sidebar" else { return }
+        if !hidden {
+            settingQuery = true
+            searchController?.searchBar.text = config?.query
+            field?.text = config?.query
+            settingQuery = false
+            return
+        }
+        settingQuery = true
+        searchController?.searchBar.searchTextField.resignFirstResponder()
+        searchController?.isActive = false
+        field?.resignFirstResponder()
+        settingQuery = false
     }
     private func removeSearch() {
         if let searchController, route?.controller.navigationItem.searchController === searchController {
