@@ -1,0 +1,68 @@
+Round-5 follow-up, item 1: "native.watch outside an answer" after Add environment (real input, one session per build)
+
+Lane: reference server 1e2ecbd975 on 127.0.0.1:16741 behind the trace proxy on 16742 (isolated HOME, CODEX_HOME,
+CLAUDE_CONFIG_DIR, XDG_*, T3CODE_HOME, telemetry off, codex/claude stubs). Bundle copies com.exact.t3code.laner5.before
+(38352ceaf) and .after (364f5baa6), open -n, addressed by pid with orca computer, under .realinput-lock.
+Steps, same for both: pair the copy through the wizard; quit; delete its Keychain item and preferences domain (data kept);
+relaunch ("Connect to a computer running T3 Code"); Open Connections; Add environment; Remote link; set the Host field,
+click it, End, space, Backspace (the nudge left http://127.0.0.1:1674, unreachable, in both); a pairing code; Add environment.
+The after session also right-clicked a thread row and opened Snooze before the quit (item 2); that process had quit.
+
+--- before (38352ceaf) log
+21:26:27 [before] launched pid 19306
+21:26:27 [before] wizard pairing field 37
+21:26:48 [before] rows after pairing: 4
+21:26:51 [before] pid 19306 quit
+21:26:51 [before] keychain item deleted
+21:26:51 [before] preferences domain deleted
+21:26:57 [before] launched pid 42681
+21:26:58 [before] relaunch: Connect to a computer running T3 Code 
+21:27:03 [before] host field 64
+21:27:13 [before] after Add environment: banner=[]
+21:27:18 [before] after Back: banner=[] rows=0
+21:27:21 [before] pid 42681 quit
+21:27:21 [before] cleaned
+--- after (364f5baa6) log
+21:27:44 [after] launched pid 44466
+21:27:44 [after] wizard pairing field 37
+21:28:05 [after] rows after pairing: 4
+21:28:05 [after] row element 11
+21:28:07 [after] menu items: 16
+21:28:07 [after] Snooze item 20
+21:28:09 [after] In 1 hour item : 
+21:28:11 [after] rows after snooze: 4; notice: 
+21:28:14 [after] pid 44466 quit
+21:28:14 [after] keychain item deleted
+21:28:14 [after] preferences domain deleted
+21:28:20 [after] launched pid 76693
+21:28:21 [after] relaunch: Connect to a computer running T3 Code 
+21:28:26 [after] host field 64
+21:28:37 [after] after Add environment: banner=[native.watch outside an answer]
+21:28:41 [after] after Back: banner=[native.watch outside an answer] rows=0
+21:28:44 [after] pid 76693 quit
+21:28:44 [after] cleaned
+
+--- accessibility tree after Add environment, after the composer's "Environment disconnected" (element 23) in the after build;
+    the before build has "24 text T3 Code" there, with no banner
+		24 text native.watch outside an answer
+		25 button Dismiss error
+		26 text T3 Code
+--- the dialog in both builds
+			58 text Could not connect to the server.
+		65 text field (settable) Host, Value: http://127.0.0.1:1674, Placeholder: backend.example.com
+		69 text Could not connect to the server.
+
+The banner is the transcript's ThreadErrorBanner (chat.contract, data.error), behind the Settings backdrop on screen, so
+the screenshots do not show it; the accessibility tree does.
+
+Cause, found by reading the code and reproduced under Bun (no live session was left to confirm the fix): clone code.
+let-go.ts letGoAware passed watch() through after its answer was let go. A refresh let go inside one of fleet.sync's
+tolerated reads (settings-b-fleet.ts: environments, learnRoutes, announceJobs, announceServerUpdates, each swallowed)
+went on to readLocalBackend (local-backend.ts), whose native.watch('t3.local') the prelude refuses outside an answer
+(js/src/prelude.js, unchanged in this merge except database tracking). The refresh's catch (client.ts) wrote that Error
+into client.error, where it stays until Dismiss or a later connection clears it. let-go.test.ts "a refresh let go inside a read it tolerates
+watches nothing outside its answer": client.error was "native.watch outside an answer" before the fix, empty after.
+The path is the same on the base. Why only the after build reached it is not proven: round 5 made shellView, the details
+card and SnapShot settings depend on exactPage().hasFocus, so each window activation (each orca computer action shows the
+app) re-asks them and adds native round trips (notifyStatus, activityFacts, vcs.refreshStatus) beside the snapshot
+answer, which changes when its let-go lands. No main commit introduced it.
