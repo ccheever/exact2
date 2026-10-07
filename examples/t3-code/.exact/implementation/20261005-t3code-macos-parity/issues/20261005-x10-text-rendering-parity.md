@@ -136,7 +136,7 @@ shared context.
 Filed as [#128](https://github.com/ccheever/exact2/issues/128) (code wrap, placeholder colour, balance,
 smoothing; ellipsis and `line-clamp` already matched Chrome on `4c893fef6` and were not filed). #128 was
 closed by main #208 (`05c767ba8`), in the feature branch since main `463acda68`
-([20261007-adopt-main-fixes-r4](../tasks/20261007-adopt-main-fixes-r4.md)): a macOS paragraph takes the
+([20261007-adopt-main-fixes-r4](../tasks/closed/20261007-adopt-main-fixes-r4.md)): a macOS paragraph takes the
 shared walker's Chrome line-break opportunities, so a path no longer breaks after each `/`, and
 `overflow-wrap: anywhere | break-word` breaks inside a word only when no opportunity fits (item 2).
 

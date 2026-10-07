@@ -3,7 +3,7 @@ name: 20261005-client-activity-reporting
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: unverified
-delivery: none
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-client-activity-reporting

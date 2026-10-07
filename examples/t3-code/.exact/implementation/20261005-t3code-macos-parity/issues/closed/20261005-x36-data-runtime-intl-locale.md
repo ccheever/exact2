@@ -77,7 +77,7 @@ Next: `issue-open` (check the capability on the pin first: run the step-1 table;
 ## Resolved upstream and adopted (2026-10-07, adopt-main-fixes-r4)
 
 [#118](https://github.com/ccheever/exact2/issues/118) was closed by main #204 (`4132f02c5`), in the feature
-branch since main `463acda68` ([20261007-adopt-main-fixes-r4](../../tasks/20261007-adopt-main-fixes-r4.md)):
+branch since main `463acda68` ([20261007-adopt-main-fixes-r4](../../tasks/closed/20261007-adopt-main-fixes-r4.md)):
 the Hermes prelude (`js/src/standard.js`) installs `Intl.Locale` on every Hermes host, with Chrome's
 canonicalization, getters and `getWeekInfo()` from CLDR week data. Main's Hermes-against-Chrome test
 (`cargo test -p exact-js --test it pure_utilities_match`, 75 `Intl.Locale` rows) passes in this branch.

@@ -3,7 +3,7 @@ name: 20261007-terminal-real-drag
 plan: 20261005-t3code-macos-parity
 implementation: verified
 verification: passed
-delivery: none
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-terminal-real-drag
@@ -15,7 +15,7 @@ verified_commit: f2f16c9e9
 
 ## Outcome
 
-[20261007-real-input-checks](closed/20261007-real-input-checks.md) (PR #213) left two findings open: a real
+[20261007-real-input-checks](20261007-real-input-checks.md) (PR #213) left two findings open: a real
 mouse drag in the terminal selected nothing in either build, and the branch's relaunch showed "Environment
 disconnected" for about 30 s where the base reconnected within 8 s. Both were found to come from how the drive
 was run, not from the app. With the cause removed, both behave as T3 Code does in both builds. No app code
@@ -85,4 +85,4 @@ failures). `bun test examples/t3-code` 2298 tests, 0 fail, 1 skip; strict tsc (`
 
 ## Next action
 
-Review the PR.
+None. Merged into `feat(example)/t3-code` by #217 (`20980ae10`, 2026-10-07).

@@ -47,6 +47,30 @@ The user's decision (2026-10-06, model A): one feature branch, no stacked PRs.
 - Verification evidence logs are not committed. The pre-cleanup history, including the
   `evidence/` trees, stays on `daehyeon/t3code-parallel-features`.
 
+## Status, 2026-10-07
+
+The task records match GitHub as of 2026-10-07: every task PR from #142 to #222 has merged into
+`feat(example)/t3-code`, and each record's `delivery` says so. Since the table below was written,
+these user decisions have changed the tickets:
+
+- `desktop-oracle-and-trace` is not built (2026-10-06). Rows that need the oracle or the trace
+  diff are recorded as not run. It is no longer a prerequisite, which overrides the common
+  prerequisites under "Implementation order".
+- `reference-logic-tests-done-areas` (the user closed #151 as unnecessary) and
+  `reference-logic-test-ports` are dropped (2026-10-06).
+- The tasks that need a sign-in are on hold until the user lifts it (2026-10-06):
+  `provider-sign-in-and-install`, `managed-codex-chatgpt`, `provider-settings-upkeep`,
+  `usage-reset-and-feedback`, `usage-pooled-view`, `fake-github-fixture` and the six pull
+  request tasks.
+- `round12-wrapup` is superseded and `clone-on-exact2-main`'s import is done. The clone
+  reaches `main` through #99, which stays a draft until the cleanup the user scheduled for the end.
+- These are blocked on an issue decision: `browser-surface` (X1), `app-developer-tools` (X2),
+  `t3-connect-sign-in` (X38), `telemetry` (X39), `app-update-feed` (X40) and
+  `wsl-environments` (X41).
+- In progress: `adopt-main-fixes-r5` (main's #219, #220, #221, #223 and #226) and
+  `local-primary-environment`. After `local-primary-environment` come `app-activation`,
+  `this-machine-network-access` and `portable-app-download`.
+
 ## Parallel implementation, 2026-10-06
 
 The user requested parallel work on independent tasks without unresolved issue prerequisites.
@@ -87,7 +111,7 @@ Common prerequisites, not repeated per row: every feature ticket (group 2 and la
 
 | Order / parallel group | Task | Complete outcome | Repository | Dependencies | Why this boundary and order | Verification |
 | --- | --- | --- | --- | --- | --- | --- |
-| 0a | [20261005-round12-wrapup](tasks/20261005-round12-wrapup.md) | Round-12 items work or are recorded; tree green on `c1522fdac` | exact2 (mc-orch worktree, untracked; no PR) | — | User chose to finish round 12 before the move | clone checks, agent drives, AppKit |
+| 0a | [20261005-round12-wrapup](tasks/closed/20261005-round12-wrapup.md) | Round-12 items work or are recorded; tree green on `c1522fdac` | exact2 (mc-orch worktree, untracked; no PR) | — | User chose to finish round 12 before the move | clone checks, agent drives, AppKit |
 | 0b | [20261005-clone-on-exact2-main](tasks/20261005-clone-on-exact2-main.md) | Clone at `examples/t3-code` on `main`; builds, runs, verifiable | exact2 `feat(example)/t3-code` → `main` | round12-wrapup; branch-reset confirmation | Every later PR needs the clone on main | clone checks, five checks, launch + pair + drive, matrix |
 | 1 | [20261005-desktop-oracle-and-trace](tasks/20261005-desktop-oracle-and-trace.md) | Reference desktop oracle, trace proxy/diff, RPC tally | exact2 (tools in `target/` or `tools/`, U23) | clone-on-exact2-main; apparatus + installs approval | Desktop app is the fidelity oracle; RPC tally found the largest gap | oracle shot, trace diff finds known G1 gap |
 | 1 | [20261005-hot-file-split](tasks/closed/20261005-hot-file-split.md) | Shared files split by area; room under the line cap | exact2 | clone-on-exact2-main | Parallel PRs would collide on `client.ts`/`app.contract` and hit the cap | no-change matrix, caps |
@@ -104,7 +128,7 @@ Common prerequisites, not repeated per row: every feature ticket (group 2 and la
 | 2 | [20261005-main-fix-adoption](tasks/closed/20261005-main-fix-adoption.md) | Workarounds for main-fixed limits removed; gap doc current | exact2 | common | Removes code that feature PRs would otherwise edit around | tap proofs, matrix |
 | 5 (wave 4) | [20261007-adopt-main-fixes-input](tasks/closed/20261007-adopt-main-fixes-input.md) | main's input fixes (#110, #111, #132, #133, #134) adopted where they cover the clone; #120 recorded as not planned | exact2 | origin/main merged into the feature branch (`4cdb8aa63`) | Adoption task per PR workflow: workarounds removed only where main's fix covers them | ported checks, AppKit, one before/after drive |
 | adopt (wave 4) | [20261007-adopt-main-fixes-shell](tasks/closed/20261007-adopt-main-fixes-shell.md) | main's #173 (ATS), #164 (frame restore), #177 (image load/error) and #174 (hover follows layout) adopted; #170 (X45) and #159 checked | exact2 | main merged into the feature branch (`dbae6c2e0`) | Removes workarounds for issues main closed (#106, #113, #121, #139) | drive of the assembled `.app`, AppKit, clone checks |
-| adopt (wave 4) | [20261007-adopt-main-fixes-r3](tasks/20261007-adopt-main-fixes-r3.md) | main `cff90b364` merged; #183 (X14: read gate removed), #186 (X8: tab middle click by agent, hit-test bug fixed) adopted; #184 (#135) nothing to adopt; X27, X33, X34 re-checked, still missing | exact2 | main `cff90b364` merged into the task branch | Removes the workaround for #109 and converts the #107 middle-click row | before/after macOS drive, AppKit, clone checks |
+| adopt (wave 4) | [20261007-adopt-main-fixes-r3](tasks/closed/20261007-adopt-main-fixes-r3.md) | main `cff90b364` merged; #183 (X14: read gate removed), #186 (X8: tab middle click by agent, hit-test bug fixed) adopted; #184 (#135) nothing to adopt; X27, X33, X34 re-checked, still missing | exact2 | main `cff90b364` merged into the task branch | Removes the workaround for #109 and converts the #107 middle-click row | before/after macOS drive, AppKit, clone checks |
 | fix (wave 4) | [20261007-let-go-banner](tasks/closed/20261007-let-go-banner.md) | A request Exact let go (main `a19523a57`, FetchError `Aborted`) shows no banner, toast or failure field; real failures still do | exact2 | main merged into the feature branch (`4cdb8aa63`) | Regression: every #182 drive showed the banner | clone tests, one before/after drive |
 | fix (wave 4) | [20261007-fix-minor-ui-issues](tasks/closed/20261007-fix-minor-ui-issues.md) (#191) | Side-by-side pass against T3 Code (Nightly): settings traits picker, composer menu side, filter popup, discovery retry, compaction row, settled badge, surface chooser, Diff outside git, title menu rules | exact2 | feature branch tip `0a7ca50ad` | Small differences found by using both apps; missing features become their own tasks | before/after drives, unit tests |
 | 2 | [20261007-context-menu-gaps](tasks/closed/20261007-context-menu-gaps.md) (#203) | Files tree, pull request link and chat file-link context menus as the reference | exact2 | common | Found by fix-minor-ui-issues; the other reference menus match | unit tests of the items, drive record |

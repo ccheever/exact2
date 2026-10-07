@@ -1,7 +1,7 @@
 ---
 name: 20261005-pr-links-previews-and-routing
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: blocked
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
@@ -102,6 +102,8 @@ Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, two lane backends, fa
 
 ## Progress
 
+2026-10-06: on hold (user decision). Tasks that need a sign-in (GitHub, provider accounts, T3 Connect) do not start until the user lifts the hold.
+
 Planned. No branch.
 
 ## Attempts and evidence
@@ -112,4 +114,4 @@ Planned. No branch.
 
 ## Next action
 
-`prepare` after `20261005-environment-routes`, `20261005-pr-conversation-and-refresh` and `20261005-pr-handoffs-and-quick-actions` merge; run the inline-link frame spike first.
+Starts when the user lifts the sign-in hold: `prepare` from `feat(example)/t3-code`, covering sign-in rows with lane fixtures (fake provider, seeded data).

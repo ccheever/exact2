@@ -72,7 +72,7 @@ Checked sources and time: planning pass 2026-10-05 against the local drafts in `
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
 | [X39](../issues/20261005-x39-telemetry.md) | Decision per part | scope decision; not in the library | blocking | `issue-open`, then the user decides |
-| [X6](../issues/20261005-x06-module-quit-shutdown.md) | Bounded delay at quit | main #200 (#105) runs `destroy()` at quit; no bounded hold on `463acda68` ([adopt-main-fixes-r4](20261007-adopt-main-fixes-r4.md)) | nonblocking (the pipes close when the server stops) | none |
+| [X6](../issues/20261005-x06-module-quit-shutdown.md) | Bounded delay at quit | main #200 (#105) runs `destroy()` at quit; no bounded hold on `463acda68` ([adopt-main-fixes-r4](closed/20261007-adopt-main-fixes-r4.md)) | nonblocking (the pipes close when the server stops) | none |
 | [X19](../issues/20261005-x19-data-source-timers.md) | Data-source timers | DEFERRED policy issue | nonblocking (sampling runs in Swift) | none |
 | [X40](../issues/20261005-x40-app-update-feed.md) | Update feed | scope decision | nonblocking (control messages are ignored here) | none |
 

@@ -1,7 +1,7 @@
 ---
 name: 20261005-pr-handoffs-and-quick-actions
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: blocked
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
@@ -71,7 +71,7 @@ Checked sources and time: planning pass 2026-10-05 over `EXACT2-GAPS.md` and the
 | [X25](../issues/20261005-x25-keyboard-keyup-code-capture.md) | "Shift held alone" fact for quick actions | Only the ⌘ jump-hint monitor exists | nonblocking (workaround: Swift `NSEvent` flags monitor like `T3Sidebar.swift`, status field on `t3.status`) | Add `shiftHeld` with its AppKit test; reset on resign-active and while a text input has focus |
 | [X26](../issues/20261005-x26-app-menu-control.md) | Menu at the pointer for the number's right-click | `T3ContextMenu.swift` | nonblocking (workaround exists) | Reuse |
 | [X17](../issues/20261005-x17-popover-position-try.md) | Popover flips near window edges (checks, stack) | Fixed placement | nonblocking (workaround: fixed placement; declared) | Declare in `EXACT2-GAPS.md` |
-| [X23](../issues/20261005-x23-scroll-restore-offsets.md) (sub-case X23d: nested scroll offset read and same-frame write), related [X22](../issues/20261005-x22-reactive-layout-facts.md) | Scroll offset that drives the header fold, and a `scrollTop` write in the same frame as the fold | Answered by main #210 (#138 X23d, merged in [adopt-main-fixes-r4](20261007-adopt-main-fixes-r4.md)): macOS anchors a plain `scroll` box as Chrome does, so a fold above the port no longer moves the content | none (was blocking for the fold row) | Build the fold row; measure against the reference whether its `compensationRef` write is still needed on top of anchoring |
+| [X23](../issues/20261005-x23-scroll-restore-offsets.md) (sub-case X23d: nested scroll offset read and same-frame write), related [X22](../issues/20261005-x22-reactive-layout-facts.md) | Scroll offset that drives the header fold, and a `scrollTop` write in the same frame as the fold | Answered by main #210 (#138 X23d, merged in [adopt-main-fixes-r4](closed/20261007-adopt-main-fixes-r4.md)): macOS anchors a plain `scroll` box as Chrome does, so a fold above the port no longer moves the content | none (was blocking for the fold row) | Build the fold row; measure against the reference whether its `compensationRef` write is still needed on top of anchoring |
 | [X13](../issues/20261005-x13-hover-keys-during-pan.md) | Hover reveals during a pan | Documented clone limit | nonblocking (workaround: partial, r12) | Declare |
 | [X9](../issues/20261005-x09-root-component-across-files.md) | `app.contract` near its cap | 1,327/1,500 lines | nonblocking | New files, no new root resource |
 | [X21](../issues/20261005-x21-two-way-websocket.md) | RPC send | Swift transport | nonblocking | Reuse `client.rpc` |
@@ -104,6 +104,8 @@ Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, git, fake gh, referen
 
 ## Progress
 
+2026-10-06: on hold (user decision). Tasks that need a sign-in (GitHub, provider accounts, T3 Connect) do not start until the user lifts the hold.
+
 Planned. No branch.
 
 ## Attempts and evidence
@@ -114,4 +116,4 @@ Planned. No branch.
 
 ## Next action
 
-`prepare` after `20261005-pr-header-actions-and-stacks` merges; run the scroll-offset spike first.
+Starts when the user lifts the sign-in hold: `prepare` from `feat(example)/t3-code`, covering sign-in rows with lane fixtures (fake provider, seeded data).

@@ -3,7 +3,7 @@ name: 20261007-adopt-main-fixes-r4
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: unverified
-delivery: none
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-adopt-main-fixes-r4
@@ -196,5 +196,4 @@ capture of the same message before changing it.
 
 ## Next action
 
-Review the PR ([#218](https://github.com/ccheever/exact2/pull/218)); nothing of this task is left open. The overflow
-finding above needs its own task.
+None. Merged into `feat(example)/t3-code` by #218 (`80eccbe63`, squash, 2026-10-07). The squash dropped main `463acda68` from the branch's ancestry (its content is on the branch); round 5 records it with `git merge -s ours` before merging main again. The overflow finding above still needs its own task.

@@ -3,7 +3,7 @@ name: 20261005-hot-file-split
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: unverified
-delivery: none
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: daehyeon/t3-code
 branch: 'feat(example)/t3-code-hot-file-split'

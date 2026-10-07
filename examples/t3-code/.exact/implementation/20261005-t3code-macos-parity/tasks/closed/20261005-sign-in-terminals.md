@@ -1,9 +1,9 @@
 ---
 name: 20261005-sign-in-terminals
 plan: 20261005-t3code-macos-parity
-implementation: in-progress
+implementation: implemented
 verification: unverified
-delivery: open
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-terminal-drawer
@@ -147,6 +147,8 @@ Development checks: 48 focused tests pass across onboarding terminal, provider a
 ## Next action
 
 Review the Account and onboarding runtime evidence below, retaining the matrix’s untested subcases. No real account login or installer execution was required for these terminal checks.
+
+2026-10-07 (records sync): merged into `feat(example)/t3-code` by #175 (`1a50d0df3`); verification stays as recorded above.
 
 ## Integrated verification, 2026-10-07
 

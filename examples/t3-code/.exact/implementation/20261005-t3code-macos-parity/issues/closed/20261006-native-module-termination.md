@@ -51,7 +51,7 @@ published. A repository issue search for `SSH teardown termination` found no mat
 
 Part of [#105](https://github.com/ccheever/exact2/issues/105); main #200 (`6cd178efc`) calls `destroy()` on
 every session from `applicationWillTerminate`, idempotently, which is the diagnostic fix described above.
-Adopted in [20261007-adopt-main-fixes-r4](../../tasks/20261007-adopt-main-fixes-r4.md): T3Ssh's
+Adopted in [20261007-adopt-main-fixes-r4](../../tasks/closed/20261007-adopt-main-fixes-r4.md): T3Ssh's
 `willTerminateNotification` observer is removed, so `T3Module.destroy()` is the only teardown.
 `macos/tests/ssh/auth.swift` checks that the notification alone closes nothing and that `destroy()` fails a
 waiting prompt and every later one as window-closed (ssh AppKit binary: 15 tests, 1 live skip, 0 failures).
@@ -71,4 +71,4 @@ lane pid only; the tunnel pids and their listeners were polled every 50 ms.
 
 So the branch ends its SSH children through `destroy()` on every orderly exit, as the base did through its
 observer; the control shows they are not reaped otherwise. Record: task
-[20261007-adopt-main-fixes-r4](../../tasks/20261007-adopt-main-fixes-r4.md).
+[20261007-adopt-main-fixes-r4](../../tasks/closed/20261007-adopt-main-fixes-r4.md).

@@ -92,7 +92,7 @@ Next: `issue-open` (reproduce, search for duplicates, prepare the report for the
 ## Partly fixed upstream; available, not adopted here (2026-10-07, adopt-main-fixes-r4)
 
 [#119](https://github.com/ccheever/exact2/issues/119) was closed by main #199 (`33aaa0b43`), in the feature
-branch since main `463acda68` ([20261007-adopt-main-fixes-r4](../tasks/20261007-adopt-main-fixes-r4.md)):
+branch since main `463acda68` ([20261007-adopt-main-fixes-r4](../tasks/closed/20261007-adopt-main-fixes-r4.md)):
 `exact release` signs every nested Mach-O file and code bundle, innermost first, found by its magic bytes,
 with the hardened runtime and a timestamp; #215 reuses that order for local bundles with
 `host.macos.resources`. Not on main (#199's open points): app-declared entitlements

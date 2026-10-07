@@ -3,7 +3,7 @@ name: 20261007-real-input-checks
 plan: 20261005-t3code-macos-parity
 implementation: verified
 verification: passed
-delivery: none
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-real-input-checks
@@ -70,11 +70,11 @@ are screenshot pixels × 0.5, and a displayed-image coordinate must be scaled fi
 | 4a | Cursor shapes (`screencapture -C` under a real pointer): terminal I-beam, drawer edge up-down resize, chat arrow, theme editor header open hand, grip crosshair | Same five | **pass** (parity) |
 | 4b | Theme editor header dragged to a point left of and above the window, released outside: the panel follows and stays inside the window (top 8 pt) | Same | **pass** (parity) |
 | 4c | Terminal: real double-click selects "73" with the Add to chat / Copy popup; right-click opens Add to chat / Copy / Paste; Escape closes | Same | **pass** |
-| 4d | Terminal: a real drag (in the terminal, out of the window and back; `cliclick` and `orca computer drag`) selects nothing | Same; ⌘C after it leaves the clipboard empty | first run: fail; **re-run: pass** in both builds ([terminal-real-drag](../20261007-terminal-real-drag.md)): the drive left a native popup open |
+| 4d | Terminal: a real drag (in the terminal, out of the window and back; `cliclick` and `orca computer drag`) selects nothing | Same; ⌘C after it leaves the clipboard empty | first run: fail; **re-run: pass** in both builds ([terminal-real-drag](20261007-terminal-real-drag.md)): the drive left a native popup open |
 | 4e | — (not driven) | Sidebar rail dragged with a real pointer resized the sidebar; a real double-click on the rail reset it | pass |
 | 5 | Held ⌘ for 1.5 s over the send button while a turn runs: queue → steer → queue, two icons cross-fade mid-way | The same swap morphs one path (morphicons) | **pass** |
 
-Findings, both closed by [20261007-terminal-real-drag](../20261007-terminal-real-drag.md):
+Findings, both closed by [20261007-terminal-real-drag](20261007-terminal-real-drag.md):
 
 - **Terminal drag selection with a real pointer** (4d) is not an app bug. The failing drags started while the
   selection popup (a native menu, as T3 Code's Electron menu) was still open, because `cliclick kp:esc` had not

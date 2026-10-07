@@ -3,7 +3,7 @@ name: 20261005-ssh-password-and-remote-open
 plan: 20261005-t3code-macos-parity
 implementation: verified
 verification: passed
-delivery: open
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-ssh-password-and-remote-open
@@ -219,7 +219,7 @@ Implementation added:
 - A normal app-termination observer in T3Ssh cleans up pending prompts, tunnel processes,
   cached secrets and askpass files when the host skips deferred session teardown.
   See the [reproduced framework issue draft](../../issues/closed/20261006-native-module-termination.md). Since main #200 the host
-  destroys every session at quit, and [adopt-main-fixes-r4](../20261007-adopt-main-fixes-r4.md) removed the observer.
+  destroys every session at quit, and [adopt-main-fixes-r4](20261007-adopt-main-fixes-r4.md) removed the observer.
 
 The user authorized an isolated local SSH fixture. The normal native module ran with
 `EXACT_AGENT=live` (not agent mode), a real wall clock, isolated app bundle identity and

@@ -93,7 +93,7 @@ Next: `issue-open` (reproduce, search for duplicates, prepare the report for the
 
 ## Resolved upstream and adopted (2026-10-07)
 
-Filed as [#109](https://github.com/ccheever/exact2/issues/109) ("A watched topic that changes faster than native.later replies starves the resource") and fixed by main PR #183, merged into the feature branch with main `cff90b364` by task [20261007-adopt-main-fixes-r3](../../tasks/20261007-adopt-main-fixes-r3.md). Main built the issue's option **B**-like rule (LLP 1016.002 D4): when a watched topic changes while the resource has a request in flight, the runner keeps the request, lets its reply land and show, then asks the resource once more. A re-ask for new arguments or a `refresh` still forgets the old request (LLP 1016 D5), which is this issue's own option A rule for different arguments.
+Filed as [#109](https://github.com/ccheever/exact2/issues/109) ("A watched topic that changes faster than native.later replies starves the resource") and fixed by main PR #183, merged into the feature branch with main `cff90b364` by task [20261007-adopt-main-fixes-r3](../../tasks/closed/20261007-adopt-main-fixes-r3.md). Main built the issue's option **B**-like rule (LLP 1016.002 D4): when a watched topic changes while the resource has a request in flight, the runner keeps the request, lets its reply land and show, then asks the resource once more. A re-ask for new arguments or a `refresh` still forgets the old request (LLP 1016 D5), which is this issue's own option A rule for different arguments.
 
 Adopted (the "App adoption" list above):
 

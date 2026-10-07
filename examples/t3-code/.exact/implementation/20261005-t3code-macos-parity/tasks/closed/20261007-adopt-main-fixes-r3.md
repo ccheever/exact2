@@ -1,9 +1,9 @@
 ---
 name: 20261007-adopt-main-fixes-r3
 plan: 20261005-t3code-macos-parity
-implementation: implemented
+implementation: verified
 verification: passed
-delivery: none
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-adopt-main-fixes-r3
@@ -110,7 +110,8 @@ Evidence image: `https://raw.githubusercontent.com/ccheever/exact2/t3-code-evide
 
 ## Next action
 
-Review the PR. Later tasks re-drive their attended pointer rows with #186's forms (X8 file).
+None. Merged into `feat(example)/t3-code` by #207 (`9c2fe7974`, 2026-10-07). Later tasks re-drive their attended pointer rows with #186's forms (X8 file).
+
 
 ## Follow-up (coordinator, 2026-10-07): close the not-done and not-verified items
 
@@ -141,7 +142,7 @@ Next drive (needs the coordinator's allowance): send with `tap send-message`; op
 The final round's drives ran after the follow-up above, Before on `t3-code-evidence-base` at `4f523ef5c`
 and After on this branch, under the drive lock. Their outputs were deleted with the task worktree, so the
 results below are the console's report, without images (restored by
-[20261007-real-input-checks](closed/20261007-real-input-checks.md)).
+[20261007-real-input-checks](20261007-real-input-checks.md)).
 
 | Row | Before | After |
 | --- | --- | --- |
@@ -161,7 +162,7 @@ results below are the console's report, without images (restored by
 ## Real input (2026-10-07, real-input-checks)
 
 The "Real middle click / real Tab" rows blocked above ran with real input in
-[20261007-real-input-checks](closed/20261007-real-input-checks.md): a real middle click on Files closes Diff on
+[20261007-real-input-checks](20261007-real-input-checks.md): a real middle click on Files closes Diff on
 the base (the wrong-tab bug) and Files on this branch; real Tab presses draw #189's focus ring only on this
 branch; the steer/queue swap under a held ⌘ cross-fades on the base and morphs here. A real pointer drag in
 the terminal selects in both builds ([terminal-real-drag](20261007-terminal-real-drag.md); the first run's

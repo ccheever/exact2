@@ -147,7 +147,7 @@ Phase 1 built on exact2 `origin/main`, branch `daehyeon/fw-x20-textarea-editing`
 ## Merged upstream; partly fixed (2026-10-07, adopt-main-fixes-r4)
 
 [#125](https://github.com/ccheever/exact2/issues/125) was closed by main #209 (`78e53a813`), in the feature
-branch since main `463acda68` ([20261007-adopt-main-fixes-r4](../tasks/20261007-adopt-main-fixes-r4.md)):
+branch since main `463acda68` ([20261007-adopt-main-fixes-r4](../tasks/closed/20261007-adopt-main-fixes-r4.md)):
 on macOS and iOS an `input`'s or `textarea`'s ⌘V, ⌘C and ⌘X fire `paste`, `copy` and `cut` at the
 nearest handler before the field's own edit, and `preventDefault()` cancels it as in Chrome; the web hosts
 honour that `preventDefault()` too. Nothing else of #125 is on `463acda68`: no `selectionchange` on a field

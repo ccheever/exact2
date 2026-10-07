@@ -3,7 +3,7 @@ name: 20261005-interface-font-size
 plan: 20261005-t3code-macos-parity
 implementation: complete
 verification: verified-with-unverified-rows
-delivery: pr-open
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: 'feat(example)/t3-code'
 branch: 'feat(example)/t3-code-interface-font-size'
