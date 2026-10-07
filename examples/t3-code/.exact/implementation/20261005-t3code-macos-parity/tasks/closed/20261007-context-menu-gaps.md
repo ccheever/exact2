@@ -130,7 +130,7 @@ AFTER   branch copy (pid 79828): media link → Preview media · Open in Cursor 
 
 Drive 2 ran on `6281fd187`, before the second review's fixes; drive 3 covers them.
 
-Drive 3 (one session, 2026-10-07 13:19, under `.t3-live-drive-lock`, the screen unlocked; build
+Drive 3 (recorded in follow-up PR https://github.com/ccheever/exact2/pull/212, as #203 merged meanwhile; one session, 2026-10-07 13:19, under `.t3-live-drive-lock`, the screen unlocked; build
 `aae76ee0c`, base `4f523ef5c`). The steps were a script (`drive.sh`, lane-only, not committed) dry-run first
 (`DRY=1` printed every call). Fixture additions in `target/lane-cmg`:
 
