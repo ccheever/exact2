@@ -5,7 +5,10 @@ import Foundation
 final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Sendable {
     typealias Completion = ([String: Any]) -> Void
     private struct Pending {
-        var completion: Completion
+        let completion: Completion
+        /// Shared reads that joined this one. Each is finished on its own, so a reply too large for
+        /// one native reply gets its own transfer: one caller's release never strands another's.
+        var joiners: [Completion] = []
         let deadline: Date
         /// The app's trace id: a status read lists the traces still pending (r3-protocol-reader.ts).
         var trace: Int? = nil
@@ -278,6 +281,15 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     func finish(_ completion: Completion, failure: T3Failure) {
         completion(["ok": false, "generation": generation, "error": self.failure(failure).json])
     }
+    /// A pending request and every shared read that joined it, each finished on its own (its own transfer).
+    private func finish(_ call: Pending, value: Any) {
+        finish(call.completion, value: value)
+        for joiner in call.joiners { finish(joiner, value: value) }
+    }
+    private func finish(_ call: Pending, failure: T3Failure) {
+        finish(call.completion, failure: failure)
+        for joiner in call.joiners { finish(joiner, failure: failure) }
+    }
 
     private func connect(_ request: [String: Any], completion: @escaping Completion) throws {
         let newOrigin = try T3Endpoint.origin(request["origin"] as? String ?? "")
@@ -524,8 +536,8 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         // A request that is not shared may write (a branch switch): no later read of its workspace joins one sent before it.
         let cwd = (request["payload"] as? [String: Any])?["cwd"] as? String
         if shareKey == nil, let cwd { sharedReads = sharedReads.filter { $0.value.cwd != cwd } }
-        if let shareKey, let id = sharedReads[shareKey]?.id, let joined = pending[id] {
-            pending[id]?.completion = { response in joined.completion(response); completion(response) }
+        if let shareKey, let id = sharedReads[shareKey]?.id, pending[id] != nil {
+            pending[id]?.joiners.append(completion)
             if let trace = request["trace"] as? Int { pending[id]?.joinedTraces.append(trace) }
             return
         }
@@ -654,8 +666,8 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         let success = exit["_tag"] as? String == "Success"
         if terminalEnded(id: id, failure: success ? nil : failure(T3Wire.failure(exit))) { return } // terminal-drawer
         if let call = pending.removeValue(forKey: id) {
-            if success { finish(call.completion, value: exit["value"] ?? NSNull()) }
-            else { finish(call.completion, failure: T3Wire.failure(exit)) }
+            if success { finish(call, value: exit["value"] ?? NSNull()) }
+            else { finish(call, failure: T3Wire.failure(exit)) }
         } else if let key = streams.removeValue(forKey: id) {
             if let lease = activityScopes.removeValue(forKey: id) { activity?.release(lease) }
             let problem = success ? nil : failure(T3Wire.failure(exit))
@@ -688,7 +700,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
             for (id, call) in self.pending where call.deadline <= now {
                 self.pending.removeValue(forKey: id)
                 self.send(["_tag": "Interrupt", "requestId": id], epoch: self.generation)
-                self.finish(call.completion, failure: T3Failure(kind: "Timeout", message: "The server did not confirm the request. Refresh before trying it again.", uncertain: true))
+                self.finish(call, failure: T3Failure(kind: "Timeout", message: "The server did not confirm the request. Refresh before trying it again.", uncertain: true))
             }
             if let probe = self.probing, now >= probe.deadline {
                 let label = self.descriptor["label"] as? String ?? self.origin?.host ?? "The server"
@@ -715,7 +727,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         old?.cancel(with: .goingAway, reason: nil)
         for task in httpTasks.values { task.cancel() }; httpTasks.removeAll()
         let calls = Array(pending.values); pending.removeAll()
-        for call in calls { finish(call.completion, failure: reason) }
+        for call in calls { finish(call, failure: reason) }
         streams.removeAll(); streamRetries.removeAll(); failedStreams.removeAll()
         terminalRetired() // terminal-drawer: attach streams end with the socket; sessions attach again on the next one
         if let waiting = opening { opening = nil; finish(waiting, failure: reason) }

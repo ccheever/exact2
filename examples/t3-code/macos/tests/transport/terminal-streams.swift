@@ -130,6 +130,44 @@ final class TerminalStreamTests: XCTestCase {
                       "every joined caller gets the reply: \(replies)")
     }
 
+    /// Round 5: a shared reply too large for one native reply (over 512 KB) comes back as a native transfer.
+    /// Each joined caller gets its own, so one reader's release never strands another's.
+    func testJoinedCallersEachReadTheirOwnLargeReply() throws {
+        let socket = try R3Socket()
+        socket.answer = { _ in [] } // the server holds the reply until the test sends it
+        let transport = connected(socket); defer { transport.destroy() }
+        let generation = perform(transport, ["op": "status"])["generation"] as! Int
+        let lock = NSLock()
+        var replies: [[String: Any]] = []
+        for _ in 0..<2 {
+            transport.perform(["op": "request", "method": "vcs.listRefs", "payload": ["cwd": "/repo"], "generation": generation, "share": true]) { reply in
+                lock.lock(); replies.append(reply); lock.unlock()
+            }
+        }
+        XCTAssertTrue(until(3) { socket.requests("vcs.listRefs").count == 1 })
+        wait(0.2)
+        XCTAssertEqual(socket.requests("vcs.listRefs").count, 1, "the second read joined the first")
+        let id = try XCTUnwrap(socket.requests("vcs.listRefs").first?["id"] as? String)
+        let name = String(repeating: "r", count: 600 * 1024)
+        socket.send(["_tag": "Exit", "requestId": id, "exit": ["_tag": "Success", "value": ["refs": [["name": name]], "totalCount": 1]]])
+        XCTAssertTrue(until(3) { lock.lock(); defer { lock.unlock() }; return replies.count == 2 })
+        lock.lock(); let both = replies; lock.unlock()
+        // Each caller reads its transfer to the end and releases it, as protocol.ts bridgeReply does, one after the other.
+        for (caller, reply) in both.enumerated() {
+            let transfer = try XCTUnwrap((reply["value"] as? [String: Any])?["_nativeTransfer"] as? [String: Any], "caller \(caller): \(reply)")
+            let transferId = try XCTUnwrap(transfer["id"] as? String), parts = try XCTUnwrap(transfer["parts"] as? Int)
+            var text = ""
+            for index in 0..<parts {
+                let chunk = perform(transport, ["op": "readChunk", "id": transferId, "index": index, "generation": generation])
+                XCTAssertEqual(chunk["ok"] as? Bool, true, "caller \(caller), chunk \(index): \(chunk)")
+                text += ((chunk["value"] as? [String: Any])?["text"] as? String) ?? ""
+            }
+            _ = perform(transport, ["op": "releaseChunk", "id": transferId, "generation": generation])
+            let value = try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any]
+            XCTAssertEqual(((value?["refs"] as? [[String: Any]])?.first?["name"] as? String)?.count, name.count, "caller \(caller) read the whole reply")
+        }
+    }
+
     func testTerminalStreamsDoNotCountTowardTheSixteenAppStreamsAndEndWithTheSocket() throws {
         let socket = try R3Socket()
         socket.answer = { _ in [] }
