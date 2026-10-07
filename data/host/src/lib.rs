@@ -146,6 +146,9 @@ impl<D: DataSource> DataSource for Storage<D> {
     fn preload(&self) -> Result<bool, DataError> {
         self.source.preload()
     }
+    fn when_preloaded(&self, wake: Box<dyn FnOnce() + Send>) {
+        self.source.when_preloaded(wake)
+    }
     fn query(&mut self, name: &str, args: &[Value]) -> Result<Value, DataError> {
         self.source.query(name, args)
     }

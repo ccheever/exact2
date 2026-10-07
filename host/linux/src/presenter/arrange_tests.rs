@@ -521,6 +521,13 @@ fn a_new_lift_waits_out_a_hold_but_ends_a_landing() {
         Some(first),
         "the hold refuses"
     );
+    assert!(
+        p.host
+            .runner()
+            .journal()
+            .any(|l| l.contains("reorder: a drag refused: the last drop is held")),
+        "and says so (LLP 1102 §3.17)"
+    );
     p.pointer_up(x + 12., y, 60.).unwrap();
     // The board's timer answers at 200 ms: the move shows and the ghost lands.
     p.clock(200.);

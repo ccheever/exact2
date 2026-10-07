@@ -83,11 +83,24 @@ const _: () = assert!(std::mem::size_of::<ScalarFact>() <= 48);
 struct FactSet {
     entries: Vec<ScalarFact>,
     sources: Vec<Arc<RegionTextSource>>,
+    /// The installed measurer's `TextMeasurer::height_free` when these facts
+    /// were gathered: a fact then answers every height at its width.
+    height_free: bool,
 }
 impl FactSet {
+    /// A paragraph's fact at an offer. Under a measurer whose metrics never
+    /// depend on the height offered (`TextMeasurer::height_free`) a fact at
+    /// the same width answers every height, as the ordinary path's
+    /// measurement cache does: an intrinsic width probe under a definite,
+    /// min-content or max-content height is one measurement, not three.
     fn find(&self, stamp: &ParagraphStamp, offer: Offer) -> Option<usize> {
         self.entries.iter().position(|f| {
-            self.sources[f.source as usize].stamp == *stamp && same_offer(f.offer, offer)
+            self.sources[f.source as usize].stamp == *stamp
+                && if self.height_free {
+                    same_axis(f.offer.width, offer.width)
+                } else {
+                    same_offer(f.offer, offer)
+                }
         })
     }
     fn push(&mut self, fact: ScalarFact) {
@@ -99,14 +112,16 @@ impl FactSet {
         self.entries.push(fact);
     }
 }
-fn same_offer(a: Offer, b: Offer) -> bool {
+fn same_axis(a: crate::AxisOffer, b: crate::AxisOffer) -> bool {
     use crate::AxisOffer::*;
-    let same = |a, b| match (a, b) {
+    match (a, b) {
         (Definite(a), Definite(b)) => a.to_bits() == b.to_bits(),
         (MinContent, MinContent) | (MaxContent, MaxContent) => true,
         _ => false,
-    };
-    same(a.width, b.width) && same(a.height, b.height)
+    }
+}
+fn same_offer(a: Offer, b: Offer) -> bool {
+    same_axis(a.width, b.width) && same_axis(a.height, b.height)
 }
 fn same_metrics(a: TextMetrics, b: TextMetrics) -> bool {
     a.width.to_bits() == b.width.to_bits()

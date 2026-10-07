@@ -58,6 +58,14 @@ pub(super) fn revalidated(resource: &str, same: bool) -> String {
     text!("{} answered: {}", resource, what)
 }
 
+/// A kept answer the fresh one contradicts (LLP 1027 D4, LLP 1102 §3.17).
+pub(super) fn kept_contradicted(resource: &str) -> String {
+    text!(
+        "{} answered differently from its kept answer: the first frame showed the last session's value until its source answered",
+        resource
+    )
+}
+
 pub(super) fn advanced(fired: usize, epoch: u64) -> String {
     let plural = if fired == 1 { "" } else { "s" };
     text!("advance → {} timer{} fired, epoch {}", fired, plural, epoch)

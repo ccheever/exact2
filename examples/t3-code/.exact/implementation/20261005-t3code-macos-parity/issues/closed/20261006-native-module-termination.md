@@ -1,10 +1,10 @@
 ---
 name: 20261006-native-module-termination
 plan: 20261005-t3code-macos-parity
-status: draft
+status: adopted
 kind: framework-bug (reproduced)
 blocks: [20261005-ssh-password-and-remote-open]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/105
 reproduced_on: 6d41ae81194b707a66d01049f411351d900c2dbc
 ---
 
@@ -46,3 +46,29 @@ This workaround protects SSH only. Every module should receive its ordinary dest
 callback on normal application termination. Upstream needs a lifecycle regression test
 covering both last-window close and quit with open windows. This draft has not been
 published. A repository issue search for `SSH teardown termination` found no match.
+
+## Resolved upstream; adopted in code (2026-10-07, adopt-main-fixes-r4)
+
+Part of [#105](https://github.com/ccheever/exact2/issues/105); main #200 (`6cd178efc`) calls `destroy()` on
+every session from `applicationWillTerminate`, idempotently, which is the diagnostic fix described above.
+Adopted in [20261007-adopt-main-fixes-r4](../../tasks/20261007-adopt-main-fixes-r4.md): T3Ssh's
+`willTerminateNotification` observer is removed, so `T3Module.destroy()` is the only teardown.
+`macos/tests/ssh/auth.swift` checks that the notification alone closes nothing and that `destroy()` fails a
+waiting prompt and every later one as window-closed (ssh AppKit binary: 15 tests, 1 live skip, 0 failures).
+
+Live acceptance (2026-10-07 16:13–16:15, under `.realinput-lock`): lane bundle copies of the base
+(`887b2491b`, still with the observer, pre-#200 framework) and the branch, each with its own bundle id and two
+saved SSH targets, launched with `macos/tests/ssh/fake-ssh.sh` as the ssh command, so each launch reopens two
+tunnels (`node` children forwarding loopback ports to a lane HTTP server). The quit keys were posted to the
+lane pid only; the tunnel pids and their listeners were polled every 50 ms.
+
+| Path | Base (observer) | Branch (#200, no observer) |
+| --- | --- | --- |
+| ⌘W on the last window (the clone then quits) | app and both tunnels gone at 348 ms; no listener | gone at 359 ms; no listener |
+| Apple Event quit (`osascript … to quit`) | gone at 103 ms | gone at 224 ms |
+| ⌘Q pressed twice (the hold shortcut's double press) | gone at 557 ms | gone at 588 ms |
+| control: SIGKILL (no teardown can run) | — | both tunnels alive with ppid 1, still listening (then killed by recorded pid) |
+
+So the branch ends its SSH children through `destroy()` on every orderly exit, as the base did through its
+observer; the control shows they are not reaped otherwise. Record: task
+[20261007-adopt-main-fixes-r4](../../tasks/20261007-adopt-main-fixes-r4.md).

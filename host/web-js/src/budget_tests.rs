@@ -79,7 +79,7 @@ fn each_reset_point_is_its_own_evaluation() {
     assert!(press.starts_with("a_0.t(()=>["), "{press}");
     assert_eq!(
         press
-            .split("]));")
+            .split("]),onPress);")
             .next()
             .unwrap()
             .matches("let $s=0")

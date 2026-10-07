@@ -13,19 +13,7 @@ final class RegionPreparedSource {
     // Lazy so intrinsic and emergency-wrap layouts keep no boundary array.
     // Like the typesetter, this storage is confined to the serial worker and
     // released with its last live preparation owner; there is no width history.
-    lazy var lineBreakBoundaries: [Int] = {
-        let text = attributed.string as NSString
-        let length = source.utf16Count
-        let tokenizer = CFStringTokenizerCreate(nil, text as CFString,
-            CFRange(location: 0, length: length), kCFStringTokenizerUnitLineBreak, nil)!
-        var boundaries: [Int] = []
-        while CFStringTokenizerAdvanceToNextToken(tokenizer).rawValue != 0 {
-            let range = CFStringTokenizerGetCurrentTokenRange(tokenizer)
-            boundaries.append(range.location + range.length)
-        }
-        if boundaries.last != length { boundaries.append(length) }
-        return boundaries
-    }()
+    lazy var lineBreakBoundaries: [Int] = TextEngine.lineBreaks(attributed.string as NSString, length: source.utf16Count)
     /// CoreText's word-break iterator can rescan the whole prefix on every
     /// line of a giant paragraph. Cluster fitting plus the already indexed
     /// Unicode opportunities avoids that quadratic search; the choice is
@@ -123,9 +111,9 @@ final class RegionWorkerLayout {
             var count: Int
             // Line breaking depends on source/wrap, not compact glyph retention.
             // Zero-width offers retain CoreText's degenerate newline handling.
-            // `break-word` takes the same opportunities, breaking inside a
-            // word only when none fits (suggestBreak's emergency).
-            if width.isFinite && width > 0 && spec.overflowWrap != 2 {
+            // `break-word` and `anywhere` take the same opportunities, breaking
+            // inside a word only when none fits (suggestBreak's emergency).
+            if width.isFinite && width > 0 {
                 let cursor = boundaryIndex
                 count = preparation.suggestBreak(at: start, width: limit, cursor: &boundaryIndex)
                 // A soft hyphen's break shows one, which must fit, as in the

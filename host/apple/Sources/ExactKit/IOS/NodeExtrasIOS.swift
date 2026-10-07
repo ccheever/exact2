@@ -111,6 +111,8 @@ final class NodeExtras {
     var hookReusable = false
     var readingAnchors: [(node: NodeView, y: CGFloat)] = []
     weak var activeReadingAnchor: NodeView?
+    /// A plain scroller's anchor across a batch (`ScrollAnchoring.swift`).
+    var scrollAnchor: (node: NodeView, y: CGFloat)?
     #if !os(tvOS)
     lazy var swipeFeedback = UISelectionFeedbackGenerator()
     #endif
@@ -196,6 +198,10 @@ extension NodeView {
     var activeReadingAnchor: NodeView? {
         get { extras?.activeReadingAnchor }
         set { if newValue != nil || extras != nil { more.activeReadingAnchor = newValue } }
+    }
+    var scrollAnchor: (node: NodeView, y: CGFloat)? {
+        get { extras?.scrollAnchor }
+        set { if newValue != nil || extras != nil { more.scrollAnchor = newValue } }
     }
     #if !os(tvOS)
     var swipeFeedback: UISelectionFeedbackGenerator { more.swipeFeedback }

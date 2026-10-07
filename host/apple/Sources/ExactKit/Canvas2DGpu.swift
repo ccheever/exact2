@@ -51,11 +51,11 @@ final class Canvas2DGpuModule {
         guard mode != .off else { return nil }
         let env = ProcessInfo.processInfo.environment
         #if os(macOS)
-        let dir = Bundle.main.executableURL?.deletingLastPathComponent().path ?? ""
+        let standard = (Bundle.main.executableURL?.deletingLastPathComponent().path ?? "") + "/libexact_canvas_gpu.dylib"
         #else
-        let dir = Bundle.main.privateFrameworksPath ?? Bundle.main.bundlePath
+        let standard = embeddedModule(framework: "ExactCanvasGpu", dylib: "libexact_canvas_gpu.dylib")
         #endif
-        let path = env["EXACT_CANVAS_GPU_DYLIB"] ?? dir + "/libexact_canvas_gpu.dylib"
+        let path = env["EXACT_CANVAS_GPU_DYLIB"] ?? standard
         let t0 = CFAbsoluteTimeGetCurrent()
         guard FileManager.default.fileExists(atPath: path) else { return nil }
         // A module that is there but does not load is said, never silently

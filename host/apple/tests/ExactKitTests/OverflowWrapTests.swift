@@ -27,15 +27,16 @@ final class OverflowWrapTests: XCTestCase {
         CGFloat(CTLineGetTypographicBounds(engine.paragraph(spec(text, wrap: 0), width: .infinity).lines[0], nil, nil, nil))
     }
 
-    /// The bubble's text at 280. Apple's UAX #14 tailoring breaks a URL
-    /// after each solidus (as Safari does), so it wraps there; a piece wider
-    /// than the box overflows under `normal` and breaks inside under
-    /// `break-word` and `anywhere`, so no line is wider than the box.
+    /// The bubble's text at 280. Chrome's tailoring of UAX #14 keeps a URL
+    /// whole up to its hyphen (no break after a solidus before a letter), so
+    /// the URL goes to a line of its own; a piece wider than the box
+    /// overflows under `normal` and breaks inside under `break-word` and
+    /// `anywhere`, so no line is wider than the box.
     func testAnOverlongWordBreaksInsideUnderBreakWordOnly() {
         let text = "Look " + url
         let lined = lines(spec(text, wrap: 1), width: 280)
         XCTAssertEqual(lined.joined(), text)
-        XCTAssertEqual(lined.first, "Look https://www.nps.gov/goga/", "the last opportunity that fits")
+        XCTAssertEqual(lined.first, "Look ", "the last opportunity that fits")
         let long = "Look " + String(repeating: "a", count: 60)
         let normal = lines(spec(long, wrap: 0), width: 200)
         XCTAssertEqual(normal.first, "Look ", "the word goes to a line of its own")
@@ -50,20 +51,42 @@ final class OverflowWrapTests: XCTestCase {
         XCTAssertEqual(lines(spec(long, wrap: 1), width: 200).first, "Look ", "break-word still prefers the opportunity")
     }
 
-    /// Min-content's pieces are UAX #14's, not only spaces: the URL's
-    /// solidus and hyphen are opportunities, so its min-content is the
+    /// Min-content's pieces are Chrome's opportunities, not only spaces: the
+    /// URL's hyphen is one (its solidi are not), so its min-content is the
     /// widest piece, not the whole URL; `anywhere` adds every grapheme,
     /// `break-word` adds none.
     func testMinContentCutsAtUnicodeOpportunitiesAndOnlyAnywhereAddsMore() {
         let pieces = engine.unbreakablePieces(url)
-        XCTAssertGreaterThan(pieces.count, 2, "\(pieces)")
-        XCTAssertEqual(pieces.joined(), url)
+        XCTAssertEqual(pieces, ["https://www.nps.gov/goga/planyourvisit/muir-", "woods.htm"])
+        XCTAssertEqual(TextEngine.unbreakablePieces(url), pieces, "a worker's are the same")
         let widest = pieces.map { CSSLineBox.layoutWidth(width($0)) }.max()!
         XCTAssertEqual(engine.minContentWidth(spec(url, wrap: 0)), widest, accuracy: 0.5)
         XCTAssertEqual(engine.minContentWidth(spec(url, wrap: 1)), widest, accuracy: 0.5)
-        XCTAssertLessThan(widest, CSSLineBox.layoutWidth(width(url)) / 2)
+        XCTAssertLessThan(widest, CSSLineBox.layoutWidth(width(url)))
         XCTAssertLessThan(engine.minContentWidth(spec(url, wrap: 2)), 20)
         XCTAssertEqual(engine.unbreakablePieces("two\u{00A0}words here"), ["two\u{00A0}words", "here"], "a no-break space joins")
+    }
+
+    /// #128: a path under `pre-wrap` breaks where Chrome's does. No line ends
+    /// after a solidus before a letter (CFStringTokenizer's and CoreText's
+    /// opportunity); a word too long for its line breaks inside at the room
+    /// under `break-word` and `anywhere` alike, and the rest goes on to the
+    /// hyphen, the next opportunity.
+    func testAPathBreaksWhereChromeDoes() {
+        let path = "/Users/someone/projects/example-repository/src/components/sidebar/ThreadRowActions.tsx --flag=value"
+        let text = path as NSString
+        let ends = engine.lineBoundaries(text, length: text.length)
+        XCTAssertEqual(ends.map { text.substring(to: $0) }.first, "/Users/someone/projects/example-")
+        for end in ends where end < text.length {
+            XCTAssertFalse(text.character(at: end - 1) == 0x2F, "a break after the solidus at \(end)")
+        }
+        let room = width("/Users/someone/projects/e") + 0.5
+        for wrap in [1, 2] {
+            var s = spec(path, wrap: wrap); s.whiteSpace = 1
+            let lined = lines(s, width: room)
+            XCTAssertEqual(lined.joined(), path)
+            XCTAssertEqual(Array(lined.prefix(2)), ["/Users/someone/projects/e", "xample-"], "wrap \(wrap): \(lined)")
+        }
     }
 
     /// A forced break still ends its line, whatever fits after it: CR LF as
@@ -130,7 +153,7 @@ final class OverflowWrapTests: XCTestCase {
     /// The region worker breaks as the ordinary paragraph does, forced
     /// breaks and emergency breaks included.
     func testRegionWorkerBreaksAsTheParagraphDoes() {
-        for wrap in [0, 1] {
+        for wrap in [0, 1, 2] {
             for text in ["Look " + url, "hi\n   world", "aa hello\r\nworld", "aa hello   \nworld", "Look " + String(repeating: "a", count: 60), "WWW\u{00AD}q", "hi WWW \u{00AD}q"] {
                 var s = spec(text, wrap: wrap); s.whiteSpace = 1
                 let source = RegionTextSource.capture(s, engine: engine)

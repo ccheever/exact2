@@ -656,7 +656,7 @@ export function webContentType(route) {
     '.wasm': 'application/wasm', '.plan': 'application/vnd.exact.plan',
     '.mp4': 'video/mp4', '.webm': 'video/webm', '.vtt': 'text/vtt',
     '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.oga': 'audio/ogg',
-    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.pdf': 'application/pdf',
     '.svg': 'image/svg+xml', '.ttf': 'font/ttf', '.woff2': 'font/woff2', '.wgsl': 'text/wgsl',
     // A game's baked assets (game/README "Assets"): binary, and compressible.
     // Warming brotli-11 variants of every family (rivals: 43 MiB) takes CPU

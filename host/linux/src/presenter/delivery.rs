@@ -118,6 +118,12 @@ impl<D: DataSource> Presenter<D> {
         !self.activation_failed && self.host.data_pending()
     }
 
+    /// A development generation or an update is being prepared: the display
+    /// loop polls for it. A loading data source wakes the loop itself.
+    pub fn delivery_pending(&self) -> bool {
+        self.pending_dev.is_some() || self.pending_update
+    }
+
     /// Wake an idle display while an executable image is loading off-thread.
     pub fn module_pending(&self) -> bool {
         (self.painted && !self.activation_failed && self.host.data_pending())

@@ -12,7 +12,7 @@ import { resolve } from 'node:path';
 
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-press-'));
 for (const f of ['rt.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js']) copyFileSync(resolve(new URL(`../../web-js/${f}`, import.meta.url).pathname), resolve(dir, f));
-for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'textField', 'settleRadios', 'animationClocks', 'launchLocation'], 'media.js': ['media', 'mediaProp', 'mediaOn', 'mediaPiece', 'requestFullscreen'], 'shape.js': ['conforms', 'eq', 'equal'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'],
+for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'textField', 'settleRadios', 'animationClocks', 'launchLocation'], 'media.js': ['media', 'mediaProp', 'mediaOn', 'mediaPiece', 'requestFullscreen'], 'shape.js': ['conforms', 'eq', 'equal'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'], 'focus.js': ['autofocus', 'press'],
   'paint.js': ['paintList', 'paintFacts', 'paintFlush', 'paintOwn'], 'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'],
   'svg-transform.js': ['svgTransform'], 'dataset.js': ['ds'], 'hooks.js': ['hk'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber', 'x_toFixed', 'x_formatDecimal'] }))
   writeFileSync(resolve(dir, file), names.map(n => `export const ${n} = () => {};`).join('\n'));
@@ -30,7 +30,7 @@ class Link {
 }
 
 test('a link press is the app navigation; a browser-owned one is the browser alone', async () => {
-  const { on } = await import(resolve(dir, 'rt.js'));
+  const { on, onPress } = await import(resolve(dir, 'rt.js'));
   const cases = [
     [{ href: '/next' }, {}, true],
     [{ href: '/next', target: '_self' }, {}, true],
@@ -42,7 +42,7 @@ test('a link press is the app navigation; a browser-owned one is the browser alo
   for (const [attrs, mods, app] of cases) {
     const a = new Link(attrs);
     let presses = 0;
-    on(a, 'press', () => presses++);
+    on(a, 'press', () => presses++, onPress); // the press family's binder, as the generated module passes it
     const ev = a.click(mods);
     expect([JSON.stringify(attrs), JSON.stringify(mods), presses, ev.defaultPrevented]).toEqual([JSON.stringify(attrs), JSON.stringify(mods), app ? 1 : 0, app]);
   }

@@ -22,6 +22,40 @@ impl Interrupt {
     }
 }
 
+/// A host's wake for a pending [`DataSource::preload`]. A source holds at
+/// most one at a time, so retries while an image loads add no waiters.
+#[derive(Default)]
+pub struct PreloadWake {
+    wake: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
+    asked: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl PreloadWake {
+    /// Use `wake` for later asks. A source still holding the previous wake
+    /// no longer counts as asked.
+    pub fn set(&mut self, wake: std::sync::Arc<dyn Fn() + Send + Sync>) {
+        self.wake = Some(wake);
+        self.asked = Default::default();
+    }
+
+    /// Ask `source` to wake the host once it can answer, unless it already
+    /// holds this wake.
+    pub fn ask<D: DataSource + ?Sized>(&self, source: &D) {
+        use std::sync::atomic::Ordering;
+        let Some(wake) = self.wake.clone() else {
+            return;
+        };
+        if self.asked.swap(true, Ordering::AcqRel) {
+            return;
+        }
+        let asked = self.asked.clone();
+        source.when_preloaded(Box::new(move || {
+            asked.store(false, Ordering::Release);
+            wake()
+        }));
+    }
+}
+
 /// Where a source's long native calls go (`native.later` in TypeScript):
 /// the host hands each [`Request::is_native`] request's body and a [`Reply`]
 /// to the handler, off the renderer and off the I/O workers, and the call
@@ -306,6 +340,14 @@ pub trait DataSource {
     /// This may load code, but must not create app instances or release effects.
     fn preload(&self) -> Result<bool, DataError> {
         Ok(true)
+    }
+
+    /// Call `wake`, from any thread, once a pending [`DataSource::preload`]
+    /// would no longer answer false. A source whose `preload` can answer
+    /// false overrides this; the default wakes at once, so a wrapper that
+    /// forwards `preload` forwards this too, or its host retries unpaced.
+    fn when_preloaded(&self, wake: Box<dyn FnOnce() + Send>) {
+        wake()
     }
 
     /// Pair candidate logic with a plan, preserving this binary's admitted

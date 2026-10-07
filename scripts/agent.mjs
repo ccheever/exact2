@@ -93,13 +93,13 @@ export async function assertWebDistApp(dist, app) {
   if (!await builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, ".exact-build.json")}; run ${ownWebBuild(app, dist) ?? `EXACT_APP_DIR=${shellQuote(app.dir)} EXACT_WEB_DIST=${shellQuote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')}`}`);
 }
 
-async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: pageURL, app, webDist, onProcess, reuse, storage, fresh = false, facts, env }) {
+async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: pageURL, app, webDist, onProcess, reuse, storage, fresh = false, facts, env, mediaClock = 'wall' }) {
   if (browser !== 'chrome') {
     const { openPlaywrightWeb } = await import('./agent-playwright.mjs');
     return openPlaywrightWeb({ browser, plan, world, size, url: pageURL, app, webDist, onProcess, reuse, storage, facts });
   }
   if (reuse) {
-    if (reuse.browser === 'chrome' && JSON.stringify(reuse.launchFacts) === JSON.stringify(facts)) {
+    if (reuse.browser === 'chrome' && JSON.stringify(reuse.launchFacts) === JSON.stringify(facts) && (reuse.mediaClock ?? 'wall') === mediaClock) {
       try { await reuse.reset(); return reuse; }
       catch (error) { await reuse.close(); throw error; }
     }
@@ -233,6 +233,8 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
       // the page 1-10 px low in some runs. Off, on every target.
       addEventListener('DOMContentLoaded', () => { document.documentElement.style.overscrollBehavior = 'none'; });
     ` });
+    // `mediaClock: 'frozen'` (conformance's): media plays at rate 0 from its first load, so two pages read one position, not the wall clock's.
+    if (mediaClock === 'frozen') await call('Page.addScriptToEvaluateOnNewDocument', { source: `addEventListener('loadstart', e => { if (e.target instanceof HTMLMediaElement) { e.target.defaultPlaybackRate = 0; e.target.playbackRate = 0; } }, true);` });
     // The page has the focus, as a person's page does and as Playwright makes it: an unfocused page's `focus()`
     // (the document's autofocus at boot) moved the focus and fired no `focus` event, which iOS fires (splitter rough 13).
     await call('Emulation.setFocusEmulationEnabled', { enabled: true });
@@ -295,7 +297,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
       return JSON.parse(await evaluate(`(typeof globalThis.exact?.agentSettled === 'function' ? exact.agentSettled(${JSON.stringify(req)}) : Promise.reject(new Error('the page has no agent adapter: open a development build with ?agent=1'))).then((r) => JSON.stringify(r))`, timeout));
     };
     return {
-      host: 'web', browser: 'chrome', boot: Number(boot), hostLines, evaluate, call, launchFacts: facts,
+      host: 'web', browser: 'chrome', boot: Number(boot), hostLines, evaluate, call, launchFacts: facts, mediaClock,
       async gpuMs() {
         const ms = await evaluate("document.getElementById('exact-root')?.dataset.gpuMs ?? null");
         return ms == null ? null : Number(ms);
@@ -839,7 +841,7 @@ export const clockSpan = (span, elapsedMs) => Math.max(CLOCK_STEP_MS, Math.min(s
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `url` opens
  * the same app address on each host; `plan` boots a local compiled contract;
  * `env` adds to a native host's environment. @ref LLP 1030.000 §7 */
-export async function open({onProcess, host = 'web', browser, plan, world, size, env, app, session, documents, url, webDist, reuse, device = false, phone: pick, timing = 'agent', touch = 'agent', chrome = 'agent', storage, seed, locale, timeZone, epoch, failFetch } = {}) {
+export async function open({onProcess, host = 'web', browser, plan, world, size, env, app, session, documents, url, webDist, reuse, device = false, phone: pick, timing = 'agent', touch = 'agent', chrome = 'agent', storage, seed, locale, timeZone, epoch, failFetch, mediaClock = 'wall' } = {}) {
   browser ??= 'chrome';
   if (!['chrome', 'firefox', 'webkit'].includes(browser)) throw new Error(`browser: chrome, firefox or webkit, not ${browser}`);
   const facts = launchFacts({seed, locale, timeZone, epoch, failFetch, env});
@@ -849,6 +851,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
   if (world && host !== 'web' && !device) env = {...env, EXACT_WORLD:resolve(world)};
   if (device && host !== 'ios') throw new Error('--device is supported for the standalone ios client');
   if (host !== 'web' && browser !== 'chrome') throw new Error(`--browser is only supported by the web carrier, not ${host}`);
+  if (!['wall', 'frozen'].includes(mediaClock) || (mediaClock !== 'wall' && (host !== 'web' || browser !== 'chrome'))) throw new Error(`mediaClock: ${mediaClock} is Chrome's on the web (wall or frozen)`);
   // `timing: 'platform'` (LLP 1035.003 D5, opt-in): the carrier stays and the driver still owns the runner's clock,
   // but UIKit's own transitions, sheet presentations and keyboard animations run at their natural timing — the
   // ordinary app with a socket, for observing an interactive gesture's native motion. The frozen clock is the
@@ -892,7 +895,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     : host === 'linux' ? await openStdio({ host: 'linux', plan, size: size ?? VIEWPORT, env, app, onProcess })
     : host === 'windows' ? await openStdio({ host: 'windows', plan, size: size ?? VIEWPORT, env, app, onProcess })
     : host === 'ios' ? await openIOS({ plan, env, app, size, touch, onProcess })
-    : await openWeb({ browser, plan, world, size, url, app, webDist, onProcess, reuse, storage, fresh: env?.EXACT_AGENT_STORAGE_FRESH === '1', facts, env });
+    : await openWeb({ browser, plan, world, size, url, app, webDist, onProcess, reuse, storage, fresh: env?.EXACT_AGENT_STORAGE_FRESH === '1', facts, env, mediaClock });
   const mapLocator = plan ?? (url && /^https?:\/\//i.test(url) ? url : env?.EXACT_DEV_PLAN ?? process.env.EXACT_DEV_PLAN)
     // The dist the carrier serves — an app outside the repo's own (shop F2), never Caltrain's by default.
     ?? (carrier.host === 'web' ? resolve(webDist ?? defaultWebDist(), 'app.plan') : null);
@@ -1339,6 +1342,11 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const l = await carrier.ask({ op: 'clock', land: true });
       if (l.error) return { ...r, error: l.error };
       delete r.epoch; delete r.incarnation; delete r.clock;
+      // No scratch store: the input's reply says so, for an `open()` script as for the CLI, on every carrier (LLP 1102 §3.17); the read is bounded, advice only.
+      if (storage === undefined && !s.storageSaid && (s.storageProbes = (s.storageProbes ?? 0) + 1) <= 20) {
+        const j = await Promise.race([s.op({ op: 'logs', since: s.storagePeek ?? 0 }).catch(() => null), new Promise((done) => setTimeout(() => done(null), 2000))]), hit = Array.isArray(j?.lines) && (s.storagePeek = j.next, j.lines.some((x) => /unavailable in agent mode/.test(typeof x === 'string' ? x : JSON.stringify(x))));
+        if (hit) { s.storageSaid = true; r.note = [r.note, 'a data source was refused storage: this drive names no scratch store, so writes do nothing; open it with storage: <name> (--storage <name>)'].filter(Boolean).join('; '); }
+      }
       return s.tagged(r);
     },
     /** Every reply carries the runner's `epoch`, `incarnation` and `clock` (LLP 1035.002 D3). A host that answered
@@ -1450,14 +1458,15 @@ async function main(argv) {
       return [op, r];
   };
   // A drive that names no scratch store has no storage, and a source's write fails only in the
-  // journal; say so the first time, beside the op that caused it (authoring bench, LLP 1087).
-  // The web carrier only: its journal read is an in-page call, where a native carrier's
-  // could time out and fail the transport for the ops after it.
-  let peek = 0, probes = 0, warned = host !== 'web' || flags.json || flags.storage !== undefined;
+  // journal; say so on stderr, which a --json reader's stdout never carries (authoring bench,
+  // LLP 1087; LLP 1102 §3.17). The web reads its journal beside each op that could have caused
+  // it (an in-page call); a native carrier, whose journal read could be slow, once when the
+  // drive ends, bounded, so it never fails the ops.
+  let peek = 0, probes = 0, warned = flags.storage !== undefined;
   const storageNote = async () => {
     if (warned || ++probes > 20) return; // a missing store shows at the first writes
     try {
-      const j = await s.op({ op: 'logs', since: peek });
+      const j = await Promise.race([s.op({ op: 'logs', since: peek }).catch(() => null), new Promise((done) => setTimeout(() => done(null), 3000))]);
       if (!Array.isArray(j?.lines)) return;
       peek = j.next;
       if (j.lines.some((l) => /unavailable in agent mode/.test(typeof l === 'string' ? l : JSON.stringify(l)))) {
@@ -1471,10 +1480,13 @@ async function main(argv) {
       at = k + 1;
       const [op, r] = await step(line);
       console.log(flags.json ? JSON.stringify(r) : render(op, r));
-      if (['tap', 'type', 'clock'].includes(op)) await storageNote();
+      if (host === 'web' && ['tap', 'type', 'clock'].includes(op)) await storageNote();
     }
+    if (host !== 'web' && ops.some((line) => /^\s*(tap|type|clock)\b/.test(line))) await storageNote();
     return 0;
   } catch (e) {
+    // A drive that fails (an `expect`, a refused op) is where a missing store is found: say it first.
+    if (host !== 'web' && ops.slice(0, at).some((line) => /^\s*(tap|type|clock)\b/.test(line))) await storageNote();
     e.message = `op ${at}/${ops.length} \`${ops[at - 1]?.trim()}\`: ${e.message}`;
     throw e;
   } finally {

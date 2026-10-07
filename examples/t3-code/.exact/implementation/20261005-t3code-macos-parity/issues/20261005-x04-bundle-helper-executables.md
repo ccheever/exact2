@@ -1,10 +1,10 @@
 ---
 name: 20261005-x04-bundle-helper-executables
 plan: 20261005-t3code-macos-parity
-status: draft
+status: closed-upstream
 kind: framework-gap
 blocks: [20261005-embedded-server-runtime, 20261005-portable-app-download, 20261005-this-machine-network-access]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/103
 reproduced_on: null
 ---
 
@@ -89,3 +89,15 @@ In `20261005-portable-app-download`, drop the unpack stage from the first-launch
 ## Status and next action
 Draft; not reproduced on the pinned `main`; not searched upstream; not published.
 Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval; publication only after approval).
+
+## Fixed upstream; available, not adopted here (2026-10-07, adopt-main-fixes-r4)
+
+[#103](https://github.com/ccheever/exact2/issues/103) was closed by main #215 (`8d8fb0db9`), in the feature
+branch since main `463acda68` ([20261007-adopt-main-fixes-r4](../tasks/20261007-adopt-main-fixes-r4.md)).
+`app.json` `host.macos.resources: [{from, to}]` copies an app-relative tree to a private destination under
+`Contents` (for example `Resources/server` or `Helpers/server`) with its file modes, internal relative
+symlinks, scoped and spaced names and files above 64 MiB; the tree is outside TypeScript capture and web
+assets, hashed into the binary receipt (a change needs a new binary) and signed inside-out with the release
+signer's ordering. Unverified upstream: Developer ID signing of such a tree (no identity on the PR's
+machine). The clone bundles no server yet, so nothing is adopted here: `20261005-embedded-server-runtime`
+and `20261005-portable-app-download` use it in place of the archive plan.

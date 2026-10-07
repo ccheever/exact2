@@ -116,6 +116,10 @@ impl<D: DataSource> Presenter<D> {
             self.finish_group();
         }
         if self.group.is_some() || self.arrange.is_some() {
+            // Said, as the web says it (LLP 1102 §3.17): a drive's reply reads like a success otherwise.
+            if self.group.is_some() {
+                self.host.log("reorder: a drag refused: the last drop is held until its move shows (LLP 1094 D8); a person waits for the card to land; a drive waits with `clock settle` before the next drag".to_string());
+            }
             return Ok(false);
         }
         let Some(group) = self.group_of(&binding) else {

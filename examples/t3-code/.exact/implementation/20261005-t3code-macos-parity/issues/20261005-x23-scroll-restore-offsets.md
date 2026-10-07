@@ -1,10 +1,10 @@
 ---
 name: 20261005-x23-scroll-restore-offsets
 plan: 20261005-t3code-macos-parity
-status: draft
+status: closed-upstream
 kind: framework-gap
 blocks: [20261005-diff-review-engine, 20261005-pr-code-tab, 20261005-pr-handoffs-and-quick-actions, 20261005-round12-wrapup]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/138
 reproduced_on: null
 ---
 
@@ -138,3 +138,20 @@ gone and the real-wheel row passes.
 Draft; not reproduced on the pinned `main`; not searched upstream; not published. Next:
 `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval;
 publication only after approval). X23a–d may be split into separate reports.
+
+## Merged upstream; partly fixed (2026-10-07, adopt-main-fixes-r4)
+
+[#138](https://github.com/ccheever/exact2/issues/138) was closed by main #210 (`b84fb5974`), in the feature
+branch since main `463acda68` ([20261007-adopt-main-fixes-r4](../tasks/20261007-adopt-main-fixes-r4.md)):
+macOS and iOS anchor a plain `scroll` box as CSS scroll anchoring does, so a box above the port that
+changes size or is inserted no longer moves the reader's content (X23d; #138's probe moved −48 pt before).
+
+Not on `463acda68`: X23a (restore by key of a top-level list), X23b (`scroll-padding`, `scroll-margin`:
+still unknown attributes), X23c (smooth native `scrollIntoView`, `scrollend`), and the
+`overflow-anchor: none` opt-out (main's QUEUE also leaves Linux undriven).
+
+Adoption: the clone had no X23d workaround (the pull request header fold is not built), so nothing is
+removed. `R9Input.swift` (X23a) and `T3TimelineTurns.swift`'s hold loop (X23c) stay for the missing parts.
+`20261005-pr-handoffs-and-quick-actions` no longer holds its fold row for X23d; when it is built, measure
+whether the reference's own `compensationRef` write is still needed on top of anchoring (Chrome anchors
+too), against the reference rather than assumed.

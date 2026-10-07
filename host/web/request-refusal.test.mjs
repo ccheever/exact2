@@ -391,7 +391,7 @@ test('a clean JS dist imports every lazy storage and document entry with its com
     for (const name of ['grant-admission.js', 'storage-fs.js', 'storage-sqlite.js', 'storage-request.js', 'picker-glue.js', 'documents-glue.js']) {
       await import(`${pathToFileURL(resolve(dist, name)).href}?built=${Date.now()}-${name}`);
     }
-    for (const name of ['navigation.js', 'storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm']) expect(existsSync(resolve(dist, name)), name).toBe(true);
+    for (const name of ['storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm']) expect(existsSync(resolve(dist, name)), name).toBe(true);
   } finally { rmSync(dist, { recursive: true, force: true }); }
 }, 60_000);
 
@@ -700,6 +700,47 @@ test("the JS target refuses a data module's clock, randomness and timers as Herm
     expect(answer('intl', [0])).toBe('1970/1970/1970/1970');
     // The page's own are untouched.
     expect([globalThis.Date, Math.random, typeof Date.now()]).toEqual([page.Date, page.random, 'number']);
+  } finally {
+    delete globalThis.exact;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// LLP 1016.000 D3 on the JS target: a data module's own socket, request or
+// event source refuses with the wasm target's words (module-glue.js), in every
+// spelling, so no frame leaves past the grants (#126).
+test("the JS target refuses a data module's own WebSocket, XMLHttpRequest and EventSource as the wasm target does", async () => {
+  const { transformSync } = await import('rolldown/utils');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-io-'));
+  const build = readFileSync(resolve(ROOT, 'host/web-js/build.mjs'), 'utf8');
+  const bound = JSON.parse(/const bound = (\[[^\]]*\]);/.exec(build)[1].replaceAll("'", '"').replace(/\s+/g, ''));
+  const guards = resolve(dir, 'ts-fetch.js');
+  cpSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), guards);
+  writeFileSync(resolve(dir, 'admission.js'), 'export const fetchWith = () => Promise.reject(new Error("no fetch here"));\n');
+  writeFileSync(resolve(dir, 'admission-data.js'), 'export const tsGrantSet = null;\n');
+  const source = resolve(dir, 'source.js');
+  writeFileSync(source, `const io = { WebSocket, XMLHttpRequest, EventSource };
+const forms = {
+  bare: name => ({ WebSocket: () => new WebSocket('ws://127.0.0.1:9/x'), XMLHttpRequest: () => new XMLHttpRequest(), EventSource: () => new EventSource('http://127.0.0.1:9/x') })[name](),
+  global: name => new globalThis[name]('ws://127.0.0.1:9/x'), window: name => new window[name]('ws://127.0.0.1:9/x'),
+  self: name => new self[name]('ws://127.0.0.1:9/x'), alias: name => new io[name]('ws://127.0.0.1:9/x'),
+  call: name => globalThis[name]('ws://127.0.0.1:9/x'), reflect: name => Reflect.construct(globalThis[name], ['ws://127.0.0.1:9/x']),
+};
+globalThis.exact = { answer: (form, name) => { try { forms[form](name); return 'opened'; } catch (e) { return e.message; } } };
+`);
+  const app = transformSync(source, readFileSync(source, 'utf8'), { inject: { ...Object.fromEntries(bound.map(name => [name, [guards, name]])),
+    ...Object.fromEntries(['globalThis', 'window', 'self'].map(name => [name, [guards, 'appGlobal']])) } });
+  expect(app.errors).toEqual([]);
+  writeFileSync(resolve(dir, 'app.js'), app.code);
+  const page = globalThis.WebSocket;
+  try {
+    await import(`${pathToFileURL(resolve(dir, 'app.js')).href}?io=${Date.now()}`);
+    const { answer } = globalThis.exact;
+    for (const name of ['WebSocket', 'XMLHttpRequest', 'EventSource'])
+      for (const form of ['bare', 'global', 'window', 'self', 'alias', 'call', 'reflect'])
+        expect(answer(form, name), `${form} ${name}`).toBe(`${name} is unavailable in data sources`);
+    // The page's own, which the runtime's stream opens, is untouched.
+    expect(globalThis.WebSocket).toBe(page);
   } finally {
     delete globalThis.exact;
     rmSync(dir, { recursive: true, force: true });

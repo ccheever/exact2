@@ -960,9 +960,9 @@ export function motionController({views,now,generation,request,applyBatch,inert,
 // One physical Arrange contact and its settling source; Common owns logical keys.
 // A grip whose list has a `reorderGroup` is `group-glue.js`'s (LLP 1094): the
 // ghost, the target lists, the hold and the keys; `grouped` is its controller.
-export function arrangeController({views,collections,motion,request,applyBatch,now,generation,inert,ready=()=>true,grouped=null,root=null,viewOf}) {
+export function arrangeController({views,collections,motion,request,applyBatch,now,generation,inert,ready=()=>true,grouped=null,root=null,viewOf,log}) {
   const bindings=new Map(),groups=new Map();let current=null,edge=null,edgeTime=null,busy=false,pending=null;
-  const group=grouped?.({views,collections,request,applyBatch,now,ready,inert,root,viewOf,gripOf:view=>[...bindings.values()].find(b=>b.wrapper===view)?.el});
+  const group=grouped?.({views,collections,request,applyBatch,now,ready,inert,root,viewOf,log,gripOf:view=>[...bindings.values()].find(b=>b.wrapper===view)?.el});
   const live=b=>b&&b.generation===generation()&&views.get(b.id)===b.el&&views.get(b.wrapper)===b.row&&b.el.isConnected;
   function mapping(b,y) {
     if(!live(b)||b.el.closest('[disabled]')||inert(b.el)||!b.el.getClientRects().length)return null;

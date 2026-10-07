@@ -39,6 +39,9 @@ macro_rules! configured {
             fn preload(&self) -> Result<bool, $crate::exact_runner::DataError> {
                 $crate::exact_runner::DataSource::preload(&self.0)
             }
+            fn when_preloaded(&self, wake: Box<dyn FnOnce() + Send>) {
+                $crate::exact_runner::DataSource::when_preloaded(&self.0, wake)
+            }
             fn configure_storage(
                 &mut self,
                 data: std::path::PathBuf,

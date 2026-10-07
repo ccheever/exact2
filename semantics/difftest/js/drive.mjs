@@ -98,8 +98,8 @@ function runtime(dir) {
   writeFileSync(resolve(dir, 'entry.js'), [
     "import app from './app.js';",
     "import names, { types } from './names.js';",
-    "import { data, journal, clock, advance, Hosts, inflight, Mutations } from './rt.js';",
-    'globalThis.__drive = { app, names, types, data, journal, clock, advance, Hosts, inflight, Mutations };',
+    "import { data, journal, clock, advance, Hosts, inflight, Mutations, Sounds } from './rt.js';",
+    'globalThis.__drive = { app, names, types, data, journal, clock, advance, Hosts, inflight, Mutations, Sounds };',
   ].join('\n'));
 }
 
@@ -130,7 +130,7 @@ async function drive(code, c, hostSources) {
   });
   ctx.globalThis = ctx; ctx.self = ctx; ctx.window = ctx;
   vm.runInContext(code, ctx, { filename: 'app.js' });
-  const { app, names, types, data, journal, clock, advance, Hosts, Mutations } = ctx.__drive;
+  const { app, names, types, data, journal, clock, advance, Hosts, Mutations, Sounds } = ctx.__drive;
   const notes = [];
   // The runner's transcript answers every call; one it never made is a divergence.
   const answers = new Map(c.answers.map(([source, args, answer]) => [source + key(decode(args)), answer]));
@@ -153,6 +153,21 @@ async function drive(code, c, hostSources) {
   let commands = [];
   const record = name => (...args) => { commands.push(`command ${name}${args.map(a => ' ' + untyped(a)).join('')}`); };
   for (const k of Object.keys(Hosts)) Hosts[k] = record(k);
+  // The voice table's commands are the runtime's own (rt.js `Sounds.own`): they reach `Sounds.apply`
+  // with the commit's whole command list, in order, not `Hosts`. Record the list as the runner does:
+  // the host commands just recorded from it are replaced by the whole of it.
+  let applySounds = Sounds.apply;
+  Object.defineProperty(Sounds, 'apply', {
+    configurable: true,
+    get: () => cmds => {
+      if (cmds.some(([name]) => Sounds.own.has(name))) {
+        const hosts = cmds.filter(([name]) => !Sounds.own.has(name)).length;
+        commands.splice(commands.length - hosts, hosts, ...cmds.map(([name, args]) => `command ${name}${args.map(a => ' ' + untyped(a)).join('')}`));
+      }
+      return applySounds?.(cmds);
+    },
+    set: f => { applySounds = f; },
+  });
   Object.setPrototypeOf(Hosts, new Proxy({}, { get: (_, name) => typeof name === 'string' ? record(name) : undefined }));
 
   const out = ['== boot'];

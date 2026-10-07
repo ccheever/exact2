@@ -421,6 +421,16 @@ final class Delegate: NSObject, NSApplicationDelegate {
         return .terminateLater
     }
     var quitting: StorageHold?
+    /// The quit is decided, however it came (⌘Q, the app menu, an Apple
+    /// Event, the last window closing): every session still live goes now,
+    /// synchronously, so each native module's `destroy()` runs before the
+    /// process ends ("destroyed with the session", LLP 1067.000 D3). A closed
+    /// window's own teardown (`windowWillClose`) waits for the next turn of
+    /// the run loop, which the last window's never gets; `destroy()` runs
+    /// once whichever comes first. Nothing is held (LLP 1069.010 Q4).
+    func applicationWillTerminate(_ notification: Notification) {
+        for session in exact.sessions { session.destroy() }
+    }
     func applicationDidFinishLaunching(_ notification: Notification) {
         ExactEnv.stamp("didFinishLaunching")
         finishLaunching()

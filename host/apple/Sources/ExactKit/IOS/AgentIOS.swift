@@ -98,7 +98,7 @@ extension Agent {
         // `scrollIntoView`) is UIKit's scroll animation under platform timing
         // (LLP 1070.000 §11): the fixed point is where it lands, within
         // settle's bound (LLP 1035.003 D5).
-        if !presenter.collections.animating.isEmpty { return true }
+        if !presenter.collections.animating.isEmpty || session.natives.activationQueued || presenter.launchAutofocusPending { return true }
         guard let editor = pendingTextReveal else { return false }
         guard let node = editor.owner, presenter.views[node.id] === node,
               node.textArea === editor, !presenter.navigation.isInactiveRoute(containing: node),
@@ -934,6 +934,13 @@ extension Agent {
         var r: [String: Any] = ["screenshot": path, "w": Agent.r2(size.width), "h": Agent.r2(size.height), "scale": Agent.r2(scale)]
         if req["window"] as? Bool == true { r["window"] = true }
         if loading > 0 { r["imagesPending"] = loading }
+        // The software keyboard is not in the capture and the app may stand above it (LLP 1102 §3.17):
+        // say so, where the image alone reads as a shortened screen.
+        let container = session.presenter.modals.coordinateView ?? session.view
+        if let top = container.flatMap({ session.presenter.keyboardGuideTop(in: $0) }) {
+            r["keyboard"] = ["visible": true, "top": Agent.r2(top)]
+            r["note"] = "the software keyboard is up: it is not in the capture, and the app above it may be shortened (state shows keyboard.top)"
+        }
         return r
     }
 

@@ -39,6 +39,18 @@ export async function duringOp(s, op) {
  * under `--touch platform`; elsewhere the carrier's own contact phases,
  * refused where the carrier refuses them.
  */
+// What the host journaled about a reorder during the drag (LLP 1102 §3.17): a lift refused while
+// the last drop's session holds, or a touch the browser took, which a reply would otherwise read as
+// a success. Advice only: a journal read that fails or is slow says nothing.
+const quick = (p) => Promise.race([p.catch(() => null), new Promise((done) => setTimeout(() => done(null), 2000))]);
+async function journalMark(s) { return (await quick(s.op({ op: 'logs', since: Number.MAX_SAFE_INTEGER })))?.next ?? null; }
+async function reorderNotes(s, since) {
+  if (since == null) return [];
+  const j = await quick(s.op({ op: 'logs', since }));
+  return (Array.isArray(j?.lines) ? j.lines : []).map((l) => (typeof l === 'string' ? l : JSON.stringify(l)).replace(/^t=\S+ /, '')).filter((l) => l.startsWith('reorder: '));
+}
+const noted = (r, notes) => (notes.length ? { ...r, note: [r.note, ...notes].filter(Boolean).join('; ') } : r);
+
 export async function dragTap({ s, carrier, node, target, host, timing, tapRefusal, scrolled }, opts) {
   // `drag to B [at x y]` (LLP 1094 D12): the delta from both boxes at the press, to B's middle or to (x, y) from its
   // top left; B unmounted or off screen is refused by name. An autoscrolling drag is `drag dx dy hold ms`.
@@ -57,6 +69,7 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
   if (carrier.touches && during.length && !(hold > 0)) throw new Error('drag: under --touch platform, during runs after the press and the move, inside the scripted hold: give hold <ms>, the time the ops run in');
   if (s.contact) throw new Error('a contact is already down; use `tap up` or `tap cancel` first');
   const layout = await s.layout(), b = layout.nodes.find((n) => n.id === node.id), vp = layout.viewport;
+  const mark = await journalMark(s);
   if (!b) throw new Error(`view ${node.id} has no box on screen`);
   const start = from ? [b.x + from[0], b.y + from[1]] : [b.x + b.w / 2, b.y + b.h / 2], end = [start[0] + dx, start[1] + dy];
   const inside = ([x, y]) => x >= 0 && y >= 0 && x <= vp.w && y <= vp.h;
@@ -67,7 +80,7 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
     let r;
     try { r = await carrier.input(node.id, 'drag', { at: from ? start : undefined, drag: { ...drag, during: during.map(held) } }); }
     catch (error) { throw await tapRefusal(s, target, error); }
-    return s.landed({ ...r, target, ...(scrolled ? { scrolled } : {}), carrier: host, mode: timing });
+    return noted(await s.landed({ ...r, target, ...(scrolled ? { scrolled } : {}), carrier: host, mode: timing }), await reorderNotes(s, mark));
   }
   // The carrier's phases, each reply checked: an error or a refusal releases the contact and throws.
   let down, done = [], up;
@@ -119,7 +132,7 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
     if (s.contact) error.message += '; the contact could not be released (tap cancel, or close the session)';
     throw error;
   }
-  return s.tagged({ tapped: node.id, target, ...(scrolled ? { scrolled } : {}), at: down.at, drag: said, lifted: up.at, ...(done.length ? { during: done } : {}), delivery: down.delivery, carrier: host, mode: timing });
+  return noted(await s.tagged({ tapped: node.id, target, ...(scrolled ? { scrolled } : {}), at: down.at, drag: said, lifted: up.at, ...(done.length ? { during: done } : {}), delivery: down.delivery, carrier: host, mode: timing }), await reorderNotes(s, mark));
 }
 
 /** `drag to`'s delta: from the start (`from`, else the middle) to B's middle, or `at` from B's top left. */

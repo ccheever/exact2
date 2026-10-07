@@ -249,3 +249,20 @@ if(linked) {
         String::from_utf8_lossy(&checked.stderr)
     );
 }
+
+#[test]
+fn native_resource_trees_are_not_captured_as_typescript_or_assets() {
+    let app = Scratch::new(&std::env::temp_dir()).unwrap();
+    std::fs::create_dir_all(app.0.join("server/@scope")).unwrap();
+    std::fs::write(
+        app.0.join("app.json"),
+        r#"{"host":{"macos":{"resources":[{"from":"server","to":"Resources/server"}]}}}"#,
+    )
+    .unwrap();
+    std::fs::write(app.0.join("server/@scope/large.json"), vec![b' '; 65 << 20]).unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink("large.json", app.0.join("server/@scope/link")).unwrap();
+    let captured = sources(&app.0).unwrap();
+    assert_eq!(captured.len(), 1);
+    assert!(captured.contains_key(std::path::Path::new("app.json")));
+}

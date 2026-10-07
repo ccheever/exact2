@@ -254,19 +254,22 @@ mod split_facts {
         let a = finish(&mut r, 980., &mut prior, false);
         assert_eq!(r.collections()[0].rows.len(), 16);
         assert_eq!(paragraphs(&r).len(), 64);
-        // @ref LLP 1043.000 §8 — Taffy 0.14 discovers 23 scalar offers per
-        // row here (0.9 discovered 18; 19 before each row's Reply `button`
-        // became a flex column, LLP 1006 §3, whose label is a flex item
-        // measured at four more offers); final owners and the 768-fact cap
-        // stay unchanged. Keep an exact count so lost reuse cannot hide in
-        // the cap.
-        assert_eq!(r.kernel().region_retention().accepted_facts, 368);
+        // @ref LLP 1043.000 §8 — a fact is one paragraph at one width: the
+        // measurer is height-free (`TextMeasurer::height_free`), so a probe
+        // under a definite, min-content or max-content height is one
+        // measurement. 208 for 16 rows (13 a row). Before facts were
+        // height-free it was 368, and 474 once Taffy patch 25's fit-content
+        // probes (e962a65a8, min- and max-content widths of each non-stretched
+        // column-flex item) multiplied the heights; that left the 33-row stage
+        // past the 768-fact cap. Final owners and the cap are unchanged. Keep
+        // an exact count so lost reuse cannot hide in the cap.
+        assert_eq!(r.kernel().region_retention().accepted_facts, 208);
         feedback(&mut r, &a, false);
         drop(a);
         let tail = finish(&mut r, 980., &mut prior, false);
         assert_eq!(r.collections()[0].rows.len(), 33);
         assert_eq!(paragraphs(&r).len(), 132);
-        assert_eq!(r.kernel().region_retention().accepted_facts, 759);
+        assert_eq!(r.kernel().region_retention().accepted_facts, 429);
         feedback(&mut r, &tail, false);
         drop(tail);
         let settled = finish(&mut r, 980., &mut prior, false);

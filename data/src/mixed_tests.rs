@@ -2,7 +2,10 @@ use crate::Mixed;
 use exact_plan::{Plan, Value};
 use exact_runner::{Answer, DataError, DataSource, FailureKind, Outcome, Request, Store};
 use serde_json::{json, Value as Json};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{cell::RefCell, rc::Rc};
+
+type Wake = Box<dyn FnOnce() + Send>;
 
 #[derive(Clone)]
 struct Source {
@@ -11,6 +14,9 @@ struct Source {
     revision: String,
     state: u8,
     ready: bool,
+    loading: bool,
+    failed: bool,
+    waiting: std::sync::Arc<std::sync::Mutex<Vec<Wake>>>,
     calls: Rc<RefCell<Vec<String>>>,
 }
 
@@ -22,6 +28,9 @@ impl Source {
             revision: label.into(),
             state: 1,
             ready: true,
+            loading: false,
+            failed: false,
+            waiting: Default::default(),
             calls: Default::default(),
         }
     }
@@ -92,6 +101,15 @@ impl DataSource for Source {
     }
     fn ready(&self) -> bool {
         self.ready
+    }
+    fn preload(&self) -> Result<bool, DataError> {
+        if self.failed {
+            return Err(DataError::Unavailable("load failed".into()));
+        }
+        Ok(!self.loading)
+    }
+    fn when_preloaded(&self, wake: Box<dyn FnOnce() + Send>) {
+        self.waiting.lock().unwrap().push(wake);
     }
     fn activate(&mut self) -> Result<(), DataError> {
         self.record("activate");
@@ -1366,5 +1384,57 @@ fn mixed_and_placed_forward_logs_from_successful_and_refused_turns_once() {
             assert_eq!(placed.take_logs(), [format!("console {source}")]);
             assert!(placed.take_logs().is_empty());
         }
+    }
+}
+
+#[test]
+fn a_loading_pair_wakes_once_when_either_loading_half_finishes() {
+    let fire = |source: &Source| {
+        for wake in std::mem::take(&mut *source.waiting.lock().unwrap()) {
+            wake()
+        }
+    };
+    // (JS loading, Rust loading, Rust failed, which half finishes first)
+    for (js_loading, rust_loading, rust_failed, rust_first) in [
+        (true, true, false, false),
+        (true, true, false, true),
+        (true, false, false, false),
+        (false, true, false, true),
+        (true, false, true, false),
+    ] {
+        let (mut js, mut rust) = (Source::new("js"), Source::new("rust"));
+        (js.loading, rust.loading, rust.failed) = (js_loading, rust_loading, rust_failed);
+        let (js_waits, rust_waits) = (js.waiting.clone(), rust.waiting.clone());
+        let pair = Mixed::new(js.clone(), rust.clone(), &["js"], &["rust"]).unwrap();
+        assert_ne!(pair.preload().ok(), Some(true));
+        let wakes = Arc::new(AtomicUsize::new(0));
+        let counted = wakes.clone();
+        pair.when_preloaded(Box::new(move || {
+            counted.fetch_add(1, Ordering::SeqCst);
+        }));
+        if rust_failed {
+            assert_eq!(
+                wakes.load(Ordering::SeqCst),
+                1,
+                "a failed half wakes at once"
+            );
+            assert!(js_waits.lock().unwrap().is_empty());
+            continue;
+        }
+        let held = |w: &Arc<Mutex<Vec<_>>>| w.lock().unwrap().len();
+        assert_eq!(
+            (held(&js_waits), held(&rust_waits)),
+            (js_loading as usize, rust_loading as usize)
+        );
+        assert_eq!(wakes.load(Ordering::SeqCst), 0);
+        let (first, second) = if rust_first {
+            (&rust, &js)
+        } else {
+            (&js, &rust)
+        };
+        fire(first);
+        assert_eq!(wakes.load(Ordering::SeqCst), 1);
+        fire(second);
+        assert_eq!(wakes.load(Ordering::SeqCst), 1, "one wake for the pair");
     }
 }

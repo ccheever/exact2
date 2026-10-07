@@ -817,9 +817,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     // display:none removes the CSS box, but retains its stored scroll position.
     // UIKit/AppKit collapse the native extent; keep that transient reset out of
     // scroll events and restore only when the box returns.
-    private var beforeLayoutScroll: CGPoint?
+    var beforeLayoutScroll: CGPoint?
     private var hiddenScroll: CGPoint?
-    private var hasScrollLayoutBox: Bool {
+    var hasScrollLayoutBox: Bool {
         var ancestor: NSView? = self
         while let current = ancestor {
             if let node = current as? NodeView, node.style["display"]?.string == "none" { return false }
@@ -829,24 +829,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     var followedScroll: (top: CGFloat, end: Bool)?
-    func captureScrollPosition() {
-        beforeLayoutScroll = scroll?.contentView.bounds.origin
-        followedScroll = nil
-        guard props["scrollFollowEnd"] == "true", let sv = scroll, let doc = sv.documentView else { return }
-        let maximum = max(0, doc.bounds.height - sv.contentView.bounds.height)
-        followedScroll = (sv.contentView.bounds.minY, sv.contentView.bounds.minY >= maximum - 1)
-    }
-    func restoreScrollPosition() {
-        defer { followedScroll = nil }
-        guard props["scrollFollowEnd"] == "true", let sv = scroll, let doc = sv.documentView else { return }
-        let maximum = max(0, doc.bounds.height - sv.contentView.bounds.height)
-        let prior = followedScroll ?? (top: maximum, end: true)
-        let y = prior.end ? maximum : min(maximum, max(0, prior.top))
-        if sv.contentView.bounds.minY != y {
-            sv.contentView.scroll(to: NSPoint(x: sv.contentView.bounds.minX, y: y))
-            sv.reflectScrolledClipView(sv.contentView)
-        }
-    }
+    /// The scroll anchor chosen before a batch (`ScrollAnchoringMac.swift`).
+    var scrollAnchor: (node: NodeView, y: CGFloat)?
     func applyPendingScroll() {
         defer { pendingScrollTop = nil; pendingScrollLeft = nil }
         guard let sv = scroll, let doc = sv.documentView else { return }

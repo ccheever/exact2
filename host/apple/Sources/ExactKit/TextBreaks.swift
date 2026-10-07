@@ -1,8 +1,10 @@
 // CSS line breaking on Apple (LLP 1008 §3, CSS Text 3 §5): where a line may
-// end, and min-content's unbreakable pieces, from UAX #14's opportunities
-// (CFStringTokenizer's line-break unit) rather than CoreText's own.
+// end, and min-content's unbreakable pieces, from the shared walker's
+// opportunities (UAX #14 as Chrome tailors it, LLP 1043 §4 C) rather than
+// CoreText's or CFStringTokenizer's, which break after a `/` before a letter.
 import Foundation
 import CoreText
+import CExact
 
 /// One paragraph layout's opportunities and where it has got to in them.
 struct LineBreakPlan {
@@ -18,8 +20,8 @@ struct LineBreakPlan {
         while boundaryIndex < boundaries.count && boundaries[boundaryIndex] <= start { boundaryIndex += 1 }
         while hardIndex < hardEnds.count && hardEnds[hardIndex] <= start { hardIndex += 1 }
     }
-    /// The line's length from `start` in `room`. No opportunities (`anywhere`,
-    /// an infinite offer): CoreText's own break. A zero-width offer keeps
+    /// The line's length from `start` in `room`. No opportunities (an
+    /// infinite offer): CoreText's own break. A zero-width offer keeps
     /// CoreText's degenerate breaking, as the region worker does, a `normal`
     /// word kept whole.
     func suggest(_ typesetter: CTTypesetter, start: Int, room: Double, offerWidth: CGFloat, breakWord: Bool, length: Int, text: NSString) -> Int {
@@ -122,18 +124,30 @@ extension TextEngine {
     func unbreakablePieces(_ value: String) -> [String] {
         Self.pieces(value as NSString, boundaries: lineBoundaries(value as NSString, length: (value as NSString).length))
     }
-    /// The same from a worker, with a tokenizer of its own.
+    /// The same from a worker.
     static func unbreakablePieces(_ value: String) -> [String] {
         let text = value as NSString
-        guard text.length > 0 else { return [] }
-        let tokenizer = CFStringTokenizerCreate(nil, text as CFString, CFRange(location: 0, length: text.length), kCFStringTokenizerUnitLineBreak, nil)!
-        var ends: [Int] = []
-        while CFStringTokenizerAdvanceToNextToken(tokenizer).rawValue != 0 {
-            let token = CFStringTokenizerGetCurrentTokenRange(tokenizer)
-            ends.append(token.location + token.length)
+        return pieces(text, boundaries: lineBreaks(text, length: text.length))
+    }
+    /// Where a line may end, as UTF16 offsets, the last being `length`: the
+    /// shared walker's opportunities (`exact_text_line_breaks`), Chrome's, with
+    /// CFStringTokenizer's dictionary words inside Thai, Lao, Khmer and Myanmar
+    /// runs (TextFlowSource.complexWords). Any thread.
+    static func lineBreaks(_ text: NSString, length: Int) -> [Int] {
+        guard length > 0 else { return [0] }
+        let string = text as String
+        let words = TextFlowSource.complexWords(string)
+        var ends = [UInt32](repeating: 0, count: length + 1)
+        let count = Array(string.utf8).withUnsafeBufferPointer { bytes in
+            words.withUnsafeBufferPointer { words in
+                ends.withUnsafeMutableBufferPointer { out in
+                    exact_text_line_breaks(bytes.baseAddress, bytes.count, words.baseAddress, words.count, out.baseAddress, out.count)
+                }
+            }
         }
-        if ends.last != text.length { ends.append(text.length) }
-        return pieces(text, boundaries: ends)
+        var boundaries = ends.prefix(min(count, ends.count)).map { Int($0) }.filter { $0 > 0 && $0 <= length }
+        if boundaries.last != length { boundaries.append(length) }
+        return boundaries
     }
     static func pieces(_ text: NSString, boundaries: [Int]) -> [String] {
         guard text.length > 0 else { return [] }

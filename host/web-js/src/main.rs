@@ -13,6 +13,7 @@
 mod budget_tests;
 mod code;
 mod emit;
+mod events;
 mod faces;
 mod facts;
 mod paint;

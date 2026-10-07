@@ -543,6 +543,21 @@ fn contract_inputs(app: &Path) -> Result<BTreeMap<PathBuf, Option<Vec<u8>>>, Str
 /// resolve to unrelated files on the producer machine.
 fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
     let mounts = mounts(root)?;
+    let manifest = root.join("app.json");
+    let native: Vec<PathBuf> = if manifest.exists() {
+        let json: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(manifest).map_err(|e| e.to_string())?)
+                .map_err(|e| e.to_string())?;
+        json.pointer("/host/macos/resources")
+            .and_then(|v| v.as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v.get("from").and_then(|v| v.as_str()))
+            .map(|p| root.join(p))
+            .collect()
+    } else {
+        Vec::new()
+    };
     fn walk(
         root: &Path,
         at: &Path,
@@ -550,6 +565,7 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
         total: &mut usize,
         mounts: &[(String, PathBuf)],
         prefix: &Path,
+        native: &[PathBuf],
     ) -> Result<(), String> {
         for entry in std::fs::read_dir(at).map_err(|e| e.to_string())? {
             let entry = entry.map_err(|e| e.to_string())?;
@@ -573,6 +589,9 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
                 continue;
             }
             let path = entry.path();
+            if native.contains(&path) {
+                continue;
+            }
             let relative = path.strip_prefix(root).unwrap();
             let kind = entry.file_type().map_err(|e| e.to_string())?;
             if let Some((_, dir)) = mounts.iter().find(|(m, _)| at == root && **m == *name) {
@@ -607,7 +626,7 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
                 continue;
             }
             if kind.is_dir() {
-                walk(root, &path, out, total, mounts, prefix)?;
+                walk(root, &path, out, total, mounts, prefix, native)?;
             } else if captured {
                 if !kind.is_file() {
                     return Err(format!("source is not a regular file: {}", path.display()));
@@ -625,12 +644,28 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
     }
     let mut result = BTreeMap::new();
     let mut total = 0;
-    walk(root, root, &mut result, &mut total, &mounts, Path::new(""))?;
+    walk(
+        root,
+        root,
+        &mut result,
+        &mut total,
+        &mounts,
+        Path::new(""),
+        &native,
+    )?;
     for (name, dir) in &mounts {
         // Only what TypeScript imports: a shared core's tests and fixtures
         // stay behind (the bundle takes only what `app.ts` reaches anyway).
         let mut mounted = BTreeMap::new();
-        walk(dir, dir, &mut mounted, &mut total, &[], Path::new(name))?;
+        walk(
+            dir,
+            dir,
+            &mut mounted,
+            &mut total,
+            &[],
+            Path::new(name),
+            &[],
+        )?;
         result.extend(
             mounted
                 .into_iter()

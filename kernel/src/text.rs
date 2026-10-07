@@ -503,6 +503,10 @@ impl MonospaceMeasurer {
 }
 
 impl TextMeasurer for MonospaceMeasurer {
+    /// Lines wrap at the width alone; the height offered is never read.
+    fn height_free(&self) -> bool {
+        true
+    }
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
         if let AxisOffer::Definite(width) = request.width {
             if !request.exclusions.is_empty() {

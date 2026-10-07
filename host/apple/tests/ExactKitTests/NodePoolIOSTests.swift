@@ -612,6 +612,36 @@ final class NodePoolIOSTests: XCTestCase {
         window.isHidden = true
     }
 
+    /// Activation hands default views to the turn after its transaction
+    /// commits: nothing is made before the run loop gets there, and nothing
+    /// when the session is no longer live by then.
+    func testActivationMakesDefaultViewsAfterTheCommit() throws {
+        FakeModule.reset()
+        FakeModule.table.withUnsafeBytes { NativeViews.install(table: $0.baseAddress!) }
+        defer { NativeViews.uninstallTable() }
+        let p = Presenter()
+        func mount(_ natives: NativeViews, _ id: UInt32) {
+            natives.install(module: UnsafeMutableRawPointer(bitPattern: 1)!, gateOpen: false)
+            let v = NodeView(id: id, kind: "native", presenter: p)
+            v.frame = CGRect(x: 0, y: 0, width: 200, height: 100)
+            p.viewport.addSubview(v); p.views[id] = v
+            natives.create(owner: v)
+            v.props = ["nativeViewModuleName": "fake-plain", "nativeViewProps": "{}"]
+            natives.update(v)
+        }
+        let live = NativeViews(), stale = NativeViews()
+        mount(live, 1); mount(stale, 2)
+        live.activateAfterCommit { true }
+        stale.activateAfterCommit { false }
+        XCTAssertTrue(live.activationQueued)
+        XCTAssertEqual(FakeModule.made.count, 0, "nothing is made inside activation's turn")
+        let deadline = Date(timeIntervalSinceNow: 2)
+        while live.activationQueued || stale.activationQueued, Date() < deadline { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+        XCTAssertFalse(live.activationQueued)
+        XCTAssertFalse(stale.activationQueued)
+        XCTAssertEqual(FakeModule.made.count, 1, "the live session's view is made; the stale one's is not")
+    }
+
     func testHeavyLeafCostsLeaveOutEachKindsFirstCreation() {
         let kind = "test-kind-\(UUID().uuidString)"
         HeavyLeaves.record(kind, 0.5)
@@ -621,9 +651,9 @@ final class NodePoolIOSTests: XCTestCase {
     }
 }
 
-/// A module table in memory for the reuse test: two tags, `fake-map`
-/// (reuse) and `fake-plain`, each instance a plain view that records what
-/// the host asked of it.
+/// A module table in memory for the reuse and activation tests: two tags,
+/// `fake-map` (reuse) and `fake-plain`, each instance a plain view that
+/// records what the host asked of it.
 private enum FakeModule {
     final class Instance {
         let view = UIView()

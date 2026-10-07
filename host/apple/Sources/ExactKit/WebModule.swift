@@ -215,7 +215,7 @@ final class WebViews {
         entry.loading = true
         guard changedSrc else { send(sandbox, to: handle, using: module.setSandbox); return }
         guard let src, URL(string: src)?.scheme == nil, !src.hasPrefix("//"), let resolver = session?.app.resolver else {
-            send(nil, to: handle, using: module.setDocument)
+            send(nil as Data?, to: handle, using: module.setDocument)
             if changedSandbox { send(sandbox, to: handle, using: module.setSandbox) }
             send(src, to: handle, using: module.setSrc)
             return
@@ -223,12 +223,13 @@ final class WebViews {
         // A local document is read off the main thread, once per `src`
         // (a row mounting read its file on the main thread at every
         // update); `src` reaches the arm with it, and the frame shows
-        // loading until then.
+        // loading until then. Its bytes go as they are: the arm shows an
+        // HTML file as a document and another (a PDF) by its type (#115).
         let path = src.components(separatedBy: "?")[0].components(separatedBy: "#")[0]
         let name = path.hasPrefix("/") ? String(path.dropFirst()) : path
         let id = owner.id
         WebViews.reads.async { [weak self] in
-            let document = resolver.bytes(name).map { String(decoding: $0, as: UTF8.self) } ?? ""
+            let document = resolver.bytes(name) ?? Data()
             DispatchQueue.main.async {
                 guard let self, let entry = self.entries[id], entry.src == src, let handle = entry.handle, let module = self.module else { return }
                 self.send(document, to: handle, using: module.setDocument)
@@ -247,8 +248,11 @@ final class WebViews {
     }
 
     private func send(_ value: String?, to handle: UnsafeMutableRawPointer, using setter: WebModule.SetFn) {
-        guard let value else { setter(handle, nil, 0, 0); return }
-        let data = Data(value.utf8)
+        send(value.map { Data($0.utf8) }, to: handle, using: setter)
+    }
+
+    private func send(_ data: Data?, to handle: UnsafeMutableRawPointer, using setter: WebModule.SetFn) {
+        guard let data else { setter(handle, nil, 0, 0); return }
         data.withUnsafeBytes { bytes in
             setter(handle, bytes.bindMemory(to: UInt8.self).baseAddress, UInt32(data.count), 1)
         }

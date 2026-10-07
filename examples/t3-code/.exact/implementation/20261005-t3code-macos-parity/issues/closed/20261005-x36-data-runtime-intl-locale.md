@@ -1,10 +1,10 @@
 ---
 name: 20261005-x36-data-runtime-intl-locale
 plan: 20261005-t3code-macos-parity
-status: draft
+status: adopted
 kind: framework-gap (unconfirmed)
 blocks: [20261005-desktop-shell-details, 20261005-reference-logic-tests-done-areas]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/118
 reproduced_on: null
 ---
 
@@ -73,3 +73,24 @@ To confirm on the pinned `main` at `issue-open`:
 
 Draft; not reproduced on the pinned `main`; not searched upstream; not published.
 Next: `issue-open` (check the capability on the pin first: run the step-1 table; if it already matches Chrome, record the result and close this issue; otherwise reproduce, search for duplicates and prepare the report for the user's approval; publication only after approval).
+
+## Resolved upstream and adopted (2026-10-07, adopt-main-fixes-r4)
+
+[#118](https://github.com/ccheever/exact2/issues/118) was closed by main #204 (`4132f02c5`), in the feature
+branch since main `463acda68` ([20261007-adopt-main-fixes-r4](../../tasks/20261007-adopt-main-fixes-r4.md)):
+the Hermes prelude (`js/src/standard.js`) installs `Intl.Locale` on every Hermes host, with Chrome's
+canonicalization, getters and `getWeekInfo()` from CLDR week data. Main's Hermes-against-Chrome test
+(`cargo test -p exact-js --test it pure_utilities_match`, 75 `Intl.Locale` rows) passes in this branch.
+
+Adopted: `timestamp-format.ts`'s `resolveWeekStartsOn` is the reference's and needed no change; on macOS it
+now answers the week start instead of `undefined`. Its comment no longer says the runtime lacks
+`Intl.Locale`, and `desktop-shell-details.test.ts` expects the weekday for every tag (en-US 0, en-GB 1,
+pl-PL 1, ar-EG 6, de-DE 1, ko-KR 0, fa-IR 6) instead of accepting `undefined`.
+
+Kept, with reasons: `RUNTIME_LOCALE` (en-US) for the calls the reference leaves at the runtime default,
+because Hermes's default locale follows the Mac's region (en-KR) where the packaged Electron app's is en-US
+(main's docs: pass the locale explicitly; not part of #118). `T3Locale.swift`, because it is Electron's
+`app.getSystemLocale()` (`[NSLocale currentLocale]`), which `exactTime().locale` (the preferred language)
+is not. Known upstream differences that the clone does not hit: a formatter given a `Locale` object rather
+than its string (the clone passes strings) and the `ja-JP` long-date space. No clone view shows a week
+calendar (the snooze picker is a date input), so nothing visible changes.

@@ -473,6 +473,13 @@ impl<D: DataSource + 'static> DataSource for Placed<D> {
         }
     }
 
+    fn when_preloaded(&self, wake: Box<dyn FnOnce() + Send>) {
+        match &self.inner {
+            Some(inner) => inner.when_preloaded(wake),
+            None => wake(),
+        }
+    }
+
     fn bind(&mut self, plan: &Plan) {
         if let Some(inner) = self.inner.as_mut() {
             inner.bind(plan);
