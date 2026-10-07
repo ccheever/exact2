@@ -1,0 +1,21 @@
+===== after-primary-reconnect/cli.txt
+--- SIGKILL server 52226 (04:25:01)
+--- t3 app <lane>/projects/eta (04:25:01)
+Opened <lane>/projects/eta in T3 Code.
+exit 0 (1.82 s)
+--- projects (04:25:17)
+alpha
+eta
+
+===== after-primary-reconnect/app-log.txt
+t3.activation: watching the window 201605 for its close
+t3.activation: desktop app control socket ready at $TMPDIR/t3code-501/55b411b92e964d4addd4e9d1.sock
+t3.activation: request ed30f98d-a68e-4690-a9c6-2d23066c9f23 arrived
+t3.activation: request ed30f98d-a68e-4690-a9c6-2d23066c9f23 handed to the window
+t3.activation: request ed30f98d-a68e-4690-a9c6-2d23066c9f23 answered: opened project e6d9d798-76ac-437f-b82d-6e1876968d01 thread 07106725-3788-45a7-94b5-8950726a1184
+
+===== after-primary-reconnect/pids.txt
+server pid 52226
+new server pid 53792
+agent exit 0
+
