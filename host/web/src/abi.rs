@@ -658,7 +658,8 @@ impl<D: DataSource> Bridge<D> {
     }
 
     /// Re-answer `exactPage` resources (LLP 1069.000 D2): bit 0 hidden,
-    /// bit 1 offline, bit 2 a share sheet ([`exact_runner::Page::from_bits`]).
+    /// bit 1 offline, bit 2 a share sheet, bit 3 the pickers, bit 4 without
+    /// focus ([`exact_runner::Page::from_bits`]).
     pub fn set_page(&mut self, bits: u32) -> u32 {
         let page = exact_runner::Page::from_bits(bits);
         let out = self.host.as_mut().map_or_else(

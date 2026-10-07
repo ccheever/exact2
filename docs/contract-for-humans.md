@@ -1293,6 +1293,25 @@ component Responsive
         text "Compact layout"
 ```
 
+`exactPage` answers the page's facts by the web's names: `visibilityState`
+(`"visible"` or `"hidden"`), `onLine`, `canShare`, `canOpenFiles`, and
+`hasFocus`, which is `document.hasFocus()`: true while the app's window has the
+system's focus, false while another app or window is in front. An app that
+tells the person something can show it in the window while it has focus and
+post a notification otherwise.
+
+```contract
+shape Page
+  hasFocus: bool
+
+component Finished
+  resource page = exactPage() as shape Page
+  view
+    main
+      when page.hasFocus
+        text "Build finished" role="status"
+```
+
 Prefer responsive branches driven by dimensions and actual capabilities to
 inventing platform-specific Contract files. Safe-area lengths use CSS `env()`;
 viewport metadata uses the root element's `viewport-fit` and `interactive-widget`

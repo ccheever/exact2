@@ -481,6 +481,7 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             ("online", v @ ("true" | "false")) => page.on_line = v == "true",
             ("can-share", v @ ("true" | "false")) => page.can_share = v == "true",
             ("can-open-files", v @ ("true" | "false")) => page.can_open_files = v == "true",
+            ("has-focus", v @ ("true" | "false")) => page.has_focus = v == "true",
             ("root-font-size", v) if v.parse::<f64>().is_ok_and(|n| n.is_finite() && n > 0.0) => {
                 root_font_size = v.parse::<f64>().ok()
             }
@@ -524,6 +525,7 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         "online": page.on_line,
         "can-share": page.can_share,
         "can-open-files": page.can_open_files,
+        "has-focus": page.has_focus,
         "root-font-size": p.host().runner().root_font_size(),
     }, "fold": {
         "device-posture": fold.posture.keyword(),
