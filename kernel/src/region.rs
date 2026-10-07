@@ -277,6 +277,8 @@ pub struct RegionFrame {
     pub frame: Frame,
     /// Local scrollable content extent from the same pass.
     pub content: (f32, f32),
+    /// Local native editor content box, from the same pass as the frame.
+    pub field_content: Option<Frame>,
     // LLP 1043.000 D3: proof from the engine that produced this frame.
     pub(crate) height_measured: bool,
 }
@@ -341,6 +343,7 @@ impl RegionGeometry {
                 node: local.node,
                 frame: offset.project(local.frame, parent)?,
                 content: local.content,
+                field_content: local.field_content,
                 height_measured: local.height_measured,
             });
         }
@@ -521,12 +524,12 @@ mod split_storage_tests {
         assert!(facts.entries.capacity() * std::mem::size_of::<ScalarFact>() <= 36 * 1024);
         facts.sources.reserve_exact(SPLIT_PAINTS);
         assert_eq!(facts.sources.capacity(), 192);
-        assert_eq!(std::mem::size_of::<RegionFrame>(), 36);
+        assert_eq!(std::mem::size_of::<RegionFrame>(), 56);
         assert_eq!(std::mem::size_of::<RegionOffset>(), 16);
         assert_eq!(
             REGION_NODES
                 * (std::mem::size_of::<RegionFrame>() + std::mem::size_of::<RegionOffset>()),
-            212_992
+            294_912
         );
         let mut final_owners: Vec<RegionArtifact> = Vec::new();
         final_owners.reserve_exact(SPLIT_PAINTS);

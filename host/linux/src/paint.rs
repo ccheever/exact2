@@ -1045,17 +1045,6 @@ impl Painter {
                 let field_shape = native.then(|| self.text_field_chrome(surface.outer.rect, ts));
                 let content = if let Some(c) = node.field_content_rect() {
                     (rect.0 + c.x, rect.1 + c.y, c.width, c.height)
-                } else if native {
-                    // Region shell publication currently publishes frames without
-                    // field content rects. Its author box still includes chrome;
-                    // use this host's synchronous answer until that path supplies it.
-                    let c = control::field_chrome();
-                    (
-                        content.0 + c.left,
-                        content.1 + c.top,
-                        (content.2 - c.left - c.right).max(0.0),
-                        (content.3 - c.top - c.bottom).max(0.0),
-                    )
                 } else {
                     content
                 };

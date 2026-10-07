@@ -149,8 +149,9 @@ impl Derived {
     ) -> Result<RegionGeometry, LayoutError> {
         let mut frames = Vec::with_capacity(self.slots.len());
         let mut offsets = Vec::with_capacity(self.slots.len());
-        let mut stack = vec![(root, 0., 0., OWNER)];
-        while let Some((s, x, y, parent)) = stack.pop() {
+        let mut stack = vec![(root, 0., 0., OWNER, false)];
+        while let Some((s, x, y, parent, hidden)) = stack.pop() {
+            let hidden = hidden || arena.style(s).display == crate::Display::None;
             let l = self.tree.layout(self.nodes[&s]);
             let inline = arena.is_inline_run(s);
             let frame = if inline {
@@ -195,6 +196,10 @@ impl Derived {
                         l.scrollable_overflow_rect.right,
                         l.scrollable_overflow_rect.bottom,
                     ),
+                    field_content: self
+                        .tree
+                        .field_content_rect(arena, s, self.nodes[&s])
+                        .filter(|_| !hidden),
                     height_measured: self.tree.height_measured(self.nodes[&s]),
                 });
                 offsets.push(RegionOffset {
@@ -207,11 +212,11 @@ impl Derived {
             };
             if Some(s) == cut {
                 if let Some(b) = branch {
-                    stack.push((b, frame.x, frame.y, next_parent))
+                    stack.push((b, frame.x, frame.y, next_parent, hidden))
                 }
             } else {
                 for &c in arena.children(s).iter().rev() {
-                    stack.push((c, frame.x, frame.y, next_parent))
+                    stack.push((c, frame.x, frame.y, next_parent, hidden))
                 }
             }
         }
@@ -238,8 +243,9 @@ pub(super) fn shell(
     tree.cut_children(owner);
     tree.compute(engine_root, offer, arena, measurer)?;
     let mut frames = Vec::new();
-    let mut stack = vec![(root, 0., 0.)];
-    while let Some((s, x, y)) = stack.pop() {
+    let mut stack = vec![(root, 0., 0., false)];
+    while let Some((s, x, y, hidden)) = stack.pop() {
+        let hidden = hidden || arena.style(s).display == crate::Display::None;
         let n = arena
             .taffy(s)
             .ok_or_else(|| LayoutError::Engine("shell node absent".into()))?;
@@ -274,11 +280,12 @@ pub(super) fn shell(
                 l.scrollable_overflow_rect.right,
                 l.scrollable_overflow_rect.bottom,
             ),
+            field_content: tree.field_content_rect(arena, s, n).filter(|_| !hidden),
             height_measured: tree.height_measured(n),
         });
         if s != cut {
             for &c in arena.children(s).iter().rev() {
-                stack.push((c, frame.x, frame.y))
+                stack.push((c, frame.x, frame.y, hidden))
             }
         }
     }

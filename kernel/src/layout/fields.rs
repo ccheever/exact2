@@ -3,6 +3,27 @@ use super::*;
 use crate::{ControlFont, FieldChrome, FieldChromeRequest, FieldKind};
 
 impl LayoutTree {
+    /// Local editor geometry from the engine that measured the field's chrome.
+    /// Shared by ordinary, shell and retained-region publication (LLP 1104 D5).
+    pub(crate) fn field_content_rect(
+        &self,
+        arena: &NodeArena,
+        slot: u32,
+        node: NodeId,
+    ) -> Option<Frame> {
+        if !arena.is_native_text_control(slot) {
+            return None;
+        }
+        let l = self.layout(node);
+        let inset = l.border + l.padding;
+        Some(Frame {
+            x: inset.left,
+            y: inset.top,
+            width: (l.size.width - inset.left - inset.right).max(0.0),
+            height: (l.size.height - inset.top - inset.bottom).max(0.0),
+        })
+    }
+
     pub(super) fn prepare_fields(
         &mut self,
         root: NodeId,

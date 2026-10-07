@@ -308,7 +308,7 @@ impl RegionState {
             // Height-free facts are SplitFacts': the default profile keeps
             // one retained artifact per exact offer.
             let height_free = self.profile == RegionProfile::SplitFacts && measurer.height_free();
-            self.advance(arena, origin, offer, inputs, height_free)?
+            self.advance(arena, origin, offer, inputs, height_free, measurer)?
         } else {
             None
         };
@@ -393,6 +393,7 @@ impl RegionState {
         offer: Offer,
         inputs: RegionInputs,
         height_free: bool,
+        measurer: &mut dyn TextMeasurer,
     ) -> Result<Option<Rc<RegionPublication>>, LayoutError> {
         let b = self.binding;
         let ticket = self.ticket.as_ref().expect("admitted ticket").clone();
@@ -416,6 +417,7 @@ impl RegionState {
                 accepted: self.accepted.as_deref(),
                 catalog: inputs.catalog,
                 height_free,
+                measurer,
                 missing: None,
                 refused: None,
             };
@@ -525,6 +527,7 @@ impl RegionState {
     }
 }
 struct Candidate<'a> {
+    measurer: &'a mut dyn TextMeasurer,
     ticket: RegionTicket,
     profile: RegionProfile,
     lease: Option<Arc<()>>,
@@ -547,6 +550,9 @@ impl Candidate<'_> {
     }
 }
 impl TextMeasurer for Candidate<'_> {
+    fn field_chrome(&mut self, request: &crate::FieldChromeRequest) -> crate::FieldChrome {
+        self.measurer.field_chrome(request)
+    }
     fn height_free(&self) -> bool {
         self.height_free
     }
@@ -872,6 +878,11 @@ fn publish(
         let hidden = arena.style(s).display == crate::Display::None;
         arena.set_frame(s, frame);
         arena.set_content(s, f.content);
+        if let Some(content) = f.field_content {
+            arena.field_content.insert(s, content);
+        } else {
+            arena.field_content.remove(&s);
+        }
         let flags = arena.flags_mut(s);
         if current {
             for clear in [

@@ -109,17 +109,8 @@ pub(super) fn publish(arena: &mut NodeArena, tree: &mut LayoutTree, root: u32) -
                 continue;
             };
             let l = tree.layout(node);
-            if arena.is_native_text_control(slot) {
-                let inset = l.border + l.padding;
-                arena.field_content.insert(
-                    slot,
-                    Frame {
-                        x: inset.left,
-                        y: inset.top,
-                        width: (l.size.width - inset.left - inset.right).max(0.0),
-                        height: (l.size.height - inset.top - inset.bottom).max(0.0),
-                    },
-                );
+            if let Some(content) = tree.field_content_rect(arena, slot, node) {
+                arena.field_content.insert(slot, content);
             } else {
                 arena.field_content.remove(&slot);
             }
