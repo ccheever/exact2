@@ -402,8 +402,12 @@ try {
     // D2b: under the agent (a loopback page with `?agent`) a realm draws the
     // seed's repeatable stream, the bytes Hermes draws; outside it, the OS's.
     const pageUrl=location.href;
+    // The seed is the launch URL's (its navigation entry, 18d0dec29), not the
+    // route's: stand in that entry as well as the location.
+    const entries=performance.getEntriesByType;
     const agentRun=async(query,placement)=>{
       history.replaceState(null,'',query);
+      performance.getEntriesByType=type=>type==='navigation'?[{name:new URL(query,location.origin).href}]:entries.call(performance,type);
       try{
         const realm=await prepare(await payload(fixtures.entropy,entropyIdentity),{...entropyIdentity,placement});
         const ask=(source,args=[])=>{
@@ -415,7 +419,7 @@ try {
         if(!first.entropy||!bytes.entropy)throw new Error(`${placement}: an agent draw is still a read`);
         realm.dispose();
         return [first.value,bytes.value,second.value].join(' ');
-      } finally {history.replaceState(null,'',pageUrl);}
+      } finally {history.replaceState(null,'',pageUrl);performance.getEntriesByType=entries;}
     };
     for(const placement of ['main','worker']){
       const seeded=await agentRun('/?agent=1&seed=1',placement);
@@ -1105,10 +1109,13 @@ try {
     check(typeof narrow.error==='string','narrow source cannot borrow sibling filesystem grant');
     const widened=await request('fs.mkdir',{path:'app:/cache/no'},'fs.write app:/');
     check(widened.error?.includes('exceeds'),'scope cannot exceed admitted grants');
-    history.replaceState(null,'','/?agent=1');
     // A page opened under the agent ('?agent', no scratch store named) gets no
-    // storage; the store is chosen when the service is made, not per request.
-    const agent=createStorageRequests(identity.appId,identity.grantSet);history.replaceState(null,'','/');
+    // storage; the store is chosen when the service is made, not per request,
+    // from the URL the page was opened at (its navigation entry, 18d0dec29), so
+    // a router's replaceState cannot change it: stand in that entry.
+    const entries=performance.getEntriesByType;
+    performance.getEntriesByType=type=>type==='navigation'?[{name:location.origin+'/?agent=1'}]:entries.call(performance,type);
+    const agent=createStorageRequests(identity.appId,identity.grantSet);performance.getEntriesByType=entries;
     check(JSON.parse(decoder.decode(await agent.run(JSON.stringify({version:1,op:'fs.readFile',args:{path}})))).error?.includes('unavailable in agent mode'),'agent mode withholds portable storage');agent.dispose();
     check(typeof (await request('fs.atomicWriteFile',{path:'app:/data/backups/../escape',text:'deny'})).error==='string','traversal refused');
     const binary='app:/data/backups/binary';await request('fs.atomicWriteFile',{path:binary,bytes:[0,255]});
