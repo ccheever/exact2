@@ -1,0 +1,146 @@
+Theme color picker: agent drives (2026-10-08, scripts/agent.mjs macos --size 1280x840 --json)
+Lane: T3_LOCAL_HOME=<lane>/t3-home, T3_LOCAL_PORT 16050 (after) / 16051 (before), CODEX_HOME, CLAUDE_CONFIG_DIR and XDG_* in the lane,
+T3CODE_TELEMETRY_ENABLED=false; EXACT_MAC_BIN = the bundle's executable (so the embedded server starts from Contents/Resources/t3-runtime).
+Every session first: welcome-continue, welcome-agents-continue, welcome-skip-import, connection-settings, settings-appearance.
+Before = t3-code-evidence-base at da4f4512f (bundle built 2026-10-07T18:33Z from it); After = this branch (commit in the PR, bundle rebuilt from the tree).
+
+== AFTER part 1: Background popover, plane down/move/up, hue drag, keys, typed values, Escape ==
+  op: welcome-continue  at [947.22, 649.75]
+  op: welcome-agents-continue  at [947.22, 627.25]
+  op: welcome-skip-import  at [763.92, 546.75]
+  op: connection-settings  at [24, 820]
+  op: settings-appearance  at [128, 152]
+  op: create-theme  at [1012.66, 320]
+  screenshot after-E01-editor.png
+  op: theme-editor-swatch-background  at [1117, 696]
+  screenshot after-E02-popover.png
+  tree: settings-dialog present, theme-editor present, focused ['theme-color-background-saturation']; fields: background-saturation=0%, background-brightness=99%, background-hue=0, background-hex=#fcfcfc, background-rgb=252, 252, 252, accent-saturation=88%, accent-brightness=85%, accent-hue=224, accent-hex=#1b4ed8, accent-rgb=27, 78, 216
+  op: theme-color-background-plane  at [1063, 533]
+  state @clock 15000: editor open: Create theme; background=#382b2b (seq 15000); palette canvas light-dark(#382b2b, #0a0a0a), accent light-dark(#1b4ed8, #346bf1); focus 2934
+  state @clock 15000: editor open: Create theme; background=#563535 (seq 15000.001); palette canvas light-dark(#563535, #0a0a0a), accent light-dark(#1b4ed8, #346bf1); focus 2934
+  state @clock 15000: editor open: Create theme; background=#743636 (seq 15000.002); palette canvas light-dark(#743636, #0a0a0a), accent light-dark(#1b4ed8, #346bf1); focus 2934
+  state @clock 15000: editor open: Create theme; background=#743636 (seq 15000.003); palette canvas light-dark(#743636, #0a0a0a), accent light-dark(#1b4ed8, #346bf1); focus 2934
+  tree: settings-dialog present, theme-editor present, focused ['theme-color-background-saturation']; fields: background-saturation=53%, background-brightness=45%, background-hue=0, background-hex=#743636, background-rgb=116, 54, 54, accent-saturation=88%, accent-brightness=85%, accent-hue=224, accent-hex=#1b4ed8, accent-rgb=27, 78, 216
+  screenshot after-E03-plane-drag.png
+  op: theme-color-background-hue  drag {"dx": 120, "dy": 0, "press": 0, "over": 400, "hold": 0, "mouse": true} at [1033, 585]
+  state @clock 15000: editor open: Create theme; background=#365a74 (seq 15000.017000000003); palette canvas light-dark(#365a74, #0a0a0a), accent light-dark(#1b4ed8, #346bf1); focus 2937
+  tree: settings-dialog present, theme-editor present, focused ['theme-color-background-hue']; fields: background-saturation=53%, background-brightness=45%, background-hue=205, background-hex=#365a74, background-rgb=54, 90, 116, accent-saturation=88%, accent-brightness=85%, accent-hue=224, accent-hex=#1b4ed8, accent-rgb=27, 78, 216
+  screenshot after-E04-hue-drag.png
+  op: theme-color-background-saturation key Tab at None
+  op: theme-color-background-brightness key Shift+ArrowDown at None
+  state @clock 15080: editor open: Create theme; background=#2a475a (seq 15000.018000000004); palette canvas light-dark(#2a475a, #0a0a0a), accent light-dark(#1b4ed8, #346bf1); focus 2935
+  tree: settings-dialog present, theme-editor present, focused ['theme-color-background-brightness']; fields: background-saturation=53%, background-brightness=35%, background-hue=205, background-hex=#2a475a, background-rgb=42, 71, 90, accent-saturation=88%, accent-brightness=85%, accent-hue=224, accent-hex=#1b4ed8, accent-rgb=27, 78, 216
+  screenshot after-E05-keyboard.png
+  op: theme-color-background-rgb  value '12, 34, 56' at None
+  state @clock 15080: editor open: Create theme; background=#0c2238 (seq 15080); palette canvas light-dark(#0c2238, #0a0a0a), accent light-dark(#1b4ed8, #346bf1); focus 2949
+  op: theme-color-background-hex  value '#ABCDEF' at None
+  state @clock 15080: editor open: Create theme; background=#abcdef (seq 15080.001); palette canvas light-dark(#abcdef, #0a0a0a), accent light-dark(#1b4ed8, #346bf1); focus 2945
+  op: theme-color-background-hex  value '#12' at None
+  tree: settings-dialog present, theme-editor present, focused ['theme-color-background-hex']; fields: background-saturation=28%, background-brightness=94%, background-hue=210, background-hex=#12, background-rgb=171, 205, 239, accent-saturation=88%, accent-brightness=85%, accent-hue=224, accent-hex=#1b4ed8, accent-rgb=27, 78, 216
+  op: theme-color-background-rgb  at [1197.18, 644]
+  tree: settings-dialog present, theme-editor present, focused ['theme-color-background-rgb']; fields: background-saturation=28%, background-brightness=94%, background-hue=210, background-hex=#abcdef, background-rgb=171, 205, 239, accent-saturation=88%, accent-brightness=85%, accent-hue=224, accent-hex=#1b4ed8, accent-rgb=27, 78, 216
+  screenshot after-E06-typed.png
+  op: theme-color-background-rgb key Escape at None
+  tree: settings-dialog present, theme-editor present, focused ['theme-editor-swatch-background']; fields: background-saturation=28%, background-brightness=94%, background-hue=210, background-hex=#abcdef, background-rgb=171, 205, 239, accent-saturation=88%, accent-brightness=85%, accent-hue=224, accent-hex=#1b4ed8, accent-rgb=27, 78, 216
+  screenshot after-E07-escape.png
+
+== AFTER part 2: alpha, click over the Dark toggle, save, Edit readback, Advanced, Cancel, Duplicate ==
+  op: welcome-continue  at [947.22, 649.75]
+  op: welcome-agents-continue  at [947.22, 627.25]
+  op: welcome-skip-import  at [763.92, 546.75]
+  op: connection-settings  at [24, 820]
+  op: settings-appearance  at [128, 152]
+  op: create-theme  at [1012.66, 320]
+  op: theme-editor-hex-accent  value '#ff000080' at None
+  op: theme-editor-hex-accent key Enter at None
+  state @clock 15080: editor open: Create theme; background=#fcfcfc (seq 0); accent=#ff000080 (seq 0); border=#e4e4e7 (seq 0); palette canvas light-dark(#fcfcfc, #0a0a0a), accent light-dark(#ff000080, #346bf1); focus 2969
+  op: theme-editor-swatch-accent  at [1117, 744]
+  tree: settings-dialog present, theme-editor present, focused ['theme-color-accent-saturation']; fields: background-saturation=0%, background-brightness=99%, background-hue=0, background-hex=#fcfcfc, background-rgb=252, 252, 252, accent-saturation=100%, accent-brightness=100%, accent-hue=0, accent-hex=#ff0000, accent-rgb=255, 0, 0
+  op: theme-color-accent-plane  at [81, 102]
+  state @clock 15080: editor open: Create theme; background=#fcfcfc (seq 0); accent=#34242480 (seq 15080.001); border=#e4e4e7 (seq 0); palette canvas light-dark(#fcfcfc, #0a0a0a), accent light-dark(#34242480, #346bf1); focus 2953
+  op: theme-color-accent-hue  drag {"dx": 90, "dy": 0, "press": 0, "over": 250, "hold": 0, "mouse": true} at [1023, 633]
+  state @clock 15080: editor open: Create theme; background=#fcfcfc (seq 0); accent=#24342c80 (seq 15080.010000000002); border=#e4e4e7 (seq 0); palette canvas light-dark(#fcfcfc, #0a0a0a), accent light-dark(#24342c80, #346bf1); focus 2956
+  op: theme-color-accent-rgb  value '0, 0, 255' at None
+  state @clock 15160: editor open: Create theme; background=#fcfcfc (seq 0); accent=#0000ff80 (seq 15080.011000000002); border=#e4e4e7 (seq 0); palette canvas light-dark(#fcfcfc, #0a0a0a), accent light-dark(#0000ff80, #346bf1); focus 2968
+  tree: settings-dialog present, theme-editor present, focused ['theme-color-accent-rgb']; fields: background-saturation=0%, background-brightness=99%, background-hue=0, background-hex=#fcfcfc, background-rgb=252, 252, 252, accent-saturation=100%, accent-brightness=100%, accent-hue=240, accent-hex=#0000ff, accent-rgb=0, 0, 255
+  screenshot after-E08-alpha.png
+  op: theme-color-accent-rgb key Escape at None
+  op: theme-editor-name  value 'Picked' at None
+  op: theme-editor-save  at [1185.27, 801]
+  state @clock 15160: editor closed; ; palette canvas light-dark(#fcfcfc, #fcfcfc), accent light-dark(#0000ff80, #0000ff80); focus None
+  screenshot after-E09-saved.png
+  op: theme-edit-picked  at [540.83, 713]
+  state @clock 15160: editor open: Edit theme; background=#fcfcfc (seq 0); accent=#0000ff80 (seq 0); border=#e4e4e7 (seq 0); palette canvas light-dark(#fcfcfc, #fcfcfc), accent light-dark(#0000ff80, #0000ff80); focus 3014
+  screenshot after-E10-edit-readback.png
+  op: theme-editor-advanced  at [1242, 622]
+  op: theme-editor-swatch-border  at [1117, 664]
+  screenshot after-E11-advanced-border.png
+  op: theme-color-border-hue key Shift+ArrowRight at None
+  op: theme-color-border-saturation key End at None
+  op: theme-color-border-brightness key Shift+ArrowDown at None
+  state @clock 15240: editor open: Edit theme; background=#fcfcfc (seq 0); accent=#0000ff80 (seq 0); border=#2200ce (seq 15160.002); palette canvas light-dark(#fcfcfc, #fcfcfc), accent light-dark(#0000ff80, #0000ff80); focus 3530
+  screenshot after-E12-advanced-keys.png
+  op: theme-color-border-brightness key Escape at None
+  op: theme-editor-cancel  at [1091.15, 801]
+  state @clock 15240: editor closed; ; palette canvas light-dark(#fcfcfc, #fcfcfc), accent light-dark(#0000ff80, #0000ff80); focus None
+  op: theme-edit-picked  at [540.83, 713]
+  state @clock 15240: editor open: Edit theme; background=#fcfcfc (seq 0); accent=#0000ff80 (seq 0); border=#e4e4e7 (seq 0); palette canvas light-dark(#fcfcfc, #fcfcfc), accent light-dark(#0000ff80, #0000ff80); focus 3014
+  op: theme-editor-cancel  at [1091.15, 801]
+  op: theme-duplicate-grove  at [1167.5, 445]
+  state @clock 15240: editor open: Create theme; background=#f3f7f4 (seq 0); accent=#1b7d50 (seq 0); border=#cbd5d1 (seq 0); palette canvas light-dark(#f3f7f4, #fcfcfc), accent light-dark(#1b7d50, #0000ff80); focus 2275
+  op: theme-editor-swatch-accent  at [1117, 744]
+  op: theme-color-accent-hue key Shift+ArrowLeft at None
+  op: theme-color-accent-brightness key Home at None
+  op: theme-color-accent-brightness key Shift+ArrowUp at None
+  state @clock 15320: editor open: Create theme; background=#f3f7f4 (seq 0); accent=#061a0d (seq 15240.002); border=#cbd5d1 (seq 0); palette canvas light-dark(#f3f7f4, #fcfcfc), accent light-dark(#061a0d, #0000ff80); focus 4257
+  op: theme-color-accent-brightness key Escape at None
+  op: theme-editor-save  at [1185.27, 801]
+  state @clock 15320: editor closed; ; palette canvas light-dark(#f3f7f4, #f3f7f4), accent light-dark(#061a0d, #061a0d); focus None
+  screenshot after-E13-duplicate-saved.png
+
+== AFTER: Escape layering (popover, then Settings) and Advanced Border keys ==
+  op: welcome-continue  at [947.22, 649.75]
+  op: welcome-agents-continue  at [947.22, 627.25]
+  op: welcome-skip-import  at [763.92, 546.75]
+  op: connection-settings  at [24, 820]
+  op: settings-appearance  at [128, 152]
+  op: create-theme  at [1012.66, 320]
+  op: theme-editor-swatch-background  at [1117, 696]
+  op: theme-color-background-brightness key Escape at None
+  tree: settings-dialog present, theme-editor present, focused ['theme-editor-swatch-background']; fields: background-saturation=0%, background-brightness=99%, background-hue=0, background-hex=#fcfcfc, background-rgb=252, 252, 252, accent-saturation=88%, accent-brightness=85%, accent-hue=224, accent-hex=#1b4ed8, accent-rgb=27, 78, 216
+  op: theme-editor-swatch-background key Escape at None
+  tree: settings-dialog absent, theme-editor present, focused ['theme-editor-swatch-background']; fields: background-saturation=0%, background-brightness=99%, background-hue=0, background-hex=#fcfcfc, background-rgb=252, 252, 252, accent-saturation=88%, accent-brightness=85%, accent-hue=224, accent-hex=#1b4ed8, accent-rgb=27, 78, 216
+  state @clock 15000: editor open: Create theme; background=#fcfcfc (seq 0); border=#e4e4e7 (seq 0); palette canvas light-dark(#fcfcfc, #0a0a0a), accent light-dark(#1b4ed8, #346bf1); focus 2947
+  screenshot after-G01-escape-settings.png
+  op: theme-editor-advanced  at [1242, 622]
+  op: theme-editor-swatch-border  at [1117, 664]
+  screenshot after-G02-advanced-border.png
+  op: theme-color-border-hue key Shift+ArrowRight at None
+  op: theme-color-border-saturation key End at None
+  op: theme-color-border-brightness key Shift+ArrowDown at None
+  state @clock 15080: editor open: Create theme; background=#fcfcfc (seq 0); border=#2200ce (seq 15000); palette canvas light-dark(#fcfcfc, #0a0a0a), accent light-dark(#1b4ed8, #346bf1); focus 3308
+  screenshot after-G03-advanced-keys.png
+  op: theme-color-border-rgb  value '10, 200, 30' at None
+  state @clock 15080: editor open: Create theme; background=#fcfcfc (seq 0); border=#0ac81e (seq 15080); palette canvas light-dark(#fcfcfc, #0a0a0a), accent light-dark(#1b4ed8, #346bf1); focus 3322
+  op: theme-color-border-rgb key Escape at None
+  op: theme-editor-cancel  at [1078.85, 801]
+  state @clock 15080: editor closed; ; palette canvas light-dark(#fcfcfc, #0a0a0a), accent light-dark(#1b4ed8, #346bf1); focus None
+  screenshot after-G04-cancel.png
+
+== BEFORE 1: base popover, Escape ==
+  op: welcome-continue  at [947.22, 649.75]
+  op: welcome-agents-continue  at [947.22, 627.25]
+  op: welcome-skip-import  at [763.92, 546.75]
+  op: connection-settings  at [24, 820]
+  op: settings-appearance  at [128, 152]
+  op: create-theme  at [1012.66, 320]
+  screenshot before-A01-editor.png
+  op: theme-editor-swatch-background  at [1117, 696]
+  screenshot before-A02-popover.png
+  tree: settings-dialog present, theme-editor present, focused ['theme-editor-swatch-background']; fields: 
+  op: theme-editor-swatch-background key Escape at None
+  tree: settings-dialog absent, theme-editor present, focused ['theme-editor-swatch-background']; fields: 
+  screenshot before-A03-escape.png
+
+== BEFORE 2: base Advanced Border popover; #ff000080 typed in the row field ==
+  (parse: 'seq')
