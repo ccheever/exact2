@@ -1,0 +1,80 @@
+managed-codex-chatgpt — live and fixture runs (2026-10-08 KST), branch feat(example)/t3-code-managed-codex-chatgpt
+No tokens, codes, cookies, pairing links or real emails below. Fixture email: person@example.com.
+
+Lane
+- Embedded server ("This machine"): the agent-mode app with T3_LOCAL_HOME=<worktree>/target/lane/mcc/t3home,
+  T3_LOCAL_PORT=16210, T3_LOCAL_RUNTIME_DIR=<lane>/runtime/t3-0.0.46-nightly.20261005.2667-darwin-arm64,
+  HOME/CODEX_HOME/CLAUDE_CONFIG_DIR/XDG_*/TMPDIR under the lane dir, T3CODE_TELEMETRY_ENABLED=false.
+  Never ~/.t3, port 3773, ~/.codex or the t3code scheme. Window 1280x840.
+- Fixture server: a second `t3 serve` (16231, its own T3 home) behind the provider-setup fixture proxy
+  (16230; target/t3-ui-parity/provider-setup-fixture.mjs, uncommitted lane apparatus, decision U2/U23),
+  paired from the welcome with a 15-minute single-use token. The proxy logs every RPC (redacted) and, from a
+  scenario file, makes one managed instance signed in with a shared plan, gives it a saved profile, and
+  answers its sign-out locally with the server's "Signed out locally." notice.
+
+Managed install, real (embedded server, real download from the official release)
+- Welcome > Agents > Continue with ChatGPT on the default Codex slot (existing CLI not chosen): the slot
+  switched to managed and the setup started on its own (no second press): "Downloading 21.8 of 127.4 MB." →
+  "Checking Codex." → installed (v0.156.1) → provider.auth.start → "Complete sign-in in your browser." with
+  Cancel / Open sign-in page. Labels read from the tree every 20 s.
+- The browser open was recorded once per flow (agent mode): https://auth.openai.com/api/accounts/authorize?
+  client_id=dynamic_agent_client&agent_name_hint=T3+Code&…&redirect_uri=http://127.0.0.1:<random>/auth/callback
+  &scope=openid profile email offline_access resource.invoke chatgpt.tokens.use.direct&state=<redacted>…
+  Journal: "codex-auth: listening on 127.0.0.1:<port>".
+
+Loopback receiver, live (stand-in browser against the real listener; real server)
+- 03:25:15 port 50095: foreign state → 400 "This response does not belong to the active sign-in."
+- 03:58:15 port 49397: foreign state → 400; right state + fake code → 200, cache-control no-store,
+  referrer-policy no-referrer, x-content-type-options nosniff, CSP default-src 'none'; style-src
+  'unsafe-inline'; frame-ancestors 'none'; the page holds no code; title "Return to T3 Code".
+  A second callback after that → connection refused (port released). provider.auth.complete then carried
+  the callback; the real server's exchange answered "This sign-in code expired. Reconnect the saved ChatGPT
+  profile to start a fresh sign-in." (shown as the row's description). The registration the server kept for
+  the fake client id was deleted from the lane's secret store afterwards (server stopped), so the real
+  sign-in starts clean.
+- Paste "Having trouble signing in?": password-type field (tree shows •••); a foreign URL → one
+  provider.auth.complete → "This redirect URL does not belong to the active ChatGPT sign-in." (alert).
+- Cancel while waiting → "Sign-in cancelled." + alert "Could not finish sign-in on this computer. Try again or
+  paste the redirect URL below." (the reference's catch after its listener is cancelled); journal
+  "codex-auth: released 127.0.0.1:53780 (cancelled)".
+- Waiting 310 s → "Sign-in expired. Start again." (server) and the same alert.
+
+Fixture RPC log (counts over all fixture drives; ids shortened)
+  5 provider.auth.start {"methodId":"chatgpt","callbackMode":"client","instanceId":"codex_<uuid>"}
+  2 provider.auth.start {"methodId":"chatgpt-profile:oaiapp_fixture_one","callbackMode":"client",…}  (Reconnect picker, Enter on Continue with ChatGPT)
+  3 provider.auth.start {"methodId":"chatgpt","callbackMode":"client","instanceId":"codex"}  (welcome slot)
+  4 server.updateSettings {"patch":{},"providerInstanceMutation":{"operation":"create","instanceId":"codex_<uuid>",…"setupMode":"managed"…}}
+  1 provider.install.start {"instanceId":"codex_<uuid>"}  (Add ChatGPT account → autostart)
+  2 provider.auth.logout {"instanceId":"codex_<uuid>"}  (Disconnect; answered by the fixture)
+  No provider.auth.start carries returnUrl (allowed difference: no URL scheme; unused in client mode).
+
+Plan surfaces (fixture: one managed instance authenticated with subscriptionSharing)
+- Launch: "Your ChatGPT plan is connected" / "ChatGPT - Personal on <environment>"; Manage usage recorded
+  https://chatgpt.com/#settings/Usage; Escape (aria-keyshortcuts on Continue) acknowledged it, and it did
+  not come back in the session. Model picker footer "Using ChatGPT plan" + Manage usage (recorded the same
+  URL); Usage > Cost "ChatGPT shared usage" + Manage usage; Settings row "Signed in as <redacted>" with
+  Change account / Disconnect / Manage usage; Disconnect → "Signed out locally. Remote revocation could not be
+  confirmed. Disconnect the app in ChatGPT Settings." and Continue with ChatGPT back.
+- Add provider > Add ChatGPT account (name "Personal") > Continue (also Enter in the name field): the dialog
+  stays, titled "ChatGPT - Personal", with the account's setup started (Downloading … / then sign-in) and
+  Finish later; ids codex_<uuid>.
+
+Keyboard (agent keys; focus read from the tree's [focused])
+- Reconnect ChatGPT: opens with focus on the first saved profile; Tab → Use a different account →
+  Continue with ChatGPT → (wraps) first profile; Shift+Tab on the first profile → Continue; Enter on
+  Continue sends chatgpt-profile:<id>; Escape closes and focus returns to Reconnect account.
+- Plan dialog: Tab Manage usage → Continue → (wraps) Manage usage; Shift+Tab wraps back; Escape = Continue.
+- Add ChatGPT account: the name field has focus; Tab → Cancel → Continue → (wraps) name; Escape closes.
+- Reduced motion: `prefer prefers-reduced-motion reduce`, then "Having trouble signing in?" toggles; the
+  chevron's transition is bound to `still` (viewport.prefersReducedMotion, provided by the root).
+  The driver's film capture returned empty frames for this window, so the instant turn is not filmed.
+
+Attempted real sign-in (2026-10-08 03:36–03:41 KST) — stopped before the grant
+- Agent-mode app (no browser of its own); the recorded authorization URL was opened in the user's Chrome
+  (claude-in-chrome, own tab). OpenAI's page read "Use ChatGPT to sign in to T3 Code"; the personal account
+  was chosen; the next page "Connect your T3 Code to ChatGPT" (agent name "T3 Code") → Continue; the consent
+  page "Connect T3 Code to ChatGPT" listed "Access your basic profile information" and "Use your ChatGPT plan"
+  (matching the requested scopes). The click on its Continue was refused by this session's permission
+  classifier (granting OAuth access needs the user's own approval), so no grant was made; the flow expired
+  and the tab was closed. The screen was locked afterwards (coordinator), so the real sign-in row is in the
+  real-input batch.
