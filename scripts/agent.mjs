@@ -628,7 +628,7 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
   const child = device
     ? spawn('xcrun', ['devicectl', 'device', 'process', 'launch', '--quiet', '--console', '--terminate-existing', '--device', ph.udid,
         '--environment-variables', JSON.stringify({ ...(size ? { EXACT_WINDOW_WIDTH: env.EXACT_WINDOW_WIDTH, EXACT_WINDOW_HEIGHT: env.EXACT_WINDOW_HEIGHT } : {}), ...extra, EXACT_AGENT: '1', ...bridge.env }), a.id], { stdio: ['pipe', 'pipe', 'pipe'] })
-    : droid ? droid.spawn() : spawn(bin, portable && env.EXACT_LAUNCH_URL ? [env.EXACT_LAUNCH_URL] : documents, { env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide:true });
+    : droid ? droid.spawn(env.EXACT_LAUNCH_URL ? [env.EXACT_LAUNCH_URL] : []) : spawn(bin, portable && env.EXACT_LAUNCH_URL ? [env.EXACT_LAUNCH_URL] : documents, { env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide:true });
   onProcess?.(child);
   const hostLines = [];
   child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l) hostLines.push('app: ' + l); });
@@ -878,7 +878,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     if (!m) throw new Error(`size: [width, height] or "<width>x<height>", not ${JSON.stringify(size)}`);
     size = [Number(m[1]), Number(m[2])];
   }
-  if (url !== undefined && ['macos', 'mac', 'ios', 'linux', 'windows', 'host', 'host-ios'].includes(host)) {
+  if (url !== undefined && ['macos', 'mac', 'ios', 'linux', 'android', 'windows', 'host', 'host-ios'].includes(host)) {
     // @ref LLP 1038 D5/D11 — a native scheme/path is a launch location;
     // HTTP(S) keeps the existing development-plan locator form.
     if (/^https?:\/\//i.test(url)) {
@@ -902,7 +902,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
   // Without a plan of the drive's own, a native host runs its bake's: the maps a development bake left (LLP 1012.001.000 D6).
   const baked = () => { const a = resolveApp(app); const bin = host === 'windows'
     ? process.env.EXACT_WINDOWS_BIN ?? resolve(a.dir, 'dist-windows', `${executableName(a)}.exe`)
-    : process.env.EXACT_LINUX_BIN ?? linuxBinary(a); return bakedPlans(bin, bakeOutput(a)); };
+    : host === 'android' ? process.env.EXACT_ANDROID_BIN ?? androidBinary(a) : process.env.EXACT_LINUX_BIN ?? linuxBinary(a); return bakedPlans(bin, bakeOutput(a)); };
   const sourceMaps = sourceMapReaders(mapLocator ? [mapLocator] : carrier.host !== 'web' ? baked() : []);
   const s = {
     carrier,

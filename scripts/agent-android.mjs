@@ -61,30 +61,40 @@ export function androidDevice(env = process.env) {
 
 const quote = (s) => `'${String(s).replace(/'/g, "'\\''")}'`;
 
-/** Put the binary and the app's assets on the device and return how to run it there: `spawn()` the
- * process (stdio is the agent's), the device path a screenshot is written to, and `pull(path)` to
- * copy that screenshot here. Only EXACT_* variables cross, with the device's own HOME, assets,
- * native-module directory and fonts. */
+/** Put the binary, the app's assets (and a local `EXACT_PLAN`) in a directory of this drive's own on the
+ * device and return how to run it there: `spawn(args)` the process (stdio is the agent's), the device
+ * path its screenshots are written to, and `pull(path)` to copy one here. HOME is the app's, kept
+ * across drives so a named scratch store (`--storage`) survives, as on the desktop carriers; a run
+ * directory is this drive's, so two drives of one app do not share a binary or a screenshot. Only
+ * EXACT_* variables cross, with the device's own HOME, assets, native-module directory and fonts. */
 export function androidDeploy(app, bin, env) {
   const serial = androidDevice(env), tool = adb(env);
-  const remote = `/data/local/tmp/exact/${app.id}`;
+  const base = `/data/local/tmp/exact/${app.id}`, home = `${base}/home`;
+  const dir = `${base}/run-${process.pid}-${Date.now().toString(36)}`, exe = basename(bin);
   const run = (args, what) => {
     const r = spawnSync(tool, ['-s', serial, ...args], { encoding: 'utf8' });
     if (r.status !== 0) throw new Error(`adb ${what}: ${(r.stderr || r.stdout || r.error?.message || '').trim()}`);
   };
-  run(['shell', `rm -rf ${quote(remote)} && mkdir -p ${quote(`${remote}/home`)}`], 'prepare');
-  run(['push', bin, `${remote}/${basename(bin)}`], 'push the binary');
-  run(['shell', `chmod 755 ${quote(`${remote}/${basename(bin)}`)}`], 'chmod');
-  if (existsSync(resolve(app.dir, 'assets'))) run(['push', resolve(app.dir, 'assets'), `${remote}/`], 'push the assets');
+  // Earlier drives' run directories more than an hour old go; HOME stays.
+  run(['shell', `mkdir -p ${quote(home)} ${quote(dir)} && find ${quote(base)} -maxdepth 1 -name 'run-*' -mmin +60 -exec rm -rf {} + ; true`], 'prepare');
+  run(['push', bin, `${dir}/${exe}`], 'push the binary');
+  run(['shell', `chmod 755 ${quote(`${dir}/${exe}`)}`], 'chmod');
+  if (existsSync(resolve(app.dir, 'assets'))) run(['push', resolve(app.dir, 'assets'), `${dir}/`], 'push the assets');
   const vars = Object.fromEntries(Object.entries(env).filter(([k]) => k.startsWith('EXACT_')));
   delete vars.EXACT_FONT; // the desktop carriers' pinned DejaVu; a phone draws with its own faces
-  Object.assign(vars, { HOME: `${remote}/home`, EXACT_ASSETS: remote, EXACT_NATIVE_LIBS: remote,
+  // A local plan (`--plan`) is read on the device: copied there, or the baked plan would boot instead.
+  if (vars.EXACT_PLAN && existsSync(vars.EXACT_PLAN)) {
+    run(['push', resolve(vars.EXACT_PLAN), `${dir}/agent.plan`], 'push the plan');
+    vars.EXACT_PLAN = `${dir}/agent.plan`;
+  }
+  Object.assign(vars, { HOME: home, EXACT_ASSETS: dir, EXACT_NATIVE_LIBS: dir,
     EXACT_FONTS: env.EXACT_ANDROID_FONTS ?? '/system/fonts', EXACT_PAINTER: env.EXACT_PAINTER ?? 'cpu' });
   const assignments = Object.entries(vars).map(([k, v]) => `${k}=${quote(v)}`).join(' ');
-  const shot = `${remote}/agent-shot.png`;
+  const shot = `${dir}/agent-shot.png`;
   return {
-    serial, remote, shot,
-    spawn: () => spawn(tool, ['-s', serial, 'shell', '-T', `cd ${quote(remote)} && exec env ${assignments} ./${basename(bin)}`], { stdio: ["pipe", "pipe", "pipe"] }),
+    serial, dir, shot,
+    spawn: (args = []) => spawn(tool, ['-s', serial, 'shell', '-T',
+      `cd ${quote(dir)} && exec env ${assignments} ${[`./${exe}`, ...args].map(quote).join(' ')}`], { stdio: ['pipe', 'pipe', 'pipe'] }),
     pull(path) {
       const r = spawnSync(tool, ['-s', serial, 'pull', shot, resolve(path)], { encoding: 'utf8' });
       if (r.status !== 0) throw new Error(`adb pull the screenshot: ${(r.stderr || r.stdout).trim()}`);
@@ -99,7 +109,7 @@ if (import.meta.main) {
     process.exit(2);
   }
   const app = resolveApp(name), [cmd, ...args] = androidBuild(app);
-  const built = spawnSync(cmd, args, { cwd: app.dir, env: androidToolchainEnv(), stdio: 'inherit' });
+  const built = spawnSync(cmd, args, { cwd: app.workspace ?? app.dir, env: { ...androidToolchainEnv(), CARGO_TARGET_DIR: app.target }, stdio: 'inherit' });
   if (built.status === 0) console.log(androidBinary(app));
   process.exit(built.status ?? 1);
 }
