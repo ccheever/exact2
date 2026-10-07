@@ -139,6 +139,143 @@
     return copy;
   });
 
+  // ECMA-402's `Intl.Locale`, which Hermes has not built (issue #118): a
+  // tag parsed and canonicalized as UTS 35 says (case, sorted variants,
+  // extensions and `-u-` keywords, a `true` value dropped), the options that
+  // replace its parts, their getters, and the Intl Locale Info proposal's
+  // `getWeekInfo()` as Chrome 154 answers it. The week comes from the region:
+  // the tag's, its `-u-rg-`, or the likely region of its language (and
+  // script), and `-u-fw-` names the first day. The tables are CLDR's
+  // weekData and likely subtags, read once from Chrome (`und-XX`, the
+  // maximized two-letter languages), keeping only what differs from the
+  // default (Monday, a Saturday-Sunday weekend). Aliases are not
+  // canonicalized (`iw` stays `iw`); no `maximize`, `minimize` or the
+  // other `get…()` lists (docs/reference.md).
+  if (global.Intl && typeof global.Intl.Locale !== 'function') (function () {
+    var FIRST = { 7: 'AG AS BD BR BS BT BW BZ CA CO DM DO ET GT GU HK HN ID IL IN IS JM JP KE KH KR LA MH MM MO MT MX MZ NI NP PA PE PH PK PR PT PY SA SG SV TH TT TW UM US VE VI WS YE ZA ZW',
+      6: 'AE AF BH DJ DZ EG IQ IR JO KW LY OM QA SD SY', 5: 'MV' };
+    var WEEKEND = { 56: 'AE BH DZ EG IL IQ JO KW LY OM QA SA SD SY YE', 45: 'AF', 7: 'IN UG', 5: 'IR' };
+    var LIKELY = 'aaET aeIR afZA amET arEG asIN bhIN bnBD chGU crCA dvMV dzBT enUS faIR gnPY guIN heIL hiIN idID ikUS inID isIS iuCA iwIL jaJP jvID jwID kiKE kmKH knIN koKR ksIN lgUG loLA mhMH mlIN mrIN mtMT myMM ndZW neNP nrZA nvUS ojCA omET orIN paIN psAF ptBR quPE saIN sdPK smWS snZW ssZA stZA suID taIN teIN thTH tiET tlPH tnZA tsZA urPK veZA xhZA zuZA ' +
+      'undUS filPH yueHK ckbIQ hawUS chrUS cebPH kokIN maiIN satIN mniIN doiIN brxIN zh-HantTW zh-BopoTW yue-HansCN pa-ArabPK sd-DevaIN az-ArabIR ku-ArabIQ uz-ArabAF tg-ArabPK';
+    function table(source) {
+      var out = {};
+      keysOf(source).forEach(function (value) { source[value].split(' ').forEach(function (region) { out[region] = value; }); });
+      return out;
+    }
+    var first = table(FIRST), weekend = table(WEEKEND), likely = {};
+    LIKELY.split(' ').forEach(function (entry) { likely[entry.slice(0, -2)] = entry.slice(-2); });
+    var DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+    var slots = new WeakMap(), sorted = function (a, b) { return a < b ? -1 : a > b ? 1 : 0; };
+    function invalid() { throw new RangeError('Incorrect locale information provided'); }
+    var LANGUAGE = /^([a-z]{2,3}|[a-z]{5,8})$/, SCRIPT = /^[a-z]{4}$/, REGION = /^([a-z]{2}|\d{3})$/;
+    var VARIANT = /^([a-z0-9]{5,8}|\d[a-z0-9]{3})$/, TYPE = /^[a-z0-9]{3,8}(-[a-z0-9]{3,8})*$/;
+    // A unicode_locale_id, lower-cased, into its parts; RangeError if it is not one.
+    function parse(tag) {
+      var subtags = tag.toLowerCase().split('-'), i = 0, parts = { variants: [], keywords: {}, attributes: [], extensions: [], x: '' };
+      var next = function (pattern) { return i < subtags.length && pattern.test(subtags[i]) ? subtags[i++] : undefined; };
+      if (!(parts.language = next(LANGUAGE))) invalid();
+      parts.script = next(SCRIPT);
+      parts.region = next(REGION);
+      for (var variant; (variant = next(VARIANT));) {
+        if (parts.variants.indexOf(variant) >= 0) invalid();
+        parts.variants.push(variant);
+      }
+      var seen = {};
+      while (i < subtags.length) {
+        var singleton = subtags[i++];
+        if (!/^[0-9a-z]$/.test(singleton) || seen[singleton]) invalid();
+        seen[singleton] = true;
+        if (singleton === 'x') {
+          parts.x = subtags.slice(i).join('-');
+          if (!/^[a-z0-9]{1,8}(-[a-z0-9]{1,8})*$/.test(parts.x)) invalid();
+          break;
+        }
+        var start = i;
+        while (i < subtags.length && subtags[i].length > 1) {
+          if (!/^[a-z0-9]{2,8}$/.test(subtags[i])) invalid();
+          i++;
+        }
+        if (i === start) invalid();
+        var body = subtags.slice(start, i);
+        if (singleton !== 'u') { parts.extensions.push(singleton + '-' + body.join('-')); continue; }
+        for (var j = 0; j < body.length && body[j].length > 2; j++) if (parts.attributes.indexOf(body[j]) < 0) parts.attributes.push(body[j]);
+        while (j < body.length) {
+          var key = body[j++], value = [];
+          if (!/^[a-z0-9][a-z]$/.test(key)) invalid();
+          while (j < body.length && body[j].length > 2) value.push(body[j++]);
+          if (!(key in parts.keywords)) parts.keywords[key] = value.join('-');
+        }
+      }
+      return parts;
+    }
+    function baseName(p) {
+      return [p.language, p.script && p.script[0].toUpperCase() + p.script.slice(1), p.region && p.region.toUpperCase()]
+        .concat(p.variants.slice().sort(sorted)).filter(Boolean).join('-');
+    }
+    function serialize(p) {
+      var keys = keysOf(p.keywords).sort(sorted), u = p.attributes.slice().sort(sorted);
+      keys.forEach(function (key) { u.push(key); if (p.keywords[key] && p.keywords[key] !== 'true') u.push(p.keywords[key]); });
+      var extensions = p.extensions.slice();
+      if (u.length) extensions.push('u-' + u.join('-'));
+      return [baseName(p)].concat(extensions.sort(sorted), p.x ? ['x-' + p.x] : []).join('-');
+    }
+    function option(options, name, values) {
+      var value = options[name];
+      if (value === undefined) return undefined;
+      value = name === 'numeric' ? String(!!value) : String(value);
+      if (values && values.indexOf(value) < 0) throw new RangeError('Value ' + value + ' out of range for Intl.Locale options property ' + name);
+      return value;
+    }
+    function Locale(tag, options) {
+      if (!new.target) throw new TypeError("Constructor Intl.Locale requires 'new'");
+      if (typeof tag !== 'string' && (tag === null || typeof tag !== 'object')) throw new TypeError("First argument to Intl.Locale constructor can't be empty or missing");
+      var text = slots.has(tag) ? slots.get(tag).tag : String(tag);
+      if (text === '') throw new RangeError("First argument to Intl.Locale constructor can't be empty or missing");
+      var parts = parse(text);
+      options = options === undefined ? {} : Object(options);
+      [['language', LANGUAGE], ['script', SCRIPT], ['region', REGION]].forEach(function (field) {
+        var value = option(options, field[0]);
+        if (value === undefined) return;
+        if (!field[1].test(value.toLowerCase()) || value.indexOf('-') >= 0) invalid();
+        parts[field[0]] = value.toLowerCase();
+      });
+      [['calendar', 'ca'], ['collation', 'co'], ['firstDayOfWeek', 'fw'], ['hourCycle', 'hc', ['h11', 'h12', 'h23', 'h24']],
+        ['caseFirst', 'kf', ['upper', 'lower', 'false']], ['numeric', 'kn'], ['numberingSystem', 'nu']].forEach(function (field) {
+        var value = option(options, field[0], field[2]);
+        if (value === undefined) return;
+        if (field[1] === 'fw' && /^[0-7]$/.test(value)) value = DAYS[(+value + 6) % 7];
+        if (!TYPE.test(value.toLowerCase())) invalid();
+        parts.keywords[field[1]] = value.toLowerCase();
+      });
+      slots.set(this, { parts: parts, tag: serialize(parts) });
+    }
+    function slot(locale) {
+      if (!slots.has(locale)) throw new TypeError('Method Intl.Locale.prototype called on an incompatible receiver');
+      return slots.get(locale);
+    }
+    var proto = Locale.prototype;
+    function define(name, value) { defineProperty(proto, name, { value: value, writable: true, configurable: true }); }
+    function get(name, read) { defineProperty(proto, name, { get: function () { return read(slot(this).parts); }, configurable: true }); }
+    define('toString', function toString() { return slot(this).tag; });
+    get('baseName', baseName);
+    get('language', function (p) { return p.language; });
+    get('script', function (p) { return p.script && p.script[0].toUpperCase() + p.script.slice(1); });
+    get('region', function (p) { return p.region && p.region.toUpperCase(); });
+    get('variants', function (p) { return p.variants.length ? p.variants.slice().sort(sorted).join('-') : undefined; });
+    [['calendar', 'ca'], ['caseFirst', 'kf'], ['collation', 'co'], ['firstDayOfWeek', 'fw'], ['hourCycle', 'hc'], ['numberingSystem', 'nu']].forEach(function (field) {
+      get(field[0], function (p) { return p.keywords[field[1]]; });
+    });
+    get('numeric', function (p) { return p.keywords.kn === '' || p.keywords.kn === 'true'; });
+    define('getWeekInfo', function getWeekInfo() {
+      var p = slot(this).parts, rg = /^([a-z]{2})[a-z0-9]{1,4}$/.exec(p.keywords.rg || '');
+      var region = rg ? rg[1].toUpperCase() : p.region ? p.region.toUpperCase() : p.script && likely[p.language + '-' + p.script[0].toUpperCase() + p.script.slice(1)] || likely[p.language];
+      var fw = DAYS.indexOf(p.keywords.fw), end = weekend[region] || '67';
+      return { firstDay: fw >= 0 ? fw + 1 : +(first[region] || 1), weekend: end.split('').map(Number) };
+    });
+    defineProperty(proto, Symbol.toStringTag, { value: 'Intl.Locale', configurable: true });
+    defineProperty(global.Intl, 'Locale', { value: Locale, writable: true, configurable: true });
+  })();
+
   // Ibex's AbortSignal times out on a timer; a data source has none (time
   // is an argument, LLP 1027.000), so the one timer-backed member refuses.
   // Its internal hooks (`__ibex2_abort`) stay for the prelude's `fetch`,
