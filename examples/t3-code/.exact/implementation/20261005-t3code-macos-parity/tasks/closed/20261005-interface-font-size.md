@@ -7,7 +7,7 @@ delivery: pr-open
 repository: https://github.com/ccheever/exact2
 base_branch: 'feat(example)/t3-code'
 branch: 'feat(example)/t3-code-interface-font-size'
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/206
 verified_commit: null
 ---
 
