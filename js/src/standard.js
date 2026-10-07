@@ -156,12 +156,26 @@
       6: 'AF BH DJ DZ EG IQ IR JO KW LY OM QA SD SY', 5: 'MV' };
     var WEEKEND = { 56: 'BH DZ EG IL IQ JO KW LY OM QA SA SD SY YE', 45: 'AF', 7: 'IN UG', 5: 'IR' };
     var LIKELY = 'aaET aeIR afZA amET arEG asIN bhIN bnBD chGU crCA dvMV dzBT enUS faIR gnPY guIN heIL hiIN idID ikUS inID isIS iuCA iwIL jaJP jvID jwID kiKE kmKH knIN koKR ksIN lgUG loLA mhMH mlIN mrIN mtMT myMM ndZW neNP nrZA nvUS ojCA omET orIN paIN psAF ptBR quPE saIN sdPK smWS snZW ssZA stZA suID taIN teIN thTH tiET tlPH tnZA tsZA urPK veZA xhZA zuZA ' +
-      'undUS filPH yueHK ckbIQ hawUS chrUS cebPH kokIN maiIN satIN mniIN doiIN brxIN zh-HantTW zh-BopoTW yue-HansCN pa-ArabPK sd-DevaIN az-ArabIR ku-ArabIQ uz-ArabAF tg-ArabPK';
+      'undUS filPH yueHK ckbIQ hawUS chrUS cebPH kokIN maiIN satIN mniIN doiIN brxIN zh-HantTW zh-BopoTW yue-HansCN pa-ArabPK sd-DevaIN az-ArabIR ku-ArabIQ uz-ArabAF tg-ArabPK ' +
+      'und-AdlmGN und-AghbAZ und-AhomIN und-ArabEG und-ArmiIR und-ArmnAM und-AvstIR und-BamuCM und-BassLR und-BhksIN und-BrahIN und-BraiFR ' +
+      'und-CariTR und-ChamVN und-ChrsUZ und-CoptEG und-CpmnCY und-CprtCY und-CyrlRU und-DevaIN pi-DevaIN und-DiakMV und-DogrIN und-DuplFR ' +
+      'und-EgypEG und-ElbaAL und-ElymIR und-GaraSN und-GeorGE und-GlagBG und-GongIN und-GonmIN und-GothUA und-GranIN und-GrekGR und-GujrIN ' +
+      'und-GuruIN und-HaniCN und-HansCN und-HatrIQ und-HebrIL und-HluwTR und-HungHU und-ItalIT und-KhojIN sd-KhojIN und-KitsCN und-KndaIN ' +
+      'und-KraiIN und-KthiIN und-LepcIN und-LimbIN und-LinaGR und-LinbGR und-LisuCN und-LyciTR und-LydiTR und-MahjIN und-MandIR und-ManiCN ' +
+      'und-MarcCN und-MedfNG und-MendSL und-MercSD und-MeroSD und-MlymIN und-ModiIN und-MongCN und-MteiIN pi-MymrMM und-NagmIN und-NandIN ' +
+      'und-NarbSA und-NbatJO und-NkooGN und-OgamIE und-OlckIN und-OnaoIN und-OrkhMN und-OryaIN und-OsmaSO und-OugrCN und-PalmSY und-PermRU ' +
+      'und-PhagCN und-PhliIR und-PhlpCN und-PhnxLB und-PlrdCN und-PrtiIR und-RunrSE und-SamrIL und-SarbYE und-SaurIN und-ShawGB en-ShawGB ' +
+      'und-ShrdIN und-SiddIN und-SindIN sd-SindIN und-SinhLK und-SogdUZ und-SogoUZ und-SoraIN und-SoyoMN und-SyrcIQ und-TakrIN und-TaleCN ' +
+      'und-TaluCN und-TamlIN und-TangCN und-TavtVN und-TayoVN und-TeluIN und-TfngMA und-ThaaMV pi-ThaiTH und-TibtCN und-TirhIN und-TnsaIN ' +
+      'und-TodrAL und-TotoIN und-TutgIN und-UgarSY und-VaiiLR und-VithAL und-WaraIN und-WchoIN und-XpeoIR und-XsuxIQ und-YeziGE und-YiiiCN ' +
+      'und-ZanbMN';
     function table(source) {
       var out = {};
       keysOf(source).forEach(function (value) { source[value].split(' ').forEach(function (region) { out[region] = value; }); });
       return out;
     }
+    // Deprecated regions Chrome replaces before it reads the week (`BU` is Myanmar's).
+    var ALIAS = { BU: 'MM', JT: 'UM', MI: 'UM', NT: 'SA', PU: 'UM', PZ: 'PA', RH: 'ZW', WK: 'UM', YD: 'YE' };
     var first = table(FIRST), weekend = table(WEEKEND), likely = {};
     LIKELY.split(' ').forEach(function (entry) { likely[entry.slice(0, -2)] = entry.slice(-2); });
     var DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -197,6 +211,7 @@
         }
         if (i === start) invalid();
         var body = subtags.slice(start, i);
+        if (singleton === 't') { parts.extensions.push('t-' + transformed(body)); continue; }
         if (singleton !== 'u') { parts.extensions.push(singleton + '-' + body.join('-')); continue; }
         for (var j = 0; j < body.length && body[j].length > 2; j++) if (parts.attributes.indexOf(body[j]) < 0) parts.attributes.push(body[j]);
         while (j < body.length) {
@@ -208,6 +223,25 @@
         }
       }
       return parts;
+    }
+    // A `-t-` extension: a language (script, region, sorted variants) and/or
+    // fields, a key of a letter and a digit with values, sorted by key.
+    function transformed(body) {
+      var i = 0, lang = [], variants = [], fields = [];
+      if (LANGUAGE.test(body[0])) {
+        lang.push(body[i++]);
+        if (i < body.length && SCRIPT.test(body[i])) lang.push(body[i++]);
+        if (i < body.length && REGION.test(body[i])) lang.push(body[i++]);
+        for (; i < body.length && VARIANT.test(body[i]); i++) { if (variants.indexOf(body[i]) >= 0) invalid(); variants.push(body[i]); }
+      }
+      while (i < body.length) {
+        var key = body[i++], value = [];
+        if (!/^[a-z][0-9]$/.test(key)) invalid();
+        while (i < body.length && /^[a-z0-9]{3,8}$/.test(body[i])) value.push(body[i++]);
+        if (!value.length) invalid();
+        fields.push(key + '-' + value.join('-'));
+      }
+      return lang.concat(variants.sort(sorted), fields.sort(sorted)).join('-');
     }
     function baseName(p) {
       return [p.language, p.script && p.script[0].toUpperCase() + p.script.slice(1), p.region && p.region.toUpperCase()]
@@ -279,6 +313,7 @@
     define('getWeekInfo', function getWeekInfo() {
       var p = slot(this).parts, rg = /^([a-z]{2})[a-z0-9]{1,4}$/.exec(p.keywords.rg || '');
       var region = rg ? rg[1].toUpperCase() : p.region ? p.region.toUpperCase() : p.script && likely[p.language + '-' + p.script[0].toUpperCase() + p.script.slice(1)] || likely[p.language];
+      region = ALIAS[region] || region;
       // The ISO 8601 calendar's week starts on Monday wherever it is.
       var fw = DAYS.indexOf(p.keywords.fw), end = weekend[region] || '67';
       return { firstDay: fw >= 0 ? fw + 1 : p.keywords.ca === 'iso8601' ? 1 : +(first[region] || 1), weekend: end.split('').map(Number) };
