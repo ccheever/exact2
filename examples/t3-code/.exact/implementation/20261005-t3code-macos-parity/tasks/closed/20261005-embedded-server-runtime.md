@@ -7,7 +7,7 @@ delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-embedded-server-runtime
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/222
 verified_commit: null
 ---
 
