@@ -1020,7 +1020,7 @@ showed behind the header.
 shorthand's main-axis sides, in the forms padding takes elsewhere: a
 number, `env(safe-area-inset-*)`, `calc(env(…) ± px)`, a choice between
 those, or a computed number. `lower-collection-flow` refuses a percentage
-(a literal `%`, in a choice or a `calc()` too) and a computed string, which
+(a literal `%`, in a choice, a `calc()` or a class's rows too) and a computed string, which
 could be one: Apple's hosts place rows from the authored padding, which has
 no containing block to resolve a percentage against. Nothing else is new.
 
@@ -1048,11 +1048,14 @@ end: the runner took the range's end to be the rows' end, `total - port`,
 so at the true end it pulled the port back by `padding-bottom`, a followed
 end stopped short of it, and a clamped `scrollIntoView` with it. Now:
 
-- The runner reads the list's resolved padding from its kernel's last
-  layout (`Kernel::resolved_padding`) before every report (`Runner::
-  collection_feedback_filled`, `Tree::set_collection_end_padding`), so
-  `env()`, a host's cover (LLP 1075.003 §3.5) and a computed value are
-  followed at no cost but that read. A report takes a new padding in itself
+- The runner reads the list's own end padding from its kernel, `env()`
+  resolved, before every report (`Runner::collection_feedback_filled`,
+  `Tree::set_collection_end_padding`), so `env()` and a computed value are
+  followed at no cost but that read. Not the layout's resolved padding:
+  that adds a route's cover (LLP 1075.003 §3.5) where the list is the
+  covered route box, and Apple's hosts size their content from the
+  authored padding, so the runner's end would lie past the scroll view's
+  (Grok's third review). A report takes a new padding in itself
   (`collection/inset.rs`): its anchor is taken on the range the reader was
   in, so a followed end whose padding grew (a rotation's safe area; the host
   left the port at the old end) moves to the new end, and one whose padding

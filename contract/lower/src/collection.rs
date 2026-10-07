@@ -71,7 +71,12 @@ impl Lowerer<'_> {
         {
             return err("lower-collection-unbounded", "a virtualized list needs height, max-height, or flex constraining its vertical scrollport", span);
         }
-        self.collection_inset(attrs, row, scope)?;
+        // A class's rows are its literals: a percentage there is refused too.
+        let mut own = attrs.to_vec();
+        if let Some((_, rows)) = self.class_rows(attrs).ok().flatten() {
+            own.extend(rows);
+        }
+        self.collection_inset(&own, row, scope)?;
         self.collection_flow(attrs, Some(row))?;
         let [Node::Each { body, .. }] = children else {
             return err(

@@ -105,15 +105,17 @@ impl<D: DataSource> Runner<D> {
         }
         let view = feedback.view;
         let mut tree = self.tree.take().expect("booted");
-        // @ref LLP 1010 §6.9 — the list's end padding as its layout resolved
-        // it (`env()`, a host's cover and a computed value included).
-        let padding = self
-            .kernel
-            .node(view)
-            .and_then(|node| self.kernel.resolved_padding(node.key))
-            .map_or([0.0; 2], |(_, _, right, bottom)| {
-                [bottom as f64, right as f64]
-            });
+        // @ref LLP 1010 §6.9 — the list's own end padding, `env()` and a
+        // computed value resolved: the room a host scrolls past the rows.
+        // Not the layout's, which adds a route's cover (LLP 1075.003 §3.5)
+        // that Apple's hosts do not scroll.
+        let padding = self.kernel.node(view).map_or([0.0; 2], |node| {
+            let env = self.kernel.env();
+            [node.style.padding_bottom, node.style.padding_right].map(|d| match d.resolve(&env) {
+                exact_kernel::Dimension::Points(n) => n as f64,
+                _ => 0.0,
+            })
+        });
         tree.set_collection_end_padding(view, padding);
         let mut ids = std::mem::take(&mut self.ids);
         let result = {

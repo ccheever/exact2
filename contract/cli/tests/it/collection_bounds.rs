@@ -169,6 +169,8 @@ fn virtual_container_vertical_padding_takes_lengths_not_percentages() {
             source("virtualized=true height=200 class=Insets")
         );
         contract::compile(&styled).unwrap();
+        let e = contract::compile(&styled.replace("=64", "=\"10%\"")).unwrap_err();
+        assert_eq!(e.id, "lower-collection-flow", "{name} in a class: {e}");
     }
     // The shorthand's main-axis sides are what count: `0 0 10%`'s bottom.
     contract::compile(&source(
