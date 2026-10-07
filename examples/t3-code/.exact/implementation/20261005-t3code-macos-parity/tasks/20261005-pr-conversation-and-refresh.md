@@ -1,13 +1,13 @@
 ---
 name: 20261005-pr-conversation-and-refresh
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
-delivery: none
+implementation: implemented
+verification: verified-with-unverified-rows
+delivery: draft
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
-pr_url: null
+base_branch: feat(example)/t3-code
+branch: feat(example)/t3-code-pr-conversation-and-refresh
+pr_url: PR_URL_PLACEHOLDER
 verified_commit: null
 ---
 
@@ -127,18 +127,105 @@ new `pages-pr-summary.*`, `pages-pr-timeline.*`, `pages-pr-logic.ts` (ported mod
 `r6-pr-logic.ts` (`readableFailure`), `app.contract` (arguments only), `AGENT-HANDOFF.md` (matrix row).
 Required environment: macOS 26.6.2, Xcode 27.0, Bun 1.4.2, the real-GitHub lane (sandbox, shared lane config dirs, two accounts; `tools/github-lane`), reference oracle; no credentials beyond the lane logins. Attended and normal-launch rows use a lane build with `T3_LOCAL_HOME=<lane>/t3-home` and `T3_LOCAL_PORT=<lane port 16xxx>` (see `20261005-embedded-server-runtime`).
 
+## Results
+
+Built on `feat(example)/t3-code` at `d82fb6a47` (records #244 merged in). Prerequisites: real-github-lane (#233) and
+hot-file-split are merged; desktop-oracle-and-trace is not built (user decision 2026-10-06), so its rows are "not run".
+X32 (sticky headings) checked at prepare: `position: sticky` is in the vocabulary (`contract vocab`), and each Summary
+section is its own box so its heading sticks only while the section is in view.
+
+**What was built.**
+- Reads (`pages-pr-detail.ts`): the detail and the activity are separate reads. The panel shows the detail ghost
+  (seeded by the list row, or the detail kept in `t3-code.json`), then the conversation and timeline ghosts, then the
+  content; a failed activity read is "Could not load pull request activity" with Retry (compact under Comments, full in
+  the Timeline) instead of "No comments yet."; a failed refresh keeps the last conversation. An answer that has a new state
+  to show returns it at once and wakes the resource (`r10Wake` topic `t3.pr`, `R10Connect.swift`), so the runner lets that
+  reply land and asks again for the read that follows (LLP 1016.002 D4); every read is awaited by the answer that sent it.
+- Refresh (`pages-pr-refresh.ts`): one `pullRequests.subscribeRefreshes` stream (payload `{}`) while any pull request
+  surface reads (the detail panel, the Pull Requests list); each announcement reads the detail, the activity and the list
+  again while the last state stays on screen. The server sends its current epoch on subscribe only when it is above 0, so a
+  first value cannot be told from a change: a read in flight absorbs it (readers note the epoch when their read completes).
+  `useLiveRefresh`: an arrival (the panel reopened on a pull request, the window shown or focused again) and the 5-minute
+  interval read the detail, under the 10 s minimum and the 6-minute idle rule; the last interaction is the activity
+  reporter's (`activityLastInteraction`, decision taken below). The activity reads again when `updatedAt` moves
+  (`shouldRefreshPullRequestActivity`). Explicit Refresh keeps `pullRequests.invalidate{reference}` first. The checks
+  cadence (45 s while runs are pending or none are reported, else 60 s) is the thread row's (`r6-pr-actions.ts readDetail`,
+  test "the checks alone refresh every 45 s while runs are pending"); the panel's checks come with its detail, as the
+  reference's do.
+- Summary (`pages-pr-summary.ts`, `pages-pr-summary.contract`): reviewers with the verdict each last gave (a ring; the
+  words in the accessible name; the tooltip "<name> — <outcome>"; stale verdicts "… earlier changes"), labels, sticky
+  Description/Checks/Comments sections with turning chevrons (no rotation under reduced motion), the 10-comment window
+  ("Show N older comment(s) (M hidden)", "Show only 10 recent comments"), the bot group ("N bot comment(s)", its own
+  window), the resolved-or-dismissed group with collapsed cards ("Resolved", "Review dismissed", a one-line preview), the
+  location line `path:line` with "Outdated", the verdict badge or review state, the truncated notice, the order toggle
+  ("Show oldest comments first"/"Show newest comments first"), check rows that open their details in the system browser,
+  and "Check details are out of date." with Refresh when a newer list rollup disagrees.
+- Timeline (`pages-pr-timeline.ts`, `pages-pr-timeline.contract`): `buildPullRequestTimeline` events newest first,
+  consecutive plain remarks folded into "N comments" sections (faces dimmed while closed), verdict rows standing alone
+  (a stale verdict keeps its word without its colour; "Approved, before the latest commits" for a screen reader),
+  lifecycle rows, plain commit rows (until 20261005-pr-code-tab), "No activity yet."; the tab bar's comment, commit and
+  approval counts ("—" when the read failed, "…" while it runs; no approval count from a truncated conversation) and the
+  order toggle ("Show oldest activity first"/"Show newest activity first").
+- Both tabs stay mounted (hidden with `display`), keyed by the pull request, so the order, the window and the open
+  groups survive a visit to the other tab and start fresh for another pull request.
+- Ghosts (`pages-pr-ghost.contract`): PullRequestDetailGhost (seeded or bars, the tab bar inert, the pulse off under
+  reduced motion), PullRequestConversationGhost, PullRequestTimelineGhost. PullRequestPeopleGhost belongs to the reviewer
+  picker, which the clone does not have yet (20261005-pr-writing-and-metadata).
+- Cached detail: `readPullRequestDetailSnapshot`/`writePullRequestDetailSnapshot`/`resolveDisplayedPullRequestDetail`
+  over `prDetailSnapshots` in `t3-code.json` (the newest 24), adopted at load (`client.ts`).
+- Ported (`pages-pr-logic.ts`): the pullRequestDetail.logic and useLiveRefresh functions named in the notes;
+  `readableFailure(failure: unknown, hint)` completed in `r6-pr-logic.ts`.
+- Plan size: the panel body is drawn once per surface instead of once per scheme (`light-dark()` resolves on the host,
+  LLP 1034 D3; the compiler refuses scheme-chosen colours): 70,474 nodes, 13.4 MB plan (base 59,420 nodes, 11.5 MB).
+- Lane: `lane.mjs start --port` accepts 16500-16799 (task lanes' own hundreds); the seed gains `stale-approval` (#144:
+  approved by the second account, then a commit dated a minute after the approval) and `--only <keys>` (seeds just those
+  scenarios and merges their numbers into `sandbox.json`). Twice `--only stale-approval`: the second run created nothing.
+
+**Acceptance.**
+
+| Row | Result | Proof | Blocker |
+| --- | --- | --- | --- |
+| Conversation complete | pass (live, #115; bots by unit test) | [03](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/03-summary-top.png), [04](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/04-summary-conversation.png), [record](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/live-drive-record.txt); unit "splits the conversation…", "a line remark names its place…" | The seeded conversation has 15 active remarks, so the live label is "Show 5 older comments (5 hidden)" (the row's "4" assumed 14). "Outdated" sits on a remark among the five older ones: opened live (image summary-older) but read back only by the unit test |
+| Visual parity | not run | — | user decision 2026-10-06: the desktop oracle is not built |
+| Activity error | pass (unit) | "a failed activity read says … with Retry, and Retry reads it once more" (one extra `pullRequests.activity`, no extra detail read) | real GitHub cannot inject a failure |
+| Loading | pass (unit + live) | unit "loading: the detail ghost, then the conversation and timeline ghosts, then the content" (2000 ms activity delay); live: ghost on the press (tree), [01](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/01-loading-detail-ghost.png), [02](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/02-loading-conversation-ghost.png); title, tab bar, Reviewers, Labels and Description sit at the same points in the ghost and the content (y 150, 330, 399, 449, 506 at 1280×840) | `layout` numbers not taken (screenshots only) |
+| Truncated notice | pass (live + unit) | live #115 (`commentsTruncated`): "This conversation is longer than this page reads in one go. The most recent 17 are here; open it on the host to read the rest." | — |
+| Timeline | pass (live) | [06](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/06-timeline.png), [07](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/07-timeline-oldest-open.png), [08](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/08-stale-verdict.png), [09](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/09-approvals-count.png), [ax](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/ax-excerpts.txt): "Approved, before the latest commits" | — |
+| Server-announced refresh | pass (live) | [10](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/10-live-refresh.png); the second account's comment on #116, then `pullRequests.invalidate {}`: server trace +1 detail, +1 activity, +1 list; `gh` calls: detail GraphQL, `pr view 116` and the review-thread GraphQL (activity), the list GraphQL; one `subscribeRefreshes` per session (79.4 s, ended with the session; the list stayed open after the panel closed). Base: nothing read, no comment | — |
+| Cached detail | pass (unit + replay of the live file); live relaunch not verified | unit "a relaunch shows the kept detail first…"; [replay](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/relaunch-replay.txt): the session's `t3-code.json` held #115, #116, #144; the relaunch answer showed #144's title with no host call | agent mode keeps a native module's data per process (X50), so a relaunched agent app starts empty; a normal-launch relaunch needs another session (coordinator) |
+| Trace parity | not run | server trace RPC counts per session in the record | user decision 2026-10-06: the trace tools are not built |
+| Ported tests | pass | `pages-pr-logic.test.ts` (52): "pull request activity refresh", "review thread comment pages", "ordering comments", "review verdicts", "pull request timeline", "cached pull request detail", "what to say when an action fails", shouldLiveRefresh/shouldRefreshOnArrival/shouldRefreshOnInterval, "waits five minutes between automatic host reads"; React-hook-only "live refresh cadence" timers and "keeps an idle view paused after %s until input" are n/a-ui (header) | — |
+| Keyboard and a11y | partial | live: `aria-expanded` on section, group and card toggles (driven), Retry and the order toggles named; reviewer faces named "<login>, <outcome>" | Tab traversal and the focus ring need real keys (one more real-input session) |
+| Reduced motion | not verified live | the chevrons' `transition` is `none` and the ghosts' pulse off when `still` | one more session (`prefer prefers-reduced-motion reduce`) |
+| (attended session) | not run | — | one more real-input session (tooltips with a real pointer, collapse mid-scroll) |
+| Gates | see the PR | numbers in the PR body | — |
+
+**Live drive** (agent mode, 1280×840 then 840×620, the branch's development build paired with the primary lane server on
+127.0.0.1:16720; [record](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/live-drive-record.txt), [script](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/drive.mjs.txt)). Attempt 1 found two bugs, fixed before
+the retry: the refresh stream took its first value as the starting epoch, but this server sends none when its epoch is 0,
+so the first real change was swallowed; and all three Summary headings were sticky in one box, stacking at the top (a tap
+on Checks hit Comments). The retry passed every scripted step; its comment on #116 was deleted again (as was attempt 1's).
+The same steps on the base build (`da4f4512f`) give the before images.
+
+**Decisions.** The 6-minute idle rule reads the activity reporter's last interaction (`activityLastInteraction`,
+`T3ActivityReporter.lastInteractionAt`); client-activity-reporting has merged, so the rule is kept, and it stands aside where
+the window's time is not an instant (agent mode without an epoch). Provisional, user decision pending: none.
+
 ## Progress
 
 2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold. Rows that need a real account are signed in by the user in person on the lane build; every other sign-in row uses lane fixtures.
 
-Planned. No branch.
+2026-10-08: implemented on `feat(example)/t3-code-pr-conversation-and-refresh`; unit tests, one live drive and one retry
+on the real-GitHub lane; draft PR.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 (live drive) | WIP `0d583f1b3` | loading, Summary, Timeline, stale verdict pass; the server-announced refresh read nothing (stream baseline bug); Checks unreachable (stacked sticky headings) | [record](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/live-drive-record.txt) (attempt 1) | fixed in attempt 2 |
+| 2 (retry + relaunch) | `e991c4b84` | every scripted step passes; the refresh read once and showed the comment; the relaunch showed the list-seeded ghost, not the kept detail (agent-mode data per process) | images 01–12, [record](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/live-drive-record.txt), [replay](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/relaunch-replay.txt), [tests](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/tests-before-after.txt) | X50 for a live relaunch; real-input rows |
 
 ## Next action
 
-Starts after [20261007-real-github-lane](closed/20261007-real-github-lane.md) merges: `prepare` from `feat(example)/t3-code` on its shared lane login and sandbox (`examples/t3-code/tools/github-lane/README.md`), with a unit-test fallback for injected failures and delays and for the read, triage and read-only-author profiles.
+Review. Owed: a normal-launch relaunch for the cached detail, real keys for Tab and the focus ring, a reduced-motion look,
+and the attended pointer row (one more session, coordinator's call); the oracle and trace rows wait on the user decision.
