@@ -251,7 +251,7 @@ impl DataSource for OchoMobile {
         match source {
             "dispatch" => Ok(counters(&self.model)),
             "poll" | "transcript" | "send" | "probe" | "resync" | "markRead" | "haptic"
-            | "report" => Ok(version(&self.model)),
+            | "report" | "network" => Ok(version(&self.model)),
             "picture" => Ok(view::render(&self.model)),
             _ => Err(DataError::UnknownSource(source.into())),
         }
@@ -270,13 +270,16 @@ impl DataSource for OchoMobile {
                 Answer::Now(counters(&self.model))
             }
             "picture" => Answer::Now(view::render(&self.model)),
+            "network" => {
+                self.model
+                    .network(!matches!(args.first(), Some(Value::Bool(false))));
+                Answer::Now(version(&self.model))
+            }
             "poll" | "transcript" | "send" | "probe" | "resync" | "markRead" | "haptic"
             | "report" => {
                 if source == "poll" {
-                    // Asked with a new visibility or connection, not a new turn.
-                    let visible = text(args, 1) != "hidden";
-                    let online = !matches!(args.get(2), Some(Value::Bool(false)));
-                    self.model.page(visible, online);
+                    // Asked with a new visibility, not a new turn.
+                    self.model.page(text(args, 1) != "hidden");
                     // Exact lets go of a request whose arguments are replaced,
                     // and its reply never comes (LLP 1016 D5): a poll still
                     // marked in flight would wait for the watchdog, 40 s of

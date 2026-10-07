@@ -298,7 +298,6 @@ pub struct Model {
     pub refresh: Lane,
 
     /// The page was seen visible and online at the last ask.
-    awake: Option<bool>,
     /// What iOS last said of the network path, to report when it changes.
     online: Option<bool>,
     /// Shown last, to tell coming back to the foreground from a network blip.
@@ -517,33 +516,14 @@ impl Model {
         }
     }
 
-    /// The page's visibility or connection changed. Waking (back to the
-    /// foreground, back online) gives up on what was out, which iOS dropped
-    /// while the app was suspended, and asks again now, not at the watchdog.
-    pub fn page(&mut self, visible: bool, online: bool) {
-        let awake = visible && online;
-        let was = self.awake.replace(awake);
-        let was_visible = self.visible.replace(visible);
-        let came_back = visible && was_visible == Some(false);
-        if self
-            .online
-            .replace(online)
-            .is_some_and(|before| before != online)
-        {
-            // iOS's own word on the network path, against the failures it
-            // explains (or doesn't).
-            self.telemetry.track(
-                self.now,
-                "network.change",
-                !online,
-                vec![("online", online.into())],
-            );
-        }
-        if awake && was == Some(false) {
-            if came_back {
-                self.telemetry
-                    .track(self.now, "app.foreground", false, vec![]);
-            }
+    /// The page's visibility changed. Coming back to the foreground gives up
+    /// on what was out, which iOS dropped while the app was suspended, and
+    /// asks again now, not at the watchdog.
+    pub fn page(&mut self, visible: bool) {
+        let was = self.visible.replace(visible);
+        if visible && was == Some(false) {
+            self.telemetry
+                .track(self.now, "app.foreground", false, vec![]);
             for lane in [
                 &mut self.poll,
                 &mut self.transcript,
@@ -560,16 +540,30 @@ impl Model {
                 let out = std::mem::take(&mut self.reads_out);
                 self.read_queue.extend(out);
             }
-            // A fresh start after the app was away; a network blip while
-            // shown is not one, or failures never add up to a failover.
-            if came_back {
-                self.poll.failures = 0;
-            }
+            self.poll.failures = 0;
             self.version += 1;
-        } else if !awake {
+        } else if !visible {
             // The poll in flight is forgotten when the page is re-asked; the
             // next waking asks again.
             self.poll.inflight = false;
+        }
+    }
+
+    /// iOS's word on the network path changed. It is advice, as a browser's
+    /// `navigator.onLine` is: requests decide. A path that comes back after
+    /// failures is tried again at once rather than at the backoff's end.
+    pub fn network(&mut self, online: bool) {
+        let was = self.online.replace(online);
+        if was.is_some_and(|before| before != online) {
+            self.telemetry.track(
+                self.now,
+                "network.change",
+                !online,
+                vec![("online", online.into())],
+            );
+            if online && self.poll.failures > 0 && !self.poll.inflight {
+                self.poll.next_at = 0.0;
+            }
         }
     }
 

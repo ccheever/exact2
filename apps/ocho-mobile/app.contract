@@ -175,10 +175,13 @@ component OchoMobile
   derive readTurn = match ui { case some(r) => r.reads, case none => 0 }
   derive buzzTurn = match ui { case some(r) => r.buzz, case none => 0 }
   derive reportTurn = match ui { case some(r) => r.reports, case none => 0 }
-  // Coming back to the foreground or online re-asks the poll at once: iOS
-  // drops a request in flight while the app is suspended.
+  // Coming back to the foreground re-asks the poll at once: iOS drops a
+  // request in flight while the app is suspended. iOS's word on the network
+  // is its own resource: as a poll argument, every flicker of the path
+  // re-asked the poll, dropping the one in flight (LLP 1016 D5).
   resource page = exactPage() as shape Page
-  resource poll = poll(pollTurn, page.visibilityState, page.onLine) as shape Version
+  resource poll = poll(pollTurn, page.visibilityState) as shape Version
+  resource net = network(page.onLine) as shape Version
   resource transcript = transcript(transcriptTurn) as shape Version
   resource outgoing = send(sendTurn) as shape Version
   resource probe = probe(probeTurn) as shape Version
@@ -188,7 +191,7 @@ component OchoMobile
   resource felt = haptic(buzzTurn) as shape Version
   // Anonymous health and funnel events, batched to Fleet's cloud (Axiom).
   resource reported = report(reportTurn) as shape Version
-  resource vm = picture(uiVersion, poll.version, transcript.version, outgoing.version, probe.version, refreshed.version, marked.version, felt.version, reported.version) as shape View
+  resource vm = picture(uiVersion, poll.version, net.version, transcript.version, outgoing.version, probe.version, refreshed.version, marked.version, felt.version, reported.version) as shape View
 
   // One tick a second starts whatever I/O is due (the model's lanes).
   action tick writes ui

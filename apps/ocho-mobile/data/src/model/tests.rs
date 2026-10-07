@@ -272,12 +272,12 @@ fn polls_keep_a_gap_however_fast_the_fleet_changes() {
 #[test]
 fn coming_back_to_the_foreground_asks_again_at_once() {
     let mut m = paired();
-    m.page(true, true);
+    m.page(true);
     m.tick(1_000.0);
     assert!(m.poll_request().is_some());
     // Suspended with the poll out: iOS drops it and never calls back.
-    m.page(false, true);
-    m.page(true, true);
+    m.page(false);
+    m.page(true);
     assert!(!m.poll.inflight);
     assert!(m.poll_request().is_some(), "a fresh poll, without waiting");
 }
@@ -307,7 +307,8 @@ fn a_poll_that_never_answers_is_given_up_and_asked_again() {
 #[test]
 fn a_page_reported_hidden_or_offline_never_stops_polling() {
     let mut m = paired();
-    m.page(false, false);
+    m.page(false);
+    m.network(false);
     m.tick(1_000.0);
     assert!(
         m.poll_request().is_some(),
@@ -851,15 +852,28 @@ fn transcript_reads_ask_only_for_what_changed() {
 }
 
 #[test]
-fn a_network_blip_does_not_reset_the_failures_a_failover_counts() {
+fn a_network_blip_neither_drops_the_poll_nor_resets_its_failures() {
     let mut m = paired();
-    m.page(true, true);
+    m.page(true);
+    m.network(true);
+    m.tick(1_000.0);
+    assert!(m.poll_request().is_some());
     m.poll.failures = 2;
-    m.page(true, false);
-    m.page(true, true);
-    assert_eq!(m.poll.failures, 2, "a blip while shown keeps the count");
-    m.page(false, true);
-    m.page(true, true);
+    m.network(false);
+    m.network(true);
+    assert!(m.poll.inflight, "the poll out is still out");
+    assert_eq!(m.poll.failures, 2, "and the count stands");
+    // Failed while the path was down: tried again as soon as it is back.
+    m.poll_done(Err((
+        0,
+        "TypeError: Failed to fetch — The Internet connection appears to be offline.".into(),
+    )));
+    assert!(m.poll.next_at > m.now);
+    m.network(false);
+    m.network(true);
+    assert_eq!(m.poll.next_at, 0.0);
+    m.page(false);
+    m.page(true);
     assert_eq!(
         m.poll.failures, 0,
         "coming back to the foreground starts over"
