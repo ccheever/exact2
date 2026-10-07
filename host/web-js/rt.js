@@ -262,7 +262,7 @@ export const Hosts = {
   setScheme: s => { document.documentElement.style.colorScheme = s === "system" ? "" : s; }, requestFullscreen: id => Media ? Media.requestFullscreen(id) : say(`requestFullscreen: refused: no video with id "${id}"`), // media.js's where a plan has media; without any, the same refusal
   copyText: t => navigator.clipboard?.writeText(t), haptic: k => navigator.vibrate?.(k === "selection" ? 5 : 12), /* LLP 1077 D14: vibration where the browser has it */ scrollIntoView: (id, block, inline, behavior) => { const e = document.getElementById(id); if (e) e.scrollIntoView({ block: block ?? "start", inline: inline ?? "nearest", behavior: behavior ?? "auto" }); else say(`scrollIntoView "${id}" refused: no live node with that id`); }, // an element's, by id (minesweeper F3); list.js takes a row's
 };
-let KeyEvent = null; Hosts.preventDefault = () => { KeyEvent?.preventDefault(); if (KeyEvent?.type === "beforeunload") KeyEvent.returnValue = ""; }; Hosts.stopPropagation = () => { if (KeyEvent) KeyEvent.$stopped = true; }; // the keydown, wheel or beforeunload whose handler is running (`on`): commands run before its commit returns; a stopped key reaches no ancestor's `key` handler, its default still does (files diary F8); a prevented beforeunload is the browser's "Leave site?" (Safari reads `returnValue`)
+let KeyEvent = null; Hosts.preventDefault = () => { KeyEvent?.preventDefault(); if (KeyEvent?.type === "beforeunload") KeyEvent.returnValue = ""; }; Hosts.stopPropagation = () => { if (KeyEvent) KeyEvent.$stopped = true; }; // the keydown, wheel, beforeunload or clipboard event whose handler is running (`on`): commands run before its commit returns; a stopped key reaches no ancestor's `key` handler, its default still does (files diary F8); a prevented beforeunload is the browser's "Leave site?" (Safari reads `returnValue`)
 /** The voice table's commands (LLP 1096 D5): the runtime's own, never a host's; sounds.js applies a commit's once it stood. */
 export const Sounds = { apply: null, own: new Set(["playSound", "playSounds", "stopSounds"]) };
 function command(name, args) {
@@ -933,8 +933,8 @@ export const onWheel = (e, kind, f, l) => { return e.addEventListener("wheel", e
 export const onFileDrop = (e, kind, f, l) => { return OnHooks.drop?.(e, f); };
 // Chrome blurs an element it is removing (still connected); a retired view's blur is dropped (glue.js). A `focus` waits the same microtask, so moving the focus runs the old field's `blur` before the new one's `focus`, in DOM order: undeferred, `type` into a second field ran its `focus` first and the first's `blur` undid it (splitter rough 13).
 export const onFocus = (e, kind, f, l) => { return l(kind, () => queueMicrotask(() => e.isConnected && f())); };
-// the nearest handler hears the ClipboardEvent record; the default (a field's own paste) proceeds
-export const onClipboard = (e, kind, f, l) => { return l(kind, ev => { ev.stopPropagation(); f([ev.clipboardData?.getData("text/plain") ?? ""]); }); };
+// the nearest handler hears the ClipboardEvent record; the default (a field's own paste) proceeds unless it calls preventDefault() (#125)
+export const onClipboard = (e, kind, f, l) => { return l(kind, ev => { ev.stopPropagation(); const outer = KeyEvent; KeyEvent = ev; try { f([ev.clipboardData?.getData("text/plain") ?? ""]); } finally { KeyEvent = outer; } }); };
 // its part of the page's selection, the `Selection` record (navigation.js)
 export const onSelectionChange = (e, kind, f, l) => { return onSelection(e, (text, a, b) => f([text, a, b])); };
 

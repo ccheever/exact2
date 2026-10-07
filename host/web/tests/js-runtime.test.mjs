@@ -470,3 +470,36 @@ test('a submit runs before the field\'s next key or edit applies; the edit lands
     }
   } finally { globalThis.addEventListener = saved; }
 });
+
+
+test('clipboard handlers preserve the default unless prevented and restore the enclosing event', async () => {
+  const { on, onClipboard, Hosts } = await import(resolve(dir, 'rt.js'));
+  const event = () => ({ defaultPrevented: false, stopped: false,
+    clipboardData: { getData: () => 'clipboard text' },
+    preventDefault() { this.defaultPrevented = true; },
+    stopPropagation() { this.stopped = true; } });
+  for (const kind of ['copy', 'cut', 'paste']) {
+    for (const prevent of [false, true]) {
+      let listener;
+      const el = { addEventListener: (_, f) => { listener = f; } };
+      on(el, kind, value => {
+        expect(value).toEqual(['clipboard text']);
+        if (prevent) Hosts.preventDefault();
+      }, onClipboard);
+      const ev = event();
+      listener(ev);
+      expect([ev.stopped, ev.defaultPrevented]).toEqual([true, prevent]);
+      Hosts.preventDefault();
+      expect(ev.defaultPrevented).toBe(prevent);
+    }
+  }
+  let outerListener, innerListener;
+  on({ addEventListener: (_, f) => { innerListener = f; } }, 'copy', () => { throw new Error('clipboard failure'); }, onClipboard);
+  on({ addEventListener: (_, f) => { outerListener = f; } }, 'paste', () => {
+    expect(() => innerListener(event())).toThrow('clipboard failure');
+    Hosts.preventDefault();
+  }, onClipboard);
+  const outer = event();
+  outerListener(outer);
+  expect(outer.defaultPrevented).toBe(true);
+});
