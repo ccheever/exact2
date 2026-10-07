@@ -9,6 +9,8 @@ import { queueState } from './shared/composer-controls-queue';
 import { composerCommand } from './shared/composer-controls-commands';
 import { mobileSessionGrants } from './environment-detail';
 import { queueImageSnapshot } from './queue-images';
+import { mobileQueuedEditCurrent } from './queued-edit-state';
+import { mobileQueuedEditBegin } from './queued-edit';
 
 export interface MobileQueueAttachment { id: string; name: string; mimeType: string; image: boolean; url: string }
 export interface MobileQueueRow {
@@ -20,12 +22,12 @@ export interface MobileQueueSnapshot {
   owner: string; visit: string; environmentId: string; threadId: string; thumbnailRequest: string; actionId: string; rows: MobileQueueRow[]; count: number; held: boolean; busy: boolean; error: string;
   canResume: boolean; showSteer: boolean; dismiss: boolean; editingUnavailable: boolean;
 }
-interface State { owner: string; visit: string; active: boolean; hadRows: boolean; busy: string; error: string }
+interface State { owner: string; visit: string; active: boolean; hadRows: boolean; editDismiss: boolean; busy: string; error: string }
 const states = new WeakMap<T3Client, State>();
 export const mobileQueueOwner = (client: T3Client) => JSON.stringify([client.origin, client.environmentId, client.projectId, client.threadId, client.generation, client.threadEpoch]);
 function stateFor(client: T3Client) {
   const owner = mobileQueueOwner(client); let state = states.get(client);
-  if (!state || state.owner !== owner) { state = { owner, visit: '', active: false, hadRows: false, busy: '', error: '' }; states.set(client, state); }
+  if (!state || state.owner !== owner) { state = { owner, visit: '', active: false, hadRows: false, editDismiss: false, busy: '', error: '' }; states.set(client, state); }
   return state;
 }
 export const mobileQueueCurrent = (owner: string, visit: string, client: T3Client) => {
@@ -40,11 +42,12 @@ const actionId = (state: State, runId: string, order: string[]) => JSON.stringif
  * a queue seen nonempty in this visit closes when its last row leaves. */
 export function mobileQueueSnapshot(visit: string, active: boolean, now: number, client: T3Client = mobileClient): MobileQueueSnapshot {
   const state = stateFor(client);
-  if (state.visit !== visit || active && !state.active) { state.visit = visit; state.hadRows = false; state.error = ''; }
+  if (state.visit !== visit || active && !state.active) { state.visit = visit; state.hadRows = false; state.editDismiss = false; state.error = ''; }
   state.active = active;
   const queue = queueState(client.projection), order = queue.queued.map(entry => str(entry.run.id));
   if (active && queue.queued.length) state.hadRows = true;
   const busy = !!state.busy || !!client.pending || client.busy, enabled = active && loaded(client) && client.writable && !busy;
+  const editing = mobileQueuedEditCurrent(client);
   const rows = queue.queued.map((entry, index) => {
     const message = arr(client.projection.messages).find(message => message.id === entry.run.userMessageId);
     const attachments = arr(message?.attachments).map(attachment => ({ id: str(attachment.id), name: str(attachment.name),
@@ -52,7 +55,9 @@ export function mobileQueueSnapshot(visit: string, active: boolean, now: number,
     const images = attachments.filter(attachment => attachment.image).slice(0, 3), overflow = attachments.length - images.length;
     return { id: str(entry.run.id), actionId: actionId(state, str(entry.run.id), order), menuId: `queue-menu-${index}`,
       title: entry.text || (attachments.length ? 'Attachments' : 'Queued message'), text: entry.text, index: index + 1,
-      editing: false, busy: state.busy === entry.run.id, canEdit: false, canSteer: enabled && queue.canSteer,
+      editing: editing?.runId === entry.run.id, busy: state.busy === entry.run.id,
+      canEdit: active && loaded(client) && !busy && !editing?.saving && editing?.runId !== entry.run.id,
+      canSteer: enabled && queue.canSteer && editing?.runId !== entry.run.id,
       canMoveUp: enabled && queue.canReorder && index > 0, canMoveDown: enabled && queue.canReorder && index < order.length - 1,
       canRemove: enabled, attachments: images, attachmentOverflow: overflow > 0 ? `${images.length ? '+' : ''}${overflow}` : '' };
   });
@@ -60,17 +65,21 @@ export function mobileQueueSnapshot(visit: string, active: boolean, now: number,
   for (const row of rows) for (const attachment of row.attachments) attachment.url = thumbnails.url(attachment);
   return { owner: state.owner, visit, environmentId: client.environmentId, threadId: client.threadId, thumbnailRequest: thumbnails.request, actionId: actionId(state, '', order), rows, count: rows.length, held: held(client), busy,
     error: state.error, canResume: enabled && held(client) && rows.length > 0, showSteer: queue.canSteer,
-    dismiss: active && state.hadRows && rows.length === 0 && !busy, editingUnavailable: true };
+    dismiss: active && !busy && (state.editDismiss || state.hadRows && rows.length === 0), editingUnavailable: false };
 }
 
-/** Actual server mutations only. Edit intentionally has no enabled control until
- * a dedicated draft/upload/pending-completion owner can preserve ordinary drafts. */
+/** Shared server queue controls and the separate mobile queued-edit content owner. */
 export async function mobileQueueCommand(args: unknown[], nativeInput: Native | null | undefined, suppliedStorage: Files,
-  client: T3Client = mobileClient): Promise<{ revision: number; message: string }> {
+  client: T3Client = mobileClient): Promise<{ revision: number; message: string; dismiss?: boolean }> {
   const state = stateFor(client), result = (message = '') => ({ revision: client.revision, message });
   let ticket: Obj;
   try { ticket = obj(JSON.parse(str(args[1]))); } catch { return result('That queue action is no longer available.'); }
   const op = str(args[0]).replace(/^queue:/, ''), runId = str(ticket.runId);
+  if (op === 'edit') {
+    const answer = await mobileQueuedEditBegin(str(args[1]), nativeInput, client);
+    if (answer.dismiss && mobileQueueCurrent(str(ticket.owner), str(ticket.visit), client)) state.editDismiss = true;
+    return answer;
+  }
   if (!['remove', 'up', 'down', 'reorder', 'steer', 'resume'].includes(op)) return result('Queued message editing is not available yet.');
   if (!nativeInput?.available) return result('Open T3 Code on your iPhone or iPad to manage the queue.');
   if (state.busy || client.pending || client.busy) return result('Wait for the current operation before changing the queue.');

@@ -34,7 +34,6 @@ use NewTaskFlowSnapshot, NewTaskFlowResult from "./new-task-flow.contract"
 use ComposerSettingsSnapshot, ComposerActionResult, ComposerColors, NewTaskSnapshot, NewTaskResult, NewTaskPreparation from "./composer-shapes.contract"
 use ThreadSnapshot, ThreadColors from "./thread-shapes.contract"
 use Home, HomeItem, HomeColors from "./home.contract"
-
 // @ref llp/1106.002-design-system-parity.spec.md#typography-and-font-assets
 font "DM Sans"
   400 = "assets/fonts/DMSans_400Regular.ttf"
@@ -150,11 +149,11 @@ component App
       case none
         inspectorResizing = false
   task inspectorExit when inspectorState.exitToken != "" key=inspectorState.exitToken
-    after(max(0, inspectorState.exitAt - wallTime.epochAtZero - now()), inspectorExitDeadline)
+    after(260, inspectorExitDeadline)
   action inspectorExitDeadline
     inspectorAction("deadline", inspectorState.exitToken)
   task inspectorPrewarm when inspectorState.prewarmToken != "" key=inspectorState.prewarmToken
-    after(max(0, inspectorState.prewarmAt - wallTime.epochAtZero - now()), inspectorPrewarmDeadline)
+    after(350, inspectorPrewarmDeadline)
   action inspectorPrewarmDeadline
     inspectorAction("deadline", inspectorState.prewarmToken)
   task inspectorOwnerChanged key=workspace.inspectorToken
@@ -224,7 +223,7 @@ component App
   mutation voiceCancelled as shape VoiceResult refreshes data, voiceStatus, voiceData then didVoiceCancel
   mutation voiceReconciled as shape VoiceResult refreshes data, voiceStatus, voiceData
   task voiceEvent when (voiceStatus.eventKind == "finished" or voiceStatus.eventKind == "interrupted" or voiceStatus.eventKind == "background") and not pending(voiceChanged) and not pending(voiceCancelled) key=`${voiceStatus.session}:${voiceStatus.event}`
-    reconcileVoice
+    after(1, reconcileVoice)
   action reconcileVoice
     send voiceReconciled = voiceAction("reconcile", voiceFocus.label, voiceFocus.owner, taskGuardOwner, taskGuardRoute)
   action voiceAction(op: string)
@@ -585,7 +584,7 @@ component App
   action loadQueueThumbnails
     send queuePrepared = queuePrepare(queueData.owner, queueData.visit, queueData.thumbnailRequest, wallTime.epochAtZero + now())
   task dismissEmptyQueue when top(nav).name == "threadQueue" and workspaceRouteReady and queueData.visit == `${top(nav).id}` and queueData.environmentId == data.environmentId and queueData.threadId == data.threadId and queueData.dismiss key=top(nav).id
-    nav = back(nav)
+    after(1, back)
   mutation routeSelected as shape ThreadSelection refreshes data then didLoadRouteThread
   action didLoadRouteThread
     match routeSelected
@@ -610,9 +609,9 @@ component App
           send workspaceNavigation = workspaceThreadSelection(workspaceEntries, workspace.usesSplitView, result.environmentId, result.threadId)
       case none
         composerFocused = false
-  action editDraft(value: string)
+  action editDraft(value: string, owner: string)
     if top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
-      send draftChanged = command("draft", "", value, "0", taskGuardOwner, taskGuardRoute)
+      send draftChanged = command("draft", owner, value, "0", taskGuardOwner, taskGuardRoute)
   action composerFocus(value: bool)
     composerFocused = value
   action threadAction(op: string, id: string, value: string)
@@ -658,11 +657,15 @@ component App
       case none
         terminalId = terminalId
   task refreshBrowser when browserData.needsRefresh and previewOwner.owner != "" and not pending(previewChanged) key=previewOwner.owner
+    after(1, refreshBrowserNow)
+  action refreshBrowserNow
     browserAction("refresh", "")
   task refreshDevices when devicesData.needsRefresh and previewOwner.owner != "" and not pending(previewChanged) key=previewOwner.owner
+    after(1, refreshDevicesNow)
+  action refreshDevicesNow
     devicesAction("refresh", "")
   task closeEmptyPreview when (top(nav).name == "threadBrowser" and browserData.close) or (top(nav).name == "threadDevices" and devicesData.close) key=top(nav).id
-    back
+    after(1, back)
   action openBrowser
     if workspaceRouteReady
       nav = push(nav, path("threadBrowser", data.environmentId, data.threadId))
@@ -952,6 +955,7 @@ component App
     filePreview = not filePreview
   derive mediaActive = top(nav).name == "threadMedia" or top(nav).name == "threadDraftMedia" or top(nav).name == "newTaskMedia"
   derive mediaScope = top(nav).name == "threadMedia" ? "transcript" : "composer"
+  state mediaContentOwner = ""
   state mediaReadAt = 0
   state mediaReadVersion = 0
   state mediaRendered = true
@@ -1011,7 +1015,7 @@ component App
     mediaNativeOpen = false
     mediaReadAt = wallTime.epochAtZero + now()
     mediaReadVersion = mediaReadVersion + 1
-  resource mediaData = mediaPreview(mediaScope, top(nav).params.attachmentId, mediaRouteKey, newTaskActive ? data.environmentId : top(nav).params.threadEnvironment, newTaskActive ? "" : top(nav).params.threadId, mediaActive, data.environmentId, data.threadId, data.generation, taskGuardOwner, taskGuardRoute) as shape MediaPreviewSnapshot
+  resource mediaData = mediaPreview(mediaScope, top(nav).params.attachmentId, mediaRouteKey, newTaskActive ? data.environmentId : top(nav).params.threadEnvironment, newTaskActive ? "" : top(nav).params.threadId, mediaActive, data.environmentId, data.threadId, data.generation, taskGuardOwner, taskGuardRoute, mediaContentOwner, composerAttachments.contentOwner) as shape MediaPreviewSnapshot
   mutation mediaCompleted as shape MediaCompletion then didMediaComplete
   action mediaComplete(value: string)
     send mediaCompleted = mediaCompletion(value, mediaData.identifier)
@@ -1029,14 +1033,16 @@ component App
             nav = back(nav)
       case none
         composerFocused = false
-  action openDraftMedia(id: string)
-    mediaReadAt = wallTime.epochAtZero + now()
-    mediaRendered = true
-    mediaNativeError = ""
-    mediaNativeSource = ""
-    mediaNativeOpen = false
-    mediaReadVersion = 0
-    nav = push(nav, startsWith(top(nav).name, "newTask") ? path("newTaskMedia", id) : path("threadDraftMedia", data.environmentId, data.threadId, id))
+  action openDraftMedia(id: string, owner: string)
+    if owner == composerAttachments.contentOwner
+      mediaContentOwner = owner
+      mediaReadAt = wallTime.epochAtZero + now()
+      mediaRendered = true
+      mediaNativeError = ""
+      mediaNativeSource = ""
+      mediaNativeOpen = false
+      mediaReadVersion = 0
+      nav = push(nav, startsWith(top(nav).name, "newTask") ? path("newTaskMedia", id) : path("threadDraftMedia", data.environmentId, data.threadId, id))
   action openMedia(id: string)
     mediaReadAt = wallTime.epochAtZero + now()
     mediaRendered = true
@@ -1045,13 +1051,18 @@ component App
     mediaNativeOpen = false
     mediaReadVersion = 0
     nav = push(nav, path("threadMedia", data.environmentId, data.threadId, id))
-  resource composerAttachments = composerAttachments(data.revision, taskGuardOwner, taskGuardRoute) as shape ComposerAttachmentsSnapshot
-  action removeAttachment(kind: string, id: string)
+  resource composerAttachments = composerAttachments(data.revision, taskGuardOwner, taskGuardRoute, wallTime.epochAtZero + now()) as shape ComposerAttachmentsSnapshot
+  mutation composerPreviewsPrepared as shape InformationRead refreshes composerAttachments, data
+  task prepareComposerPreviews when (top(nav).name == "thread" or top(nav).name == "newTaskDraft" or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported)) and composerAttachments.previewRequest != "" and not pending(composerPreviewsPrepared) key=`${composerAttachments.contentOwner}:${composerAttachments.previewRequest}`
+    after(1, loadComposerPreviews)
+  action loadComposerPreviews
+    send composerPreviewsPrepared = composerPreviewsPrepare(composerAttachments.contentOwner, composerAttachments.previewRequest, wallTime.epochAtZero + now())
+  action removeAttachment(kind: string, id: string, owner: string)
     lastOperation = "attachments"
-    send changed = attachmentAction(kind, id, taskGuardOwner, taskGuardRoute)
-  action pickAttachments
+    send changed = attachmentAction(kind, id, taskGuardOwner, taskGuardRoute, owner)
+  action pickAttachments(owner: string)
     lastOperation = "attachments"
-    send changed = attachmentAction("menu", "", taskGuardOwner, taskGuardRoute)
+    send changed = attachmentAction("menu", "", taskGuardOwner, taskGuardRoute, owner)
   action openModelSettings
     modelQuery = ""
     modelFilter = ""
@@ -1153,8 +1164,8 @@ component App
             nav = back(nav)
       case none
         newTaskOperation = ""
-  action editNewDraft(value: string)
-    send taskDraftChanged = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, "draft", "", value)
+  action editNewDraft(value: string, owner: string)
+    send taskDraftChanged = newTaskAction(newTaskFlow.owner, `${top(nav).id}`, "draft", owner, value)
   mutation taskDraftChanged as shape NewTaskFlowResult refreshes data, newTaskData
   action editNewQuery(value: string)
     newTaskQuery = value

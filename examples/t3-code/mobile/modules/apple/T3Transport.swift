@@ -10,6 +10,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     private struct Pending {
         let completion: Completion
         let deadline: Date
+        var journal = false
         /// The app's trace id: a status read lists the traces still pending (r3-protocol-reader.ts).
         var trace: Int? = nil
     }
@@ -25,6 +26,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     private let defaults: UserDefaults
     private static let originKey = "t3.server.origin"
     private let preferencesURL: URL?
+    let queuedEdits: T3MobileQueuedEdit?
     var session: URLSession!
     private var socket: URLSessionWebSocketTask?
     private var httpTasks: [Int: URLSessionDataTask] = [:]
@@ -82,9 +84,9 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
 
     init(persistent: Bool, dataDirectory: URL? = nil, configuration: URLSessionConfiguration = .ephemeral,
          credentials: T3Credentials? = nil, savedEnvironments: T3SavedEnvironments? = nil, remembersOrigin: Bool = true,
-         activity: T3ActivityReporter? = nil, defaults: UserDefaults = .standard, random: @escaping () -> Double = { Double.random(in: 0..<1) }, signals: Bool = true,
+         activity: T3ActivityReporter? = nil, queuedEdits: T3MobileQueuedEdit? = nil, defaults: UserDefaults = .standard, random: @escaping () -> Double = { Double.random(in: 0..<1) }, signals: Bool = true,
          changed: @escaping (String) -> Void) {
-        self.activity = activity
+        self.activity = activity; self.queuedEdits = queuedEdits
         self.persistent = persistent; self.changed = changed; self.remembersOrigin = remembersOrigin; self.defaults = defaults; self.random = random
         preferencesURL = dataDirectory?.appendingPathComponent("t3-code.json", isDirectory: false)
         self.credentials = credentials ?? T3Credentials(persistent: persistent)
@@ -149,6 +151,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
                 case "http": try readHTTP(request, completion: completion)
                 case "uploadAttachment": try uploadAttachment(request, completion: completion)
                 case "request": try rpc(request, completion: completion)
+                case "mobileQueuedEdit": try queuedEdit(request, completion: completion)
                 case "subscribe": try subscribe(request, completion: completion)
                 case "unsubscribe":
                     guard let key = request["key"] as? String else { throw arguments("unsubscribe requires a key.") }
@@ -206,7 +209,8 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         guard data.count <= T3Wire.maximumBytes else { throw T3Failure(kind: "Limit", message: "Drafts and preferences are too large to save.") }
         do {
             try FileManager.default.createDirectory(at: preferencesURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if let activity { try activity.writePreferences(text, to: preferencesURL) }
+            if let queuedEdits { try queuedEdits.writePreferences(text) }
+            else if let activity { try activity.writePreferences(text, to: preferencesURL) }
             else { try data.write(to: preferencesURL, options: .atomic) }
         } catch { throw T3Failure(kind: "Persistence", message: "Could not save drafts and preferences: \(error.localizedDescription)") }
     }
@@ -536,7 +540,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     }
 
     func nextID() -> String { serial += 1; return "\(generation)-\(serial)" }
-    func rpc(_ request: [String: Any], completion: @escaping Completion) throws {
+    func rpc(_ request: [String: Any], journal: String? = nil, completion: @escaping Completion) throws {
         guard state == "connected" else { throw T3Failure(kind: "Disconnected", message: "The server is not connected.") }
         guard let method = request["method"] as? String, !method.isEmpty else { throw arguments("request requires a method.") }
         guard pending.count < 64 else { throw T3Failure(kind: "Busy", message: "Too many server requests are already pending.") }
@@ -544,7 +548,11 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         let text = try T3Wire.encode(wire)
         // auto-balance: a request may ask for a shorter deadline (server.getHostResources waits 5 s).
         let wait = min(30, max(1, (request["timeout"] as? NSNumber)?.doubleValue ?? 30))
-        pending[id] = Pending(completion: completion, deadline: Date().addingTimeInterval(wait), trace: request["trace"] as? Int)
+        let lease = try queuedEdits?.admit(method: method, origin: routes.home.isEmpty ? origin?.absoluteString ?? "" : routes.home, environment: descriptor["environmentId"] as? String ?? "", journal: journal)
+        let finishCall: Completion = { [queuedEdits] result in
+            queuedEdits?.release(lease); completion(result)
+        }
+        pending[id] = Pending(completion: finishCall, deadline: Date().addingTimeInterval(wait), journal: journal != nil, trace: request["trace"] as? Int)
         send(text, epoch: generation)
     }
     private func subscribe(_ request: [String: Any], completion: @escaping Completion) throws {
@@ -661,7 +669,15 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         let success = exit["_tag"] as? String == "Success"
         if terminalEnded(id: id, failure: success ? nil : failure(T3Wire.failure(exit))) { return } // terminal-drawer
         if let call = pending.removeValue(forKey: id) {
-            if success { finish(call.completion, value: exit["value"] ?? NSNull()) }
+            if call.journal {
+                if success { call.completion(["ok": true, "generation": generation, "value": exit["value"] ?? NSNull()]) }
+                else {
+                    // Only a typed Fail proves server rejection; Die/Interrupt remain uncertain.
+                    let cause = exit["cause"] as? [[String: Any]] ?? []
+                    let definitive = !cause.isEmpty && cause.allSatisfy { $0["_tag"] as? String == "Fail" }
+                    call.completion(["ok": false, "generation": generation, "error": failure(T3Wire.failure(exit)).json, "_definitiveFailure": definitive])
+                }
+            } else if success { finish(call.completion, value: exit["value"] ?? NSNull()) }
             else { finish(call.completion, failure: T3Wire.failure(exit)) }
         } else if let key = streams.removeValue(forKey: id) {
             if let lease = activityScopes.removeValue(forKey: id) { activity?.release(lease) }

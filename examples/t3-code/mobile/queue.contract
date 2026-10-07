@@ -61,17 +61,18 @@ component MobileQueueView
         column
           row contextPopover=entry.menuId min-height=49 align-items="center" gap=8.75 padding-top=8.75 padding-bottom=8.75
             border-bottom-width=1 border-bottom-style="solid" border-bottom-color=colors.border background-color=colors.sheet
-            when length(entry.attachments) > 0 or entry.attachmentOverflow != ""
-              row flex-shrink=0 align-items="center" gap=3.5
-                each attachment in entry.attachments key=attachment.id
-                  when attachment.url != ""
-                    image attachment.url object-fit="cover" width=24 height=24 border-radius=4 aria-label=attachment.name
-                  else
-                    view width=24 height=24 border-radius=4 background-color=colors.subtle
-                when entry.attachmentOverflow != ""
-                  column min-width=24 height=24 padding-left=3.5 padding-right=3.5 border-radius=4 align-items="center" justify-content="center" background-color=colors.subtle
-                    text entry.attachmentOverflow font-size=10 color=colors.muted
-            text entry.title flex=1 min-width=0 line-clamp=1 text-overflow="ellipsis" font-size=14 color=(entry.editing ? colors.muted : colors.foreground)
+            button press=action("queue:edit", entry.actionId, "") disabled=(not entry.canEdit) flex=1 min-width=0 padding=0 gap=8.75 align-items="center"
+              when length(entry.attachments) > 0 or entry.attachmentOverflow != ""
+                row flex-shrink=0 align-items="center" gap=3.5
+                  each attachment in entry.attachments key=attachment.id
+                    when attachment.url != ""
+                      image attachment.url object-fit="cover" width=24 height=24 border-radius=4 aria-label=attachment.name
+                    else
+                      view width=24 height=24 border-radius=4 background-color=colors.subtle
+                  when entry.attachmentOverflow != ""
+                    column min-width=24 height=24 padding-left=3.5 padding-right=3.5 border-radius=4 align-items="center" justify-content="center" background-color=colors.subtle
+                      text entry.attachmentOverflow font-size=10 color=colors.muted
+              text entry.title flex=1 min-width=0 line-clamp=1 text-overflow="ellipsis" font-size=14 color=(entry.editing ? colors.muted : colors.foreground)
             when data.showSteer
               button press=action("queue:steer", entry.actionId, "") disabled=(not entry.canSteer) press-haptic="selection"
                 height=28 padding-left=10.5 padding-right=10.5 border-radius=999 background-color=colors.primary opacity=(entry.canSteer ? 1 : 0.4)
@@ -83,8 +84,7 @@ component MobileQueueView
             when data.showSteer
               button press=action("queue:steer", entry.actionId, "") disabled=(not entry.canSteer) press-haptic="selection" popovertarget=entry.menuId popovertargetaction="hide"
                 text "Steer now"
-            // Edit has no action until its independent draft/pending owner exists.
-            button disabled=true
+            button press=action("queue:edit", entry.actionId, "") disabled=(not entry.canEdit) press-haptic="selection" popovertarget=entry.menuId popovertargetaction="hide"
               text "Edit"
             button press=action("queue:up", entry.actionId, "") disabled=(not entry.canMoveUp) press-haptic="selection" popovertarget=entry.menuId popovertargetaction="hide"
               text "Move up"

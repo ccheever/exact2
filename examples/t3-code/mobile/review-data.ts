@@ -1,3 +1,5 @@
+import { mobileComposerTarget, mobileComposerTargetText, mobileComposerEditContext } from './composer-target';
+import { contextLink } from './shared/composer-editor-menu';
 // T3 Code365aa87982 ReviewSheet/useReviewSections/useReviewDiffData.
 // @ref llp/1106.006-review-and-files.decision.md#ownership
 import { mobileClient, mobileNative } from './client';
@@ -10,7 +12,7 @@ import type { DiffFileModel } from './shared/diff';
 import { diffSource, lazyPatches, loadFilePatches, requestFiles, retryFile, unanswered, type LazyPatches, type DiffSource } from './shared/diff-lazy';
 import { buildDiffReviewComment, diffReviewLines, reviewCommentContextRecord, type ReviewCommentContext } from './shared/diff-comments';
 import { addReviewCommentChip, removeReviewCommentChip, localId } from './shared/composer-editor';
-import { assertReviewOwner, reviewComposerNative, reviewFileAccess, reviewNative, reviewOwner } from './review-owner';
+import { assertReviewComposerOwner, assertReviewOwner, reviewComposerNative, reviewFileAccess, reviewNative, reviewOwner } from './review-owner';
 import { reviewFileRows, reviewPatch, reviewRow, reviewSuppression, type ReviewFile, type ReviewRow } from './review-model';
 
 export interface ReviewSection { id: string; title: string; subtitle: string; selected: boolean }
@@ -22,12 +24,12 @@ export interface ReviewSnapshot {
   commentPreview: string; commentCount: number;
 }
 interface Section extends ReviewSection { diff: string | null; source: DiffSource | null; lazy: LazyPatches | null }
-interface Pick { sectionId: string; path: string; anchor: number; start: number; end: number }
+interface Pick { composerOwner: string; sectionId: string; path: string; anchor: number; start: number; end: number }
 interface State {
   owner: string; serial: number; version: number; sections: Section[]; selected: string; selectedPath: string;
   navigationSerial: number; loading: boolean; error: string; canReadFiles: boolean; checked: boolean;
   collapsed: Set<string>; revealed: Set<string>; viewed: Set<string>; pick: Pick | null; ranging: boolean; commentOpen: boolean;
-  comments: { contextId: string; comment: ReviewCommentContext }[];
+  comments: { composerOwner: string; contextId: string; comment: ReviewCommentContext }[];
 }
 const states = new WeakMap<T3Client, State>();
 function stateOf(client: T3Client): State {
@@ -94,11 +96,12 @@ function commentFromPick(state: State, text: string, id: string): ReviewCommentC
 export function mobileReviewSnapshot(dark = false, client: T3Client = mobileClient, active = true): ReviewSnapshot {
   if (!active) return EMPTY_MOBILE_REVIEW;
   const state = stateOf(client), cached = snapshots.get(state), blocked = !!client.pending || client.busy;
-  if (cached && cached.version === state.version && cached.dark === dark && cached.draft === client.draft && cached.blocked === blocked)
+  if (cached && cached.version === state.version && cached.dark === dark && cached.draft === `${mobileComposerTarget(client).owner}:${mobileComposerTargetText(client, mobileComposerTarget(client)) ?? ''}` && cached.blocked === blocked)
     return { ...cached.data, revision: client.revision };
   const section = state.sections.find(row => row.id === state.selected), parsed = reviewPatch(section?.diff ?? '');
   const loaded = sectionFiles(section), files: ReviewFile[] = [], rows: ReviewRow[] = [];
-  const comments = state.comments.filter(entry => client.draft.includes(`review-comment/${entry.contextId})`));
+  const composerOwner = mobileComposerTarget(client).owner;
+  const comments = state.comments.filter(entry => entry.composerOwner === composerOwner && (mobileComposerTargetText(client, mobileComposerTarget(client)) ?? '').includes(`review-comment/${entry.contextId})`));
   for (const { file, notice, pending, error } of loaded) {
     const key = fileKey(state, file.path), expanded = !state.collapsed.has(key), viewed = state.viewed.has(key);
     files.push({ id: file.path, name: file.path.split('/').at(-1) ?? file.path, path: file.path, previousPath: file.previous,
@@ -114,7 +117,7 @@ export function mobileReviewSnapshot(dark = false, client: T3Client = mobileClie
         title: suppressed === 'non-text' ? 'Non-text file' : 'Large diff', detail: suppressed === 'non-text' ? 'Diff preview is not available for this file format.' : 'Large diffs are not rendered by default.', action: suppressed === 'large' ? 'reveal' : '' });
       continue;
     }
-    const pick = state.pick && state.pick.sectionId === section?.id && state.pick.path === file.path ? state.pick : null;
+    const pick = state.pick?.composerOwner === composerOwner && state.pick.sectionId === section?.id && state.pick.path === file.path ? state.pick : null;
     for (const row of reviewFileRows(file, dark, pick)) {
       rows.push(row);
       if (row.kind !== 'line') continue;
@@ -125,17 +128,17 @@ export function mobileReviewSnapshot(dark = false, client: T3Client = mobileClie
       }
     }
   }
-  const comment = commentFromPick(state, '', 'preview');
+  const comment = state.pick?.composerOwner === composerOwner ? commentFromPick(state, '', 'preview') : null;
   const totals = section?.source?.files ?? files;
   const data: ReviewSnapshot = { owner: state.owner, revision: client.revision, sectionId: state.selected, patchRequest: patchRequest(section), title: section?.title ?? 'Review changes', subtitle: section?.subtitle ?? '',
     sections: state.sections.map(({ id, title, subtitle }) => ({ id, title, subtitle, selected: id === state.selected })), files, rows,
     loading: state.loading, error: state.error, notice: parsed.notice, raw: !files.length && parsed.text ? parsed.text : '',
     emptyTitle: section ? 'No changes' : 'No review diffs', emptyDetail: section ? parsed.text ? parsed.rawReason : section.subtitle || 'This diff is empty.' : 'This thread has no ready turn diffs and the worktree diff is empty.',
     additions: totals.reduce((sum, file) => sum + file.additions, 0), deletions: totals.reduce((sum, file) => sum + file.deletions, 0), selectedPath: files.some(file => file.path === state.selectedPath) ? state.selectedPath : '',
-    selectionTitle: state.ranging ? 'Select range end' : comment ? `Comment on ${comment.rangeLabel}` : '',
+    selectionTitle: state.ranging && state.pick?.composerOwner === composerOwner ? 'Select range end' : comment ? `Comment on ${comment.rangeLabel}` : '',
     canComment: !!comment && !state.ranging && !!client.threadId && !client.pending && !client.busy, commentOpen: state.commentOpen && !!comment,
     commentPath: comment?.filePath ?? '', commentRange: comment?.rangeLabel ?? '', commentPreview: comment?.diff ?? '', commentCount: comments.length };
-  snapshots.set(state, { version: state.version, dark, draft: client.draft, blocked, data });
+  snapshots.set(state, { version: state.version, dark, draft: `${mobileComposerTarget(client).owner}:${mobileComposerTargetText(client, mobileComposerTarget(client)) ?? ''}`, blocked, data });
   return data;
 }
 
@@ -211,19 +214,35 @@ export async function mobileReviewAction(owner: string, op: string, id: string, 
     }
     else if (op === 'file' && !id) { state.selectedPath = ''; navigation = 'top'; }
     else if (op === 'clear' || op === 'cancel') { state.pick = null; state.ranging = false; state.commentOpen = false; }
-    else if (op === 'comment') state.commentOpen = !!commentFromPick(state, '', 'preview');
+    else if (op === 'comment') {
+      assertReviewComposerOwner(client, state.pick?.composerOwner ?? 'missing-comment-owner');
+      state.commentOpen = !!commentFromPick(state, '', 'preview');
+    }
     else if (op === 'delete-comment') {
       const entry = state.comments.find(row => row.contextId === id);
       if (!entry) throw new ClientError('That comment is no longer available.');
-      await removeReviewCommentChip(client, reviewComposerNative(client, native, storage, owner), id);
+      assertReviewComposerOwner(client, entry.composerOwner);
+      const target = mobileComposerTarget(client);
+      if (target.kind === 'queued-edit') {
+        const link = contextLink('review-comment', id, str(reviewCommentContextRecord(entry.comment).label));
+        const text = (mobileComposerTargetText(client, target) ?? '').replace(link, '');
+        await mobileComposerEditContext(client, target, text, null, id, native);
+      } else await removeReviewCommentChip(client, reviewComposerNative(client, native, storage, owner), id);
+      assertReviewComposerOwner(client, target.owner);
       state.comments = state.comments.filter(row => row !== entry);
     } else if (op === 'save') {
+      assertReviewComposerOwner(client, state.pick?.composerOwner ?? 'missing-comment-owner');
       if (!value.trim() || !state.commentOpen || client.busy || client.pending) throw new ClientError('Select lines and enter a comment first.');
       const comment = commentFromPick(state, value, `review-${localId()}`);
       if (!comment) throw new ClientError('The selected lines changed. Select them again.');
       const record = reviewCommentContextRecord(comment);
-      await addReviewCommentChip(client, reviewComposerNative(client, native, storage, owner), record);
-      state.comments.push({ contextId: record.contextId, comment }); state.pick = null; state.ranging = false; state.commentOpen = false;
+      const target = mobileComposerTarget(client);
+      if (target.kind === 'queued-edit') {
+        const text = `${mobileComposerTargetText(client, target) ?? ''}${contextLink('review-comment', str(record.contextId), str(record.label))} `;
+        await mobileComposerEditContext(client, target, text, record, '', native);
+      } else await addReviewCommentChip(client, reviewComposerNative(client, native, storage, owner), record);
+      assertReviewComposerOwner(client, target.owner);
+      state.comments.push({ composerOwner: target.owner, contextId: record.contextId, comment }); state.pick = null; state.ranging = false; state.commentOpen = false;
     } else {
       const file = sectionFiles(section).find(row => row.file.path === id);
       if (!file) throw new ClientError('That file is no longer in this diff.');
@@ -231,10 +250,11 @@ export async function mobileReviewAction(owner: string, op: string, id: string, 
       else if (op === 'viewed') { if (state.viewed.has(key)) state.viewed.delete(key); else { state.viewed.add(key); state.collapsed.add(key); } }
       else if (op === 'reveal') state.revealed.add(key);
       else if (op === 'line' || op === 'extend' || op === 'range-start') {
-        if (state.commentOpen || !Number.isInteger(n) || !diffReviewLines(file.file)[n]) throw new ClientError('That line is unavailable.');
-        const extending = (op === 'extend' || state.ranging) && state.pick?.path === id && state.pick.sectionId === state.selected;
+        if (state.commentOpen && state.pick?.composerOwner === mobileComposerTarget(client).owner || !Number.isInteger(n) || !diffReviewLines(file.file)[n]) throw new ClientError('That line is unavailable.');
+        const composerOwner = mobileComposerTarget(client).owner;
+        const extending = (op === 'extend' || state.ranging) && state.pick?.composerOwner === composerOwner && state.pick.path === id && state.pick.sectionId === state.selected;
         const anchor = extending ? state.pick!.anchor : n;
-        state.pick = { sectionId: state.selected, path: id, anchor, start: Math.min(anchor, n), end: Math.max(anchor, n) };
+        state.pick = { composerOwner, sectionId: state.selected, path: id, anchor, start: Math.min(anchor, n), end: Math.max(anchor, n) };
         state.ranging = op === 'range-start';
         // Native upstream: tap opens one-line composer; long press then tap selects a range.
         state.commentOpen = op === 'line' && !extending;

@@ -1,6 +1,8 @@
+import { mobileQueuedEditPresentation } from './queued-edit';
 // Mobile ThreadFeed/ThreadComposer at upstream365aa87982; shared transport and V2 reducers stay authoritative.
 // @ref llp/1106.000-mobile-app-layout.decision.md#shared-typescript
 // @ref llp/1106.003-pairing-and-transport.decision.md#mobile-adaptations
+import { mobileComposerTarget, mobileComposerTargetText } from './composer-target';
 import { mobileAnswerFilesRequest, mobilePrepareAnswerFiles } from './thread-answer-files';
 import { mobileClient, mobileCommand, mobileNative } from './client';
 import { mobileProviderIconURL } from './environment-detail';
@@ -15,7 +17,7 @@ import { syncWorktreeSetup } from './shared/timeline-worktree';
 import { threadPhase } from './shared/composer-presentation';
 import { primaryAction } from './shared/composer-controls-view';
 import { followUpBehavior } from './shared/composer-controls';
-import { queueState, queuedEdit } from './shared/composer-controls-queue';
+import { queueState } from './shared/composer-controls-queue';
 import { requestPresentation } from './shared/requests';
 import { mobileCodeTokens, type ThreadCodeToken } from './thread-highlight';
 import { mobileThreadActivity } from './thread-work';
@@ -30,7 +32,7 @@ export interface ThreadRow { id: string; kind: string; title: string; body: stri
   media: ThreadMedia[]; first: boolean; last: boolean; }
 export interface ThreadApprovalOption { id: string; label: string; tone: string; warning: string }
 export interface ThreadApproval { id: string; title: string; detail: string; disabled: boolean; reason: string; options: ThreadApprovalOption[] }
-export interface ThreadComposerState { draft: string; placeholder: string; canSend: boolean; canStop: boolean; showStop: boolean;
+export interface ThreadComposerState { editing: boolean; saving: boolean; canCancel: boolean; editNotice: string; editPendingId: string; canRetryEdit: boolean; contentOwner: string; draft: string; placeholder: string; canSend: boolean; canStop: boolean; showStop: boolean;
   canOperate: boolean; showReadOnlyNotice: boolean; sendLabel: string; sendSymbol: string; blockedReason: string; modelLabel: string; providerDriver: string;
   providerIconURL: string; modelUnavailable: boolean; running: boolean; queueCount: number; }
 export interface ThreadSnapshot { revision: number; environmentId: string; threadId: string; title: string; loaded: boolean; loading: boolean; rows: ThreadRow[];
@@ -91,21 +93,21 @@ function elapsed(ms: number): string {
 }
 
 export function mobileThreadComposer(client: T3Client): ThreadComposerState {
-  const run = activeRun(client.projection), running = !!run, queue = queueState(client.projection), edit = queuedEdit(client);
+  const run = activeRun(client.projection), running = !!run, queue = queueState(client.projection), edit = mobileQueuedEditPresentation(client), target = mobileComposerTarget(client);
   const provider = arr(client.config.providers).find(provider => provider.instanceId === client.providerId);
   const model = arr(provider?.models).find(model => model.slug === client.modelId), modelReady = !!provider && providerAvailable(provider) && !!model;
   const modelUnavailable = client.connection === 'connected' && !modelReady;
   const requests = requestPresentation(client), followUp = running && !queue.canSteer ? 'queue' : followUpBehavior(client);
   const action = primaryAction(client, threadPhase(client.projection));
-  const blockedReason = client.pending?.uncertain ? 'Check the synchronized thread before retrying.'
-    : requests.approvals.length ? 'Resolve this approval request to continue.' : requests.questions.length ? 'Answer the pending question to continue.'
+  const blockedReason = edit.saving ? 'Saving…' : edit.uncertain ? 'Resolve the pending queued edit before sending.' : client.pending?.uncertain ? 'Check the synchronized thread before retrying.'
+    : edit.editing ? '' : requests.approvals.length ? 'Resolve this approval request to continue.' : requests.questions.length ? 'Answer the pending question to continue.'
     : action.sendStatus;
   const canOperate = client.writable, canStop = canOperate && !client.pending && !client.busy && running;
   // Offline-outbox admission is not the desktop transport's contract; preserve its real refusal until the mobile outbox exists.
-  const canSend = canOperate && !client.pending && !client.busy && modelReady && !!client.projectId && !blockedReason && (!!client.draft.trim() || client.snapshotDrafts.length > 0);
-  const sendLabel = edit ? 'Update queued message' : running ? followUp === 'steer' ? 'Steer' : 'Queue' : 'Send';
-  return { draft: client.draft, placeholder: 'Ask the repo agent, or run a command…', canSend, canStop, showStop: !client.draft.trim() && client.snapshotDrafts.length === 0 && canStop && !edit,
-    canOperate, showReadOnlyNotice: client.connection === 'connected' && !canOperate, sendLabel, sendSymbol: edit ? 'checkmark' : running ? followUp === 'steer' ? 'arrow.turn.left.up' : 'list.number' : 'arrow.up',
+  const canSend = edit.editing ? edit.canSave && modelReady : canOperate && !client.pending && !client.busy && modelReady && !!client.projectId && !blockedReason && (!!client.draft.trim() || client.snapshotDrafts.length > 0);
+  const sendLabel = edit.editing ? 'Update queued message' : running ? followUp === 'steer' ? 'Steer' : 'Queue' : 'Send';
+  return { editing: edit.editing, saving: edit.saving, canCancel: edit.canCancel, editNotice: edit.error, editPendingId: edit.pendingId, canRetryEdit: edit.canRetry, contentOwner: target.owner, draft: mobileComposerTargetText(client, target) ?? '', placeholder: 'Ask the repo agent, or run a command…', canSend, canStop, showStop: !client.draft.trim() && client.snapshotDrafts.length === 0 && canStop && !edit.editing,
+    canOperate, showReadOnlyNotice: client.connection === 'connected' && !canOperate, sendLabel, sendSymbol: edit.editing ? 'checkmark' : running ? followUp === 'steer' ? 'arrow.turn.left.up' : 'list.number' : 'arrow.up',
     blockedReason, modelLabel: str(model?.name, client.modelId), providerDriver: str(provider?.driver), providerIconURL: mobileProviderIconURL(provider?.iconUrl),
     modelUnavailable, running, queueCount: queue.queued.length };
 }

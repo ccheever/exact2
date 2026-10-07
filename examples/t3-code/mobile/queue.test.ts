@@ -35,15 +35,15 @@ function fixture() {
 }
 const writes = (f: ReturnType<typeof fixture>) => f.calls.filter(call => call.method === 'orchestration.dispatchCommand').map(call => obj(call.payload));
 
-test('queue rows preserve source text and exclude automatic notifications; edit remains explicitly unavailable', () => {
+test('queue rows preserve source text and exclude automatic notifications; edit uses a dedicated content owner', () => {
   const f = fixture(), p = f.client.projection;
   (p.messages as Obj[]).push({ id: 'automatic', text: 'Notification', notification: {} });
   (p.runs as Obj[]).push({ id: 'auto', userMessageId: 'automatic', status: 'queued', ordinal: 3 });
   const data = f.snapshot();
   expect(data.count).toBe(2); expect(data.rows[0]?.text).toBe('First\n  message');
-  expect(data.rows[0]).toMatchObject({ canEdit: false, canSteer: true, canMoveUp: false, canMoveDown: true, canRemove: true });
+  expect(data.rows[0]).toMatchObject({ canEdit: true, canSteer: true, canMoveUp: false, canMoveDown: true, canRemove: true });
   expect(data.rows[1]).toMatchObject({ canMoveUp: true, canMoveDown: false });
-  expect(data.editingUnavailable).toBe(true);
+  expect(data.editingUnavailable).toBe(false);
 });
 
 test('real shared remove/reorder/steer payloads and durable completion preserve ordinary draft and images', async () => {

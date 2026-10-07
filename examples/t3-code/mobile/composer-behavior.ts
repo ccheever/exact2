@@ -1,3 +1,4 @@
+import { mobileComposerTarget } from './composer-target';
 // Pinned365aa87982 ComposerTextView key commands and followUpBehavior.ts.
 // @ref llp/1106.005-composer-and-transcript.decision.md#settings-ownership
 import type { T3Client } from './shared/client';
@@ -39,10 +40,11 @@ export function mobileSubmissionNative(native: Native, alternate: boolean, after
 
 export async function mobileSend(client: T3Client, alternate: boolean, native: Native, storage: Files) {
   const identity = () => JSON.stringify([client.generation, client.threadEpoch, client.origin, client.environmentId, client.projectId,
-    client.threadId, client.draftKey, client.providerId, client.modelId, client.modelOptions, client.runtimeMode, client.interactionMode]);
+    client.threadId, mobileComposerTarget(client).owner, client.draftKey, client.providerId, client.modelId, client.modelOptions, client.runtimeMode, client.interactionMode]);
   const owner = identity();
   const assertOwner = () => { if (owner !== identity()) throw new ClientError('The draft or model changed before the message could be sent.', 'superseded'); };
   try {
+    if (mobileComposerTarget(client).kind !== 'ordinary') throw new ClientError('Save the queued edit from its composer.');
     const reply = await bridgeReply(native, { op: 'mobilePreferences' });
     if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind);
     assertOwner();

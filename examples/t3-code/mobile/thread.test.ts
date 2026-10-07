@@ -1,3 +1,4 @@
+import { queuedEditState, type MobileQueuedEditSession } from './queued-edit-state';
 import { describe, expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
 import { arr, type Obj } from './shared/domain';
@@ -90,4 +91,19 @@ for (const fixture of shikiFixtures) test(`mobile Shiki ${fixture.language} ${fi
     else tokens.push(style);
   }
   expect(tokens).toEqual(fixture.expected);
+});
+
+test('queued composer projects dedicated text and never offers ordinary Stop', () => {
+  const client = fixture([], { runs: [{ id: 'active', status: 'running' }] });
+  client.local.drafts[client.draftKey] = 'ordinary draft';
+  const edit: MobileQueuedEditSession = { owner: 'edit', session: 'unique', draftKey: 'env:t1~queued-edit~queued',
+    origin: client.origin, environmentId: 'env', threadId: 't1', projectId: 'p1', generation: client.generation,
+    revision: 1, runId: 'queued', messageId: 'queued-message', text: 'replacement', attachments: [], existingAttachments: [], saving: false };
+  queuedEditState(client).sessions.set(edit.owner, edit); queuedEditState(client).active.set('env:t1', edit.owner);
+  expect(mobileThreadComposer(client)).toMatchObject({ editing: true, draft: 'replacement', showStop: false, canSend: true, sendSymbol: 'checkmark', canCancel: true });
+  queuedEditState(client).sessions.set(edit.owner, { ...edit, saving: true });
+  expect(mobileThreadComposer(client)).toMatchObject({ saving: true, canSend: false, canCancel: false, blockedReason: 'Saving…' });
+  queuedEditState(client).sessions.set(edit.owner, edit); client.modelId = 'unavailable';
+  expect(mobileThreadComposer(client)).toMatchObject({ canSend: false, modelUnavailable: true });
+  expect(client.draft).toBe('ordinary draft');
 });

@@ -21,8 +21,11 @@ final class T3MobileVoiceEditor {
         self.pending = nil
     }
     func end(_ element: ExactElement) { entries.removeValue(forKey: ObjectIdentifier(element)) }
-    func selection(owner: String, text: String) throws -> [String: Any] {
-        let candidates = entries.values.filter { $0.owner == owner && $0.view?.window != nil && $0.view?.text == text }
+    func selection(owner: String, text: String, optional: Bool = false) throws -> [String: Any] {
+        guard !owner.isEmpty else { throw VoiceFailure("superseded", "The draft editor is unavailable.") }
+        let mounted = entries.values.filter { $0.owner == owner && $0.view?.window != nil }
+        if optional && mounted.isEmpty { let end = (text as NSString).length; return ["start": end, "end": end] }
+        let candidates = mounted.filter { $0.view?.text == text }
         guard let view = candidates.first(where: { $0.view?.isFirstResponder == true })?.view ?? candidates.first?.view else {
             throw VoiceFailure("superseded", "The draft editor changed before voice input could start.")
         }
@@ -31,6 +34,7 @@ final class T3MobileVoiceEditor {
         return ["start": range.location, "end": range.location + range.length]
     }
     func stage(owner: String, text: String, start: Int, end: Int, revision: Int) {
+        guard pending.map({ $0.revision <= revision }) ?? true else { return }
         let length = (text as NSString).length, lower = max(0, min(length, start)), upper = max(0, min(length, end))
         pending = Selection(owner: owner, text: text, range: NSRange(location: lower, length: max(0, upper - lower)), revision: revision)
     }

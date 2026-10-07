@@ -1,3 +1,5 @@
+import { mobileComposerTargetRequire } from './composer-target';
+import { mobileQueuedEditSave, mobileQueuedEditCancel, mobileQueuedEditRetry, mobileQueuedEditRefresh } from './queued-edit';
 import { mobileOpenAnswerFile } from './thread-answer-files';
 import { mobileGitEvents } from './git-overview';
 import { mobileDevicesEvents } from './devices-mobile-data';
@@ -5,7 +7,7 @@ import { mobileBrowserEvents } from './browser-mobile-data';
 import { mobileVoiceObserveDraft } from './voice-data';
 // upstream 365aa87982 mobile pairing.ts and connection/platform.ts; shared reducers remain unchanged.
 // @ref llp/1106.003-pairing-and-transport.decision.md#mobile-adaptations
-import { T3Client } from './shared/client';
+import { MobileDraftClient, mobileDraftRecoveryHandles } from './mobile-draft-recovery';
 import { applyMobileComposerBehavior, mobileSend } from './composer-behavior';
 import { mobileDraftChanged } from './draft';
 import { decodePrefs, environmentSources, machineKind, savedStatus } from './shared/connections';
@@ -16,7 +18,7 @@ import { bridgeReply, ClientError, nativeFiles, parsePairing, type Files, type N
 import { pairingFields } from './shared/r10-connect-pairing';
 import { EnvironmentFleet, fleet } from './shared/settings-b-fleet';
 
-export const mobileClient = new T3Client();
+export const mobileClient = new MobileDraftClient();
 
 /** Mobile QR links wrap a normal hosted/direct pairing URL. The normal parser still validates it. */
 export function mobilePairingUrl(input: string): string {
@@ -87,7 +89,7 @@ export function mobileNative(native: Native): Native {
 
 function answerHandles(native: Native | null | undefined, suppliedStorage: Files) {
   const handle = native?.available ? letGoAware(mobileNative(native)) : native;
-  return { native: handle, storage: handle?.available ? nativeFiles(handle) : suppliedStorage };
+  return mobileDraftRecoveryHandles(mobileClient, handle, handle?.available ? nativeFiles(handle) : suppliedStorage);
 }
 
 /** Upstream lists every saved environment, including one environment and switched-off ones. */
@@ -105,6 +107,7 @@ export function mobileRoutingRows(sources: ReturnType<typeof environmentSources>
 export async function mobileSnapshot(nativeInput: Native | null | undefined, suppliedStorage: Files) {
   const { native, storage } = answerHandles(nativeInput, suppliedStorage);
   await mobileClient.refresh(native, storage);
+  await mobileQueuedEditRefresh(native, mobileClient);
   mobileVoiceObserveDraft(mobileClient);
   let focusedStatus = {}, savedCatalog = fleet.saved, preferencesText = '{}', routingReady = false;
   if (native?.available) {
@@ -158,8 +161,19 @@ async function runMobileCommand(args: unknown[], nativeInput: Native | null | un
   if (!native?.available) return { revision: mobileClient.revision, message: 'Open T3 Code on your iPhone or iPad to connect.' };
   let op = str(args[0]), id = str(args[1]), value = str(args[2]);
   if (op === 'thread-answer-file') return mobileOpenAnswerFile(mobileClient, id, native, Number(args[3]));
-  if (op === 'send' || op === 'send-alternate') return mobileSend(mobileClient, op === 'send-alternate', native, storage);
-  if (op === 'draft') return mobileDraftChanged(mobileClient, value, native, storage);
+  if (op === 'send' || op === 'send-alternate' || op === 'queued-edit-cancel') {
+    try {
+      const target = mobileComposerTargetRequire(mobileClient, id);
+      if (op === 'queued-edit-cancel') return mobileQueuedEditCancel(target.editOwner, native, mobileClient);
+      if (target.kind === 'queued-edit') return mobileQueuedEditSave(target.editOwner, native, mobileClient);
+      return mobileSend(mobileClient, op === 'send-alternate', native, storage);
+    } catch (error) {
+      if (letGo(error)) throw error;
+      return { revision: mobileClient.revision, message: error instanceof Error ? error.message : 'The composer changed.' };
+    }
+  }
+  if (op === 'queued-edit-retry') return mobileQueuedEditRetry(id, native, mobileClient);
+  if (op === 'draft') return mobileDraftChanged(mobileClient, value, native, storage, id);
   if (op === 'environment-reconnect') {
     try {
       const catalog = await bridgeReply(native, { op: 'environments' });
