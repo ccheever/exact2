@@ -75,6 +75,29 @@ final class TerminalStreamTests: XCTestCase {
         XCTAssertEqual(socket.requests("terminal.attach").count, 1)
     }
 
+    /// Round 5: the reference's RPC client refuses no request for the number already pending, so a
+    /// user's write queued behind slow reads (a snooze chosen from a native menu) still goes out.
+    func testPendingRequestsHaveNoCapAsInTheReference() throws {
+        let socket = try R3Socket()
+        socket.answer = { _ in [] } // the server holds every reply
+        let transport = connected(socket); defer { transport.destroy() }
+        let generation = perform(transport, ["op": "status"])["generation"] as! Int
+        let lock = NSLock()
+        var refused: [String] = []
+        let note: ([String: Any]) -> Void = { reply in
+            guard let error = reply["error"] as? [String: Any], error["kind"] as? String != "Timeout" else { return }
+            lock.lock(); refused.append("\(error)"); lock.unlock()
+        }
+        for index in 0..<80 {
+            transport.perform(["op": "request", "method": "vcs.refreshStatus", "payload": ["cwd": "/repo/\(index)"], "generation": generation, "timeout": 5], completion: note)
+        }
+        transport.perform(["op": "request", "method": "orchestration.dispatchCommand", "payload": ["type": "thread.snooze"], "generation": generation, "timeout": 5], completion: note)
+        XCTAssertTrue(until(3) { socket.requests("vcs.refreshStatus").count == 80 && socket.requests("orchestration.dispatchCommand").count == 1 },
+                      "sent: \(socket.requests("vcs.refreshStatus").count) reads, \(socket.requests("orchestration.dispatchCommand").count) writes")
+        lock.lock(); let failures = refused; lock.unlock()
+        XCTAssertEqual(failures, [], "no request is refused for the number pending")
+    }
+
     func testTerminalStreamsDoNotCountTowardTheSixteenAppStreamsAndEndWithTheSocket() throws {
         let socket = try R3Socket()
         socket.answer = { _ in [] }

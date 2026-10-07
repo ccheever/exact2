@@ -505,7 +505,8 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     func rpc(_ request: [String: Any], completion: @escaping Completion) throws {
         guard state == "connected" else { throw T3Failure(kind: "Disconnected", message: "The server is not connected.") }
         guard let method = request["method"] as? String, !method.isEmpty else { throw arguments("request requires a method.") }
-        guard pending.count < 64 else { throw T3Failure(kind: "Busy", message: "Too many server requests are already pending.") }
+        // No cap on pending requests: the reference's RPC client refuses none (a user's snooze
+        // queued behind other reads still goes out), and each pending request ends at its deadline.
         let id = nextID(), wire = T3Wire.request(id: id, method: method, payload: request["payload"] ?? [:])
         let text = try T3Wire.encode(wire)
         // auto-balance: a request may ask for a shorter deadline (server.getHostResources waits 5 s).

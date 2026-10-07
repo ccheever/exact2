@@ -106,6 +106,8 @@ export async function watchVcsStatus(client: T3Client, native: Native, cwd: stri
   }
   return { status: state.status, error: state.error };
 }
+/** Whether the stream follows `cwd` now (its status may still be on its way). */
+export function vcsStreamFollows(client: T3Client, cwd: string): boolean { return !!cwd && states.get(client)?.cwd === cwd; }
 /** r7-handoff: the streamed status for `cwd` when the card follows (or recently followed) it, without asking. */
 export function peekVcsStatus(client: T3Client, cwd: string): Obj | null { const state = states.get(client); return !state || !cwd ? null : state.cwd === cwd ? state.status ?? state.recent.get(cwd) ?? null : state.recent.get(cwd) ?? null; }
 

@@ -9,7 +9,7 @@ import type { Native } from './protocol';
 import { lineageView } from './shell-lineage';
 import { inlineOpen, shellPrefs } from './shell-prefs';
 import { refreshVcsOnFocus, watchVcsStatus } from './shell-vcs';
-import { draftContext, previousWorktree } from './composer-controls-branch';
+import { draftContext, previousWorktree, stripWorkspace } from './composer-controls-branch';
 import { isLoopback } from './settings-b-fleet';
 import { machineKind } from './connections';
 import { commandShortcut } from './shell';
@@ -101,7 +101,8 @@ export const detailsKey = (client: T3Client) => client.draftKey;
 export async function shellDetails(client: T3Client, native: Native | null | undefined, open: boolean, threadId: string, wide = false, now = 0, rightGap = 0, focused = true) {
   const inline = wide && inlineOpen(client, detailsKey(client));
   if (!(inline || (open && !wide)) || !native?.available || !client.ready || !client.projectId) {
-    if (native?.available && client.ready) { await watchVcsStatus(client, native, '', now); await refreshVcsOnFocus(client, native, '', focused); }
+    // While the card is closed the stream follows the strip's workspace, or ends when the strip is hidden.
+    if (native?.available && client.ready) { await watchVcsStatus(client, native, stripWorkspace(client), now); await refreshVcsOnFocus(client, native, '', focused); }
     return empty;
   }
   const thread = client.shell.threads.find(entry => entry.id === threadId);
