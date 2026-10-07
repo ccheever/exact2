@@ -37,7 +37,7 @@
 use crate::delivery::Store;
 use crate::host::PlanBytes;
 use crate::image::AssetResolver;
-use crate::presenter::Presenter;
+use crate::presenter::{PainterBoot, Presenter};
 use exact_runner::DataSource;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -288,6 +288,15 @@ pub fn boot_presenter<D: DataSource + Default>(
     config: &mut Config,
     viewport: (f32, f32),
 ) -> Result<(Presenter<D>, Option<String>), String> {
+    boot_presenter_with_painter(config, viewport, PainterBoot::from_env())
+}
+
+/// Keep the carrier's constructor through selected-plan refusal and baked fallback.
+pub(crate) fn boot_presenter_with_painter<D: DataSource + Default>(
+    config: &mut Config,
+    viewport: (f32, f32),
+    painter: PainterBoot,
+) -> Result<(Presenter<D>, Option<String>), String> {
     exact_runner::delivery::refuse_analysis(&config.compat).map_err(str::to_string)?;
     let mut updates = config.updates.take();
     let compat = config.compat.clone();
@@ -378,6 +387,7 @@ pub fn boot_presenter<D: DataSource + Default>(
                 (&compat, facts(&updates)),
                 &config.launch,
                 config.content_region,
+                painter,
             )
         });
     match booted {
@@ -414,6 +424,7 @@ pub fn boot_presenter<D: DataSource + Default>(
                 (&compat, facts(&updates)),
                 &config.launch,
                 config.content_region,
+                painter,
             )
             .map(|v| delivered(v, updates))
             .map_err(|baked_error| {
