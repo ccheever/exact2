@@ -1,0 +1,7 @@
+epoch 1 · incarnation 1 · clock 0 ms · 2 nodes
+View#1 [root]
+  Text#2 [got] "received: none"
+t=0 boot: 2 nodes, epoch 1
+t=0 launch URL refused: no navigation root handler (/auth/x?request=1)
+  app: 2026-10-07 10:40:22.850 ExactMac[6694:121046261] ApplePersistence=NO
+{"clock":0,"h":900,"w":420,"screenshot":"/private/tmp/claude-501/-Users-daehyeonmun-Documents-work-0-projects-exact2/757dc7ec-2ea0-42a2-9546-f333365cf393/scratchpad/evidence-104/after.png","epoch":1,"incarnation":1}
