@@ -8,6 +8,7 @@ import { chatCommand } from './shared/chat-commands';
 import { setTurnItemOpen, refreshNextOpenTurnItemDetail } from './shared/timeline-item-fetch';
 import { mobileThreadActivity } from './thread-work';
 import { mobileThreadRows } from './thread';
+import { chatLocal } from './shared/timeline-presentation';
 import { mobileThreadColors } from './design';
 const now = Date.parse('2026-10-07T12:00:00Z');
 const time = '2026-10-07T12:00:00Z';
@@ -106,4 +107,59 @@ test('read rows retain paths and missing detail has the exact source unavailable
   const client = clientFor([row]); client.rpc = async () => ({ item: null });
   setTurnItemOpen(client, activity.id, true); await refreshNextOpenTurnItemDetail(client, native, now);
   expect(mobileThreadActivity(activity, row, client, now, false, '')).toMatchObject({ call: false, body: '/repo/a.ts', output: 'Output is no longer available.' });
+});
+
+test('answered question preview and history preserve shared parsing and source union order', () => {
+  const row = projected({ type: 'user_input_request', questionAnswer: { requestId: 'request',
+    questionTextById: { second: 'Second question?', first: 'First question?' },
+    answers: { first: ['One', { answers: ['Two', ''] }], answerOnly: 'Standalone answer' },
+    attachmentsByQuestionId: { fileOnly: [{ id: 'image', name: 'actual.png', type: 'image' }] } } });
+  const result = mobileThreadActivity(activity, row, clientFor([row]), now, false, '');
+  expect(result.answerPreview).toBe('One, Two · Standalone answer'); expect(result.hasAnswer).toBe(true);
+  expect(result.answerHistory).toMatchObject([
+    { id: 'second', question: 'Second question?', answer: '', files: [] },
+    { id: 'first', question: 'First question?', answer: 'One, Two', files: [] },
+    { id: 'answerOnly', question: '', answer: 'Standalone answer', files: [] },
+    { id: 'fileOnly', question: '', answer: '', files: [{ name: 'actual.png', image: true, url: '' }] },
+  ]);
+  const collapsed = mobileThreadActivity({ ...activity, detailOpen: false }, row, clientFor([row]), now, false, '');
+  expect(collapsed.answerPreview).toBe(result.answerPreview); expect(collapsed.answerHistory).toEqual([]);
+});
+test('answer previews retain file-only and unanswered source fallbacks without inventing file actions', () => {
+  const answer = { questionTextById: { q: '  Which\nfile? ' }, answers: {}, attachmentsByQuestionId: { q: [{ id: 'a', name: 'source.txt' }] } };
+  const row = projected({ type: 'user_input_request', questionAnswer: answer });
+  expect(mobileThreadActivity(activity, row, clientFor([row]), now, false, '')).toMatchObject({ answerPreview: 'source.txt', hasAnswer: true,
+    answerHistory: [{ files: [{ name: 'source.txt', image: false, url: '' }] }] });
+  answer.attachmentsByQuestionId.q = [];
+  expect(mobileThreadActivity(activity, row, clientFor([row]), now, false, '')).toMatchObject({ answerPreview: 'Which file?', hasAnswer: false });
+  const ordinary = projected({ type: 'command_execution', output: 'result' });
+  expect(mobileThreadActivity(activity, ordinary, clientFor([ordinary]), now, false, '')).toMatchObject({ answerPreview: '', hasAnswer: false, answerHistory: [], output: 'result' });
+});
+test('actual transcript keeps answered history scoped to inherited source item identities', async () => {
+  const rows = ['first', 'second'].map(source => projected({ type: 'user_input_request', questionAnswer: {
+    requestId: source, questionTextById: { q: 'Choice?' }, answers: { q: source }, attachmentsByQuestionId: {} } }, source));
+  const client = clientFor(rows);
+  // The real feed first discloses its run fold, then the multi-item work group.
+  for (let depth = 0; depth < 2; depth++) for (const shown of mobileThreadRows(client, now)) if (shown.toggleOp && !shown.expanded) await chatLocal(client, native, shown.toggleOp.replace('chatlocal:', ''), shown.toggleId, '');
+  for (const row of rows) setTurnItemOpen(client, JSON.stringify([row.sourceThreadId, row.sourceItemId]), true);
+  const shown = mobileThreadRows(client, now).flatMap(row => row.activities);
+  expect(shown.map(row => [row.id, row.answerPreview, row.answerHistory[0]?.answer])).toEqual([
+    ['["first","item"]', 'first', 'first'], ['["second","item"]', 'second', 'second'],
+  ]);
+});
+test('expanded reasoning uses existing Markdown/code blocks while commands remain literal', async () => {
+  const markdown = '**Important**\n\n- first\n\n```typescript\nconst n = 1;\n```';
+  const row = projected({ type: 'reasoning', text: markdown }); const client = clientFor([row]);
+  for (const shown of mobileThreadRows(client, now)) if (shown.toggleOp && !shown.expanded) await chatLocal(client, native, shown.toggleOp.replace('chatlocal:', ''), shown.toggleId, '');
+  setTurnItemOpen(client, activity.id, true);
+  const shown = mobileThreadRows(client, now).flatMap(row => row.activities)[0]!;
+  expect(shown.reasoningBlocks.map(block => block.kind)).toEqual(['markdown', 'code']);
+  expect(shown.reasoningBlocks[0]!.text).toContain('**Important**');
+  expect(shown.reasoningBlocks[1]!.tokens.map(token => token.text).join('')).toBe('const n = 1;');
+  setTurnItemOpen(client, activity.id, false);
+  expect(mobileThreadRows(client, now).flatMap(row => row.activities)[0]!.reasoningBlocks).toEqual([]);
+  const command = projected({ input: 'echo markdown', output: markdown }); const commands = clientFor([command]);
+  for (const shown of mobileThreadRows(commands, now)) if (shown.toggleOp && !shown.expanded) await chatLocal(commands, native, shown.toggleOp.replace('chatlocal:', ''), shown.toggleId, '');
+  setTurnItemOpen(commands, activity.id, true);
+  expect(mobileThreadRows(commands, now).flatMap(row => row.activities)[0]).toMatchObject({ reasoningBlocks: [], output: markdown });
 });

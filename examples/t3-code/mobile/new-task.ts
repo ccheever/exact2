@@ -15,6 +15,7 @@ import { branchState, cardBranchView, startFromOrigin } from './shared/r4-git-br
 import { mobileSend } from './composer-behavior';
 import { mobileDraftChanged } from './draft';
 import { isScratch, scratchRootOf } from './shared/r12-threads-scratch';
+import { mobileMoveScratch, mobileOpenScratch, mobileScratchTarget } from './new-task-scratch';
 import { threadOps } from './shared/client-ops-threads';
 
 export interface NewTaskProject { id: string; environmentId: string; projectId: string; title: string; subtitle: string; path: string; selected: boolean; disabled: boolean; last: boolean }
@@ -23,7 +24,7 @@ export interface NewTaskBranch { id: string; label: string; badge: string; selec
 export interface NewTaskSnapshot { revision: number; environmentId: string; projectId: string; threadId: string; projectTitle: string; environmentLabel: string;
   projects: NewTaskProject[]; environments: NewTaskEnvironment[]; branches: NewTaskBranch[]; query: string; branchQuery: string;
   emptyTitle: string; emptyDetail: string; branchEmpty: string; error: string; busy: boolean; branchLoaded: boolean; branchHasMore: boolean;
-  canSelect: boolean; draft: boolean; scratch: boolean; workspaceMode: string; workspaceLabel: string; branchLabel: string; originOn: boolean;
+  canSelect: boolean; canStartScratch: boolean; scratchTarget: string; hasProjects: boolean; draft: boolean; scratch: boolean; workspaceMode: string; workspaceLabel: string; branchLabel: string; originOn: boolean;
   composer: ThreadComposerState; }
 export interface NewTaskResult { revision: number; message: string; submitted: boolean; environmentId: string; projectId: string; threadId: string }
 interface TaskState { owner: string; busy: boolean; error: string; branchLoaded: boolean; branchHasMore: boolean; canWriteGit: boolean; branches: NewTaskBranch[]; branchQuery: string; }
@@ -57,13 +58,14 @@ export function mobileNewTask(query = '', client: T3Client = mobileClient, backg
   const emptyDetail = needle ? 'Try a different project name or workspace path.' : !hasConnections ? 'Add an environment before creating a task.' : connecting && !client.shellLoaded
     ? 'Loading projects from the saved environment.' : sources.length ? 'The connected environment did not report any projects.' : client.error || 'The saved environment is offline. Check the URL or start the environment, then retry.';
   const composer = { ...mobileThreadComposer(client), placeholder: 'Ask anything…' };
-  composer.canSend &&= !client.threadId && canSelect && (context.envMode !== 'worktree' || !!context.branch);
+  composer.canSend &&= !client.threadId && canSelect && (scratch || context.envMode !== 'worktree' || !!context.branch);
   return { revision: client.revision, environmentId: client.environmentId, projectId: client.projectId, threadId: client.threadId,
     projectTitle: str(project?.title), environmentLabel: environments.find(environment => environment.selected)?.label ?? str(obj(client.config.environment).label),
     projects, environments, branches: state.branches, query, branchQuery: state.branchQuery, emptyTitle, emptyDetail,
     branchEmpty: state.branchLoaded ? state.error || (state.branchQuery ? 'No matching branches' : 'No branches available') : 'Loading branches…',
     error: state.error, busy: state.busy, branchLoaded: state.branchLoaded, branchHasMore: state.branchHasMore, canSelect,
-    draft: !client.threadId && !!project, scratch, workspaceMode: context.envMode,
+    canStartScratch: !!mobileScratchTarget(client, background), scratchTarget: mobileScratchTarget(client, background), hasProjects: projects.length > 0,
+    draft: !client.threadId && !!project, scratch, workspaceMode: scratch ? 'local' : context.envMode,
     workspaceLabel: context.envMode === 'worktree' ? 'New worktree' : context.worktreePath ? 'Current worktree' : 'Current checkout',
     branchLabel: context.branch || 'Select branch', originOn: startFromOrigin(client), composer };
 }
@@ -85,7 +87,7 @@ export function mobileNewTaskChooser(query = '', groupingMode = 'repository', cl
     return row ? [{ ...row, title: scope.title, subtitle: members.length > 1 ? `${members.length} workspaces` : str(target.project.workspaceRoot), last: false }] : [];
   });
   projects.forEach((row, index) => { row.last = index === projects.length - 1; });
-  return { ...data, projects, query,
+  return { ...data, projects, query, hasProjects: scopes.length > 0,
     emptyTitle: needle && scopes.length ? 'No matching projects' : data.emptyTitle,
     emptyDetail: needle && scopes.length ? 'Try a different project name or workspace path.' : data.emptyDetail };
 }
@@ -93,7 +95,7 @@ export function mobileNewTaskChooser(query = '', groupingMode = 'repository', cl
 /** Awaited root resource, real repository reads; only projected rows/permission booleans survive the answer. */
 export async function mobileNewTaskPrepare(branchQuery: string, nativeInput: Native | null | undefined, client: T3Client = mobileClient) {
   const state = stateFor(client), expected = owner(client);
-  if (!nativeInput?.available || !client.ready || client.threadId || !client.projectId) return { revision: client.revision, loaded: false };
+  if (!nativeInput?.available || !client.ready || client.threadId || !client.projectId || mobileNewTask('', client).scratch) return { revision: client.revision, loaded: false };
   const native = letGoAware(mobileNative(nativeInput)), context = draftContext(client);
   const root = str(client.shell.projects.find(project => project.id === client.projectId)?.workspaceRoot), cwd = context.worktreePath || root;
   try {
@@ -146,8 +148,10 @@ export async function mobileNewTaskAction(kind: string, id: string, value: strin
   try {
     assertCurrent();
     if (client.busy || client.pending) throw new ClientError('Wait for the current submission to finish before changing tasks.');
-    if (kind === 'project') {
-      const target = mobileNewTask('', client, background).projects.find(project => project.id === id);
+    if (kind === 'project' || kind === 'scratch') {
+      const target = kind === 'scratch' ? await mobileOpenScratch(id, native, client, background, current)
+        : mobileHomeSources(client, background).flatMap(source => source.shell.projects.filter(project => project.archivedAt == null)
+          .map(project => ({ environmentId: source.environmentId, projectId: str(project.id) }))).find(project => projectKey(project.environmentId, project.projectId) === id);
       if (!target) throw new ClientError('That project is no longer available.');
       if (target.environmentId !== client.environmentId) {
         const entry = [...background.entries.values()].find(entry => entry.environmentId === target.environmentId && entry.phase === 'connected' && entry.synchronized === entry.generation);
@@ -169,10 +173,24 @@ export async function mobileNewTaskAction(kind: string, id: string, value: strin
         throw new ClientError('The selected workspace changed.', 'superseded'); };
       await reducing; assertSelected();
       assertCurrent();
+      if (mobileNewTask('', client, background).scratch) patchDraftContext(client, { envMode: 'local', branch: '', worktreePath: '' });
       await client.persist(storage); assertSelected();
     } else if (kind === 'environment') {
       if (client.threadId) throw new ClientError('A started thread keeps its environment.');
-      await run('environment-run-on', '', id);
+      if (id !== client.environmentId && mobileNewTask('', client, background).scratch) {
+        // The shared desktop move owns text/context only. Preserve files and an
+        // existing destination slot until mobile's independent flow drafts exist.
+        if (client.snapshotDrafts.length) throw new ClientError('Remove this draft’s attachments before changing environments.');
+        const target = await mobileOpenScratch(mobileScratchTarget(client, background, id), native, client, background, current);
+        const key = `${target.environmentId}:new:${target.projectId}`;
+        if (client.local.drafts[key] || client.local.snapshotDrafts[key]?.length) throw new ClientError('That environment already has a saved draft without a project. Open it separately to keep both drafts.');
+        const moved = await mobileMoveScratch(id, native, client, background, current);
+        assertCurrent();
+        if (moved.status) client.adoptStatus(moved.status, moved.generation);
+        await client.persist(storage);
+      } else await run('environment-run-on', '', id);
+    } else if (['workspace', 'branch', 'branch-more', 'origin'].includes(kind) && mobileNewTask('', client, background).scratch) {
+      throw new ClientError('Tasks without a project run locally without a branch or worktree.');
     } else if (kind === 'workspace') {
       await run('cclocal:env-mode', '', value);
       const next = stateFor(client); next.branchLoaded = false; next.branches = [];
@@ -196,6 +214,7 @@ export async function mobileNewTaskAction(kind: string, id: string, value: strin
     }
     else if ((kind === 'send' || kind === 'send-alternate')) {
       if (client.threadId) throw new ClientError('Open a new task draft before sending.');
+      if (mobileNewTask('', client, background).scratch) patchDraftContext(client, { envMode: 'local', branch: '', worktreePath: '' });
       const environmentId = client.environmentId, projectId = client.projectId, generation = client.generation;
       await run(kind);
       const submitted = !!client.threadId && environmentId === client.environmentId && projectId === client.projectId && generation === client.generation;

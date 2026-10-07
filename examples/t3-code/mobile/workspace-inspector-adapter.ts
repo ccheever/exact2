@@ -9,7 +9,7 @@ import { workspaceInspectorFocusOwner, workspaceInspectorSnapshot, workspaceInsp
 import { mobileFilesSnapshot, type FileTreeSnapshot } from './file-data';
 import { mobileReviewSnapshot, type ReviewSnapshot } from './review-data';
 import { EMPTY_MOBILE_GIT, mobileGitSnapshot, type MobileGitSnapshot } from './git-overview';
-import { mobileReviewColors } from './review-colors';
+import { mobileReviewColors, mobileReviewNavigatorAppearance } from './review-colors';
 
 export function mobileInspectorContext(entries: unknown, candidateSupported: boolean, columnSupported: boolean, columnWidth: number, resizing: boolean, reducedMotion: boolean,
   dark: boolean, client: T3Client = mobileClient) {
@@ -59,7 +59,7 @@ export function mobileInspectorTransition(serialized: string, context: string, k
     content: captureContent(content, result, now, dark, client), revealInspector: result.revealInspector };
 }
 export function mobileInspectorPresentation(content: string, serialized: string, visible: boolean, query: string, scheme: string, themeId: string,
-  client: T3Client = mobileClient) {
+  client: T3Client = mobileClient, baseFontSize = 16) {
   const view = workspaceInspectorSnapshot(serialized), stored = parse(content), valid = stored.owner === view.contentOwner && !!view.contentOwner;
   const colors = mobileReviewColors(scheme, themeId), files = valid && Array.isArray(obj(stored.files).rows) ? stored.files as unknown as FileTreeSnapshot : emptyFiles;
   const reviewFiles = valid && Array.isArray(stored.reviewFiles) ? stored.reviewFiles as ReviewSnapshot['files'] : [];
@@ -68,7 +68,7 @@ export function mobileInspectorPresentation(content: string, serialized: string,
   const title = kind === 'changes' ? 'Changed files' : kind === 'git' ? git.branchLabel : 'Files';
   const subtitle = kind === 'changes' ? `${reviewFiles.length} file${reviewFiles.length === 1 ? '' : 's'}` : kind === 'files' ? files.title : '';
   const registration = parse(view.registrationJSON);
-  return { title, files, reviewFiles, reviewSelected: valid ? str(stored.reviewSelected) : '', git,
+  return { title, files, reviewFiles, navigator: mobileReviewNavigatorAppearance(scheme, themeId, baseFontSize), reviewSelected: valid ? str(stored.reviewSelected) : '', git,
     showFiles: valid && kind === 'files', showChanges: valid && kind === 'changes', showGit: valid && kind === 'git',
     configuration: JSON.stringify({ routeKey: 't3-workspace-inspector', owner: str(registration.token), kind, title, subtitle, query,
       visible: visible && view.active && valid, foreground: colors.foreground, muted: colors.muted, sheet: colors.sheet, border: colors.border }) };

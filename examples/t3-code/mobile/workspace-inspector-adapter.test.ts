@@ -83,3 +83,14 @@ test('generation change cannot reuse a mismatched captured owner', () => {
   expect(oldIntoNew.showGit).toBe(false);
   expect(oldIntoNew.git.owner).toBe('');
 });
+
+
+test('Review navigator uses semantic count colors and scaled label/caption roles', async () => {
+  const { mobileReviewNavigatorAppearance } = await import('./review-colors');
+  const light = mobileReviewNavigatorAppearance('light', 't3-code', 16);
+  expect(light).toMatchObject({ labelSize: 13, labelLine: 17, countSize: 12, countLine: 16 });
+  expect(mobileReviewNavigatorAppearance('dark', 't3-code', 22)).toMatchObject({ labelSize: 18, labelLine: 23, countSize: 17, countLine: 22 });
+  const theme = await import('./themes/light.json');
+  expect(light.addition).toBe(theme.default['--color-adaptive-emerald-700-300']);
+  expect(light.deletion).toBe(theme.default['--color-adaptive-rose-700-300']);
+});

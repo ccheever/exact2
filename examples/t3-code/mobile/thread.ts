@@ -1,6 +1,7 @@
 // Mobile ThreadFeed/ThreadComposer at upstream365aa87982; shared transport and V2 reducers stay authoritative.
 // @ref llp/1106.000-mobile-app-layout.decision.md#shared-typescript
 // @ref llp/1106.003-pairing-and-transport.decision.md#mobile-adaptations
+import { mobileAnswerFilesRequest, mobilePrepareAnswerFiles } from './thread-answer-files';
 import { mobileClient, mobileCommand, mobileNative } from './client';
 import { mobileProviderIconURL } from './environment-detail';
 import type { T3Client } from './shared/client';
@@ -34,7 +35,7 @@ export interface ThreadComposerState { draft: string; placeholder: string; canSe
   providerIconURL: string; modelUnavailable: boolean; running: boolean; queueCount: number; }
 export interface ThreadSnapshot { revision: number; environmentId: string; threadId: string; title: string; loaded: boolean; loading: boolean; rows: ThreadRow[];
   emptyTitle: string; emptyDetail: string; error: string; uncertain: boolean; hasMore: boolean; historyLoading: boolean; historyError: string;
-  readsNeeded: boolean; approvals: ThreadApproval[]; composer: ThreadComposerState; }
+  readsNeeded: boolean; answerFilesOwner: string; answerFilesRequest: string; approvals: ThreadApproval[]; composer: ThreadComposerState; }
 const timeFormatter = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
 export function mobileMessageTime(value: unknown): string { const stamp = Date.parse(str(value)); return Number.isFinite(stamp) ? timeFormatter.format(stamp) : ''; }
 
@@ -76,7 +77,11 @@ export function mobileThreadRows(client: T3Client, now: number, dark = false): T
       intent: message.intent ?? '', copied: (view.copies.get(message.id)?.nonce ?? 0) > 0 && view.copies.get(message.id)?.ok !== false,
       expanded: message.expanded === true, toggleOp, toggleId: message.groupId ?? message.runId ?? '', failed: message.failed === true,
       live: message.live === true, media, first: false, last: false,
-      activities: (['group', 'live'].includes(message.kind) ? [] : message.activities ?? []).map(activity => mobileThreadActivity(activity, projected.get(activity.id), client, now, dark, mobileMessageTime(activity.timestamp))) });
+      activities: (['group', 'live'].includes(message.kind) ? [] : message.activities ?? []).map(activity => {
+        const shown = mobileThreadActivity(activity, projected.get(activity.id), client, now, dark, mobileMessageTime(activity.timestamp));
+        // Parse only visible reasoning; tools keep literal command/result output.
+        return { ...shown, reasoningBlocks: shown.reasoning && shown.expanded ? mobileThreadBlocks(shown.output, dark) : [] };
+      }) });
   }
   rows.forEach((row, index) => { row.first = index === 0; row.last = index === rows.length - 1; }); return rows;
 }
@@ -110,7 +115,8 @@ export function mobileThread(now: number, dark = false, client: T3Client = mobil
   const rows = mobileThreadRows(client, now, dark), loaded = !!client.thread;
   const loading = !loaded && ['connected', 'connecting', 'reconnecting'].includes(client.connection);
   const requests = requestPresentation(client), view = timelineView(client);
-  return { revision: client.revision, environmentId: client.environmentId, threadId: client.threadId,
+  const answerFiles = mobileAnswerFilesRequest(client, visibleAnswerFiles(rows), now);
+  return { answerFilesOwner: answerFiles.owner, answerFilesRequest: answerFiles.request, revision: client.revision, environmentId: client.environmentId, threadId: client.threadId,
     title: str(obj(client.projection.thread).title), loaded, loading, rows,
     emptyTitle: loaded ? 'No conversation yet' : loading ? '' : 'Messages not cached',
     emptyDetail: loaded ? 'Ask the agent to inspect the repo, run a command, or continue the active thread.' : loading ? '' : 'Reconnect this environment to load the conversation.',
@@ -143,4 +149,16 @@ export async function mobileThreadPrepare(nativeInput: Native | null | undefined
 /** Same real command seam as root; no manufactured success or alternate reducer. */
 export function mobileThreadAction(args: unknown[], native: Native | null | undefined, storage: Files) {
   return mobileCommand(args, native, storage);
+}
+
+function visibleAnswerFiles(rows: ThreadRow[]): string[] {
+  return rows.flatMap(row => row.activities.flatMap(activity => activity.expanded
+    ? activity.answerHistory.flatMap(question => question.files.map(file => file.id)) : []));
+}
+/** A dedicated root mutation owns this request; transcript rendering stays pure. */
+export async function mobileThreadAnswerFilesPrepare(owner: string, request: string, now: number,
+  nativeInput: Native | null | undefined, client: T3Client = mobileClient) {
+  const native = nativeInput?.available ? letGoAware(mobileNative(nativeInput)) : nativeInput;
+  await mobilePrepareAnswerFiles(client, native, now, owner, request, visibleAnswerFiles(mobileThreadRows(client, now)));
+  return { revision: client.revision };
 }

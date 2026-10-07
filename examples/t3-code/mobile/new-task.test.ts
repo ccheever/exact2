@@ -172,3 +172,242 @@ test('unprepared explicit identity and direct settings children cannot operate t
   await f.action(settings.owner, 'prepare', '', '', 'runtime');
   expect(f.snapshot('/new/draft/settings/runtime', 'runtime').ready).toBe(true);
 });
+
+// No project uses the real shared ensureScratch + shell decoder, never a synthetic chooser row.
+import { mobileNewTask, mobileNewTaskChooser, mobileNewTaskPrepare } from './new-task';
+import { mobileScratchTarget, mobileOpenScratch, mobileMoveScratch } from './new-task-scratch';
+import { patchDraftContext } from './shared/composer-controls-branch';
+function scratchNative(f: Awaited<ReturnType<typeof fixture>>, options: { grant?: boolean; missing?: boolean } = {}) {
+  f.client.config.scratchWorkspaceRoot = '/scratch';
+  const original = f.native.later;
+  f.native.later = async input => {
+    const request = obj(input);
+    if (request.path === '/api/auth/session') { f.calls.push(request); return { ok: true, generation: f.client.generation,
+      value: { authenticated: true, permissions: options.grant === false ? [] : ['orchestration:operate'] } }; }
+    if (request.method === 'projects.ensureScratch') { f.calls.push(request); return { ok: true, generation: f.client.generation, value: { projectId: 'scratch' } }; }
+    if (request.path === '/api/orchestration/shell') { f.calls.push(request); return { ok: true, generation: f.client.generation,
+      value: { snapshotSequence: 1, projects: [...f.client.shell.projects, ...(options.missing ? [] : [{ id: 'scratch', title: 'Scratch', workspaceRoot: '/scratch' }])], threads: [] } }; }
+    return original(input);
+  };
+}
+
+test('No project uses actual shared creation and shell admission; previous and scratch drafts survive', async () => {
+  const f = await fixture(); scratchNative(f);
+  f.client.local.drafts['env:new:scratch'] = 'Existing scratch';
+  patchDraftContext(f.client, { envMode: 'worktree', branch: 'stale', worktreePath: '/old' }, 'env:new:scratch');
+  const chooser = f.snapshot('/new'), data = mobileNewTaskChooser('', 'repository', f.client, f.fleet);
+  expect(data.canStartScratch).toBe(true); expect(data.projects.map(row => row.projectId)).toEqual(['a', 'b']);
+  expect(await f.action(chooser.owner, 'scratch', data.scratchTarget)).toMatchObject({ nextLocation: '/new/draft', message: '', projectId: 'scratch' });
+  expect(f.snapshot('/new/draft', 'draft').ready).toBe(true); expect(f.client.draft).toBe('Existing scratch');
+  expect(f.client.local.drafts['env:new:a']).toBe('A original');
+  expect(draftContext(f.client)).toEqual({ envMode: 'local', branch: '', worktreePath: '' });
+  expect(f.calls.filter(call => call.method === 'projects.ensureScratch')).toHaveLength(1);
+  expect(f.calls.filter(call => call.op === 'timelineSleep')).toHaveLength(1);
+  expect(f.calls.some(call => call.path === '/api/orchestration/shell')).toBe(true);
+  expect(mobileNewTaskChooser('', 'repository', f.client, f.fleet).projects.some(row => row.projectId === 'scratch')).toBe(false);
+  const before = f.calls.length; await mobileNewTaskPrepare('', f.native, f.client); expect(f.calls.length).toBe(before);
+  for (const kind of ['workspace', 'origin', 'branch']) expect((await f.action(chooser.owner, kind, '', 'worktree', 'draft')).message).toContain('without a project');
+});
+
+test('scratch eligibility excludes reconnecting cached shells and permission loss writes nothing', async () => {
+  const f = await fixture(); scratchNative(f, { grant: false });
+  const chooser = f.snapshot('/new'), key = mobileScratchTarget(f.client, f.fleet);
+  f.client.connection = 'reconnecting'; expect(mobileScratchTarget(f.client, f.fleet)).toBe('');
+  expect((await f.action(chooser.owner, 'scratch', key)).message).toContain('no longer available');
+  f.client.connection = 'connected';
+  expect((await f.action(chooser.owner, 'scratch', key)).message).toContain('cannot create');
+  expect(f.calls.some(call => call.method === 'projects.ensureScratch')).toBe(false); expect(f.client.projectId).toBe('a');
+});
+
+test('missing shell project is bounded, does not select a guessed project, and retry is explicit', async () => {
+  const f = await fixture(); scratchNative(f, { missing: true });
+  const chooser = f.snapshot('/new');
+  expect((await f.action(chooser.owner, 'scratch', mobileScratchTarget(f.client, f.fleet))).message).toContain('has not reached');
+  expect(f.calls.filter(call => call.op === 'timelineSleep')).toHaveLength(20);
+  expect(f.calls.filter(call => call.method === 'projects.ensureScratch')).toHaveLength(1); expect(f.client.projectId).toBe('a');
+});
+
+test('leaving during ensureScratch never selects late project or starts another request', async () => {
+  const f = await fixture(); scratchNative(f); const original = f.native.later;
+  let release!: () => void, entered!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; }), started = new Promise<void>(resolve => { entered = resolve; });
+  f.native.later = async input => { if (obj(input).method === 'projects.ensureScratch') { entered(); await gate; } return original(input); };
+  const chooser = f.snapshot('/new'), pending = f.action(chooser.owner, 'scratch', mobileScratchTarget(f.client, f.fleet));
+  await started;
+  expect((await f.action(chooser.owner, 'scratch', mobileScratchTarget(f.client, f.fleet))).message).toContain('Wait');
+  view('flow', 'gone', '/', false, true, f.client, f.fleet); release();
+  await expect(pending).rejects.toMatchObject({ kind: 'superseded' });
+  expect(f.client.projectId).toBe('a'); expect(f.calls.some(call => call.path === '/api/orchestration/shell')).toBe(false);
+});
+
+test('an aborted scratch polling answer stays superseded despite shared optional-wait catches', async () => {
+  const f = await fixture(); scratchNative(f); const original = f.native.later;
+  f.native.later = async input => { if (obj(input).op === 'timelineSleep') throw { name: 'FetchError', kind: 'Aborted' }; return original(input); };
+  const chooser = f.snapshot('/new');
+  await expect(f.action(chooser.owner, 'scratch', mobileScratchTarget(f.client, f.fleet))).rejects.toMatchObject({ kind: 'superseded' });
+  expect(f.client.projectId).toBe('a'); expect(f.calls.some(call => call.path === '/api/orchestration/shell')).toBe(false);
+});
+
+test('scratch explicit links ignore obsolete worktree settings and preserve the saved draft', async () => {
+  const f = await fixture(); scratchNative(f);
+  f.client.shell.projects.push({ id: 'scratch', title: 'Scratch', workspaceRoot: '/scratch' });
+  f.client.local.drafts['env:new:scratch'] = 'Keep me';
+  const url = '/new/draft?environmentId=env&projectId=scratch&branch=old&worktreePath=%2Fold', flow = f.snapshot(url);
+  expect((await f.action(flow.owner, 'prepare')).message).toBe('');
+  expect(f.snapshot(url).ready).toBe(true); expect(f.client.draft).toBe('Keep me');
+  expect(draftContext(f.client)).toEqual({ envMode: 'local', branch: '', worktreePath: '' });
+  expect(f.calls.some(call => call.method === 'vcs.switchRef')).toBe(false);
+});
+
+test('remote scratch addresses actual fleet generation and adopts only that shell', async () => {
+  const f = await fixture();
+  const entry = { key: 'remote-key', origin: 'https://remote.test', environmentId: 'remote', phase: 'connected' as const,
+    message: '', traceId: '', generation: 7, synchronized: 7, lastEvent: 0, subscriptions: {},
+    config: { scratchWorkspaceRoot: '/remote-scratch' }, shell: { ...f.client.shell, projects: [] }, scopes: [], error: '', requested: true };
+  f.fleet.entries.set(entry.key, entry);
+  const native: Native = { available: true, watch() {}, async later(input) {
+    const request = obj(input); f.calls.push(request);
+    const value = request.path === '/api/auth/session' ? { authenticated: true, permissions: ['orchestration:operate'] }
+      : request.method === 'projects.ensureScratch' ? { projectId: 'remote-scratch' }
+        : request.path === '/api/orchestration/shell' ? { snapshotSequence: 1, projects: [{ id: 'remote-scratch', workspaceRoot: '/remote-scratch' }], threads: [] } : {};
+    return { ok: true, generation: request.generation ?? 0, value };
+  } };
+  const target = mobileScratchTarget(f.client, f.fleet);
+  expect(await mobileOpenScratch(target, native, f.client, f.fleet, () => true)).toEqual({ environmentId: 'remote', projectId: 'remote-scratch' });
+  for (const call of f.calls.filter(call => call.op === 'http' || call.op === 'request')) expect(call).toMatchObject({ fleet: 'remote-key', generation: 7 });
+  expect(entry.shell.projects[0]?.id).toBe('remote-scratch'); expect(f.client.projectId).toBe('a');
+  expect(f.client.shell.projects.some(project => project.id === 'remote-scratch')).toBe(false);
+});
+
+test('changing selected project while scratch authorization waits prevents the create write', async () => {
+  const f = await fixture(); scratchNative(f); const original = f.native.later;
+  let release!: () => void, entered!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; }), started = new Promise<void>(resolve => { entered = resolve; });
+  f.native.later = async input => { if (obj(input).path === '/api/auth/session') { entered(); await gate; } return original(input); };
+  const chooser = f.snapshot('/new'), pending = f.action(chooser.owner, 'scratch', mobileScratchTarget(f.client, f.fleet));
+  await started; f.client.projectId = 'b'; release();
+  await expect(pending).rejects.toMatchObject({ kind: 'superseded' });
+  expect(f.calls.some(call => call.method === 'projects.ensureScratch')).toBe(false);
+  expect(f.client.projectId).toBe('b'); expect(f.client.draft).toBe('B original');
+});
+
+test('scratch branch routes redirect and scratch environment changes cannot strand attachment owners', async () => {
+  const f = await fixture(); scratchNative(f); const chooser = f.snapshot('/new');
+  await f.action(chooser.owner, 'scratch', mobileScratchTarget(f.client, f.fleet));
+  expect(f.snapshot('/new/draft/branch', 'branch')).toMatchObject({ ready: false, nextLocation: '/new/draft' });
+  f.snapshot('/new/draft/environment', 'environment');
+  f.client.local.snapshotDrafts[f.client.draftKey] = [{ id: 'owned-file', name: 'keep.txt', type: 'file' }];
+  const before = f.calls.length;
+  expect((await f.action(chooser.owner, 'environment', 'other', '', 'environment')).message).toContain('attachments');
+  expect(f.calls).toHaveLength(before); expect(f.client.snapshotDrafts[0]?.id).toBe('owned-file');
+});
+
+test('scratch Run on refuses an occupied destination after real remote ensure without overwriting either draft', async () => {
+  const f = await fixture(); scratchNative(f); const chooser = f.snapshot('/new');
+  await f.action(chooser.owner, 'scratch', mobileScratchTarget(f.client, f.fleet));
+  f.client.local.drafts[f.client.draftKey] = 'Source draft';
+  const entry = { key: 'remote-key', origin: 'https://remote.test', environmentId: 'remote', phase: 'connected' as const,
+    message: '', traceId: '', generation: 7, synchronized: 7, lastEvent: 0, subscriptions: {}, config: { scratchWorkspaceRoot: '/remote-scratch' },
+    shell: { ...f.client.shell, projects: [{ id: 'remote-scratch', workspaceRoot: '/remote-scratch' }] }, scopes: [], error: '', requested: true };
+  f.fleet.entries.set(entry.key, entry); f.client.local.drafts['remote:new:remote-scratch'] = 'Destination draft';
+  const original = f.native.later;
+  f.native.later = async input => {
+    const request = obj(input);
+    if (request.fleet === 'remote-key') { f.calls.push(request); return { ok: true, generation: 7,
+      value: request.path === '/api/auth/session' ? { authenticated: true, permissions: ['orchestration:operate'] } : { projectId: 'remote-scratch' } }; }
+    return original(input);
+  };
+  f.snapshot('/new/draft/environment', 'environment');
+  expect((await f.action(chooser.owner, 'environment', 'remote', '', 'environment')).message).toContain('already has a saved draft');
+  expect(f.calls.some(call => call.method === 'projects.ensureScratch' && call.fleet === 'remote-key')).toBe(true);
+  expect(f.calls.some(call => call.op === 'connect' || call.op === 'fleetStop')).toBe(false);
+  expect(f.client.draft).toBe('Source draft'); expect(f.client.local.drafts['remote:new:remote-scratch']).toBe('Destination draft');
+  expect(f.client.environmentId).toBe('env');
+});
+
+test('scratch shared move reduces before any command preamble and restores on route loss during fleet stop', async () => {
+  const f = await fixture(); scratchNative(f);
+  f.client.projectId = 'scratch'; f.client.shell.projects.push({ id: 'scratch', workspaceRoot: '/scratch' });
+  f.client.local.drafts[f.client.draftKey] = 'Keep source';
+  const entry = { key: 'remote-key', origin: 'https://remote.test', environmentId: 'remote', phase: 'connected' as const,
+    message: '', traceId: '', generation: 7, synchronized: 7, lastEvent: 0, subscriptions: {}, config: { scratchWorkspaceRoot: '/remote-scratch' },
+    shell: { ...f.client.shell, projects: [{ id: 'remote-scratch', workspaceRoot: '/remote-scratch' }] }, scopes: [], error: '', requested: true };
+  f.fleet.entries.set(entry.key, entry);
+  let active = true, release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const native: Native = { available: true, watch() {}, async later(input) {
+    const request = obj(input); f.calls.push(request); if (request.op === 'fleetStop') await gate;
+    return { ok: true, generation: f.client.generation, value: {} };
+  } };
+  const pending = mobileMoveScratch('remote', native, f.client, f.fleet, () => active);
+  expect(f.client.local.drafts['remote:new:remote-scratch']).toBe('Keep source');
+  expect(f.client.local.drafts['env:new:scratch']).toBeUndefined();
+  expect(f.calls.map(call => call.op)).toEqual(['fleetStop']);
+  active = false; release();
+  await expect(pending).rejects.toMatchObject({ kind: 'superseded' });
+  expect(f.calls.some(call => call.op === 'connect')).toBe(false);
+  expect(f.client.local.drafts['env:new:scratch']).toBe('Keep source');
+  expect(f.client.local.drafts['remote:new:remote-scratch']).toBeUndefined();
+});
+
+async function scratchRollbackFixture(connectFailure = false) {
+  const f = await fixture(); scratchNative(f);
+  f.client.projectId = 'scratch'; f.client.shell.projects.push({ id: 'scratch', workspaceRoot: '/scratch' });
+  const from = 'env:new:scratch', to = 'remote:new:remote-scratch';
+  f.client.local.drafts[from] = 'Original source';
+  const context = { envMode: 'local', branch: '', worktreePath: '' };
+  f.client.local.composerControls.contexts[from] = context;
+  const entry = { key: 'remote-key', origin: 'https://remote.test', environmentId: 'remote', phase: 'connected' as const,
+    message: '', traceId: '', generation: 7, synchronized: 7, lastEvent: 0, subscriptions: {}, config: { scratchWorkspaceRoot: '/remote-scratch' },
+    shell: { ...f.client.shell, projects: [{ id: 'remote-scratch', workspaceRoot: '/remote-scratch' }] }, scopes: [], error: '', requested: true };
+  f.fleet.entries.set(entry.key, entry);
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const native: Native = { available: true, watch() {}, async later(input) {
+    const request = obj(input); f.calls.push(request); if (request.op === 'fleetStop') await gate;
+    if (request.op === 'connect' && connectFailure) return { ok: false, generation: f.client.generation, error: { kind: 'denied', message: 'Connect refused' } };
+    return { ok: true, generation: f.client.generation, value: {} };
+  } };
+  const pending = mobileMoveScratch('remote', native, f.client, f.fleet, () => true);
+  return { ...f, from, to, context, pending, release };
+}
+
+test('scratch rollback restores captured slots when another project becomes selected', async () => {
+  const f = await scratchRollbackFixture();
+  f.client.projectId = 'b'; f.release();
+  await expect(f.pending).rejects.toMatchObject({ kind: 'superseded' });
+  expect(f.client.local.drafts[f.from]).toBe('Original source'); expect(f.client.local.drafts[f.to]).toBeUndefined();
+  expect(f.client.local.composerControls.contexts[f.from]).toBe(f.context);
+  expect(f.client.local.composerControls.contexts[f.to]).toBeUndefined();
+  expect(f.client.local.selections.remote).toBeUndefined(); expect(f.client.draft).toBe('B original');
+  expect(f.calls.some(call => call.op === 'connect')).toBe(false);
+});
+
+test('scratch captured-slot rollback preserves later source and destination text/context/selection writes', async () => {
+  const f = await scratchRollbackFixture();
+  f.client.projectId = 'b';
+  f.client.local.drafts[f.from] = 'New source edit'; f.client.local.drafts[f.to] = 'New destination edit';
+  const context = { envMode: 'local', branch: 'newer', worktreePath: '' };
+  f.client.local.composerControls.contexts[f.to] = context;
+  f.client.local.selections.remote = { projectId: 'newer-project', threadId: 'newer-thread' };
+  f.release(); await expect(f.pending).rejects.toMatchObject({ kind: 'superseded' });
+  expect(f.client.local.drafts[f.from]).toBe('New source edit'); expect(f.client.local.drafts[f.to]).toBe('New destination edit');
+  expect(f.client.local.composerControls.contexts[f.to]).toBe(context);
+  expect(f.client.local.composerControls.contexts[f.from]).toBe(f.context);
+  expect(f.client.local.selections.remote).toEqual({ projectId: 'newer-project', threadId: 'newer-thread' });
+  expect(f.client.draft).toBe('B original');
+});
+
+test('a refused Connect reply also rolls back by captured cells without clobbering later edits', async () => {
+  const f = await scratchRollbackFixture(true);
+  f.client.local.drafts[f.from] = 'Edited source during wait';
+  f.client.local.drafts[f.to] = 'Edited destination during wait';
+  const context = { envMode: 'local', branch: 'later', worktreePath: '/later' };
+  f.client.local.composerControls.contexts[f.from] = context;
+  const selected = { projectId: 'other', threadId: '' }; f.client.local.selections.remote = selected;
+  f.release(); await expect(f.pending).rejects.toMatchObject({ kind: 'denied', message: 'Connect refused' });
+  expect(f.client.local.drafts[f.from]).toBe('Edited source during wait');
+  expect(f.client.local.drafts[f.to]).toBe('Edited destination during wait');
+  expect(f.client.local.composerControls.contexts[f.from]).toBe(context);
+  expect(f.client.local.selections.remote).toBe(selected);
+});

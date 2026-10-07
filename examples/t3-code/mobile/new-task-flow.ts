@@ -2,7 +2,7 @@
 // @ref llp/1106.005-composer-and-transcript.decision.md#new-task-ownership
 import { mobileClient, mobileNative } from './client';
 import { mobileHomeSources } from './home';
-import { mobileNewTaskAction } from './new-task';
+import { mobileNewTask, mobileNewTaskAction } from './new-task';
 import { mobileSessionGrants } from './environment-detail';
 import { mobileComposerSettings, mobileComposerSettingsAction } from './composer-settings';
 import { patchDraftContext } from './shared/composer-controls-branch';
@@ -88,6 +88,7 @@ export function mobileNewTaskFlowView(session: string, visit: string, location: 
     return { ...base, status: 'prepare', needsPrepare: true };
   }
   if (!selected) return { ...base, status: catalogReady ? 'pick' : 'loading', nextLocation: catalogReady ? '/new' : '' };
+  if (route.context === 'branch' && mobileNewTask('', client, background).scratch) return { ...base, status: 'pick', nextLocation: '/new/draft' };
   // A settings URL needs the same staged session that an explicit button creates.
   if ((route.context === 'settings' && !flow.applied.has(visit)) || route.context === 'settings-child' && !mobileComposerSettings('', '', false, client).open) return { ...base, status: 'prepare', needsPrepare: true };
   flow.readyVisit = visit;
@@ -115,7 +116,7 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
   if (flow.busy || checkouts.has(client)) return result('Wait for the current task change to finish.');
   if (!nativeInput?.available) return result('Open T3 Code on your iPhone or iPad to create a task.');
   if (!client.preferencesLoaded) return result('Wait for saved drafts to load.');
-  if (kind !== 'project' && kind !== 'prepare' && !mobileNewTaskFlowOwns(owner, visit, client)) return result('Wait for the current draft to be ready.');
+  if (kind !== 'project' && kind !== 'scratch' && kind !== 'prepare' && !mobileNewTaskFlowOwns(owner, visit, client)) return result('Wait for the current draft to be ready.');
   if (kind === 'draft') {
     const target = flow.selected, current = () => flows.get(client) === flow && flow.active && flow.visit === visit && sameSelection(target, client);
     if (!current()) return result('Choose a project before changing this draft.');
@@ -130,6 +131,7 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
   } };
   const storage = client === mobileClient ? nativeFiles(native) : suppliedStorage;
   const route = mobileNewTaskRoute(flow.location);
+  if (kind === 'scratch' && (!route.chooser || route.unsupported)) return result('Choose a project before starting this task.');
   flow.busy = true; flow.error = '';
   try {
     // Root's existing snapshot owns preference hydration. Refuse before that
@@ -141,7 +143,7 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
         if (!projectExists(route.environmentId, route.projectId, client, background)) return result('', '/new');
         const chosen = await mobileNewTaskAction('project', JSON.stringify([route.environmentId, route.projectId]), '', native, storage, client, background, current);
         assertCurrent(); if (chosen.message) throw new ClientError(chosen.message);
-        if (route.branch) {
+        if (route.branch && !mobileNewTask('', client, background).scratch) {
           const target = selection(client), expected = () => current() && sameSelection(target, client);
           const scoped: Native = { available: native.available, watch: topic => native.watch(topic), later: async input => {
             if (!expected()) throw new ClientError('The selected workspace changed.', 'superseded');
@@ -173,12 +175,12 @@ export async function mobileNewTaskFlowAction(owner: string, visit: string, kind
       flow.applied.add(visit);
       return result();
     }
-    if (kind !== 'project' && !sameSelection(flow.selected, client)) throw new ClientError('Choose a project before changing this draft.');
+    if (kind !== 'project' && kind !== 'scratch' && !sameSelection(flow.selected, client)) throw new ClientError('Choose a project before changing this draft.');
     const response = await mobileNewTaskAction(kind, id, value, native, storage, client, background, current);
     assertCurrent(); if (response.message) throw new ClientError(response.message);
     if (response.submitted) { flow.selected = null; return result('', '', true); }
     flow.selected = selection(client); flow.applied.add(visit);
-    return result('', kind === 'project' ? '/new/draft' : '');
+    return result('', kind === 'project' || kind === 'scratch' ? '/new/draft' : '');
   } catch (error) {
     if (letGo(error)) throw error;
     if (current()) flow.error = error instanceof Error ? error.message : 'Could not open this task.';

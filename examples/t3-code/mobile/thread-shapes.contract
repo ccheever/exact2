@@ -17,6 +17,16 @@ shape ThreadMedia
   name: string
   kind: string
   url: string
+shape ThreadAnswerFile
+  id: string
+  name: string
+  image: bool
+  url: string
+shape ThreadAnswerHistory
+  id: string
+  question: string
+  answer: string
+  files: list<ThreadAnswerFile>
 shape ThreadActivity
   id: string
   label: string
@@ -37,6 +47,10 @@ shape ThreadActivity
   retryRunId: string
   retryDisabled: bool
   iconURL: string
+  reasoningBlocks: list<ThreadBlock>
+  answerPreview: string
+  hasAnswer: bool
+  answerHistory: list<ThreadAnswerHistory>
 shape ThreadRow
   id: string
   kind: string
@@ -104,6 +118,8 @@ shape ThreadSnapshot
   historyLoading: bool
   historyError: string
   readsNeeded: bool
+  answerFilesOwner: string
+  answerFilesRequest: string
   approvals: list<ThreadApproval>
   composer: ThreadComposerState
 shape ThreadPreparation

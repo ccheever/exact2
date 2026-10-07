@@ -75,6 +75,7 @@ shape ReviewSnapshot
   owner: string
   revision: number
   sectionId: string
+  patchRequest: string
   title: string
   subtitle: string
   sections: list<ReviewSection>
@@ -98,5 +99,7 @@ shape ReviewSnapshot
   commentCount: number
 
 shape ReviewResult
+  requestRoute: string
+  navigation: string
   message: string
   data: ReviewSnapshot

@@ -1,5 +1,8 @@
 // @ref llp/1106.005-composer-and-transcript.decision.md#work-log-detail-rows
 // Pinned365aa87982 thread-work-log.tsx ThreadWorkLogRow; shared state/read owners remain unchanged.
+import { mobileAnswerFile } from './thread-answer-files';
+import type { ThreadBlock } from './thread';
+import { questionAnswerText, questionAnswerPreview, hasQuestionAnswer } from './shared/timeline-inspect';
 import type { T3Client } from './shared/client';
 import { arr, obj, str, type Activity, type Obj } from './shared/domain';
 import { toolCallLines, turnItemNeedsDetailFetch, turnItemOutputText } from './shared/timeline-item-detail';
@@ -7,13 +10,24 @@ import { turnItemDetailView } from './shared/timeline-item-fetch';
 import { projectedWorkEntry, groupAction, collectToolFilePaths } from './shared/timeline-worklog';
 import { preparationFailureRunId, workspacePreparationRetryRunIds } from './shared/r11-upstream-retry';
 
+export interface ThreadAnswerFile { id: string; name: string; image: boolean; url: string }
+export interface ThreadAnswerHistory { id: string; question: string; answer: string; files: ThreadAnswerFile[] }
 export interface ThreadActivity { id: string; label: string; body: string; output: string; result: string; detail: string;
   failed: boolean; expandable: boolean; expanded: boolean; reasoning: boolean; loading: boolean; symbol: string; timestamp: string;
-  prominentError: boolean; warning: boolean; call: boolean; retryRunId: string; retryDisabled: boolean; iconURL: string }
+  prominentError: boolean; warning: boolean; call: boolean; retryRunId: string; retryDisabled: boolean; iconURL: string; reasoningBlocks: ThreadBlock[]; answerPreview: string; hasAnswer: boolean; answerHistory: ThreadAnswerHistory[] }
 const toolSymbols: Record<string, string> = { terminal: 'terminal', 'file-text': 'doc.text', 'file-code': 'doc.text', search: 'magnifyingglass',
   brain: 'brain', 'circle-alert': 'exclamationmark.circle', 'file-pen': 'square.and.pencil', 'folder-open': 'folder', globe: 'globe', 'git-branch': 'arrow.triangle.branch' };
 const errorTime = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 function dateLabel(value: unknown) { const stamp = Date.parse(str(value)); return Number.isFinite(stamp) ? errorTime.format(stamp) : ''; }
+
+/** QuestionAnswerHistory365aa87982 preserves the source union order. */
+function answerHistory(answer: Obj, client: T3Client, row: Obj, now: number): ThreadAnswerHistory[] {
+  const questions = obj(answer.questionTextById), answers = obj(answer.answers), attachments = obj(answer.attachmentsByQuestionId);
+  return [...new Set([...Object.keys(questions), ...Object.keys(answers), ...Object.keys(attachments)])].map(id => ({
+    id, question: str(questions[id]), answer: questionAnswerText(answers[id]),
+    files: arr(attachments[id]).map(file => mobileAnswerFile(client, row, id, file, now)),
+  }));
+}
 
 /** Scalar projection only. Disclosure/fetched output/retry remain on the adopted shared owners. */
 export function mobileThreadActivity(activity: Activity, row: Obj | undefined, client: T3Client, now: number, dark: boolean, timestamp: string): ThreadActivity {
@@ -35,8 +49,10 @@ export function mobileThreadActivity(activity: Activity, row: Obj | undefined, c
   const output = turnItemNeedsDetailFetch(original)
     ? detail?.state === 'missing' ? 'Output is no longer available.' : detail?.text ?? '' : detail?.text || activity.output;
   const fetched = detail !== null && detail.item !== original;
+  const answer = original.type === 'user_input_request' && original.questionAnswer ? obj(original.questionAnswer) : null;
   return {
-    id: activity.id, label: warning ? `Usage limit reached.${reset ? ` Retry after ${reset}.` : ''}`
+    id: activity.id, reasoningBlocks: [], answerPreview: answer ? questionAnswerPreview(answer) : '',
+    hasAnswer: answer !== null && hasQuestionAnswer(answer), answerHistory: expanded && answer && row ? answerHistory(answer, client, row, now) : [], label: warning ? `Usage limit reached.${reset ? ` Retry after ${reset}.` : ''}`
       : activity.reasoning && expanded ? activity.status ?? 'Thought' : activity.label,
     body: activity.reasoning ? '' : call ? callBody : readPaths || activity.body,
     output: !row ? activity.output : expanded ? ['file_search', 'web_search'].includes(str(shown.type)) ? turnItemOutputText(shown) ?? ''
