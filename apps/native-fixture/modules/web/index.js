@@ -95,3 +95,19 @@ export function navigation() { tally('navigation:built'); globalThis.exact.diagn
 export function route() { tally('route:built'); }
 export function routeEnded() { tally('route:ended'); }
 export function tabs() { tally('tabs:built'); }
+
+// The app and window scopes (LLP 1075.003.000.001 §2.1): each moment is
+// counted and published for the smoke, as the Swift module does.
+let scheme = 'light', own = null;
+const publishScopes = (moment) => {
+  globalThis.exact.diagnostics.count(`scope.${moment}`);
+  globalThis.exact.diagnostics.publish('scopes', { scheme, exclusive: own?.exclusive ?? false, hasWindow: !!own?.window, frame: own ? own.frame.slice(2) : [], last: moment });
+};
+export function app(a) {
+  scheme = a.prefersColorScheme;
+  globalThis.exact.diagnostics.publish('app', { processOwner: a.processOwner, hasApplication: true, visibilityState: a.visibilityState, onLine: a.onLine });
+  publishScopes(a.isNew ? 'app-built' : 'app-changed');
+}
+export function appEnded() { publishScopes('app-ended'); }
+export function window(w) { own = w; publishScopes(w.isNew ? 'window-built' : 'window-changed'); }
+export function windowEnded() { publishScopes('window-ended'); }

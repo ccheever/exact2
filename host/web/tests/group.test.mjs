@@ -70,3 +70,64 @@ check('the ghost is a stripped clone in the top layer, with the row\'s look', as
     rmSync(profile, { recursive: true, force: true });
   }
 }, 30_000);
+
+// LLP 1094 D7 (amended 2026-10-07): a centre past a port's edge is that
+// edge's, even in a port shorter than the band. A 120 px row in a 24 px
+// port, grabbed near its top and held: its centre is ~60 px below the port,
+// and the port scrolls down, not up.
+const small = `<!doctype html>
+<div id="exact-root">
+  <div id="port" data-view="2" data-reordergroup="g" style="height: 24px; width: 200px; overflow: auto; margin-top: 100px">
+    <div id="wrap" data-view="3" style="height: 120px; background: rgb(9, 9, 9)"><div id="grip" data-view="4" style="height: 20px">g</div></div>
+    <div style="height: 400px"></div>
+  </div>
+</div>
+<script type="module">
+  import { groupController } from './group-glue.js';
+  const port = document.getElementById('port'), wrap = document.getElementById('wrap'), grip = document.getElementById('grip');
+  const views = new Map([[2, port], [3, wrap], [4, grip]]);
+  const mapping = () => ({ port, revision: 1, scrollSequence: 1, scrollTop: port.scrollTop, portWidth: 200, portHeight: 24, rowWidth: 200, totalExtent: 520, contentY: 0 });
+  const collections = { reorderMapping: () => mapping(), retainInteraction: () => 1, releaseRetainedInteraction() {}, releaseInteraction() {}, reorderContact() {} };
+  const ctrl = groupController({ views, collections, request: () => ({ accepted: true, token: 1 }), applyBatch() {}, now: () => performance.now(),
+    ready: () => true, inert: () => false, root: document.getElementById('exact-root'), gripOf: () => grip });
+  const b = { el: grip, row: wrap, list: 2, runtime: 0, handleKey: 4, listKey: 2, wrapperKey: 3, rootKey: 1, rowEpoch: 1 };
+  grip.addEventListener('pointerdown', e => ctrl.down(b, e, { group: 'g', keys: false }));
+  window.ready = true;
+</script>`;
+
+check('a centre past a short port\'s edge scrolls toward that edge', async () => {
+  const server = createServer((req, res) => {
+    if (req.url === '/') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(small); return; }
+    res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(resolve(WEB, 'group-glue.js')));
+  });
+  await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
+  const profile = mkdtempSync(resolve(tmpdir(), 'exact-group-'));
+  const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', '--window-size=600,900', `--user-data-dir=${profile}`,
+    '--no-sandbox', '--no-first-run', '--disable-background-networking', 'about:blank'], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+  try {
+    const cdp = new Cdp(child.stdio[3], child.stdio[4]);
+    const { targetId } = await cdp.send('Target.createTarget', { url: 'about:blank' });
+    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId, flatten: true });
+    const call = (method, params) => cdp.send(method, params, sessionId);
+    const evaluate = async (expression) => (await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })).result.value;
+    await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
+    for (let i = 0; !(await evaluate('window.ready')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
+    const g = await evaluate('(() => { const r = document.getElementById("grip").getBoundingClientRect(); return [r.left + 10, r.top + 6]; })()');
+    const mouse = (type, x, y) => call('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1 });
+    await mouse('mousePressed', g[0], g[1]);
+    // Past the slop, then held still a few pixels lower, inside the port.
+    for (const dy of [4, 9, 12]) { await mouse('mouseMoved', g[0], g[1] + dy); await Bun.sleep(16); }
+    const ghost = await evaluate('(() => { const r = document.querySelector("[data-exact-ghost]")?.getBoundingClientRect(); const p = document.getElementById("port").getBoundingClientRect(); return r && [r.top + r.height / 2, p.bottom]; })()');
+    expect(ghost).not.toBeNull();
+    expect(ghost[0]).toBeGreaterThan(ghost[1]); // the centre is below the port
+    await Bun.sleep(300);
+    const scrolled = await evaluate('document.getElementById("port").scrollTop');
+    await mouse('mouseReleased', g[0], g[1] + 12);
+    expect(scrolled).toBeGreaterThan(0); // down, toward the centre's edge
+  } finally {
+    child.kill();
+    server.close();
+    rmSync(profile, { recursive: true, force: true });
+  }
+}, 30_000);
+

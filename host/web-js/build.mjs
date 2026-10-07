@@ -84,13 +84,13 @@ const devLogic = [];
 // Native modules (LLP 1024): the app's module artifact, `modules/web/` beside
 // the page as `modules/`, with the web host's adapter (native.js).
 const pageModules = existsSync(resolve(moduleDirectory(appDir, 'web'), 'index.js'));
-// The page module's container hatches (LLP 1075.003.000 §3.7): their glue loads
+// The page module's container, app and window hatches (LLP 1075.003.000 §3.7, 1075.003.000.001 §2.1): their glue loads
 // only for a page module that exports one. Its exports are read by Bun's
 // parser, never run: a browser module may touch the DOM as it loads. An
 // `export *` may export one.
 const pageSource = pageModules ? readFileSync(resolve(moduleDirectory(appDir, 'web'), 'index.js'), 'utf8') : '';
 const pageExports = pageModules ? new Bun.Transpiler({ loader: 'js' }).scan(pageSource) : { exports: [], imports: [] };
-const containerHatches = pageExports.exports.some(n => ['navigation', 'route', 'routeEnded', 'tabs'].includes(n))
+const containerHatches = pageExports.exports.some(n => ['navigation', 'route', 'routeEnded', 'tabs', 'app', 'appEnded', 'window', 'windowEnded'].includes(n))
   || /\bexport\s*\*\s*from\b/.test(pageSource);
 // The surfaces the app's GPU module draws (its crate's surface table); any
 // other surface is drawn by a data source on Canvas 2D, which the backend
@@ -104,7 +104,7 @@ const compiler = webCompiler();
 const cargo = spawnSync(compiler.cmd, [...compiler.pre, 'js', input, '-o', gen, ...(production ? [] : ['--sites']), ...(devReload ? ['--dev-reload'] : [])], { cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
 if (cargo.status !== 0) process.exit(cargo.status ?? 1);
 compiler.done();
-for (const f of ['rt.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js', 'focus.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['rt.js', 'roster.js', 'router.js', 'schedule.js', 'budget.js', 'shape.js', 'pointer.js', 'document.js', 'media.js', 'commands.js', 'focus.js', 'backdrop.js']) cpSync(resolve(here, f), resolve(gen, f));
 // Canvas 2D surfaces (a loaded chunk: this runtime's engine over the web
 // host's own replayer) are drawn by the Rust data module, or by a
 // TypeScript source's `draw` in the page (ts-draw.js, in the same chunk).

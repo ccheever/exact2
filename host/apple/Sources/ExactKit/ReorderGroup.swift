@@ -320,14 +320,15 @@ final class ReorderGroupHold {
     }
 
     // Autoscroll (D7): the target list's port on its own axis, then each
-    // scroll ancestor of it whose port holds the centre; the innermost that
+    // scroll ancestor of it whose port holds the centre (or the contact, once
+    // the centre has passed its edge: 2026-10-07); the innermost that
     // can still move toward the edge it is near scrolls, at the web's band
     // and speed (`ReorderEdge`); after a scroll the gap is sampled again.
     private func edgeCandidates() -> [ReorderScroller] {
         guard let presenter else { return [] }
         let list = target()?.list ?? state.target
         guard let node = presenter.views[list] else { return [] }
-        return ReorderScroller.chain(from: node, holding: centre)
+        return ReorderScroller.chain(from: node, holding: centre, contact: point)
     }
     private func updateEdge() {
         guard active, edgeCandidates().contains(where: { $0.direction(centre) != 0 && $0.canScroll(toward: $0.direction(centre)) }) else { stopEdge(); return }

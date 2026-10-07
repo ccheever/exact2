@@ -154,14 +154,14 @@ extension NativeViews {
     func tabsHatch(_ controller: AnyObject?, event: UInt32, index: Int = 0) {
         guard hatchesConnected, let instance, let (tabs, _) = tabCalls else { return }
         session?.log("hatch tabs: \(["built", "retired", "the router selected tab \(index) in the app's container", "the app's container retired"][Int(min(event, 3))])")
-        timed("tabs", event == 0 ? "built" : event == 2 ? "changed" : "ended") {
+        timedHatch("tabs", event == 0 ? "built" : event == 2 ? "changed" : "ended") {
             tabs(instance, event, controller.map { Unmanaged.passUnretained($0).toOpaque() }, UInt32(index))
         }
     }
 
     /// One hatch call: under the crash breadcrumb, production included (§4.4),
     /// and timed by the session's store in a development build (§3.1).
-    private func timed<T>(_ scope: String, _ moment: String, counts: Bool = true, _ body: () -> T) -> T {
+    func timedHatch<T>(_ scope: String, _ moment: String, counts: Bool = true, _ body: () -> T) -> T {
         if let crumbSlot { HatchBreadcrumb.shared?.push(crumbSlot, name: scope, moment: moment, incarnation: hatchIncarnation) }
         defer { if let crumbSlot { HatchBreadcrumb.shared?.pop(crumbSlot) } }
         guard let store = session?.hatchDiagnostics else { return body() }
@@ -186,7 +186,7 @@ extension NativeViews {
         guard hatchesConnected, let instance, let (_, container) = tabCalls else { return nil }
         let json = (try? JSONSerialization.data(withJSONObject: ["names": names, "nodes": nodes, "selected": selected])) ?? Data()
         var pointers: [UnsafeMutableRawPointer?] = controllers.map { Unmanaged.passUnretained($0).toOpaque() }
-        let made = timed("tabContainer", "built") {
+        let made = timedHatch("tabContainer", "built") {
             json.withUnsafeBytes { j in
                 pointers.withUnsafeMutableBufferPointer { c in
                     container(instance, j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count), UnsafePointer(c.baseAddress), UInt32(c.count))
@@ -213,7 +213,7 @@ extension NativeViews {
         let word = node.props["hatch"] ?? ""
         if !quiet { session?.log("hatch element \(word) #\(node.id): \(["built", "changed", "ended"][Int(min(event, 2))])") }
         // ElementHatches counts a node's calls; the store times them.
-        let flags = timed("element \(word)", ["built", "changed", "ended"][Int(min(event, 2))], counts: false) {
+        let flags = timedHatch("element \(word)", ["built", "changed", "ended"][Int(min(event, 2))], counts: false) {
             json.withUnsafeBytes { j in
                 call(instance, event, Unmanaged.passUnretained(node).toOpaque(), platform.map { Unmanaged.passUnretained($0).toOpaque() },
                      j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count))
@@ -229,7 +229,7 @@ extension NativeViews {
     func toolbarHatch(_ toolbar: AnyObject, window: AnyObject) {
         guard hatchesConnected, let instance, let call = toolbarCall else { return }
         session?.log("hatch toolbar: built")
-        timed("toolbar", "built") { call(instance, Unmanaged.passUnretained(toolbar).toOpaque(), Unmanaged.passUnretained(window).toOpaque()) }
+        timedHatch("toolbar", "built") { call(instance, Unmanaged.passUnretained(toolbar).toOpaque(), Unmanaged.passUnretained(window).toOpaque()) }
     }
 
     /// After the session's module is made: hand it the host's callbacks
@@ -262,7 +262,7 @@ extension NativeViews {
     func navigationHatch(_ controller: AnyObject, built: Bool, showsBar: Bool, label: String) -> Bool {
         guard let (calls, module) = hatchTarget else { return showsBar }
         let hatch = calls.navigation
-        let flags = timed("navigation", built ? "built" : "ended") { hatch(module, built ? 0 : 1, Unmanaged.passUnretained(controller).toOpaque(), showsBar ? 1 : 0) }
+        let flags = timedHatch("navigation", built ? "built" : "ended") { hatch(module, built ? 0 : 1, Unmanaged.passUnretained(controller).toOpaque(), showsBar ? 1 : 0) }
         guard built else { return showsBar }
         let shows = flags & 1 != 0
         session?.log("hatch navigation \(label): built, showsBar \(shows)\(shows != showsBar ? " (the hatch's)" : "")")
@@ -279,7 +279,7 @@ extension NativeViews {
         let json = Data("{\"key\":\(keyJSON),\"data\":\(dataset ?? "{}")}".utf8)
         let raw = { (o: AnyObject?) in o.map { Unmanaged.passUnretained($0).toOpaque() } }
         session?.log("hatch route \(key): \(event.name)")
-        timed("route", event.name) {
+        timedHatch("route", event.name) {
             json.withUnsafeBytes { j in
                 hatch(module, event.rawValue, raw(controller), raw(navigation), raw(scroll),
                       j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count))

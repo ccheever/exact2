@@ -55,6 +55,8 @@ export function groupController({ views, collections, request, applyBatch, now, 
     return r ?? { accepted: false };
   };
   const centre = d => [d.ghost.left + d.ghost.dx + d.ghost.width / 2, d.ghost.top + d.ghost.dy + d.ghost.height / 2];
+  // Where the contact is: the pointer by the grab, or the centre for a key session.
+  const contact = d => d.keys ? centre(d) : [d.grab[0] + d.ghost.dx, d.grab[1] + d.ghost.dy];
   const inside = (el, [x, y]) => { const r = el.getBoundingClientRect(); return x >= r.left && x < r.right && y >= r.top && y < r.bottom; };
 
   // The grouped list whose port holds the ghost's centre (D7), its mapping
@@ -77,8 +79,11 @@ export function groupController({ views, collections, request, applyBatch, now, 
     else if (r.accepted === false && !r.error) cancel(d);
   }
   // Autoscroll is geometric (D7): the target's port, then each scroll
-  // ancestor of the target whose box holds the centre, innermost first, the
-  // first that can still move toward its edge band on its own axis.
+  // ancestor of the target whose box holds the centre, or the contact while
+  // the centre has gone past its edge (a tall ghost held by its top: its
+  // centre leaves the scroller before the pointer reaches the band),
+  // innermost first, the first that can still move toward its edge band on
+  // its own axis.
   function scrollers(d) {
     const target = views.get(d.target), out = [];
     if (!target) return out;
@@ -87,15 +92,18 @@ export function groupController({ views, collections, request, applyBatch, now, 
     for (let el = (m?.port ?? target).parentElement; el && el !== doc.documentElement; el = el.parentElement) {
       const cs = getComputedStyle(el);
       for (const [axis, overflow, extent, client] of [['x', cs.overflowX, el.scrollWidth, el.clientWidth], ['y', cs.overflowY, el.scrollHeight, el.clientHeight]])
-        if (/auto|scroll/.test(overflow) && extent > client && inside(el, centre(d))) out.push([el, axis]);
+        if (/auto|scroll/.test(overflow) && extent > client && (inside(el, centre(d)) || inside(el, contact(d)))) out.push([el, axis]);
     }
     return out;
   }
   function band(d) {
     const c = centre(d);
     for (const [el, axis] of scrollers(d)) {
-      const r = el.getBoundingClientRect(), at = axis === 'x' ? c[0] - r.left : c[1] - r.top, size = axis === 'x' ? el.clientWidth : el.clientHeight;
-      const direction = at < BAND ? -1 : at > size - BAND ? 1 : 0;
+      const r = el.getBoundingClientRect(), size = axis === 'x' ? el.clientWidth : el.clientHeight;
+      const at = axis === 'x' ? c[0] - r.left : c[1] - r.top;
+      // A centre past an edge is that edge's, before the bands, which overlap
+      // in a port shorter than two of them.
+      const direction = at < 0 ? -1 : at > size ? 1 : at < BAND ? -1 : at > size - BAND ? 1 : 0;
       const pos = axis === 'x' ? el.scrollLeft : el.scrollTop, max = axis === 'x' ? el.scrollWidth - el.clientWidth : el.scrollHeight - el.clientHeight;
       if (direction && (direction < 0 ? pos > 0 : pos < max)) return { el, axis, direction };
     }

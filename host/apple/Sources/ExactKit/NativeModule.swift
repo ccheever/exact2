@@ -129,6 +129,8 @@ private final class NativeTable {
     /// Hatched nodes (LLP 1075.003.000), in a table of 176 bytes or more;
     /// the window toolbar's hatch (macOS), in one of 184 or more.
     var elementHatch: HatchElementFn?, toolbarHatch: HatchToolbarFn?
+    /// The app and window scopes (LLP 1075.003.000.001 §2.1), in a table of 200 bytes or more.
+    var appHatch: HatchAppFn?, windowHatch: HatchWindowFn?
     var agentInput: SetFn?
     var focusTarget: ViewFn?
 
@@ -198,6 +200,10 @@ private final class NativeTable {
         }
         if size >= 176 { loaded.elementHatch = pointer(168).map { unsafeBitCast($0, to: HatchElementFn.self) } }
         if size >= 184 { loaded.toolbarHatch = pointer(176).map { unsafeBitCast($0, to: HatchToolbarFn.self) } }
+        if size >= 200 {
+            loaded.appHatch = pointer(184).map { unsafeBitCast($0, to: HatchAppFn.self) }
+            loaded.windowHatch = pointer(192).map { unsafeBitCast($0, to: HatchWindowFn.self) }
+        }
         return .success(loaded)
     }
 }
@@ -352,6 +358,8 @@ final class NativeViews {
     /// This session's slot in the crash breadcrumb (§4.4), and the count of
     /// times its hatches have connected: a record's incarnation.
     var crumbSlot: Int?, hatchIncarnation: UInt32 = 0
+    /// The app and window scopes: the embedder's grants and what each was told (ScopeHatches.swift).
+    let scopes = HatchScopes()
     /// `EXACT_HATCHES=off` (a development build only, §2.6): the module loads
     /// and its views and calls work; no hatch is connected or called.
     static let hatchesOff = !ExactEnv.productionBake && ExactEnv.environment["EXACT_HATCHES"] == "off"
@@ -505,6 +513,7 @@ final class NativeViews {
         if !Self.hatchesOff, let connect = table.connect, let navigation = table.navigationHatch, let route = table.routeHatch {
             let tabs = table.tabsHatch.flatMap { tabs in table.tabContainerHatch.map { (tabs, $0) } }
             connectHatches(connect, navigation, route, tabs, table.elementHatch, table.toolbarHatch, made)
+            connectScopes(app: table.appHatch, window: table.windowHatch)
         }
         return .success(made)
     }
@@ -591,6 +600,7 @@ final class NativeViews {
         #if os(iOS) || os(tvOS)
         drainParked()
         #endif
+        endScopes()
         guard let instance, case .success(let table)? = NativeProcess.table else { return }
         self.instance = nil
         hatchesConnected = false

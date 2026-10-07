@@ -36,6 +36,42 @@ final class FixtureModule: ExactModule {
          "exact-screen": ExactNativeFactory { _, events in Screen(events: events) }]
     }
 
+    // The app and window scopes (LLP 1075.003.000.001 §2.1): each moment is
+    // counted and published for the smoke, and a window that is the
+    // session's own takes the scheme's background, taken back at its end.
+    private var scheme = "light"
+    private weak var ownWindow: ExactWindow?
+
+    private func publishScopes(_ moment: String) {
+        context.diagnostics.count("scope.\(moment)")
+        context.diagnostics.publish("scopes", ["scheme": scheme, "exclusive": ownWindow?.exclusive ?? false, "hasWindow": ownWindow?.window != nil,
+                                              "frame": ownWindow.map { [$0.frame.width, $0.frame.height] } ?? [], "last": moment])
+    }
+
+    private func tint() {
+        ownWindow?.window?.backgroundColor = scheme == "dark" ? .black : .white
+    }
+
+    override func app(_ app: ExactApp) {
+        scheme = app.prefersColorScheme
+        tint()
+        context.diagnostics.publish("app", ["processOwner": app.processOwner, "hasApplication": app.application != nil, "visibilityState": app.visibilityState, "onLine": app.onLine])
+        publishScopes(app.isNew ? "app-built" : "app-changed")
+    }
+
+    override func appEnded(_ app: ExactApp) { publishScopes("app-ended") }
+
+    override func window(_ window: ExactWindow) {
+        ownWindow = window
+        tint()
+        publishScopes(window.isNew ? "window-built" : "window-changed")
+    }
+
+    override func windowEnded(_ window: ExactWindow) {
+        window.window?.backgroundColor = nil
+        publishScopes("window-ended")
+    }
+
     /// Each badge's span, from its mount to its end.
     private var shown: [ObjectIdentifier: ExactSpan] = [:]
 

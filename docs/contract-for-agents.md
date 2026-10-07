@@ -436,7 +436,10 @@ half-typed `-` or `1.` survives). That makes the contract:
 
 A field bound straight to the accepted value breaks this: an action that
 normalizes `-2` to the `0` it already held leaves the binding unchanged, so the
-field keeps showing `-2`.
+field keeps showing `-2`. So does normalizing while the person types: a `task … when draft != …`, a
+timer or an `input` action that rewrites the draft (an empty field back to
+`"1"`) puts text back under the caret mid-edit, and the next keystroke lands
+after it (`1` then `3` reads `13`). Normalize only in `change`.
 
 ```contract
 component Quantity
@@ -635,6 +638,10 @@ Use those generated declarations with the existing TypeScript/Rust integration.
 A shape has no exported name in the `.d.ts`: name one by its source,
 `type Recipe = Result<'recipe'>` (a list's element: `Result<'recipes'>[number]`;
 an optional answer is `… | null`, so `NonNullable<Result<'find'>>`).
+`app:/data`, `app:/cache` and `app:/tmp` exist on every host before a source
+runs, so a file directly in one (`app:/data/notes.json`) needs no `mkdir`; a file
+deeper down needs its folder first (`storage.fs.mkdir('app:/data/drafts')`, which
+makes the folders above it too), or the write fails with `ENOENT`.
 The [human guide's data-module section](contract-for-humans.md#writing-the-data-module)
 has a complete `app.ts`: synchronous, `fetch` and SQLite sources, the grants
 each needs (one per line: `['sqlite.open app:/data/books.db', 'net.fetch https://…'].join('\n')`;

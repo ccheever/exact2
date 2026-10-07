@@ -110,6 +110,8 @@ pub struct Host<D: DataSource> {
     /// those nodes and what it plays, and a count of changes to them.
     lowering: bool,
     lowered: std::collections::HashMap<u64, u8>,
+    /// Whether colour transitions are lowered too (`lower.rs`).
+    lower_colors: bool,
     lowered_epoch: u64,
     /// The epoch each lowered node's plays last changed at.
     lowered_changed: std::collections::HashMap<u64, u64>,
@@ -268,6 +270,7 @@ impl<D: DataSource> Host<D> {
             data_activated: false,
             lowering: false,
             lowered: Default::default(),
+            lower_colors: false,
             lowered_epoch: 0,
             lowered_changed: Default::default(),
             played: Default::default(),

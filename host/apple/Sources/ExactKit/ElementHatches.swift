@@ -114,6 +114,8 @@ final class ElementHatches {
     func reset() {
         for id in nodes.keys.sorted() { destroyed(id) }
         nodes = [:]
+        // The window and the app end with them, and are built again after a reload (ScopeHatches.swift).
+        presenter.session?.natives.scopesReset()
     }
 
     /// The module connected after these were built (LLP 1075.003 Q3 (c)).

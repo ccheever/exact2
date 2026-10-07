@@ -185,6 +185,22 @@ open class ExactModule {
     /// command items and delegate slot Exact's.
     open func toolbar(_ toolbar: ExactToolbar) {}
     #endif
+    /// The app (LLP 1075.003.000.001 §2.1): when the hatches connect, after
+    /// first pixel (`app.isNew`), and again when one of its facts changes.
+    /// Never inside a batch. Set what is app-wide here; `app.application` is
+    /// nil unless the embedder gave this session the process (§2.1.1).
+    open func app(_ app: ExactApp) {}
+    /// The session is ending, or its plan reloading: undo what `app` set.
+    /// After a reload `app` runs again, with a new handle.
+    open func appEnded(_ app: ExactApp) {}
+    /// The window the session presents into: when the hatches connect or the
+    /// session moves to a window (`window.isNew`), and again on a size or
+    /// safe-area change. `window.window` is nil unless the embedder said the
+    /// window is this session's own (`window.exclusive`).
+    open func window(_ window: ExactWindow) {}
+    /// The session is leaving the window (for another, a reload, its end):
+    /// take back the recognizers and views `window` added, while it is there.
+    open func windowEnded(_ window: ExactWindow) {}
     #if os(iOS) || os(tvOS)
     /// A navigation controller Exact built: once, before any route in it is
     /// laid out (at a cold launch, once the module loads, for each one
@@ -216,6 +232,74 @@ public struct ExactData: Sendable {
     let words: [String: String]
     init(_ words: [String: String]) { self.words = words }
     public subscript(_ key: ExactDataKey) -> String? { words[key.name] }
+}
+
+/// The app, as its hatch hears of it (LLP 1075.003.000.001 §2.1): the facts
+/// Contract sees, by the web's names, and the platform application object for
+/// the one session the embedder gave the process to.
+public final class ExactApp {
+    #if os(macOS)
+    /// `NSApp`, for process-wide state; nil unless `processOwner`.
+    public internal(set) weak var application: NSApplication?
+    #else
+    /// The application, for process-wide state (appearance proxies); nil unless `processOwner`.
+    public internal(set) weak var application: UIApplication?
+    #endif
+    /// Whether the embedder gave this session the process (§2.1.1).
+    public internal(set) var processOwner = false
+    /// `visible` or `hidden` (`document.visibilityState`).
+    public internal(set) var visibilityState = "visible"
+    public internal(set) var onLine = true
+    /// `light` or `dark`.
+    public internal(set) var prefersColorScheme = "light"
+    /// `no-preference`, `more`, `less` or `custom`.
+    public internal(set) var prefersContrast = "no-preference"
+    public internal(set) var prefersReducedMotion = false
+    public internal(set) var prefersReducedTransparency = false
+    /// True in the first `app` call of this handle; false when a fact changed.
+    public internal(set) var isNew = true
+    public internal(set) var isLive = true
+
+    func read(_ json: [String: Any]) {
+        processOwner = json["processOwner"] as? Bool ?? false
+        let facts = json["facts"] as? [String: Any] ?? [:]
+        visibilityState = facts["visibilityState"] as? String ?? visibilityState
+        onLine = facts["onLine"] as? Bool ?? onLine
+        prefersColorScheme = facts["prefersColorScheme"] as? String ?? prefersColorScheme
+        prefersContrast = facts["prefersContrast"] as? String ?? prefersContrast
+        prefersReducedMotion = facts["prefersReducedMotion"] as? Bool ?? prefersReducedMotion
+        prefersReducedTransparency = facts["prefersReducedTransparency"] as? Bool ?? prefersReducedTransparency
+    }
+}
+
+/// The window a session presents into, as its hatch hears of it (LLP
+/// 1075.003.000.001 §2.1). A session embedded beside other UI shares its
+/// window, so the window itself is handed over only when the embedder says
+/// it is this session's own.
+public final class ExactWindow {
+    #if os(macOS)
+    /// The window; nil unless `exclusive`.
+    public internal(set) weak var window: NSWindow?
+    #else
+    /// The window and its scene; nil unless `exclusive`.
+    public internal(set) weak var window: UIWindow?
+    public internal(set) weak var scene: UIWindowScene?
+    #endif
+    /// Whether the embedder said this window is the session's own (§2.1.1).
+    public internal(set) var exclusive = false
+    /// The session's surface, in the window's coordinates, as Exact laid it out.
+    public internal(set) var frame = CGRect.zero
+    /// The surface's safe area: top, right, bottom, left.
+    public internal(set) var safeArea: (top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) = (0, 0, 0, 0)
+    /// True in the first `window` call of this handle; false on a size or safe-area change.
+    public internal(set) var isNew = true
+    public internal(set) var isLive = true
+
+    func read(_ json: [String: Any]) {
+        exclusive = json["exclusive"] as? Bool ?? false
+        if let f = json["frame"] as? [Double], f.count == 4 { frame = CGRect(x: f[0], y: f[1], width: f[2], height: f[3]) }
+        if let s = json["safeArea"] as? [Double], s.count == 4 { safeArea = (CGFloat(s[0]), CGFloat(s[1]), CGFloat(s[2]), CGFloat(s[3])) }
+    }
 }
 
 /// What hatch code says of itself, for the agent (LLP 1075.003.000.001 §3.2):
@@ -303,6 +387,7 @@ final class ExactHatches {
     var contents: ExactTabContents?
     #endif
     var elements: [UInt32: ExactElement] = [:]
+    var app: ExactApp?, window: ExactWindow?
 
     init?(host: UnsafeMutableRawPointer?, table: UnsafeRawPointer) {
         guard table.load(as: UInt32.self) >= 40,
@@ -1000,6 +1085,60 @@ private let moduleToolbar: @convention(c) (UnsafeMutableRawPointer?, UnsafeMutab
     #endif
 }
 
+/// `app(module, event, application, json, len)`: event 0 built, 1 changed, 2
+/// ended; the application only for the process's owner.
+private let moduleApp: @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void = { raw, event, application, json, length in
+    guard let m = module(raw), let hatches = m.hatches, let json,
+          let fields = try? JSONSerialization.jsonObject(with: Data(bytes: json, count: Int(length))) as? [String: Any] else { return }
+    let app = hatches.app ?? ExactApp()
+    let isNew = hatches.app == nil
+    app.read(fields)
+    #if os(macOS)
+    app.application = application.map { Unmanaged<NSApplication>.fromOpaque($0).takeUnretainedValue() }
+    #else
+    app.application = application.map { Unmanaged<UIApplication>.fromOpaque($0).takeUnretainedValue() }
+    #endif
+    if event == 2 {
+        hatches.app = nil
+        guard !isNew else { return }
+        m.appEnded(app)
+        app.isLive = false
+        app.application = nil
+        return
+    }
+    hatches.app = app
+    app.isNew = isNew
+    m.app(app)
+}
+
+/// `window(module, event, window, scene, json, len)`: event 0 built, 1
+/// changed, 2 ended; the window and scene only when it is the session's own.
+private let moduleWindow: @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void = { raw, event, window, scene, json, length in
+    guard let m = module(raw), let hatches = m.hatches, let json,
+          let fields = try? JSONSerialization.jsonObject(with: Data(bytes: json, count: Int(length))) as? [String: Any] else { return }
+    // A new surface is a new handle: one from before never reaches the next window.
+    let handle = event == 0 ? ExactWindow() : (hatches.window ?? ExactWindow())
+    let isNew = event == 0 || hatches.window == nil
+    handle.read(fields)
+    #if os(macOS)
+    handle.window = window.map { Unmanaged<NSWindow>.fromOpaque($0).takeUnretainedValue() }
+    #else
+    handle.window = window.map { Unmanaged<UIWindow>.fromOpaque($0).takeUnretainedValue() }
+    handle.scene = scene.map { Unmanaged<UIWindowScene>.fromOpaque($0).takeUnretainedValue() }
+    #endif
+    if event == 2 {
+        hatches.window = nil
+        guard !isNew else { return }
+        m.windowEnded(handle)
+        handle.isLive = false
+        handle.window = nil
+        return
+    }
+    hatches.window = handle
+    handle.isNew = isNew
+    m.window(handle)
+}
+
 /// `platform_controller(handle) → UIViewController?`: a native screen's
 /// controller (the module keeps ownership), or nil for a plain view.
 private let platformController: @convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer? = { raw in
@@ -1021,7 +1160,7 @@ private let table: UnsafeMutableRawPointer = {
     let text = "{" + (roster.keys.sorted().map { tag in
         "\"\(tag)\":{\"snapshot\":\(roster[tag]!.snapshot),\"reuse\":\(roster[tag]!.reuse)}"
     } + [words]).joined(separator: ",") + "}"
-    let size = 184
+    let size = 200
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: major, as: UInt32.self)
@@ -1047,6 +1186,8 @@ private let table: UnsafeMutableRawPointer = {
     t.storeBytes(of: unsafeBitCast(platformController, to: UnsafeRawPointer.self), toByteOffset: 160, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleElement, to: UnsafeRawPointer.self), toByteOffset: 168, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(moduleToolbar, to: UnsafeRawPointer.self), toByteOffset: 176, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleApp, to: UnsafeRawPointer.self), toByteOffset: 184, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(moduleWindow, to: UnsafeRawPointer.self), toByteOffset: 192, as: UnsafeRawPointer.self)
     return t
 }()
 

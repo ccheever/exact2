@@ -164,6 +164,7 @@ public final class ExactView: NSView {
         if size != lastSize {
             lastSize = size
             session.resize(size)
+            session.natives.scopesChanged()
         }
         syncInsets()
     }
@@ -173,8 +174,14 @@ public final class ExactView: NSView {
         fit()
     }
 
+    public override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow !== window { session.natives.windowLeaving(window) }   // its window hatch ends while the window is there
+        super.viewWillMove(toWindow: newWindow)
+    }
+
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        session.natives.scopesChanged()
         if window == nil { session.presenter.menus.reset(); session.presenter.dialogs.reset() }
         session.tellPage() // `hasFocus` is this window's (#114)
         session.rasters.setPaused(window == nil)

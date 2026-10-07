@@ -109,7 +109,7 @@ public final class ExactView: UIView {
     /// Paint motion resolves `light-dark()` by this view's appearance (LLP 1062).
     /// A system appearance change reaches the view as a trait change too:
     /// `prefers-color-scheme` is told again (LLP 1069.000 D1).
-    private func reportScheme() { session.scheme(dark: traitCollection.userInterfaceStyle == .dark); session.tellPreferences() }
+    private func reportScheme() { session.scheme(dark: traitCollection.userInterfaceStyle == .dark); session.tellPreferences(); session.natives.scopesChanged() }
     /// An app or window tint changed: `AccentColor` is reported again (LLP 1095 D9).
     public override func tintColorDidChange() { super.tintColorDidChange(); session.reportColors() }
 
@@ -170,6 +170,7 @@ public final class ExactView: UIView {
         // Child didMoveToWindow callbacks can retry focus before our own
         // didMoveToWindow. Wait until their native owners have been installed.
         if newWindow != nil { session.presenter.navigation.willMount() }
+        if newWindow !== window { session.natives.windowLeaving(window) }   // its window hatch ends while the window is there
         super.willMove(toWindow: newWindow)
     }
 
@@ -177,6 +178,7 @@ public final class ExactView: UIView {
         super.didMoveToWindow()
         if window != nil { reportScheme() }
         session.tellPage() // `hasFocus` is this window's scene's (#114)
+        session.natives.scopesChanged()
         session.rasters.setPaused(window == nil)
         session.canvases.lifecycle.refresh()
         if window == nil {
@@ -332,10 +334,12 @@ public final class ExactView: UIView {
             lastInsets = insets
             presenter.insets = insets
             session.insets(top: insets.top, right: insets.right, bottom: insets.bottom, left: insets.left)
+            session.natives.scopesChanged()
         }
         if size != lastSize {
             lastSize = size
             session.resize(size)
+            session.natives.scopesChanged()
         }
         if fold.fold != lastFold {
             lastFold = fold.fold

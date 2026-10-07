@@ -1,9 +1,9 @@
-//! CSS `backdrop-filter: blur(σ)` on the GPU painter (LLP 1053.000 D2).
+//! CSS `backdrop-filter` on the GPU painter (LLP 1053.000 D2).
 //!
 //! Vello draws a frame in one pass and cannot read what it has drawn, so a
 //! backdrop flushes: the scene so far is rendered and read back, the patch
-//! under the border box is blurred on the CPU with the CPU painter's own
-//! Gaussian (`exact_svg_raster::backdrop_blur`), and the scene starts again
+//! under the border box is filtered on the CPU with the CPU painter's own
+//! blur and saturation (`exact_svg_raster`), and the scene starts again
 //! from that frame as an image, with the open clip and opacity layers
 //! pushed again and the patch drawn inside the box. One extra render and
 //! readback per backdrop node per frame — declared in LLP 1053.000 §3, as is
@@ -11,6 +11,7 @@
 
 use super::{shape, Gpu};
 use crate::paint::Shape;
+use exact_kernel::style::{BackdropFilter, BackdropOp};
 use std::sync::Arc;
 use tiny_skia::{IntSize, Pixmap, Transform};
 use vello::kurbo::{Affine, BezPath, Rect};
@@ -73,7 +74,7 @@ impl Gpu {
         self.scene.pop_layer();
     }
 
-    pub(super) fn blur_backdrop(&mut self, s: &Shape, sigma: f32, ts: Transform) {
+    pub(super) fn filter_backdrop(&mut self, s: &Shape, filter: &BackdropFilter, ts: Transform) {
         if s.rect.2 <= 0.0 || s.rect.3 <= 0.0 || self.image_refused {
             return;
         }
@@ -120,7 +121,16 @@ impl Gpu {
             pixels.extend_from_slice(&frame.data()[at..at + w * 4]);
         }
         let k = a.determinant().abs().sqrt() as f32;
-        exact_svg_raster::backdrop_blur(&mut pixels, w, h, sigma * k);
+        for op in &filter.0 {
+            match op {
+                BackdropOp::Blur(sigma) => {
+                    exact_svg_raster::backdrop_blur(&mut pixels, w, h, sigma * k)
+                }
+                BackdropOp::Saturate(amount) => {
+                    exact_svg_raster::backdrop_saturate(&mut pixels, *amount)
+                }
+            }
+        }
         let Some(patch) =
             IntSize::from_wh(w as u32, h as u32).and_then(|s| Pixmap::from_vec(pixels, s))
         else {

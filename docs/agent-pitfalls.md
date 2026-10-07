@@ -376,6 +376,14 @@ guide's rules don't make obvious.
   `box-sizing`.) **Candidate diagnostic:** the compiler or a development log
   could name the failed condition.
 
+- **A field normalized while the person types fights the typing.** A `task … when
+  people != "${count}"` (or a timer, or an `input` action) that rewrites an
+  emptied field to `"1"` lands between keystrokes: clearing the field and typing
+  `3` reads `13`, for a person as for a test. Fix: keep the raw text while
+  editing and normalize in `change` (Enter or blur), as the guide's "Editing a
+  value: the field's contract" shows. (Authoring bench, LLP 1087, t1-tip,
+  codex, 2026-10-07: per-person share 8.85 for 3 people, because the field read
+  13.)
 - **A text field shows an edit its action refused or normalized.** A field bound with
   `value=text input=edit`, where `edit` ignores a blank value, shows the blank while
   `text` keeps the old value, and the next keystroke builds on what is shown; so does
@@ -488,6 +496,12 @@ guide's rules don't make obvious.
   `NSApp.isActive` and the foreground PID before asking someone to type. A key
   window or successful synthetic input alone is insufficient. Keep other test
   windows hidden and name the visible app. (T3 terminal parity, 2026-10-07.)
+- **A screenshot right after a state change shows a transition's start.** A
+  `transition` (a background colour, an opacity) is held by the driver's clock,
+  so the frame and the computed style still read the old value: the toggle
+  looks unchanged. Fix: `clock settle` (or `clock +N` past the transition)
+  before `screenshot`. (Authoring bench, LLP 1087, t5-pomodoro, 2026-10-07:
+  about 5 minutes and a probe script to find.)
 
 - **A test passes on the web and fails on iOS right after an input that saves.** An
   `expect` straight after `type` or `tap` reads what the input's mutation answered,

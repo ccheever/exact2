@@ -293,7 +293,7 @@ impl Picture {
             if opacity > 0. {
                 paint.emit(&geometry, |_, _| cost += 1);
                 cost += paint.gradients.len();
-                cost += usize::from(paint.backdrop > 0.);
+                cost += usize::from(!paint.backdrop.is_none());
                 cost += paint.borders(&geometry).len()
                     + paint.shadow_fills(&geometry).len()
                     + paint.inset_shadow_fills(&geometry).len();

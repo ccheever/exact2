@@ -45,7 +45,7 @@ fn end(b: &[u32], i: usize) -> Option<usize> {
         IMAGE_RRECT => i + 18,
         DASH => i + 3 + at(2)?,
         ANIMATED => i + 3 + words(at(2)?),
-        BACKDROP => i + 14,
+        BACKDROP => i + 14 + 2 * at(1)?,
         NATIVE => i + 16 + words(at(15)?),
         40 => i + 27, // SHADOW
         ROW_BEGIN => i + 6 + at(5)?,
@@ -111,6 +111,25 @@ mod tests {
         assert_eq!(again, d);
         assert!(drawing(&[99]).is_none());
         assert!(drawing(&[GLYPHS, 1, 0, 0, 0, 5]).is_none());
+    }
+
+    #[test]
+    fn ordered_backdrops_keep_the_following_drawing_aligned() {
+        use exact_kernel::style::{BackdropFilter, BackdropOp};
+        let mut recorder = Recorder::new();
+        let shape = Shape::new((0.0, 0.0, 40.0, 30.0), [4.0; 4]);
+        let filter = BackdropFilter(vec![BackdropOp::Saturate(1.8), BackdropOp::Blur(4.0)]);
+        recorder.backdrop_filter(&shape, &filter, Transform::identity());
+        let backdrop_end = recorder.ops.len();
+        assert!(drawing(&recorder.ops[..backdrop_end - 1]).is_none());
+        recorder.fill(&shape, [255, 0, 0, 255], Transform::identity());
+        let (ops, definitions) = drawing(&recorder.ops).expect("backdrop followed by fill");
+        assert!(!definitions);
+        assert_eq!(ops, recorder.ops);
+        assert_eq!(ops[backdrop_end], RRECT);
+        // Radius-only readers cannot silently misinterpret the list's count.
+        assert_ne!(BACKDROP, 27);
+        assert!(drawing(&[27, 0]).is_none());
     }
 
     #[test]

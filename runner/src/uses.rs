@@ -256,7 +256,7 @@ pub fn uses(plan: &Plan) -> Uses {
                 _ => {}
             },
             BindingKind::Style => {
-                if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::BackdropBlur) {
+                if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::BackdropFilter) {
                     uses = uses.with(Capability::Backdrop);
                 }
                 if matches!(
