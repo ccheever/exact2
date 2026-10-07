@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import { T3Client } from './shared/client';
 import { mobileSend, mobileSubmissionNative } from './composer-behavior';
+import { mobileThreadComposer } from './thread';
 import { sendIntent } from './shared/composer-editor-intent';
 import { obj, type Obj } from './shared/domain';
 import type { Native, Files } from './shared/protocol';
@@ -84,4 +85,89 @@ describe('mobile composer behavior', () => {
     expect(sendIntent({ keybindings: [] }, obj(result.value), true, false)).toBe('alternate');
     expect(sendIntent({}, obj(result.value), false, true)).toBe('foreground');
   });
+});
+
+// Sanitized Moonbase server.getConfig capture, 2026-10-07. The seeded thread
+// retains gpt-5.4 while the authenticated real Codex catalog has these seven models.
+const capturedCodexModels = ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'];
+function capturedSelection(f: ReturnType<typeof fixture>, driver = 'codex') {
+  f.client.providerId = 'codex'; f.client.modelId = 'gpt-5.4';
+  f.client.thread!.projection.thread = { ...obj(f.client.thread!.projection.thread), modelSelection: { instanceId: 'codex', model: 'gpt-5.4' } };
+  f.client.config.providers = [{ instanceId: 'codex', driver, enabled: true, installed: true, auth: { status: 'authenticated' },
+    status: 'ready', models: capturedCodexModels.map(slug => ({ slug, name: slug })) }];
+}
+test('retained Codex selection absent from the real catalog reaches durable follow-up dispatch with its options', async () => {
+  const f = fixture('queue'); capturedSelection(f);
+  f.client.modelOptions = [{ id: 'effort', value: 'high' }];
+  const before = JSON.stringify(f.client.config.providers);
+  expect(mobileThreadComposer(f.client)).toMatchObject({ modelLabel: 'gpt-5.4', modelUnavailable: false, canSend: true });
+  expect(await mobileSend(f.client, false, f.native, f.storage)).toMatchObject({ message: '' });
+  const payload = obj(f.calls.find(call => call.method === 'orchestration.dispatchCommand' && obj(call.payload).type === 'message.dispatch')?.payload);
+  expect(payload.modelSelection).toEqual({ instanceId: 'codex', model: 'gpt-5.4', options: [{ id: 'effort', value: 'high' }] });
+  expect(payload.dispatchMode).toEqual({ type: 'queue_after_active' });
+  expect(JSON.stringify(f.client.config.providers)).toBe(before);
+  expect(f.client.pending).toBeUndefined();
+});
+test('retained Codex selection and options survive a new-task launch and server adoption', async () => {
+  const f = fixture('queue'); capturedSelection(f);
+  const selected = { instanceId: 'codex', model: 'gpt-5.4', options: [{ id: 'effort', value: 'high' }] };
+  f.client.threadId = ''; f.client.thread = undefined;
+  f.client.modelOptions = selected.options;
+  f.client.local.drafts[f.client.draftKey] = 'New task';
+  const original = f.native.later;
+  f.native.later = async input => {
+    const response = await original(input), request = obj(input);
+    if (request.method === 'orchestration.launchThread') return { ok: true, generation: f.client.generation, value: { threadId: 'launched' } };
+    if (request.op === 'http' && request.path === '/api/orchestration/threads/launched/bounded') {
+      const projection: Obj = { thread: { id: 'launched', projectId: 'project', modelSelection: selected } };
+      for (const family of ['runs', 'attempts', 'nodes', 'subagents', 'providerSessions', 'providerThreads', 'providerTurns', 'runtimeRequests',
+        'messages', 'plans', 'turnItems', 'checkpointScopes', 'checkpoints', 'contextHandoffs', 'contextTransfers', 'visibleTurnItems']) projection[family] = [];
+      return { ok: true, generation: f.client.generation, value: { snapshotSequence: 1, projection } };
+    }
+    return response;
+  };
+  expect(await mobileSend(f.client, false, f.native, f.storage)).toMatchObject({ message: '' });
+  const writes = f.calls.filter(call => call.method === 'orchestration.launchThread');
+  expect(writes).toHaveLength(1);
+  expect(obj(writes[0]!.payload).modelSelection).toEqual(selected);
+  expect(obj(obj(writes[0]!.payload).initialMessage).text).toBe('New task');
+  expect(f.client.threadId).toBe('launched');
+  expect(f.client.modelOptions).toEqual(selected.options);
+  expect(f.client.pending).toBeUndefined();
+});
+test('known catalog models still normalize dispatch options and add the implicit Fast-mode default', async () => {
+  const f = fixture('queue');
+  obj((f.client.config.providers as Obj[])[0]).models = [{ slug: 'model', name: 'Model', capabilities: { optionDescriptors: [
+    { id: 'effort', type: 'select', options: [{ id: 'high', name: 'High' }] }, { id: 'fastMode', type: 'boolean' },
+  ] } }];
+  f.client.modelOptions = [{ id: 'effort', value: 'high' }, { id: 'obsolete', value: 'discard' }];
+  expect(await mobileSend(f.client, false, f.native, f.storage)).toMatchObject({ message: '' });
+  const payload = obj(f.calls.find(call => obj(call.payload).type === 'message.dispatch')?.payload);
+  expect(payload.modelSelection).toEqual({ instanceId: 'provider', model: 'model', options: [{ id: 'effort', value: 'high' }, { id: 'fastMode', value: false }] });
+});
+test('Antigravity catalog refusal happens before attachment reads, uploads or durable dispatch', async () => {
+  const f = fixture('queue'); capturedSelection(f, 'antigravity');
+  f.client.local.snapshotDrafts[f.client.draftKey] = [{ id: 'pending-image', name: 'pending.png', mimeType: 'image/png', sizeBytes: 3 }];
+  expect(mobileThreadComposer(f.client)).toMatchObject({ modelUnavailable: true, canSend: false });
+  expect((await mobileSend(f.client, false, f.native, f.storage)).message).toBe('Model unavailable. Open model settings.');
+  expect(f.calls.some(call => call.op === 'snapshotDraftRead' || call.op === 'ids' || call.op === 'request')).toBe(false);
+  expect(f.client.draft).toBe('Follow up');
+});
+test('provider authentication and readiness remain required before uploads even for retained non-catalog models', async () => {
+  for (const patch of [{ auth: { status: 'unauthenticated' } }, { enabled: false }, { installed: false }, { availability: 'unavailable' }, { status: 'error' }]) {
+    const f = fixture('queue'); capturedSelection(f); Object.assign(obj((f.client.config.providers as Obj[])[0]), patch);
+    f.client.local.snapshotDrafts[f.client.draftKey] = [{ id: 'pending-image', name: 'pending.png', mimeType: 'image/png', sizeBytes: 3 }];
+    expect(mobileThreadComposer(f.client)).toMatchObject({ modelUnavailable: false, canSend: false });
+    expect((await mobileSend(f.client, false, f.native, f.storage)).message).toBe('This provider is unavailable. Configure it in T3 Code.');
+    expect(f.calls.some(call => call.op === 'snapshotDraftRead' || call.op === 'ids' || call.op === 'request')).toBe(false);
+  }
+});
+test('a provider auth downgrade during native presentation rejects before uploads', async () => {
+  const f = fixture('queue'); capturedSelection(f); const original = f.native.later;
+  f.native.later = async request => {
+    if (obj(request).op === 'devicePresentation') obj((f.client.config.providers as Obj[])[0]).auth = { status: 'unauthenticated' };
+    return original(request);
+  };
+  expect((await mobileSend(f.client, false, f.native, f.storage)).message).toBe('This provider is unavailable. Configure it in T3 Code.');
+  expect(f.calls.some(call => call.op === 'snapshotDraftRead' || call.op === 'ids' || call.op === 'request')).toBe(false);
 });

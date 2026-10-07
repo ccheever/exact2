@@ -19,23 +19,24 @@ component ThreadFeed
           text data.emptyTitle text-align="center" font-family="DM Sans" font-size=18 line-height="23px" font-weight=700 color=colors.foreground
           text data.emptyDetail text-align="center" font-family="DM Sans" font-size=14 line-height="21px" color=colors.secondary
     else
-      list id="thread-feed" flex=1 min-height=0 virtualized=true estimated-item-height=180 scrollFollowEnd=true
-        padding-left=horizontalPadding padding-right=horizontalPadding testId="thread-feed"
-        each row in data.rows key=row.id
-          column padding-top=(row.first ? 12 : 0) padding-bottom=(row.last ? bottomClearance : 0) font-family="DM Sans"
-            when row.first and (data.hasMore or length(data.historyError) > 0)
-              column align-items="center" gap=5.25 margin-bottom=10.5 padding-left=7 padding-right=7
-                when data.hasMore
-                  button press=action("chatlocal:history", "", "") disabled=data.historyLoading
-                    min-height=31.5 border-radius=9999 border-width=1 border-style="solid" border-color=colors.border
-                    background-color=colors.subtle padding-left=14 padding-right=14 padding-top=7 padding-bottom=7
-                    aria-label="Load earlier activity" testId="thread-history"
-                    row align-items="center" gap=7
-                      t3-symbol symbol-name="chevron.up" point-size=12 symbol-weight="regular" symbol-tint=colors.primary width=12 height=12
-                      text (data.historyLoading ? "Loading earlier activity…" : "Load earlier activity") font-size=14 line-height="19px" font-weight=500 color=colors.foreground
-                when length(data.historyError) > 0
-                  text data.historyError text-align="center" font-size=13 line-height="17px" color=colors.iconSubtle
-            ThreadMessage(row=row, userBubbleMaxWidth=userBubbleMaxWidth, action=action, openMedia=openMedia, colors=colors)
+      column flex=1 min-height=0 justify-content="flex-end"
+        list id="thread-feed" max-height="100%" min-height=0 virtualized=true estimated-item-height=180 scroll-start="end" scrollFollowEnd=true
+          padding-left=horizontalPadding padding-right=horizontalPadding testId="thread-feed"
+          each row in data.rows key=row.id
+            column padding-top=(row.first ? 12 : 0) padding-bottom=(row.last ? bottomClearance : 0) font-family="DM Sans"
+              when row.first and (data.hasMore or length(data.historyError) > 0)
+                column align-items="center" gap=5.25 margin-bottom=10.5 padding-left=7 padding-right=7
+                  when data.hasMore
+                    button press=action("chatlocal:history", "", "") disabled=data.historyLoading
+                      min-height=31.5 border-radius=9999 border-width=1 border-style="solid" border-color=colors.border
+                      background-color=colors.subtle padding-left=14 padding-right=14 padding-top=7 padding-bottom=7
+                      aria-label="Load earlier activity" testId="thread-history"
+                      row align-items="center" gap=7
+                        t3-symbol symbol-name="chevron.up" point-size=12 symbol-weight="regular" symbol-tint=colors.primary width=12 height=12
+                        text (data.historyLoading ? "Loading earlier activity…" : "Load earlier activity") font-size=14 line-height="19px" font-weight=500 color=colors.foreground
+                  when length(data.historyError) > 0
+                    text data.historyError text-align="center" font-size=13 line-height="17px" color=colors.iconSubtle
+              ThreadMessage(row=row, userBubbleMaxWidth=userBubbleMaxWidth, action=action, openMedia=openMedia, colors=colors)
 
 component ThreadMessage
   props
@@ -50,7 +51,7 @@ component ThreadMessage
         column align-items="flex-end"
           when length(row.attribution) > 0
             text row.attribution margin-bottom=3.5 padding-right=3.5 font-size=12 line-height="16px" font-weight=500 color=colors.muted opacity=0.6
-          column min-width=0 max-width=userBubbleMaxWidth width=(length(row.media) > 0 ? userBubbleMaxWidth : "auto") gap=7 border-radius=20 padding-left=12.25 padding-right=12.25 padding-top=8.75 padding-bottom=8.75 background-color=colors.userBubble
+          column box-sizing="border-box" min-width=0 max-width=userBubbleMaxWidth width=(length(row.media) > 0 ? userBubbleMaxWidth : "auto") gap=7 border-radius=20 padding-left=12.25 padding-right=12.25 padding-top=8.75 padding-bottom=8.75 background-color=colors.userBubble
             each media in row.media key=media.id
               ThreadAttachment(media=media, user=row.user, openMedia=openMedia, colors=colors)
             when length(trim(row.body)) > 0

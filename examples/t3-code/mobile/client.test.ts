@@ -11,7 +11,7 @@ const unusedStorage: Files = { fs: {
 } };
 
 describe('pinned shared sources', () => {
-  test('every TS copy retains the complete original body and source pin', () => {
+  test('every TS copy retains its pin and full body apart from explicit mobile send admission and selection', () => {
     const directory = new URL('./shared/', import.meta.url).pathname;
     const names: string[] = [];
     function visit(dir: string) {
@@ -27,8 +27,14 @@ describe('pinned shared sources', () => {
       expect(local[0]).toContain('GAP 001');
       const pin = ['client.ts', 'local-backend.ts', 'timestamp-format.ts'].includes(name)
         ? '38352ceaf4cd35a40b7b24ce992db87c2357a99b' : '887b2491b182f851b11253655f6aa84fe2a26708';
-      expect(local[1]).toBe(`// Unchanged body from examples/t3-code/${name} at ${pin}.`);
-      expect(local.slice(2).join('\n')).toBe(readFileSync(new URL(`../${name}`, import.meta.url), 'utf8'));
+      const adapted = name === 'client-ops-composer.ts';
+      expect(local[1]).toBe(`// ${adapted ? 'Adapted' : 'Unchanged'} body from examples/t3-code/${name} at ${pin}.`);
+      let expected = readFileSync(new URL(`../${name}`, import.meta.url), 'utf8');
+      if (adapted) expected = "// Mobile 365aa87982: send admission and retained model options differ from this desktop copy.\nimport { mobileModelSelectionUnavailable } from '../model-availability';\nimport { mobileDispatchSelection as dispatchSelection } from '../model-send-selection';\n" + expected
+        .replace("import { dispatchSelection, promptForSend, ultrathinkChoice }", "import { promptForSend, ultrathinkChoice }")
+        .replace("if (!arr(provider.models).some(model => model.slug === this.modelId)) throw new ClientError('Choose one of the models advertised by T3.');",
+          "if (!this.modelId || mobileModelSelectionUnavailable(this.config, { instanceId: this.providerId, model: this.modelId })) throw new ClientError('Model unavailable. Open model settings.');");
+      expect(local.slice(2).join('\n')).toBe(expected);
     }
   });
 });

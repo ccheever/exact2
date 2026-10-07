@@ -8,7 +8,8 @@ import { mobileClient, mobileCommand, mobileNative } from './client';
 import { mobileProviderIconURL } from './environment-detail';
 import type { T3Client } from './shared/client';
 import { arr, obj, str, type Obj } from './shared/domain';
-import { activeRun, providerAvailable, type Files, type Native } from './shared/protocol';
+import { activeRun, type Files, type Native } from './shared/protocol';
+import { mobileModelSelectionReady, mobileModelSelectionUnavailable } from './model-availability';
 import { letGoAware } from './shared/let-go';
 import { transcriptRows, timelineView } from './shared/timeline-presentation';
 import { refreshTimelineReads, timelineReadsNeeded } from './shared/timeline-prepare';
@@ -95,8 +96,9 @@ function elapsed(ms: number): string {
 export function mobileThreadComposer(client: T3Client): ThreadComposerState {
   const run = activeRun(client.projection), running = !!run, queue = queueState(client.projection), edit = mobileQueuedEditPresentation(client), target = mobileComposerTarget(client);
   const provider = arr(client.config.providers).find(provider => provider.instanceId === client.providerId);
-  const model = arr(provider?.models).find(model => model.slug === client.modelId), modelReady = !!provider && providerAvailable(provider) && !!model;
-  const modelUnavailable = client.connection === 'connected' && !modelReady;
+  const model = arr(provider?.models).find(model => model.slug === client.modelId);
+  const selection = { instanceId: client.providerId, model: client.modelId }, modelReady = mobileModelSelectionReady(client.config, selection);
+  const modelUnavailable = client.connection === 'connected' && mobileModelSelectionUnavailable(client.config, selection);
   const requests = requestPresentation(client), followUp = running && !queue.canSteer ? 'queue' : followUpBehavior(client);
   const action = primaryAction(client, threadPhase(client.projection));
   const blockedReason = edit.saving ? 'Saving…' : edit.uncertain ? 'Resolve the pending queued edit before sending.' : client.pending?.uncertain ? 'Check the synchronized thread before retrying.'

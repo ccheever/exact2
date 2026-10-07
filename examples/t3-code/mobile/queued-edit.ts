@@ -2,9 +2,10 @@
 // dedicated mobile content, native durable acknowledgment; no ordinary finishPending.
 // @ref llp/1106.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import { mobileClient, mobileNative } from './client';
+import { mobileModelSelectionReady } from './model-availability';
 import type { T3Client } from './shared/client';
 import { arr, obj, str, type Obj } from './shared/domain';
-import { ClientError, nativeFiles, providerAvailable, type Native } from './shared/protocol';
+import { ClientError, nativeFiles, type Native } from './shared/protocol';
 import { letGo, letGoAware } from './shared/let-go';
 import { queueState } from './shared/composer-controls-queue';
 import { mobileSessionGrants } from './environment-detail';
@@ -15,7 +16,7 @@ import { mobileQueuedEditCurrent, mobileQueuedEditLookup, mobileQueuedEditPersis
   queuedEditNative, queuedEditOperation, queuedEditRecord, queuedEditRefreshOrigin, mobileQueuedEditOrigin, queuedEditState, queuedEditThreadKey, type MobileQueuedEditSession, type MobileQueuedEditOperation } from './queued-edit-state';
 
 const busy = new WeakSet<T3Client>();
-const modelReady = (client: T3Client) => { const provider = arr(client.config.providers).find(provider => provider.instanceId === client.providerId); return !!provider && providerAvailable(provider) && arr(provider.models).some(model => model.slug === client.modelId); };
+const modelReady = (client: T3Client) => mobileModelSelectionReady(client.config, { instanceId: client.providerId, model: client.modelId });
 const unresolved = (operation: MobileQueuedEditOperation) => ['reserved', 'issued', 'uncertain'].includes(operation.state);
 const forSession = (owner: string, client: T3Client) => [...queuedEditState(client).operations.values()].find(op => op.owner === owner);
 function notice(client: T3Client, message: string) { queuedEditState(client).notice = message; client.revision++; }

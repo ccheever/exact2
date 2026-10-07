@@ -16,12 +16,12 @@ struct T3ThreadHeaderConfiguration: Decodable, Equatable {
         // The compact pre26 fallback's later layout effect replaces the right
         // factory. Its direct Files/auxiliary controls both require split layout.
         if !nativeGlass && !split {
-            return T3ThreadHeaderPresentation(groups: [["terminal"], ["git"]], nativeGlass: false,
+            return T3ThreadHeaderPresentation(groups: T3ThreadHeaderPresentation.trailingGroups(["terminal", "git"], nativeGlass: false), nativeGlass: false,
                 gitTitle: "Git controls", gitLabel: "Git controls", terminalTitle: "",
                 gitItems: gitItems.filter { ["git:branch", "git:quick", "git:review", "git:more"].contains($0.id) })
         }
         let controls = split ? ["files", "git", "terminal"] : ["git", "files", "terminal"]
-        return T3ThreadHeaderPresentation(groups: T3ThreadHeaderPresentation.group(controls, nativeGlass: nativeGlass), nativeGlass: nativeGlass,
+        return T3ThreadHeaderPresentation(groups: T3ThreadHeaderPresentation.trailingGroups(controls, nativeGlass: nativeGlass), nativeGlass: nativeGlass,
             gitTitle: "Git", gitLabel: "Git actions", terminalTitle: "Terminal", gitItems: gitItems)
     }
 
@@ -46,6 +46,11 @@ struct T3ThreadHeaderConfiguration: Decodable, Equatable {
 
 struct T3ThreadHeaderPresentation {
     let groups: [[String]]; let nativeGlass: Bool
+    // Native-stack reverses right items before the screens patch groups them.
+    // Mirror that adapter step for every trailing policy; leading stays ordered.
+    static func trailingGroups(_ controls: [String], nativeGlass: Bool) -> [[String]] {
+        group(Array(controls.reversed()), nativeGlass: nativeGlass)
+    }
     // The pinned native screens patch enables background sharing only on iOS 26+.
     static func group<T>(_ controls: [T], nativeGlass: Bool) -> [[T]] {
         guard !controls.isEmpty else { return [] }
