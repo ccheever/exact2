@@ -1,0 +1,144 @@
+exact2 base cff90b364; macOS 26.6.2. Probe app: bun scripts/exact.mjs new target/repro/x06-quit-hook + the module below; bun exact.mjs mac --bundle; quit-run.sh <label> <mode>.
+--- before-cmdw.log
+1791337229.279403 pid=7600 module init
+1791337234.5595531 pid=7600 module destroy
+1791337234.560466 pid=7600 willTerminate observed
+--- before-1-cmdw.log
+1791337238.888149 pid=8043 module init
+1791337243.89953 pid=8043 willTerminate observed
+--- before-2-cmdw.log
+1791337244.172337 pid=8325 module init
+1791337249.204216 pid=8325 willTerminate observed
+--- before-3-cmdw.log
+1791337249.4816031 pid=8801 module init
+1791337254.528314 pid=8801 willTerminate observed
+--- before-4-cmdw.log
+1791337254.799492 pid=9137 module init
+1791337259.8381062 pid=9137 willTerminate observed
+--- before-5-cmdw.log
+1791337260.12236 pid=9417 module init
+1791337265.187875 pid=9417 module destroy
+1791337265.188611 pid=9417 willTerminate observed
+--- before-shot-cmdw.log
+1791337448.946111 pid=28451 module init
+1791337454.9226952 pid=28451 module destroy
+1791337454.924067 pid=28451 willTerminate observed
+--- before-cmdq.log
+1791337191.393197 pid=3155 module init
+1791337196.460394 pid=3155 willTerminate observed
+--- before-aequit.log
+1791337196.84465 pid=3576 module init
+1791337201.7857141 pid=3576 willTerminate observed
+--- before-sigterm.log
+1791337202.175529 pid=4602 module init
+--- after-cmdw.log
+1791337310.309874 pid=15009 module init
+1791337313.732755 pid=15009 module destroy
+1791337313.732976 pid=15009 willTerminate observed
+--- after-1-cmdw.log
+1791337331.522602 pid=17598 module init
+1791337336.9849691 pid=17598 module destroy
+1791337336.987632 pid=17598 willTerminate observed
+--- after-2-cmdw.log
+1791337337.65667 pid=18315 module init
+1791337342.811847 pid=18315 module destroy
+1791337342.812082 pid=18315 willTerminate observed
+--- after-3-cmdw.log
+1791337345.031353 pid=19006 module init
+1791337350.140589 pid=19006 module destroy
+1791337350.140851 pid=19006 willTerminate observed
+--- after-4-cmdw.log
+1791337352.367738 pid=19937 module init
+1791337357.512095 pid=19937 module destroy
+1791337357.51231 pid=19937 willTerminate observed
+--- after-5-cmdw.log
+1791337359.4632258 pid=20369 module init
+1791337364.527782 pid=20369 module destroy
+1791337364.5280008 pid=20369 willTerminate observed
+--- after-shot-cmdw.log
+1791337465.3280149 pid=30251 module init
+1791337469.917095 pid=30251 module destroy
+1791337469.917276 pid=30251 willTerminate observed
+--- after-cmdq.log
+1791337314.4358149 pid=16250 module init
+1791337319.4794068 pid=16250 module destroy
+1791337319.479604 pid=16250 willTerminate observed
+--- after-aequit.log
+1791337320.538309 pid=16760 module init
+1791337325.547842 pid=16760 module destroy
+1791337325.5481749 pid=16760 willTerminate observed
+--- after-sigterm.log
+1791337326.22598 pid=17054 module init
+--- timing after (Apple Event quit, 5 runs): 0.31 0.27 0.24 0.23 0.24 s request->gone; before (1 run): 0.26 s
+
+=== modules/apple/QuitProbe.swift
+import AppKit
+
+// Appends one line per lifecycle event to $QUIT_LOG.
+func note(_ s: String) {
+    let path = ProcessInfo.processInfo.environment["QUIT_LOG"] ?? "/tmp/quit-probe.log"
+    let line = "\(Date().timeIntervalSince1970) pid=\(getpid()) \(s)\n"
+    if let h = FileHandle(forWritingAtPath: path) { h.seekToEndOfFile(); h.write(line.data(using: .utf8)!); h.closeFile() }
+    else { FileManager.default.createFile(atPath: path, contents: line.data(using: .utf8)) }
+}
+
+final class QuitProbe: ExactModule {
+    override class var views: [String: ExactNativeFactory] {
+        ["quit-probe": ExactNativeFactory { _, events in Box(events: events) }]
+    }
+    required init(context: ExactModuleContext) {
+        super.init(context: context)
+        note("module init")
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: nil) { _ in
+            note("willTerminate observed")
+        }
+    }
+    override func destroy() { note("module destroy") }
+}
+
+final class Box: ExactNativeInstance {
+    private let v = NSView(frame: .zero)
+    override var view: ExactNativeView { v }
+}
+
+let exactModule: ExactModule.Type = QuitProbe.self
+=== app.contract
+// X06 Quit Hook: the view. app.ts answers what it asks for.
+shape Greeting
+  text: string
+
+component X06QuitHook
+  resource greeting = greeting("X06 Quit Hook") as shape Greeting
+  view
+    main testId="root"
+      width="100%"
+      height="100%"
+      box-sizing="border-box"
+      padding=24
+      background-color="light-dark(#ffffff, #111111)"
+      text greeting.text font-size=28 color="light-dark(#111111, #eeeeee)" testId="greeting"
+      quit-probe testId="probe" width=40 height=40 background-color="#f80"
+=== quit-run.sh
+#!/bin/zsh
+# usage: quit-run.sh <label> <mode: aequit|cmdq|cmdw|sigterm>
+label=$1; mode=$2
+here=${0:A:h}
+app=$(ls -d /Users/daehyeonmun/orca/workspaces/exact2/fix-105-mac-destroy-at-last-window/target/repro/x06-quit-hook/target/clients/*/com.example.x06-quit-hook/macos/X06\ Quit\ Hook.app | head -1)
+log="$here/$label-$mode.log"; rm -f "$log"
+QUIT_LOG="$log" "$app/Contents/MacOS/ExactMac" > "$here/$label-$mode.out" 2>&1 &
+pid=$!
+sleep 5
+echo "launched pid=$pid"
+[[ -n $SHOT ]] && screencapture -x -o -l$("$here/winid" $pid) "$here/$label-$mode-window.png"
+t0=$(python3 -c 'import time;print(time.time())')
+case $mode in
+  aequit) osascript -e 'tell application id "com.example.x06-quit-hook" to quit' ;;
+  sigterm) kill -TERM $pid ;;
+  cmdq) orca computer hotkey --app pid:$pid --key "Cmd+Q" --no-screenshot --json | grep -m1 ok ;;
+  cmdw) orca computer hotkey --app pid:$pid --key "Cmd+W" --no-screenshot --json | grep -m1 ok ;;
+esac
+for i in {1..100}; do kill -0 $pid 2>/dev/null || break; sleep 0.1; done
+t1=$(python3 -c 'import time;print(time.time())')
+kill -0 $pid 2>/dev/null && { echo "STILL ALIVE after 10s; killing"; kill -KILL $pid; }
+echo "process gone $(python3 -c "print(round($t1-$t0,2))") s after the quit request"
+echo "--- QUIT_LOG ($label, $mode):"; cat "$log"
