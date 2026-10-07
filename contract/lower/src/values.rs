@@ -559,7 +559,7 @@ pub(crate) fn check_style_value(
             }
             if rows.contains(&StyleId::Transition) {
                 if let Err(reason) = exact_motion::Transitions::parse(v) {
-                    let supported = "translate, scale, rotate, opacity; color, background-color, border-color (and each side), tint-color, box-shadow; SVG fill, stroke, stroke-dashoffset, r, cx, cy, x, y, rx, ry; numeric height on admitted height owners";
+                    let supported = "translate, scale, rotate, opacity; color, background-color, border-color (and each side), tint-color, box-shadow; SVG fill, stroke, stroke-dashoffset, r, cx, cy, x, y, rx, ry, d; numeric height on admitted height owners";
                     let why = match reason {
                         exact_motion::ParseError::UnknownProperty(property) => {
                             let layout = matches!(property.as_str(), "width" | "min-width" | "max-width" | "min-height" | "max-height" | "top" | "right" | "bottom" | "left" | "margin" | "padding" | "flex-basis" | "gap");
@@ -878,6 +878,24 @@ pub(crate) fn check_prop_value(
         return err(
             "lower-attr-value",
             "`target` takes \"_blank\" or \"_self\"",
+            span,
+        );
+    }
+    if prop == PropId::StatusBarStyle
+        && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "light-content" | "dark-content" | "auto"))
+    {
+        return err(
+            "lower-attr-value",
+            "`status-bar-style` takes \"light-content\" (light text, for a dark surface), \"dark-content\" or \"auto\"",
+            span,
+        );
+    }
+    if prop == PropId::StatusBarAnimation
+        && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "none" | "fade"))
+    {
+        return err(
+            "lower-attr-value",
+            "`status-bar-animation` takes \"none\" or \"fade\"",
             span,
         );
     }

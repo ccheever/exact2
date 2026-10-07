@@ -23,6 +23,7 @@ use std::hash::{BuildHasherDefault, Hasher};
 mod animate;
 mod clock;
 mod hold;
+mod path;
 mod played;
 pub use played::{PlayedCurve, PlayedTransition};
 mod timeline;
@@ -252,9 +253,9 @@ pub struct Engine {
     // must still advance: some animation running and not yet ended.
     animations: BTreeMap<u64, Vec<AnimationPlay>>,
     animating: BTreeSet<u64>,
-    // Indexed by property; one past the wire's for `Property::Layout`,
+    // Indexed by property; past the wire's for `Property::Layout` and `d`,
     // which no animation names and nothing lowers.
-    lowered: [bool; Property::COUNT + 1],
+    lowered: [bool; Property::SLOTS],
     // Nodes whose animations are sampled whatever `lowered` says: a host
     // decides per node what its compositor plays faithfully (LLP 1055.000
     // D15: eligibility is per effect, not per property name).
@@ -273,6 +274,9 @@ pub struct Engine {
     timelines: timeline::Timelines,
     // Clock timelines (LLP 1055.002): each node's, and each one's origin.
     clocks: clock::Clocks,
+    // Each path's `d`, and the two ends of its transition (LLP 1055.000
+    // D15); the progress is the node's `Property::D` slot.
+    paths: BTreeMap<u64, path::PathTrack>,
 }
 
 impl Engine {
@@ -342,6 +346,7 @@ impl Engine {
         self.forced.remove(&node);
         self.forget_timelines(node);
         self.forget_clock(node);
+        self.paths.remove(&node);
         // Removing a list must not scan every other node once per row, nor
         // probe every table once per property: a list row's retirement
         // removes a node per box. Its running curves are one range of the
@@ -361,6 +366,7 @@ impl Engine {
             self.slots.remove(&(node, property));
         }
         self.slots.remove(&(node, Property::Layout));
+        self.slots.remove(&(node, Property::D));
     }
 
     /// Forget only this property's target, curve, hold and pending frame.
@@ -368,6 +374,9 @@ impl Engine {
     /// declaration survive; readoption takes a new value without transitioning.
     /// No clock change occurs, and old hold tokens immediately become stale.
     pub fn remove_property(&mut self, node: u64, property: Property) -> bool {
+        if property == Property::D {
+            self.paths.remove(&node);
+        }
         self.dirty.remove(&(node, property));
         self.running.remove(&(node, property));
         self.slots.remove(&(node, property)).is_some()

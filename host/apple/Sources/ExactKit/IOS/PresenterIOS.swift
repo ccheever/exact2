@@ -101,6 +101,7 @@ final class Presenter {
     #if os(tvOS)
     lazy var menuKey = MenuKey(presenter: self)
     lazy var focusGuides = FocusGuides(presenter: self)
+    lazy var playPauseKey = PlayPauseKey(presenter: self)
     /// The `testId` of the node that last held the remote's focus.
     var focusKey: String?
     #endif
@@ -758,6 +759,9 @@ final class Presenter {
                 for (id, f) in q where id.map({ textHost($0) != nil }) ?? true { f() }
                 scrollPump.batchApplied()
                 leaves.batchApplied(moved: moved)
+                #if os(iOS)
+                resolveStatusBar()
+                #endif
                 if moved { session?.natives.refreshWorldGeometry() }
                 flushPendingFocus()
             }
@@ -957,6 +961,7 @@ final class Presenter {
         #if os(tvOS)
         menuKey.sync()
         focusGuides.sync()
+        playPauseKey.sync()
         #endif
         segments.sync()
         controls.sync(contents: batch.controls, touched: touchedIDs)
@@ -1266,6 +1271,12 @@ final class Presenter {
     /// scene; an embedded view never claims it.
     private(set) var title: String?
     var onTitle: ((String?) -> Void)?
+    #if os(iOS)
+    /// The status bar's resolved style (LLP 1105), and who is told of a change.
+    var statusBar = StatusBarChoice()
+    var onStatusBar: ((StatusBarChoice) -> Void)?
+    var statusBarNoted = Set<String>()
+    #endif
     func headTitle(_ title: String?) {
         guard title != self.title else { return }
         self.title = title

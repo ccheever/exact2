@@ -7,6 +7,8 @@
 //!
 //! Quadratics and arcs become cubics here, so a painter needs four verbs.
 
+use exact_motion::PathCommand;
+
 /// One absolute path segment.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Seg {
@@ -114,24 +116,34 @@ pub fn parse_d(d: &str) -> Path {
     parse_d_commands(d).0
 }
 
+/// `d` as the motion engine moves it (LLP 1055.000 D15): each authored
+/// command made absolute, its kind kept, so two paths interpolate exactly
+/// when Chrome's do. `None` for data with an error, which does not move.
+pub fn parse_d_motion(d: &str) -> Option<exact_motion::PathValue> {
+    let (path, _, whole, commands) = parse(d);
+    (whole && !path.0.is_empty()).then_some(exact_motion::PathValue(commands))
+}
+
 /// [`parse_d`], with where each authored command's segments end: a marker
 /// sits at the end of each command, so an arc drawn as several cubics is
 /// one vertex (LLP 1055.000 D9).
 pub fn parse_d_commands(d: &str) -> (Path, Vec<usize>) {
-    let (path, ends, _) = parse(d);
+    let (path, ends, _, _) = parse(d);
     (path, ends)
 }
 
 /// `d` with no error in it, or `None`: CSS's `path()` refuses the whole
 /// declaration where an SVG `path` renders up to the error.
 pub fn parse_d_whole(d: &str) -> Option<Path> {
-    let (path, _, whole) = parse(d);
+    let (path, _, whole, _) = parse(d);
     (whole && !path.0.is_empty()).then_some(path)
 }
 
-/// The path, its commands' ends, and whether every byte of `d` was read.
-fn parse(d: &str) -> (Path, Vec<usize>, bool) {
+/// The path, its commands' ends, whether every byte of `d` was read, and
+/// the commands made absolute.
+fn parse(d: &str) -> (Path, Vec<usize>, bool, Vec<PathCommand>) {
     let mut ends = Vec::new();
+    let mut commands = Vec::new();
     let mut lx = Lexer {
         s: d.as_bytes(),
         i: 0,
@@ -179,9 +191,11 @@ fn parse(d: &str) -> (Path, Vec<usize>, bool) {
             };
         }
         let mut ctrl = None;
+        let mut args = [0f32; 7];
         match upper {
             b'M' => {
                 let (x, y) = (num!() + ox, num!() + oy);
+                args[..2].copy_from_slice(&[x, y]);
                 out.push(Seg::Move(x, y));
                 (cx, cy, sx, sy) = (x, y, x, y);
                 open = true;
@@ -195,16 +209,19 @@ fn parse(d: &str) -> (Path, Vec<usize>, bool) {
             }
             b'L' => {
                 let (x, y) = (num!() + ox, num!() + oy);
+                args[..2].copy_from_slice(&[x, y]);
                 out.push(Seg::Line(x, y));
                 (cx, cy) = (x, y);
             }
             b'H' => {
                 let x = num!() + ox;
+                args[0] = x;
                 out.push(Seg::Line(x, cy));
                 cx = x;
             }
             b'V' => {
                 let y = num!() + oy;
+                args[0] = y;
                 out.push(Seg::Line(cx, y));
                 cy = y;
             }
@@ -218,6 +235,11 @@ fn parse(d: &str) -> (Path, Vec<usize>, bool) {
                     }
                 };
                 let (x2, y2, x, y) = (num!() + ox, num!() + oy, num!() + ox, num!() + oy);
+                if upper == b'C' {
+                    args[..6].copy_from_slice(&[x1, y1, x2, y2, x, y]);
+                } else {
+                    args[..4].copy_from_slice(&[x2, y2, x, y]);
+                }
                 out.push(Seg::Cubic(x1, y1, x2, y2, x, y));
                 ctrl = Some((b'C', x2, y2));
                 (cx, cy) = (x, y);
@@ -232,6 +254,11 @@ fn parse(d: &str) -> (Path, Vec<usize>, bool) {
                     }
                 };
                 let (x, y) = (num!() + ox, num!() + oy);
+                if upper == b'Q' {
+                    args[..4].copy_from_slice(&[qx, qy, x, y]);
+                } else {
+                    args[..2].copy_from_slice(&[x, y]);
+                }
                 out.push(quad(cx, cy, qx, qy, x, y));
                 ctrl = Some((b'Q', qx, qy));
                 (cx, cy) = (x, y);
@@ -241,6 +268,8 @@ fn parse(d: &str) -> (Path, Vec<usize>, bool) {
                 let Some(large) = lx.flag() else { break };
                 let Some(sweep) = lx.flag() else { break };
                 let (x, y) = (num!() + ox, num!() + oy);
+                let flag = |f: bool| if f { 1.0 } else { 0.0 };
+                args = [rx, ry, rot, flag(large), flag(sweep), x, y];
                 arc(&mut out, (cx, cy), rx, ry, rot, large, sweep, (x, y));
                 (cx, cy) = (x, y);
             }
@@ -249,10 +278,14 @@ fn parse(d: &str) -> (Path, Vec<usize>, bool) {
         debug_assert!(lx.i > start, "a path command must consume input");
         last_ctrl = ctrl;
         cmd = Some(c);
+        commands.push(PathCommand {
+            verb: upper,
+            args: args.map(f64::from),
+        });
         ends.push(out.len());
     }
     let whole = clean && lx.i == lx.s.len() && !d.trim_end().ends_with(',');
-    (Path(out), ends, whole)
+    (Path(out), ends, whole, commands)
 }
 
 fn quad(x0: f32, y0: f32, qx: f32, qy: f32, x: f32, y: f32) -> Seg {

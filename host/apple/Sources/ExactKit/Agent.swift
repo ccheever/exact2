@@ -13,6 +13,9 @@
 // there is more than one — routing, not a tenth operation.
 import Foundation
 import CoreFoundation
+#if os(macOS)
+import AppKit
+#endif
 
 public final class Agent {
     #if os(iOS) || os(tvOS)
@@ -58,6 +61,9 @@ public final class Agent {
     #if os(macOS)
     /// The held contact's event time, seconds on `systemUptime`'s clock.
     var contactClock: Double = 0
+    /// The modifiers held through the contact: its `down`'s, until a
+    /// `move` or `up` names others.
+    var contactFlags: NSEvent.ModifierFlags = []
     #endif
     weak var canvasContact: NodeView?
     /// The last point the agent's pointer sent its canvas (iOS), for its motion.

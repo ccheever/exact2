@@ -436,7 +436,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
     try {
       const reply=request(transformFacts(b,next?'transform-geometry':'transform-invalidate',next?[...next.dimensions,0,0]:[0,0,0,0,0,0]));
       if(reply.batch)applyBatch(reply.batch);
-      if(transformLocal(b))b.admitted=reply.accepted===true&&!reply.batch?.error&&!!next&&next.dimensions.every(v=>v>0);
+      if(transformLocal(b))b.admitted=reply.accepted===true&&(reply.committed??!reply.batch?.error)&&!!next&&next.dimensions.every(v=>v>0);
     } finally {
       geometryDelivering=false;
       for(const h of ends??[])api.end(h,[0,0],true);

@@ -2,6 +2,7 @@
 
 mod action_related;
 mod ancestor_row_state;
+mod animation_trigger;
 mod announce;
 mod aria;
 mod at;
@@ -90,6 +91,7 @@ mod share;
 mod sound;
 mod source_locations;
 mod source_map;
+mod status_bar;
 mod strings;
 mod styles;
 mod styles_rows;

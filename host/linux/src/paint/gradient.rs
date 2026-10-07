@@ -40,7 +40,7 @@ impl Captured {
 
     /// CSS `mask-image`'s gradient (LLP 1077 D2), placed in the border box.
     pub(super) fn mask(style: &StyleProps, dark: bool) -> Option<Captured> {
-        let gradient = style.mask_image.gradient()?.clone();
+        let gradient = style.rare.mask_image.gradient()?.clone();
         let stops = gradient.resolved(dark);
         Some(Captured { gradient, stops })
     }

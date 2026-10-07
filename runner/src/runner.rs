@@ -86,9 +86,7 @@ pub struct Command {
     pub name: String,
     /// Its arguments.
     pub args: Vec<Value>,
-    /// The node whose input ran the action, when a host event did: where a
-    /// command that shows system UI anchors it (LLP 1069.003 D3). `None` for
-    /// a timer, an answer, or anything else no input dispatched.
+    /// The node whose input ran the action, when a host event did: where a command that shows system UI anchors it (LLP 1069.003 D3). `None` for a timer, an answer, or anything else no input dispatched.
     pub source: Option<ViewId>,
 }
 
@@ -124,8 +122,7 @@ pub enum RunnerError {
         plan: u64,
         kernel: u64,
     },
-    /// The plan belongs to another app (LLP 1023 D5): its header names one
-    /// identity, this binary's data crate another.
+    /// The plan belongs to another app (LLP 1023 D5): its header names one identity, this binary's data crate another.
     AppMismatch {
         plan: String,
         host: String,
@@ -149,8 +146,7 @@ pub enum RunnerError {
     InvalidEvent {
         event: &'static str,
     },
-    /// A control's `input` or `change` carries a value it could never
-    /// report (LLP 1069.001 D4): a select's value no enabled option has.
+    /// A control's `input` or `change` carries a value it could never report (LLP 1069.001 D4): a select's value no enabled option has.
     InvalidValue {
         event: &'static str,
         reason: String,
@@ -166,8 +162,7 @@ pub enum RunnerError {
     },
     /// Derives and resources depend on each other in a cycle; nothing settles.
     Cycle,
-    /// An earlier update failed after the instance tree had begun to change;
-    /// the runner no longer matches its kernel and must be restarted (D5).
+    /// An earlier update failed after the instance tree had begun to change; the runner no longer matches its kernel and must be restarted (D5).
     Poisoned,
     /// `advance` was given a non-finite time.
     NonFiniteClock,
@@ -212,8 +207,7 @@ pub enum RunnerError {
         action: String,
         param: String,
     },
-    /// An action argument or a slot write is a string longer than
-    /// [`crate::vm::MAX_STRING`] bytes.
+    /// An action argument or a slot write is a string longer than [`crate::vm::MAX_STRING`] bytes.
     StringTooLong {
         name: String,
     },
@@ -286,6 +280,9 @@ struct PendingReq {
     keepable: Option<Request>,
     /// An answer that keeps coming (LLP 1016.000): what it has delivered.
     stream: Option<StreamCount>,
+    /// A topic its resource watches changed while it was in flight: its
+    /// reply lands, then the resource is asked again (LLP 1016.002 D4).
+    ask_again: bool,
 }
 
 /// An open stream's messages so far, and those the host coalesced away
@@ -360,6 +357,8 @@ pub struct Runner<D: DataSource> {
     surfaces: Vec<SurfaceUpdate>,
     /// Views the next applied batch renews (LLP 1078): rebound list rows.
     renewed: Vec<ViewId>,
+    /// Rows the next batch mounts out of their port, and those that showed (LLP 1055 D13).
+    shown: crate::instance::collection::shown::RowsShown,
     /// Retiring list rows are rebound to new items ([`Runner::set_row_reuse`]).
     reuse: bool,
     /// The 2D canvases (LLP 1056 D4), when Canvas 2D is linked.
@@ -475,6 +474,8 @@ pub struct Runner<D: DataSource> {
     notifications: Vec<crate::notify::Notice>,
     /// The voice table (LLP 1096 D5): what the app's sounds scheduled.
     sounds: crate::sound::Sounds,
+    /// The app's `setRootFontSize` over the host's size (LLP 1069.000 D3).
+    root_font: root_font::RootFont,
     /// Auth sessions (LLP 1069.006): live ones, and answers to deliver.
     auth: crate::auth::Sessions,
     /// The device capabilities linked (LLP 1047 D3): [`DeviceLinks`].
@@ -844,12 +845,14 @@ impl<D: DataSource> Runner<D> {
             batch: 0,
             commands: Vec::new(),
             sounds: Default::default(),
+            root_font: Default::default(),
             into_view: Vec::new(),
             scrolled: Default::default(),
             resized: Vec::new(),
             into_view_refused: Default::default(),
             surfaces: Vec::new(),
             renewed: Vec::new(),
+            shown: Default::default(),
             reuse: false,
             canvases: links.canvas.map(|engine| engine()),
             pending: Vec::new(),
@@ -1032,13 +1035,14 @@ impl<D: DataSource> Runner<D> {
         runner.gate_step()?;
         // First frame.
         let mut ids = std::mem::take(&mut runner.ids);
-        let (tree, ops, surfaces, notes) = {
+        let (tree, ops, surfaces, notes, shown) = {
             let mut u = Update::new(runner.env(&[], &[]), &runner.sites, &mut ids);
             u.discard = runner.kernel.is_detached();
             let tree = Tree::create(&mut u)?;
-            (tree, u.ops, u.surfaces, u.notes)
+            (tree, u.ops, u.surfaces, u.notes, u.shown)
         };
         runner.notes = notes;
+        runner.shown = shown;
         runner.ids = ids;
         runner.tree = Some(tree);
         let receipt = runner.apply(ops)?;
@@ -1415,6 +1419,7 @@ impl<D: DataSource> Runner<D> {
         } else {
             exact_kernel::Direction::Ltr
         };
+        let shown = std::mem::take(&mut self.shown);
         let mut receipt =
             match self
                 .kernel
@@ -1426,12 +1431,13 @@ impl<D: DataSource> Runner<D> {
                     return Err(e.into());
                 }
             };
+        let renewed = self.settle_shown(shown, &mut receipt);
         self.tally(&ops, &receipt.touched);
         for note in std::mem::take(&mut self.notes) {
             self.log(note);
         }
         let arena = self.kernel.arena();
-        receipt.renewed = std::mem::take(&mut self.renewed)
+        receipt.renewed = renewed
             .into_iter()
             .filter_map(|view| arena.key_of(view))
             .collect();

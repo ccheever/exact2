@@ -526,7 +526,8 @@ Choose the mechanism from its lifetime:
 | Refresh reads around a mutation | `mutation … refreshes resourceA, resourceB` |
 | React once to a settled mutation | `mutation … then actionName` |
 | Writes that must all land, in order | `mutation … queue`: one in flight, later sends wait their turn |
-| A timer while something shows | `task … when cond`, restarted by `key=` |
+| Run once after a delay, while a condition holds (a toast, a debounce) | `task … when cond` with `after(ms, action)` |
+| Repeat while a condition holds (a game tick, a pulse) | `task … when cond` with `every(ms, action)` |
 | Pending indicator | `pending(resourceOrMutationName)` |
 | Resource request failed without an answer | `failed(resourceName)` (a resource only: a mutation answers its failure as a domain result, such as `ok: false`) |
 | Initial resource fallback | `else empty(field=constant)`, or `else source(values)` answered once at build |
@@ -571,7 +572,8 @@ async read is asked again, not dropped). `then` is parameterless,
 runs once at the host's next clock advance as a new commit (under the driver, an
 input's own answer's `then` before the input's reply), reads the latest
 answer, does not run for a failure that brought no answer, and cannot send its
-own mutation. Do not mistake the scheduling boundary
+own mutation; to repeat, use a task (see "Repeating while a condition holds").
+Do not mistake the scheduling boundary
 for a general async workflow or a per-reply event log.
 
 A failed resource retains its value or placeholder, with `pending=false` and
@@ -1036,7 +1038,8 @@ and `then`s (`TIMER_FIRE_LIMIT`), those that change nothing included; the rest i
 refused, what committed is kept, and the clock stays at the last one's time. A
 fast `every` under a long `clock +N` can reach it: tick slower or move the clock in steps.
 
-`task hide when toast != "" key=toastUntil` with `after(5000, expire)` has its
+A task with `when` (a gated task), such as
+`task hide when toast != "" key=toastUntil` with `after(5000, expire)`, has its
 timer only while the gate holds, as a `when` arm has its nodes, and a new key
 restarts it, as a new `each` key makes a new row
 ([LLP 1092](../llp/1092-sends-that-queue-and-timers-that-wait.rfc.md)). Nothing
@@ -1050,6 +1053,30 @@ gate is a bool and the key a string, number or bool; neither may read `now()`
 toast, a debounce (`when draft != saved key=draft` with `after(800, save)`), a
 round's tick (`when screen == "play"`) and a flight's frames
 (`when flying` with `every(frame, step)`) are each one gated task.
+
+**Repeating while a condition holds.** Use a task with `when` and `every`. The
+timer runs only while the condition is true. Any action that makes it false
+stops the timer.
+
+```text
+  state pulsing = false
+  state dim = false
+  task pulse when pulsing
+    every(1200, step)
+  action step
+    if dim
+      dim = false
+    else
+      if busy
+        dim = true
+      else
+        pulsing = false
+```
+
+The first `step` runs one interval after the condition turns true. Do not build
+a loop from mutations: a `then` cannot send its own mutation
+(`analyze-then-self-send`). For a purely visual loop, use a CSS `animation`
+instead.
 
 `now()` is the runner's clock in milliseconds since boot (the driver's clock under
 the agent), not a date. For the date, read the reserved `exactTime` source and add
@@ -1132,6 +1159,18 @@ trip, as `press-scale` does. `haptic("selection" | "impact-…" | "success" |
 drag crosses a threshold. iOS uses the feedback generators; the web vibrates
 where it can; Linux does nothing.
 
+An interface size setting is `rem` plus `setRootFontSize(px)`, CSS's `:root {
+font-size }` (LLP 1069.000 D3). Size what should scale in `rem` (text, control
+heights, paddings) and what should not in `px`; an action calling
+`setRootFontSize(size)` re-lays every `rem` out in its own commit, on every host.
+The app's size stands over the host's (the browser's setting, iOS Dynamic Type,
+16 on macOS and Linux), as an author's `html { font-size: 20px }` stands over a
+browser's font-size setting; `setRootFontSize("medium")` hands it back, so a
+"Default" choice that follows Dynamic Type calls that. A size of 0 or less is
+refused (a literal at compile time, a computed one in `logs`). It is not kept
+across a launch: a root `task restore mount` with `after(1, applySize)` sets the
+stored size again. Do not multiply a scale factor into every size instead.
+
 Platform facts are reserved sources (`exactViewport`, `exactPage`, `exactDelivery`,
 `exactSurface`, `exactTime`); the bake refuses a declared field the source does
 not have. Use dimensions, media preferences, page facts,
@@ -1197,8 +1236,14 @@ primary mouse click on web, macOS, Windows, and Linux (on macOS any node takes
 it, so a click can land on a link inside a paragraph). `{contextmenu:true, at:[x,y]}`
 sends a right-click. Coordinates are relative to the target's top-left; omit
 `at` for its center. Both refuse invalid, covered, or offscreen points and held
-contacts. The CLI forms are `tap world mouse` and `tap world contextmenu`, or use
-a JSON options object for coordinates. `tap stage wheel 0 -20 modifiers Control`
+contacts. The CLI forms are `tap world mouse [at <x> <y>]` and `tap world contextmenu
+[at <x> <y>]`. `tap <target> auxclick` is the middle button and `clicks 3` a triple
+click (each press counting 1, 2, 3); every click form and a wheel take `at <x> <y>` and
+`modifiers Shift+Meta`, and `down … modifiers Shift` or `drag … modifiers Shift` holds
+them to the lift. Chrome and macOS deliver these as a hand's (on macOS through the
+application, so its local event monitors see them); iOS, Linux, Windows, Firefox and
+WebKit answer `delivery: "unsupported"`, and a word a form does not use is refused by
+name. `tap stage wheel 0 -20 modifiers Control`
 is a pinch's wheel; `tap world drop a.board` drags a file in (web, macOS). Plain canvas taps and held contacts are
 fingers, so their platform pointer identity and retained press history can differ
 from a mouse's; use the intended physical input when comparing game saves.
@@ -1531,6 +1576,11 @@ natively), or `light-dark(a, b)`; the kernel parses it once for every host.
 `color-scheme="dark"` (or `"light"`) on a node makes that subtree resolve
 `light-dark()`, platform colours and glass in that scheme, as a sheet that is
 always dark does; leave it off to follow the surrounding scheme (LLP 1034 §8).
+`status-bar-style="light-content"` (light text, for a dark surface),
+`"dark-content"` or `"auto"` on any node, bound to state, sets an iOS phone's
+status bar: of what the bar sits over, the declaration painted on top wins, and
+a flip shows in its own batch's frame; `status-bar-animation="fade"` fades it
+(LLP 1105). Other hosts ignore both.
 `currentcolor` takes the node's `color` on borders, `background-color`,
 `tint-color`, text stroke and SVG paint. `unset` clears any row, and `inherit`
 an inherited one (`color`, fonts, `fill`…); `inherit` on a row CSS does not

@@ -18,7 +18,7 @@ function executable() {
   // on that app build directory lock. Once per Bun process, Cargo checks
   // sources, lockfile and toolchain.
   // An mtime-only shortcut can silently reuse an obsolete helper dependency.
-  const env = { ...process.env };
+  const env = { ...process.env, HERMES_LEAN_SYS_OFFLINE: '1' };
   for (const name of ['CARGO_BUILD_TARGET', 'CARGO_ENCODED_RUSTFLAGS', 'RUSTFLAGS', 'RUSTDOCFLAGS']) delete env[name];
   for (const name of ['RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER', 'CARGO_BUILD_RUSTC_WRAPPER', 'CARGO_BUILD_RUSTC_WORKSPACE_WRAPPER']) {
     if (env[name] && basename(env[name]) === 'clippy-driver') delete env[name];

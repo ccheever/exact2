@@ -13,7 +13,7 @@ private final class VideoModule {
     typealias View = @convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
     typealias Update = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, Int) -> Void
     typealias Handle = @convention(c) (UnsafeMutableRawPointer?) -> Void
-    let create: Create, view: View, update: Update, destroy: Handle, state: Handle
+    let create: Create, view: View, update: Update, destroy: Handle, state: Handle, fullscreen: Handle, toggle: Handle
     private init(_ library: UnsafeMutableRawPointer) {
         func symbol<T>(_ name: String, _: T.Type) -> T { unsafeBitCast(dlsym(library, name)!, to: T.self) }
         create = symbol("exact_video_create", Create.self)
@@ -21,6 +21,8 @@ private final class VideoModule {
         update = symbol("exact_video_update", Update.self)
         destroy = symbol("exact_video_destroy", Handle.self)
         state = symbol("exact_video_state", Handle.self)
+        fullscreen = symbol("exact_video_fullscreen", Handle.self)
+        toggle = symbol("exact_video_toggle", Handle.self)
     }
     static let shared: VideoModule? = {
         #if os(macOS)
@@ -31,7 +33,7 @@ private final class VideoModule {
         guard let library = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
             FileHandle.standardError.write(Data("exact video: \(String(cString: dlerror()))\n".utf8)); return nil
         }
-        let exports = ["create", "view", "update", "destroy", "state"]
+        let exports = ["create", "view", "update", "destroy", "state", "fullscreen", "toggle"]
         guard exports.allSatisfy({ dlsym(library, "exact_video_" + $0) != nil }) else {
             dlclose(library); return nil
         }
@@ -83,6 +85,8 @@ final class VideoView {
     private var visibilityBlocked = false
     private var autoplay = OffscreenAutoplay()
     private var autoplaySource: String?
+    /// Whether its full-screen player shows (the arm's `fullscreen` state).
+    private(set) var isFullscreen = false
     /// The rule applies: armed, muted, `paused` unbound, a `video` (an
     /// `audio` is never seen, so Chrome never holds it; LLP 1042 §8).
     private var autoplayRule: Bool {
@@ -96,8 +100,8 @@ final class VideoView {
     /// arm runs once: a seek every time, even to the time it last sought.
     private var commands: (seek: Int, seconds: Double, load: Int) = (0, 0, 0)
     /// The media events the arm reports (LLP 1042 §3), and the media
-    /// session's six (LLP 1098 D2); others are not sent.
-    static let events: Set<String> = ["loadedmetadata", "canplay", "play", "playing", "pause", "ended", "waiting", "seeking", "seeked", "ratechange", "volumechange", "timeupdate", "durationchange", "error", "seekbackward", "seekforward", "seekto", "previoustrack", "nexttrack", "stop"]
+    /// session's six (LLP 1098 D2), and fullscreenchange; others are not sent.
+    static let events: Set<String> = ["loadedmetadata", "canplay", "play", "playing", "pause", "ended", "waiting", "seeking", "seeked", "ratechange", "volumechange", "timeupdate", "durationchange", "error", "fullscreenchange", "seekbackward", "seekforward", "seekto", "previoustrack", "nexttrack", "stop"]
     /// A remote play's latch over the visibility threshold (LLP 1098 D3):
     /// it holds across the `paused` bound when it was set, the app's stale
     /// `true` included, until a later commit writes `true` or the element
@@ -245,10 +249,19 @@ final class VideoView {
         guard let data = try? JSONSerialization.data(withJSONObject: props) else { return }
         data.withUnsafeBytes { module.update(handle, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
     }
-    /// `fastSeek(id, seconds)` or `load(id)`, by HTML's method names.
+    /// `fastSeek(id, seconds)`, `load(id)` or `requestFullscreen(id)`, by HTML's method names.
     func command(_ name: String, seconds: Double) {
+        if name == "requestFullscreen" { return requestFullscreen() }
         if name == "fastSeek" { commands.seek += 1; commands.seconds = seconds } else { commands.load += 1 }
         update()
+    }
+    /// `requestFullscreen`: the arm presents it.
+    func requestFullscreen() {
+        if let handle { VideoModule.shared?.fullscreen(handle) }
+    }
+    /// The remote's Play/Pause (tvOS's `PlayPauseKey`).
+    func togglePlayPause() {
+        if let handle { VideoModule.shared?.toggle(handle) }
     }
     func state() -> [String: Any] {
         if let handle { VideoModule.shared?.state(handle) }
@@ -276,6 +289,13 @@ final class VideoView {
         if let result = message["remoteResult"] as? [String: String] { remoteResult = (result["n"] ?? "", result["status"] ?? "") }
         guard let owner else { return }
         if message["remote"] as? String == "play" { latched = true; latchedFrom = owner.props["paused"] }
+        let fullscreen = observed["fullscreen"] as? Bool ?? false
+        if fullscreen != isFullscreen {
+            isFullscreen = fullscreen
+            #if os(tvOS)
+            DispatchQueue.main.async { [weak owner] in owner?.presenter?.remoteKeysChanged() }
+            #endif
+        }
         let w = observed["videoWidth"] as? Double ?? 0, h = observed["videoHeight"] as? Double ?? 0
         let size: CGSize? = w > 0 && h > 0 ? CGSize(width: w, height: h) : nil
         if size != intrinsicSize {

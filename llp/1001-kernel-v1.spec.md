@@ -454,6 +454,16 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   content box (LLP 1059 D2a). The former overflow deviation
   is removed (`issues/closed/20260927-tab-bar-height-to-layout.md`).
 
+**When a list row's animations start (2026-10-06, [LLP 1055](1055-svg-shapes-and-css-animations.rfc.md)
+D13; Charlie's ruling, not reviewed).** `animation-trigger` (bit 179) is
+`view | none`, and `view` is the default: an animation in a row a virtualized
+list mounted out of its port is held at its start until the row first shows.
+CSS starts it at insertion, and CSS's own `animation-trigger` is a different
+grammar; only the name is shared. The reason: a list mounts rows a viewport
+ahead, so at a slow scroll an animation started at insertion is over before
+its row is seen. The web hosts do not build it yet (the browser starts the
+animation at insertion), which is the deviation in the other direction.
+
 **Clock timelines (2026-10-03, [LLP 1055.002](1055.002-synced-animations.rfc.md)
 D2; not reviewed).** `animation-timeline` takes a third value, `clock(<ident>)`,
 which CSS has no form of. Its animations stay on the clock (it is `auto` to

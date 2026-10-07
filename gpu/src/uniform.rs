@@ -8,8 +8,12 @@
 //! buffers written in place: the frame writes the slot after the last one,
 //! and binds that slot's bind group. Four slots: a canvas holds at most three
 //! drawables, so the slot a frame writes was last read by a frame whose
-//! drawable has since been returned, its commands complete. Elsewhere — the
-//! browser, Vulkan — it is one buffer written through the queue.
+//! drawable has since been returned, its commands complete. On Vulkan the
+//! ring is host-visible, coherent memory, mapped once: there `write_buffer`
+//! is a staging copy the GPU's transfer engine runs as a job of its own each
+//! frame (PowerVR's TDM, with its fences), about a tenth of the thread that
+//! flushes an animated canvas. Elsewhere — the browser — it is one buffer
+//! written through the queue.
 
 /// A per-frame uniform: `slots()` buffers, one bound each frame.
 pub struct FrameUniform {
@@ -29,14 +33,23 @@ struct Slot {
 }
 
 impl FrameUniform {
-    /// Slots shared in place on Apple.
-    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
+    /// Slots written in place (Apple's shared storage, Vulkan's mapped memory).
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     const RING: usize = 4;
 
     /// A uniform of `size` bytes, labelled `label`.
     pub fn new(device: &wgpu::Device, size: usize, label: &str) -> FrameUniform {
         #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
         if let Some(slots) = shared(device, size, label) {
+            return FrameUniform { slots, next: 0 };
+        }
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "tvos",
+            target_arch = "wasm32"
+        )))]
+        if let Some(slots) = mapped(device, size, label) {
             return FrameUniform { slots, next: 0 };
         }
         let buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -79,9 +92,10 @@ impl FrameUniform {
             s.size
         );
         match s.contents {
-            // SAFETY: `contents` is the slot's own shared allocation of
-            // `size` bytes, alive as long as `_raw`; the GPU last read this
-            // slot RING frames ago (see the module note).
+            // SAFETY: `contents` is the slot's own shared (Metal) or mapped
+            // coherent (Vulkan) allocation of `size` bytes, alive as long as
+            // the slot; the GPU last read this slot RING frames ago (see the
+            // module note).
             Some(p) => unsafe {
                 std::ptr::copy_nonoverlapping(bytes.as_ptr(), p.as_ptr(), bytes.len())
             },
@@ -126,4 +140,74 @@ fn shared(device: &wgpu::Device, size: usize, label: &str) -> Option<Vec<Slot>> 
         });
     }
     Some(slots)
+}
+
+/// The ring on Vulkan: host-visible, coherent buffers, mapped once, that
+/// wgpu binds as uniforms. `None` (the queue's writes) on another backend or
+/// where the memory would need flushing.
+#[cfg(not(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    target_arch = "wasm32"
+)))]
+fn mapped(device: &wgpu::Device, size: usize, label: &str) -> Option<Vec<Slot>> {
+    use wgpu::hal::Device as _;
+    // SAFETY: only allocates from the raw device and maps what it allocated.
+    let hal = unsafe { device.as_hal::<wgpu::hal::api::Vulkan>() }?;
+    let desc = wgpu::hal::BufferDescriptor {
+        label: Some(label),
+        size: size.max(16) as u64,
+        usage: wgpu::BufferUses::MAP_WRITE | wgpu::BufferUses::UNIFORM,
+        memory_flags: wgpu::hal::MemoryFlags::PREFER_COHERENT,
+    };
+    let mut raws = Vec::with_capacity(FrameUniform::RING);
+    for _ in 0..FrameUniform::RING {
+        // SAFETY: a valid descriptor on this device.
+        let Ok(raw) = (unsafe { hal.create_buffer(&desc) }) else {
+            break;
+        };
+        // SAFETY: the range is the buffer's own; it stays mapped for its life.
+        match unsafe { hal.map_buffer(&raw, 0..desc.size) } {
+            Ok(m) if m.is_coherent => raws.push((raw, m.ptr)),
+            _ => {
+                // SAFETY: made just above and never handed to wgpu.
+                unsafe { hal.destroy_buffer(raw) };
+                break;
+            }
+        }
+    }
+    if raws.len() < FrameUniform::RING {
+        for (raw, _) in raws {
+            // SAFETY: as above.
+            unsafe { hal.destroy_buffer(raw) };
+        }
+        return None;
+    }
+    drop(hal);
+    Some(
+        raws.into_iter()
+            .map(|(raw, contents)| {
+                // SAFETY: a buffer of this device, of this size, handed to
+                // wgpu as a uniform it never maps; wgpu treats it as
+                // initialized.
+                let buffer = unsafe {
+                    device.create_buffer_from_hal::<wgpu::hal::api::Vulkan>(
+                        raw,
+                        &wgpu::BufferDescriptor {
+                            label: Some(label),
+                            size: size as u64,
+                            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                            mapped_at_creation: false,
+                        },
+                    )
+                };
+                Slot {
+                    buffer,
+                    contents: Some(contents),
+                    size,
+                }
+            })
+            .collect(),
+    )
 }
