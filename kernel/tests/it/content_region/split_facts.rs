@@ -774,3 +774,45 @@ fn stale_parked_final_reservation_allows_shell_before_request_drop_and_resume() 
     let c = complete(&mut k, 280.);
     assert!(!Rc::ptr_eq(&a, &c));
 }
+
+/// Measures as monospace does, but reads like a measurer whose metrics could
+/// depend on the height offered (`height_free` keeps its default, false).
+struct HeightBound;
+impl TextMeasurer for HeightBound {
+    fn measure(&mut self, r: &TextMeasureRequest<'_>) -> TextMetrics {
+        MonospaceMeasurer::default().measure(r)
+    }
+}
+
+/// A flex column with a definite height asks its text at one width under
+/// more than one height. Under a height-free measurer (monospace, the Linux
+/// and terminal hosts) those are one scalar fact; under one that may read the
+/// height, each stays its own exact fact. The paint is the same either way.
+#[test]
+fn height_free_facts_answer_every_height_at_a_width() {
+    let facts = |measurer: Box<dyn TextMeasurer>| {
+        let mut k = fixture_with(measurer);
+        let mut column = StyleProps::default();
+        column.mask = mask(&[StyleId::Display, StyleId::FlexDirection, StyleId::Height]);
+        column.display = Display::Flex;
+        column.flex_direction = FlexDirection::Column;
+        column.height = Dimension::Points(120.);
+        k.apply(
+            0,
+            0,
+            &[Op::SetStyle {
+                id: 3,
+                patch: Box::new(column),
+            }],
+        )
+        .unwrap();
+        split(&mut k);
+        let p = complete(&mut k, 400.);
+        let frame = p.frame(key(&k, 4), Frame::default()).unwrap();
+        (k.region_retention().accepted_facts, frame)
+    };
+    let (free, free_frame) = facts(Box::<MonospaceMeasurer>::default());
+    let (bound, bound_frame) = facts(Box::new(HeightBound));
+    assert!(free < bound, "height-free {free} facts against {bound}");
+    assert_eq!(free_frame, bound_frame, "the same geometry");
+}
