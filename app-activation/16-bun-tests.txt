@@ -1,0 +1,40 @@
+== Before (base da4f4512f sources + this PR's two test files): the modules do not exist
+error: Cannot find module './project-paths' / './desktop-activation'   -> 0 pass, 2 fail
+
+== After (this branch)
+ 31 pass
+ 0 fail
+Ran 31 tests across 2 files. [281.00ms]
+
+== The 31 tests by name (describe > test)
+  desktop-activation.test.ts: desktop app activation > reuses an existing project and opens a new thread
+  desktop-activation.test.ts: desktop app activation > waits for a created project before it opens the thread
+  desktop-activation.test.ts: desktop app activation > rejects a Windows path when the primary environment is WSL
+  desktop-activation.test.ts: desktop app activation > returns a project error without opening a thread
+  desktop-activation.test.ts: resolveDesktopAppControlAddress > keeps Unix socket paths short and separates desktop state directories
+  desktop-activation.test.ts: resolveDesktopAppControlAddress > the macOS vectors the native address shares, under the 104-byte sun_path limit
+  desktop-activation.test.ts: the activation request > parses only a whole open-workspace request of version 1
+  desktop-activation.test.ts: when the window can open a project (DesktopAppActivationCoordinator ready) > the focused primary, connected with its config and shell snapshot
+  desktop-activation.test.ts: when the window can open a project (DesktopAppActivationCoordinator ready) > the primary in the background while another environment has the focus
+  desktop-activation.test.ts: when the window can open a project (DesktopAppActivationCoordinator ready) > never while the Local environment is switched off or no primary is known
+  desktop-activation.test.ts: when the window can open a project (DesktopAppActivationCoordinator ready) > reports ready once, again on each change, with one token per client (a reload is a new renderer)
+  desktop-activation.test.ts: the window open request > a handed request and a clicked notification each open once, the latest one winning
+  desktop-activation.test.ts: the window open request > without the native module a notification opens as before
+  desktop-activation.test.ts: a handed request on this client > an existing project on the focused primary: no project.create, its draft opens with a thread id, the answer goes back
+  desktop-activation.test.ts: a handed request on this client > a new folder: project.create (not creating the folder), then the draft once the shell has it
+  desktop-activation.test.ts: a handed request on this client > the server's refusal is project-create-failed with its message, no draft opens and no error banner
+  desktop-activation.test.ts: a handed request on this client > a disconnected primary is environment-unavailable; a Linux path on this Mac is platform-mismatch
+  desktop-activation.test.ts: a handed request on this client > a request that is gone (cancelled, expired) opens nothing and answers nothing
+  desktop-activation.test.ts: a handed request on this client > a background primary gets the project on its own transport, then becomes the focus on the new draft
+  desktop-activation.test.ts: a handed request on this client > `activation:open` is an op of its own, run before the write check
+  project-paths.test.ts: projectPaths > normalizes trailing separators for dispatch and comparison
+  project-paths.test.ts: projectPaths > normalizes windows-style paths for comparison
+  project-paths.test.ts: projectPaths > finds existing projects even when the input formatting differs
+  project-paths.test.ts: projectPaths > infers project titles from normalized paths
+  project-paths.test.ts: projectPaths > detects browse queries across supported path styles
+  project-paths.test.ts: projectPaths > only treats windows-style paths as browse queries on windows
+  project-paths.test.ts: projectPaths > detects explicit relative project paths
+  project-paths.test.ts: projectPaths > resolves explicit relative paths against the current project
+  project-paths.test.ts: projectPaths > navigates browse paths with matching separators
+  project-paths.test.ts: projectPaths > detects browse path boundaries
+  project-paths.test.ts: projectPaths > only allows browse-up after entering a directory
