@@ -92,7 +92,8 @@ never at ⌘Q). Not on main: a hook that holds termination for a bounded time (`
 1069.010 Q4 says no, a framework decision), and SIGTERM.
 
 Adoption for the existing modules: the clone's only termination workaround was T3Ssh's own
-`willTerminateNotification` observer ([native-module-termination](20261006-native-module-termination.md)),
-now removed; `T3Module.destroy()` reaches `T3Ssh.destroy()`. The other modules already relied on
+`willTerminateNotification` observer ([native-module-termination](closed/20261006-native-module-termination.md)),
+now removed (live: the branch ends both SSH tunnels at ⌘W, an Apple Event quit and ⌘Q, as the base did with the
+observer); `T3Module.destroy()` reaches `T3Ssh.destroy()`. The other modules already relied on
 `destroy()`. The embedded server's stop needs the bounded hold and belongs to
 `20261005-embedded-server-runtime`, so X6 stays open for the hold.

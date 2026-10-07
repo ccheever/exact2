@@ -61,7 +61,7 @@ checked for the parts not merged: `kernel/tables/schema.json` has no `text-wrap`
 
 | Issue | Result | Why |
 | --- | --- | --- |
-| #105 / X6 + native-module-termination | **adopted in code** (both stay open: X6 for the bounded hold, the draft until its live check) | #200 destroys every session from `applicationWillTerminate`, so `T3Module.destroy()` reaches `T3Ssh.destroy()` at ⌘Q, an Apple Event quit and last-window close. T3Ssh's own `willTerminateNotification` observer is removed; the AppKit case now checks that the notification alone closes nothing and that `destroy()` fails a waiting prompt and every later one. Live process check: prepared, not run (screen locked, below). |
+| #105 / X6 + native-module-termination | **adopted** (the draft moved to `issues/closed/`; X6 stays open for the bounded hold) | #200 destroys every session from `applicationWillTerminate`, so `T3Module.destroy()` reaches `T3Ssh.destroy()` at ⌘Q, an Apple Event quit and last-window close. T3Ssh's own `willTerminateNotification` observer is removed; the AppKit case now checks that the notification alone closes nothing and that `destroy()` fails a waiting prompt and every later one. Live: both SSH tunnels end at ⌘W on the last window, an Apple Event quit and ⌘Q pressed twice, as they did on the base with the observer; a SIGKILL control leaves them orphaned (below). |
 | #118 / X36 | **adopted** (issue moved to `issues/closed/`) | Hermes has `Intl.Locale` and `getWeekInfo()` as Chrome answers them. `resolveWeekStartsOn` (the reference's code) now answers on macOS; the test expects the weekday for every tag instead of accepting `undefined`. `RUNTIME_LOCALE` and `T3Locale.swift` stay (Hermes's default follows the Mac's region; Electron's `getSystemLocale()` is not `exactTime().locale`). |
 | #128 / X10 | **nothing to remove** (`closed-upstream`) | #208 gives macOS paragraphs Chrome's break opportunities. No clone workaround existed. Balance, placeholder colour and font smoothing are not on main. |
 | #125 / X20 | **not adoptable** (`closed-upstream`) | #209 adds cancelable `paste`/`copy`/`cut` to Contract fields only. The composer is a native `NSTextView` because chips (atomic ranges) and range replacement in one undo step are still missing, so its paste handling stays in Swift. No Contract field in the clone needs a paste handler. |
@@ -78,7 +78,7 @@ checked for the parts not merged: `kernel/tables/schema.json` has no `text-wrap`
 | --- | --- | --- | --- | --- | --- |
 | Clone builds on the merged base | — | `bun test examples/t3-code`, strict tsc (ES2023), `contract build`, `cargo test -p t3-code-macos --lib`, caps | green | macOS | numbers below |
 | SSH teardown without the observer | `T3Ssh(agent:)` in the AppKit binary | `macos/tests/ssh` | the notification closes nothing; `destroy()` fails waiting and later prompts | macOS | ssh 15 tests, 1 live skip, 0 failures |
-| SSH tunnels end at quit | lane copies `com.exact.t3code.laner4.before/.after` with a preseeded saved target `devbox`, `fake-ssh.sh` tunnel to a second lane server (16642) | launch; ⌘W on the last window; relaunch; Apple Event quit; process list before and after | no tunnel survives in either build | macOS | **not run: screen locked** (below) |
+| SSH tunnels end at quit | lane copies `com.exact.t3code.laner4.before/.after`, each with two saved SSH targets; `fake-ssh.sh` as the ssh command, tunnels to a lane HTTP server (16643) | launch (two tunnels reopen); post ⌘W, ⌘Q ⌘Q or send the Apple Event quit to the lane pid; poll the tunnel pids and listeners every 50 ms; control: SIGKILL | no tunnel survives an orderly exit in either build; the control leaves them orphaned | macOS | records below |
 | Week start on macOS | — | `cargo test -p exact-js --test it pure_utilities_match` (Hermes against Chrome); `desktop-shell-details.test.ts` | pass | macOS | 1/1; 32/32 |
 | PR search debounce | lane server 16641, agent clock in 10 ms steps | type in `pull-requests-search`, step until `slots.prApplied` equals the query | 250 ms after the keystroke at any phase | macOS 1280×840 | records below |
 | Terminal close confirm | thread "Wrap demo", right panel, Terminal surface | `tap close-tab-terminal:term-1`, step 10 ms until `app-confirm` | at once | macOS 1280×840 | records below, After image |
@@ -86,13 +86,14 @@ checked for the parts not merged: `kernel/tables/schema.json` has no `text-wrap`
 
 ## Progress
 
-Implemented 2026-10-07. Verification: unverified (task PR review pending; the live SSH row is open, below).
+Implemented 2026-10-07. Verification: unverified (task PR review pending). The live SSH row ran in attempt 2; the X10 pair at 840×620 is still open (below).
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| 1 (2026-10-07) | merge of `463acda68` + this task's commit | merged base before changes: `bun test examples/t3-code` 2297 pass / 1 skip / 0 fail, strict tsc clean, contract build 2543 slots / 45 resources, `cargo test -p t3-code-macos --lib` 11/0 (main's commits broke nothing in the clone). After: `bun test examples/t3-code` 2300 pass / 1 skip / 0 fail (3 week-start cases added); strict tsc clean; contract build 2542 slots (`prTypedAt` gone), 45 resources; `cargo test -p t3-code-macos --lib` 11/0; AppKit `ssh` 15 tests, 1 live skip, 0 failures; `cargo test -p exact-js --test it pure_utilities_match` 1/0; caps within budget (`app.contract` at 1,500 lines); macOS bundles of base and branch build | records and image below | live SSH row: screen locked |
+| 1 (2026-10-07) | merge of `463acda68` + this task's commit | merged base before changes: `bun test examples/t3-code` 2297 pass / 1 skip / 0 fail, strict tsc clean, contract build 2543 slots / 45 resources, `cargo test -p t3-code-macos --lib` 11/0 (main's commits broke nothing in the clone). After: `bun test examples/t3-code` 2300 pass / 1 skip / 0 fail (3 week-start cases added); strict tsc clean; contract build 2542 slots (`prTypedAt` gone), 45 resources; `cargo test -p t3-code-macos --lib` 11/0; AppKit `ssh` 15 tests, 1 live skip, 0 failures; `cargo test -p exact-js --test it pure_utilities_match` 1/0; caps within budget (`app.contract` at 1,500 lines); macOS bundles of base and branch build | records and image below | live SSH row (screen locked) |
+| 2 (2026-10-07) | merge of `origin/feat(example)/t3-code` `20980ae10` (#217; `QUEUE.md` only: #217 removed the terminal-drag line, both sides otherwise kept) | `bun test examples/t3-code` 2300 pass / 1 skip / 0 fail; strict tsc clean; contract build 2542 slots; caps within budget; live SSH-at-quit drive on both builds (below) | records below | X10 pair at 840×620 |
 
 Lane (not committed, `target/lane-r4`): reference server `1e2ecbd975` (`apps/server/dist/bin.mjs serve`) on
 127.0.0.1:16641 with isolated HOME, CODEX_HOME, CLAUDE_CONFIG_DIR, XDG_*, T3CODE_HOME, telemetry off, and
@@ -135,11 +136,38 @@ offset 370: terminal poll 140 ms, gated 1 ms; search poll 390 ms, gated 250 ms
 offset 490: terminal poll 450 ms, gated 1 ms; search poll 450 ms, gated 250 ms
 ```
 
-Live SSH row: prepared (lane bundle copies with their own bundle ids and preseeded saved targets, so the
-user's `com.exact.t3code.macos` domain and Keychain are never read), not run. At 15:30 the screen was locked
-(`CGSSessionScreenIsLocked` true, frontmost `loginwindow`), and the rule is to stop; the lock was released at
-once. The user's preferences domain hashed `acc150dd…` before and after; no lane Keychain item was written
-(agent sessions keep credentials in memory).
+Live SSH row, attempt 1: not run (at 15:30 the screen was locked, `CGSSessionScreenIsLocked` true; the lock was
+released at once).
+
+Live SSH row, attempt 2 (16:08–16:15, under `.realinput-lock`). Lane bundle copies of the base build
+(`887b2491b`: T3Ssh's `willTerminateNotification` observer, framework before #200) and the branch build, each
+with its own bundle id (`com.exact.t3code.laner4.before` / `.after`, ad hoc signed) and two saved SSH targets
+(`devbox`, `devbox2`) written to that domain, so each launch reopens two tunnels. Each copy was started by
+exec'ing its executable with `T3_SSH_COMMAND=macos/tests/ssh/fake-ssh.sh`, `T3_SSH_HOME` (a lane `~/.ssh`) and
+the fake's remote home and `t3` shim, so the real `/usr/bin/ssh` and `~/.ssh` were never used. A tunnel is the
+fake's `node` forwarder, a child of the app; the "remote" is a lane HTTP server on 16643 (the reference server
+without its web bundle answers `/` with 503, which the module's readiness check refuses, so a first launch's
+tunnels were torn down at their deadline; that run is kept as `live/after-attempt1-503`). Keys were posted to
+the lane pid only (`CGEventPostToPid`, a scratch tool that refuses any pid whose bundle id is not a lane copy);
+`orca computer hotkey` refused (AX reads blocked), and that run's app exited without a recorded cause, so it is
+not counted (`live/after-attempt2-orca`). The app and tunnel pids and the tunnels' listeners were polled every
+50 ms; each run idled 8 s first (one After run idled 20 s and stayed up).
+
+```
+BEFORE (observer)  ⌘W on the last window → app gone 348 ms, tunnels :46055 :44159 gone 348 ms, no listener
+                   Apple Event quit      → app gone 103 ms, tunnels :44159 :46055 gone 103 ms, no listener
+                   ⌘Q ⌘Q (double press)  → app gone 557 ms, tunnels :44160 :46056 gone 557 ms, no listener
+AFTER (#200)       ⌘W on the last window → app gone 359 ms, tunnels :44161 :46057 gone 359 ms, no listener
+                   Apple Event quit      → app gone 224 ms, tunnels :44159 :46055 gone 224 ms, no listener
+                   ⌘Q ⌘Q (double press)  → app gone 588 ms, tunnels :46056 :44160 gone 588 ms, no listener
+AFTER control      SIGKILL (no teardown) → tunnels alive, ppid 1, still listening on :44161 :46057 (then killed by recorded pid)
+```
+
+The clone quits when its last window closes, so ⌘W is a quit too. The branch ends its SSH children through
+`destroy()` on every orderly exit, as the base did through its observer; the control shows an exit without
+teardown leaves them running. The lane copies, their preference domains, data roots and plists were deleted
+after; the user's `com.exact.t3code.macos` domain hashed `acc150dd…` before and after; no Keychain item was
+written (no environment was paired).
 
 ## Evidence
 
@@ -148,15 +176,16 @@ once. The user's preferences domain hashed `acc150dd…` before and after; no la
 | PR search debounce (agent clock) | 250 ms when typed on the poll's grid; the poll gives 250–460 ms off it (probe) | 250 ms at every phase |
 | Terminal close confirm | probe: 140–500 ms after the request (500 ms poll) | 10 ms in the clone (agent step), 1 ms in the probe |
 | User message with long paths at 1280×840 (X10) | paths fit or break at a space | identical (no visible change at this width) |
-| SSH tunnels at quit (X6) | not run: screen locked | not run: screen locked |
+| SSH tunnels at ⌘W / Apple Event quit / ⌘Q ⌘Q (X6) | both tunnels gone with the app (348 / 103 / 557 ms), through the observer | both tunnels gone with the app (359 / 224 / 588 ms), through `destroy()`; SIGKILL control: orphaned |
 | Week start in the macOS data runtime (X36) | `undefined` (`Intl.Locale` throws there; #204's before column) | Chrome's (Hermes test against Chrome) |
+
+Record: `https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/adopt-main-fixes-r4/02-ssh-quit-record.txt` (the SSH runs).
 
 Image: `https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/adopt-main-fixes-r4/01-x10-wrap-1280-before-after.png`
 (the user message at 1280×840; Before and After draw the same lines).
 
 ## Next action
 
-Review the PR ([#218](https://github.com/ccheever/exact2/pull/218)). With the screen unlocked, one live session per build for the SSH row (the lane and
-`live.sh`-style launch are described above: ⌘W on the last window, then an Apple Event quit, the process list
-before and after; delete the lane domains after) and the X10 pair at 840×620 with the toasts dismissed; then
-move `20261006-native-module-termination` to `issues/closed/` as `adopted`.
+Review the PR ([#218](https://github.com/ccheever/exact2/pull/218)). Still open: the X10 pair at 840×620 (where
+the bubble is narrower than the paths), Before and After, with `dismiss-provider-warning` and the toasts dismissed
+first; it was not taken because other agents were queued on `.realinput-lock` when the SSH drive finished.

@@ -118,4 +118,4 @@ Each was reproduced on exact2 `4c893fef6` before filing. Not filed: X13 (unverif
 | side (from X3) | [#136](https://github.com/ccheever/exact2/issues/136) | Web JS target bakes `rem` and `em` to px at build time |
 | side (from X3) | [#137](https://github.com/ccheever/exact2/issues/137) | A bound string `font-size` ("20px") works on web but macOS silently unsets it — closed (main #159 refuses it at compile time); the clone compiles |
 
-Local draft: [macOS native module termination](20261006-native-module-termination.md) — reproduced by SSH acceptance; folded into #105 and fixed by main #200; the app workaround (T3Ssh's `willTerminateNotification` observer) is removed (adopt-main-fixes-r4); the live process check is pending (the screen was locked).
+Local draft: [macOS native module termination](closed/20261006-native-module-termination.md) — reproduced by SSH acceptance; folded into #105 and fixed by main #200; the app workaround (T3Ssh's `willTerminateNotification` observer) is removed and the live check passed: both SSH tunnels end at ⌘W, an Apple Event quit and ⌘Q in both builds (adopt-main-fixes-r4). **Adopted.**
