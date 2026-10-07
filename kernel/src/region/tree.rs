@@ -109,6 +109,9 @@ impl Derived {
         self.tree
             .compute_mapped(self.root, offer, arena, m, |s| self.nodes.get(&s).copied())
     }
+    pub fn provisional_chrome(&self) -> bool {
+        self.tree.provisional_chrome()
+    }
     pub fn paint_offers(&self, arena: &NodeArena) -> Vec<(u32, f32)> {
         self.slots
             .iter()
@@ -228,6 +231,7 @@ impl Derived {
             frames,
             offsets,
             field_content,
+            provisional_chrome: self.provisional_chrome(),
         })
     }
 }

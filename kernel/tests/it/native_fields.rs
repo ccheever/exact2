@@ -9,7 +9,7 @@ impl TextMeasurer for Fields {
         let font = request.paragraph.strut;
         TextMetrics {
             width: 100.0,
-            height: font.font_size * 1.25,
+            height: font.line_height.unwrap_or(font.font_size * 1.25),
             first_baseline: Some(font.font_size),
         }
     }
@@ -236,7 +236,10 @@ fn none_keeps_existing_inheritance_and_restores_it_after_platform_fonts() {
     assert!(k.set_env(Env::default()).unwrap());
     for id in [2, 3, 4, 5] {
         assert_eq!(number(&k, id, StyleId::FontSize), 32.0);
-        assert_eq!(number(&k, id, StyleId::TextIndent), 9.0);
+        assert_eq!(
+            number(&k, id, StyleId::TextIndent),
+            if id == 2 || id == 5 { 0.0 } else { 9.0 }
+        );
         assert_eq!(
             k.node(id).unwrap().text_style().font_style,
             FontStyle::Italic
@@ -550,4 +553,187 @@ fn ancestor_typography_changes_do_not_invalidate_stopped_field_metrics() {
     patch(&mut k, 1, &[(StyleId::FontSize, "44")]);
     assert!(native.same_metrics(&k.node(2).unwrap().paragraph_stamp().unwrap()));
     assert!(!bare.same_metrics(&k.node(4).unwrap().paragraph_stamp().unwrap()));
+}
+
+#[test]
+fn chrome_settlement_recomputes_minimum_when_only_frame_floor_changes() {
+    let (mut k, state) = tree(FieldChrome {
+        minimum_height: 34.0,
+        provisional: true,
+        ..chrome()
+    });
+    patch(&mut k, 2, &[(StyleId::Height, "5")]);
+    layout(&mut k);
+    assert_eq!(k.node(2).unwrap().frame.height, 34.0);
+    assert_eq!(k.provisional_layouts(), 1);
+    state.borrow_mut().0.minimum_height = 44.0;
+    state.borrow_mut().0.provisional = false;
+    layout(&mut k);
+    assert_eq!(k.node(2).unwrap().frame.height, 44.0);
+    assert_eq!(
+        k.node(2).unwrap().field_content_rect().unwrap().height,
+        34.0
+    );
+    assert_eq!(k.provisional_layouts(), 1);
+    state.borrow_mut().0.minimum_height = 34.0;
+    layout(&mut k);
+    assert_eq!(k.node(2).unwrap().frame.height, 34.0);
+}
+
+#[test]
+fn native_textarea_auto_height_measure_keeps_chrome_and_publishes_nothing() {
+    let (mut k, _) = tree(chrome());
+    patch(
+        &mut k,
+        5,
+        &[(StyleId::Height, "200"), (StyleId::Width, "100")],
+    );
+    k.apply(
+        0,
+        0,
+        &[Op::SetProp {
+            id: 5,
+            prop: PropId::Rows,
+            value: PropValue::Int(2),
+        }],
+    )
+    .unwrap();
+    layout(&mut k);
+    let before = k.export(None).unwrap();
+    let (epoch, receipts) = (k.epoch(), k.receipts().count());
+    let key = k.node(5).unwrap().key;
+    let measured = k.measure_auto_height(key).unwrap().0;
+    assert_eq!(k.export(None).unwrap(), before);
+    assert_eq!((k.epoch(), k.receipts().count()), (epoch, receipts));
+    let (mut auto, _) = tree(chrome());
+    patch(&mut auto, 5, &[(StyleId::Width, "100")]);
+    layout(&mut auto);
+    assert_eq!(measured.height, auto.node(5).unwrap().frame.height);
+    assert_eq!(measured.height, 30.0);
+    assert!(
+        k.measure_auto_height(key).is_some(),
+        "measurement leaves engine clean"
+    );
+    layout(&mut k);
+    assert_eq!(k.node(5).unwrap().frame.height, 210.0);
+}
+
+#[test]
+fn oversized_single_line_uses_negative_centering_offset_for_baseline_alignment() {
+    let (mut k, _) = tree(chrome());
+    patch(
+        &mut k,
+        1,
+        &[
+            (StyleId::Display, "flex"),
+            (StyleId::AlignItems, "baseline"),
+        ],
+    );
+    patch(
+        &mut k,
+        2,
+        &[
+            (StyleId::FontSize, "16"),
+            (StyleId::LineHeight, "5"),
+            (StyleId::Height, "40"),
+        ],
+    );
+    layout(&mut k);
+    let field = k.node(2).unwrap();
+    let content = field.field_content_rect().unwrap();
+    assert_eq!(content.height, 40.0);
+    let baseline = field.frame.y + content.y + (content.height - 80.0) / 2.0 + 16.0;
+    assert_eq!(baseline, k.node(3).unwrap().frame.y + 16.0);
+}
+
+#[test]
+fn native_fields_reset_ua_rows_with_and_without_platform_fonts() {
+    for platform in [false, true] {
+        let (mut k, _) = tree(FieldChrome::default());
+        if platform {
+            k.set_env(env(18.0)).unwrap();
+        }
+        let ancestor = rows(&[
+            (StyleId::FontFamily, "3"),
+            (StyleId::FontSize, "32"),
+            (StyleId::FontWeight, "800"),
+            (StyleId::FontStyle, "italic"),
+            (StyleId::LineHeight, "2"),
+            (StyleId::LetterSpacing, "4"),
+            (StyleId::TextColor, "red"),
+            (StyleId::TextAlign, "center"),
+            (StyleId::TextIndent, "12"),
+            (StyleId::TextShadow, "1px 2px red"),
+            (StyleId::TextTransform, "uppercase"),
+        ]);
+        k.apply(
+            0,
+            0,
+            &[Op::SetStyle {
+                id: 1,
+                patch: ancestor.clone(),
+            }],
+        )
+        .unwrap();
+        for id in [2, 5] {
+            let node = k.node(id).unwrap();
+            for row in [
+                StyleId::TextAlign,
+                StyleId::TextIndent,
+                StyleId::TextShadow,
+                StyleId::TextTransform,
+            ] {
+                assert_eq!(
+                    node.computed(row),
+                    StyleProps::default().get(row),
+                    "platform={platform}, {row:?}"
+                );
+                assert_eq!(node.source_of(row), None);
+            }
+            if !platform {
+                for row in [
+                    StyleId::FontFamily,
+                    StyleId::FontSize,
+                    StyleId::FontWeight,
+                    StyleId::FontStyle,
+                    StyleId::LineHeight,
+                    StyleId::LetterSpacing,
+                    StyleId::TextColor,
+                ] {
+                    assert_eq!(node.computed(row), ancestor.get(row), "{row:?}");
+                }
+            }
+            k.apply(
+                0,
+                0,
+                &[Op::SetStyle {
+                    id,
+                    patch: ancestor.clone(),
+                }],
+            )
+            .unwrap();
+            for row in ancestor.mask.iter() {
+                assert_eq!(k.node(id).unwrap().computed(row), ancestor.get(row));
+            }
+            k.apply(
+                0,
+                0,
+                &[Op::ClearStyle {
+                    id,
+                    mask: ancestor.mask,
+                }],
+            )
+            .unwrap();
+            assert_eq!(number(&k, id, StyleId::TextIndent), 0.0);
+            assert_eq!(
+                k.arena()
+                    .paragraph(k.node(id).unwrap().key.index)
+                    .text_align,
+                TextAlign::Left
+            );
+        }
+        for id in [3, 4] {
+            assert_eq!(number(&k, id, StyleId::TextIndent), 12.0);
+        }
+    }
 }

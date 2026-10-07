@@ -433,7 +433,7 @@ impl Kernel {
             // the shell too. No failed derived cache is reused on recovery.
             self.layout = Some(Box::new(LayoutTree::rebuild(&mut self.arena)));
         }
-        if result.is_ok() && engine(&mut self.layout).provisional_chrome() {
+        if result.is_ok() && region.provisional_chrome {
             self.provisional_layouts += 1;
         }
         Ok(result?)
