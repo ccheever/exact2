@@ -1,0 +1,19 @@
+bun test v1.4.2 (744846f84)
+
+host/web/request-refusal.test.mjs:
+1 | import { appGlobal as self } from "/var/folders/br/htsmr3l906b37_3s3k_63n500000gn/T/exact-ts-io-Dlu6pT/ts-fetch.js";
+2 | import { appGlobal as globalThis } from "/var/folders/br/htsmr3l906b37_3s3k_63n500000gn/T/exact-ts-io-Dlu6pT/ts-fetch.js";
+3 | import { appGlobal as window } from "/var/folders/br/htsmr3l906b37_3s3k_63n500000gn/T/exact-ts-io-Dlu6pT/ts-fetch.js";
+4 | const io = {
+5 |   WebSocket,
+6 |   EventSource
+     ^
+ReferenceError: XMLHttpRequest is not defined
+      at /private/var/folders/br/htsmr3l906b37_3s3k_63n500000gn/T/exact-ts-io-Dlu6pT/app.js:6:2
+(fail) the JS target refuses a data module's own WebSocket, XMLHttpRequest and EventSource as the wasm target does [125.65ms]
+
+ 0 pass
+ 35 filtered out
+ 1 fail
+ 1 expect() calls
+Ran 1 test across 1 file. [209.00ms]
