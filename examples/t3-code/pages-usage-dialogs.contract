@@ -57,10 +57,10 @@ component UsageDialogShell
     held = true
   view
     box position="absolute" left=0 top=0 right=0 bottom=0 z-index=60 background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId=`${dialogId}-layer`
-      column position="absolute" left=0 top=0 right=0 bottom=0 padding=16 box-sizing="border-box" align-items="center" justify-content="center" press=close aria-label="Close" testId=`${dialogId}-backdrop`
-        column position="relative" width="100%" max-width=width max-height="100%" min-height=0 box-sizing="border-box" border-radius=18 border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(scheme == "dark" ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") press=hold retainFocus=true role="dialog" aria-label=title testId=dialogId
+      column position="absolute" left=0 top=0 right=0 bottom=0 padding="1rem" box-sizing="border-box" align-items="center" justify-content="center" press=close aria-label="Close" testId=`${dialogId}-backdrop`
+        column position="relative" width="100%" max-width=width max-height="100%" min-height=0 box-sizing="border-box" border-radius="1.125rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(scheme == "dark" ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") press=hold retainFocus=true role="dialog" aria-label=title testId=dialogId
           children
-          button press=close disabled=closeDisabled aria-label="Close" aria-keyshortcuts="Escape" position="absolute" top=8 right=8 width=32 height=32 padding=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" testId=`${dialogId}-close`
+          button press=close disabled=closeDisabled aria-label="Close" aria-keyshortcuts="Escape" position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" testId=`${dialogId}-close`
             UsageSchemeIcon(name="x", size=16, scheme=scheme, light="#27272a", dark="#f5f5f5")
 
 // UsageModelDialog: provider mark and model id, "{Provider} · {pct} of cost",
@@ -74,29 +74,29 @@ component UsageModelDialog
     sm: bool
     op: action
   view
-    column flex-shrink=0 padding-top=24 padding-left=24 padding-right=24 padding-bottom=12 box-sizing="border-box" gap=8
-      row align-items="center" gap=8 min-width=0 padding-right=24
-        box width=20 height=20 display="flex" align-items="center" justify-content="center" flex-shrink=0
+    column flex-shrink=0 padding-top="1.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="0.75rem" box-sizing="border-box" gap="0.5rem"
+      row align-items="center" gap="0.5rem" min-width=0 padding-right="1.5rem"
+        box width="1.25rem" height="1.25rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
           when detail.driver == "codex"
             ProviderMark(driver="codex", size=20, color="light-dark(#27272a, #f5f5f5)")
           else
             DriverMark(driver=detail.driver, size=20, initials="")
-        text detail.model font-size=20 line-height="20px" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2 min-width=0 testId="usage-model-title"
-      text detail.description font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
+        text detail.model font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2 min-width=0 testId="usage-model-title"
+      text detail.description font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
     scroll max-height=(viewportHeight - 118 - (detail.unpricedNote != "" ? 64 : 0)) min-height=0 width="100%" testId="usage-model-scroll"
-      column width="100%" padding-top=4 padding-left=24 padding-right=24 padding-bottom=(detail.unpricedNote != "" ? 4 : 24) box-sizing="border-box" gap=32
-        box width="100%" display="grid" grid-template-columns=(sm ? "repeat(4, minmax(0, 1fr))" : "repeat(2, minmax(0, 1fr))") column-gap=24 row-gap=16
+      column width="100%" padding-top="0.25rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom=(detail.unpricedNote != "" ? "0.25rem" : "1.5rem") box-sizing="border-box" gap="2rem"
+        box width="100%" display="grid" grid-template-columns=(sm ? "repeat(4, minmax(0, 1fr))" : "repeat(2, minmax(0, 1fr))") column-gap="1.5rem" row-gap="1rem"
           each stat in detail.stats key=stat.key
-            column min-width=0 gap=2 testId=`usage-model-stat-${stat.key}`
-              text stat.label font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
-              text stat.value font-size=24 line-height="32px" font-weight=600 color="light-dark(#27272a, #f5f5f5)"
+            column min-width=0 gap="0.125rem" testId=`usage-model-stat-${stat.key}`
+              text stat.label font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+              text stat.value font-size="1.5rem" line-height="2rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)"
         UsageChartView(chart=detail.chart, width=detail.plotWidth, title=detail.chartTitle, scheme=scheme)
-        box width="100%" display="grid" grid-template-columns=(sm ? "repeat(2, minmax(0, 1fr))" : "minmax(0, 1fr)") column-gap=40 row-gap=32
+        box width="100%" display="grid" grid-template-columns=(sm ? "repeat(2, minmax(0, 1fr))" : "minmax(0, 1fr)") column-gap="2.5rem" row-gap="2rem"
           each bar in detail.shares key=bar.key
             UsageShareBar(bar=bar, scheme=scheme)
     when detail.unpricedNote != ""
-      row flex-shrink=0 padding-left=24 padding-right=24 padding-top=16 padding-bottom=16 box-sizing="border-box" align-items="center" justify-content="space-between" gap=8
-        text detail.unpricedNote font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" testId="usage-model-unpriced"
+      row flex-shrink=0 padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" align-items="center" justify-content="space-between" gap="0.5rem"
+        text detail.unpricedNote font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="usage-model-unpriced"
         UsagePrimaryButton(label="Set price", scheme=scheme, disabled=false, press=op("usage-prices-open", "", detail.model), testId="usage-model-set-price")
 
 // Button (default variant, sm:h-8): primary fill, a white inset highlight and a primary-tinted shadow.
@@ -111,5 +111,5 @@ component UsagePrimaryButton
   action hover(value: bool)
     over = value
   view
-    button press=press hover=hover disabled=disabled testId=testId height=32 padding-left=11 padding-right=11 box-sizing="border-box" border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color=(over and not disabled ? "light-dark(#1b4ed8e6, #346bf1e6)" : "light-dark(#1b4ed8, #346bf1)") box-shadow=(disabled ? "none" : (scheme == "dark" ? "inset 0 1px 0 #ffffff29, 0 1px 2px #346bf13d" : "inset 0 1px 0 #ffffff29, 0 1px 2px #1b4ed83d")) opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
-      text label font-size=14 line-height="20px" font-weight=500 white-space="nowrap" color="#ffffff"
+    button press=press hover=hover disabled=disabled testId=testId height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color=(over and not disabled ? "light-dark(#1b4ed8e6, #346bf1e6)" : "light-dark(#1b4ed8, #346bf1)") box-shadow=(disabled ? "none" : (scheme == "dark" ? "inset 0 1px 0 #ffffff29, 0 1px 2px #346bf13d" : "inset 0 1px 0 #ffffff29, 0 1px 2px #1b4ed83d")) opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+      text label font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color="#ffffff"

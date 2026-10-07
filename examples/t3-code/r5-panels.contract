@@ -59,9 +59,9 @@ component R5DetailsPrRows
       each row in prs.rest key=row.key
         R5PrRowView(row=row, act=act, local=local)
       when prs.moreLabel != ""
-        button press=local("surface-r5-pr-more", "", "") hover=hover aria-expanded=prs.expanded testId="details-pr-more" width="100%" height=32 padding-left=11 padding-right=11 box-sizing="border-box" gap=10 border-width=0 border-radius=10 background-color=(over ? r5RowHover() : "#00000000") display="flex" flex-direction="row" align-items="center"
+        button press=local("surface-r5-pr-more", "", "") hover=hover aria-expanded=prs.expanded testId="details-pr-more" width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" background-color=(over ? r5RowHover() : "#00000000") display="flex" flex-direction="row" align-items="center"
           R5Glyph(name=(prs.expanded ? "minus" : "plus"), size=16, color=(over ? r5RowInk() : "light-dark(#71717bb3, #818181b3)"))
-          text prs.moreLabel flex=1 min-width=0 text-align="left" font-size=13 font-weight=500 line-height="19.5px" color=(over ? r5RowInk() : "light-dark(#71717bb3, #818181b3)")
+          text prs.moreLabel flex=1 min-width=0 text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color=(over ? r5RowInk() : "light-dark(#71717bb3, #818181b3)")
 
 // One row: the plain row (no host detail), or the split group of the open link,
 // the checks and the one action worth taking. A link no project here can read
@@ -78,33 +78,33 @@ component R5PrRowView
     box position="relative" width="100%"
       when not row.split
         when row.target != ""
-          button press=local("surface-r5-pr-open", row.target, row.url) hover=hover("row") aria-label=row.aria testId=`details-pr-${row.key}` width="100%" height=32 padding-left=11 padding-right=11 box-sizing="border-box" gap=10 border-width=0 border-radius=10 background-color=(hovered == "row" ? r5RowHover() : "#00000000") display="flex" flex-direction="row" align-items="center"
+          button press=local("surface-r5-pr-open", row.target, row.url) hover=hover("row") aria-label=row.aria testId=`details-pr-${row.key}` width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" background-color=(hovered == "row" ? r5RowHover() : "#00000000") display="flex" flex-direction="row" align-items="center"
             PgIcon(name=row.icon, size=16, color=(row.tinted ? prdTone(row.state) : r5Muted()))
-            text row.label flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size=13 font-weight=500 line-height="19.5px" color=r5RowInk()
+            text row.label flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color=r5RowInk()
         else
-          link cursor="pointer" href=row.url hover=hover("row") aria-label=row.aria testId=`details-pr-${row.key}` width="100%" height=32 padding-left=11 padding-right=11 box-sizing="border-box" gap=10 border-radius=10 background-color=(hovered == "row" ? r5RowHover() : "#00000000") display="flex" flex-direction="row" align-items="center" text-decoration-line="none"
+          link cursor="pointer" href=row.url hover=hover("row") aria-label=row.aria testId=`details-pr-${row.key}` width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-radius="0.625rem" background-color=(hovered == "row" ? r5RowHover() : "#00000000") display="flex" flex-direction="row" align-items="center" text-decoration-line="none"
             PgIcon(name=row.icon, size=16, color=(row.tinted ? prdTone(row.state) : r5Muted()))
-            text row.label flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size=13 font-weight=500 line-height="19.5px" color=r5RowInk()
+            text row.label flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color=r5RowInk()
         TipBubble(label=row.tooltip, side="top", align="center", offset=36, inset=0, shown=(hovered == "row"))
       else
-        row width="100%" height=32 align-items="center" border-radius=10 background-color=(hovered != "" ? r5RowHover() : "#00000000") role="group" testId=`details-pr-${row.key}`
+        row width="100%" height="2rem" align-items="center" border-radius="0.625rem" background-color=(hovered != "" ? r5RowHover() : "#00000000") role="group" testId=`details-pr-${row.key}`
           // lane r6-pr: the link half carries the tooltip card, which ends at its end when it flips.
           box position="relative" flex=1 min-width=0 display="flex"
-            button press=local("surface-r5-pr-open", row.target, row.url) hover=hover("row") aria-label=row.aria flex=1 min-width=0 height=32 padding-left=11 padding-right=11 box-sizing="border-box" gap=10 border-width=0 border-radius=10 border-top-right-radius=0 border-bottom-right-radius=0 background-color=(hovered == "row" ? r5RowHover() : "#00000000") display="flex" flex-direction="row" align-items="center"
+            button press=local("surface-r5-pr-open", row.target, row.url) hover=hover("row") aria-label=row.aria flex=1 min-width=0 height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.625rem" border-width=0 border-radius="0.625rem" border-top-right-radius=0 border-bottom-right-radius=0 background-color=(hovered == "row" ? r5RowHover() : "#00000000") display="flex" flex-direction="row" align-items="center"
               PgIcon(name=row.icon, size=16, color=prdTone(row.state))
-              text row.label flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size=13 font-weight=500 line-height="19.5px" color=r5RowInk()
+              text row.label flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" text-align="left" font-size="0.8125rem" font-weight=500 line-height="1.21875rem" color=r5RowInk()
             when row.r6.card.show
               R6PrCardView(card=row.r6.card, shown=(hovered == "row"))
             else
               TipBubble(label=row.tooltip, side="top", align="start", offset=36, inset=0, shown=(hovered == "row"))
           when row.checks != ""
-            box width=1 height=16 flex-shrink=0 background-color="light-dark(#e4e4e7a6, #ffffff0a)"
+            box width=1 height="1rem" flex-shrink=0 background-color="light-dark(#e4e4e7a6, #ffffff0a)"
             // lane r6-pr: PullRequestChecksPopover variant "count" (r6-pr.contract).
             box position="relative" flex-shrink=0 display="flex"
               R6ChecksTrigger(row=row, hovered=(hovered == "checks"), hover=hover("checks"))
               R6ChecksPopover(row=row, local=local)
           when row.action != ""
-            box width=1 height=16 flex-shrink=0 background-color="light-dark(#e4e4e7a6, #ffffff0a)"
+            box width=1 height="1rem" flex-shrink=0 background-color="light-dark(#e4e4e7a6, #ffffff0a)"
             R6ActionButton(row=row, hovered=(hovered == "action"), hover=hover("action"), act=act, local=local)
         TipBubble(label=row.actionTooltip, side="top", align="end", offset=36, inset=0, shown=(hovered == "action"))
 
@@ -126,7 +126,7 @@ component R5PrSurfaceBody
     column flex=1 min-height=0 width="100%" testId="pull-request-surface"
       when detail.ref != pr.selected or (detail.number == 0 and detail.error == "")
         column flex=1 width="100%" align-items="center" justify-content="center" testId="pull-request-loading"
-          text "Loading pull request…" font-size=12 line-height="16px" color=r5Muted()
+          text "Loading pull request…" font-size="0.75rem" line-height="1rem" color=r5Muted()
       else
         // The glyph-bearing parts are rebuilt per scheme so their light-dark() colours resolve.
         when detail.error != "" and scheme == "dark"
@@ -135,21 +135,21 @@ component R5PrSurfaceBody
           PrUnavailable(detail=detail, reload=reload)
         when detail.error == ""
           scroll flex=1 min-height=0 width="100%" testId="pull-request-scroll"
-            column width="100%" padding-bottom=64 box-sizing="border-box"
+            column width="100%" padding-bottom="4rem" box-sizing="border-box"
               when scheme == "dark"
                 PrdHeader(detail=detail, scheme="dark", reload=reload, act=act, copy=copy)
               else
                 PrdHeader(detail=detail, scheme="light", reload=reload, act=act, copy=copy)
-              row width="100%" padding-left=16 padding-right=16 padding-top=8 padding-bottom=8 box-sizing="border-box" border-top-width=1 border-bottom-width=1 border-top-style="solid" border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" align-items="center" gap=8 role="navigation" aria-label="Pull request tabs"
-                row height=28 padding=2 gap=2 box-sizing="border-box" border-radius=10 background-color="light-dark(#d4d4d766, #ffffff08)" align-items="center" role="tablist"
+              row width="100%" padding-left="1rem" padding-right="1rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-top-width=1 border-bottom-width=1 border-top-style="solid" border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" align-items="center" gap="0.5rem" role="navigation" aria-label="Pull request tabs"
+                row height="1.75rem" padding="0.125rem" gap="0.125rem" box-sizing="border-box" border-radius="0.625rem" background-color="light-dark(#d4d4d766, #ffffff08)" align-items="center" role="tablist"
                   PrdTab(label="Summary", active=(tab == "summary"), press=setTab("summary"), testId="pull-request-tab-summary")
                   PrdTab(label="Timeline", active=(tab == "timeline"), press=setTab("timeline"), testId="pull-request-tab-timeline")
                 box flex=1 min-width=0
                 when detail.checksSummary != ""
-                  row align-items="center" gap=6 flex-shrink=0 aria-label=`Checks: ${detail.checksSummary}`
+                  row align-items="center" gap="0.375rem" flex-shrink=0 aria-label=`Checks: ${detail.checksSummary}`
                     when detail.checksTone != ""
                       PgIcon(name=prdCheckIcon(detail.checksTone == "passing" ? "success" : detail.checksTone == "failing" ? "failure" : "pending"), size=14, color=prdCheckTone(detail.checksTone == "passing" ? "success" : detail.checksTone == "failing" ? "failure" : "pending"))
-                    text detail.checksSummary font-size=12 line-height="16px" color=r5Muted() white-space="nowrap"
+                    text detail.checksSummary font-size="0.75rem" line-height="1rem" color=r5Muted() white-space="nowrap"
               when tab == "summary"
                 PrdSummary(detail=detail, documents=documents, local=local)
               else
@@ -171,18 +171,18 @@ component R5AttachmentBody
       else
         R5AttachmentHeader(att=att, sheet=sheet, local=local)
       when att.truncatedNote != ""
-        text att.truncatedNote flex-shrink=0 padding-left=12 padding-right=12 padding-top=6 padding-bottom=6 border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#fe9a0033, #fe9a0033)" background-color="light-dark(#fffbeb, #fe9a0014)" font-size=11 line-height="16px" color="light-dark(#bb4d00, #ffb900)" role="status"
+        text att.truncatedNote flex-shrink=0 padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#fe9a0033, #fe9a0033)" background-color="light-dark(#fffbeb, #fe9a0014)" font-size="0.6875rem" line-height="1rem" color="light-dark(#bb4d00, #ffb900)" role="status"
       when att.preview == "loading"
         column flex=1 align-items="center" justify-content="center" role="status" aria-label="Loading file" testId="attachment-loading"
           R4Icon(name="loader", size=24, color=r5Muted())
       when att.preview == "error"
-        column flex=1 align-items="center" justify-content="center" gap=12 padding-left=24 padding-right=24 role="alert" testId="attachment-error"
-          text att.error text-align="center" font-size=12 line-height="19.5px" color="light-dark(#e40014, #ff6467)"
-          button press=local("surface-r5-att-retry", att.id, "") testId="attachment-retry" padding-left=10 padding-right=10 padding-top=4 padding-bottom=4 border-radius=6 border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="#00000000"
-            text "Try again" font-size=12 line-height="16px" color="light-dark(#27272a, #f5f5f5)"
+        column flex=1 align-items="center" justify-content="center" gap="0.75rem" padding-left="1.5rem" padding-right="1.5rem" role="alert" testId="attachment-error"
+          text att.error text-align="center" font-size="0.75rem" line-height="1.21875rem" color="light-dark(#e40014, #ff6467)"
+          button press=local("surface-r5-att-retry", att.id, "") testId="attachment-retry" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="#00000000"
+            text "Try again" font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
       when att.preview == "markdown"
         scroll flex=1 min-height=0 width="100%" testId="attachment-markdown"
-          column width="100%" max-width=896 padding-left=24 padding-right=24 padding-top=20 padding-bottom=20 box-sizing="border-box" align-self="center"
+          column width="100%" max-width="56rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.25rem" padding-bottom="1.25rem" box-sizing="border-box" align-self="center"
             MarkdownBlocks(document=att.markdown, local=local, code=att.code, prose="light-dark(#27272acc, #f5f5f5cc)", fit=false)
       when att.preview == "table"
         scroll flex=1 min-height=0 width="100%" testId="attachment-table"
@@ -190,22 +190,22 @@ component R5AttachmentBody
             each row in att.table key=row.id
               row min-width="100%" background-color=(row.header ? "light-dark(#f4f4f520, #ffffff0a)" : "#00000000")
                 each cell in row.cells key=cell.id
-                  text cell.text flex=1 max-width=320 min-width=64 padding-left=12 padding-right=12 padding-top=6 padding-bottom=6 box-sizing="border-box" border-bottom-width=1 border-bottom-style="solid" border-color=(row.header ? "light-dark(#e4e4e7, #ffffff0f)" : "light-dark(#e4e4e799, #ffffff0a)") white-space="pre-wrap" font-size=12 line-height="16px" font-weight=(row.header ? 500 : 400) font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)"
+                  text cell.text flex=1 max-width="20rem" min-width="4rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-bottom-width=1 border-bottom-style="solid" border-color=(row.header ? "light-dark(#e4e4e7, #ffffff0f)" : "light-dark(#e4e4e799, #ffffff0a)") white-space="pre-wrap" font-size="0.75rem" line-height="1rem" font-weight=(row.header ? 500 : 400) font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)"
       when att.preview == "code"
         scroll flex=1 min-height=0 width="100%" testId="attachment-code"
-          column width=(att.wrap ? "100%" : "auto") min-width="100%" padding-top=8 padding-bottom=8 box-sizing="border-box" background-color="light-dark(#ffffff, #111111)" role="code" aria-label=att.name
+          column width=(att.wrap ? "100%" : "auto") min-width="100%" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" background-color="light-dark(#ffffff, #111111)" role="code" aria-label=att.name
             each line in att.lines key=line.id
               R5CodeRow(line=line, gutter=att.gutter, wrap=att.wrap)
       when att.preview == "image"
-        column flex=1 min-height=0 width="100%" padding=16 box-sizing="border-box" align-items="center" justify-content="center" overflow="hidden" testId="attachment-image"
+        column flex=1 min-height=0 width="100%" padding="1rem" box-sizing="border-box" align-items="center" justify-content="center" overflow="hidden" testId="attachment-image"
           image att.url aria-label=att.name error=local("surface-r5-att-media-error", att.id) max-width="100%" max-height="100%" width="100%" height="100%" object-fit="contain"
       // lane r6-media: PDF, rendered HTML, audio and video (r6-media.contract).
       when att.preview == "pdf" or att.preview == "html" or att.preview == "audio" or att.preview == "video"
         R6MediaBody(att=att, local=local)
       when att.preview == "none"
-        column flex=1 min-height=0 align-items="center" justify-content="center" gap=4 padding-left=24 padding-right=24 box-sizing="border-box" testId="attachment-no-preview"
-          text "No preview for this file" text-align="center" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
-          text att.noPreview max-width=384 text-align="center" font-size=12 line-height="19.5px" color=r5Muted()
+        column flex=1 min-height=0 align-items="center" justify-content="center" gap="0.25rem" padding-left="1.5rem" padding-right="1.5rem" box-sizing="border-box" testId="attachment-no-preview"
+          text "No preview for this file" text-align="center" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+          text att.noPreview max-width="24rem" text-align="center" font-size="0.75rem" line-height="1.21875rem" color=r5Muted()
 
 component R5AttachmentHeader
   props
@@ -217,13 +217,13 @@ component R5AttachmentHeader
     hovered = over ? id : (hovered == id ? "" : hovered)
   view
     // FILE_SURFACE_SUBHEADER_CLASS: 28pt with 12pt below in the inline panel; 40pt over a hairline in a sheet.
-    row height=(sheet ? 40 : 28) flex-shrink=0 margin-bottom=(sheet ? 0 : 12) padding-left=12 padding-right=12 box-sizing="border-box" gap=8 align-items="center" position="relative" z-index=5 border-bottom-width=(sheet ? 1 : 0) border-bottom-style="solid" border-color="light-dark(#0000001b, #ffffff1f)" testId="attachment-subheader"
+    row height=(sheet ? "2.5rem" : "1.75rem") flex-shrink=0 margin-bottom=(sheet ? "0px" : "0.75rem") padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" gap="0.5rem" align-items="center" position="relative" z-index=5 border-bottom-width=(sheet ? 1 : 0) border-bottom-style="solid" border-color="light-dark(#0000001b, #ffffff1f)" testId="attachment-subheader"
       row flex=1 min-width=0 align-items="center" overflow="hidden"
-        text "Attachment" flex-shrink=0 padding-left=2 padding-right=2 font-size=12 line-height="16px" white-space="nowrap" color=r5Muted()
-        box margin-left=4 margin-right=4 flex-shrink=0 display="flex"
+        text "Attachment" flex-shrink=0 padding-left="0.125rem" padding-right="0.125rem" font-size="0.75rem" line-height="1rem" white-space="nowrap" color=r5Muted()
+        box margin-left="0.25rem" margin-right="0.25rem" flex-shrink=0 display="flex"
           ShellIcon(name="chevron-right", size=14, color="light-dark(#71717b99, #81818199)")
-        text att.name min-width=0 padding-left=2 padding-right=2 font-size=12 font-weight=500 line-height="16px" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#27272a, #f5f5f5)" testId="attachment-name"
-        text att.size margin-left=8 flex-shrink=0 font-size=12 line-height="16px" white-space="nowrap" color=r5Muted() testId="attachment-size"
+        text att.name min-width=0 padding-left="0.125rem" padding-right="0.125rem" font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#27272a, #f5f5f5)" testId="attachment-name"
+        text att.size margin-left="0.5rem" flex-shrink=0 font-size="0.75rem" line-height="1rem" white-space="nowrap" color=r5Muted() testId="attachment-size"
       when att.canRender
         R5Action(id="render", label=att.renderLabel, icon=att.renderIcon, toggle=true, pressed=att.rendered, disabled=false, hovered=hovered, hover=hover, press=local("surface-r5-att-render", att.id, ""))
       when att.showWrap
@@ -247,7 +247,7 @@ component R5Action
     press: action
   view
     box position="relative" flex-shrink=0
-      button press=press hover=hover(id) disabled=disabled aria-label=label testId=`attachment-action-${id}` width=28 height=28 padding=0 border-radius=10 border-width=0 opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(pressed ? "light-dark(#f4f4f5, #ffffff0f)" : hovered == id ? "light-dark(#f4f4f599, #ffffff0a)" : "#00000000")
+      button press=press hover=hover(id) disabled=disabled aria-label=label testId=`attachment-action-${id}` width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(pressed ? "light-dark(#f4f4f5, #ffffff0f)" : hovered == id ? "light-dark(#f4f4f599, #ffffff0a)" : "#00000000")
         when icon == "copy" or icon == "download" or icon == "check"
           ShellIcon(name=icon, size=14, color=(pressed ? "light-dark(#18181b, #fafafa)" : "light-dark(#71717b, #a1a1aa)"))
         else
@@ -261,8 +261,8 @@ component R5CodeRow
     wrap: bool
   view
     row width="100%" align-items="flex-start"
-      text line.number width=gutter flex-shrink=0 padding-right=9.83 box-sizing="border-box" text-align="right" font-family="ui-monospace" font-size=13 line-height="20px" font-variant-numeric="tabular-nums" color="light-dark(#565656, #9d9d9d)"
-      text flex=1 min-width=0 padding-left=7.8 padding-right=7.8 box-sizing="border-box" font-family="ui-monospace" font-size=13 line-height="20px" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "break-word" : "normal") color="light-dark(#0a0a0a, #fafafa)"
+      text line.number width=gutter flex-shrink=0 padding-right="0.614375rem" box-sizing="border-box" text-align="right" font-family="ui-monospace" font-size=13 line-height="20px" font-variant-numeric="tabular-nums" color="light-dark(#565656, #9d9d9d)"
+      text flex=1 min-width=0 padding-left="0.4875rem" padding-right="0.4875rem" box-sizing="border-box" font-family="ui-monospace" font-size=13 line-height="20px" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "break-word" : "normal") color="light-dark(#0a0a0a, #fafafa)"
         each run in line.runs key=run.id
           text run.text color=synColor(run.syntax) font-style=synSlant(run.syntax)
 
@@ -274,7 +274,7 @@ component R5Glyph
     color: string
   view
     when name == "minus"
-      svg width=size height=size viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+      svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
         path d="M5 12h14"
     else
       PgIcon(name=name, size=size, color=color)

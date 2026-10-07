@@ -1,12 +1,12 @@
 ---
 name: 20261005-interface-font-size
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
-delivery: none
+implementation: complete
+verification: verified
+delivery: pr-open
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
+base_branch: 'feat(example)/t3-code'
+branch: 'feat(example)/t3-code-interface-font-size'
 pr_url: null
 verified_commit: null
 ---
@@ -49,7 +49,7 @@ the prompt, code and terminal size settings (they stay px), the Settings page la
 
 ## Context and guidance
 
-Parent specification: [spec](../spec.md). Source behavior (T3 Code `1e2ecbd975`): `apps/web/src/appearanceFonts.ts:95-134`
+Parent specification: [spec](../../spec.md). Source behavior (T3 Code `1e2ecbd975`): `apps/web/src/appearanceFonts.ts:95-134`
 (`root.style.fontSize = <n>px`; prompt, code and diff sizes are written in px so that "they do not scale twice"),
 `packages/contracts/src/settings.ts:116-128` (12–20, default 16), `apps/web/src/routes/__root.tsx:304-338`
 (`FontAppearanceSync`), `SettingsPanels.tsx:1536-1556` (row in Simple and Advanced views), `index.css:116-131,178-185`
@@ -72,20 +72,20 @@ Tools are named by their `target/t3-ui-parity/…` path (committed under `exampl
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
-| merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged (the oracle runs at 12, 16 and 20) | pending |
-| resolved framework issue | [X3 root font size](../issues/20261005-x03-root-font-size.md) | none yet (local draft) | Fix merged into `main` upstream (this plan files the issue only) and the example pinned to it, or the user waives | pending |
+| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
+| merged task PR | [20261005-clone-on-exact2-main](../20261005-clone-on-exact2-main.md) | pending | Merged | pending |
+| merged task PR | [20261005-desktop-oracle-and-trace](../20261005-desktop-oracle-and-trace.md) | pending | Merged (the oracle runs at 12, 16 and 20) | pending |
+| resolved framework issue | [X3 root font size](../../issues/closed/20261005-x03-root-font-size.md) | none yet (local draft) | Fix merged into `main` upstream (this plan files the issue only) and the example pinned to it, or the user waives | resolved: #102 closed by main #185; the branch merged main `cff90b364` |
 | recorded decision | Apparatus approval: the computed-style probe `rem-probe.mjs` | none | User approves | pending |
 | scheduling preference | After `20261005-floating-device-player` and `20261005-terminal-drawer` | none | Not a prerequisite | — |
 
 ## Issue assessment at preparation
 
-Checked sources and time: plan issue drafts in [issues](../issues/README.md), 2026-10-05; not reproduced, not searched upstream. No prior attempt.
+Checked sources and time: plan issue drafts in [issues](../../issues/README.md), 2026-10-05; not reproduced, not searched upstream. No prior attempt.
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X3](../issues/20261005-x03-root-font-size.md) | App-settable root font size (`rem` base) | `EXACT2-GAPS.md` X3: the host always sends 16 | blocking if reproduced (no workaround; the agent `prefer page root-font-size` can preview only) | `issue-open` reproduces it on the pin and files it; the upstream fix lands; then this ticket |
+| [X3](../../issues/closed/20261005-x03-root-font-size.md) | App-settable root font size (`rem` base) | `EXACT2-GAPS.md` X3: the host always sends 16 | blocking if reproduced (no workaround; the agent `prefer page root-font-size` can preview only) | `issue-open` reproduces it on the pin and files it; the upstream fix lands; then this ticket |
 | [X9](../issues/20261005-x09-root-component-across-files.md) | Line cap | `app.contract` near 1,500 lines | nonblocking | Conversion must not add lines; check `caps.mjs` |
 | [X10](../issues/20261005-x10-text-rendering-parity.md) | Chrome text rendering differences | Word-boundary ellipsis, weight | nonblocking | Judge scaling by `layout` geometry, not only pixel scores |
 | new — record at prepare | A `number` prop or `derive` cannot carry `rem` | Unknown | unknown | The feasibility check decides; record the gap if it fails |
@@ -133,16 +133,72 @@ Required environment: a `main` pin with the X3 fix, oracle build, Xcode 27.0, Bu
 
 ## Progress
 
-Planned. No branch. Blocked by X3 if the issue reproduces.
+Implemented 2026-10-07 on `feat(example)/t3-code-interface-font-size` together with
+[20261005-interface-font-size-conversion](../20261005-interface-font-size-conversion.md) (one PR, as the user asked),
+after the branch merged exact2 main `cff90b364` (X3 fixed upstream by #185; #176 and #159 also on main).
+
+- **Root size.** `appearance-fonts.ts` ports `clampInterfaceFontSize`, `clampPromptFontSize`, `clampCodeFontSize`
+  (and the ranges and defaults). `look.fontSize` is now `clampInterfaceFontSize(fontSizeInterface)` (16 until the
+  preferences load) and is the source of the call: app.contract's `task rootFont key=data.look.fontSize` runs
+  `setRootFontSize(data.look.fontSize)` one millisecond after launch and after every change.
+  `r12-sidebar-width.ts` uses the shared clamp.
+- **Feasibility record** (`evidence/20261007-interface-font-size/rem-probe.contract`, `rem-probe-layout.txt`, a scratch
+  app driven on macOS at 12/16/20): `rem` compiles and lays out scaled for font-size, line-height, letter-spacing,
+  width/height and min/max, gap and column-gap, padding, margin, top/left, border-radius and an svg's width/height
+  (`1rem` → 12/16/20). A `number` prop carries rem through a template (`` width=`${size / 16}rem` `` → 10.5/14/17.5),
+  and a ternary of rem strings works. Fails: `translate` takes px or percent only, and `calc()` takes
+  `<percent> ± <px>` only (`calc(1rem + 4px)` is refused), so a length that adds a layout px value to a rem one
+  multiplies the root size in (the top bars' traffic-light inset). Neither needs a new issue for this app.
+- **Map.** `font-size-map.json`: every Contract file with its rem lengths (the px values at 16 that became N/16 rem;
+  ×0.75 at 12, ×1.25 at 20), every `style` definition (60, all `converted`), the px items with their reason, the JS
+  layout converted, and the pending areas. The oracle probe at 12/16/20 was not run: the desktop oracle task is not
+  to be done (user decision 2026-10-06); the classes come from the reference source (Tailwind rem utilities, its 86
+  `[Npx]` classes and `index.css` px values).
+- **Shared styles.** All 60 `style` definitions are converted (with every other literal length; see the conversion
+  task).
+- **Tests.** `appearance-fonts.test.ts`: the reference's `describe("font size clamping")` (2 tests) plus a stored
+  non-number, and the clone's JS-layout scaling (chat width, lane metrics, composer menus).
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | X3 |
+| 1 (2026-10-07) | branch `feat(example)/t3-code-interface-font-size` over `4f523ef5c` + main `cff90b364` | `bun test examples/t3-code` 2259 pass / 0 fail / 1 skip (2260 tests); strict `tsc` clean; `contract build` OK; `cargo test -p t3-code-macos --lib` 11/0; `bun scripts/caps.mjs` within caps; live macOS drive (one retry, to open the size menu in the shots): root 12/16/20 applied, every probed box ×0.75/×1/×1.25, the 52 px top bars stay | below, `evidence/20261007-interface-font-size/` | none for this task |
+
+Rows not run: the oracle pixel pairs and the round-11 matrix (desktop oracle not to be done, user 2026-10-06); the
+attended slider-feel row (no real-input session); persistence across a relaunch (an agent session starts with a fresh
+store: the relaunch came back to onboarding, so the row is unverified; the stored setting and the launch task are
+the existing path); the minimum window 840×620 at 20 (not driven).
+
+### Evidence (before/after)
+
+Before is the untouched feature-branch tip `4f523ef5c` (`t3-code-evidence-base`), after is this branch; the same
+drive (`evidence/20261007-interface-font-size/drive.mjs.txt`) at 1280×840, light, an isolated lane server (port 16521,
+lane homes) with project Alpha and two threads. One image per scenario:
+
+- Settings › Appearance at 16 (default), unchanged: https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/interface-font-size/01-settings-appearance-16-before-after.png
+- Settings › Appearance at 12: https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/interface-font-size/02-settings-appearance-12-before-after.png
+- Settings › Appearance at 20: https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/interface-font-size/03-settings-appearance-20-before-after.png
+- A thread with the sidebar and composer at 20: https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/interface-font-size/04-thread-20-before-after.png
+- A thread with the sidebar and composer at 12: https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/interface-font-size/05-thread-12-before-after.png
+
+`layout` per size (`evidence/20261007-interface-font-size/{before,after}-record.txt`; boxes x, y, w, h):
+
+| | before at 12 / 16 / 20 | after at 12 | after at 16 | after at 20 |
+|---|---|---|---|---|
+| `state` root font size | 16 / 16 / 16 | 12 | 16 | 20 |
+| sidebar thread row `thread-alpha-1` | 239×78 at every size | 243×58.5 | 239×78 | 235×97.5 |
+| sidebar toggle `toggle-sidebar` | 28×28 | 21×21 | 28×28 | 35×35 |
+| settings button `connection-settings` | 32×32 | 24×24 | 32×32 | 40×40 |
+| composer toolbar | 678×48 | 550×36 | 678×48 | 918×60 |
+| Settings nav row `settings-appearance` | 240×32 | 244×24 | 240×32 | 236×40 |
+| font size select | 144×28 | 108×21 | 144×28 | 180×35 |
+| chat header (52 px top bar, px) | 1024×52 | 1024×52 | 1024×52 | 1024×52 |
+| settings header (52 px, px) | 1023×52 | 1023×52 | 1023×52 | 1023×52 |
+
+At 16 every probed box equals the before build's. No `setRootFontSize … refused` line in either log.
 
 ## Next action
 
-Run `issue-open` for X3 and wait for the upstream fix (this plan files the issue only), or the user's waiver. Then `prepare` and run the feasibility check. When this ticket is
-verified, the planner creates per-area conversion tickets from `font-size-map.json` in a planned plan revision, because the code will have moved by
-then (the lane limits of `20261005-floating-device-player` and the sidebar minimum width are among them).
+PR review and merge. The remaining conversion areas are in
+[20261005-interface-font-size-conversion](../20261005-interface-font-size-conversion.md).

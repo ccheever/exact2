@@ -14,6 +14,7 @@ import type { T3Client } from './client';
 import { obj, str, type Obj } from './domain';
 import { bridgeReply, type Native } from './protocol';
 import { chatLaneMetrics, resolveChatCanvasLayout, type ChatCanvasPreview } from './chat-canvas-layout';
+import { clampInterfaceFontSize } from './appearance-fonts';
 import { resolveThreadDetailsCardLayout, THREAD_DETAILS_CARD_GAP } from './thread-details-card-layout';
 import {
   clampPreviewMiniPlayerPosition, resizePreviewMiniPlayer, resolveDeviceMiniPlayerCornerRadius, resolveDeviceMiniPlayerSourceSize,
@@ -130,7 +131,8 @@ export async function chatCanvasView(client: T3Client, native: Native | null | u
   const { frames, streams } = gesture && state.gesture ? state.live ?? presented(obj(client.presentation)) : await livePresentation(client, native, state, !!current || card);
   const chat = rect(frames.chat), overlay = rect(frames.overlay), content = rect(frames['details-content']);
   const container = { width, height: Math.max(0, (chat ? chat[3]! : args.viewportHeight) - CHAT_HEADER_HEIGHT) };
-  const lane = chatLaneMetrics(args.chatMax);
+  // The lane's rem constants (ps-5, min-w-[40rem]) at the Interface font size, the root size.
+  const lane = chatLaneMetrics(args.chatMax, clampInterfaceFontSize((client.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface));
   // ThreadDetailsCard reports its preferred placement once open inline: the content's full height (its 1 pt borders included).
   const preferred = card ? resolveThreadDetailsCardLayout({ container, lane, frame: null }) : null;
   const detailsCard = preferred ? { left: preferred.x, right: preferred.x + preferred.width, bottom: preferred.y + Math.min(content ? content[3]! + 2 : preferred.height, preferred.height) } : null;

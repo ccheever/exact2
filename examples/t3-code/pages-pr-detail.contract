@@ -148,29 +148,29 @@ component PrPanel
     local: action
   view
     column width=width height="100%" flex-shrink=0 box-sizing="border-box" border-left-width=1 border-left-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fcfcfc, #0a0a0a)" testId="pull-request-panel"
-      row height=52 flex-shrink=0 width="100%" padding-left=8 padding-right=56 box-sizing="border-box" align-items="center" gap=4
-        row height=24 padding-left=6 padding-right=8 box-sizing="border-box" gap=2 border-radius=8 background-color="light-dark(#27272a0d, #ffffff0a)" align-items="center" role="tab" aria-selected=true testId="pull-request-tab"
+      row height=52 flex-shrink=0 width="100%" padding-left="0.5rem" padding-right="3.5rem" box-sizing="border-box" align-items="center" gap="0.25rem"
+        row height="1.5rem" padding-left="0.375rem" padding-right="0.5rem" box-sizing="border-box" gap="0.125rem" border-radius="0.5rem" background-color="light-dark(#27272a0d, #ffffff0a)" align-items="center" role="tab" aria-selected=true testId="pull-request-tab"
           PrTabClose(detail=detail, close=close)
-          text detail.numberLabel font-size=12 line-height="16px" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
+          text detail.numberLabel font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
       when detail.number == 0 and detail.error == ""
         column flex=1 width="100%" align-items="center" justify-content="center" testId="pull-request-loading"
-          text "Loading pull request…" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+          text "Loading pull request…" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
       when detail.error != ""
         PrUnavailable(detail=detail, reload=reload)
       when detail.number > 0 and detail.error == ""
         scroll flex=1 min-height=0 width="100%" testId="pull-request-scroll"
-          column width="100%" padding-bottom=64 box-sizing="border-box"
+          column width="100%" padding-bottom="4rem" box-sizing="border-box"
             PrdHeader(detail=detail, scheme=scheme, reload=reload, act=act, copy=copy)
-            row width="100%" padding-left=16 padding-right=16 padding-top=8 padding-bottom=8 box-sizing="border-box" border-top-width=1 border-bottom-width=1 border-top-style="solid" border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" align-items="center" gap=8 role="navigation" aria-label="Pull request tabs"
-              row height=28 padding=2 gap=2 box-sizing="border-box" border-radius=10 background-color="light-dark(#d4d4d766, #ffffff08)" align-items="center" role="tablist"
+            row width="100%" padding-left="1rem" padding-right="1rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-top-width=1 border-bottom-width=1 border-top-style="solid" border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" align-items="center" gap="0.5rem" role="navigation" aria-label="Pull request tabs"
+              row height="1.75rem" padding="0.125rem" gap="0.125rem" box-sizing="border-box" border-radius="0.625rem" background-color="light-dark(#d4d4d766, #ffffff08)" align-items="center" role="tablist"
                 PrdTab(label="Summary", active=(tab == "summary"), press=setTab("summary"), testId="pull-request-tab-summary")
                 PrdTab(label="Timeline", active=(tab == "timeline"), press=setTab("timeline"), testId="pull-request-tab-timeline")
               box flex=1 min-width=0
               when detail.checksSummary != ""
-                row align-items="center" gap=6 flex-shrink=0 aria-label=`Checks: ${detail.checksSummary}`
+                row align-items="center" gap="0.375rem" flex-shrink=0 aria-label=`Checks: ${detail.checksSummary}`
                   when detail.checksTone != ""
                     PgIcon(name=prdCheckIcon(detail.checksTone == "passing" ? "success" : detail.checksTone == "failing" ? "failure" : "pending"), size=14, color=prdCheckTone(detail.checksTone == "passing" ? "success" : detail.checksTone == "failing" ? "failure" : "pending"))
-                  text detail.checksSummary font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" white-space="nowrap"
+                  text detail.checksSummary font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" white-space="nowrap"
             when tab == "summary"
               PrdSummary(detail=detail, documents=documents, local=local)
             else
@@ -185,7 +185,7 @@ component PrTabClose
   action hover(value: bool)
     over = value
   view
-    button press=close hover=hover aria-label=`Close ${detail.numberLabel}` testId="pull-request-close" width=16 height=16 padding=0 border-radius=6 border-width=0 background-color=(over ? "light-dark(#27272a14, #ffffff14)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+    button press=close hover=hover aria-label=`Close ${detail.numberLabel}` testId="pull-request-close" width="1rem" height="1rem" padding=0 border-radius="0.375rem" border-width=0 background-color=(over ? "light-dark(#27272a14, #ffffff14)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
       when over
         PgIcon(name="x", size=12, color="light-dark(#27272a, #f5f5f5)")
       else
@@ -201,8 +201,8 @@ component PrdTab
   action hover(value: bool)
     over = value
   view
-    button press=press hover=hover role="tab" aria-selected=active testId=testId height=24 padding-left=10 padding-right=10 box-sizing="border-box" border-radius=8 border-width=0 background-color=(active ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(active ? "0 1px 2px #0000001a" : "none") display="flex" flex-direction="row" align-items="center" justify-content="center"
-      text label font-size=14 line-height="20px" font-weight=500 white-space="nowrap" color=(active or over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+    button press=press hover=hover role="tab" aria-selected=active testId=testId height="1.5rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(active ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(active ? "0 1px 2px #0000001a" : "none") display="flex" flex-direction="row" align-items="center" justify-content="center"
+      text label font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color=(active or over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
 
 // Button size="xs" variant="outline": the header's actions.
 // PullRequestsUnavailableState (Empty, md:p-12, gap-6): the stacked pull request
@@ -213,21 +213,21 @@ component PrUnavailable
     detail: PrDetailView
     reload: action
   view
-    column flex=1 min-height=0 width="100%" padding=48 box-sizing="border-box" align-items="center" justify-content="center" gap=24 testId="pull-request-error"
-      box width=36 height=36 position="relative" margin-bottom=24 flex-shrink=0
-        box position="absolute" left=0 bottom=1 width=36 height=36 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #111111)" translate="-7.74px 0.48px" rotate=-10 scale=0.84
-        box position="absolute" left=0 bottom=1 width=36 height=36 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #111111)" translate="7.74px 0.48px" rotate=10 scale=0.84
-        box position="absolute" left=0 top=0 width=36 height=36 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 1px 2px #0000000d" display="flex" align-items="center" justify-content="center"
+    column flex=1 min-height=0 width="100%" padding="3rem" box-sizing="border-box" align-items="center" justify-content="center" gap="1.5rem" testId="pull-request-error"
+      box width="2.25rem" height="2.25rem" position="relative" margin-bottom="1.5rem" flex-shrink=0
+        box position="absolute" left=0 bottom=1 width="2.25rem" height="2.25rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #111111)" translate="-7.74px 0.48px" rotate=-10 scale=0.84
+        box position="absolute" left=0 bottom=1 width="2.25rem" height="2.25rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #111111)" translate="7.74px 0.48px" rotate=10 scale=0.84
+        box position="absolute" left=0 top=0 width="2.25rem" height="2.25rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 1px 2px #0000000d" display="flex" align-items="center" justify-content="center"
           PgIcon(name="git-pull-request-arrow", size=18, color="light-dark(#27272a, #f5f5f5)")
-      column max-width=384 align-items="center" flex-shrink=0
-        text detail.errorTitle font-size=20 line-height="28px" font-weight=600 text-align="center" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2 testId="pull-request-error-title"
-        text detail.error margin-top=4 font-size=14 line-height="20px" text-align="center" color="light-dark(#71717b, #818181)" testId="pull-request-error-text"
-      row flex-wrap="wrap" justify-content="center" gap=8 flex-shrink=0
+      column max-width="24rem" align-items="center" flex-shrink=0
+        text detail.errorTitle font-size="1.25rem" line-height="1.75rem" font-weight=600 text-align="center" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2 testId="pull-request-error-title"
+        text detail.error margin-top="0.25rem" font-size="0.875rem" line-height="1.25rem" text-align="center" color="light-dark(#71717b, #818181)" testId="pull-request-error-text"
+      row flex-wrap="wrap" justify-content="center" gap="0.5rem" flex-shrink=0
         PrdOutline(icon="refresh-cw", label="Retry", press=reload, testId="pull-request-retry")
         when detail.githubUrl != ""
-          link cursor="pointer" href=detail.githubUrl testId="pull-request-open-github" height=28 padding-left=7 padding-right=9 box-sizing="border-box" gap=4 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center"
+          link cursor="pointer" href=detail.githubUrl testId="pull-request-open-github" height="1.75rem" padding-left="0.4375rem" padding-right="0.5625rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center"
             PgIcon(name="external-link", size=14, color="light-dark(#71717b, #818181)")
-            text "Open on GitHub" font-size=14 line-height="20px" font-weight=500 white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
+            text "Open on GitHub" font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
 
 // Button size="sm" variant="outline": 28pt, a 14pt muted glyph pulled in 2pt (-mx-0.5), 6pt from the label.
 component PrdOutline
@@ -240,9 +240,9 @@ component PrdOutline
   action hover(value: bool)
     over = value
   view
-    button press=press hover=hover testId=testId height=28 padding-left=7 padding-right=9 box-sizing="border-box" gap=4 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(over ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" flex-shrink=0
+    button press=press hover=hover testId=testId height="1.75rem" padding-left="0.4375rem" padding-right="0.5625rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(over ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" flex-shrink=0
       PgIcon(name=icon, size=14, color="light-dark(#71717b, #818181)")
-      text label font-size=14 line-height="20px" font-weight=500 white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
+      text label font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
 
 component PrdButton
   props
@@ -256,9 +256,9 @@ component PrdButton
   action hover(value: bool)
     over = value
   view
-    button press=press hover=hover testId=testId height=24 padding-left=7 padding-right=7 box-sizing="border-box" gap=4 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(over ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" flex-shrink=0
+    button press=press hover=hover testId=testId height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" gap="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(over ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" flex-shrink=0
       PgIcon(name=icon, size=14, color=iconColor)
-      text label font-size=12 line-height="16px" font-weight=500 white-space="nowrap" color=textColor
+      text label font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=textColor
 
 component PrdHeader
   props
@@ -268,35 +268,35 @@ component PrdHeader
     act: action
     copy: action
   view
-    column width="100%" padding-left=16 padding-right=16 padding-bottom=16 box-sizing="border-box"
-      row height=28 width="100%" align-items="center" gap=4
-        row min-width=0 flex=1 align-items="center" gap=4
-          text detail.repository font-size=12 line-height="16px" font-weight=500 color="light-dark(#71717b, #818181)" line-clamp=1 min-width=0
-          link cursor="pointer" href=detail.url aria-label=`Open pull request ${detail.numberLabel} on host` testId="pull-request-open-host" display="flex" flex-direction="row" align-items="center" gap=2 flex-shrink=0
-            text detail.numberLabel font-size=12 line-height="16px" font-weight=500 color=prdTone(detail.state)
+    column width="100%" padding-left="1rem" padding-right="1rem" padding-bottom="1rem" box-sizing="border-box"
+      row height="1.75rem" width="100%" align-items="center" gap="0.25rem"
+        row min-width=0 flex=1 align-items="center" gap="0.25rem"
+          text detail.repository font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)" line-clamp=1 min-width=0
+          link cursor="pointer" href=detail.url aria-label=`Open pull request ${detail.numberLabel} on host` testId="pull-request-open-host" display="flex" flex-direction="row" align-items="center" gap="0.125rem" flex-shrink=0
+            text detail.numberLabel font-size="0.75rem" line-height="1rem" font-weight=500 color=prdTone(detail.state)
             PgIcon(name="external-link", size=10, color=prdTone(detail.state))
         PrdMore(detail=detail, scheme=scheme, reload=reload, act=act, copy=copy)
-      row width="100%" min-height=24 margin-top=4 align-items="center" gap=4
-        text detail.title font-size=16 line-height="22px" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=1 flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
-      row width="100%" min-height=20 margin-top=8 align-items="center" gap=6
+      row width="100%" min-height="1.5rem" margin-top="0.25rem" align-items="center" gap="0.25rem"
+        text detail.title font-size="1rem" line-height="1.375rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=1 flex=1 min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+      row width="100%" min-height="1.25rem" margin-top="0.5rem" align-items="center" gap="0.375rem"
         PrAvatar(avatar=detail.authorAvatar, initial=detail.authorInitial, size=16)
-        text detail.author font-size=12 line-height="16px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1 flex-shrink=1 min-width=0
-        text "·" font-size=12 line-height="16px" color="light-dark(#71717b80, #81818180)" flex-shrink=0
-        text detail.updated font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" white-space="nowrap" flex-shrink=0
+        text detail.author font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1 flex-shrink=1 min-width=0
+        text "·" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b80, #81818180)" flex-shrink=0
+        text detail.updated font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" white-space="nowrap" flex-shrink=0
         box flex=1 min-width=0
         when detail.checkoutCommand != ""
           PrdCopy(text=detail.checkoutCommand, ariaLabel="Copy checkout command", copied=detail.copiedCheckout, tone="light-dark(#71717b, #818181)", copy=copy, testId="pull-request-copy-checkout")
-      row width="100%" min-height=20 margin-top=16 align-items="center" gap=8
-        row flex=1 min-width=0 align-items="center" gap=6
+      row width="100%" min-height="1.25rem" margin-top="1rem" align-items="center" gap="0.5rem"
+        row flex=1 min-width=0 align-items="center" gap="0.375rem"
           text detail.baseBranch font-family="ui-monospace" font-size=12 line-height="16px" color="light-dark(#71717bb3, #828282b3)" white-space="nowrap" flex-shrink=0
-          box width=14 height=14 aria-label="receives changes from" flex-shrink=0
+          box width="0.875rem" height="0.875rem" aria-label="receives changes from" flex-shrink=0
             PgIcon(name="arrow-left", size=14, color="light-dark(#71717bb3, #828282b3)")
           PrdCopy(text=detail.headBranch, ariaLabel="Copy pull request branch", copied=detail.copiedBranch, tone="light-dark(#71717bb3, #828282b3)", copy=copy, testId="pull-request-copy-branch")
-        row flex-shrink=0 align-items="center" gap=8
-          row min-width=64 justify-content="flex-end" align-items="center" gap=6
+        row flex-shrink=0 align-items="center" gap="0.5rem"
+          row min-width="4rem" justify-content="flex-end" align-items="center" gap="0.375rem"
             PgIcon(name="file-diff", size=14, color="light-dark(#71717b, #818181)")
-            text detail.files font-size=12 line-height="16px" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" white-space="nowrap"
-          row align-items="baseline" gap=4
+            text detail.files font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" white-space="nowrap"
+          row align-items="baseline" gap="0.25rem"
             text detail.additions font-family="ui-monospace" font-size=12 line-height="16px" color=(detail.diffScheme == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#009966, #00d492)")
             text detail.deletions font-family="ui-monospace" font-size=12 line-height="16px" color=(detail.diffScheme == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")
 
@@ -314,11 +314,11 @@ component PrdCopy
   action hover(value: bool)
     over = value
   view
-    button press=copy("", text) hover=hover aria-label=ariaLabel testId=testId height=20 padding-left=4 padding-right=4 box-sizing="border-box" border-radius=4 border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" min-width=0 flex-shrink=1 position="relative"
+    button press=copy("", text) hover=hover aria-label=ariaLabel testId=testId height="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" min-width=0 flex-shrink=1 position="relative"
       text text font-family="ui-monospace" font-size=12 line-height="16px" color=tone line-clamp=1 min-width=0 animation=(copied == 0 ? "none" : (copied % 2 == 0 ? "prdHiddenA 1.6s linear forwards" : "prdHiddenB 1.6s linear forwards"))
       when copied > 0
-        row position="absolute" left=4 right=4 top=2 bottom=2 justify-content="center" align-items="center" animation=(copied % 2 == 0 ? "prdShownA 1.6s linear forwards" : "prdShownB 1.6s linear forwards") aria-hidden=true testId=`${testId}-copied`
-          text "Copied" font-family=(testId == "pull-request-copy-checkout" ? "ui-monospace" : "system-ui") font-size=12 line-height="16px" color=tone white-space="nowrap"
+        row position="absolute" left="0.25rem" right="0.25rem" top="0.125rem" bottom="0.125rem" justify-content="center" align-items="center" animation=(copied % 2 == 0 ? "prdShownA 1.6s linear forwards" : "prdShownB 1.6s linear forwards") aria-hidden=true testId=`${testId}-copied`
+          text "Copied" font-family=(testId == "pull-request-copy-checkout" ? "ui-monospace" : "system-ui") font-size="0.75rem" line-height="1rem" color=tone white-space="nowrap"
 
 // "More pull request actions": the lifecycle change, the host links, close/reopen.
 component PrdMore
@@ -333,28 +333,28 @@ component PrdMore
     over = value
   view
     column position="relative" flex-shrink=0
-      button popovertarget="pr-more-menu" hover=hover aria-label="More pull request actions" testId="pull-request-more" width=24 height=24 padding=0 border-radius=8 border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+      button popovertarget="pr-more-menu" hover=hover aria-label="More pull request actions" testId="pull-request-more" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
         PgIcon(name="ellipsis", size=16, color="light-dark(#71717b, #818181)")
-      row id="pr-more-menu" popover="auto" position="absolute" padding-top=4 align-items="flex-start" testId="pr-more-layer"
+      row id="pr-more-menu" popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="pr-more-layer"
         PrMenuBox(scheme=scheme, width=240, label="More pull request actions")
           PrdMenuItem(icon="refresh-cw", label="Refresh", shortcut="", iconColor="light-dark(#71717b, #818181)", textColor="light-dark(#27272a, #f5f5f5)", press=reload, testId="pr-more-refresh")
           when detail.canDraft or detail.canReady
-            box width="calc(100% - 16px)" height=1 margin-left=8 margin-top=4 margin-bottom=4 background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+            box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
             when detail.canDraft
               PrdMenuItem(icon="git-pull-request-draft", label="Convert to draft", shortcut="", iconColor="light-dark(#71717b, #818181)", textColor="light-dark(#27272a, #f5f5f5)", press=act("action", "draft"), testId="pr-more-draft")
             when detail.canReady
               PrdMenuItem(icon="git-pull-request-arrow", label="Ready for review", shortcut="", iconColor="light-dark(#71717b, #818181)", textColor="light-dark(#27272a, #f5f5f5)", press=act("action", "ready"), testId="pr-more-ready")
-          box width="calc(100% - 16px)" height=1 margin-left=8 margin-top=4 margin-bottom=4 background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+          box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
           PrdLinkItem(href=detail.url, label=`Open on ${detail.hostName}`)
           PrdMenuItem(icon="link", label="Copy link", shortcut="⇧⌘C", iconColor="light-dark(#71717b, #818181)", textColor="light-dark(#27272a, #f5f5f5)", press=copy("PR link", detail.url), testId="pr-more-copy-link")
           PrdMenuItem(icon="copy", label="Copy PR number", shortcut="⇧⌘K", iconColor="light-dark(#71717b, #818181)", textColor="light-dark(#27272a, #f5f5f5)", press=copy("PR number", detail.numberLabel), testId="pr-more-copy-number")
           when detail.canClose or detail.canReopen
-            box width="calc(100% - 16px)" height=1 margin-left=8 margin-top=4 margin-bottom=4 background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+            box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
             when detail.canClose
               PrdMenuItem(icon="git-pull-request-closed", label="Close pull request", shortcut="", iconColor="light-dark(#e40014, #ff6467)", textColor="light-dark(#e40014, #ff6467)", press=act("action", "close"), testId="pr-more-close")
             when detail.canReopen
               PrdMenuItem(icon="git-pull-request-arrow", label="Reopen pull request", shortcut="", iconColor="light-dark(#71717b, #818181)", textColor="light-dark(#27272a, #f5f5f5)", press=act("action", "reopen"), testId="pr-more-reopen")
-        box width=16 height=1 flex-shrink=0
+        box width="1rem" height=1 flex-shrink=0
 
 component PrdMenuItem
   props
@@ -369,20 +369,20 @@ component PrdMenuItem
   action hover(value: bool)
     over = value
   view
-    button press=press popovertarget="pr-more-menu" popovertargetaction="hide" hover=hover role="menuitem" testId=testId width="100%" min-height=28 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 box-sizing="border-box" gap=8 border-radius=6 border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+    button press=press popovertarget="pr-more-menu" popovertargetaction="hide" hover=hover role="menuitem" testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
       PgIcon(name=icon, size=14, color=iconColor)
-      text label font-size=14 line-height="20px" color=textColor flex=1 min-width=0 text-align="left" white-space="nowrap"
+      text label font-size="0.875rem" line-height="1.25rem" color=textColor flex=1 min-width=0 text-align="left" white-space="nowrap"
       when shortcut != ""
-        text shortcut font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" flex-shrink=0
+        text shortcut font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" flex-shrink=0
 
 component PrdLinkItem
   props
     href: string
     label: string
   view
-    link cursor="pointer" href=href role="menuitem" testId="pr-more-open-host" width="100%" min-height=28 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 box-sizing="border-box" gap=8 border-radius=6 display="flex" flex-direction="row" align-items="center"
+    link cursor="pointer" href=href role="menuitem" testId="pr-more-open-host" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" display="flex" flex-direction="row" align-items="center"
       PgIcon(name="arrow-up-right", size=14, color="light-dark(#71717b, #818181)")
-      text label font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 white-space="nowrap"
+      text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 white-space="nowrap"
 
 // PullRequestSummaryTab: reviewers and labels, the description, checks and comments.
 component PrdSummary
@@ -399,60 +399,60 @@ component PrdSummary
     commentsOpen = section == "comments" ? not commentsOpen : commentsOpen
   view
     column width="100%" testId="pull-request-summary"
-      column width="100%" padding-left=16 padding-right=16 padding-top=10 padding-bottom=4 box-sizing="border-box" gap=8
-        row min-height=24 align-items="center" gap=8
-          row width=96 align-items="center" gap=8 flex-shrink=0
+      column width="100%" padding-left="1rem" padding-right="1rem" padding-top="0.625rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem"
+        row min-height="1.5rem" align-items="center" gap="0.5rem"
+          row width="6rem" align-items="center" gap="0.5rem" flex-shrink=0
             PgIcon(name="users", size=14, color="light-dark(#71717b, #818181)")
-            text "Reviewers" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+            text "Reviewers" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
           when length(detail.reviewers) == 0
-            text "None" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+            text "None" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
           else
-            row flex-wrap="wrap" align-items="center" gap=8 min-width=0
+            row flex-wrap="wrap" align-items="center" gap="0.5rem" min-width=0
               each reviewer in detail.reviewers key=reviewer.key
-                row align-items="center" gap=4
+                row align-items="center" gap="0.25rem"
                   PrAvatar(avatar=reviewer.avatar, initial=reviewer.initial, size=16)
-                  text reviewer.login font-size=12 line-height="16px" color="light-dark(#27272a, #f5f5f5)"
-        row min-height=24 align-items="center" gap=8
-          row width=96 align-items="center" gap=8 flex-shrink=0
+                  text reviewer.login font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
+        row min-height="1.5rem" align-items="center" gap="0.5rem"
+          row width="6rem" align-items="center" gap="0.5rem" flex-shrink=0
             PgIcon(name="tag", size=14, color="light-dark(#71717b, #818181)")
-            text "Labels" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+            text "Labels" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
           when length(detail.labels) == 0
-            text "None" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+            text "None" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
           else
-            row flex-wrap="wrap" align-items="center" gap=4 min-width=0
+            row flex-wrap="wrap" align-items="center" gap="0.25rem" min-width=0
               each chip in detail.labels key=chip.key
-                text chip.name height=20 padding-left=5 padding-right=5 box-sizing="border-box" border-radius=6 background-color=chip.background font-size=12 line-height="20px" color=chip.ink
+                text chip.name height="1.25rem" padding-left="0.3125rem" padding-right="0.3125rem" box-sizing="border-box" border-radius="0.375rem" background-color=chip.background font-size="0.75rem" line-height="1.25rem" color=chip.ink
       PrdSectionHeader(label="Description", open=descriptionOpen, press=toggle("description"), testId="pull-request-description-toggle")
       when descriptionOpen
-        column width="100%" padding-left=16 padding-right=44 box-sizing="border-box" testId="pull-request-description"
+        column width="100%" padding-left="1rem" padding-right="2.75rem" box-sizing="border-box" testId="pull-request-description"
           when detail.hasBody
             each document in filter(documents, (doc) => doc.id == detail.bodyId) key=document.id
               ChatMarkdown(document=document, local=local, code=detail.code, env=detail.md)
           else
-            text "No description provided." font-size=14 line-height="22.75px" font-style="italic" color="light-dark(#71717b, #818181)"
+            text "No description provided." font-size="0.875rem" line-height="1.421875rem" font-style="italic" color="light-dark(#71717b, #818181)"
       PrdSectionHeader(label="Checks", open=checksOpen, press=toggle("checks"), testId="pull-request-checks-toggle")
       when checksOpen
-        column width="100%" padding-left=16 padding-right=16 box-sizing="border-box" gap=2 testId="pull-request-checks"
+        column width="100%" padding-left="1rem" padding-right="1rem" box-sizing="border-box" gap="0.125rem" testId="pull-request-checks"
           each check in detail.checks key=check.key
-            row min-height=28 align-items="center" gap=8
+            row min-height="1.75rem" align-items="center" gap="0.5rem"
               PgIcon(name=prdCheckIcon(check.status), size=14, color=prdCheckTone(check.status))
-              text check.name font-size=12 line-height="16px" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1
-              text check.statusLabel font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" flex-shrink=0
+              text check.name font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1
+              text check.statusLabel font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" flex-shrink=0
           when length(detail.checks) == 0
-            text "No checks reported" padding-top=8 padding-bottom=8 font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+            text "No checks reported" padding-top="0.5rem" padding-bottom="0.5rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
       PrdSectionHeader(label=detail.commentsLabel, open=commentsOpen, press=toggle("comments"), testId="pull-request-comments-toggle")
       when commentsOpen
-        column width="100%" padding-left=16 padding-right=16 box-sizing="border-box" gap=12 testId="pull-request-comments"
+        column width="100%" padding-left="1rem" padding-right="1rem" box-sizing="border-box" gap="0.75rem" testId="pull-request-comments"
           each comment in detail.comments key=comment.key
-            column width="100%" gap=4
-              row align-items="center" gap=6
+            column width="100%" gap="0.25rem"
+              row align-items="center" gap="0.375rem"
                 PrAvatar(avatar=comment.avatar, initial=comment.initial, size=16)
-                text comment.author font-size=12 line-height="16px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-                text comment.age font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+                text comment.author font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+                text comment.age font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
               each document in filter(documents, (doc) => doc.id == comment.bodyId) key=document.id
                 ChatMarkdown(document=document, local=local, code=detail.code, env=detail.md)
           when length(detail.comments) == 0
-            text "No comments yet." padding-top=8 padding-bottom=8 font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+            text "No comments yet." padding-top="0.5rem" padding-bottom="0.5rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
 
 // CollapsibleSection's header: a 40pt row, the label and a chevron that turns.
 component PrdSectionHeader
@@ -462,8 +462,8 @@ component PrdSectionHeader
     press: action
     testId: string
   view
-    button press=press aria-expanded=open testId=testId width="100%" height=40 padding-left=16 padding-right=16 box-sizing="border-box" gap=6 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
-      text label font-size=12 line-height="16px" font-weight=500 color="light-dark(#71717b, #818181)" white-space="nowrap"
+    button press=press aria-expanded=open testId=testId width="100%" height="2.5rem" padding-left="1rem" padding-right="1rem" box-sizing="border-box" gap="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+      text label font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)" white-space="nowrap"
       PgIcon(name=(open ? "chevron-down" : "chevron-right"), size=14, color="light-dark(#71717b99, #80808099)")
 
 // PullRequestTimelineTab: commits and remarks in the order they happened.
@@ -471,19 +471,19 @@ component PrdTimeline
   props
     detail: PrDetailView
   view
-    column width="100%" padding-left=16 padding-right=16 padding-top=16 box-sizing="border-box" gap=14 testId="pull-request-timeline"
+    column width="100%" padding-left="1rem" padding-right="1rem" padding-top="1rem" box-sizing="border-box" gap="0.875rem" testId="pull-request-timeline"
       each event in detail.timeline key=event.key
-        row width="100%" align-items="flex-start" gap=10
-          box width=16 height=16 margin-top=1 display="flex" align-items="center" justify-content="center" flex-shrink=0
+        row width="100%" align-items="flex-start" gap="0.625rem"
+          box width="1rem" height="1rem" margin-top=1 display="flex" align-items="center" justify-content="center" flex-shrink=0
             PgIcon(name=(event.kind == "commit" ? "git-commit-horizontal" : event.kind == "review" ? "user-check" : "message-square"), size=14, color="light-dark(#71717b, #818181)")
-          column flex=1 min-width=0 gap=2
-            row align-items="center" gap=6 min-width=0
+          column flex=1 min-width=0 gap="0.125rem"
+            row align-items="center" gap="0.375rem" min-width=0
               PrAvatar(avatar=event.avatar, initial=event.initial, size=14)
-              text event.author font-size=12 line-height="16px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" flex-shrink=0
-              text event.title font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" line-clamp=1 min-width=0
+              text event.author font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" flex-shrink=0
+              text event.title font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" line-clamp=1 min-width=0
               box flex=1 min-width=0
-              text event.age font-size=11 line-height="16px" color="light-dark(#71717b, #818181)" white-space="nowrap" flex-shrink=0
+              text event.age font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)" white-space="nowrap" flex-shrink=0
             when event.detail != ""
-              text event.detail font-family=(event.kind == "commit" ? "ui-monospace" : "system-ui") font-size=12 line-height="16px" color="light-dark(#71717bcc, #818181cc)" line-clamp=2
+              text event.detail font-family=(event.kind == "commit" ? "ui-monospace" : "system-ui") font-size="0.75rem" line-height="1rem" color="light-dark(#71717bcc, #818181cc)" line-clamp=2
       when length(detail.timeline) == 0
-        text "Nothing has happened on this pull request yet." font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+        text "Nothing has happened on this pull request yet." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"

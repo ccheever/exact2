@@ -26,7 +26,7 @@ component R7DevGlyph
     size: number
     color: string
   view
-    svg width=size height=size viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
       when name == "sliders"
         path d="M10 5H3M12 19H3M14 3v4M16 17v4M21 12h-9M21 19h-5M21 5h-7M8 10v4M8 12H3"
       when name == "box"
@@ -58,7 +58,7 @@ component R7DevPlatformGlyph
     size: number
     color: string
   view
-    svg width=size height=size viewBox="0 0 24 24" color=color fill="currentColor" flex-shrink=0 aria-hidden=true
+    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="currentColor" flex-shrink=0 aria-hidden=true
       when platform == "apple"
         path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701"
       else
@@ -73,7 +73,7 @@ component R7DevSpinner
   props
     size: number
   view
-    box width=size height=size display="flex" flex-shrink=0 animation="r7devSpin 1s linear infinite" role="status" aria-label="Loading"
+    box width=`${size / 16}rem` height=`${size / 16}rem` display="flex" flex-shrink=0 animation="r7devSpin 1s linear infinite" role="status" aria-label="Loading"
       R7DevGlyph(name="spinner", size=size, color=r7devMuted())
 
 // Button xs: 24pt, text-xs medium, outline (input border, popover fill) or ghost.
@@ -88,8 +88,8 @@ component R7DevButton
   action hover(value: bool)
     over = value
   view
-    button press=press hover=hover disabled=disabled testId=testId height=24 padding-left=7 padding-right=7 box-sizing="border-box" border-radius=8 border-width=1 border-style="solid" border-color=(outline ? r7devInput() : "#00000000") flex-shrink=0 opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0f)" : outline ? "light-dark(#ffffff, #ffffff07)" : "#00000000") box-shadow=(outline and not disabled ? "0 1px 2px #0000000d" : "none")
-      text label font-size=12 font-weight=500 line-height="16px" white-space="nowrap" color=r7devInk()
+    button press=press hover=hover disabled=disabled testId=testId height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(outline ? r7devInput() : "#00000000") flex-shrink=0 opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0f)" : outline ? "light-dark(#ffffff, #ffffff07)" : "#00000000") box-shadow=(outline and not disabled ? "0 1px 2px #0000000d" : "none")
+      text label font-size="0.75rem" font-weight=500 line-height="1rem" white-space="nowrap" color=r7devInk()
 
 // Input compact, mono: a 28pt field inside its 1pt border, rounded-md.
 component R7DevField
@@ -102,7 +102,7 @@ component R7DevField
     submit: action
     testId: string
   view
-    input value=value input=input submit=submit placeholder=placeholder aria-label=label disabled=disabled autocorrect="off" spellcheck="false" testId=testId flex=1 min-width=0 height=30 padding-left=9 padding-right=9 padding-top=6 padding-bottom=6 box-sizing="border-box" border-radius=8 border-width=1 border-style="solid" border-color=r7devInput() background-color=r7devField() box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) font-family="ui-monospace" font-size=12 line-height="16px" color=r7devInk()
+    input value=value input=input submit=submit placeholder=placeholder aria-label=label disabled=disabled autocorrect="off" spellcheck="false" testId=testId flex=1 min-width=0 height="1.875rem" padding-left="0.5625rem" padding-right="0.5625rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=r7devInput() background-color=r7devField() box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) font-family="ui-monospace" font-size=12 line-height="16px" color=r7devInk()
 
 // Switch size sm: a 26 × 16 track, 12pt thumb.
 component R7DevSwitchControl
@@ -113,8 +113,8 @@ component R7DevSwitchControl
     press: action
     testId: string
   view
-    button press=press role="switch" aria-checked=on aria-label=label disabled=disabled testId=testId width=26 height=16 padding=2 box-sizing="border-box" border-width=0 border-radius=8 flex-shrink=0 opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content=(on ? "flex-end" : "flex-start") background-color=(on ? "light-dark(#1b4ed8, #346bf1)" : r7devInput())
-      box width=12 height=12 border-radius=6 background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow="0 1px 2px #0000000d"
+    button press=press role="switch" aria-checked=on aria-label=label disabled=disabled testId=testId width="1.625rem" height="1rem" padding="0.125rem" box-sizing="border-box" border-width=0 border-radius="0.5rem" flex-shrink=0 opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content=(on ? "flex-end" : "flex-start") background-color=(on ? "light-dark(#1b4ed8, #346bf1)" : r7devInput())
+      box width="0.75rem" height="0.75rem" border-radius="0.375rem" background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow="0 1px 2px #0000000d"
 
 // ToggleGroup (segmented): two toggles in a tinted track.
 component R7DevSegment
@@ -129,11 +129,11 @@ component R7DevSegment
     choose: action
     testId: string
   view
-    row gap=2 padding=2 border-radius=10 background-color="light-dark(#d4d4d866, #ffffff08)" role="group" aria-label=label opacity=(disabled ? 0.64 : 1) testId=testId
-      button press=choose(first) disabled=disabled aria-checked=(value == first) testId=`${testId}-${first}` height=24 padding-left=10 padding-right=10 box-sizing="border-box" border-width=0 border-radius=8 display="flex" align-items="center" background-color=(value == first ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(value == first ? "0 1px 2px #0000001a" : "none")
-        text firstLabel font-size=14 font-weight=500 line-height="20px" color=(value == first ? r7devInk() : r7devMuted())
-      button press=choose(second) disabled=disabled aria-checked=(value == second) testId=`${testId}-${second}` height=24 padding-left=10 padding-right=10 box-sizing="border-box" border-width=0 border-radius=8 display="flex" align-items="center" background-color=(value == second ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(value == second ? "0 1px 2px #0000001a" : "none")
-        text secondLabel font-size=14 font-weight=500 line-height="20px" color=(value == second ? r7devInk() : r7devMuted())
+    row gap="0.125rem" padding="0.125rem" border-radius="0.625rem" background-color="light-dark(#d4d4d866, #ffffff08)" role="group" aria-label=label opacity=(disabled ? 0.64 : 1) testId=testId
+      button press=choose(first) disabled=disabled aria-checked=(value == first) testId=`${testId}-${first}` height="1.5rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" border-width=0 border-radius="0.5rem" display="flex" align-items="center" background-color=(value == first ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(value == first ? "0 1px 2px #0000001a" : "none")
+        text firstLabel font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(value == first ? r7devInk() : r7devMuted())
+      button press=choose(second) disabled=disabled aria-checked=(value == second) testId=`${testId}-${second}` height="1.5rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" border-width=0 border-radius="0.5rem" display="flex" align-items="center" background-color=(value == second ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(value == second ? "0 1px 2px #0000001a" : "none")
+        text secondLabel font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(value == second ? r7devInk() : r7devMuted())
 
 // ChoiceSelect: an xs trigger (the placeholder muted) over a popup aligned to its end.
 component R7DevSelect
@@ -148,9 +148,9 @@ component R7DevSelect
     choose: action
   view
     column flex-shrink=0
-      button popovertarget=`${selectId}-menu` role="combobox" aria-label=label disabled=disabled id=selectId testId=selectId width=width height=24 padding-left=7 padding-right=7 gap=4 box-sizing="border-box" border-radius=8 border-width=1 border-style="solid" border-color=r7devInput() background-color=r7devField() box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
-        text valueLabel flex=1 min-width=0 text-align="left" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size=12 line-height="16px" color=(known ? r7devInk() : r7devMuted())
-        box margin-right=-4 opacity=0.5 display="flex"
+      button popovertarget=`${selectId}-menu` role="combobox" aria-label=label disabled=disabled id=selectId testId=selectId width=width height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" gap="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=r7devInput() background-color=r7devField() box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+        text valueLabel flex=1 min-width=0 text-align="left" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-size="0.75rem" line-height="1rem" color=(known ? r7devInk() : r7devMuted())
+        box margin-right="-0.25rem" opacity=0.5 display="flex"
           R7DevGlyph(name="chevron-down", size=12, color=r7devInk())
       SkPopup(menuId=`${selectId}-menu`, label=label, width=width, list=true, endAlign=width)
         each option in options key=option.value
@@ -162,8 +162,8 @@ component R7DevSection
     last: bool
   slot
   view
-    column gap=8 padding-left=12 padding-right=12 padding-top=10 padding-bottom=10 border-bottom-width=(last ? 0 : 1) border-bottom-style="solid" border-color=r7devBorder()
-      text title font-size=12 font-weight=500 line-height="16px" color=r7devMuted() role="heading"
+    column gap="0.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" border-bottom-width=(last ? 0 : 1) border-bottom-style="solid" border-color=r7devBorder()
+      text title font-size="0.75rem" font-weight=500 line-height="1rem" color=r7devMuted() role="heading"
       children
 
 component R7DevRow
@@ -171,8 +171,8 @@ component R7DevRow
     label: string
   slot
   view
-    row min-height=28 align-items="center" justify-content="space-between" gap=12
-      text label flex-shrink=0 font-size=12 line-height="16px" color=r7devMuted()
+    row min-height="1.75rem" align-items="center" justify-content="space-between" gap="0.75rem"
+      text label flex-shrink=0 font-size="0.75rem" line-height="1rem" color=r7devMuted()
       row min-width=0 align-items="center" justify-content="flex-end"
         children
 
@@ -184,36 +184,36 @@ component R7DevToolsDrawer
     edit: action
     command: action
   view
-    column min-height=0 height="100%" width=(tools.overlay ? "100%" : 288) max-width=288 flex-shrink=0 box-sizing="border-box" border-left-width=1 border-left-style="solid" border-color=r7devBorder() background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow=(tools.overlay ? "0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" : "none") role="complementary" aria-label="Device tools" testId="device-tools"
-      row height=36 flex-shrink=0 gap=8 padding-left=12 padding-right=12 box-sizing="border-box" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color=r7devBorder()
-        text "Tools" font-size=14 font-weight=500 line-height="20px" color=r7devInk()
+    column min-height=0 height="100%" width=(tools.overlay ? "100%" : "18rem") max-width="18rem" flex-shrink=0 box-sizing="border-box" border-left-width=1 border-left-style="solid" border-color=r7devBorder() background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow=(tools.overlay ? "0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" : "none") role="complementary" aria-label="Device tools" testId="device-tools"
+      row height="2.25rem" flex-shrink=0 gap="0.5rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color=r7devBorder()
+        text "Tools" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=r7devInk()
         when tools.pending
           R7DevSpinner(size=14)
         box flex=1
-        button press=local("surface-r6dev-tools-close", "", "") aria-label="Close tools" testId="device-tools-close" width=24 height=24 padding=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center"
+        button press=local("surface-r6dev-tools-close", "", "") aria-label="Close tools" testId="device-tools-close" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center"
           R7DevGlyph(name="x", size=14, color=r7devMuted())
       scroll flex=1 min-height=0
         column width="100%"
           when tools.error != ""
-            text tools.error padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 border-bottom-width=1 border-bottom-style="solid" border-color=r7devBorder() background-color="light-dark(#e400141a, #ff64671a)" font-size=12 line-height="16px" color=r7devDestructive() role="alert" testId="device-tools-error"
+            text tools.error padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" border-bottom-width=1 border-bottom-style="solid" border-color=r7devBorder() background-color="light-dark(#e400141a, #ff64671a)" font-size="0.75rem" line-height="1rem" color=r7devDestructive() role="alert" testId="device-tools-error"
           when tools.loading
-            row gap=8 padding-left=12 padding-right=12 padding-top=12 padding-bottom=12 align-items="center"
+            row gap="0.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.75rem" padding-bottom="0.75rem" align-items="center"
               R7DevSpinner(size=14)
-              text "Reading device settings…" font-size=12 line-height="16px" color=r7devMuted()
+              text "Reading device settings…" font-size="0.75rem" line-height="1rem" color=r7devMuted()
           when tools.diagnostics != ""
             R7DevSection(title="Host diagnostics", last=false)
-              text tools.diagnostics white-space="pre-line" font-size=12 line-height="16px" color=r7devMuted()
+              text tools.diagnostics white-space="pre-line" font-size="0.75rem" line-height="1rem" color=r7devMuted()
           R7DevSection(title="App", last=false)
             R7DevRow(label="Foreground")
               text tools.foreground min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-family="ui-monospace" font-size=12 line-height="16px" color=r7devInk() testId="device-tools-foreground"
             when tools.hasForeground
-              row gap=6
+              row gap="0.375rem"
                 R7DevButton(label="Terminate", outline=true, disabled=tools.disabled, press=command("shell:surface-r6dev-tools-act", "terminate", "", 0), testId="device-tools-terminate")
                 R7DevButton(label="Relaunch", outline=true, disabled=tools.disabled, press=command("shell:surface-r6dev-tools-act", "relaunch", "", 0), testId="device-tools-relaunch")
-            row gap=6 align-items="flex-start"
+            row gap="0.375rem" align-items="flex-start"
               R7DevField(value=tools.url, placeholder="https://… or myapp://", label="URL", disabled=tools.disabled, input=edit("surface-r6dev-tools-draft-url", ""), submit=local("surface-r6dev-tools-submit-url", "", ""), testId="device-tools-url")
               R7DevButton(label="Open", outline=true, disabled=tools.urlDisabled, press=command("shell:surface-r6dev-tools-act", "url", "", 0), testId="device-tools-open-url")
-            row gap=6 align-items="flex-start"
+            row gap="0.375rem" align-items="flex-start"
               R7DevField(value=tools.launch, placeholder=tools.launchPlaceholder, label=tools.launchPlaceholder, disabled=tools.disabled, input=edit("surface-r6dev-tools-draft-launch", ""), submit=local("surface-r6dev-tools-submit-launch", "", ""), testId="device-tools-launch")
               R7DevButton(label="Launch", outline=true, disabled=tools.launchDisabled, press=command("shell:surface-r6dev-tools-act", "launch", "", 0), testId="device-tools-launch-app")
           R7DevSection(title=tools.platformTitle, last=false)
@@ -236,17 +236,17 @@ component R7DevToolsDrawer
             R7DevRow(label="Overlay element frames")
               R7DevSwitchControl(on=tools.axOn, label="Overlay element frames", disabled=false, press=local("surface-r6dev-tools-ax", "", ""), testId="device-tools-ax")
           R7DevSection(title="Location", last=false)
-            row gap=6
+            row gap="0.375rem"
               R7DevField(value=tools.lat, placeholder="Latitude", label="Latitude", disabled=tools.disabled, input=edit("surface-r6dev-tools-draft-lat", ""), submit=local("surface-r6dev-tools-submit-location", "", ""), testId="device-tools-latitude")
               R7DevField(value=tools.lng, placeholder="Longitude", label="Longitude", disabled=tools.disabled, input=edit("surface-r6dev-tools-draft-lng", ""), submit=local("surface-r6dev-tools-submit-location", "", ""), testId="device-tools-longitude")
-            row gap=6 flex-wrap="wrap" align-items="center"
+            row gap="0.375rem" flex-wrap="wrap" align-items="center"
               R7DevSelect(selectId="device-tools-preset", label="Location preset", valueLabel="Preset…", known=false, width=128, disabled=tools.disabled, options=tools.presets, choose=edit("surface-r6dev-tools-pick-preset", ""))
               R7DevButton(label="Set", outline=true, disabled=(tools.disabled or not tools.locationValid), press=command("shell:surface-r6dev-tools-act", "location", "", 0), testId="device-tools-location-set")
               when tools.ios
                 R7DevButton(label="Clear", outline=false, disabled=tools.disabled, press=command("shell:surface-r6dev-tools-act", "location-clear", "", 0), testId="device-tools-location-clear")
           R7DevSection(title="Permissions", last=not tools.ios)
             R7DevField(value=tools.permApp, placeholder=tools.permPlaceholder, label="App ID", disabled=tools.disabled, input=edit("surface-r6dev-tools-draft-permApp", ""), submit=local("surface-r6dev-tools-noop", "", ""), testId="device-tools-permission-app")
-            row gap=6 flex-wrap="wrap" align-items="center"
+            row gap="0.375rem" flex-wrap="wrap" align-items="center"
               R7DevSelect(selectId="device-tools-permission", label="Permission", valueLabel=tools.permissionLabel, known=true, width=160, disabled=tools.disabled, options=tools.permissions, choose=edit("surface-r6dev-tools-permission", ""))
               R7DevButton(label="Grant", outline=true, disabled=tools.permDisabled, press=command("shell:surface-r6dev-tools-act", "grant", "", 0), testId="device-tools-grant")
               R7DevButton(label="Revoke", outline=true, disabled=tools.permDisabled, press=command("shell:surface-r6dev-tools-act", "revoke", "", 0), testId="device-tools-revoke")
@@ -254,22 +254,22 @@ component R7DevToolsDrawer
                 R7DevButton(label="Reset", outline=false, disabled=tools.permDisabled, press=command("shell:surface-r6dev-tools-act", "reset", "", 0), testId="device-tools-reset")
           when tools.ios
             R7DevSection(title="Push notification", last=false)
-              row gap=6 align-items="flex-start"
+              row gap="0.375rem" align-items="flex-start"
                 R7DevField(value=tools.push, placeholder="Alert text", label="Alert text", disabled=tools.pushDisabled, input=edit("surface-r6dev-tools-draft-push", ""), submit=local("surface-r6dev-tools-submit-push", "", ""), testId="device-tools-push")
                 R7DevButton(label="Send", outline=true, disabled=tools.pushSendDisabled, press=command("shell:surface-r6dev-tools-act", "push", "", 0), testId="device-tools-push-send")
               when not tools.hasForeground
-                text "Open an app first." font-size=12 line-height="16px" color=r7devMuted()
+                text "Open an app first." font-size="0.75rem" line-height="1rem" color=r7devMuted()
           when tools.log
-            button press=local("surface-r6dev-tools-log", "", "") aria-expanded=tools.logOpen testId="device-tools-log" width="100%" gap=6 padding-left=12 padding-right=12 padding-top=10 padding-bottom=10 box-sizing="border-box" border-width=0 border-bottom-width=1 border-bottom-style="solid" border-color=r7devBorder() background-color="#00000000" display="flex" flex-direction="row" align-items="center"
-              text "Event log" flex=1 text-align="left" font-size=12 font-weight=500 line-height="16px" color=r7devMuted()
+            button press=local("surface-r6dev-tools-log", "", "") aria-expanded=tools.logOpen testId="device-tools-log" width="100%" gap="0.375rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" box-sizing="border-box" border-width=0 border-bottom-width=1 border-bottom-style="solid" border-color=r7devBorder() background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+              text "Event log" flex=1 text-align="left" font-size="0.75rem" font-weight=500 line-height="1rem" color=r7devMuted()
               box display="flex" rotate=(tools.logOpen ? 180 : 0)
                 R7DevGlyph(name="chevron-down", size=14, color=r7devMuted())
             when tools.logOpen
-              scroll max-height=256
-                column padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 hook="t3-media" data-media-kind="device-events" data-device-id=tools.logDevice data-device-host=tools.logHost testId="device-tools-events"
+              scroll max-height="16rem"
+                column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" hook="t3-media" data-media-kind="device-events" data-device-id=tools.logDevice data-device-host=tools.logHost testId="device-tools-events"
                   when tools.eventsEmpty
                     text "No events yet." font-family="ui-monospace" font-size=11 line-height="17.875px" color=r7devMuted()
                   each entry in tools.events key=entry.id
-                    row gap=8 min-width=0
+                    row gap="0.5rem" min-width=0
                       text entry.time flex-shrink=0 font-family="ui-monospace" font-size=11 line-height="17.875px" color=r7devMuted()
                       text entry.summary min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-family="ui-monospace" font-size=11 line-height="17.875px" color=r7devInk()

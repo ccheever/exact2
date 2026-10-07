@@ -14,7 +14,8 @@ import { chordGlyphs, optionValue, reportedSelection, resolvedCurrent, triggerMo
 import { sendChords } from './composer-editor-intent';
 import { terminalOpen } from './terminal-drawer-view'; // terminal-layout: ChatComposer passes the real terminalOpen
 import { measuredLabels } from './r5-composer-measure';
-import { composerMenus, effortMenuWidth, measured, probe, traitsMenuHeight } from './r5-composer-menus';
+import { atRootFontSize, composerMenus, effortMenuWidth, measured, probe, traitsMenuHeight } from './r5-composer-menus';
+import { clampInterfaceFontSize } from './appearance-fonts';
 import { environmentView } from './r4-git-env';
 import { ULTRATHINK_LOCKED_MESSAGE, ultrathinkTraits, withImplicitFastModeDefault } from './composer-provider-state'; // composer-fidelity G9
 import { ultrathinkFrame } from './composer-ultrathink';
@@ -221,11 +222,12 @@ export function composerSnapshot(client: T3Client, now = 0) {
   const fan = fanoutView(client), shortcut = chordGlyphs(commandChords(client.config, 'modelPicker.toggle', 'Meta+Shift+M', false, { terminalOpen: terminalOpen(client) }).split(' ')[0] ?? '');
   if (fan.fanout) view.modelTip = shortcut ? `${fan.fanoutAria} · ${shortcut}` : fan.fanoutAria;
   if (bar.subagent) { notices.length = 0; queue.queued = []; }
-  return { ...view, ...action, ...fan, attach: !bar.subagent && !requests.approvals.length && attachOffered(client, question), ...providerControl(client), ...tasks, ...queue, ...bar, ...contextMeter(client, str(model?.name, client.modelId)), meterX: anchors.meter.x, meterWidth: anchors.meter.width, actionsX: anchors.actions.x, ...frameTops(client.presentation),
+  const rootFontSize = clampInterfaceFontSize((client.local as { clientSettings?: { fontSizeInterface?: unknown } }).clientSettings?.fontSizeInterface);
+  return atRootFontSize({ ...view, ...action, ...fan, attach: !bar.subagent && !requests.approvals.length && attachOffered(client, question), ...providerControl(client), ...tasks, ...queue, ...bar, ...contextMeter(client, str(model?.name, client.modelId)), meterX: anchors.meter.x, meterWidth: anchors.meter.width, actionsX: anchors.actions.x, ...frameTops(client.presentation),
     sendChords: sendChords(client.config, phase === 'running', !client.threadId, terminalOpen(client)), // composer-editor-intent.ts
     // TooltipPopup: 12pt text inset 8pt plus its 1pt border, for the window-edge shift.
     sendTipWidth: Math.ceil(measured(client.presentation, action.sendTooltip, 12, 400) + 18),
     // r5-composer: menu widths from measured texts (r5-composer-menus.ts); Run on's labels join the probes.
     ...composerMenus(client.presentation, view, environmentView(client).envOptions.map(option => option.label), [probe(action.sendTooltip, 12, 400)]),
-    syncStatus: bar.subagent ? '' : sync, activity: bar.subagent ? '' : activity, notices, implementX: anchors.implement.x, implementWidth: anchors.implement.width };
+    syncStatus: bar.subagent ? '' : sync, activity: bar.subagent ? '' : activity, notices, implementX: anchors.implement.x, implementWidth: anchors.implement.width }, rootFontSize);
 }

@@ -46,23 +46,23 @@ component EmptyThread
     command: action
     addProject: action
   view
-    column flex=1 min-height=0 width="100%" justify-content="flex-end" align-items="center" padding-left=20 padding-right=20 box-sizing="border-box" testId="empty-thread"
+    column flex=1 min-height=0 width="100%" justify-content="flex-end" align-items="center" padding-left="1.25rem" padding-right="1.25rem" box-sizing="border-box" testId="empty-thread"
       when data.connected and data.threadId == "" and home.landing == ""
-        column width="100%" max-width=1024 padding-bottom=(shoulder ? 0 : 4) margin-bottom=(shoulder ? -12 : 0) box-sizing="border-box" align-items="center" flex-shrink=0
-          row width="100%" max-width=736 justify-content="center" flex-wrap="wrap" align-items="baseline" role="heading" aria-level=1 aria-label=(home.headline == "work" ? "What should we work on?" : home.headline == "build" ? `What should we build in ${home.projectName}?` : home.headline == "start" ? `${home.projectName} to start` : "Add a project to start") testId="draft-hero-heading"
+        column width="100%" max-width="64rem" padding-bottom=(shoulder ? "0px" : "0.25rem") margin-bottom=(shoulder ? "-0.75rem" : "0px") box-sizing="border-box" align-items="center" flex-shrink=0
+          row width="100%" max-width="46rem" justify-content="center" flex-wrap="wrap" align-items="baseline" role="heading" aria-level=1 aria-label=(home.headline == "work" ? "What should we work on?" : home.headline == "build" ? `What should we build in ${home.projectName}?` : home.headline == "start" ? `${home.projectName} to start` : "Add a project to start") testId="draft-hero-heading"
             when home.headline == "work"
-              text "What should we work on?" font-size=30 line-height="36px" letter-spacing=-0.75 color="light-dark(#27272a, #f5f5f5)"
+              text "What should we work on?" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 color="light-dark(#27272a, #f5f5f5)"
             when home.headline == "build"
-              text "What should we build in " font-size=30 line-height="36px" letter-spacing=-0.75 white-space="pre" color="light-dark(#27272a, #f5f5f5)"
+              text "What should we build in " font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 white-space="pre" color="light-dark(#27272a, #f5f5f5)"
               HeroPicker(home=home, scheme=scheme, small=false, command=command, addProject=addProject)
-              text "?" font-size=30 line-height="36px" letter-spacing=-0.75 color="light-dark(#27272a, #f5f5f5)"
+              text "?" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 color="light-dark(#27272a, #f5f5f5)"
             when home.headline == "start"
               HeroPicker(home=home, scheme=scheme, small=false, command=command, addProject=addProject)
-              text " to start" font-size=30 line-height="36px" letter-spacing=-0.75 white-space="pre" color="light-dark(#27272a, #f5f5f5)"
+              text " to start" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 white-space="pre" color="light-dark(#27272a, #f5f5f5)"
             when home.headline == "add"
-              text "Add a project to start" font-size=30 line-height="36px" letter-spacing=-0.75 color="light-dark(#27272a, #f5f5f5)"
+              text "Add a project to start" font-size="1.875rem" line-height="2.25rem" letter-spacing=-0.75 color="light-dark(#27272a, #f5f5f5)"
           when home.noProjectItem
-            row height=24 margin-top=8 align-items="center" justify-content="center"
+            row height="1.5rem" margin-top="0.5rem" align-items="center" justify-content="center"
               when home.scratchDraft
                 HeroPicker(home=home, scheme=scheme, small=true, command=command, addProject=addProject)
               when home.scratchLine
@@ -78,9 +78,9 @@ component ScratchLink
     over = value
   view
     button press=command("pages:hero-scratch", "", "", 0) hover=hover disabled=busy testId="hero-start-without-project" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" position="relative"
-      text "or start without a project" font-size=14 line-height="20px" font-weight=500 color=(over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+      text "or start without a project" font-size="0.875rem" line-height="1.25rem" font-weight=500 color=(over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
       when over
-        box position="absolute" left=0 right=0 top=17 height=1 background-color="light-dark(#27272a, #f5f5f5)"
+        box position="absolute" left=0 right=0 top="1.0625rem" height=1 background-color="light-dark(#27272a, #f5f5f5)"
 
 // InlineButton tone="picker": the project title with a dotted underline
 // (decoration-foreground/30, 4pt offset) that turns solid on hover, and the
@@ -96,14 +96,14 @@ component HeroPicker
   action hover(value: bool)
     over = value
   view
-    column position="relative" flex-shrink=1 min-width=0 max-width=256
-      button popovertarget="hero-project-menu" hover=hover testId="empty-choose-project" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="column" align-items="flex-start" max-width=256 position="relative"
+    column position="relative" flex-shrink=1 min-width=0 max-width="16rem"
+      button popovertarget="hero-project-menu" hover=hover testId="empty-choose-project" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="column" align-items="flex-start" max-width="16rem" position="relative"
         each name in home.projectNames key=name.id
-          text name.id font-size=(small ? 14 : 30) line-height=(small ? "20px" : "36px") letter-spacing=(small ? 0 : -0.75) font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1 max-width=256
-        box position="absolute" left=0 right=0 top=(small ? 18 : 33) height=(small ? 1 : 2) overflow="hidden"
-          svg width=2000 height=(small ? 1 : 2) viewBox=(small ? "0 0 2000 1" : "0 0 2000 2") aria-hidden=true
+          text name.id font-size=(small ? "0.875rem" : "1.875rem") line-height=(small ? "1.25rem" : "2.25rem") letter-spacing=(small ? "0px" : "-0.75px") font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1 max-width="16rem"
+        box position="absolute" left=0 right=0 top=(small ? "1.125rem" : "2.0625rem") height=(small ? "1px" : "2px") overflow="hidden"
+          svg width="125rem" height=(small ? "1px" : "2px") viewBox=(small ? "0 0 2000 1" : "0 0 2000 2") aria-hidden=true
             path d=(small ? "M0 .5H2000" : "M0 1H2000") stroke=(scheme == "dark" ? (over ? "#f5f5f5" : "#f5f5f54d") : (over ? "#27272a" : "#27272a4d")) stroke-width=(small ? 1 : 2) stroke-dasharray=(over ? "none" : (small ? "1 1" : "2 2"))
-      column id="hero-project-menu" popover="auto" position="absolute" left=0 right=0 top=0 padding-top=4 align-items="center" testId="hero-project-menu-layer"
+      column id="hero-project-menu" popover="auto" position="absolute" left=0 right=0 top=0 padding-top="0.25rem" align-items="center" testId="hero-project-menu-layer"
         HeroMenu(home=home, scheme=scheme, command=command, addProject=addProject)
 
 // MenuPopup (dropdown-glass, rounded-lg, max-h-80) with MenuRadioItem rows,
@@ -118,22 +118,22 @@ component HeroMenu
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
   view
-    column min-width=160 max-height=320 flex-shrink=0 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" aria-label="Choose project" testId="hero-project-menu"
-      scroll width="100%" max-height=318 padding=4 box-sizing="border-box"
+    column min-width="10rem" max-height="20rem" flex-shrink=0 box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" aria-label="Choose project" testId="hero-project-menu"
+      scroll width="100%" max-height="19.875rem" padding="0.25rem" box-sizing="border-box"
         column width="100%" role="group"
           when home.noProjectItem
-            button press=command("pages:hero-scratch", "", "", 0) popovertarget="hero-project-menu" popovertargetaction="hide" hover=hover("no-project") role="menuitemradio" aria-checked=home.scratchDraft testId="hero-project-none" width="100%" min-height=28 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 box-sizing="border-box" gap=8 border-radius=6 border-width=0 background-color=(hovered == "no-project" ? "light-dark(#f4f4f5, #ffffff0a)" : home.scratchDraft ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+            button press=command("pages:hero-scratch", "", "", 0) popovertarget="hero-project-menu" popovertargetaction="hide" hover=hover("no-project") role="menuitemradio" aria-checked=home.scratchDraft testId="hero-project-none" width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(hovered == "no-project" ? "light-dark(#f4f4f5, #ffffff0a)" : home.scratchDraft ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") display="flex" flex-direction="row" align-items="center"
               PgIcon(name="message-square-dashed", size=16, color="light-dark(#4b5563, #9ca3af)")
-              text "No project" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
+              text "No project" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
           each project in home.projects key=project.id
-            button press=command("pages:hero-project", project.id, "", 0) popovertarget="hero-project-menu" popovertargetaction="hide" hover=hover(project.id) role="menuitemradio" aria-checked=project.selected aria-label=project.name testId=`hero-project-${project.id}` width="100%" min-height=28 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 box-sizing="border-box" gap=8 border-radius=6 border-width=0 background-color=(hovered == project.id ? "light-dark(#f4f4f5, #ffffff0a)" : project.selected ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+            button press=command("pages:hero-project", project.id, "", 0) popovertarget="hero-project-menu" popovertargetaction="hide" hover=hover(project.id) role="menuitemradio" aria-checked=project.selected aria-label=project.name testId=`hero-project-${project.id}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(hovered == project.id ? "light-dark(#f4f4f5, #ffffff0a)" : project.selected ? "light-dark(#27272a14, #f5f5f514)" : "#00000000") display="flex" flex-direction="row" align-items="center"
               ProjectMark(label=project.mark, muted=false, ink=project.ink, surface=project.surface, size=16)
-              text project.name font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" line-clamp=1 white-space="nowrap" min-width=0 text-align="left"
-        box width="calc(100% - 16px)" height=1 margin-left=8 margin-top=4 margin-bottom=4 background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
-        button press=addProject popovertarget="hero-project-menu" popovertargetaction="hide" hover=hover("add-project") role="menuitem" testId="hero-add-project" width="100%" min-height=28 padding-left=6 padding-right=8 padding-top=4 padding-bottom=4 box-sizing="border-box" gap=6 border-radius=6 border-width=0 background-color=(hovered == "add-project" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+              text project.name font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" line-clamp=1 white-space="nowrap" min-width=0 text-align="left"
+        box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+        button press=addProject popovertarget="hero-project-menu" popovertargetaction="hide" hover=hover("add-project") role="menuitem" testId="hero-add-project" width="100%" min-height="1.75rem" padding-left="0.375rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.375rem" border-radius="0.375rem" border-width=0 background-color=(hovered == "add-project" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
           box opacity=0.8 display="flex"
             PgIcon(name="folder-plus", size=16, color="light-dark(#71717b, #818181)")
-          text "Add project" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
+          text "Add project" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
 
 // The main column's empty routes, drawn over the conversation column: the
 // desktop shell keeps a 52pt titlebar strip (WorkspacePageHeader) above an
@@ -142,6 +142,8 @@ component PagesLanding
   props
     // desktop-shell-details: --workspace-controls-left (90 beside the traffic lights; 0.75rem in full screen).
     controlsLeft: number
+    // The root font size (Interface font size): rem in a length that also adds px (Contract calc takes percent ± px only).
+    rem: number
     home: PagesHome
     scheme: string
     sidebarOpen: bool
@@ -153,42 +155,42 @@ component PagesLanding
     openConnections: action
   view
     column position="absolute" left=0 top=0 right=0 bottom=0 background-color="light-dark(#fcfcfc, #0a0a0a)" testId=`landing-${home.landing}`
-      row height=52 flex-shrink=0 width="100%" padding-left=(sidebarOpen ? 20 : controlsLeft + 40) padding-right=13 box-sizing="border-box" align-items="center" gap=8 position="relative" border-bottom-width=(home.landing == "no-environment" or home.landing == "no-thread" ? 1 : 0) border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)"
+      row height=52 flex-shrink=0 width="100%" padding-left=(sidebarOpen ? 1.25 * rem : controlsLeft + 2.5 * rem) padding-right="0.8125rem" box-sizing="border-box" align-items="center" gap="0.5rem" position="relative" border-bottom-width=(home.landing == "no-environment" or home.landing == "no-thread" ? 1 : 0) border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)"
         when not sidebarOpen
-          button press=toggleSidebar position="absolute" left=(controlsLeft + 1) top=12 width=28 height=28 padding=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle sidebar" aria-keyshortcuts=keySidebar testId="toggle-sidebar"
+          button press=toggleSidebar position="absolute" left=(controlsLeft + 1) top="0.75rem" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle sidebar" aria-keyshortcuts=keySidebar testId="toggle-sidebar"
             Icon(name="panel-left", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
         when home.landing == "no-environment"
-          text "T3 Code" font-size=14 line-height="20px" font-weight=500 color="light-dark(#71717b99, #81818199)"
+          text "T3 Code" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b99, #81818199)"
         // composer-fidelity G15: NoActiveThreadState's desktop header.
         when home.landing == "no-thread"
-          text "No active thread" font-size=12 line-height="16px" color="light-dark(#71717b80, #81818180)" testId="no-active-thread-header"
-      column flex=1 min-height=0 width="100%" padding=48 box-sizing="border-box" align-items="center" justify-content="center"
+          text "No active thread" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b80, #81818180)" testId="no-active-thread-header"
+      column flex=1 min-height=0 width="100%" padding="3rem" box-sizing="border-box" align-items="center" justify-content="center"
         when home.landing == "no-projects"
-          column width="100%" max-width=512 padding-left=32 padding-right=32 padding-top=48 padding-bottom=48 box-sizing="border-box" align-items="center"
-            text "What should we work on?" font-size=30 line-height="36px" font-weight=600 text-align="center" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=1
-            text home.noProjectsDescription margin-top=4 font-size=14 line-height="20px" text-align="center" color="light-dark(#71717b, #818181)"
-            row margin-top=24 justify-content="center" gap=8
+          column width="100%" max-width="32rem" padding-left="2rem" padding-right="2rem" padding-top="3rem" padding-bottom="3rem" box-sizing="border-box" align-items="center"
+            text "What should we work on?" font-size="1.875rem" line-height="2.25rem" font-weight=600 text-align="center" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=1
+            text home.noProjectsDescription margin-top="0.25rem" font-size="0.875rem" line-height="1.25rem" text-align="center" color="light-dark(#71717b, #818181)"
+            row margin-top="1.5rem" justify-content="center" gap="0.5rem"
               LandingButton(scheme=scheme, label="Add project", icon="plus", primary=true, busy=false, press=addProject, testId="landing-add-project")
               when home.scratchStart
                 LandingButton(scheme=scheme, label="Start without a project", icon="message-square-dashed", primary=false, busy=busy, press=command("pages:hero-scratch", "", "", 0), testId="landing-start-without-project")
         when home.landing == "no-thread"
-          column width="100%" max-width=512 padding-left=32 padding-right=32 padding-top=48 padding-bottom=48 box-sizing="border-box" align-items="center" testId="no-active-thread"
-            text "Pick a thread to continue" font-size=20 line-height="28px" font-weight=600 text-align="center" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=1
-            text "Select an existing thread or create a new one to get started." margin-top=4 font-size=14 line-height="20px" text-align="center" color="light-dark(#71717b, #818181)"
+          column width="100%" max-width="32rem" padding-left="2rem" padding-right="2rem" padding-top="3rem" padding-bottom="3rem" box-sizing="border-box" align-items="center" testId="no-active-thread"
+            text "Pick a thread to continue" font-size="1.25rem" line-height="1.75rem" font-weight=600 text-align="center" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=1
+            text "Select an existing thread or create a new one to get started." margin-top="0.25rem" font-size="0.875rem" line-height="1.25rem" text-align="center" color="light-dark(#71717b, #818181)"
         when home.landing == "start-error"
-          column width="100%" max-width=448 align-items="center"
-            text "Couldn’t start a new thread" font-size=20 line-height="28px" font-weight=600 text-align="center" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=1
-            text "The project is still available. Try opening the draft again." margin-top=4 font-size=14 line-height="20px" text-align="center" color="light-dark(#71717b, #818181)"
-            row margin-top=20 justify-content="center"
+          column width="100%" max-width="28rem" align-items="center"
+            text "Couldn’t start a new thread" font-size="1.25rem" line-height="1.75rem" font-weight=600 text-align="center" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=1
+            text "The project is still available. Try opening the draft again." margin-top="0.25rem" font-size="0.875rem" line-height="1.25rem" text-align="center" color="light-dark(#71717b, #818181)"
+            row margin-top="1.25rem" justify-content="center"
               LandingButton(scheme=scheme, label="Try again", icon="refresh-cw", primary=true, busy=busy, press=command("pages:hero-retry", "", "", 0), testId="landing-try-again")
         when home.landing == "no-environment"
-          column width="100%" max-width=576 padding-left=32 padding-right=32 padding-top=48 padding-bottom=48 box-sizing="border-box" border-radius=24 border-width=1 border-style="solid" border-color="light-dark(#e4e4e78c, #ffffff08)" background-color="light-dark(#ffffff33, #11111133)" box-shadow="0 1px 3px #0000000d, 0 1px 2px -1px #0000000d" align-items="center" testId="no-environment-card"
-            box width=44 height=44 margin-bottom=20 box-sizing="border-box" border-radius=12 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0b)" background-color="light-dark(#fcfcfcb3, #0a0a0ab3)" display="flex" align-items="center" justify-content="center"
+          column width="100%" max-width="36rem" padding-left="2rem" padding-right="2rem" padding-top="3rem" padding-bottom="3rem" box-sizing="border-box" border-radius="1.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e78c, #ffffff08)" background-color="light-dark(#ffffff33, #11111133)" box-shadow="0 1px 3px #0000000d, 0 1px 2px -1px #0000000d" align-items="center" testId="no-environment-card"
+            box width="2.75rem" height="2.75rem" margin-bottom="1.25rem" box-sizing="border-box" border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0b)" background-color="light-dark(#fcfcfcb3, #0a0a0ab3)" display="flex" align-items="center" justify-content="center"
               PgIcon(name="link", size=20, color="light-dark(#71717b, #818181)")
-            text "Connect to a computer running T3 Code" font-size=20 line-height="28px" font-weight=600 text-align="center" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=1
-            text "This app connects to T3 Code running on your computer or a server. Start the T3 Code desktop app or command-line server on that machine and keep it running." margin-top=4 font-size=14 line-height="20px" text-align="center" color="light-dark(#71717b, #818181)"
-            text "Open Connections and add that machine using its pairing link. This app must be able to reach it." margin-top=4 font-size=14 line-height="20px" text-align="center" color="light-dark(#71717b, #818181)"
-            row margin-top=24 justify-content="center"
+            text "Connect to a computer running T3 Code" font-size="1.25rem" line-height="1.75rem" font-weight=600 text-align="center" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=1
+            text "This app connects to T3 Code running on your computer or a server. Start the T3 Code desktop app or command-line server on that machine and keep it running." margin-top="0.25rem" font-size="0.875rem" line-height="1.25rem" text-align="center" color="light-dark(#71717b, #818181)"
+            text "Open Connections and add that machine using its pairing link. This app must be able to reach it." margin-top="0.25rem" font-size="0.875rem" line-height="1.25rem" text-align="center" color="light-dark(#71717b, #818181)"
+            row margin-top="1.5rem" justify-content="center"
               LandingButton(scheme=scheme, label="Open Connections", icon="plus", primary=true, busy=false, press=openConnections, testId="landing-open-connections")
 
 // Button size="sm": 28pt, px 9, rounded-lg, a 16pt glyph 6pt from the label.
@@ -205,6 +207,6 @@ component LandingButton
   action hover(value: bool)
     over = value
   view
-    button press=press hover=hover disabled=busy testId=testId height=28 padding-left=9 padding-right=9 box-sizing="border-box" gap=6 border-radius=8 border-width=1 border-style="solid" border-color=(primary ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") background-color=(primary ? (over ? "light-dark(#1b4ed8e6, #346bf1e6)" : "light-dark(#1b4ed8, #346bf1)") : (over ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff06)")) box-shadow=(primary ? (scheme == "dark" ? "inset 0 1px 0 #ffffff29, 0 1px 2px #346bf13d" : "inset 0 1px 0 #ffffff29, 0 1px 2px #1b4ed83d") : "0 1px 2px #0000000d") opacity=(busy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center"
+    button press=press hover=hover disabled=busy testId=testId height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(primary ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") background-color=(primary ? (over ? "light-dark(#1b4ed8e6, #346bf1e6)" : "light-dark(#1b4ed8, #346bf1)") : (over ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff06)")) box-shadow=(primary ? (scheme == "dark" ? "inset 0 1px 0 #ffffff29, 0 1px 2px #346bf13d" : "inset 0 1px 0 #ffffff29, 0 1px 2px #1b4ed83d") : "0 1px 2px #0000000d") opacity=(busy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center"
       PgIcon(name=icon, size=16, color=(primary ? "#ffffff" : "light-dark(#71717b, #818181)"))
-      text label font-size=14 line-height="20px" font-weight=500 white-space="nowrap" color=(primary ? "#ffffff" : "light-dark(#27272a, #f5f5f5)")
+      text label font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color=(primary ? "#ffffff" : "light-dark(#27272a, #f5f5f5)")

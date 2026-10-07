@@ -18,7 +18,7 @@ component MorphPair
     onColor: string
     still: bool
   view
-    box width=size height=size position="relative" flex-shrink=0 aria-hidden=true
+    box width=`${size / 16}rem` height=`${size / 16}rem` position="relative" flex-shrink=0 aria-hidden=true
       box position="absolute" left=0 top=0 display="flex" opacity=(on ? 0 : 1) scale=(on ? 0.5 : 1) transition=(still ? "none" : "opacity spring(420, 30, 1), scale spring(420, 30, 1)")
         ShellIcon(name=first, size=size, color=color)
       box position="absolute" left=0 top=0 display="flex" opacity=(on ? 1 : 0) scale=(on ? 1 : 0.5) transition=(still ? "none" : "opacity spring(420, 30, 1), scale spring(420, 30, 1)")

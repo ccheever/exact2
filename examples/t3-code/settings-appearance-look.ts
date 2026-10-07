@@ -12,6 +12,7 @@ import { fontStack, palette, themeRoles } from './settings-appearance';
 import type { CustomTheme } from './settings-themes';
 import type { DiffState } from './diff';
 import { STANDARD, previewTheme } from './settings-appearance-editor';
+import { clampInterfaceFontSize } from './appearance-fonts';
 
 export type Look = {
   themed: boolean; mode: string;
@@ -27,8 +28,12 @@ export type Look = {
 
 const prefsOf = (client: T3Client): ClientPrefs => (client.local as unknown as { clientSettings?: ClientPrefs }).clientSettings || decodeClientPrefs({});
 const customOf = (client: T3Client): CustomTheme[] => (client.local as unknown as { customThemes?: CustomTheme[] }).customThemes || [];
-/** --chat-content-max-width: 46rem, 72rem (wide) or the whole column (full). */
-export const CHAT_MAX: Record<string, number> = { comfortable: 736, wide: 1152, full: 100000 };
+/** --chat-content-max-width in rem: 46rem, 72rem (wide) or the whole column (full). */
+export const CHAT_MAX_REM: Record<string, number> = { comfortable: 46, wide: 72 };
+/** The chat width setting in px at the root font size (the Interface font size). */
+export function chatMaxWidth(chatWidth: string, rootFontSize: number): number {
+  return chatWidth === 'full' ? 100000 : (CHAT_MAX_REM[chatWidth] ?? 46) * rootFontSize;
+}
 // index.css diff tokens: success/destructive by default, blue/orange for colour-blind users.
 const DIFF = {
   'red-green': { add: 'light-dark(#00a63e, #05df72)', del: 'light-dark(#e7000b, #ff6467)', addSurface: 'light-dark(#eef9f5, #0e1713)', delSurface: 'light-dark(#fef0f0, #1c100f)',
@@ -47,6 +52,8 @@ export function look(client: T3Client): Look {
   if (diffState) seedDiffState(client, diffState);
   const themed = prefs.themeLight !== 't3-code' || prefs.themeDark !== 't3-code' || prefs.appearanceContrast !== 100 || prefs.glassOpacity !== CLIENT_DEFAULTS.glassOpacity;
   const diff = DIFF[prefs.diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green'];
+  // applyAppearanceFontVariables: the root font size (app.contract `rootFont` sets it), 16 until the preferences load.
+  const rootFontSize = clampInterfaceFontSize(prefs.fontSizeInterface);
   return {
     themed, mode,
     terminalLight: terminalTheme(prefs.themeLight, 'light', custom), terminalDark: terminalTheme(prefs.themeDark, 'dark', custom),
@@ -54,9 +61,9 @@ export function look(client: T3Client): Look {
     terminalSize: prefs.typographyAdvanced ? prefs.fontSizeTerminal : prefs.fontSizeCode,
     canvas: pal.canvas, sidebar: pal.sidebar, sidebarBorder: pal.sidebarBorder, sidebarText: pal.sidebarText, sidebarMuted: pal.sidebarMuted, rowActive: pal.rowActive,
     message: messageSurface(prefs, custom, mode), surface: pal.surface, popover: pal.popover, border: pal.border, input: pal.input, text: pal.text, muted: pal.muted, accent: pal.accent, accentText: pal.accentText,
-    diff: prefs.diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green', chatMax: CHAT_MAX[prefs.chatWidth] ?? 736, artwork: prefs.environmentIdentificationMode === 'artwork', pill: prefs.environmentIdentificationMode === 'pill' ? 'Nightly' : '',
+    diff: prefs.diffColorScheme === 'blue-orange' ? 'blue-orange' : 'red-green', chatMax: chatMaxWidth(prefs.chatWidth, rootFontSize), artwork: prefs.environmentIdentificationMode === 'artwork', pill: prefs.environmentIdentificationMode === 'pill' ? 'Nightly' : '',
     diffAdd: diff.add, diffDel: diff.del, diffAddSurface: diff.addSurface, diffDelSurface: diff.delSurface, diffAddLine: diff.addLine, diffDelLine: diff.delLine,
-    fontSans: fontStack(prefs.fontFamilySans, false) ?? 'system-ui', fontSize: prefs.fontSizeInterface, codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace',
+    fontSans: fontStack(prefs.fontFamilySans, false) ?? 'system-ui', fontSize: rootFontSize, codeFont: fontStack(prefs.fontFamilyCode, true) ?? 'ui-monospace',
     codeSize: prefs.fontSizeCode, wordWrap: prefs.wordWrap, smoothing: prefs.fontSmoothing, panelMs: prefs.panelAnimationDurationMs,
     contextStrip: prefs.persistComposerContextStrip, contextMeter: prefs.contextWindowMeterEnabled, richText: prefs.composerRichTextEnabled,
     skillsInSlash: prefs.showSkillsInSlashMenu, followUp: prefs.followUpBehavior, legacySidebar: prefs.legacySidebarEnabled,

@@ -1,0 +1,14 @@
+[before] connected; rows: thread-list,thread-alpha-2,thread-alpha-1,thread-thread:project:108da527-1722-4fe5-9635-83405edf32a1:d11d115c-d62d-40e5-a28a-1b4853bef0a2,thread-details-attention,thread-details-inline
+[before] appearance-16 rootFontSize=16 {"toggle-sidebar":[91,12,28,28],"connection-settings":[8,804,32,32],"chat-header":[256,0,1024,52],"composer-toolbar":[277,460,678,48],"thread-alpha-1":[8,185,239,78],"settings-navigation":[0,0,257,840],"settings-search":[40,65.5,172,21],"settings-appearance":[8,136,240,32],"settings-header":[257,0,1023,52],"setting-chat-width":[1015.5,1029,160,28],"setting-interface-font-size":[1031.5,1305,144,28]}
+[before] shot appearance-16
+[before] thread-16 rootFontSize=16 {"toggle-sidebar":[91,12,28,28],"connection-settings":[8,804,32,32],"chat-header":[256,0,1024,52],"composer-toolbar":[277,460.5,678,48],"thread-alpha-1":[8,185,239,78]}
+[before] shot thread-16
+[before] appearance-12 rootFontSize=16 {"toggle-sidebar":[91,12,28,28],"connection-settings":[8,804,32,32],"chat-header":[256,0,1024,52],"composer-toolbar":[277,460.5,678,48],"thread-alpha-1":[8,185,239,78],"settings-navigation":[0,0,257,840],"settings-search":[40,65.5,172,21],"settings-appearance":[8,136,240,32],"settings-header":[257,0,1023,52],"setting-chat-width":[1015.5,156,160,28],"setting-interface-font-size":[1031.5,432,144,28]}
+[before] shot appearance-12
+[before] thread-12 rootFontSize=16 {"toggle-sidebar":[91,12,28,28],"connection-settings":[8,804,32,32],"chat-header":[256,0,1024,52],"composer-toolbar":[277,460.5,678,48],"thread-alpha-1":[8,185,239,78]}
+[before] shot thread-12
+[before] appearance-20 rootFontSize=16 {"toggle-sidebar":[91,12,28,28],"connection-settings":[8,804,32,32],"chat-header":[256,0,1024,52],"composer-toolbar":[277,460.5,678,48],"thread-alpha-1":[8,185,239,78],"settings-navigation":[0,0,257,840],"settings-search":[40,65.5,172,21],"settings-appearance":[8,136,240,32],"settings-header":[257,0,1023,52],"setting-chat-width":[1015.5,156,160,28],"setting-interface-font-size":[1031.5,432,144,28]}
+[before] shot appearance-20
+[before] thread-20 rootFontSize=16 {"toggle-sidebar":[91,12,28,28],"connection-settings":[8,804,32,32],"chat-header":[256,0,1024,52],"composer-toolbar":[277,460.5,678,48],"thread-alpha-1":[8,185,239,78]}
+[before] shot thread-20
+[before] setRootFontSize refusals: 0
