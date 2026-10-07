@@ -93,7 +93,7 @@ Checked sources and time: local issue drafts in [issues](../issues/README.md), `
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X36](../issues/20261005-x36-data-runtime-intl-locale.md) | Locale-aware `Intl` in the data runtime | Date, time and number tests use `Intl`; unknown on the pinned main | unknown (decides whether those `port` rows can pass) | Mark the rows; the port ticket checks the capability |
+| [X36](../issues/closed/20261005-x36-data-runtime-intl-locale.md) | Locale-aware `Intl` in the data runtime | Date, time and number tests use `Intl`; fixed by main #204 (#118: `Intl.Locale`, `getWeekInfo()` as Chrome), adopted in [adopt-main-fixes-r4](20261007-adopt-main-fixes-r4.md) | none | Port the rows; the `ja-JP` long-date space and a `Locale` object passed to a formatter are main's documented differences |
 | [X19](../issues/20261005-x19-data-source-timers.md) | Timers in data sources | Ported tests use a `now` argument | nonblocking | None |
 | none found | Mapping and classification | — | none | — |
 

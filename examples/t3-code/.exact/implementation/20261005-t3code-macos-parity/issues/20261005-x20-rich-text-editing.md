@@ -1,10 +1,10 @@
 ---
 name: 20261005-x20-rich-text-editing
 plan: 20261005-t3code-macos-parity
-status: fix-built
+status: closed-upstream
 kind: framework-policy
 blocks: [20261005-composer-fidelity, 20261005-diff-review-engine, 20261005-terminal-integrations, 20261005-thread-commands-and-keys]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/125
 reproduced_on: null
 ---
 
@@ -143,3 +143,21 @@ Phase 1 built on exact2 `origin/main`, branch `daehyeon/fw-x20-textarea-editing`
 - Known: iOS has no history events (UIKit's undo calls no delegate); a password field's paste arrives as `insertText`; on the web a `setRangeText` past `maxlength` has no undo step; AppKit groups a typed edit and a command in one run-loop pass into one undo step.
 - Evidence: the five checks; macOS XCTests (694); the editing conformance pair against Chrome (21/21 steps equal); a scratch app (caret, mention at the caret, refused paste, one undo, maxlength) passes on the web JS target, the wasm web host and macOS; full macOS smoke as main (Caltrain 3/3); two independent reviews, their findings fixed. iOS compiles; not run on a simulator.
 - Merge note: its event ABI kind 39 collides with X22's `Resize` (also 39); renumber one at merge.
+
+## Merged upstream; partly fixed (2026-10-07, adopt-main-fixes-r4)
+
+[#125](https://github.com/ccheever/exact2/issues/125) was closed by main #209 (`78e53a813`), in the feature
+branch since main `463acda68` ([20261007-adopt-main-fixes-r4](../tasks/20261007-adopt-main-fixes-r4.md)):
+on macOS and iOS an `input`'s or `textarea`'s ⌘V, ⌘C and ⌘X fire `paste`, `copy` and `cut` at the
+nearest handler before the field's own edit, and `preventDefault()` cancels it as in Chrome; the web hosts
+honour that `preventDefault()` too. Nothing else of #125 is on `463acda68`: no `selectionchange` on a field
+(still `lower-attr-tag`), no `beforeinput`, no `setRangeText`, no undo grouping, no atomic ranges
+(`docs/contract-grammar.md`, "Form controls"). The phase-1 branch above is not merged.
+
+Adoption: none possible. The composer is the native `NSTextView` (`T3Composer*.swift`) because chips are
+atomic ranges and the menus replace a range in one undo step, the parts still missing. Its paste handling
+(a large paste folds into `pasted-text.txt`, files and images become attachments, ⇧⌘V pastes plain text,
+⌘V with nothing editable focused goes to the composer) therefore stays in Swift: #209's `paste` reaches a
+Contract field, and the composer is not one. No Contract `input` or `textarea` in the clone needs a paste
+handler: the reference's `onPaste` sites are the composer, the terminal's own page, a no-op in
+`SettingsFontPreviews` and the window-level redirect to the composer.

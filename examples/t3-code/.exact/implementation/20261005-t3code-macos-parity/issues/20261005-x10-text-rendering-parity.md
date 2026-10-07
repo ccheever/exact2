@@ -1,10 +1,10 @@
 ---
 name: 20261005-x10-text-rendering-parity
 plan: 20261005-t3code-macos-parity
-status: draft
+status: closed-upstream
 kind: framework-gap
 blocks: [20261005-interface-font-size, 20261005-live-automations-and-clones, 20261005-provider-settings-upkeep, 20261005-shiki-residuals, 20261005-upstream-timeline-and-markdown, 20261005-usage-pooled-view]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/128
 reproduced_on: null
 ---
 
@@ -130,3 +130,26 @@ Draft; not reproduced on the pinned `main`; not searched upstream; not published
 Next: `issue-open` (reproduce each of the five, search for duplicates, prepare the report for the user's
 approval; publication only after approval). If the maintainers prefer, file five reports; this document is the
 shared context.
+
+## Merged upstream; partly fixed (2026-10-07, adopt-main-fixes-r4)
+
+Filed as [#128](https://github.com/ccheever/exact2/issues/128) (code wrap, placeholder colour, balance,
+smoothing; ellipsis and `line-clamp` already matched Chrome on `4c893fef6` and were not filed). #128 was
+closed by main #208 (`05c767ba8`), in the feature branch since main `463acda68`
+([20261007-adopt-main-fixes-r4](../tasks/20261007-adopt-main-fixes-r4.md)): a macOS paragraph takes the
+shared walker's Chrome line-break opportunities, so a path no longer breaks after each `/`, and
+`overflow-wrap: anywhere | break-word` breaks inside a word only when no opportunity fits (item 2).
+
+Not on `463acda68`: items 3, 4 and 5. `kernel/tables/schema.json` has no `text-wrap`, no
+`placeholder-color` or `::placeholder`, and no `-webkit-font-smoothing` row; a macOS placeholder is still
+the field's text colour at 0.30. Linux paragraphs still break after `/` (main's QUEUE).
+
+Adoption: the clone had no workaround for any item, so nothing is removed. Its `pre-wrap` +
+`overflow-wrap="anywhere"` rows (code blocks, tool output, the user message fallback) and its Markdown
+paragraphs take #208's breaks with no clone change. Agent drive at 1280×840 (lane message with three long
+paths): every path fits the bubble or breaks at a space, and Before (`887b2491b`) and After draw the same
+lines. At 840×620, where the bubble is narrower than a path, Before and After are pixel-identical too, and the
+two long paths do not break at all: they run past the bubble's right edge and the window
+([image](https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/adopt-main-fixes-r4/03-x10-wrap-840-before-after.png)). #208 does not change that line. The clone's `UserMarkdown` paragraphs
+(`markdown.contract`) set no `overflow-wrap`; whether T3 Code breaks these paths inside the word needs a
+reference capture of the same message (follow-up finding, task record). The stored font-smoothing setting stays unapplied (item 5). The issue stays open.

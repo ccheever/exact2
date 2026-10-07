@@ -57,11 +57,10 @@ describe('formatShortTimestamp', () => {
 });
 
 describe('resolveWeekStartsOn', () => {
-  // Bun's runtime has Intl.Locale week data; the macOS data runtime has no Intl.Locale (#118) and answers undefined.
-  const hasWeekInfo = (() => { try { return resolveWeekStartsOn('en-GB') !== undefined; } catch { return false; } })();
-  for (const [locale, weekday] of [['en-US', 0], ['en-GB', 1], ['pl-PL', 1], ['ar-EG', 6]] as const) {
+  // Bun and the macOS data runtime (Hermes, exact2 #204 for #118) both have Intl.Locale week data, with Chrome's values.
+  for (const [locale, weekday] of [['en-US', 0], ['en-GB', 1], ['pl-PL', 1], ['ar-EG', 6], ['de-DE', 1], ['ko-KR', 0], ['fa-IR', 6]] as const) {
     test(`starts the ${locale} week on weekday ${weekday}`, () => {
-      expect(resolveWeekStartsOn(locale)).toBe(hasWeekInfo ? weekday : undefined);
+      expect(resolveWeekStartsOn(locale)).toBe(weekday);
     });
   }
   test('leaves the default to the caller for a malformed locale', () => {
@@ -69,7 +68,7 @@ describe('resolveWeekStartsOn', () => {
   });
   test('follows the locale the desktop host reports', () => {
     adoptHostLocale('en-GB');
-    expect(weekStartsOn()).toBe(hasWeekInfo ? 1 : undefined);
+    expect(weekStartsOn()).toBe(1);
   });
 });
 
