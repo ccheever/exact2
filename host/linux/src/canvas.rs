@@ -105,6 +105,8 @@ const SLOT: u32 = 23;
 const SLOT_SET: u32 = 24;
 /// Instead of a stream: the last one moved. A count, then per scroller its
 /// id and the move (device pixels) of its rows from where they were drawn.
+/// With `EXACT_MOVE_TRACKS=1`, `CLOCK` and `TRACKS` ops may follow: layers of
+/// the last stream whose plays changed since.
 const SHIFT: u32 = 22;
 
 /// Room (points) left of and above a row's origin in its recording, so what
@@ -936,6 +938,13 @@ pub struct CanvasHost<D: DataSource> {
     rows_before: Vec<(ViewId, u64)>,
     rows_after: Vec<(ViewId, u64)>,
     paint_by: Option<u32>,
+    /// The reader takes layers' tracks after a move (`EXACT_MOVE_TRACKS=1`,
+    /// which its launcher sets): a row that comes into view then starts its
+    /// animations without a paint, and a paint is owed only by the frame
+    /// rows mounted out of view can first show ([`CanvasHost::unhurried`]).
+    move_tracks: bool,
+    /// The last pass was a slice: it may have left rows of its window unbuilt.
+    sliced: bool,
     /// A GPU canvas wants another frame (Android: they present each frame).
     surfaces: bool,
     /// GPU canvases wait for the host's own thread: it booted on another
@@ -976,7 +985,8 @@ struct Painted {
 /// At most this many frames move the last paint before one paints again:
 /// what it leaves stale (boxes, hits, which pictures show) stays this fresh.
 const MOVES: u32 = 30;
-/// The same, once rows have mounted out of view since the last paint.
+/// The same, once rows have mounted out of view since the last paint, where
+/// the frame they can first show is not known ([`CanvasHost::unhurried`]).
 const MOVES_MOUNTED: u32 = 6;
 
 impl<D: DataSource + Default> CanvasHost<D> {
@@ -1047,6 +1057,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
             rows_before: Vec::new(),
             rows_after: Vec::new(),
             paint_by: None,
+            move_tracks: std::env::var("EXACT_MOVE_TRACKS").is_ok_and(|v| v == "1"),
+            sliced: false,
             moves: std::env::var("EXACT_MOVES")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -1160,7 +1172,13 @@ impl<D: DataSource + Default> CanvasHost<D> {
                 p.first_pixel();
             }
         }
-        if let Some(shift) = self.shift(now) {
+        if let Some(mut shift) = self.shift(now) {
+            // A play that changed since the last stream (a row that came
+            // into view starts its animations): its layer's tracks go with
+            // the move, where the reader takes them there.
+            if self.move_tracks && self.p.host().lowered_epoch() != self.tracks_epoch {
+                self.layer_tracks(&mut shift);
+            }
             return Some(shift);
         }
         if !self.p.dirty() && !self.owed_at(now) {
@@ -1204,7 +1222,8 @@ impl<D: DataSource + Default> CanvasHost<D> {
                 (self.origin_ns >> 32) as u32,
             ]);
         }
-        self.tracks.retain(|id, _| alive.iter().any(|a| a.0 == *id));
+        let ids: std::collections::HashSet<u32> = alive.iter().map(|a| a.0).collect();
+        self.tracks.retain(|id, _| ids.contains(id));
         // Plays change only in a sync: until one, only new layers' tracks;
         // after one, the layers of the nodes it changed.
         let epoch = self.p.host().lowered_epoch();
@@ -1271,7 +1290,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         // Rows mounted out of view since the paint (a quiet epoch) show at the
         // next one, so it comes sooner: they may scroll in within a quarter
         // second.
-        let limit = if self.quiet.is_some() {
+        let limit = if self.quiet.is_some() && !self.unhurried() {
             self.moves.min(MOVES_MOUNTED)
         } else {
             self.moves
