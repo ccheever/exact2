@@ -182,12 +182,31 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
         const canon = (v) => JSON.stringify(v, (_, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x));
         check(canon(again.calls) === canon(perf.calls) && canon(again.counters) === canon(perf.counters), `${host} native: a perf hatches read changes nothing: ${canon(perf.calls)} then ${canon(again.calls)}`);
       }
+      // What a hatch asks of an authored node (LLP 1075.003.000.001 §2.5, §8
+      // stage 2): `input` replaces a field's value and Contract hears it, the
+      // journal holding its length and never its text; `clock settle` returns
+      // only once a queued click has committed; and a hatch whose acts keep
+      // causing acts is named by settle after 16 drains, without hanging.
+      {
+        await s.tap('feed'); await settle(s); await s.clock('settle');
+        const all = (await s.op({ op: 'logs', since: 0 })).lines.filter((l) => / hatch /.test(l));
+        check((await s.state()).slots.fed === 'Palo Alto', `${host} native: a hatch's input replaces the field's value in Contract: ${JSON.stringify((await s.state()).slots.fed)}`);
+        check(all.some((l) => /hatch element feed #\d+: input \(9 chars, delivery: hatch\)/.test(l)) && !all.some((l) => /Palo/.test(l)), `${host} native: the journal holds the input's length, never its text: ${all.filter((l) => /feed/.test(l)).join(' | ')}`);
+        await s.tap('arm'); await s.clock('settle');
+        check((await s.state()).slots.hatchPresses === 1, `${host} native: clock settle returns only after a hatch's queued click has committed: ${(await s.state()).slots.hatchPresses}`);
+        await s.tap('loop');
+        const stuck = await s.clock('settle');
+        check(stuck.settled === false && stuck.reason === 'hatches', `${host} native: a hatch whose acts keep causing acts is named by settle: ${JSON.stringify(stuck)}`);
+        await s.tap('stop-loop'); await settle(s);
+        const done = await s.clock('settle'), st = await s.state();
+        check(done.settled === true && st.slots.hatchPresses > 16 && st.hatches?.inFlight === 0, `${host} native: stopped, it settles: ${JSON.stringify(done)} after ${st.slots.hatchPresses} presses`);
+      }
       // Each platform handles the words app.json gives it (LLP
       // 1075.003.000.001 §4.3, §5): the fixture's `detail-list` is iOS's
       // alone, so elsewhere its node is shown, never called, and listed.
       {
         const st = (await s.state()).hatches, all = (await s.op({ op: 'logs', since: 0 })).lines.join('\n');
-        const here = host === 'ios' ? ['badge', 'detail-list', 'dot'] : ['badge', 'dot'];
+        const here = host === 'ios' ? ['badge', 'detail-list', 'dot', 'feed', 'presser'] : ['badge', 'dot', 'feed', 'presser'];
         check(JSON.stringify(st?.platform) === JSON.stringify(here), `${host} native: state.hatches names the words this platform handles: ${JSON.stringify(st?.platform)}`);
         if (host === 'ios') check(st?.unhandled?.length === 0 && st.words?.['detail-list']?.calls?.built === 1, `${host} native: iOS handles detail-list: ${JSON.stringify(st?.unhandled)}`);
         else check(st?.unhandled?.length === 1 && st.unhandled[0].word === 'detail-list' && !st.words?.['detail-list'] && /hatch element detail-list: not handled/.test(all) && byTestId(await s.tree(), 'list-detail')?.props.hatch === 'detail-list',

@@ -293,6 +293,9 @@ final class ExactHatches {
     let toolbarItemFn: ToolbarItemFn?
     /// One of 56 or more, in a development build: the diagnostics' entry.
     let recordFn: ExactDiagnostics.RecordFn?
+    /// One of 64 or more: `input(text)` on an authored field.
+    typealias InputFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, UInt32) -> Int32
+    let inputFn: InputFn?
     #if os(iOS) || os(tvOS)
     var navigations: [ObjectIdentifier: ExactNavigation] = [:]
     var routes: [String: ExactRoute] = [:]
@@ -317,6 +320,8 @@ final class ExactHatches {
         let calls = table.load(as: UInt32.self) >= 56 ? table.load(fromByteOffset: 48, as: UnsafeRawPointer?.self) : nil
         recordFn = calls.flatMap { $0.load(as: UInt32.self) >= 16 ? $0.load(fromByteOffset: 8, as: UnsafeRawPointer?.self) : nil }
             .map { unsafeBitCast($0, to: ExactDiagnostics.RecordFn.self) }
+        inputFn = table.load(as: UInt32.self) >= 64
+            ? table.load(fromByteOffset: 56, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: InputFn.self) } : nil
     }
 
     func log(_ line: String) {
@@ -513,6 +518,22 @@ public final class ExactElement {
         guard let hatches else { return }
         let what = hatch == nil ? "route \(key)" : "element \(key)"
         guard isLive, hatches.act(node, action) else { return hatches.log("\(what): \(name)() on #\(id.isEmpty ? String(node) : id) refused") }
+    }
+
+    /// Replace an authored text field's whole value, as a person's typing
+    /// would leave it (LLP 1075.003.000.001 §2.5): cut to the field's own
+    /// limits, heard by its `input` and `change` handlers, without moving
+    /// focus, so a native search controller can feed an authored field while
+    /// it keeps the keyboard. Queued like `click()`. Refused by name, in the
+    /// journal, for a node that is not an editable text field, a disabled or
+    /// readonly one, one that is composing, and text over 64 KB. The journal
+    /// records the length, never the text.
+    public func input(_ text: String) {
+        guard let hatches else { return }
+        let what = hatch == nil ? "route \(key)" : "element \(key)"
+        guard isLive, let inputFn = hatches.inputFn else { return hatches.log("\(what): input() on #\(id.isEmpty ? String(node) : id) refused") }
+        let bytes = Array(text.utf8)
+        _ = bytes.withUnsafeBufferPointer { inputFn(hatches.host, node, $0.baseAddress, UInt32($0.count)) }
     }
     /// Press it, as HTMLElement.click() does: its `press` handler runs.
     public func click() { act(0, "click") }

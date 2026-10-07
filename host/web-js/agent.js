@@ -304,9 +304,12 @@ export function install(exact) {
           // Virtualized lists report until a round sends nothing, reading
           // layout now (collection-glue.js `settle`, as glue.js's clock does).
           const end = performance.now() + 20000;
+          // A hatch whose acts keep causing acts never settles (LLP 1075.003.000.001 §2.5): 16 drains of its queue, then say so.
+          const drained = exact.hatchActs?.drains() ?? 0, looping = () => exact.hatchActs && exact.hatchActs.drains() - drained > 16 && exact.hatchActs.queued() > 0;
           for (let round = 0; round < 16; round++) {
             // A held request is in flight until the agent answers it: never waited on.
-            do await new Promise(r => setTimeout(r, 30)); while (exact.inflight.n > holds().length && performance.now() < end);
+            do await new Promise(r => setTimeout(r, 30)); while (exact.inflight.n > holds().length && performance.now() < end && !looping());
+            if (looping()) return { clock: exact.clock.now, settled: false, reason: 'hatches' };
             // Declared faces loading (the stylesheet's, LLP 1019) are the page's too.
             await document.fonts?.ready;
             // Text around shapes lays out in the frames after a commit (flow.js).

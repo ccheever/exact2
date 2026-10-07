@@ -49,6 +49,11 @@ final class FixtureModule: ExactModule {
         // and the next launch's journal says where.
         if element.hatch == .badge, ProcessInfo.processInfo.environment["EXACT_FIXTURE_DIE"] == "badge" { kill(getpid(), SIGKILL) }
         element.diagnostics.count(moment)
+        // What a hatch asks of an authored node (§2.5), each queued: `feed`
+        // replaces its field's value, `presser` clicks its own button once
+        // when armed and on every change while looping.
+        if element.hatch == .feed, !element.isNew, let text = element.data[.feed], !text.isEmpty { element.input(text) }
+        if element.hatch == .presser, !element.isNew, element.data[.loop] != "off" || element.data[.armed] == "true" { element.click() }
         if element.hatch == .badge {
             let tone = element.data[.tone] ?? ""
             element.diagnostics.log("\(moment), tone \(tone)")

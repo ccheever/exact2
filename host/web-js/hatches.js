@@ -6,7 +6,7 @@
 //   export function elementEnded(e)  // before the node leaves
 //
 // with `e` = { hatch, data, element, isNew, isLive, click(), focus(), blur(),
-// diagnostics }:
+// input(text), diagnostics }:
 // `element` is the node's own element and `data` its `dataset`, the web's own
 // (so the host's words, `data-testid` and the rest, are there too). On the web
 // a hatched node gives up nothing but the call. The page module loads after
@@ -27,7 +27,7 @@ const counted = word => stats[word] ??= { live: 0, reusable: 0, lost: [], calls:
 const publish = () => {
   const x = globalThis.exact;
   if (!x || x.hatchState) return;
-  x.hatchState = state; x.hatchPerf = { reply: perfReply, site: perfSite, window: perfWindow }; x.diagnostics = diagnostics("module");
+  x.hatchState = state; x.hatchPerf = { reply: perfReply, site: perfSite, window: perfWindow }; x.hatchActs = { drains: () => A.drains, queued: () => Acts.length }; x.diagnostics = diagnostics("module");
 };
 
 // What Exact measures by itself, and what hatch code adds (@ref LLP
@@ -189,7 +189,8 @@ function state() {
     others[scope] = add(scopes[scope] ?? {}, scope);
   }
   const reply = { words, scopes: others, ...(globalThis.exact?.hatchWords ? { platform: globalThis.exact.hatchWords } : {}),
-    unhandled: [...Unhandled].map(([word, reason]) => ({ word, reason })), measuring: dev(), rejected: D.rejected, abandoned: D.abandoned, limited: D.limited };
+    unhandled: [...Unhandled].map(([word, reason]) => ({ word, reason })), refused: A.refused, inFlight: Acts.length,
+    measuring: dev(), rejected: D.rejected, abandoned: D.abandoned, limited: D.limited };
   return fit(reply, [[reply, "words"], [reply, "scopes"], [reply, "unhandled"]]);
 }
 
@@ -232,6 +233,65 @@ function perfSite(site) {
   return calls ? { hatch: { calls, ms } } : null;
 }
 
+// What a hatch asks of an authored element (@ref LLP 1075.003.000.001 §2.5):
+// `click`, `focus`, `blur`, and `input(text)`, which replaces a field's whole
+// value. Each is queued, never run inside the hatch: one FIFO a page, at
+// most 256 acts and 1 MB of text, an act past either refused by name and
+// counted. A drain runs the acts queued when it starts, at most 64: the
+// first in a microtask, as on Apple's next turn, and each later one in a
+// task, so a hatch that keeps asking cannot starve the page. An act is in
+// flight (`clock settle` waits for it) from its asking until it has run.
+const Acts = [], INPUTS = new Set(["text", "search", "url", "tel", "password", "email", "number"]);
+const A = { bytes: 0, refused: 0, drains: 0, scheduled: false, tasks: false, port: null, composing: null };
+const refuse = (what, why) => { A.refused++; say(`${what}: ${why}`); };
+function ask(h, what, kind, text) {
+  if (!h.isLive) return;
+  const size = kind === "input" ? enc.encode(text = String(text)).length : 0;
+  if (size > 65536) return refuse(what, `input refused: ${size} bytes is over 64 KB`);
+  if (Acts.length >= 256 || A.bytes + size > 1 << 20) return refuse(what, `${kind} refused: the act queue is full`);
+  Acts.push({ h, what, kind, text, size });
+  A.bytes += size;
+  inflight.n++;
+  // While later drains are tasks, one is already on its way.
+  if (A.scheduled || A.tasks) return;
+  A.scheduled = true;
+  queueMicrotask(drain);
+}
+function drain() {
+  A.scheduled = false;
+  A.drains++;
+  for (const act of Acts.splice(0, 64)) {
+    A.bytes -= act.size;
+    try { run(act); } catch (error) { say(`${act.what}: ${act.kind} threw ${error?.message ?? error}`); } finally { inflight.n--; }
+  }
+  // What these acts queued (a `changed` that clicks again) waits for a task;
+  // a task that finds nothing queued gives the next act its microtask back.
+  if (typeof MessageChannel !== "function") { A.tasks = false; if (Acts.length && !A.scheduled) { A.scheduled = true; setTimeout(drain); } return; }
+  A.tasks = true;
+  if (!A.port) { const channel = new MessageChannel(); A.port = channel.port2; channel.port1.onmessage = () => { if (Acts.length) drain(); else A.tasks = false; }; channel.port1.unref?.(); }
+  A.port.postMessage(0);
+}
+function run({ h, what, kind, text }) {
+  const e = h.element;
+  if (!h.isLive || !e) return say(`${what}: ${kind}() after its end does nothing`);
+  if (kind !== "input") { say(`${what}: ${kind} (delivery: hatch)`); return e[kind](); }
+  // `input` (§2.5): an authored text field's whole value, through the DOM's
+  // own primitive, without moving focus. Journaled by length, never by text.
+  const field = e.localName === "textarea" || e.localName === "input" && INPUTS.has(e.type);
+  if (!field) return refuse(what, `input refused: ${e.isContentEditable ? "a contenteditable editor" : "not an editable text field"}`);
+  if (e.disabled || e.readOnly) return refuse(what, `input refused: the field is ${e.disabled ? "disabled" : "readonly"}`);
+  if (A.composing === e) return refuse(what, "input refused: the field is composing");
+  const max = e.maxLength >= 0 ? e.maxLength : Infinity, value = [...text].length > max ? [...text].slice(0, max).join("") : text;
+  // `email` and `number` have no selection API: the HTML standard has `setRangeText` throw there.
+  if (e.type === "email" || e.type === "number") e.value = value; else e.setRangeText(value, 0, e.value.length, "end");
+  e.dispatchEvent(new InputEvent("input", { inputType: "insertReplacementText", bubbles: true }));
+  say(`${what}: input (${e.type === "password" ? "protected" : `${[...value].length} chars`}, delivery: hatch)`);
+}
+if (typeof document !== "undefined" && document.addEventListener) {
+  document.addEventListener("compositionstart", ev => { A.composing = ev.target; }, true);
+  document.addEventListener("compositionend", () => { A.composing = null; }, true);
+}
+
 // The words this platform handles, when the app's manifest gives words their
 // platforms (web-js/build.mjs; LLP 1075.003.000.001 §4.3): a word it leaves
 // out is shown and never called, journaled once and listed in `state`.
@@ -247,13 +307,13 @@ export function ht(e) {
     if (!Unhandled.has(word)) { Unhandled.set(word, "plan"); say(`element ${word}: not handled on this platform (app.json \`hatches\`); its nodes are shown and never called`); }
     return;
   }
-  // What a hatch asks of an element runs after the effect or commit that
-  // called the hatch (a microtask), never inside it, as on Apple.
-  const later = act => queueMicrotask(() => { if (h.isLive) h.element?.[act](); });
+  // What a hatch asks of an element is queued (`ask`): it runs after the
+  // effect or commit that called the hatch, never inside it, as on Apple.
+  const what = `element ${word} #${id}`;
   const spans = new Set(), site = e.dataset.site != null ? Number(e.dataset.site) : null;
   const h = {
     hatch: word, element: e, data: e.dataset, isNew: true, isLive: true,
-    click() { if (h.isLive) later("click"); }, focus() { if (h.isLive) later("focus"); }, blur() { if (h.isLive) later("blur"); },
+    click() { ask(h, what, "click"); }, focus() { ask(h, what, "focus"); }, blur() { ask(h, what, "blur"); }, input(text) { ask(h, what, "input", text); },
     diagnostics: diagnostics(`element ${word}`, spans),
   };
   // A throw is caught and journaled (LLP 1075.003.000.001 §4.4): this node's

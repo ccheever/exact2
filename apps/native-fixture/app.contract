@@ -109,6 +109,27 @@ component NativeFixture
   state received = ""
   action bump
     count = count + 1
+  // What hatches ask of authored nodes (LLP 1075.003.000.001 §2.5): the `feed`
+  // hatch replaces a field's value with `input`; the `presser` hatch clicks
+  // its own button once when armed, and on every change while looping, which
+  // never settles until it is stopped.
+  state fed = ""
+  state feedWith = ""
+  state armed = false
+  state looping = false
+  state hatchPresses = 0
+  action setFed(v: string)
+    fed = v
+  action feed
+    feedWith = "Palo Alto"
+  action arm
+    armed = true
+  action hatchPress
+    hatchPresses = hatchPresses + 1
+  action loop
+    looping = true
+  action stopLoop
+    looping = false
   action unbump
     count = 0
   action fire
@@ -414,6 +435,19 @@ component NativeFixture
                       text "Scroll 80"
                     button press=scrollTo(0) testId="scroll-0" padding=6 background-color="#e5e7eb"
                       text "Scroll 0"
+                when e.name == "detail"
+                  row gap=6 padding-left=12 padding-right=12 padding-bottom=12 flex-shrink=0 flex-wrap="wrap"
+                    input hatch="feed" data-feed=feedWith value=fed input=setFed testId="fed" aria-label="Fed" placeholder="Fed" width=90 padding=6 border-width=1 border-style="solid" border-color="#d1d5db"
+                    button press=feed testId="feed" padding=6 background-color="#e5e7eb"
+                      text "Feed"
+                    button hatch="presser" data-armed=(armed ? "true" : "false") data-loop=(looping && hatchPresses < 4000 ? toString(hatchPresses) : "off") press=hatchPress testId="hatch-press" padding=6 background-color="#e5e7eb"
+                      text ("Pressed " + toString(hatchPresses))
+                    button press=arm testId="arm" padding=6 background-color="#e5e7eb"
+                      text "Arm"
+                    button press=loop testId="loop" padding=6 background-color="#e5e7eb"
+                      text "Loop"
+                    button press=stopLoop testId="stop-loop" padding=6 background-color="#e5e7eb"
+                      text "Stop"
                 when e.name == "detail"
                   scroll id="list-detail" hatch="detail-list" data-violate=violate testId="list-detail" flex=1 min-height=0 scrollTop=top
                     column padding=12 gap=8

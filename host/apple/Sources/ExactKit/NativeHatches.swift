@@ -11,7 +11,7 @@
 //
 // The host's table, handed to the module once (`module_connect`):
 //
-//    0  u32 size                56
+//    0  u32 size                64
 //    8  resolve(host, routeKey, keyLen, id, idLen) → node (0: none)
 //   16  act(host, node, action) → 0 done   action 0 click, 1 focus, 2 blur
 //   24  log(host, text, len)
@@ -19,6 +19,9 @@
 //        controller whose own slot Exact keeps (nil clears it)
 //   40  toolbar_item(host, toolbar, item)    an item the app adds after
 //        Exact's to the window toolbar (macOS, LLP 1075.003.000 §3.7)
+//   56  input(host, node, text, len) → 0 queued: an authored text field's
+//        whole value, as a person's typing would leave it (LLP
+//        1075.003.000.001 §2.5); queued like `act`
 //   48  diagnostics → { u32 size 16; 8 record(…) }, or nil in a production
 //        bake: what hatch code says of itself (LLP 1075.003.000.001 §3.2,
 //        HatchDiagnostics.swift). `record` may be called on any thread.
@@ -77,6 +80,11 @@ private let hatchAct: HatchActFn = { host, node, action in
     hatchSession(host)?.presenter.elements.act(node, action) == true ? 0 : 1
 }
 
+private typealias HatchInputFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, UInt32) -> Int32
+private let hatchInputText: HatchInputFn = { host, node, bytes, length in
+    hatchSession(host)?.presenter.elements.input(node, hatchText(bytes, length)) == true ? 0 : 1
+}
+
 private let hatchLog: HatchLogFn = { host, bytes, length in
     hatchSession(host)?.log("hatch \(hatchText(bytes, length))")
 }
@@ -121,7 +129,7 @@ private let hatchDiagnosticsTable: UnsafeRawPointer = {
 /// The host's callbacks, one table for the process: each finds its session
 /// by the handle it is called with.
 private let hatchHostTable: UnsafeRawPointer = {
-    let size = 56
+    let size = 64
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: UInt32(size), as: UInt32.self)
@@ -131,6 +139,7 @@ private let hatchHostTable: UnsafeRawPointer = {
     t.storeBytes(of: unsafeBitCast(hatchDelegate, to: UnsafeRawPointer.self), toByteOffset: 32, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchToolbarItem, to: UnsafeRawPointer.self), toByteOffset: 40, as: UnsafeRawPointer.self)
     if HatchDiagnostics.measuring { t.storeBytes(of: hatchDiagnosticsTable, toByteOffset: 48, as: UnsafeRawPointer.self) }
+    t.storeBytes(of: unsafeBitCast(hatchInputText, to: UnsafeRawPointer.self), toByteOffset: 56, as: UnsafeRawPointer.self)
     return UnsafeRawPointer(t)
 }()
 

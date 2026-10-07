@@ -667,7 +667,7 @@ extension NavigationHost {
 
     /// A hatch's act on an authored element, as the DOM's: `click()` presses
     /// it as a tap does, `focus()` and `blur()` follow the focus rules. Each
-    /// runs on the main queue's next turn (`ElementHatches.later`). False when
+    /// is queued (`ElementHatches.later`) and runs on a later turn. False when
     /// refused.
     func act(_ id: UInt32, _ action: UInt32) -> Bool {
         guard let node = presenter.views[id] else { return false }
@@ -675,15 +675,15 @@ extension NavigationHost {
         case 0:
             guard node.handlers.contains("press"), !node.disabled else { return false }
             // Still the node it was when asked: a reload restarts node ids.
-            ElementHatches.later { [weak presenter = self.presenter, weak node] in
-                if let presenter, let node, presenter.views[id] === node { presenter.press(id) }
+            return presenter.elements.later(id, "click") { [weak presenter = self.presenter, weak node] in
+                if let presenter, let node, presenter.views[id] === node { presenter.session?.log("hatch \(node.props["hatch"].map { "element \($0) #\(id)" } ?? "node #\(id)"): click (delivery: hatch)"); presenter.press(id) }
             }
         case 1:
-            ElementHatches.later { [weak presenter = self.presenter, weak node] in
+            return presenter.elements.later(id, "focus") { [weak presenter = self.presenter, weak node] in
                 if let presenter, let node, presenter.views[id] === node { presenter.focusNode(node) }
             }
         case 2:
-            ElementHatches.later { [weak presenter = self.presenter, weak node] in
+            return presenter.elements.later(id, "blur") { [weak presenter = self.presenter, weak node] in
                 if let presenter, let node, presenter.views[id] === node { _ = (node.textArea ?? node.field ?? node).resignFirstResponder() }
             }
         default: return false

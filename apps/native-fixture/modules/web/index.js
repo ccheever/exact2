@@ -70,6 +70,11 @@ export function element(e) {
   const moment = e.isNew ? 'built' : 'changed';
   count(e, moment);
   e.diagnostics.count(moment);
+  // What a hatch asks of an authored node (§2.5), each queued: `feed` replaces
+  // its field's value, `presser` clicks its own button once when armed and on
+  // every change while looping.
+  if (e.hatch === 'feed' && !e.isNew && e.data.feed) e.input(e.data.feed);
+  if (e.hatch === 'presser' && !e.isNew && (e.data.loop !== 'off' || e.data.armed === 'true')) e.click();
   if (e.hatch !== 'badge') return;
   e.diagnostics.log(`${moment}, tone ${e.data.tone}`);
   e.diagnostics.publish('tone', { tone: e.data.tone, moment });

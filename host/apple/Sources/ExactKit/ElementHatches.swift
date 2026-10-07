@@ -196,6 +196,8 @@ final class ElementHatches {
         var reply = diagnostics?.state(words: out) ?? ["words": out]
         if let handled = presenter.session?.natives.handledHatches { reply["platform"] = handled.sorted() }
         reply["unhandled"] = unhandled.sorted().map { ["word": $0, "reason": "module"] }
+        reply["refused"] = refused
+        reply["inFlight"] = inFlight
         // What the last run left in its crash breadcrumb (§4.4), if anything.
         if !HatchBreadcrumb.lastEnds.isEmpty { reply["lastEnd"] = HatchBreadcrumb.lastEnds }
         return reply
@@ -236,11 +238,107 @@ final class ElementHatches {
 
     // MARK: Acting on an element (LLP 1075.003 §3.4)
 
-    /// What a hatch asks of an element runs on the main queue's next turn:
+    /// What a hatch asks of an element is queued, never run here (LLP
+    /// 1075.003.000.001 §2.5): it runs on a later turn of the main queue,
     /// after the batch being applied and after the session has finished with
-    /// it (its timers and frame requests), never inside either, so a hatch
-    /// called from a batch or a reset never applies a batch of its own there.
-    static func later(_ work: @escaping () -> Void) { DispatchQueue.main.async(execute: work) }
+    /// it, so a hatch called from a batch or a reset never applies a batch of
+    /// its own there. One FIFO a session, at most 256 acts and 1 MB of
+    /// `input` text, an act past either refused by name and counted. False
+    /// when refused.
+    @discardableResult
+    func later(_ id: UInt32, _ name: String, bytes: Int = 0, _ work: @escaping () -> Void) -> Bool {
+        let what = presenter.views[id]?.props["hatch"].map { "element \($0) #\(id)" } ?? "node #\(id)"
+        guard queue.count < Self.maxQueued, queuedBytes + bytes <= Self.maxBytes else {
+            refused += 1
+            presenter.session?.log("hatch \(what): \(name) refused: the act queue is full")
+            return false
+        }
+        queue.append(Act(what: what, name: name, bytes: bytes, work: work))
+        queuedBytes += bytes
+        if !scheduled {
+            scheduled = true
+            DispatchQueue.main.async { [weak self] in self?.scheduled = false; self?.drain() }
+        }
+        return true
+    }
+
+    private struct Act { let what: String, name: String, bytes: Int, work: () -> Void }
+    static let maxQueued = 256, maxBytes = 1 << 20, snapshot = 64, inputBytes = 65536
+    private var queue: [Act] = [], queuedBytes = 0, scheduled = false
+    /// Acts refused, and drains run, since launch; the acts still queued.
+    private(set) var refused = 0, drains = 0
+    var inFlight: Int { queue.count }
+
+    /// Run the acts queued when this starts, at most 64, in order. What they
+    /// queue (a `changed` that clicks again) waits for a later drain: the
+    /// main queue's next turn, or the agent's settle (Agent.swift), which
+    /// drains here on the main thread it is blocking.
+    func drain() {
+        guard !queue.isEmpty else { return }
+        drains += 1
+        let batch = Array(queue.prefix(Self.snapshot))
+        queue.removeFirst(batch.count)
+        for act in batch {
+            queuedBytes -= act.bytes
+            act.work()
+        }
+        if !queue.isEmpty, !scheduled {
+            scheduled = true
+            DispatchQueue.main.async { [weak self] in self?.scheduled = false; self?.drain() }
+        }
+    }
+
+    private func said(_ id: UInt32, _ line: String) {
+        let what = presenter.views[id]?.props["hatch"].map { "element \($0) #\(id)" } ?? "node #\(id)"
+        presenter.session?.log("hatch \(what): \(line)")
+    }
+
+    /// A hatch's `input(text)` (§2.5): an authored text field's whole value,
+    /// through the field's own primitive, cut to its limits, reported as a
+    /// keystroke's change is, without moving focus. Journaled by length,
+    /// never by text. False when refused at the asking; a field that cannot
+    /// take it when the act runs is refused there, by name.
+    func input(_ id: UInt32, _ text: String) -> Bool {
+        guard let node = presenter.views[id] else { return false }
+        let bytes = text.utf8.count
+        guard bytes <= Self.inputBytes else {
+            refused += 1
+            said(id, "input refused: \(bytes) bytes is over 64 KB")
+            return false
+        }
+        return later(id, "input", bytes: bytes) { [weak self, weak node] in
+            guard let self, let node, self.presenter.views[id] === node else { return }
+            let refuse = { (why: String) in self.refused += 1; self.said(id, "input refused: \(why)") }
+            guard node.field != nil || node.textArea != nil else { return refuse("not an editable text field") }
+            guard !node.disabled else { return refuse("the field is disabled") }
+            guard node.props["editable"] != "false", node.props["readonly"] != "true" else { return refuse("the field is readonly") }
+            let value = TextInputLimit.prefix(text, props: node.props)
+            #if os(iOS) || os(tvOS)
+            if let f = node.field {
+                guard f.markedTextRange == nil else { return refuse("the field is composing") }
+                f.text = value
+            } else if let t = node.textArea {
+                guard t.markedTextRange == nil else { return refuse("the field is composing") }
+                t.text = value
+            }
+            #else
+            if let f = node.field {
+                // While it is edited the field editor holds the text; focus stays where it is.
+                if let editor = f.currentEditor() as? NSTextView {
+                    guard !editor.hasMarkedText() else { return refuse("the field is composing") }
+                    editor.replaceCharacters(in: NSRange(location: 0, length: (editor.string as NSString).length), with: value)
+                } else {
+                    f.stringValue = value
+                }
+            } else if let t = node.textArea {
+                guard !t.hasMarkedText() else { return refuse("the field is composing") }
+                t.replaceCharacters(in: NSRange(location: 0, length: (t.string as NSString).length), with: value)
+            }
+            #endif
+            self.presenter.typed(id, value, input: node.handlers.contains("input"))
+            self.said(id, "input (\(node.props["type"] == "password" ? "protected" : "\(value.count) chars"), delivery: hatch)")
+        }
+    }
 
     /// A hatch's `click()`, `focus()` or `blur()` on a node, as the DOM's, on
     /// the next turn (`later`). False when refused.
@@ -252,12 +350,13 @@ final class ElementHatches {
         switch action {
         case 0:
             guard node.handlers.contains("press"), !node.disabled else { return false }
-            Self.later { [weak presenter = self.presenter, weak node] in
-                if let presenter, let node, presenter.views[id] === node { presenter.press(id) }
+            return later(id, "click") { [weak self, weak node] in
+                if let self, let node, self.presenter.views[id] === node { self.said(id, "click (delivery: hatch)"); self.presenter.press(id) }
             }
         case 1, 2:
-            Self.later { [weak presenter = self.presenter, weak node] in
-                guard let presenter, let node, presenter.views[id] === node, let window = node.window else { return }
+            return later(id, action == 1 ? "focus" : "blur") { [weak self, weak node] in
+                guard let self, let node, self.presenter.views[id] === node, let window = node.window else { return }
+                self.said(id, "\(action == 1 ? "focus" : "blur") (delivery: hatch)")
                 let responder: NSView = node.textArea ?? node.field ?? node
                 if action == 1 {
                     if responder.acceptsFirstResponder { window.makeFirstResponder(responder) }

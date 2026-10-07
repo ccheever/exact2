@@ -14,7 +14,7 @@ writeFileSync(resolve(dir, 'rt.js'), 'export const { onEnd, journal, clock, view
 writeFileSync(resolve(dir, 'native.js'), 'export const pageTable = () => globalThis.pageModule;\n');
 
 const ends = [], journal = [], clock = { now: 0, epoch: 1 };
-globalThis.rtStandIn = { onEnd: f => ends.push(f), journal, clock, viewId: e => e.id, inflight: { n: 0 }, painted: () => Promise.resolve() };
+const rt = globalThis.rtStandIn = { onEnd: f => ends.push(f), journal, clock, viewId: e => e.id, inflight: { n: 0 }, painted: () => Promise.resolve() };
 globalThis.requestAnimationFrame = f => setTimeout(f);
 // A development page: its plan's digest is there (web-js/build.mjs).
 globalThis.exact = { plan: 'digest' };
@@ -33,6 +33,7 @@ let thrown = 0;
 globalThis.pageModule = {
   element(e) {
     handles.push(e);
+    e.element.onHatch?.(e);
     if (e.hatch === 'thrower') { thrown++; throw new Error('boom'); }
     if (e.hatch === 'outer' && e.isNew) { const t = performance.now(); while (performance.now() - t < 4); }
   },
@@ -149,4 +150,61 @@ test('a word this platform does not handle is shown and never called', async () 
     await mount(hatches, node('meter', 31));
     expect(handles.length).toBe(before + 1);
   } finally { delete globalThis.exact.hatchWords; }
+});
+
+// A fake text field: the DOM's value, `setRangeText` and events, enough for `input`.
+globalThis.InputEvent ??= class { constructor(type, init) { this.type = type; Object.assign(this, init); } };
+const field = (word, props = {}) => Object.assign(node(word), {
+  localName: 'input', type: 'text', value: '', maxLength: -1, disabled: false, readOnly: false, events: [], clicks: 0,
+  setRangeText(text, from, to) { if (this.type === 'email' || this.type === 'number') throw new Error('InvalidStateError'); this.value = this.value.slice(0, from) + text + this.value.slice(to); },
+  dispatchEvent(ev) { this.events.push(`${ev.type}:${ev.inputType}:${this.value}`); return true; },
+  click() { this.clicks++; }, focus() {}, blur() {},
+}, props);
+const settled = async () => { for (let i = 0; i < 20 && globalThis.exact.hatchActs.queued(); i++) await turn(); await turn(); };
+
+test('input replaces an authored field\'s whole value and is journaled by length', async () => {
+  const hatches = await import(resolve(dir, 'hatches.js'));
+  const from = journal.length, refused = () => globalThis.exact.hatchState().refused, before = refused();
+  const search = field('search', { value: 'old', onHatch: e => { e.input('Palo Alto'); expect(search.value).toBe('old'); } });
+  await mount(hatches, search); await settled();
+  expect(search.value).toBe('Palo Alto');
+  expect(search.events).toEqual(['input:insertReplacementText:Palo Alto']);
+  expect(journal.slice(from).some(l => /element search #\d+: input \(9 chars, delivery: hatch\)/.test(l))).toBe(true);
+  expect(journal.slice(from).join('\n')).not.toContain('Palo');
+  // The field's own limit; a type without a selection API; a password's length is not said.
+  const short = field('short', { maxLength: 4, onHatch: e => e.input('abcdefgh') });
+  const mail = field('mail', { type: 'email', onHatch: e => e.input('a@b.c') });
+  const secret = field('secret', { type: 'password', onHatch: e => e.input('hunter2') });
+  for (const f of [short, mail, secret]) await mount(hatches, f);
+  await settled();
+  expect([short.value, mail.value, secret.value]).toEqual(['abcd', 'a@b.c', 'hunter2']);
+  expect(journal.slice(from).some(l => /element secret #\d+: input \(protected, delivery: hatch\)/.test(l))).toBe(true);
+  // Refused by name, and counted: not a field, a contenteditable editor, disabled, readonly, over 64 KB.
+  const cases = [
+    [field('box', { localName: 'div' }), 'x', /not an editable text field/], [field('editor', { localName: 'div', isContentEditable: true }), 'x', /a contenteditable editor/],
+    [field('off', { disabled: true }), 'x', /the field is disabled/], [field('fixed', { readOnly: true }), 'x', /the field is readonly/],
+    [field('huge'), 'x'.repeat(70000), /70000 bytes is over 64 KB/],
+  ];
+  for (const [f, text] of cases) { f.onHatch = e => e.input(text); await mount(hatches, f); }
+  await settled();
+  for (const [f, , why] of cases) { expect(f.value).toBe(''); expect(journal.slice(from).some(l => why.test(l))).toBe(true); }
+  expect(refused() - before).toBe(5);
+});
+
+test('acts are queued, bounded, drained 64 at a time, and never run inside the hatch', async () => {
+  const hatches = await import(resolve(dir, 'hatches.js'));
+  const drains = globalThis.exact.hatchActs.drains(), refused = globalThis.exact.hatchState().refused;
+  let live = null;
+  const button = field('button', { onHatch: e => { live = e; for (let i = 0; i < 300; i++) e.click(); expect(button.clicks).toBe(0); } });
+  const end = await mount(hatches, button);
+  // 256 are queued and the rest refused; a drain runs 64, so four drains run them.
+  expect(globalThis.exact.hatchState().refused - refused).toBe(300 - 256);
+  await settled();
+  expect(button.clicks).toBe(256);
+  expect(globalThis.exact.hatchActs.drains() - drains).toBe(4);
+  expect(rt.inflight.n).toBe(0);
+  // After its end a handle's act does nothing.
+  end();
+  live.click(); await settled();
+  expect(button.clicks).toBe(256);
 });

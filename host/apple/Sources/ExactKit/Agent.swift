@@ -519,7 +519,7 @@ public final class Agent {
         if settle { target = max(from, self.settle() ?? from) }
         guard var to = target, to.isFinite else { return ["error": "clock needs \"to\" (ms) or \"settle\": true"] }
         guard to >= from else { return ["error": "the clock cannot go backwards (\(from) → \(to))"] }
-        var rounds = 0
+        var rounds = 0, hatchDrains = 0
         var world = Canvases.WorldClock()
         func reply(_ landed: Double, _ settled: Bool? = nil, reason: String? = nil) -> [String: Any] {
             var out = world.reply
@@ -543,6 +543,15 @@ public final class Agent {
             // Every list reported and filled where it shows, nested ones
             // included, before the fixed point is read (LLP 1070 G3).
             if settle { presenter.settlePump() }
+            // What hatches asked of elements (LLP 1075.003.000.001 §2.5): drained
+            // here, on the thread this loop holds, each drain a snapshot. A hatch
+            // whose acts keep causing acts is named after 16.
+            if settle, presenter.elements.inFlight > 0 {
+                hatchDrains += 1
+                if hatchDrains > 16 { return reply(landed, false, reason: "hatches") }
+                presenter.elements.drain()
+                continue
+            }
             world = session.canvases.clock(settle: settle)
             // A jump does not wait for what is still in flight on real time
             // (a store's, a worker's, the network's): the reply names how much,
