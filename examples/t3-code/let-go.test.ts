@@ -45,6 +45,16 @@ describe('let go', () => {
     const network = new FetchError('Network', 'offline');
     expect(await letGoAware(reject(network)).later({}).catch(error => error)).toBe(network);
     expect(await letGoAware({ available: true, watch() {}, later: async () => 7 }).later({})).toBe(7);
+    // A watch is passed through until the answer is let go, and refused as superseded after.
+    const watched: string[] = [];
+    const seam = letGoAware({ available: true, watch: topic => { watched.push(topic); }, later: async () => { throw aborted(); } });
+    seam.watch('t3.status');
+    await seam.later({}).catch(() => {});
+    let refused: unknown;
+    try { seam.watch('t3.local'); } catch (error) { refused = error; }
+    expect(refused).toBeInstanceOf(ClientError);
+    expect((refused as ClientError).kind).toBe('superseded');
+    expect(watched).toEqual(['t3.status']);
   });
 
   test('a refresh let go mid-flight shows no banner (the regression)', async () => {
@@ -54,6 +64,24 @@ describe('let go', () => {
     await client.refresh(letGoAware(native), disk);
     expect(client.error).toBe('');
     expect(client.ready).toBe(true);
+  });
+
+  test('a refresh let go inside a read it tolerates watches nothing outside its answer (round 5 follow-up)', async () => {
+    // fleet.sync swallows a failed `environments` read; the refresh then reads the embedded
+    // server, whose `native.watch` the prelude refuses once the answer was let go
+    // (js/src/prelude.js: "native.watch outside an answer"), which became the transcript banner.
+    const { client, native, disk } = await connected();
+    let gone = false, watchedAfter = 0;
+    const later = native.later.bind(native);
+    native.later = async request => {
+      if (!gone && obj(request).op === 'environments') { gone = true; throw aborted(); }
+      return later(request);
+    };
+    native.watch = () => { if (gone) { watchedAfter++; throw new Error('native.watch outside an answer'); } };
+    await client.refresh(letGoAware(native), disk);
+    expect(gone).toBe(true);
+    expect(watchedAfter).toBe(0);
+    expect(client.error).toBe('');
   });
 
   test('a refresh that really fails still shows the error', async () => {
