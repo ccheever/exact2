@@ -100,6 +100,14 @@ Combined checks: 1,197 Bun tests, strict TypeScript, Contract compilation (2,146
 build and clippy passed; root tests' pinned-Bun failures passed when the affected
 packages were rerun with Bun 1.4.2. Full live backend acceptance remains unverified.
 
+## Desktop comparison, 2026-10-07
+
+The [live desktop audit](reviews/20261007-desktop-clickthrough.md) compares Electron at
+`1e2ecbd9758830669684b494d4398f626b0576e0` with the native example at
+`fbce02624d2e33449ee2cde34497083d6fd47457`, in a separate worktree. It adds discovery
+records, not implementations or acceptance of the existing tasks. Pure appearance/layout
+findings are grouped in one visual-parity task. Existing scope and sign-in holds remain.
+
 ## Implementation order
 
 Groups run in order; tickets inside a group may run in parallel (the user's execution
@@ -174,6 +182,19 @@ Common prerequisites, not repeated per row: every feature ticket (group 2 and la
 | blocked (X38) | [20261005-t3-connect-sign-in](tasks/20261005-t3-connect-sign-in.md) | T3 Connect / Clerk sign-in, relay connections, `t3code://` handoff | exact2 | issue X38 resolved or decided; X5 | Excluded scope; implemented or closed after the X38 decision | blocked |
 | blocked (X39) | [20261005-telemetry](tasks/20261005-telemetry.md) | Desktop and server telemetry | exact2 | issue X39 resolved or decided | Excluded scope; implemented or closed after the X39 decision | blocked |
 | blocked (X41) | [20261005-wsl-environments](tasks/20261005-wsl-environments.md) | WSL environments (Windows only) | exact2 | issue X41 resolved or decided | Excluded scope; likely closed as not applicable on macOS after the X41 decision | blocked |
+
+New discoveries from the desktop audit have independent scope; the original numbered groups
+do not impose new prerequisites on them:
+
+| Task | Outcome | Dependency | Verification |
+| --- | --- | --- | --- |
+| [20261007-invalid-pairing-url-validation](tasks/20261007-invalid-pairing-url-validation.md) | Validate malformed Welcome links and keep pairing errors in their form | none identified | focused connection tests and paired Welcome drive |
+| [20261007-installed-font-picker](tasks/20261007-installed-font-picker.md) | Discover, validate and apply installed font families | X48 for runtime family application | native face readback, preference readback and paired pickers |
+| [20261007-settings-model-picker](tasks/20261007-settings-model-picker.md) | Search, browse providers, favorite and expand legacy models from General | reuse existing model catalog/picker | scoped writes and paired settings drive |
+| [20261007-theme-color-picker](tasks/20261007-theme-color-picker.md) | Select theme colors through hue, saturation/brightness, HEX and RGB | reuse existing app color controls | paired input drive and theme readback |
+| [20261007-desktop-visual-parity](tasks/20261007-desktop-visual-parity.md) | One batch for preview icons/highlighting, selector alignment and clipped Markdown tables | none identified | matching-state light/dark captures |
+| [20261007-editable-font-prompt-preview](tasks/20261007-editable-font-prompt-preview.md) | Type, select and undo in Appearance's isolated prompt sample | none identified | live preview editing and draft isolation |
+| [20261007-title-custom-snooze](tasks/20261007-title-custom-snooze.md) | Open Custom snooze from the thread title menu, matching the working sidebar route | none identified | same-thread title/sidebar comparison |
 
 Task files own mutable status. Links must be updated when a task closes or reopens.
 
