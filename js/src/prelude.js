@@ -636,6 +636,19 @@
   function fromBase64(text) {
     return Uint8Array.from(global.atob(text), function (c) { return c.charCodeAt(0); });
   }
+  var BASE64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  function toBase64(bytes) {
+    var out = [], n = bytes.length, i = 0, v;
+    for (; i + 2 < n; i += 3) {
+      v = bytes[i] << 16 | bytes[i + 1] << 8 | bytes[i + 2];
+      out.push(BASE64[v >> 18 & 63] + BASE64[v >> 12 & 63] + BASE64[v >> 6 & 63] + BASE64[v & 63]);
+    }
+    if (i < n) {
+      v = bytes[i] << 16 | (i + 1 < n ? bytes[i + 1] << 8 : 0);
+      out.push(BASE64[v >> 18 & 63] + BASE64[v >> 12 & 63] + (i + 1 < n ? BASE64[v >> 6 & 63] : "=") + "=");
+    }
+    return out.join("");
+  }
 
   // --- fetch: a request the host runs; a Promise for its reply -------------
   var nextTicket = 1;
@@ -756,7 +769,12 @@
     if (call.letGo) return Promise.reject(new FetchError({ kind: "Aborted", message: "the answer was let go before this fetch" }));
     var method = init && init.method ? String(init.method).toUpperCase() : "GET";
     var headers = Array.from(new global.Headers(init && init.headers).entries());
-    var body = init && init.body != null ? String(init.body) : "";
+    // A BufferSource body goes as its bytes, in base64 beside the text body
+    // (LLP 1069.002 D4: `readFile`'s bytes as an upload's body). Anything
+    // else is a string, as before.
+    var raw = init ? init.body : undefined;
+    var bytes = raw instanceof ArrayBuffer || ArrayBuffer.isView(raw) ? new Uint8Array(copyBytes(raw, "fetch")) : null;
+    var body = bytes || raw == null ? "" : String(raw);
     // LLP 1041 §8.4: an explicit promise about both operation and settlement.
     // Browsers ignore this native scheduling hint; their admission is unchanged.
     var independent = init ? init.exactIndependentHttp : undefined;
@@ -792,7 +810,7 @@
     }
     if (signal && signal.aborted) return Promise.reject(signal.reason);
     var ticket = nextTicket++;
-    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, max_response_bytes: ceiling, stream: stream ? true : undefined, timeout_ms: timeout }));
+    var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, body_base64: bytes ? toBase64(bytes) : undefined, max_response_bytes: ceiling, stream: stream ? true : undefined, timeout_ms: timeout }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) call.stream = stream;
