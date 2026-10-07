@@ -303,7 +303,7 @@ const sources: Sources = {
   },
   reviewAction: (args, _store, storage, nativeInput) => {
     const native = sourceNative('reviewAction', args, nativeInput);
-    return mobileReviewAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), Number(args[4]), native, storage!, args[5] === 'dark').then(result => ({ ...result, requestRoute: str(args[6]) }));
+    return mobileReviewAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), Number(args[4]), native, storage!, args[5] === 'dark', mobileClient, str(args[6])).then(result => ({ ...result, requestRoute: str(args[6]) }));
   },
   filesSnapshot: (args, _store, storage, nativeInput) => {
     const native = sourceNative('filesSnapshot', args, nativeInput);

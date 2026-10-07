@@ -194,3 +194,64 @@ test('late queued comment persistence cannot clear a replacement composer select
   expect(mobileReviewSnapshot(false, f.client).commentOpen).toBe(true);
   expect(state.sessions.get(next.owner)?.text).toBe('queued'); expect(f.client.draft).toBe('');
 });
+
+
+test('manual viewport follows files and top without navigating or altering comment selection', async () => {
+  const f = fixture(); const first = await read(f);
+  await act(f, 'line', 'src/a.ts', '', 1);
+  const report = (path: string, extra: Obj = {}, route = 'review-1') => mobileReviewAction(first.owner, 'viewport', JSON.stringify({
+    owner: first.owner, sectionId: first.sectionId, navigationRevision: first.navigationRevision, routeId: 'review-1', path, ...extra,
+  }), '', 0, f.native, f.storage, false, f.client, route);
+  f.calls.length = 0;
+  const file = await report('src/a.ts');
+  expect(file.data.selectedPath).toBe('src/a.ts'); expect(file.navigation).toBe('');
+  expect(file.data.commentOpen).toBe(true); expect(file.data.commentRange).toBeTruthy();
+  const revision = f.client.revision;
+  await report('src/a.ts'); expect(f.client.revision).toBe(revision);
+  for (const extra of [{ owner: 'prior' }, { sectionId: 'prior' }, { navigationRevision: first.navigationRevision - 1 }, { routeId: 'prior' }, { path: 'missing.ts' }]) {
+    expect((await report('', extra)).data.selectedPath).toBe('src/a.ts');
+  }
+  expect((await report('', {}, 'another-route')).data.selectedPath).toBe('src/a.ts');
+  expect((await report('')).data.selectedPath).toBe('');
+  expect(f.calls).toHaveLength(0);
+  await act(f, 'file', 'src/a.ts');
+  expect((await report('')).data.selectedPath).toBe('src/a.ts');
+  const afterPick = mobileReviewSnapshot(false, f.client);
+  await read(f, '', true);
+  const afterRefresh = f.client.revision;
+  expect((await report('', { navigationRevision: afterPick.navigationRevision })).data.selectedPath).toBe('src/a.ts');
+  expect(f.client.revision).toBe(afterRefresh);
+  expect(f.client.revision).toBeGreaterThan(revision);
+});
+
+test('viewport queues the current file and next two without awaiting reads or retrying failed patches', async () => {
+  const f = fixture(), paths = ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'e.ts', 'f.ts'];
+  f.hook(request => {
+    if (request.method !== 'review.getDiffPreview') return;
+    const path = String(obj(obj(request.payload).file).path || '');
+    return { ok: true, generation: 3, value: { cwd: '/repo', sources: [{ kind: 'branch-range', title: 'Changes', diffHash: 'viewport',
+      truncated: !path, files: paths.map(path => ({ path, previousPath: null, additions: 1, deletions: 1 })), diff: path === 'b.ts' ? '' : patch(path || 'a.ts') }] } };
+  });
+  const first = await read(f);
+  expect(first.files.find(file => file.path === 'b.ts')?.error).toBe(true);
+  const report = (path: string) => mobileReviewAction(first.owner, 'viewport', JSON.stringify({ owner: first.owner, sectionId: first.sectionId,
+    navigationRevision: first.navigationRevision, routeId: 'review-2', path }), '', 0, f.native, f.storage, false, f.client, 'review-2');
+  f.calls.length = 0;
+  const selected = await report('d.ts');
+  expect(selected.data.selectedPath).toBe('d.ts'); expect(selected.navigation).toBe('');
+  expect(selected.data.patchRequest).toBe(JSON.stringify(['d.ts', 'e.ts', 'f.ts']));
+  expect(f.calls).toHaveLength(0);
+  await report('b.ts');
+  expect(mobileReviewSnapshot(false, f.client).files.find(file => file.path === 'b.ts')?.error).toBe(true);
+  await act(f, 'patches', selected.data.sectionId, selected.data.patchRequest);
+  expect(f.calls.filter(call => obj(obj(call.payload).file).path).map(call => obj(obj(call.payload).file).path)).toEqual(paths.slice(3));
+  expect(mobileReviewSnapshot(false, f.client).selectedPath).toBe('b.ts');
+});
+
+test('comment row keeps its diff file identity independently from its delete action context', async () => {
+  const f = fixture(); await read(f); await act(f, 'line', 'src/a.ts', '', 1); await act(f, 'save', '', 'Review this');
+  const rows = mobileReviewSnapshot(false, f.client).rows;
+  expect(rows.every(row => row.filePath === 'src/a.ts')).toBe(true);
+  const comment = rows.find(row => row.kind === 'comment');
+  expect(comment?.path).not.toBe(comment?.filePath);
+});

@@ -66,7 +66,8 @@
     "t3-mobile-devices",
     "t3-preview-menu",
     "t3-workspace-layout",
-    "t3-inspector-chrome"
+    "t3-inspector-chrome",
+    "t3-review-viewport"
   ],
   "data": [
     "mobile-form-sheet",
@@ -74,9 +75,15 @@
     "mobile-scanner-open",
     "mobile-voice-owner",
     "mobile-voice-selection-revision",
-    "mobile-scheduled-editor"
+    "mobile-scheduled-editor",
+    "mobile-review-owner",
+    "mobile-review-section",
+    "mobile-review-route",
+    "mobile-review-path"
   ],
   "hooks": [
-    "mobile-voice-editor"
+    "mobile-voice-editor",
+    "mobile-review-list",
+    "mobile-review-row"
   ]
 }

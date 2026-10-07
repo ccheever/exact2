@@ -6,7 +6,7 @@ import { mobileCodeTokens, type ThreadCodeToken } from './thread-highlight';
 import { inferReviewCommentFenceLanguage } from './shared/diff-comments';
 
 export interface ReviewRow {
-  id: string; kind: string; path: string; text: string; title: string; detail: string; action: string;
+  id: string; kind: string; path: string; filePath: string; text: string; title: string; detail: string; action: string;
   oldNumber: string; newNumber: string; lineIndex: number; change: string; selected: boolean;
   expanded: boolean; viewed: boolean; additions: number; deletions: number; tokens: ThreadCodeToken[];
 }
@@ -14,7 +14,7 @@ export interface ReviewFile {
   id: string; name: string; path: string; previousPath: string; additions: number; deletions: number;
   expanded: boolean; viewed: boolean; pending: boolean; error: boolean; notice: string;
 }
-export const reviewRow = (id: string, kind: string): ReviewRow => ({ id, kind, path: '', text: '', title: '', detail: '', action: '',
+export const reviewRow = (id: string, kind: string): ReviewRow => ({ id, kind, path: '', filePath: '', text: '', title: '', detail: '', action: '',
   oldNumber: '', newNumber: '', lineIndex: -1, change: '', selected: false, expanded: false, viewed: false, additions: 0, deletions: 0, tokens: [] });
 const nonText = /\.(?:png|jpe?g|gif|webp|avif|ico|bmp|tiff?|heic|mp3|wav|ogg|flac|m4a|mp4|mov|avi|mkv|webm|pdf|zip|gz|tgz|bz2|7z|rar|woff2?|ttf|otf|eot|wasm|exe|dll|so|dylib)$/i;
 
