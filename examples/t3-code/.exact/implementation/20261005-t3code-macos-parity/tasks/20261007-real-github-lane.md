@@ -279,21 +279,62 @@ server; GitHub effects read back with the lane gh; threads linked to seeded pull
 Evidence (before/after, the only UI change):
 ![row](https://raw.githubusercontent.com/ccheever/exact2/6aa7178122ca1ac95280c951ff3d81a4b6037dd1/real-github-lane/01-pr-row-real-github-before-after.png)
 
+**Real-input session** (approved by the coordinator after the drive limit; 2026-10-08, one normal launch,
+no retry). A copy of the branch's bundle with its own bundle id (`com.exact.t3code.lanegh`,
+`CFFIXED_USER_HOME` in the lane dir), launched by path and driven with `orca computer` on its pid
+only, under the shared real-input lock (taken when free with an owner note, released after). It was
+paired through the welcome screen with a single-use pairing link from the primary lane server (the
+link was consumed by the pairing a minute later; its value showed once in an `orca` verification
+preview in the agent's own log before the helper redacted those too; nothing with it was kept or
+published). Clicks are real HID events at window
+coordinates (the AX press only hovered Exact's buttons); keys are real key presses (`orca type-text`
+doubles text in Exact fields, so single keys were sent).
+
+- **Pull Requests page, real data:** the list loaded 99 rows from the playground (Authored 97, the
+  seeded titles, labels, checks and line counts) and showed "Narrow your search to find more pull
+  requests." It does not page past 99: the clone has no "Load more pull requests" yet (the reference
+  shows it while the host's cursors continue, `_chat.pull-requests.tsx`); that is the Paging row of
+  `20261005-pr-links-previews-and-routing`. The server's cursors work (probe R3/R4).
+- **Row number menu (#111), real right-click:** the native menu opened with "Copy link" and "Open on
+  GitHub"; choosing Copy link put `https://github.com/daehyeonmun2021/playground/pull/111` on the
+  pasteboard (read back with `pbpaste`; the user's text clipboard was saved before and restored after).
+- **Detail header number menu (#111), real right-click:** the same two items; Copy link read back the
+  same URL (a sentinel was on the pasteboard before).
+- **R3 checkout dialog:** in a new draft, the branch picker's search took `#113` by real keys and offered
+  "Checkout pull request 113"; the dialog opened with "113" selected and resolved "Document the release
+  steps · #113 · feature/release-notes to main · Open" from GitHub; real keys `1 1 2` replaced the
+  selection, "Resolving pull request..." showed, then "Add a banner helper · #112 · feature/banner to
+  main". Worktree created the `feature-banner` worktree (read back with `git worktree list`), the draft
+  moved to it and its card shows `#112: Add a banner helper`; the setup script ran once there.
+- **Composer chip:** not reached. In this normal launch the composer context strip (where the chip sits
+  before the branch control) did not render for drafts at all, neither for the R3 draft nor for a Fix
+  hand-off draft, while the agent drive had shown it (`composer-pr-badge` "111"). Once, after leaving the
+  Pull Requests page, an error banner read "native.watch outside an answer" (the JS prelude's guard when
+  a resource calls `native.watch` after its answer is no longer current). Not investigated further in
+  the session; recorded below.
+
+Evidence (no UI changed in this session; the number menus, the dialog and the worktree result):
+![session](https://raw.githubusercontent.com/ccheever/exact2/8691a0f97f6e8fd0207e06e97b8e9834f63d2cf3/real-github-lane/02-real-input-session.png)
+
+Cleanup: the app quit by its recorded pid; the lock released; the lane Keychain item
+(`com.exact.t3code.macos.access-token`, the lane origin and environment) deleted; the copy's preferences
+domain removed; the step screenshots that showed the pairing link deleted.
+
 **Not verified, with blockers:**
 
 | Item | Done instead | Blocker |
 | --- | --- | --- |
-| The Pull Requests page with real data, its row-number and detail-header menus (context-menu-gaps) | probe R3–R7 decode the same list; the menus' items come from `linkMenu` (provider + URL), unit-tested in `context-menus.test.ts` | the one-drive limit (user rule 3) was spent: attempt 1 found the let-go bug, attempt 2 stopped at the conflict row. Native menus also need a normal launch with real input: under the agent `T3ContextMenu` answers "dismissed" without popping up, and the screen was locked (`CGSSessionScreenIsLocked`) |
-| R3 checkout dialog UI (select-on-open, Resolving debounce, Check out) | its two server calls on real GitHub by RPC (above) | the one-drive limit (user rule 3) |
-| Composer chip hover and press | the chip showed `#111` after Fix | the one-drive limit (user rule 3) |
-| Hand-off: quit, relaunch and send the draft into the setup terminal's thread | the setup script runs once for the draft's thread (RPC) | sending needs a signed-in provider (the lane's Codex is unauthenticated; `provider-sign-in-and-install`) |
+| Pull Requests list paging past 99 rows in the UI | 99 rows of real data; the server's cursors page (probe R3/R4) | not built in the clone: "Load more pull requests" belongs to `20261005-pr-links-previews-and-routing` (Paging) |
+| Composer chip hover and press | the chip showed `#111` in the agent drive | in the normal launch the composer context strip never rendered for drafts, and a "native.watch outside an answer" banner appeared once; needs a follow-up investigation and another approved app session |
+| Hand-off: quit, relaunch and send the draft into the setup terminal's thread | the setup script runs once for the draft's thread (RPC, and in the session's worktree checkout) | sending needs a signed-in provider (the lane's Codex is unauthenticated; the coordinator will pair it with `provider-sign-in-and-install`) |
 | Workflow approval with a run to approve | the RPC decodes; nothing awaits approval | GitHub asks approval only for outside or first-time contributors' fork runs; the only other account is a collaborator |
 
 ## Progress
 
 2026-10-07: lane, seed, probe, unit fallbacks; the user signed both accounts in; the playground
 created and seeded; three probe runs; one drive and one retry; the let-go fix; records moved off the
-fake `gh`. The repository, its fork and both lane logins stay in place for the later pull request
+fake `gh`. 2026-10-08: one approved real-input session (number menus, checkout dialog verified; the
+composer chip not reached). The repository, its fork and both lane logins stay in place for the later pull request
 tasks.
 
 ## Attempts and evidence
@@ -301,10 +342,12 @@ tasks.
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
 | 1 (pre-login) | `cee18d42d` | `lane.test.ts` 11/0, `pr-profiles-injection.test.ts` 11/0; lane server smoke without a login (wrapper refused, nothing sent) | this record | the user's login |
-| 2 (after login) | branch tip | seed ×5, probe ×3, drive ×2, RPC re-checks; checks in the PR body | Results above, before/after image | the rows in "Not verified" |
+| 2 (after login) | `e2dcb007d` | seed ×5, probe ×3, drive ×2, RPC re-checks; checks in the PR body | Results above, before/after image | the rows in "Not verified" |
+| 3 (real input) | `e2dcb007d` bundle copy | one normal launch with real input: Pull Requests page, both number menus, the checkout dialog | session image | the composer chip, Load more |
 
 ## Next action
 
-Review. A later pull request task (or an attended session) drives the Pull Requests page and the
-native number menus on a normal launch, and the checkout dialog, against the playground. The
-repository, its fork and both lane logins stay in place.
+Review. Follow-ups: why the composer context strip does not render for drafts on a normal launch
+(and the "native.watch outside an answer" banner); "Load more" with `pr-links-previews-and-routing`;
+the hand-off send once a provider is signed in. The repository, its fork and both lane logins stay
+in place.
