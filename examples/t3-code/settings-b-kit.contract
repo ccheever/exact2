@@ -47,6 +47,8 @@ component CnGlyph
 // ui/menu MenuPopup: rounded-lg glass popup, p-1, shadow; `endAlign` is the
 // invoker's width so the popup's right edge meets the invoker's (align="end").
 component CnMenu
+  inject
+    rem: number
   props
     menuId: string
     label: string
@@ -56,7 +58,7 @@ component CnMenu
     offsetY: number
   slot
   view
-    column id=menuId popover="auto" position="absolute" margin-top=(4 + offsetY) width=width margin-left=(endAlign > 0 ? endAlign - width + offsetX : offsetX)
+    column id=menuId popover="auto" position="absolute" margin-top=(0.25 * rem + offsetY) width=width margin-left=(endAlign > 0 ? endAlign - width + offsetX : offsetX)
       column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffffd5, #171717d5)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label=label testId=menuId
         children
 

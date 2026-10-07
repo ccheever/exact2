@@ -128,6 +128,8 @@ component EditorMenuIcon
 // The drawer: a ComposerBanner surface attached above the composer card,
 // 22pt inside its edges, whose last 17pt the card covers (the seam).
 component ComposerCommandMenu
+  inject
+    rem: number
   props
     menu: ComposerMenu
     dark: bool
@@ -147,7 +149,7 @@ component ComposerCommandMenu
       highlight = index
       highlightKey = menu.searchKey
   view
-    column width=(layered ? "100%" : "calc(100% - 44px)") margin-left=(layered ? "0px" : "1.375rem") margin-right=(layered ? "0px" : "1.375rem") margin-bottom=(layered ? "0px" : "-1.0625rem") padding-bottom="1.0625rem" box-sizing="border-box" position="relative" border-top-left-radius="1.125rem" border-top-right-radius="1.125rem" border-style="solid" border-width=1 border-bottom-width=0 border-color="light-dark(#27272a14, #ffffff0d)" background-color="light-dark(#ffffffcc, #111111cc)" backdrop-filter=(layered ? "none" : (dark ? "blur(16px)" : "blur(12px)")) box-shadow="0 12px 28px -18px light-dark(#00000066, #000000bf)" testId="composer-command-menu"
+    column width=(layered ? "100%" : `calc(100% - ${2.75 * rem}px)`) margin-left=(layered ? "0px" : "1.375rem") margin-right=(layered ? "0px" : "1.375rem") margin-bottom=(layered ? "0px" : "-1.0625rem") padding-bottom="1.0625rem" box-sizing="border-box" position="relative" border-top-left-radius="1.125rem" border-top-right-radius="1.125rem" border-style="solid" border-width=1 border-bottom-width=0 border-color="light-dark(#27272a14, #ffffff0d)" background-color="light-dark(#ffffffcc, #111111cc)" backdrop-filter=(layered ? "none" : (dark ? "blur(16px)" : "blur(12px)")) box-shadow="0 12px 28px -18px light-dark(#00000066, #000000bf)" testId="composer-command-menu"
       // Dark surfaces shade the 10pt above the seam (bg-composer-seam-above).
       when dark
         box position="absolute" left=0 right=0 bottom="1.0625rem" height="0.625rem" pointer-events="none" background-image="linear-gradient(to top, #0000002e, #00000000)" aria-hidden=true
@@ -239,6 +241,8 @@ component StashBadge
 // ComposerStashMenu: the attached drawer listing stashed prompts. ↑ ↓ ↩ and
 // ⌘⌫ are key buttons the native editor presses; Escape closes.
 component StashMenu
+  inject
+    rem: number
   props
     stash: ComposerStash
     layered: bool
@@ -251,7 +255,7 @@ component StashMenu
     if over
       highlight = index
   view
-    column width=(layered ? "100%" : "calc(100% - 44px)") margin-left=(layered ? "0px" : "1.375rem") margin-right=(layered ? "0px" : "1.375rem") margin-bottom=(layered ? "0px" : "-1.0625rem") padding-top="0.25rem" padding-left="0.25rem" padding-right="0.25rem" padding-bottom="1.3125rem" box-sizing="border-box" border-top-left-radius="1.125rem" border-top-right-radius="1.125rem" border-style="solid" border-width=1 border-bottom-width=0 border-color="light-dark(#27272a14, #ffffff0d)" background-color="light-dark(#ffffffcc, #111111cc)" box-shadow="0 12px 28px -18px light-dark(#00000066, #000000bf)" testId="composer-stash-menu"
+    column width=(layered ? "100%" : `calc(100% - ${2.75 * rem}px)`) margin-left=(layered ? "0px" : "1.375rem") margin-right=(layered ? "0px" : "1.375rem") margin-bottom=(layered ? "0px" : "-1.0625rem") padding-top="0.25rem" padding-left="0.25rem" padding-right="0.25rem" padding-bottom="1.3125rem" box-sizing="border-box" border-top-left-radius="1.125rem" border-top-right-radius="1.125rem" border-style="solid" border-width=1 border-bottom-width=0 border-color="light-dark(#27272a14, #ffffff0d)" background-color="light-dark(#ffffffcc, #111111cc)" box-shadow="0 12px 28px -18px light-dark(#00000066, #000000bf)" testId="composer-stash-menu"
       button press=op("stash-menu", "", "close") aria-label="Close stash" aria-expanded=true aria-keyshortcuts="Escape" testId="composer-stash-close" width="100%" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap=0
         box width="1.5rem" height="1.5rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
           StashGlyph(name="bookmark", size=12, color="light-dark(#71717a, #818181)")
@@ -312,13 +316,15 @@ component ComposerEditorDock
 // The layer carries the surface's backdrop blur: a blur sees its parent's
 // subtree, here the chat column with the transcript and the overlay.
 component ComposerDrawerLayer
+  inject
+    rem: number
   props
     editor: ComposerEditorView
     dark: bool
     op: action
   view
     when editor.drawer.placed and (editor.menu.open or editor.stash.menuOpen)
-      column position="absolute" left=(editor.drawer.left + 22) width=(editor.drawer.width - 44) bottom=editor.drawer.bottom overflow="hidden" border-top-left-radius="1.125rem" border-top-right-radius="1.125rem" backdrop-filter=(dark ? "blur(16px)" : "blur(12px)") testId="composer-drawer-layer"
+      column position="absolute" left=(editor.drawer.left + 1.375 * rem) width=(editor.drawer.width - 2.75 * rem) bottom=editor.drawer.bottom overflow="hidden" border-top-left-radius="1.125rem" border-top-right-radius="1.125rem" backdrop-filter=(dark ? "blur(16px)" : "blur(12px)") testId="composer-drawer-layer"
         column width="100%" margin-bottom="-1.0625rem" flex-shrink=0
           when editor.menu.open
             ComposerCommandMenu(menu=editor.menu, dark=dark, listMax=editor.drawer.listMax, layered=true, op=op)

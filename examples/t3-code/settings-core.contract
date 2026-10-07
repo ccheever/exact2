@@ -56,6 +56,8 @@ shape CoreRow
   layers: list<CoreOption>
   layerTitle: string
   amount: number
+  // A font row's preview size in px: the prompt sample uses the Prompt font size, the code sample the code size.
+  previewSize: number
   menuWidth: number
   qr: list<QrMark>
 // About → Mobile app (settings-mobile-beta.ts): one QR code as boxes, one per dark run.
@@ -292,7 +294,7 @@ component CoreMark
     surface: string
   view
     box width="0.875rem" height="0.875rem" border-radius="0.21875rem" background-color=surface display="flex" align-items="center" justify-content="center" flex-shrink=0
-      text label font-family="ui-monospace" font-size=7 font-weight=700 color=ink
+      text label font-family="ui-monospace" font-size="0.4375rem" font-weight=700 color=ink
 
 // SettingsSidebarNav: search (role combobox, `/` focuses it), the section list or ranked
 // results, and Back. testIds keep `settings-<route>` for the drivers.
@@ -366,10 +368,10 @@ component SettingsNav
 
 // WorkspacePageHeader + SettingsBreadcrumb; Restore device defaults on General only.
 component SettingsTopBar
+  inject
+    rem: number
   props
     controlsLeft: number
-    // The root font size (Interface font size): rem in a length that also adds px (Contract calc takes percent ± px only).
-    rem: number
     route: string
     crumb: string
     pal: CorePalette

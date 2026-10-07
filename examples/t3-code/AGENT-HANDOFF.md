@@ -82,18 +82,19 @@ XCTests define their own `exactModule` and leave out `T3Module*.swift` (README r
 
 ## Interface font size
 
-Tasks `20261005-interface-font-size` (closed) and `-conversion` (open: pending areas), 2026-10-07. Settings ›
-Appearance › Interface font size is the root font size: `look.fontSize` (`clampInterfaceFontSize`,
-`appearance-fonts.ts`) feeds app.contract's `task rootFont`, which calls `setRootFontSize` (main #185) at launch and on
-every change. Contract lengths are `rem` where T3 Code's are (Tailwind spacing, size, text, radius) and `px` where
-its are (borders, shadows, blur, svg geometry, offsets, 1–2 px hairlines, the 52 px top bars, table minimum widths,
-monospace text, which follows the Code font size). `font-size-map.json` lists every file, its rem values, its px
-items with the reason, the JS layout that scales (chat width, lane metrics, composer menus via `atRootFontSize`,
-select widths, top-bar insets, timeline row gaps) and the pending areas (other TypeScript-sized menus and tooltips,
-the minimap, toasts, device frames, native module text). A new length: write `rem` (N/16) for a reference rem
-utility; a TypeScript size in px at 16 that lays out rem content needs the root size (`clampInterfaceFontSize`)
-multiplied in; Contract `calc()` takes `<percent> ± <px>` only.
+Tasks `20261005-interface-font-size` and `-conversion` (both closed), 2026-10-07, PR #206. Settings › Appearance ›
+Interface font size is the root font size: `look.fontSize` (`clampInterfaceFontSize`, `appearance-fonts.ts`) feeds
+app.contract's `task rootFont`, which calls `setRootFontSize` (main #185) at launch and on every change, and the root
+`provide`s it as `rem`. Contract lengths are `rem` where T3 Code's are (Tailwind spacing, size, text, radius; `font-mono
+text-xs` too) and `px` where its are (borders, shadows, blur, svg geometry, offsets, 1–2 px hairlines, the 52 px top bars,
+table minimum widths, text on the Prompt or Code font size, @pierre/trees rows). `font-size-map.json` lists every file.
+A new length: write `rem` (N/16) for a reference rem utility; a length computed from a design constant or a TypeScript
+size at 16 does `inject rem: number` and multiplies `rem / 16` in (Contract `calc()` takes `<percent> ± <px>` only); a
+TypeScript size the data module hands over can be scaled there (`atRootFontSize`). Native views read
+`T3RootFont.rem(_:)` (`modules/apple/T3RootFont.swift`; the size arrives with `devicePresentation`). The composer text
+follows the Prompt font size (`look.promptSize`).
 
+## Terminal drawer
 
 Task `20261005-terminal-drawer`, 2026-10-06. ⌘J or the layout toggle (chat header, right panel
 header, surface launcher bar) opens `TerminalDrawer` (`terminal.contract`) below the chat column.

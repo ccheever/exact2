@@ -198,7 +198,7 @@ component HostToolPair
   view
     row width="100%" justify-content="space-between" gap="1.5rem"
       text term font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
-      text value font-family="ui-monospace" font-size=12 line-height="16px" text-align="right" color="light-dark(#27272a, #f5f5f5)"
+      text value font-family="ui-monospace" font-size="0.75rem" line-height="1rem" text-align="right" color="light-dark(#27272a, #f5f5f5)"
 
 // DeviceHostEditor: Name, SSH target, the SSH options disclosure and the connection
 // check panel; Cancel / Save host. The draft lives here; the server checks it.

@@ -67,6 +67,8 @@ component ThreadDetailsInline
       DetailsBody(details=details, maxHeight=maxHeight, editorsOpen=editorsOpen, act=act, local=local, still=still)
 
 component DetailsBody
+  inject
+    rem: number
   props
     details: ShellDetails
     maxHeight: number
@@ -158,7 +160,7 @@ component DetailsBody
         // OpenInPicker's menu, 4pt under its row and as wide: drawn over the card (it paints last) with a
         // click-away layer under it, since a popover would anchor at the chevron rather than the row.
         when scriptsOpen and details.scriptName != ""
-          R6ScriptMenu(details=details, top=(76 + (details.envShow ? 32 : 0) + (details.editorShow ? 32 : 0)), act=act, close=toggleScripts)
+          R6ScriptMenu(details=details, top=((76 + (details.envShow ? 32 : 0) + (details.editorShow ? 32 : 0)) * rem / 16), act=act, close=toggleScripts)
         when editorsOpen
           button press=act("editors", "", "") aria-label="Close editor menu" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="details-editors-backdrop"
           column position="absolute" left="0.5rem" right="0.5rem" top=(details.envShow ? "6.75rem" : "4.75rem") padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Open in" testId="details-editors"

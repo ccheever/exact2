@@ -488,10 +488,10 @@ final class T3QuitOverlay {
         let foreground = dark ? NSColor(srgbRed: 0xf5 / 255, green: 0xf5 / 255, blue: 0xf5 / 255, alpha: 0.95) : NSColor(srgbRed: 0x27 / 255, green: 0x27 / 255, blue: 0x2a / 255, alpha: 0.95)
         let background = dark ? NSColor(srgbRed: 0x0a / 255, green: 0x0a / 255, blue: 0x0a / 255, alpha: 1) : NSColor(srgbRed: 0xfc / 255, green: 0xfc / 255, blue: 0xfc / 255, alpha: 1)
         label.stringValue = Self.message(mode)
-        label.font = .systemFont(ofSize: 24, weight: .bold)
+        label.font = .systemFont(ofSize: T3RootFont.rem(24), weight: .bold)
         label.textColor = background
         label.sizeToFit()
-        let size = NSSize(width: ceil(label.frame.width) + 64, height: 64)
+        let size = NSSize(width: ceil(label.frame.width) + T3RootFont.rem(64), height: T3RootFont.rem(64)) // px-8 py-4 around text-2xl
         pill.frame = NSRect(origin: .zero, size: size)
         pill.wantsLayer = true
         pill.layer?.backgroundColor = foreground.cgColor
@@ -500,7 +500,7 @@ final class T3QuitOverlay {
         pill.layer?.shadowOpacity = 0.1
         pill.layer?.shadowRadius = 12
         pill.layer?.shadowOffset = CGSize(width: 0, height: -20)
-        label.frame = NSRect(x: 32, y: (size.height - label.frame.height) / 2, width: ceil(label.frame.width), height: label.frame.height)
+        label.frame = NSRect(x: T3RootFont.rem(32), y: (size.height - label.frame.height) / 2, width: ceil(label.frame.width), height: label.frame.height)
         if label.superview !== pill { pill.addSubview(label) }
         return pill
     }

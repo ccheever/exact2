@@ -28,9 +28,9 @@ component SidebarProjectGlyph
     else
       when g.kind == "emoji"
         box width=`${size / 16}rem` height=`${size / 16}rem` display="flex" align-items="center" justify-content="center" flex-shrink=0 aria-hidden=true
-          text g.emoji font-size=(size * 0.8) line-height=`${size * 0.8}px`
+          text g.emoji font-size=`${size * 0.8 / 16}rem` line-height=`${size * 0.8 / 16}rem`
       else
         when g.kind == "image"
-          image g.src width=`${size / 16}rem` height=`${size / 16}rem` border-radius=(size / 4) object-fit="contain" flex-shrink=0 aria-hidden=true
+          image g.src width=`${size / 16}rem` height=`${size / 16}rem` border-radius=`${size / 64}rem` object-fit="contain" flex-shrink=0 aria-hidden=true
         else
           ProjectMark(label=g.text, muted=false, ink=(dim ? g.gray : g.ink), surface=(dim ? g.graySurface : g.surface), size=size)

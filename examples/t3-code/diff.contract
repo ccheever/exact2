@@ -143,8 +143,8 @@ component DiffToolbar
       // DiffPanel header: the stat shows with files to count, refresh with a git workspace, expand-all and the tree with files.
       when length(data.diffFiles) > 0 or data.diffAdditions + data.diffDeletions > 0
         row gap="0.25rem" align-items="center" flex-shrink=0 margin-right="0.25rem" role="group" aria-label=`${data.diffAdditions} additions, ${data.diffDeletions} deletions`
-          text `+${data.diffAdditions}` font-family="ui-monospace" font-size=11 letter-spacing=-0.17 line-height="16px" color=diffInk(data.look.diff, "add-count")
-          text `-${data.diffDeletions}` font-family="ui-monospace" font-size=11 letter-spacing=-0.17 line-height="16px" color=diffInk(data.look.diff, "del-count")
+          text `+${data.diffAdditions}` font-family="ui-monospace" font-size="0.6875rem" letter-spacing=-0.17 line-height="1rem" color=diffInk(data.look.diff, "add-count")
+          text `-${data.diffDeletions}` font-family="ui-monospace" font-size="0.6875rem" letter-spacing=-0.17 line-height="1rem" color=diffInk(data.look.diff, "del-count")
       when data.diffCanRefresh
         DiffTool(icon="refresh", label=(data.diffLoading ? "Refreshing diff" : "Refresh diff"), pressed=false, toggle=false, radius=8, testId="diff-refresh", choose=command("diff-refresh", "", "", 0))
       when length(data.diffFiles) > 0
@@ -304,9 +304,9 @@ component DiffFileHeader
       box flex=1
       row gap="0.5rem" align-items="center" flex-shrink=0
         when item.deletions > 0
-          text `-${item.deletions}` font-family="ui-monospace" font-size=11 letter-spacing=-0.17 line-height="11px" font-variant-numeric="tabular-nums" color=diffInk(scheme, "del")
+          text `-${item.deletions}` font-family="ui-monospace" font-size="0.6875rem" letter-spacing=-0.17 line-height="0.6875rem" font-variant-numeric="tabular-nums" color=diffInk(scheme, "del")
         when item.additions > 0
-          text `+${item.additions}` font-family="ui-monospace" font-size=11 letter-spacing=-0.17 line-height="11px" font-variant-numeric="tabular-nums" color=diffInk(scheme, "add")
+          text `+${item.additions}` font-family="ui-monospace" font-size="0.6875rem" letter-spacing=-0.17 line-height="0.6875rem" font-variant-numeric="tabular-nums" color=diffInk(scheme, "add")
 
 // The gutter carries the old (deletion) or new line number and a 4pt change bar. A press on the
 // number selects the line (Shift extends the selection); the gutter's "+" opens a comment on the

@@ -77,6 +77,8 @@ component WizardStep
 // Registry's Provider → Identity → Sign in. Config drafts are row state, so
 // every opening starts empty.
 component AddProviderDialog
+  inject
+    rem: number
   props
     wizard: ProviderWizard
     acp: AcpRegistry
@@ -126,7 +128,7 @@ component AddProviderDialog
   derive lastStep = isAcp ? 1 : 2
   view
     column class=PvOverlay testId="add-provider-overlay"
-      column width="100%" max-width="48rem" max-height=(viewportHeight - 32) box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" position="relative" overflow="hidden" role="dialog" aria-label="Add provider" testId="add-provider-dialog"
+      column width="100%" max-width="48rem" max-height=(viewportHeight - 2 * rem) box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" position="relative" overflow="hidden" role="dialog" aria-label="Add provider" testId="add-provider-dialog"
         column width="100%" box-sizing="border-box" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" gap="0.5rem" flex-shrink=0
           text "Add provider" font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
           text `Add an account or configure a provider on ${wizard.environment}.` font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
@@ -221,7 +223,7 @@ component AddProviderDialog
                 WizardRow(title="Accent color", description="Optional marker shown in the picker.", status="")
                   row gap="0.5rem" align-items="center"
                     when accentOpen
-                      input value=accent input=editAccent aria-label="Custom hex accent color" class=PvField width="6.5rem" font-family="ui-monospace" font-size=12 testId="new-provider-accent-hex"
+                      input value=accent input=editAccent aria-label="Custom hex accent color" class=PvField width="6.5rem" font-family="ui-monospace" font-size="0.75rem" testId="new-provider-accent-hex"
                       button press=clearAccent class=PvGhost height="1.75rem" testId="new-provider-accent-clear"
                         PvIcon(name="x", size=14, color="light-dark(#71717b, #818181)")
                         text "Clear color" font-size="0.75rem" font-weight=500 color="light-dark(#71717b, #818181)"

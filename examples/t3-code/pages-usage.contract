@@ -109,11 +109,11 @@ shape UsageKey
   label: string
 
 component UsagePage
+  inject
+    rem: number
   props
     // desktop-shell-details: --workspace-controls-left (90 beside the traffic lights; 0.75rem in full screen).
     controlsLeft: number
-    // The root font size (Interface font size): rem in a length that also adds px (Contract calc takes percent ± px only).
-    rem: number
     page: UsageView
     keys: list<UsageKey>
     scheme: string
@@ -215,7 +215,7 @@ component UsageBreadcrumb
           box width="0.875rem" height="0.875rem" opacity=(over ? 1 : 0) display="flex"
             PgIcon(name="chevron-down", size=14, color="light-dark(#71717b, #818181)")
         column id="usage-environment-menu" popover="auto" position="absolute" left=0 top=0 padding-top="0.25rem" testId="usage-environment-layer"
-          column width=page.menuWidth padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" testId="usage-environment-menu"
+          column width=`${page.menuWidth / 16}rem` padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" testId="usage-environment-menu"
             CheckRow(label="All environments", status="", checked=page.environmentSelected, press=toggleEnvironment, testId="usage-environment-all")
             box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
             when page.environmentCount > 0
@@ -352,6 +352,8 @@ component UsageKeys
             text entry.label font-size=1
 
 component UsageSummary
+  inject
+    rem: number
   props
     page: UsageView
     scheme: string
@@ -382,7 +384,7 @@ component UsageSummary
         text "Totals" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
         row width="100%" flex-wrap=(md ? "nowrap" : "wrap") column-gap="1.5rem" row-gap="1rem" padding-top="0.25rem" padding-bottom="0.25rem"
           each metric in page.totals key=metric.key
-            column flex=(md ? 1 : 0) flex-basis=(md ? "0px" : "auto") width=(md ? "auto" : "calc(50% - 12px)") min-width=0 gap="0.125rem"
+            column flex=(md ? 1 : 0) flex-basis=(md ? "0px" : "auto") width=(md ? "auto" : `calc(50% - ${0.75 * rem}px)`) min-width=0 gap="0.125rem"
               text metric.label font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
               text metric.value font-size="1rem" line-height="1.5rem" font-weight=500 font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)"
       // Cost (or tokens) by type, and by speed when fast requests ran: grid gap-x-12 gap-y-8 lg:grid-cols-2.

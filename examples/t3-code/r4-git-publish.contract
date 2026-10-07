@@ -69,8 +69,8 @@ component R4PublishDialog
             row height="2.25rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" overflow="hidden" align-items="stretch"
               row flex-shrink=0 gap="0.375rem" padding-left="0.625rem" padding-right="0.625rem" align-items="center" border-right-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#f4f4f580, #ffffff07)"
                 R4ProviderMark(provider=git.publishProvider, size=14)
-                text `${git.publishHost}/` font-family="ui-monospace" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
-              input value=git.publishRepository input=local("git-publish-repository", "") submit=act("shell:git-publish", cwd, "") placeholder=git.publishPlaceholder disabled=git.publishPending aria-label="Repository" testId="git-publish-repository" flex=1 min-width=0 padding-left="0.75rem" padding-right="0.75rem" border-width=0 background-color="#00000000" font-family="ui-monospace" font-size=14 color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false"
+                text `${git.publishHost}/` font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+              input value=git.publishRepository input=local("git-publish-repository", "") submit=act("shell:git-publish", cwd, "") placeholder=git.publishPlaceholder disabled=git.publishPending aria-label="Repository" testId="git-publish-repository" flex=1 min-width=0 padding-left="0.75rem" padding-right="0.75rem" border-width=0 background-color="#00000000" font-family="ui-monospace" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false"
           column gap="0.5rem"
             text "Visibility" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
             row gap="0.75rem" role="radiogroup" aria-label="Visibility"
@@ -107,7 +107,7 @@ component R4PublishDialog
             text git.publishSummary max-width="20rem" text-align="center" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
           row gap="0.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" border-radius="0.5rem" align-items="center" background-color="light-dark(#f4f4f566, #ffffff09)"
             R4ProviderMark(provider=git.publishProvider, size=14)
-            text git.publishName flex=1 min-width=0 line-clamp=1 font-family="ui-monospace" font-size=12 line-height="16px" color="light-dark(#27272a, #f5f5f5)"
+            text git.publishName flex=1 min-width=0 line-clamp=1 font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
           link cursor="pointer" href=git.publishUrl testId="git-publish-open" height="2rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" display="flex" align-items="center" justify-content="center"
             text `Open on ${git.publishProviderLabel}` font-size="0.875rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
       // WizardFooter: DialogFooter bare (px-6 py-4), the actions at the end.

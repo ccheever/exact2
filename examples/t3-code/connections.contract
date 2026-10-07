@@ -249,6 +249,8 @@ component EnvironmentRow
 // EnvironmentIconMenu: "Icon" opens the machine kinds, the server's own
 // detection marked; a locked environment shows the reason as a disabled row.
 component EnvironmentIconMenu
+  inject
+    rem: number
   props
     environment: SavedEnvironment
     op: action
@@ -261,7 +263,7 @@ component EnvironmentIconMenu
         CnMachineIcon(kind=environment.kind, size=16, color="light-dark(#27272a, #f5f5f5)")
         text "Icon" font-size="0.875rem" line-height="1.25rem" flex=1 min-width=0 color="light-dark(#27272a, #f5f5f5)"
         CnGlyph(name="chevron-right", size=16, color="light-dark(#27272a, #f5f5f5)")
-      CnMenu(menuId=`environment-icon-${environment.environmentId}-popup`, label="Icon", width=(environment.iconLock != "" ? 220 : 160), endAlign=0, offsetX=(environment.iconLock != "" ? -225 : -165), offsetY=-37)
+      CnMenu(menuId=`environment-icon-${environment.environmentId}-popup`, label="Icon", width=((environment.iconLock != "" ? 220 : 160) * rem / 16), endAlign=0, offsetX=(environment.iconLock != "" ? -225 : -165), offsetY=-37)
         when environment.iconLock != ""
           text environment.iconLock font-size="0.875rem" line-height="1.25rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" opacity=0.64 color="light-dark(#27272a, #f5f5f5)" testId=`environment-icon-lock-${environment.environmentId}`
           CnSeparator()
@@ -312,6 +314,8 @@ component EnvironmentRemoveDialog
 // SSH (renderSshFields): the host autocomplete over ~/.ssh/config and
 // known_hosts, Username and Port, then an SSH-managed tunnel (T3Ssh.swift).
 component AddEnvironmentDialog
+  inject
+    rem: number
   props
     origin: string
     credential: string
@@ -369,7 +373,7 @@ component AddEnvironmentDialog
   derive split = pairFields.host != "" and pairFields.source == origin
   view
     column class=CnOverlay testId="connection-overlay"
-      column width="100%" max-width="48rem" max-height=(viewportHeight - 32) box-sizing="border-box" padding="1.5rem" gap="1rem" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" position="relative" role="dialog" aria-label=(routeTarget == "" ? "Add Environment" : `Add a route to ${routeLabel}`) testId="connection-dialog"
+      column width="100%" max-width="48rem" max-height=(viewportHeight - 2 * rem) box-sizing="border-box" padding="1.5rem" gap="1rem" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" position="relative" role="dialog" aria-label=(routeTarget == "" ? "Add Environment" : `Add a route to ${routeLabel}`) testId="connection-dialog"
         column gap="0.5rem"
           text (routeTarget == "" ? "Add Environment" : `Add a route to ${routeLabel}`) font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
           text (routeTarget == "" ? "Pair another environment to this client." : "Pair this machine again over another address, such as its Tailscale name. It joins the existing routes instead of adding a second machine.") font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"

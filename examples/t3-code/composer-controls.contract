@@ -368,6 +368,8 @@ component AttachButton
 // ComposerPrimaryActions outside a pending question: the plan follow-up pill,
 // Stop, Resume thread, or Send with its running-turn variants.
 component PrimaryActions
+  inject
+    rem: number
   props
     data: Snapshot
     sendable: bool
@@ -424,13 +426,15 @@ component PrimaryActions
               button press=send id="send-message" hook="t3-send" testId="send-message" aria-label=(data.composer.sendStatus != "" ? data.composer.sendStatus : sendable and data.composer.sendRunning ? data.composer.sendLabel : "Submit message") aria-keyshortcuts=data.composer.sendChords disabled=(busy or not sendable or data.composer.sendSpinner) opacity=(busy or not sendable ? 0.64 : 1) width="2rem" height="2rem" border-radius="1rem" overflow="hidden" border-width=0 padding=0 position="relative" display="flex" align-items="center" justify-content="center" flex-shrink=0 scale=(over == "send" and sendable and not busy and not data.composer.sendSpinner ? 1.05 : 1) transition="scale 150ms cubic-bezier(0.4, 0, 0.2, 1)" box-shadow=(busy or not sendable ? "none" : "0 1px 2px 0 #0000003d, inset 0 1px 0 0 #ffffff29") color="#ffffff"
                 SendArt()
                 SendGlyph(icon=(sendable ? data.composer.sendIcon : "arrow"), spinner=data.composer.sendSpinner)
-              TipBubble(label=data.composer.sendTooltip, side="top", align=(tipShift > 0 ? "end" : "center"), offset=36, inset=(tipShift > 0 ? data.composer.sendTipWidth / 2 - 16 - tipShift : 0), shown=(over == "send" and overThread == data.threadId))
+              TipBubble(label=data.composer.sendTooltip, side="top", align=(tipShift > 0 ? "end" : "center"), offset=36, inset=(tipShift > 0 ? data.composer.sendTipWidth / 2 - rem - tipShift : 0), shown=(over == "send" and overThread == data.threadId))
 
 // The card's footer: toolbar triggers and the primary actions, or the resting
 // single-line toolbar with its absolutely positioned send button. The controls
 // row reports its width (t3-anchor "controls") so trailing labels compact
 // before the model name (composerFooterLayout.ts).
 component ComposerFooter
+  inject
+    rem: number
   props
     data: Snapshot
     viewportWidth: number
@@ -466,7 +470,7 @@ component ComposerFooter
   derive traitsOut = (resting ? data.composer.restingTraitsOverflow : data.composer.traitsOverflow)
   derive clusterHidden = (resting ? data.composer.restingControlsHidden : data.composer.controlsHidden)
   view
-    row width=(resting ? "calc(100% - 40px)" : "100%") height=(resting ? "2rem" : "3rem") padding-left=(resting ? "0.875rem" : "1rem") padding-right=(resting ? "0.875rem" : "1rem") padding-bottom=(resting ? "0px" : "1rem") box-sizing="border-box" align-items="center" gap="0.5rem" position=(resting ? "absolute" : "relative") left=(resting ? "1.25rem" : "0px") top=(resting ? "3.125rem" : "0px") border-radius=(resting ? "1rem" : "0px") background-color=(resting ? "light-dark(#fafafa, #101010)" : "#00000000") hook="t3-frame" data-frame="toolbar" testId="composer-toolbar"
+    row width=(resting ? `calc(100% - ${2.5 * rem}px)` : "100%") height=(resting ? "2rem" : "3rem") padding-left=(resting ? "0.875rem" : "1rem") padding-right=(resting ? "0.875rem" : "1rem") padding-bottom=(resting ? "0px" : "1rem") box-sizing="border-box" align-items="center" gap="0.5rem" position=(resting ? "absolute" : "relative") left=(resting ? "1.25rem" : "0px") top=(resting ? "3.125rem" : "0px") border-radius=(resting ? "1rem" : "0px") background-color=(resting ? "light-dark(#fafafa, #101010)" : "#00000000") hook="t3-frame" data-frame="toolbar" testId="composer-toolbar"
       // r5-composer: the labels' natural widths (r5-composer.contract), read by footerLayout.
       R5TextProbes(probes=data.composer.menuProbes)
       R5ComposerLabelProbes(model=(data.composer.fanout ? data.composer.fanoutLabel : data.modelLabel == "" ? "Choose model" : data.modelLabel), traits=data.composer.traitsLabel, runtime=data.composer.runtimeLabel, plan=(data.composer.planVisible ? (data.composer.planActive ? "Plan" : "Build") : ""))
@@ -496,7 +500,7 @@ component ComposerFooter
         button press=send id="send-message" hook="t3-send" testId="send-message" aria-label=(data.composer.sendStatus != "" ? data.composer.sendStatus : "Submit message") aria-keyshortcuts=data.composer.sendChords disabled=(busy or not sendable or data.running) opacity=(busy or not sendable or data.running ? 0.64 : 1) position="relative" width="2rem" height="2rem" border-radius="1rem" overflow="hidden" border-width=0 padding=0 display="flex" align-items="center" justify-content="center" color="#ffffff"
           SendArt()
           SendGlyph(icon="arrow", spinner=data.composer.sendSpinner)
-        TipBubble(label=data.composer.sendTooltip, side="top", align=(tipShift > 0 ? "end" : "center"), offset=36, inset=(tipShift > 0 ? data.composer.sendTipWidth / 2 - 16 - tipShift : 0), shown=(sendOver and sendThread == data.threadId))
+        TipBubble(label=data.composer.sendTooltip, side="top", align=(tipShift > 0 ? "end" : "center"), offset=36, inset=(tipShift > 0 ? data.composer.sendTipWidth / 2 - rem - tipShift : 0), shown=(sendOver and sendThread == data.threadId))
 
 // The traits menu (MenuRadioItem rows: checked keep the foreground/8% wash,
 // the highlighted row takes accent) and the runtime-mode select (SelectItem,
@@ -507,6 +511,8 @@ component ComposerFooter
 // base-ui's Menu and Select do. Rows are inline so their key handler is this
 // component's own action (a lifted action does not receive the key's name).
 component ComposerMenus
+  inject
+    rem: number
   props
     data: Snapshot
     session: number
@@ -595,7 +601,7 @@ component ComposerMenus
     when not gone
       // A button, so Escape binds as its command (a box with a shortcut is not one).
       button position="absolute" left=0 right=0 top=0 bottom=0 z-index=19 padding=0 border-width=0 border-radius=0 background-color="#00000000" press=close aria-label="Close options" aria-keyshortcuts="Escape" testId="dismiss-composer-options"
-      column position="absolute" left=x top=(wideWorkspace ? data.composer.stripTop + 33 : (below ? belowTop : "auto")) bottom=(wideWorkspace or below ? "auto" : menuBottom) width=width border-radius="0.625rem" box-shadow="0 16px 40px -18px #0000008c" z-index=30
+      column position="absolute" left=x top=(wideWorkspace ? data.composer.stripTop + 33 * rem / 16 : (below ? belowTop : "auto")) bottom=(wideWorkspace or below ? "auto" : menuBottom) width=width border-radius="0.625rem" box-shadow="0 16px 40px -18px #0000008c" z-index=30
         column id="composer-menu" key=move(-1) width="100%" padding=(which == "branch" ? "0px" : "0.25rem") gap=0 border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-sizing="border-box" role=(which == "runtime" or which == "branch" or wideWorkspace ? "listbox" : "menu") aria-label=(which == "more" ? "More composer controls" : which == "effort" ? data.composer.traitsLabel : which == "implement" ? "Implementation actions" : which == "workspace" ? "Workspace" : which == "branch" ? "Refs" : "Runtime mode") testId="composer-options"
           when which == "workspace"
             // lane r4-git: MobileRunContextSelector's "Run on" group, then a separator, when a draft can move machines.

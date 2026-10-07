@@ -1,0 +1,5 @@
+[persist 1] launch rootFontSize=16 connection-settings 32x32
+[persist 1] connected rootFontSize=16 connection-settings 32x32
+[persist 1] set 20 rootFontSize=20 connection-settings 40x40
+[persist 2] launch rootFontSize=16 connection-settings 32x32
+[persist 2] connected rootFontSize=16 connection-settings 32x32

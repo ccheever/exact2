@@ -232,7 +232,7 @@ component R4FilePreview
               DiffDraftCard(rangeLabel=line.label, text=draftText, edit=editDraft, cancel=cancelComment, save=saveComment)
           // Editing keeps the coloured, numbered lines: the editor's own text is clear over them, its caret and selection visible.
           when files.editing
-            textarea id="file-editor" hook="t3-file-editor" value=files.editorText input=local("surface-files-edit", files.path) blur=local("surface-files-end-edit", files.path, "") autofocus=true aria-label=files.path testId="file-editor" position="absolute" left=files.gutter top="0.4375rem" right=0 bottom="0.5625rem" padding-left="0.4875rem" padding-right="0.4875rem" padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-family="ui-monospace" font-size=13 line-height="20px" color="#00000000" caret-color="light-dark(#0a0a0a, #fafafa)" white-space=(files.wrap ? "pre-wrap" : "pre") overflow-wrap=(files.wrap ? "break-word" : "normal") autocorrect="off" spellcheck="false"
+            textarea id="file-editor" hook="t3-file-editor" value=files.editorText input=local("surface-files-edit", files.path) blur=local("surface-files-end-edit", files.path, "") autofocus=true aria-label=files.path testId="file-editor" position="absolute" left=files.gutter top="0.4375rem" right=0 bottom="0.5625rem" padding-left=7.8 padding-right=7.8 padding-top=0 padding-bottom=0 box-sizing="border-box" border-width=0 background-color="#00000000" font-family="ui-monospace" font-size=13 line-height="20px" color="#00000000" caret-color="light-dark(#0a0a0a, #fafafa)" white-space=(files.wrap ? "pre-wrap" : "pre") overflow-wrap=(files.wrap ? "break-word" : "normal") autocorrect="off" spellcheck="false"
 
 // A press on the number selects the line (Shift extends); the gutter's "+" comments on the selection or the line.
 component R4CodeRow
@@ -255,12 +255,12 @@ component R4CodeRow
       begin(line.line)
   view
     row width="100%" align-items="flex-start" hover=hover position="relative" background-color=(line.selected ? "light-dark(#fef3c7, #3a3112)" : "#00000000")
-      text line.number press=pick aria-label=`Select line ${line.number}` testId=`file-line-${line.number}` width=gutter flex-shrink=0 padding-right="0.614375rem" box-sizing="border-box" text-align="right" font-family="ui-monospace" font-size=13 line-height="20px" font-variant-numeric="tabular-nums" color="light-dark(#565656, #9d9d9d)"
-      text flex=1 min-width=0 padding-left="0.4875rem" padding-right="0.4875rem" box-sizing="border-box" font-family="ui-monospace" font-size=13 line-height="20px" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "break-word" : "normal") color="light-dark(#0a0a0a, #fafafa)"
+      text line.number press=pick aria-label=`Select line ${line.number}` testId=`file-line-${line.number}` width=gutter flex-shrink=0 padding-right=9.83 box-sizing="border-box" text-align="right" font-family="ui-monospace" font-size=13 line-height="20px" font-variant-numeric="tabular-nums" color="light-dark(#565656, #9d9d9d)"
+      text flex=1 min-width=0 padding-left=7.8 padding-right=7.8 box-sizing="border-box" font-family="ui-monospace" font-size=13 line-height="20px" white-space=(wrap ? "pre-wrap" : "pre") overflow-wrap=(wrap ? "break-word" : "normal") color="light-dark(#0a0a0a, #fafafa)"
         each run in line.runs key=run.id
           text run.text color=synColor(run.syntax) font-style=synSlant(run.syntax)
       when not open
-        button press=comment aria-label=`Comment on line ${line.number}` testId=`file-comment-${line.number}` position="absolute" left="0.125rem" top="0.125rem" width="1rem" height="1rem" padding=0 border-radius="0.25rem" border-width=0 opacity=(hovering ? 1 : 0) background-color="light-dark(#1b4ed8, #346bf1)" display="flex" flex-direction="row" align-items="center" justify-content="center"
+        button press=comment aria-label=`Comment on line ${line.number}` testId=`file-comment-${line.number}` position="absolute" left=2 top=2 width=16 height=16 padding=0 border-radius=4 border-width=0 opacity=(hovering ? 1 : 0) background-color="light-dark(#1b4ed8, #346bf1)" display="flex" flex-direction="row" align-items="center" justify-content="center"
           DiffGlyph(name="plus", size=12, color="#ffffff")
 
 // FileBrowserPanel: refresh, "Search files" and expand/collapse all (36pt, 4pt
@@ -307,11 +307,11 @@ component R4TreeRowView
   action hover(value: bool)
     over = value
   view
-    button press=local(row.directory ? "surface-files-toggle" : "surface-file", row.path, "tree") hover=hover role="treeitem" aria-label=row.name aria-expanded=row.expanded aria-selected=row.selected testId=`tree-${row.path}` width="100%" height="1.5rem" padding-left=(6.8 + row.depth * 18.7) padding-right="0.375rem" box-sizing="border-box" gap="0.275rem" border-radius="0.3125rem" border-width=0 position="relative" display="flex" flex-direction="row" align-items="center" background-color=(row.selected ? "light-dark(#27272a1f, #f5f5f51f)" : over ? "light-dark(#27272a0d, #f5f5f50d)" : "#00000000") opacity=(row.ignored ? 0.5 : 1)
+    button press=local(row.directory ? "surface-files-toggle" : "surface-file", row.path, "tree") hover=hover role="treeitem" aria-label=row.name aria-expanded=row.expanded aria-selected=row.selected testId=`tree-${row.path}` width="100%" height=24 padding-left=(6.8 + row.depth * 18.7) padding-right=6 box-sizing="border-box" gap=4.4 border-radius=5 border-width=0 position="relative" display="flex" flex-direction="row" align-items="center" background-color=(row.selected ? "light-dark(#27272a1f, #f5f5f51f)" : over ? "light-dark(#27272a0d, #f5f5f50d)" : "#00000000") opacity=(row.ignored ? 0.5 : 1)
       each guide in row.guides key=guide.id
         box position="absolute" left=guide.left top=0 bottom=0 width=1 background-color="light-dark(#71717b40, #81818140)"
       when row.directory
         ShellIcon(name=(row.expanded ? "chevron-down" : "chevron-right"), size=16, color="light-dark(#84848a, #8b8b92)")
       else
         FileTypeIcon(token=row.token, size=16)
-      text row.name flex=1 min-width=0 text-align="left" font-size="0.75rem" line-height="1.5rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#27272a, #f5f5f5)"
+      text row.name flex=1 min-width=0 text-align="left" font-size=12 line-height="24px" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#27272a, #f5f5f5)"

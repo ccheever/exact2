@@ -2,7 +2,7 @@
 name: 20261005-interface-font-size
 plan: 20261005-t3code-macos-parity
 implementation: complete
-verification: verified
+verification: verified-with-unverified-rows
 delivery: pr-open
 repository: https://github.com/ccheever/exact2
 base_branch: 'feat(example)/t3-code'
@@ -134,7 +134,7 @@ Required environment: a `main` pin with the X3 fix, oracle build, Xcode 27.0, Bu
 ## Progress
 
 Implemented 2026-10-07 on `feat(example)/t3-code-interface-font-size` together with
-[20261005-interface-font-size-conversion](../20261005-interface-font-size-conversion.md) (one PR, as the user asked),
+[20261005-interface-font-size-conversion](20261005-interface-font-size-conversion.md) (one PR, as the user asked),
 after the branch merged exact2 main `cff90b364` (X3 fixed upstream by #185; #176 and #159 also on main).
 
 - **Root size.** `appearance-fonts.ts` ports `clampInterfaceFontSize`, `clampPromptFontSize`, `clampCodeFontSize`
@@ -151,7 +151,7 @@ after the branch merged exact2 main `cff90b364` (X3 fixed upstream by #185; #176
   multiplies the root size in (the top bars' traffic-light inset). Neither needs a new issue for this app.
 - **Map.** `font-size-map.json`: every Contract file with its rem lengths (the px values at 16 that became N/16 rem;
   ×0.75 at 12, ×1.25 at 20), every `style` definition (60, all `converted`), the px items with their reason, the JS
-  layout converted, and the pending areas. The oracle probe at 12/16/20 was not run: the desktop oracle task is not
+  layout converted, and what stays px with the reason (`pxKept`). The oracle probe at 12/16/20 was not run: the desktop oracle task is not
   to be done (user decision 2026-10-06); the classes come from the reference source (Tailwind rem utilities, its 86
   `[Npx]` classes and `index.css` px values).
 - **Shared styles.** All 60 `style` definitions are converted (with every other literal length; see the conversion
@@ -163,42 +163,57 @@ after the branch merged exact2 main `cff90b364` (X3 fixed upstream by #185; #176
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| 1 (2026-10-07) | branch `feat(example)/t3-code-interface-font-size` over `4f523ef5c` + main `cff90b364` | `bun test examples/t3-code` 2259 pass / 0 fail / 1 skip (2260 tests); strict `tsc` clean; `contract build` OK; `cargo test -p t3-code-macos --lib` 11/0; `bun scripts/caps.mjs` within caps; live macOS drive (one retry, to open the size menu in the shots): root 12/16/20 applied, every probed box ×0.75/×1/×1.25, the 52 px top bars stay | below, `evidence/20261007-interface-font-size/` | none for this task |
+| 1 (2026-10-07) | branch over `4f523ef5c` + main `cff90b364`, commit `bf35a2d49` | `bun test` 2259/0/1 skip; strict `tsc` clean; `contract build` OK; `cargo test -p t3-code-macos --lib` 11/0; caps OK; live macOS drive at 12/16/20 | `evidence/20261007-interface-font-size/` | the conversion's remaining areas |
+| 2 (2026-10-07) | same branch, round 2 (the conversion finished) | `bun test` 2260 pass / 0 fail / 1 skip; strict `tsc` clean; `contract build` OK; `cargo test -p t3-code-macos --lib` 11/0; AppKit `menus` 44/0, `ssh` 15 (1 skip)/0, `r6-media` 5/0, `media-actions` 7/0, `r7-device` 13/0, `r8-keys` 4/0, `composer` 46/0; caps OK; live drives at 1280×840 and 840×620 at 12/16/20 with `layout … native`: every probed box ×0.75/×1/×1.25, the prompt text and the 52 px bars stay | `evidence/20261007-interface-font-size/round2/` | none in code; the rows below are unverified |
 
-Rows not run: the oracle pixel pairs and the round-11 matrix (desktop oracle not to be done, user 2026-10-06); the
-attended slider-feel row (no real-input session); persistence across a relaunch (an agent session starts with a fresh
-store: the relaunch came back to onboarding, so the row is unverified; the stored setting and the launch task are
-the existing path); the minimum window 840×620 at 20 (not driven).
+Rows not run, with the exact reason:
+- **Persistence across a real relaunch (launch, set 20, quit, relaunch).** An agent session cannot show it: under the
+  agent the transport keeps no preferences (`T3Module.swift`: `T3Transport(persistent: !context.agent, …)`), so a second
+  launch on the same named store came back at 16 (`round2/persist-record.txt`). A person-style launch needs real input, and
+  `orca computer` could not read or click any app on this Mac today (every call, Finder included: "no accessibility
+  window … macOS Accessibility may need Orca Computer Use toggled off and on again in System Settings"; permissions report
+  granted), which only a person can repair. A seeded normal launch (`t3-code.json` with `fontSizeInterface: 20` under a lane
+  HOME) did not read the saved preferences in the unpaired state either (a seeded `sidebarWidth` did not apply), so it proves
+  nothing about this change. Covered instead by `client.test.ts` "a saved Interface font size is the root font size after the
+  preferences load" (saved 20 → `look.fontSize` 20 → `devicePresentation.rootFontSize` 20) and the `rootFont` task, which runs
+  on every key, the first included.
+- **Attended size change with real input.** The same accessibility block. (The reference's control is a Select, not a
+  slider: `SettingsPanels.tsx` FontFamilySettingsRow `<Select>` 12–20; the agent drove it at 12, 16 and 20.)
+- **Oracle pixel pairs and the round-11 matrix.** No desktop oracle (user decision 2026-10-06). The workspace card at 20 was
+  checked against the reference code instead (below); no screenshot of T3 Code (Nightly) at 20 was taken, because that would
+  change its setting.
+- Palette and Usage changes made after the drive (palette list caps 26.25/28/34rem, the usage grid gap) are compile- and
+  test-checked only.
 
 ### Evidence (before/after)
 
-Before is the untouched feature-branch tip `4f523ef5c` (`t3-code-evidence-base`), after is this branch; the same
-drive (`evidence/20261007-interface-font-size/drive.mjs.txt`) at 1280×840, light, an isolated lane server (port 16521,
-lane homes) with project Alpha and two threads. One image per scenario:
+Before is the untouched feature-branch tip `4f523ef5c` (`t3-code-evidence-base`), after is this branch at the final
+drive (round 2); the same drive (`evidence/20261007-interface-font-size/round2/drive2.mjs.txt`), light, an isolated lane
+server (port 16521, lane homes) with project Alpha and two threads. One image per scenario:
 
-- Settings › Appearance at 16 (default), unchanged: https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/interface-font-size/01-settings-appearance-16-before-after.png
+- Settings › Appearance at 16 (default), 1280×840, unchanged: https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/interface-font-size/01-settings-appearance-16-before-after.png
 - Settings › Appearance at 12: https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/interface-font-size/02-settings-appearance-12-before-after.png
 - Settings › Appearance at 20: https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/interface-font-size/03-settings-appearance-20-before-after.png
 - A thread with the sidebar and composer at 20: https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/interface-font-size/04-thread-20-before-after.png
 - A thread with the sidebar and composer at 12: https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/interface-font-size/05-thread-12-before-after.png
+- Settings › Keybindings with the native key recorder at 20: https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/interface-font-size/06-keybindings-recorder-20-before-after.png
+- A thread at 20 in the 840×620 window: https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/interface-font-size/07-thread-20-840-before-after.png
+- Keybindings and the key recorder at 20 in the 840×620 window: https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/interface-font-size/08-keybindings-recorder-20-840-before-after.png
 
-`layout` per size (`evidence/20261007-interface-font-size/{before,after}-record.txt`; boxes x, y, w, h):
+`layout` per size (`evidence/20261007-interface-font-size/round2/{before,after}-{1280,840}-record.txt`; boxes w×h):
 
-| | before at 12 / 16 / 20 | after at 12 | after at 16 | after at 20 |
+| | before (12 / 16 / 20 alike) | after at 12 | after at 16 | after at 20 |
 |---|---|---|---|---|
-| `state` root font size | 16 / 16 / 16 | 12 | 16 | 20 |
-| sidebar thread row `thread-alpha-1` | 239×78 at every size | 243×58.5 | 239×78 | 235×97.5 |
-| sidebar toggle `toggle-sidebar` | 28×28 | 21×21 | 28×28 | 35×35 |
-| settings button `connection-settings` | 32×32 | 24×24 | 32×32 | 40×40 |
+| `state` root font size | 16 | 12 | 16 | 20 |
+| sidebar thread row | 239×78 | 243×58.5 | 239×78 | 235×97.5 |
+| sidebar toggle / settings button | 28×28 / 32×32 | 21×21 / 24×24 | 28×28 / 32×32 | 35×35 / 40×40 |
 | composer toolbar | 678×48 | 550×36 | 678×48 | 918×60 |
-| Settings nav row `settings-appearance` | 240×32 | 244×24 | 240×32 | 236×40 |
-| font size select | 144×28 | 108×21 | 144×28 | 180×35 |
-| chat header (52 px top bar, px) | 1024×52 | 1024×52 | 1024×52 | 1024×52 |
-| settings header (52 px, px) | 1023×52 | 1023×52 | 1023×52 | 1023×52 |
+| composer text (`layout composer native`) | 14 px, line 22.75 px | 14 px, 22.75 px | 14 px, 22.75 px | 14 px, 22.75 px |
+| native key recorder (`layout keybinding-recorder native`) | 156×24 | 116.5×18 | — | 195.5×30 (840×620: 195.5×30) |
+| chat / settings header (52 px, px) | 52 | 52 | 52 | 52 |
 
-At 16 every probed box equals the before build's. No `setRootFontSize … refused` line in either log.
+At 16 every probed box equals the before build's. No `setRootFontSize … refused` line in any log.
 
 ## Next action
 
-PR review and merge. The remaining conversion areas are in
-[20261005-interface-font-size-conversion](../20261005-interface-font-size-conversion.md).
+PR #206 review and merge.

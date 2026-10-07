@@ -6,6 +6,8 @@ use CoreSections from "./settings-rows.contract"
 use AppearanceLibrary from "./settings-appearance.contract"
 
 component SettingsCoreBody
+  inject
+    rem: number
   props
     core: SettingsCore
     route: string
@@ -22,7 +24,7 @@ component SettingsCoreBody
     dialog: action
     reduced: bool
   view
-    column width="100%" gap="2rem" position="relative" z-index=(menu != "" ? 50 : 1) margin-bottom=(route == "general" or route == "appearance" ? 0 : (route == "diagnostics" ? 22 : 14)) testId="settings-core-body"
+    column width="100%" gap="2rem" position="relative" z-index=(menu != "" ? 50 : 1) margin-bottom=((route == "general" or route == "appearance" ? 0 : (route == "diagnostics" ? 22 : 14)) * rem / 16) testId="settings-core-body"
       when core.showScope
         ScopeSentence(pal=core.palette, projectLabel=core.projectLabel, projectMark=core.projectMark, projectInk=core.projectInk, projectSurface=core.projectSurface, environmentLabel=core.environmentLabel, environmentIcon=core.environmentIcon, connective=core.connective, projects=core.projectChoices, environments=core.environmentChoices, projectKeyed=core.projectKeyed, environmentKeyed=core.environmentKeyed, menu=menu, openMenu=openMenu, closeMenu=closeMenu, choose=choose)
       when core.notice != ""

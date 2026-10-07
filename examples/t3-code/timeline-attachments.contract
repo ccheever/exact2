@@ -116,6 +116,8 @@ component ImagePreviewHost
       ImagePreviewDialog(id=id, url="", failed=(length(filter(urls, (entry) => entry.id == `failed:${id}`)) > 0), name=name, position=position, previous=previous, next=next, video=video, windowWidth=windowWidth, windowHeight=windowHeight, local=local)
 
 component ImagePreviewDialog
+  inject
+    rem: number
   props
     id: string
     url: string
@@ -155,7 +157,7 @@ component ImagePreviewDialog
                     box width=min(windowWidth * 0.92 - 96, 512) height="12rem" border-radius="0.5rem" background-color="#000000" role="status" aria-label="Loading video"
               else
                 when url != "" and not videoFailed
-                  image url aria-label=name error=broke max-width=(windowWidth * 0.92 - 96) max-height=min(windowHeight * 0.86, windowHeight - 160) object-fit="contain" border-radius="0.5rem" testId="image-preview-picture"
+                  image url aria-label=name error=broke max-width=(windowWidth * 0.92 - 6 * rem) max-height=min(windowHeight * 0.86, windowHeight - 160) object-fit="contain" border-radius="0.5rem" testId="image-preview-picture"
                 else
                   when failed or videoFailed
                     column role="alert" width=min(windowWidth * 0.92 - 96, 512) height="12rem" padding="1.5rem" box-sizing="border-box" gap="0.75rem" align-items="center" justify-content="center" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0d)" background-color="#000000" testId="image-preview-unavailable"

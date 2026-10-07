@@ -101,7 +101,7 @@ Adopted 2026-10-07. Upstream [#102](https://github.com/ccheever/exact2/issues/10
 `"medium"` hands the size back); #176 keeps `rem`/`em` on the web JS target and #159 refuses a string bound to a
 number-only style row. The feature branch merged main `cff90b364` and adopted it in
 [20261005-interface-font-size](../../tasks/closed/20261005-interface-font-size.md) and
-[20261005-interface-font-size-conversion](../../tasks/20261005-interface-font-size-conversion.md):
+[20261005-interface-font-size-conversion](../../tasks/closed/20261005-interface-font-size-conversion.md):
 app.contract's `rootFont` task calls `setRootFontSize(data.look.fontSize)` (`clampInterfaceFontSize`) at launch and on
 every change, the Contract lengths are `rem` where the reference's are (`font-size-map.json`), and the live drive in the
 task record checks the sizes at 12, 16 and 20.

@@ -258,6 +258,8 @@ component R6DeviceWorkspaceView
 // ("Open preview in right panel", "Close floating preview") shows while the handle or the pill is hovered, a
 // pill button has focus (group-focus-within) or a gesture runs (the host sends no hover during a pan).
 component R6DeviceMiniPlayer
+  inject
+    rem: number
   props
     mini: R6DeviceMini
     frame: ChatCanvasMini
@@ -295,8 +297,9 @@ component R6DeviceMiniPlayer
     gy = 0
     gesture("")
   derive pill = dotOver or pillOver or pillFocus != "" or dragging != ""
-  derive edge = 4
-  derive corner = 8
+  // ThreadPreviewMiniPlayer resize handles: -1/h-2 edges, -2/size-4 corners (rem).
+  derive edge = 0.25 * rem
+  derive corner = 0.5 * rem
   view
     box position="absolute" left=frame.x top=frame.top width=frame.width height=frame.height z-index=40 role="region" aria-label="Floating device preview" testId="device-mini-player"
       column position="absolute" left=0 top=0 right=0 bottom=0 border-radius=frame.radius overflow="hidden" background-color="light-dark(#f4f4f5, #1a1a1a)" box-shadow="0 25px 50px -12px #00000059"

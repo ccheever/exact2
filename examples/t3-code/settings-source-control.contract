@@ -149,6 +149,8 @@ component Inheritance
 
 // SettingsRow over a scoped server setting.
 component ScopedSettingRow
+  inject
+    rem: number
   props
     row: ScopedRow
     busy: bool
@@ -177,7 +179,7 @@ component ScopedSettingRow
             when row.kind == "switch"
               SettingsSwitch(checked=row.checked, label=row.title, disabled=(busy or row.disabled), switchId=`scoped-${row.key}`, toggle=rest("scoped", `key=${row.key}&value=${row.checked ? "false" : "true"}`))
             when row.kind == "select"
-              SettingsSelect(selectId=`scoped-${row.key}`, label=row.title, valueLabel=row.valueLabel, width=(row.key == "sourceControlWritingStyle" ? 224 : 160), disabled=(busy or row.disabled), options=row.options, choose=restInput("scoped", `key=${row.key == "sourceControlWritingStyle" ? "sourceControlWritingStyle.mode" : row.key}&value=`))
+              SettingsSelect(selectId=`scoped-${row.key}`, label=row.title, valueLabel=row.valueLabel, width=((row.key == "sourceControlWritingStyle" ? 224 : 160) * rem / 16), disabled=(busy or row.disabled), options=row.options, choose=restInput("scoped", `key=${row.key == "sourceControlWritingStyle" ? "sourceControlWritingStyle.mode" : row.key}&value=`))
             when row.kind == "text"
               ScopedTextField(value=row.value, placeholder=row.placeholder, label=row.title, fieldKey=row.key, busy=(busy or row.disabled), restInput=restInput)
             when row.kind == "model"
@@ -527,4 +529,4 @@ component DeviceVersionLine
   view
     row width="100%" gap="1.5rem" align-items="flex-start"
       text term font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" flex-shrink=0
-      text value font-family="ui-monospace" font-size=12 line-height="16px" text-align="right" flex=1 min-width=0 overflow-wrap="anywhere" color="light-dark(#27272a, #f5f5f5)"
+      text value font-family="ui-monospace" font-size="0.75rem" line-height="1rem" text-align="right" flex=1 min-width=0 overflow-wrap="anywhere" color="light-dark(#27272a, #f5f5f5)"

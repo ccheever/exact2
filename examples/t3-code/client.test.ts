@@ -1,6 +1,7 @@
 import { keyboardSettings, validShortcut, validWhen } from './keybinding-settings';
 import { scheduledSettings, taskDraft, taskFromArguments, validateTaskInput } from './scheduled-settings';
 import { scopedSettingPatch, scopedControls, scopedSearchControls } from './scoped-settings';
+import { look } from './settings-appearance-look';
 import { describe, test, expect } from 'bun:test';
 import { T3Client } from './client';
 import { snapshot, transcriptPresentation, modelCatalog, providerBanner, projectIdentity, providerBadge } from './presentation';
@@ -430,6 +431,14 @@ describe('answer cancellation', () => {
     expect(client.connection).toBe('connected');
     expect(client.ready).toBe(true);
     expect(client.error).toBe('');
+  });
+  test('a saved Interface font size is the root font size after the preferences load', async () => {
+    const client = new T3Client(), native = new Backend();
+    const disk = storage({ version: 1, clientSettings: { fontSizeInterface: 20 } });
+    expect(look(client).fontSize).toBe(16);
+    await client.refresh(native, disk.files);
+    expect(look(client).fontSize).toBe(20);
+    expect(native.calls.filter(call => call.op === 'devicePresentation').slice(-1)[0]).toMatchObject({ rootFontSize: 20 });
   });
   test('an abandoned preferences read is retried by the next answer', async () => {
     const client = new T3Client(), native = new Backend();
@@ -1113,7 +1122,7 @@ test('device settings persist locally, affect projection, and do not write an un
   const restored = new T3Client(); await restored.refresh(native, disk.files);
   expect(restored.local.deviceSettings.appearanceMode).toBe('dark');
   expect(restored.local.deviceSettings.sendShortcut).toBe('mod-enter-multiline');
-  expect(native.calls.filter(call => call.op === 'devicePresentation').slice(-1)[0]).toMatchObject({ appearanceMode: 'dark', sendShortcut: 'mod-enter-multiline' });
+  expect(native.calls.filter(call => call.op === 'devicePresentation').slice(-1)[0]).toMatchObject({ appearanceMode: 'dark', sendShortcut: 'mod-enter-multiline', rootFontSize: 16 });
   expect((await command('device-setting', 'appearanceMode', 'bad')).message).toBe('Unsupported device setting.');
   expect((await command('device-setting', 'sendShortcut', 'bad')).message).toBe('Unsupported device setting.');
   expect(native.calls.filter(call => call.method === 'server.updateSettings')).toHaveLength(0);

@@ -135,6 +135,8 @@ component DxInner
 
 // Button size icon-micro/icon-xs, variant ghost: the refresh glyph with its tooltip.
 component DxRefresh
+  inject
+    rem: number
   props
     label: string
     tip: string
@@ -150,7 +152,7 @@ component DxRefresh
       button press=press hover=hover disabled=busy aria-label=label testId=refreshId width=`${size / 16}rem` height=`${size / 16}rem` padding=0 border-width=0 border-radius="0.375rem" background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0f)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" opacity=(busy ? 0.64 : 1)
         LucideRefreshCw(size=(size >= 24 ? 14 : 12), color="light-dark(#71717b, #818181)")
       when hovered
-        DxTip(text=tip, right=0, bottom=(size + 6))
+        DxTip(text=tip, right=0, bottom=((size + 6) * rem / 16))
 
 // TooltipPopup side top: a small popover-coloured label above its trigger.
 component DxTip
@@ -253,6 +255,8 @@ component DxName
 // width, scrolled sideways when the card is narrower. variant: telemetry (3xs
 // head, px-3 py-2), process (2xs head, px-3 py-2) or trace (2xs head, px-4 py-3, top-aligned).
 component DxTableView
+  inject
+    rem: number
   props
     table: DxTable
     variant: string
@@ -266,22 +270,22 @@ component DxTableView
       column width="100%" min-width=table.minWidth
         row width="100%" box-sizing="border-box" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" background-color="light-dark(#ffffff, #111111)"
           each head in table.headers key=head.id
-            text head.text width=`${head.width}%` flex-shrink=0 box-sizing="border-box" padding-top=(variant == "trace" ? "0.625rem" : "0.5rem") padding-bottom=(variant == "trace" ? "0.625rem" : "0.5rem") padding-left=(head.lead ? 20 : (variant == "trace" ? 16 : 12)) padding-right=(variant == "trace" ? "1rem" : "0.75rem") font-size=(variant == "telemetry" ? "0.625rem" : "0.6875rem") font-weight=600 line-height=(variant == "telemetry" ? "0.875rem" : "1rem") letter-spacing=1 text-transform="uppercase" text-align=head.align white-space="nowrap" line-clamp=1 color=(variant == "telemetry" ? "light-dark(#71717ba6, #818181a6)" : "light-dark(#71717bb3, #818181b3)")
+            text head.text width=`${head.width}%` flex-shrink=0 box-sizing="border-box" padding-top=(variant == "trace" ? "0.625rem" : "0.5rem") padding-bottom=(variant == "trace" ? "0.625rem" : "0.5rem") padding-left=((head.lead ? 20 : (variant == "trace" ? 16 : 12)) * rem / 16) padding-right=(variant == "trace" ? "1rem" : "0.75rem") font-size=(variant == "telemetry" ? "0.625rem" : "0.6875rem") font-weight=600 line-height=(variant == "telemetry" ? "0.875rem" : "1rem") letter-spacing=1 text-transform="uppercase" text-align=head.align white-space="nowrap" line-clamp=1 color=(variant == "telemetry" ? "light-dark(#71717ba6, #818181a6)" : "light-dark(#71717bb3, #818181b3)")
         when length(table.rows) == 0
           text table.empty font-size="0.75rem" line-height="1rem" padding-left="1.25rem" padding-right="1.25rem" padding-top=(variant == "telemetry" ? "1.25rem" : "1rem") padding-bottom=(variant == "telemetry" ? "1.25rem" : "1rem") color="light-dark(#71717b, #818181)" testId=`diagnostics-empty-${table.id}`
         each item in table.rows key=item.id
           row width="100%" box-sizing="border-box" align-items=(variant == "trace" ? "flex-start" : "center") border-top-width=(item.first ? 0 : 1) border-top-style="solid" border-color=(variant == "trace" ? "light-dark(#e4e4e799, #ffffff09)" : "light-dark(#e4e4e780, #ffffff08)") testId=`diagnostic-row-${table.id}-${item.id}`
             each part in item.cells key=part.id
-              row width=`${part.width}%` flex-shrink=0 min-width=0 box-sizing="border-box" align-items="center" padding-top=(variant == "trace" ? "0.75rem" : "0.5rem") padding-bottom=(variant == "trace" ? "0.75rem" : "0.5rem") padding-left=(part.lead ? 20 : (variant == "trace" ? 16 : 12)) padding-right=(variant == "trace" ? 16 : (part.id == "kill" ? 16 : 12)) justify-content=(part.align == "right" ? "flex-end" : "flex-start")
+              row width=`${part.width}%` flex-shrink=0 min-width=0 box-sizing="border-box" align-items="center" padding-top=(variant == "trace" ? "0.75rem" : "0.5rem") padding-bottom=(variant == "trace" ? "0.75rem" : "0.5rem") padding-left=((part.lead ? 20 : (variant == "trace" ? 16 : 12)) * rem / 16) padding-right=((variant == "trace" ? 16 : (part.id == "kill" ? 16 : 12)) * rem / 16) justify-content=(part.align == "right" ? "flex-end" : "flex-start")
                 when part.id == "kill"
                   DxSignals(row=item, busy=busy, signal=signal)
                 when part.id == "trace"
                   row flex=1 min-width=0 gap="0.5rem" align-items="center"
-                    text item.traceLabel font-family="ui-monospace" font-size=11 line-height="16px" line-clamp=1 flex=1 min-width=0 color="light-dark(#71717b, #818181)" aria-description=item.trace
+                    text item.traceLabel font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" line-clamp=1 flex=1 min-width=0 color="light-dark(#71717b, #818181)" aria-description=item.trace
                     button press=copy(item.trace) aria-label="Copy trace ID" testId=`copy-trace-${table.id}-${item.id}` width="1.25rem" height="1.25rem" flex-shrink=0 padding=0 border-width=0 border-radius="0.25rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
                       LucideCopy(size=12, color="light-dark(#71717b, #818181)")
                 when part.id == "level"
-                  text part.text font-family="ui-monospace" font-size=11 font-weight=500 line-height="16px" text-transform="uppercase" padding-left="0.375rem" padding-right="0.375rem" padding-top="0.125rem" padding-bottom="0.125rem" border-radius="0.25rem" background-color="light-dark(#f4f4f5, #ffffff0f)" color="light-dark(#27272acc, #f5f5f5cc)"
+                  text part.text font-family="ui-monospace" font-size="0.6875rem" font-weight=500 line-height="1rem" text-transform="uppercase" padding-left="0.375rem" padding-right="0.375rem" padding-top="0.125rem" padding-bottom="0.125rem" border-radius="0.25rem" background-color="light-dark(#f4f4f5, #ffffff0f)" color="light-dark(#27272acc, #f5f5f5cc)"
                 when (part.id == "process" or part.id == "name") and item.toggle != ""
                   DxName(row=item, cell=part, toggle=toggle, toggleOp=toggleOp)
                 when (part.id == "cause" or part.id == "message") and item.expand
@@ -314,7 +318,7 @@ component TmStatView
         when stat.icon == "gauge"
           LucideGauge(size=14, color="light-dark(#71717b8c, #8181818c)")
         text stat.label font-size="0.625rem" font-weight=600 line-height="0.875rem" letter-spacing=1 text-transform="uppercase" color="light-dark(#71717bb3, #818181b3)" line-clamp=1
-      text stat.value margin-top="0.625rem" font-family="ui-monospace" font-size=24 font-weight=600 line-height="32px" letter-spacing=-1.2 line-clamp=1 color=(stat.tone == "danger" ? "light-dark(#fb2c36, #fb414a)" : stat.tone == "warning" ? "light-dark(#bb4d00, #ffb900)" : "light-dark(#27272a, #f5f5f5)")
+      text stat.value margin-top="0.625rem" font-family="ui-monospace" font-size="1.5rem" font-weight=600 line-height="2rem" letter-spacing="-0.075rem" line-clamp=1 color=(stat.tone == "danger" ? "light-dark(#fb2c36, #fb414a)" : stat.tone == "warning" ? "light-dark(#bb4d00, #ffb900)" : "light-dark(#27272a, #f5f5f5)")
       when stat.detail != ""
         text stat.detail margin-top="0.375rem" font-size="0.625rem" line-height="0.875rem" line-clamp=1 color="light-dark(#71717b99, #81818199)"
 
@@ -325,7 +329,7 @@ component TmPair
   view
     column width="50%" min-width=0 box-sizing="border-box" padding-right="0.5rem"
       text label font-size="0.625rem" font-weight=600 line-height="0.875rem" letter-spacing=1 text-transform="uppercase" color="light-dark(#71717b73, #81818173)"
-      text value font-family="ui-monospace" font-size=12 font-weight=500 line-height="16px" line-clamp=1 color="light-dark(#27272ae6, #f5f5f5e6)"
+      text value font-family="ui-monospace" font-size="0.75rem" font-weight=500 line-height="1rem" line-clamp=1 color="light-dark(#27272ae6, #f5f5f5e6)"
 
 component TmDetailRow
   props
@@ -334,7 +338,7 @@ component TmDetailRow
   view
     row width="100%" justify-content="space-between" align-items="center" gap="1rem" padding-top="0.625rem" padding-bottom="0.625rem" box-sizing="border-box" border-top-width=(first ? 0 : 1) border-top-style="solid" border-color="light-dark(#e4e4e780, #ffffff08)"
       text item.label font-size="0.6875rem" line-height="1rem" color="light-dark(#71717bbf, #818181bf)"
-      text item.value font-family="ui-monospace" font-size=11 line-height="16px" text-align="right" line-clamp=1 min-width=0 color=(item.tone == "danger" ? "light-dark(#fb2c36, #fb414a)" : item.tone == "warning" ? "light-dark(#bb4d00, #ffb900)" : "light-dark(#27272ad9, #f5f5f5d9)")
+      text item.value font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" text-align="right" line-clamp=1 min-width=0 color=(item.tone == "danger" ? "light-dark(#fb2c36, #fb414a)" : item.tone == "warning" ? "light-dark(#bb4d00, #ffb900)" : "light-dark(#27272ad9, #f5f5f5d9)")
 
 component TmPanelTitle
   props
@@ -370,7 +374,7 @@ component TelemetrySections
             row gap="0.1875rem" align-items="baseline"
               text t.updated font-size="0.6875rem" line-height="1rem" color=(t.updatedValue == "" ? "light-dark(#71717b8c, #8181818c)" : "light-dark(#71717b99, #81818199)")
               when t.updatedValue != ""
-                text t.updatedValue font-family="ui-monospace" font-size=11 line-height="16px" color="light-dark(#71717b99, #81818199)"
+                text t.updatedValue font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b99, #81818199)"
             DxRefresh(label="Refresh resource telemetry", tip="Refresh telemetry snapshot", size=20, busy=busy, press=reload, refreshId="refresh-resource-telemetry")
         Card()
           DxInner()
@@ -396,7 +400,7 @@ component TelemetrySections
                     box position="absolute" left="1.25rem" right="1.25rem" top=0 height=2 border-radius=1 opacity=0.75 background-color=(group.accent == "success" ? "#00bc7dcc" : group.accent == "info" ? "#2b7fffcc" : "#fe9a00cc")
                     row justify-content="space-between" align-items="center" gap="0.75rem"
                       text group.label font-size="0.625rem" font-weight=600 line-height="0.875rem" letter-spacing=1 text-transform="uppercase" color="light-dark(#71717bbf, #818181bf)" line-clamp=1
-                      text group.count font-family="ui-monospace" font-size=10 line-height="14px" padding-left="0.375rem" padding-right="0.375rem" padding-top="0.125rem" padding-bottom="0.125rem" border-radius="0.375rem" background-color="light-dark(#fafafa8c, #ffffff04)" color="light-dark(#71717bb3, #818181b3)" white-space="nowrap"
+                      text group.count font-family="ui-monospace" font-size="0.625rem" line-height="0.875rem" padding-left="0.375rem" padding-right="0.375rem" padding-top="0.125rem" padding-bottom="0.125rem" border-radius="0.375rem" background-color="light-dark(#fafafa8c, #ffffff04)" color="light-dark(#71717bb3, #818181b3)" white-space="nowrap"
                     column width="100%" margin-top="0.875rem" gap="0.625rem"
                       row width="100%"
                         TmPair(label="CPU", value=group.cpu)
@@ -466,7 +470,7 @@ component TelemetrySections
           when t.ready
             row gap="0.25rem" align-items="baseline"
               text "Identity:" font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717b8c, #8181818c)"
-              text "PID + start time" font-family="ui-monospace" font-size=10 line-height="14px" color="light-dark(#71717b8c, #8181818c)"
+              text "PID + start time" font-family="ui-monospace" font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717b8c, #8181818c)"
         Card()
           DxInner()
             DxTableView(table=t.tree, variant="telemetry", busy=busy, signal=rest, toggle=local, toggleOp="diag-tree", copy=copy)

@@ -228,6 +228,8 @@ component UserMarkdown
 // Markdown blocks at the stock settings (13pt code, wrapped), for a document
 // with no MarkdownEnv of its own.
 component MarkdownBlocks
+  inject
+    rem: number
   props
     document: ChatDocument
     local: action
@@ -240,7 +242,7 @@ component MarkdownBlocks
     // A sent message's bubble fits its text (fit); an answer fills the lane.
     column width=(fit ? "auto" : "100%") max-width="100%" gap=0
       each block in document.blocks key=block.id
-        column width=(fit ? "auto" : "100%") max-width="100%" margin-top=block.gap
+        column width=(fit ? "auto" : "100%") max-width="100%" margin-top=(block.gap * rem / 16)
           when block.kind == "code"
             CodeBlock(block=block, local=local, code=code, copiedText="", copiedNonce=0, codeFont="ui-monospace", codeSize=13, wrapDefault=true, canRun=false)
           else
@@ -248,6 +250,8 @@ component MarkdownBlocks
 
 // The same blocks under Settings → Appearance (MarkdownEnv).
 component EnvBlocks
+  inject
+    rem: number
   props
     document: ChatDocument
     local: action
@@ -260,7 +264,7 @@ component EnvBlocks
   view
     column width=(fit ? "auto" : "100%") max-width="100%" gap=0
       each block in document.blocks key=block.id
-        column width=(fit ? "auto" : "100%") max-width="100%" margin-top=block.gap
+        column width=(fit ? "auto" : "100%") max-width="100%" margin-top=(block.gap * rem / 16)
           when block.kind == "code"
             CodeBlock(block=block, local=local, code=code, copiedText="", copiedNonce=0, codeFont=env.codeFont, codeSize=env.codeSize, wrapDefault=env.wrap, canRun=(block.closedFence and includes(env.runCommands, `${block.href}:${block.text}`)))
           else
@@ -268,6 +272,8 @@ component EnvBlocks
 
 // The transcript's blocks: a settled ```mermaid fence draws its diagram.
 component DiagramBlocks
+  inject
+    rem: number
   props
     document: ChatDocument
     local: action
@@ -285,7 +291,7 @@ component DiagramBlocks
   view
     column width=(fit ? "auto" : "100%") max-width="100%" gap=0
       each block in document.blocks key=block.id
-        column width=(fit ? "auto" : "100%") max-width="100%" margin-top=block.gap
+        column width=(fit ? "auto" : "100%") max-width="100%" margin-top=(block.gap * rem / 16)
           when block.kind == "code"
             when block.href == "mermaid" and length(filter(diagrams, (entry) => entry.code == block.text)) > 0
               each entry in filter(diagrams, (entry) => entry.code == block.text) key=entry.id
@@ -297,6 +303,8 @@ component DiagramBlocks
 
 // Every block but a code fence: headings, list items, rules, tables, images, quotes and prose.
 component BlockBody
+  inject
+    rem: number
   props
     block: ChatBlock
     prose: string
@@ -320,7 +328,7 @@ component BlockBody
           ChatRuns(runs=block.runs, size=(block.depth == 1 ? 20 : block.depth == 2 ? 18 : block.depth == 3 ? 16 : 14), weight=600)
     else
       when block.kind == "item"
-        row width="100%" padding-left=(block.depth * 20) box-sizing="border-box"
+        row width="100%" padding-left=(block.depth * 1.25 * rem) box-sizing="border-box"
           when block.marker == "•"
             box width="1.25rem" height="1.421875rem" flex-shrink=0 position="relative"
               box position="absolute" left="0.25rem" top="0.59375rem" width="0.3125rem" height="0.3125rem" box-sizing="border-box" border-radius=(block.depth >= 2 ? "0px" : "0.15625rem") border-width=(block.depth == 1 ? 1 : 0) border-style="solid" border-color="light-dark(#27272acc, #f5f5f5cc)" background-color=(block.depth == 1 ? "#00000000" : "light-dark(#27272acc, #f5f5f5cc)")
@@ -376,7 +384,7 @@ component ChatRuns
   view
     each run in runs key=run.id
       when run.mono
-        text run.text href=(run.kind == "link" or run.kind == "link-start" ? run.href : "") font-family="ui-monospace" font-size=12 font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+        text run.text href=(run.kind == "link" or run.kind == "link-start" ? run.href : "") font-family="ui-monospace" font-size="0.75rem" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
       else
         when run.kind == "link" or run.kind == "link-start"
           text run.text href=run.href font-size=size font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant color="light-dark(#1447e6, #50a2ff)"
@@ -400,7 +408,7 @@ component FlowRuns
       each run in runs key=run.id
         when run.mono
           box height="1.421875rem" padding-top="0.153125rem" box-sizing="border-box" flex-shrink=0
-            text run.text font-family="ui-monospace" font-size=12 line-height="14px" white-space="pre" font-weight=run.weight font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+            text run.text font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=run.weight font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
         else
           when run.kind == "file" or chipAccent(run.kind) != ""
             when length(filter(chips, (chip) => chip.href == run.href and run.href != "")) > 0
@@ -536,7 +544,7 @@ component TerminalContextChip
             text chip.tip flex=1 min-width=0 font-size="0.875rem" font-weight=500 line-height="1.25rem" line-clamp=1 color="light-dark(#27272a, #f5f5f5)"
             text chip.size font-size="0.75rem" line-height="1rem" white-space="nowrap" color="light-dark(#71717b, #818181)"
           scroll width="100%" max-height="20rem" background-color="light-dark(#f4f4f5, #ffffff0a)"
-            text chip.detail aria-label="Captured terminal output" tabindex=0 padding="0.75rem" box-sizing="border-box" font-family="ui-monospace" font-size=12 line-height="18px" white-space="pre" color="light-dark(#27272a, #f5f5f5)"
+            text chip.detail aria-label="Captured terminal output" tabindex=0 padding="0.75rem" box-sizing="border-box" font-family="ui-monospace" font-size="0.75rem" line-height="1.125rem" white-space="pre" color="light-dark(#27272a, #f5f5f5)"
 
 // FileChip / ImageChipButton / ThreadContextChip / a skill chip: glyph or
 // thumbnail, the (middle-truncated) name and, for attachments, the size.
@@ -642,7 +650,7 @@ component CodeBlock
             each hl in filter(code, (hl) => hl.code == block.text and hl.icon != "") key=hl.id
               FileTypeIcon(token=hl.icon, size=14)
           else
-            text block.href font-family="ui-monospace" font-size=11 line-height="16px" color="light-dark(#27272ab8, #f5f5f5b8)" line-clamp=1
+            text block.href font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#27272ab8, #f5f5f5b8)" line-clamp=1
         row gap="0.125rem" align-items="center"
           when canRun
             Tip(label="Run in terminal", side="top", align="center", offset=28)
@@ -696,7 +704,7 @@ component MermaidBlock
       column width="100%" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0b)" background-color="light-dark(#fafafa, #ffffff08)" overflow="hidden"
         row width="100%" height="1.875rem" padding-top="0.375rem" padding-right="0.375rem" padding-left="0.75rem" box-sizing="border-box" align-items="center" justify-content="space-between" gap="0.5rem"
           row min-width=0 height="1.5rem" align-items="center" gap="0.375rem"
-            text block.href font-family="ui-monospace" font-size=11 line-height="16px" color="light-dark(#27272ab8, #f5f5f5b8)" line-clamp=1
+            text block.href font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#27272ab8, #f5f5f5b8)" line-clamp=1
           row gap="0.125rem" align-items="center" role="toolbar" aria-label="Code block actions"
             Tip(label="Show diagram", side="top", align="center", offset=28)
               DiagramToggle(label="Show diagram", icon="workflow", press=toggleCode)
@@ -860,7 +868,7 @@ component CellRuns
     row min-width=0 max-width="22.5rem" min-height="1.21875rem" flex-wrap=(nowrap ? "nowrap" : "wrap") align-items="center" justify-content=justify overflow=(nowrap ? "hidden" : "visible") opacity=(shown ? 1 : 0)
       each run in runs key=run.id
         when run.mono
-          text run.text flex-shrink=0 font-family="ui-monospace" font-size=12 line-height="14px" white-space="pre" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
+          text run.text flex-shrink=0 font-family="ui-monospace" font-size="0.75rem" line-height="0.875rem" white-space="pre" font-weight=(run.weight > weight ? run.weight : weight) font-style=run.slant padding-left="0.35rem" padding-right="0.35rem" padding-top="0.1rem" padding-bottom="0.1rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#27272a, #f5f5f5)"
         else
           when run.kind == "file"
             FileChip(run=run)
