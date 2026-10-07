@@ -89,8 +89,12 @@ pub(crate) fn directory(app_id: &str, agent: bool) -> PathBuf {
         let name = format!("exact-test-breadcrumbs-{}-{thread:?}", std::process::id());
         return std::env::temp_dir().join(name);
     }
+    // The painting host's own, by name: the Apple host keeps the same file
+    // for the same app in the same temporary directory, and neither reads
+    // the other's runs.
     if agent {
-        return std::env::temp_dir().join(format!("exact-agent-breadcrumbs-{id}"));
+        let host = if cfg!(windows) { "windows" } else { "linux" };
+        return std::env::temp_dir().join(format!("exact-agent-breadcrumbs-{id}-{host}"));
     }
     let set = |key: &str| std::env::var_os(key).filter(|v| !v.is_empty());
     let base = if cfg!(windows) {

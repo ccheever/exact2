@@ -338,13 +338,13 @@ impl<D: DataSource> Presenter<D> {
         // A new device scale: what is shown is replayed at it.
         let mut again: Vec<_> = (self.hatches.overlays.iter())
             .filter(|(_, shown)| shown.scale != scale)
-            .map(|(id, shown)| (*id, shown.lists.clone(), shown.size))
+            .map(|(id, shown)| (*id, shown.lists.clone(), shown.size, false))
             .collect();
         for (id, published) in shared.take_overlays() {
-            again.retain(|(shown, _, _)| *shown != id);
-            again.push((id, published.lists, published.size));
+            again.retain(|(shown, ..)| *shown != id);
+            again.push((id, published.lists, published.size, true));
         }
-        for (id, lists, size) in again {
+        for (id, lists, size, published) in again {
             let Some(told) = self.hatches.nodes.get(&id) else {
                 continue;
             };
@@ -384,7 +384,9 @@ impl<D: DataSource> Presenter<D> {
                     self.hatches.overlays.remove(&id);
                 }
             }
-            self.hatches.overlay_event(&word, false);
+            if published {
+                self.hatches.overlay_event(&word, false);
+            }
             self.host.row_dirty.node(key);
             self.dirty = true;
         }
@@ -743,8 +745,9 @@ impl<D: DataSource> Presenter<D> {
     /// The agent's `tap` is a press at a point with no down or up of its
     /// own: its observers hear both, the up with what the press did.
     pub(crate) fn hatch_tapped(&mut self, mark: Option<Mark>, x: f32, y: f32) {
-        let Some(mark) = mark else { return };
+        // No pointer is down after a tap, whoever heard it.
         self.hatches.capture = None;
+        let Some(mark) = mark else { return };
         let unmoved = Mark {
             seq: self.hatch_progress().0,
             scrolled: self.hatch_progress().1,
