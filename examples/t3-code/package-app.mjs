@@ -7,10 +7,11 @@
 //
 // 1. Export: `git archive <ref>` (default HEAD; uncommitted changes are not part of it) into
 //    `<work>/exact2`, a fresh folder outside every checkout (default `/tmp/t3-code-package`).
-// 2. Build there, under `sandbox-exec` with a profile that denies reading and writing this checkout,
-//    `~/.t3` and every --deny (the reference checkout, another tree): `bun install`, the pinned stage
-//    step (stage-runtime.mjs, its cache `<work>/runtime-cache` — the only network use, once), the
-//    terminal page, and `host/apple/build.mjs t3-code-macos --bundle --distribution` ad hoc signed
+// 2. Build there, under `sandbox-exec` profiles that deny reading and writing this checkout, `~/.t3`
+//    and every --deny (the reference checkout, another tree): first the pinned stage step
+//    (stage-runtime.mjs, its cache `<work>/runtime-cache`: the only network use, once;
+//    `sandbox-stage.sb`), then with outbound connections denied too (`sandbox.sb`) `bun install
+//    --offline`, the terminal page, and `host/apple/build.mjs t3-code-macos --bundle --distribution` ad hoc signed
 //    (`EXACT_IDENTITY=-`; decision U11), with Rust's source paths remapped (the checkout to ``, Cargo's
 //    home to `cargo`, std to `/rustc/<commit>`) so no build-machine path is compiled in.
 // 3. Package: a copy of the bundle with every Mach-O file's local symbols stripped (`strip -x`), the
@@ -23,7 +24,8 @@
 //    the export folder as a build root; a finding fails the package.
 //
 // Outputs go to `<out>` (default `target/t3-package` in this checkout): the zip, `SHA256SUMS`,
-// `build.log`, `audit.txt`, `sandbox.sb`. No private key is read: an ad hoc signature names none.
+// `build.log`, `audit.txt`, `sandbox-stage.sb`, `sandbox.sb`. No private key is read: an ad hoc
+// signature names none.
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -43,11 +45,14 @@ export function clientVersion(dir = here) {
 }
 export const archiveName = (version) => `T3-Code-${version}-arm64.zip`;
 
-/** The SBPL profile the build runs under: everything allowed but these trees (read or written). */
-export function sandboxProfile(denied) {
+/**
+ * The SBPL profile each phase runs under: everything allowed but these trees (read or written), and
+ * with `offline` no outbound IP connection (the build after the stage step needs no network).
+ */
+export function sandboxProfile(denied, { offline = false } = {}) {
   const paths = [...new Set(denied.map(path => resolve(path)))];
   const subpaths = paths.map(path => `(subpath ${JSON.stringify(path)})`).join(' ');
-  return `(version 1)\n(allow default)\n(deny file-read* file-write* ${subpaths})\n`;
+  return `(version 1)\n(allow default)\n(deny file-read* file-write* ${subpaths})\n${offline ? '(deny network-outbound (remote ip "*:*"))\n' : ''}`;
 }
 
 /** rustc's remaps for the app's own target: no checkout, Cargo home or toolchain path is compiled in. */
@@ -83,8 +88,8 @@ function step(log, cmd, args, opts = {}) {
   return result;
 }
 
-/** Inside the export (and the sandbox): stage, build, package. Writes `<work>/out`. */
-async function inside(work) {
+/** Inside the export (and the sandbox): the stage step (`stage`, online), or the build and package (`build`, offline). Writes `<work>/out`. */
+async function inside(work, phase) {
   const exportRoot = root, out = join(work, 'out'), log = join(out, 'build.log');
   const sandboxed = !!process.env.T3_PACKAGE_SANDBOXED;
   const env = { ...process.env, EXACT_APP_DIR: here, EXACT_IDENTITY: '-', T3_RUNTIME_CACHE: join(work, 'runtime-cache'),
@@ -94,10 +99,13 @@ async function inside(work) {
     ...(sandboxed ? { PATH: `${join(work, 'bin')}:${process.env.PATH}` } : {}) };
   const run = (cmd, args) => step(log, cmd, args, { cwd: exportRoot, env });
   const bun = process.execPath;
-  run(bun, ['install', '--frozen-lockfile']);
-  // The server's own spawns fail with EPERM under sandbox-exec (embedded-server-runtime), so the stage
-  // step's start-and-probe runs only outside one; the archive is the pin's bytes either way.
-  run(bun, ['examples/t3-code/stage-runtime.mjs', ...(sandboxed ? ['--no-smoke'] : [])]);
+  if (phase === 'stage') {
+    // The server's own spawns fail with EPERM under sandbox-exec (embedded-server-runtime), so the stage
+    // step's start-and-probe runs only outside one; the archive is the pin's bytes either way.
+    run(bun, ['examples/t3-code/stage-runtime.mjs', ...(sandboxed ? ['--no-smoke'] : [])]);
+    return;
+  }
+  run(bun, ['install', '--frozen-lockfile', '--offline']);
   run(bun, ['examples/t3-code/terminal-host/build.mjs']);
   const built = run(bun, ['host/apple/build.mjs', 't3-code-macos', '--bundle', '--distribution']);
   const bundle = /^local client: (.+\.app)$/m.exec(`${built.stdout}`)?.[1];
@@ -166,23 +174,27 @@ async function outside(args) {
   if (archive.status !== 0) throw new Error('git archive failed');
   console.log(`package-app: exported ${sha} to ${exportRoot}`);
 
-  // Denied to the build: this checkout, the real T3 home, and whatever else the caller names.
+  // Denied to both phases: this checkout, the real T3 home, and whatever else the caller names. The
+  // stage step may download (once: its cache is kept beside the export); the build may not connect out.
   const denied = [root, join(homedir(), '.t3'), ...take('--deny')];
-  const profile = join(work, 'sandbox.sb');
-  writeFileSync(profile, sandboxProfile(denied));
+  const profiles = { stage: join(work, 'sandbox-stage.sb'), build: join(work, 'sandbox.sb') };
+  writeFileSync(profiles.stage, sandboxProfile(denied));
+  writeFileSync(profiles.build, sandboxProfile(denied, { offline: true }));
   mkdirSync(join(work, 'bin'), { recursive: true });
   writeFileSync(join(work, 'bin/swift'), SWIFT_WRAPPER, { mode: 0o755 });
   const started = Date.now();
-  const command = [process.execPath, join(exportRoot, 'examples/t3-code/package-app.mjs'), '--inside', work];
-  const result = spawnSync(sandboxed ? '/usr/bin/sandbox-exec' : command[0], sandboxed ? ['-f', profile, ...command] : command.slice(1), {
-    cwd: exportRoot, stdio: 'inherit', env: { ...process.env, T3_PACKAGE_SANDBOXED: sandboxed ? '1' : '' } });
-  if (result.status !== 0) throw new Error(`the packaged build failed (exit ${result.status}); see ${join(work, 'out/build.log')}`);
+  for (const phase of ['stage', 'build']) {
+    const command = [process.execPath, join(exportRoot, 'examples/t3-code/package-app.mjs'), '--inside', work, phase];
+    const result = spawnSync(sandboxed ? '/usr/bin/sandbox-exec' : command[0], sandboxed ? ['-f', profiles[phase], ...command] : command.slice(1), {
+      cwd: exportRoot, stdio: 'inherit', env: { ...process.env, T3_PACKAGE_SANDBOXED: sandboxed ? '1' : '' } });
+    if (result.status !== 0) throw new Error(`the packaged build's ${phase} phase failed (exit ${result.status}); see ${join(work, 'out/build.log')}`);
+  }
   const seconds = ((Date.now() - started) / 1000).toFixed(0);
 
   mkdirSync(out, { recursive: true });
   const zipName = archiveName(clientVersion());
   for (const name of [zipName, 'SHA256SUMS', 'build.log']) copyFileSync(join(work, 'out', name), join(out, name));
-  copyFileSync(profile, join(out, 'sandbox.sb'));
+  for (const file of Object.values(profiles)) copyFileSync(file, join(out, basename(file)));
   writeFileSync(join(out, 'build.log'), `\nexported ${sha}; built in ${seconds} s${sandboxed ? ' under sandbox-exec (sandbox.sb)' : ' without a sandbox (--no-sandbox)'}\n`, { flag: 'a' });
 
   const { audit, formatReport } = await import('./audit-bundle.mjs');
@@ -196,6 +208,6 @@ async function outside(args) {
 
 if (import.meta.main) {
   const args = process.argv.slice(2);
-  const run = args[0] === '--inside' ? inside(resolve(args[1])) : outside(args);
+  const run = args[0] === '--inside' ? inside(resolve(args[1]), args[2]) : outside(args);
   run.catch((error) => { console.error(`package-app: ${error.message}`); process.exit(1); });
 }

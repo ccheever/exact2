@@ -129,13 +129,16 @@ final class T3LocalRuntime {
             try? FileManager.default.removeItem(at: staging)
             return .failed(reason)
         }
-        if let error = Self.spaceShortfall(needed: manifest.bytes, free: freeSpace(versions), folder: versions) { return fail(error) }
+        // The tree's bytes plus a block for each entry: what the unpack really takes, so a disk with
+        // only the bytes' room is said to be full before tar runs out of it half way.
+        let needed = manifest.bytes + manifest.entries.count * 4096
+        if let error = Self.spaceShortfall(needed: needed, free: freeSpace(versions), folder: versions) { return fail(error) }
         progress("extract", 0)
         hold()
         if let error = extract(archive, into: staging, entries: manifest.entries.count) {
             // Measured once the partial tree is gone: a full disk is said as such, not as tar's write error.
             try? FileManager.default.removeItem(at: staging)
-            return .failed(Self.spaceShortfall(needed: manifest.bytes, free: freeSpace(versions), folder: versions) ?? error)
+            return .failed(Self.spaceShortfall(needed: needed, free: freeSpace(versions), folder: versions) ?? error)
         }
         progress("extract", 0.5)
         hold()

@@ -95,7 +95,7 @@ describe('audit-bundle', () => {
   test('a clean bundle and its first-launch tree have no findings; allowed hits carry their reasons', () => {
     const report = run(bundle('clean'), firstLaunch('clean'));
     expect(report.findings).toEqual([]);
-    expect(report.signature.kind).toBe('ad hoc');
+    expect(report.signature).toMatchObject({ kind: 'ad hoc', teamId: null });
     expect(report.allowed.map((group: { reason: string }) => group.reason)).toEqual(['a CI path named in a note']);
     expect(report.totals.machO).toBe(3);
     expect(formatReport(report)).toContain('findings: 0');
@@ -121,6 +121,16 @@ describe('audit-bundle', () => {
       .toEqual(['machine-path /Users/someone-else/exact2/kernel (1×)', 'machine-path /Users/builder/exact2/target/x (1×)']);
     const buildHit = run(bundle('build', { notes: 'from /opt/homebrew/bin/node\n' }));
     expect(buildHit.findings).toEqual([{ rule: 'build-path', scope: 'bundle', file: 'Contents/Resources/notes.txt', detail: '/opt/homebrew/bin/node (1×)' }]);
+  });
+
+  test('a build root is a build path: allowed only by its entry', () => {
+    const root = join(scratch, 'export-root');
+    const app = bundle('build-root', { notes: `compiled from ${root}/vendor/x.js\n` });
+    const report = audit(app, { allowlistPath: join(parts, 'allowlist.json'), machine, buildRoots: [root] });
+    expect(report.findings).toEqual([{ rule: 'build-path', scope: 'bundle', file: 'Contents/Resources/notes.txt', detail: `${root}/vendor/x.js (1×)` }]);
+    writeFileSync(join(parts, 'allowlist-root.json'), JSON.stringify({ ...JSON.parse(readFileSync(join(parts, 'allowlist.json'), 'utf8')),
+      allow: [{ scope: 'bundle', file: 'Contents/Resources/notes.txt', text: `^${root}/vendor/`, reason: 'the fixed export folder' }] }));
+    expect(audit(app, { allowlistPath: join(parts, 'allowlist-root.json'), machine, buildRoots: [root] }).findings).toEqual([]);
   });
 
   test('leftover development files and files no pattern covers', () => {

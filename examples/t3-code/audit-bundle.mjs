@@ -278,7 +278,7 @@ export function audit(app, { t3Home = null, forbid = [], buildRoots = [], allowl
   return {
     app: bundle, t3Home: t3Home ? resolve(t3Home) : null, installed, minimumOS, bundleId: info.CFBundleIdentifier ?? null,
     signature: { verify: verify.status === 0 ? 'valid on disk, satisfies its Designated Requirement' : verify.stderr.trim(),
-      kind: /Signature=adhoc/.test(signer) ? 'ad hoc' : (/Authority=([^\n]+)/.exec(signer)?.[1] ?? 'unknown'), teamId: /TeamIdentifier=(\S+)/.exec(signer)?.[1] ?? null },
+      kind: /Signature=adhoc/.test(signer) ? 'ad hoc' : (/Authority=([^\n]+)/.exec(signer)?.[1] ?? 'unknown'), teamId: /TeamIdentifier=(.+)/.exec(signer)?.[1]?.replace(/^not set$/, '') || null },
     machine, totals, findings, allowed: summarizeAllowed(allowed),
   };
 }
@@ -300,7 +300,7 @@ export function formatReport(report, redact = []) {
   const clean = (text) => redact.reduce((value, [from, to]) => value.split(from).join(to), String(text));
   const lines = [
     `audit-bundle: ${clean(report.app)}`,
-    `  signature: ${report.signature.kind}${report.signature.teamId && report.signature.teamId !== 'not set' ? ` (team ${report.signature.teamId})` : ''}; codesign --verify --deep --strict: ${clean(report.signature.verify)}`,
+    `  signature: ${report.signature.kind}${report.signature.teamId ? ` (team ${report.signature.teamId})` : ' (no team)'}; codesign --verify --deep --strict: ${clean(report.signature.verify)}`,
     `  bundle id ${report.bundleId}; stated minimum macOS ${report.minimumOS}`,
     `  scanned ${report.totals.files} files (${(report.totals.bytes / 1048576).toFixed(1)} MiB), ${report.totals.machO} Mach-O files${report.installed ? `; runtime tree ${clean(report.installed)} (${report.totals.runtimeFiles} files checked against the manifest)` : '; no first-launch tree (--t3-home not given)'}`,
     `  machine paths searched: ${report.machine.map(clean).join(', ')}`,
