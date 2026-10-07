@@ -1,5 +1,5 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
-// Unchanged body from examples/t3-code/client.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Unchanged body from examples/t3-code/client.ts at 38352ceaf4cd35a40b7b24ce992db87c2357a99b.
 import { snapshotShortcut } from './snapshot-shortcut';
 import { snapshotIdentity, snapshotDefaultProject, snapshotDestinationExists, withoutSnapshot, snapshotNoProjectMessage, snapshotFailureMessage } from './snapshot-adopt';
 import { decodeClientPrefs, type ClientPrefs } from './settings-core';
@@ -22,6 +22,7 @@ import { READ_OPS, WRITE_OPS, runOps, type OpOut } from './client-ops';
 import { groupingModes, message, projectPath } from './client-shared';
 import { letGo } from './let-go';
 import { fleet } from './settings-b-fleet';
+import { readLocalBackend, unknownLocalBackend, type LocalBackendStatus } from './local-backend';
 import { groupLabel } from './r6-polish-groups';
 import { adoptModelPrefs } from './settings-b-models';
 import { type RequestDraft } from './requests';
@@ -57,6 +58,8 @@ const scopeStrings = (value: unknown): string[] => Array.isArray(value) ? value.
 const DEFAULT_ORIGIN = 'http://127.0.0.1:3773'; // T3's default server address (README)
 export class T3Client {
   available = false;
+  /** The embedded server's status (local-backend.ts); "This machine" reads it. */
+  localBackend: LocalBackendStatus = unknownLocalBackend();
   revision = 0;
   generation = -1;
   environmentId = '';
@@ -309,6 +312,7 @@ export class T3Client {
       this.adoptStatus(obj(status.value), status.generation);
       await reconnectOnLaunch(this, native, obj(status.value)); // r8-pointer D14: a relaunch reconnects (r8-pointer-reconnect.ts)
       await fleet.sync(native, launchFocus(this)); // settings-b: background environments (settings-b-fleet.ts)
+      this.localBackend = await readLocalBackend(native); // the embedded server (local-backend.ts)
       await this.flushSnapshotReleases(native, storage);
       if (this.connection !== 'connected') { if (this.local.deviceSettings.snapShotEnabled) await this.adoptSnapshots(native, storage); return; }
       if (this.synchronizedGeneration !== this.generation) await this.synchronize(native);

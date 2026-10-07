@@ -63,6 +63,9 @@ final class T3MobileModule: ExactModule {
         let generation = request["generation"] as? Int ?? 0
         func answer(_ value: [String: Any] = [:]) { reply.send(["ok": true, "generation": generation, "value": value]) }
         switch request["op"] as? String {
+        case "localBackendStatus":
+            // Shared client38352ce also asks mobile. iOS has no embedded server runtime.
+            answer(["state": "refused", "refused": "Local T3 servers are not available on iOS."])
         case "mobileHomePreferences", "mobileToggleShelf", "mobilePreferences", "mobilePreferencesPatch":
             homePreferences.perform(request, reply: reply)
         case "mobileMediaShare":

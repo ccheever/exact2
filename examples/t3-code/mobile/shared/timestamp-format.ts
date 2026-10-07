@@ -1,13 +1,13 @@
 // GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
-// Unchanged body from examples/t3-code/timestamp-format.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// Unchanged body from examples/t3-code/timestamp-format.ts at 38352ceaf4cd35a40b7b24ce992db87c2357a99b.
 // Timestamps in the Mac's locale (task desktop-shell-details). Reference apps/web/src/timestampFormat.ts
 // (1e2ecbd975; MIT, see LICENSE-T3): resolveTimestampLocale, resolveWeekStartsOn and the cached
 // wall-clock formatters. The desktop host reports the system locale (Electron's
 // app.getSystemLocale() with `_` → `-`; here the native module's `systemLocale`, T3Locale.swift,
 // read with the status presentation). The packaged Electron app's runtime default locale is en-US
 // (it ships only that Chromium locale), while the macOS data runtime's default follows the Mac's
-// region (en-KR on a Korean Mac, #118), so a call the reference leaves at the runtime default
-// passes RUNTIME_LOCALE here.
+// region (en-KR on a Korean Mac; exact2 docs/reference.md: pass the locale explicitly), so a call
+// the reference leaves at the runtime default passes RUNTIME_LOCALE here.
 export const RUNTIME_LOCALE = 'en-US';
 
 /**
@@ -32,8 +32,8 @@ type LocaleWithWeekInfo = { readonly weekInfo?: { readonly firstDay: number }; g
 
 /**
  * First weekday of a locale as a `Date#getDay` index (0 is Sunday), or `undefined` when the runtime
- * has no week data, so callers keep their own default. The macOS data runtime has no `Intl.Locale`
- * (#118): there it answers `undefined`.
+ * has no week data, so callers keep their own default. The macOS data runtime has `Intl.Locale` and
+ * `getWeekInfo()` with Chrome's values since exact2 #204 (#118).
  */
 export function resolveWeekStartsOn(locale: string | undefined): WeekdayIndex | undefined {
   try {
