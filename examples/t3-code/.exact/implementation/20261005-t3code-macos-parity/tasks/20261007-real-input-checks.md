@@ -7,8 +7,8 @@ delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-real-input-checks
-pr_url: null
-verified_commit: null
+pr_url: https://github.com/ccheever/exact2/pull/213
+verified_commit: 9cd6c49cb
 ---
 
 # The real-input checks left open by #206 and #207
