@@ -782,7 +782,11 @@ export async function paintingHatchSmoke({ host, open, check: record, shots }) {
 
     // What a hatch says of itself, and what Exact timed (§3.1–§3.3).
     await s.tap('compose-home'); await s.clock('settle');
-    badge = (await hatches(s)).words?.badge;
+    // The same press changes the root's `data-mood`: the root's words are the app hatch's (§2.5).
+    const mooded = await hatches(s);
+    check(told.app?.mood === 'calm' && mooded.scopes?.module?.published?.app?.mood === 'busy' && mooded.scopes?.app?.calls?.changed === 1,
+      `${host} hatches: the app hatch reads the root's data words, and a word's change is one changed moment: ${JSON.stringify(told.app)} → ${JSON.stringify(mooded.scopes?.module?.published?.app)} ${JSON.stringify(mooded.scopes?.app?.calls)}`);
+    badge = mooded.words?.badge;
     check(badge?.calls?.built === 1 && badge.calls.changed === 1 && badge.live === 1 && badge.counters?.built === 1 && badge.counters.changed === 1 && badge.published?.tone?.tone === 'busy',
       `${host} hatches: state.hatches counts the badge's calls and carries its counters and snapshot: ${JSON.stringify(badge)}`);
     lines = (await journal(s)).filter((l) => /hatch element badge: /.test(l));
@@ -856,10 +860,11 @@ export async function paintingHatchSmoke({ host, open, check: record, shots }) {
     await s.tap('back');
     await until(s, 'Back pops the detail route', (t) => !byTestId(t, 'route-detail'));
 
-    // A fact that changes is told to the app hatch, once.
+    // A fact that changes is told to the app hatch, once (the root's word was the call before it).
+    const toldBefore = (await hatches(s)).scopes?.app?.calls?.changed;
     await s.prefer({ 'prefers-color-scheme': 'dark' });
     h = await hatches(s);
-    check(h.scopes?.app?.calls?.changed === 1 && h.scopes.module?.published?.scopes?.scheme === 'dark', `${host} hatches: a changed fact is one call to the app hatch: ${JSON.stringify(h.scopes?.app)}`);
+    check(h.scopes?.app?.calls?.changed === toldBefore + 1 && h.scopes.module?.published?.scopes?.scheme === 'dark', `${host} hatches: a changed fact is one call to the app hatch: ${JSON.stringify(h.scopes?.app)} after ${toldBefore}`);
     await s.prefer({ 'prefers-color-scheme': 'light' });
 
     // A list whose rows each hold a hatched node: each dot is under its

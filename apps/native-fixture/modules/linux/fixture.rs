@@ -96,10 +96,11 @@ impl Hatches for Fixture {
         context.diagnostics().publish(
             "app",
             &format!(
-                "{{\"processOwner\":{},\"hasApplication\":false,\"visibilityState\":{},\"onLine\":{}}}",
+                "{{\"processOwner\":{},\"hasApplication\":false,\"visibilityState\":{},\"onLine\":{},\"mood\":{}}}",
                 app.process_owner,
                 quoted(app.visibility_state),
-                app.on_line
+                app.on_line,
+                quoted(app.data.get("mood").map_or("", String::as_str))
             ),
         );
         self.publish_scopes(

@@ -106,7 +106,13 @@ impl<D: DataSource> Presenter<D> {
             self.host.runner().page(),
             self.host.runner().viewport().preferences,
         );
+        let data = (self.host.roots().first())
+            .and_then(|&root| self.host.kernel().node(root))
+            .and_then(|node| node.props.str(PropId::Dataset))
+            .map(words)
+            .unwrap_or_default();
         let app = App {
+            data,
             visibility_state: if page.hidden { "hidden" } else { "visible" },
             on_line: page.on_line,
             prefers_color_scheme: if preferences.dark { "dark" } else { "light" },
