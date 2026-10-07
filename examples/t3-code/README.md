@@ -286,8 +286,8 @@ terminal. This is renderer evidence; the drawer and PTY session integrations bel
   their invoker (`position-area`) but never flip near a window edge (#112); SVG paths cannot morph (morph icons cross-fade); backdrop blur sees only
   its parent (the composer is opaque, where the reference's glass shows the transcript
   through it); a textarea sizes to its plain value (a prompt whose chip links are long
-  can be a line taller than its chips draw at narrow widths); a forgotten Exact answer drops its native replies (#109; the snapshot read gate
-  in `T3ReadGate.swift` limits the effect), so a cache that another answer could await
+  can be a line taller than its chips draw at narrow widths); an Exact answer replaced for new arguments drops its native replies (LLP 1016 D5;
+  a watched topic's re-ask no longer does since exact2 #183), so a cache that another answer could await
   shares resolved values only (`readDetail` in `r6-pr-actions.ts`); data sources have no clock; every
   editable textarea has `autocorrect="off"`, which keeps the typed bytes on macOS since
   exact2 #111 (`text-entry.test.ts` checks it). Workarounds
@@ -310,12 +310,12 @@ names they read as props of the same names. Feature areas live in their own file
 event projection. `modules/apple/` is the native module; `apple/` holds the bake adapter
 and native tests. T3's MIT notice is retained in `LICENSE-T3`.
 
-Exact asks an answer again when a topic it watches changes, and an answer it lets go
-never receives its pending native replies. The snapshot read therefore tags its native
-requests (`r3-protocol-reader.ts`) and `T3ReadGate.swift` holds the topics that read
-watches until its last reply, replays them once, and asks again after a read that
-stopped mid-way. Each WebSocket RPC carries a trace id the transport lists while it is
-pending, so "Some requests are slow" counts only requests the server has not answered.
+Exact asks an answer again when a topic it watches changes. Since exact2 #183 a change
+that arrives while the snapshot read is in flight lets that read's reply land and then asks
+once more, so the topics go straight to Exact (the app's read gate is gone). An answer Exact
+replaces for new arguments still never receives its pending native replies, so each
+WebSocket RPC carries a trace id the transport lists while it is pending, and "Some requests
+are slow" counts only requests the server has not answered.
 The transport follows the reference's reconnect policy (jittered 1 s·2ⁿ⁺¹ ladder capped at
 five minutes, reset after 30 s connected; Retry, returning to the app and an offline report
 probe the live socket instead of replacing it) and resubscribes a failed stream on the same

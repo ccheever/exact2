@@ -6,7 +6,7 @@ import { quitMode } from './palette-native';
 import { shellFailure, shellSuccess, settingsFailure } from './shell-commands';
 import { trackRpc } from './shell-slow';
 import { configEventSideEffects } from './r3-protocol-config';
-import { beginRead, traceRpc, statusTicket, settleTraces } from './r3-protocol-reader';
+import { traceRpc, statusTicket, settleTraces } from './r3-protocol-reader';
 import { compatibilityProblem } from './r3-protocol-outdated';
 import { type ComposerControlsPrefs, emptyComposerControls, decodeComposerControls, applySticky, applyStaged } from './composer-controls';
 import { adoptStash } from './composer-editor-stash';
@@ -288,8 +288,6 @@ export class T3Client {
   async refresh(native: Native | null | undefined, storage: Files): Promise<void> {
     if (!native?.available) { this.available = false; return; }
     const epoch = ++this.nextRefreshEpoch;
-    // The read gate holds this read's topics until it ends (r3-protocol-reader.ts, T3ReadGate.swift).
-    const read = beginRead(native, epoch); native = read.native;
     native.watch('t3.status'); native.watch('t3.events');
     native.watch('t3.notify'); // r13-threads: a command's wake redraws the composer (Send's "Preparing machine")
     try {
@@ -328,7 +326,7 @@ export class T3Client {
       if (epoch < this.refreshEpoch) return;
       this.available = true;
       if (!(error instanceof ClientError && ['stale', 'superseded'].includes(error.kind))) this.error = message(error);
-    } finally { await read.end(); }
+    }
   }
 
   async synchronize(native: Native): Promise<void> {
