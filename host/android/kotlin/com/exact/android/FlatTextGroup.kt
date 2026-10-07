@@ -19,7 +19,6 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityNodeProvider
 import kotlin.math.ceil
 import kotlin.math.floor
-import kotlin.math.roundToInt
 
 /**
  * One existing Box hosts an ordered group of passive
@@ -56,6 +55,7 @@ internal class FlatTextGroup(
         var paddingTop = 0f
         var paddingRight = 0f
         var paddingBottom = 0f
+        var textWidth = 0
         var clip = false
         var ellipsis = false
     }
@@ -181,9 +181,8 @@ internal class FlatTextGroup(
                     }
                 }
                 canvas.translate(leaf.paddingLeft, leaf.paddingTop)
-                val offer = (width - leaf.paddingLeft - leaf.paddingRight).coerceAtLeast(0f).roundToInt()
-                if (cacheText) drawCachedText.draw(leaf.id, canvas, offer, leaf.textColor, leaf.ellipsis)
-                else drawText.draw(leaf.id, canvas, offer, leaf.textColor, leaf.ellipsis)
+                if (cacheText) drawCachedText.draw(leaf.id, canvas, leaf.textWidth, leaf.textColor, leaf.ellipsis)
+                else drawText.draw(leaf.id, canvas, leaf.textWidth, leaf.textColor, leaf.ellipsis)
                 completedLeaves++
             } finally { canvas.restoreToCount(saved) }
         }

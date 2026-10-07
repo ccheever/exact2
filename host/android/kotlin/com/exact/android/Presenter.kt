@@ -25,6 +25,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.nio.ByteBuffer
 import java.util.IdentityHashMap
+import kotlin.math.ceil
 import kotlin.math.roundToInt
 
 /** Android Views retain their hardware RenderNodes; Rust is the sole layout owner. */
@@ -252,6 +253,8 @@ internal class Presenter(
         }
         val controlInset = FloatArray(4) { widths[CONTENT_TO_BORDER[it]] }
         val inset = FloatArray(4) { controlInset[it] + number(style, "padding_${CONTENT_SIDES[it]}") * scale }
+        val logicalTextInset = (number(style, "padding_left") + number(style, "border_width_left")) +
+            (number(style, "padding_right") + number(style, "border_width_right"))
         val ellipsis = style.optString("text_overflow") == "ellipsis"
         val visible = style.optString("display") != "none" && style.optString("visibility") != "hidden"
         val overflowX = style.optString("overflow_x", "visible")
@@ -291,6 +294,8 @@ internal class Presenter(
         private var editorChanged = false
         private var editorType = -1
         val frame = Rect()
+        var logicalWidth = 0f
+        private var logicalTextInset = 0f
         private var imageSource: String? = null
         var tx = 0f; var ty = 0f; var sx = 1f; var angle = 0f
         var lx = 0f; var ly = 0f; var lw = 1f; var lh = 1f
@@ -414,10 +419,9 @@ internal class Presenter(
             box.touchDispatch = { event -> contact(this, event) }
             if (control != null) box.addView(control)
             if (kind == "text") box.paintText = { canvas ->
-                val width = (box.width - inset[0] - inset[2]).coerceAtLeast(0f)
                 val saved = canvas.save()
                 canvas.translate(inset[0], inset[1])
-                text.draw(key, canvas, width.roundToInt(), textColor, ellipsis)
+                text.draw(key, canvas, textOfferWidth(), textColor, ellipsis)
                 canvas.restoreToCount(saved)
             }
             box.id = View.generateViewId()
@@ -479,9 +483,16 @@ internal class Presenter(
             next.radius = radii[0]
             next.paddingLeft = inset[0]; next.paddingTop = inset[1]
             next.paddingRight = inset[2]; next.paddingBottom = inset[3]
+            next.textWidth = textOfferWidth()
             next.clip = clipContents
             next.ellipsis = ellipsis
             return next
+        }
+        private fun textOfferWidth(): Int {
+            // TextEngine.measure ceilings the logical content offer in pixels.
+            // Rounded native View bounds must not narrow that offer at draw time.
+            val content = (logicalWidth - logicalTextInset).coerceAtLeast(0f)
+            return ceil((content * scale).toDouble()).toInt()
         }
         fun detachFlat() { flatParent = null; leaf = null; flatOriginX = 0; flatOriginY = 0 }
         fun updateFlat() {
@@ -527,6 +538,7 @@ internal class Presenter(
                 decoded.radii.copyInto(radii)
                 decoded.controlInset.copyInto(controlInset)
                 decoded.inset.copyInto(inset)
+                logicalTextInset = decoded.logicalTextInset
             } else {
                 for (side in 0..3) borderWidths[side] = number(style, "border_width_${BORDER_SIDES[side]}") * scale
                 for (corner in 0..3) {
@@ -538,6 +550,8 @@ internal class Presenter(
                     controlInset[axis] = number(style, "border_width_$side") * scale
                     inset[axis] = controlInset[axis] + number(style, "padding_$side") * scale
                 }
+                logicalTextInset = (number(style, "padding_left") + number(style, "border_width_left")) +
+                    (number(style, "padding_right") + number(style, "border_width_right"))
             }
             ellipsis = decoded?.ellipsis ?: (style.optString("text_overflow") == "ellipsis")
             buttonFill?.cornerRadii = radii
@@ -1243,9 +1257,14 @@ internal class Presenter(
         // The shared host also lays out kernel-only native-control contents.
         // Like Apple, geometry needs an existing presentation target.
         val n = nodes[id] ?: return
+        val textWidthChanged = n.kind == "text" && n.logicalWidth != w
+        n.logicalWidth = w
         val left = (x * scale).roundToInt(); val top = (y * scale).roundToInt()
         val width = (w * scale).roundToInt(); val height = (h * scale).roundToInt()
         n.frame.set(left, top, left + width, top + height)
+        // A fractional resize can change the paragraph offer while leaving
+        // rounded View bounds unchanged. Its display list still needs a redraw.
+        if (textWidthChanged) n.invalidatePaint()
         n.nativeBox()?.let { widget -> (widget.parent as? Box)?.place(widget, left, top, width, height) }
         markParent(n)
         n.placeControl()
