@@ -186,3 +186,13 @@ The local fixtures exercise supported controls without providing those prerequis
   were checked. Staged `git diff --check` and `bun scripts/caps.mjs` passed.
 - Only `.exact` Markdown records changed. No product implementation or regression-test suite
   was changed; the full Cargo/boot gate and future task acceptance matrices were not run.
+
+## Publication
+
+The user authorized publication and merge of these tracking records on 2026-10-07.
+[PR #241](https://github.com/ccheever/exact2/pull/241) targets `feat(example)/t3-code`.
+The reviewed audit content is commit `7438bce85bdb6633999c1c404ec8bb1763b9a225`.
+Independent read-only review found no blockers and validated the 13-file documentation scope,
+seven unique indexed tasks, 46 added relative links and absence of credential-bearing additions.
+This publication entry is bookkeeping only. Publishing the records does not change the future
+tasks' implementation, verification or delivery status.
