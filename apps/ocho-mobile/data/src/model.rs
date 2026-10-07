@@ -22,6 +22,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 
 /// A failed poll's kind, for telemetry.
+/// The platform's description of a failed request, without the fetch
+/// wrapper ("TypeError: Failed to fetch — ").
+fn system_error(why: &str) -> String {
+    let line = why.lines().next().unwrap_or("").trim();
+    let line = line.rsplit(" — ").next().unwrap_or(line).trim();
+    line.chars().take(120).collect()
+}
+
 fn failure_kind((status, why): &(u16, String)) -> &'static str {
     let lower = why.to_lowercase();
     match status {
@@ -30,12 +38,8 @@ fn failure_kind((status, why): &(u16, String)) -> &'static str {
         }
         401 | 403 => "refused",
         0 if lower.contains("timed out") => "timeout",
-        0 if lower.contains("offline")
-            || lower.contains("network")
-            || lower.contains("internet") =>
-        {
-            "offline"
-        }
+        0 if lower.contains("appears to be offline") => "offline",
+        0 if lower.contains("connection was lost") => "lost",
         0 => "network",
         _ => "http",
     }
@@ -50,13 +54,10 @@ fn poll_failure((status, why): &(u16, String)) -> String {
         }
         401 | 403 => "It refused this pairing. Pair again from Pair Phone.".into(),
         0 if lower.contains("timed out") => "The relay didn't answer in time.".into(),
-        0 if lower.contains("offline")
-            || lower.contains("network")
-            || lower.contains("internet") =>
-        {
-            "This phone is offline.".into()
-        }
-        0 => why.lines().next().unwrap_or("").trim().to_string(),
+        // iOS's own words: "appears to be offline" is the phone; "the
+        // network connection was lost" is a connection that died.
+        0 if lower.contains("appears to be offline") => "This phone is offline.".into(),
+        0 => system_error(why),
         status => format!(
             "The relay answered {status}: {}",
             why.lines().next().unwrap_or("").trim()
@@ -298,6 +299,10 @@ pub struct Model {
 
     /// The page was seen visible and online at the last ask.
     awake: Option<bool>,
+    /// What iOS last said of the network path, to report when it changes.
+    online: Option<bool>,
+    /// Shown last, to tell coming back to the foreground from a network blip.
+    visible: Option<bool>,
 
     /// Health and funnel events, and the lane that sends them.
     pub telemetry: Telemetry,
@@ -518,9 +523,27 @@ impl Model {
     pub fn page(&mut self, visible: bool, online: bool) {
         let awake = visible && online;
         let was = self.awake.replace(awake);
+        let was_visible = self.visible.replace(visible);
+        let came_back = visible && was_visible == Some(false);
+        if self
+            .online
+            .replace(online)
+            .is_some_and(|before| before != online)
+        {
+            // iOS's own word on the network path, against the failures it
+            // explains (or doesn't).
+            self.telemetry.track(
+                self.now,
+                "network.change",
+                !online,
+                vec![("online", online.into())],
+            );
+        }
         if awake && was == Some(false) {
-            self.telemetry
-                .track(self.now, "app.foreground", false, vec![]);
+            if came_back {
+                self.telemetry
+                    .track(self.now, "app.foreground", false, vec![]);
+            }
             for lane in [
                 &mut self.poll,
                 &mut self.transcript,
@@ -537,7 +560,11 @@ impl Model {
                 let out = std::mem::take(&mut self.reads_out);
                 self.read_queue.extend(out);
             }
-            self.poll.failures = 0;
+            // A fresh start after the app was away; a network blip while
+            // shown is not one, or failures never add up to a failover.
+            if came_back {
+                self.poll.failures = 0;
+            }
             self.version += 1;
         } else if !awake {
             // The poll in flight is forgotten when the page is re-asked; the
@@ -920,11 +947,12 @@ impl Model {
             None => {
                 if self.poll.failures == 0 {
                     self.failing_since = self.now;
-                    self.track(
-                        "poll.failure",
-                        true,
-                        vec![("kind", kind.into()), ("status", status.into())],
-                    );
+                    let mut attrs = vec![("kind", kind.into()), ("status", status.into())];
+                    // The platform's own words (never the app's content).
+                    if status == 0 {
+                        attrs.push(("error", why.clone().into()));
+                    }
+                    self.track("poll.failure", true, attrs);
                 }
                 self.poll_error = if why.is_empty() {
                     "Its server answered with something this app doesn't understand.".into()

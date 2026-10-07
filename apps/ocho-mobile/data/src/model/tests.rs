@@ -849,3 +849,35 @@ fn transcript_reads_ask_only_for_what_changed() {
     let (url, _) = m.transcript_request().unwrap();
     assert!(url.ends_with("?revision=r2&have=3&base=b2"), "{url}");
 }
+
+#[test]
+fn a_network_blip_does_not_reset_the_failures_a_failover_counts() {
+    let mut m = paired();
+    m.page(true, true);
+    m.poll.failures = 2;
+    m.page(true, false);
+    m.page(true, true);
+    assert_eq!(m.poll.failures, 2, "a blip while shown keeps the count");
+    m.page(false, true);
+    m.page(true, true);
+    assert_eq!(
+        m.poll.failures, 0,
+        "coming back to the foreground starts over"
+    );
+}
+
+#[test]
+fn a_lost_connection_is_not_called_offline() {
+    let lost = (
+        0,
+        "TypeError: Failed to fetch — The network connection was lost.".to_string(),
+    );
+    assert_eq!(failure_kind(&lost), "lost");
+    assert_eq!(poll_failure(&lost), "The network connection was lost.");
+    let offline = (
+        0,
+        "TypeError: Failed to fetch — The Internet connection appears to be offline.".to_string(),
+    );
+    assert_eq!(failure_kind(&offline), "offline");
+    assert_eq!(poll_failure(&offline), "This phone is offline.");
+}
