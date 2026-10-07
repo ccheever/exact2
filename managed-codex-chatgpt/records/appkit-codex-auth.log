@@ -1,0 +1,9 @@
+Test Suite 'T3 codex auth' started at 2026-10-08 04:49:46.725.
+Test Case '-[T3codexauthTests.CodexAuthTests testAllowsTwoAccountsToCompleteIndependently]' passed (0.009 seconds).
+Test Case '-[T3codexauthTests.CodexAuthTests testBindsBeforeOpeningSignInIgnoresAForeignResponseAndReturnsOnlyTheCodeCallback]' passed (0.003 seconds).
+Test Case '-[T3codexauthTests.CodexAuthTests testCancelsAndReleasesItsListenerSoExactPortReauthorizationCanRunAgain]' passed (0.001 seconds).
+Test Case '-[T3codexauthTests.CodexAuthTests testExpiresAfterTheTimeoutAndFreesThePort]' passed (0.611 seconds).
+Test Case '-[T3codexauthTests.CodexAuthTests testRefusesAPortInUseASecondListenerAndABrowserThatDidNotOpen]' passed (0.001 seconds).
+Test Case '-[T3codexauthTests.CodexAuthTests testRejectsDuplicatedAuthorizationParametersAndNonLoopbackCallbackAddresses]' passed (0.001 seconds).
+Test Suite 'T3 codex auth' passed at 2026-10-08 04:49:47.352.
+T3 codex auth: 6 tests, 0 failures
