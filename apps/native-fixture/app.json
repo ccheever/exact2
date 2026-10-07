@@ -13,7 +13,7 @@
   },
   "modules": ["exact-fixture", "exact-plain", "exact-absent", "exact-screen"],
   "data": ["armed", "feed", "frames", "loop", "menu", "presses", "reuse", "run", "screen", "tone", "transition", "violate"],
-  "hatches": { "badge": ["ios", "macos", "web"], "detail-list": ["ios"], "dot": ["ios", "macos", "web"], "feed": ["ios", "macos", "web"], "presser": ["ios", "macos", "web"], "clock": ["ios", "macos", "web"] },
+  "hatches": { "badge": ["ios", "macos", "web", "linux"], "detail-list": ["ios", "linux"], "dot": ["ios", "macos", "web", "linux"], "feed": ["ios", "macos", "web", "linux"], "presser": ["ios", "macos", "web", "linux"], "clock": ["ios", "macos", "web", "linux"] },
   "host": {
     "ios": {
       "minimumOS": "17.0",

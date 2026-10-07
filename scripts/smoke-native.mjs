@@ -719,3 +719,255 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
   rmSync(tmp, { recursive: true, force: true });
   console.log(`${host} native: ${checks - failed} of ${checks} checks passed in ${((Date.now() - t0) / 1000).toFixed(1)} s (the LLP 1024 D8 fixture)`);
 }
+
+// The fixture's hatches on a painting host (LLP 1075.003.000.001 §8 stage 4):
+// `bun scripts/smoke.mjs linux --app native-fixture`. Linux loads no native
+// module (LLP 1024), so the seam above is not driven here; the hatches are.
+// A screenshot shows each row's dot under its overlay, and the detail list's
+// redrawn at a new size after a resize; an observed press says whether
+// Exact handled it; the module's counters, its line and `perf hatches` read
+// back; with the Contract app idle a hatch's `draw` and then its `clear`
+// each show in the next screenshot; `clock settle` returns only after a
+// queued act has committed; the frame clock ticks at the virtual display's
+// instants; a run that aborts inside a hatch is named by the next launch;
+// and `EXACT_HATCHES=off` connects none.
+export async function paintingHatchSmoke({ host, open, check: record, shots }) {
+  let checks = 0, failed = 0;
+  const check = (ok, what) => { checks += 1; if (!ok) failed += 1; return record(ok, what); };
+  const t0 = Date.now();
+  const tmp = mkdtempSync(resolve(tmpdir(), 'exact-hatches-'));
+  const byTestId = (t, id) => t.nodes.find((n) => n.props.testId === id);
+  const hatches = async (s) => (await s.state()).hatches ?? {};
+  const journal = async (s) => (await s.op({ op: 'logs', since: 0 })).lines;
+  const near = (rgb, hex) => rgb && [1, 3, 5].every((o, k) => Math.abs(rgb[k] - parseInt(hex.slice(o, o + 2), 16)) <= 12);
+  // A screenshot, as a function from a viewport point to its pixel.
+  const picture = async (s, name) => {
+    const path = resolve(shots ?? tmp, `native-fixture-${host}-${name}.png`);
+    const taken = await s.screenshot(path), png = decodePng(readFileSync(path)), scale = png.width / taken.w;
+    return (x, y) => { const i = (Math.round(y * scale) * png.width + Math.round(x * scale)) * 4; return [png.data[i], png.data[i + 1], png.data[i + 2]]; };
+  };
+  const boxOf = async (s, testId) => (await s.layout()).nodes.find((n) => n.testId === testId);
+  const centre = (b) => [b.x + b.w / 2, b.y + b.h / 2];
+  const until = async (s, what, test) => {
+    for (let i = 0; i < 100; i++) { const t = await s.tree(); if (test(t)) return t; await sleep(20); }
+    check(false, `${host} hatches: ${what}`);
+    return s.tree();
+  };
+  const WORDS = ['badge', 'clock', 'detail-list', 'dot', 'feed', 'presser'];
+
+  const s = await open({ host });
+  try {
+    // Connected after first pixel: the app, its window, and the nodes there.
+    let h = await hatches(s), lines = await journal(s);
+    const at = (re) => lines.findIndex((l) => re.test(l));
+    check(at(/hatch: connected/) >= 0 && at(/hatch: connected/) < at(/hatch app: built/) && at(/hatch app: built/) < at(/hatch window: built/) && at(/hatch window: built/) < at(/hatch element badge #\d+: built/),
+      `${host} hatches: the hatches connect, then the app, its window and the nodes are built: ${lines.filter((l) => / hatch/.test(l)).join(' | ')}`);
+    check(JSON.stringify(h.platform) === JSON.stringify(WORDS) && h.unhandled?.length === 0 && h.measuring === true, `${host} hatches: state.hatches names the words this platform handles: ${JSON.stringify(h.platform)} ${JSON.stringify(h.unhandled)}`);
+    const told = h.scopes?.module?.published ?? {}, size = (await s.layout()).viewport ?? {};
+    check(h.scopes?.app?.calls?.built === 1 && h.scopes?.window?.calls?.built === 1 && told.app?.processOwner === true && told.app?.visibilityState === 'visible' && told.scopes?.exclusive === true && told.scopes?.scheme === 'light',
+      `${host} hatches: the entry's one session owns its window and the process, and the facts reach the app hatch: ${JSON.stringify(told)}`);
+    check(told.scopes?.frame?.[0] > 0 && (size.w === undefined || told.scopes.frame[0] === size.w), `${host} hatches: the window hatch has the surface's frame: ${JSON.stringify(told.scopes?.frame)}`);
+
+    // An observed press on a box no handler hears: heard after Exact's dispatch, which did nothing.
+    await s.tap('hatched-badge');
+    let badge = (await hatches(s)).words?.badge;
+    check(badge?.published?.observed?.phase === 'up' && badge.published.observed.handled === false && badge.published.observed.inside === true && badge.counters?.['observed.down'] === 1 && badge.counters?.['observed.up'] === 1,
+      `${host} hatches: a press on the badge is observed, unhandled: ${JSON.stringify(badge?.published)} ${JSON.stringify(badge?.counters)}`);
+
+    // What a hatch says of itself, and what Exact timed (§3.1–§3.3).
+    await s.tap('compose-home'); await s.clock('settle');
+    badge = (await hatches(s)).words?.badge;
+    check(badge?.calls?.built === 1 && badge.calls.changed === 1 && badge.live === 1 && badge.counters?.built === 1 && badge.counters.changed === 1 && badge.published?.tone?.tone === 'busy',
+      `${host} hatches: state.hatches counts the badge's calls and carries its counters and snapshot: ${JSON.stringify(badge)}`);
+    lines = (await journal(s)).filter((l) => /hatch element badge: /.test(l));
+    check(lines.some((l) => /hatch element badge: built, tone info/.test(l)) && lines.some((l) => /hatch element badge: changed, tone busy/.test(l)), `${host} hatches: a hatch's log lines reach the journal under its scope: ${lines.join(' | ')}`);
+    const perf = await s.op({ op: 'perf', hatches: true }), timed = perf.hatches?.['element badge'], built = perf.calls?.find((c) => c.hatch === 'element badge' && c.moment === 'built');
+    check(perf.measuring && timed?.calls >= 2 && timed.ms >= 0 && timed.worst <= timed.ms && built?.calls === 1 && Number.isInteger(built.site) && perf.counters?.['element badge']?.built === 1 && perf.plan && Number.isInteger(perf.seq),
+      `${host} hatches: perf hatches times each call by site and moment and carries the counters: ${JSON.stringify(perf).slice(0, 600)}`);
+    const canon = (v) => JSON.stringify(v, (_, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x));
+    const again = await s.op({ op: 'perf', hatches: true });
+    check(canon(again.calls) === canon(perf.calls) && canon(again.counters) === canon(perf.counters), `${host} hatches: a perf hatches read changes nothing`);
+    const site = (await s.perf('hatched-badge')).sites?.find((r) => r.site === built?.site);
+    check(site?.hatch?.calls >= 2 && site.hatch.ms >= 0, `${host} hatches: perf <target> names the hatched site's calls: ${JSON.stringify(site?.hatch)}`);
+
+    // With the Contract app idle, a hatch's draw and then its clear each show
+    // in the next screenshot (§2.2.1): the badge's change asked for both, on
+    // the session clock alone.
+    {
+      const b = await boxOf(s, 'hatched-badge'), [x, y] = centre(b);
+      const before = (await s.state()).epoch, idle = (await picture(s, 'badge-idle'))(x, y);
+      await s.clock('+100');
+      const drawn = (await picture(s, 'badge-drawn'))(x, y), shown = (await hatches(s)).words?.badge?.overlay;
+      await s.clock('+100');
+      const cleared = (await picture(s, 'badge-cleared'))(x, y), after = await s.state();
+      check(near(idle, '#f59e0b') && near(drawn, '#00c853') && near(cleared, '#f59e0b'), `${host} hatches: a draw and then a clear each show in the next screenshot: ${idle} → ${drawn} → ${cleared}`);
+      check(shown?.shown === 1 && after.hatches?.words?.badge?.overlay?.shown === 0 && after.hatches.words.badge.overlay.published === 2 && after.epoch === before,
+        `${host} hatches: both were published with the Contract app idle (epoch ${before} → ${after.epoch}): ${JSON.stringify(after.hatches?.words?.badge?.overlay)}`);
+    }
+
+    // The detail route: what a hatch asks of an authored node (§2.5).
+    await s.tap('detail');
+    await until(s, 'the detail route is pushed', (t) => !!byTestId(t, 'route-detail'));
+    await s.clock('settle');
+    await s.tap('feed'); await s.clock('settle');
+    lines = (await journal(s)).filter((l) => / hatch /.test(l));
+    check((await s.state()).slots.fed === 'Palo Alto', `${host} hatches: a hatch's input replaces the field's value in Contract: ${JSON.stringify((await s.state()).slots.fed)}`);
+    check(lines.some((l) => /hatch element feed #\d+: input \(9 chars, delivery: hatch\)/.test(l)) && !lines.some((l) => /Palo/.test(l)), `${host} hatches: the journal holds the input's length, never its text: ${lines.filter((l) => /feed/.test(l)).join(' | ')}`);
+    await s.tap('arm'); await s.clock('settle');
+    let st = await s.state();
+    check(st.slots.hatchPresses === 1 && st.hatches?.inFlight === 0, `${host} hatches: clock settle returns only after a hatch's queued click has committed: ${st.slots.hatchPresses} presses, ${st.hatches?.inFlight} in flight`);
+    await s.tap('loop');
+    const stuck = await s.clock('settle');
+    check(stuck.settled === false && stuck.reason === 'hatches', `${host} hatches: a hatch whose acts keep causing acts is named by settle: ${JSON.stringify(stuck)}`);
+    await s.tap('stop-loop');
+    const done = await s.clock('settle');
+    st = await s.state();
+    check(done.settled === true && st.slots.hatchPresses > 16 && st.hatches?.inFlight === 0, `${host} hatches: stopped, it settles: ${JSON.stringify(done)} after ${st.slots.hatchPresses} presses`);
+
+    // An observed press on the button: its handler ran first, and the hatch is told so.
+    const presses = st.slots.hatchPresses;
+    await s.tap('hatch-press'); await s.clock('settle');
+    st = await s.state();
+    const heard = st.hatches?.words?.presser?.published?.observed;
+    check(st.slots.hatchPresses === presses + 1 && heard?.phase === 'up' && heard.handled === true, `${host} hatches: a press on the button is observed, handled: ${JSON.stringify(heard)}; ${presses} → ${st.slots.hatchPresses} presses (the observer pressed nothing)`);
+
+    // The detail list's overlay, and again at a new size after a resize
+    // (§2.2.1): the old recording is dropped, never stretched, and the
+    // hatch hears `changed` with the new frame.
+    {
+      const edge = async (name) => { const b = await boxOf(s, 'list-detail'); const at = await picture(s, name); return { b, right: at(b.x + b.w - 2, b.y + b.h / 2), inside: at(b.x + b.w - 12, b.y + b.h / 2), outside: at(b.x + b.w / 2, b.y - 3) }; };
+      const first = await edge('detail'), list = (await hatches(s)).words?.['detail-list'];
+      check(near(first.right, '#ff00ff') && !near(first.inside, '#ff00ff') && !near(first.outside, '#ff00ff') && list?.overlay?.shown === 1,
+        `${host} hatches: a screenshot shows the detail list's overlay along its edge, and nowhere outside its box: ${JSON.stringify(first)} ${JSON.stringify(list?.overlay)}`);
+      const [w, hgt] = [first.b.w, first.b.h];
+      await s.resize(380, 800);
+      const second = await edge('detail-resized'), resized = await hatches(s), now = resized.words?.['detail-list'];
+      check(second.b.w === 380 && second.b.h !== hgt && near(second.right, '#ff00ff') && !near(second.inside, '#ff00ff') && now?.overlay?.dropped === 1 && now.overlay.published === 2 && now.published?.frame?.[0] === 380 && now.published.frame[1] === second.b.h,
+        `${host} hatches: after a resize the overlay is recorded again at the new size (${w}×${hgt} → ${second.b.w}×${second.b.h}): ${JSON.stringify(second)} ${JSON.stringify(now?.overlay)} ${JSON.stringify(now?.published)}`);
+      check(resized.scopes?.window?.calls?.changed === 1 && resized.scopes.module?.published?.scopes?.frame?.[0] === 380 && resized.scopes.module.published.scopes.frame[1] === 800, `${host} hatches: a new size is told to the window hatch: ${JSON.stringify(resized.scopes?.module?.published?.scopes)}`);
+      await s.resize(420, 900);
+    }
+    await s.tap('back');
+    await until(s, 'Back pops the detail route', (t) => !byTestId(t, 'route-detail'));
+
+    // A fact that changes is told to the app hatch, once.
+    await s.prefer({ 'prefers-color-scheme': 'dark' });
+    h = await hatches(s);
+    check(h.scopes?.app?.calls?.changed === 1 && h.scopes.module?.published?.scopes?.scheme === 'dark', `${host} hatches: a changed fact is one call to the app hatch: ${JSON.stringify(h.scopes?.app)}`);
+    await s.prefer({ 'prefers-color-scheme': 'light' });
+
+    // A list whose rows each hold a hatched node: each dot is under its
+    // overlay, clipped to its round box; a retired row's hatch hears `ended`.
+    await s.tap('rows');
+    let t = await until(s, 'the hatched list shows rows', (t) => !!byTestId(t, 'row-1'));
+    await s.clock('settle');
+    {
+      const dot = t.nodes.find((n) => n.props.hatch === 'dot'), b = (await s.layout()).nodes.find((n) => n.id === dot?.id);
+      const at = await picture(s, 'rows');
+      // The corner of its box is outside the round dot: the row's white, whatever the edge's antialiasing leaves.
+      check(b && near(at(...centre(b)), '#ff3b30') && at(b.x + 0.5, b.y + 0.5).every((c) => c > 224) && near(at(b.x - 2, b.y + b.h / 2), '#ffffff'),
+
+        `${host} hatches: a screenshot shows the dot's overlay, clipped to its round box: ${b && at(...centre(b))} at its centre, ${b && at(b.x + 0.5, b.y + 0.5)} at its corner, ${b && at(b.x - 2, b.y + b.h / 2)} beside it`);
+      const dots = (await hatches(s)).words?.dot;
+      check(dots?.calls?.built > 0 && dots.live === dots.calls.built && dots.overlay?.shown === dots.live, `${host} hatches: each mounted row's dot is hatched and shown: ${JSON.stringify(dots)}`);
+      await s.tap('hatched-list', { wheel: [0, 4000] }); await s.clock('settle');
+      const scrolled = (await hatches(s)).words?.dot;
+      check(scrolled?.calls?.ended > 0 && scrolled.live === scrolled.calls.built - scrolled.calls.ended, `${host} hatches: a retired row's hatch hears ended: ${JSON.stringify(scrolled?.calls)}`);
+      lines = (await journal(s)).filter((l) => /hatch element dot/.test(l));
+      check(lines.some((l) => /hatch element dot: nothing beyond the call/.test(l)) && lines.some((l) => /hatch element dot is in a row of list hatched-list/.test(l)) && lines.filter((l) => /#\d+: built/.test(l)).length === 1,
+        `${host} hatches: the journal says what a hatched node costs, warns for a row's, and names a row's first call only: ${lines.slice(0, 4).join(' | ')}`);
+    }
+  } catch (error) {
+    check(false, `${host} hatches: the fixture drive stopped: ${error.stack ?? error.message}`);
+  } finally { await s.close(); }
+
+  // Two drives of the same steps agree on what the hatches did (§4.6).
+  try {
+    const drive = async () => {
+      const d = await open({ host });
+      try {
+        await d.clock('settle');
+        await d.tap('rows'); await d.clock('settle');
+        await d.tap('hatched-list', { wheel: [0, 4000] }); await d.clock('settle');
+        await d.clock('+1000'); await d.clock('settle');
+        const perf = await d.op({ op: 'perf', hatches: true });
+        const calls = perf.calls.map((c) => `${c.hatch} ${c.site ?? ''} ${c.moment} ${c.calls}`).sort();
+        const spans = Object.entries(perf.timings).flatMap(([scope, names]) => Object.entries(names).filter(([, t]) => !t.measured).map(([name, t]) => `${scope} ${name} ${t.count} ${t.sum}`)).sort();
+        return JSON.stringify({ calls, counters: perf.counters, spans, said: (await journal(d)).filter((l) => / hatch /.test(l)) });
+      } finally { await d.close(); }
+    };
+    const first = await drive(), second = await drive();
+    check(first === second && JSON.parse(first).calls.length > 0, `${host} hatches: two drives agree on every hatch call, counter, span and line: ${first === second ? first.slice(0, 200) : `${first}\n  then ${second}`}`);
+  } catch (error) {
+    check(false, `${host} hatches: the two drives stopped: ${error.stack ?? error.message}`);
+  }
+
+  // The frame clock (§2.4), a session a drive: sixty ticks for `clock +1000`,
+  // tick k seeing the count a frame task made at the same instant; a chained
+  // `after` fires inside the seek and a stopped one never; 65 acts a tick
+  // asks, and the one their `changed` asks, land at that tick's instant; and
+  // one seek of a second is ten of a tenth, line for line.
+  try {
+    const clockDrive = async (steps) => {
+      const d = await open({ host });
+      try {
+        await d.clock('settle');
+        await d.tap('detail');
+        await until(d, 'the detail route is pushed', (t) => !!byTestId(t, 'route-detail'));
+        await d.clock('settle');
+        const from = (await d.op({ op: 'logs', since: 0 })).next;
+        await d.tap('clock-start');
+        for (const step of steps) await d.clock(`+${step}`);
+        const st = await d.state(), module = st.hatches?.scopes?.module ?? {};
+        const lines = (await d.op({ op: 'logs', since: from })).lines.filter((l) => / hatch /.test(l));
+        return { counters: module.counters ?? {}, told: module.published?.clock ?? {}, frameCount: st.slots.frameCount, presses: st.slots.clockPresses, lines };
+      } finally { await d.close(); }
+    };
+    const whole = await clockDrive([1000]), stepped = await clockDrive([100, 100, 100, 100, 100, 100, 100, 100, 100, 100]);
+    check(whole.counters['clock.ticks'] === 60 && whole.frameCount === 60 && whole.told.ticks === 60, `${host} hatches: a frame ticket ticks 60 times for clock +1000: ${JSON.stringify({ counters: whole.counters, told: whole.told, frames: whole.frameCount })}`);
+    check(whole.told.agreed === 60, `${host} hatches: tick k sees the count the frame task made at the same instant: ${JSON.stringify(whole.told)}`);
+    check(whole.counters['clock.after0'] === 1 && whole.counters['clock.after20'] === 1 && whole.counters['clock.stopped'] === undefined, `${host} hatches: a chained after fires inside the seek, and a stopped one never: ${JSON.stringify(whole.counters)}`);
+    const acts = whole.lines.filter((l) => /hatch element clock #\d+: click \(delivery: hatch\)/.test(l));
+    check(whole.presses === 66 && acts.length === 66 && new Set(acts.map((l) => l.split(' ')[0])).size === 1, `${host} hatches: 65 acts a tick asks, and the one their changed asks, land at that tick's instant: ${whole.presses} presses, ${acts.length} lines at ${[...new Set(acts.map((l) => l.split(' ')[0]))].join(', ')}`);
+    const same = JSON.stringify([whole.counters, whole.told, whole.frameCount, whole.presses, whole.lines]) === JSON.stringify([stepped.counters, stepped.told, stepped.frameCount, stepped.presses, stepped.lines]);
+    check(same, `${host} hatches: clock +1000 is ten clock +100, line for line${same ? '' : `: ${whole.lines.length} lines, then ${stepped.lines.length}; first difference ${JSON.stringify(whole.lines.find((l, i) => l !== stepped.lines[i]))} / ${JSON.stringify(stepped.lines.find((l, i) => l !== whole.lines[i]))}`}`);
+  } catch (error) {
+    check(false, `${host} hatches: the clock drive stopped: ${error.stack ?? error.message}`);
+  }
+
+  // The crash breadcrumb and the switch its line names (§4.4, §2.6): a run
+  // that aborts inside the badge's hatch is named by the next launch, once;
+  // with `EXACT_HATCHES=off` no hatch is connected and the app works.
+  try {
+    // It dies as its hatches connect, after first pixel, before it is ready.
+    const dying = await open({ host, env: { EXACT_FIXTURE_DIE: 'badge' } }).catch(() => null);
+    check(dying === null, `${host} hatches: the fixture's stand-in for a crash ends the run inside its hatch`);
+    await dying?.close().catch(() => {});
+    const next = await open({ host });
+    try {
+      const said = (await journal(next)).filter((l) => /the last run ended while inside hatch/.test(l));
+      check(said.length === 1 && /ended while inside hatch element badge \(built, call \d+\).*EXACT_HATCHES=off/.test(said[0]), `${host} hatches: the launch after a death inside a hatch names it: ${said.join(' | ')}`);
+      check((await hatches(next)).lastEnd?.length === 1, `${host} hatches: state.hatches carries the last run's end`);
+    } finally { await next.close(); }
+    const third = await open({ host });
+    try {
+      check(!(await journal(third)).some((l) => /the last run ended/.test(l)) && (await hatches(third)).lastEnd === undefined, `${host} hatches: a breadcrumb is read once`);
+    } finally { await third.close(); }
+    const off = await open({ host, env: { EXACT_HATCHES: 'off' } });
+    try {
+      const lines = await journal(off), h = await hatches(off);
+      check(lines.some((l) => /hatches: off \(EXACT_HATCHES=off\)/.test(l)) && !lines.some((l) => /hatch (element|app|window)/.test(l)) && Object.keys(h.words ?? {}).length === 0 && Object.keys(h.scopes ?? {}).length === 0,
+        `${host} hatches: EXACT_HATCHES=off connects no hatch and calls none: ${lines.filter((l) => / hatch/.test(l)).join(' | ')} ${JSON.stringify(h.words)}`);
+      // Every Contract state the hatched run reaches is reached by authored input (§2.6).
+      await off.tap('bump'); await off.tap('detail');
+      await until(off, 'the detail route is pushed with hatches off', (t) => !!byTestId(t, 'route-detail'));
+      await off.type('fed', 'Palo Alto'); await off.tap('hatch-press'); await off.clock('settle');
+      const st = await off.state(), b = await boxOf(off, 'list-detail'), right = (await picture(off, 'off'))(b.x + b.w - 2, b.y + b.h / 2);
+      check(st.slots.count === 1 && st.slots.fed === 'Palo Alto' && st.slots.hatchPresses === 1 && !near(right, '#ff00ff'), `${host} hatches: with hatches off the app works by authored input, and nothing is drawn over it: ${JSON.stringify({ count: st.slots.count, fed: st.slots.fed, presses: st.slots.hatchPresses, right })}`);
+    } finally { await off.close(); }
+  } catch (error) {
+    check(false, `${host} hatches: the breadcrumb drive stopped: ${error.stack ?? error.message}`);
+  }
+  rmSync(tmp, { recursive: true, force: true });
+  console.log(`${host} hatches: ${checks - failed} of ${checks} checks passed in ${((Date.now() - t0) / 1000).toFixed(1)} s (LLP 1075.003.000.001 stage 4)`);
+}
