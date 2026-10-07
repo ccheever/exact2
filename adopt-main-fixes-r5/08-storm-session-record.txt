@@ -1,0 +1,79 @@
+Round 5, request-storm fix: one real-input session on the after build (e4087409d), no retry. Lane copy
+com.exact.t3code.laner5.storm, open -n, orca computer by pid, under .realinput-lock (00:29:57-00:32:45 local, 15:29:57-15:32:45Z).
+Lane: reference server 1e2ecbd975 on 127.0.0.1:16741 behind the trace proxy on 16742 (isolated HOME, CODEX_HOME,
+CLAUDE_CONFIG_DIR, XDG_*, T3CODE_HOME, telemetry off, stubs first on PATH). The proxy logged every client request's method.
+The server-update notice was up for the whole session (the condition that kept the 500 ms tick running in records 05-07).
+
+--- session log
+00:30:11 [storm] copy of the e4087409d bundle as com.exact.t3code.laner5.storm
+00:30:17 [storm] launched pid 51478
+00:30:18 [storm] wizard pairing field 37
+00:30:39 [storm] rows after pairing: 6
+00:30:58 [storm] row element 11 (First lane thread)
+00:31:00 [storm] menu opened (UTC 15:31:00.005)
+00:31:00 [storm] menu items: 16
+00:31:00 [storm] Snooze item 21
+00:31:11 [storm] menu open for 11 s before the click
+00:31:12 [storm] clicked In 1 hour (1:30 AM) at window point (410,308), UTC 15:31:11.841
+00:31:26 [storm] Snoozed group opened (element 15)
+00:31:36 [storm] snoozed row element 16
+00:32:08 [storm] Wake thread item 22
+00:32:12 [storm] clicked Wake thread (UTC 15:32:08.535)
+00:32:44 [storm] pid 51478 quit
+00:32:44 [storm] keychain item deleted
+00:32:44 [storm] copy cleaned
+00:32:45 [storm] lane server and proxy stopped
+
+--- the snoozed thread on the server (orchestration_v2_projection_threads.payload_json, read only)
+after the click on In 1 hour (UTC 15:31:11.841): snoozedAt 2026-10-07T15:31:12.928Z, snoozedUntil 2026-10-07T16:31:12.913Z (1 h)
+after Wake thread (UTC 15:32:08.535): snoozedAt and snoozedUntil empty, updatedAt 2026-10-07T15:32:09.505Z
+
+--- every request the client sent (proxy), UTC
+15:30:21.916 server.getConfig
+15:30:22.011 subscribeServerConfig
+15:30:22.017 orchestration.subscribeShell
+15:30:22.018 assets.createUrl
+15:30:22.154 vcs.refreshStatus
+15:30:22.154 subscribeTerminalMetadata
+15:30:22.156 scheduledTasks.subscribe
+15:30:22.158 subscribeVcsStatus
+15:30:22.175 subscribeProjectClones
+15:30:22.197 subscribeDeviceState
+15:30:22.415 vcs.listRefs
+15:30:22.426 server.reportClientActivity
+15:30:23.122 server.refreshProviders
+15:30:32.886 agentSessions.scan
+15:30:47.168 server.reportClientActivity
+15:31:12.171 server.reportClientActivity
+15:31:12.925 orchestration.dispatchCommand
+15:31:24.225 orchestration.subscribeThread
+15:31:37.163 server.reportClientActivity
+15:32:02.168 server.reportClientActivity
+15:32:09.504 orchestration.dispatchCommand
+15:32:27.168 server.reportClientActivity
+
+--- by method
+   6 server.reportClientActivity
+   2 orchestration.dispatchCommand
+   1 vcs.refreshStatus
+   1 vcs.listRefs
+   1 subscribeVcsStatus
+   1 subscribeTerminalMetadata
+   1 subscribeServerConfig
+   1 subscribeProjectClones
+   1 subscribeDeviceState
+   1 server.refreshProviders
+   1 server.getConfig
+   1 scheduledTasks.subscribe
+   1 orchestration.subscribeThread
+   1 orchestration.subscribeShell
+   1 assets.createUrl
+   1 agentSessions.scan
+
+Reading: one vcs.refreshStatus in the session (at startup, the strip's first read before the card's stream followed
+the workspace), one subscribeVcsStatus, one vcs.listRefs, and no request repeated per tick. The reference sends
+refreshStatus on window focus (debounced 250 ms), on visibility and when a git menu opens (GitActionsControl.tsx), and
+reads status from the stream. The activity report keeps its 25 s cadence, including two reports sent while the second
+menu was open (15:31:37, 15:32:02). The snooze (dispatchCommand at 15:31:12.925) and the wake (15:32:09.504) went out about
+a second after their clicks. On da3aae081 (record 07) the client sent vcs.refreshStatus 4 per second, nothing left during
+the 17 s the menu was open, and 64 requests went out together after it closed; the snooze was refused.
