@@ -551,7 +551,11 @@ one with `key` does.
   keyUp and a flags change that releases a modifier (the NX_DEVICE bits tell
   the sides apart) through `Presenter.keyUp`; `code` is the virtual key's
   (`KeyCodes.mac`, the game canvas's map) and `repeat` `isARepeat`. An input
-  method's composition keeps its keyups, as its keydowns.
+  method's composition keeps its keys, keydowns and keyups, but for a
+  modifier's own (Chrome forwards every flags change to the page) and a ⌘
+  chord, whose keydown commits the composition first
+  (`Presenter.passesComposition`, `endComposition`; iOS's
+  `NodeView.passesComposition` the same).
 - **iOS** (`pressesEnded` on a node, a field, a textarea): `code` from the
   press's HID usage; UIKit's presses carry no auto-repeat, so `repeat` is
   false.
@@ -567,8 +571,34 @@ refusals), `runner/src/runner/event/keyboard.rs`, `KeyUpMacTests` (AppKit's
 keyUp and a modifier's flags change), Linux's
 `keyup_hears_a_release_and_both_carry_code_and_repeat`, and the JS target's
 `keys` conformance plan (Chrome, against the wasm runner). Not here: a
-capture-phase handler, a reserved held-modifier fact, and a chord ending an
-input method's composition first (#140, the owner's to decide).
+capture-phase handler and a reserved held-modifier fact (#140, the owner's to
+decide).
+
+**A chord during an input method's composition, and held modifiers**
+(2026-10-07, #140). Chrome hands the page a ⌘ chord's keydown while the text
+is still composed (`isComposing`; CDP's `Input.imeSetComposition` then the
+chord, and `RenderWidgetHostViewCocoa`, which forwards the keydown before the
+input method's result), with the composed text already in the field and
+reported to `input`. AppKit reports composed text only once committed, so on
+macOS (and iOS with a hardware keyboard) the chord's keydown commits the
+composition first: the field's `input` hears the text, then the chord's
+`key` handlers, which read the value Chrome's would, and a value one writes
+lands (a composer's ⌘Enter sends what was typed and clears the field). On
+macOS such a chord presses no `aria-keyshortcuts` button, by key or menu
+item, as the web's listener skips a composing keydown (iOS's key commands are
+UIKit's, unchanged). The input method is asked to let go of the text first
+(`discardMarkedText`, which it answers by inserting it) and what it leaves
+marked is committed (Firefox's order), so no syllable is inserted twice. The
+web host is unchanged: Chrome hands `key` handlers every key while composing. A modifier's own press and release
+pass a composition untouched, so a Shift let go mid-syllable is a keyup and
+no held-Shift state sticks. Any other key stays the input method's. Held
+modifiers are the web's: keydown and keyup say what is held, and a key let go
+while another app or window has the focus sends none (Chrome, the web host and
+macOS alike, checked with a real ⌘ held while TextEdit came forward), so an
+app forgets them when `exactPage().hasFocus` turns false (a gated task, the
+page's `window` `blur`). Tests: `KeyUpMacTests` (the chord, ⌘Enter and the
+Send button, Shift's release), `FieldCompositionIOSTests`, and
+`contract/cli/tests/it/keyup.rs`'s held-modifier reset.
 
 `swiperight` is the next EventKind after `dblclick`: a recognized, payload-free
 host event. It preserves authored action arguments and journals once on a

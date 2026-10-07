@@ -133,23 +133,63 @@ extension Presenter {
     }
     /// A keydown at the window's first responder, before AppKit delivers
     /// it: true when a handler prevented its default, and the caller drops
-    /// the event. An input method's composition keeps its keys.
+    /// the event. An input method's composition keeps its keys, but for a
+    /// modifier's own and a ⌘ chord (`passesComposition`).
     func keyDown(_ event: NSEvent, in window: NSWindow? = nil) -> Bool {
         guard event.type == .keyDown || event.type == .flagsChanged && KeyCodes.pressed(event) else { return false }
         let responder = (window ?? event.window)?.firstResponder
-        if (responder as? NSTextInputClient)?.hasMarkedText() == true { return false }
+        if !passesComposition(event, at: responder) { return false }
         return keyDown(at: keyTarget(responder), NodeView.keyName(event), held: KeyCodes.held(event.modifierFlags),
                        code: KeyCodes.code(event), repeats: event.type == .keyDown && event.isARepeat)
     }
     /// A keyup at the window's first responder, a modifier's (a flags change
     /// that released it) included (#140): the `keyup` handlers there and
     /// above. A keyup has no default here, so nothing is dropped. An input
-    /// method's composition keeps its keys, as its keydowns.
+    /// method's composition keeps its keyups but a modifier's own
+    /// (`passesComposition`).
     func keyUp(_ event: NSEvent, in window: NSWindow? = nil) {
         guard event.type == .keyUp || event.type == .flagsChanged && KeyCodes.released(event) else { return }
         let responder = (window ?? event.window)?.firstResponder
-        if (responder as? NSTextInputClient)?.hasMarkedText() == true { return }
+        if !passesComposition(event, at: responder) { return }
         keyUp(at: keyTarget(responder), NodeView.keyName(event), held: KeyCodes.held(event.modifierFlags), code: KeyCodes.code(event))
+    }
+    /// Whether a key reaches the handlers while an input method composes
+    /// text at `responder` (#140). Without a composition, every key. During
+    /// one, a modifier's own press and release, which are never the input
+    /// method's (Chrome forwards every flags change to the page, so a Shift
+    /// let go mid-syllable is still a keyup), and a ⌘ chord's keydown, which
+    /// ends the composition first (`endComposition`), so its keyup comes
+    /// after it. Any other key is the composition's.
+    func passesComposition(_ event: NSEvent, at responder: NSResponder?) -> Bool {
+        guard (responder as? NSTextInputClient)?.hasMarkedText() == true else { return true }
+        if event.type == .flagsChanged { return true }
+        guard event.type == .keyDown, event.modifierFlags.contains(.command) else { return false }
+        endComposition(event, at: responder)
+        return true
+    }
+    /// A ⌘ chord typed while an input method composes text in a node's field
+    /// or textarea: the text is committed as it stands, and the field's
+    /// `input` hears it, before the chord's `key` handlers run. They then
+    /// read the value Chrome's read, which has the composed text (Chrome
+    /// reports it to `input` as it is composed, AppKit only once committed,
+    /// and macOS's input methods commit on ⌘), and a value one writes lands
+    /// (a composer's ⌘Enter sends the text and clears the field). The chord
+    /// presses no `aria-keyshortcuts` button, by its key or its menu item:
+    /// the web's shortcut listener skips a keydown that arrived composing.
+    func endComposition(_ event: NSEvent, at responder: NSResponder?) {
+        guard let editor = responder as? NSTextView, keyTarget(editor) != nil else { return }
+        // The input method is asked to let go of it first, which it does by
+        // inserting the text; what it leaves marked is committed here
+        // (Firefox's `CommitIMEComposition`). Committing first could insert
+        // the syllable twice.
+        editor.inputContext?.discardMarkedText()
+        if editor.hasMarkedText() { editor.unmarkText() }
+        composedChord = event
+    }
+    /// A keydown that was a ⌘ chord ending a composition (`endComposition`).
+    func endedComposition(_ event: NSEvent?) -> Bool {
+        guard let event, let chord = composedChord, event.type == .keyDown else { return false }
+        return event === chord || event.timestamp == chord.timestamp && event.keyCode == chord.keyCode && event.windowNumber == chord.windowNumber
     }
     /// The node a responder is the focus of: the node itself, or its field
     /// (and the field editor editing it) or textarea. Any other view a node
@@ -235,15 +275,37 @@ extension NodeView {
     }
     /// A hardware key at this node's field or textarea, before UIKit edits
     /// with it: true when a `key` handler prevented its default. An input
-    /// method's composition keeps its keys.
+    /// method's composition keeps its keys, but for a modifier's own and a
+    /// ⌘ chord (`passesComposition`).
     func editorKeyDown(_ presses: Set<UIPress>) -> Bool {
-        guard !formDisabled, let key = presses.first?.key, (field?.markedTextRange ?? textArea?.markedTextRange) == nil else { return false }
+        guard !formDisabled, let key = presses.first?.key,
+              passesComposition(KeyCodes.hid(key.keyCode.rawValue), command: key.modifierFlags.contains(.command), down: true) else { return false }
         return hardwareKey(key, down: true)
     }
     /// A hardware key's release at this node's field or textarea (#140).
     func editorKeyUp(_ presses: Set<UIPress>) {
-        guard !formDisabled, let key = presses.first?.key, (field?.markedTextRange ?? textArea?.markedTextRange) == nil else { return }
+        guard !formDisabled, let key = presses.first?.key,
+              passesComposition(KeyCodes.hid(key.keyCode.rawValue), command: key.modifierFlags.contains(.command), down: false) else { return }
         _ = hardwareKey(key, down: false)
+    }
+    /// macOS's `passesComposition` (#140): while an input method composes
+    /// text here, a modifier's own press and release still reach the
+    /// handlers, and a ⌘ chord's keydown does once it has committed the
+    /// composition (UIKit has reported the composed text to `input` as it
+    /// was composed, so the app holds it; a value the app wrote meanwhile
+    /// lands); any other key is the composition's.
+    func passesComposition(_ code: String, command: Bool, down: Bool) -> Bool {
+        guard (field?.markedTextRange ?? textArea?.markedTextRange) != nil else { return true }
+        if KeyCodes.modifier(code) { return true }
+        guard command, down else { return false }
+        if let f = field {
+            f.unmarkText()
+            if f.markedTextRange == nil, let held = pendingValue { writeValue(held, into: f) }
+        } else if let t = textArea {
+            t.unmarkText()
+            if t.markedTextRange == nil, let held = pendingValue { writeValue(held, into: t) }
+        }
+        return true
     }
     /// A hardware key's `key` (down) or `keyup` handlers at this node and
     /// above, with its `code`; UIKit reports no auto-repeat on a press, so

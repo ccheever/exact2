@@ -397,9 +397,11 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     @objc private func activate(_ item: NSMenuItem) {
         guard validateMenuItem(item), let id = (item.representedObject as? NSNumber)?.uint32Value else { return }
         // Menu selection by keyboard need not use the declared equivalent.
-        // AppKit owns that selection; repeat and composition still cannot fire it.
+        // AppKit owns that selection; repeat and composition still cannot fire
+        // it, nor a chord that ended one (`Presenter.endComposition`, #140).
         if let event = NSApp.currentEvent, event.type == .keyDown,
-           event.isARepeat || (NSApp.keyWindow?.firstResponder as? NSTextInputClient)?.hasMarkedText() == true { return }
+           event.isARepeat || (NSApp.keyWindow?.firstResponder as? NSTextInputClient)?.hasMarkedText() == true
+            || presenter?.endedComposition(event) == true { return }
         presenter?.press(id)
     }
 }

@@ -642,6 +642,8 @@ final class Presenter {
     var lastWheel: (NSEvent, Bool)?
     /// A `key` handler called `stopPropagation()` (`keyDown(at:_:)`, KeyEvents.swift).
     var propagationStopped = false
+    /// The ⌘ chord that last ended a composition (`endComposition`, KeyEvents.swift).
+    var composedChord: NSEvent?
 
     /// The action's focus(html-id), delivered only after the batch is mounted.
     func focusElement(_ args: [Any], selectText: Bool = false) {

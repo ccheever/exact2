@@ -1159,6 +1159,39 @@ the scroll from happening; `drop` hands a `DragEvent` whose `files` are `doc:`
 handles of the types `file_handlers` declares. See
 [Pointer](contract-grammar.md#pointer).
 
+`key` is the DOM's keydown and `keyup` its keyup; an action that takes it hears
+a `KeyboardEvent` (`metaKey`, `code`, `repeat`, …). Track a held modifier as a
+page does: set it from the event on every keydown and keyup, and forget it when
+the window loses the focus, since a key let go in another app sends no keyup
+(the page's `window` `blur`). `exactPage().hasFocus` turning false gates the task
+that forgets it, and the hint shows only while the window has the focus:
+
+```contract
+shape Page
+  hasFocus: bool
+
+component Hints
+  resource page = exactPage() as shape Page
+  state meta = false
+  action held(k: string, e: KeyboardEvent)
+    meta = e.metaKey
+  action forget()
+    meta = false
+  task release when meta and not page.hasFocus
+    after(1, forget)
+  view
+    column key=held keyup=held testId="list"
+      when meta and page.hasFocus
+        text "⌘ held"
+```
+
+Drive it with `type "list" key "Meta" down`, `prefer has-focus false` and
+`clock +1`. While an input method composes text in a field on macOS or iOS, a
+modifier's own keys still reach these handlers, and a ⌘ chord commits the
+composed text first (its `input`, then the chord's `key`), so a composer's
+⌘Enter `key` action sends what was typed; a button that declares ⌘Enter is not
+pressed then. See [Keys](contract-grammar.md#keys).
+
 A long-press or right-click menu is a `popover` the node names with
 `contextPopover="<id>"`: its `button` rows (with `popovertarget="<id>"
 popovertargetaction="hide"`) and `hr` separators are the menu, and one row with
