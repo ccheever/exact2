@@ -121,6 +121,30 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(pressed, [4])
     }
 
+    /// UIKit reports a segment's tap after the finger lifts, as the selection
+    /// settles (iOS 26); a sync in between keeps the finger's choice.
+    func testASegmentKeepsAFingersChoiceUntilItIsReported() throws {
+        let p = tablist([2: face("Day"), 3: face("Week"), 4: face("Month")])
+        let segments = try XCTUnwrap(p.views[1]?.subviews.compactMap { $0 as? UISegmentedControl }.first)
+        XCTAssertEqual(segments.selectedSegmentIndex, 0)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        segments.selectedSegmentIndex = 2
+        p.segments.sync()
+        XCTAssertEqual(segments.selectedSegmentIndex, 2, "a sync before the report keeps the finger's choice")
+        segments.sendActions(for: .valueChanged)
+        XCTAssertEqual(pressed, [4], "the report names the segment the finger chose")
+        // The app kept Day selected: once reported, the next sync shows it.
+        p.segments.sync()
+        XCTAssertEqual(segments.selectedSegmentIndex, 0)
+        // A tablist that gains a tab is rebuilt and still shows its selection.
+        p.buttonFace = { [unowned self] id in self.face(["Day", "Week", "Month", "Year"][Int(id) - 2]) }
+        p.apply(wireBatch(native(5, ["accessibilityRole": "tab"], x: 300, w: 100) + [["op": "children", "id": 1, "ids": [2, 3, 4, 5]]]))
+        p.segments.sync()
+        XCTAssertEqual(segments.numberOfSegments, 4)
+        XCTAssertEqual(segments.selectedSegmentIndex, 0, "a rebuilt control shows the selection again")
+    }
+
     func testAMenuRowsSymbolIsItsItemsImageNativeOrCustom() throws {
         let p = presenter(
             view(1, ["popover": "auto", "id": "menu", "accessibilityRole": "menu"])

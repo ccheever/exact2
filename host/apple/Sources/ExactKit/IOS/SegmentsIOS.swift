@@ -326,6 +326,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             control.accessibilityLabel = owner.props["accessibilityLabel"]
             if control.numberOfSegments != tabs.count {
                 control.removeAllSegments()
+                control.settled = UISegmentedControl.noSegment
                 control.icons.removeAll()
                 for index in tabs.indices { control.insertSegment(withTitle: "", at: index, animated: false) }
             }
