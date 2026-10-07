@@ -1,0 +1,90 @@
+===== after-1280-light/cli.txt
+--- socket (04:22:01):
+drwx------ $TMPDIR/t3code-501
+srw------- $TMPDIR/t3code-501/55b411b92e964d4addd4e9d1.sock
+### 10-new-project  (04:22:02)  t3 app <lane>/projects/gamma --base-dir <lane>/t3-home
+Opened <lane>/projects/gamma in T3 Code.
+exit 0  (0.52 s)
+--- projects in t3-home (after gamma):
+alpha|<lane>/projects/alpha
+gamma|<lane>/projects/gamma
+### 11-existing  (04:22:05)  t3 app <lane>/projects/gamma --base-dir <lane>/t3-home
+Opened <lane>/projects/gamma in T3 Code.
+exit 0  (0.48 s)
+--- projects in t3-home (after gamma again):
+alpha|<lane>/projects/alpha
+gamma|<lane>/projects/gamma
+### 12a-concurrent  (04:22:12)  t3 app <lane>/projects/beta space --base-dir <lane>/t3-home
+### 12b-concurrent  (04:22:12)  t3 app <lane>/projects/delta --base-dir <lane>/t3-home
+Opened <lane>/projects/delta in T3 Code.
+exit 0  (0.52 s)
+Opened <lane>/projects/beta space in T3 Code.
+exit 0  (0.67 s)
+--- projects in t3-home (after two at once):
+alpha|<lane>/projects/alpha
+gamma|<lane>/projects/gamma
+delta|<lane>/projects/delta
+beta space|<lane>/projects/beta space
+### 13-missing  (04:22:18)  t3 app <lane>/projects/missing --base-dir <lane>/t3-home
+DesktopAppRequestFailedError: T3 Code could not open <lane>/projects/missing (project-create-failed).
+exit 1  (0.44 s)
+### 14-tilde  (04:22:18)  t3 app ~/tilde proj --base-dir <lane>/t3-home
+Opened <lane>/clihome/tilde proj in T3 Code.
+exit 0  (0.49 s)
+### 15-symlink  (04:22:19)  t3 app <lane>/projects/alpha-link --base-dir <lane>/t3-home
+Opened <lane>/projects/alpha-link in T3 Code.
+exit 0  (0.49 s)
+### 16-other-tmpdir  (04:22:19)  t3 app <lane>/projects/alpha --base-dir <lane>/t3-home
+DesktopAppUnreachableError: Could not reach the T3 Code desktop app. Start or update the desktop app on this machine, then run `t3 app` again. A running T3 Code server is not enough.
+exit 1  (0.48 s)
+--- socket removed while running, 1 s later (04:22:21):
+srw------- $TMPDIR/t3code-501/55b411b92e964d4addd4e9d1.sock
+### 17-after-rebind  (04:22:21)  t3 app <lane>/projects/epsilon --base-dir <lane>/t3-home
+Opened <lane>/projects/epsilon in T3 Code.
+exit 0  (0.46 s)
+--- projects in t3-home (after errors):
+alpha|<lane>/projects/alpha
+gamma|<lane>/projects/gamma
+delta|<lane>/projects/delta
+beta space|<lane>/projects/beta space
+tilde proj|<lane>/clihome/tilde proj
+alpha-link|<lane>/projects/alpha-link
+epsilon|<lane>/projects/epsilon
+--- socket after the drive ended (04:22:35):
+ls: $TMPDIR/t3code-501/55b411b92e964d4addd4e9d1.sock: No such file or directory
+### 18-app-not-running  (04:22:35)  t3 app <lane>/projects/alpha --base-dir <lane>/t3-home
+DesktopAppUnreachableError: Could not reach the T3 Code desktop app. Start or update the desktop app on this machine, then run `t3 app` again. A running T3 Code server is not enough.
+exit 1  (0.44 s)
+
+===== after-1280-light/app-activation-log.txt
+t3.activation: watching the window 201560 for its close
+t3.activation: desktop app control socket ready at $TMPDIR/t3code-501/55b411b92e964d4addd4e9d1.sock
+t3.activation: request 61843fd9-acb9-424a-a691-893c283d46bb arrived
+t3.activation: request 61843fd9-acb9-424a-a691-893c283d46bb handed to the window
+t3.activation: request 61843fd9-acb9-424a-a691-893c283d46bb answered: opened project bc17bf19-6805-4c2d-bf26-0907f29f403f thread 79ad084a-923b-471f-9224-33affcf149bb
+t3.activation: request 8f53901a-0bf4-406c-9198-ca336276f3fb arrived
+t3.activation: request 8f53901a-0bf4-406c-9198-ca336276f3fb handed to the window
+t3.activation: request 8f53901a-0bf4-406c-9198-ca336276f3fb answered: opened project bc17bf19-6805-4c2d-bf26-0907f29f403f thread 79ad084a-923b-471f-9224-33affcf149bb
+t3.activation: request 9cfd757f-c4b3-48a8-9a11-7cacd7d945b1 arrived
+t3.activation: request 9cfd757f-c4b3-48a8-9a11-7cacd7d945b1 handed to the window
+t3.activation: request 1357b33c-e6f4-4802-95b0-f63aaeb1428f arrived
+t3.activation: request 9cfd757f-c4b3-48a8-9a11-7cacd7d945b1 answered: opened project 9aed08b9-3dcd-4ea1-a25a-9f6327ca9fc2 thread 0a88a552-0204-4e0b-a3c9-13fe380a7c80
+t3.activation: request 1357b33c-e6f4-4802-95b0-f63aaeb1428f handed to the window
+t3.activation: request 1357b33c-e6f4-4802-95b0-f63aaeb1428f answered: opened project aa6d5ee8-63fa-45e4-867d-240d15b9daf0 thread f01bc0e6-df39-41ad-8134-563a886570f9
+t3.activation: request 1ac5295c-9f95-48d0-a3d6-17ebc39a423b arrived
+t3.activation: request 1ac5295c-9f95-48d0-a3d6-17ebc39a423b handed to the window
+t3.activation: request 1ac5295c-9f95-48d0-a3d6-17ebc39a423b answered: project-create-failed Failed to mutate project.
+t3.activation: request 88f3f904-8bb7-4bdf-99d3-1f5150251e55 arrived
+t3.activation: request 88f3f904-8bb7-4bdf-99d3-1f5150251e55 handed to the window
+t3.activation: request 88f3f904-8bb7-4bdf-99d3-1f5150251e55 answered: opened project 9b449e87-9d2f-4d6c-8f5c-e6e39e8861af thread bac8bacb-77b9-4bee-a338-d516aa57f630
+t3.activation: request 1737bbce-a0b9-4036-b243-e8160553ae30 arrived
+t3.activation: request 1737bbce-a0b9-4036-b243-e8160553ae30 handed to the window
+t3.activation: request 1737bbce-a0b9-4036-b243-e8160553ae30 answered: opened project f7bd6039-d111-4a93-b9c1-d3169a70c792 thread 587891c7-2cde-4102-9df6-b1a777e4a7d1
+t3.activation: request 11fa65c4-14f5-4a5c-9383-529f3208c9cd arrived
+t3.activation: request 11fa65c4-14f5-4a5c-9383-529f3208c9cd handed to the window
+t3.activation: request 11fa65c4-14f5-4a5c-9383-529f3208c9cd answered: opened project 568aebe0-3377-41a0-9f28-cd12359d32dd thread a353e5b0-d325-4563-9aa8-791321c9ef0e
+
+===== after-1280-light/pids.txt
+agent pid 22011
+agent exit 0
+
