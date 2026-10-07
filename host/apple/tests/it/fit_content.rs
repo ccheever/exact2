@@ -79,7 +79,7 @@ fn an_empty_route_measures_its_padding_and_a_scrolling_one_its_scroll_extent() {
           text "Long"
 "##;
     let plan = contract::compile(src).unwrap();
-    let (host, first) = Host::boot(
+    let (mut host, first) = Host::boot(
         &plan.encode(),
         NoData,
         Box::new(MonospaceMeasurer::default()),
@@ -95,4 +95,9 @@ fn an_empty_route_measures_its_padding_and_a_scrolling_one_its_scroll_extent() {
         heights(&first, view(&host, "scrolls")),
         [16.0 + 500.0 + 16.0]
     );
+    let scrolls = view(&host, "scrolls");
+    let covered = host.set_covers(&[(scrolls, Some(HostCover::Edges([0.0, 0.0, 34.0, 0.0])))]);
+    // Its scroller needs the bottom cover in that extent; the sheet takes it
+    // off again (`ModalIOS.swift`), UIKit adding the band itself.
+    assert_eq!(heights(&covered, scrolls), [16.0 + 500.0 + 16.0 + 34.0]);
 }
