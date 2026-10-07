@@ -40,6 +40,10 @@ private final class RasterSource: RasterSourceOwner, @unchecked Sendable {
     var input: RasterInput?
     var cancellation = RasterCancellation()
     var failure: String?
+    /// Its last decode failed in ImageIO or Core Graphics over bytes whose
+    /// size it read (`RasterFailure.decode`): a busy system does that, so the
+    /// view asks again before its `error` (`RasterLoader.declineDelays`).
+    var declined = false
     init(id: UInt64, name: String, resolver: AssetResolver) {
         self.id = id; key = RasterSourceKey(name: name, resolver: ObjectIdentifier(resolver)); self.resolver = resolver
     }
@@ -75,6 +79,10 @@ private final class RasterBackend: @unchecked Sendable {
     var metadataReads = 0
     var decoded = 0
     var refusals = 0
+    #if DEBUG
+    /// Decodes still to fail as ImageIO's do on a busy system.
+    var testDeclines = 0
+    #endif
     private var budgetNotice: [UInt64] = []
     init(id: UInt64, sourceLimit: Int = defaultSourceLimit, metadataLimit: Int = 64) {
         self.id = id; self.sourceLimit = sourceLimit; self.metadataLimit = metadataLimit
@@ -148,6 +156,9 @@ private final class RasterBackend: @unchecked Sendable {
     func metadata(_ source: RasterSource) -> (RasterMetadata?, String?) {
         lock.lock(); defer { lock.unlock() }; return (source.metadata, source.failure)
     }
+    func declined(_ source: RasterSource) -> Bool {
+        lock.lock(); defer { lock.unlock() }; return source.declined
+    }
     func inspectOne() -> Bool {
         lock.lock()
         let source = stopped || paused ? nil : sources.values.compactMap(\.value).filter { $0.users > 0 && !$0.inspecting && $0.metadata == nil && $0.failure == nil }.min { $0.id < $1.id }
@@ -194,6 +205,10 @@ private final class RasterBackend: @unchecked Sendable {
                 let plan = try RasterDecodePlan(metadata: metadata, maxPixel: Int(max(work.width, work.height)), variant: work.variant)
                 guard plan.width == work.width, plan.height == work.height else { throw RasterFailure.reservation }
                 guard exact_raster_is_cancelled(work.permit) == 0 else { throw RasterFailure.decode }
+                #if DEBUG
+                lock.lock(); let decline = testDeclines > 0; testDeclines = max(0, testDeclines - 1); lock.unlock()
+                if decline { throw RasterFailure.decode }
+                #endif
                 return try RasterImage.decode(bytes, metadata: metadata, plan: plan, charge: charge, sourceOwner: source, url: input.url)
             }
             let owner = UInt64(UInt(bitPattern: Unmanaged.passRetained(image).toOpaque()))
@@ -202,10 +217,11 @@ private final class RasterBackend: @unchecked Sendable {
                     Unmanaged<RasterImage>.fromOpaque(pointer).release()
                 }
             }, UInt64(image.residentBytes))
-            lock.lock(); decoded += 1; lock.unlock()
+            lock.lock(); decoded += 1; source.declined = false; lock.unlock()
         } catch {
+            // Set before the core's failure is visible to the pass that reads both.
+            lock.lock(); refusals += 1; source.declined = error as? RasterFailure == .decode; lock.unlock()
             exact_raster_fail(work.permit)
-            lock.lock(); refusals += 1; lock.unlock()
         }
         wake()
     }
@@ -350,7 +366,18 @@ final class RasterLoader {
         var announced = false
         /// The core's request queue was full: asked again on the next pass.
         var admissionDeferred = false
+        /// Declined decodes since it last painted, and whether it waits out
+        /// the delay before asking again.
+        var declines = 0
+        var waiting = false
     }
+    /// How long a view waits after each declined decode before asking again;
+    /// past the last, the decline is its `error`, as a page's `<img>` errs
+    /// for a file and never for a busy machine. ImageIO says only that a
+    /// decode failed; a JPEG or PNG it cannot decode fails its header read
+    /// first (macOS 27), so a file that fails here anyway errs 1.75 s late,
+    /// inside the agent's 3 s bound.
+    static let declineDelays: [Double] = [0.25, 0.5, 1]
     /// Eight viewport-sized RGBA bitmaps, bounded to 32–192 MiB. Start at
     /// the floor until the owning view has geometry, never a process screen.
     static let minimumBudget: UInt64 = 32 * 1024 * 1024
@@ -377,6 +404,8 @@ final class RasterLoader {
     private(set) var testReconciliations = 0
     /// Stands in for the core's request: a request id, or 0 and its refusal.
     var testRequest: ((ExactRasterDemand) -> (request: UInt64, refusal: UInt64?))?
+    /// The next `count` decodes fail as ImageIO's do on a busy system.
+    func testDecline(next count: Int) { backend.lock.lock(); backend.testDeclines = count; backend.lock.unlock() }
     #endif
     init(budget: UInt64 = RasterLoader.minimumBudget,
          sourceLimit: Int = 1152, metadataLimit: Int = 64) {
@@ -517,7 +546,15 @@ final class RasterLoader {
         guard var item = interests[view] else { return }
         if item.request != 0 { exact_raster_cancel(id, item.request) }
         item.request = 0; item.requestedPixel = 0; item.failure = nil; item.delivered = false
-        item.admissionDeferred = false; interests[view] = item
+        item.admissionDeferred = false; item.waiting = false; interests[view] = item
+        reconcile()
+    }
+    /// Ask again for a decode ImageIO declined, unless the view's source,
+    /// generation or decode changed while it waited.
+    private func decodeAgain(_ view: UInt32, generation: Int, declines: Int) {
+        guard var item = interests[view], item.generation == generation,
+              item.waiting, item.declines == declines else { return }
+        item.waiting = false; interests[view] = item
         reconcile()
     }
     func reconcile() {
@@ -538,13 +575,25 @@ final class RasterLoader {
         for viewID in Array(interests.keys) {
             guard var item = interests[viewID], let view = item.view,
                   view.loadGeneration == item.generation, view.presenter?.views[viewID] === view else { cancel(viewID); continue }
-            if item.failure != nil || item.delivered { continue }
+            if item.failure != nil || item.delivered || item.waiting { continue }
             if item.request != 0 {
                 let state = exact_raster_status(id, item.request)
                 if state == 4, let lease = NativeRasterLease(exact_raster_take_ready(id, item.request)) {
-                    item.delivered = true
+                    item.delivered = true; item.declines = 0
                     if let size = view.acceptRaster(lease, generation: item.generation) { landed.append((view, item.generation, size)); settle(&item, view) }
                     interests[viewID] = item
+                } else if state == 115, item.declines < Self.declineDelays.count, backend.declined(item.source) {
+                    // Cancelled now, so the core forgets the failed decode once
+                    // every view of it has let go, and the next request decodes.
+                    let delay = Self.declineDelays[item.declines]
+                    exact_raster_cancel(id, item.request); item.request = 0; item.requestedPixel = 0
+                    item.declines += 1; item.waiting = true; interests[viewID] = item
+                    view.presenter?.session?.log("image queued: ImageIO declined a decode; again in \(Int(delay * 1000)) ms")
+                    let generation = item.generation, declines = item.declines
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                        self?.decodeAgain(viewID, generation: generation, declines: declines)
+                    }
+                    continue
                 } else if state >= 100 {
                     item.failure = Self.refusal(UInt64(state - 100)); settle(&item, view); interests[viewID] = item
                     view.presenter?.session?.log("image deferred: \(item.failure!)")
@@ -697,7 +746,7 @@ final class RasterLoader {
         exact_raster_session_control(id, paused ? 1 : 2)
         for key in interests.keys {
             interests[key]?.request = 0; interests[key]?.failure = nil; interests[key]?.delivered = false
-            interests[key]?.admissionDeferred = false
+            interests[key]?.admissionDeferred = false; interests[key]?.waiting = false
         }
         if !paused { reconcile() }
     }
@@ -723,7 +772,7 @@ final class RasterLoader {
             "images": interests.map { view, interest -> [String: Any] in
                 ["view": view, "source": String(interest.source.id), "offeredPixel": interest.offeredPixel,
                  "admittedPixel": interest.requestedPixel, "status": exact_raster_status(id, interest.request),
-                 "failure": interest.failure ?? "", "pixels": [interest.view?.raster?.image.image.width ?? 0, interest.view?.raster?.image.image.height ?? 0],
+                 "failure": interest.failure ?? "", "declines": interest.declines, "pixels": [interest.view?.raster?.image.image.width ?? 0, interest.view?.raster?.image.image.height ?? 0],
                  "color": Self.colorFacts(interest)]
             },
             "deferred": interests.values.filter { $0.admissionDeferred || $0.failure != nil || ($0.request != 0 && exact_raster_status(id, $0.request) == 2) }.count,
