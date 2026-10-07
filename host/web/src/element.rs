@@ -715,6 +715,13 @@ pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
 /// [`props_for`], from a node's facts.
 pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     let mut out = SortedMap::new();
+    // @ref LLP 1104 D8 — shared by live wasm batches, server documents and
+    // the JS target's templates. Lowering keeps excluded editors bare.
+    if node.node_type == NodeType::TextInput
+        && node.style.appearance == exact_kernel::Appearance::Auto
+    {
+        out.insert("data-native".into(), String::new());
+    }
     if node.style.wrap_flow == exact_kernel::WrapFlow::Both {
         out.insert("data-wrap-flow".into(), "both".into());
     }
