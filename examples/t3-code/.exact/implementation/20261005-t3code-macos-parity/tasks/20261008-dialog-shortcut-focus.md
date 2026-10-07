@@ -7,7 +7,7 @@ delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-dialog-shortcut-focus
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/255
 verified_commit: null
 ---
 
@@ -113,7 +113,11 @@ Drives: `bun scripts/agent.mjs macos --json --size 1280x840` (agent mode: keys a
 window, the focus is read from the tree's `[focused]` and `tree --ax`). The transcript is
 [agent-focus-drives.txt](../evidence/20261008-dialog-shortcut-focus/agent-focus-drives.txt); the
 images are agent window screenshots with the `[focused]` element outlined (no AppKit ring is drawn in
-agent screenshots, `docs/agent-pitfalls.md`).
+agent screenshots, `docs/agent-pitfalls.md`), uploaded to `t3-code-evidence/dialog-shortcut-focus/`:
+[01 Add Environment](https://raw.githubusercontent.com/ccheever/exact2/e812503eb7c3b0ed7e5447c37dc76235afaee74b/dialog-shortcut-focus/01-add-environment-tab.png),
+[02 Providers Remove](https://raw.githubusercontent.com/ccheever/exact2/3575db6c554a0635837a77b817e7b10b8e1dfc4d/dialog-shortcut-focus/02-providers-remove-confirm.png),
+[03 Custom snooze](https://raw.githubusercontent.com/ccheever/exact2/71d1edcb61eb30da83b78eda689c8b73fb080cdb/dialog-shortcut-focus/03-custom-snooze-tab.png),
+[04 title confirm](https://raw.githubusercontent.com/ccheever/exact2/1b84ce1986c39f3263834570f3bda41f07b771c5/dialog-shortcut-focus/04-title-confirm-escape.png).
 
 | Row | Result | Proof |
 | --- | --- | --- |
@@ -189,8 +193,9 @@ deferred (screen locked).
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
 | 1 (2026-10-08) | branch tree before the review repairs | agent drives 1–9 (base and branch); review round 1 FAIL (B1) | `agent-focus-drives.txt` §1–9, `review.md` | B1 |
-| 2 (2026-10-08) | branch tree after the repairs; runner fingerprint in `attempt1-report.json` (`source_unchanged: true`) | runner passed every check it runs: new tests 42 pass; `bun test examples/t3-code` 2519 pass / 1 skip / 0 fail; strict `tsc`; `contract build` (2631 slots, 2738 actions, 59420 nodes); `cargo test -p t3-code-macos --lib` 11 pass; caps. Five checks: build, test (3383 pass / 0 fail / 33 ignored, 94 binaries), clippy, fmt, caps, boot green. Drives §10 on the rebuilt app; review round 2 PASS | `agent-focus-drives.txt` §10, images 01–04, `attempt1-report.json`, `review.md` | real-input batch (screen locked); X50; X51 |
+| 2 (2026-10-08) | `b3390af6d` (runner fingerprint in `attempt1-report.json`, `source_unchanged: true`; the commit compared equal) | runner passed every check it runs: new tests 42 pass; `bun test examples/t3-code` 2519 pass / 1 skip / 0 fail; strict `tsc`; `contract build` (2631 slots, 2738 actions, 59420 nodes); `cargo test -p t3-code-macos --lib` 11 pass; caps. Five checks: build, test (3383 pass / 0 fail / 33 ignored, 94 binaries), clippy, fmt, caps, boot green. Drives §10 on the rebuilt app; review round 2 PASS | `agent-focus-drives.txt` §10, images 01–04, `attempt1-report.json`, `review.md` | real-input batch (screen locked); X50; X51 |
 
 ## Next action
 
-Review the draft PR. The coordinator runs "Real-input batch steps" when the screen is unlocked.
+Review the draft [PR #255](https://github.com/ccheever/exact2/pull/255). The coordinator runs "Real-input
+batch steps" when the screen is unlocked; X50 and X51 wait for the user's publication decision.
