@@ -17,6 +17,7 @@ use AboutUpdateButton from "./settings-a-about.contract"
 use MobileBetaControl from "./settings-mobile-beta.contract"
 use ScopedSwitch from "./settings-scoped-switch.contract"
 use FontFamilyPicker from "./settings-a-fonts.contract"
+use PromptFontPreview from "./settings-prompt-preview.contract"
 
 // "Applying settings for <project> across <environment>" with its two radio menus.
 component ScopeSentence
@@ -231,7 +232,7 @@ component CoreRowView
               FontFamilyPicker(rowId=row.id, label=`${row.title} family`, value=row.label, families=row.options, pal=pal, disabled=busy, choose=change(row.id, row.target))
               CoreSelect(rowId=`${row.id}-size`, section=section, value=row.label2, icon="", width=144, menuWidth=0, options=row.options2, pal=pal, disabled=busy, dim=false, menu=menu, openMenu=openMenu, choose=change(row.id, row.suffix))
       when row.info == "preview-prompt"
-        FontPromptPreview(family=row.driver, size=row.previewSize, pal=pal)
+        PromptFontPreview(family=row.driver, size=row.previewSize, pal=pal)
       when row.info == "preview-code" or row.info == "preview-code-terminal"
         FontCodePreview(family=row.driver, size=row.amount, pal=pal)
       when row.info == "preview-code-terminal" or row.info == "preview-terminal"
@@ -398,33 +399,7 @@ component CoreSlider
         box position="absolute" left=(ratio * (trackWidth - rem)) top="0.25rem" width="1rem" height="1rem" border-radius="0.5rem" border-width=2 border-style="solid" border-color=pal.accent background-color=pal.canvas box-sizing="border-box" box-shadow="0 1px 2px #0000001f"
         input type="range" min=row.min max=row.max step="any" value=`${shown}` input=track change=release key=navigate disabled=disabled aria-label=row.title position="absolute" left=0 top=0 width=trackWidth height="1.5rem" margin=0 opacity=0 id=`setting-${row.id}` testId=`setting-${row.id}`
 
-// SettingsFontPreviews: the composer sample in the interface font and a diff in the code font.
-component FontPromptPreview
-  props
-    family: string
-    size: number
-    pal: CorePalette
-  view
-    row width="100%" flex-wrap="wrap" align-items="center" column-gap="0.3125rem" row-gap="0.25rem" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" border-radius="0.75rem" border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.thumb box-sizing="border-box" font-family=(family == "system-ui" ? "system-ui" : family == "ui-sans-serif" ? "ui-sans-serif" : family == "sans-serif" ? "sans-serif" : family == "ui-serif" ? "ui-serif" : family == "serif" ? "serif" : family == "ui-monospace" ? "ui-monospace" : family == "monospace" ? "monospace" : "ui-rounded") aria-label="Prompt font preview" testId="prompt-font-preview"
-      text "Use" font-size=size line-height=`${size * 1.5}px` color=pal.text
-      FontChip(label="Frontend Design", ink="light-dark(#7c3aed, #a78bfa)", surface="light-dark(#f5f3ff, #a78bfa1f)", pal=pal, size=size)
-      text "to fix the flaky test in" font-size=size line-height=`${size * 1.5}px` color=pal.text
-      FontChip(label="surface.test.ts", ink="light-dark(#2563eb, #60a5fa)", surface="light-dark(#eff6ff, #60a5fa1f)", pal=pal, size=size)
-      text "and align the header with" font-size=size line-height=`${size * 1.5}px` color=pal.text
-      FontChip(label="SettingsPanels.tsx", ink="light-dark(#0891b2, #22d3ee)", surface="light-dark(#ecfeff, #22d3ee1f)", pal=pal, size=size)
-      text "before shipping." font-size=size line-height=`${size * 1.5}px` color=pal.text
-component FontChip
-  props
-    label: string
-    ink: string
-    surface: string
-    pal: CorePalette
-    // The prompt size: the chips are the composer's, drawn at the prompt's px size (em), not the root's.
-    size: number
-  view
-    row height=(size * 22 / 14) padding-left=(size * 6 / 14) padding-right=(size * 6 / 14) gap=(size * 4 / 14) align-items="center" border-radius=(size * 6 / 14) border-width=1 border-style="solid" border-color=pal.cardBorder background-color=surface box-sizing="border-box"
-      box width=(size * 8 / 14) height=(size * 8 / 14) border-radius=(size * 2 / 14) background-color=ink
-      text label font-size=size line-height=`${size * 20 / 14}px` color=pal.text
+// SettingsFontPreviews: a diff in the code font (the prompt sample is settings-prompt-preview.contract).
 component FontCodePreview
   props
     family: string
