@@ -305,9 +305,11 @@ component MobileRouteContent
       MobileTerminalCaptureView(data=terminalCapture, colors=terminalData.colors, select=selectTerminalLine, attach=attachTerminalOutput)
     else when routeName == "threadReview"
       row gap=10 padding=14
-        select value=reviewData.sectionId change=reviewSection aria-label="Diff section" flex=1 min-width=0
-          each section in reviewData.sections key=section.id
-            option section.title value=section.id
+        // GAP 008: UIKit's automatic-selection button crashes with an empty menu.
+        when length(reviewData.sections) > 0
+          select value=reviewData.sectionId change=reviewSection aria-label="Diff section" flex=1 min-width=0
+            each section in reviewData.sections key=section.id
+              option section.title value=section.id
         button press=toggleReviewWrap aria-label="Toggle line wrapping" aria-pressed=reviewWrap
           t3-symbol symbol-name="text.word.spacing" point-size=18 symbol-tint=reviewLook.icon width=20 height=20
       when length(reviewData.files) > 0
