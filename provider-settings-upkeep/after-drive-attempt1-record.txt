@@ -1,0 +1,90 @@
+2026-10-07T18:35:31.178Z == pair Mac Studio and the launch prompt
+2026-10-07T18:35:37.399Z   (no welcome-agents-continue)
+2026-10-07T18:35:37.403Z   (no welcome-skip-import)
+2026-10-07T18:35:41.417Z toasts after connect: ["toast-title-1: Nightly needs the beta mobile app","toast-description-1: Nightly uses the new orchestrator. The App Store and Google Play versions of T3 Code cannot connect to it."]
+2026-10-07T18:35:41.974Z shot launch-prompt
+2026-10-07T18:35:41.977Z no Update action on the prompt
+2026-10-07T18:35:41.979Z fixture reset
+2026-10-07T18:35:43.514Z == add Laptop
+2026-10-07T18:35:43.522Z ERROR in add Laptop: Error: view 97 is hidden or inert
+    at input (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/scripts/agent.mjs:679:32)
+    at async tap (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/scripts/agent.mjs:1119:31)
+    at async <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/drive.mjs:26:66)
+    at async <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/drive.mjs:56:11)
+    at async <anonymous> (/Users/daehyeonmun/orca/workspa
+2026-10-07T18:35:43.522Z == providers list and Update all
+2026-10-07T18:35:43.530Z ERROR in providers list and Update all: Error: view 97 is hidden or inert
+    at input (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/scripts/agent.mjs:679:32)
+    at async tap (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/scripts/agent.mjs:1119:31)
+    at async <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/drive.mjs:26:66)
+    at async <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/drive.mjs:33:85)
+    at async <anonymous> (/Users/daehyeonmun/orca/workspa
+2026-10-07T18:35:43.530Z == popover from the list row (Codex)
+2026-10-07T18:35:43.532Z   (no provider-advisory-list-codex)
+2026-10-07T18:35:43.535Z   (no settings-provider-codex)
+2026-10-07T18:35:44.043Z shot popover-list-codex
+2026-10-07T18:35:44.044Z == popover from the editor (Claude, compatibility warning)
+2026-10-07T18:35:44.047Z   (no settings-provider-claudeAgent)
+2026-10-07T18:35:45.060Z   (no provider-advisory-editor-claudeAgent)
+2026-10-07T18:35:45.062Z   (no provider-advisory)
+2026-10-07T18:35:45.064Z editor popover: []
+2026-10-07T18:35:45.585Z shot popover-editor-claude
+2026-10-07T18:35:45.928Z == copy command and Update now (Codex, editor)
+2026-10-07T18:35:45.935Z   (no settings-provider-codex)
+2026-10-07T18:35:46.980Z   (no provider-advisory-editor-codex)
+2026-10-07T18:35:46.987Z   (no provider-advisory)
+2026-10-07T18:35:46.995Z   (no provider-advisory-editor-codex-copy)
+2026-10-07T18:35:46.998Z   (no provider-copy-command)
+2026-10-07T18:35:47.816Z toasts: ["toast-title-1: Nightly needs the beta mobile app","toast-description-1: Nightly uses the new orchestrator. The App Store and Google Play versions of T3 Code cannot connect to it."]
+2026-10-07T18:35:48.364Z shot copy-command-toast
+2026-10-07T18:35:48.375Z   (no provider-advisory-editor-codex)
+2026-10-07T18:35:48.378Z   (no provider-advisory)
+2026-10-07T18:35:48.382Z   (no provider-advisory-editor-codex-action)
+2026-10-07T18:35:48.386Z   (no provider-update-now)
+2026-10-07T18:35:50.909Z while updating: [] []
+2026-10-07T18:35:51.442Z shot update-now-running
+2026-10-07T18:35:57.461Z after update: version=[] toasts=["toast-title-1: Nightly needs the beta mobile app","toast-description-1: Nightly uses the new orchestrator. The App Store and Google Play versions of T3 Code cannot connect to it."]
+2026-10-07T18:35:58.000Z shot update-now-after
+2026-10-07T18:35:58.004Z fixture reset
+2026-10-07T18:36:00.020Z == Update all on both machines
+2026-10-07T18:36:00.034Z ERROR in Update all on both machines: Error: view 97 is hidden or inert
+    at input (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/scripts/agent.mjs:679:32)
+    at async tap (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/scripts/agent.mjs:1119:31)
+    at async <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/drive.mjs:26:66)
+    at async <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/drive.mjs:33:85)
+    at async <anonymous> (/Users/daehyeonmun/orca/workspa
+2026-10-07T18:36:00.035Z fixture reset
+2026-10-07T18:36:01.549Z == ACP agent: icon, URL auth
+2026-10-07T18:36:01.564Z ERROR in ACP agent: icon, URL auth: Error: view 97 is hidden or inert
+    at input (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/scripts/agent.mjs:679:32)
+    at async tap (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/scripts/agent.mjs:1119:31)
+    at async <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/drive.mjs:26:66)
+    at async <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/drive.mjs:33:85)
+    at async <anonymous> (/Users/daehyeonmun/orca/workspa
+2026-10-07T18:36:01.565Z == ACP native sessions
+2026-10-07T18:36:01.568Z   (no acp-list-acpRegistry_gemini)
+2026-10-07T18:36:01.568Z == ACP agent providers
+2026-10-07T18:36:01.572Z   (no acp-list-providers-acpRegistry_gemini)
+2026-10-07T18:36:01.572Z == custom model options editor
+2026-10-07T18:36:01.575Z   (no settings-provider-codex)
+2026-10-07T18:36:02.791Z   (no provider-model-edit-gpt-5.5-lane)
+2026-10-07T18:36:02.794Z   (no provider-model-edit-gpt-5.5-lane)
+2026-10-07T18:36:03.336Z shot cm-editor-open
+2026-10-07T18:36:03.336Z == narrow 840x620 and dark
+2026-10-07T18:36:04.881Z ERROR in narrow 840x620 and dark: Error: view 97 is hidden or inert
+    at input (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/scripts/agent.mjs:679:32)
+    at async tap (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/scripts/agent.mjs:1119:31)
+    at async <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/drive.mjs:26:66)
+    at async <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/drive.mjs:33:85)
+    at async <anonymous> (/Users/daehyeonmun/orca/workspa
+2026-10-07T18:36:04.882Z == keyboard and reduced motion
+2026-10-07T18:36:04.896Z ERROR in keyboard and reduced motion: Error: view 97 is hidden or inert
+    at input (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/scripts/agent.mjs:679:32)
+    at async tap (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/scripts/agent.mjs:1119:31)
+    at async <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/drive.mjs:26:66)
+    at async <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/drive.mjs:33:85)
+    at async <anonymous> (/Users/daehyeonmun/orca/workspa
+2026-10-07T18:36:04.899Z == wizard registry icons
+2026-10-07T18:36:04.903Z   (no add-provider)
+2026-10-07T18:36:10.920Z wizard icons: []
+2026-10-07T18:36:11.419Z shot wizard-acp
