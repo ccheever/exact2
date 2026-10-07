@@ -140,7 +140,7 @@ bun examples/t3-code/package-app.mjs          # outputs in target/t3-package/
 ```
 
 `package-app.mjs` exports the commit with `git archive` into a folder outside every checkout
-(`$TMPDIR/t3-code-package`), builds it there under `sandbox-exec` (`sandbox.sb`: the build may not
+(`/tmp/t3-code-package`, a fixed folder that names no user or checkout), builds it there under `sandbox-exec` (`sandbox.sb`: the build may not
 read or write this checkout, `~/.t3` or any `--deny <path>`), runs the stage step (the only
 network use, cached beside the export), builds `host/apple/build.mjs t3-code-macos --bundle
 --distribution` ad hoc signed with Rust's source paths remapped, strips the executable's
@@ -432,6 +432,18 @@ names they read as props of the same names. Feature areas live in their own file
 `protocol.ts`, `domain.ts` and `presentation.ts` own the data source, commands and
 event projection. `modules/apple/` is the native module; `apple/` holds the bake adapter
 and native tests. T3's MIT notice is retained in `LICENSE-T3`.
+
+The downloadable build (see "Distribution") has its own two scripts. `package-app.mjs` makes
+the zip. `audit-bundle.mjs <app> [--t3-home <home>/.t3]` checks a built `.app` and, with the
+T3 home a first launch used, the runtime tree it unpacked: arm64 only, nothing above macOS 14,
+no library or rpath outside the bundle and the system, no path of this machine (home, checkout,
+`~/.bun`, `~/.t3`, the temporary folder, every `--forbid`) and no other build-shaped path unless
+`bundle-allowlist.json` names it with its reason, no development leftovers, every file covered
+by the allowlist's file list, the runtime archive equal to its manifest and pin, the unpacked
+tree equal to the manifest (modes, executables 0755, signatures of `t3` and every native
+addon, no link out of the folder), a valid signature, `LSMinimumSystemVersion` 14.0, the
+example's bundle id and the packaged marker. `audit-bundle.test.ts` runs it on synthetic
+bundles.
 
 Exact asks an answer again when a topic it watches changes. Since exact2 #183 a change
 that arrives while the snapshot read is in flight lets that read's reply land and then asks

@@ -60,6 +60,17 @@ export function remapFlags(exportRoot, env = process.env) {
   return pairs.map(([from, to]) => `--remap-path-prefix=${from}=${to}`).join(' ');
 }
 
+/** `swift` for the sandboxed build: SwiftPM's own commands without its manifest sandbox (it cannot nest). */
+export const SWIFT_WRAPPER = `#!/bin/sh
+# package-app.mjs: SwiftPM sandboxes manifests and plugins with sandbox-exec, which cannot run inside
+# the build's own sandbox (sandbox_apply: Operation not permitted). Everything else is unchanged.
+command="$1"
+case "$command" in
+  build|package|test|run) shift; exec /usr/bin/xcrun swift "$command" --disable-sandbox "$@" ;;
+  *) exec /usr/bin/xcrun swift "$@" ;;
+esac
+`;
+
 const say = (log, line) => { console.log(line); if (log) writeFileSync(log, `${line}\n`, { flag: 'a' }); };
 function step(log, cmd, args, opts = {}) {
   say(log, `$ ${[cmd, ...args].join(' ')}`);
@@ -75,14 +86,18 @@ function step(log, cmd, args, opts = {}) {
 /** Inside the export (and the sandbox): stage, build, package. Writes `<work>/out`. */
 async function inside(work) {
   const exportRoot = root, out = join(work, 'out'), log = join(out, 'build.log');
+  const sandboxed = !!process.env.T3_PACKAGE_SANDBOXED;
   const env = { ...process.env, EXACT_APP_DIR: here, EXACT_IDENTITY: '-', T3_RUNTIME_CACHE: join(work, 'runtime-cache'),
-    CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS: remapFlags(exportRoot) };
+    CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS: remapFlags(exportRoot),
+    // SwiftPM sandboxes its manifest with sandbox-exec, which cannot run inside another sandbox:
+    // under ours, `swift` is the wrapper outside() wrote, which adds --disable-sandbox.
+    ...(sandboxed ? { PATH: `${join(work, 'bin')}:${process.env.PATH}` } : {}) };
   const run = (cmd, args) => step(log, cmd, args, { cwd: exportRoot, env });
   const bun = process.execPath;
   run(bun, ['install', '--frozen-lockfile']);
   // The server's own spawns fail with EPERM under sandbox-exec (embedded-server-runtime), so the stage
   // step's start-and-probe runs only outside one; the archive is the pin's bytes either way.
-  run(bun, ['examples/t3-code/stage-runtime.mjs', ...(process.env.T3_PACKAGE_SANDBOXED ? ['--no-smoke'] : [])]);
+  run(bun, ['examples/t3-code/stage-runtime.mjs', ...(sandboxed ? ['--no-smoke'] : [])]);
   run(bun, ['examples/t3-code/terminal-host/build.mjs']);
   const built = run(bun, ['host/apple/build.mjs', 't3-code-macos', '--bundle', '--distribution']);
   const bundle = /^local client: (.+\.app)$/m.exec(`${built.stdout}`)?.[1];
@@ -155,6 +170,8 @@ async function outside(args) {
   const denied = [root, join(homedir(), '.t3'), ...take('--deny')];
   const profile = join(work, 'sandbox.sb');
   writeFileSync(profile, sandboxProfile(denied));
+  mkdirSync(join(work, 'bin'), { recursive: true });
+  writeFileSync(join(work, 'bin/swift'), SWIFT_WRAPPER, { mode: 0o755 });
   const started = Date.now();
   const command = [process.execPath, join(exportRoot, 'examples/t3-code/package-app.mjs'), '--inside', work];
   const result = spawnSync(sandboxed ? '/usr/bin/sandbox-exec' : command[0], sandboxed ? ['-f', profile, ...command] : command.slice(1), {
