@@ -41,7 +41,7 @@ export function ghostOf(row, reduced) {
   return { el: host, left: r.left, top: r.top, width: r.width, height: r.height, dx: 0, dy: 0 };
 }
 
-export function groupController({ views, collections, request, applyBatch, now, ready, inert, root, gripOf, viewOf = el => Number(el.dataset.view) }) {
+export function groupController({ views, collections, request, applyBatch, now, ready, inert, root, gripOf, viewOf = el => Number(el.dataset.view), log = () => {} }) {
   const doc = root?.ownerDocument ?? document;
   const reduced = () => !!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   let cur = null, pending = null, pump = null, pumpTime = null;
@@ -203,8 +203,25 @@ export function groupController({ views, collections, request, applyBatch, now, 
     doc.addEventListener('click', stop, { capture: true, once: true });
     setTimeout(() => doc.removeEventListener('click', stop, { capture: true }), 0);
   }
+  // A drag refused while the last drop's session holds, said once a session (LLP 1102 §3.17):
+  // a drive's reply reads like a success otherwise.
+  let refusedFor = null;
+  const refused = () => {
+    if (refusedFor === cur) return;
+    refusedFor = cur;
+    log('reorder: a drag refused: the last drop is held until its move shows (LLP 1094 D8); a person waits for the card to land; a drive waits with `clock settle` before the next drag');
+  };
+  // The scroll container under the contact, short of the grip, where `touch-action` stops.
+  const scroller = (el, grip) => {
+    for (let n = el; n && n !== grip; n = n.parentElement) {
+      const s = getComputedStyle(n);
+      if (/(auto|scroll|hidden)/.test(s.overflowX + s.overflowY)) return n;
+    }
+    return null;
+  };
   function down(b, e, g) {
     if (cur?.phase === 'landing') cur.landNow();
+    if (cur && !inert(b.el)) refused();
     if (cur || inert(b.el)) return; // no lift while a session holds (D8)
     pending?.();
     collections.reorderContact(b.el, e.pointerId);
@@ -226,7 +243,14 @@ export function groupController({ views, collections, request, applyBatch, now, 
     // A child's capture loss while the grip takes capture is no cancel (habits F10).
     const up = v => {
       if (v.pointerId !== e.pointerId || v.type === 'lostpointercapture' && v.target !== b.el) return;
-      if (!d) { cleanup(); return; }
+      if (!d) {
+        // The browser took a finger before the lift (LLP 1102 §3.17): say why, as the pan glue does.
+        if (v.type === 'pointercancel' && e.pointerType !== 'mouse') {
+          const s = scroller(e.target, b.el), named = s?.dataset?.testid ? ` ("${s.dataset.testid}")` : '';
+          log(`reorder: the browser took the ${e.pointerType || 'pointer'} contact on a grip to scroll before it lifted${s ? `: a scroll container under the grip${named} (overflow-x or overflow-y hidden, as an ellipsis title) ends touch-action there; give it touch-action="none", or start the grip off it` : '; give the grip touch-action="none"'}`);
+        }
+        cleanup(); return;
+      }
       // A lifted drag is no press: the click its release makes is swallowed.
       if (v.type === 'pointerup') { swallowClick(); move(d, v); drop(d); } else cancel(d);
     };
@@ -240,7 +264,7 @@ export function groupController({ views, collections, request, applyBatch, now, 
   function keydown(b, e) {
     if (e.target !== b.el || e.key !== ' ' || e.repeat) return;
     if (cur?.phase === 'landing') cur.landNow();
-    if (cur) return;
+    if (cur) { refused(); return; }
     // The keys' contact takes the row's interaction pin as a finger's does;
     // the mapping reports it before the pin is retained.
     collections.reorderContact(b.el, -1);

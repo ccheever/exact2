@@ -1450,14 +1450,15 @@ async function main(argv) {
       return [op, r];
   };
   // A drive that names no scratch store has no storage, and a source's write fails only in the
-  // journal; say so the first time, beside the op that caused it (authoring bench, LLP 1087).
-  // The web carrier only: its journal read is an in-page call, where a native carrier's
-  // could time out and fail the transport for the ops after it.
-  let peek = 0, probes = 0, warned = host !== 'web' || flags.json || flags.storage !== undefined;
+  // journal; say so on stderr, which a --json reader's stdout never carries (authoring bench,
+  // LLP 1087; LLP 1102 §3.17). The web reads its journal beside each op that could have caused
+  // it (an in-page call); a native carrier, whose journal read could be slow, once when the
+  // drive ends, bounded, so it never fails the ops.
+  let peek = 0, probes = 0, warned = flags.storage !== undefined;
   const storageNote = async () => {
     if (warned || ++probes > 20) return; // a missing store shows at the first writes
     try {
-      const j = await s.op({ op: 'logs', since: peek });
+      const j = await Promise.race([s.op({ op: 'logs', since: peek }), new Promise((done) => setTimeout(() => done(null), 3000))]);
       if (!Array.isArray(j?.lines)) return;
       peek = j.next;
       if (j.lines.some((l) => /unavailable in agent mode/.test(typeof l === 'string' ? l : JSON.stringify(l)))) {
@@ -1471,8 +1472,9 @@ async function main(argv) {
       at = k + 1;
       const [op, r] = await step(line);
       console.log(flags.json ? JSON.stringify(r) : render(op, r));
-      if (['tap', 'type', 'clock'].includes(op)) await storageNote();
+      if (host === 'web' && ['tap', 'type', 'clock'].includes(op)) await storageNote();
     }
+    if (host !== 'web' && ops.some((line) => /^\s*(tap|type|clock)\b/.test(line))) await storageNote();
     return 0;
   } catch (e) {
     e.message = `op ${at}/${ops.length} \`${ops[at - 1]?.trim()}\`: ${e.message}`;
