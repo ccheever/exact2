@@ -369,7 +369,7 @@ on the web and these on Hermes (macOS, iOS, Linux):
 
 | Available on every executor | Notes on Hermes |
 | --- | --- |
-| `fetch`, `Headers`, `Response` | Grant-checked; `signal` aborts. A `Response` has `status`, `ok`, `headers`, `text()`, `json()`, `arrayBuffer()`; no `Request`, `Blob` or `FormData` |
+| `fetch`, `Headers`, `Response` | Grant-checked; `signal` aborts. A `body` is a string or an `ArrayBuffer` or view, sent as its bytes (an upload of `storage.fs.readFile`'s bytes); as Fetch does, a body on a GET or HEAD, or a view on a `SharedArrayBuffer` or resizable buffer, rejects, and a detached buffer sends no bytes. A `Response` has `status`, `ok`, `headers`, `text()`, `json()`, `arrayBuffer()`; no `Request`, `Blob` or `FormData` |
 | `structuredClone` | No transfer list |
 | `TextEncoder`, `TextDecoder` | `TextEncoder` emits UTF-8. Hermes 0.4's built-in WHATWG decoder keeps the browser-style encoding labels, including UTF-8 and UTF-16LE/BE, plus `fatal`, streaming and `ignoreBOM` behavior |
 | `URL`, `URLSearchParams`, `atob`, `btoa` | |
