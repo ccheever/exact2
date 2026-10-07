@@ -18,3 +18,35 @@ Verdict: PASS, no blocking findings.
 
 Runner: attempt 1 (`attempt1-report.json`) passed every check that runs here, with `source_unchanged: true`. Its
 two required live checks are blocked. Attempt 2 (`attempt2-report.json`) reran it after finding 3's test.
+
+## Storm-fix reviews, 2026-10-08
+
+Three reviews by separate agents. Each was given the commit, the reference (T3 Code 1e2ecbd975), the observed sessions
+(records 07 and 08 after) and the menu-stall repro. None was told an expected verdict, and none changed tracked files.
+
+**Review 1, `2525124ca`** (the stream for status, the 64-pending cap removed): PASS, no blocking findings.
+
+| # | Finding | Resolution |
+| --- | --- | --- |
+| 1 | The strip hid before the snapshot and after a stream failure, a switch could show the stale branch, and the 3 s retry ran on a 60 s clock | 3373f7919 and 3e939ecaa: assume Git as ChatView does; after a switch, the switched name and a resubscribe |
+| 2 | `vcs.listRefs` also went out on every tick when slow (card row, strip picker), the same let-go pattern | Shared reads (3e939ecaa) |
+| 3 | The menu stall comes from opening a menu inside a main-queue block; the clone's own menus do that too | Repro variant confirmed it; `T3MenuTurn` (3373f7919); ExactKit's `MenusMac` reported |
+| 4 | The test drove only the closed card | The open card added |
+
+**Review 2, `3373f7919`** (`sendRead`, a 3 s resend): FAIL.
+
+| # | Finding | Resolution |
+| --- | --- | --- |
+| 1 | Blocking: the strip got the boot-relative `shellClock`, `Math.max` with `composerNow` (wall time, 60 s steps) ignored it, and a frozen clock never resends. The picker could stay on Loading for up to a minute | `sendRead` removed; reads are shared in the transport (3e939ecaa), with no clock. The test "the picker leaves its loading state when the shared reply reaches the answer that joined it" fails on 3373f7919 |
+| 2-6 | The card could stall once the tick stops. A failed read flips the strip. The switch blanked the card. `stripShortcuts` ignored assume-Git. `runModal` still stalls | 2, 4, 5 fixed by 3e939ecaa. 3 kept: a failure still hides the strip, as before this task. 6 recorded as a follow-up |
+
+**Review 3, the shared reads** (3e939ecaa before commit): PASS, no blocking findings. The join chain answers every caller
+on reply, timeout and retire. A probe whose fake behaves like T3Transport saw one send and a loaded picker. Eight ticks
+across card and picker states sent nothing per tick. Follow-ups applied before the session:
+- a read after a write could join a read sent before it, so a write naming a cwd ends the sharing for that cwd (e4087409d, XCTest);
+- the joined-reply test was added.
+
+Not applied: a shared reply over 512 KB hands one native transfer to every joined caller.
+
+Runner: attempt 6 (`attempt6-report.json`) passed every check that runs here on `e4087409d`, with `source_unchanged:
+true`. The two live checks were run by hand: records 07 (banner) and 08 (menu choice, cadence).

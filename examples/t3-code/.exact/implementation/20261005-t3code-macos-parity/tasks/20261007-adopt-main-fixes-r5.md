@@ -2,13 +2,13 @@
 name: 20261007-adopt-main-fixes-r5
 plan: 20261005-t3code-macos-parity
 implementation: implemented
-verification: failed
+verification: passed
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-adopt-main-fixes-r5
 pr_url: https://github.com/ccheever/exact2/pull/236
-verified_commit: null
+verified_commit: e4087409d
 ---
 
 # The clone adopts main's fixes, round 5 (#219, #220, #221, #223, #226; #113 checked)
@@ -67,6 +67,9 @@ checked for X27: `env()` names, `host.macos.window`, `exactViewport()` and `exac
 | #141 / X26 (#226) | **adopted** | The clone's own Speech is removed (it would have shown twice). #226 also files the clone's ⇧⌘G and ⌘D buttons under Edit (Branch, Toggle Diff). `R8KeysMenus` hides Edit's app commands as File's, so Edit is DesktopApplicationMenu.ts's |
 | #129 / X11 | **nothing to remove** (`closed-upstream`, #225 open) | The drawer's and dialogs' real blurs take #221 with no clone change. The flattened glass stays: nested backdrops and `saturate()` are #225 |
 | "native.watch outside an answer" (follow-up) | **fixed in the clone** (only the round-5 build showed it; the cause is clone code present in both builds) | Real input, one session per build: only the round-5 build showed the transcript banner after a failed Add environment (record 06). `letGoAware` (`let-go.ts`) passed `watch()` through after its answer was let go. A refresh let go inside one of `fleet.sync`'s tolerated reads went on to `readLocalBackend`, whose `native.watch('t3.local')` the prelude refuses outside an answer, and the refresh's catch wrote that Error into `client.error`. The watch now rejects as `superseded` once the answer is let go (`cf7b15baf`; `let-go.test.ts` reproduces the message through `client.refresh`). The path and the race are the same on the base. Why only the round-5 build showed it is a hypothesis: its page-fact answers (shellView, the details card, SnapShot settings) are asked again on each window activation, which may shift when the snapshot answer is let go. With one session per build, and an uncontrolled extra step in the after session (Snooze before its quit), chance explains it as well. No main commit introduced it (independent review: the prelude diff only adds database tracking, and `forget_calls` is unchanged); nothing was filed. Final session: no banner on `da3aae081` (record 07) |
+| Request storm (a): `vcs.refreshStatus` four times a second | **fixed in the clone** (2525124ca, 3373f7919, 3e939ecaa, e4087409d) | While a toast is up the window asks the strip (`composerBranches`) and the details card again every 500 ms (app.contract `shellTick`), and Exact lets the previous answers go. The strip's status read and the card's branch row read were kept only after a reply. A reply slower than the tick (refreshStatus can wait on a remote fetch) was therefore asked for on every tick, on the base as on this branch. The reference reads status from the subscribeVcsStatus stream (BranchToolbarBranchSelector, GitActionsControl), asks refreshStatus only on window focus (debounced 250 ms), on visibility and when a git menu opens, and shares one listRefs request per input (`listRefsFamily`). Now the strip and the card read the stream, which follows the strip's workspace while the card is closed. A kept read is a shared read: T3Transport answers an identical read still pending with the same reply, and a write naming a cwd ends the sharing for that cwd. A never-seen checkout assumes Git, as in ChatView. After a branch switch the stream resubscribes and the strip keeps the switched name until it reports. A first attempt resent on a 3 s clock (3373f7919); review 2 failed it, because the clock domains were mixed and the clock stops with the tick, and 3e939ecaa replaced it |
+| Request storm (b): nothing sent while a native menu is open | **framework, reported (not filed)**; the clone's own menus fixed (3373f7919) | ExactKit's `MenusMac.context()` (and `show()` for button menus) calls `menu.popUp` inside `DispatchQueue.main.async`. CoreFoundation does not drain the main queue in a run loop nested in its own callout, and ExactKit hands every `native.later` call to the module through that queue (`NativeModule.swift` `nativeLaterCallback`), so the calls wait until the menu closes. `.common` timers keep the runner ticking meanwhile. Exact repro (standalone, `menu-repro` in the session scratchpad): a menu opened inside `DispatchQueue.main.async` ran 0 of about 20 main-queue blocks posted during 2 s of tracking (NSEventTrackingRunLoopMode), while `.common` timers fired; the same menu opened from `CFRunLoopPerformBlock` in the common modes ran all of them. T3Transport is not at fault: its sends run on its own queue. The clone's own menus (keyboard thread menu, Files/PR, media, terminal) now open from a common-modes run-loop turn (`T3MenuTurn`) |
+| 64-pending refusal | **removed** (2525124ca) | The reference's RPC client (packages/client-runtime/src/rpc/client.ts) has no cap on pending requests, so a user's snooze queued behind reads still goes out. Each pending request still ends at its deadline (30 s at most), and the outbox and 16-stream limits stay |
 | #113 / X27 | **re-checked: still missing** | No `titlebar-area-*`, title-bar setting or full-screen fact on `261dd4e10`. No open issue tracks the rest (user decision) |
 
 ## Acceptance and reproduction
@@ -79,7 +82,8 @@ checked for X27: `env()` names, `host.macos.window`, `exactViewport()` and `exac
 | Native menu | lane bundle copies (own bundle ids), real right-click | `orca computer click … --mouse-button right`, then Copy | the same `NSMenu` before and after, Copy ▸ open | macOS | image 02 |
 | Edit menu | agent `state.menus` | — | Undo, Redo, —, Cut, Copy, Paste, Paste as Text, Delete, —, Select All, —, Speech (+ AppKit's) | macOS | record 05 |
 | No banner after a failed Add environment | lane copy with no saved credential (Keychain item and preferences removed, data kept) | real input: Settings › Connections › Add environment › Remote link, an unreachable host, Add environment | the dialog's "Could not connect to the server." only; no transcript banner | macOS | record 06 (the regression); `let-go.test.ts`; record 07: **passed** on `da3aae081` |
-| Native menu choice | lane copy, seeded threads | real right-click on the row, Snooze ▸, a real click on "In 1 hour" at its screenshot position; the tree; un-snooze | the thread is snoozed about 1 h ahead | macOS | record 07, image 07: **failed**, the choice reached the app but the snooze was refused (Next action) |
+| Native menu choice | lane copy, seeded threads | real right-click on the row, Snooze ▸, a real click on "In 1 hour" at its screenshot position; the tree; un-snooze | the thread is snoozed about 1 h ahead | macOS | record 07, image 07: failed on `da3aae081` (the snooze refused); record 08, image 08: **passed** on `e4087409d` (menu held 11 s; snoozedUntil one hour after the click; Wake thread clears it) |
+| Request cadence | lane, the server-update notice up (the 500 ms tick running) | the proxy logs every request's method for the whole session | no request repeated per tick; refreshStatus only at startup, focus or a git menu | macOS | record 08: one refreshStatus, one subscribeVcsStatus, one listRefs in about 2.5 min |
 | Backdrop edge | lane thread | `type composer "/"` | the drawer's edge as Chrome's | macOS | image 04 |
 
 ## Progress
@@ -89,16 +93,22 @@ tried on both builds, found to be a regression of this round in clone code, and 
 real input. Final session (coordinator-approved, one after-build session on `da3aae081`, no retry): the fix **passed**
 (no banner; the dialog's error only), and the native menu choice **failed**. The real click on "In 1 hour" reached the
 app, but the snooze was refused: "Failed to snooze thread / Too many server requests are already pending." No thread
-was snoozed. Verification: failed, on that check only. Every check that runs here passes (runner attempt 2, `source_unchanged: true`, source digest
-`bcce3dd7`: [`attempt2-report.json`](../evidence/20261007-adopt-main-fixes-r5/attempt2-report.json); attempt 1, before the
-review's direct `watch()` test, is kept; recipe beside them; the runner marks the two live checks unavailable, and the
-final session's results are records 07). Independent review: [`review.md`](../evidence/20261007-adopt-main-fixes-r5/review.md).
+was snoozed. The coordinator then had the request storm fixed in this PR (a: the repeated status read, b: the menu
+stall, and the 64-pending cap), with one real-input session on the after build: the native menu choice **passed**
+(record 08). Verification: passed. Every check that runs here passes on the verified implementation `e4087409d` (runner
+attempt 6, `source_unchanged: true`, source digest `b10abe46`:
+[`attempt6-report.json`](../evidence/20261007-adopt-main-fixes-r5/attempt6-report.json); attempts 1-5 are kept; recipe and
+`swift-tests.sh` beside them; the runner marks the live checks unavailable, and they were run by hand: records 07 and 08).
+Independent reviews: [`review.md`](../evidence/20261007-adopt-main-fixes-r5/review.md) (the watch fix PASS; the storm fix
+PASS, then FAIL on 3373f7919, then PASS on the shared reads). The task stays under `tasks/` for the coordinator's records
+sync; the PR stays a draft.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
 | 1 (2026-10-07) | `830eadecd` (merged base, no clone change) | `bun test examples/t3-code` 2312 pass / 1 skip / 0 fail; strict tsc clean; **`contract build` failed** (21 refusals: `box`/`column`/`list`/`button` have no attribute `hook`; `spring(` is spelled `-exact-spring(`); **`cargo test -p t3-code-macos --lib` failed** (the bake in `build.rs`, same refusals); after the migration 2542 slots / 45 resources and 11/0; **macOS bundle build failed** (#234) | — | #234 (worked around locally) |
+| 5 (2026-10-08, storm fix) | `e4087409d` (bundle built with the `otool` shim) | Tests that fail before and pass after: `vcs-status-cadence.test.ts` (5 status reads in 2 s and 9 with the card open before, at most one now; the picker leaves its loading state when the shared reply reaches the answer that joined it, which fails on 3373f7919), XCTests `testPendingRequestsHaveNoCapAsInTheReference` (17 refusals before) and `testSharedReadsJoinAnIdenticalPendingOne`. `bun test examples/t3-code` 2323 pass / 1 skip / 0 fail; strict tsc clean; `contract build` 2546 slots / 46 resources; `cargo test -p t3-code-macos --lib` 11/0; AppKit binaries 29 pass (mermaid and snapshot as before); five checks green (3377 passed, 0 failed, 33 ignored); caps ok. One real-input session under `.realinput-lock` (00:29:57-00:32:45, no retry): real right-click on "First lane thread", Snooze ▸ open 11 s, a real click on "In 1 hour (1:30 AM)" at window point (410, 308): "Snoozed 1 thread, ⌘Z to undo", the row in Snoozed, the server's snoozedUntil 16:31:12.913Z for a click at 15:31:11.841Z; Wake thread (real right-click, element click) emptied it. The proxy's full request log: one refreshStatus, one listRefs, nothing per tick, activity reports kept their 25 s cadence while the second menu was open | record 08; image 08 | none |
 | 4 (2026-10-07, final session) | `da3aae081` (bundle built with the `otool` shim) | One real-input session under `.realinput-lock` (21:56–22:00), no retry. Item 1: after Add environment the tree has "Could not connect to the server." (dialog and page) and no "native.watch outside an answer", also after Back: **passed**. Item 2: real right-click on "First lane thread", Snooze ▸ (element), then "In 1 hour (10:57 PM)" clicked at window point (410, 308) from the screenshot. The app showed "Failed to snooze thread / Too many server requests are already pending." The six rows were unchanged, so there was nothing to un-snooze: **failed**. The menu was open 17 s while the screenshot was read. In that time no frame left the proxy, and 64 `vcs.refreshStatus` went out within 4 ms after it closed. The client was sending `vcs.refreshStatus` at 4 per second (2 per 500 ms), the rate the base showed too, so the transport's 64-pending cap (`T3Transport.swift`) refused the snooze | record 07; image 07 | the repeated `vcs.refreshStatus` (Next action) |
 | 3 (2026-10-07, follow-up) | `364f5baa6` (sessions); `cf7b15baf` (fix) | Real input, one session per build under `.realinput-lock` (21:26–21:28): before no banner, after "native.watch outside an answer" (record 06); the after session's real right-click opened the native menu and its Snooze submenu, but no submenu item could be chosen (the accessibility tree lists only the top-level items). Fix `cf7b15baf`: `bun test examples/t3-code` 2318 pass / 1 skip / 0 fail (1 added, and the seam test checks `watch()`); strict tsc clean; `contract build` 2546 slots / 46 resources; `cargo test -p t3-code-macos --lib` 11/0; five checks: see Checks | record 06; runner attempts 1–2; review | the two live checks (Next action) |
 | 2 (2026-10-07) | `fac7ef1a1` + records | `bun test examples/t3-code` 2317 pass / 1 skip / 0 fail (2318 tests; 5 added); strict tsc clean; `contract build` 2546 slots / 46 resources; `cargo test -p t3-code-macos --lib` 11/0; AppKit binaries: see Checks; five checks: see Checks | images and record below | none for the adopted rows |
@@ -160,7 +170,7 @@ REAL right-click    before and after             NSMenu: New thread on main, Pin
 | Focus under the agent (text) | `prefer has-focus` refused; reports `focused:false` | page fact, notifications and reports follow it; git refresh on focus |
 | Edit menu (text) | Toggle Diff ⌘D shown at the end | the reference's items only, one Speech |
 | Failed Add environment, real input (text) | the dialog's error only | the same, plus the transcript banner "native.watch outside an answer"; on `da3aae081` (with `cf7b15baf`) the dialog's error only again (record 07) |
-| Snooze ▸ In 1 hour from the native menu, real input (image 07) | — (the real click was not tried on the base) | the submenu open, then "Failed to snooze thread / Too many server requests are already pending." |
+| Snooze ▸ In 1 hour from the native menu, real input (images 07, 08) | — (the real click was not tried on the base) | on `da3aae081` "Failed to snooze thread / Too many server requests are already pending."; on `e4087409d`, after 11 s with the menu open, "Snoozed 1 thread" and the row in Snoozed |
 
 Images (pinned to the evidence commits):
 - `https://raw.githubusercontent.com/ccheever/exact2/dfa835ac3c7a97b4c8ed0e8f3552e5b89ec49e68/adopt-main-fixes-r5/01-thread-menu-agent-before-after.png`
@@ -174,6 +184,10 @@ Images (pinned to the evidence commits):
   `https://raw.githubusercontent.com/ccheever/exact2/74a652d28b058f0960451ee01050e07b9fe78870/adopt-main-fixes-r5/07-final-session-record.txt`
 - Final session, the native menu choice (the open submenu before the real click; the refusal after it):
   `https://raw.githubusercontent.com/ccheever/exact2/e28711837f243b938bfd8a3c9585eb07342c10fe/adopt-main-fixes-r5/07-native-menu-choice-real-input.png`
+- Storm-fix session record (the session log, the server's snooze fields, every request the client sent):
+  `https://raw.githubusercontent.com/ccheever/exact2/89474e644b2b8e627b00727eff537e8804180c32/adopt-main-fixes-r5/08-storm-session-record.txt`
+- Storm-fix session, the native menu choice (Snooze ▸ open 11 s before the real click; the thread snoozed after it):
+  `https://raw.githubusercontent.com/ccheever/exact2/77840e00153c4a5603de230922c4499e0d1048f5/adopt-main-fixes-r5/08-native-menu-snooze-real-input.png`
 
 Follow-up sessions (coordinator's round-5 follow-up; `realsession.sh` in the session scratchpad, not committed). The
 same lane and the same steps for each build, one session each: pair a lane copy through the wizard, quit, delete its
@@ -188,14 +202,24 @@ its recorded pids, the same environment and the same steps as the follow-up, on 
 (`com.exact.t3code.laner5.final`). Afterwards the copy, its preferences, data and caches were deleted, no lane Keychain
 item remained, the lane server and proxy were stopped by their recorded pids, and the lock was released.
 
+Storm-fix session (coordinator-approved, `storm-lib.sh` in the session scratchpad, not committed): the same lane on a copy
+of the `e4087409d` bundle (`com.exact.t3code.laner5.storm`), the proxy logging every request's method. The lock was taken
+once the provider sign-in lane released it. The thread was un-snoozed with Wake thread, so the lane's threads are as
+found. Afterwards the copy, its preferences, data and caches were deleted, no lane Keychain item remained, the lane
+server and proxy were stopped by their recorded pids, and the lock was released. While waiting for the lock earlier, a
+check of mine removed the other lane's lock by mistake at 22:30:10 (its `mkdir` failed and the cleanup still ran). I
+restored it at once with a note, and since then the helper releases only a lock whose note is its own.
+
 Findings for follow-ups (not this task):
 - Resolved in the follow-up: "native.watch outside an answer" (Decisions per issue); passed on a build in the final session.
-- `vcs.refreshStatus` is sent four times a second (two every 500 ms) while the lane's alpha draft is shown, on the base
-  (`38352ceaf`) as on this branch (record 07). Its cause is not confirmed. One candidate is `composer-controls-branch.ts`
-  `load()`: it sets `checked` only after the reply, and `composerBranches` is asked again on every 500 ms `shellClock`
-  tick while a toast is up (here the server-update notice). If the old answer is let go before its reply, every tick
-  asks again. While a native menu is open the requests queue, and the transport's 64-pending cap refused the snooze
-  (Next action).
+- Resolved in the storm fix: the repeated `vcs.refreshStatus` and the 64-pending refusal (Decisions per issue).
+- Reported, not filed (framework): ExactKit's `MenusMac` opens context and button menus inside `DispatchQueue.main.async`,
+  so no `native.later` call reaches a module while one is open (Decisions per issue, with the repro). With the clone's
+  reads no longer repeated per tick, nothing piles up behind a menu here, and the reported cadence is unaffected.
+- From the storm reviews, not fixed here: `runModal` calls inside main-queue blocks (`T3ContextMenu.swift` save panels,
+  `T3PanelsNative.swift`, `R6DeviceStream.swift`) stall the main queue the same way while open. A shared reply over 512 KB
+  hands every joined caller one native transfer, which the first reader releases. A never-seen non-Git checkout shows
+  the assumed-Git strip until its status arrives, as ChatView does.
 - From the follow-up's independent review ([`review.md`](../evidence/20261007-adopt-main-fixes-r5/review.md)), none of
   them observed. Other let-go paths still show something or lose state. `auto-balance.ts` `retargetDraft` toasts "Could
   not switch machine" for a let-go. `settings-b-outdated.ts` `probeDescriptors` caches a let-go probe as no descriptor
@@ -217,12 +241,5 @@ Review the PR ([#236](https://github.com/ccheever/exact2/pull/236)). Not done, e
 - **Notification click actions and the Dock badge** (#224), **nested backdrops and `saturate()`** (#225),
   **capture-phase and held-modifier keys** (#140), **an app-declared menu bar** (#141): upstream.
 
-Failed, with its blocker:
-- **A choice from the native `NSMenu` with real input snoozes the thread.** In the final session the real click on
-  Snooze ▸ "In 1 hour" reached the app and ran the snooze. The transport refused it because 64 requests were pending:
-  the menu had been open 17 s, and the repeated `vcs.refreshStatus` (above, the same rate on the base) had queued. No
-  thread was snoozed, and nothing needed un-snoozing. The same choice through the agent snoozes the thread (image 03).
-  Blocker: coordinator or user decision. Options are to stop the repeated `vcs.refreshStatus` here or in a follow-up
-  task, then run another real-input session. A session that clicks within a second or two of opening the menu would
-  probably pass now, but that would leave the cause in place. Whether the base fails the same way with a 17 s open
-  menu was not tried.
+Nothing is left unverified. The native menu choice with real input passed in the storm-fix session (record 08), and the
+banner fix passed in the final session (record 07).
