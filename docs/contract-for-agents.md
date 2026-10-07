@@ -1217,7 +1217,12 @@ stored size again. Do not multiply a scale factor into every size instead.
 
 Platform facts are reserved sources (`exactViewport`, `exactPage`, `exactDelivery`,
 `exactSurface`, `exactTime`); the bake refuses a declared field the source does
-not have. Use dimensions, media preferences, page facts,
+not have. `exactPage` answers `visibilityState`, `onLine`, `canShare`,
+`canOpenFiles` and `hasFocus` (`document.hasFocus()`: the app's window has the
+system's focus; false while another app or window is in front, so an app can
+choose an in-window message over a system notification). Under the agent each
+is the drive's (`prefer has-focus false`; `state.device`). Use dimensions,
+media preferences, page facts,
 and capability state rather than suffixing files by platform. Preference facts
 inform authored policy; the engine does not automatically remove all motion.
 

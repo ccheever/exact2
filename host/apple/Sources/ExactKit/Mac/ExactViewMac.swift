@@ -159,6 +159,7 @@ public final class ExactView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         if window == nil { session.presenter.menus.reset(); session.presenter.dialogs.reset() }
+        session.tellPage() // `hasFocus` is this window's (#114)
         session.rasters.setPaused(window == nil)
         session.canvases.lifecycle.refresh()
         if session.presenter.toolbar.window !== window { session.presenter.toolbar.detach() }
