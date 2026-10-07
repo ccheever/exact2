@@ -182,6 +182,17 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
         const canon = (v) => JSON.stringify(v, (_, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x));
         check(canon(again.calls) === canon(perf.calls) && canon(again.counters) === canon(perf.counters), `${host} native: a perf hatches read changes nothing: ${canon(perf.calls)} then ${canon(again.calls)}`);
       }
+      // Each platform handles the words app.json gives it (LLP
+      // 1075.003.000.001 §4.3, §5): the fixture's `detail-list` is iOS's
+      // alone, so elsewhere its node is shown, never called, and listed.
+      {
+        const st = (await s.state()).hatches, all = (await s.op({ op: 'logs', since: 0 })).lines.join('\n');
+        const here = host === 'ios' ? ['badge', 'detail-list', 'dot'] : ['badge', 'dot'];
+        check(JSON.stringify(st?.platform) === JSON.stringify(here), `${host} native: state.hatches names the words this platform handles: ${JSON.stringify(st?.platform)}`);
+        if (host === 'ios') check(st?.unhandled?.length === 0 && st.words?.['detail-list']?.calls?.built === 1, `${host} native: iOS handles detail-list: ${JSON.stringify(st?.unhandled)}`);
+        else check(st?.unhandled?.length === 1 && st.unhandled[0].word === 'detail-list' && !st.words?.['detail-list'] && /hatch element detail-list: not handled/.test(all) && byTestId(await s.tree(), 'list-detail')?.props.hatch === 'detail-list',
+          `${host} native: a word this platform does not handle is shown, never called, and listed: ${JSON.stringify(st?.unhandled)}`);
+      }
       if (host === 'ios') {
         await s.tap('violate'); await settle(s);
         await s.tap('violate'); await settle(s);

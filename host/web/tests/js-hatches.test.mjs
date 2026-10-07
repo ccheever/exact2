@@ -127,3 +127,20 @@ test("a throw stops that node's hatch, and its end is still called", async () =>
   endA();
   expect(ended).toEqual(['meter', 'thrower']);
 });
+
+test('a word this platform does not handle is shown and never called', async () => {
+  const hatches = await import(resolve(dir, 'hatches.js'));
+  globalThis.exact.hatchWords = ['meter'];
+  try {
+    const before = handles.length;
+    await mount(hatches, node('elsewhere', 30));
+    await mount(hatches, node('elsewhere', 30));
+    expect(handles.length).toBe(before);
+    expect(journal.filter(l => /element elsewhere: not handled on this platform/.test(l)).length).toBe(1);
+    const state = globalThis.exact.hatchState();
+    expect(state.platform).toEqual(['meter']);
+    expect(state.unhandled).toEqual([{ word: 'elsewhere', reason: 'plan' }]);
+    await mount(hatches, node('meter', 31));
+    expect(handles.length).toBe(before + 1);
+  } finally { delete globalThis.exact.hatchWords; }
+});

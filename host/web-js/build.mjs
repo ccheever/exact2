@@ -1,4 +1,4 @@
-import { moduleDirectory } from '../../scripts/app.mjs';
+import { hatchWords, moduleDirectory } from '../../scripts/app.mjs';
 // The web build's JS target: `bun host/web-js/build.mjs <app> [--plan <baked app.plan>] [--out <dir>]`.
 //
 // 1. `exact-web-js js` compiles the plan (the app's Contract, or a baked
@@ -275,6 +275,8 @@ writeFileSync(resolve(gen, 'main.js'), [
   "  const state = app();",
   ...(devReload ? ["  finishDev();"] : []),
   "  globalThis.exact = Object.assign(globalThis.exact ?? {}, { ready: true, journal, clock, advance, commit, data, state, inflight, views: Views, viewId, After, resources: Resources, mutations: Mutations });",
+  // The hatch words the web handles, when app.json gives words their platforms (LLP 1075.003.000.001 §4.3, §5): a word it leaves out is shown and never called (hatches.js).
+  ...(manifest.hatches && !Array.isArray(manifest.hatches) ? [`  globalThis.exact.hatchWords = ${JSON.stringify(hatchWords(manifest, 'web'))};`] : []),
   // A development page counts its work and samples its frames (LLP 1079); the agent adapter, only when the agent drives it.
   // The served plan's digest, which a development page's `perf` names (LLP 1079 D2).
   ...(production ? [] : [`  globalThis.exact.plan = ${JSON.stringify(createHash('sha256').update(readFileSync(opt('--plan') ? resolve(opt('--plan')) : resolve(gen, 'app.plan'))).digest('hex'))};`, "  develop(globalThis.exact).catch(console.error);", "  if (clock.agent) globalThis.exact.ready = import('./agent.js').then(m => m.install(globalThis.exact));"]),

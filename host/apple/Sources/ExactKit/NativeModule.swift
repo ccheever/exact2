@@ -93,6 +93,8 @@ private struct NativeFailure: Error { let state: String; let message: String }
 /// The loaded table: the roster and the entries, read once.
 private final class NativeTable {
     static let major: UInt32 = 3
+    /// The hatch words the module handles, or nil for one that does not say.
+    var hatchWords: Set<String>?
     static let size: UInt32 = 104
     typealias CreateFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32, NativeEventFn?, NativeReplyFn?, UnsafeMutableRawPointer?, UInt32, UnsafeMutablePointer<UInt8>?, UInt32) -> UnsafeMutableRawPointer?
     typealias ViewFn = @convention(c) (UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer?
@@ -161,8 +163,11 @@ private final class NativeTable {
         guard size >= NativeTable.size else { return .failure(NativeFailure(state: "unavailable", message: "module table of \(size) bytes, host needs \(NativeTable.size)")) }
         func pointer(_ offset: Int) -> UnsafeRawPointer? { table.load(fromByteOffset: offset, as: UnsafeRawPointer?.self) }
         guard let rosterText = pointer(8).map({ String(cString: $0.assumingMemoryBound(to: CChar.self)) }),
-              let roster = try? JSONSerialization.jsonObject(with: Data(rosterText.utf8)) as? [String: [String: Any]]
+              var roster = try? JSONSerialization.jsonObject(with: Data(rosterText.utf8)) as? [String: [String: Any]]
         else { return .failure(NativeFailure(state: "unavailable", message: "\(path): unreadable roster")) }
+        // The hatch words the module was built to handle, under a key no tag
+        // can take (LLP 1075.003.000.001 §4.3); an older module names none.
+        let hatchWords = (roster.removeValue(forKey: "hatches")?["words"] as? [String]).map(Set.init)
         guard let create = pointer(16), let view = pointer(24), let set = pointer(32), let destroy = pointer(48),
               let moduleCreate = pointer(72), let moduleDestroy = pointer(80), let moduleLater = pointer(88),
               let moduleCall = pointer(96) else {
@@ -177,6 +182,7 @@ private final class NativeTable {
             moduleDestroy: unsafeBitCast(moduleDestroy, to: ModuleDestroyFn.self),
             moduleLater: unsafeBitCast(moduleLater, to: ModuleLaterFn.self),
             moduleCall: unsafeBitCast(moduleCall, to: ModuleLaterFn.self))
+        loaded.hatchWords = hatchWords
         loaded.agentInput = pointer(64).map { unsafeBitCast($0, to: SetFn.self) }
         loaded.focusTarget = size >= 120 ? pointer(112).map { unsafeBitCast($0, to: ViewFn.self) } : nil
         loaded.prepareForReuse = size >= 112 ? pointer(104).map { unsafeBitCast($0, to: ReuseFn.self) } : nil
@@ -455,6 +461,9 @@ final class NativeViews {
     /// Whether the module's hatches are connected, and who replays them for
     /// the objects built before (LLP 1075.003 §3.2; NativeHatches.swift).
     var hatchesConnected = false
+    /// The hatch words the loaded module was built to handle (LLP
+    /// 1075.003.000.001 §4.3), or nil when it does not say: then every word is called.
+    var handledHatches: Set<String>? { if case .success(let t) = NativeProcess.table { t.hatchWords } else { nil } }
     var onHatchesConnected: (() -> Void)?
     var hatchCalls: (navigation: HatchNavigationFn, route: HatchRouteFn)?
     var tabCalls: (HatchTabsFn, HatchTabContainerFn)?

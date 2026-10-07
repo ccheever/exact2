@@ -120,7 +120,10 @@ fn icc_channels(bytes: &[u8]) -> Option<usize> {
 
 /// The string a binding's expression is, when it is one literal: a `Str`
 /// (opcode 2) and its end.
-fn literal<'p>(plan: &'p exact_plan::Plan, b: &exact_plan::BindingsRow) -> Option<&'p str> {
+pub(crate) fn literal<'p>(
+    plan: &'p exact_plan::Plan,
+    b: &exact_plan::BindingsRow,
+) -> Option<&'p str> {
     let code = plan
         .code
         .get(b.expr.offset as usize..(b.expr.offset + b.expr.len) as usize)?;

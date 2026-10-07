@@ -188,8 +188,9 @@ function state() {
     if (scope.startsWith("element ")) { const word = scope.slice(8); words[word] ??= add(counted(word), scope); continue; }
     others[scope] = add(scopes[scope] ?? {}, scope);
   }
-  const reply = { words, scopes: others, measuring: dev(), rejected: D.rejected, abandoned: D.abandoned, limited: D.limited };
-  return fit(reply, [[reply, "words"], [reply, "scopes"]]);
+  const reply = { words, scopes: others, ...(globalThis.exact?.hatchWords ? { platform: globalThis.exact.hatchWords } : {}),
+    unhandled: [...Unhandled].map(([word, reason]) => ({ word, reason })), measuring: dev(), rejected: D.rejected, abandoned: D.abandoned, limited: D.limited };
+  return fit(reply, [[reply, "words"], [reply, "scopes"], [reply, "unhandled"]]);
 }
 
 const quantile = (sorted, q) => sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] : 0;
@@ -214,11 +215,21 @@ function perfSite(site) {
   return calls ? { hatch: { calls, ms } } : null;
 }
 
+// The words this platform handles, when the app's manifest gives words their
+// platforms (web-js/build.mjs; LLP 1075.003.000.001 §4.3): a word it leaves
+// out is shown and never called, journaled once and listed in `state`.
+const Unhandled = new Map();
+
 /** The page module's `element` hatch for `e`, and its end. */
 export function ht(e) {
   if (typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
   publish();
   const word = e.getAttribute("data-hatch"), id = viewId(e);
+  const handled = globalThis.exact?.hatchWords;
+  if (handled && !handled.includes(word)) {
+    if (!Unhandled.has(word)) { Unhandled.set(word, "plan"); say(`element ${word}: not handled on this platform (app.json \`hatches\`); its nodes are shown and never called`); }
+    return;
+  }
   // What a hatch asks of an element runs after the effect or commit that
   // called the hatch (a microtask), never inside it, as on Apple.
   const later = act => queueMicrotask(() => { if (h.isLive) h.element?.[act](); });

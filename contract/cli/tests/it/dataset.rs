@@ -138,6 +138,9 @@ impl App {
     fn compile(&self) -> Result<(), Vec<contract::CompileError>> {
         contract::compile_path_all(&self.0.join("app.contract"), false).map(|_| ())
     }
+    fn manifest(&self) -> contract::Manifest {
+        contract::Manifest::read(&self.0).unwrap()
+    }
 }
 impl Drop for App {
     fn drop(&mut self) {
@@ -247,4 +250,51 @@ fn a_hatch_word_the_manifest_does_not_declare_fails_the_bake_by_name() {
         errors[0].message.contains("declares no hatch words"),
         "{errors:?}"
     );
+}
+
+/// LLP 1075.003.000.001 §5: `hatches` may give each word the platforms whose
+/// module handles it. Every word is declared for the Contract; each platform
+/// is told only its own.
+#[test]
+fn a_hatch_word_may_name_the_platforms_that_handle_it() {
+    let app = App::new(
+        "hatchplatforms",
+        r#","hatches":{"dot":["web","ios"],"avatar":["ios","macos"],"nowhere":[]}"#,
+        r#"column hatch="dot""#,
+    );
+    app.compile().unwrap_or_else(|e| panic!("{e:?}"));
+    let manifest = app.manifest();
+    let on = |platform: &str| contract::native::hatches_on(&manifest, platform).unwrap();
+    assert_eq!(on("ios"), ["avatar", "dot"]);
+    assert_eq!(on("macos"), ["avatar"]);
+    assert_eq!(on("web"), ["dot"]);
+    assert!(on("linux").is_empty());
+    assert_eq!(
+        contract::native::hatch_words(&manifest).unwrap().len(),
+        3,
+        "a word no platform handles is still a word the Contract may mark"
+    );
+    // A plain list is every platform's.
+    let plain = App::new(
+        "hatchplain",
+        r#","hatches":["dot"]"#,
+        r#"column hatch="dot""#,
+    );
+    assert_eq!(
+        contract::native::hatches_on(&plain.manifest(), "linux").unwrap(),
+        ["dot"]
+    );
+    for (bad, said) in [
+        (r#","hatches":{"dot":["visionos"]}"#, "is not a platform"),
+        (
+            r#","hatches":{"dot":"ios"}"#,
+            "names its platforms as a list",
+        ),
+        (r#","hatches":{"dot":["ios","ios"]}"#, "lists `ios` twice"),
+        (r#","hatches":{"Dot":["ios"]}"#, "is not a word"),
+    ] {
+        let app = App::new("hatchbad", bad, r#"column hatch="dot""#);
+        let error = contract::native::hatch_words(&app.manifest()).unwrap_err();
+        assert!(error.contains(said), "{bad}: {error}");
+    }
 }

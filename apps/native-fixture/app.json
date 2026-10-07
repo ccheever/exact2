@@ -13,7 +13,7 @@
   },
   "modules": ["exact-fixture", "exact-plain", "exact-absent", "exact-screen"],
   "data": ["menu", "reuse", "screen", "tone", "transition", "violate"],
-  "hatches": ["badge", "detail-list", "dot"],
+  "hatches": { "badge": ["ios", "macos", "web"], "detail-list": ["ios"], "dot": ["ios", "macos", "web"] },
   "host": {
     "ios": {
       "minimumOS": "17.0",

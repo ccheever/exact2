@@ -1064,7 +1064,7 @@ async function main(args) {
   // @ref LLP 1075.003 Q2 — the app's `data-*` words as typed keys, written
   // from app.json `data` beside the glue (built, never committed).
   const dataKeys = resolve(linkRoot, `ExactDataKeys-${app.id}.swift`);
-  if (modules.apple.length) writeDataKeys(app, dataKeys);
+  if (modules.apple.length) writeDataKeys(app, dataKeys, ios ? 'ios' : 'macos');
   const moduleSources = modules.apple.length ? [resolve(root, 'host/apple/modules/ExactNativeModule.swift'), dataKeys, ...modules.apple] : [];
   const modulesBuilt = moduleSources.length ? resolve(webBuildDir, modulesLoadName) : null;
   // The slice of each `modules/apple/*.xcframework` for this build, read
@@ -1459,7 +1459,7 @@ function test(args) {
     // tests' simulator so they run its hatches over its routes: the glue, its
     // typed keys, its Swift.
     const fixture = resolveApp('native-fixture'), fixtureDir = resolve(paths.namespace, 'fixture-module');
-    writeDataKeys(fixture, resolve(fixtureDir, 'ExactDataKeys.swift'));
+    writeDataKeys(fixture, resolve(fixtureDir, 'ExactDataKeys.swift'), 'ios');
     // Its Contract under the identity of the app the tests link, which the
     // runner requires of a plan (an app's plan boots in no other app).
     const source = resolve(fixtureDir, 'app');

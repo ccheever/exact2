@@ -993,9 +993,13 @@ private let platformController: @convention(c) (UnsafeMutableRawPointer?) -> Uns
 private let major: UInt32 = 3
 
 private let table: UnsafeMutableRawPointer = {
-    let text = "{" + roster.keys.sorted().map { tag in
+    // Beside the tags, under a key no tag can take (a tag has a hyphen): the
+    // hatch words this module was built to handle (LLP 1075.003.000.001
+    // §4.3), so the host calls it with no word its code never compiled.
+    let words = "\"hatches\":{\"words\":[" + ExactHatchKey._words.map { "\"\($0)\"" }.joined(separator: ",") + "]}"
+    let text = "{" + (roster.keys.sorted().map { tag in
         "\"\(tag)\":{\"snapshot\":\(roster[tag]!.snapshot),\"reuse\":\(roster[tag]!.reuse)}"
-    }.joined(separator: ",") + "}"
+    } + [words]).joined(separator: ",") + "}"
     let size = 184
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)

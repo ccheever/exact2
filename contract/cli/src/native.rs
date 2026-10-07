@@ -6,7 +6,8 @@
 //! `"data": ["word", …]`, from which the Apple build also writes the Swift
 //! module's typed keys; a word the list lacks is `bake-undeclared-data`.
 //! And its `hatch` words (LLP 1075.003.000 Q1): `"hatches": ["word", …]`, the
-//! same way, `bake-undeclared-hatch`.
+//! same way, `bake-undeclared-hatch`; or `{"word": ["ios", …]}`, each word
+//! with the platforms that handle it (LLP 1075.003.000.001 §5).
 
 use super::{CompileError, Manifest};
 use contract_syntax::{File, Span};
@@ -38,9 +39,74 @@ pub fn data_words(manifest: &Manifest) -> Result<Vec<String>, String> {
 }
 
 /// The `hatch` words in `manifest` (LLP 1075.003.000 Q1): the nodes the
-/// app's native code receives, each a word as `data-*`'s are.
+/// app's native code receives, each a word as `data-*`'s are. Either form
+/// of the declaration, every platform's words.
 pub fn hatch_words(manifest: &Manifest) -> Result<Vec<String>, String> {
-    words(manifest, &Words::HATCHES)
+    Ok(hatch_table(manifest)?.into_iter().map(|(w, _)| w).collect())
+}
+
+/// The platforms a hatch word may name (LLP 1075.003.000.001 §5).
+pub const HATCH_PLATFORMS: [&str; 7] =
+    ["ios", "tvos", "macos", "web", "linux", "windows", "android"];
+
+/// The words `platform`'s module handles (LLP 1075.003.000.001 §4.3, §5),
+/// sorted: every word of a plain list, and of the object form the words
+/// that name the platform. The bake reads this for the plan's requirement
+/// and the cohort's capability; nothing is scanned or run.
+pub fn hatches_on(manifest: &Manifest, platform: &str) -> Result<Vec<String>, String> {
+    let mut words: Vec<String> = hatch_table(manifest)?
+        .into_iter()
+        .filter(|(_, on)| {
+            on.as_ref()
+                .is_none_or(|on| on.iter().any(|p| p == platform))
+        })
+        .map(|(w, _)| w)
+        .collect();
+    words.sort();
+    Ok(words)
+}
+
+/// A hatch word and the platforms that handle it; `None` is every platform.
+type HatchRow = (String, Option<Vec<String>>);
+
+/// `app.json` `hatches`: `["word", …]`, every platform the app builds, or
+/// `{"word": ["ios", "web"], …}`, each word with the platforms that handle it.
+fn hatch_table(manifest: &Manifest) -> Result<Vec<HatchRow>, String> {
+    let Some(table) = manifest.json.get("hatches").and_then(|v| v.as_object()) else {
+        return Ok(words(manifest, &Words::HATCHES)?
+            .into_iter()
+            .map(|w| (w, None))
+            .collect());
+    };
+    table
+        .iter()
+        .map(|(word, on)| {
+            if !contract_lower::dataset::is_word(word) {
+                return Err(format!(
+                    "app.json `hatches`: \"{word}\" is not a word: lowercase words of letters and digits joined by `-` (LLP 1075.003 Q2)"
+                ));
+            }
+            let listed = on.as_array().ok_or_else(|| {
+                format!("app.json `hatches`: `{word}` names its platforms as a list, as [\"ios\", \"web\"]")
+            })?;
+            let mut platforms = Vec::new();
+            for p in listed {
+                match p.as_str() {
+                    Some(p) if platforms.iter().any(|had| had == p) => {
+                        return Err(format!("app.json `hatches`: `{word}` lists `{p}` twice"))
+                    }
+                    Some(p) if HATCH_PLATFORMS.contains(&p) => platforms.push(p.to_owned()),
+                    _ => {
+                        return Err(format!(
+                            "app.json `hatches`: `{word}` names {p}, which is not a platform ({})",
+                            HATCH_PLATFORMS.join(", ")
+                        ))
+                    }
+                }
+            }
+            Ok((word.clone(), Some(platforms)))
+        })
+        .collect()
 }
 
 /// A list of words an app declares in `app.json`, and how the bake names
@@ -135,7 +201,12 @@ fn check_words(used: Vec<(String, Span)>, app_root: &Path, kind: &Words) -> Vec<
         file: None,
         related: Box::new([]),
     };
-    let declared = match Manifest::read(app_root).and_then(|m| words(&m, kind)) {
+    // `hatches` has two forms (a list, or each word with its platforms).
+    let read = |m: Manifest| match kind.key {
+        "hatches" => hatch_words(&m),
+        _ => words(&m, kind),
+    };
+    let declared = match Manifest::read(app_root).and_then(read) {
         Ok(declared) => declared,
         Err(message) => return vec![refusal("app-manifest", message, Span::default())],
     };

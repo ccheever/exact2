@@ -331,6 +331,12 @@ fn compatibility_with_trust(
             tags if tags.is_empty() => Value::Null,
             tags => json!({ "appleAbi": 3, "webAbi": 1, "tags": tags }),
         },
+        // @ref LLP 1075.003.000.001 §4.3 — the hatch words this platform's
+        // module is built to handle, from app.json: the cohort's capability.
+        "hatches": match contract::native::hatches_on(manifest, platform)? {
+            words if words.is_empty() => Value::Null,
+            words => json!(words),
+        },
         "icons": icons,
         "capabilities": {
             "backgroundModes": list("backgroundModes"),
@@ -885,6 +891,7 @@ mod tests {
             "dataCrate",
             "gpuSurfaces",
             "nativeModules",
+            "hatches",
             "icons",
             "capabilities",
             "keys",

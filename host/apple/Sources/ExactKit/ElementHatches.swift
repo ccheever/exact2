@@ -30,6 +30,8 @@ final class ElementHatches {
     private var said: Set<String> = [], warned: Set<String> = [], freed: Set<String> = []
     /// Calls by word and moment, since launch.
     private var calls: [String: [String: Int]] = [:]
+    /// The words the plan marks that the module does not handle.
+    private var unhandled: Set<String> = []
 
     init(_ presenter: Presenter) { self.presenter = presenter }
 
@@ -55,6 +57,15 @@ final class ElementHatches {
     private func build(_ node: NodeView) {
         guard let known = nodes[node.id], known.node === node, !known.told, presenter.views[node.id] === node,
               let natives = presenter.session?.natives, natives.hatchesConnected, let word = node.props["hatch"] else { return }
+        // A word the installed module was not built to handle is never
+        // called (LLP 1075.003.000.001 §4.3): shown, journaled once, listed.
+        if let handled = natives.handledHatches, !handled.contains(word) {
+            if unhandled.insert(word).inserted {
+                presenter.session?.log("hatch element \(word): not handled by this build's module; its nodes are shown and never called")
+            }
+            nodes.removeValue(forKey: node.id)
+            return
+        }
         let entry = Entry(node: node, told: true, data: known.data, inList: Self.list(holding: node) != nil)
         nodes[node.id] = entry
         let reusable = call(.built, entry)
@@ -182,7 +193,10 @@ final class ElementHatches {
                          "calls": calls[word] ?? [:]] as [String: Any]
         }
         // What each hatch counted and published, and the other scopes (HatchDiagnostics.swift).
-        return diagnostics?.state(words: out) ?? ["words": out]
+        var reply = diagnostics?.state(words: out) ?? ["words": out]
+        if let handled = presenter.session?.natives.handledHatches { reply["platform"] = handled.sorted() }
+        reply["unhandled"] = unhandled.sorted().map { ["word": $0, "reason": "module"] }
+        return reply
     }
 
     #if os(iOS) || os(tvOS)
