@@ -1,3 +1,4 @@
+import { mobileComposerTarget } from './composer-target';
 // AttachmentFileScreen/useAttachmentDocument at365aa87982, over the existing media owner.
 // @ref llp/1106.005-composer-and-transcript.decision.md#media-presentation
 import { mobileClient, mobileNative } from './client';
@@ -24,7 +25,7 @@ const caches = new WeakMap<T3Client, Map<string, Cached>>();
 export const EMPTY_ATTACHMENT_DOCUMENT: AttachmentDocumentSnapshot = { identifier: '', name: '', subtitle: '', kind: '',
   ready: false, error: '', text: '', hasContent: false, truncated: false, tableTruncated: false, renderedMode: '',
   activeMode: 'source', sourceJSON: '', uri: '', draft: false, rows: [], table: [] };
-const owner = (client: T3Client) => JSON.stringify([client.generation, client.environmentId, client.projectId, client.threadId, client.draftKey]);
+const owner = (client: T3Client) => JSON.stringify([client.generation, client.environmentId, client.projectId, client.threadId, mobileComposerTarget(client).owner]);
 
 /** Native returns a bounded prefix. Decode using the exact pinned fatal UTF-8 policy. */
 export function decodeAttachmentPrefix(value: unknown) {

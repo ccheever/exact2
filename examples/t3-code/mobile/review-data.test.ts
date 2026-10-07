@@ -152,3 +152,45 @@ describe('Review navigator selection and viewed state', () => {
     expect(stale.navigation).toBe(''); expect(stale.data.selectedPath).toBe('');
   });
 });
+
+
+test('queued comment selection cannot retarget ordinary content after edit ends; diffs remain readable', async () => {
+  const { queuedEditState, queuedEditThreadKey, queuedEditEndMemory } = await import('./queued-edit-state');
+  const f = fixture(); f.client.local.drafts[f.client.draftKey] = 'ordinary untouched';
+  const edit = { owner: 'comment-edit', session: 'comment-session', draftKey: 'one:t~queued-edit~r', origin: f.client.origin,
+    environmentId: 'one', threadId: 't', projectId: 'p', generation: 3, revision: 1, runId: 'r', messageId: 'm', text: 'queued',
+    attachments: [], existingAttachments: [], saving: false };
+  const state = queuedEditState(f.client); state.sessions.set(edit.owner, edit); state.active.set(queuedEditThreadKey('one', 't'), edit.owner);
+  const view = await read(f); await act(f, 'range-start', 'src/a.ts', '', 1); await act(f, 'extend', 'src/a.ts', '', 2); await act(f, 'comment');
+  queuedEditEndMemory(edit.owner, f.client);
+  const after = mobileReviewSnapshot(false, f.client);
+  expect(after.owner).toBe(view.owner); expect(after.files).toHaveLength(1); expect(after.commentOpen).toBe(false);
+  await expect(act(f, 'save', '', 'Old queued comment', 0, view.owner)).rejects.toMatchObject({ kind: 'superseded' });
+  expect(f.client.draft).toBe('ordinary untouched');
+  await act(f, 'line', 'src/a.ts', '', 1);
+  expect((await act(f, 'save', '', 'New ordinary comment')).message).toBe('');
+  expect(f.client.draft).toContain('t3-context://v1/review-comment/');
+});
+
+
+test('late queued comment persistence cannot clear a replacement composer selection', async () => {
+  const { queuedEditState, queuedEditThreadKey, queuedEditEndMemory } = await import('./queued-edit-state');
+  const f = fixture(); const state = queuedEditState(f.client), key = queuedEditThreadKey('one', 't');
+  const edit = { owner: 'prior-comment', session: 'prior-session', draftKey: 'one:t~queued-edit~r', origin: f.client.origin,
+    environmentId: 'one', threadId: 't', projectId: 'p', generation: 3, revision: 1, runId: 'r', messageId: 'm', text: 'queued',
+    attachments: [], existingAttachments: [], saving: false };
+  state.sessions.set(edit.owner, edit); state.active.set(key, edit.owner);
+  await read(f); await act(f, 'line', 'src/a.ts', '', 1);
+  let release!: (value: unknown) => void, started!: () => void;
+  const gate = new Promise(resolve => { release = resolve; }), began = new Promise<void>(resolve => { started = resolve; });
+  f.hook(request => { if (request.op === 'mobileQueuedEdit') { started(); return gate; } });
+  const pending = act(f, 'save', '', 'Old comment'); await began;
+  queuedEditEndMemory(edit.owner, f.client);
+  const next = { ...edit, owner: 'next-comment', session: 'next-session' }; state.sessions.set(next.owner, next); state.active.set(key, next.owner);
+  await act(f, 'line', 'src/a.ts', '', 2);
+  expect(mobileReviewSnapshot(false, f.client).commentOpen).toBe(true);
+  release({ ok: true, generation: 3, value: {} });
+  await expect(pending).rejects.toMatchObject({ kind: 'superseded' });
+  expect(mobileReviewSnapshot(false, f.client).commentOpen).toBe(true);
+  expect(state.sessions.get(next.owner)?.text).toBe('queued'); expect(f.client.draft).toBe('');
+});

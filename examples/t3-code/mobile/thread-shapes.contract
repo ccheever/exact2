@@ -86,6 +86,13 @@ shape ThreadApproval
   reason: string
   options: list<ThreadApprovalOption>
 shape ThreadComposerState
+  editing: bool
+  saving: bool
+  canCancel: bool
+  editNotice: string
+  editPendingId: string
+  canRetryEdit: bool
+  contentOwner: string
   draft: string
   placeholder: string
   canSend: bool

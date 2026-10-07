@@ -137,7 +137,7 @@ export async function mobileNewTaskAction(kind: string, id: string, value: strin
   // Keystrokes have their own owner-safe shared reducer path, outside task transitions.
   if (kind === 'draft') {
     assertCurrent();
-    const saved = await mobileDraftChanged(client, value, native, storage);
+    const saved = await mobileDraftChanged(client, value, native, storage, id);
     return { ...result(saved.message), revision: saved.revision };
   }
   if (state.busy) return result('Wait for the current task change to finish.');

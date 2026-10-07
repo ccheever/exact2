@@ -81,3 +81,20 @@ describe('mobile native attachment bridge over shared draft ownership', () => {
     expect(f.calls.some(call => call.op === 'snapshotDraftRemove' && call.id === imageId)).toBe(true);
   });
 });
+
+test('ordinary removal refuses a changed target during shared command preamble', async () => {
+  const f = fixture([{ kind: 'image', id: imageId, name: 'photo.jpg', mimeType: 'image/jpeg', sizeBytes: 123 }]);
+  await pick(f);
+  const priorKey = f.client.draftKey, nextKey = 'env:new:other';
+  f.client.local.snapshotDrafts[nextKey] = f.client.snapshotDrafts.map(image => ({ ...image }));
+  const original = f.native.later;
+  f.native.later = async input => {
+    const reply = await original(input);
+    if (obj(input).op === 'devicePresentation') f.client.projectId = 'other';
+    return reply;
+  };
+  await pick(f, 'remove-image', imageId);
+  expect(f.client.local.snapshotDrafts[priorKey]).toHaveLength(1);
+  expect(f.client.local.snapshotDrafts[nextKey]).toHaveLength(1);
+  expect(f.calls.some(call => call.op === 'snapshotDraftRemove' || call.method === 'attachments.delete')).toBe(false);
+});

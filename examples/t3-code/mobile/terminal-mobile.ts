@@ -1,7 +1,8 @@
+import { mobileComposerTargetRequire, mobileComposerTargetCurrent, mobileComposerTargetText, mobileComposerEditContext } from './composer-target';
 // Pinned365aa87982 ThreadTerminalRouteScreen over existing terminal metadata/UI/transport owners.
 // @ref llp/1106.007-mobile-terminal.decision.md#root-seam
 import { mobileDraftChanged } from './draft';
-import { saveTerminalContext, formatTerminalContextReference } from './shared/terminal-integrations';
+import { saveTerminalContext, formatTerminalContextReference, terminalContextRecord } from './shared/terminal-integrations';
 import { contextReferences } from './shared/composer-editor-menu';
 import { mobileClient, mobileNative } from './client';
 import { mobileSessionGrants } from './environment-detail';
@@ -160,22 +161,28 @@ export function mobileTerminalCapture(text: string, start: number, end: number) 
 }
 export async function mobileTerminalAttachOutput(key: string, text: string, start: number, end: number, now: number,
   nativeInput: Native | null | undefined, files: Files, client: T3Client = mobileClient) {
-  const captured = owner(client), draft = client.draftKey, selection = mobileTerminalCapture(text, start, end);
+  const captured = owner(client), draft = mobileComposerTargetRequire(client), selection = mobileTerminalCapture(text, start, end);
   const result = (message = '') => ({ revision: client.revision, message });
   if (!nativeInput?.available || !selection.canAttach) return result('Select non-empty output within the context limit.');
   let target: unknown; try { target = JSON.parse(key); } catch { return result('This terminal is no longer open.'); }
   if (!Array.isArray(target) || target.length !== 3 || target[0] !== client.environmentId || target[1] !== client.threadId) return result('The selected conversation changed.');
   const native = letGoAware(mobileNative(nativeInput)), storage = client === mobileClient ? nativeFiles(native) : files;
   try {
-    if (contextReferences(client.draft).length >= 200) throw new ClientError('Remove some context from the draft and try again.');
+    if (contextReferences(mobileComposerTargetText(client, draft) ?? '').length >= 200) throw new ClientError('Remove some context from the draft and try again.');
     const ids = await client.ids(native, 1);
-    if (captured !== owner(client) || draft !== client.draftKey) throw new ClientError('The selected conversation changed.');
-    if (contextReferences(client.draft).length >= 200) throw new ClientError('Remove some context from the draft and try again.');
+    if (captured !== owner(client) || !mobileComposerTargetCurrent(client, draft)) throw new ClientError('The selected conversation changed.');
+    if (contextReferences(mobileComposerTargetText(client, draft) ?? '').length >= 200) throw new ClientError('Remove some context from the draft and try again.');
     const id = Array.isArray(ids) ? str(ids[0]) : ''; if (!id) throw new ClientError('Could not create terminal context.');
     const summary = knownSessions(client, { environmentId: client.environmentId, threadId: client.threadId }).find(item => item.target.terminalId === target[2])?.state.summary;
     const context = { id, threadId: client.threadId, terminalId: str(target[2]), terminalLabel: `${resolveTerminalSessionLabel(str(target[2]), summary)} (visible output)`,
       lineStart: selection.start + 1, lineEnd: selection.end + 1, text: selection.text, createdAt: new Date(now).toISOString() };
+    const previous = mobileComposerTargetText(client, draft) ?? '';
+    const text = `${previous}${previous ? ' ' : ''}${formatTerminalContextReference(context)} `;
+    if (draft.kind === 'queued-edit') {
+      await mobileComposerEditContext(client, draft, text, terminalContextRecord(context), '', native);
+      return result();
+    }
     saveTerminalContext(client, context);
-    return await mobileDraftChanged(client, `${client.draft}${client.draft ? ' ' : ''}${formatTerminalContextReference(context)} `, native, storage);
+    return await mobileDraftChanged(client, text, native, storage, draft.owner);
   } catch (error) { if (letGo(error)) throw error; return result(error instanceof Error ? error.message : 'Could not attach output.'); }
 }

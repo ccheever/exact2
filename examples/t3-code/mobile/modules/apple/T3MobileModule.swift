@@ -47,6 +47,7 @@ final class T3MobileModule: ExactModule {
         "t3-home-chrome": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
             try module.homeChrome.makeView(props: props, events: events)
         }] }
+    private let queuedEdits: T3MobileQueuedEdit
     private let transport: T3Transport
     private let browser: T3MobileBrowser
     private let devices: T3MobileDevices
@@ -83,6 +84,8 @@ final class T3MobileModule: ExactModule {
         voice = T3MobileVoice(agent: context.agent, audioSession: audioSession, changed: context.changed)
         T3MobileIdentity.configure()
         let directory = T3Storage.dataRoot(agent: context.agent, contextData: context.data)
+        let queuedEdits = T3MobileQueuedEdit.shared(root: directory)
+        self.queuedEdits = queuedEdits
         documentRoot = directory
         document = T3MobileDocument(dataRoot: directory)
         media = T3MobileMedia(dataRoot: directory, audioSession: audioSession)
@@ -92,12 +95,12 @@ final class T3MobileModule: ExactModule {
         let saved = T3SavedEnvironments(persistent: !context.agent)
         activity = T3ActivityReporter(persistent: !context.agent)
         transport = T3Transport(persistent: !context.agent, dataDirectory: directory, credentials: credentials,
-                                savedEnvironments: saved, activity: activity, changed: context.changed)
+                                savedEnvironments: saved, activity: activity, queuedEdits: queuedEdits, changed: context.changed)
         terminal = T3MobileTerminal(transport: transport)
         browser = T3MobileBrowser(transport: transport, changed: context.changed, agent: context.agent, audioSession: audioSession)
         devices = T3MobileDevices(transport: transport, changed: context.changed, agent: context.agent, audioSession: audioSession)
         fleet = T3Fleet(persistent: !context.agent, credentials: credentials, saved: saved,
-                        activity: activity, changed: context.changed)
+                        activity: activity, queuedEdits: queuedEdits, changed: context.changed)
         super.init(context: context)
     }
 
@@ -129,6 +132,28 @@ final class T3MobileModule: ExactModule {
 
     override func later(_ request: [String: Any], reply: ExactReply) {
         guard alive else { reply.fail("The mobile session was closed."); return }
+        if (request["op"] as? String == "mobileQueuedEdit" && ["read", "cas", "cleanup", "release", "retire"].contains(request["action"] as? String ?? ""))
+            || ["composerAttachRemove", "snapshotDraftRemove"].contains(request["op"] as? String ?? "") {
+            let store = queuedEdits
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let value: [String: Any]
+                    switch request["action"] as? String {
+                    case "read": value = try store.read()
+                    case "cas": value = try store.cas(request)
+                    case "cleanup": value = try store.cleanup(request)
+                    case "retire": value = try store.retire(request)
+                    case "release": value = try store.releaseAttachments()
+                    default: value = try store.removeAttachment(request)
+                    }
+                    reply.send(["ok": true, "generation": request["generation"] ?? 0, "value": value])
+                } catch {
+                    let problem = error as? T3Failure ?? T3Failure(kind: "Persistence", message: "The queued edit could not be saved.")
+                    reply.send(["ok": false, "generation": request["generation"] ?? 0, "error": problem.json])
+                }
+            }
+            return
+        }
         if let key = request["fleet"] as? String { return fleet.perform(key, request) { reply.send($0) } }
         let generation = request["generation"] as? Int ?? 0
         func answer(_ value: [String: Any] = [:]) { reply.send(["ok": true, "generation": generation, "value": value]) }

@@ -9,6 +9,8 @@ shape ComposerAttachment
   removeOperation: string
   disabled: bool
 shape ComposerAttachmentsSnapshot
+  previewRequest: string
+  contentOwner: string
   items: list<ComposerAttachment>
   canPick: bool
   supportsFiles: bool

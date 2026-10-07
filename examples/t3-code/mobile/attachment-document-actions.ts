@@ -1,3 +1,4 @@
+import { mobileComposerTarget } from './composer-target';
 // AttachmentFileScreen365aa87982 menu actions over the document's captured owner.
 // @ref llp/1106.005-composer-and-transcript.decision.md#media-presentation
 import { mobileClient, mobileNative } from './client';
@@ -25,8 +26,9 @@ export async function mobileAttachmentDocumentAction(event: string, scope: strin
   let value; try { value = obj(JSON.parse(event)); } catch { value = {}; }
   const result = (message = '', operation = '', removed = false, sourceJSON = '') => ({ identifier: data.identifier, message, operation, removed, sourceJSON });
   if (!data.identifier || str(value.identifier) !== data.identifier || !nativeInput?.available) return result();
-  const captured = JSON.stringify([client.generation, client.environmentId, client.threadId, client.draftKey]);
-  const current = () => captured === JSON.stringify([client.generation, client.environmentId, client.threadId, client.draftKey]) && mobileMediaOwned(scope, id, client);
+  const contentOwner = mobileComposerTarget(client).owner;
+  const captured = JSON.stringify([client.generation, client.environmentId, client.threadId, mobileComposerTarget(client).owner]);
+  const current = () => captured === JSON.stringify([client.generation, client.environmentId, client.threadId, mobileComposerTarget(client).owner]) && mobileMediaOwned(scope, id, client);
   const source = await mobileMediaPrepare(scope, id, routeKey, nativeInput, client);
   if (!source.ready || source.identifier !== data.identifier || !current()) return result();
   const operation = str(value.operation), native = letGoAware(mobileNative(nativeInput));
@@ -50,8 +52,8 @@ export async function mobileAttachmentDocumentAction(event: string, scope: strin
       return result(reply.message);
     }
     if (operation === 'remove' && scope === 'composer') {
-      const image = obj(JSON.parse(source.sourceJSON)).source === 'draft-image';
-      const reply = await mobileComposerAttachmentAction(image ? 'remove-image' : 'remove-file', id, nativeInput, storage, client);
+      const sourceKind = obj(JSON.parse(source.sourceJSON)).source;
+      const reply = await mobileComposerAttachmentAction(sourceKind === 'remote' ? 'remove-retained' : sourceKind === 'draft-image' ? 'remove-image' : 'remove-file', id, nativeInput, storage, client, contentOwner);
       return result(reply.message, '', !reply.message && !mobileMediaOwned(scope, id, client));
     }
     return result();

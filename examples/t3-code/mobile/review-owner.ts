@@ -1,3 +1,4 @@
+import { mobileComposerTargetRequire, mobileComposerTargetCurrent, mobileComposerTargetText } from './composer-target';
 // @ref llp/1106.006-review-and-files.decision.md#ownership
 import type { T3Client } from './shared/client';
 import { obj, str } from './shared/domain';
@@ -10,6 +11,10 @@ import { workspaceOf } from './shared/r4-surfaces-panel';
 export function reviewOwner(client: T3Client): string {
   return JSON.stringify([client.origin, client.environmentId, client.projectId, client.threadId,
     client.generation, client.threadEpoch, workspaceOf(client).cwd]);
+}
+/** A comment selection binds its content target separately from read-only diff ownership. */
+export function assertReviewComposerOwner(client: T3Client, owner: string) {
+  mobileComposerTargetRequire(client, owner);
 }
 export function assertReviewOwner(client: T3Client, owner: string) {
   if (reviewOwner(client) !== owner) throw new ClientError('The workspace changed. Open this screen again.', 'superseded');
@@ -31,14 +36,16 @@ export async function reviewFileAccess(client: T3Client, native: Native): Promis
  * through the synchronous shared draft reducer; it has no native rich-editor caret yet.
  */
 export function reviewComposerNative(client: T3Client, native: Native, storage: Files, owner: string): Native {
-  const guarded = reviewNative(client, native, owner);
+  const guarded = reviewNative(client, native, owner), target = mobileComposerTargetRequire(client);
   return { ...guarded, later: async input => {
     assertReviewOwner(client, owner);
     const request = obj(input);
     if (request.op !== 'editorInsert' && !(request.op === 'editorEdit' && request.all === true)) return guarded.later(input);
-    const text = request.op === 'editorInsert' ? client.draft + str(request.text) : str(request.text);
-    const answer = await mobileDraftChanged(client, text, guarded, storage);
+    if (!mobileComposerTargetCurrent(client, target)) throw new ClientError('The composer changed.', 'superseded');
+    const text = request.op === 'editorInsert' ? (mobileComposerTargetText(client, target) ?? '') + str(request.text) : str(request.text);
+    const answer = await mobileDraftChanged(client, text, guarded, storage, target.owner);
     assertReviewOwner(client, owner);
+    assertReviewComposerOwner(client, target.owner);
     if (answer.message) throw new ClientError(answer.message);
     return { ok: true, generation: client.generation, value: { applied: true, text } };
   } };

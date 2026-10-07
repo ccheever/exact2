@@ -27,24 +27,35 @@ component ThreadComposer
   derive dictating = voice.busy and voice.owner == voiceOwner
   derive voicePresented = voice.owner == voiceOwner and voice.phase != "idle"
   action typedDraft(value: string)
-    if not dictating
-      editDraft(value)
+    if not dictating and not (data.editing and not data.canCancel)
+      editDraft(value, data.contentOwner)
   // Software Return remains a newline; every hardware Send also observes the voice lock.
   action typedKey(key: string)
     if (enterBehavior == "send" and key == "Enter") or (enterBehavior == "newline" and key == "Meta+Enter")
       preventDefault()
       if data.canSend and not dictating
-        action("send", "", "")
+        action("send", data.contentOwner, "")
     else if (enterBehavior == "send" and key == "Meta+Enter") or (enterBehavior == "newline" and key == "Shift+Meta+Enter")
       preventDefault()
       if data.canSend and not dictating
-        action("send-alternate", "", "")
+        action("send-alternate", data.contentOwner, "")
   view
     column padding-left=12 padding-right=12 padding-top=(expanded ? 8 : 6) padding-bottom=(bottomInset + (expanded ? 8 : 6)) font-family="DM Sans"
       column width="100%" max-width=contentMaxWidth align-self="center"
         when data.queueCount > 0
           MobileQueueTrigger(count=data.queueCount, maxWidth=(contentMaxWidth * 0.45), foreground=colors.foreground, muted=colors.muted, border=colors.border, background=colors.glassFallback, action=action)
           view height=8
+        when data.editing
+          row align-items="center" gap=7 padding-left=14 padding-right=14 padding-bottom=7
+            t3-symbol symbol-name="pencil" point-size=12 symbol-tint=colors.muted width=12 height=12
+            text "Editing queued message" flex=1 min-width=0 line-clamp=1 font-size=12 color=colors.muted
+            button press=action("queued-edit-cancel", data.contentOwner, "") disabled=(not data.canCancel) min-height=28 padding-left=3.5 padding-right=3.5 aria-label="Cancel editing queued message"
+              text "Cancel" font-size=12 font-weight=500 color=colors.primary
+        when data.editNotice != ""
+          text data.editNotice padding-left=14 padding-right=14 padding-bottom=7 font-size=13 color=colors.muted
+        when data.editPendingId != ""
+          button press=action("queued-edit-retry", data.editPendingId, "") disabled=(not data.canRetryEdit) padding=7
+            text "Retry queued message save" font-size=13 color=colors.primary
         when data.modelUnavailable
           button press=openModelSettings padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 text-align="left"
             text "Model unavailable. Open model settings." font-size=13 line-height="17px" color=colors.foreground
@@ -53,12 +64,12 @@ component ThreadComposer
           background-color=colors.composerSurface border-width=1 border-style="solid" border-color=colors.composerBorder
           row position="relative" min-height=44 flex-direction=(expanded ? "column" : "row") align-items=(expanded ? "stretch" : "center")
             when not expanded and not voicePresented
-              button press=pickAttachments width=44 height=44 padding=0 aria-label="Add attachment"
+              button press=pickAttachments(data.contentOwner) disabled=(data.editing and not data.canCancel) width=44 height=44 padding=0 aria-label="Add attachment"
                 column width=44 height=44 align-items="center" justify-content="center"
                   t3-symbol symbol-name="plus" point-size=20 symbol-weight="regular" symbol-tint=colors.iconSubtle width=20 height=20
             // Keep the native editor at one plan site while the compact toolbar covers it.
             textarea value=data.draft input=typedDraft key=typedKey focus=focusChanged(true) blur=focusChanged(false) placeholder=data.placeholder
-              readonly=dictating hook="mobile-voice-editor" data-mobile-voice-owner=voiceOwner
+              readonly=(dictating or (data.editing and not data.canCancel)) hook="mobile-voice-editor" data-mobile-voice-owner=voiceOwner
               data-mobile-voice-selection-revision=(voice.selectionOwner == voiceOwner ? voice.selectionRevision : 0)
               opacity=(voicePresented and not expanded ? 0 : 1) pointer-events=(voicePresented and not expanded ? "none" : "auto")
               aria-hidden=(voicePresented and not expanded)
@@ -70,7 +81,7 @@ component ThreadComposer
               view height=3.5
               when not voicePresented
                 row align-items="center" gap=0
-                  button press=pickAttachments width=44 height=44 padding=0 aria-label="Add attachment"
+                  button press=pickAttachments(data.contentOwner) disabled=(data.editing and not data.canCancel) width=44 height=44 padding=0 aria-label="Add attachment"
                     column width=44 height=44 align-items="center" justify-content="center"
                       t3-symbol symbol-name="plus" point-size=20 symbol-weight="regular" symbol-tint=colors.iconSubtle width=20 height=20
                   button press=openModelSettings flex=1 min-width=0 height=38.5 padding-left=7 padding-right=7 aria-label="Model and reasoning settings"
@@ -105,7 +116,7 @@ component ThreadSendButton
     colors: ThreadColors
   derive disabled = data.showStop ? not data.canStop : not data.canSend
   view
-    button press=action((data.showStop ? "stop" : "send"), "", "")
+    button press=action((data.showStop ? "stop" : "send"), data.contentOwner, "")
       disabled=disabled width=44 height=44 padding=0 flex-shrink=0
       aria-label=(data.showStop ? "Stop agent" : length(data.blockedReason) > 0 ? data.blockedReason : data.sendLabel)
       testId="thread-send"

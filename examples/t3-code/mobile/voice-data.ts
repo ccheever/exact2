@@ -10,6 +10,8 @@ import { VoiceInputSession, createVoiceInputTarget } from './voice-session';
 import { VoiceTranscriptionError, throwIfVoiceTranscriptionAborted } from './voice-transcription';
 import { resolveVoiceComposerPresentation } from './voice-presentation';
 import { normalizeVoiceInputDecibels } from './voice-metering';
+import { mobileComposerTargetCurrent, mobileComposerTargetText, mobileComposerTargetWriteText,
+  mobileComposerTargetPersist, mobileComposerTargetRequire, mobileComposerTargetRevision, type MobileComposerTarget } from './composer-target';
 
 export interface VoiceStatus { available: boolean; locale: string; reason: string; session: string; event: number;
   eventKind: string; error: string; uri: string; elapsed: number; levels: number[]; phase: string }
@@ -19,15 +21,15 @@ export interface VoiceSnapshot { available: boolean; owner: string; label: strin
   confirmationEnabled: boolean; bars: VoiceBar[]; compactBars: VoiceBar[]; selectionOwner: string; selectionStart: number; selectionEnd: number; selectionRevision: number }
 export interface VoiceResult { revision: number; message: string; data: VoiceSnapshot }
 interface Scope { native: Native; storage: Files; pending: Promise<unknown>[]; failed: unknown }
-interface Target { key: string; origin: string; environmentId: string; generation: number; text: string; revision: number; observer?: () => void }
+interface Target { key: string; content: MobileComposerTarget; text: string | null; revision: number; contentRevision: number | null; observer?: () => void }
 interface Runtime { client: T3Client; session: VoiceInputSession; scope: Scope | null; serial: number; id: string; uri: string | null;
-  status: VoiceStatus; handledEvent: number; target: Target | null; selection: { owner: string; start: number; end: number; revision: number } }
+  status: VoiceStatus; handledEvent: number; target: Target | null; selection: { owner: string; start: number; end: number; revision: number; content: MobileComposerTarget | null; text: string; contentRevision: number | null } }
 const states = new WeakMap<T3Client, Runtime>();
 const emptyStatus = (): VoiceStatus => ({ available: false, locale: '', reason: '', session: '', event: 0, eventKind: '', error: '', uri: '', elapsed: 0, levels: [], phase: 'idle' });
 function stateFor(client: T3Client): Runtime {
   const existing = states.get(client); if (existing) return existing;
   const runtime = { client, scope: null, serial: 0, id: '', uri: null, status: emptyStatus(), handledEvent: 0, target: null,
-    selection: { owner: '', start: 0, end: 0, revision: 0 } } as unknown as Runtime;
+    selection: { owner: '', start: 0, end: 0, revision: 0, content: null, text: '', contentRevision: null } } as unknown as Runtime;
   const request = (action: string, fields: object = {}) => invoke(runtime, action, fields);
   const enqueue = (operation: Promise<unknown>) => {
     const scope = runtime.scope; if (!scope) throw new Error('Voice operation has no active answer.');
@@ -81,24 +83,57 @@ async function invoke(runtime: Runtime, action: string, fields: object = {}) {
 async function drain(scope: Scope) { for (let index = 0; index < scope.pending.length; index++) await scope.pending[index]; }
 function readTarget(runtime: Runtime): VoiceDraftSnapshot | null {
   const target = runtime.target; if (!target) return null;
-  // Navigation preserves the target; changing connection identity cannot reuse it.
-  if (runtime.client.origin !== target.origin || runtime.client.environmentId !== target.environmentId || runtime.client.generation !== target.generation) return null;
-  return { ownerKey: target.key, text: runtime.client.local.drafts[target.key] ?? '', revision: target.revision, selection: { start: 0, end: 0 } };
+  // Navigation preserves a captured target; an ended edit never falls back to an ordinary draft.
+  const text = mobileComposerTargetText(runtime.client, target.content);
+  if (text === null) return null;
+  const revision = target.content.kind === 'queued-edit' ? mobileComposerTargetRevision(runtime.client, target.content) : target.revision;
+  if (revision === null) return null;
+  return { ownerKey: target.key, text, revision, selection: { start: 0, end: 0 } };
 }
 /** Call synchronously after every shared draft mutation, including clear/send, before another mutation can revert it. */
 export function mobileVoiceObserveDraft(client: T3Client = mobileClient) {
-  const runtime = states.get(client), target = runtime?.target; if (!runtime || !target) return;
-  const next = client.local.drafts[target.key] ?? '';
-  if (next !== target.text) {
-    target.text = next; target.revision++; target.observer?.();
-    // A caret commit cannot survive a later edit, including an edit followed by a revert.
-    if (runtime.selection.owner === target.key) runtime.selection = { ...runtime.selection, owner: '', revision: runtime.selection.revision + 1 };
+  const runtime = states.get(client); if (!runtime) return;
+  const target = runtime.target;
+  if (target) {
+    const next = mobileComposerTargetText(client, target.content), revision = mobileComposerTargetRevision(client, target.content);
+    if (next !== target.text || revision !== target.contentRevision) {
+      target.text = next; target.contentRevision = revision; target.revision++; target.observer?.();
+    }
+  }
+  // Picker commits also own a caret, even if dictation has never started or now targets another draft.
+  const selection = runtime.selection;
+  if (selection.owner && selection.content && (mobileComposerTargetText(client, selection.content) !== selection.text
+    || mobileComposerTargetRevision(client, selection.content) !== selection.contentRevision)) {
+    runtime.selection = { ...selection, owner: '', revision: selection.revision + 1 };
+  }
+}
+/** One caller answer stages native caret state using the same revision projected by the root hook.
+ * Persistence belongs to the producer. No promise, Native or Files handle survives this call. */
+export async function mobileComposerStageSelection(client: T3Client, target: MobileComposerTarget, text: string,
+  start: number, end: number, native: Native): Promise<void> {
+  const runtime = stateFor(client); mobileVoiceObserveDraft(client);
+  const contentRevision = mobileComposerTargetRevision(client, target);
+  if (mobileComposerTargetText(client, target) !== text || contentRevision === null || !Number.isFinite(start) || !Number.isFinite(end))
+    throw new ClientError('The draft changed before its selection could be restored.', 'superseded');
+  const lower = Math.max(0, Math.min(text.length, Math.floor(start))), upper = Math.max(lower, Math.min(text.length, Math.floor(end)));
+  const revision = runtime.selection.revision + 1;
+  runtime.selection = { owner: target.editorOwner, start: lower, end: upper, revision, content: target, text, contentRevision };
+  try {
+    const reply = await bridgeReply(letGoAware(native), { op: 'mobileVoice', action: 'selection-commit', generation: target.generation,
+      owner: target.editorOwner, text, start: lower, end: upper, revision });
+    mobileVoiceObserveDraft(client);
+    if (runtime.selection.revision !== revision || runtime.selection.owner !== target.editorOwner)
+      throw new ClientError('The draft selection changed.', 'superseded');
+    if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind);
+  } catch (error) {
+    if (runtime.selection.revision === revision) runtime.selection = { ...runtime.selection, owner: '', revision: revision + 1 };
+    throw error;
   }
 }
 export function mobileVoiceSnapshot(focusedOwner = '', client: T3Client = mobileClient, waveformWidth = 220): VoiceSnapshot {
   const runtime = stateFor(client); mobileVoiceObserveDraft(client);
   const state = runtime.session.controller.currentState;
-  const busy = voiceInputBlocksSubmission(state), focused = !!focusedOwner && focusedOwner === runtime.session.ownerKey;
+  const busy = voiceInputBlocksSubmission(state), focused = !!focusedOwner && focusedOwner === runtime.session.ownerKey && !!readTarget(runtime);
   const elapsed = runtime.status.elapsed, presentation = resolveVoiceComposerPresentation(state, elapsed);
   const bars = Array.from({ length: 64 }, (_, id) => { const level = normalizeVoiceInputDecibels(runtime.status.levels[id]);
     return { id, height: 2 + level * 30, compactHeight: 2 + level * 12, opacity: .22 + level * .78 }; });
@@ -153,32 +188,36 @@ export async function mobileVoiceAction(op: string, start: number, end: number, 
       if (activeInput(client) || pendingRequests(client.projection).approvals.length) return result('Voice input is unavailable for this request answer.');
       if (client.busy || client.pending) return result('Wait for the current submission to finish before starting dictation.');
       if (!client.projectId || !client.environmentId) return result('This draft is no longer available.');
-      const initiatingOwner = JSON.stringify([client.origin, client.environmentId, client.generation, client.draftKey]);
+      const content = mobileComposerTargetRequire(client);
+      if (focusedOwner !== content.editorOwner) return result('This draft is no longer available.');
       await mobileVoiceStatus(native, client);
-      if (initiatingOwner !== JSON.stringify([client.origin, client.environmentId, client.generation, client.draftKey])) return result('This draft is no longer available.');
+      if (!mobileComposerTargetCurrent(client, content)) return result('This draft is no longer available.');
       if (!runtime.status.available) return result(runtime.status.reason || 'Voice transcription is not available.');
-      const key = client.draftKey, text = client.local.drafts[key] ?? '';
+      const key = content.editorOwner, text = mobileComposerTargetText(client, content), contentRevision = mobileComposerTargetRevision(client, content);
+      if (text === null) return result('This draft is no longer available.');
       if (start < 0 || end < 0) {
         const selected = await invoke(runtime, 'selection', { owner: key, text });
-        if (initiatingOwner !== JSON.stringify([client.origin, client.environmentId, client.generation, client.draftKey]) || (client.local.drafts[key] ?? '') !== text) return result('The draft changed before voice input could start.');
+        if (!mobileComposerTargetCurrent(client, content) || mobileComposerTargetText(client, content) !== text || mobileComposerTargetRevision(client, content) !== contentRevision) return result('The draft changed before voice input could start.');
         start = Number(selected.start); end = Number(selected.end);
         if (!Number.isFinite(start) || !Number.isFinite(end)) return result('The text selection is unavailable.');
       }
       runtime.selection = { ...runtime.selection, owner: '', revision: runtime.selection.revision + 1 };
       runtime.id = `voice-${++runtime.serial}`; runtime.uri = null;
-      const target: Target = { key, origin: client.origin, environmentId: client.environmentId, generation: client.generation, text, revision: 0 };
+      const target: Target = { key, content, text, revision: 0, contentRevision };
       runtime.target = target;
       const selection = { start: Math.max(0, Math.min(text.length, start)), end: Math.max(0, Math.min(text.length, end)) };
       const sourceTarget = createVoiceInputTarget(key, () => readTarget(runtime)?.text ?? null, (value, selected) => {
         // The copied controller checks text/revision and owner immediately before this synchronous write.
-        if (!readTarget(runtime)) throw new Error('This draft is no longer available.');
-        client.local.drafts[key] = value; client.revision++; mobileVoiceObserveDraft(client);
-        runtime.selection = { owner: key, ...selected, revision: runtime.selection.revision + 1 };
+        if (!readTarget(runtime) || !mobileComposerTargetWriteText(client, content, value)) throw new Error('This draft is no longer available.');
         const commitScope = runtime.scope; if (!commitScope) throw new Error('Voice commit has no active answer.');
-        commitScope.pending.push(invoke(runtime, 'selection-commit', { owner: key, text: value, ...selected, revision: runtime.selection.revision }).catch(error => { commitScope.failed ??= error; }));
-        commitScope.pending.push(client.persist(commitScope.storage).catch(error => { commitScope.failed ??= error; }));
+        commitScope.pending.push(mobileComposerStageSelection(client, content, value, selected.start, selected.end, commitScope.native).catch(error => { commitScope.failed ??= error; }));
+        commitScope.pending.push(mobileComposerTargetPersist(client, content, commitScope.native, commitScope.storage).catch(error => { commitScope.failed ??= error; }));
       }, selection, changed => { target.observer = changed; return () => { target.observer = undefined; }; });
-      await runtime.session.start({ ...sourceTarget, label });
+      // Queued content has its own monotonic revision. Read it directly so an edit/revert
+      // between voice observations cannot evade the copied controller's comparison.
+      await runtime.session.start({ ...sourceTarget, label, ...(content.kind === 'queued-edit' ? { readDraft: () => {
+        const current = readTarget(runtime); return current ? { ...current, selection } : null;
+      } } : {}) });
     } else if (op === 'stop') await runtime.session.controller.stop();
     else if (op === 'cancel') {
       await runtime.session.controller.cancel();

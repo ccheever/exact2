@@ -1,3 +1,5 @@
+import { mobileComposerTarget } from './composer-target';
+import { mobileQueuedEditCurrent } from './queued-edit-state';
 // Pinned365aa87982 FilePreviewModal/VideoPreviewModal.ios resolve once per presentation.
 // @ref llp/1106.005-composer-and-transcript.decision.md#media-presentation
 import { mobileClient, mobileNative } from './client';
@@ -14,6 +16,13 @@ interface MediaSource { identifier: string; name: string; kind: string; source: 
 const resolved = new WeakMap<T3Client, Map<string, MediaPreviewSnapshot>>();
 function selected(client: T3Client, scope: string, id: string): { attachment: Obj; source: string } | undefined {
   if (scope === 'composer') {
+    const edit = mobileQueuedEditCurrent(client);
+    if (edit) {
+      const kept = edit.existingAttachments.find(item => item.id === id);
+      if (kept) return { attachment: kept, source: 'remote' };
+      const added = edit.attachments.find(item => item.id === id);
+      return added ? { attachment: { ...added }, source: added.kind === 'image' ? 'draft-image' : 'draft-file' } : undefined;
+    }
     const image = client.snapshotDrafts.find(item => item.id === id);
     if (image) return { attachment: image, source: 'draft-image' };
     const file = referencedFiles(client.local, client.draftKey, client.draft).find(item => item.id === id);
@@ -27,7 +36,7 @@ function selected(client: T3Client, scope: string, id: string): { attachment: Ob
   return undefined;
 }
 function owner(client: T3Client, scope: string) {
-  return JSON.stringify([client.generation, client.environmentId, client.threadId, scope === 'composer' ? client.draftKey : '']);
+  return JSON.stringify([client.generation, client.environmentId, client.threadId, scope === 'composer' ? mobileComposerTarget(client).owner : '']);
 }
 /** Recheck after asynchronous file work, including removal without a route change. */
 export function mobileMediaOwned(scope: string, id: string, client: T3Client = mobileClient): boolean {
@@ -47,10 +56,11 @@ export function mobileMediaURL(origin: string, relative: string): string {
  * It renders a presenter only while that route is current. Its native view owns dismissal/cancellation.
  */
 export async function mobileMediaPrepare(scope: string, id: string, routeKey: string, nativeInput: Native | null | undefined,
-  client: T3Client = mobileClient, expectedEnvironment = client.environmentId, expectedThread = client.threadId): Promise<MediaPreviewSnapshot> {
+  client: T3Client = mobileClient, expectedEnvironment = client.environmentId, expectedThread = client.threadId, expectedContentOwner = ''): Promise<MediaPreviewSnapshot> {
   const scopeOwner = owner(client, scope), identifier = JSON.stringify([scopeOwner, scope, id, routeKey]);
   const failure = (error: string): MediaPreviewSnapshot => ({ identifier, name: '', kind: '', sourceJSON: '', ready: false, error });
   if (!routeKey || !id || !['composer', 'transcript'].includes(scope)) return failure('That preview is no longer available.');
+  if (scope === 'composer' && expectedContentOwner && expectedContentOwner !== mobileComposerTarget(client).owner) return failure('The composer changed. Open this attachment again.');
   if (client.environmentId !== expectedEnvironment || client.threadId !== expectedThread) return failure('The selected conversation changed.');
   const found = selected(client, scope, id);
   if (!found) return failure(scope === 'composer' ? 'This attachment is no longer available. Attach the file again.' : 'That attachment is no longer in this conversation.');

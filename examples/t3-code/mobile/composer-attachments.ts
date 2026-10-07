@@ -1,3 +1,8 @@
+import { mobileQueuedEditPresentation } from './queued-edit';
+import { composerAttachmentPreview, composerAttachmentPreviewRequest, prepareComposerAttachmentPreviews } from './composer-attachment-previews';
+import { mobileComposerTarget, mobileComposerTargetRequire, mobileComposerTargetCurrent } from './composer-target';
+import { mobileQueuedEditCurrent } from './queued-edit-state';
+import { mobileQueuedEditAttachmentAction } from './queued-edit-attachments';
 // Photo Library / Choose Files at upstream365aa87982, over shared draft/file/upload ownership.
 // @ref llp/1106.005-composer-and-transcript.decision.md#new-task-ownership
 import { mobileClient, mobileCommand, mobileNative } from './client';
@@ -11,32 +16,46 @@ import { draftFiles, referencedFiles, formatAttachmentSize } from './shared/comp
 import { activeInput } from './shared/requests';
 
 export interface ComposerAttachment { id: string; name: string; kind: string; size: string; mimeType: string; preview: string; removeOperation: string; disabled: boolean }
-export interface ComposerAttachmentsSnapshot { items: ComposerAttachment[]; canPick: boolean; supportsFiles: boolean; remaining: number; error: string; }
-const previews = new WeakMap<T3Client, Map<string, string>>();
+export interface ComposerAttachmentsSnapshot { previewRequest: string; contentOwner: string; items: ComposerAttachment[]; canPick: boolean; supportsFiles: boolean; remaining: number; error: string; }
 const errors = new WeakMap<T3Client, string>();
 const picking = new WeakSet<T3Client>();
 const imageTypes = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 /** Plain files retain inline shared references; media entries can feed the source's attachment strip. */
-export function mobileComposerAttachments(client: T3Client = mobileClient): ComposerAttachmentsSnapshot {
+export function mobileComposerAttachments(client: T3Client = mobileClient, now = 0): ComposerAttachmentsSnapshot {
+  const target = mobileComposerTarget(client), edit = mobileQueuedEditCurrent(client);
+  if (edit) {
+    const disabled = !mobileQueuedEditPresentation(client).canCancel || client.busy || !!client.pending || picking.has(client);
+    const remaining = Math.max(0, MAX_ATTACHMENTS - edit.existingAttachments.length - edit.attachments.length);
+    const items = [...edit.existingAttachments.map(file => ({ id: str(file.id), name: str(file.name),
+      kind: str(file.mimeType).startsWith('image/') ? 'image' : str(file.mimeType).startsWith('video/') ? 'video' : 'file',
+      mimeType: str(file.mimeType), size: formatAttachmentSize(Number(file.sizeBytes) || 0), preview: '',
+      removeOperation: 'remove-retained', disabled })), ...edit.attachments.map(file => ({ id: file.id, name: file.name,
+      kind: file.mimeType.startsWith('video/') ? 'video' : file.kind, mimeType: file.mimeType, size: formatAttachmentSize(file.sizeBytes),
+      preview: '', removeOperation: file.kind === 'image' ? 'remove-snapshot' : 'editorlocal:r4c-video-remove', disabled }))];
+    return { previewRequest: composerAttachmentPreviewRequest(client, items, now), contentOwner: target.owner, items: items.map(item => ({ ...item, preview: composerAttachmentPreview(client, item, now) })), canPick: !disabled && remaining > 0, supportsFiles: attachStagingLimit(client) > 0,
+      remaining, error: errors.get(client) ?? '' };
+  }
   const disabled = !!client.pending || client.busy || picking.has(client), remaining = Math.max(0, MAX_ATTACHMENTS - reservedAttachments(client));
-  const cache = previews.get(client), images = client.snapshotDrafts.map(image => ({ id: str(image.id), name: str(image.name), kind: 'image',
-    mimeType: str(image.mimeType), size: formatAttachmentSize(Number(image.sizeBytes) || 0), preview: cache?.get(str(image.id)) ?? '', removeOperation: 'remove-snapshot', disabled }));
+  const images = client.snapshotDrafts.map(image => ({ id: str(image.id), name: str(image.name), kind: 'image',
+    mimeType: str(image.mimeType), size: formatAttachmentSize(Number(image.sizeBytes) || 0), preview: '', removeOperation: 'remove-snapshot', disabled }));
   const files = referencedFiles(client.local, client.draftKey, client.draft).map(file => ({ id: file.id, name: file.name,
     kind: file.mimeType.startsWith('video/') ? 'video' : file.mimeType.startsWith('image/') ? 'image' : 'file', mimeType: file.mimeType,
-    size: formatAttachmentSize(file.sizeBytes), preview: cache?.get(file.id) ?? '', removeOperation: 'editorlocal:r4c-video-remove', disabled }));
-  return { items: [...images, ...files], canPick: !!client.projectId && !disabled && remaining > 0 && !activeInput(client),
+    size: formatAttachmentSize(file.sizeBytes), preview: '', removeOperation: 'editorlocal:r4c-video-remove', disabled }));
+  return { previewRequest: composerAttachmentPreviewRequest(client, [...images, ...files], now), contentOwner: target.owner, items: [...images, ...files].map(item => ({ ...item, preview: composerAttachmentPreview(client, item, now) })), canPick: !!client.projectId && !disabled && remaining > 0 && !activeInput(client),
     supportsFiles: attachStagingLimit(client) > 0, remaining, error: errors.get(client) ?? '' };
 }
 
 /** An actual native picker request; shared attachFiles owns acceptance, count limits and draft chip insertion. */
 export async function mobileComposerAttachmentAction(source: string, id: string, nativeInput: Native | null | undefined, suppliedStorage: Files,
-  client: T3Client = mobileClient) {
+  client: T3Client = mobileClient, expectedOwner = '') {
   const result = (message = '') => ({ revision: client.revision, message });
   if (!nativeInput?.available) return result('Open T3 Code on your iPhone or iPad to attach files.');
+  const target = mobileComposerTargetRequire(client, expectedOwner);
+  if (target.kind === 'queued-edit') return mobileQueuedEditAttachmentAction(source, id, target.editOwner, nativeInput, client);
   if (picking.has(client) || client.pending || client.busy) return result('Wait for the current submission before changing attachments.');
   const native = letGoAware(mobileNative(nativeInput)), storage = client === mobileClient ? nativeFiles(native) : suppliedStorage;
   const key = client.draftKey, environmentId = client.environmentId, generation = client.generation;
-  const current = () => key === client.draftKey && environmentId === client.environmentId && generation === client.generation;
+  const current = () => mobileComposerTargetCurrent(client, target) && key === client.draftKey && environmentId === client.environmentId && generation === client.generation;
   let picked: Obj[] = [];
   const cleanup = async () => { for (const file of picked) if (str(file.id)) await bridgeReply(native,
     { op: file.kind === 'image' ? 'snapshotDraftRemove' : 'composerAttachRemove', id: file.id }).catch(() => undefined); };
@@ -44,10 +63,15 @@ export async function mobileComposerAttachmentAction(source: string, id: string,
   try {
     if (source === 'remove-image' || source === 'remove-file') {
       const operation = source === 'remove-image' ? 'remove-snapshot' : 'editorlocal:r4c-video-remove';
-      const response = client === mobileClient ? await mobileCommand([operation, id, ''], nativeInput, suppliedStorage)
-        : await client.command(operation, id, '', 0, native, storage);
+      const assertCurrent = () => { if (!current()) throw new ClientError('The composer changed before the attachment could be removed.', 'superseded'); };
+      const guarded: Native = { available: native.available, watch: topic => native.watch(topic), later: async request => {
+        assertCurrent(); const reply = await native.later(request); assertCurrent(); return reply;
+      } };
+      assertCurrent();
+      const response = client === mobileClient ? await mobileCommand([operation, id, ''], guarded, suppliedStorage)
+        : await client.command(operation, id, '', 0, guarded, storage);
       if (response.message) errors.set(client, response.message);
-      previews.get(client)?.delete(id); return result(response.message);
+      return result(response.message);
     }
     if (!client.projectId) throw new ClientError('Choose a project first.');
     if (activeInput(client)) throw new ClientError('Answer the pending question before attaching files here.');
@@ -99,16 +123,6 @@ export async function mobileComposerAttachmentAction(source: string, id: string,
 }
 
 /** Root refreshes previews only for actual owned draft IDs; payload is a bounded native thumbnail. */
-export async function mobileComposerAttachmentPreviews(nativeInput: Native | null | undefined, client: T3Client = mobileClient) {
-  if (!nativeInput?.available) return { revision: client.revision };
-  const native = letGoAware(mobileNative(nativeInput)), key = client.draftKey;
-  let cache = previews.get(client); if (!cache) { cache = new Map(); previews.set(client, cache); }
-  const items = mobileComposerAttachments(client).items;
-  for (const item of items.filter(item => item.kind === 'image' && !cache!.has(item.id))) {
-    const response = await bridgeReply(native, { op: 'mobileAttachmentPreview', id: item.id, image: item.removeOperation === 'remove-snapshot' });
-    if (key !== client.draftKey) break;
-    if (response.ok) cache.set(item.id, str(obj(response.value).dataUrl));
-  }
-  const live = new Set(items.map(item => item.id)); for (const id of cache.keys()) if (!live.has(id)) cache.delete(id);
-  return { revision: client.revision };
+export function mobileComposerAttachmentPreviews(nativeInput: Native | null | undefined, client: T3Client = mobileClient, now = 0, owner = '', request = '') {
+  return prepareComposerAttachmentPreviews(nativeInput, client, () => mobileComposerAttachments(client, now).items, now, owner, request);
 }

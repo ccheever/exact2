@@ -87,3 +87,18 @@ describe('mobile terminal actual ownership and permissions', () => {
     expect(f.client.draft).toBe(''); expect(f.client.local.drafts['env:thread']).toBe(prior);
   });
 });
+
+
+test('terminal capture rejects an edit ending during native ID allocation instead of using ordinary content', async () => {
+  const { queuedEditState, queuedEditThreadKey, queuedEditEndMemory } = await import('./queued-edit-state');
+  const f = fixture(); f.client.local.drafts[f.client.draftKey] = 'ordinary untouched';
+  const edit = { owner: 'terminal-edit', session: 'terminal-session', draftKey: 'env:thread~queued-edit~r', origin: f.client.origin,
+    environmentId: 'env', threadId: 'thread', projectId: 'p', generation: f.client.generation, revision: 1, runId: 'r', messageId: 'm', text: 'queued',
+    attachments: [], existingAttachments: [], saving: false };
+  const state = queuedEditState(f.client); state.sessions.set(edit.owner, edit); state.active.set(queuedEditThreadKey('env', 'thread'), edit.owner);
+  const original = f.native.later;
+  f.native.later = async input => { const reply = await original(input); if (obj(input).op === 'ids') queuedEditEndMemory(edit.owner, f.client); return reply; };
+  const result = await mobileTerminalAttachOutput(JSON.stringify(['env', 'thread', 'term-1']), 'output', 0, 0, 1000, f.native, f.files, f.client);
+  expect(result.message).toContain('changed'); expect(f.client.draft).toBe('ordinary untouched');
+  expect(terminalDraftRecords(f.client, f.client.draft)).toEqual([]);
+});

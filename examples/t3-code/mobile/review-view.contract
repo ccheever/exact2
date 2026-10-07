@@ -48,8 +48,8 @@ component ReviewView
                         text row.title font-size=11 font-weight=600 color=colors.foreground line-clamp=1
                         when row.detail != ""
                           text row.detail font-size=11 color=colors.muted line-clamp=1
-                  text ("+" + row.additions) width=38 text-align="right" font-family="Menlo" font-size=11 color=colors.addition
-                  text ("-" + row.deletions) width=38 text-align="right" font-family="Menlo" font-size=11 color=colors.deletion
+                  text `+${row.additions}` width=38 text-align="right" font-family="Menlo" font-size=11 color=colors.addition
+                  text `-${row.deletions}` width=38 text-align="right" font-family="Menlo" font-size=11 color=colors.deletion
                   button press=action("viewed", row.path, 0) aria-label=(row.viewed ? "Mark unviewed" : "Mark viewed") width=28 height=32
                     t3-symbol symbol-name=(row.viewed ? "checkmark.circle.fill" : "circle") point-size=16 symbol-weight="regular" symbol-tint=colors.iconMuted width=16 height=16
               else

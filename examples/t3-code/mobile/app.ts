@@ -1,3 +1,4 @@
+import { mobileComposerTarget } from './composer-target';
 import { mobileQueueSnapshot, mobileQueueCommand } from './queue';
 import { mobileQueuePrepare } from './queue-read';
 import { mobileThreadAnswerFilesPrepare } from './thread';
@@ -120,7 +121,7 @@ export function answer(source: string, args: unknown[], _store?: unknown, storag
   }
   if (source === 'automationCommand') return mobileAutomationCommand(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), String(args[3] ?? ''), Number(args[4]), native).then(result => ({ ...result, requestRoute: String(args[5] ?? '') }));
   if (source === 'scheduledHeader') return mobileScheduledHeader(args);
-  if (source === 'voiceFocus') return { owner: args[0] === true ? mobileClient.draftKey : '', label: String(args[1] || 'Draft') };
+  if (source === 'voiceFocus') return { owner: args[0] === true ? mobileComposerTarget(mobileClient).editorOwner : '', label: String(args[1] || 'Draft') };
   if (source === 'voiceColors') return mobileVoiceColors(String(args[0]), String(args[1]));
   if (source === 'voiceStatus') return native?.available ? mobileVoiceStatus(mobileNative(native)) : { available: false, locale: '', reason: '', session: '', event: 0, eventKind: '', error: '', uri: '', elapsed: 0, levels: [], phase: 'idle' };
   if (source === 'voiceSnapshot') {
@@ -172,7 +173,7 @@ export function answer(source: string, args: unknown[], _store?: unknown, storag
   if (source === 'attachmentDocumentAction') return mobileAttachmentDocumentAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), args[4] as AttachmentDocumentSnapshot, native, storage!);
   if (source === 'mediaPreview') {
     if (args[5] !== true) return { identifier: '', name: '', kind: '', sourceJSON: '', ready: false, error: '' };
-    return mobileMediaPrepare(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), native, mobileClient, String(args[3] ?? ''), String(args[4] ?? ''));
+    return mobileMediaPrepare(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), native, mobileClient, String(args[3] ?? ''), String(args[4] ?? ''), String(args[11] ?? ''));
   }
   if (source === 'mediaCompletion') {
     let value: Record<string, unknown> = {};
@@ -183,8 +184,9 @@ export function answer(source: string, args: unknown[], _store?: unknown, storag
     return { identifier, message: String(value.message ?? '') };
   }
   if (source === 'shareMedia') return mobileMediaShare(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), native);
-  if (source === 'attachmentAction') return mobileComposerAttachmentAction(String(args[0] ?? 'menu'), String(args[1] ?? ''), native, storage!);
-  if (source === 'composerAttachments') return mobileComposerAttachmentPreviews(native).then(() => mobileComposerAttachments());
+  if (source === 'attachmentAction') return mobileComposerAttachmentAction(String(args[0] ?? 'menu'), String(args[1] ?? ''), native, storage!, mobileClient, str(args[4]));
+  if (source === 'composerAttachments') return mobileComposerAttachments(mobileClient, Number(args[3]));
+  if (source === 'composerPreviewsPrepare') return mobileComposerAttachmentPreviews(native, mobileClient, Number(args[2]), str(args[0]), str(args[1]));
   if (source === 'preferences') return mobilePreferencesResource(native);
   if (source === 'preferenceChange') return mobileSavePreference(String(args[0] ?? ''), String(args[1] ?? ''), native);
   if (source === 'applyAppearance') return mobileApplyAppearance(args[0], native);
@@ -268,7 +270,7 @@ function newTaskGuard(source: string, args: unknown[]): (() => boolean) | null {
 }
 function unavailableTaskSource(source: string, args: unknown[]) {
   if (source === 'voiceFocus') return { owner: '', label: String(args[1] || 'Draft') };
-  if (source === 'composerAttachments') return { items: [], canPick: false, supportsFiles: false, remaining: 0, error: '' };
+  if (source === 'composerAttachments') return { contentOwner: '', previewRequest: '', items: [], canPick: false, supportsFiles: false, remaining: 0, error: '' };
   if (source === 'newTaskPrepare') return { revision: mobileClient.revision, loaded: false };
   if (source === 'mediaPreview') return { identifier: '', name: '', kind: '', sourceJSON: '', ready: false, error: '' };
   if (source === 'attachmentDocument') return EMPTY_ATTACHMENT_DOCUMENT;

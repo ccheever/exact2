@@ -76,7 +76,7 @@ final class T3MobileVoice: NSObject, AVAudioRecorderDelegate {
         func answer(_ value: [String: Any] = [:]) { reply(["ok": true, "generation": request["generation"] as? Int ?? 0, "value": value]) }
         if action == "status" { answer(status()); return }
         if action == "selection" {
-            do { answer(try editor.selection(owner: request["owner"] as? String ?? "", text: request["text"] as? String ?? "")) }
+            do { answer(try editor.selection(owner: request["owner"] as? String ?? "", text: request["text"] as? String ?? "", optional: request["optional"] as? Bool == true)) }
             catch { reply(Self.failure("superseded", "The draft editor changed before voice input could start.", request)) }
             return
         }
