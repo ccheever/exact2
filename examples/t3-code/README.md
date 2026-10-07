@@ -273,7 +273,17 @@ before the server is ready, exact2 #117). The window keeps its frame across laun
 (the host's frame autosave, restored after the window's final style since exact2 #113). Settings ›
 Connections shows "This machine" (`this-machine.ts`): the Local environment switch, which asks
 first and then stops or starts the embedded server in place (the reference relaunches the app,
-which exact2 cannot, #122), and the Version row. Every paired server, a loopback one included, is a
+which exact2 cannot, #122), and the Version row. Under it (20261005-this-machine-network-access,
+`connections-network.ts`) are Network access ("Reachable at <url>" and its endpoints; the server
+binds 0.0.0.0 while it is on, loopback otherwise, and refuses when no LAN or Tailscale IPv4
+exists), Tailscale HTTPS (the server runs `tailscale serve` on the chosen port; the app reads
+`tailscale status --json` only while network access or Serve is on, cached 60 s,
+`T3LocalNetwork.swift`), and the Authorized clients fold: pairing links with their permissions,
+expiry, Share (endpoint choice, link, code, QR; HTTPS endpoints pair through the hosted app,
+`pairing-urls.ts`) and Revoke, and the paired clients live from `subscribeAuthAccess`
+(`auth-access.ts`). Each change restarts the embedded server in place with the new envelope.
+The three settings and the default endpoint are top-level keys of `t3-code.json`; a created
+link's credential stays in memory. Every paired server, a loopback one included, is a
 saved environment under Environments with its switch and row menu (Icon, Copy trace ID, Remove
 from this device…); a saved one with the primary's environment id (the same T3 home paired before)
 is removed and its credential forgotten. Load balancing and GitHub sharing count environments as

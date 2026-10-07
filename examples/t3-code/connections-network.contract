@@ -1,0 +1,445 @@
+use PvOutline from "./providers-kit.contract"
+use PvIconButton from "./providers-kit.contract"
+use PvField from "./providers-kit.contract"
+use CnGlyph from "./settings-b-kit.contract"
+use CnTooltip from "./settings-b-kit.contract"
+use R4Glyph from "./r4-git.contract"
+use QrCell from "./settings-core.contract"
+
+// Settings → Connections › This machine: Network access, its endpoints, Tailscale HTTPS, the
+// Authorized clients fold and their dialogs (20261005-this-machine-network-access;
+// connections-network.ts projects every value). After T3 Code ConnectionsSettings.tsx
+// (renderNetworkAccessRow, NetworkAccessDescription, AdvertisedEndpointListRow "endpoint-rail",
+// renderTailscaleRow, FoldedSettingsSection, AuthorizedClientsHeaderAction, PairingLinkListRow,
+// ConnectedClientListRow, AccessScopeSummary). A change restarts the embedded server in place
+// (the reference relaunches the app: decision U4, issue X45). Dialogs open on the root's
+// `connectionRemove` with their serial (`network:on:3`) and close when the serial moves.
+
+keyframes netFadeIn
+  from opacity=0
+  to opacity=1
+keyframes netFadeOut
+  from opacity=1
+  to opacity=0
+keyframes netPopupIn
+  from opacity=0 scale=0.98
+  to opacity=1 scale=1
+keyframes netPopupOut
+  from opacity=1 scale=1
+  to opacity=0 scale=0.98
+keyframes netSpin
+  from rotate=0
+  to rotate=360
+// animate-status-ping: the live dot's halo grows and fades (2 s).
+keyframes netPing
+  from opacity=1 scale=1
+  75% opacity=0 scale=2
+  to opacity=0 scale=2
+// A hover popover opens after its 250 ms delay (PopoverTrigger openOnHover delay={250}).
+keyframes netLate
+  from opacity=0
+  to opacity=1
+
+shape NetText
+  key: string
+  text: string
+shape NetEndpointRow
+  key: string
+  preferenceKey: string
+  label: string
+  url: string
+  available: bool
+  isDefault: bool
+  showUrl: bool
+  needsSetup: bool
+  canDisable: bool
+  canSetDefault: bool
+shape NetShareOption
+  id: string
+  label: string
+  detail: string
+  url: string
+  qr: bool
+  cells: list<QrCell>
+shape NetPairingRow
+  id: string
+  label: string
+  createdTip: string
+  expires: string
+  expiresTip: string
+  scopeCount: string
+  scopeLabel: string
+  scopes: list<NetText>
+  note: string
+  share: bool
+  copyCode: bool
+  options: list<NetShareOption>
+  multiple: bool
+  defaultOption: string
+shape NetClientRow
+  id: string
+  label: string
+  live: bool
+  statusTip: string
+  current: bool
+  device: string
+  scopeCount: string
+  scopeLabel: string
+  scopes: list<NetText>
+shape NetReveal
+  open: bool
+  linkId: string
+  title: string
+  description: string
+  value: string
+  rows: number
+  qr: bool
+  cells: list<QrCell>
+shape NetworkView
+  visible: bool
+  loading: bool
+  networkOn: bool
+  switchReady: bool
+  summaryUrl: string
+  fallback: string
+  hidden: number
+  error: string
+  endpoints: list<NetEndpointRow>
+  tailscale: bool
+  tailscaleOn: bool
+  tailscaleDescription: string
+  tailscaleUrl: string
+  tailscaleHost: string
+  servePort: number
+  clientsVisible: bool
+  summary: string
+  accessError: string
+  accessLoading: bool
+  pairings: list<NetPairingRow>
+  clients: list<NetClientRow>
+  empty: bool
+  othersDisabled: bool
+  networkSerial: number
+  tailscaleSerial: number
+  createSerial: number
+  settled: number
+  reveal: NetReveal
+  ticking: bool
+
+// ui/switch inside a SettingsRow (the sm size of the This machine rows).
+component NetSwitch
+  props
+    switchId: string
+    checked: bool
+    disabled: bool
+    label: string
+    toggle: action
+  view
+    button id=switchId press=toggle role="switch" aria-checked=checked aria-label=label disabled=disabled testId=switchId width="1.875rem" height="1.125rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(checked ? "flex-end" : "flex-start") flex-shrink=0 opacity=(disabled ? 0.64 : 1) background-color=(checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)")
+      box width="0.875rem" height="0.875rem" border-radius="624.9375rem" background-color="light-dark(#fcfcfc, #0a0a0a)"
+
+// Button size xs (h-6 px-2 text-xs): outline, destructive-outline and default.
+component NetXs
+  props
+    label: string
+    tone: string
+    disabled: bool
+    test: string
+    press: action
+  view
+    button press=press disabled=disabled testId=test display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.25rem" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" flex-shrink=0 opacity=(disabled ? 0.64 : 1) border-color=(tone == "default" ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)") background-color=(tone == "default" ? "light-dark(#1b4ed8, #346bf1)" : tone == "ghost" ? "#00000000" : "light-dark(#ffffff, #ffffff07)") box-shadow=(tone == "ghost" or tone == "default" ? "none" : "0 1px 2px #0000000d")
+      when tone == "share"
+        NetQrGlyph(size=14, color="light-dark(#71717b, #818181)")
+      when tone == "create"
+        CnGlyph(name="plus", size=12, color="#ffffff")
+      text label font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color=(tone == "destructive" ? "light-dark(#e7000b, #ff6467)" : tone == "default" or tone == "create" ? "#ffffff" : "light-dark(#27272a, #f5f5f5)")
+
+// Lucide QrCodeIcon.
+component NetQrGlyph
+  props
+    size: number
+    color: string
+  view
+    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+      path d="M4 3h3a1 1 0 0 1 1 1v3a1 1 0 0 1 -1 1h-3a1 1 0 0 1 -1 -1v-3a1 1 0 0 1 1 -1ZM17 3h3a1 1 0 0 1 1 1v3a1 1 0 0 1 -1 1h-3a1 1 0 0 1 -1 -1v-3a1 1 0 0 1 1 -1ZM4 16h3a1 1 0 0 1 1 1v3a1 1 0 0 1 -1 1h-3a1 1 0 0 1 -1 -1v-3a1 1 0 0 1 1 -1ZM21 16h-3a2 2 0 0 0-2 2v3M21 21v.01M12 7v3a2 2 0 0 1-2 2H7M3 12h.01M12 3h.01M12 16v.01M16 12h1M21 12v.01M12 21v-1"
+
+// The rows under "This machine" (canManageLocalBackend && desktopBridge): Network access with
+// "Reachable at <url>" and its "+N"/"Hide" toggle, the endpoint rail when expanded, then
+// Tailscale HTTPS. The T3 Connect and WSL rows are not drawn (T3 Connect: issue X38; WSL: X41).
+component NetworkAccessRows
+  props
+    net: NetworkView
+    wide: bool
+    busy: bool
+    ask: action
+    op: action
+  state expanded = false
+  state tip = ""
+  action toggleList
+    expanded = not expanded
+  action hover(which: string, over: bool)
+    tip = over ? which : (tip == which ? "" : tip)
+  // The confirm takes the focus as the AlertDialog gives it to its first button.
+  action askNetwork
+    ask(`network:${net.networkOn ? "off" : "on"}:${net.networkSerial}`)
+    focus("network-access-cancel")
+  action askTailscale
+    ask(`tailscale:${net.tailscaleOn ? "disable" : "setup"}:${net.tailscaleSerial}`)
+    focus(net.tailscaleOn ? "tailscale-disable-cancel" : "tailscale-port")
+  view
+    column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)" id="network-access" testId="network-access-row"
+      row width="100%" gap="2rem" align-items="center" flex-wrap=(wide ? "nowrap" : "wrap")
+        column flex=1 min-width=0 gap="0.25rem"
+          text "Network access" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+          when net.summaryUrl != ""
+            row min-width=0 max-width="100%" gap="0.25rem" align-items="baseline"
+              text "Reachable at" font-size="0.75rem" line-height="1.125rem" flex-shrink=0 color="light-dark(#70707acc, #818181cc)"
+              when net.hidden > 0
+                button press=toggleList aria-expanded=expanded testId="network-access-endpoints-toggle" display="flex" flex-direction="row" align-items="baseline" gap="0.5rem" min-width=0 padding=0 border-width=0 border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#71717b99, #81818199)" background-color="#00000000"
+                  text net.summaryUrl font-size="0.75rem" line-height="1.125rem" min-width=0 line-clamp=1 color="light-dark(#70707acc, #818181cc)" testId="network-access-url"
+                  text (expanded ? "Hide" : `+${net.hidden}`) font-size="0.75rem" line-height="1rem" font-weight=500 flex-shrink=0 color="light-dark(#70707acc, #818181cc)"
+              else
+                text net.summaryUrl font-size="0.75rem" line-height="1.125rem" min-width=0 line-clamp=1 color="light-dark(#70707acc, #818181cc)" testId="network-access-url"
+          else
+            text net.fallback font-size="0.75rem" line-height="1.125rem" max-width="36rem" color="light-dark(#70707acc, #818181cc)" testId="network-access-description"
+          when net.error != ""
+            text net.error font-size="0.75rem" line-height="1rem" padding-top="0.125rem" color="light-dark(#e7000b, #ff6467)" role="alert" testId="network-access-error"
+        row flex-shrink=0 gap="0.5rem" align-items="center" justify-content="flex-end"
+          NetSwitch(switchId="network-access-switch", checked=net.networkOn, disabled=(busy or not net.switchReady), label="Enable network access", toggle=askNetwork)
+    when expanded and net.networkOn
+      each endpoint in net.endpoints key=endpoint.key
+        EndpointRailRow(endpoint=endpoint, busy=busy, op=op, ask=ask, serial=net.tailscaleSerial)
+    column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)" id="tailscale-https" testId="tailscale-https-row"
+      row width="100%" gap="2rem" align-items="center" flex-wrap=(wide ? "nowrap" : "wrap")
+        column flex=1 min-width=0 gap="0.25rem"
+          text "Tailscale HTTPS" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+          text net.tailscaleDescription font-size="0.75rem" line-height="1.125rem" max-width="36rem" color="light-dark(#70707acc, #818181cc)" testId="tailscale-https-description"
+        when net.tailscale
+          row flex-shrink=0 gap="0.5rem" align-items="center" justify-content="flex-end"
+            NetSwitch(switchId="tailscale-https-switch", checked=net.tailscaleOn, disabled=busy, label="Enable Tailscale HTTPS", toggle=askTailscale)
+
+// AdvertisedEndpointListRow presentation="endpoint-rail": label, URL (tooltip), "Setup required",
+// Default tag (and the primary rail), "Set as default", Tailscale's Setup/Disable.
+component EndpointRailRow
+  props
+    endpoint: NetEndpointRow
+    busy: bool
+    op: action
+    ask: action
+    serial: number
+  state tip = false
+  action hover(over: bool)
+    tip = over
+  view
+    column width="100%" position="relative" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)" background-color=(endpoint.available ? "#00000000" : "light-dark(#f4f4f526, #ffffff04)") testId=`network-endpoint-${endpoint.preferenceKey}`
+      when endpoint.isDefault
+        box position="absolute" left=0 top="0.5rem" bottom="0.5rem" width="0.25rem" border-top-right-radius="624.9375rem" border-bottom-right-radius="624.9375rem" background-color="light-dark(#1b4ed8, #346bf1)" aria-hidden=true
+      row width="100%" min-height="1.5rem" gap="0.5rem" align-items="center"
+        row min-width=0 gap="0.75rem" align-items="baseline" flex=1
+          text endpoint.label font-size="0.875rem" line-height="1.25rem" font-weight=500 flex-shrink=0 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+          when endpoint.showUrl
+            row hover=hover min-width=0 position="relative"
+              text endpoint.url font-size="0.75rem" line-height="1.25rem" min-width=0 line-clamp=1 color="light-dark(#71717b, #818181)"
+              when tip
+                CnTooltip(tip=endpoint.url, tipId=`network-endpoint-tip-${endpoint.preferenceKey}`, above=22)
+          when not endpoint.available
+            text "Setup required" font-size="0.625rem" line-height="0.875rem" flex-shrink=0 padding-left="0.25rem" padding-right="0.25rem" padding-top="0.125rem" padding-bottom="0.125rem" border-radius="0.375rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)" color="light-dark(#71717b, #818181)"
+        row flex-shrink=0 gap="0.5rem" align-items="center" justify-content="flex-end" margin-left="auto"
+          when endpoint.isDefault
+            text "Default" font-size="0.625rem" line-height="0.875rem" padding-left="0.25rem" padding-right="0.25rem" padding-top="0.125rem" padding-bottom="0.125rem" border-radius="0.375rem" border-style="solid" border-width=1 border-color="light-dark(#1b4ed84d, #346bf14d)" background-color="light-dark(#1b4ed81a, #346bf11a)" color="light-dark(#1b4ed8, #6b97ff)" testId=`network-endpoint-default-${endpoint.preferenceKey}`
+          when endpoint.needsSetup
+            NetXs(label=(busy ? "Restarting…" : "Setup"), tone="outline", disabled=busy, test=`network-endpoint-setup-${endpoint.preferenceKey}`, press=ask(`tailscale:setup:${serial}`))
+          when endpoint.canDisable
+            NetXs(label=(busy ? "Restarting…" : "Disable"), tone="destructive", disabled=busy, test=`network-endpoint-disable-${endpoint.preferenceKey}`, press=ask(`tailscale:disable:${serial}`))
+          when endpoint.canSetDefault
+            NetXs(label="Set as default", tone="outline", disabled=busy, test=`network-endpoint-set-default-${endpoint.preferenceKey}`, press=op("endpoint-default", "", endpoint.preferenceKey))
+
+// AccessScopeSummary: "N scopes", underlined, opening "Granted scopes" on hover after 250 ms or on focus.
+component NetScopes
+  props
+    count: string
+    label: string
+    scopes: list<NetText>
+    tipId: string
+  state open = false
+  action show(over: bool)
+    open = over
+  view
+    box position="relative" hover=show display="flex"
+      button focus=show(true) blur=show(false) aria-label=label testId=tipId padding=0 border-width=0 border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="#00000000" cursor="help"
+        text count font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+      when open
+        column position="absolute" left=0 bottom="1.25rem" z-index=60 max-width="20rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#ffffff, #171717)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" role="tooltip" animation="netLate 1ms linear 250ms both" testId=`${tipId}-popup`
+          text "Granted scopes" font-size="0.75rem" line-height="1rem" font-weight=500 margin-bottom="0.25rem" color="light-dark(#27272a, #f5f5f5)"
+          each scope in scopes key=scope.key
+            text scope.text font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#27272ad9, #f5f5f5d9)"
+
+// ConnectionStatusDot: an 8 pt dot (with a ping while live) and its tooltip.
+component NetDot
+  props
+    color: string
+    ping: bool
+    tip: string
+    tipId: string
+  state open = false
+  action show(over: bool)
+    open = over
+  view
+    box position="relative" hover=show width="0.75rem" height="0.75rem" flex-shrink=0 display="flex" align-items="center" justify-content="center" testId=tipId
+      when ping
+        box position="absolute" left=0 top=0 width="0.75rem" height="0.75rem" border-radius="624.9375rem" background-color="#00bc7d99" animation="netPing 2s cubic-bezier(0, 0, 0.2, 1) infinite"
+      box width="0.5rem" height="0.5rem" border-radius="624.9375rem" background-color=color
+      when open
+        CnTooltip(tip=tip, tipId=`${tipId}-tip`, above=16)
+
+// "Authorized clients" (FoldedSettingsSection, closed at first): the summary, "Revoke others" and
+// "Create link", then the pairing links and client sessions in a 22.5rem scroll area.
+component AuthorizedClients
+  props
+    net: NetworkView
+    busy: bool
+    ask: action
+    op: action
+  state open = false
+  state othersAt = -1
+  action toggle
+    open = not open
+  action revokeOthers
+    othersAt = net.settled
+    op("clients-revoke-others", "", "")
+  action create
+    ask(`pairing:create:${net.createSerial}`)
+    focus("pairing-label")
+  derive revokingOthers = busy and othersAt == net.settled
+  view
+    column width="100%" box-sizing="border-box" border-radius="0.875rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff0a)" background-color="light-dark(#ffffff66, #11111166)" testId="authorized-clients"
+      row width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" gap="1rem" align-items="center"
+        button press=toggle aria-expanded=open testId="authorized-clients-toggle" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" flex=1 min-width=0 min-height="2.75rem" box-sizing="border-box" padding-top="0.5rem" padding-bottom="0.5rem" padding-left=0 padding-right=0 border-width=0 background-color="#00000000"
+          box rotate=(open ? 90 : 0) display="flex"
+            CnGlyph(name="chevron-right", size=16, color="light-dark(#71717b, #818181)")
+          text "Authorized clients" font-size="0.875rem" line-height="1.25rem" font-weight=500 flex-shrink=0 color="light-dark(#27272a, #f5f5f5)"
+          when net.summary != ""
+            text net.summary font-size="0.75rem" line-height="1rem" min-width=0 line-clamp=1 color="light-dark(#71717b, #818181)" testId="authorized-clients-summary"
+        row flex-shrink=0 gap="0.5rem" align-items="center"
+          NetXs(label=(revokingOthers ? "Revoking…" : "Revoke others"), tone="destructive", disabled=(busy or net.othersDisabled), test="revoke-other-clients", press=revokeOthers)
+          button id="create-pairing-link" press=create disabled=busy testId="create-pairing-link" display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.25rem" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" opacity=(busy ? 0.64 : 1)
+            CnGlyph(name="plus", size=12, color="#ffffff")
+            text "Create link" font-size="0.75rem" line-height="1rem" font-weight=500 white-space="nowrap" color="#ffffff"
+      when open
+        scroll width="100%" max-height="22.5rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)" testId="authorized-clients-scroll-area"
+          column width="100%"
+            when net.accessError != ""
+              column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem"
+                text net.accessError font-size="0.75rem" line-height="1rem" color="light-dark(#e7000b, #ff6467)" role="alert" testId="authorized-clients-error"
+            each row in net.pairings key=row.id
+              PairingLinkRow(row=row, busy=busy, op=op, settled=net.settled)
+            each client in net.clients key=client.id
+              ClientSessionRow(row=client, busy=busy, op=op, settled=net.settled)
+            when net.empty
+              column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem"
+                text "No pairing links or client sessions." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b99, #81818199)" testId="authorized-clients-empty"
+
+// PairingLinkListRow: the warning dot ("Link created at …"), label, "Expires in …" (its absolute
+// time on hover), scopes, the note, then Share (the endpoint radiogroup, the URL, Copy link, Copy
+// code only and the 168 pt QR; never a QR for loopback), Copy code, and Revoke.
+component PairingLinkRow
+  props
+    row: NetPairingRow
+    busy: bool
+    op: action
+    settled: number
+  state shareOpen = false
+  state choice = ""
+  state revokingAt = -1
+  state tip = ""
+  action toggleShare
+    shareOpen = not shareOpen
+  action pick(id: string)
+    choice = id
+  action revoke
+    revokingAt = settled
+    op("pairing-revoke", row.id, "")
+  action hover(which: string, over: bool)
+    tip = over ? which : (tip == which ? "" : tip)
+  derive chosen = length(filter(row.options, option => option.id == choice)) > 0 ? choice : row.defaultOption
+  view
+    column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)" testId=`pairing-link-${row.id}`
+      row width="100%" gap="0.75rem" align-items="center"
+        column flex=1 min-width=0 gap="0.25rem"
+          row min-height="1.25rem" gap="0.375rem" align-items="center"
+            NetDot(color="#fe9a00", ping=false, tip=row.createdTip, tipId=`pairing-link-dot-${row.id}`)
+            text row.label font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3 testId=`pairing-link-label-${row.id}`
+          row gap="0.25rem" align-items="center" flex-wrap="wrap"
+            box position="relative" hover=hover("expires")
+              text row.expires font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId=`pairing-link-expires-${row.id}`
+              when tip == "expires"
+                CnTooltip(tip=row.expiresTip, tipId=`pairing-link-expires-tip-${row.id}`, above=18)
+            text " · " font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" aria-hidden=true
+            NetScopes(count=row.scopeCount, label=row.scopeLabel, scopes=row.scopes, tipId=`pairing-link-scopes-${row.id}`)
+          when row.note != ""
+            text row.note font-size="0.6875rem" line-height="1rem" color="light-dark(#71717bb3, #818181b3)" testId=`pairing-link-note-${row.id}`
+        row flex-shrink=0 gap="0.5rem" align-items="center" justify-content="flex-end"
+          when row.share
+            button id=`pairing-link-share-${row.id}` press=toggleShare aria-expanded=shareOpen aria-controls=`pairing-link-panel-${row.id}` testId=`pairing-link-share-${row.id}` display="flex" flex-direction="row" align-items="center" gap="0.25rem" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d"
+              NetQrGlyph(size=14, color="light-dark(#71717b, #818181)")
+              text "Share" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+          when row.copyCode
+            NetXs(label="Copy code", tone="outline", disabled=busy, test=`pairing-link-copy-code-${row.id}`, press=op("pairing-copy", row.id, "code"))
+          NetXs(label=(busy and revokingAt == settled ? "Revoking…" : "Revoke"), tone="destructive", disabled=(busy and revokingAt == settled), test=`pairing-link-revoke-${row.id}`, press=revoke)
+      when shareOpen and row.share
+        each option in row.options key=option.id
+          when option.id == chosen
+            row id=`pairing-link-panel-${row.id}` width="100%" margin-top="0.75rem" padding-top="0.75rem" gap="1rem" align-items="flex-start" justify-content="space-between" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e780, #ffffff0a)" testId=`pairing-link-panel-${row.id}`
+              column flex=1 min-width=0 gap="0.75rem"
+                when row.multiple
+                  column gap="0.375rem" role="radiogroup" aria-label="Endpoint the pairing QR code and URL use"
+                    text "Reach this machine via" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717bb3, #818181b3)"
+                    each choiceOption in row.options key=choiceOption.id
+                      button press=pick(choiceOption.id) role="radio" aria-checked=(choiceOption.id == chosen) testId=`pairing-link-endpoint-${row.id}-${choiceOption.label}` display="flex" flex-direction="row" align-items="baseline" gap="0.5rem" width="100%" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(choiceOption.id == chosen ? "light-dark(#27272a99, #f5f5f599)" : "light-dark(#e4e4e780, #ffffff0a)") background-color=(choiceOption.id == chosen ? "light-dark(#f4f4f54d, #ffffff08)" : "#00000000")
+                        text choiceOption.label font-size="0.75rem" line-height="1rem" font-weight=500 flex-shrink=0 color=(choiceOption.id == chosen ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+                        text choiceOption.detail font-size="0.6875rem" line-height="1rem" min-width=0 line-clamp=1 color="light-dark(#71717bb3, #818181b3)"
+                row gap="0.5rem" align-items="center" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.375rem" padding-bottom="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" background-color="light-dark(#f4f4f54d, #ffffff08)"
+                  box position="relative" hover=hover("url") flex=1 min-width=0
+                    text option.url font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" min-width=0 line-clamp=1 color="light-dark(#71717b, #818181)" testId=`pairing-link-url-${row.id}`
+                    when tip == "url"
+                      CnTooltip(tip=option.url, tipId=`pairing-link-url-tip-${row.id}`, above=18)
+                  NetXs(label="Copy link", tone="ghost", disabled=busy, test=`pairing-link-copy-${row.id}`, press=op("pairing-copy", row.id, option.id))
+                row
+                  NetXs(label="Copy code only", tone="ghost", disabled=busy, test=`pairing-link-copy-code-only-${row.id}`, press=op("pairing-copy", row.id, "code"))
+              when option.qr
+                box padding="0.75rem" border-radius="0.75rem" background-color="#ffffff" flex-shrink=0
+                  box width="10.5rem" height="10.5rem" position="relative" background-color="#ffffff" role="img" aria-label="Pairing link — scan to open on another device" testId=`pairing-link-qr-${row.id}`
+                    each cell in option.cells key=`${cell.x}:${cell.y}`
+                      box position="absolute" left=cell.x top=cell.y width=cell.w height=cell.h background-color="#000000"
+              else
+                column width="12rem" height="12rem" flex-shrink=0 padding="1rem" box-sizing="border-box" align-items="center" justify-content="center" border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e780, #ffffff0a)" testId=`pairing-link-no-qr-${row.id}`
+                  text "No QR for this endpoint. Another device scanning a loopback link would dial itself; copy the URL for use on this machine instead." font-size="0.6875rem" line-height="1rem" text-align="center" color="light-dark(#71717bb3, #818181b3)"
+
+// ConnectedClientListRow: the live dot (connected or this device; its tooltip names how long),
+// the label, "This device", device bits, scopes, and Revoke for every other client.
+component ClientSessionRow
+  props
+    row: NetClientRow
+    busy: bool
+    op: action
+    settled: number
+  state revokingAt = -1
+  action revoke
+    revokingAt = settled
+    op("client-revoke", row.id, "")
+  view
+    column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)" testId=`client-session-${row.id}`
+      row width="100%" gap="0.75rem" align-items="center"
+        column flex=1 min-width=0 gap="0.25rem"
+          row min-height="1.25rem" gap="0.375rem" align-items="center"
+            NetDot(color=(row.live ? "#00bc7d" : "light-dark(#71717b4d, #8181814d)"), ping=row.live, tip=row.statusTip, tipId=`client-session-dot-${row.id}`)
+            text row.label font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3 testId=`client-session-label-${row.id}`
+            when row.current
+              text "This device" font-size="0.625rem" line-height="0.875rem" padding-left="0.25rem" padding-right="0.25rem" padding-top="0.125rem" padding-bottom="0.125rem" border-radius="0.375rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e780, #ffffff0a)" background-color="light-dark(#f4f4f580, #ffffff0a)" color="light-dark(#71717bcc, #818181cc)" testId=`client-session-current-${row.id}`
+          row gap="0.25rem" align-items="center" flex-wrap="wrap"
+            when row.device != ""
+              text `${row.device} · ` font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+            NetScopes(count=row.scopeCount, label=row.scopeLabel, scopes=row.scopes, tipId=`client-session-scopes-${row.id}`)
+        when not row.current
+          row flex-shrink=0 gap="0.5rem" align-items="center" justify-content="flex-end"
+            NetXs(label=(busy and revokingAt == settled ? "Revoking…" : "Revoke"), tone="destructive", disabled=(busy and revokingAt == settled), test=`client-session-revoke-${row.id}`, press=revoke)

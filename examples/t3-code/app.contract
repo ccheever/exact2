@@ -441,7 +441,7 @@ component T3Code
   state acpQuery = ""
   state providerNow = 0
   action providerTick
-    if settingsOpen and settingsRoute == "providers"
+    if settingsOpen and (settingsRoute == "providers" or (settingsRoute == "connections" and connectionsPage.network.ticking))
       providerNow = now()
   task providerClock mount
     every(1000, providerTick)
@@ -451,7 +451,7 @@ component T3Code
   state routeTarget = "" // lane environment-routes: Add environment as "Add a route to <routeLabel>"
   state routeLabel = ""
   state connectionMenu = ""
-  resource connectionsPage = connectionsPage(settingsOpen and settingsRoute == "connections", data.revision, data.status, data.connected, data.connecting) as shape ConnectionsPage
+  resource connectionsPage = connectionsPage(settingsOpen and settingsRoute == "connections", data.revision, data.status, data.connected, data.connecting, wallTime.epochAtZero + max(elapsed, providerNow)) as shape ConnectionsPage
   resource acpAgents = acpRegistry(acpQuery, providerDialog == "add" and wizardStep == 0, data.revision) as shape AcpRegistry
   state settingsOpen = false
   state settingsRoute = "general"
