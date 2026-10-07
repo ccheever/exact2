@@ -4,7 +4,7 @@ plan: 20261005-t3code-macos-parity
 status: draft
 kind: framework-gap (unconfirmed)
 blocks: [20261005-local-primary-environment, 20261005-portable-app-download]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/117
 reproduced_on: null
 ---
 
@@ -77,5 +77,5 @@ Keep the connecting and reconnecting states for restarts after the window exists
 Update the oracle pairs so the first window needs no ready wait. `issue-close` checks the 1 s and 3 s window counts on the pinned `main`.
 
 ## Status and next action
-Draft; not reproduced on the pinned `main`; not searched upstream; not published.
-Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval; publication only after approval). The interim choice is decision U5, asked at `prepare` of `20261005-local-primary-environment`.
+Filed upstream as [#117](https://github.com/ccheever/exact2/issues/117) (open).
+2026-10-07: `20261005-local-primary-environment` ships the interim (U5, **provisional, user decision pending**): the first window opens at launch and shows the connecting state until the primary connects; with the Local environment off it matches the reference. The window-gate rows of that task stay blocked on #117.

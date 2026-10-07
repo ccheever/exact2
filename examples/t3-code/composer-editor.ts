@@ -22,6 +22,7 @@ import { WorkspaceDiscovery, workspaceValues } from './composer-workspace-snapsh
 import { parseTerminalContext, formatTerminalContextReference, saveTerminalContext, terminalMessageRecords, terminalDraftRecords } from './terminal-integrations';
 import { terminalOpen } from './terminal-drawer-view'; // terminal-layout: the real terminalOpen
 import { videoOp } from './r4-composer-attachments';
+import { folderDropTarget, primary } from './local-primary'; // the folder drop's target (folderDrop.ts)
 
 export type ComposerMenuRow = Omit<MenuRow, 'insert'>;
 export type ComposerMenu = { open: boolean; kind: string; listLabel: string; searchKey: string; loading: boolean; emptyText: string; count: number; rows: ComposerMenuRow[] };
@@ -187,10 +188,6 @@ export function localId(): string {
   return Array.from(bytes, (byte, index) => `${[4, 6, 8, 10].includes(index) ? '-' : ''}${byte.toString(16).padStart(2, '0')}`).join('');
 }
 
-/** folderDropTarget: Finder folders only reach a server on this Mac. */
-export function isLoopback(origin: string): boolean {
-  try { return ['127.0.0.1', 'localhost', '[::1]', '::1'].includes(new URL(origin).hostname); } catch { return false; }
-}
 
 /** The `composerEditor` resource: the menu for the trigger at the caret, the prompt-length line, and where the drawers go. */
 export async function composerEditorView(client: T3Client, native: Native | null | undefined, now = 0): Promise<ComposerEditorView> {
@@ -225,7 +222,7 @@ async function editorView(client: T3Client, native: Native | null | undefined, n
   const draft = client.draft;
   let state: Obj;
   try {
-    state = await editorCall(native, { op: 'editorSync', owner: client.draftKey, richText: prefs(client).composerRichTextEnabled !== false, localEnvironment: isLoopback(client.origin),
+    state = await editorCall(native, { op: 'editorSync', owner: client.draftKey, richText: prefs(client).composerRichTextEnabled !== false, localEnvironment: folderDropTarget({ localEnvironmentDisabled: primary.disabled, environmentId: client.environmentId, primaryEnvironmentId: primary.target?.environmentId || null }) === 'local', // local-primary.ts: Finder folders reach only the primary
       history: client.thread ? historyEntries(messages(client.thread)) : [], contexts: chipContexts(client, draft), foldLimit: client.ready ? foldLimit(client) : 0 });
   } catch { return { owner: client.snapshotOwner, menu: CLOSED, promptLimit, overLimit, usageLimits: entry.usageLimits, stash }; }
   for (const notice of arr(state.notices)) pushToast(client, { kind: str(notice.kind) === 'error' ? 'error' : 'info', title: str(notice.title), description: str(notice.description), hideCopy: true });

@@ -5,7 +5,9 @@
 // background transport in T3Fleet.swift, addressed by `fleet: <origin\nid>`.
 // This module keeps each one's connection facts, server config and shell
 // (projects and threads) so the sidebar, scope menus and Connections page can
-// cover them all.
+// cover them all. The primary environment (local-primary.ts, the embedded server)
+// is one of them whenever it is not the focus: it connects with `primary: true`
+// (its bearer is the embedded server's, in memory) and is never saved.
 import { obj, str, num, arr, initialShell, applyShell, type Obj, type Shell } from './domain';
 import { bridgeReply, applyConfig, type Native } from './protocol';
 import { announceJobs } from './settings-b-outdated';
@@ -15,6 +17,8 @@ import { learnRoutes } from './connection-routes-ops';
 import { liveFleetEvent, liveFleetPass } from './live-streams';
 import { applyTerminalMetadataStreamEvent, type TerminalSummary, type TerminalMetadataStreamEvent } from './terminal-session';
 import { letGo } from './let-go';
+import { dropPrimaryDuplicates, primary, primaryEntry, withoutPrimaryDuplicates } from './local-primary';
+import { handoffKeptThread, keepAliveFleetEvent, keepAliveFleetPass } from './keep-alive';
 
 export type FleetPhase = 'available' | 'connecting' | 'reconnecting' | 'connected' | 'error' | 'unsupported';
 export interface FleetEntry {
@@ -24,6 +28,8 @@ export interface FleetEntry {
   config: Obj; shell: Shell; scopes: string[]; error: string; requested: boolean; busy?: boolean;
   /** The route this environment's transport connected over (lane environment-routes). */
   activeRouteId?: string;
+  /** The primary environment (local-primary.ts): connected with the embedded server's bearer. */
+  primary?: boolean;
   terminalMetadata?: ReadonlyArray<TerminalSummary> | null;
   terminalAttempted?: boolean;
 }
@@ -36,11 +42,6 @@ export const trimOrigin = (origin: string) => origin.trim().replace(/\/+$/, '');
  * focused connection (whose origin is the route in use) is matched by id, never by this key.
  */
 export const environmentKey = (origin: string, environmentId: string) => `${trimOrigin(origin)}\n${environmentId}`;
-const LOOPBACK = /^(localhost|127(?:\.\d{1,3}){3}|\[::1\]|::1)$/i;
-/** A loopback origin is this machine: the reference's primary environment. */
-export function isLoopback(origin: string): boolean {
-  try { return LOOPBACK.test(new URL(origin).hostname); } catch { return false; }
-}
 
 /** The transport facts T3Transport reports, as the reference's connection phases. */
 export function phaseOf(status: Obj): { phase: FleetPhase; message: string; traceId: string } {
@@ -69,10 +70,11 @@ export class EnvironmentFleet {
     return { available: native.available, watch: topic => native.watch(topic), later: request => native.later({ ...obj(request), fleet: key }) };
   }
 
-  /** Saved environments this device keeps switched on, other than the focused one. */
+  /** Saved environments this device keeps switched on, and the primary once its server is ready, other than the focused one. */
   wanted(focused: FocusedHost): Obj[] {
+    const local = primary.connectable ? primaryEntry() : null;
     // The focus may be any of its environment's routes, so it is matched by id (lane environment-routes).
-    return this.saved.filter(entry => entry.enabled !== false && str(entry.environmentId)
+    return [...(local ? [local] : []), ...this.saved].filter(entry => entry.enabled !== false && str(entry.environmentId)
       && !(focused.environmentId && str(entry.environmentId) === focused.environmentId)
       && !(!focused.environmentId && focused.origin && trimOrigin(str(entry.origin)) === trimOrigin(focused.origin))).slice(0, 8);
   }
@@ -89,7 +91,10 @@ export class EnvironmentFleet {
     try {
       const listed = await bridgeReply(native, { op: 'environments' });
       if (epoch !== this.epoch || !listed.ok) return;
-      this.saved = arr(obj(listed.value).saved);
+      // Decision U6 (provisional): a saved entry with the primary's id is removed and its credential forgotten.
+      const all = arr(obj(listed.value).saved);
+      this.saved = withoutPrimaryDuplicates(all);
+      if (this.saved.length !== all.length) await dropPrimaryDuplicates(native, all).catch(() => []);
     } catch { return; }
     const wanted = new Map(this.wanted(focused).map(entry => [environmentKey(str(entry.origin), str(entry.environmentId)), entry]));
     for (const key of [...this.entries.keys()]) {
@@ -99,7 +104,7 @@ export class EnvironmentFleet {
     }
     for (const [key, saved] of wanted) {
       let entry = this.entries.get(key);
-      if (!entry) { entry = fresh(key, str(saved.origin), str(saved.environmentId)); this.entries.set(key, entry); this.revision++; }
+      if (!entry) { entry = fresh(key, str(saved.origin), str(saved.environmentId)); entry.primary = saved.primary === true; this.entries.set(key, entry); this.revision++; }
       await this.syncOne(native, entry, epoch).catch(error => { if (letGo(error)) throw error; entry!.error = error instanceof Error ? error.message : 'The environment failed.'; });
     }
     // Lane environment-routes: each connected environment's reported addresses become learned routes.
@@ -130,7 +135,7 @@ export class EnvironmentFleet {
       // Opening completes only when the socket opens; its progress arrives as
       // t3.fleet changes, so this answer never waits on the network.
       entry.requested = true; entry.phase = 'connecting'; this.revision++;
-      void native.later({ op: 'connect', fleet: entry.key, origin: entry.origin, credential: '' }).catch(() => {});
+      void native.later({ op: 'connect', fleet: entry.key, origin: entry.origin, ...(entry.primary ? { primary: true } : { credential: '' }) }).catch(() => {});
       return;
     }
     if (next.phase !== entry.phase || next.message !== entry.message || next.traceId !== entry.traceId || str(value.activeRouteId) !== (entry.activeRouteId ?? '')) {
@@ -144,6 +149,7 @@ export class EnvironmentFleet {
     await this.drain(remote, entry);
     await this.watchTerminals(remote, entry);
     await liveFleetPass(request => this.call(remote, entry, request), entry); // live-streams.ts: scheduled tasks and clones
+    await keepAliveFleetPass(request => this.call(remote, entry, request), entry); // keep-alive.ts: running threads' detail streams, the primary's lifecycle
   }
 
   private async call(remote: Native, entry: FleetEntry, request: Obj): Promise<Obj> {
@@ -183,6 +189,7 @@ export class EnvironmentFleet {
         if (seq <= entry.lastEvent) continue;
         through = Math.max(through, seq);
         if (liveFleetEvent(entry, event)) { this.revision++; continue; } // live-streams.ts
+        if (keepAliveFleetEvent(entry, event)) { this.revision++; continue; } // keep-alive.ts
         const key = str(event.key), item = obj(event.value);
         if (num(event.generation, -1) !== entry.generation || str(event.subscriptionId) !== entry.subscriptions[key]) continue;
         if (key === 'terminal-metadata') {
@@ -287,9 +294,10 @@ export async function focusFleetThread(client: { local: { selections: Record<str
   const thread = entry.shell.threads.find(candidate => str(candidate.id) === parsed.threadId);
   if (!thread) throw new Error('That thread is no longer available.');
   client.local.selections[parsed.environmentId] = { projectId: str(thread.projectId), threadId: parsed.threadId };
+  handoffKeptThread(client, entry, parsed.threadId); // keep-alive.ts: a running thread opens from its kept detail, no replay
   source.forget(entry.key);
   await native.later({ op: 'fleetStop', fleet: entry.key }).catch(() => {});
-  const reply = await bridgeReply(native, { op: 'connect', origin: entry.origin, credential: '' });
+  const reply = await bridgeReply(native, { op: 'connect', origin: entry.origin, ...(entry.primary ? { primary: true } : { credential: '' }) });
   if (!reply.ok) throw new Error(reply.error!.message);
   return { value: obj(reply.value), generation: reply.generation };
 }

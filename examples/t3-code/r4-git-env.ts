@@ -10,7 +10,8 @@
 import type { T3Client } from './client';
 import { obj, str, type Obj } from './domain';
 import { ClientError, bridgeReply, type Native } from './protocol';
-import { fleet, isLoopback, type EnvironmentFleet } from './settings-b-fleet';
+import { fleet, type EnvironmentFleet } from './settings-b-fleet';
+import { focusedOnPrimary, isPrimaryEnvironment } from './local-primary';
 import { machineKind } from './connections';
 import { environmentIndicator } from './shell-details';
 import { runOnMenuWidth, workspaceLabels } from './r5-composer-menus';
@@ -44,9 +45,9 @@ export function environmentOptions(client: T3Client, source: EnvironmentFleet = 
   const project = client.shell.projects.find(entry => entry.id === client.projectId);
   if (!project || !client.environmentId) return [];
   const key = logicalProjectKey(project, client.environmentId, groupingMode(client, project, client.environmentId));
-  const focused = environmentIndicator({ isPrimary: isLoopback(client.origin), available: 1, environmentId: client.environmentId,
+  const focused = environmentIndicator({ isPrimary: focusedOnPrimary(client), available: 1, environmentId: client.environmentId,
     runtimeLabel: str(obj(client.config.environment).label), savedLabel: '', machine: machineKind(client.config) });
-  const options: EnvironmentOption[] = [{ id: client.environmentId, label: focused.envLabel, machine: focused.envKind, primary: isLoopback(client.origin), projectId: client.projectId, selected: true }];
+  const options: EnvironmentOption[] = [{ id: client.environmentId, label: focused.envLabel, machine: focused.envKind, primary: focusedOnPrimary(client), projectId: client.projectId, selected: true }];
   // r12-threads (c47f4263f9): a No project draft offers every machine with a "No project" folder, created when picked.
   const scratch = !client.threadId && isScratch(project, scratchRootOf(client.connection === 'connected', client.config))
     ? new Map(scratchChoices(client, source.entries.values()).map(choice => [choice.environmentId, choice.projectId])) : null;
@@ -56,9 +57,9 @@ export function environmentOptions(client: T3Client, source: EnvironmentFleet = 
     const match = scratch ? (scratch.has(entry.environmentId) ? { id: scratch.get(entry.environmentId) } : undefined)
       : entry.shell.projects.find(candidate => logicalProjectKey(candidate, entry.environmentId, groupingMode(client, candidate, entry.environmentId)) === key);
     if (!match) continue;
-    const label = environmentIndicator({ isPrimary: isLoopback(entry.origin), available: 2, environmentId: entry.environmentId,
+    const label = environmentIndicator({ isPrimary: isPrimaryEnvironment(entry.environmentId), available: 2, environmentId: entry.environmentId,
       runtimeLabel: str(obj(entry.config.environment).label), savedLabel: '', machine: machineKind(entry.config) });
-    options.push({ id: entry.environmentId, label: label.envLabel, machine: label.envKind, primary: isLoopback(entry.origin), projectId: str(match.id), selected: false });
+    options.push({ id: entry.environmentId, label: label.envLabel, machine: label.envKind, primary: isPrimaryEnvironment(entry.environmentId), projectId: str(match.id), selected: false });
   }
   return options.sort((left, right) => left.primary !== right.primary ? (left.primary ? -1 : 1) : left.label.localeCompare(right.label));
 }

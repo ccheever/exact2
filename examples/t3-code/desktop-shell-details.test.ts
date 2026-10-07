@@ -2,6 +2,8 @@
 // import size guard (ThemeImportDialog.test.ts), ProjectFaviconPickerDialog.test.tsx's native
 // picker cases, and the full-screen title-row inset (1e2ecbd975).
 import { afterEach, describe, expect, test } from 'bun:test';
+import { primaryAt, resetPrimary } from './local-primary-fixture';
+afterEach(resetPrimary);
 import './client';
 import type { T3Client } from './client';
 import type { Native } from './protocol';
@@ -148,7 +150,8 @@ describe('ProjectFaviconPickerDialog', () => {
     await expect(pickProjectFavicon(c, native, 'cwd=%2Fp')).rejects.toThrow('toasted:');
     expect(toasts(c)).toEqual([]);
   });
-  test('offered only for the primary (loopback) environment', () => {
+  test('offered only for the primary environment (this Mac\'s embedded server)', () => {
+    primaryAt('http://127.0.0.1:16090', 'env');
     expect(faviconPickLabel('http://127.0.0.1:16090', [{ workspaceRoot: '/Users/me/project' }])).toBe('Open in Finder');
     expect(faviconPickLabel('https://box.example.com', [{ workspaceRoot: '/srv/project' }])).toBe('');
     expect(faviconPickLabel('http://127.0.0.1:16090', [])).toBe('');

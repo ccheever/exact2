@@ -2,6 +2,10 @@
 // environment, a failed pairing saves nothing, and a 1970 onboarding time from an
 // older build reads as unset; the branch picker checks a pull request out (PullRequestThreadDialog).
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { noPrimary, resetPrimary } from './local-primary-fixture';
+// These cases are the hosted rules (resolveHostedFirstRunDecision): no embedded server runs on this Mac.
+beforeEach(noPrimary);
+afterEach(resetPrimary);
 import { setRuntimeClock } from './sidebar-state';
 import { connectionsProjection, runConnectionOp, type ConnectionHost } from './connections';
 import { fleet } from './settings-b-fleet';

@@ -1,6 +1,10 @@
 // Lane "pages", round 3: the wizard after a failed pairing, CommandBlock's
 // Copy→Check, and the pull request viewer's not-found state (7bc161f869).
-import { expect, test } from 'bun:test';
+import { afterEach, beforeEach, expect, test } from 'bun:test';
+import { noPrimary, resetPrimary } from './local-primary-fixture';
+// These cases are the hosted rules (resolveHostedFirstRunDecision): no embedded server runs on this Mac.
+beforeEach(noPrimary);
+afterEach(resetPrimary);
 import { welcomeView, welcomeLocal } from './pages-welcome';
 import { pullRequestDetail, isPullRequestNotFound, unavailable, gitHubPullRequestBrowserUrl } from './pages-pr-detail';
 import { ClientError, type Native } from './protocol';
