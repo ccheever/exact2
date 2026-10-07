@@ -1,0 +1,292 @@
+0 > clock +25000 real
+   {"incarnation":1,"epoch":14,"inflight":1,"clock":25000,"real":25010}
+1 > clock settle
+   {"epoch":14,"incarnation":1,"clock":25000,"settled":true}
+2 > tree
+   (tree/logs dump:      498 lines)
+3 > tap toast-dismiss-2
+   {"at":[1241,91],"delivery":"platform","tapped":482,"target":"toast-dismiss-2","carrier":"macos","mode":"agent","epoch":14,"incarnation":1,"clock":25000}
+4 > clock +500
+   {"incarnation":1,"epoch":15,"inflight":1,"clock":25500,"diagnostic":"1 request still in flight on real time (a store's, a worker's, the network's): `clock +N` moved the clock without waiting for it; `clock settle` lands 
+5 > type composer Unrelated thread draft
+   {"value":"Unrelated thread draft","typed":153,"target":"composer","delivery":"platform","carrier":"macos","mode":"agent","epoch":17,"incarnation":1,"clock":25500}
+6 > clock +1500
+   {"clock":27000,"incarnation":1,"epoch":17,"inflight":1,"diagnostic":"1 request still in flight on real time (a store's, a worker's, the network's): `clock +N` moved the clock without waiting for it; `clock settle` lands 
+7 > screenshot after/01-thread-draft.png window
+   {"w":1280,"epoch":17,"h":840,"clock":27000,"window":true,"incarnation":1,"scale":2,"screenshot":"after/01-thread-draft.png"}
+8 > tap connection-settings
+   {"delivery":"platform","at":[24,820],"tapped":97,"target":"connection-settings","carrier":"macos","mode":"agent","epoch":19,"incarnation":1,"clock":27000}
+9 > clock settle
+   {"incarnation":1,"epoch":19,"clock":27000,"settled":true}
+10 > tap Appearance
+   {"tapped":633,"at":[128,152],"delivery":"platform","target":"Appearance","carrier":"macos","mode":"agent","epoch":20,"incarnation":1,"clock":27000}
+11 > clock settle
+   {"incarnation":1,"clock":27000,"epoch":20,"settled":true}
+12 > tap settings-content-scroll wheel 0 1400
+   {"tapped":690,"gesture":false,"delivery":"platform","at":[768.5,446],"wheel":[0,1400],"target":"settings-content-scroll","carrier":"macos","mode":"agent","epoch":20,"incarnation":1,"clock":27000}
+13 > clock +500
+   {"incarnation":1,"clock":27500,"inflight":1,"epoch":20,"diagnostic":"1 request still in flight on real time (a store's, a worker's, the network's): `clock +N` moved the clock without waiting for it; `clock settle` lands 
+14 > tree
+   (tree/logs dump:     1410 lines)
+15 > tap toast-dismiss-1
+   {"delivery":"platform","at":[1241,91],"tapped":562,"target":"toast-dismiss-1","carrier":"macos","mode":"agent","epoch":20,"incarnation":1,"clock":27500}
+16 > clock +300
+   {"epoch":21,"clock":27800,"incarnation":1}
+17 > screenshot after/10-preview-initial.png window
+   {"clock":27800,"w":1280,"window":true,"incarnation":1,"h":840,"epoch":21,"scale":2,"screenshot":"after/10-preview-initial.png"}
+18 > tree prompt-font-preview
+   TextInput#2442 [prompt-font-preview] hatch="t3-prompt-preview" value="Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings
+19 > tap prompt-font-preview
+   {"delivery":"platform","tapped":2442,"at":[768.5,251.92],"target":"prompt-font-preview","carrier":"macos","mode":"agent","epoch":21,"incarnation":1,"clock":27800}
+20 > type prompt-font-preview key Meta+ArrowDown
+   {"typed":2442,"key":"ArrowDown","value":"Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/componen
+21 > type prompt-font-preview key Space
+   {"value":"Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx)
+22 > type prompt-font-preview key A
+   {"typed":2442,"key":"a","value":"Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/setti
+23 > type prompt-font-preview key U
+   {"value":"Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx)
+24 > type prompt-font-preview key D
+   {"typed":2442,"key":"d","value":"Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/setti
+25 > type prompt-font-preview key I
+   {"value":"Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx)
+26 > type prompt-font-preview key T
+   {"typed":2442,"key":"t","value":"Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/setti
+27 > type prompt-font-preview key _
+   {"value":"Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx)
+28 > type prompt-font-preview key F
+   {"typed":2442,"key":"f","value":"Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/setti
+29 > type prompt-font-preview key O
+   {"value":"Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx)
+30 > type prompt-font-preview key N
+   {"typed":2442,"key":"n","value":"Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/setti
+31 > type prompt-font-preview key T
+   {"value":"Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx)
+32 > type prompt-font-preview key _
+   {"typed":2442,"key":"-","value":"Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/setti
+33 > type prompt-font-preview key P
+   {"value":"Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx)
+34 > type prompt-font-preview key R
+   {"typed":2442,"key":"r","value":"Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/setti
+35 > type prompt-font-preview key O
+   {"value":"Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx)
+36 > type prompt-font-preview key B
+   {"typed":2442,"key":"b","value":"Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/setti
+37 > type prompt-font-preview key E
+   {"value":"Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx)
+38 > clock +300
+   {"epoch":38,"clock":28100,"incarnation":1}
+39 > tree prompt-font-preview
+   TextInput#2442 [prompt-font-preview] hatch="t3-prompt-preview" value="Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings
+40 > screenshot after/11-typed.png window
+   {"scale":2,"window":true,"epoch":38,"clock":28100,"h":840,"screenshot":"after/11-typed.png","w":1280,"incarnation":1}
+41 > type prompt-font-preview key Meta+z
+   {"key":"Meta+z","typed":2442,"target":"prompt-font-preview","delivery":"platform","carrier":"macos","mode":"agent","epoch":38,"incarnation":1,"clock":28100}
+42 > tree prompt-font-preview
+   TextInput#2442 [prompt-font-preview] hatch="t3-prompt-preview" value="Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings
+43 > type prompt-font-preview key Meta+ArrowUp
+   {"key":"ArrowUp","value":"Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/Set
+44 > type prompt-font-preview key Shift+ArrowRight
+   {"value":"Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx)
+45 > type prompt-font-preview key Shift+ArrowRight
+   {"key":"ArrowRight","typed":2442,"value":"Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/compone
+46 > type prompt-font-preview key Shift+ArrowRight
+   {"value":"Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx)
+47 > type prompt-font-preview key T
+   {"key":"t","value":"T $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPan
+48 > type prompt-font-preview key r
+   {"value":"Tr $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx) 
+49 > type prompt-font-preview key y
+   {"key":"y","value":"Try $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsP
+50 > tree prompt-font-preview
+   TextInput#2442 [prompt-font-preview] hatch="t3-prompt-preview" value="Try $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings
+51 > type prompt-font-preview key ArrowRight
+   {"key":"ArrowRight","typed":2442,"value":"Try $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/compone
+52 > type prompt-font-preview key ArrowRight
+   {"value":"Try $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx)
+53 > type prompt-font-preview key ArrowRight
+   {"key":"ArrowRight","typed":2442,"value":"Try $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/compone
+54 > type prompt-font-preview key ArrowRight
+   {"value":"Try $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx)
+55 > type prompt-font-preview key ArrowRight
+   {"key":"ArrowRight","value":"Try $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/
+56 > type prompt-font-preview key Backspace
+   {"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx) 
+57 > tree prompt-font-preview
+   TextInput#2442 [prompt-font-preview] hatch="t3-prompt-preview" value="Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/
+58 > type prompt-font-preview key Meta+ArrowDown
+   {"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx) 
+59 > type prompt-font-preview key ArrowLeft
+   {"key":"ArrowLeft","typed":2442,"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/component
+60 > type prompt-font-preview key ArrowLeft
+   {"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx) 
+61 > type prompt-font-preview key ArrowLeft
+   {"key":"ArrowLeft","value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/Se
+62 > type prompt-font-preview key ArrowLeft
+   {"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx) 
+63 > type prompt-font-preview key ArrowLeft
+   {"key":"ArrowLeft","value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/Se
+64 > type prompt-font-preview key ArrowLeft
+   {"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx) 
+65 > type prompt-font-preview key ArrowLeft
+   {"key":"ArrowLeft","typed":2442,"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/component
+66 > type prompt-font-preview key ArrowLeft
+   {"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx) 
+67 > type prompt-font-preview key ArrowLeft
+   {"key":"ArrowLeft","value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/Se
+68 > type prompt-font-preview key ArrowLeft
+   {"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx) 
+69 > type prompt-font-preview key ArrowLeft
+   {"key":"ArrowLeft","value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/Se
+70 > type prompt-font-preview key ArrowLeft
+   {"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx) 
+71 > type prompt-font-preview key ArrowLeft
+   {"key":"ArrowLeft","typed":2442,"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/component
+72 > type prompt-font-preview key ArrowLeft
+   {"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx) 
+73 > type prompt-font-preview key ArrowLeft
+   {"key":"ArrowLeft","value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/Se
+74 > type prompt-font-preview key ArrowLeft
+   {"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx) 
+75 > type prompt-font-preview key ArrowLeft
+   {"key":"ArrowLeft","value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/Se
+76 > type prompt-font-preview key ArrowLeft
+   {"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx) 
+77 > type prompt-font-preview key ArrowLeft
+   {"key":"ArrowLeft","typed":2442,"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/component
+78 > type prompt-font-preview key ArrowLeft
+   {"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx) 
+79 > type prompt-font-preview key ArrowLeft
+   {"key":"ArrowLeft","value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/Se
+80 > type prompt-font-preview key ArrowLeft
+   {"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx) 
+81 > type prompt-font-preview key ArrowLeft
+   {"key":"ArrowLeft","value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/Se
+82 > type prompt-font-preview key ArrowLeft
+   {"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx) 
+83 > type prompt-font-preview key ArrowLeft
+   {"key":"ArrowLeft","typed":2442,"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/component
+84 > type prompt-font-preview key ArrowLeft
+   {"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx) 
+85 > type prompt-font-preview key ArrowLeft
+   {"key":"ArrowLeft","value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/Se
+86 > type prompt-font-preview key ArrowLeft
+   {"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx) 
+87 > type prompt-font-preview key ArrowLeft
+   {"key":"ArrowLeft","value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/Se
+88 > type prompt-font-preview key ArrowLeft
+   {"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx) 
+89 > type prompt-font-preview key ArrowLeft
+   {"key":"ArrowLeft","typed":2442,"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/component
+90 > type prompt-font-preview key ArrowLeft
+   {"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx) 
+91 > type prompt-font-preview key ArrowLeft
+   {"key":"ArrowLeft","value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/Se
+92 > type prompt-font-preview key ArrowLeft
+   {"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx) 
+93 > type prompt-font-preview key Backspace
+   {"key":"Backspace","value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with  before shipping. AUDIT_FONT_PROBE","typed":2442,"target
+94 > tree prompt-font-preview
+   TextInput#2442 [prompt-font-preview] hatch="t3-prompt-preview" value="Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with  before shipping. AUDIT_FONT_PROBE" label="Prompt font
+95 > clock +300
+   {"epoch":43,"incarnation":1,"clock":28400}
+96 > screenshot after/13-edits.png window
+   {"screenshot":"after/13-edits.png","scale":2,"epoch":43,"incarnation":1,"h":840,"window":true,"clock":28400,"w":1280}
+97 > type prompt-font-preview key Tab
+   {"key":"Tab","typed":2442,"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with  before shipping. AUDIT_FONT_PROBE","target":"pro
+98 > clock +300
+   {"epoch":43,"incarnation":1,"clock":28700}
+99 > tree
+   (tree/logs dump:     1392 lines)
+100 > screenshot after/14-tab-out.png window
+   {"window":true,"w":1280,"epoch":43,"h":840,"incarnation":1,"screenshot":"after/14-tab-out.png","clock":28700,"scale":2}
+101 > type setting-code-font-family key Shift+Tab
+   {"key":"Tab","value":"","typed":2451,"target":"setting-code-font-family","delivery":"platform","carrier":"macos","mode":"agent","epoch":43,"incarnation":1,"clock":28700}
+102 > tree
+   (tree/logs dump:     1392 lines)
+103 > type prompt-font-preview key Shift+Tab
+   {"key":"Tab","typed":2442,"value":"Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with  before shipping. AUDIT_FONT_PROBE","target":"pro
+104 > tree
+   (tree/logs dump:     1392 lines)
+105 > tap setting-interface-font-family
+   {"delivery":"platform","at":[935.5,181.92],"tapped":2366,"target":"setting-interface-font-family","carrier":"macos","mode":"agent","epoch":43,"incarnation":1,"clock":28700}
+106 > clock settle
+   {"incarnation":1,"epoch":43,"clock":28700,"settled":true}
+107 > tap "font-picker-interface-font-New York"
+   {"tapped":2389,"delivery":"platform","at":[991.5,318.92],"target":"font-picker-interface-font-New York","carrier":"macos","mode":"agent","epoch":44,"incarnation":1,"clock":28700}
+108 > clock settle
+   {"epoch":46,"settled":true,"clock":28700,"incarnation":1}
+109 > clock +500
+   {"clock":29200,"incarnation":1,"epoch":46}
+110 > screenshot after/15-family-new-york.png window
+   {"w":1280,"window":true,"epoch":46,"incarnation":1,"h":840,"screenshot":"after/15-family-new-york.png","scale":2,"clock":29200}
+111 > tree prompt-font-preview
+   TextInput#2442 [prompt-font-preview] hatch="t3-prompt-preview" value="Try $frontend-design t fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with  before shipping. AUDIT_FONT_PROBE" label="Prompt font
+112 > tap setting-typography-advanced
+   {"at":[1161.5,123.92],"tapped":2355,"delivery":"platform","target":"setting-typography-advanced","carrier":"macos","mode":"agent","epoch":47,"incarnation":1,"clock":29200}
+113 > clock settle
+   {"epoch":49,"clock":29200,"incarnation":1,"settled":true}
+114 > clock +300
+   {"epoch":49,"clock":29500,"incarnation":1}
+115 > screenshot after/16-advanced-fresh.png window
+   {"w":1280,"h":840,"window":true,"scale":2,"screenshot":"after/16-advanced-fresh.png","incarnation":1,"clock":29500,"epoch":49}
+116 > tree prompt-font-preview
+   TextInput#2699 [prompt-font-preview] hatch="t3-prompt-preview" value="Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings
+117 > tap prompt-font-preview
+   {"delivery":"platform","tapped":2699,"at":[768.5,318.92],"target":"prompt-font-preview","carrier":"macos","mode":"agent","epoch":49,"incarnation":1,"clock":29500}
+118 > type prompt-font-preview key Meta+ArrowDown
+   {"value":"Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx)
+119 > type prompt-font-preview key Space
+   {"typed":2699,"key":" ","value":"Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/setti
+120 > type prompt-font-preview key O
+   {"key":"o","typed":2699,"value":"Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/setti
+121 > type prompt-font-preview key K
+   {"value":"Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings/SettingsPanels.tsx)
+122 > tap setting-prompt-font-size
+   {"delivery":"platform","tapped":2653,"at":[1103.5,248.92],"target":"setting-prompt-font-size","carrier":"macos","mode":"agent","epoch":52,"incarnation":1,"clock":29500}
+123 > clock settle
+   {"settled":true,"clock":29500,"incarnation":1,"epoch":52}
+124 > tap setting-prompt-font-size-menu-18
+   {"delivery":"platform","tapped":2686,"at":[1103.5,449.92],"target":"setting-prompt-font-size-menu-18","carrier":"macos","mode":"agent","epoch":53,"incarnation":1,"clock":29500}
+125 > clock settle
+   {"incarnation":1,"clock":29500,"settled":true,"epoch":55}
+126 > clock +500
+   {"epoch":55,"clock":30000,"incarnation":1}
+127 > screenshot after/17-advanced-prompt-18.png window
+   {"screenshot":"after/17-advanced-prompt-18.png","incarnation":1,"epoch":55,"w":1280,"scale":2,"clock":30000,"window":true,"h":840
+128 > tree prompt-font-preview
+   TextInput#2699 [prompt-font-preview] hatch="t3-prompt-preview" value="Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings
+129 > tap setting-prompt-font-size
+   {"tapped":2653,"at":[1103.5,248.92],"delivery":"platform","target":"setting-prompt-font-size","carrier":"macos","mode":"agent","epoch":55,"incarnation":1,"clock":30000}
+130 > clock settle
+   {"incarnation":1,"clock":30000,"settled":true,"epoch":55}
+131 > tap setting-prompt-font-size-menu-14
+   {"tapped":2670,"at":[1103.5,337.92],"delivery":"platform","target":"setting-prompt-font-size-menu-14","carrier":"macos","mode":"agent","epoch":56,"incarnation":1,"clock":30000}
+132 > clock settle
+   {"clock":30000,"settled":true,"epoch":58,"incarnation":1}
+133 > tap setting-typography-advanced
+   {"delivery":"platform","tapped":2355,"at":[1161.5,123.92],"target":"setting-typography-advanced","carrier":"macos","mode":"agent","epoch":59,"incarnation":1,"clock":30000}
+134 > clock settle
+   {"settled":true,"incarnation":1,"clock":30000,"epoch":61}
+135 > tree prompt-font-preview
+   TextInput#2869 [prompt-font-preview] hatch="t3-prompt-preview" value="Use $frontend-design to fix the flaky test in [surface.test.ts](apps/web/src/terminal/ghostty/surface.test.ts) and align the header with [SettingsPanels.tsx](apps/web/src/components/settings
+136 > tap setting-interface-font-family
+   {"delivery":"platform","tapped":2366,"at":[935.5,181.92],"target":"setting-interface-font-family","carrier":"macos","mode":"agent","epoch":61,"incarnation":1,"clock":30000}
+137 > clock settle
+   {"settled":true,"clock":30000,"epoch":61,"incarnation":1}
+138 > tap font-picker-interface-font-default
+   {"delivery":"platform","tapped":2380,"at":[991.5,258.76],"target":"font-picker-interface-font-default","carrier":"macos","mode":"agent","epoch":62,"incarnation":1,"clock":30000}
+139 > clock settle
+   {"clock":30000,"settled":true,"epoch":64,"incarnation":1}
+140 > tap close-settings
+   {"tapped":674,"delivery":"platform","at":[128,820],"target":"close-settings","carrier":"macos","mode":"agent","epoch":65,"incarnation":1,"clock":30000}
+141 > clock settle
+   {"clock":30000,"settled":true,"incarnation":1,"epoch":65}
+142 > clock +1000
+   {"clock":31000,"incarnation":1,"epoch":65}
+143 > screenshot after/18-thread-draft-after.png window
+   {"epoch":65,"scale":2,"w":1280,"screenshot":"after/18-thread-draft-after.png","clock":31000,"window":true,"h":840,"incarnation":1
+144 > tree composer
+   TextInput#153 [composer] hatch="t3-composer" value="Unrelated thread draft" label="Message" (input, focus, blur)
+145 > tree
+   (tree/logs dump:      476 lines)
