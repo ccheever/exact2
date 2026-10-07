@@ -143,7 +143,7 @@ export function exercise(source: string): string {
       'en','de','ar','fa','he','zh','zh-Hant','pt','und','sr-Latn','pa-Arab','fil','yue','EN-latn-us-u-ca-gregory-hc-h12','en-u-fw-mon','en-US-u-fw-sat','en-u-fw-xyz',
       'de-u-rg-uszzzz','en-u-kn','en-u-kn-false','en-u-nu-arab-ca-islamic','de-DE-1996-fonipa','sl-rozaj-biske-1994','en-a-foo-b-bar-u-ca-gregory','en-US-x-foo','en-t-de',
       'en-u-attr-ca-gregory','en-u-ca-gregory-ca-buddhist','','not_a_tag','en-','i-klingon','x-private','en-US-US','en-1996-1996','en-u','root',
-      'ar-AE','en-AE','en-US-u-ca-iso8601','ar-EG-u-ca-iso8601','en-US-u-ca-iso8601-fw-sun'])
+      'ar-AE','en-AE','en-US-u-ca-iso8601','ar-EG-u-ca-iso8601','en-US-u-ca-iso8601-fw-sun','en-u-ca','en-u-kf','en-u-hc','en-u-co','en-u-nu','en-u-fw'])
       out['Locale '+tag]=locale(tag);
     for(const [tag,options] of [['en',{region:'GB',calendar:'gregory',hourCycle:'h23',firstDayOfWeek:'mon'}],['en',{numeric:true}],['en',{numeric:false}],['en',{firstDayOfWeek:0}],
       ['en',{firstDayOfWeek:7}],['en',{firstDayOfWeek:'monday'}],['en',{calendar:'Gregory'}],['en',{hourCycle:'h25'}],['en',{caseFirst:false}],['en-US',{language:'de'}],
@@ -152,6 +152,7 @@ export function exercise(source: string): string {
       out['Locale '+tag+' '+JSON.stringify(options)]=locale(tag,options);
     for(const tag of [undefined,null,5]) out['Locale '+String(tag)]=locale(tag);
     out['Locale en with null options']=locale('en',null as unknown as object);
+    out['Locale length']=[String((Intl as any).Locale.length)];
     out['Locale of a Locale']=locale(new (Intl as any).Locale('de-DE-u-ca-gregory'),{region:'AT'});
     return JSON.stringify(out);
   }

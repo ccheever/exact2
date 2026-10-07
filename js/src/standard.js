@@ -203,7 +203,8 @@
           var key = body[j++], value = [];
           if (!/^[a-z0-9][a-z]$/.test(key)) invalid();
           while (j < body.length && body[j].length > 2) value.push(body[j++]);
-          if (!(key in parts.keywords)) parts.keywords[key] = value.join('-');
+          // A key with no type reads as `true`, as Chrome's getters answer; `kf` alone stays empty.
+          if (!(key in parts.keywords)) parts.keywords[key] = value.length || key === 'kf' ? value.join('-') : 'true';
         }
       }
       return parts;
@@ -223,10 +224,11 @@
       var value = options[name];
       if (value === undefined) return undefined;
       value = name === 'numeric' ? String(!!value) : String(value);
-      if (values && values.indexOf(value) < 0) throw new RangeError('Value ' + value + ' out of range for Intl.Locale options property ' + name);
+      if (values && values.indexOf(value) < 0) throw new RangeError('Value ' + value + ' out of range for locale options property ' + name);
       return value;
     }
-    function Locale(tag, options) {
+    function Locale(tag) {
+      var options = arguments[1];
       if (!new.target) throw new TypeError("Constructor Intl.Locale requires 'new'");
       if (typeof tag !== 'string' && (tag === null || typeof tag !== 'object')) throw new TypeError("First argument to Intl.Locale constructor can't be empty or missing");
       var text = slots.has(tag) ? slots.get(tag).tag : String(tag);
