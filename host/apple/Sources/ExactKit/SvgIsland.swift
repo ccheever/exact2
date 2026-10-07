@@ -35,11 +35,11 @@ final class SvgRasterModule {
 
     private static let path: String = {
         #if os(macOS)
-        let directory = Bundle.main.executableURL!.deletingLastPathComponent().path
+        let standard = Bundle.main.executableURL!.deletingLastPathComponent().path + "/libexact_svg.dylib"
         #else
-        let directory = Bundle.main.privateFrameworksPath ?? Bundle.main.bundlePath
+        let standard = embeddedModule(framework: "ExactSvg", dylib: "libexact_svg.dylib")
         #endif
-        return ProcessInfo.processInfo.environment["EXACT_SVG_DYLIB"] ?? directory + "/libexact_svg.dylib"
+        return ProcessInfo.processInfo.environment["EXACT_SVG_DYLIB"] ?? standard
     }()
 
     /// Main thread only: whether `prewarm` ran, and whether its load is done.

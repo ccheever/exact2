@@ -369,7 +369,7 @@ final class NativeViews {
         #if os(macOS)
         let standard = Bundle.main.executableURL!.deletingLastPathComponent().appendingPathComponent("libexact_modules.dylib").path
         #else
-        let standard = (Bundle.main.privateFrameworksPath ?? Bundle.main.bundlePath) + "/libexact_modules.dylib"
+        let standard = embeddedModule(framework: "ExactModules", dylib: "libexact_modules.dylib")
         #endif
         let trust = ((GpuModule.bakedCompatibility["inputs"] as? [String: Any])?["trust"] as? String) ?? "development"
         guard trust != "production", let override = ExactEnv.environment["EXACT_MODULES"], !override.isEmpty else { return standard }

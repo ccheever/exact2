@@ -381,7 +381,7 @@ export const macReleaseEntitlements = (compat) => {
 
 /** A loose `Frameworks/lib….dylib` as `Frameworks/<name>.framework/<name>`,
  * which is the only form App Store Connect accepts for an embedded library
- * (ITMS-90171). The presenter loads either (`embeddedModule` in ExactKit). */
+ * (ITMS-90171, ITMS-90432). The presenter loads either (`embeddedModule` in ExactKit). */
 function wrapFramework(frameworks, loose, name, app, platform = 'iPhoneOS') {
   const from = resolve(frameworks, loose);
   if (!existsSync(from)) return;
@@ -1370,7 +1370,7 @@ async function main(args) {
       entitlements: readFileSync(ent, 'utf8'), gpu: hasGpu ? dylib : null, development: host ? null : development });
     writeFileSync(resolve(assembled, 'receipt.json'), ipa ? shippedReceipt(whole) : whole);
     if (ipa) { mkdirSync(dirname(ipa), { recursive: true }); writeFileSync(`${ipa.replace(/\.ipa$/, '')}.receipt.json`, whole); }
-    if (ipa) for (const [loose, name] of [[webLoadName, 'ExactWeb'], [videoLoadName, 'ExactVideo'], [soundLoadName, 'ExactSound']]) wrapFramework(resolve(assembled, 'Frameworks'), loose, name, app, tv ? 'AppleTVOS' : 'iPhoneOS');
+    if (ipa) for (const [loose, name] of [[webLoadName, 'ExactWeb'], [videoLoadName, 'ExactVideo'], [soundLoadName, 'ExactSound'], [modulesLoadName, 'ExactModules'], [svgLoadName, 'ExactSvg'], [canvasGpuLoadName, 'ExactCanvasGpu']]) wrapFramework(resolve(assembled, 'Frameworks'), loose, name, app, tv ? 'AppleTVOS' : 'iPhoneOS');
     for (const f of readdirSync(resolve(assembled, 'Frameworks')).filter(f => f !== loadName && !moduleDylibs.some(m => m.load === f))) run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', resolve(assembled, 'Frameworks', f)], { stdio: 'ignore' });
     run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', ...(device ? ['--entitlements', ent] : []), assembled], { stdio: 'ignore' });
   }
