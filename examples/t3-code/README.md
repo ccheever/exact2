@@ -323,7 +323,7 @@ session after 250 ms doubling to 30 s.
 
 ```sh
 bun test examples/t3-code
-bun node_modules/typescript/bin/tsc --noEmit --strict --target ES2020 --module ESNext --moduleResolution bundler --skipLibCheck --lib ES2020,DOM examples/t3-code/app.ts
+bun node_modules/typescript/bin/tsc --noEmit --strict --target ES2023 --module ESNext --moduleResolution bundler --skipLibCheck --lib ES2023,DOM examples/t3-code/app.ts
 cargo run -q -p contract -- build examples/t3-code/app.contract -o /tmp/t3-code.plan
 EXACT_APP_DIR="$PWD/examples/t3-code" cargo test -p t3-code-macos --lib   # with the Hermes env of the root setup
 ```

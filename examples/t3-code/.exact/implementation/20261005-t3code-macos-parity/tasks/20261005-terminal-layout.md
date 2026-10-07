@@ -1,13 +1,13 @@
 ---
 name: 20261005-terminal-layout
 plan: 20261005-t3code-macos-parity
-implementation: in-progress
+implementation: implemented
 verification: unverified
 delivery: open
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
-branch: feat(example)/t3-code-terminal-drawer
-pr_url: https://github.com/ccheever/exact2/pull/175
+branch: feat(example)/t3-code-terminal-layout
+pr_url: https://github.com/ccheever/exact2/pull/187
 verified_commit: null
 ---
 
@@ -152,14 +152,45 @@ Required environment: lane backend at the pin, oracle build, Xcode 27.0, Bun 1.4
 
 ## Progress
 
-Implemented on PR #175 with the expanded terminal work. The actual native app exercises terminal groups, horizontal/vertical splits, the four-pane limit, independent right-panel terminals, terminal-owned shortcuts and busy-process labels. Reused native session callbacks and queued resizes are fenced by session identity. This does not close every acceptance permutation.
+Most of this task landed with PR #175 (terminal-drawer). PR `feat(example)/t3-code-terminal-layout` maps every row against
+the branch at `1a50d0df3` and builds what was missing or differed from the reference.
+
+Coverage map (done-by-#175 names the file or test; "here" is this PR):
+
+| Row | State | Where |
+| --- | --- | --- |
+| S1 tab list at 2+, active group/terminal, limit 4 + tooltip, lowest free `term-N` | done-by-#175 | `terminal-layout.ts` `terminalLayout`/`terminalSplitLabel`; `terminal-ui-state.test.ts` "caps splits at four…", "creates new terminals in a separate group"; `terminal-labels.test.ts` `nextTerminalId` |
+| S1 group headers, tab rows, toolbar | partly → fixed here | #175 had no group icon or active state, a 30 pt toolbar holding the floating toolbar, 26 pt rows, centered labels and no shortcut in the close label; split panes had an extra "Focus Terminal N" header the reference lacks. Now `terminalTabs`/`terminalGroupLabel` and `terminal.contract` follow `ThreadTerminalDrawer.tsx:1588-1710` |
+| S1 action labels name shortcuts (`Split Terminal Horizontally (⌘D)`, active `Close Terminal 2 (⌘W)`) | missing → fixed here | labels resolved in the default context, where `terminalFocus` bindings never win; now `terminalShortcut` (`ChatView.tsx` terminalShortcutLabelOptions) |
+| S2 "+" row with project hint, panel mode, splits to 4, New = new surface, focus owner `right-panel`, tab title and icon, relaunch | done-by-#175 | `shell.ts` surfaces row; `terminal-panel.test.ts` "panel splits stop at four…", "restoration keeps split order…", "panel dedicated focus operations…"; `r4-surfaces-panel.ts` `tabOf` |
+| S2 tab list in a panel surface with 2+ panes | missing → fixed here | `terminalPanelView` builds one group (RightPanelTerminalSurface) |
+| S2 close: single asks once naming every terminal; bulk asks nothing and deletes history; last pane removes surface and closes panel | done-by-#175 | `terminal-panel.test.ts` "single surface close queues all names once…", "single close guards the entire surface once…"; `removePanelTerminal`; reference tests ported here |
+| S2 middle-click asks | done-by-#175 / right-panel-tab-menu (native monitor → single close) | live: unverified (attended) |
+| S3 bindings and `terminalFocus`/`terminalOpen` in `keyboard-dispatch.ts`, `keybinding-settings.ts` | done-by-#175 | `keyboardDispatch`, `app.ts` `keyboardSettings` call |
+| S3 fixed `terminalOpen:false` in `composer-presentation.ts`, `composer-editor-intent.ts` | missing → fixed here | ChatComposer passes the real `terminalOpen` |
+| S3 page key policy, ⌥/⌘ arrows, ⌘⌫, ⌘K/⌃L | done-by-#175 | `terminal-host/src/entry.ts` `terminalInputShortcutData`; evidence B08 |
+| S3 jump hints hidden with terminal focus | done-by-#175 | `sidebar.test.ts` "Command-hold jump hints disappear…" |
+| S3 held ⌘W and ⌘W during the close dialog | done-by-#175 | `T3TerminalView.swift` `routeTerminalKey`, page `beforeKey`; evidence B07. The guard is now the reference's named functions here |
+| S4 sidebar and palette indicator, pulse, reduced motion | done-by-#175 | `sidebar-view.ts` `terminalProcessCount`, `sidebar-row.contract`, `palette.contract`; `sidebar.test.ts`; evidence B10 |
+| N ported tests: `terminalCloseShortcut` (3) | here | `terminal-host/src/entry.test.ts` |
+| N ported: keybindings terminal describes | here (macOS cases; non-keydown n/a, the page sees keydown only) | `terminal-keys.test.ts`, `entry.test.ts` |
+| N ported: rightPanelStore `:910,:957,:971` (+ split-pane test) | here | `terminal-panel.test.ts` `describe('rightPanelStore')` over `openTerminalSurface`/`splitTerminalSurface`/`activateTerminalPane`/`removePanelTerminal` |
+| N `terminal-layout.ts` tests | here | `terminal-layout.test.ts` |
+| N `terminalStatusFromRunningIds` | not ported | the label is a Contract literal; behavior covered by #175's `sidebar.test.ts` terminal-process tests |
+| N close guard and cleanup through the seam | done-by-#175 | `installTerminalPanelCleanup` → `registerSurfaceClose` |
+| A trace diff, oracle pairs | not run | oracle waived (ADDENDUM 9) |
+| A Escape on the close dialog, Korean 2-Set, held ⌘W physical | done-by-#175 partly | B07 (Cmd+W repeat, Cancel); Korean and Escape: unverified (attended) |
+
+terminal-integrations rows #175 covered (out of scope here): selection actions and Add to chat (C01-C05), selection menu (C02, C08),
+links (C06 routing; C07 Browser blocked by #100), scripts (D01, D02), Run in terminal on shell fences (D03), Open terminal / setup (D04).
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| Expanded native verification, 2026-10-07 | Source fingerprints in linked evidence | Groups/splits/panel/keys/busy indicators driven; native and real-server regressions pass | [Matrix](https://github.com/ccheever/exact2/blob/t3-code-evidence/evidence/terminal-drawer/20261007-expanded-parity/MATRIX.md) | Fine-grained remaining subcases remain explicit |
+| Expanded native verification, 2026-10-07 (#175) | Source fingerprints in linked evidence | Groups/splits/panel/keys/busy indicators driven; native and real-server regressions pass | [Matrix](https://github.com/ccheever/exact2/blob/t3-code-evidence/evidence/terminal-drawer/20261007-expanded-parity/MATRIX.md) | Fine-grained remaining subcases remain explicit |
+| terminal-layout, 2026-10-07 | drive on `eb2c1f9e0` (pre-rebase); rebased on `0a7ca50ad` | `bun test examples/t3-code` 2219 pass / 0 fail (2187 at `1a50d0df3`); strict tsc (ES2023) clean; `contract build` 2538 slots, 45 resources; `cargo test -p t3-code-macos --lib` 11 pass; no Swift touched; macOS bundle build pass; five checks pass (cargo build, cargo test 3310 pass / 0 fail, clippy, fmt, caps, boot) | Live drive (macOS 1280×840, reference server 1e2ecbd975 on 127.0.0.1:16400, isolated HOME): pair, onboarding, panel "+" › Terminal, split, split vertical; then drawer toggle, split, split vertical, New. `tree`: panel `[terminal-tabs]` with `[terminal-group-term-1] "Stacked, 3 terminals"` and rows term-1..3; drawer `[terminal-group-term-4] "Stacked, 3 terminals"`, `[terminal-group-term-7] "Single, 1 terminals"`; no "Focus Terminal N" pane headers (base had them). Before/after pairs on the PR | Left-aligned labels, shortcut labels and the close-button tooltip landed after the drive; checked by tests, `contract build` and the bundle build only |
 
 ## Next action
 
-Review the combined implementation and recorded runtime evidence on PR #175. Keep verification open for the remaining matrix subcases; the original Browser route remains a separate full-parity blocker.
+Review the PR. Verification stays open for the attended rows (middle-click, Escape on the close dialog, Korean 2-Set, held ⌘W).

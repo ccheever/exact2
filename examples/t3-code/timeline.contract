@@ -370,7 +370,13 @@ component TimelineContent
                           row width="100%" align-items="center" gap=12 padding-top=4 padding-bottom=4 role="separator" aria-label=message.title
                             box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff0b)"
                             each keyed in message.activities key=keyed.id
-                              LiveActivity(label=keyed.label, icon="minimize", failed=false, active=message.live, shimmer=true, iconLight="", iconDark="")
+                              when message.live
+                                LiveActivity(label=keyed.label, icon="minimize", failed=false, active=true, shimmer=true, iconLight="", iconDark="")
+                              else
+                                // ContextCompactionRow: text-xs with a size-3 Minimize2 icon, gap-1.5.
+                                row gap=6 align-items="center" flex-shrink=0
+                                  TimelineIcon(name="minimize", size=12, color="light-dark(#71717b, #818181)")
+                                  text keyed.label font-size=12 line-height="16px" white-space="nowrap" color="light-dark(#71717b, #818181)"
                             box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff0b)"
                         else
                           when message.kind == "event"

@@ -21,7 +21,7 @@ import type { OpOut } from './client-ops';
 import type { DispatchAdd } from './keyboard-dispatch';
 import { arr, obj, str, type Obj } from './domain';
 import { activeRun, ClientError, type Files, type Native } from './protocol';
-import { terminalLayout, terminalSplitLabel, type TerminalPaneView, type TerminalTabView } from './terminal-layout';
+import { terminalLayout, terminalSplitLabel, terminalTabs, type TerminalPaneView, type TerminalTabView } from './terminal-layout';
 import { focusedTerminal, recordTerminalFocus, clearTerminalFocus, terminalFocused } from './terminal-focus';
 import { chordWinners } from './keyboard-dispatch';
 import { terminalPanelIds, terminalPanelRetained } from './terminal-panel';
@@ -46,6 +46,7 @@ import { getTerminalLabel, nextTerminalId, resolveTerminalSessionLabel } from '.
 import { applyTerminalMetadataStreamEvent, type TerminalMetadataStreamEvent, type TerminalSummary } from './terminal-session';
 import { selectKnownTerminalSessions } from './terminal-sessions';
 import { parseScopedThreadKey, scopedThreadKey, selectThreadTerminalUiState, terminalUiStore, type ScopedThreadRef } from './terminal-ui-state';
+import { letGo } from './let-go';
 
 export const TERMINAL_METADATA_KEY = 'terminal-metadata';
 const METADATA_RETRY_MS = 3000;
@@ -106,6 +107,11 @@ export async function ensureTerminalRef(client: T3Client, native: Native): Promi
 export function revealTerminal(client: T3Client, ref: ScopedThreadRef, terminalId: string): void {
   terminalUiStore(client).getState().ensureTerminal(ref, terminalId, { open: true, active: true });
   drawerState(client).focusRequest++;
+}
+
+/** ChatView terminalShortcutLabelOptions: terminal action labels resolve with terminalFocus and the drawer's open state. */
+export function terminalShortcut(client: T3Client, command: string): string {
+  return commandShortcut(client.config, command, { terminalFocus: true, terminalOpen: terminalOpen(client) });
 }
 
 /** The active thread's drawer is open. */
@@ -194,7 +200,7 @@ async function watchMetadata(client: T3Client, native: Native, now: number): Pro
     const id = str(reply.id), serial = subscriptionSerial(id);
     state.maxSeen = Math.max(state.maxSeen, serial);
     if (serial > state.floor && (!state.id || serial > subscriptionSerial(state.id))) state.id = id;
-  } catch (error) { state.error = error instanceof Error ? error.message : 'Terminal metadata is unavailable.'; }
+  } catch (error) { if (!letGo(error)) state.error = error instanceof Error ? error.message : 'Terminal metadata is unavailable.'; }
 }
 
 /** One `terminal-metadata` inbox entry (client.ts drain): the newest stream since the latest subscribe. */
@@ -257,17 +263,13 @@ export async function terminalDrawerView(client: T3Client, native: Native | null
   const summary = ref && terminalId ? knownSessions(client, ref).find(session => session.target.terminalId === terminalId)?.state.summary : null;
   const label = terminalId ? resolveTerminalSessionLabel(terminalId, summary) : '';
   const [closeTitle, closeBody] = terminalCloseConfirmMessage([label || getTerminalLabel(terminalId)]);
-  const keyNew = commandShortcut(client.config, 'terminal.new'), keyClose = commandShortcut(client.config, 'terminal.close'), keyToggle = commandShortcut(client.config, 'terminal.toggle');
+  const keyNew = terminalShortcut(client, 'terminal.new'), keyClose = terminalShortcut(client, 'terminal.close'), keyToggle = commandShortcut(client.config, 'terminal.toggle');
   const layout = terminalLayout(ui.terminalIds, ui.terminalGroups, terminalId, ui.activeTerminalGroupId);
   const threadKey = ref ? scopedThreadKey(ref) : '';
   const labelFor = (id: string) => resolveTerminalSessionLabel(id, ref ? knownSessions(client, ref).find(session => session.target.terminalId === id)?.state.summary : null);
   const panes = layout.visible.map(id => ({ terminalId: id, label: labelFor(id), sessionKey: ref ? sessionKey(ref, id) : '', active: id === terminalId,
     focusRequest: ui.terminalOpen && id === terminalId ? drawer.focusRequest : 0, target: `${threadKey}|${id}` }));
-  const tabs = ui.terminalGroups.flatMap(group => group.terminalIds.map((id, index) => {
-    const label = labelFor(id), [closeTitle, closeBody] = terminalCloseConfirmMessage([label]);
-    return { id, label, heading: layout.showHeaders && index === 0 ? group.terminalIds.length === 1 ? 'Single' : group.splitDirection === 'vertical' ? 'Stacked' : 'Side by side' : '',
-      count: group.terminalIds.length, active: id === terminalId, target: `${threadKey}|${id}`, closeTitle, closeBody };
-  }));
+  const tabs = terminalTabs(ui.terminalGroups, terminalId, layout.showHeaders, threadKey, labelFor, ui.terminalOpen ? keyClose : '');
   return {
     available: terminalAvailable(client), open: !!launch && ui.terminalOpen, threadKey: ref ? scopedThreadKey(ref) : '', environmentId: ref?.environmentId ?? '', threadId: ref?.threadId ?? '',
     terminalId, label, cwd: launch?.cwd ?? '', worktree: launch?.worktreePath ?? '', env: JSON.stringify(launch?.env ?? {}),
@@ -280,14 +282,15 @@ export async function terminalDrawerView(client: T3Client, native: Native | null
     failure: drawer.failure,
     commandPrefix: 'terminallocal', surface: 'drawer', keybindings: terminalKeybindings(client), panes, tabs,
     direction: layout.direction, showTabs: layout.showTabs, splitDisabled: layout.splitDisabled,
-    splitLabel: terminalSplitLabel(false, layout.splitDisabled, commandShortcut(client.config, 'terminal.split')),
-    splitVerticalLabel: terminalSplitLabel(true, layout.splitDisabled, commandShortcut(client.config, 'terminal.splitVertical')),
+    splitLabel: terminalSplitLabel(false, layout.splitDisabled, terminalShortcut(client, 'terminal.split')),
+    splitVerticalLabel: terminalSplitLabel(true, layout.splitDisabled, terminalShortcut(client, 'terminal.splitVertical')),
   };
 }
 
 // ── Commands (client.command `terminallocal:*`) ──────────────────────────────────────────────────
 
 function failed(client: T3Client, label: string, error: unknown): void {
+  if (letGo(error)) throw error; // let-go.ts: not a failure
   drawerState(client).failure = `${label}: ${error instanceof Error ? error.message : String(error)}`;
 }
 
@@ -329,7 +332,7 @@ export async function runTerminalCommand(client: T3Client, native: Native, stora
   store.getState().ensureTerminal(ref, terminalId, { open: true });
   drawerState(client).focusRequest++;
   try { await client.request(native, 'terminal.write', { threadId: ref.threadId, terminalId, data: `${command}\r` }); }
-  catch (error) { throw new ClientError(error instanceof Error ? error.message : scriptName ? `Failed to run script "${scriptName}".` : 'Failed to run command.'); }
+  catch (error) { if (letGo(error)) throw error; throw new ClientError(error instanceof Error ? error.message : scriptName ? `Failed to run script "${scriptName}".` : 'Failed to run command.'); }
 }
 
 export async function handleTerminalMessage(client: T3Client, native: Native, message: Obj): Promise<boolean> {

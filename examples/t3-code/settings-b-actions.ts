@@ -9,6 +9,7 @@ import { shortcutInput, validShortcut } from './keybinding-settings';
 import { shortcutLabel } from './keybinding-view';
 import { pushToast } from './toast';
 import type { T3Client } from './client';
+import { letGo } from './let-go';
 
 export const SCRIPT_ICONS: [string, string][] = [['play', 'Play'], ['test', 'Test'], ['lint', 'Lint'], ['configure', 'Configure'], ['build', 'Build'], ['debug', 'Debug']];
 const ICON_IDS = SCRIPT_ICONS.map(([id]) => id);
@@ -209,6 +210,7 @@ export async function runActionOp(client: T3Client, native: Native, op: string, 
       }
     }
   } catch (error) {
+    if (letGo(error)) throw error;
     pushToast(client, { kind: 'error', title: 'Failed to save project actions', description: error instanceof Error ? error.message : 'An error occurred.' });
     throw error;
   }

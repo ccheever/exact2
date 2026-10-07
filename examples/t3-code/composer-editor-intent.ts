@@ -68,14 +68,14 @@ export function gestureChord(modifiers: string, key = 'Enter'): string {
  * while a turn runs is the alternate (the send button follows the held key).
  * A stale or missing gesture is a plain send.
  */
-export function sendIntent(config: Obj, gesture: Obj, running: boolean, draft: boolean): SendIntent {
+export function sendIntent(config: Obj, gesture: Obj, running: boolean, draft: boolean, terminalOpen = false): SendIntent {
   const modifiers = str(gesture.modifiers), age = Number(gesture.ageMs);
   if (!Number.isFinite(age) || age < 0 || age > 2000) return 'foreground';
   if (gesture.source !== 'key') {
     const meta = /\b(meta|control)\b/.test(modifiers), alt = /\balt\b/.test(modifiers), shift = /\bshift\b/.test(modifiers);
     return meta && !alt && !shift && running ? 'alternate' : 'foreground';
   }
-  const command = chordCommand(config, gestureChord(modifiers), { draftThreadRoute: draft, turnRunning: running });
+  const command = chordCommand(config, gestureChord(modifiers), { draftThreadRoute: draft, turnRunning: running, terminalOpen });
   if (command === 'composer.sendAlternate' && running) return 'alternate';
   if (command === 'composer.sendBackground' && draft) return 'background';
   if (command === 'composer.sendAndNewThread' && !draft) return 'background';
@@ -88,8 +88,8 @@ export function sendIntent(config: Obj, gesture: Obj, running: boolean, draft: b
  * here — the alternate while running, start-in-background in a draft, and
  * send-and-new-thread on an existing thread.
  */
-export function sendChords(config: Obj, running: boolean, draft: boolean): string {
-  const context = { draftThreadRoute: draft, turnRunning: running };
+export function sendChords(config: Obj, running: boolean, draft: boolean, terminalOpen = false): string {
+  const context = { draftThreadRoute: draft, turnRunning: running, terminalOpen };
   return [...new Set(['Meta+Enter',
     ...(running ? chordsFor(config, 'composer.sendAlternate', context) : []),
     ...(draft ? chordsFor(config, 'composer.sendBackground', context) : chordsFor(config, 'composer.sendAndNewThread', context))])].join(' ');

@@ -17,6 +17,7 @@ import type { Files, Native } from './protocol';
 import { pushToast } from './toast';
 import { shellRuntime } from './sidebar-model';
 import { isScratch, scratchRootOf } from './r12-threads-scratch';
+import { letGo } from './let-go';
 
 function normalizeWorktreePath(path: unknown): string | null {
   const trimmed = typeof path === 'string' ? path.trim() : '';
@@ -115,6 +116,7 @@ export async function removeOrphanedWorktree(client: T3Client, native: Native, s
     removed = true;
     await access.request('vcs.refreshStatus', { cwd: plan.cwd });
   } catch (error) {
+    if (letGo(error)) throw error;
     const message = error instanceof Error && error.message ? error.message : 'An error occurred.';
     pushToast(client, { kind: 'error', stacked: true, title: removed ? 'Worktree deleted, but Git status refresh failed' : 'Failed to delete worktree',
       description: removed ? message : `Could not remove ${plan.display}. ${message}` });

@@ -18,6 +18,7 @@ import { dismissServerUpdateFailure, dismissVersionMismatch } from './version-sk
 import { nativeUpdateDeps, updateEnvironment, updateTargetFromConfig } from './server-update';
 import { canDisconnectEnvironment, confirms, dismissals, focusedKey, serverUpdateLabel, updateState, versionNotice } from './server-update-notices';
 import { settleHeldBatch } from './auto-balance-banner'; // auto-balance
+import { letGo } from './let-go';
 
 /** The banner's and card's ops (client-ops.ts READ_OPS: they run offline and need no write scope). */
 export async function serverUpdateOps(this: T3Client, op: string, id: string, value: string, n: number, native: Native, storage: Files, out: OpOut): Promise<boolean> {
@@ -40,7 +41,7 @@ export async function serverUpdateOps(this: T3Client, op: string, id: string, va
     dismissVersionMismatch(versionNotice(this).key, dismissals(this));
   } else if (op === 'su:reconnect') {
     try { await connectionOps.call(this, 'reconnect', '', '', 0, native, storage, out); }
-    catch (error) { pushToast(this, { kind: 'error', title: 'Could not reconnect environment', description: error instanceof Error ? error.message : 'Failed to reconnect.', stacked: true }); }
+    catch (error) { if (letGo(error)) throw error; pushToast(this, { kind: 'error', title: 'Could not reconnect environment', description: error instanceof Error ? error.message : 'Failed to reconnect.', stacked: true }); }
   } else if (op === 'su:disconnect') {
     const environmentId = this.environmentId;
     if (!environmentId || !canDisconnectEnvironment(this.origin)) return true;

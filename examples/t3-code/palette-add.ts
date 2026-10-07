@@ -5,6 +5,7 @@ import type { T3Client } from './client';
 import { arr, obj, str, type Obj } from './domain';
 import type { Native } from './protocol';
 import { closedView, filterGroups, flatten, row, type Group, type Item, type PaletteView } from './palette';
+import { letGo } from './let-go';
 
 export const SOURCES = ['github', 'gitlab', 'forgejo', 'bitbucket', 'azure-devops'] as const;
 export const SOURCE_LABELS: Record<string, string> = { url: 'Git URL', github: 'GitHub', gitlab: 'GitLab', forgejo: 'Forgejo / Gitea', bitbucket: 'Bitbucket', 'azure-devops': 'Azure DevOps' };
@@ -81,7 +82,7 @@ export function initialBrowseQuery(client: T3Client): string {
 
 // ── Flow state (per client): the clone step's repository and the New project option ──
 export type CloneFlow = { source: string; repositoryInput: string; title: string; description: string; remoteUrl: string; pinned: string };
-type Flow = { clone: CloneFlow | null; publish: boolean; discovery: { key: string; value: Obj } | null; browse: { key: string; value: Obj; error: string } | null };
+type Flow = { clone: CloneFlow | null; publish: boolean; discovery: { key: string; value: Obj } | null; discoveryFailed?: { key: string; revision: number }; browse: { key: string; value: Obj; error: string } | null };
 const flows = new WeakMap<T3Client, Flow>();
 export function flowOf(client: T3Client): Flow {
   let flow = flows.get(client);
@@ -113,8 +114,12 @@ export function githubAccount(discovery: Obj | null): string | null {
 async function discover(client: T3Client, native: Native): Promise<Obj | null> {
   const flow = flowOf(client), key = `${client.origin}:${client.generation}`;
   if (flow.discovery?.key === key) return flow.discovery.value;
+  // A failed discovery (often an answer let go mid-request) is not kept: the reference's query
+  // asks again, so one lost request must not mark every provider "Setup Required" for the session.
+  // Bounded: after a failure the next ask waits for the client's state to move (its revision), not every palette read.
+  if (flow.discoveryFailed?.key === key && flow.discoveryFailed.revision === client.revision) return {};
   try { flow.discovery = { key, value: await client.restAccess(native).request('server.discoverSourceControl', {}) }; }
-  catch { flow.discovery = { key, value: {} }; }
+  catch { flow.discoveryFailed = { key, revision: client.revision }; return {}; }
   return flow.discovery.value;
 }
 
@@ -139,7 +144,7 @@ async function browseGroups(client: T3Client, native: Native, query: string, lab
   const flow = flowOf(client), key = `${client.generation}:${directory}:${cwd}`;
   if (flow.browse?.key !== key) {
     try { flow.browse = { key, value: await client.restAccess(native).request('filesystem.browse', { partialPath: directory, ...(cwd ? { cwd } : {}) }), error: '' }; }
-    catch (failure) { flow.browse = { key, value: {}, error: failure instanceof Error ? failure.message : 'Could not read that folder.' }; }
+    catch (failure) { if (letGo(failure)) throw failure; flow.browse = { key, value: {}, error: failure instanceof Error ? failure.message : 'Could not read that folder.' }; }
   }
   const entries = arr(flow.browse.value.entries), lower = leaf.toLowerCase(), hidden = leaf.startsWith('.');
   const visible = entries.filter(entry => str(entry.name).toLowerCase().startsWith(lower) && (hidden || !str(entry.name).startsWith('.')));

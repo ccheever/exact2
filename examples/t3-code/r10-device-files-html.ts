@@ -12,6 +12,7 @@ import type { T3Client } from './client';
 import { obj, str } from './domain';
 import type { Native } from './protocol';
 import { assetUrl } from './settings-b-icons';
+import { letGo } from './let-go';
 
 /** isBrowserPreviewFile without PDFs (FilePreviewPanel's `isHtml`). */
 export const isHtmlPath = (path: string) => /\.html?$/i.test(path.split(/[?#]/, 1)[0] ?? '');
@@ -52,7 +53,8 @@ export async function htmlPage(client: T3Client, native: Native | null | undefin
       const result = obj(await client.rpc(native, 'assets.createUrl', { resource: htmlResource(client.threadId, cwd, absolutePath, relativePath) }));
       const url = assetUrl(client.origin, str(result.relativeUrl));
       entry = { key, url, at: now, error: url ? '' : 'Unable to load file preview.' };
-    } catch {
+    } catch (error) {
+      if (letGo(error)) throw error;
       entry = { key, url: '', at: now, error: 'Unable to load file preview.' };
     }
     map.set(key, entry);

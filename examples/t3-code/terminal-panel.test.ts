@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { removePanelTerminal } from './terminal-panel';
+import { activateTerminalPane, openTerminalSurface, removePanelTerminal, splitTerminalSurface } from './terminal-panel';
 import { savedPanel, adoptRightPanels } from './r10-device-panels';
 import { closePanelSurfaces, registerSurfaceClose } from './right-panel-tabs';
 import type { PanelState, Surface } from './r4-surfaces-panel';
@@ -32,7 +32,8 @@ describe('right-panel terminals', () => {
 });
 
 import { T3Client } from './client';
-import { addTerminalSurface, terminalPanelLocal, terminalPanelOps, terminalPanelIds, terminalPanelRetained } from './terminal-panel';
+import { addTerminalSurface, terminalPanelLocal, terminalPanelOps, terminalPanelIds, terminalPanelRetained, terminalPanelView } from './terminal-panel';
+import { emptyTerminalDrawerView } from './terminal-drawer-view';
 import { focusedTerminal } from './terminal-focus';
 import { panelState, surfaceLocal, surfaceStore } from './r4-surfaces-panel';
 import { terminalUiStore } from './terminal-ui-state';
@@ -119,4 +120,49 @@ test('panel dedicated focus operations preserve surface identity', async () => {
   expect(focusedTerminal(client)?.surface).toBe('terminal:term-1');
   await terminalPanelLocal(client, native, 'focus-out', 'env:thread|term-1', 'terminal:term-1');
   expect(focusedTerminal(client)).toBeNull();
+});
+
+// T3 Code 1e2ecbd975 rightPanelStore.test.ts:910-982 over the clone's PanelState (isOpen → visible,
+// activeSurfaceId → active, resourceId and the optional splitDirection → the `terminal` record).
+describe('rightPanelStore', () => {
+  const empty = (): PanelState => ({ surfaces: [], active: '', visible: false, userRevision: 0 });
+  test('tracks one surface per terminal session', () => {
+    const state = empty();
+    openTerminalSurface(state, 'term-1'); openTerminalSurface(state, 'term-2');
+    expect(state.surfaces.map(entry => [entry.id, entry.kind, entry.terminal])).toEqual([
+      ['terminal:term-1', 'terminal', { terminalIds: ['term-1'], activeTerminalId: 'term-1', splitDirection: 'horizontal' }],
+      ['terminal:term-2', 'terminal', { terminalIds: ['term-2'], activeTerminalId: 'term-2', splitDirection: 'horizontal' }]]);
+    expect(state.active).toBe('terminal:term-2');
+  });
+  test('tracks split panes and the active pane within a terminal surface', () => {
+    const state = empty();
+    openTerminalSurface(state, 'term-1'); splitTerminalSurface(state, 'terminal:term-1', 'term-2');
+    expect(state.surfaces[0]?.terminal).toEqual({ terminalIds: ['term-1', 'term-2'], activeTerminalId: 'term-2', splitDirection: 'horizontal' });
+    activateTerminalPane(state, 'terminal:term-1', 'term-1'); removePanelTerminal(state, state.surfaces[0]!, 'term-1');
+    expect(state.surfaces[0]?.terminal).toEqual({ terminalIds: ['term-2'], activeTerminalId: 'term-2', splitDirection: 'horizontal' });
+  });
+  test('tracks vertical layout for a terminal surface', () => {
+    const state = empty();
+    openTerminalSurface(state, 'term-1'); splitTerminalSurface(state, 'terminal:term-1', 'term-2', 'vertical');
+    expect(state.surfaces[0]?.terminal).toEqual({ terminalIds: ['term-1', 'term-2'], activeTerminalId: 'term-2', splitDirection: 'vertical' });
+    expect(state.active).toBe('terminal:term-1');
+  });
+  test('closing the final terminal pane removes its surface and closes the panel', () => {
+    const state = empty();
+    removePanelTerminal(state, openTerminalSurface(state, 'term-1'), 'term-1');
+    expect(state).toMatchObject({ visible: false, active: '', surfaces: [] });
+  });
+});
+
+test('panel split view shows the tab list and labels its actions with terminal-focus shortcuts', async () => {
+  const { client, native } = clientFixture();
+  const focus = { type: 'identifier', name: 'terminalFocus' };
+  client.config.keybindings = [{ command: 'terminal.split', shortcut: { key: 'd', modKey: true }, whenAst: focus },
+    { command: 'terminal.close', shortcut: { key: 'w', modKey: true }, whenAst: focus }];
+  await addTerminalSurface(client, native);
+  await terminalPanelLocal(client, native, 'split-vertical', 'env:thread|term-1', '');
+  const surface = panelState(client).surfaces[0]!, view = terminalPanelView(client, emptyTerminalDrawerView(), surface);
+  expect(view).toMatchObject({ showTabs: true, direction: 'column', splitLabel: 'Split Terminal Horizontally (⌘D)' });
+  expect(view.tabs.map(tab => [tab.id, tab.heading, tab.count, tab.closeLabel])).toEqual([
+    ['term-1', 'Stacked', 2, 'Close Terminal 1'], ['term-2', '', 2, 'Close Terminal 2 (⌘W)']]);
 });

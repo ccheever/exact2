@@ -14,7 +14,7 @@ import { sidebarSnapshot } from './sidebar-view';
 import { subagentLead } from './sidebar-lineage';
 import { requestPresentation } from './requests';
 import { threadErrorView } from './timeline-errors';
-import { diffSnapshot } from './diff';
+import { diffNotGit, diffSnapshot, NOT_GIT_REPO } from './diff';
 import { composerSnapshot } from './composer-presentation';
 import { triggerModelName } from './r3-composer-controls-model';
 import { pickerCatalog } from './model-catalog';
@@ -156,7 +156,7 @@ export function snapshot(client: T3Client, now = 0) {
     modelOptions: arr(option?.options).map(choice => ({ id: str(choice.id), value: str(choice.id), label: str(choice.label), selected: choice.id === selectedOption, default: choice.isDefault === true })),
     runtimeMode: client.runtimeMode, modeLabel: modes[client.runtimeMode] || client.runtimeMode, interactionMode: client.interactionMode,
     hasMore: client.thread?.hasMore === true, historyLoading: client.historyLoading,
-    diffOpen: client.diffOpen, diffLoading: client.diffLoading, diffError: client.diffError,
+    diffOpen: client.diffOpen, diffLoading: client.diffLoading, diffError: diffNotGit(client) || client.diffError === NOT_GIT_REPO ? '' : client.diffError,
     ...diffSnapshot(client, now),
     projects: client.shell.projects.map(project => ({ id: str(project.id), name: str(project.title), path: str(project.workspaceRoot), selected: project.id === client.projectId })),
     ...sidebarSnapshot(client, now, { projectIdentity, providerBadge }),
