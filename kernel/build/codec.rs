@@ -150,6 +150,11 @@ fn parse_codec(s: &str) -> Codec {
             variant: "RotateAxis",
             error: "BadRotateAxis",
         },
+        "backdrop-filter" => Codec::CssValue {
+            path: "crate::style::BackdropFilter",
+            variant: "BackdropFilter",
+            error: "BadBackdropFilter",
+        },
         "box-shadow" => Codec::CssValue {
             path: "crate::style::BoxShadows",
             variant: "BoxShadow",

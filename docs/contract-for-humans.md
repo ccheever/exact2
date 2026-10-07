@@ -902,6 +902,15 @@ computed value that is refused at run time is dropped and journaled on the web
 as on a Mac (`invalid background-image value …; unset`), never painted by the
 browser alone.
 
+`backdrop-filter` accepts `none`, one `blur()` and/or one `saturate()` in the
+order written. For example, `backdrop-filter="blur(12px) saturate(1.14)"`
+blurs the backdrop, then increases its saturation. `saturate(0)` is grayscale;
+`saturate(180%)` is the same as `saturate(1.8)`. A function may appear only once.
+Web, macOS and Linux apply these functions; iOS/tvOS use the fixed `.light`
+system material approximation. macOS samples only the parent layer's subtree
+and clips children to the filter's border box. `backgroundMaterial` wins when
+both are present, and backdrop filters do not animate.
+
 Bound scroll containers. A typical full-height column gives its scroller
 `flex=1 min-height=0`; an isolated scroller can use a numeric height. A scrolling
 area as tall as all its children is not a usable scrollport. The bake checks

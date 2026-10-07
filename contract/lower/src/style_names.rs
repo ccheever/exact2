@@ -123,7 +123,7 @@ pub const STYLE_NAMES: &[(&str, &str, AttrTarget)] = &[
     ("box-shadow", "css CSS Backgrounds 3", AttrTarget::Styles(&[StyleId::BoxShadow])),
     // @ref LLP 1053.000 D1 — `none` or one `blur(<length>)`; the rest of
     // CSS's filter functions are refused by name.
-    ("backdrop-filter", "css CSS Filter Effects 2", AttrTarget::Styles(&[StyleId::BackdropBlur])),
+    ("backdrop-filter", "css CSS Filter Effects 2", AttrTarget::Styles(&[StyleId::BackdropFilter])),
     ("letter-spacing", "css CSS Text 3", AttrTarget::Styles(&[StyleId::LetterSpacing])),
     // The reader diary: book typography's first-line indent and CSS's
     // hyphenation (`manual` honours soft hyphens; `auto` adds the

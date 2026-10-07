@@ -28,10 +28,9 @@ pub trait Backend {
     fn fill(&mut self, shape: &Shape, color: [u8; 4], ts: Transform);
     /// Fill a shape with a gradient placed in its coordinates (LLP 1066).
     fn fill_gradient(&mut self, shape: &Shape, gradient: &gradient::GradientPaint, ts: Transform);
-    /// CSS `backdrop-filter: blur(σ)` (LLP 1053.000 D2): what is painted
-    /// under `shape` so far, blurred (σ in points, mirrored edges) and put
-    /// back inside it, under the current clip.
-    fn backdrop_blur(&mut self, _shape: &Shape, _sigma: f32, _ts: Transform) {}
+    /// CSS `backdrop-filter` (LLP 1053.000 D2): apply the ordered functions
+    /// to what is painted under `shape`, then replace it under the current clip.
+    fn backdrop_filter(&mut self, _shape: &Shape, _filter: &BackdropFilter, _ts: Transform) {}
     /// One outer `box-shadow` by the backend's own blur: `shape` blurred by
     /// `sigma` in `color`, painted only outside `outer` (the border box).
     /// Whether it drew it; else the painter draws it as bands.

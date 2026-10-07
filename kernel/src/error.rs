@@ -51,6 +51,8 @@ pub enum DecodeError {
     BadBackgroundImage,
     /// Invalid or unsupported CSS `box-shadow` (LLP 1077 D4).
     BadBoxShadow,
+    /// Invalid or unsupported CSS `backdrop-filter` (LLP 1053.000 D1).
+    BadBackdropFilter,
     /// Invalid CSS `rotate` axis (LLP 1077 D8).
     BadRotateAxis,
     /// Invalid `-exact-symbol-palette` (LLP 1077 D10).
