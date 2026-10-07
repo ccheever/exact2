@@ -1,0 +1,40 @@
+== macos/tests/app-control (README module-test recipe); T3AppControl.swift does not exist on the base, so the binary cannot build there
+Test Suite 'T3 app control' started at 2026-10-08 04:27:59.061.
+Test Case '-[T3appcontrolTests.AppControlServerTests test_answersATooLargeRequestWithInvalidRequest]' passed.
+Test Case '-[T3appcontrolTests.AppControlServerTests test_answersInvalidLinesWithInvalidRequest]' passed.
+Test Case '-[T3appcontrolTests.AppControlServerTests test_bindsAgainOnItsOwnWithinASecondWhenTheFileVanishes]' passed.
+Test Case '-[T3appcontrolTests.AppControlServerTests test_bindsItsAddressAgainAfterTheSocketFileIsRemoved]' passed.
+Test Case '-[T3appcontrolTests.AppControlServerTests test_cancelsAQueuedRequestWhenTheClientDisconnects]' passed.
+Test Case '-[T3appcontrolTests.AppControlServerTests test_dropsAClientThatSendsNoLineInTime]' passed.
+Test Case '-[T3appcontrolTests.AppControlServerTests test_keepsANewerAppsSocketWhenAnOlderAppOnTheSameStateDirQuits]' passed.
+Test Case '-[T3appcontrolTests.AppControlServerTests test_ownsAPrivateDirectoryAndAPrivateSocket]' passed.
+Test Case '-[T3appcontrolTests.AppControlServerTests test_roundtripsARequestAndRemovesItsSocketOnShutdown]' passed.
+Test Case '-[T3appcontrolTests.ActivationBrokerTests test_aDuplicateIdIsInvalidAndShutdownAnswersEveryRequest]' passed.
+Test Case '-[T3appcontrolTests.ActivationBrokerTests test_failsAnInFlightRequestWhenTheRendererGoesAway]' passed.
+Test Case '-[T3appcontrolTests.ActivationBrokerTests test_focusesImmediatelyAndWaitsForRendererReadiness]' passed.
+Test Case '-[T3appcontrolTests.ActivationBrokerTests test_neverSendsACanceledRequestThatWasQueuedBehindAnotherRequest]' passed.
+Test Case '-[T3appcontrolTests.ActivationBrokerTests test_queuesRequestsAfterUnsubscribeUntilANewRendererRegisters]' passed.
+Test Case '-[T3appcontrolTests.ActivationBrokerTests test_removesAQueuedRequestWhenItsCliConnectionCloses]' passed.
+Test Case '-[T3appcontrolTests.ActivationBrokerTests test_timesOutARequestWithoutPolling]' passed.
+Test Case '-[T3appcontrolTests.AppControlAddressTests test_keepsUnixSocketPathsShortAndSeparatesDesktopStateDirectories]' passed.
+Test Case '-[T3appcontrolTests.AppControlAddressTests test_theMacOSVectorsTheBunTestShares]' passed.
+Test Case '-[T3appcontrolTests.AppControlProtocolTests test_requestShape]' passed.
+Test Case '-[T3appcontrolTests.AppControlProtocolTests test_responseShapeAndTheTimeoutSeam]' passed.
+Test Case '-[T3appcontrolTests.AppControlLifecycleTests test_aClosedWindowFailsItsHandedRequestAndANotReadyOneQueues]' passed.
+Test Case '-[T3appcontrolTests.AppControlLifecycleTests test_aRefusedBuildHasNoSocketAndABindFailureIsLoggedWhileTheAppGoesOn]' passed.
+Test Case '-[T3appcontrolTests.AppControlLifecycleTests test_aReloadedWindowFailsWhatTheOldPageWasHanded]' passed.
+Test Case '-[T3appcontrolTests.AppControlLifecycleTests test_handsARequestToTheReadyWindowAndAnswersTheCommandLine]' passed.
+Test Case '-[T3appcontrolTests.AppControlLifecycleTests test_listensWhileTheEmbeddedServerIsWantedAndClosesWithTheLastWindow]' passed.
+Test Suite 'T3 app control' passed at 2026-10-08 04:27:59.466.
+T3 app control: "binds its address again after the socket file is removed" passed
+T3 app control: "cancels a queued request when the client disconnects" passed
+T3 app control: "keeps a newer app's socket when an older app on the same state dir quits" passed
+T3 app control: "roundtrips a request and removes its socket on shutdown" passed
+T3 app control: "fails an in-flight request when the renderer goes away" passed
+T3 app control: "focuses immediately and waits for renderer readiness" passed
+T3 app control: "never sends a canceled request that was queued behind another request" passed
+T3 app control: "queues requests after unsubscribe until a new renderer registers" passed
+T3 app control: "removes a queued request when its CLI connection closes" passed
+T3 app control: "times out a request without polling" passed
+T3 app control: "keeps Unix socket paths short and separates desktop state directories" passed
+T3 app control: 25 tests, 0 failures
