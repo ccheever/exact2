@@ -37,7 +37,8 @@ extension ControlHost {
             if let ink = owner.channels("text_color").map({ TextEngine.color($0) }) { assign(spinner, \.color, ink) }
             assign(spinner, \.isHidden, owner.cssVisibilityHidden)
             assign(spinner, \.accessibilityIdentifier, owner.props["testId"])
-            if let label = owner.props["accessibilityLabel"] { assign(spinner, \.accessibilityLabel, label) }
+            // None restores UIKit's own ("In progress").
+            assign(spinner, \.accessibilityLabel, owner.props["accessibilityLabel"])
             let natural = spinner.intrinsicContentSize
             assign(spinner, \.frame, CGRect(x: box.midX - natural.width / 2, y: box.midY - natural.height / 2,
                                             width: natural.width, height: natural.height))

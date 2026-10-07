@@ -10,6 +10,12 @@
 #if os(macOS)
 import AppKit
 
+/// A spinner a click passes through, to its node and then its ancestors'
+/// `press`, as a box's content does (UIKit's indicator takes no touch).
+final class ExactSpinner: NSProgressIndicator {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 extension ControlHost {
     /// The shorter side at which the regular spinner replaces the small
     /// one: the regular one's own size.
@@ -28,7 +34,7 @@ extension ControlHost {
         let held = ExactEnv.agentFreezes || presenter.session?.clock != nil
         for owner in owners {
             let spinner = spinners[owner.id] ?? {
-                let made = NSProgressIndicator()
+                let made = ExactSpinner()
                 made.style = .spinning
                 made.isIndeterminate = true
                 // Stopped, it still shows its frame: the agent's still one.
@@ -43,7 +49,7 @@ extension ControlHost {
             if spinner.controlSize != size { spinner.controlSize = size }
             if spinner.isHidden != owner.cssVisibilityHidden { spinner.isHidden = owner.cssVisibilityHidden }
             spinner.setAccessibilityIdentifier(owner.props["testId"])
-            if let label = owner.props["accessibilityLabel"] { spinner.setAccessibilityLabel(label) }
+            spinner.setAccessibilityLabel(owner.props["accessibilityLabel"])
             let side: CGFloat = size == .regular ? 32 : 16
             let frame = NSRect(x: box.midX - side / 2, y: box.midY - side / 2, width: side, height: side)
             if spinner.frame != frame { spinner.frame = frame }

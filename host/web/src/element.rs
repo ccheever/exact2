@@ -346,7 +346,11 @@ fn progress_css(node: &NodeFacts<'_>, parent: Option<&NodeFacts<'_>>, css: &mut 
     use exact_kernel::{Display, PositionType};
     let position = node.style.position_type;
     css.push_str("container-type:size;contain-intrinsic-size:20px 20px;");
-    let in_flow = matches!(position, PositionType::Static | PositionType::Relative);
+    // Sticky is laid out as relative, in flow (kernel `style.rs`).
+    let in_flow = matches!(
+        position,
+        PositionType::Static | PositionType::Relative | PositionType::Sticky
+    );
     if in_flow && parent.is_none_or(|p| p.style.display == Display::Block) {
         css.push_str("justify-self:start;");
     }

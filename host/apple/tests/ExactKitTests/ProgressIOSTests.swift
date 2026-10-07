@@ -51,6 +51,8 @@ final class ProgressIOSTests: XCTestCase {
         XCTAssertEqual(seen["view"] as? String, "UIActivityIndicatorView")
         XCTAssertEqual(seen["style"] as? String, "medium")
         if !ExactEnv.agentFreezes { XCTAssertTrue(medium.isAnimating) }
+        p.apply(wireBatch([["op": "props", "id": 2, "clear": ["accessibilityLabel"]]]))
+        XCTAssertNotEqual(medium.accessibilityLabel, "Loading", "a cleared label is cleared")
     }
 
     func testItStopsWhenHiddenOrRemoved() throws {

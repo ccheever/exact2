@@ -484,5 +484,9 @@ mod tests {
             !p.toggle_control(spin, now),
             "a press passes to its ancestor"
         );
+        assert_eq!(
+            p.type_text(spin, "50"),
+            Err(format!("view {spin} is not an input"))
+        );
     }
 }

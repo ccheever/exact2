@@ -48,6 +48,11 @@ final class ProgressMacTests: XCTestCase {
         let seen = try XCTUnwrap(p.controls.observation(try XCTUnwrap(p.views[2])))
         XCTAssertEqual(seen["view"] as? String, "NSProgressIndicator")
         if !ExactEnv.agentFreezes { XCTAssertEqual(seen["animating"] as? Bool, true) }
+        // A click passes through the spinner to its node, and on to an ancestor's press.
+        XCTAssertNil(small.hitTest(NSPoint(x: 8, y: 8)))
+        XCTAssertTrue(p.views[1]?.hitTest(NSPoint(x: 10, y: 10)) === p.views[2])
+        p.apply(wireBatch([["op": "props", "id": 2, "clear": ["accessibilityLabel"]]]))
+        XCTAssertNotEqual(small.accessibilityLabel(), "Loading", "a cleared label is cleared")
     }
 
     func testItStopsWhenHiddenOrRemoved() throws {
