@@ -3,9 +3,9 @@
 // `exact-fixture` (a coloured box that takes the snapshot bit, fires every
 // event on request, and rejects a `reject` prop), `exact-plain` (a box the
 // ordinary capture paints) and `exact-absent` (in the roster, never in the
-// artifact: its node reports the missing factory) — and the hooks: two
+// artifact: its node reports the missing factory) — and the hatches: two
 // routes, a header-shaped one whose heading iOS lifts into its navigation
-// bar and one pushed over it, `data-*` words the module's hooks read, and
+// bar and one pushed over it, `data-*` words the module's hatches read, and
 // the scroll view the route names. `bun scripts/smoke.mjs <web|macos|ios>
 // --app native-fixture` drives it through the eight operations.
 
@@ -18,7 +18,7 @@ routes nav
     photo "/photo"
   tab second "/second"
 
-// The hooked list's rows (LLP 1075.003.000), from the fixture's data source,
+// The hatched list's rows (LLP 1075.003.000), from the fixture's data source,
 // asked for when the Rows route is pushed: a session without that source
 // (the UIKit tests' host) never asks.
 shape Row
@@ -296,7 +296,7 @@ component NativeFixture
                         text "Sheet"
                       button press=openChat testId="chat" padding=6 background-color="#e5e7eb"
                         text "Chat"
-                      column hook="badge" data-tone=(composed > 0 ? "busy" : "info") testId="hooked-badge" width=20 height=20 border-radius=10 background-color="#f59e0b"
+                      column hatch="badge" data-tone=(composed > 0 ? "busy" : "info") testId="hatched-badge" width=20 height=20 border-radius=10 background-color="#f59e0b"
                     text ("composed " + toString(composed)) testId="composed"
                     row role="toolbar" toolbarPlacement="window" aria-label="Window" testId="window-toolbar" gap=6
                       button press=compose aria-label="Compose" testId="toolbar-compose" padding=6 background-color="#e5e7eb"
@@ -405,7 +405,7 @@ component NativeFixture
                       exact-plain id="popover-input" testId="popover-input" customInput=true natural=false width=280 height=48 change=popoverChange
                       button "Close popover" testId="popover-close" popovertarget="native-popover" popovertargetaction="hide"
                 when e.name == "rows"
-                  HookedRows(items=rowItems)
+                  HatchedRows(items=rowItems)
                 when e.name == "detail"
                   row gap=6 padding=12 flex-shrink=0
                     button press=breakOwnership testId="violate" padding=6 background-color="#e5e7eb"
@@ -415,7 +415,7 @@ component NativeFixture
                     button press=scrollTo(0) testId="scroll-0" padding=6 background-color="#e5e7eb"
                       text "Scroll 0"
                 when e.name == "detail"
-                  scroll id="list-detail" hook="detail-list" data-violate=violate testId="list-detail" flex=1 min-height=0 scrollTop=top
+                  scroll id="list-detail" hatch="detail-list" data-violate=violate testId="list-detail" flex=1 min-height=0 scrollTop=top
                     column padding=12 gap=8
                       text ("composed " + toString(composed)) testId="composed-detail"
                       column testId="tall" height=1600 background-color="#f3f4f6"
@@ -498,7 +498,7 @@ component NativeFixture
           button press=hideOverlay testId="hide-overlay" padding=12 background-color="#ffffff"
             text "Close"
 
-component HookedRows
+component HatchedRows
   props
     items: list<Row>
   state reuse = false
@@ -513,8 +513,8 @@ component HookedRows
       column id="row-menu" popover="auto" position="absolute" role="menu" width=200 padding=8 background-color="#ffffff"
         button popovertarget="row-menu" popovertargetaction="hide" testId="row-menu-close" height=44
           text "Close"
-      list virtualized=true width="100%" flex=1 min-height=0 overflow-x="hidden" estimated-item-height=40 testId="hooked-list"
+      list virtualized=true width="100%" flex=1 min-height=0 overflow-x="hidden" estimated-item-height=40 testId="hatched-list"
         each r in items key=r.n
           row contextPopover="row-menu" height=40 align-items="center" gap=8 padding-left=12 testId=`row-${r.n}`
-            column hook="dot" data-reuse=(reuse ? "true" : "false") width=12 height=12 border-radius=6 background-color="#6366f1"
+            column hatch="dot" data-reuse=(reuse ? "true" : "false") width=12 height=12 border-radius=6 background-color="#6366f1"
             text ("Row " + toString(r.n))

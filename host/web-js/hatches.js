@@ -1,40 +1,40 @@
-// A node marked `hook="word"` on the JS target (@ref LLP 1075.003.000 §3.2).
+// A node marked `hatch="word"` on the JS target (@ref LLP 1075.003.000 §3.2).
 // The app's page module (`modules/web/index.js`) may export
 //
 //   export function element(e)       // after the commit that mounts the node,
 //                                    // again when its data-* words change
 //   export function elementEnded(e)  // before the node leaves
 //
-// with `e` = { hook, data, element, isNew, isLive, click(), focus(), blur() }:
+// with `e` = { hatch, data, element, isNew, isLive, click(), focus(), blur() }:
 // `element` is the node's own element and `data` its `dataset`, the web's own
 // (so the host's words, `data-testid` and the rest, are there too). On the web
-// a hooked node gives up nothing but the call. The page module loads after
+// a hatched node gives up nothing but the call. The page module loads after
 // first paint, as a module view's does (rt.js `painted`), and a node mounted before
-// then is told once it has. rt.js re-exports `hk`: only a plan that marks a
+// then is told once it has. rt.js re-exports `ht`: only a plan that marks a
 // node bundles this.
 import { onEnd, journal, clock, viewId, inflight, painted } from "./rt.js";
 
 let Page = null;
 const said = new Set(), warned = new Set();
-const say = line => journal.push(`t=${clock.now} hook ${line}`);
+const say = line => journal.push(`t=${clock.now} hatch ${line}`);
 const page = () => Page ??= painted().then(() => import("./native.js")).then(m => m.pageTable());
-// `state.hooks` (the agent), as Apple's: per word, its live nodes, and its
+// `state.hatches` (the agent), as Apple's: per word, its live nodes, and its
 // calls by moment. A row's calls after the first of each moment are counted,
 // not journaled, so a fling does not flood the journal.
 const stats = Object.create(null);
 const counted = word => stats[word] ??= { live: 0, reusable: 0, lost: [], calls: Object.create(null) };
-const publish = () => { if (globalThis.exact) globalThis.exact.hookStats ??= stats; };
+const publish = () => { if (globalThis.exact) globalThis.exact.hatchStats ??= stats; };
 
-/** The page module's `element` hook for `e`, and its end. */
-export function hk(e) {
+/** The page module's `element` hatch for `e`, and its end. */
+export function ht(e) {
   if (typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
   publish();
-  const word = e.getAttribute("data-hook"), id = viewId(e);
-  // What a hook asks of an element runs after the effect or commit that
-  // called the hook (a microtask), never inside it, as on Apple.
+  const word = e.getAttribute("data-hatch"), id = viewId(e);
+  // What a hatch asks of an element runs after the effect or commit that
+  // called the hatch (a microtask), never inside it, as on Apple.
   const later = act => queueMicrotask(() => { if (h.isLive) h.element?.[act](); });
   const h = {
-    hook: word, element: e, data: e.dataset, isNew: true, isLive: true,
+    hatch: word, element: e, data: e.dataset, isNew: true, isLive: true,
     click() { if (h.isLive) later("click"); }, focus() { if (h.isLive) later("focus"); }, blur() { if (h.isLive) later("blur"); },
   };
   let module = null, inRow = false;
@@ -57,14 +57,14 @@ export function hk(e) {
       warned.add(word);
       let list = row.parentElement;
       while (list && !list.$list) list = list.parentElement;
-      say(`element ${word} is in a row of list ${list?.dataset.testid ?? "#" + (list ? viewId(list) : "?")}: each row's mount calls its hook on the main thread`);
+      say(`element ${word} is in a row of list ${list?.dataset.testid ?? "#" + (list ? viewId(list) : "?")}: each row's mount calls its hatch on the main thread`);
     }
     // A change of its words (dataset.js) is heard after the effect that made
-    // it, once however many words changed: what the hook does in answer (a
+    // it, once however many words changed: what the hatch does in answer (a
     // click) is then an ordinary update, not one inside the running effect.
     // Installed before `built`, so what `built` itself causes is heard too.
     let due = false;
-    e.$hk = () => {
+    e.$ht = () => {
       if (due) return;
       due = true;
       queueMicrotask(() => { due = false; if (h.isLive) { h.isNew = false; call("element", "changed"); } });
@@ -73,7 +73,7 @@ export function hk(e) {
   }, error => say(`element ${word} #${id}: no page module: ${error?.message ?? error}`))
     .finally(() => setTimeout(() => inflight.n--));
   onEnd(() => {
-    delete e.$hk;
+    delete e.$ht;
     const told = module && h.isLive;
     // As on Apple: the handle is no longer live in `elementEnded` (its
     // `click()` does nothing), and keeps no element after it, since a list
@@ -85,7 +85,7 @@ export function hk(e) {
   });
 }
 
-// The page module's container hooks (LLP 1075.003.000 §3.7), loaded after
+// The page module's container hatches (LLP 1075.003.000 §3.7), loaded after
 // first paint only for a page module that exports one (web-js/build.mjs):
 //
 //   export function navigation(e)  // a navigation root's element, once

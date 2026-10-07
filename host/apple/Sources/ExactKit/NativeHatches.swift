@@ -1,0 +1,223 @@
+// The host's side of the module hatches (@ref LLP 1075.003 §3.2): the app's
+// one module receives Exact's own UIKit objects at defined moments — a
+// navigation controller when Exact builds it, a route when its controller
+// is built, changed and ended — and acts back by clicking an authored
+// control. The module side, its handles and the table's entries are
+// `host/apple/modules/ExactNativeModule.swift`; NativeModule.swift reads the
+// table. Every call is on the main thread and named in the journal, so
+// `logs` shows what app code ran. macOS projects no routes, so its route
+// and tab hatches never run there (§3.11); `element` runs on both (LLP
+// 1075.003.000, ElementHatches.swift).
+//
+// The host's table, handed to the module once (`module_connect`):
+//
+//    0  u32 size                40
+//    8  resolve(host, routeKey, keyLen, id, idLen) → node (0: none)
+//   16  act(host, node, action) → 0 done   action 0 click, 1 focus, 2 blur
+//   24  log(host, text, len)
+//   32  delegate(host, controller, object)  the app's delegate for a
+//        controller whose own slot Exact keeps (nil clears it)
+//   40  toolbar_item(host, toolbar, item)    an item the app adds after
+//        Exact's to the window toolbar (macOS, LLP 1075.003.000 §3.7)
+//
+// `host` is the session's runtime handle, as for `changed` and `now`: a
+// destroyed session's is answered with nothing.
+import CExact
+import Foundation
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
+
+/// What a native container covers of a box (LLP 1075.003 §3.5): bars over
+/// its edges, added to its padding, or the whole box, which a native bar
+/// replaces (`display: none`).
+enum HostCover: Equatable {
+    struct Edges: Equatable { var top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat }
+    case edges(Edges)
+    case whole
+}
+
+/// The module's hatch entries (NativeModule.swift reads them from its table).
+typealias HatchConnectFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeRawPointer?) -> Void
+typealias HatchNavigationFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UInt32) -> UInt32
+typealias HatchRouteFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
+typealias HatchTabsFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UInt32) -> Void
+typealias HatchTabContainerFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UnsafeMutableRawPointer?>?, UInt32) -> UnsafeMutableRawPointer?
+typealias HatchElementFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> UInt32
+typealias HatchToolbarFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> Void
+
+private typealias HatchResolveFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32) -> UInt32
+private typealias HatchActFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt32) -> Int32
+private typealias HatchLogFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32) -> Void
+private typealias HatchDelegateFn = @convention(c) (UnsafeMutableRawPointer?, UnsafeMutableRawPointer?, UnsafeMutableRawPointer?) -> Void
+
+private func hatchText(_ bytes: UnsafePointer<UInt8>?, _ length: UInt32) -> String {
+    bytes.map { String(decoding: UnsafeBufferPointer(start: $0, count: Int(length)), as: UTF8.self) } ?? ""
+}
+
+private func hatchSession(_ host: UnsafeMutableRawPointer?) -> ExactSession? {
+    guard Thread.isMainThread else { return nil }
+    return ExactSession.session(for: ExactRuntime(UInt(bitPattern: host)))
+}
+
+private let hatchResolve: HatchResolveFn = { host, key, keyLength, id, idLength in
+    #if os(iOS) || os(tvOS)
+    hatchSession(host)?.presenter.navigation.resolve(route: hatchText(key, keyLength), id: hatchText(id, idLength))?.id ?? 0
+    #else
+    0
+    #endif
+}
+
+private let hatchAct: HatchActFn = { host, node, action in
+    hatchSession(host)?.presenter.elements.act(node, action) == true ? 0 : 1
+}
+
+private let hatchLog: HatchLogFn = { host, bytes, length in
+    hatchSession(host)?.log("hatch \(hatchText(bytes, length))")
+}
+
+private let hatchDelegate: HatchDelegateFn = { host, controller, object in
+    guard let controller, let session = hatchSession(host) else { return }
+    let delegate = object.map { Unmanaged<AnyObject>.fromOpaque($0).takeUnretainedValue() }
+    #if os(iOS) || os(tvOS)
+    session.presenter.navigation.setAppDelegate(Unmanaged<AnyObject>.fromOpaque(controller).takeUnretainedValue(), delegate)
+    #else
+    guard Unmanaged<AnyObject>.fromOpaque(controller).takeUnretainedValue() === session.presenter.toolbar.toolbar else { return }
+    session.presenter.toolbar.setAppDelegate(delegate as? NSToolbarDelegate)
+    #endif
+}
+
+private let hatchToolbarItem: HatchToolbarFn = { host, toolbar, item in
+    #if os(macOS)
+    guard let toolbar, let item, let session = hatchSession(host),
+          Unmanaged<AnyObject>.fromOpaque(toolbar).takeUnretainedValue() === session.presenter.toolbar.toolbar,
+          let added = Unmanaged<AnyObject>.fromOpaque(item).takeUnretainedValue() as? NSToolbarItem else { return }
+    session.presenter.toolbar.addAppItem(added)
+    #endif
+}
+
+/// The host's callbacks, one table for the process: each finds its session
+/// by the handle it is called with.
+private let hatchHostTable: UnsafeRawPointer = {
+    let size = 48
+    let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
+    t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
+    t.storeBytes(of: UInt32(size), as: UInt32.self)
+    t.storeBytes(of: unsafeBitCast(hatchResolve, to: UnsafeRawPointer.self), toByteOffset: 8, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(hatchAct, to: UnsafeRawPointer.self), toByteOffset: 16, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(hatchLog, to: UnsafeRawPointer.self), toByteOffset: 24, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(hatchDelegate, to: UnsafeRawPointer.self), toByteOffset: 32, as: UnsafeRawPointer.self)
+    t.storeBytes(of: unsafeBitCast(hatchToolbarItem, to: UnsafeRawPointer.self), toByteOffset: 40, as: UnsafeRawPointer.self)
+    return UnsafeRawPointer(t)
+}()
+
+/// A route hatch's moment.
+enum RouteHatchEvent: UInt32 {
+    case built = 0, changed = 1, ended = 2
+    var name: String { switch self { case .built: "built"; case .changed: "changed"; case .ended: "ended" } }
+}
+
+extension NativeViews {
+    /// `tabs` for Exact's tab container (`built`), or its end.
+    func tabsHatch(_ controller: AnyObject?, event: UInt32, index: Int = 0) {
+        guard hatchesConnected, let instance, let (tabs, _) = tabCalls else { return }
+        session?.log("hatch tabs: \(["built", "retired", "the router selected tab \(index) in the app's container", "the app's container retired"][Int(min(event, 3))])")
+        tabs(instance, event, controller.map { Unmanaged.passUnretained($0).toOpaque() }, UInt32(index))
+    }
+
+    /// `tabContainer`: a container the app owns for these stacks, or nil.
+    func tabContainerHatch(names: [String], nodes: [UInt32], selected: Int, controllers: [AnyObject]) -> AnyObject? {
+        guard hatchesConnected, let instance, let (_, container) = tabCalls else { return nil }
+        let json = (try? JSONSerialization.data(withJSONObject: ["names": names, "nodes": nodes, "selected": selected])) ?? Data()
+        var pointers: [UnsafeMutableRawPointer?] = controllers.map { Unmanaged.passUnretained($0).toOpaque() }
+        let made = json.withUnsafeBytes { j in
+            pointers.withUnsafeMutableBufferPointer { c in
+                container(instance, j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count), UnsafePointer(c.baseAddress), UInt32(c.count))
+            }
+        }
+        let owned = made.map { Unmanaged<AnyObject>.fromOpaque($0).takeRetainedValue() }
+        session?.log("hatch tabContainer: \(owned.map { "the app's \(type(of: $0))" } ?? "Exact's")")
+        return owned
+    }
+
+    /// `element` (built, changed) or `elementEnded` for a hatched node (LLP
+    /// 1075.003.000): its view, its kind's platform object, and
+    /// `{"hatch", "node", "id", "kind", "data"}`. `quiet` leaves the call out
+    /// of the journal (a list row's after the first; `state` counts them).
+    /// True when the hatch set `reusable` (LLP 1075.003.000.000 §8).
+    @discardableResult
+    func elementHatch(_ node: NodeView, event: UInt32, platform: AnyObject?, quiet: Bool = false) -> Bool {
+        guard hatchesConnected, let instance, let call = elementCall else { return false }
+        let fields: [String: Any] = ["hatch": node.props["hatch"] ?? "", "node": node.id, "id": node.props["id"] ?? "", "kind": node.kind]
+        var json = (try? JSONSerialization.data(withJSONObject: fields)) ?? Data("{}".utf8)
+        json.removeLast()
+        json.append(Data(",\"data\":\(node.props["dataset"] ?? "{}")}".utf8))
+        let word = node.props["hatch"] ?? ""
+        if !quiet { session?.log("hatch element \(word) #\(node.id): \(["built", "changed", "ended"][Int(min(event, 2))])") }
+        let flags = json.withUnsafeBytes { j in
+            call(instance, event, Unmanaged.passUnretained(node).toOpaque(), platform.map { Unmanaged.passUnretained($0).toOpaque() },
+                 j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count))
+        }
+        return flags & 1 != 0
+    }
+
+    /// `toolbar` for the window toolbar Exact installed (macOS, LLP
+    /// 1075.003.000 §3.7).
+    func toolbarHatch(_ toolbar: AnyObject, window: AnyObject) {
+        guard hatchesConnected, let instance, let call = toolbarCall else { return }
+        session?.log("hatch toolbar: built")
+        call(instance, Unmanaged.passUnretained(toolbar).toOpaque(), Unmanaged.passUnretained(window).toOpaque())
+    }
+
+    /// After the session's module is made: hand it the host's callbacks
+    /// when its table has hatches, then let the presenter replay the objects
+    /// it built before (a cold launch's, LLP 1075.003 Q3 (c)).
+    func connectHatches(_ connect: HatchConnectFn, _ navigation: HatchNavigationFn, _ route: HatchRouteFn,
+                      _ tabs: (HatchTabsFn, HatchTabContainerFn)?, _ element: HatchElementFn?, _ toolbar: HatchToolbarFn?,
+                      _ module: UnsafeMutableRawPointer) {
+        connect(module, hatchHostTable)
+        hatchCalls = (navigation, route)
+        tabCalls = tabs
+        elementCall = element
+        toolbarCall = toolbar
+        hatchesConnected = true
+        session?.log("hatch: connected")
+        DispatchQueue.main.async { [weak self] in self?.onHatchesConnected?() }
+    }
+
+    private var hatchTarget: ((navigation: HatchNavigationFn, route: HatchRouteFn), UnsafeMutableRawPointer)? {
+        guard hatchesConnected, let instance, let hatchCalls else { return nil }
+        return (hatchCalls, instance)
+    }
+
+    /// `navigation` for a controller Exact built (`built`), or the handle's
+    /// end (`!built`): returns the stack's `showsBar`, Exact's default when
+    /// no hatch ran.
+    func navigationHatch(_ controller: AnyObject, built: Bool, showsBar: Bool, label: String) -> Bool {
+        guard let (calls, module) = hatchTarget else { return showsBar }
+        let hatch = calls.navigation
+        let flags = hatch(module, built ? 0 : 1, Unmanaged.passUnretained(controller).toOpaque(), showsBar ? 1 : 0)
+        guard built else { return showsBar }
+        let shows = flags & 1 != 0
+        session?.log("hatch navigation \(label): built, showsBar \(shows)\(shows != showsBar ? " (the hatch's)" : "")")
+        return shows
+    }
+
+    /// `route` (built, changed) or `routeEnded`, with the route's `data-*`
+    /// words (its `dataset` row, already a JSON object of strings).
+    func routeHatch(_ event: RouteHatchEvent, controller: AnyObject, navigation: AnyObject?, scroll: AnyObject?,
+                   key: String, dataset: String?) {
+        guard let (calls, module) = hatchTarget else { return }
+        let hatch = calls.route
+        let keyJSON = (try? JSONSerialization.data(withJSONObject: [key])).map { String(decoding: $0, as: UTF8.self).dropFirst().dropLast() } ?? "\"\""
+        let json = Data("{\"key\":\(keyJSON),\"data\":\(dataset ?? "{}")}".utf8)
+        let raw = { (o: AnyObject?) in o.map { Unmanaged.passUnretained($0).toOpaque() } }
+        session?.log("hatch route \(key): \(event.name)")
+        json.withUnsafeBytes { j in
+            hatch(module, event.rawValue, raw(controller), raw(navigation), raw(scroll),
+                 j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count))
+        }
+    }
+}

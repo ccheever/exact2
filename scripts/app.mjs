@@ -553,7 +553,7 @@ export function resolveApp(nameOrCrate) {
      * executor `modules/web/index.js`. Empty tags: the app has no module
      * views; its web executor may still answer `native.later` on the page
      * (LLP 1067 D5), and its Swift still makes the artifact, for `later` and
-     * the hooks (LLP 1075.003 §3.2). */
+     * the hatches (LLP 1075.003 §3.2). */
     modulesFor(platform) {
       const folder = moduleDirectory(dir, platform);
       const under = suffix => existsSync(folder) ? readdirSync(folder).filter(f => f.endsWith(suffix)).sort().map(f => resolve(folder, f)) : [];

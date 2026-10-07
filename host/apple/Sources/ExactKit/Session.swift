@@ -727,16 +727,16 @@ public final class ExactSession {
         #endif
         #if os(iOS) || os(tvOS)
         // @ref LLP 1075.003 §3.5, Q3 (c) — what a bar covers reaches layout
-        // as an intrinsic size does; the hooks replay once the module connects.
+        // as an intrinsic size does; the hatches replay once the module connects.
         presenter.onCovers = { [unowned self] covers in whenIdle { [unowned self] in apply(runtime.covers(covers)) } }
-        natives.onHooksConnected = { [weak self] in
-            self?.presenter.navigation.replayHooks()
+        natives.onHatchesConnected = { [weak self] in
+            self?.presenter.navigation.replayHatches()
             self?.presenter.elements.replay()
         }
         #else
-        natives.onHooksConnected = { [weak self] in
+        natives.onHatchesConnected = { [weak self] in
             self?.presenter.elements.replay()
-            self?.presenter.toolbar.hookToolbar()
+            self?.presenter.toolbar.hatchToolbar()
         }
         #endif
         presenter.onHover = { [unowned self] id, over in apply(runtime.hover(id, over: over, now: now())) }

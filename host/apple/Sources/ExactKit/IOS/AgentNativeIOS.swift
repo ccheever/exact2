@@ -89,7 +89,7 @@ extension Presenter {
     /// Whether Exact owns `v`'s subview list, so a subview nothing accounts
     /// for there is a stray. `owner` is the nearest node view at or above `v`.
     private func inspectionJudges(_ v: UIView, owner: NodeView?) -> Bool {
-        if let n = liveView(v) { return !Self.platformKinds.contains(n.kind) && n.props["hook"] == nil }
+        if let n = liveView(v) { return !Self.platformKinds.contains(n.kind) && n.props["hatch"] == nil }
         if v === viewport || v === root || v === session?.view { return true }
         if let o = owner {
             let containers: [UIView?] = [o.clipBox, o.scroll, o.overlay, o.materialView?.contentView,
@@ -115,7 +115,7 @@ extension Presenter {
             if segments.inspectionOwns(sub) { return ("segment", id) }
             if swipeActions.inspectionOwns(sub) { return ("swipe", id) }
             if groupedLists.inspectionOwns(sub) { return ("grouped-list", id) }
-            if Self.platformKinds.contains(o.kind) || o.props["hook"] != nil { return ("platform", id) }
+            if Self.platformKinds.contains(o.kind) || o.props["hatch"] != nil { return ("platform", id) }
         }
         if menus.inspectionOwns(sub) { return ("menu", owner?.id) }
         if sub === viewport { return ("viewport", nil) }

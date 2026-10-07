@@ -18,15 +18,15 @@
     },
     "data": {
       "type": "array",
-      "description": "The app's data-* words (LLP 1075.003 Q2), without the `data-`: real attributes on the web, read by the app module's hooks on Apple through typed keys the build writes from this list (ExactDataKey). A data-* attribute in the Contract that this list lacks is bake-undeclared-data.",
+      "description": "The app's data-* words (LLP 1075.003 Q2), without the `data-`: real attributes on the web, read by the app module's hatches on Apple through typed keys the build writes from this list (ExactDataKey). A data-* attribute in the Contract that this list lacks is bake-undeclared-data.",
       "items": {
         "type": "string",
         "pattern": "^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$"
       }
     },
-    "hooks": {
+    "hatches": {
       "type": "array",
-      "description": "The app's hook words (LLP 1075.003.000 Q1): a node marked hook=\"word\" hands its platform object (a UIView or NSView and its kind's UIKit or AppKit object, or a DOM element) to the app module's element hook, which compares it with typed keys the build writes from this list (ExactHookKey). A hooked node leaves the host's fast path. A hook word in the Contract that this list lacks is bake-undeclared-hook.",
+      "description": "The app's hatch words (LLP 1075.003.000 Q1): a node marked hatch=\"word\" hands its platform object (a UIView or NSView and its kind's UIKit or AppKit object, or a DOM element) to the app module's element hatch, which compares it with typed keys the build writes from this list (ExactHatchKey). A hatched node leaves the host's fast path. A hatch word in the Contract that this list lacks is bake-undeclared-hatch.",
       "items": {
         "type": "string",
         "pattern": "^[a-z][a-z0-9]*(-[a-z][a-z0-9]*)*$"

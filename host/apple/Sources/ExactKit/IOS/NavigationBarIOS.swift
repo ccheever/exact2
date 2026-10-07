@@ -1,8 +1,8 @@
 // @ref LLP 1075.003 §3.5, §3.7 — Exact's navigation bar on iOS, one per
 // stack and fixed (titles that do not collapse): the header-shaped route's
 // projection, the content area the bar leaves (`HostCover`), the delegate
-// slot Exact keeps and forwards, the authored elements a hook acts on, and
-// the development check of what Exact owns. When the hooks run is
+// slot Exact keeps and forwards, the authored elements a hatch acts on, and
+// the development check of what Exact owns. When the hatches run is
 // NavigationIOS.swift's; the module side is ExactNativeModule.swift.
 #if os(iOS) || os(tvOS)
 import UIKit
@@ -12,8 +12,8 @@ struct BarSource: Equatable {
     let header: UInt32?, title: String, level: Int, leading: [String], trailing: [String], group: String, canGoBack: Bool
 }
 
-/// The inputs the route hook last ran with. A change runs it again.
-struct HookSource: Equatable {
+/// The inputs the route hatch last ran with. A change runs it again.
+struct HatchSource: Equatable {
     let bar: BarSource, back: String, navigation: ObjectIdentifier, dataset: String, scroll: ObjectIdentifier?
 }
 
@@ -334,7 +334,7 @@ final class NavigationStack {
     var showsBar: Bool
     let order: Int
     let label: String
-    var hooked = false
+    var hatched = false
     var written: [ObjectIdentifier] = []
     init(showsBar: Bool, order: Int) {
         self.showsBar = showsBar
@@ -378,10 +378,10 @@ extension NavigationHost {
 
     /// A navigation controller for a stack whose first route is `first`:
     /// Exact's delegate, the bar's visibility from the plan, then the
-    /// `navigation` hook (LLP 1075.003 Q3 (c)). Large titles are on, and each
+    /// `navigation` hatch (LLP 1075.003 Q3 (c)). Large titles are on, and each
     /// route's item says whether its title is large, so a level-1 heading
     /// pushed over an inline one is large; `prefersLargeTitles` is the app's
-    /// from the hook on (§3.5).
+    /// from the hatch on (§3.5).
     func makeNavigation(first: NodeView?) -> UINavigationController {
         let nav = UINavigationController()
         let shape = first.flatMap { HeaderShape(route: $0, back: container?.props["navigationBack"]) }
@@ -393,27 +393,27 @@ extension NavigationHost {
         #if !os(tvOS)
         nav.navigationBar.prefersLargeTitles = true
         #endif
-        if presenter.session?.natives.hooksConnected == true {
-            stack.showsBar = presenter.session?.natives.navigationHook(nav, built: true, showsBar: stack.showsBar, label: stack.label) ?? stack.showsBar
-            stack.hooked = true
+        if presenter.session?.natives.hatchesConnected == true {
+            stack.showsBar = presenter.session?.natives.navigationHatch(nav, built: true, showsBar: stack.showsBar, label: stack.label) ?? stack.showsBar
+            stack.hatched = true
         }
         nav.setNavigationBarHidden(!barShows(nav), animated: false)
         return nav
     }
 
-    /// The `navigation` hook for a stack built before the module connected
-    /// (a cold launch's), before any of its routes' hooks run. A changed
+    /// The `navigation` hatch for a stack built before the module connected
+    /// (a cold launch's), before any of its routes' hatches run. A changed
     /// `showsBar` moves the content once, journaled (LLP 1075.003 Q3 (c)).
-    func hookNavigation(_ nav: UINavigationController) {
-        guard let natives = presenter.session?.natives, natives.hooksConnected,
-              let stack = stacks[ObjectIdentifier(nav)], !stack.hooked else { return }
+    func hatchNavigation(_ nav: UINavigationController) {
+        guard let natives = presenter.session?.natives, natives.hatchesConnected,
+              let stack = stacks[ObjectIdentifier(nav)], !stack.hatched else { return }
         let before = barShows(nav)
-        stack.showsBar = natives.navigationHook(nav, built: true, showsBar: stack.showsBar, label: stack.label)
-        stack.hooked = true
+        stack.showsBar = natives.navigationHatch(nav, built: true, showsBar: stack.showsBar, label: stack.label)
+        stack.hatched = true
         guard barShows(nav) != before else { return }
         showBar(nav, animated: false)
         for case let c as RouteController in nav.viewControllers { c.projectedSource = nil }
-        presenter.session?.log("hook navigation \(stack.label): showsBar changed after the first frame; the content moves once")
+        presenter.session?.log("hatch navigation \(stack.label): showsBar changed after the first frame; the content moves once")
     }
 
     /// The navigation controller holding `controller`, among Exact's.
@@ -422,10 +422,10 @@ extension NavigationHost {
     }
 
     /// Project each route of a stack into its navigation item when its
-    /// authored source changed, then run the route hook — before UIKit lays
+    /// authored source changed, then run the route hatch — before UIKit lays
     /// the stack out (LLP 1075.003 §3.2, §3.5 "projected defaults").
     func prepareRoutes(_ routes: [RouteController], in nav: UINavigationController) {
-        hookNavigation(nav)
+        hatchNavigation(nav)
         #if os(iOS)
         presenter.menus.focus.watch(nav.navigationBar) // a bar item's menu (MenuFocusIOS), every stack, rebuilt or not
         #endif
@@ -441,10 +441,10 @@ extension NavigationHost {
             let dataset = c.node.props["dataset"]
             let source = BarSource(header: shape?.header.id, title: shape?.title ?? "", level: shape?.level ?? 0, leading: shape?.leading.map(\.source) ?? [],
                                    trailing: shape?.trailing.map(\.source) ?? [], group: shape?.group?.source ?? "", canGoBack: canGoBack)
-            // The hook runs again after anything Exact wrote to the item (the
+            // The hatch runs again after anything Exact wrote to the item (the
             // Back control the route above gives it, too) and when the route
             // moves to another stack (a root whose tabs changed).
-            let signature = HookSource(bar: source, back: c.backSource ?? "", navigation: ObjectIdentifier(nav), dataset: dataset ?? "",
+            let signature = HatchSource(bar: source, back: c.backSource ?? "", navigation: ObjectIdentifier(nav), dataset: dataset ?? "",
                                        scroll: scroll.map(ObjectIdentifier.init))
             if c.projectedSource != source {
                 c.projectedSource = source
@@ -452,12 +452,12 @@ extension NavigationHost {
             }
             collapse(c, shape: shape, scroll: scroll)
             if shows { searchField(shape?.search, in: c); segmentedTitle(shape?.segments, in: c); richTitle(shape, in: c) }
-            guard c.projected != signature || !c.hooked else { continue }
+            guard c.projected != signature || !c.hatched else { continue }
             c.projected = signature
-            guard presenter.session?.natives.hooksConnected == true else { continue }
-            presenter.session?.natives.routeHook(c.hooked ? .changed : .built, controller: c, navigation: nav, scroll: scroll,
+            guard presenter.session?.natives.hatchesConnected == true else { continue }
+            presenter.session?.natives.routeHatch(c.hatched ? .changed : .built, controller: c, navigation: nav, scroll: scroll,
                                                  key: c.key, dataset: dataset)
-            c.hooked = true
+            c.hatched = true
             if let scroll { c.ownedScroll = element(named: c.node.props["navigationScroll"] ?? "", in: c.node).flatMap { $0.scroll === scroll ? $0 : nil } }
         }
         // A route's header shown or hidden in place; a push or pop sets the
@@ -658,16 +658,16 @@ extension NavigationHost {
         presenter.carrying("id").first { $0.props["id"] == name && ($0 === route || $0.isDescendant(of: route)) }
     }
 
-    /// The live node a route (by key) holds under an HTML id: a hook's
+    /// The live node a route (by key) holds under an HTML id: a hatch's
     /// `route.element(id)` (LLP 1075.003 §3.4).
     func resolve(route key: String, id: String) -> NodeView? {
         guard let route = controllers.values.first(where: { $0.key == key && presenter.views[$0.node.id] === $0.node })?.node else { return nil }
         return element(named: id, in: route)
     }
 
-    /// A hook's act on an authored element, as the DOM's: `click()` presses
+    /// A hatch's act on an authored element, as the DOM's: `click()` presses
     /// it as a tap does, `focus()` and `blur()` follow the focus rules. Each
-    /// runs on the main queue's next turn (`ElementHooks.later`). False when
+    /// runs on the main queue's next turn (`ElementHatches.later`). False when
     /// refused.
     func act(_ id: UInt32, _ action: UInt32) -> Bool {
         guard let node = presenter.views[id] else { return false }
@@ -675,15 +675,15 @@ extension NavigationHost {
         case 0:
             guard node.handlers.contains("press"), !node.disabled else { return false }
             // Still the node it was when asked: a reload restarts node ids.
-            ElementHooks.later { [weak presenter = self.presenter, weak node] in
+            ElementHatches.later { [weak presenter = self.presenter, weak node] in
                 if let presenter, let node, presenter.views[id] === node { presenter.press(id) }
             }
         case 1:
-            ElementHooks.later { [weak presenter = self.presenter, weak node] in
+            ElementHatches.later { [weak presenter = self.presenter, weak node] in
                 if let presenter, let node, presenter.views[id] === node { presenter.focusNode(node) }
             }
         case 2:
-            ElementHooks.later { [weak presenter = self.presenter, weak node] in
+            ElementHatches.later { [weak presenter = self.presenter, weak node] in
                 if let presenter, let node, presenter.views[id] === node { _ = (node.textArea ?? node.field ?? node).resignFirstResponder() }
             }
         default: return false
@@ -699,14 +699,14 @@ extension NavigationHost {
             tabProxy.app = delegate as? UITabBarControllerDelegate
             tabs.delegate = nil
             tabs.delegate = tabProxy
-            presenter.session?.log("hook tabs: delegate \(delegate.map { "\(type(of: $0))" } ?? "cleared")")
+            presenter.session?.log("hatch tabs: delegate \(delegate.map { "\(type(of: $0))" } ?? "cleared")")
             return
         }
         guard let nav = controller as? UINavigationController, let stack = stacks[ObjectIdentifier(nav)] else { return }
         stack.proxy.app = delegate as? UINavigationControllerDelegate
         nav.delegate = nil
         nav.delegate = stack.proxy
-        presenter.session?.log("hook navigation \(stack.label): delegate \(delegate.map { "\(type(of: $0))" } ?? "cleared")")
+        presenter.session?.log("hatch navigation \(stack.label): delegate \(delegate.map { "\(type(of: $0))" } ?? "cleared")")
     }
 
     // MARK: The content area (LLP 1075.003 §3.5)
@@ -773,10 +773,10 @@ extension NavigationHost {
         for id in covers.keys where wanted[id] == nil && presenter.views[id] != nil { changes.append((id, nil)) }
         covers = wanted
         guard !changes.isEmpty else { return }
-        // Under Q3 (c) a cold launch's first frame runs no app code: a hook
+        // Under Q3 (c) a cold launch's first frame runs no app code: a hatch
         // that changes a bar the plan already showed moves the content once.
-        if replayingHooks, changes.contains(where: { presenter.views[$0.0]?.props["navigationKey"] != nil }) {
-            presenter.session?.log("hook: the content area moved after the first frame, by a hook run at launch")
+        if replayingHatches, changes.contains(where: { presenter.views[$0.0]?.props["navigationKey"] != nil }) {
+            presenter.session?.log("hatch: the content area moved after the first frame, by a hatch run at launch")
         }
         // Never inside a batch: the stack is installed partway through the
         // first one, whose remaining frames would overwrite the covered ones.
@@ -807,18 +807,18 @@ extension NavigationHost {
         if now.count <= stack.written.count, Array(stack.written.prefix(now.count)) == now { stack.written = now }
     }
 
-    /// Before each batch: compare what Exact owns on each hooked object with
+    /// Before each batch: compare what Exact owns on each hatched object with
     /// what Exact last wrote, and journal a difference once, by name. It is
     /// detection, not enforcement; a change made and undone between two
     /// batches is not seen.
     func checkOwned() {
-        guard NavigationHost.checksOwnership, !changing, !syncing, presenter.session?.natives.hooksConnected == true else { return }
+        guard NavigationHost.checksOwnership, !changing, !syncing, presenter.session?.natives.hatchesConnected == true else { return }
         func say(_ what: String, _ property: String) {
             let line = "\(what): \(property) changed outside Exact, which owns it"
             if ownedReported.insert(line).inserted { presenter.session?.log(line) }
         }
         for nav in allNavigations {
-            guard let stack = stacks[ObjectIdentifier(nav)], stack.hooked else { continue }
+            guard let stack = stacks[ObjectIdentifier(nav)], stack.hatched else { continue }
             if nav.delegate !== stack.proxy { say("navigation \(stack.label)", "delegate") }
             if nav.transitionCoordinator == nil, !searching(nav.topViewController as? RouteController), nav.isNavigationBarHidden == topShowsBar(nav) { say("navigation \(stack.label)", "navigation bar visibility") }
             if nav.viewControllers.map(ObjectIdentifier.init) != stack.written { say("navigation \(stack.label)", "viewControllers") }
@@ -829,7 +829,7 @@ extension NavigationHost {
             }
             #endif
         }
-        for c in controllers.values where c.hooked && presenter.views[c.node.id] === c.node {
+        for c in controllers.values where c.hatched && presenter.views[c.node.id] === c.node {
             if c.navigationController != nil, c.isViewLoaded, c.node.superview !== c.view { say("route \(c.key)", "view") }
             guard let node = c.ownedScroll, let scroll = node.scroll else { continue }
             for property in NavigationHost.ownedChanges(scroll, of: node, collapsing: c.collapseScroll === node) { say("route \(c.key)", property) }

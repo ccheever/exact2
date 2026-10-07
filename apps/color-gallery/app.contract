@@ -110,7 +110,7 @@ component ColorGallery
   resource four = hdrWhite(4) as shape string
   state limit = "no-limit"
   // Whether the sticky limit card has docked (native only; the web's
-  // `sticky-limit` hook animates it on a scroll timeline). It docks at a
+  // `sticky-limit` hatch animates it on a scroll timeline). It docks at a
   // scroll of 128: the 136 of fixed-height content above it, less its
   // sticky top of 8.
   state docked = false
@@ -131,7 +131,7 @@ component ColorGallery
           text "Color Gallery" testId="title" font-size=26 font-weight=800 height=34
           text "Every color space, profile and HDR format Exact supports, side by side." testId="subtitle" font-size=13 color="light-dark(#4b5563, #9ca3af)" height=34 overflow="hidden"
           text `This display's color gamut is ${display.colorGamut == "p3" ? "P3" : display.colorGamut == "rec2020" ? "Rec. 2020" : "sRGB"} and its dynamic range is ${display.dynamicRange == "high" ? "high (HDR)" : "standard (SDR)"}.` testId="facts" font-size=13 margin-top=8 height=34 overflow="hidden"
-          column class=Card height=68 margin-top=10 box-sizing="border-box" position="sticky" top="calc(env(safe-area-inset-top) + 8px)" z-index=2 testId="limit-sticky" hook="sticky-limit" box-shadow=(docked ? "0 2px 8px rgba(0, 0, 0, 0.1)" : "0 2px 8px rgba(0, 0, 0, 0)") background-color=(docked ? "light-dark(#ffffff, #1c1c1e)" : "light-dark(#f5f6f8, #1c1c1e)") transition="box-shadow 250ms ease-out, background-color 250ms ease-out"
+          column class=Card height=68 margin-top=10 box-sizing="border-box" position="sticky" top="calc(env(safe-area-inset-top) + 8px)" z-index=2 testId="limit-sticky" hatch="sticky-limit" box-shadow=(docked ? "0 2px 8px rgba(0, 0, 0, 0.1)" : "0 2px 8px rgba(0, 0, 0, 0)") background-color=(docked ? "light-dark(#ffffff, #1c1c1e)" : "light-dark(#f5f6f8, #1c1c1e)") transition="box-shadow 250ms ease-out, background-color 250ms ease-out"
             LimitControl(limit=limit, choose=choose)
 
           text "CSS color spaces" class=Section

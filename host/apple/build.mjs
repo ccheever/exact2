@@ -1455,8 +1455,8 @@ function test(args) {
       });
       return;
     }
-    // The fixture's plan and hook module (LLP 1075.003 §3.9), built for the
-    // tests' simulator so they run its hooks over its routes: the glue, its
+    // The fixture's plan and hatch module (LLP 1075.003 §3.9), built for the
+    // tests' simulator so they run its hatches over its routes: the glue, its
     // typed keys, its Swift.
     const fixture = resolveApp('native-fixture'), fixtureDir = resolve(paths.namespace, 'fixture-module');
     writeDataKeys(fixture, resolve(fixtureDir, 'ExactDataKeys.swift'));

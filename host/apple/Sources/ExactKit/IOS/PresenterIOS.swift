@@ -99,8 +99,8 @@ final class Presenter {
     lazy var groupedLists = GroupedListHost(self)
     lazy var controls = ControlHost(self)
     lazy var fieldSelections = FieldSelections(self)
-    /// Nodes marked `hook="word"` (LLP 1075.003.000).
-    lazy var elements = ElementHooks(self)
+    /// Nodes marked `hatch="word"` (LLP 1075.003.000).
+    lazy var elements = ElementHatches(self)
     lazy var navigation = NavigationHost(presenter: self)
     #if os(tvOS)
     lazy var menuKey = MenuKey(presenter: self)
@@ -350,7 +350,7 @@ final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
-        // Every hooked node ends first, its view and platform object there.
+        // Every hatched node ends first, its view and platform object there.
         elements.reset()
         resetFlights()
         canvasKey = nil
@@ -492,7 +492,7 @@ final class Presenter {
         focus(target, args, selectText: selectText)
     }
 
-    /// A hook's `focus()` on the node it resolved (LLP 1075.003 §3.4).
+    /// A hatch's `focus()` on the node it resolved (LLP 1075.003 §3.4).
     func focusNode(_ target: NodeView) { focus(target, [target.props["id"] ?? ""], selectText: false) }
 
     private func focus(_ target: NodeView, _ args: [Any], selectText: Bool) {
@@ -681,7 +681,7 @@ final class Presenter {
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?([(id, size)]) }
     /// What native containers cover of boxes (LLP 1075.003 §3.5).
     var onCovers: (([(UInt32, HostCover?)]) -> Void)?
-    /// Work for after the batch being applied, or now: a hook's act on an
+    /// Work for after the batch being applied, or now: a hatch's act on an
     /// authored element never lands inside a batch (LLP 1075.003 §3.4).
     func afterBatch(_ work: @escaping () -> Void) { if applying { waiting.append((nil, work)) } else { work() } }
     /// Symbols and projected controls report after the batch that creates
@@ -745,9 +745,9 @@ final class Presenter {
         svg.seek(clock: session?.clock)
         let outermost = !applying
         applying = true
-        // Hooked nodes this batch destroys end first, so a reusable hook has
+        // Hatched nodes this batch destroys end first, so a reusable hatch has
         // undone its additions before the pool looks at their rows; inside
-        // the batch, so what a hook clicks waits for it (`afterBatch`).
+        // the batch, so what a hatch clicks waits for it (`afterBatch`).
         elements.begin(batch)
         var moved = false // create, frame or content ops: rows may have come or moved (`HeavyLeaves.batchApplied`)
         defer {

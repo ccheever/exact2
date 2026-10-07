@@ -5,8 +5,8 @@
 //! box at runtime. Beside it, the app's `data-*` words (LLP 1075.003 Q2):
 //! `"data": ["word", …]`, from which the Apple build also writes the Swift
 //! module's typed keys; a word the list lacks is `bake-undeclared-data`.
-//! And its `hook` words (LLP 1075.003.000 Q1): `"hooks": ["word", …]`, the
-//! same way, `bake-undeclared-hook`.
+//! And its `hatch` words (LLP 1075.003.000 Q1): `"hatches": ["word", …]`, the
+//! same way, `bake-undeclared-hatch`.
 
 use super::{CompileError, Manifest};
 use contract_syntax::{File, Span};
@@ -37,10 +37,10 @@ pub fn data_words(manifest: &Manifest) -> Result<Vec<String>, String> {
     words(manifest, &Words::DATA)
 }
 
-/// The `hook` words in `manifest` (LLP 1075.003.000 Q1): the nodes the
+/// The `hatch` words in `manifest` (LLP 1075.003.000 Q1): the nodes the
 /// app's native code receives, each a word as `data-*`'s are.
-pub fn hook_words(manifest: &Manifest) -> Result<Vec<String>, String> {
-    words(manifest, &Words::HOOKS)
+pub fn hatch_words(manifest: &Manifest) -> Result<Vec<String>, String> {
+    words(manifest, &Words::HATCHES)
 }
 
 /// A list of words an app declares in `app.json`, and how the bake names
@@ -63,11 +63,11 @@ impl Words {
         refusal: "bake-undeclared-data",
         reserved: contract_lower::dataset::reserved,
     };
-    const HOOKS: Words = Words {
-        key: "hooks",
-        noun: "hook",
-        written: ("hook=\"", "\""),
-        refusal: "bake-undeclared-hook",
+    const HATCHES: Words = Words {
+        key: "hatches",
+        noun: "hatch",
+        written: ("hatch=\"", "\""),
+        refusal: "bake-undeclared-hatch",
         reserved: |_| false,
     };
     fn written(&self, word: &str) -> String {
@@ -102,7 +102,7 @@ fn words(manifest: &Manifest, kind: &Words) -> Result<Vec<String>, String> {
         .collect()
 }
 
-/// Every module tag, `data-` word and `hook` word in `file` against what the
+/// Every module tag, `data-` word and `hatch` word in `file` against what the
 /// app at `app_root` declares.
 pub(super) fn check(file: &File, app_root: &Path) -> Result<(), Vec<CompileError>> {
     let mut errors = check_modules(file, app_root).err().unwrap_or_default();
@@ -112,9 +112,9 @@ pub(super) fn check(file: &File, app_root: &Path) -> Result<(), Vec<CompileError
         &Words::DATA,
     ));
     errors.extend(check_words(
-        contract_lower::hook_words(file),
+        contract_lower::hatch_words(file),
         app_root,
-        &Words::HOOKS,
+        &Words::HATCHES,
     ));
     if errors.is_empty() {
         Ok(())

@@ -33,10 +33,10 @@
 //        a first mount, and `load` follows once no pixel of the last row shows
 // 112  focus_target(handle) → borrowed NSView * / UIView *; size ≥ 120; nullable
 //        the platform view or an attached descendant; nil refuses focus
-// 120  module_connect(module, host_table)       size ≥ 144; the hooks (LLP
-//        1075.003 §3.2), NativeHooks.swift: the host's callbacks, once
+// 120  module_connect(module, host_table)       size ≥ 144; the hatches (LLP
+//        1075.003 §3.2), NativeHatches.swift: the host's callbacks, once
 // 128  module_navigation(module, event, controller, flags) → flags
-//        event 0 built (the hook runs), 1 retired; bit 0 showsBar
+//        event 0 built (the hatch runs), 1 retired; bit 0 showsBar
 // 136  module_route(module, event, controller, navigation, scroll, json, len)
 //        event 0 built, 1 changed, 2 ended; json {"key", "data": {…}}
 // 144  module_tabs(module, event, controller, index)      size ≥ 168
@@ -46,9 +46,9 @@
 //        json {"names", "nodes", "selected"}; retained once, or nil (Exact's)
 // 160  platform_controller(handle) → UIViewController *, a native screen's
 // 168  module_element(module, event, view, platform, json, len) → flags
-//        size ≥ 176 (LLP 1075.003.000): a node marked `hook="word"`; event
-//        0 built, 1 changed, 2 ended; json {"hook", "node", "id", "kind",
-//        "data"}; flags bit 0: the hook made it reusable
+//        size ≥ 176 (LLP 1075.003.000): a node marked `hatch="word"`; event
+//        0 built, 1 changed, 2 ended; json {"hatch", "node", "id", "kind",
+//        "data"}; flags bit 0: the hatch made it reusable
 // 176  module_toolbar(module, toolbar, window)        size ≥ 184; macOS:
 //        the window toolbar Exact installed (LLP 1075.003.000 §3.7)
 //
@@ -120,13 +120,13 @@ private final class NativeTable {
     let moduleLater: ModuleLaterFn
     let moduleCall: ModuleLaterFn
     var prepareForReuse: ReuseFn?
-    /// The hooks (LLP 1075.003 §3.2), in a table of 144 bytes or more.
-    var connect: HookConnectFn?, navigationHook: HookNavigationFn?, routeHook: HookRouteFn?
+    /// The hatches (LLP 1075.003 §3.2), in a table of 144 bytes or more.
+    var connect: HatchConnectFn?, navigationHatch: HatchNavigationFn?, routeHatch: HatchRouteFn?
     /// Tabs and native screens, in a table of 168 bytes or more.
-    var tabsHook: HookTabsFn?, tabContainerHook: HookTabContainerFn?, platformController: ViewFn?
-    /// Hooked nodes (LLP 1075.003.000), in a table of 176 bytes or more;
-    /// the window toolbar's hook (macOS), in one of 184 or more.
-    var elementHook: HookElementFn?, toolbarHook: HookToolbarFn?
+    var tabsHatch: HatchTabsFn?, tabContainerHatch: HatchTabContainerFn?, platformController: ViewFn?
+    /// Hatched nodes (LLP 1075.003.000), in a table of 176 bytes or more;
+    /// the window toolbar's hatch (macOS), in one of 184 or more.
+    var elementHatch: HatchElementFn?, toolbarHatch: HatchToolbarFn?
     var agentInput: SetFn?
     var focusTarget: ViewFn?
 
@@ -181,17 +181,17 @@ private final class NativeTable {
         loaded.focusTarget = size >= 120 ? pointer(112).map { unsafeBitCast($0, to: ViewFn.self) } : nil
         loaded.prepareForReuse = size >= 112 ? pointer(104).map { unsafeBitCast($0, to: ReuseFn.self) } : nil
         if size >= 144 {
-            loaded.connect = pointer(120).map { unsafeBitCast($0, to: HookConnectFn.self) }
-            loaded.navigationHook = pointer(128).map { unsafeBitCast($0, to: HookNavigationFn.self) }
-            loaded.routeHook = pointer(136).map { unsafeBitCast($0, to: HookRouteFn.self) }
+            loaded.connect = pointer(120).map { unsafeBitCast($0, to: HatchConnectFn.self) }
+            loaded.navigationHatch = pointer(128).map { unsafeBitCast($0, to: HatchNavigationFn.self) }
+            loaded.routeHatch = pointer(136).map { unsafeBitCast($0, to: HatchRouteFn.self) }
         }
         if size >= 168 {
-            loaded.tabsHook = pointer(144).map { unsafeBitCast($0, to: HookTabsFn.self) }
-            loaded.tabContainerHook = pointer(152).map { unsafeBitCast($0, to: HookTabContainerFn.self) }
+            loaded.tabsHatch = pointer(144).map { unsafeBitCast($0, to: HatchTabsFn.self) }
+            loaded.tabContainerHatch = pointer(152).map { unsafeBitCast($0, to: HatchTabContainerFn.self) }
             loaded.platformController = pointer(160).map { unsafeBitCast($0, to: ViewFn.self) }
         }
-        if size >= 176 { loaded.elementHook = pointer(168).map { unsafeBitCast($0, to: HookElementFn.self) } }
-        if size >= 184 { loaded.toolbarHook = pointer(176).map { unsafeBitCast($0, to: HookToolbarFn.self) } }
+        if size >= 176 { loaded.elementHatch = pointer(168).map { unsafeBitCast($0, to: HatchElementFn.self) } }
+        if size >= 184 { loaded.toolbarHatch = pointer(176).map { unsafeBitCast($0, to: HatchToolbarFn.self) } }
         return .success(loaded)
     }
 }
@@ -450,14 +450,14 @@ final class NativeViews {
 
     private(set) var instance: UnsafeMutableRawPointer?
     private var instanceFailure: NativeFailure?
-    /// Whether the module's hooks are connected, and who replays them for
-    /// the objects built before (LLP 1075.003 §3.2; NativeHooks.swift).
-    var hooksConnected = false
-    var onHooksConnected: (() -> Void)?
-    var hookCalls: (navigation: HookNavigationFn, route: HookRouteFn)?
-    var tabCalls: (HookTabsFn, HookTabContainerFn)?
-    var elementCall: HookElementFn?
-    var toolbarCall: HookToolbarFn?
+    /// Whether the module's hatches are connected, and who replays them for
+    /// the objects built before (LLP 1075.003 §3.2; NativeHatches.swift).
+    var hatchesConnected = false
+    var onHatchesConnected: (() -> Void)?
+    var hatchCalls: (navigation: HatchNavigationFn, route: HatchRouteFn)?
+    var tabCalls: (HatchTabsFn, HatchTabContainerFn)?
+    var elementCall: HatchElementFn?
+    var toolbarCall: HatchToolbarFn?
 
     /// The session's one module instance, made at the first view or long
     /// call that needs it. Main thread.
@@ -481,9 +481,9 @@ final class NativeViews {
         }
         instance = made
         log("module instance made (agent \(ExactEnv.agentMode))")
-        if let connect = table.connect, let navigation = table.navigationHook, let route = table.routeHook {
-            let tabs = table.tabsHook.flatMap { tabs in table.tabContainerHook.map { (tabs, $0) } }
-            connectHooks(connect, navigation, route, tabs, table.elementHook, table.toolbarHook, made)
+        if let connect = table.connect, let navigation = table.navigationHatch, let route = table.routeHatch {
+            let tabs = table.tabsHatch.flatMap { tabs in table.tabContainerHatch.map { (tabs, $0) } }
+            connectHatches(connect, navigation, route, tabs, table.elementHatch, table.toolbarHatch, made)
         }
         return .success(made)
     }
@@ -572,7 +572,7 @@ final class NativeViews {
         #endif
         guard let instance, case .success(let table)? = NativeProcess.table else { return }
         self.instance = nil
-        hooksConnected = false
+        hatchesConnected = false
         table.moduleDestroy(instance)
         log("module instance destroyed")
     }
@@ -668,7 +668,7 @@ final class NativeViews {
     static func uninstallTable() { NativeProcess.table = nil }
     func install(module: UnsafeMutableRawPointer, gateOpen open: Bool = true) { instance = module; gateOpen = open }
     /// Tests: the process's artifact from a file and this session's module
-    /// made from it now, as the paint gate makes it (its hooks connect).
+    /// made from it now, as the paint gate makes it (its hatches connect).
     func installArtifact(_ path: String) {
         NativeProcess.table = NativeTable.load(path: path)
         hasAppModule = true

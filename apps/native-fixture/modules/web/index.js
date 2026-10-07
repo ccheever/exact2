@@ -56,20 +56,20 @@ export function destroy(h) {
   if (h.tag === 'exact-fixture') setTimeout(() => h.event(8, 'late'), 50);
 }
 
-// The hooks on the web (LLP 1075.003.000): the badge takes a context menu of
-// its own, an interaction Exact leaves to the app; each row's dot hook does
+// The hatches on the web (LLP 1075.003.000): the badge takes a context menu of
+// its own, an interaction Exact leaves to the app; each row's dot hatch does
 // nothing; every call is counted where the smoke reads it.
-const calls = (globalThis.exactFixtureHooks ??= {});
-const count = (e, moment) => { const key = `${e.hook}:${moment}`; calls[key] = (calls[key] ?? 0) + 1; };
+const calls = (globalThis.exactFixtureHatches ??= {});
+const count = (e, moment) => { const key = `${e.hatch}:${moment}`; calls[key] = (calls[key] ?? 0) + 1; };
 
 export function element(e) {
   count(e, e.isNew ? 'built' : 'changed');
-  if (e.hook === 'badge' && e.isNew) e.element.addEventListener('contextmenu', (event) => event.preventDefault());
+  if (e.hatch === 'badge' && e.isNew) e.element.addEventListener('contextmenu', (event) => event.preventDefault());
 }
 
 export function elementEnded(e) { count(e, 'ended'); }
 
-// The container hooks on the web: each counted, as the element hooks are.
+// The container hatches on the web: each counted, as the element hatches are.
 const tally = (key) => { calls[key] = (calls[key] ?? 0) + 1; };
 export function navigation() { tally('navigation:built'); }
 export function route() { tally('route:built'); }

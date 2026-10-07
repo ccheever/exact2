@@ -95,8 +95,8 @@ final class Presenter {
     lazy var segments = SegmentHost(self)
     lazy var controls = ControlHost(self)
     lazy var fieldSelections = FieldSelections(self)
-    /// Nodes marked `hook="word"` (LLP 1075.003.000).
-    lazy var elements = ElementHooks(self)
+    /// Nodes marked `hatch="word"` (LLP 1075.003.000).
+    lazy var elements = ElementHatches(self)
     lazy var shortcuts = ShortcutHost(presenter: self)
     lazy var toolbar = WindowToolbarHost(self)
     /// The head's title goes to the window the app attached, through the
@@ -839,7 +839,7 @@ final class Presenter {
     }
     private var waiting: [(UInt32, () -> Void)] = []
     private var afterBatchWork: [() -> Void] = []
-    /// Work for after the batch being applied, or now: a hook's act on an
+    /// Work for after the batch being applied, or now: a hatch's act on an
     /// element never lands inside a batch (LLP 1075.003 §3.4).
     func afterBatch(_ work: @escaping () -> Void) { if applying { afterBatchWork.append(work) } else { work() } }
     private func send(_ id: UInt32, _ f: @escaping () -> Void) {
@@ -912,7 +912,7 @@ final class Presenter {
         svg.seek(clock: session?.clock)
         let outermost = !applying
         applying = true
-        // Hooked nodes this batch destroys end first, while their views are
+        // Hatched nodes this batch destroys end first, while their views are
         // still in the window (a row's root is destroyed before its children).
         elements.begin(batch)
         // Create, frame or content ops: rows may have come or moved (`HeavyLeaves.batchApplied`).

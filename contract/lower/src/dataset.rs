@@ -2,7 +2,7 @@
 //! as HTML's custom data attributes. A node's words lower to one `dataset`
 //! row — keys sorted, values strings — through the `NativeProps` opcode
 //! (LLP 1024 §9), so a new word never touches the schema or the tag table.
-//! On the web they are real attributes (`el.dataset`); a native hook reads
+//! On the web they are real attributes (`el.dataset`); a native hatch reads
 //! a route's (LLP 1075.003 §3.2). A word names the app's meaning, not a
 //! platform property, and never makes a view (§1.2). The app declares its
 //! words in `app.json` (`"data"`), and the bake refuses one it lacks.
@@ -63,7 +63,7 @@ const HOST_WORDS: [&str; 84] = [
     "headtitle",
     "heightdragfor",
     "hitslop",
-    "hook",
+    "hatch",
     "hyphen",
     "initialitemcount",
     "keyboarddismissmode",
@@ -160,13 +160,13 @@ pub fn data_words(file: &File) -> Vec<(String, Span)> {
     attr_words(file, |a| word(&a.name).map(str::to_owned))
 }
 
-/// Every `hook` word the file's views use, with where (LLP 1075.003.000
-/// Q1): the driver checks them against `app.json` `hooks`
-/// (`bake-undeclared-hook`). Only a literal is a word; lowering refuses the
+/// Every `hatch` word the file's views use, with where (LLP 1075.003.000
+/// Q1): the driver checks them against `app.json` `hatches`
+/// (`bake-undeclared-hatch`). Only a literal is a word; lowering refuses the
 /// rest.
-pub fn hook_words(file: &File) -> Vec<(String, Span)> {
+pub fn hatch_words(file: &File) -> Vec<(String, Span)> {
     attr_words(file, |a| match &a.value {
-        Expr::Str(w, _) if a.name == "hook" => Some(w.clone()),
+        Expr::Str(w, _) if a.name == "hatch" => Some(w.clone()),
         _ => None,
     })
 }
@@ -208,27 +208,27 @@ fn attr_words(file: &File, pick: impl Fn(&Attr) -> Option<String> + Copy) -> Vec
     out
 }
 
-/// A `hook` the lowering refuses (LLP 1075.003.000 §3.1): on a module tag,
+/// A `hatch` the lowering refuses (LLP 1075.003.000 §3.1): on a module tag,
 /// whose instance is already the module's; anything but a literal, since a
-/// node hooked at run time would need its view made mid-row; a value that is
+/// node hatched at run time would need its view made mid-row; a value that is
 /// not a word.
-fn hook_refusal(tag: &str, a: &Attr) -> Option<LowerError> {
+fn hatch_refusal(tag: &str, a: &Attr) -> Option<LowerError> {
     let refused = |id: &'static str, message: String| err::<()>(id, message, a.span).err();
     if crate::is_module_tag(tag) {
         return refused(
-            "lower-hook-module",
-            format!("`{tag}` is a module view, already the module's own: it takes no `hook`"),
+            "lower-hatch-module",
+            format!("`{tag}` is a module view, already the module's own: it takes no `hatch`"),
         );
     }
     match &a.value {
         Expr::Str(w, _) if is_word(w) => None,
         Expr::Str(w, _) => refused(
-            "lower-hook-word",
-            format!("`hook=\"{w}\"` is not a word: lowercase words of letters and digits joined by `-`"),
+            "lower-hatch-word",
+            format!("`hatch=\"{w}\"` is not a word: lowercase words of letters and digits joined by `-`"),
         ),
         _ => refused(
-            "lower-hook-value",
-            "`hook` takes a literal word, never a binding: the build decides which nodes leave the fast path".to_owned(),
+            "lower-hatch-value",
+            "`hatch` takes a literal word, never a binding: the build decides which nodes leave the fast path".to_owned(),
         ),
     }
 }
@@ -247,8 +247,8 @@ impl Lowerer<'_> {
     ) {
         if let Some(e) = attrs
             .iter()
-            .find(|a| a.name == "hook")
-            .and_then(|a| hook_refusal(tag, a))
+            .find(|a| a.name == "hatch")
+            .and_then(|a| hatch_refusal(tag, a))
         {
             self.errors.push(e);
         }

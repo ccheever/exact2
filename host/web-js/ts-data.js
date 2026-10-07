@@ -173,7 +173,7 @@ const issue = op => {
 function landed(op, ok, value) {
   head = null;
   if (queue.length) issue(queue.shift());
-  // What the settle waits for ends after the reactions it lands (hooks.js).
+  // What the settle waits for ends after the reactions it lands (hatches.js).
   setTimeout(() => inflight.n--);
   if (ok) { counts.done++; op.resolve(value); return; }
   const error = codedError(value), line = `storage failed: ${op.what}: ${error.code} ${error.message}`;

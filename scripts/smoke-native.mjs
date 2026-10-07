@@ -8,8 +8,8 @@
 // shows the boxes and the tokened snapshot answers (Apple); and the failure
 // family — missing artifact, missing factory, wrong ABI, refused props —
 // each yields its named status, an empty box, a log line and a running app.
-// Then the hooks (LLP 1075.003): data-* words, the authored header under the
-// agent, the hooks' journal on iOS, and a push and its Back.
+// Then the hatches (LLP 1075.003): data-* words, the authored header under the
+// agent, the hatches' journal on iOS, and a push and its Back.
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -112,8 +112,8 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     st = await s.state();
     // (A browser's real pointer also hovers and focuses the element first.)
     check(st.slots.events.startsWith(EXPECTED_EVENTS) && st.slots.events.endsWith('press;'), `${host} native: a tap on the box is the node's press: ${JSON.stringify(st.slots.events)}`);
-    // The hooks (LLP 1075.003): the route's data-* words, the authored header
-    // under the agent (one presentation, LLP 1021 D4), the hooks' moments in
+    // The hatches (LLP 1075.003): the route's data-* words, the authored header
+    // under the agent (one presentation, LLP 1021 D4), the hatches' moments in
     // the journal (iOS; macOS projects no routes; the web's are checked
     // below), and a push and its Back.
     t = await s.tree();
@@ -127,47 +127,47 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     logs = await s.logs();
     const journal = `${lines}\n${logs.lines.join('\n')}`;
     if (host === 'ios') {
-      check(/hook: connected/.test(journal) && /hook navigation #1: built[\s\S]*hook route \d+: built/.test(journal), `${host} native: a stack's hook runs before its routes': ${journal.split('\n').filter((l) => /hook/.test(l)).join(' | ')}`);
+      check(/hatch: connected/.test(journal) && /hatch navigation #1: built[\s\S]*hatch route \d+: built/.test(journal), `${host} native: a stack's hatch runs before its routes': ${journal.split('\n').filter((l) => /hatch/.test(l)).join(' | ')}`);
     } else if (host === 'macos') {
       // macOS projects no routes; the web's page module has its own (below).
-      check(!/hook (navigation|route)/.test(journal), `${host} native: no route hook runs on macOS: ${logs.lines.filter((l) => /hook/.test(l)).join(' | ')}`);
+      check(!/hatch (navigation|route)/.test(journal), `${host} native: no route hatch runs on macOS: ${logs.lines.filter((l) => /hatch/.test(l)).join(' | ')}`);
     }
     await s.tap('compose-home'); await settle(s);
     check((await s.state()).slots.composed === 1, `${host} native: the authored Compose runs the handler a bar item presses`);
-    // The window toolbar's hook (macOS, LLP 1075.003.000 §3.7): its display
+    // The window toolbar's hatch (macOS, LLP 1075.003.000 §3.7): its display
     // mode and an item of the app's after Exact's, whose own items still press.
     if (host === 'macos') {
       await s.clock('settle');
       const bar = (await s.state()).window?.toolbar;
-      check(bar?.installed && bar.displayMode === 1 && bar.appItems?.includes('fixture.hooked') && bar.items?.at(-1) === 'fixture.hooked',
-        `${host} native: the toolbar hook sets the display mode and adds an item after Exact's: ${JSON.stringify(bar)}`);
+      check(bar?.installed && bar.displayMode === 1 && bar.appItems?.includes('fixture.hatched') && bar.items?.at(-1) === 'fixture.hatched',
+        `${host} native: the toolbar hatch sets the display mode and adds an item after Exact's: ${JSON.stringify(bar)}`);
       check(bar?.appEnabled?.every(Boolean), `${host} native: the app's own toolbar item is enabled (its target validates it): ${JSON.stringify(bar?.appEnabled)}`);
       await s.tap('toolbar-compose'); await settle(s);
       check((await s.state()).slots.composed === 2, `${host} native: Exact's toolbar item still presses its command`);
     }
     await s.tap('detail'); await settle(s);
     t = await until(s, 'the detail route is pushed', (t) => !!byTestId(t, 'route-detail'));
-    // Hooked nodes (LLP 1075.003.000): the tree shows each word, the hook
+    // Hatched nodes (LLP 1075.003.000): the tree shows each word, the hatch
     // hears a node's mount and its data-* change (`state` counts them; on the
     // web the fixture's page module does), and a development build journals a
     // write to what Exact owns of one (iOS).
-    const webCalls = async () => JSON.parse(await s.carrier.evaluate('JSON.stringify(globalThis.exactFixtureHooks ?? {})'));
-    const hookCalls = async (word) => host === 'web'
+    const webCalls = async () => JSON.parse(await s.carrier.evaluate('JSON.stringify(globalThis.exactFixtureHatches ?? {})'));
+    const hatchCalls = async (word) => host === 'web'
       ? Object.fromEntries(Object.entries(await webCalls()).filter(([k]) => k.startsWith(word + ':')).map(([k, v]) => [k.slice(word.length + 1), v]))
-      : (await s.state()).hooks?.[word]?.calls ?? {};
+      : (await s.state()).hatches?.[word]?.calls ?? {};
     {
       await s.clock('settle');
-      check(byTestId(await s.tree(), 'hooked-badge')?.props.hook === 'badge', `${host} native: the tree shows a node's hook word`);
-      const badge = await hookCalls('badge');
-      check(badge.built === 1 && badge.changed === 1, `${host} native: a hooked node is built, and its data-* change reaches its hook: ${JSON.stringify(badge)}`);
-      // The host's own count of the calls (`state.hooks`), every host alike.
-      const counted = (await s.state()).hooks?.badge;
-      check(counted?.calls?.built === 1 && counted.calls.changed === 1 && counted.live === 1, `${host} native: state.hooks counts the hook's calls: ${JSON.stringify(counted)}`);
+      check(byTestId(await s.tree(), 'hatched-badge')?.props.hatch === 'badge', `${host} native: the tree shows a node's hatch word`);
+      const badge = await hatchCalls('badge');
+      check(badge.built === 1 && badge.changed === 1, `${host} native: a hatched node is built, and its data-* change reaches its hatch: ${JSON.stringify(badge)}`);
+      // The host's own count of the calls (`state.hatches`), every host alike.
+      const counted = (await s.state()).hatches?.badge;
+      check(counted?.calls?.built === 1 && counted.calls.changed === 1 && counted.live === 1, `${host} native: state.hatches counts the hatch's calls: ${JSON.stringify(counted)}`);
       if (host === 'ios') {
         await s.tap('violate'); await settle(s);
         await s.tap('violate'); await settle(s);
         const owned = (await s.logs()).lines.join('\n');
-        check(/element detail-list #\d+: contentInset changed outside Exact, which owns it/.test(owned), `${host} native: the development check covers hooked nodes`);
+        check(/element detail-list #\d+: contentInset changed outside Exact, which owns it/.test(owned), `${host} native: the development check covers hatched nodes`);
       }
     }
     // An authored scrollTop lands as the browser's (LLP 1075.003 §3.7).
@@ -179,47 +179,47 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     t = await until(s, 'Back pops the detail route', (t) => !byTestId(t, 'route-detail'));
     if (host === 'ios') {
       logs = await s.logs();
-      check(logs.lines.some((l) => /hook route \d+: ended/.test(l)), `${host} native: a popped route's hook hears routeEnded`);
+      check(logs.lines.some((l) => /hatch route \d+: ended/.test(l)), `${host} native: a popped route's hatch hears routeEnded`);
     }
-    // A list whose rows each hold a hooked node: the journal names what the
-    // word gives up and warns for it in a row; a retired row's hook hears
+    // A list whose rows each hold a hatched node: the journal names what the
+    // word gives up and warns for it in a row; a retired row's hatch hears
     // `ended`; on iOS no row holding one is reused (LLP 1075.003.000 §3.3).
     {
       const takes = (await s.state()).pool?.takes;
       await s.tap('rows'); await settle(s);
-      t = await until(s, 'the hooked list shows rows', (t) => !!byTestId(t, 'row-1'));
+      t = await until(s, 'the hatched list shows rows', (t) => !!byTestId(t, 'row-1'));
       await s.clock('settle');
-      check((await hookCalls('dot')).built > 0, `${host} native: each shown row's node is hooked`);
-      await s.tap('hooked-list', { wheel: [0, 4000] }); await settle(s); await s.clock('settle');
-      const dot = await hookCalls('dot');
-      check(dot.ended > 0, `${host} native: a retired row's hook hears ended: ${JSON.stringify(dot)}`);
-      if (host === 'ios') check((await s.state()).pool?.takes === takes, `${host} native: a row holding a hooked node is never reused: ${takes} → ${(await s.state()).pool?.takes}`);
+      check((await hatchCalls('dot')).built > 0, `${host} native: each shown row's node is hatched`);
+      await s.tap('hatched-list', { wheel: [0, 4000] }); await settle(s); await s.clock('settle');
+      const dot = await hatchCalls('dot');
+      check(dot.ended > 0, `${host} native: a retired row's hatch hears ended: ${JSON.stringify(dot)}`);
+      if (host === 'ios') check((await s.state()).pool?.takes === takes, `${host} native: a row holding a hatched node is never reused: ${takes} → ${(await s.state()).pool?.takes}`);
       const said = (await s.logs()).lines.join('\n');
-      const gave = host === 'ios' ? /hook element dot: a view, not a flat leaf; its row is not reused/ : /hook element dot: nothing beyond the call/;
-      check(gave.test(said) && /hook element dot is in a row of list hooked-list/.test(said), `${host} native: the journal says what a hooked node gives up: ${said.split('\n').filter((l) => /hook element dot/.test(l)).slice(0, 3).join(' | ')}`);
-      // A hook that undoes what it adds says so (`reusable`, LLP
+      const gave = host === 'ios' ? /hatch element dot: a view, not a flat leaf; its row is not reused/ : /hatch element dot: nothing beyond the call/;
+      check(gave.test(said) && /hatch element dot is in a row of list hatched-list/.test(said), `${host} native: the journal says what a hatched node gives up: ${said.split('\n').filter((l) => /hatch element dot/.test(l)).slice(0, 3).join(' | ')}`);
+      // A hatch that undoes what it adds says so (`reusable`, LLP
       // 1075.003.000.000 §8): its rows are reused again. The live rows read
-      // the component's state the button flips, so their hooks hear it now.
+      // the component's state the button flips, so their hatches hear it now.
       if (host === 'ios') {
         await s.tap('reuse'); await settle(s); await s.clock('settle');
-        const live = (await s.tree()).nodes.filter((n) => n.props.hook === 'dot');
+        const live = (await s.tree()).nodes.filter((n) => n.props.hatch === 'dot');
         check(live.length > 0 && live.every((n) => n.props.dataset === '{"reuse":"true"}'), `${host} native: the live rows re-read the state the button flips: ${live.length} rows, ${[...new Set(live.map((n) => n.props.dataset))]}`);
         const from = (await s.state()).pool?.takes;
-        await s.tap('hooked-list', { wheel: [0, -4000] }); await settle(s); await s.clock('settle');
+        await s.tap('hatched-list', { wheel: [0, -4000] }); await settle(s); await s.clock('settle');
         const st = await s.state(), freed = (await s.logs()).lines.join('\n');
-        check(st.pool?.takes > from && st.hooks?.dot?.reusable > 0 && /hook element dot: its hook undoes what it adds; its row is reused/.test(freed),
-          `${host} native: a reusable hook's rows are reused: takes ${from} → ${st.pool?.takes}, ${JSON.stringify(st.hooks?.dot)}`);
+        check(st.pool?.takes > from && st.hatches?.dot?.reusable > 0 && /hatch element dot: its hatch undoes what it adds; its row is reused/.test(freed),
+          `${host} native: a reusable hatch's rows are reused: takes ${from} → ${st.pool?.takes}, ${JSON.stringify(st.hatches?.dot)}`);
       }
       await s.tap('back'); await settle(s);
-      t = await until(s, 'Back pops the rows route', (t) => !byTestId(t, 'hooked-list'));
+      t = await until(s, 'Back pops the rows route', (t) => !byTestId(t, 'hatched-list'));
     }
-    // The page module's container hooks (LLP 1075.003.000 §3.7): the root,
+    // The page module's container hatches (LLP 1075.003.000 §3.7): the root,
     // its tablist, each route as it mounts and as it leaves.
     if (host === 'web') {
       await s.clock('settle');
       const c = await webCalls();
       check(c['navigation:built'] === 1 && c['tabs:built'] === 1 && c['route:built'] >= 3 && c['route:ended'] >= 2,
-        `${host} native: the page module's container hooks run as routes mount and leave: ${JSON.stringify(c)}`);
+        `${host} native: the page module's container hatches run as routes mount and leave: ${JSON.stringify(c)}`);
     }
     // A sheet over the tabs, and its Close (LLP 1075.003 §3.7, from James's review).
     // (macOS projects no routes: there the sheet is its route, shown.)
