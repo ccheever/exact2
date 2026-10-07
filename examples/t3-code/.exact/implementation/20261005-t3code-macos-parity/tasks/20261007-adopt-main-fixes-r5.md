@@ -8,7 +8,7 @@ repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-adopt-main-fixes-r5
 pr_url: https://github.com/ccheever/exact2/pull/236
-verified_commit: e4087409d
+verified_commit: 35197a341
 ---
 
 # The clone adopts main's fixes, round 5 (#219, #220, #221, #223, #226; #113 checked)
@@ -19,8 +19,9 @@ The task branch records main `463acda68` in its ancestry and merges main `261dd4
 The PR must be merged with a merge commit, not squashed. Where a fix main merged covers what the clone
 worked around, the workaround is gone and the clone behaves as T3 Code does. Where it does not, the issue files
 name the open issue. The merge itself broke the clone: hooks were renamed access hatches, and LLP 1081 respells
-names Exact invents. The clone now follows both. Main's linked-SDK check cannot build an app named
-"T3 Code (Exact)" ([#234](https://github.com/ccheever/exact2/issues/234), filed here). `EXACT2-GAPS.md`,
+names Exact invents. The clone now follows both. Main's linked-SDK check could not build an app named
+"T3 Code (Exact)" ([#234](https://github.com/ccheever/exact2/issues/234), filed here). Main #240 fixed it, and the
+branch then merged main `1f19b2400`: the bundle builds with no shim and the clone needed no change. `EXACT2-GAPS.md`,
 `STATUS.md`, the issues README, the X11, X25, X26, X27 and X28 records and the task records with rows blocked by
 them are current.
 
@@ -54,13 +55,15 @@ checked for X27: `env()` names, `host.macos.window`, `exactViewport()` and `exac
 | ancestry | main `463acda68` (round 4 was squash-merged) | `463acda68` | recorded with `git merge -s ours`, no file changed | `f6faefc2d` |
 | merged main | origin/main into the task branch | `261dd4e10` | merge commit | `830eadecd`: `Cargo.lock` kept the `t3-code-macos` entry (Cargo then dropped `sys-locale`, which nothing uses), `QUEUE.md` kept both sides; no file under `examples/t3-code` changed |
 | records | `feat(example)/t3-code` | `fbce02624` (#231 records sync) | merged before the record edits | `efd2ed4b6`, no conflict |
+| records | `feat(example)/t3-code` | `f90277989` (#241 desktop parity audit) | merged before the storm-fix records | `f5a9e420d`, no conflict (documents only) |
+| merged main | origin/main into the task branch | `1f19b2400` (#240 fixes #234; also #232) | merge commit | `35197a341`. `QUEUE.md` and `docs/agent-pitfalls.md` kept both sides (each side added an entry), and no file under `examples/t3-code` changed. Built with no `otool` shim. Clone checks and the five checks pass on it unchanged |
 
 ## Decisions per issue
 
 | Issue | Result | Why |
 | --- | --- | --- |
 | merge breakage (61b33c2ca, 0bd99f606) | **fixed in the clone** | `hook=` → `hatch=` (76 attributes), app.json `hatches`, `ExactHatches`/`ExactHatchKey`/`ExactElement.hatch` in the module and its AppKit tests, `timeline.test.ts`; LLP 1081's script turned `spring(` into `-exact-spring(` (shell-morph, two rotations) and `tint-color` into `-exact-tint-color` |
-| #234 (new) | **filed**; local `otool` shim | `assertLinkedSdk` runs `otool -l "<app>/T3 Code (Exact)"`; otool reads `(Exact)` as an archive member and finds no SDK, so the build fails. `vtool -show-build` and `llvm-objdump` read the same file. The bundles here were built with a scratchpad `otool` that passes otool a symlink (not committed); renaming the app is not the clone's to do |
+| #234 (new) | **filed**, then **fixed by main #240 and adopted** (merged `1f19b2400`): the bundle builds with no shim, so no workaround is left. Before that, a local `otool` shim | `assertLinkedSdk` runs `otool -l "<app>/T3 Code (Exact)"`; otool reads `(Exact)` as an archive member and finds no SDK, so the build fails. `vtool -show-build` and `llvm-objdump` read the same file. The bundles here were built with a scratchpad `otool` that passes otool a symlink (not committed); renaming the app is not the clone's to do |
 | #114 / X28 | **adopted** (issue stays open for #224) | Thread notifications choose toast or system notification by `page.hasFocus`. The activity reporter's `visible`/`focused` are the page's (`activityFacts`), held until known and reported on each change. The details card asks `vcs.refreshStatus` when focus returns (GitActionsControl's `focus` listener, which the clone had left out). SnapShot settings re-read on focus. `T3Notifications.active` and the reporter's AppKit window reads are gone; badge, click and sounds stay for #224 |
 | #140 / X25 | **nothing to remove** (`closed-upstream`, #140 open) | Every monitor needs a window capture-phase handler or held-modifier state, or lives in a native view (terminal, device stream, composer) or the reference's own main-process code (held ⌘W, ⌘Q hold). Found: `press` already carries `MouseEvent` modifiers, which `T3ComposerIntent.take` and `T3Sidebar.pressModifiers` could use (not this round) |
 | #141 / X26 (#223) | **adopted** for the sidebar | The thread row's and draft row's right-click menus are context popovers with nested submenu popovers. Each row carries its menu (`menuRows`; the bulk menu on a selected row), and a choice runs `menu-choice`/`draft-choice`. A real right-click shows the same `NSMenu`, and the agent can now open and choose the menu. Menus opened from the keyboard stay `T3Sidebar.swift`'s ([#235](https://github.com/ccheever/exact2/issues/235), filed here) |
@@ -69,6 +72,7 @@ checked for X27: `env()` names, `host.macos.window`, `exactViewport()` and `exac
 | "native.watch outside an answer" (follow-up) | **fixed in the clone** (only the round-5 build showed it; the cause is clone code present in both builds) | Real input, one session per build: only the round-5 build showed the transcript banner after a failed Add environment (record 06). `letGoAware` (`let-go.ts`) passed `watch()` through after its answer was let go. A refresh let go inside one of `fleet.sync`'s tolerated reads went on to `readLocalBackend`, whose `native.watch('t3.local')` the prelude refuses outside an answer, and the refresh's catch wrote that Error into `client.error`. The watch now rejects as `superseded` once the answer is let go (`cf7b15baf`; `let-go.test.ts` reproduces the message through `client.refresh`). The path and the race are the same on the base. Why only the round-5 build showed it is a hypothesis: its page-fact answers (shellView, the details card, SnapShot settings) are asked again on each window activation, which may shift when the snapshot answer is let go. With one session per build, and an uncontrolled extra step in the after session (Snooze before its quit), chance explains it as well. No main commit introduced it (independent review: the prelude diff only adds database tracking, and `forget_calls` is unchanged); nothing was filed. Final session: no banner on `da3aae081` (record 07) |
 | Request storm (a): `vcs.refreshStatus` four times a second | **fixed in the clone** (2525124ca, 3373f7919, 3e939ecaa, e4087409d) | While a toast is up the window asks the strip (`composerBranches`) and the details card again every 500 ms (app.contract `shellTick`), and Exact lets the previous answers go. The strip's status read and the card's branch row read were kept only after a reply. A reply slower than the tick (refreshStatus can wait on a remote fetch) was therefore asked for on every tick, on the base as on this branch. The reference reads status from the subscribeVcsStatus stream (BranchToolbarBranchSelector, GitActionsControl), asks refreshStatus only on window focus (debounced 250 ms), on visibility and when a git menu opens, and shares one listRefs request per input (`listRefsFamily`). Now the strip and the card read the stream, which follows the strip's workspace while the card is closed. A kept read is a shared read: T3Transport answers an identical read still pending with the same reply, and a write naming a cwd ends the sharing for that cwd. A never-seen checkout assumes Git, as in ChatView. After a branch switch the stream resubscribes and the strip keeps the switched name until it reports. A first attempt resent on a 3 s clock (3373f7919); review 2 failed it, because the clock domains were mixed and the clock stops with the tick, and 3e939ecaa replaced it |
 | Request storm (b): nothing sent while a native menu is open | **framework, reported (not filed)**; the clone's own menus fixed (3373f7919) | ExactKit's `MenusMac.context()` (and `show()` for button menus) calls `menu.popUp` inside `DispatchQueue.main.async`. CoreFoundation does not drain the main queue in a run loop nested in its own callout, and ExactKit hands every `native.later` call to the module through that queue (`NativeModule.swift` `nativeLaterCallback`), so the calls wait until the menu closes. `.common` timers keep the runner ticking meanwhile. Exact repro (standalone, `menu-repro` in the session scratchpad): a menu opened inside `DispatchQueue.main.async` ran 0 of about 20 main-queue blocks posted during 2 s of tracking (NSEventTrackingRunLoopMode), while `.common` timers fired; the same menu opened from `CFRunLoopPerformBlock` in the common modes ran all of them. T3Transport is not at fault: its sends run on its own queue. The clone's own menus (keyboard thread menu, Files/PR, media, terminal) now open from a common-modes run-loop turn (`T3MenuTurn`) |
+| Shared reply over 512 KB (coordinator follow-up) | **fixed in the clone** (60ada7142) | A reply over 512 KB comes back as a native transfer that its reader releases once read (`protocol.ts` bridgeReply). Joined callers shared one finished reply, so the second read a transfer the first had released ("The pending server response was released."). Joined callers are now kept as a list, and each is finished on its own with its own transfer: on the reply, on a timeout and on retire. XCTest `testJoinedCallersEachReadTheirOwnLargeReply`: two joined callers, a 600 KB reply, each reads its transfer to the end and releases it. On `1ae9fab49` the second caller's chunk 7 is stale |
 | 64-pending refusal | **removed** (2525124ca) | The reference's RPC client (packages/client-runtime/src/rpc/client.ts) has no cap on pending requests, so a user's snooze queued behind reads still goes out. Each pending request still ends at its deadline (30 s at most), and the outbox and 16-stream limits stay |
 | #113 / X27 | **re-checked: still missing** | No `titlebar-area-*`, title-bar setting or full-screen fact on `261dd4e10`. No open issue tracks the rest (user decision) |
 
@@ -95,10 +99,13 @@ real input. Final session (coordinator-approved, one after-build session on `da3
 app, but the snooze was refused: "Failed to snooze thread / Too many server requests are already pending." No thread
 was snoozed. The coordinator then had the request storm fixed in this PR (a: the repeated status read, b: the menu
 stall, and the 64-pending cap), with one real-input session on the after build: the native menu choice **passed**
-(record 08). Verification: passed. Every check that runs here passes on the verified implementation `e4087409d` (runner
-attempt 6, `source_unchanged: true`, source digest `b10abe46`:
-[`attempt6-report.json`](../evidence/20261007-adopt-main-fixes-r5/attempt6-report.json); attempts 1-5 are kept; recipe and
-`swift-tests.sh` beside them; the runner marks the live checks unavailable, and they were run by hand: records 07 and 08).
+(record 08). Two more changes followed on the coordinator's word: each joined caller of a shared read gets its own native
+transfer (60ada7142), and main `1f19b2400` was merged (#240 fixes #234, so the bundle builds with no shim; no clone
+change needed). Verification: passed. Every check that runs here passes on `35197a341`, the merge that holds both (runner
+attempt 8, `source_unchanged: true`, source digest `f2b0db9f`:
+[`attempt8-report.json`](../evidence/20261007-adopt-main-fixes-r5/attempt8-report.json); attempts 1-7 are kept; recipe and
+`swift-tests.sh` beside them). The live checks were run by hand on `e4087409d` (records 07 and 08), before the transfer fix
+and the main merge; those two are covered by tests and builds, not by another session.
 Independent reviews: [`review.md`](../evidence/20261007-adopt-main-fixes-r5/review.md) (the watch fix PASS; the storm fix
 PASS, then FAIL on 3373f7919, then PASS on the shared reads). The task stays under `tasks/` for the coordinator's records
 sync; the PR stays a draft.
@@ -108,6 +115,7 @@ sync; the PR stays a draft.
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
 | 1 (2026-10-07) | `830eadecd` (merged base, no clone change) | `bun test examples/t3-code` 2312 pass / 1 skip / 0 fail; strict tsc clean; **`contract build` failed** (21 refusals: `box`/`column`/`list`/`button` have no attribute `hook`; `spring(` is spelled `-exact-spring(`); **`cargo test -p t3-code-macos --lib` failed** (the bake in `build.rs`, same refusals); after the migration 2542 slots / 45 resources and 11/0; **macOS bundle build failed** (#234) | — | #234 (worked around locally) |
+| 6 (2026-10-08, transfer and main) | `60ada7142` (transfer fix); `35197a341` (main `1f19b2400`) | The XCTest above fails on `1ae9fab49` and passes now. Main merged with no clone change. The bundle builds with no `otool` shim. `bun test examples/t3-code` 2323 pass / 1 skip / 0 fail; strict tsc clean; `contract build` 2546 slots / 46 resources; `cargo test -p t3-code-macos --lib` 11/0; AppKit binaries 29 pass (mermaid and snapshot as before); five checks: see below; caps ok. No live session (not needed for these) | runner attempts 7–8 | none |
 | 5 (2026-10-08, storm fix) | `e4087409d` (bundle built with the `otool` shim) | Tests that fail before and pass after: `vcs-status-cadence.test.ts` (5 status reads in 2 s and 9 with the card open before, at most one now; the picker leaves its loading state when the shared reply reaches the answer that joined it, which fails on 3373f7919), XCTests `testPendingRequestsHaveNoCapAsInTheReference` (17 refusals before) and `testSharedReadsJoinAnIdenticalPendingOne`. `bun test examples/t3-code` 2323 pass / 1 skip / 0 fail; strict tsc clean; `contract build` 2546 slots / 46 resources; `cargo test -p t3-code-macos --lib` 11/0; AppKit binaries 29 pass (mermaid and snapshot as before); five checks green (3377 passed, 0 failed, 33 ignored); caps ok. One real-input session under `.realinput-lock` (00:29:57-00:32:45, no retry): real right-click on "First lane thread", Snooze ▸ open 11 s, a real click on "In 1 hour (1:30 AM)" at window point (410, 308): "Snoozed 1 thread, ⌘Z to undo", the row in Snoozed, the server's snoozedUntil 16:31:12.913Z for a click at 15:31:11.841Z; Wake thread (real right-click, element click) emptied it. The proxy's full request log: one refreshStatus, one listRefs, nothing per tick, activity reports kept their 25 s cadence while the second menu was open | record 08; image 08 | none |
 | 4 (2026-10-07, final session) | `da3aae081` (bundle built with the `otool` shim) | One real-input session under `.realinput-lock` (21:56–22:00), no retry. Item 1: after Add environment the tree has "Could not connect to the server." (dialog and page) and no "native.watch outside an answer", also after Back: **passed**. Item 2: real right-click on "First lane thread", Snooze ▸ (element), then "In 1 hour (10:57 PM)" clicked at window point (410, 308) from the screenshot. The app showed "Failed to snooze thread / Too many server requests are already pending." The six rows were unchanged, so there was nothing to un-snooze: **failed**. The menu was open 17 s while the screenshot was read. In that time no frame left the proxy, and 64 `vcs.refreshStatus` went out within 4 ms after it closed. The client was sending `vcs.refreshStatus` at 4 per second (2 per 500 ms), the rate the base showed too, so the transport's 64-pending cap (`T3Transport.swift`) refused the snooze | record 07; image 07 | the repeated `vcs.refreshStatus` (Next action) |
 | 3 (2026-10-07, follow-up) | `364f5baa6` (sessions); `cf7b15baf` (fix) | Real input, one session per build under `.realinput-lock` (21:26–21:28): before no banner, after "native.watch outside an answer" (record 06); the after session's real right-click opened the native menu and its Snooze submenu, but no submenu item could be chosen (the accessibility tree lists only the top-level items). Fix `cf7b15baf`: `bun test examples/t3-code` 2318 pass / 1 skip / 0 fail (1 added, and the seam test checks `watch()`); strict tsc clean; `contract build` 2546 slots / 46 resources; `cargo test -p t3-code-macos --lib` 11/0; five checks: see Checks | record 06; runner attempts 1–2; review | the two live checks (Next action) |
@@ -212,13 +220,14 @@ restored it at once with a note, and since then the helper releases only a lock 
 
 Findings for follow-ups (not this task):
 - Resolved in the follow-up: "native.watch outside an answer" (Decisions per issue); passed on a build in the final session.
-- Resolved in the storm fix: the repeated `vcs.refreshStatus` and the 64-pending refusal (Decisions per issue).
+- Resolved in the storm fix: the repeated `vcs.refreshStatus` and the 64-pending refusal (Decisions per issue). The
+  shared large reply, a review finding at first, was fixed after (60ada7142).
 - Reported, not filed (framework): ExactKit's `MenusMac` opens context and button menus inside `DispatchQueue.main.async`,
   so no `native.later` call reaches a module while one is open (Decisions per issue, with the repro). With the clone's
   reads no longer repeated per tick, nothing piles up behind a menu here, and the reported cadence is unaffected.
 - From the storm reviews, not fixed here: `runModal` calls inside main-queue blocks (`T3ContextMenu.swift` save panels,
   `T3PanelsNative.swift`, `R6DeviceStream.swift`) stall the main queue the same way while open. A shared reply over 512 KB
-  hands every joined caller one native transfer, which the first reader releases. A never-seen non-Git checkout shows
+  handed every joined caller one native transfer, which the first reader released (fixed in 60ada7142). A never-seen non-Git checkout shows
   the assumed-Git strip until its status arrives, as ChatView does.
 - From the follow-up's independent review ([`review.md`](../evidence/20261007-adopt-main-fixes-r5/review.md)), none of
   them observed. Other let-go paths still show something or lose state. `auto-balance.ts` `retargetDraft` toasts "Could
@@ -232,14 +241,17 @@ Findings for follow-ups (not this task):
 ## Next action
 
 Review the PR ([#236](https://github.com/ccheever/exact2/pull/236)). Not done, each with its blocker:
-- **The bundle builds only with a local `otool` shim on main `261dd4e10`.** Blocker: #234.
 - **Menus opened from the keyboard** at a focused row still use `T3Sidebar.swift`. Blocker: #235.
 - **The Files tree's (Open with ▸) and the legacy sidebar project's right-click menus** are still the module's
   `NSMenu`s. They look like the reference's, but the agent cannot choose from them. Blocker: user decision (a
   follow-up task; this round's live-drive budget was spent on the sidebar menus #223 was filed for).
 - **X27's remaining facts.** Blocker: user decision (no open issue tracks the rest of #113).
-- **Notification click actions and the Dock badge** (#224), **nested backdrops and `saturate()`** (#225),
-  **capture-phase and held-modifier keys** (#140), **an app-declared menu bar** (#141): upstream.
+- **Notification click actions and the Dock badge** (#224), **capture-phase and held-modifier keys** (#140), **an
+  app-declared menu bar** (#141): upstream.
+- **Glass beyond the parent's subtree and `saturate()`** (X11). #225 closed when main #232 merged (`saturate()` beside
+  `blur()`, now in this branch), but #232 says cross-parent sampling on macOS stays open, and no open issue tracks it. The
+  flattened glass stays. Blocker: user decision (adopt `saturate()` where the parent's subtree suffices, and whether the
+  rest becomes an issue).
 
 Nothing is left unverified. The native menu choice with real input passed in the storm-fix session (record 08), and the
 banner fix passed in the final session (record 07).
