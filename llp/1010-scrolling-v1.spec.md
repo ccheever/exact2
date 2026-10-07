@@ -1066,9 +1066,12 @@ end stopped short of it, and a clamped `scrollIntoView` with it. Now:
   frames and reports from it, the scroll event already reads CSS's 0 at the
   top, and a content inset would make `contentOffset` negative at the top
   and need every reader (the scroll event, chaining, corrections, the
-  agent) to subtract it. `PaddedRefreshControl` moves the control's drawing
-  down by `padding-top` (its bounds' origin; UIKit sets its frame as the
-  pull goes). macOS: the flipped document view is the rows and both
+  agent) to subtract it. `PaddedRefreshControl` places the control's top
+  `padding-top` down the scroller's port after each of UIKit's layouts, as
+  React Native's `RCTRefreshControl` applies `progressViewOffset`: behind the
+  content, uncovered between the header and the first row as the pull
+  opens. (r1 shifted its bounds' origin; Grok's review: UIKit lays the
+  spinner out in those bounds, so it stayed put.) macOS: the flipped document view is the rows and both
   paddings, as before. Linux: nothing changed (`geometry` already read both
   paddings).
 
@@ -1076,7 +1079,12 @@ end stopped short of it, and a clamped `scrollIntoView` with it. Now:
 row near the top clamps at the first row's start, not at `scrollTop` 0: an
 offset never counts back into the padding before the first row. `reachstart`
 fires for a port anywhere in that padding, which is before the first row.
-Linux still refuses reorder facts for a list with main-axis padding
+Before the first report the runner knows no padding, so `scroll-start="end"`'s
+opening correction is the rows' extent; a host clamps it to the true end
+unless `padding-bottom` is taller than the port, and then the first report
+corrects it. With `padding-bottom` at least two ports tall, the last row is
+out of the window at the true end and `reachend` does not fire there. Linux
+still refuses reorder facts for a list with main-axis padding
 (`reorder_facts_current`), so a padded list does not reorder there.
 
 Tests: `collection_inset.rs` (row 0 below the padding, the true end kept
