@@ -8,7 +8,7 @@ repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-local-primary-environment
 pr_url: https://github.com/ccheever/exact2/pull/237
-verified_commit: 73495bba08915e246cba4dbbbb694ea3dfa6bd7c
+verified_commit: 8997645e807a2d1d3b55bf868bff647b3e5adb87
 ---
 
 # "This machine" is a real primary environment backed by the embedded server
@@ -158,7 +158,7 @@ smoke is not run without the user's explicit go). U4 (relaunch) is decided; exac
 | 5. Switch, dialogs, off state | Reference copy for both dialogs; "Restarting…" with spinner, buttons disabled, Escape ignored, the section held still while it runs; inline red error on failure. Cancel takes the focus, Tab stays on the two buttons, Escape is Cancel's and returns the focus to the switch; 200 ms fade and 98 % scale each way, spinner still under reduced motion (the reference's `dialog-styles.ts` and Spinner `motion-safe:`). Off: the home's "The local environment is turned off…" with "Open Connections". `applyLocalSetting` stopgap: off hands the focus to a saved environment and stops the server (SIGTERM, SIGKILL after 2 s, at most 5 s); on starts it and connects when nothing else is focused. | `this-machine.contract`, `this-machine.ts`, `app-settings.contract`, `pages-home.ts`, `pages-hero.contract`, `T3LocalBackend.swift` (`setEnabled`) |
 | 6. First run | `firstRun.logic.ts` ported with its tests (`first-run.ts`, 43 tests); `primaryDecision` uses `resolveFirstRunDecision` with the primary's `welcome` lifecycle event (`subscribeServerLifecycle`), the hosted rule stays for no primary; the wizard lists the primary first and preselected. | `first-run.ts`, `local-lifecycle.ts`, `pages-welcome.ts` |
 | 7. Fatal start | "T3 Code failed to start" / "Stage: <stage>" and the message, once, then quit; Return and Escape dismiss; port exhaustion is fatal, a crashing server backs off. | `T3LocalFatal.swift`, `T3LocalBackend.swift` |
-| 8. Keep-alive | `createRunningThreadKeepAliveAtom` ported as `runningThreadKeepAlive` (3 reference tests by name); each environment keeps `keep:<thread>` detail streams (limit 6) on its own transport; opening a kept thread starts from its detail, also across a fleet focus change. | `keep-alive.ts`, `settings-b-fleet.ts`, `client.ts` (via `local-environment.ts`) |
+| 8. Keep-alive | `createRunningThreadKeepAliveAtom` ported as `runningThreadKeepAlive` (3 reference tests by name); each environment keeps a running thread's detail on its own transport (limit 6): its bounded snapshot over HTTP, then `keep:<thread>` after its sequence, as the reference's thread state; opening a kept thread starts from its detail with no refetch, also across a fleet focus change (a reconnect no longer synchronizes twice, `client.ts` drain). | `keep-alive.ts`, `settings-b-fleet.ts`, `client.ts` (via `local-environment.ts`) |
 | 9. CN5 toast | Loading toast "Restoring your threads…" / "Migrating N threads from the previous version. You can keep working while this finishes." (`toLocaleString`), no timeout, closed when the migration leaves `running`; primary only. | `local-lifecycle.ts` |
 
 `app.contract` (1500 lines) and `client.ts` (882 lines) keep their base lengths; `client.ts` reaches this task's
@@ -170,14 +170,14 @@ hooks through `local-environment.ts`.
 | --- | --- | --- |
 | Ported tests | Pass with the original names: `firstRun.logic.test.ts` (43), `createRunningThreadKeepAliveAtom` (3), `environmentBootstrap` / `folderDropTarget` cases | `bun test` |
 | Fresh start | Pass: lane home and port 16801, the server starts, the wizard lists "Daehyeon's MacBook Pro http://127.0.0.1:16801/ Connected" first and preselected, no refused operation; 1280×840 and 840×620, light and dark | drive A1, pair `01-first-run.png` |
-| Work end to end | Partly: a project added (lane home has it). Starting a turn, a reply, an approval and the diff need a provider: **blocked** by the user's provider sign-in hold (2026-10-06); the codex/claude stubs show "Open provider settings" | drive A2 |
+| Work end to end | Pass with a real Claude login (the provider lane's, reused by path; hold lifted 2026-10-07): project "work" added on the primary, a Supervised thread on Claude streamed "I'll read greet.py and add the farewell function.", a File change approval for `greet.py` was approved, the reply finished ("1 changed file"), and Open diff showed `greet.py` +4. Read back: the lane home's database holds the project (`…/projects/work`) and the thread (`claudeAgent`, `approval-required`); `git diff` in the project shows `farewell` (+4) | session P, pair `09-work-end-to-end.png` |
 | Trace (`trace-diff T0`) | **Blocked**: user decision 2026-10-06, the oracle/trace tools are not built | — |
 | Switch off and on | Pass: dialog copy and states; server pid 24931 gone at off, new pid 28991 at on (agent); 87904 → off → 3279 (real input, retry session 9587 → off → 12937); off home text. "Relaunch keeps the setting": see the relaunch row | drives A2, real input, pairs `02`–`05` |
 | No stale origin | Pass: two launches of the lane copy on ports 16805 and 16806; the primary connected on each; its defaults domain held only `t3.server.focus = primary`, no `t3.server.origin` | real input, `defaults read` |
-| Keep-alive | Unit-verified (reference tests and the clone's wiring). Live: **blocked**: a running thread needs a provider (provider sign-in hold, 2026-10-06) | `keep-alive.test.ts` |
+| Keep-alive | Pass, after two fixes this row found. Two environments (the primary and a second lane server on 16812, each with Claude): a Claude turn running on the second while the primary is focused; its sidebar row shows Working; opening it shows its live state at 100 ms and the stream continues to the end. The second server's log: the bounded snapshot is fetched once while it is in the background (the keep-alive) and not on opening. First run: the kept stream started from sequence 0, never went live, so opening refetched (fixed `3cc1ac4d9`); second run: a reconnect's spurious inbox reset resynchronized and refetched once (fixed `8997645e8`); third run: no refetch. A thread Claude leaves "Waiting" (a background monitor) is not kept, as the reference's `isRunning` | sessions P, Q, R; pair `10-keep-alive.png`; `keep-alive.test.ts`, `client.test.ts` |
 | Migration toast (CN5) | Pass with a lane stub server (lifecycle `running` then `complete`; replaces trace-proxy, user decision 2026-10-06): "Restoring your threads…" / "Migrating 1,234 threads…", closed on complete; no toast on the base. Live legacy data unverified | drive B, pair `06-migration-toast.png` |
 | Crash while open | Pass: kill -9 of the recorded server pid 78791, restart pid 81646 after 0.6 s, the primary "Reconnecting…" then "Connected", no alert | drive C |
-| Dialog keyboard and focus | Pass under real input (`orca computer`), after a fix this pass found: Cancel takes the focus on open (the first pass left it on the switch), Tab and Shift+Tab alternate Cancel and the confirm, Escape closes and returns the focus to the switch (server pid unchanged), Enter on Cancel closes without a restart, Space on the switch opens it, the ring shows on Cancel; both dialogs. Checked against the reference's source (Base UI AlertDialog), not the oracle (**blocked**: oracle not built, user decision 2026-10-06). 840×620 not driven: the task's live budget (one drive and one retry) was spent | real input, pair `08-dialog-keyboard.png` |
+| Dialog keyboard and focus | Pass under real input (`orca computer`), after a fix this pass found: Cancel takes the focus on open (the first pass left it on the switch), Tab and Shift+Tab alternate Cancel and the confirm, Escape closes and returns the focus to the switch (server pid unchanged), Enter on Cancel closes without a restart, Space on the switch opens it, the ring shows on Cancel; both dialogs. Checked against the reference's source (Base UI AlertDialog), not the oracle (**blocked**: oracle not built, user decision 2026-10-06). At 840×620 (agent driver, light and dark): Cancel focused on open, Tab → confirm → Cancel, Shift+Tab → confirm, Escape and Enter on Cancel close it and focus the switch, server pid unchanged | real input, session P; pairs `08-dialog-keyboard.png`, `11-dialog-840.png` |
 | "Restarting…" state | Pass: lane server holding SIGTERM 1.8 s; "Restarting…" with a turning spinner (two real-input frames differ only in the spinner), both buttons disabled, Escape ignored, the switch disabled; forced start failure shows the red inline error, retry turns it on | drive B3, real input, pair `04-restarting.png` |
 | Restart-failure and fatal-start dialogs | Pass: `LocalSwitchTests` (7) — failed start answers why, port exhaustion is fatal with the stage then quits, the alert shows once, Return and Escape dismiss | AppKit `local-backend` |
 | Reduced motion | Pass against the reference's source: its dialog has no reduced-motion variant (`dialog-styles.ts`), so the 200 ms fade and scale still run (frames B09a–c); the Spinner is `motion-safe:`, so it stays still (B10a/b). This corrects the ticket's expected result. The oracle frame comparison is **blocked** (oracle not built, user decision 2026-10-06) | drive B3 |
@@ -188,23 +188,31 @@ hooks through `local-environment.ts`.
 Seen while driving, not this task's: under real input, the Add Environment form in the re-signed lane copy stopped at
 "The server credential could not be saved in Keychain." (an ad hoc re-signed copy with a new bundle id; macOS's
 SecurityAgent prompt was left unanswered). The pairing itself reached the server, and no "native.watch outside an
-answer" error appeared on this branch (asked by the round-5 adoption, PR #236).
+answer" error appeared on this branch (asked by the round-5 adoption, PR #236). In sessions Q and R, adding the second
+environment from Settings › Connections › Add environment connected with no error either.
+
+Provider setup for the live rows (lane, not committed): the provider lane's Claude login is reused by path, never
+copied. Each lane T3 home's `userdata/settings.json` gives the `claudeAgent` instance a `binaryPath` (a lane symlink
+to `~/.local/bin/claude`) and an instance environment of `HOME` (the user's) and `CLAUDE_CONFIG_DIR` (the provider
+lane's `att/claude`); the lane servers keep their own HOME, XDG_* and T3 home. The second server also needs `USER`
+(the CLI's Keychain lookup) and runs outside the tool sandbox; no logout was run.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| 1 | `c872d6f3c`, `3a79e9877`, `3d743f09d` | Built scope items 1–9; agent drives A1, A2, B, B3, C on lane ports 16801–16804 with isolated homes; `~/.t3` mtimes unchanged, nothing on 3773 | lane evidence (not committed); PR pairs `01`–`07` | provider hold (end to end, keep-alive live); oracle not built (trace, oracle comparisons); #117 / X31; #122 / X45; U13 |
+| 1 | `c872d6f3c`, `3a79e9877`, `3d743f09d` | Built scope items 1–9; agent drives A1, A2, B, B3, C on lane ports 16801–16804 with isolated homes; `~/.t3` mtimes unchanged, nothing on 3773 | lane evidence (not committed); PR pairs `01`–`07` | provider hold (end to end, keep-alive live; lifted 2026-10-07, attempt 4); oracle not built (trace, oracle comparisons); #117 / X31; #122 / X45; U13 |
 | 2 | `8f2240e75` | Real-input pass (one drive) found the dialog's initial focus on the switch and Tab leaving the modal; fixed (the switch moves the focus to Cancel; the buttons keep Tab), retried once: pass | PR pair `08-dialog-keyboard.png` | same |
-| 3 | `73495bba0` + records | `client.ts` back to its base 882 lines through `local-environment.ts`; final checks below | PR body | same |
+| 3 | `73495bba0` + records | `client.ts` back to its base 882 lines through `local-environment.ts` | PR body | same |
+| 4 | `3cc1ac4d9`, `8997645e8` | Provider hold lifted (2026-10-07). Live session P (agent driver, lock held): work end to end on Claude, the dialog at 840×620, keep-alive found the kept stream never going live; fixed. Session Q: the handoff applied but a spurious reset refetched; fixed. Session R: no refetch. Final checks below | pairs `09`–`11` | oracle not built; #117 / X31; #122 / X45; U13 |
 
-Final checks on `73495bba0`:
-- `bun test examples/t3-code`: 2384 tests in 196 files; 2383 pass, 1 skip, 0 fail.
+Final checks on `8997645e8`:
+- `bun test examples/t3-code`: 2386 tests in 196 files; 2385 pass, 1 skip, 0 fail.
 - Strict `tsc`: clean.
 - `contract build`: 2545 slots, 45 resources, 2617 actions, 59013 nodes.
 - `cargo test -p t3-code-macos --lib`: 11 passed.
 - The app bundle builds and bakes.
-- AppKit binaries (README recipe), 31 plus `timeline-keyboard`, all 0 failures:
+- AppKit binaries (README recipe, run on `73495bba0`; no Swift changed since), 31 plus `timeline-keyboard`, all 0 failures:
   - transport 53 (`PrimaryTransportTests` 4, new), local-backend 51 (`LocalSwitchTests` 7, new), fleet 9.
   - `mermaid` 10 ok against a lane server.
   - `snapshot` 86 checks with the real HOME. Under a lane HOME, its keyboard-layout check reads the input source from HOME and fails; this task does not touch that code.
@@ -214,6 +222,6 @@ Final checks on `73495bba0`:
 
 ## Next action
 
-Review of the draft PR; the user answers U5, U6, U7 and U13. Then: the real-`~/.t3` smoke on U13's go; the provider
-rows when the sign-in hold lifts; the oracle rows if the oracle is built; the relaunch rows when exact2 has a process
-relaunch (#122 / X45); the window gate when #117 / X31 lands.
+Review of the draft PR; the user answers U5, U6, U7 and U13. Then: the real-`~/.t3` smoke on U13's go; the oracle
+rows if the oracle is built; the relaunch rows when exact2 has a process relaunch (#122 / X45); the window gate when
+#117 / X31 lands.
