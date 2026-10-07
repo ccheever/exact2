@@ -109,3 +109,73 @@ AFTER   logs: forget request 48, 51, 72 (data), 62 (branches), 86 (details); no 
 ## Next action
 
 Review the PR.
+
+## 2026-10-07 desktop audit: residual cancelled-refresh banner
+
+The landed suppression still has a path that exposes `native.watch outside an answer` in the
+transcript's `error-banner`. This is a residual finding against this task's existing outcome;
+the frontmatter remains `implemented`, `unverified`, `merged`. No fix or new verification of
+the implementation is recorded here.
+
+### Live observation
+
+Audit clone revision: `fbce02624d2e33449ee2cde34497083d6fd47457`.
+In `target/desktop-audit/native-actions.ndjson`, line 263 at `2026-10-07T11:53:18.628Z` first
+contains the error, immediately after `tap diff-scope-unstaged` changed the open Changes panel
+from **Changes** to **Uncommitted**. The preceding scope-menu snapshot, line 262, has no such
+error. The new text node is `40639` under `error-banner`, with a Dismiss error button beside it.
+It is a transcript banner, not a toast.
+
+The same text node persists through later terminal creation, typing, split and close actions.
+The terminal screenshot therefore inherited the error; terminal input was not its first
+observed trigger. The scope selection identifies when the banner first became visible, not
+which native operation was cancelled. The later `native/audit-panel-logs.json` capture contains
+only the latest 4,096 journal entries, reports 6,600 dropped entries and has no matching failure
+record. It cannot establish the original cancelled operation.
+
+Local evidence, relative to the checkout root (not committed):
+
+- `target/desktop-audit/native-actions.ndjson`, lines 262–282.
+- `target/desktop-audit/native/native-diff-scope.{png,json}` and
+  `native-diff-uncommitted.{png,json}`.
+- `target/desktop-audit/native/native-terminal-echo.{png,json}`.
+- [Cancelled-refresh probe](../../../../../../../target/desktop-audit/watch-probe/repro.ts) and
+  [recorded output](../../../../../../../target/desktop-audit/watch-probe/output.ndjson).
+
+### Repeatable causal probe
+
+Run from the audit checkout root:
+
+```sh
+bun target/desktop-audit/watch-probe/repro.ts
+```
+
+The probe uses the actual `T3Client.command` and `refresh` methods with the existing `opened()`
+fixture. Its native stub simulates an answer being let go: the selected call rejects with
+`FetchError { kind: "Aborted" }`, then `watch` refuses that answer's continuation. This models
+`js/src/prelude.js`, where `__exact_forget` drains rejected continuations without a current
+answer and `native.watch` requires a pending answer.
+
+| Case | Observed result |
+| --- | --- |
+| Abort `review.getDiffPreview` during `command('diff-scope', '', 'unstaged', 0, ...)` | Command message, banner and diff error remain empty; no toast |
+| Complete that command, then abort the following refresh's `environments` call | `client.error` becomes `native.watch outside an answer`; no diff error or toast |
+
+Verified source path for the second case:
+
+1. `app.contract:413` declares that the `changed` mutation refreshes `data`.
+2. `settings-b-fleet.ts:90-93`, `EnvironmentFleet.sync`, catches the cancelled `environments`
+   read and returns without propagating the cancellation.
+3. `client.ts:312-313`, `T3Client.refresh`, proceeds from `fleet.sync` to `readLocalBackend`.
+4. `local-backend.ts:63` calls `native.watch('t3.local')`.
+5. `let-go.ts:36`, `letGoAware`, forwards `watch` without checking the `gone` state that guards
+   `later`. The runtime's refusal becomes a plain Error; `client.ts:333` copies it to `client.error`.
+
+The probe establishes a repeatable escape from the landed suppression. It does not prove that
+`environments` was the operation cancelled in the original live occurrence. X14's closed
+watched-topic reply-ownership issue and the terminal tasks do not replace this task's ownership.
+
+Follow-up: preserve cancellation through the fleet-read path and the native wrapper, add a
+regression case that refuses `watch` after cancellation, and verify a rebuilt macOS app during
+scope changes and concurrent refreshes. Continue showing real network/server failures. No such
+fix, rebuilt-app repeat or verification-status change was performed by this audit note.
