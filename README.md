@@ -9,15 +9,19 @@ agent can build it, run it, see it, and test it on every one of them.**
 >
 > ```text
 > Clone https://github.com/ccheever/exact2 and follow its README to make a new Exact
-> app with `exact new`: a todo list where I can add items, check them off, delete them,
+> app with `exact new`. Run `bun scripts/exact.mjs setup` once first. Make a todo
+> list where I can add items, check them off, delete them,
 > and see how many are left. Put the view in Contract and keep the list in `app.ts`.
 > Write an `app.test.contract`, pass it on web, macOS, and the iOS Simulator with
 > `scripts/agent.mjs`, then open the app for me on all three.
 > ```
 >
-> A fresh Claude Code session given this prompt finished in about 23 minutes, most of it
-> spent on the first native builds, and its tests passed on all three platforms. On a
-> machine that has never built Hermes, that build comes first and adds time.
+> A fresh agent given the earlier version of this prompt on a clean clone (2026-10-04, Hermes already in the
+> machine cache, Cargo's cache warm) finished in about 57 minutes, and its tests passed
+> on all three platforms. About 25 of those minutes were the first macOS and iOS builds,
+> roughly 13 minutes each; later builds take a minute or two. On a machine that has
+> lacked Hermes, its source build came first and added time. Current setup downloads and
+> verifies the pinned host/iOS bundles once instead; ordinary builds stay offline.
 
 <table>
   <tr>
@@ -73,9 +77,9 @@ in the UI, and no app JavaScript runs before the first pixel.
 Exact assumes much of the code will be written by AI agents. An agent can make an app,
 run it, look at it, operate it, and prove it works without a person in the loop.
 
-- **Nine operations, the same on every host.** `tree · screenshot · tap · type · state
-  · layout · logs · clock · prefer` drive the web, macOS, iOS (Simulator or a real
-  iPhone), and Linux through one script, `scripts/agent.mjs`. There are nine on purpose:
+- **Ten operations, the same on every host.** `tree · screenshot · tap · type · state
+  · layout · logs · clock · prefer · perf` drive the web, macOS, iOS (Simulator or a real
+  iPhone), and Linux through one script, `scripts/agent.mjs`. There are ten on purpose:
   the predecessor's agent API grew to eighty wire names, one reasonable addition at a
   time.
 - **The clock belongs to the agent.** Between two operations nothing moves. Instead of
@@ -200,17 +204,36 @@ Linux host.
 - **Google Chrome.** The agent drives the web through headless Chrome. Set `CHROME` to
   use another Chromium.
 - **Xcode**, for the macOS and iOS hosts.
-- **Hermes**, only for TypeScript apps on native hosts. Clone
-  [expo/ibex](https://github.com/expo/ibex) beside this repository and build it once:
-  `git clone https://github.com/expo/ibex ../ibex && (cd ../ibex && ./scripts/build-hermes.sh --vanilla)`.
+- **Hermes**, only for TypeScript apps on native hosts. Exact consumes Ibex's
+  pinned, attested `260318099.0.4` release bundle; ordinary Cargo builds are
+  offline and never download or compile an engine. Install it once for each
+  target before building (for this Mac, use `aarch64-apple-darwin`):
+
+  ```sh
+  cargo run --manifest-path vendor/ibex/crates/hermes-lean-sys-installer/Cargo.toml -- --target <triple>
+  ```
+
+  The installer verifies the bundle and publishes it under
+  `~/.cargo/hermes-lean-sys/`. The v4 set supports macOS, Linux, Windows, iOS
+  devices and the universal iOS Simulator, plus tvOS devices and arm64 tvOS
+  Simulators. Linux and Windows select Ibex's English `intl` tier; Apple keeps
+  Hermes's OS-backed Intl.
+  `HERMES_LEAN_SYS_DIR` is only an explicit development
+  override, not normal setup.
 
 To install the pinned Bun beside any existing installation:
 `curl -fsSL https://bun.sh/install | BUN_INSTALL=~/.bun-1.4.2 bash -s bun-v1.4.2`.
 Use `~/.bun-1.4.2/bin/bun` for the commands below if it is not on your PATH.
 `bun scripts/exact.mjs setup` installs the declared stable and web nightly Rust
-toolchains, their components/targets, matching wasm-bindgen, pinned Binaryen and
-Bun dependencies. It keeps Binaryen in `~/.cache/exact/binaryen`; builds find it
-automatically. `setup --check` checks the installed tools without installing them.
+toolchains, their components/targets (the nightly's clippy lints a game's web bake),
+matching wasm-bindgen, pinned Binaryen and Bun dependencies, installs the pinned
+Hermes host bundle and the iOS/tvOS bundles this Mac builds, and fetches the crates
+of exact2's lock and the game SDK's (`game/app/shells.lock`), since every bake
+resolves offline. It keeps Binaryen in `~/.cache/exact/binaryen`; builds find it
+automatically. `setup --check` invokes Ibex's installer in its offline check mode for
+that same target set. The resolver authenticates the canonical receipts, archives,
+compiler and host/target HBC pairing without installing anything; its exit status and
+diagnostic are the check's result.
 
 ### 2. Run Caltrain in the browser
 
@@ -224,17 +247,22 @@ bun host/web/dev.mjs            # Caltrain, at http://127.0.0.1:8765/
 The first run compiles the toolchain, which takes a few minutes. After that, open
 [`apps/caltrain/app.contract`](apps/caltrain/app.contract), change some text, and save.
 The page rebuilds and reloads in about a tenth of a second. Add `--lan` to open the
-same page from a phone on your network.
+same page from a phone on your network. The server answers only to the names it
+prints (a DNS-rebinding guard; any other `Host` gets 421); to share it through a
+tunnel such as `tuft host`, name the tunnel's host with `--allow-host <name>`
+(repeatable; `name:port` pins a port). An allowed name reaches the page and its
+reload stream, never the local installer's token.
 
 ### 3. Run it natively
 
 ```sh
 bun host/apple/build.mjs --run              # macOS
 bun host/apple/build.mjs --ios --run        # an iOS Simulator (--device --run for a connected iPhone)
-cargo build --release -p caltrain-linux     # Linux: a DRM/KMS console, or headless anywhere
+cargo build --profile host-dev -p caltrain-linux   # Linux: a DRM/KMS console, or headless anywhere (--release to ship)
 ```
 
-A first native build takes a few minutes; later builds reuse it. iOS commands use an
+A first native build takes ten to fifteen minutes on a laptop; later builds reuse it
+and take a minute or two. Watch its output rather than waiting blind. iOS commands use an
 iPhone simulator that's already booted, or boot the newest iPhone Pro. To choose one,
 set `EXACT_SIM` to its name or UDID (or pass `--sim` to `build.mjs`), and keep the same
 setting for `agent.mjs ios`.
@@ -248,7 +276,9 @@ bun scripts/agent.mjs web --test apps/caltrain/app.test.contract
 ```
 
 Swap `web` for `macos`, `ios`, or `linux` once that host is built. Caltrain's three
-tests take about two seconds on the web host. `"screenshot film.png over 600 every 50"`
+tests take about two seconds on the web host. Each operation is one shell argument, so
+quote it: `"type new-todo Buy milk"` types `Buy milk` (everything after the target is
+the text). `"screenshot film.png over 600 every 50"`
 films motion as a contact sheet; use an `.apng` name to get an animation.
 
 ### 5. Make your own app
@@ -256,20 +286,31 @@ films motion as a contact sheet; use an `.apng` name to get an animation.
 ```sh
 bun scripts/exact.mjs new ../hello          # or run `bun link` once, then `exact new ../hello`
 cd ../hello
+bun exact.mjs contract types app.contract -o app.contract.d.ts   # first run builds the compiler
 bun exact.mjs web                           # the dev loop, at http://127.0.0.1:8765/
+bun exact.mjs test web tests/*.test.contract # app.test.contract, or the test files named
 bun exact.mjs mac --run                     # this Mac
 bun exact.mjs ios --run                     # an iOS Simulator
 ```
 
 `exact new` creates a standalone app: `app.contract` (the view), `app.ts` (its data),
 `app.json` (the manifest: name, bundle id, hosts, deploy policy), and small `web/` and
-`apple/` host crates. It has its own Cargo workspace, which uses your exact2 checkout
+`apple/` host crates. Its `AGENTS.md` (and `CLAUDE.md`) tells a coding agent where the
+guides are and lists the app's commands, including `bun exact.mjs contract …` for the
+compiler and `contract vocab` for every tag and property Contract accepts. Before any of
+it, run `bun scripts/exact.mjs setup` once; `setup --check` names everything this machine
+is missing without changing it. It has its own Cargo workspace, which uses your exact2 checkout
 by path. To drive it from exact2, point `EXACT_APP_DIR` at it:
 
 ```sh
 EXACT_APP_DIR=../hello bun host/web/build.mjs hello-web
 EXACT_APP_DIR=../hello bun scripts/agent.mjs web --app hello tree "screenshot hello.png"
 ```
+
+Look at every screenshot, not just the test result: a test passes on a layout that
+spills off the screen. `bun exact.mjs agent <host> "screenshot out.png"` shows the app
+on each host in its own session; for a copy you launched yourself, use
+`xcrun simctl io <device> screenshot out.png` on iOS.
 
 `bun scripts/exact.mjs` also runs apps from this repository as real Mac apps:
 `exact run markdown README.md`, or `exact install markdown` to put `mdview` on your
@@ -286,7 +327,7 @@ files, or run arbitrary code. That's what data sources are for. Here is a comple
 app: a Contract file, a TypeScript file, and a test. This exact app was built for web,
 macOS, and the iOS Simulator, and its test passed on all three.
 
-```
+```contract
 // app.contract: the view, its state, and what each action changes
 shape Todo
   id: string
@@ -364,7 +405,7 @@ export const answer: Answer = (source, args, store, storage, native) =>
   sources[source](args, store, storage, native);
 ```
 
-```
+```contract-test
 // app.test.contract: runs on any host with `scripts/agent.mjs <host> --test`
 test "add, finish and delete"
   expect text "count" == "0 left"
@@ -460,6 +501,15 @@ Each app lives in [`apps/<name>/`](apps). Run one on the web with
 `bun host/apple/build.mjs <name>-apple --run`, and on iOS by adding `--ios`. All of
 these screenshots come from the web host, taken by `scripts/agent.mjs`.
 
+To learn from, read these four first:
+
+| App | What it teaches |
+|---|---|
+| [Caltrain](apps/caltrain) | A Rust data crate, authored tests, routes, an optional GPU module |
+| [Weatherlight](apps/weatherlight) | TypeScript with `fetch` and grants |
+| [Fieldnotes](apps/fieldnotes) | Storage: SQLite, files, backup and restore |
+| [Recorder](apps/recorder) | Localized strings and native modules |
+
 <table>
   <tr>
     <td width="25%"><img src="docs/screenshots/caltrain-web.webp" width="200" alt="Caltrain"></td>
@@ -480,7 +530,7 @@ these screenshots come from the web host, taken by `scripts/agent.mjs`.
     <td><img src="docs/screenshots/video-player.webp" width="200" alt="Video Player"></td>
   </tr>
   <tr valign="top">
-    <td><a href="examples/ios/calendar"><b>Calendar</b></a><br>Month pages, draggable sheets, events dragged between days, wallpaper themes, SQLite. It lives outside <code>apps/</code>, so set <code>EXACT_APP_DIR</code> to run it.</td>
+    <td><a href="examples/calendar"><b>Calendar</b></a><br>Month pages, draggable sheets, events dragged between days, wallpaper themes, SQLite. It lives outside <code>apps/</code>, so set <code>EXACT_APP_DIR</code> to run it.</td>
     <td><a href="apps/sparkline"><b>Sparkline</b></a><br>A market list of animated SVG charts that draw in and pulse.</td>
     <td><a href="apps/photo-editor"><b>Photo Editor</b></a><br>Rotate, pan, and crop, through a native module.</td>
     <td><a href="apps/video-player"><b>Video Player</b></a><br>A bundled clip that shrinks out of the way when the keyboard opens.</td>
@@ -585,8 +635,11 @@ else here was admitted because a real app needed it.
 
 ### Not yet, or not at all
 
-- **Windows and Android.** Deferred. A Direct2D host exists in the predecessor, and it
-  gets ported once the loop is proven.
+- **Windows.** An initial native host runs Skirmish with the shared renderer and
+  optional game engine. [Windows Desk](apps/windows-desk/README.md) demonstrates
+  native controls over Contract and the kernel with an app-local Win32 presenter;
+  general Windows control parity and delivery remain unfinished.
+- **Android.** Deferred.
 - **No JSX or React tier.** Nothing runs JavaScript above the data seam. The door stays
   open, but no one is building it.
 - **TypeScript can't import npm packages yet.** `app.ts` imports only its own local

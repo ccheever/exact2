@@ -5,14 +5,31 @@ import { basename, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { open as openSession, render } from '../scripts/agent.mjs';
+import { cdpFailureContext, gameNonInput } from '../scripts/agent-launch.mjs';
 import { appleArtifacts } from '../host/apple/build.mjs';
 import { buildBake, resolveApp } from '../scripts/app.mjs';
 import { closeFilesystemReader } from '../scripts/filesystem.mjs';
 
+/** Some runtime-created stacks omit the informative Error message. */
+export function formatProofError(error) {
+  const message = String(error), stack = error?.stack;
+  const rendered = typeof stack === 'string' && stack.length
+    ? stack.includes(message) ? stack : `${message}\n${stack}`
+    : message;
+  const context = cdpFailureContext(error);
+  return context ? `${rendered}\nCDP ${JSON.stringify(context)}` : rendered;
+}
+
+/** The failed operation's report row; never serialize the Error or its handles. */
+export function proofFailureRow(session, method, args, clock, error) {
+  const context = cdpFailureContext(error);
+  return {session, method, args, clock, error:error.message, steps:error.steps, ...(context ? {cdp:context} : {})};
+}
+
 // Offline diagnostics over existing state reads (LLP 1012; LLP 1046.001 D2/D5).
 // These are inspection captures, not EXSIM saves or a second simulation codec.
 export async function captureWorld(session, name = 'world') {
-  const snapshot = await session.world(name).snapshot();
+  const snapshot = await session.world(name).snapshot({all:true});
   const {world} = await session.op({op:'state', ...await session.target(name), world:true});
   if (!world || snapshot.tick !== world.tick || snapshot.hash !== world.hash)
     throw new Error('world changed during capture; capture on the agent clock with no concurrent drive');
@@ -58,6 +75,18 @@ function validateWorldCapture(capture) {
 }
 
 /** Exact JSON-value comparison, with stable entity names and positional array indices. */
+/** The accessible names the platform exposes (LLP 1080.002 `tree --ax`), for
+ * a proof's name checks: `{unavailable: true}` where the host exposes no
+ * accessibility tree (Linux), else `name(testId)` (the view's own element first)
+ * and `all`, every element's name. A check reads `ax.unavailable || ax.name(id) === X`. */
+export async function axNames(session) {
+  const {ax} = await session.tree(null, {ax: true});
+  if (ax?.unavailable) return {unavailable: true, name: () => undefined, all: []};
+  const elements = ax?.elements ?? [];
+  const of = id => elements.find(e => e.testId === id && e.via === 'self') ?? elements.find(e => e.testId === id);
+  return {unavailable: false, name: id => of(id)?.name, frame: id => of(id)?.frame, all: elements.map(e => e.name)};
+}
+
 export function diffWorlds(before, after, {limit = 100} = {}) {
   validateWorldCapture(before); validateWorldCapture(after);
   if (before.name !== after.name) throw new Error('cannot compare captures of different games');
@@ -140,6 +169,9 @@ export function artifactDigest(host, dist, artifacts) {
     if (host === 'web') {
       readFileSync(resolve(dist, 'exact.json'));
       walk(dist, 'dist');
+    } else if (host === 'windows') {
+      readFileSync(artifacts.binary); readFileSync(artifacts.module);
+      walk(dirname(artifacts.binary), 'product');
     } else if (host === 'linux') {
       for (const path of [artifacts.binary, artifacts.module]) manifest.push([basename(path), createHash('sha256').update(readFileSync(path)).digest('hex')]);
     } else {
@@ -159,7 +191,7 @@ export function artifactDigest(host, dist, artifacts) {
 export function buildInputHash(host, target, mode = '0', profile = process.env.EXACT_GAME_PROOF_PROFILE ?? 'gpu-dev') {
   const hash = createHash('sha256').update(host).update(target);
   if (host === 'web') hash.update(mode);
-  if (host === 'linux') hash.update(profile);
+  if (host === 'linux' || host === 'windows') hash.update(profile);
   return hash;
 }
 export async function ensureBuildReceipt({receipt, inputs, artifact, build}) {
@@ -195,10 +227,15 @@ export function equal(a, b) {
 
 export const webUnavailable = log => /web carrier unavailable:[^\n]*: ENOENT;/.test(log);
 
+// Both native carriers exercise the same engine Save/FreshGame protocol. Keep
+// Linux as the canonical lane whenever requested, including mixed host runs.
+export const nativeProofHost = hosts => hosts.includes('linux') ? 'linux' : hosts.includes('windows') ? 'windows' : null;
+
 // Compare observed pins, never the old expected values, before touching pins.json.
 export function agreePins(rows, previous, hosts, app) {
   const modes = ['0', '1', 'fresh-game'];
-  if (!hosts.includes('linux')) throw new Error('repin refused: linux continuous / Save / FreshGame are required');
+  const native = nativeProofHost(hosts);
+  if (!native) throw new Error('repin refused: linux or windows continuous / Save / FreshGame are required');
   let reference;
   for (const host of hosts) for (const mode of modes) {
     const matches = rows.filter(row => row.host === host && row.mode === mode && row.profile !== 'release');
@@ -219,9 +256,9 @@ export function agreePins(rows, previous, hosts, app) {
     }
     reference ??= row;
   }
-  const release = rows.filter(row => row.host === 'linux' && row.mode === '0' && row.profile === 'release');
+  const release = rows.filter(row => row.host === native && row.mode === '0' && row.profile === 'release');
   if (release.length !== 1 || release[0].failures?.length || !equal(release[0].pins, reference.pins))
-    throw new Error('repin refused: linux release proof missing, failed, or disagrees with gpu-dev; pins.json unchanged');
+    throw new Error(`repin refused: ${native} release proof missing, failed, or disagrees with gpu-dev; pins.json unchanged`);
   return {...reference.pins, hosts};
 }
 export function pinInputs(rows) {
@@ -298,15 +335,18 @@ export function facilityReport(replies) {
 /// Whether a repository file is outside a game's deterministic build inputs:
 /// other games, the bench and its probes, the twins, diaries, LLPs, apps, build
 /// outputs. Source extensions, app assets, and Apple module inputs are admitted.
+/// A game's own scripts (bench.mjs, a proxy, a probe) are tools, not bake inputs:
+/// no bake reads a .mjs/.js outside its logic, data, gpu, render and asset folders.
 export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`) {
   return /^(issues|\.claude)\//.test(file)
     || /(^|\/)(pins\.json|proof\.mjs|.*\.test\.mjs|.*\.md)$/.test(file)
+    || (file.startsWith(appPrefix) && gameNonInput(file.slice(appPrefix.length)))
     || (!/\.(rs|toml|lock|contract|ts|js|mjs|wgsl|json|swift|h|c|html|css|modulemap)$/.test(file)
       && !(file.startsWith('host/apple/') && !basename(file).includes('.'))
       && !['art/', 'assets/', 'deck/'].some(dir => file.startsWith(appPrefix + dir)))
     || (/^(game\/(bench|twins|diaries|artifacts)\/|llp\/)/.test(file) && !file.startsWith(appPrefix))
     || (file.startsWith('game/games/') && !file.startsWith(appPrefix))
-    || ['node_modules/', 'target/', '.shells/', 'dist/', 'dist.previous/', 'artifacts/'].some(output => file.startsWith(output) || file.startsWith('game/' + output) || file.startsWith(appPrefix + output))
+    || ['node_modules/', 'target/', '.shells/', 'dist/', 'dist.previous/', 'dist-windows/', 'artifacts/'].some(output => file.startsWith(output) || file.startsWith('game/' + output) || file.startsWith(appPrefix + output))
     || /^(host\/web\/dist(?:\.previous)?|host\/apple\/\.build|game\/render\/target)\//.test(file)
     || (file.startsWith('apps/') && !file.startsWith(appPrefix))
     || (file.startsWith('game/') && /\/(tests|examples)\//.test(file));
@@ -316,17 +356,17 @@ export function proofInputFiles(root, app, inventory) {
   const repository = top.status === 0 ? top.stdout.trim() : root;
   const files = inventory ?? spawnSync('git', ['ls-files','-z','--cached','--others','--exclude-standard'], {cwd:repository, encoding:'utf8'});
   const walk = (dir, prefix = '') => readdirSync(dir, {withFileTypes:true}).flatMap(entry => {
-    if (['.git','node_modules'].includes(entry.name) || (!prefix && ['target','.build','.shells','dist','dist.previous','artifacts'].includes(entry.name))) return [];
+    if (['.git','node_modules'].includes(entry.name) || (!prefix && ['target','.build','.shells','dist','dist.previous','dist-windows','artifacts'].includes(entry.name))) return [];
     const path = prefix + entry.name;
     return entry.isDirectory() ? walk(resolve(dir,entry.name), path + '/') : entry.isFile() ? [path] : [];
   });
   // Fleet exports have no Git index; external games are outside exact2's index.
   // Always include the app's own inputs, even when its defaults are gitignored.
   const sources = files.status === 0 ? files.stdout.split('\0').filter(Boolean) : walk(repository);
-  sources.push(...walk(app).map(file => relative(repository, resolve(app, file))));
-  const prefix = relative(repository, app) + '/';
+  sources.push(...walk(app).map(file => relative(repository, resolve(app, file)).replaceAll('\\', '/')));
+  const prefix = relative(repository, app).replaceAll('\\', '/') + '/';
   return [...new Set(sources)].sort().filter(file =>
-    !proofInputExcluded(file, basename(app), prefix) && existsSync(resolve(repository, file))).map(file => relative(root, resolve(repository, file))).sort();
+    !proofInputExcluded(file, basename(app), prefix) && existsSync(resolve(repository, file))).map(file => relative(root, resolve(repository, file)).replaceAll('\\', '/')).sort();
 }
 // Clean tracked bytes are identified by Git blobs. Dirty/ignored app inputs and
 // products reuse their digest only while their full stat tuple is unchanged.
@@ -343,7 +383,7 @@ export function proofInputs(root, app, cachePath) {
   }
   const dirty=new Set((status.stdout??'').split('\0').filter(row=>row && row[1]!==' ').map(row=>row.slice(3)));
   let cache={}; try {cache=JSON.parse(readFileSync(cachePath,'utf8'));} catch { /* First proof. */ }
-  const next={}, rows=[], prefix=relative(root,app)+'/', groups={all:[],gpu:[],host:[]}; let reads=0;
+  const next={}, rows=[], prefix=relative(root,app).replaceAll('\\','/')+'/', groups={all:[],gpu:[],host:[]}; let reads=0;
   const files=proofInputFiles(root,app,listed.status===0 ? {status:0,stdout:paths.join('\0')} : undefined);
   for(const file of files) {
     const path=resolve(root,file), key=statKey(path); let digest=blobs.get(file);
@@ -359,7 +399,7 @@ export function proofInputs(root, app, cachePath) {
     // Host bake depends on the declaration, not the game's implementation.
     // Shared compiler crates remain conservative inputs of both graphs.
     const own=file.startsWith(prefix) ? file.slice(prefix.length) : null;
-    const gpuOnly=own!==null ? /^(logic|gpu|art|assets|deck)\//.test(own) : /^game\/(engine|render|physics|audio|bake)\//.test(file);
+    const gpuOnly=own!==null ? /^(logic|gpu|render|art|assets|deck)\//.test(own) : /^game\/(engine|render|physics|audio|bake)\//.test(file);
     const hostOnly=own!==null ? /\.contract$/.test(own) : /^host\//.test(file);
     if(!hostOnly) groups.gpu.push(row);
     if(!gpuOnly) groups.host.push(row);
@@ -423,7 +463,7 @@ export async function proof(meta, script) {
   mkdirSync(out, {recursive:true});
   // Re-execute the actual proof, comparing every session's final simulation state.
   if (process.argv.includes('--paranoid')) {
-    if (!['web', 'linux'].includes(host)) throw new Error('--paranoid supports web and linux');
+    if (!['web', 'linux', 'windows'].includes(host)) throw new Error('--paranoid supports web, linux and windows');
     const failed = await paranoidRuns(async mode => {
       const started = performance.now();
       const child = spawn(process.execPath, [fileURLToPath(meta.url), host], {
@@ -440,7 +480,7 @@ export async function proof(meta, script) {
     }, host);
     process.exit(failed ? 1 : 0);
   }
-  const finalWorlds = [], observations = new Map();
+  const finalWorlds = [], paranoidSamples = [], observations = new Map();
   const previousPins = JSON.parse(readFileSync(resolve(app, 'pins.json'), 'utf8'));
   const collecting = process.env.EXACT_PROOF_REPIN === '1';
   const compareParanoid = process.env.EXACT_GAME_PARANOID_COMPARE === '1';
@@ -476,7 +516,7 @@ export async function proof(meta, script) {
     child.on('exit', code => finish(code === 0 ? output.trim().split('\n').map(parseInventoryLine).filter(Boolean) : null));
   });
   const sample = () => {
-    if (host === 'linux' || host === 'ios' || auditUnavailable || inventoryPending) return;
+    if (host === 'linux' || host === 'windows' || host === 'ios' || auditUnavailable || inventoryPending) return;
     inventoryPending = inventory().then(rows => {
       const owned = new Set([process.pid, ...children.map(child => child.pid)]);
       for (let changed = true; changed;) {
@@ -514,6 +554,7 @@ export async function proof(meta, script) {
               .map(({from, next, lines, tick}) => Object.fromEntries(
                 Object.entries({from, next, lines, tick}).filter(([,value]) => value !== undefined)))});
           if (!world?.hash) throw new Error('paranoid comparison: final world hash missing');
+          if (world.paranoid) paranoidSamples.push({session:id, ...world.paranoid});
         }
         sample();
       } finally {
@@ -535,14 +576,14 @@ export async function proof(meta, script) {
           replies.push({session:id, method, args, reply, clock:target.now});
           return reply;
         } catch (error) {
-          replies.push({session:id, method, args, clock:target.now, error:error.message, steps:error.steps}); if (error.steps) say(render('type', {steps:error.steps})); throw error;
+          replies.push(proofFailureRow(id, method, args, target.now, error)); if (error.steps) say(render('type', {steps:error.steps})); throw error;
         }
       };
     }});
   };
   let inputDigest;
   try {
-    if (!['web','macos','ios','linux'].includes(host)) throw new Error(`proof host unavailable: ${host}`);
+    if (!['web','macos','ios','linux','windows'].includes(host)) throw new Error(`proof host unavailable: ${host}`);
     const appInfo = resolveApp(name);
     const inputs = proofInputs(root, app, resolve(buildOut, 'input-digests.json'));
     inputDigest = inputs.all;
@@ -551,8 +592,10 @@ export async function proof(meta, script) {
     const linuxTarget = host === 'linux' ? spawnSync('rustc', ['-vV'], {encoding:'utf8'}).stdout.match(/^host: (.+)$/m)?.[1] : null;
     const profile = process.env.EXACT_GAME_PROOF_PROFILE ?? 'gpu-dev';
     if (!['gpu-dev', 'release'].includes(profile)) throw new Error('EXACT_GAME_PROOF_PROFILE must be gpu-dev or release');
-    const artifacts = host === 'linux' ? {binary:resolve(appInfo.target, linuxTarget, `${profile}/${appInfo.crate('linux')}`), module:resolve(appInfo.target, linuxTarget, `${profile}/lib${appInfo.crate('gpu').replaceAll('-','_')}.${process.platform === 'darwin' ? 'dylib' : 'so'}`)} : host === 'web' ? null : appleArtifacts(appInfo, {destination:host === 'macos' ? 'macos' : device ? 'ios' : 'ios-simulator'});
+    const artifacts = host === 'windows' ? {binary:resolve(appInfo.dir, `dist-windows/${appInfo.crate('windows')}.exe`), module:resolve(appInfo.dir, `dist-windows/${appInfo.crate('gpu').replaceAll('-','_')}.dll`)}
+      : host === 'linux' ? {binary:resolve(appInfo.target, linuxTarget, `${profile}/${appInfo.crate('linux')}`), module:resolve(appInfo.target, linuxTarget, `${profile}/lib${appInfo.crate('gpu').replaceAll('-','_')}.${process.platform === 'darwin' ? 'dylib' : 'so'}`)} : host === 'web' ? null : appleArtifacts(appInfo, {destination:host === 'macos' ? 'macos' : device ? 'ios' : 'ios-simulator'});
     if (host === 'linux') process.env.EXACT_LINUX_BIN = artifacts.binary;
+    if (host === 'windows') process.env.EXACT_WINDOWS_BIN = artifacts.binary;
     const built = host === 'linux' && profile === 'gpu-dev' ? await ensureLinuxReceipts({
       directory:buildOut, gpuInputs:inputHash(inputs.gpu),
       completeGpu:() => writeFileSync(artifacts.module + '.proof.json',readFileSync(resolve(buildOut,'build-linux-gpu.sha256'))),
@@ -571,7 +614,9 @@ export async function proof(meta, script) {
         // Native mode is read at launch; keep compile-time environment stable.
         buildBake(appInfo, 'linux', linuxTarget, {profile, env:{EXACT_GAME_PARANOID:'0'}});
       } else {
-        const child = spawn('bun', [resolve(root,host === 'web' ? 'host/web/build.mjs' : 'host/apple/build.mjs'), ...(host === 'web' ? ['--wasm'] : device ? ['--device', ...(phone ? ['--phone', phone] : [])] : host === 'ios' ? ['--ios'] : host === 'macos' ? ['--bundle'] : [])], {cwd:root, env:process.env, stdio:'inherit'});
+        const script = host === 'windows' ? 'host/windows/build.mjs' : host === 'web' ? 'host/web/build.mjs' : 'host/apple/build.mjs';
+        const flags = host === 'windows' ? (profile === 'release' ? ['--release'] : []) : host === 'web' ? ['--wasm'] : device ? ['--device', ...(phone ? ['--phone', phone] : [])] : host === 'ios' ? ['--ios'] : host === 'macos' ? ['--bundle'] : [];
+        const child = spawn('bun', [resolve(root,script), ...flags], {cwd:root, env:process.env, stdio:'inherit', windowsHide:true});
         sample();
         const code = await new Promise((ok, reject) => {child.on('exit',ok); child.on('error',reject);});
         if (code !== 0) throw new Error(`app build exited ${code}`);
@@ -584,7 +629,7 @@ export async function proof(meta, script) {
         for (const section of ['ticks','saves']) for (const key of Object.keys(previousPins[section] ?? {}))
           check(`pin ${key} observed; if intentionally removed, update the proof and pins.json together`, key in pins[section]);
     }
-  } catch (error) { check('proof interrupted',false,error.stack ?? String(error)); }
+  } catch (error) { check('proof interrupted',false,formatProofError(error)); }
   finally {
     await closeSessions(monitor, sample, sessions, check);
     if (reusableWeb) await reusableWeb.close();
@@ -592,7 +637,7 @@ export async function proof(meta, script) {
     await inventoryPending;
     let remaining = children.filter(child => child.exitCode === null && child.signalCode === null)
       .map(child => ({pid:child.pid}));
-    if (host !== 'linux' && host !== 'ios' && !auditUnavailable) {
+    if (host !== 'linux' && host !== 'windows' && host !== 'ios' && !auditUnavailable) {
       // A killed process group reaps its helpers a few milliseconds after the
       // carrier's exit event: recorded descendants (pid and start stamp) get a
       // short grace, then any survivor is a leak and fails the proof by name.
@@ -605,6 +650,10 @@ export async function proof(meta, script) {
     if (auditUnavailable) say('SKIP descendant process audit: ps stalled; carrier close still awaited every recorded host process.');
     check('all recorded children exited', remaining.length === 0, remaining);
     if (compareParanoid) {
+      // A sample owed at the end is an asset that never landed: its save was never checked.
+      const skipped = paranoidSamples.reduce((n, p) => n + p.skipped, 0);
+      if (skipped) say(`PARANOID ${skipped} samples deferred while shown assets were in flight`);
+      check('no paranoid sample is still owed to an undelivered asset', paranoidSamples.every(p => !p.owed), paranoidSamples);
       finalWorlds.sort((a,b) => a.session - b.session);
       const baseline = resolve(out, `paranoid-${host}-normal.json`);
       writeFileSync(resolve(out, `paranoid-${host}-${process.env.EXACT_GAME_PARANOID}.json`), JSON.stringify(finalWorlds));

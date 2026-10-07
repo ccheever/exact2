@@ -15,8 +15,8 @@
 
 use exact_kernel::style::ColorValue;
 use exact_kernel::{
-    Dimension, Env, NodeRef, NodeType, Overflow, PropId, PropValue, RowValue, StyleId, StyleMask,
-    StyleProps, StyleValue,
+    Dimension, Env, NodeRef, NodeType, Overflow, PositionArea, PropId, PropValue, RowValue,
+    StyleId, StyleMask, StyleProps, StyleValue,
 };
 use exact_motion::Property;
 use std::fmt::Write as _;
@@ -42,6 +42,9 @@ pub fn style_json(style: &StyleProps, env: &Env) -> (String, Vec<Skipped>) {
 /// instances that differ only in size (a waveform's bars) come out equal.
 /// `width` and `height` still cross for a `video` (`keep_size`): its view
 /// asks whether its box waits on its metadata (`HeavyLeaves.created`).
+/// `box_sizing` crosses: a projected segmented control fills its tablist's
+/// content box, and a border-box minimum must also hold the padding and
+/// border around it (LLP 1059 D2a).
 fn presenter_ignores(name: &str) -> bool {
     matches!(
         name,
@@ -68,7 +71,6 @@ fn presenter_ignores(name: &str) -> bool {
             | "left"
             | "row_gap"
             | "column_gap"
-            | "box_sizing"
             | "grid_auto_flow"
             | "grid_template_columns"
             | "grid_template_rows"
@@ -147,16 +149,8 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
                 push_rgba(&mut out, [c.r(), c.g(), c.b(), c.a()]);
                 true
             }
-            RowValue::ColorValue(ColorValue::LightDark(l, d)) => {
-                out.push('[');
-                push_rgba(&mut out, [l.r(), l.g(), l.b(), l.a()]);
-                out.push(',');
-                push_rgba(&mut out, [d.r(), d.g(), d.b(), d.a()]);
-                out.push(']');
-                true
-            }
-            // Its pair, as any colour; `system_colors` names it.
-            RowValue::ColorValue(c @ ColorValue::System(_)) => {
+            // A role WebKit names is also in `system_colors`, for vibrancy (LLP 1077 D13).
+            RowValue::ColorValue(c) => {
                 push_color_value(&mut out, c);
                 systems.extend(c.system_name().map(|s| (name, s)));
                 true
@@ -325,7 +319,11 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
                 true
             }
             RowValue::Number(n) => {
-                push_num(&mut out, n as f32);
+                if id == StyleId::ZIndex {
+                    push_int(&mut out, n as i64);
+                } else {
+                    push_num(&mut out, n as f32);
+                }
                 true
             }
             RowValue::Transitions(_) => false, // the engine's, not the presenter's
@@ -344,17 +342,31 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
             // @ref LLP 1055.000 D14 — CSS `filter` on a box: its chain over a
             // box of no size (the region is how far past the box it reaches)
             // and how far it reads; the presenter adds the box's size.
+            // Its colours resolve per appearance (LLP 1095 D5): `p` light,
+            // and `pd` dark when that differs, the view picking by its own.
             RowValue::Filter(list) => {
-                match exact_kernel::svg::scene::box_filter(list, style.text_color.resolve(false)) {
+                let program = |dark| {
+                    exact_kernel::svg::scene::box_filter(list, style.text_color, dark)
+                        .map(|f| f.encode())
+                };
+                match exact_kernel::svg::scene::box_filter(list, style.text_color, false) {
                     Some(f) => {
-                        out.push_str("{\"p\":[");
-                        for (i, v) in f.encode().iter().enumerate() {
-                            if i > 0 {
-                                out.push(',');
+                        let light = f.encode();
+                        let push = |out: &mut String, key: &str, p: &[f32]| {
+                            out.push_str(key);
+                            out.push('[');
+                            for (i, v) in p.iter().enumerate() {
+                                if i > 0 {
+                                    out.push(',');
+                                }
+                                push_num(out, *v);
                             }
-                            push_num(&mut out, *v);
+                            out.push(']');
+                        };
+                        push(&mut out, "{\"p\":", &light);
+                        if let Some(dark) = program(true).filter(|d| *d != light) {
+                            push(&mut out, ",\"pd\":", &dark);
                         }
-                        out.push(']');
                         if let Some((units, pixels)) = f.reach() {
                             out.push_str(",\"rc\":[");
                             push_num(&mut out, units);
@@ -415,15 +427,80 @@ fn push_dimension(out: &mut String, d: Dimension) {
             push_num(out, x);
             out.push('}');
         }
-        Dimension::Env(..) | Dimension::Segment(..) => unreachable!("resolved"),
+        Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..) => {
+            unreachable!("resolved")
+        }
     }
 }
 
 /// `[r,g,b,a]`, the channels as integers.
 /// A colour row's value as the presenters read it: four channels, or a
 /// `light-dark()` pair of them (LLP 1034 D1).
-fn push_color_value(out: &mut String, c: ColorValue) {
-    match c.pair() {
+/// A colour row's wire form: four channels, a `light-dark()` pair of them,
+/// or a reference (LLP 1095 D1) as `{"sys": <name>, "c": <pair>}`: this
+/// platform's class colour property (or `@tint`, `named:<Asset>`), which the
+/// presenter resolves per view against its traits, and the fallback pair.
+/// A `platform-color()` with no name for this platform crosses as its fallback.
+pub(crate) fn push_color_value(out: &mut String, c: ColorValue) {
+    // LLP 1100 D3: no sRGB clip rides along; nothing here converts it.
+    if let ColorValue::Profiled(id) = c {
+        if let Some(p) = exact_kernel::style::profiled::profiled(id) {
+            push_profiled(out, &p, 1.0);
+            return;
+        }
+    }
+    if let Some((v, alpha)) = c.moving_linear() {
+        let _ = write!(
+            out,
+            "{{\"cs\":[{{\"s\":\"srgb-linear\",\"v\":[{},{},{},{}]}}],\"c\":",
+            v[0], v[1], v[2], alpha
+        );
+        push_color_value(out, c.fallback());
+        out.push('}');
+        return;
+    }
+    if let ColorValue::Wide(id) = c {
+        if let Some(w) = exact_kernel::style::wide::wide(id) {
+            out.push_str("{\"cs\":[");
+            push_wide(out, w.light);
+            if let Some(d) = w.dark {
+                out.push(',');
+                push_wide(out, d);
+            }
+            out.push_str("],\"c\":");
+            push_color_value(out, c.fallback());
+            out.push('}');
+            return;
+        }
+    }
+    let native = match c {
+        // An id past the table names no role: its transparent fallback.
+        ColorValue::Role(id) => exact_kernel::style::roles::role_of(id).map(|r| {
+            std::borrow::Cow::Borrowed(if cfg!(target_os = "macos") {
+                r.macos
+            } else {
+                r.ios
+            })
+        }),
+        ColorValue::Platform(id) => exact_kernel::style::roles::platform(id).and_then(|p| {
+            let name = if cfg!(target_os = "macos") {
+                p.macos.clone()
+            } else {
+                p.ios.clone()
+            };
+            name.map(|n| std::borrow::Cow::Owned(n.into_string()))
+        }),
+        _ => None,
+    };
+    if let Some(name) = native {
+        out.push_str("{\"sys\":\"");
+        out.push_str(&name);
+        out.push_str("\",\"c\":");
+        push_color_value(out, c.fallback());
+        out.push('}');
+        return;
+    }
+    match c.fallback() {
         ColorValue::Fixed(c) => push_rgba(out, [c.r(), c.g(), c.b(), c.a()]),
         ColorValue::LightDark(l, d) => {
             out.push('[');
@@ -432,8 +509,54 @@ fn push_color_value(out: &mut String, c: ColorValue) {
             push_rgba(out, [d.r(), d.g(), d.b(), d.a()]);
             out.push(']');
         }
-        ColorValue::System(_) => {} // `pair` never returns one
+        ColorValue::Role(_)
+        | ColorValue::Platform(_)
+        | ColorValue::Wide(_)
+        | ColorValue::Moving(..)
+        | ColorValue::Profiled(_) => push_rgba(out, [0; 4]),
     }
+}
+
+/// A profile's colour as `{"cs": [{"s": "cg:<name>" | "icc:<asset>", "i":
+/// <intent>, "v": [components…, alpha]}]}` (LLP 1100 D3).
+pub(crate) fn push_profiled(
+    out: &mut String,
+    p: &exact_kernel::style::profiled::ProfiledValue,
+    opacity: f32,
+) {
+    use exact_kernel::style::profiled::Source;
+    let (space, intent) = match &p.source {
+        Source::Named(name) => (format!("cg:{name}"), "relative-colorimetric"),
+        Source::Icc { src, intent } => (format!("icc:{src}"), &**intent),
+    };
+    let values: Vec<String> = p
+        .components
+        .iter()
+        .chain([&(p.alpha * opacity)])
+        .map(|v| v.to_string())
+        .collect();
+    let _ = write!(
+        out,
+        "{{\"cs\":[{{\"s\":{space:?},\"i\":{intent:?},\"v\":[{}]}}]}}",
+        values.join(",")
+    );
+}
+
+/// One wide colour as `{"s": <space>, "v": [c0, c1, c2, alpha]}`. Core
+/// Graphics names sRGB and Display P3; any other space crosses as extended
+/// linear sRGB, unclipped (LLP 1100 D2).
+pub(crate) fn push_wide(out: &mut String, w: exact_color::Wide) {
+    use exact_color::Space;
+    let (space, v) = match w.space {
+        Space::Srgb => ("srgb", w.c),
+        Space::DisplayP3 => ("display-p3", w.c),
+        _ => ("srgb-linear", w.linear_srgb()),
+    };
+    let _ = write!(
+        out,
+        "{{\"s\":\"{space}\",\"v\":[{},{},{},{}]}}",
+        v[0], v[1], v[2], w.alpha
+    );
 }
 
 fn push_rgba(out: &mut String, channels: [u8; 4]) {
@@ -493,7 +616,7 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
     let y = if s.mask.has(StyleId::OverflowY) {
         s.overflow_y
     } else if node.node_type.scrolls_by_default() {
-        Overflow::Scroll
+        Overflow::Auto
     } else {
         Overflow::Visible
     };
@@ -504,11 +627,11 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
     };
     let mut y = y;
     // Symmetric, as the kernel computes: a `visible` axis beside a
-    // non-visible one is scrollable (CSS's `auto`; the schema has no `auto`).
+    // non-visible one computes to `auto` (CSS Overflow §3).
     if x == Overflow::Visible && y != Overflow::Visible {
-        x = Overflow::Scroll;
+        x = Overflow::Auto;
     } else if y == Overflow::Visible && x != Overflow::Visible {
-        y = Overflow::Scroll;
+        y = Overflow::Auto;
     }
     (x, y)
 }
@@ -547,6 +670,11 @@ impl Shown {
 }
 
 fn fixed(v: exact_motion::Value) -> ColorValue {
+    // LLP 1100 D2: Oklab motion keeps its gamut frame by frame.
+    if v.oklab {
+        let (linear, alpha) = v.linear_srgb();
+        return ColorValue::moving(linear, alpha);
+    }
     let [r, g, b, a] = v.to_rgba8();
     ColorValue::Fixed(exact_kernel::Color(u32::from_be_bytes([r, g, b, a])))
 }
@@ -558,11 +686,11 @@ fn paint_over(computed: &mut StyleProps, shown: &Shown) {
         computed.mask.set(StyleId::TextColor);
     }
     if let Some(c) = shown.get(Property::BackgroundColor) {
-        computed.background_color = fixed(c);
+        computed.background_color = Some(fixed(c));
         computed.mask.set(StyleId::BackgroundColor);
     }
     if let Some(c) = shown.get(Property::TintColor) {
-        computed.tint_color = fixed(c);
+        computed.tint_color = Some(fixed(c));
         computed.mask.set(StyleId::TintColor);
     }
     // @ref LLP 1077 D4 — the engine moves the list's first shadow (one
@@ -694,11 +822,32 @@ pub fn style_json_presented(
 ) -> (String, Vec<Skipped>) {
     let rows = if matches!(
         node.node_type,
-        NodeType::Text | NodeType::TextInput | NodeType::Image | NodeType::Control
+        NodeType::Text
+            | NodeType::TextInput
+            | NodeType::Image
+            | NodeType::Control
+            | NodeType::Video
     ) {
         StyleMask::INHERITED
     } else {
-        StyleMask::of(StyleId::TextColor).union(StyleMask::of(StyleId::Direction))
+        // `pointer-events` is inherited too: a box under a `none` parent
+        // passes the pointer through wherever it paints, translated out of
+        // its parent's box included (feed's toast, x2apps repro
+        // pointer-events-inherit-translate). `visibility` too: a hidden
+        // ancestor keeps a descendant's own `visible`, and one that does
+        // not set it inherits `hidden`. The initial `visible` stays
+        // unmarked and is not sent. So is `dynamic-range-limit`
+        // (LLP 1100 D8).
+        StyleMask::of(StyleId::TextColor)
+            .union(StyleMask::of(StyleId::Direction))
+            .union(StyleMask::of(StyleId::Cursor))
+            .union(StyleMask::of(StyleId::PointerEvents))
+            .union(StyleMask::of(StyleId::Visibility))
+            .union(StyleMask::of(StyleId::DynamicRangeLimit))
+            // A subtree's scheme reaches every view below the node that
+            // sets it, so one lifted out of it (a popover, a dialog) keeps
+            // it (LLP 1034 §8).
+            .union(StyleMask::of(StyleId::ColorScheme))
     };
     let mut computed = node.computed_style(rows);
     computed.mask.set(StyleId::TextColor);
@@ -737,11 +886,32 @@ pub fn style_json_presented(
             computed.mask.set(id);
         }
     }
+    // `currentcolor` (feed F1) is the presented `color`, as a side's is.
+    let current = computed.text_color;
+    computed.background_color = Some(computed.background_color.unwrap_or(current));
+    computed.tint_color = Some(computed.tint_color.unwrap_or(current));
     let (mut json, skipped) = style_json_sized(&computed, env, node.node_type == NodeType::Video);
     // A modal's top layer is positioned in the viewport by AppKit, outside
     // its authored parent. Keep only the existing inset rows for dialogs.
-    if node.props.str(exact_kernel::PropId::SemanticTag) == Some("dialog") {
-        for id in [StyleId::Top, StyleId::Right, StyleId::Bottom, StyleId::Left] {
+    // A popover placed by `position-area` (LLP 1021, "Placement") is placed
+    // by the host against its invoker, and CSS aligns its margin box: its
+    // margins cross too, `auto` and percentages as the host reads them (0).
+    let placed = [
+        StyleId::MarginTop,
+        StyleId::MarginRight,
+        StyleId::MarginBottom,
+        StyleId::MarginLeft,
+    ];
+    let insets = [StyleId::Top, StyleId::Right, StyleId::Bottom, StyleId::Left];
+    let crossing = if node.props.str(exact_kernel::PropId::SemanticTag) == Some("dialog") {
+        Some(insets)
+    } else if computed.position_area != PositionArea::None {
+        Some(placed)
+    } else {
+        None
+    };
+    if let Some(rows) = crossing {
+        for id in rows {
             if !computed.mask.has(id) {
                 continue;
             }
@@ -759,6 +929,7 @@ pub fn style_json_presented(
         Overflow::Visible => "visible",
         Overflow::Hidden => "hidden",
         Overflow::Scroll => "scroll",
+        Overflow::Auto => "auto",
     };
     if x != Overflow::Visible || y != Overflow::Visible {
         let head = format!(
@@ -825,7 +996,25 @@ pub fn glass_auto_props(node: &NodeRef<'_>, out: &mut std::collections::BTreeMap
 /// the view picks by its own appearance (LLP 1034 D2).
 fn gradient_json(g: &exact_kernel::gradient::Gradient) -> String {
     use exact_kernel::gradient::{premultiplied_ramp, Direction, GradientKind, Length};
+    // LLP 1100 D2: interpolated outside sRGB, the ramp crosses as unclipped
+    // extended linear sRGB floats, alpha 0–1.
     let stops = |dark: bool| {
+        if let Some(ramp) = g.interpolated(dark) {
+            let parts: Vec<String> = ramp
+                .into_iter()
+                .map(|(at, c, a)| {
+                    format!(
+                        "{},{},{},{},{}",
+                        num(at),
+                        c[0] as f32,
+                        c[1] as f32,
+                        c[2] as f32,
+                        a as f32
+                    )
+                })
+                .collect();
+            return format!("[{}]", parts.join(","));
+        }
         let parts: Vec<String> = premultiplied_ramp(&g.resolved(dark))
             .into_iter()
             .map(|(at, c)| format!("{},{},{},{},{}", num(at), c.r(), c.g(), c.b(), c.a()))
@@ -864,7 +1053,20 @@ fn gradient_json(g: &exact_kernel::gradient::Gradient) -> String {
     } else {
         String::new()
     };
-    format!("{{{shape},\"stops\":{}{dark}}}", stops(false))
+    let space = if g.interpolation(false).is_some() {
+        ",\"space\":\"srgb-linear\""
+    } else {
+        ""
+    };
+    let dark_space = if g.is_scheme_aware() && g.interpolation(true).is_some() {
+        ",\"darkSpace\":\"srgb-linear\""
+    } else {
+        ""
+    };
+    format!(
+        "{{{shape},\"stops\":{}{dark}{space}{dark_space}}}",
+        stops(false)
+    )
 }
 
 /// Shortest exact decimal for a number: `24`, not `24.0`; `0.5`.
@@ -938,6 +1140,119 @@ mod flow_tests {
                 .unwrap();
         assert_eq!(dialog["left"], 12);
         assert_eq!(dialog["bottom"], serde_json::json!({ "pct": 10, "px": 8 }));
+    }
+
+    /// LLP 1021 "Placement": a popover placed by `position-area` carries its
+    /// margins to the host, which aligns its margin box; without the row
+    /// they stay the kernel's, as every other box's.
+    #[test]
+    fn a_placed_popover_carries_its_margins() {
+        use exact_kernel::{Kernel, MonospaceMeasurer, Op};
+        let mut kernel = Kernel::new(Box::new(MonospaceMeasurer::default()));
+        let mut style = StyleProps::default();
+        style
+            .set_dynamic(StyleId::MarginBottom, &StyleValue::Number(12.0))
+            .unwrap();
+        style
+            .set_dynamic(StyleId::MarginLeft, &StyleValue::Auto)
+            .unwrap();
+        let create = [
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::View,
+            },
+            Op::SetStyle {
+                id: 1,
+                patch: Box::new(style),
+            },
+        ];
+        kernel.apply(0, 1, &create).unwrap();
+        let json = |kernel: &Kernel| -> serde_json::Value {
+            serde_json::from_str(&style_json_for(&kernel.node(1).unwrap(), &Env::default()).0)
+                .unwrap()
+        };
+        assert!(json(&kernel).get("margin_bottom").is_none());
+        let mut area = StyleProps::default();
+        area.set_dynamic(StyleId::PositionArea, &StyleValue::Text("top".into()))
+            .unwrap();
+        kernel
+            .apply(
+                0,
+                2,
+                &[Op::SetStyle {
+                    id: 1,
+                    patch: Box::new(area),
+                }],
+            )
+            .unwrap();
+        let placed = json(&kernel);
+        assert_eq!(placed["position_area"], "top", "{placed}");
+        assert_eq!(placed["margin_bottom"], 12, "{placed}");
+        assert_eq!(placed["margin_left"], "auto", "{placed}");
+    }
+
+    /// CSS `visibility` is inherited. A box that does not set it still
+    /// receives the computed value, so the presenter can hide that box's
+    /// own paint without hiding a sibling that sets `visible`.
+    #[test]
+    fn a_box_inherits_visibility() {
+        use exact_kernel::{Kernel, MonospaceMeasurer, Op};
+        let mut kernel = Kernel::new(Box::new(MonospaceMeasurer::default()));
+        let mut hidden = StyleProps::default();
+        hidden
+            .set_dynamic(StyleId::Visibility, &StyleValue::Text("hidden".into()))
+            .unwrap();
+        let mut shown = StyleProps::default();
+        shown
+            .set_dynamic(StyleId::Visibility, &StyleValue::Text("visible".into()))
+            .unwrap();
+        kernel
+            .apply(
+                0,
+                1,
+                &[
+                    Op::CreateView {
+                        id: 1,
+                        node_type: NodeType::View,
+                    },
+                    Op::CreateView {
+                        id: 2,
+                        node_type: NodeType::View,
+                    },
+                    Op::CreateView {
+                        id: 3,
+                        node_type: NodeType::View,
+                    },
+                    Op::CreateView {
+                        id: 4,
+                        node_type: NodeType::View,
+                    },
+                    Op::SetStyle {
+                        id: 1,
+                        patch: Box::new(hidden),
+                    },
+                    Op::SetStyle {
+                        id: 2,
+                        patch: Box::new(shown),
+                    },
+                    Op::SetChildren {
+                        id: 1,
+                        children: vec![2, 3],
+                    },
+                ],
+            )
+            .unwrap();
+        let json = |id: u32| -> serde_json::Value {
+            serde_json::from_str(&style_json_for(&kernel.node(id).unwrap(), &Env::default()).0)
+                .unwrap()
+        };
+        assert_eq!(json(1)["visibility"], "hidden");
+        assert_eq!(json(2)["visibility"], "visible");
+        assert_eq!(json(3)["visibility"], "hidden");
+        assert!(
+            json(4).get("visibility").is_none(),
+            "initial visible is not sent"
+        );
     }
 
     /// Quarters are written as `{n}` writes them.

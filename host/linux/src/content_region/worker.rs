@@ -1,11 +1,10 @@
 //! Private content font transport. Production owns ONE process-lifetime service
 //! thread, never a new thread per controller or catalog. Admission remains busy
 //! until all old session work/scratch has actually dropped on that thread.
+use crate::wake::Stream as UnixStream;
 use std::io::{self, Read, Write};
-use std::os::unix::{
-    io::{AsRawFd, RawFd},
-    net::UnixStream,
-};
+#[cfg(unix)]
+use std::os::unix::io::{AsRawFd, RawFd};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::thread::{self, JoinHandle};
 
@@ -300,6 +299,7 @@ impl<I, O> Port<I, O> {
             completed: usize::from(state.completed.is_some()),
         }
     }
+    #[cfg(unix)]
     pub(super) fn fd(&self) -> RawFd {
         self.wake.as_raw_fd()
     }

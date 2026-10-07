@@ -3,7 +3,8 @@
 // through the agent's contact phases. A flick at a known speed releases at
 // about that speed; the same distance dragged slowly releases near rest, and
 // so does a contact that pauses (`tap hold`) before it lifts, as a finger's
-// does on UIKit. Needs a web dist that links every capability:
+// does on UIKit; the flick said as one `drag` releases as the phases do.
+// Needs a web dist that links every capability:
 //   EXACT_WEB_LINK=all EXACT_WEB_DIST=/tmp/exact-all-dist bun host/web/build.mjs caltrain-web
 //   EXACT_MOTION_DIST=/tmp/exact-all-dist bun test host/web/tests/pan-release-engine.test.mjs
 import { test, expect } from 'bun:test';
@@ -88,6 +89,13 @@ check(`a flick releases at its speed; a slow drag and a pause before lifting nea
     slots = await drag(150, 60, 200);
     expect(slots.releases).toBe(3);
     expect(Math.abs(slots.vx)).toBeLessThan(1);
+    // The flick as one whole gesture (`tap card drag 150 0 over 60`, LLP 1080.000 §11): the same release.
+    const whole = await s.tap('card', { drag: { dx: 150, dy: 0, over: 60 } });
+    expect(whole.delivery).toBe('platform');
+    slots = (await s.state()).slots;
+    expect(slots.releases).toBe(4);
+    expect(slots.vx).toBeGreaterThan(1500);
+    expect(slots.vx).toBeLessThan(3500);
   } finally {
     await s?.close();
     rmSync(tmp, { recursive: true, force: true });

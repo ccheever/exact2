@@ -1,0 +1,20 @@
+// Accept fixture: shared elements (LLP 1013.000). Opening destroys the grid
+// and creates the viewer; the photo's name moves from the thumbnail to the
+// viewer's image, so the viewer's image flies from the thumbnail's box.
+style Photo
+  layout-transition="300ms ease"
+
+component Shared
+  state open = false
+  action toggle
+    open = not open
+  view
+    column testId="root"
+      button press=toggle aria-label="Toggle" testId="toggle"
+        text "Toggle"
+      when open
+        box testId="viewer" width=300 height=300
+          box sharedElement="photo-1" testId="large" width=300 height=200 background-color="#246"
+      else
+        box testId="grid"
+          box sharedElement="photo-1" testId="thumb" class=Photo width=80 height=80 background-color="#246"

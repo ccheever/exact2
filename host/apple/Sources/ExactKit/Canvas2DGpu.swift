@@ -124,13 +124,15 @@ final class Canvas2DGpuPixels {
     private let lock = NSLock()
     private var pixels: [String: (image: CGImage, bytes: UnsafeMutableRawPointer, w: Int, h: Int)] = [:]
 
-    func rgba(_ src: String, _ image: CGImage) -> (UnsafeMutableRawPointer, Int, Int)? {
+    func rgba(_ src: String, _ image: CGImage, p3: Bool) -> (UnsafeMutableRawPointer, Int, Int)? {
         lock.lock(); defer { lock.unlock() }
-        if let hit = pixels[src], hit.image === image { return (hit.bytes, hit.w, hit.h) }
+        let key = p3 ? "p3 " + src : src
+        if let hit = pixels[key], hit.image === image { return (hit.bytes, hit.w, hit.h) }
         let (w, h) = (image.width, image.height)
         guard w > 0, h > 0 else { return nil }
         let bytes = UnsafeMutableRawPointer.allocate(byteCount: w * h * 4, alignment: 16)
-        guard let c = CGContext(data: bytes, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: canvas2DSRGB,
+        guard let c = CGContext(data: bytes, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                space: Canvas2DSpace(p3: p3).space,
                                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue) else {
             bytes.deallocate(); return nil
         }
@@ -138,7 +140,7 @@ final class Canvas2DGpuPixels {
         c.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
         // A re-decoded handle keeps its old pixels alive: the module may hold
         // an upload keyed by the old pointer.
-        pixels[src] = (image, bytes, w, h)
+        pixels[key] = (image, bytes, w, h)
         return (bytes, w, h)
     }
 }
@@ -152,7 +154,8 @@ final class Canvas2DGpuCallbacks {
     private var held: [UnsafeMutableRawPointer] = []
     private var fonts: [CTFont] = []
 
-    init(env: Canvas2DEnv) { self.env = env }
+    let p3: Bool
+    init(env: Canvas2DEnv, p3: Bool) { self.env = env; self.p3 = p3 }
     deinit { release() }
 
     private func release() {
@@ -223,7 +226,7 @@ final class Canvas2DGpuCallbacks {
         guard let ctx, let src, let w, let h else { return nil }
         let me = Unmanaged<Canvas2DGpuCallbacks>.fromOpaque(ctx).takeUnretainedValue()
         let key = String(decoding: UnsafeBufferPointer(start: src, count: srcN), as: UTF8.self)
-        guard let image = me.env.canvasImage(key), let (bytes, iw, ih) = Canvas2DGpuPixels.shared.rgba(key, image) else { return nil }
+        guard let image = me.env.canvasImage(key), let (bytes, iw, ih) = Canvas2DGpuPixels.shared.rgba(key, image, p3: me.p3) else { return nil }
         w.pointee = UInt32(iw); h.pointee = UInt32(ih)
         return UnsafePointer(bytes.assumingMemoryBound(to: UInt8.self))
     }
@@ -241,22 +244,25 @@ final class Canvas2DGpuCanvas {
     private(set) var current: IOSurface?
     private(set) var lastMs = [Double](repeating: 0, count: 3)
 
-    init?(module: Canvas2DGpuModule, width: Int, height: Int, scale: Double, lifetime: UInt64, generation: UInt32) {
+    let p3: Bool
+
+    init?(module: Canvas2DGpuModule, width: Int, height: Int, scale: Double, lifetime: UInt64, generation: UInt32, p3: Bool) {
         guard width > 0, height > 0, let h = module.new(UInt32(width), UInt32(height), scale) else { return nil }
-        self.module = module; handle = h
+        self.module = module; handle = h; self.p3 = p3
         self.width = width; self.height = height; self.lifetime = lifetime; self.generation = generation
     }
 
     deinit { module.free(handle) }
 
     private static let srgb = CGColorSpace(name: CGColorSpace.sRGB)!.copyPropertyList()
+    private static let displayP3 = CGColorSpace(name: CGColorSpace.displayP3)!.copyPropertyList()
 
     private func makeSurface() -> IOSurface? {
         let props: [IOSurfacePropertyKey: Any] = [
             .width: width, .height: height, .bytesPerElement: 4, .pixelFormat: 0x4247_5241, // 'BGRA'
         ]
         guard let s = IOSurface(properties: props) else { return nil }
-        if let srgb = Canvas2DGpuCanvas.srgb { IOSurfaceSetValue(s, kIOSurfaceColorSpace, srgb) }
+        if let tag = p3 ? Canvas2DGpuCanvas.displayP3 : Canvas2DGpuCanvas.srgb { IOSurfaceSetValue(s, kIOSurfaceColorSpace, tag) }
         return s
     }
 
@@ -299,7 +305,7 @@ final class Canvas2DGpuCanvas {
     /// the GPU failed (the host falls back to Core Graphics).
     func replay(_ lists: [Data], env: Canvas2DEnv) -> (surface: IOSurface?, unreadable: Bool) {
         guard let t = target() else { return (nil, false) }
-        let callbacks = Canvas2DGpuCallbacks(env: env)
+        let callbacks = Canvas2DGpuCallbacks(env: env, p3: p3)
         var host = EcgHost(ctx: Unmanaged.passUnretained(callbacks).toOpaque(), textPath: Canvas2DGpuCallbacks.textPath,
                            textRuns: Canvas2DGpuCallbacks.textRuns, image: Canvas2DGpuCallbacks.image)
         let ns = lists.map { $0 as NSData }

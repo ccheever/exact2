@@ -13,9 +13,15 @@
 #![deny(missing_docs)]
 
 mod arity;
+mod calls;
+mod gates;
+mod payload;
+mod sends;
+
+pub use payload::handler_arity_message;
 
 use contract_syntax::{Component, Expr, File, Node, Span};
-use contract_types::{Checked, Ref, Scope, Ty};
+use contract_types::{Checked, Ref, Scope, Shapes, Ty};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Another authored location needed to understand a rejection.
@@ -61,11 +67,20 @@ fn err<T>(id: &'static str, message: impl Into<String>, span: Span) -> Result<T,
 
 /// Check surface calls against an emitted module interface, before imports merge
 /// so each refusal still belongs to its source file. No module is constructed.
+/// Every call is checked: one finding never hides another, or another pass's.
 pub fn check_surface_arguments(
     file: &File,
     declared: &BTreeMap<String, Vec<String>>,
-) -> Result<(), AnalyzeError> {
-    fn walk(nodes: &[Node], declared: &BTreeMap<String, Vec<String>>) -> Result<(), AnalyzeError> {
+) -> Result<(), Vec<AnalyzeError>> {
+    fn finding(message: String, span: Span) -> AnalyzeError {
+        AnalyzeError {
+            id: "analyze-surface-arguments",
+            message,
+            span,
+            related: Vec::new(),
+        }
+    }
+    fn walk(nodes: &[Node], declared: &BTreeMap<String, Vec<String>>, out: &mut Vec<AnalyzeError>) {
         for node in nodes {
             match node {
                 Node::Element {
@@ -82,28 +97,23 @@ pub fn check_surface_arguments(
                             continue;
                         };
                         let Some(fields) = declared.get(name) else {
-                            return err(
-                                "analyze-surface-arguments",
-                                format!("unknown surface `{name}`"),
-                                *span,
-                            );
+                            out.push(finding(format!("unknown surface `{name}`"), *span));
+                            continue;
                         };
                         for arg in args {
                             if let Expr::NamedArg(field, _, span) = arg {
                                 if !fields.contains(field) {
-                                    return err(
-                                        "analyze-surface-arguments",
-                                        format!("unknown surface argument `{field}` for `{name}`; declared names: {}", fields.join(", ")),
+                                    out.push(finding(
+                                        format!("unknown surface argument `{field}` for `{name}`; the game declares: {} (.shells/surfaces.json, from its last GPU build)", fields.join(", ")),
                                         *span,
-                                    );
+                                    ));
                                 }
                             }
                         }
                         if !args.iter().any(|a| matches!(a, Expr::NamedArg(..)))
                             && args.len() > fields.len()
                         {
-                            return err(
-                                "analyze-surface-arguments",
+                            out.push(finding(
                                 format!(
                                     "surface `{name}` expected at most {} arguments ({}), got {}",
                                     fields.len(),
@@ -111,32 +121,36 @@ pub fn check_surface_arguments(
                                     args.len()
                                 ),
                                 *span,
-                            );
+                            ));
                         }
                     }
-                    walk(children, declared)?;
+                    walk(children, declared, out);
                 }
-                Node::Use { children, .. } => walk(children, declared)?,
-                Node::Each { body, .. } => walk(body, declared)?,
+                Node::Use { children, .. } => walk(children, declared, out),
+                Node::Each { body, .. } => walk(body, declared, out),
                 Node::When {
                     then, otherwise, ..
                 } => {
-                    walk(then, declared)?;
-                    walk(otherwise, declared)?;
+                    walk(then, declared, out);
+                    walk(otherwise, declared, out);
                 }
                 Node::Match { some, none, .. } => {
-                    walk(&some.1, declared)?;
-                    walk(none, declared)?;
+                    walk(&some.1, declared, out);
+                    walk(none, declared, out);
                 }
                 Node::Children { .. } => {}
             }
         }
-        Ok(())
     }
+    let mut out = Vec::new();
     for component in &file.components {
-        walk(&component.view, declared)?;
+        walk(&component.view, declared, &mut out);
     }
-    Ok(())
+    if out.is_empty() {
+        Ok(())
+    } else {
+        Err(out)
+    }
 }
 
 /// What analysis established beyond the types. Every rule analysis checks
@@ -200,8 +214,21 @@ pub fn check_all(checked: &Checked<'_>) -> Result<Analysis, Vec<AnalyzeError>> {
         let scoped = if ci == 0 { &expanded.root } else { c };
         let scope = types.component_scope(scoped, ct);
         errors.extend(check_tasks(c).err());
-        errors.extend(check_mutation_then(c).err());
-        errors.extend(check_view(&c.view, &scope, file).err());
+        // The root's actions with every call expanded: a caller's sends and
+        // writes and its callees' are one commit (LLP 1088 D8, LLP 1089 D3,
+        // D5, D6).
+        errors.extend(check_mutation_then(scoped).err());
+        errors.extend(sends::check(scoped));
+        if ci == 0 {
+            errors.extend(calls::check(scoped));
+            errors.extend(gates::check(scoped, &file.fns));
+        }
+        let view = View {
+            file,
+            actions: scoped,
+            shapes: &types.shapes,
+        };
+        errors.extend(check_view(&c.view, &scope, &view).err());
     }
     errors.extend(check_controls(&expanded.root.view, false).err());
     errors.extend(arity::check(file, types, &expanded.root).err());
@@ -243,10 +270,19 @@ fn check_mutation_then(c: &Component) -> Result<(), AnalyzeError> {
             .into_iter()
             .find(|e| e.send && e.target == m.name)
         {
+            // Through a call, the call is named (LLP 1089 D5).
+            let through = match send.call {
+                Some((callee, call)) => format!(
+                    " (it calls `{}` at line {}, which sends it)",
+                    contract_syntax::inline::calls::shown(callee),
+                    call.line
+                ),
+                None => String::new(),
+            };
             return err(
                 "analyze-then-self-send",
                 format!(
-                    "`{}` cannot send `{}`: it runs when that mutation answers",
+                    "`{}` cannot send `{}`{through}: it runs when that mutation answers. To repeat while a condition holds, declare a root task: `task NAME when COND`, with `every(ms, action)` on the next indented line",
                     a.name, m.name
                 ),
                 send.span,
@@ -282,7 +318,7 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 40] = [
+pub const HANDLERS: [&str; 58] = [
     "press",
     "change",
     "input",
@@ -298,6 +334,30 @@ pub const HANDLERS: [&str; 40] = [
     "message",
     "contextmenu",
     "dblclick",
+    // A touch or button went down on the node, and came up or was cancelled
+    // (DOM's names; Charlie, 2026-10-03: hold-to-record, LLP 1005 §3); the
+    // pointer moved over it or while held (LLP 1056 §3 stage 3). Each may
+    // hand its action a `PointerEvent`.
+    "pointerdown",
+    "pointerup",
+    "pointermove",
+    // DOM's clipboard events at the focused node (spreadsheet F4, F14);
+    // each may hand its action a `ClipboardEvent`.
+    "copy",
+    "cut",
+    "paste",
+    // The part of the reader's text selection inside a paragraph (the
+    // reader diary); its action may take a `Selection`.
+    "selectionchange",
+    // DOM's `beforeunload` (studio diary R17): the window closing or the app
+    // quitting; an action calling `preventDefault()` keeps it open.
+    "beforeunload",
+    // DOM's `wheel` (studio diary R3): a wheel's or a trackpad's scroll, and
+    // a pinch as a Control-held wheel; it may hand its action a `WheelEvent`.
+    "wheel",
+    // DOM's `drop` of files from outside (studio diary R19): each a `doc:`
+    // handle in the `DragEvent` its action may take.
+    "drop",
     "swiperight",
     "refresh",
     "scroll",
@@ -306,6 +366,7 @@ pub const HANDLERS: [&str; 40] = [
     "panrelease",
     "loadedmetadata",
     "durationchange",
+    "fullscreenchange",
     "timeupdate",
     "play",
     "playing",
@@ -318,6 +379,14 @@ pub const HANDLERS: [&str; 40] = [
     "volumechange",
     "error",
     "canplay",
+    // The media session's actions (LLP 1098 D2): no payload, then the
+    // `MediaSessionActionDetails` record to take or leave.
+    "seekbackward",
+    "seekforward",
+    "seekto",
+    "previoustrack",
+    "nexttrack",
+    "stop",
     "navigate",
     "heightrelease",
     "transformgeometry",
@@ -325,17 +394,29 @@ pub const HANDLERS: [&str; 40] = [
     "reorderdrop",
     "reachstart",
     "reachend",
+    // The element resize event, ResizeObserver's: an action given to
+    // `resize`, whose string is CSS's property ([`is_handler`]).
+    "resize",
 ];
+
+/// Whether `name=value` is a handler: one of [`HANDLERS`], except `resize`
+/// with anything but an action (an `Ident` or a `Call`, never valid CSS
+/// there), which is CSS's `resize` property.
+pub fn is_handler(name: &str, value: &Expr) -> bool {
+    HANDLERS.contains(&name)
+        && (name != "resize" || matches!(value, Expr::Ident(..) | Expr::Call(..)))
+}
 
 /// What a handler's event carries as its action's last argument: `input`
 /// and `change` the new value (a text field's text, a checkbox's checked
 /// state: LLP 1069.001 D4), `hover` whether the pointer is over, `key` the
-/// key's name, `message` the posted string; the others nothing.
+/// key's name, `message` the posted string; the others nothing. An event
+/// may then offer its record ([`contract_types::event_record`]).
 pub fn handler_payload(attr: &str) -> Option<&'static str> {
     match attr {
         "change" | "input" | "key" | "message" | "navigate" | "error" => Some("string"),
         "timeupdate" | "durationchange" => Some("number"),
-        "hover" => Some("bool"),
+        "hover" | "fullscreenchange" => Some("bool"),
         "select" => Some("MarkdownSelection"),
         _ => None,
     }
@@ -353,25 +434,62 @@ pub fn handler_arity(attr: &str, given: usize) -> Option<std::ops::RangeInclusiv
     let payload = match attr {
         "transformgeometry" => 4,
         "transformrelease" => 6,
-        "scroll" | "pan" | "panrelease" | "heightrelease" | "reorderdrop" => 2,
+        "scroll" | "pan" | "panrelease" | "heightrelease" | "reorderdrop" | "resize" => 2,
         _ => usize::from(handler_payload(attr).is_some()),
     };
-    Some(given + payload..=given + payload)
+    // Then the event's record, the action's to take or leave.
+    let record = usize::from(contract_types::event_record(attr).is_some());
+    Some(given + payload..=given + payload + record)
 }
 
-fn check_view(nodes: &[Node], scope: &Scope, file: &File) -> Result<(), AnalyzeError> {
+/// Whether an action whose parameters are `params` (its bound arguments
+/// first) can be `attr=`'s with `given` bound ([`handler_arity`]). The
+/// event's optional record is taken by a last parameter of the record's
+/// type, or one left to inference; any other type there is an argument
+/// left unbound, an arity mistake, as it was before the event offered a
+/// record (`press` and its `MouseEvent`).
+pub fn handler_accepts(attr: &str, given: usize, params: &[Ty]) -> bool {
+    let Some(range) = handler_arity(attr, given) else {
+        return false;
+    };
+    if !range.contains(&params.len()) {
+        return false;
+    }
+    match contract_types::event_record(attr) {
+        Some(record) if params.len() == *range.end() && range.start() < range.end() => {
+            matches!(params.last(), Some(Ty::Record(r)) if r == record)
+                || matches!(params.last(), Some(Ty::Unknown))
+        }
+        _ => true,
+    }
+}
+
+/// What the view check reads besides the scope: the file's components, the
+/// component whose actions the scope's `Ref::Action`s index, and the shapes.
+struct View<'a> {
+    file: &'a File,
+    actions: &'a Component,
+    shapes: &'a Shapes,
+}
+
+fn check_view(nodes: &[Node], scope: &Scope, view: &View<'_>) -> Result<(), AnalyzeError> {
+    let file = view.file;
     for n in nodes {
         match n {
             Node::Children { .. } => {}
             Node::Element {
-                attrs, children, ..
+                tag,
+                attrs,
+                children,
+                ..
             } => {
+                let control = contract_syntax::payload_control(tag, attrs);
                 for a in attrs {
-                    if HANDLERS.contains(&a.name.as_str()) {
-                        check_handler(&a.name, &a.value, scope, a.span)?;
+                    if is_handler(&a.name, &a.value) {
+                        check_handler(&a.name, &a.value, scope, a.span, control, view)?;
                     }
                 }
-                check_view(children, scope, file)?;
+                check_view(children, scope, view)?;
             }
             Node::Use {
                 name,
@@ -379,7 +497,7 @@ fn check_view(nodes: &[Node], scope: &Scope, file: &File) -> Result<(), AnalyzeE
                 children,
                 span,
             } => {
-                check_view(children, scope, file)?;
+                check_view(children, scope, view)?;
                 if !file.components.iter().any(|x| &x.name == name) {
                     return err(
                         "analyze-unknown-component",
@@ -401,8 +519,8 @@ fn check_view(nodes: &[Node], scope: &Scope, file: &File) -> Result<(), AnalyzeE
             Node::When {
                 then, otherwise, ..
             } => {
-                check_view(then, scope, file)?;
-                check_view(otherwise, scope, file)?;
+                check_view(then, scope, view)?;
+                check_view(otherwise, scope, view)?;
             }
             Node::Each {
                 var,
@@ -411,32 +529,39 @@ fn check_view(nodes: &[Node], scope: &Scope, file: &File) -> Result<(), AnalyzeE
                 body,
                 ..
             } => {
-                let t = contract_types::infer(list, scope, &Default::default()).ok();
+                let t = contract_types::infer(list, scope, view.shapes).ok();
                 let item = match t {
                     Some(Ty::List(item)) => *item,
                     _ => Ty::Unknown,
                 };
                 let mut inner = scope.clone();
                 inner.push_each(var, index.as_deref(), item);
-                check_view(body, &inner, file)?;
+                check_view(body, &inner, view)?;
             }
             Node::Match { some, none, .. } => {
                 let mut inner = scope.clone();
                 inner.push_region(Some((some.0.clone(), Ref::Bound(0), Ty::Unknown)));
-                check_view(&some.1, &inner, file)?;
+                check_view(&some.1, &inner, view)?;
                 let mut none_scope = scope.clone();
                 none_scope.push_region(None);
-                check_view(none, &none_scope, file)?;
+                check_view(none, &none_scope, view)?;
             }
         }
     }
     Ok(())
 }
 
-fn check_handler(attr: &str, value: &Expr, scope: &Scope, span: Span) -> Result<(), AnalyzeError> {
-    let (name, given) = match value {
-        Expr::Ident(n, _) => (n.as_str(), 0usize),
-        Expr::Call(n, args, _) => (n.as_str(), args.len()),
+fn check_handler(
+    attr: &str,
+    value: &Expr,
+    scope: &Scope,
+    span: Span,
+    control: Option<&str>,
+    view: &View<'_>,
+) -> Result<(), AnalyzeError> {
+    let (name, args) = match value {
+        Expr::Ident(n, _) => (n.as_str(), &[][..]),
+        Expr::Call(n, args, _) => (n.as_str(), args.as_slice()),
         _ => {
             return err(
                 "analyze-handler-shape",
@@ -466,37 +591,41 @@ fn check_handler(attr: &str, value: &Expr, scope: &Scope, span: Span) -> Result<
             span,
         );
     }
+    let given = args.len();
     // A prop of bare `action` type has unknown arity; only a real action is checked.
-    if matches!(r, Ref::Action(_)) {
-        let valid = handler_arity(attr, given).is_some_and(|range| range.contains(&params.len()));
+    if let Ref::Action(index) = r {
+        let valid = handler_accepts(attr, given, params);
         if !valid {
+            let declared = view.actions.actions.get(index as usize);
+            let params: Vec<(String, Ty)> = declared
+                .map(|a| {
+                    a.params
+                        .iter()
+                        .map(|p| p.name.clone())
+                        .zip(params.iter().cloned())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let arg_types: Vec<Option<Ty>> = args
+                .iter()
+                .map(|a| contract_types::infer(a, scope, view.shapes).ok())
+                .collect();
             return err(
                 "analyze-handler-arity",
-                format!(
-                    "`{name}` takes {} parameter(s); `{attr}=` supplies {given}{}",
-                    params.len(),
-                    match handler_payload(attr) {
-                        Some("bool") => " plus whether the pointer is over",
-                        Some(_) if attr == "key" => " plus the key's name",
-                        Some(_) if attr == "message" => " plus the message",
-                        Some(_) => " plus the new value",
-                        None if attr == "scroll" => " plus scrollLeft and scrollTop",
-                        None if attr == "heightrelease" => " plus height and velocity",
-                        None if attr == "panrelease" => " plus vx and vy",
-                        None if attr == "transformgeometry" => " plus four geometry numbers",
-                        None if attr == "transformrelease" => " plus six transform release numbers",
-                        None => "",
-                    }
-                ),
+                handler_arity_message(attr, control, name, args, &params, &arg_types),
                 span,
             );
         }
+        // Then optionally its `ReorderEvent` (LLP 1094 D2), which
+        // `handler_accepts` holds to its type.
         if attr == "reorderdrop"
-            && params[given..] != [Ty::String, Ty::Option(Box::new(Ty::String))]
+            && params[given..]
+                .get(..2)
+                .is_none_or(|p| p != [Ty::String, Ty::Option(Box::new(Ty::String))])
         {
             return err(
                 "analyze-handler-type",
-                "`reorderdrop` supplies string and option<string>",
+                "`reorderdrop` supplies string and option<string>, then optionally a `ReorderEvent`",
                 span,
             );
         }

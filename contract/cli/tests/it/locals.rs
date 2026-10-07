@@ -158,6 +158,8 @@ fn a_local_is_never_reassigned_or_read_before_its_line_or_outside_its_block() {
     let e = refused("    let a = 1\n    a = 2\n");
     assert_eq!(e.id, "type-let-reassign", "{e}");
     assert!(e.message.contains("`a` is the `let` on line 4"), "{e}");
+    // The codeedit diary set a local in a branch: the message shows the idiom.
+    assert!(e.message.contains("`let a = cond ? this : that`"), "{e}");
     assert_eq!((e.span.line, e.span.col), (5, 5));
     let e = refused("    s = a\n    let a = 1\n");
     assert_eq!(e.id, "type-let-before-declaration", "{e}");

@@ -115,8 +115,8 @@ selects the roster overload when it does not fit the action signature, so
 `action back` can assign `nav = back(nav)` and Messages' `press=open(id)`
 continues to bind its action. `routes` is refused in any used file: its
 component is a child of the using app, never that app's root. The existing
-`fn` namespace still precedes compiler-only `path`; roster names themselves
-remain `contract-fn-shadows-roster`.
+`fn` namespace still precedes compiler-only `path` and the roster itself
+(2026-10-04, batch 6: a `fn` with the roster's name shadows it, so a roster that gains a name never breaks an app that had it).
 
 **Resources.** `resource name = source(args) as shape T`: `source` names the
 app's data source, `args` are expressions over state, `T` is the declared
@@ -194,7 +194,7 @@ lines over their replies; parsed by `contract test <file>` into JSON and run by
 second evaluator. **Functions** (LLP 1017 P5, 2026-08-30): `fn name(param: type, …): type =
 expr` at file scope — one expression over its parameters and the roster only,
 typed like a roster call, expanded inline at each call (no opcode, no table);
-a cycle is `type-fn-recursive`, a roster name `contract-fn-shadows-roster`.
+a cycle is `type-fn-recursive`; a roster name is shadowed (2026-10-04, batch 6: a `fn` with the roster's name shadows it, so a roster that gains a name never breaks an app that had it).
 An app's wording is its own `fn`s, not the roster's (LLP 1035.005.000 D8,
 2026-10-02): `formatCountdownMinutes`, `formatDistance` and `formatWalk`,
 used only by Caltrain, left the roster for Caltrain `fn`s over `floor`, `max`
@@ -202,8 +202,11 @@ and `toString` (§5).
 **Instances** (LLP 1017 P4c, 2026-08-30): a child may own `state`, `derive`,
 and `action` (never a resource, mutation, or task — `type-child-resource`);
 `expand` lifts them into the root per use, renamed apart, a derive as a
-substituted expression, and a use under an `each` makes its states row slots
-(`slots.owner`), one value per keyed row on the runner. The "only the root
+substituted expression, and a use under a region makes its states slots of
+that region's arm (`slots.owner`: one value per keyed row or shown
+`when`/`match` arm on the runner, initialized when the instance is created,
+after settlement); a use outside every region makes them `late` root slots,
+initialized at the boot render (LLP 1017.000, child state). The "only the root
 holds state" rule of §2 and §7 is gone. **Composition** (LLP 1017 P4a/b, 2026-08-30): a component may declare `inject`
 (typed names, like `props`) that a use site does not pass, and a `provide`
 section beside them (LLP 1035.005.000 D9, 2026-10-02), one binding per line:
@@ -275,7 +278,11 @@ spell a root name the child never saw, and it is renamed apart (`x@k`) when
 a substituted expression mentions it. Lowering binds it
 (`BindLocal`) and drops it (`DropLocal`) where its block ends
 (`contract/lower/src/stmts.rs`); the plan format, the VM and the
-JavaScript runtime are unchanged. A parameter's type is written or
+JavaScript runtime are unchanged. Since 2026-10-04 (LLP 1089), a `name(args)`
+statement that is not a host command calls an action of the same component,
+an `action` prop or an injected action, anywhere a statement stands: the
+compiler expands the callee's statements in place, in the one commit
+(`contract/syntax/src/inline/calls.rs`). A parameter's type is written or
 inferred from its handler call sites (the handler attributes are `press`,
 `change`, `hover`, `focus`, `blur`, `key`, `submit`, `contextmenu`, `dblclick`, `navigate`, LLP 1005 §3 — `submit`
 on an `input` is Enter, the web's implicit submission; a `key`'s or
@@ -330,7 +337,13 @@ attribute's.
 search (the empty substring matches), as the web's `String.prototype.includes`
 does; `startsWith(text, prefix)` and `endsWith(text, suffix)` are the web's
 too (renamed from `contains` on 2026-09-28: the words are the web's, LLP 1017
-§8.1). The Markdown toolbar uses `includes` with spaces around both the token
+§8.1). `< <= > >=` on two strings compare UTF-16 code units, as ECMA-262's
+`IsLessThan` does, and `slice(text, start, end?)`, `replaceAll(text, find, with)`
+and `toLowerCase(text)` are the web's (LLP 1088 D1, D2, 2026-10-04). **Declared
+deviation:** JavaScript's results may hold a lone surrogate half (`"😀".slice(0,
+1)`); every executor here makes the completed result well formed once instead,
+each lone half U+FFFD (`toWellFormed`), because the runner, Lean and the native
+hosts hold Unicode scalar values. The Markdown toolbar uses `includes` with spaces around both the token
 list and the requested token, so `code` never matches `codeblock`. The declared
 roster and the runner provide these operations to every host; they do not
 execute app JavaScript.
@@ -561,9 +574,9 @@ and the iOS Calendar example's `animateDrag` (`editorMorphAt`) and
 to `nodes`/`regions`/`arms`/`bindings`/`handlers` through the tag/attribute
 table (`tags.rs`: `column`/`row`/`main`/`scroll`/`text`/`button`/`link`/
 `input`/`image` onto kernel node types plus fixed rows — `button` is a
-pressable `column`, role button with `display: flex; flex-direction: column`
-(Charlie, 2026-09-23: "One native button, flex column"), so the web's
-`<button>` lays out as the kernel does (LLP 1007 §1); attributes onto style
+`Pressable`, role button, with Chrome's `text-align: center`, a block whose
+content the kernel centres as the web's `<button>` does (Charlie, 2026-10-04,
+reversing 2026-09-23's flex column; LLP 1001 §1); attributes onto style
 rows by their **literal CSS names** (LLP 1017 §8.1, 2026-08-30 — `font-size`,
 `background-color`, `border-radius`→four rows, `gap`→`row_gap`+`column_gap`,
 `padding`→four rows, `flex=n`→CSS `flex: n` = grow n, shrink 1, basis 0%;
@@ -613,7 +626,12 @@ a pressable with zero area is `bake-zero-size` (one holding an image or a
 canvas is exempt — their size is the host's), each named by the node's
 `testId`; `bake` returns `BakeError` — the runner's refusal or the lint's —
 and every host's `build.rs` fails on either (`contract/cli/tests/it/lint.rs`).
-The compiler cannot see layout; bake can, and it already had the kernel. The CLI: `contract
+The compiler cannot see layout; bake can, and it already had the kernel. The
+web's JS target (LLP 1071) bakes nothing, so its compile runs `contract::check`:
+the same checks over the first frame its page shows before the data module
+answers, keeping only verdicts no answer could change (a pressable hidden or
+sized to zero by its own style; not a `scroll` or a label a placeholder
+empties), about 1–30 ms a build (files diary F13). The CLI: `contract
 build <file> [-o <plan>]` prints a one-line summary or a rejection as
 `file:line:col [id] message`, exit 1.
 

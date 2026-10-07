@@ -9,12 +9,19 @@ the actual `displacement` and `grounded` state.
 
 - Entity-ordered insertion maps `Body`, `Collider` and world `Transform` to Rapier;
   ordered handle maps and last-write comparisons detect edits, teleports and removal.
-  Synchronization visits the union of Body/Collider membership, not every living entity.
+  Synchronization visits the rows written since the previous step (`World::changed`),
+  every Body and every parented collider; the first step after setup, restore or clone
+  visits every row. A static collider without a Body costs nothing per tick.
   Dynamic poses, velocities and sleep return to components; kinematics use next pose.
 - One step uses `world.dt()`. A collision-only pass after moving kinematics supplies
   same-tick sensor transitions. Events are sorted; `Announce` journals transitions.
   Sleeping bodies still step; any awake dynamic body reports busy to Sim, even
   when its pose is unchanged. Support edits wake all.
+  Two fixed solids (colliders without a Body, or with a Static one) never pair, so a
+  static world carries no contact state; a sensor pairs with anything, fixed or not.
+  So a static collider the game teleports or carries under a parent (it has no Body)
+  emits no Touch, and journals no Announce, against static walls or terrain; give it
+  a Kinematic Body, or make it a sensor, to keep those transitions.
 - Density defaults to 1000 kg/m³; explicit mass is kg. Friction combines geometrically,
   restitution by maximum. Contact slop is 0.1 mm; other integration defaults are Rapier's.
 - Shapes: sphere, box, Y capsule/cylinder (total height), static mesh and heightfield
@@ -23,26 +30,45 @@ the actual `displacement` and `grounded` state.
 - `let q = physics::queries(world); q.raycast(..); q.sweep(..);` shares a lazy
   query scene retained in the world's physics executor, outside Data and hashes.
   Drop the scope before structural edits or `step`; the next scope reuses it.
-  Body/Collider/Transform/Parent write revisions (including membership and load)
-  invalidate it, so same-tick edits are visible on the next operation. Unchanged
-  queries/ticks do not rebuild; a relevant edit still costs an O(n) scene rebuild.
+  Each operation updates only the colliders whose Body/Collider/Transform/Parent rows
+  were written since the last one, plus parented colliders (their pose follows their
+  ancestors), so same-tick edits are visible. A write to a collider-free entity (a
+  camera, a tracer) costs a membership test; loading or another world rebuilds.
+  Capsule rays (also a capsule under an offset) use the closed form: Parry 0.30's
+  support-map capsule raycast misses rays that pass straight through (64 of 16,000
+  in RIVALS). Other shapes use Parry's ray cast.
   The free query functions are thin one-shot calls through this same cache.
-  The capsule handle uses the shared scene. Capsules use Rapier's steps/slopes/snap, saved-pose platform transport and an
+  The capsule handle queries a BVH of only the colliders it can reach that step,
+  built in entity order, so its result never depends on the scene's edit history. Capsules use Rapier's steps/slopes/snap, saved-pose platform transport and an
   80 kg default push budget. A default 1 m³ crate is 1,000 kg and cannot be pushed
   by that controller; author `Body { mass: 10., ..Default::default() }` for a light crate.
   Movement and push share the layer-mask/sensor/self filter;
-  the character's rigid collider is a sensor.
+  the character's rigid collider is a sensor, but other controllers are solid to its
+  movement: characters block, slide around and push out of each other in call
+  order. A character on a layer outside the mover's mask passes through.
 
-EXPHYS v2 persists `BroadPhaseBvh::deferred_optimize_pending`. V1 omitted state
-that changes the next physics step; it cannot be migrated and is refused by name
-before replacing the destination (including inside EXSIM). Start a new world.
+EXPHYS v3 writes each static collider (no Body) whose rebuild from its entry, the
+Collider and pose it was built from, is byte-identical to Rapier's copy as a hole,
+and rebuilds it on restore: a static collider costs its entry (about its components)
+plus its broad-phase leaf, about 280 bytes for an offset cylinder. The broad phase,
+whose shape orders pairs, stays saved. V2 persisted
+`BroadPhaseBvh::deferred_optimize_pending`, which V1 omitted. Both are refused by
+name before replacing the destination (including inside EXSIM). Start a new world.
 Rapier is consumed by path from `vendor/rapier3d`; it stays outside the root
 workspace's dependency graph.
 
 Saved state is opaque bincode/serde for bodies, colliders, islands, broad/narrow phase,
 joints and integration parameters, plus entity/handle maps and last writes. Restore validates and decodes live state atomically; pipeline/CCD workspaces are scratch under Rapier's serialization contract.
+The hole format is `PhysicsWorld::with_holes`/`FillHoles` in the vendored Rapier
+(`pipeline/physics_world.rs`, marked Exact2), which keeps slots, generations and
+the free list.
 `Data::write(&self)` refreshes dirty bytes for save, hash and JSON; `refresh_snapshot`
 measures the same operation. Stepping does not serialize. JSON summarizes the opaque bytes by length/hash.
+A hash (`Writer::digests`) reads a digest instead of the content: the snapshot
+bytes' hash and each entry's hash in entity order, an entry rehashed only after
+sync or writeback touches it. Both are functions of the saved content, recomputed
+identically after a load. At 100k static trees a hash after a step costs about
+10 ms of snapshot encoding plus 12 ms, against 11 + 39 ms reading every entry.
 Malformed or obsolete Rapier payloads fail during `World::load`, before replacement.
 
 Continuation tests preserve the complete authoritative snapshot; `Executor::clone`
@@ -62,9 +88,16 @@ The minimal-120 pin changed because awake work now enters the existing saved bus
 reasons. Native arm64, x86-64 and Chrome Wasm agree in Off/Save/FreshGame; pile-600 is
 unchanged. This legacy physics card keeps both values in [tests/pins.json](tests/pins.json)
 rather than using the game prover's `--repin` command.
-The x86-64 v2 card passes with the existing pins and all 41 physics tests
-(Rust 1.97.0, 2026-09-21). A 2,134,660-byte query/controller/save trace also
-matches arm64 byte for byte. No pins changed for this verification.
+Both pins moved on 2026-10-03 when fixed solids stopped pairing: the snapshot lost
+those pairs and each collider's flags changed. Every body pose, velocity and event
+over 600 ticks of pile/stack/drop/bounce and 120 of minimal is byte-identical to the
+previous build (native arm64). They moved again with EXPHYS v3's holes, trajectories
+again unchanged, and once more when the world hash became a stream of per-page
+digests and saves became columnar (EXGAME v4), and again when a hash began reading
+the executor's digest. The current values (in [tests/pins.json](tests/pins.json)) agree on native arm64, on x86-64
+(`--target x86_64-apple-darwin` under Rosetta) and in the web-profile `minimal`
+Wasm under Bun, Off/Save/FreshGame alike, and the living controller still rests at
+tick 547 with Off/Save/FreshGame agreement (2026-10-03).
 
 Reproduce from `game/` with `EXACT_UPDATE_TRUST=development`:
 ```
@@ -74,6 +107,7 @@ cargo clippy -p exact-game-physics --all-targets -- -D warnings
 cargo fmt --all -- --check
 cargo run -p exact-game-physics --release --example pile -- 1000 2000 5000
 cargo run -p exact-game-physics --release --example pile -- --verify
+cargo test -p exact-game-physics --release --test scale -- --ignored --nocapture
 cargo build -p exact-game-physics --profile web --target wasm32-unknown-unknown --example minimal
 ```
 

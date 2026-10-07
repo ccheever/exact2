@@ -105,6 +105,102 @@ impl Default for PhysicsWorld {
     }
 }
 
+/// Exact2: the derived serialization with chosen colliders written as holes.
+#[cfg(feature = "serde-serialize")]
+pub mod holes {
+    use super::*;
+    use crate::geometry::holes::{ColliderSetIn, ColliderSetOut};
+    use serde::{Deserialize, Serialize};
+
+    // The derived representation's fields, in its order.
+    #[derive(Serialize)]
+    struct Out<'a> {
+        gravity: &'a Vector,
+        integration_parameters: &'a IntegrationParameters,
+        islands: &'a IslandManager,
+        broad_phase: &'a BroadPhaseBvh,
+        narrow_phase: &'a NarrowPhase,
+        bodies: &'a RigidBodySet,
+        colliders: ColliderSetOut<'a>,
+        impulse_joints: &'a ImpulseJointSet,
+        multibody_joints: &'a MultibodyJointSet,
+    }
+    #[derive(Deserialize)]
+    struct In {
+        gravity: Vector,
+        integration_parameters: IntegrationParameters,
+        islands: IslandManager,
+        broad_phase: BroadPhaseBvh,
+        narrow_phase: NarrowPhase,
+        bodies: RigidBodySet,
+        colliders: ColliderSetIn,
+        impulse_joints: ImpulseJointSet,
+        multibody_joints: MultibodyJointSet,
+    }
+    /// [`PhysicsWorld::with_holes`]' serializable view.
+    pub struct WithHoles<'a, F> {
+        world: &'a PhysicsWorld,
+        hole: F,
+    }
+    impl<F: Fn(ColliderHandle, &Collider) -> bool> Serialize for WithHoles<'_, F> {
+        fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+            let w = self.world;
+            Out {
+                gravity: &w.gravity,
+                integration_parameters: &w.integration_parameters,
+                islands: &w.islands,
+                broad_phase: &w.broad_phase,
+                narrow_phase: &w.narrow_phase,
+                bodies: &w.bodies,
+                colliders: w.colliders.with_holes(&self.hole),
+                impulse_joints: &w.impulse_joints,
+                multibody_joints: &w.multibody_joints,
+            }
+            .serialize(s)
+        }
+    }
+    /// Reads [`PhysicsWorld::with_holes`]' output, rebuilding each hole with the
+    /// function (stored settled). A hole it refuses fails the read.
+    pub struct FillHoles<F>(pub F);
+    impl<'de, F: FnMut(ColliderHandle) -> Option<Collider>> serde::de::DeserializeSeed<'de>
+        for FillHoles<F>
+    {
+        type Value = PhysicsWorld;
+        fn deserialize<D: serde::Deserializer<'de>>(self, d: D) -> Result<PhysicsWorld, D::Error> {
+            let w = In::deserialize(d)?;
+            Ok(PhysicsWorld {
+                gravity: w.gravity,
+                integration_parameters: w.integration_parameters,
+                physics_pipeline: PhysicsPipeline::new(),
+                islands: w.islands,
+                broad_phase: w.broad_phase,
+                narrow_phase: w.narrow_phase,
+                bodies: w.bodies,
+                colliders: w.colliders.fill(self.0).map_err(|h| {
+                    serde::de::Error::custom(format_args!("collider hole {h:?} has no rebuild"))
+                })?,
+                impulse_joints: w.impulse_joints,
+                multibody_joints: w.multibody_joints,
+                ccd_solver: CCDSolver::new(),
+            })
+        }
+    }
+    impl PhysicsWorld {
+        /// Serializes like the derived `Serialize`, except that each collider `hole`
+        /// selects is written as a hole for [`FillHoles`] to rebuild. Select only
+        /// colliders the reader rebuilds bit-exactly, compared after
+        /// [`Collider::settled`].
+        pub fn with_holes<F: Fn(ColliderHandle, &Collider) -> bool>(
+            &self,
+            hole: F,
+        ) -> WithHoles<'_, F> {
+            WithHoles { world: self, hole }
+        }
+    }
+}
+#[cfg(feature = "serde-serialize")]
+pub use holes::{FillHoles, WithHoles};
+
 impl PhysicsWorld {
     /// Creates a new physics world with default parameters and gravity `(0, -9.81, 0)`.
     pub fn new() -> Self {

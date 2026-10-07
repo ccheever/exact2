@@ -131,6 +131,8 @@ pub fn compatibility_id_sources(
         Err(_) => return Err("EXACT_UPDATE_TRUST is not UTF-8".into()),
     };
     crate::reach::parsed(app_dir, grants, rust_grants)?;
+    // @ref LLP 1100 D1 — a colour this platform can't show is refused here.
+    crate::colors::check(app_dir, platform)?;
     let ceiling = rust_grants.map(|rust| grant_union(grants.unwrap_or(""), rust));
     let mut compat = compatibility_with_trust(
         app_dir,
@@ -334,6 +336,8 @@ fn compatibility_with_trust(
             "backgroundModes": list("backgroundModes"),
             "urlSchemes": list("urlSchemes"),
             "associatedDomains": host.get("associatedDomains").and_then(|v| v.as_bool()).map_or(Value::Null, Value::Bool),
+            // @ref LLP 1096 D8 — the Apple audio session, baked into the binary.
+            "audioSession": manifest.json.get("audio_session").cloned().unwrap_or(Value::Null),
         },
         // The verification keys the binary carries (LLP 1026 D11), by id: a
         // rotation is a new cohort (1030 D3a).
@@ -395,7 +399,12 @@ fn executors(app_dir: &Path, platform: &str) -> Vec<String> {
             .into(),
         );
     }
-    let host = app_dir.join("apple/src/lib.rs");
+    let platform_host = app_dir.join(platform).join("src/lib.rs");
+    let host = if platform_host.is_file() {
+        platform_host
+    } else {
+        app_dir.join("apple/src/lib.rs")
+    };
     if platform != "web" && std::fs::read_to_string(host).is_ok_and(|s| s.contains("Swappable")) {
         out.push("wasmtime".into());
     }

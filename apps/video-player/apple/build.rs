@@ -4,7 +4,7 @@
 use contract::DataSource;
 
 fn main() {
-    println!("cargo:rerun-if-changed=../app.contract");
+    contract::rerun_if_changed(std::path::Path::new("../app.contract"));
     println!("cargo:rerun-if-changed=../app.json");
     println!("cargo:rerun-if-changed=../assets");
     println!("cargo:rerun-if-changed=../data");
@@ -21,7 +21,8 @@ fn main() {
     let app_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let target = std::env::var("TARGET").unwrap_or_default();
     let platform = match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
-        Ok("ios") => "ios",
+        // tvOS bakes the iOS host's plan.
+        Ok("ios" | "tvos") => "ios",
         _ => "macos",
     };
     let manifest = contract::Manifest::read(&app_dir).unwrap_or_else(|e| panic!("app.json: {e}"));

@@ -346,6 +346,10 @@ fn read_outside_derives(c: &Component) -> BTreeSet<&str> {
                 Stmt::Command { args, .. } | Stmt::Send { args, .. } => {
                     args.iter().for_each(|a| expr(a, out))
                 }
+                Stmt::Call { args, body, .. } => {
+                    args.iter().for_each(|a| expr(a, out));
+                    stmts(body, out);
+                }
                 Stmt::Refresh { .. } => {}
                 Stmt::If {
                     cond,
@@ -434,7 +438,8 @@ fn each_child<'a>(e: &'a Expr, f: &mut dyn FnMut(&'a Expr)) {
         Expr::Some(x, _)
         | Expr::Unary(_, x, _)
         | Expr::Member(x, _, _)
-        | Expr::NamedArg(_, x, _) => f(x),
+        | Expr::NamedArg(_, x, _)
+        | Expr::Typed(x, _, _) => f(x),
         Expr::Binary(_, a, b, _) => {
             f(a);
             f(b);
@@ -459,18 +464,13 @@ fn each_child<'a>(e: &'a Expr, f: &mut dyn FnMut(&'a Expr)) {
             f(body);
         }
         Expr::Arrow { body, .. } => f(body),
-        Expr::Call(_, args, _) => args.iter().for_each(f),
+        Expr::Call(_, args, _) | Expr::List(args, _) => args.iter().for_each(f),
         Expr::Template(parts, _) => parts.iter().for_each(|p| {
             if let TemplatePart::Expr(x) = p {
                 f(x)
             }
         }),
-        Expr::Number(..)
-        | Expr::Str(..)
-        | Expr::Bool(..)
-        | Expr::None(_)
-        | Expr::EmptyList(_)
-        | Expr::Ident(..) => {}
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::Ident(..) => {}
     }
 }
 
@@ -480,6 +480,7 @@ fn map_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> Expr {
         Expr::Unary(op, x, s) => Expr::Unary(*op, Box::new(f(x)), *s),
         Expr::Member(x, field, s) => Expr::Member(Box::new(f(x)), field.clone(), *s),
         Expr::NamedArg(n, x, s) => Expr::NamedArg(n.clone(), Box::new(f(x)), *s),
+        Expr::Typed(x, t, s) => Expr::Typed(Box::new(f(x)), t.clone(), *s),
         Expr::Binary(op, x, y, s) => {
             let x = Box::new(f(x));
             Expr::Binary(*op, x, Box::new(f(y)), *s)
@@ -524,6 +525,7 @@ fn map_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> Expr {
             span: *span,
         },
         Expr::Call(n, args, s) => Expr::Call(n.clone(), args.iter().map(&mut *f).collect(), *s),
+        Expr::List(items, s) => Expr::List(items.iter().map(&mut *f).collect(), *s),
         Expr::Template(parts, s) => Expr::Template(
             parts
                 .iter()

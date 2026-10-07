@@ -18,6 +18,9 @@ pub enum ControlKind {
     Checkbox,
     /// `input type="checkbox" switch`.
     Switch,
+    /// `input type="radio"` (x2apps survey #2): one of the radios of its
+    /// `name` ([`Kernel::radio_group`]).
+    Radio,
     /// `input type="file"` (LLP 1069.002).
     File,
     /// `select`, its options the node's children.
@@ -49,6 +52,7 @@ impl ControlKind {
             Some("date") => ControlKind::Date,
             Some("time") => ControlKind::Time,
             Some("datetime-local") => ControlKind::DateTimeLocal,
+            Some("radio") => ControlKind::Radio,
             _ if props.str(PropId::AccessibilityRole) == Some("switch") => ControlKind::Switch,
             _ => ControlKind::Checkbox,
         })
@@ -61,7 +65,7 @@ impl ControlKind {
     /// seam. A host that knows any control's size reports it.
     pub fn default_size(self) -> (f32, f32) {
         match self {
-            ControlKind::Checkbox | ControlKind::Switch => (13.0, 13.0),
+            ControlKind::Checkbox | ControlKind::Switch | ControlKind::Radio => (13.0, 13.0),
             ControlKind::File => (347.0, 25.0),
             ControlKind::Select => (22.0, 19.0),
             ControlKind::Range => (129.0, 16.0),
@@ -280,6 +284,66 @@ impl Kernel {
             .collect()
     }
 
+    /// A radio's group, HTML's radio button group: every attached radio of
+    /// its non-empty `name`, in tree order, itself included; itself alone
+    /// when its name is empty or it is not attached. Empty for a node that
+    /// is not a radio.
+    pub fn radio_group(&self, view: ViewId) -> Vec<ViewId> {
+        let Some(radio) = self.node(view) else {
+            return Vec::new();
+        };
+        if ControlKind::of(radio.node_type, radio.props) != Some(ControlKind::Radio) {
+            return Vec::new();
+        }
+        let name = radio.props.str(PropId::Name).unwrap_or("");
+        if name.is_empty() {
+            return vec![view];
+        }
+        let mut group = Vec::new();
+        let mut stack: Vec<ViewId> = self.roots().into_iter().rev().collect();
+        while let Some(id) = stack.pop() {
+            let Some(node) = self.node(id) else { continue };
+            if ControlKind::of(node.node_type, node.props) == Some(ControlKind::Radio)
+                && node.props.str(PropId::Name) == Some(name)
+            {
+                group.push(id);
+            }
+            stack.extend(node.children().into_iter().rev());
+        }
+        if !group.contains(&view) {
+            return vec![view];
+        }
+        group
+    }
+
+    /// The radio an arrow key moves the check to from `view` (HTML: the
+    /// next or previous enabled radio of its group, wrapping): `None` when
+    /// no other enabled radio is in its group.
+    pub fn radio_step(&self, view: ViewId, forward: bool) -> Option<ViewId> {
+        let group = self.radio_group(view);
+        let at = group.iter().position(|id| *id == view)?;
+        let n = group.len();
+        (1..n)
+            .map(|i| {
+                group[if forward {
+                    (at + i) % n
+                } else {
+                    (at + n - i) % n
+                }]
+            })
+            .find(|id| {
+                self.node(*id)
+                    .is_some_and(|r| r.props.bool(PropId::Disabled) != Some(true))
+            })
+    }
+
+    /// A radio's value, HTML's: its `value`, or `on` when it has none.
+    pub fn radio_value(&self, view: ViewId) -> String {
+        self.node(view)
+            .and_then(|r| r.props.str(PropId::Value).map(str::to_owned))
+            .unwrap_or_else(|| "on".into())
+    }
+
     /// A button's face (LLP 1069.011.000 D1), its children read as they now
     /// stand (a `when` between them included); `None` for a node that is not
     /// a custom or native button.
@@ -338,6 +402,38 @@ impl Kernel {
             None => choices.into_iter().find(|c| !c.disabled),
         }
     }
+}
+
+/// HTML's maxlength applies to text field types and textarea, not number or controls.
+pub fn text_maxlength(props: &crate::PropList) -> Option<usize> {
+    if props.str(PropId::SemanticTag) != Some("textarea")
+        && !matches!(
+            props.str(PropId::Type).unwrap_or("text"),
+            "text" | "search" | "url" | "tel" | "email" | "password"
+        )
+    {
+        return None;
+    }
+    props
+        .get(PropId::Maxlength)
+        .and_then(crate::PropValue::as_int)
+        .and_then(|n| usize::try_from(n).ok())
+}
+
+/// A user-entered replacement truncated on a scalar boundary to the HTML UTF-16 limit.
+/// Authored value updates never call this; they may be longer than maxlength.
+pub fn limit_text<'a>(props: &crate::PropList, text: &'a str) -> &'a str {
+    let Some(limit) = text_maxlength(props) else {
+        return text;
+    };
+    let mut length = 0;
+    for (index, scalar) in text.char_indices() {
+        length += scalar.len_utf16();
+        if length > limit {
+            return &text[..index];
+        }
+    }
+    text
 }
 
 #[cfg(test)]
@@ -474,5 +570,59 @@ mod tests {
             ControlKind::of(NodeType::Control, k.node(2).unwrap().props),
             Some(ControlKind::Select)
         );
+    }
+
+    #[test]
+    fn a_radios_group_is_its_name_in_tree_order() {
+        let mut k = Kernel::with_monospace();
+        let mut ops = vec![Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        }];
+        for (id, name, disabled) in [
+            (2, "a", false),
+            (3, "b", false),
+            (4, "a", true),
+            (5, "a", false),
+            (6, "", false),
+        ] {
+            ops.push(Op::CreateView {
+                id,
+                node_type: NodeType::Control,
+            });
+            ops.push(Op::SetProp {
+                id,
+                prop: PropId::Type,
+                value: PropValue::Str("radio".into()),
+            });
+            ops.push(Op::SetProp {
+                id,
+                prop: PropId::Name,
+                value: PropValue::Str(name.into()),
+            });
+            if disabled {
+                ops.push(Op::SetProp {
+                    id,
+                    prop: PropId::Disabled,
+                    value: PropValue::Bool(true),
+                });
+            }
+        }
+        ops.push(Op::SetChildren {
+            id: 1,
+            children: vec![2, 3, 4, 5, 6],
+        });
+        ops.push(Op::AttachRoot { id: 1 });
+        k.apply(0, 1, &ops).unwrap();
+        assert_eq!(k.radio_group(2), vec![2, 4, 5]);
+        assert_eq!(k.radio_group(3), vec![3]);
+        assert_eq!(k.radio_group(6), vec![6], "no name: a group of its own");
+        assert!(k.radio_group(1).is_empty());
+        // The arrows skip a disabled radio and wrap.
+        assert_eq!(k.radio_step(2, true), Some(5));
+        assert_eq!(k.radio_step(5, true), Some(2));
+        assert_eq!(k.radio_step(2, false), Some(5));
+        assert_eq!(k.radio_step(3, true), None);
+        assert_eq!(k.radio_value(2), "on");
     }
 }

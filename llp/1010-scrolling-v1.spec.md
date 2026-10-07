@@ -909,6 +909,8 @@ does not alter the measured runner or replace the paired diagnostic above.
 
 **2026-10-02 `scroll-start`:** a virtualized list may open at its end: `scroll-start="end"` (literal `start`, the default, or `end`; `lower-attr-value`; `lower-list-virtualized` off a virtualized list), CSS Scroll Snap 2's container-level name. Before any report it builds its last rows (the bootstrap count, or `initial-item-count`) and sends a sequence-0 correction to its estimated extent, which the host clamps, the same opening a kept position or a `scrollIntoView` makes. Until it has opened it anchors the end on every report, `scrollFollowEnd` or not. It has opened when a report at the end changes nothing: every mounted row measured, the extent left as it was, nothing owed or corrected. The reader leaves it by travel in two reports running, as a `scrollIntoView` is cancelled. A report short of the end is not the reader: UIKit lays out rows at their real size and clamps its port before the runner has measured them (Signal Clone on the simulator landed 164 pt short until this rule). Rows that come later, before the first report or after a report of the empty list, open at the end too. After it opens, `scrollFollowEnd` decides. Runner (`collection/start.rs`) and the JS target (`list.js`); consumer: the Signal Clone transcript, which needed `scrollTop=(1000000 + n)` plus a `scrollIntoView(…, block="end")` once its first command landed. The kernel prop is `scrollStart`.
 
+**2026-10-04 anchoring as CSS's, at the start and across a resize:** a list at its start anchors nothing unless it follows its end, as CSS scroll anchoring selects no anchor at a zero offset (Chromium's `ScrollAnchor` clears itself there): a row inserted on top shows (mail F8: a mail list's newest message, a row Undo puts back), on every host, since the runner's `capture_anchor` and the JS target's `SizeIndex.anchor` decide it; scrolled away from the start the first visible key keeps its place as before. An end it follows wins where the start is also the end (a short transcript). Chromium anchors only in the block direction, so it never anchors a horizontal scroller; a row list here applies the same per-axis rule (at its start edge, nothing), a deviation. And an anchor's correction now lands in the batch that also resizes the port (feed F14: a refresh prepends posts as the pull-to-refresh zone above the list closes): Apple and the wasm web host had taken that resize for a jump and dropped the correction, so the content jumped by the posts' height; Linux takes a correction planned before its pass's resize too. A row root may move where it paints (`translate`, `rotate`, `scale`, a relative inset, `z-index`) without leaving its flow, as in CSS (files F14: the runner refused a dynamic `translate` and the list drew nothing on native hosts).
+
 **2026-09-19 tall-card bootstrap estimate:** shared `virtualized=true` lists accept the existing `estimated-item-height` as one positive literal. The runner seeds its height index from that hint and bounds bootstrap by the previous 16 × 32-point provisional budget (at most sixteen rows); measured heights replace the estimate. Invalidated heights revert to the authored estimate. Compiler cases and a 25,000-row integration exercise verify bounded bootstrap, replacement by actual measurements, distant scroll and return without rebuilding the source. Six compiler collection tests, 64 runner collection tests, targeted package tests and clippy pass. Shop's alternating simulator comparison reports median exec-to-first-draw 566.2 → 426.4 ms over five launches per build. Web must also exclude collection snapshot views from legacy list registration: the authored estimate otherwise activates `exact_list` on a shared collection and poisons the runner. The reproduced failure is fixed and Shop's full-feed browser/iOS probes pass. These are consumer-specific measurements, not whole-runtime or physical-phone parity.
 
 **2026-09-20 Shop compiler integration:** current main routed a shared `virtualized=true` list through legacy explicit-height validation and rejected its existing estimate. Restricting legacy validation to lists without a `virtualized` attribute restores the shared collection validator, including its unbounded-viewport diagnostic. The pre-change consumer build and existing collection case failed; all six collection compiler cases and the Shop web/device builds pass afterward. The broader Contract suite stops at `lint::conditional_style_literals_are_refused_at_the_offending_branch`, whose column fixture expects `top="0px"` to be invalid although current lowering accepts it; this is outside the list branch. Full runtime checks are recorded separately and are not claimed green.
@@ -927,3 +929,71 @@ the animation runs, the scroller still counts as following its end
 a batch mid-flight does not mistake the animated offset for a reader's scroll.
 Consumer: the Signal Clone app's transcript (send scrolls the new message in,
 as Signal does).
+
+### 6.8 A smooth correction is one retargetable motion (2026-10-04)
+
+On iOS a smooth correction (a list following its end, a smooth
+`scrollIntoView`) was UIKit's `setContentOffset(_:animated:)`. A second
+target while it ran (a list follows a sent message's estimated height, then
+its measured one) could not retarget it: UIKit restarts that animation from
+rest, so the target was held and landed with no animation when it was near.
+Measured on Signal Clone: the new bubble rose for 0.15 s, then jumped its
+last 12 pt 0.2 s later.
+
+Now it is one 0.3 s ease-in-out motion (UIKit's batch-update timing, which
+a chat's insertion rides) that sets the scroll view's `contentOffset` each
+display frame, as UIKit's own scroll animation does, so every reader
+(hit-testing, a drag's start, stickies, the scroll event) sees the offset on
+screen. It begins on the turn after the first target, with the last target
+that turn gave (a list following its end hears the estimated row and the
+measured one in one turn; two motions begun milliseconds apart showed a step
+back first). A later target, smooth or a shift of the rows under it,
+retargets it from where it is. A drag, a wheel, an ordinary correction or
+the list's retirement stops it where it is (`stopAnimation`). While it runs
+the list reports where it is headed, as before. (r1 animated the offset with
+Core Animation; both reviews found the model and the screen apart for the
+whole flight.) `CollectionIOS.swift` `animateOffset`, `OffsetDriver`;
+`SmoothCollectionIOSTests`; measured with `scripts/motion-trace.mjs` on
+Signal Clone's send: one motion, max deviation 0.014 from a 0.3 s
+ease-in-out (before: 0.27, and a 12-pt jump).
+
+**One target before the first frame, and a port at a device pixel
+(2026-10-05).** Measured on Signal Clone in the simulator, a send's measured
+row (−1 pt) and a reply's (−16 pt) arrive 0.5 to 4 ms after the estimated
+one (+64 pt), inside the frame the motion starts on. So:
+- A target that arrives before the motion's first frame (`OffsetDriver.drawn`),
+  with the port where the motion began, replaces its target and keeps its
+  start: one ease, not a retarget. One that folds back onto the port ends it. After a
+  frame has shown, a retarget is a fresh ease from what shows, as before.
+- A start whose target has folded back to within half a point of the port,
+  and a smooth correction under half a point, set the offset and run no
+  frames. (Each was 0.3 s of the display link moving 0.17 pt.)
+- A host rounds its offset to device pixels (UIKit's `contentOffset`, a
+  browser's `scrollTop`): an end at 4405.1667 pt shows as 4405.333 at 3x.
+  The runner took any port more than 0.01 pt from its target as off it,
+  so it sent the same correction with every commit (four a second under a
+  250 ms poll), an opening list never settled (`settle_start` needs no
+  correction owed), and with its opening unsettled no follow was smooth:
+  in such a session every sent message snapped. The runner now takes a port
+  within half a point of a followed end it has already sent as at it
+  (`at_target`, `collection/start.rs`, and the web JS target's `list.js`,
+  which mirrors it). An end that moved, by any amount, is sent once. A row
+  anchor keeps 0.01: a row above it measured 0.4 pt taller is a real move,
+  and such moves add up report on report. Half a point is half a pixel
+  at 1x and more at any finer scale; a per-host half pixel would need each
+  host's scale in its reports. The web hosts take the runner's corrections,
+  so the same loop under a browser's device-pixel `scrollTop` ends with it.
+- Not done: the host resolving a followed end from its own layout, a
+  correction that names the end, not an offset (proposal on
+  `ide/doc/followed-end-one-target`). With the second target inside the
+  first frame it buys no visible change and adds a second source of truth
+  for the extent; `QUEUE.md` keeps it.
+
+Tests: `SmoothCollectionIOSTests`
+(`testATargetBeforeTheFirstFrameIsTheMotionsOneTarget`,
+`testASmoothCorrectionUnderHalfAPointIsSet`), the runner's
+`a_port_rounded_to_a_device_pixel_is_at_its_followed_end`,
+`a_half_pixel_extent_is_reached_by_a_rounded_port`,
+`an_opening_at_a_half_pixel_end_settles_and_then_follows_smoothly`,
+`an_end_moved_by_less_than_half_a_point_is_still_followed` and
+`a_row_anchors_small_moves_still_correct`.

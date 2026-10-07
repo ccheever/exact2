@@ -1,12 +1,23 @@
 // @ref LLP 1030.002 D1 — every name is opened relative to an owned directory.
+use crate::Kind;
 use std::ffi::{CStr, CString};
 use std::fs::File;
 use std::io::{self, Read, Write};
 use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd};
+use std::os::unix::fs::MetadataExt;
 use std::path::{Component, Path};
 
 pub fn refuse(message: impl Into<String>) -> io::Error {
     io::Error::other(message.into())
+}
+pub fn identity(file: &File) -> io::Result<(u64, u64)> {
+    let info = file.metadata()?;
+    Ok((info.dev(), info.ino()))
+}
+pub fn lock_exclusive(file: &File) -> io::Result<()> {
+    // SAFETY: the descriptor belongs to the live file; the lock ends on close.
+    checked(unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) })?;
+    Ok(())
 }
 fn name(value: &str) -> io::Result<CString> {
     CString::new(value).map_err(|_| refuse("NUL in path"))
@@ -48,11 +59,13 @@ impl Directory {
     ) -> io::Result<()> {
         for leaf in self.names()? {
             let path = format!("{prefix}{leaf}");
-            match self.kind(&leaf)?.st_mode & libc::S_IFMT {
-                libc::S_IFDIR => self
+            match self.kind(&leaf)? {
+                Kind {
+                    directory: true, ..
+                } => self
                     .child(&leaf, false)?
                     .visit_files(&format!("{path}/"), visit)?,
-                libc::S_IFREG => visit(&path, self, &leaf)?,
+                Kind { regular: true, .. } => visit(&path, self, &leaf)?,
                 _ => {
                     return Err(refuse(
                         "static app files must be regular files or directories",
@@ -173,7 +186,7 @@ impl Directory {
         names.sort();
         Ok(names)
     }
-    pub fn kind(&self, leaf: &str) -> io::Result<libc::stat> {
+    pub fn kind(&self, leaf: &str) -> io::Result<Kind> {
         let leaf = name(leaf)?;
         let mut info = std::mem::MaybeUninit::<libc::stat>::uninit();
         // SAFETY: fstatat initializes info on success, without following links.
@@ -191,7 +204,15 @@ impl Directory {
                 "static app files cannot be symlinks; root must be a real directory",
             ));
         }
-        Ok(info)
+        // Darwin's dev_t is signed 32-bit; Linux's is already u64.
+        #[allow(clippy::unnecessary_cast)]
+        let identity = (info.st_dev as u64, info.st_ino);
+        Ok(Kind {
+            directory: info.st_mode & libc::S_IFMT == libc::S_IFDIR,
+            regular: info.st_mode & libc::S_IFMT == libc::S_IFREG,
+            len: u64::try_from(info.st_size).map_err(|_| refuse("invalid file size"))?,
+            identity,
+        })
     }
     pub fn unlink(&self, leaf: &str) -> io::Result<()> {
         checked(unsafe { libc::unlinkat(self.0.as_raw_fd(), name(leaf)?.as_ptr(), 0) })?;

@@ -197,6 +197,9 @@ component App
       textarea value="\nfirst" testId="area" width=10
       view focus=bump testId="focusable" width=10 height=10
       button focus=bump testId="button" width=10 height=10
+      box tabindex=0 testId="plain-stop" width=10 height=10
+      view focus=bump tabindex=-1 testId="out-of-order" width=10 height=10
+      box testId="no-stop" width=10 height=10
       scroll scrollTop=40 testId="scroller" height=10
       canvas width=10 height=10 testId="canvas"
 "#;
@@ -218,6 +221,19 @@ component App
     assert!(doc[area..].contains(">\n\nfirst</textarea>"));
     assert!(tag("focusable").contains(" tabindex=\"0\""));
     assert!(!tag("button").contains("tabindex"));
+    // LLP 1088 D7.3: an authored `tabindex` is the attribute itself, it wins
+    // over the synthesized one, and absent is never `0`.
+    assert!(
+        tag("plain-stop").contains(" tabindex=\"0\""),
+        "{}",
+        tag("plain-stop")
+    );
+    let out = tag("out-of-order");
+    assert!(
+        out.contains(" tabindex=\"-1\"") && !out.contains("tabindex=\"0\""),
+        "{out}"
+    );
+    assert!(!tag("no-stop").contains("tabindex"), "{}", tag("no-stop"));
     // Scroll offsets are the browser's, never attributes.
     assert!(!tag("scroller").to_lowercase().contains("scrolltop"));
     let canvas = tag("canvas");
@@ -245,6 +261,21 @@ component App
     assert!(doc.contains("<span>unsafe</span>"), "{doc}");
     assert!(!doc.contains("javascript"), "{doc}");
     assert!(doc.contains("<br>"), "{doc}");
+    // A list item is a block padded by its indent, its marker hung in the
+    // gutter, as `renderMarkup` builds it (LLP 1045 D4).
+    let list = document(
+        "component App\n  view\n    text \"Top\\n\\n- one\\n  - two\" markup=\"markdown\"\n",
+    );
+    let marker =
+        "display:inline-flex;justify-content:flex-end;width:40px;white-space:pre;text-indent:0;";
+    assert!(
+        list.contains(&format!("<span style=\"display:block;padding-left:40px;text-indent:-40px;\"><span style=\"opacity:0.62;{marker}\">• </span><span>one</span><span><br></span></span>")),
+        "{list}"
+    );
+    assert!(
+        list.contains(&format!("<span style=\"display:block;padding-left:80px;text-indent:-40px;\"><span style=\"opacity:0.62;{marker}\">◦ </span><span>two</span></span>")),
+        "{list}"
+    );
 }
 
 #[test]
@@ -275,7 +306,7 @@ component App
     assert_eq!(inner.props.str(exact_kernel::PropId::TestId), Some("inner"));
 }
 
-/// A `button` is a real `<button>`, a flex column, and holds only phrasing
+/// A `button` is a real `<button>` and holds only phrasing
 /// content (LLP 1007 §1): its containers, paragraphs and headings are
 /// `<span>`s with the same style — a block unless a row says otherwise — in
 /// the live host's batch and in the document alike.
@@ -310,13 +341,12 @@ component App
     assert!(card.starts_with("<button "), "{card}");
     // Its native role isn't restated (ARIA in HTML).
     assert!(!card.contains(" role="), "{card}");
-    for want in [
-        " type=\"button\"",
-        "display:flex;",
-        "flex-direction:column;",
-    ] {
+    // Chrome's button (LLP 1001 §1): the reset's block, with the UA sheet's
+    // centred text; the browser centres its content in its height.
+    for want in [" type=\"button\"", "text-align:center;"] {
         assert!(card.contains(want), "{want}: {card}");
     }
+    assert!(!card.contains("display:"), "{card}");
     let stack = opening("stack");
     assert!(stack.starts_with("<span "), "{stack}");
     assert!(

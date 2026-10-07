@@ -22,6 +22,7 @@ const API = "https://api.castle.xyz/graphql";
 const LOGIN = "mutation Login($who: String!, $password: String!) { loginV2(who: $who, password: $password) { token username } }";
 
 const idle: Session = { ok: false, username: "", error: "" };
+let flushing = false, lastError = "";
 
 function text(args: unknown[], i: number): string {
   const v = args[i];
@@ -96,6 +97,48 @@ async function refusedLater(): Promise<Session> {
   throw new Error("after the fetch");
 }
 
+// One fetch two answers share, as a page's code memoizes one (hn-reader
+// F7): the second answer awaits the first's request, not one of its own.
+const items = new Map<string, Promise<string>>();
+function item(id: string): Session | Promise<Session> {
+  if (!id) return idle;
+  if (!items.has(id)) items.set(id, fetch(`https://api.castle.xyz/item/${id}`).then(r => r.text()));
+  return items.get(id)!.then(error => ({ ok: true, username: id, error }));
+}
+
+// It awaits the shared fetch, then fetches again: that continuation runs as
+// the answer whose reply settled the shared one, so its request lands among
+// that answer's tickets (review r4a 1).
+async function followup(id: string): Promise<Session> {
+  if (!id) return idle;
+  const first = await item(id);
+  const more = await fetch(`https://api.castle.xyz/comments/${id}`);
+  return { ok: true, username: id, error: first.error + " + " + await more.text() };
+}
+
+// A save that does not await its POST: the answer is given at once, the
+// request still goes (a browser runs it), even while another answer is in
+// flight (Grok's batch 2 review, runtime).
+async function saveQuietly(id: string): Promise<Session> {
+  void fetch(`https://api.castle.xyz/save/${id}`, { method: "POST", body: id });
+  return { ok: true, username: id, error: "saved" };
+}
+
+// One controller for every fetch (review r4a 7): a browser realm's fetch
+// watches its signal with a listener it removes when the fetch settles;
+// Hermes's watches through Ibex's own abort hooks and adds none.
+const reusedController = new AbortController();
+const listening = { added: 0, removed: 0 };
+{
+  const signal = reusedController.signal as any, add = signal.addEventListener, remove = signal.removeEventListener;
+  signal.addEventListener = function (...args: unknown[]) { listening.added++; return add.apply(this, args); };
+  signal.removeEventListener = function (...args: unknown[]) { listening.removed++; return remove.apply(this, args); };
+}
+async function reused(): Promise<Session> {
+  await fetch("https://api.castle.xyz/reused", { signal: reusedController.signal });
+  return { ok: true, username: "", error: `${listening.added}/${listening.removed}` };
+}
+
 async function parallel(): Promise<Session> {
   const [a, b] = await Promise.all([fetch("https://api.castle.xyz/a"), fetch("https://api.castle.xyz/b")]);
   return {ok:true,username:"parallel",error:Array.from(new Uint8Array(await a.arrayBuffer())).join(",") + "/" + await b.text()};
@@ -111,6 +154,10 @@ function answer(source: string, args: unknown[], store: Store): unknown {
     case "refused": return refused();
     case "refusedLater": return refusedLater();
     case "parallel": return parallel();
+    case "item": case "thread": return item(text(args, 0));
+    case "followup": return followup(text(args, 0));
+    case "reused": return reused();
+    case "saveQuietly": return saveQuietly(text(args, 0));
     // An answer that keeps coming (LLP 1016.000): each event, and the end.
     case "events": return fetch("https://api.castle.xyz/events?since=" + args[0], {
       exactStream: (e: { type: string; data: string; lastEventId: string; coalesced: number; message?: string }) =>
@@ -126,6 +173,16 @@ function answer(source: string, args: unknown[], store: Store): unknown {
       method: "POST",
       ...(args[2] ? { exactIndependentHttp: { maxResponseBytes: args[1] } } : {}),
     }).then(r => r.text());
+    // A send that marks the module busy across its fetch, and the mark.
+    case "flush":
+      flushing = true;
+      return fetch("https://api.castle.xyz/send", { method: "POST", body: text(args, 0) })
+        .then(r => r.text(), (e: { kind: string; message: string }) => { lastError = `${e.kind}: ${e.message}`; return "failed"; })
+        .finally(() => { flushing = false; });
+    case "flushing": return `${flushing} ${lastError}`;
+    // A deadline for the whole exchange: a timeout rejects with its kind.
+    case "timed": return fetch("https://api.castle.xyz/slow", { exactTimeout: args[0] } as RequestInit)
+      .then(r => r.text(), (e: { kind: string; message: string }) => `failed: ${e.kind}: ${e.message}`);
     default: throw new DataError("UnknownSource", source);
   }
 }

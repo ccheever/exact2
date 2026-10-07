@@ -255,6 +255,26 @@ strokeStyle = "color(srgb 1 0 0.5)"
 fillStyle = "lab(50, 40, 59.5)"
 ? fillStyle => oklch(0.7 0.1 200 / 0.5)
 
+## a display-p3 canvas keeps each colour's serialisation (display-p3)
+fillStyle = "red"
+? fillStyle => #ff0000
+fillRect(0, 0, 1, 1)
+fillStyle = "color(display-p3 1 0 0)"
+? fillStyle => color(display-p3 1 0 0)
+fillRect(0, 0, 1, 1)
+strokeStyle = "oklch(0.7 0.25 150 / 0.5)"
+? strokeStyle => oklch(0.7 0.25 150 / 0.5)
+strokeRect(0, 0, 1, 1)
+shadowColor = "color(display-p3 0 1 0)"
+shadowColor = "#00ff00"
+? shadowColor => #00ff00
+g = createLinearGradient(0, 0, 10, 0)
+g.addColorStop(0, "color(display-p3 0 0 1)")
+g.addColorStop(1, "white")
+fillStyle = g
+fillRect(0, 0, 10, 10)
+putImageData(ctx.createImageData(2, 2), 0, 0)
+
 ## stage 2: conic gradients and pixels throw by the IDL
 g = createConicGradient(NaN, 1, 2) ! TypeError
 g = createConicGradient(0.5, 40, 50)
@@ -290,3 +310,57 @@ fill(new Path2D("M0 0 h 10 v10 H0 z m 2 2 C1 1 2 2 3 3 S 4 4 5 5 Q 6 6 7 7 T 8 8
 stroke(new Path2D("M0 0 L 5 5"))
 clip(new Path2D("M0 0 L 5 5 L 0 5 Z"))
 fill()
+
+## CSS predefined rec2020
+fillStyle = "green"
+fillStyle = "color(rec2020 0.2 0.4 0.6)"
+? fillStyle => color(rec2020 0.2 0.4 0.6)
+fillRect(0, 0, 8, 8)
+strokeStyle = "color(rec2020 -0.2 0.02 1.2 / 0.5)"
+? strokeStyle => color(rec2020 -0.2 0.02 1.2 / 0.5)
+strokeRect(1, 1, 5, 5)
+
+## CSS predefined a98-rgb
+fillStyle = "green"
+fillStyle = "color(a98-rgb 0.2 0.4 0.6)"
+? fillStyle => color(a98-rgb 0.2 0.4 0.6)
+fillRect(0, 0, 8, 8)
+strokeStyle = "color(a98-rgb -0.2 0.02 1.2 / 0.5)"
+? strokeStyle => color(a98-rgb -0.2 0.02 1.2 / 0.5)
+strokeRect(1, 1, 5, 5)
+
+## CSS predefined prophoto-rgb
+fillStyle = "green"
+fillStyle = "color(prophoto-rgb 0.2 0.4 0.6)"
+? fillStyle => color(prophoto-rgb 0.2 0.4 0.6)
+fillRect(0, 0, 8, 8)
+strokeStyle = "color(prophoto-rgb -0.2 0.02 1.2 / 0.5)"
+? strokeStyle => color(prophoto-rgb -0.2 0.02 1.2 / 0.5)
+strokeRect(1, 1, 5, 5)
+
+## CSS predefined rec2020 (display-p3)
+fillStyle = "green"
+fillStyle = "color(rec2020 0.2 0.4 0.6)"
+? fillStyle => color(rec2020 0.2 0.4 0.6)
+fillRect(0, 0, 8, 8)
+strokeStyle = "color(rec2020 -0.2 0.02 1.2 / 0.5)"
+? strokeStyle => color(rec2020 -0.2 0.02 1.2 / 0.5)
+strokeRect(1, 1, 5, 5)
+
+## CSS predefined a98-rgb (display-p3)
+fillStyle = "green"
+fillStyle = "color(a98-rgb 0.2 0.4 0.6)"
+? fillStyle => color(a98-rgb 0.2 0.4 0.6)
+fillRect(0, 0, 8, 8)
+strokeStyle = "color(a98-rgb -0.2 0.02 1.2 / 0.5)"
+? strokeStyle => color(a98-rgb -0.2 0.02 1.2 / 0.5)
+strokeRect(1, 1, 5, 5)
+
+## CSS predefined prophoto-rgb (display-p3)
+fillStyle = "green"
+fillStyle = "color(prophoto-rgb 0.2 0.4 0.6)"
+? fillStyle => color(prophoto-rgb 0.2 0.4 0.6)
+fillRect(0, 0, 8, 8)
+strokeStyle = "color(prophoto-rgb -0.2 0.02 1.2 / 0.5)"
+? strokeStyle => color(prophoto-rgb -0.2 0.02 1.2 / 0.5)
+strokeRect(1, 1, 5, 5)

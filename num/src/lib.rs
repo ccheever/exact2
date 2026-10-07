@@ -27,8 +27,10 @@
 use std::cmp::Ordering;
 use std::fmt;
 
+mod js;
 mod piece;
 mod text;
+pub use js::{js, push_js};
 pub use piece::{fill, fill_into, Piece};
 pub use text::{Exponent, Fixed, Shortest, Shortest32, ShortestDebug};
 

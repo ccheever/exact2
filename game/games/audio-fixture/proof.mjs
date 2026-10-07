@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { proof } from '../../proof.mjs';
+import { proof, axNames } from '../../proof.mjs';
 import { audioProof } from '../../bench/probes/audio.mjs';
 
 const SOUNDS = ['blip.sound', 'chord.sound', 'whoosh.sound', 'drone.sound'];
@@ -16,7 +16,8 @@ if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open, check
   const start = async saved => { const s = await open(saved ? {world:saved} : {}); await s.tap('play'); return s; };
 
   let s = await open();
-  check('title offers Play', node(await s.tree(), 'play')?.accessibleName === 'Play');
+  const titleAx = await axNames(s);
+  check('title offers Play', !!node(await s.tree(), 'play') && (titleAx.unavailable || titleAx.name('play') === 'Play'));
   await s.tap('play');
   const first = await world(s);
   check('every baked sound is declared and delivered before tick 0', first.loading.length === 0

@@ -1,4 +1,4 @@
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 /// @ref LLP 1057 §10.6 — the iOS carrier's one held contact (LLP 1035.003 D1),
@@ -9,6 +9,7 @@ import UIKit
 /// never the wall time between requests (LLP 1057.001 §3). Every other contact stays `unsupported`.
 struct AgentPan {
     weak var node: NodeView?
+    weak var pointer: NodeView?
     /// The contact in the viewport's space, and its synthetic time in seconds.
     var at: CGPoint
     var t: Double
@@ -17,8 +18,9 @@ struct AgentPan {
 
 extension Agent {
     /// The `pan` node a contact on `view` would reach: from it up, stopping at
-    /// rule 3's boundary (a field, a text area, or a press node that is not
-    /// the pan node itself), as `MouseLayoutPan.down` walks. Where another
+    /// rule 3's boundary (a field or a text area; a press node between is
+    /// passed, as a pan takes a drag that starts on a button), as
+    /// `MouseLayoutPan.down` walks. Where another
     /// drag could take the contact first — a descendant's (rule 3) or a drag
     /// binding on the pan node (rule 4) — only UIKit's arbitration can say,
     /// so there is no recognized pan to deliver (nil).
@@ -30,12 +32,35 @@ extension Agent {
                     let bound = node.reorderPan != nil || node.transformRecognizer != nil || node.heightRecognizer != nil
                     return SwipeInput.allows(node) && !bound ? node : nil
                 }
-                if node.field != nil || node.textArea != nil || node.handlers.contains("press") { return nil }
+                if node.field != nil || node.textArea != nil { return nil }
                 if !node.dragRecognizers.isEmpty || node.handlers.contains("swiperight") { return nil }
             }
             at = current.superview
         }
         return nil
+    }
+
+    /// The pointer observer is independent of the pan recognizer, as for a
+    /// real touch. Its nearest enabled owner may be a child of the pan node.
+    private static func pointerNode(from view: UIView) -> NodeView? {
+        var current: UIView? = view
+        while let v = current {
+            if let n = v as? NodeView, !n.disabled,
+               !n.handlers.isDisjoint(with: ["pointerdown", "pointermove", "pointerup"]) { return n }
+            current = v.superview
+        }
+        return nil
+    }
+
+    private func panPointer(_ contact: AgentPan, _ kind: PointerKind) {
+        guard let node = contact.pointer, presenter.views[node.id] === node, !node.disabled else { return }
+        let name = kind == .down ? "pointerdown" : kind == .up ? "pointerup" : "pointermove"
+        guard node.handlers.contains(name) else { return }
+        let local = node.convert(contact.at, from: presenter.viewport), box = node.contentBox()
+        let client = presenter.client(presenter.viewport.convert(contact.at, to: nil))
+        presenter.pointer(node.id, kind, PointerSample(x: Double(local.x - box.minX), y: Double(local.y - box.minY),
+            buttons: kind == .up ? 0 : 1, pressure: kind == .up ? 0 : 0.5, type: "touch", id: 2,
+            clientX: Double(client.x), clientY: Double(client.y)))
     }
 
     /// The phase's reply, or nil where no pan contact applies (`unsupported`).
@@ -49,13 +74,16 @@ extension Agent {
             guard at.x.isFinite, at.y.isFinite else { return ["error": "tap down: the point must be finite"] }
             let t = CACurrentMediaTime()
             presenter.onPanSample?(true, Double(at.x), Double(at.y), t)
-            panContact = AgentPan(node: node, at: at, t: t)
+            let contact = AgentPan(node: node, pointer: Agent.pointerNode(from: v), at: at, t: t)
+            panContact = contact
+            panPointer(contact, .down)
             return ["contact": Int(node.id), "phase": "down", "at": point(at), "delivery": "recognized"]
         }
         guard var contact = panContact else { return nil }
         guard let node = contact.node, presenter.views[node.id] === node, node.handlers.contains("pan"), SwipeInput.allows(node) else {
             // The node went or stopped panning: the contact is over, at rest.
             panContact = nil
+            panPointer(contact, .up)
             if contact.began, let node = contact.node, presenter.views[node.id] === node { presenter.panRelease(node.id, 0, 0) }
             return ["phase": phase, "contact": false, "cancelled": true, "at": point(contact.at), "delivery": "recognized"]
         }
@@ -73,6 +101,8 @@ extension Agent {
                 let f = CGFloat(i) / CGFloat(steps)
                 let p = i == steps ? to : CGPoint(x: from.x + (to.x - from.x) * f, y: from.y + (to.y - from.y) * f)
                 contact.t += ms / 1000 / Double(steps)
+                contact.at = p
+                panPointer(contact, .move)
                 presenter.onPanSample?(false, Double(p.x), Double(p.y), contact.t)
                 let dx = p.x - last.x, dy = p.y - last.y
                 last = p
@@ -88,6 +118,7 @@ extension Agent {
             return ["phase": "hold", "at": point(contact.at), "delivery": "recognized"]
         case "up":
             panContact = nil
+            panPointer(contact, .up)
             if contact.began {
                 // The lift is one frame after the last move, where it lands
                 // on the web and AppKit carriers too.
@@ -105,6 +136,7 @@ extension Agent {
             return ["phase": "up", "at": point(contact.at), "delivery": "recognized"]
         case "cancel":
             panContact = nil
+            panPointer(contact, .up)
             if contact.began { presenter.panRelease(node.id, 0, 0) }
             return ["phase": "cancel", "at": point(contact.at), "delivery": "recognized"]
         default:

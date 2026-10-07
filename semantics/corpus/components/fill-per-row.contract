@@ -1,0 +1,48 @@
+// A slot component that repeats `children` per `each` row: each row's
+// copy of the fill is its own instance, owned by that row, so a stateful
+// child in it counts per row, and a row removed and re-added starts fresh.
+shape Item
+  id: string
+
+component App
+  resource a = items(1) as shape list<Item>
+  resource b = items(2) as shape list<Item>
+  derive items = length(a) >= length(b) ? a : b
+  state from = 0
+  action drop
+    from = from + 1
+  action restore
+    from = from - 1
+  view
+    column
+      button "drop" press=drop testId="drop"
+      button "restore" press=restore testId="restore"
+      Rows(items=items, from=from)
+        Counter()
+
+component Rows
+  props
+    items: list<Item>
+    from: number
+  slot
+  view
+    column
+      each it, k in filter(items, (x, j) => j >= from) key=it.id
+        row
+          text `${k} ${it.id}` testId="k"
+          children
+
+component Counter
+  state n = 0
+  action inc
+    n = n + 1
+  view
+    button "inc" press=inc testId="inc"
+      text `${n}` testId="n"
+
+test "each row's fill counts alone"
+  tap "inc"
+  tap "inc"
+  tap "drop"
+  tap "inc"
+  tap "restore"

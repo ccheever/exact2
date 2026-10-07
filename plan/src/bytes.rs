@@ -65,6 +65,11 @@ impl<'a> Reader<'a> {
         Ok(n)
     }
 
+    /// The next byte, not read.
+    pub fn peek(&self) -> Option<u8> {
+        self.bytes.get(self.pos).copied()
+    }
+
     /// One byte.
     pub fn u8(&mut self) -> Result<u8, PlanError> {
         Ok(self.bytes(1)?[0])

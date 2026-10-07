@@ -390,11 +390,15 @@ export function staticFile(dist, pathname) {
     catch { return null; }
   }
   try {
+    const inside = path => {
+      const child = relative(root, path);
+      return child !== '' && child !== '..' && !child.startsWith(`..${sep}`) && !isAbsolute(child);
+    };
     const path = resolve(root, '.' + route);
-    if (!path.startsWith(root + '/')) return null;
+    if (!inside(path)) return null;
     const real = realpathSync(path);
     // Reject both a symlink file and a file reached through a symlink dir.
-    if (real !== path || !real.startsWith(root + '/') || !statSync(real).isFile()) return null;
+    if (real !== path || !inside(real) || !statSync(real).isFile()) return null;
     return { path: real, route };
   } catch { return null; }
 }
@@ -589,9 +593,10 @@ export function buildTreeFile(dist, pathname) {
   if (!path.startsWith('/') || path.includes('\\') || path.includes('\0') || (!INSTALL_PUBLIC.includes(path) && path.replace(/^\/\.exact\/auth\//, '/').split('/').some((part) => part.startsWith('.')))) return null;
   let root;
   try { root = realpathSync(dist); } catch { try { root = realpathSync(`${dist}.previous`); } catch { return null; } }
+  const prefix = root.endsWith(sep) ? root : root + sep;
   for (const route of [path, path.replace(/\/?$/, '/index.html'), ...(appDocumentPath(pathname) ? ['/index.html'] : [])]) {
     const file = resolve(root, '.' + route);
-    try { if (file.startsWith(root + '/') && realpathSync(file) === file && statSync(file).isFile()) return { path: file, route }; } catch { /* next */ }
+    try { if (file.startsWith(prefix) && realpathSync(file) === file && statSync(file).isFile()) return { path: file, route }; } catch { /* next */ }
   }
   return null;
 }
@@ -650,8 +655,14 @@ export function webContentType(route) {
     '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json',
     '.wasm': 'application/wasm', '.plan': 'application/vnd.exact.plan',
     '.mp4': 'video/mp4', '.webm': 'video/webm', '.vtt': 'text/vtt',
+    '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.oga': 'audio/ogg',
     '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
     '.svg': 'image/svg+xml', '.ttf': 'font/ttf', '.woff2': 'font/woff2', '.wgsl': 'text/wgsl',
+    // A game's baked assets (game/README "Assets"): binary, and compressible.
+    // Warming brotli-11 variants of every family (rivals: 43 MiB) takes CPU
+    // time at server start, off the request path; a request before its
+    // variant exists gets identity bytes.
+    '.model': 'application/vnd.exact.model', '.tex': 'application/vnd.exact.texture',
   }[extname(route).toLowerCase()] ?? 'application/octet-stream';
 }
 
@@ -672,7 +683,8 @@ export function webCacheControl(found) {
 // the request path — the server warms its tree at startup — and a request that
 // arrives first gets the identity bytes. A variant no smaller is not kept.
 const COMPRESSIBLE = new Set(['application/wasm', 'text/javascript', 'text/css', 'text/html', 'application/json',
-  'application/manifest+json', 'application/vnd.exact.envelope+json', 'image/svg+xml', 'text/wgsl']);
+  'application/manifest+json', 'application/vnd.exact.envelope+json', 'image/svg+xml', 'text/wgsl',
+  'application/vnd.exact.model', 'application/vnd.exact.texture']);
 export function compressionCache(limit = 256 * 1024 * 1024) {
   const variants = new Map(), pending = new Map();
   let held = 0;
@@ -872,3 +884,13 @@ export async function saveTrace(req, res, { app, dist, root }) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = await main();
+
+/** A dev loop its launcher started stops when that process is gone, however it ended: `EXACT_LAUNCHER_PID` names
+ * it (an app's `exact.mjs`, or the JS loop for the resident producers it starts). A SIGKILL forwards no signal, and
+ * an orphaned server keeps its port (chat and onboarding F20). Without the variable a loop runs until stopped. */
+export function watchLauncher(stop, pid = Number(process.env.EXACT_LAUNCHER_PID)) {
+  if (!Number.isInteger(pid) || pid <= 1) return null;
+  const timer = setInterval(() => { try { process.kill(pid, 0); } catch (e) { if (e.code === 'ESRCH') { clearInterval(timer); stop(); } } }, 1000);
+  timer.unref?.();
+  return timer;
+}

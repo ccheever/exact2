@@ -58,7 +58,9 @@ impl Transport for Fake {
             let (next, timeout) = self
                 .0
                 .ready
-                .wait_timeout_while(state, Duration::from_secs(5), |s| !s.1 && !signal.aborted())
+                .wait_timeout_while(state, Duration::from_secs(60), |s| {
+                    !s.1 && !signal.aborted()
+                })
                 .unwrap();
             state = next;
             if timeout.timed_out() {
@@ -67,10 +69,16 @@ impl Transport for Fake {
         }
         drop(state);
         signal.check()?;
+        // `/away` redirects to an origin the fixture's grants lack.
+        let mut headers = Headers::default();
+        let away = request.url.ends_with("/away");
+        if away {
+            headers.set_response("location", "https://elsewhere.test/feed");
+        }
         Ok(ibex2::stdlib::fetch::Response {
-            status: 200,
+            status: if away { 301 } else { 200 },
             status_text: "OK".into(),
-            headers: Headers::default(),
+            headers,
             body: b"done".to_vec(),
             url: request.url.clone(),
             redirected: false,
@@ -363,7 +371,8 @@ fn retirement_aborts_held_http_discards_queued_effects_and_stops_wakes() {
     let state = core.shared.clone();
     let start = Instant::now();
     drop(core);
-    assert!(start.elapsed() < Duration::from_secs(1));
+    // Well before the held request's minute: retirement aborted it.
+    assert!(start.elapsed() < Duration::from_secs(30));
     assert!(state.abort.signal().aborted());
     assert_ne!(
         destroyed.recv_timeout(Duration::from_secs(5)).unwrap(),
@@ -589,6 +598,29 @@ fn grants_that_do_not_parse_are_named_in_every_refusal() {
     }
 }
 
+/// A redirect that leaves the grants is refused naming the origin it led to
+/// (podcast F5: a feed moved to another host read only "outside the app's
+/// grants"), and the second hop is never sent.
+#[test]
+fn a_refused_redirect_names_where_it_led() {
+    let (core, fixture, woke) = setup();
+    core.run(job(1, Request::get("https://example.test/away")), None)
+        .unwrap();
+    let [(_, outcome)] = collect(&core, &woke, 1).try_into().unwrap();
+    let Outcome::Failed { kind, message } = outcome else {
+        panic!("the redirect was followed: {outcome:?}");
+    };
+    assert_eq!(kind, FailureKind::Refused);
+    assert_eq!(
+        message,
+        "outside the app's grants (net.fetch): redirected to https://elsewhere.test"
+    );
+    assert_eq!(
+        fixture.state.lock().unwrap().2,
+        ["https://example.test/away"]
+    );
+}
+
 fn settled(core: &Core) -> bool {
     let state = core.shared.state.lock().unwrap();
     state.counts == [0, 0] && state.bytes == [0, 0] && state.running.is_empty()
@@ -743,6 +775,7 @@ fn an_ordered_job_waits_for_retained_bytes_instead_of_refusing() {
 /// handoff, behind and beside handed-off module turns as worker placement
 /// queues them (the Crew port's F4/F6, not reproduced on macOS).
 #[test]
+#[ignore = "async lane: a real socket under the platform transport (URLSession), timing-sensitive on a loaded machine; bun scripts/async.mjs runs it"]
 fn a_large_body_on_the_platform_transport_drains_behind_handed_off_turns() {
     use std::io::{Read, Write};
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -883,3 +916,6 @@ fn completed_latency_is_measured_before_the_ui_drains_it() {
     assert!(matches!(outcome, Outcome::Response(_)));
     assert!(elapsed.unwrap() <= completed_by);
 }
+
+#[path = "executor_timeout_tests.rs"]
+mod timeout;

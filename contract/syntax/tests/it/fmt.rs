@@ -147,6 +147,22 @@ component A
 }
 
 #[test]
+fn template_escapes_keep_their_spelling_and_meaning() {
+    use contract_syntax::parse;
+    let src =
+        "component A\n  state x = 1\n  view\n    text   `a\\${x} \\` \\\\${x} \\t\\n\\\"\\$`\n";
+    let after = preserved(src);
+    assert!(
+        after.contains(r#"text `a\${x} \` \\${x} \t\n\"\$`"#),
+        "{after}"
+    );
+    // Only the spacing before the template changed; its escapes still decode.
+    assert_eq!(after, src.replace("text   `", "text `"));
+    let view = format!("{:?}", parse(&after).unwrap().components[0].view);
+    assert!(view.contains(r#"Text("a${x} ` \\")"#), "{view}");
+}
+
+#[test]
 fn long_headers_break_only_at_parser_attribute_and_argument_boundaries() {
     let src = "component A\n  view\n    input value=\"\" placeholder=\"A long placeholder for a field\" aria-label=\"A long label for the field\" testId=\"field\"\n    Row(first=\"a long argument value here\", second=\"another long argument value\", third=\"and a third one\")\n";
     let expected = "component A\n  view\n    input value=\"\"\n      placeholder=\"A long placeholder for a field\"\n      aria-label=\"A long label for the field\"\n      testId=\"field\"\n    Row(\n      first=\"a long argument value here\",\n      second=\"another long argument value\",\n      third=\"and a third one\"\n    )\n";
@@ -204,12 +220,12 @@ fn an_empty_list_is_spelled_without_a_space() {
         let file = contract_syntax::parse(src).unwrap();
         let c = &file.components[0];
         (
-            matches!(c.states[1].expr, contract_syntax::Expr::EmptyList(_)),
+            matches!(&c.states[1].expr, contract_syntax::Expr::List(items, _) if items.is_empty()),
             matches!(
                 &c.derives[0].expr,
                 contract_syntax::Expr::Ternary(_, a, b, _)
-                    if matches!(**a, contract_syntax::Expr::EmptyList(_))
-                        && matches!(**b, contract_syntax::Expr::EmptyList(_))
+                    if matches!(&**a, contract_syntax::Expr::List(items, _) if items.is_empty())
+                        && matches!(&**b, contract_syntax::Expr::List(items, _) if items.is_empty())
             ),
         )
     };
@@ -282,4 +298,20 @@ fn a_provide_section_spaces_like_bindings() {
     let src = "component A\n  state a = 1\n  provide\n    // the value itself\n    a\n    b   =   a+1\n  view\n    text \"x\"\n";
     let expected = src.replace("b   =   a+1", "b = a + 1");
     assert_eq!(preserved(src), expected);
+}
+
+#[test]
+fn an_elements_tag_keeps_its_space_before_a_parenthesized_positional() {
+    // `text (on ? "yes" : "no")` is a tag and its expression, not a call `text(…)`;
+    // a call inside a positional stays tight (authoring bench, LLP 1087).
+    let src = "component A\n  state on = false\n  view\n    column\n      text (on ? \"yes\" : \"no\") testId=\"a\"\n      text toString(max(1, 2))\n";
+    let after = preserved(src);
+    assert!(
+        after.contains("      text (on ? \"yes\" : \"no\") testId=\"a\"\n"),
+        "{after}"
+    );
+    assert!(
+        after.contains("      text toString(max(1, 2))\n"),
+        "{after}"
+    );
 }

@@ -89,6 +89,17 @@ impl Kernel {
         ))
     }
 
+    /// The padding the last layout resolved, in points: left, top, right,
+    /// bottom. A percentage is of the containing block's width, which in a
+    /// multi-column container is the column's (CSS Multi-column §3.4).
+    /// `None` when the node has no engine layout.
+    pub fn resolved_padding(&self, key: NodeKey) -> Option<(f32, f32, f32, f32)> {
+        let slot = self.arena.resolve(key)?;
+        let node = self.arena.taffy(slot)?;
+        let pad = self.layout.as_deref()?.tree_ref()?.layout(node).padding;
+        Some((pad.left, pad.top, pad.right, pad.bottom))
+    }
+
     /// The root `slot` is laid out under, when nothing between them was
     /// `display: none` when last laid out (a batch since may have changed a
     /// `display`; the layout last shown hasn't).
@@ -106,11 +117,13 @@ impl Kernel {
     }
 
     /// Whether an image or video under `slot` still waits for its natural
-    /// size, so the box may change when it loads (LLP 1051.000 D5).
+    /// size, so the box may change when it loads (LLP 1051.000 D5). An
+    /// `audio` has none to wait for (LLP 1042 §8).
     fn unsettled(&self, slot: u32) -> bool {
         self.arena.subtree(slot).into_iter().any(|s| {
             matches!(self.arena.node_type(s), NodeType::Image | NodeType::Video)
                 && self.arena.intrinsic(s).is_none()
+                && self.arena.props(s).str(crate::PropId::SemanticTag) != Some("audio")
         })
     }
 }

@@ -117,6 +117,12 @@ pub(crate) struct Perf {
     pub pixels: (u32, u32),
     /// Instances drawn per view (camera, cascades 0–2) in the last read frame.
     pub culled: Option<[u64; 4]>,
+    /// Camera-view triangles the GPU cull kept in that frame (levels of detail
+    /// and frustum culling applied, unlike `stats.triangles`).
+    pub culled_triangles: Option<u64>,
+    /// Local lights drawn and dropped beyond `MAX_LIGHTS` in the last frame.
+    lights: (usize, usize),
+    warned: bool,
 }
 impl Perf {
     pub fn armed(&self) -> bool {
@@ -160,6 +166,20 @@ impl Perf {
         }
         self.last_live = Some(now);
     }
+    /// Record the frame's light counts; the first frame that drops lights says so.
+    pub fn lights(&mut self, drawn: usize, dropped: usize) {
+        self.lights = (drawn, dropped);
+        if dropped > 0 && !std::mem::replace(&mut self.warned, true) {
+            let message = format!(
+                "{dropped} local lights dropped beyond the {} nearest the camera",
+                crate::MAX_LIGHTS
+            );
+            #[cfg(target_arch = "wasm32")]
+            web_sys::console::warn_1(&message.into());
+            #[cfg(not(target_arch = "wasm32"))]
+            eprintln!("{message}");
+        }
+    }
     pub fn append(&self, out: &mut String) {
         out.push_str(",\"perf\":{\"wallClock\":true");
         write!(out, ",\"armed\":{}", self.armed()).unwrap();
@@ -180,10 +200,17 @@ impl Perf {
             self.stats.draws, self.stats.instances, self.stats.triangles
         )
         .unwrap();
+        write!(
+            out,
+            ",\"lights\":{{\"drawn\":{},\"dropped\":{}}}",
+            self.lights.0, self.lights.1
+        )
+        .unwrap();
         match self.culled {
             Some([camera, a, b, c]) => write!(
                 out,
-                ",\"culled\":{{\"camera\":{camera},\"shadows\":[{a},{b},{c}]}}}}"
+                ",\"culled\":{{\"camera\":{camera},\"cameraTriangles\":{},\"shadows\":[{a},{b},{c}]}}}}",
+                self.culled_triangles.unwrap_or(0)
             ),
             None => write!(out, ",\"culled\":null}}"),
         }

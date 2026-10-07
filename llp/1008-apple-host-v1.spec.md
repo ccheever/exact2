@@ -153,11 +153,15 @@ long-reply drive are in `/tmp/messages-line-clamp/verification.json`. Mixed-run
 token styling still differs from the browser's paragraph-styled ellipsis, and
 the browser fixture does not show the token on a right-aligned line; full text raster
 parity remains open. `overflow-wrap` travels through `ExactMeasureRequest`
-and the paragraph cache. Normal uses public Unicode line-break boundaries
-so CoreText's emergency word split becomes overflow; `break-word` retains
-that split. `anywhere` additionally measures min-content by composed-character
-clusters; the other modes retain the widest word. A forward cursor consumes
-line boundaries once rather than searching the whole list for every line.
+and the paragraph cache. Normal and `break-word` break at the last public
+Unicode line-break boundary whose content fits (CoreText's own opportunities
+differ); when none fits, normal lets the word overflow and `break-word`
+splits it at the last cluster that fits. `anywhere` keeps CoreText's
+breaking and measures min-content by composed-character clusters; the other
+modes measure the widest piece between those same Unicode boundaries, not
+only between spaces (2026-10-05: a URL in a chat bubble had sized its box to
+the whole URL, then overflowed it). A forward cursor consumes line
+boundaries once rather than searching the whole list for every line.
 The normal/break-word/anywhere/restored fixture agrees with the browser's
 finite-width and flex minimum behavior (`/tmp/messages-overflow-wrap/`).
 Native editing controls keep their existing UIKit/AppKit wrapping policy;
@@ -344,7 +348,12 @@ affine transform about the bounds' center (translate · rotate · scale) and
 with a `press` handler; an input's `controlTextDidChange` is a `change`. The
 events beyond those (LLP 1005 §3; 2026-08-30): a `hover` handler is an
 `NSTrackingArea` — `mouseEntered`/`Exited`, the previously hovered node's
-leave sent before the new one's enter; `focus`/`blur` are first-responder
+leave sent before the new one's enter. A tracking area hears only a pointer
+that moves, so after a batch that makes, moves, removes or transforms boxes,
+or a scroll, the next display frame hit-tests the resting pointer (once a
+frame; none while a button is down or the pointer is off the window or over
+another one) and sends the leave/enter a browser's hover update would (#139,
+2026-10-06); `focus`/`blur` are first-responder
 changes (a field's begin/end editing; a node with such a handler
 `acceptsFirstResponder` and takes it on mouse-down); a `key` handler gets
 `keyDown`'s name in the web's vocabulary (`Enter`, `Escape`, `Tab`,
@@ -836,9 +845,11 @@ with the projection (`/tmp/messages-swipe-accessibility/verification.json`).
 This verifies the named-button boundary, not a complete VoiceOver interaction.
 
 **Horizontal scroll snap** (2026-09-09, Messages): the admitted CSS subset is
-`scroll-snap-type: none | x mandatory` and `scroll-snap-align: none | start`.
+`scroll-snap-type: none | x mandatory` and `scroll-snap-align: none | start | end`
+(`end` 2026-10-03, asked for by the Signal Clone's swipe row before native swipe
+actions: a narrower area rests with its end at the viewport's end).
 The browser executes these as CSS. UIKit's `scrollViewWillEndDragging` finds
-the nearest captured start position to its projected destination and adjusts
+the nearest captured position to its projected destination and adjusts
 `targetContentOffset`; UIKit owns dragging and deceleration, using its fast
 rate for mandatory snapping (normal otherwise). Oversized snap
 areas remain freely scrollable while they cover the viewport; nested scroll
@@ -1321,6 +1332,57 @@ where this began. The deck's per-child textures still take the byte path
 but untested; `scripts/metrics.mjs` has no iOS row; the agent API on a
 phone (the socket is a simulator's; a phone would want the same lines over
 `devicectl`'s tunnel or USB).
+
+### tvOS (Doug Lowder, landed 2026-10-03)
+
+tvOS is the UIKit presenter compiled for Apple TV, not another presenter
+(`rules/DEFERRED.md` §Surfaces). Shared Swift admits it beside `os(iOS)` and
+carves out what tvOS lacks: editing text views, the pasteboard, keyboard
+frames and the keyboard layout guide, pointer lock, large titles, navigation
+subtitles, inset grouped lists and `UISwitch` (a grouped list's toggle row
+shows a checkmark). Every `target_os = "ios"` gate outside `vendor/` admits
+`"tvos"` as well, so the Metal GPU path, Apple audio and the iOS SVG lowering
+take the iOS behavior. A tvOS-only file, `IOS/RemoteTVOS.swift`, compiles
+into the tvOS binary alone.
+
+- **Build.** `bun host/apple/build.mjs --tvos [crate] [--run] [--sim …]`
+  builds for an Apple TV simulator through the iOS path, with
+  `aarch64-apple-tvos-sim` (arm64 only; `rustup target add` it), the
+  manifest's iOS section and deployment target, and device family 3. No
+  device builds, icons or iframe arm (tvOS has no WebKit). An app with
+  `app.ts` links the pinned lean Hermes built once per machine for
+  `tvos-simulator`; tvOS bakes the iOS plan. Photo Editor and Recorder refuse
+  tvOS builds because they require a touchscreen or microphone.
+- **The Siri Remote.** Node views join UIKit's focus engine. A node takes
+  focus when a keyboard could focus it or when it is an enabled press target.
+  Each move dispatches `focus` and `blur` and shows the ring, drawn 10 pt
+  outside the box at the sides and 5 pt above and below, with a 12 pt radius.
+  Select presses the focused node. Menu presses the active route's
+  `navigationBack` while a route can pop, else a shown, enabled button that
+  declares `aria-keyshortcuts="Escape"`. With neither, the recognizer is
+  removed, so Menu leaves the app, as tvOS requires at an app's root.
+  A canvas's overlay stays at alpha 1 behind the Metal picture, because tvOS
+  never focuses a view at alpha 0. Nothing fires `pointerdown`/`pointerup`.
+- **Focus guides.** `focusGuide="auto"` on a container installs a UIKit focus
+  guide over its box. A move entering from outside returns to the descendant
+  that last held focus, or its first focusable descendant; moves inside keep
+  UIKit's geometry. Other hosts ignore it. When a focused node is replaced,
+  the session prefers the shown, focusable replacement with the same `testId`.
+- **Interaction media.** Hosts send CSS's `pointer` (`fine`, `coarse`,
+  `none`) and `hover` (`hover`, `none`) as preference bits 5–7, and
+  `exactViewport` names them. Zero is a mouse, so a host that sends nothing
+  answers as before. tvOS reports `pointer: none`, `hover: none`, and iOS
+  reports `coarse`. Caltrain reads `pointer == "none"` as a TV: two columns,
+  24-point root text, no Light/Dark, the sky dimmed.
+- **`reload()`.** An action may call `reload()`. The Apple session answers it
+  with the dev menu's Reload when the dev menu is on, and every other host
+  refuses it as it refuses any command it does not answer. Caltrain shows its
+  Reload only on a TV, where a remote has no dev-menu gesture.
+
+The tier 2 async lane (`scripts/async.mjs --tier 2`, hourly) builds it, and
+files a break against the range since the last commit it checked. Not yet:
+the agent driver and the smoke on a TV, and scripted remote presses
+(QUEUE.md "tvOS, what is owed").
 
 ## 10. The store (LLP 1018, as built 2026-08-30)
 

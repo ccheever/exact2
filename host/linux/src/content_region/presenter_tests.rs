@@ -40,7 +40,7 @@ const APP: &str = r#"component App
         text "replace again"
       button press=hide testId="hide" height=20
         text "hide"
-      input value=draft change=edit testId="input" height=32
+      input value=draft input=edit testId="input" height=32
       text `${count}` testId="count" height=24
       when showing
         view id="owner" width=400 height=200 overflow-x="hidden" overflow-y="hidden"
@@ -61,6 +61,7 @@ fn ready(p: &mut Presenter<Empty>) {
     while !p.host.content_region().unwrap().receipt().unwrap().current {
         assert!(Instant::now() < end, "font/publication watchdog");
         assert!(p.host.content_region().unwrap().refusal().is_none());
+        #[cfg(unix)]
         assert!(p.content_region_fd().is_some());
         // Test-only wait. Production watches the fd alongside physical input.
         std::thread::sleep(Duration::from_millis(1));
@@ -90,6 +91,72 @@ fn non_cpu_region_refuses_before_plan_font_or_device_work() {
         );
     }
 }
+
+#[test]
+fn retained_pointer_eligibility_changes_only_when_its_picture_is_acknowledged() {
+    let _service = crate::content_region::test_service();
+    for initial_hit in [true, false] {
+        // The first pass's region retires in the background; the second
+        // admits only once it has (`test_wait_idle`).
+        crate::content_region::test_wait_idle();
+        let (old, new) = if initial_hit {
+            ("auto", "none")
+        } else {
+            ("none", "auto")
+        };
+        let source = APP.replace("testId=\"paragraph\"", &format!("testId=\"paragraph\" pointer-events=(title == \"old picture\" ? \"{old}\" : \"{new}\")"));
+        let (mut p, error) = Presenter::boot_with_content_region(
+            &contract::compile(&source).unwrap().encode(),
+            Empty,
+            (400., 500.),
+            1.,
+            PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+            PainterChoice::Cpu,
+            ContentRegionRegistration {
+                activate: None,
+                owner: "owner",
+                content: "content",
+                pending: "pending",
+            },
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        p.frame();
+        ready(&mut p);
+        let a = p.display_frame().unwrap();
+        assert!(p.display_complete(&a));
+        let paragraph = id(&p, "paragraph");
+        let b = p.box_of(paragraph).unwrap();
+        let point = (b.rect.0 + 2., b.rect.1 + 2.);
+        assert_eq!(p.hit(point.0, point.1) == Some(paragraph), initial_hit);
+        let replace = id(&p, "replace");
+        assert!(p.host.dispatch_at(replace, Event::Press, 1.).is_none());
+        assert!(p.after_commit().is_none());
+        ready(&mut p);
+        let b = p.display_frame().unwrap();
+        assert!(p.last_frame_succeeded);
+        let future = p
+            .host
+            .kernel()
+            .node(paragraph)
+            .unwrap()
+            .computed_style(exact_kernel::StyleMask::INHERITED)
+            .pointer_events;
+        assert_eq!(future != exact_kernel::PointerEvents::None, !initial_hit);
+        assert_eq!(
+            p.hit(point.0, point.1) == Some(paragraph),
+            initial_hit,
+            "unacknowledged B cannot change A hits"
+        );
+        assert!(p.display_complete(&b));
+        assert_eq!(
+            p.hit(point.0, point.1) == Some(paragraph),
+            !initial_hit,
+            "acknowledged B owns hits"
+        );
+    }
+}
+
 #[test]
 fn failed_frame_retains_source_hits_and_rejects_live_replacement_actions() {
     let _service = crate::content_region::test_service();
@@ -293,6 +360,7 @@ fn held_old_source_latest_demand_and_destroy_retire_without_publishing_stale_pix
         p.host.content_region().unwrap().refusal().is_some(),
         "destroyed registration must explicitly retire"
     );
+    #[cfg(unix)]
     assert!(p.content_region_fd().is_none());
     assert_eq!(
         p.host.content_region().unwrap().work_counts().0,
@@ -398,6 +466,7 @@ fn exact_scale_prepared_index_refuses_changed_dpr_before_stale_adoption_or_repla
             &first.data()[y * 500 * 4..][..500 * 4]
         );
     }
+    #[cfg(unix)]
     assert!(p.content_region_fd().is_none());
     let old = p.host.content_region().unwrap().text_snapshot(key).unwrap();
     assert_eq!(old.request.stamp(), &stamp);

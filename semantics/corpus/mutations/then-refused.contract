@@ -1,0 +1,30 @@
+// A refused `then` stops the advance at its due time and leaves the answer
+// standing; it is not run again.
+shape Ack
+  ok: bool
+
+component App
+  state d = 1
+  state n = 0
+  state ticks = 0
+  mutation ack as shape Ack then bad
+  action poke
+    send ack = ping(n)
+  action bad
+    n = n / (d - 1)
+  action tick
+    ticks = ticks + 1
+  task t mount
+    every(10, tick)
+  view
+    column
+      text `${ticks}` testId="ticks"
+      button "poke" press=poke testId="poke"
+
+test "refused then"
+  clock +5
+  tap "poke"
+  clock +20
+  expect state ticks == 0
+  clock +20
+  expect state ticks == 2

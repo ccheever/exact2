@@ -54,7 +54,7 @@ struct FlatPaint: Equatable {
         "padding_top", "padding_right", "padding_bottom", "padding_left",
         "margin_top", "margin_right", "margin_bottom", "margin_left",
         "flex_direction", "flex_wrap", "justify_content", "align_items", "align_self", "align_content",
-        "flex_grow", "flex_shrink", "flex_basis", "position_type", "top", "right", "bottom", "left",
+        "flex_grow", "flex_shrink", "flex_basis", "top", "right", "bottom", "left",
         "row_gap", "column_gap", "aspect_ratio", "box_sizing", "overflow_x", "overflow_y",
         "grid_auto_flow", "grid_template_columns", "grid_template_rows", "grid_column", "grid_row", "justify_items",
         "direction", "font_size", "font_weight", "font_style", "font_family", "line_height", "letter_spacing",
@@ -62,6 +62,8 @@ struct FlatPaint: Equatable {
         "border_style_top", "border_style_right", "border_style_bottom", "border_style_left", "text_transform",
         "text_color", "text_shadow", "text_stroke_width", "text_stroke_color", "text_align", "text_overflow", "text_decoration_line", "interpolate_size", "touch_action",
         "border_radius_top_left", "border_radius_top_right", "border_radius_bottom_right", "border_radius_bottom_left",
+        // A fixed fill paints alike in either scheme (LLP 1034 §8).
+        "color_scheme",
     ]
 
     init?(_ style: NodeStyle) {
@@ -70,6 +72,8 @@ struct FlatPaint: Equatable {
             if key.hasPrefix("border_radius_"), value.number == nil { return nil }
             if Self.inert.contains(key) { continue }
             switch key {
+            case "position_type":
+                guard value.string == "static" else { return nil }
             case "background_color":
                 // A fixed colour only: a `light-dark()` pair follows the
                 // owning view's appearance, which a layer has not.

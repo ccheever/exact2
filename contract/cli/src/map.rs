@@ -36,7 +36,17 @@ impl SourceMap {
         captured: &std::path::Path,
         original: &std::path::Path,
     ) -> Result<(), String> {
-        self.sources.relocate(captured, original)
+        self.relocate_sources_through(&[(captured.to_path_buf(), original.to_path_buf())])
+    }
+
+    /// [`relocate_sources`](Self::relocate_sources) through several captured
+    /// directories: each pair maps the sources under its first path to the
+    /// second, the first pair that holds a source winning.
+    pub fn relocate_sources_through(
+        &mut self,
+        moves: &[(std::path::PathBuf, std::path::PathBuf)],
+    ) -> Result<(), String> {
+        self.sources.relocate(moves)
     }
 
     fn at(&self, out: &mut Vec<u8>, span: Span) {
@@ -69,12 +79,30 @@ impl SourceMap {
         out.push(b'}');
     }
 
+    /// Where plan node `node` was declared: its file and span.
+    pub fn node(&self, node: usize) -> Option<(&std::path::Path, Span)> {
+        let site = self.sites.nodes.get(node)?;
+        Some((self.sources.path(site.span), site.span))
+    }
+
+    /// Where the plan's slot, derive or action named `name` was declared.
+    pub fn declared(&self, name: &str) -> Option<(&std::path::Path, Span)> {
+        let d = self
+            .sites
+            .slots
+            .iter()
+            .chain(&self.sites.derives)
+            .chain(&self.sites.actions)
+            .find(|d| d.name == name)?;
+        Some((self.sources.path(d.span), d.span))
+    }
+
     /// Resolve a bake refusal through the node the runner actually measured.
     /// Refusals without a node keep an absent file and zero source range.
     pub fn bake_error(&self, error: &BakeError) -> CompileError {
         let (id, message, site) = match error {
             BakeError::Lint { id, message, site } => (*id, message.clone(), *site),
-            BakeError::Runner(error) => ("bake-runner", format!("{error:?}"), None),
+            BakeError::Runner(_) => ("bake-runner", error.to_string(), None),
         };
         let node = site.and_then(|site| self.sites.nodes.get(site.0 as usize));
         let mut related = Vec::new();
@@ -95,7 +123,7 @@ impl SourceMap {
             id: id.into(),
             message,
             span: node.map_or_else(Span::default, |node| node.span),
-            file: node.map(|node| self.sources.path(node.span).to_path_buf()),
+            file: node.map(|node| self.sources.path(node.span).into()),
             related: related.into_boxed_slice(),
         }
     }

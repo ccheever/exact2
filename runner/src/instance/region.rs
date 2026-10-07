@@ -207,16 +207,8 @@ impl RegionInst {
                             let slots: RowSlots = Rc::new(RefCell::new(BTreeMap::new()));
                             frame.row = Some(slots.clone());
                             let inner = with_frame(frames, frame.clone());
-                            for (i, s) in plan.slots.iter().enumerate() {
-                                if s.owner == Some(self.region) {
-                                    let v = u.eval(s.init, &inner)?;
-                                    if !v.conforms(plan, s.ty) {
-                                        return Err(InstanceError::SlotType {
-                                            slot: plan.str(s.name).to_string(),
-                                        });
-                                    }
-                                    slots.borrow_mut().insert(i as u32, v);
-                                }
+                            if let Some(arm) = arm {
+                                init_owned(u, arm, &slots, &inner)?;
                             }
                             let roots = realize(u, None, arm, &inner)?;
                             if dup > 0 {
@@ -257,26 +249,42 @@ impl RegionInst {
     ) -> Result<bool, InstanceError> {
         let plan = u.env.plan;
         if *arm == want {
-            // An equivalent binding keeps its object for nested memos.
+            // An equivalent binding keeps its object for nested memos; the
+            // arm instance, and the slots it owns, stay.
             let dirty = crate::compare::changed_fields(&frame.bound, &new_frame.bound);
             if dirty != 0 {
-                *frame = new_frame;
+                frame.bound = new_frame.bound;
             }
-            let saved = u.enter(dirty, None);
+            let saved = u.enter(dirty, frame.row.as_ref());
             let result = update_all(u, roots, &with_frame(frames, frame.clone()));
             u.leave(saved);
             return result;
         }
-        let inner = with_frame(frames, new_frame.clone());
+        // The shown arm's instance ends, and with it the slots it owned; a
+        // newly shown arm's start from their initializers, evaluated in its
+        // frames, after settlement (LLP 1017 P4c).
         let old = std::mem::take(roots);
         destroy_all(u, old);
         *arm = want;
         *frame = new_frame;
         if let Some(i) = want {
             let arm_id = plan.region(region).arms.iter().nth(i);
-            *roots = realize(u, None, arm_id, &inner)?;
+            if let Some(id) = arm_id.filter(|id| owns_slots(plan, *id)) {
+                let slots: RowSlots = Rc::new(RefCell::new(BTreeMap::new()));
+                frame.region = Some(region.0);
+                frame.row = Some(slots.clone());
+                init_owned(u, id, &slots, &with_frame(frames, frame.clone()))?;
+            }
+            *roots = realize(u, None, arm_id, &with_frame(frames, frame.clone()))?;
         }
         Ok(true)
+    }
+
+    pub(super) fn first_root(&self) -> Option<ViewId> {
+        match &self.active {
+            Active::Arm { roots, .. } => first_root(roots),
+            Active::Rows { rows } => rows.iter().find_map(|r| first_root(&r.roots)),
+        }
     }
 
     pub(super) fn collect_roots(&self, out: &mut Vec<ViewId>) {
@@ -300,4 +308,34 @@ impl RegionInst {
             }
         }
     }
+}
+
+/// Whether arm `arm`'s instance owns any slot.
+fn owns_slots(plan: &exact_plan::Plan, arm: ArmsId) -> bool {
+    plan.slots.iter().any(|s| s.owner == Some(arm))
+}
+
+/// Start the slots arm `arm`'s new instance owns from their initializers,
+/// in plan order, evaluated in the instance's frames (`frames`, which end
+/// with its own), so one may read the row's item or the arm's binding and
+/// every earlier slot.
+pub(super) fn init_owned(
+    u: &mut Update<'_>,
+    arm: ArmsId,
+    slots: &RowSlots,
+    frames: &[Frame],
+) -> Result<(), InstanceError> {
+    let plan = u.env.plan;
+    for (i, s) in plan.slots.iter().enumerate() {
+        if s.owner == Some(arm) {
+            let v = u.eval(s.init, frames)?;
+            if !v.conforms(plan, s.ty) {
+                return Err(InstanceError::SlotType {
+                    slot: plan.str(s.name).to_string(),
+                });
+            }
+            slots.borrow_mut().insert(i as u32, v);
+        }
+    }
+    Ok(())
 }

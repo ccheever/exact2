@@ -3,7 +3,7 @@
 // in module-glue.js, off the page's main thread. Trusted app code, NOT a
 // security sandbox. Values cross as messages; the page's runner commits.
 // Loaded only after the page's first pixel, by module-glue.js.
-import { createStorage } from './storage.js';
+import { createStorage, finishLetGo } from './storage.js';
 import { agentStream, keyStore } from './storage-environment.js';
 import { sameGrantDeclaration } from './grant-admission.js';
 
@@ -14,6 +14,14 @@ const checkpoint = () => new Promise(resolve => {
 });
 let context = null, storage = null, admitted = null, tail = Promise.resolve(), stream = null;
 const pending = new Map();
+// Calls the runner let go between storage steps. Delivered to the end, then
+// retired, as the page realm does.
+const owed = new Map();
+const scratch = owner => ({owner, store:new Map(), grants:new Set(), reads:[], writes:[], externalRead:false, entropy:false, topics:[], requests:new Map()});
+function release(owner, callId) {
+  if (!String(self.__exact_forget(String(callId))).startsWith('storage')) { storage.retire(owner); return; } // 'storage', or 'storage rejected'
+  owed.set(callId, owner);
+}
 // The page's SHA-256 digests in flight, on a LAN dev page (see `init`).
 const digests = new Map();
 let nextDigest = 1;
@@ -52,8 +60,9 @@ const evaluate = source => (0, eval)(source);
 
 function init(message) {
   admitted = message.admitted;
-  // Disable accidental browser I/O before the module captures globals.
-  for (const name of ['XMLHttpRequest', 'WebSocket', 'EventSource', 'setTimeout', 'setInterval', 'requestAnimationFrame']) {
+  // Disable accidental browser I/O before the module captures globals; the
+  // prelude refuses timers and the clock, by name, as Hermes does.
+  for (const name of ['XMLHttpRequest', 'WebSocket', 'EventSource']) {
     Object.defineProperty(self, name, { value: () => { throw new Error(`${name} is unavailable in data sources`); }, configurable: false });
   }
   storage = createStorage(self, admitted, () => context.owner, message.storage);
@@ -104,12 +113,23 @@ function finish(answer, request) {
 
 // The runner let go of every targeted call not in flight (LLP 1016 D5):
 // drop it, its storage owner, and its call in the prelude.
-function forget(inFlight) {
-  const keep = new Set(inFlight.map(key));
+async function forget(inFlight) {
+  const staying = new Set(inFlight.map(key));
   for (const [parkedKey, parked] of pending) {
-    if (JSON.parse(parkedKey)[0] === null || keep.has(parkedKey)) continue;
-    pending.delete(parkedKey); storage.retire(parked.owner); self.__exact_forget(String(parked.call));
+    if (JSON.parse(parkedKey)[0] === null || staying.has(parkedKey)) continue;
+    pending.delete(parkedKey); release(parked.owner, parked.call);
   }
+  if (!owed.size) return;
+  await finishLetGo(storage, owed, {
+    letGo: () => self.__exact_let_go('', ''),
+    disposed: () => false,
+    deliver: async owner => {
+      const prev = context;
+      context = scratch(owner);
+      try { await storage.deliver(owner); await checkpoint(); }
+      finally { context = prev; }
+    },
+  });
 }
 
 // One turn: begin or resume; stay here through every storage wait; end at

@@ -1,9 +1,57 @@
-use crate::{FrameInput, PointLightInput, Shadows, Sun};
-use exact_game::{Camera, DirectionalLight, Entity, Parent, PointLight, Transform, World};
+use crate::{FrameInput, LightInput, Shadows, Sun, MAX_LIGHTS};
+use exact_game::{
+    Camera, DirectionalLight, Entity, LightShadows, Parent, PointLight, SpotLight, Transform, World,
+};
 use glam::{Mat4, Vec3};
 
+/// Photometric units to renderer radiance, one scale for both: 10,000 lux of sun
+/// and a 10,000 cd light seen from 1 m (10,000 lux there) map to the default key
+/// radiance of 3. Exposure applies after.
+pub const PHOTOMETRIC_SCALE: f32 = 0.0003;
+
+/// The displayed global: drawn(parent) · local · offset. Presentation offsets
+/// (exact_game::Offset) move an entity and everything under it; without one on
+/// the chain this is the simulated global, exactly.
+pub(crate) fn drawn(w: &World, e: Entity) -> Option<glam::Affine3A> {
+    let affine = |t: Transform| {
+        glam::Affine3A::from_scale_rotation_translation(t.scale, t.rotation, t.position)
+    };
+    let offset = |e: Entity| w.get::<exact_game::Offset>(e).map(|o| affine(o.0));
+    // Most chains carry no offset: no allocation for them.
+    let mut at = e;
+    let mut any = false;
+    for _ in 0..=w.len() {
+        any |= w.has::<exact_game::Offset>(at);
+        match w.get::<Parent>(at) {
+            Some(p) if !any => at = p.0,
+            _ => break,
+        }
+    }
+    if !any {
+        return w.global(e);
+    }
+    // The parent chain, bounded even if tools edit a cycle.
+    let mut chain = vec![e];
+    while let Some(p) = w.get::<Parent>(*chain.last().unwrap()) {
+        if chain.len() > w.len() {
+            break;
+        }
+        chain.push(p.0);
+    }
+    // The offset nearest the root: above it the simulated global holds.
+    let Some(first) = (0..chain.len()).rev().find(|&i| offset(chain[i]).is_some()) else {
+        return w.global(e);
+    };
+    let mut global = w.global(chain[first])? * offset(chain[first]).unwrap();
+    for &below in chain[..first].iter().rev() {
+        let local = affine(*w.get::<Transform>(below)?);
+        global = global * local * offset(below).unwrap_or(glam::Affine3A::IDENTITY);
+    }
+    Some(global)
+}
 pub(crate) fn pose(w: &World, e: Entity) -> Option<Transform> {
-    let (scale, rotation, position) = w.global(e)?.to_scale_rotation_translation();
+    let global = drawn(w, e)?;
+    let (scale, rotation, position) = global.to_scale_rotation_translation();
     Some(Transform {
         position,
         rotation: glam::Quat::from_vec4(
@@ -66,28 +114,74 @@ impl History {
         interpolate([self.prev, self.curr], alpha)
     }
 }
+// A point light is a spot whose cone is the whole sphere.
+#[derive(Clone, Copy)]
+struct Emitter {
+    color: [f32; 3],
+    intensity: f32,
+    range: f32,
+    // Cosines of the inner and outer half-angles; a point light has none.
+    cone: Option<[f32; 2]>,
+    shadows: bool,
+}
+impl Emitter {
+    fn point(light: &PointLight, shadows: bool) -> Self {
+        Self {
+            color: light.color,
+            intensity: light.intensity,
+            range: light.range,
+            cone: None,
+            shadows,
+        }
+    }
+    #[allow(clippy::manual_clamp)] // clamp would keep NaN
+    fn spot(light: &SpotLight, shadows: bool) -> Self {
+        // `max` maps NaN to zero, which `clamp` would keep.
+        let outer = light.outer.max(0.).min(std::f32::consts::FRAC_PI_2);
+        let outer_cos = exact_game::math::cos(outer);
+        // The shader's smoothstep needs a nonempty edge.
+        let inner_cos = exact_game::math::cos(light.inner.max(0.).min(outer)).max(outer_cos + 1e-4);
+        Self {
+            color: light.color,
+            intensity: light.intensity,
+            range: light.range,
+            cone: Some([inner_cos, outer_cos]),
+            shadows,
+        }
+    }
+}
 struct Light {
     history: History,
-    light: PointLight,
+    light: Emitter,
     lit: Option<exact_game::Lit>,
 }
 #[derive(Default)]
 pub(super) struct Scene {
-    versions: Option<[u64; 4]>,
+    versions: Option<[u64; 7]>,
     pub(super) attachments: Attachments,
     camera: Option<(History, Camera)>,
+    // The camera's MouseLook, its revision and camera, and its descendants.
+    look: Option<(exact_game::MouseLook, u64, Vec<History>)>,
+    /// Pointer motion the next frame's MouseLook turns by (`Sim::unshown_motion`).
+    pub(super) unshown: glam::Vec2,
     sun: Option<(History, DirectionalLight)>,
+    fill: Option<(History, DirectionalLight)>,
+    // Point lights, then spot lights, each in entity order.
     lights: Vec<Light>,
-    selected: [usize; 16],
-    count: usize,
-    output: [PointLightInput; 16],
+    first_spot: usize,
+    // Eligible lights by (distance, list order); the first MAX_LIGHTS are drawn.
+    selected: Vec<(f32, usize)>,
+    dropped: usize,
+    output: Vec<LightInput>,
+    map: Option<exact_game::EnvironmentMap>,
 }
 impl Scene {
     #[cfg(test)]
     pub(super) fn lights_for_test(&self) -> Vec<Entity> {
-        self.selected[..self.count]
+        self.selected
             .iter()
-            .map(|&i| self.lights[i].history.entity)
+            .take(MAX_LIGHTS)
+            .map(|&(_, i)| self.lights[i].history.entity)
             .collect()
     }
     pub fn trace_camera(&self, alpha: f32) -> [f64; 3] {
@@ -103,9 +197,14 @@ impl Scene {
         self.versions = None;
         self.attachments.reset();
         self.camera = None;
+        self.look = None;
         self.sun = None;
+        self.fill = None;
         self.lights.clear();
-        self.count = 0;
+        self.first_spot = 0;
+        self.selected.clear();
+        self.dropped = 0;
+        self.map = None;
     }
     pub fn feed(
         &mut self,
@@ -120,6 +219,9 @@ impl Scene {
             w.revision::<DirectionalLight>(),
             w.revision::<PointLight>(),
             w.revision::<exact_game::Lit>(),
+            w.revision::<SpotLight>(),
+            w.revision::<LightShadows>(),
+            w.revision::<exact_game::Visible>(),
         ];
         let old = self.versions;
         if old.is_none_or(|v| v[0] != versions[0]) || structure {
@@ -139,54 +241,117 @@ impl Scene {
         if let Some((history, _)) = &mut self.camera {
             history.update(w, next_tick, parent_changed);
         }
-        if old.is_none_or(|v| v[1] != versions[1]) || structure {
-            self.sun = w.query::<&DirectionalLight>().iter().find_map(|(e, s)| {
-                pose(w, e).map(|t| {
-                    (
-                        self.sun
-                            .filter(|(h, _)| h.entity == e)
-                            .map_or(History::new(e, t), |(h, _)| h),
-                        *s,
-                    )
-                })
-            });
+        self.feed_look(w, next_tick, structure || parent_changed, parent_changed);
+        let visibility_changed = old.is_none_or(|v| v[6] != versions[6]) || parent_changed;
+        if old.is_none_or(|v| v[1] != versions[1]) || structure || visibility_changed {
+            // The first two posed directional lights: the sun, then a fill.
+            let (sun, fill) = (self.sun, self.fill);
+            let keep = |e: Entity, t: Transform| {
+                [sun, fill]
+                    .into_iter()
+                    .flatten()
+                    .find(|(h, _)| h.entity == e)
+                    .map_or(History::new(e, t), |(h, _)| h)
+            };
+            let mut query = w.query::<&DirectionalLight>();
+            let mut posed = query
+                .iter()
+                .filter(|(e, _)| w.is_visible(*e))
+                .filter_map(|(e, s)| pose(w, e).map(|t| (keep(e, t), *s)));
+            self.sun = posed.next();
+            self.fill = posed.next();
         }
-        if let Some((history, _)) = &mut self.sun {
+        for (history, _) in [&mut self.sun, &mut self.fill].into_iter().flatten() {
             history.update(w, next_tick, parent_changed);
         }
-        if old.is_none_or(|v| v[2..] != versions[2..]) || structure {
-            // Compact departures once; keep histories in entity order and append
-            // arrivals. Value-only edits reuse the buffer without sorting.
+        if old.is_none_or(|v| v[2..] != versions[2..]) || structure || visibility_changed {
+            // Compact departures once; keep each kind's histories in entity order
+            // and append arrivals. Value-only edits reuse the buffer without sorting.
+            let mut kept = 0;
+            let mut spots = 0;
+            let spot_at = self.first_spot;
+            let mut index = 0;
             self.lights.retain(|l| {
-                w.has::<PointLight>(l.history.entity) && w.global(l.history.entity).is_some()
+                let spot = index >= spot_at;
+                index += 1;
+                let e = l.history.entity;
+                let live = w.is_visible(e)
+                    && w.global(e).is_some()
+                    && if spot {
+                        w.has::<SpotLight>(e)
+                    } else {
+                        w.has::<PointLight>(e)
+                    };
+                if live {
+                    kept += 1;
+                    spots += usize::from(spot);
+                }
+                live
             });
-            let retained = self.lights.len();
+            let points = kept - spots;
+            let mut fresh = Vec::new();
             let mut at = 0;
             for (e, light) in w.query::<&PointLight>().iter() {
-                if at < retained && self.lights[at].history.entity == e {
-                    self.lights[at].light = *light;
-                    self.lights[at].lit = w.get::<exact_game::Lit>(e).as_deref().cloned();
+                if !w.is_visible(e) {
+                    continue;
+                }
+                let emitter = Emitter::point(light, w.has::<LightShadows>(e));
+                let lit = w.get::<exact_game::Lit>(e).as_deref().cloned();
+                if at < points && self.lights[at].history.entity == e {
+                    (self.lights[at].light, self.lights[at].lit) = (emitter, lit);
                     at += 1;
                 } else if let Some(t) = pose(w, e) {
-                    self.lights.push(Light {
-                        history: History::new(e, t),
-                        light: *light,
-                        lit: w.get::<exact_game::Lit>(e).as_deref().cloned(),
-                    });
+                    fresh.push((
+                        false,
+                        Light {
+                            history: History::new(e, t),
+                            light: emitter,
+                            lit,
+                        },
+                    ));
                 }
             }
-            if self.lights.len() != retained {
-                self.lights
-                    .sort_unstable_by_key(|l| l.history.entity.index());
+            let mut at = points;
+            for (e, light) in w.query::<&SpotLight>().iter() {
+                if !w.is_visible(e) {
+                    continue;
+                }
+                let emitter = Emitter::spot(light, w.has::<LightShadows>(e));
+                let lit = w.get::<exact_game::Lit>(e).as_deref().cloned();
+                if at < kept && self.lights[at].history.entity == e {
+                    (self.lights[at].light, self.lights[at].lit) = (emitter, lit);
+                    at += 1;
+                } else if let Some(t) = pose(w, e) {
+                    fresh.push((
+                        true,
+                        Light {
+                            history: History::new(e, t),
+                            light: emitter,
+                            lit,
+                        },
+                    ));
+                }
+            }
+            self.first_spot = points;
+            if !fresh.is_empty() {
+                let mut all: Vec<_> = self
+                    .lights
+                    .drain(..)
+                    .enumerate()
+                    .map(|(i, l)| (i >= points, l))
+                    .chain(fresh)
+                    .collect();
+                all.sort_by_key(|(spot, l)| (*spot, l.history.entity.index()));
+                self.first_spot = all.iter().filter(|(spot, _)| !spot).count();
+                self.lights.extend(all.into_iter().map(|(_, l)| l));
             }
         }
-        if next_tick || moved || structure || old != Some(versions) {
-            self.count = 0;
+        if next_tick || moved || structure || visibility_changed || old != Some(versions) {
+            self.selected.clear();
             self.attachments.frame(1.);
             let camera = self.camera.map_or(Vec3::ZERO, |(h, _)| {
                 displayed(&self.attachments.output, h.entity, h.curr).position
             });
-            let mut distances = [f32::INFINITY; 16];
             for (i, light) in self.lights.iter_mut().enumerate() {
                 light.history.update(w, next_tick, parent_changed);
                 // Eligibility is evaluated at the same tick endpoint as distance.
@@ -209,19 +374,69 @@ impl Scene {
                 )
                 .position
                 .distance_squared(camera);
-                // Selection depends only on current state; entity order breaks ties.
-                let score = distance;
-                let at = distances.partition_point(|d| *d <= score);
-                if at < 16 {
-                    distances.copy_within(at..15, at + 1);
-                    self.selected.copy_within(at..15, at + 1);
-                    distances[at] = score;
-                    self.selected[at] = i;
-                    self.count = (self.count + 1).min(16);
-                }
+                // Selection depends only on current state; list order (points, then
+                // spots, each in entity order) breaks ties.
+                self.selected.push((distance, i));
             }
+            self.selected
+                .sort_unstable_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+            self.dropped = self.selected.len().saturating_sub(MAX_LIGHTS);
+            // Frames then fill the output without allocating.
+            self.output.reserve(self.selected.len().min(MAX_LIGHTS));
+        }
+        // Cloned only when it changes.
+        let map = w.try_resource::<exact_game::EnvironmentMap>();
+        if self.map.as_ref() != map.as_deref() {
+            self.map = map.as_deref().cloned();
         }
         self.versions = Some(versions);
+    }
+    pub(super) fn has_look(&self) -> bool {
+        self.look.is_some()
+    }
+    // The camera's MouseLook and the histories of everything under it, kept as
+    // the camera's own is; the descendants are found again when the hierarchy
+    // or the component changes.
+    fn feed_look(&mut self, w: &World, next_tick: bool, changed: bool, parent_changed: bool) {
+        let camera = self.camera.map(|(h, _)| h.entity);
+        let Some((camera, look)) =
+            camera.and_then(|e| w.get::<exact_game::MouseLook>(e).map(|l| (e, *l)))
+        else {
+            self.look = None;
+            return;
+        };
+        let revision = w.revision::<exact_game::MouseLook>();
+        if changed || self.look.as_ref().is_none_or(|(_, r, _)| *r != revision) {
+            let old = self.look.take().map_or_else(Vec::new, |(_, _, kids)| kids);
+            let mut kids = Vec::new();
+            for (e, _) in w.query::<&Parent>().iter() {
+                let mut at = e;
+                for _ in 0..=w.len() {
+                    let Some(parent) = w.get::<Parent>(at).map(|p| p.0) else {
+                        break;
+                    };
+                    if parent == camera {
+                        if let Some(t) = pose(w, e) {
+                            kids.push(
+                                old.iter()
+                                    .copied()
+                                    .find(|h| h.entity == e)
+                                    .unwrap_or(History::new(e, t)),
+                            );
+                        }
+                        break;
+                    }
+                    at = parent;
+                }
+            }
+            self.look = Some((look, revision, kids));
+        }
+        if let Some((current, _, kids)) = &mut self.look {
+            *current = look;
+            for h in kids {
+                h.update(w, next_tick, parent_changed);
+            }
+        }
     }
     pub fn frame(
         &mut self,
@@ -232,7 +447,7 @@ impl Scene {
     ) -> FrameInput<'_> {
         let alpha = alpha.clamp(0.0, 1.0);
         self.attachments.frame(alpha);
-        let (camera_pose, mut camera) =
+        let (mut camera_pose, mut camera) =
             self.camera
                 .map_or((Transform::default(), Camera::default()), |(h, c)| {
                     (
@@ -240,6 +455,34 @@ impl Scene {
                         c,
                     )
                 });
+        // MouseLook: the drawn camera and everything under it turn about the eye
+        // by the motion no drawn tick shows yet. Presentation only.
+        let motion = std::mem::take(&mut self.unshown);
+        if let Some((look, _, kids)) = self.look.as_ref().filter(|_| motion != glam::Vec2::ZERO) {
+            let turn = look.turn(camera_pose.rotation, motion);
+            let eye = camera_pose.position;
+            let about =
+                Mat4::from_translation(eye) * Mat4::from_quat(turn) * Mat4::from_translation(-eye);
+            camera_pose.rotation = (turn * camera_pose.rotation).normalize();
+            for h in kids {
+                let out = &mut self.attachments.output;
+                let matrix = about * displayed_matrix(out, h.entity, h.at(alpha));
+                let (scale, rotation, position) = matrix.to_scale_rotation_translation();
+                let turned = DisplayedAttachment {
+                    entity: h.entity,
+                    pose: Transform {
+                        scale,
+                        rotation,
+                        position,
+                    },
+                    matrix,
+                };
+                match out.iter_mut().find(|a| a.entity == h.entity) {
+                    Some(a) => *a = turned,
+                    None => out.push(turned),
+                }
+            }
+        }
         if !pixels {
             if let exact_game::Projection::Orthographic { integer_scale, .. } =
                 &mut camera.projection
@@ -252,34 +495,39 @@ impl Scene {
         } else {
             (w.tick() as f64 - 1. + alpha as f64) / w.hz() as f64
         };
-        // Only the selected sixteen histories are touched per frame.
-        for i in 0..self.count {
-            let l = &self.lights[self.selected[i]];
-            let point = PointLightInput {
-                position: displayed(
-                    &self.attachments.output,
-                    l.history.entity,
-                    l.history.at(alpha),
-                )
-                .position,
+        // Only the selected histories are touched per frame.
+        self.output.clear();
+        for &(_, i) in self.selected.iter().take(MAX_LIGHTS) {
+            let l = &self.lights[i];
+            let pose = displayed(
+                &self.attachments.output,
+                l.history.entity,
+                l.history.at(alpha),
+            );
+            self.output.push(LightInput {
+                position: pose.position,
                 color: l.light.color.into(),
-                intensity: l.light.intensity
+                intensity: PHOTOMETRIC_SCALE
+                    * l.light.intensity
                     * l.lit
                         .as_ref()
                         .map_or(1., |lit| lit.0.value_at(seconds, w.hz()).max(0.)),
                 range: l.light.range,
-            };
-            self.output[i] = point;
+                direction: (pose.rotation * -Vec3::Z).normalize_or(-Vec3::Z),
+                cone: l.light.cone,
+                shadows: l.light.shadows,
+            });
         }
-        let sun = self.sun.map(|(h, s)| Sun {
+        let directional = |(h, s): (History, DirectionalLight), shadows: bool| Sun {
             direction: (displayed(&self.attachments.output, h.entity, h.at(alpha)).rotation
                 * -Vec3::Z)
                 .normalize_or(-Vec3::Y),
             color: s.color.into(),
-            // 10,000 lux maps to the renderer's default key radiance of 3.
-            illuminance: s.illuminance * 0.0003,
-            shadows: s.shadows.then(Shadows::default),
-        });
+            illuminance: s.illuminance * PHOTOMETRIC_SCALE,
+            shadows: (shadows && s.shadows).then(Shadows::default),
+        };
+        let sun = self.sun.map(|s| directional(s, true));
+        let fill = self.fill.map(|s| directional(s, false));
         let e = w
             .try_resource::<exact_game::Environment>()
             .as_deref()
@@ -302,10 +550,24 @@ impl Scene {
             camera_position: camera_pose.position,
             alpha,
             sun,
-            points: &self.output[..self.count],
+            fill,
+            lights: &self.output,
+            lights_dropped: self.dropped,
             environment: e,
+            environment_map: self.map.as_ref().map(|m| crate::EnvironmentMapInput {
+                texture: &m.texture,
+                intensity: m.intensity,
+                rgbm: m.rgbm,
+                visible: m.visible,
+                rotation: m.rotation,
+            }),
+            ambient_occlusion: w
+                .try_resource::<exact_game::AmbientOcclusion>()
+                .as_deref()
+                .copied(),
             timestamps: None,
             attachments: &self.attachments.output,
+            headroom: 1.0,
         }
     }
 }
@@ -344,12 +606,21 @@ struct Owner {
     // First valid follower this feed; emits the owner override in item order.
     first_attachment: Option<u32>,
     chain: Vec<History>,
+    // Each chain link's presentation Offset, leaf to root: socketed props
+    // follow the drawn rig, drawn(parent) · local · offset at every link.
+    offsets: Vec<History>,
+}
+/// An entity's presentation offset, or the identity.
+fn offset_of(w: &World, e: Entity) -> Transform {
+    w.get::<exact_game::Offset>(e)
+        .map_or_else(Transform::default, |o| o.0)
 }
 impl Owner {
     fn new(w: &World, entity: Entity) -> Self {
         let mut owner = Self {
             first_attachment: None,
             chain: Vec::new(),
+            offsets: Vec::new(),
         };
         owner.update(w, entity, false, true);
         owner
@@ -364,20 +635,23 @@ impl Owner {
                 .as_deref()
                 .copied()
                 .unwrap_or_default();
-            if self.chain.get(length).is_none_or(|h| h.entity != at) {
-                if let Some(found) = self.chain[length..].iter().position(|h| h.entity == at) {
-                    self.chain.swap(length, length + found);
-                } else {
-                    self.chain.insert(length, History::new(at, curr));
+            let offset = offset_of(w, at);
+            for (list, value) in [(&mut self.chain, curr), (&mut self.offsets, offset)] {
+                if list.get(length).is_none_or(|h| h.entity != at) {
+                    if let Some(found) = list[length..].iter().position(|h| h.entity == at) {
+                        list.swap(length, length + found);
+                    } else {
+                        list.insert(length, History::new(at, value));
+                    }
                 }
-            }
-            let h = &mut self.chain[length];
-            if next_tick {
-                h.prev = h.curr;
-            }
-            h.curr = curr;
-            if snap(w, at, parent_changed) {
-                h.prev = curr;
+                let h = &mut list[length];
+                if next_tick {
+                    h.prev = h.curr;
+                }
+                h.curr = value;
+                if snap(w, at, parent_changed) {
+                    h.prev = value;
+                }
             }
             length += 1;
             let Some(parent) = w.get::<Parent>(at).map(|p| p.0).filter(|e| w.contains(*e)) else {
@@ -386,6 +660,7 @@ impl Owner {
             at = parent;
         }
         self.chain.truncate(length);
+        self.offsets.truncate(length);
     }
 }
 #[derive(Default)]
@@ -422,6 +697,8 @@ struct Attachment {
     owner: Entity,
     chain: Vec<[Transform; 2]>,
     offset: Transform,
+    // The follower's own presentation Offset, after the socket's.
+    drawn: History,
     model_digest: u64,
 }
 #[derive(Default)]
@@ -536,6 +813,7 @@ impl Attachments {
                         owner: target,
                         chain: vec![],
                         offset: follow.offset,
+                        drawn: History::new(e, offset_of(w, e)),
                         model_digest: self
                             .model_digests
                             .get(name)
@@ -547,6 +825,8 @@ impl Attachments {
             let item = &mut self.items[at];
             item.history
                 .update_to(home, next_tick, snap(w, e, parent_changed));
+            item.drawn
+                .update_to(offset_of(w, e), next_tick, snap(w, e, parent_changed));
             self.owners
                 .entry(target)
                 .or_insert_with(|| Owner::new(w, target))
@@ -615,14 +895,17 @@ impl Attachments {
         item.chain.iter().fold(owner, |m, pair| {
             m * crate::skinning::interpolated_local(*pair, alpha)
         }) * matrix(item.offset)
+            * matrix(item.drawn.at(alpha))
     }
     fn owner_matrix(&self, owner: &Owner, alpha: f32, remaining: usize) -> Mat4 {
-        owner.chain.iter().rev().fold(Mat4::IDENTITY, |m, h| {
+        // A link that is itself a follower is already drawn, offset included.
+        let links = owner.chain.iter().zip(&owner.offsets).rev();
+        links.fold(Mat4::IDENTITY, |m, (h, offset)| {
             self.items
                 .binary_search_by_key(&h.entity, |v| v.history.entity)
                 .ok()
                 .map_or_else(
-                    || m * matrix(h.at(alpha)),
+                    || m * matrix(h.at(alpha)) * matrix(offset.at(alpha)),
                     |i| self.matrix(i, alpha, remaining - 1),
                 )
         })

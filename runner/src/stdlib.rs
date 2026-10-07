@@ -54,7 +54,56 @@ pub fn call(
         .map(|s| Value::str(&s))
         .ok_or(CallError::StringTooLong);
     }
-    call_value(f, args, now_ms, plan, router, format, geometry).ok_or(CallError::TypeMismatch)
+    if let Some(v) = text(f, args)? {
+        return Ok(v);
+    }
+    let v = call_value(f, args, now_ms, plan, router, format, geometry)
+        .ok_or(CallError::TypeMismatch)?;
+    // An encoding is a string the expression builds, bounded like the rest
+    // (LLP 1090 D6), checked after the route segment's empty and dot refusal.
+    if matches!(f, Stdlib::EncodeURIComponent | Stdlib::EncodeRouteSegment)
+        && v.as_str().is_some_and(|s| s.len() > crate::vm::MAX_STRING)
+    {
+        return Err(CallError::StringTooLong);
+    }
+    Ok(v)
+}
+
+/// The string functions that build a string (LLP 1088 D2), each bounded by
+/// `MAX_STRING` alone, as one call counted as its whole output; `None` for
+/// every other entry.
+fn text(f: Stdlib, args: &[Value]) -> Result<Option<Value>, CallError> {
+    use crate::{strings, vm::MAX_STRING};
+    let s = |i: usize| {
+        args.get(i)
+            .and_then(Value::as_str)
+            .ok_or(CallError::TypeMismatch)
+    };
+    let n = |i: usize| {
+        args.get(i)
+            .and_then(Value::as_number)
+            .ok_or(CallError::TypeMismatch)
+    };
+    Ok(Some(match f {
+        Stdlib::Slice => Value::str(&strings::slice(s(0)?, n(1)?, n(2)?)),
+        Stdlib::ReplaceAll => Value::str(
+            &strings::replace_all(s(0)?, s(1)?, s(2)?, MAX_STRING)
+                .map_err(|_| CallError::StringTooLong)?,
+        ),
+        // The case tables through `text-transform`'s link, which a web
+        // artifact holds only when its plan uses them (LLP 1047 D6 refuses
+        // one that does not at boot); unlinked, a trap.
+        Stdlib::ToLowerCase => {
+            let lower = exact_kernel::linked_lowercase().ok_or(CallError::TypeMismatch)?;
+            let out = lower(s(0)?, MAX_STRING).ok_or(CallError::StringTooLong)?;
+            if out == s(0)? {
+                args[0].clone()
+            } else {
+                Value::str(&out)
+            }
+        }
+        _ => return Ok(None),
+    }))
 }
 
 fn call_value(
@@ -71,7 +120,9 @@ fn call_value(
         // @ref LLP 1051.000 D1/D2 — an action's reads, through the linked
         // geometry. The compiler admits them nowhere else, and a host refuses
         // a plan that reads geometry it doesn't link (LLP 1047 D6).
-        Stdlib::Frame | Stdlib::Measure => return geometry?.read(plan, f, args),
+        Stdlib::Frame | Stdlib::Measure | Stdlib::ElementFromPoint => {
+            return geometry?.read(plan, f, args)
+        }
         // @ref LLP 1038 D3/D9 — pure verbs and typed reads over the plan shapes.
         Stdlib::Open
         | Stdlib::Push
@@ -107,6 +158,11 @@ fn call_value(
             Value::Bool(args.first()?.as_str()?.starts_with(args.get(1)?.as_str()?))
         }
         Stdlib::EndsWith => Value::Bool(args.first()?.as_str()?.ends_with(args.get(1)?.as_str()?)),
+        // `String.prototype.indexOf` (LLP 1088 §9.1); a list's is the VM's.
+        Stdlib::IndexOf => Value::Number(crate::strings::index_of(
+            args.first()?.as_str()?,
+            args.get(1)?.as_str()?,
+        )),
         Stdlib::Trim => {
             let v = args.first()?;
             let s = v.as_str()?;
@@ -123,7 +179,9 @@ fn call_value(
             _ => return None,
         },
         // @ref LLP 1054.000.003 D8 — the linked capability, or a trap.
-        Stdlib::FormatDate | Stdlib::FormatNumber => return format?(f, args),
+        Stdlib::FormatDate | Stdlib::FormatNumber | Stdlib::ToFixed | Stdlib::FormatDecimal => {
+            return format?(f, args)
+        }
         Stdlib::Length => Value::Number(match args.first()? {
             Value::List(items) => items.len() as f64,
             // The web's String.length (and `maxlength`): UTF-16 code units.
@@ -163,12 +221,35 @@ fn call_value(
             _ => return None,
         },
         // @ref LLP 1017.003 D5 — opcodes with a callback body, never a
-        // call; `join` is the VM's, which bounds the string it makes.
-        Stdlib::Map | Stdlib::Filter | Stdlib::Join => return None,
+        // call; `join` is the VM's, which bounds the string it makes, and so
+        // are `concat` and `split` (LLP 1088 §9.1), which build a list.
+        Stdlib::Map | Stdlib::Filter | Stdlib::Join | Stdlib::Concat | Stdlib::Split => {
+            return None
+        }
         Stdlib::Floor => Value::Number(num(0)?.floor()),
+        // @ref LLP 1102 §3.1, §3.2, §3.4 — `Math.ceil`, `Math.round`, a strict
+        // `Number()`, and an age's calendar count.
+        Stdlib::Ceil => Value::Number(num(0)?.ceil()),
+        Stdlib::Round => Value::Number(js_round(num(0)?)),
+        Stdlib::ParseNumber => parse_number(args.first()?.as_str()?)
+            .map_or(Value::Option(None), |n| Value::some(Value::Number(n))),
+        Stdlib::CalendarDiff => {
+            let months = match args.get(2)?.as_str()? {
+                "years" => false,
+                "months" => true,
+                _ => return None,
+            };
+            calendar_diff(args.first()?.as_str()?, args.get(1)?.as_str()?, months)
+                .map_or(Value::Option(None), |n| {
+                    Value::some(Value::Number(n as f64))
+                })
+        }
         Stdlib::Max => Value::Number(num(0)?.max(num(1)?)),
         Stdlib::Min => Value::Number(num(0)?.min(num(1)?)),
         Stdlib::T => unreachable!("interpolation is bounded by call"),
+        Stdlib::Slice | Stdlib::ReplaceAll | Stdlib::ToLowerCase => {
+            unreachable!("strings are bounded by call")
+        }
     })
 }
 
@@ -270,19 +351,10 @@ pub fn format_number(n: f64) -> String {
     out
 }
 
-/// [`format_number`], appended to `out`.
+/// [`format_number`], appended to `out`: JavaScript's `String(n)`
+/// ([`exact_num::push_js`]).
 pub fn push_number(n: f64, out: &mut String) {
-    if n == 0.0 {
-        out.push('0');
-    } else if n.is_finite() && (n.abs() >= 1e21 || n.abs() < 1e-6) {
-        let scientific = exact_num::Exponent(n).to_string();
-        let (mantissa, exponent) = scientific.split_once('e').expect("scientific notation");
-        let exponent: i32 = exponent.parse().expect("decimal exponent");
-        out.push_str(&format!("{mantissa}e{exponent:+}"));
-    } else {
-        // Written without the formatter: an app's numbers are shown on boot.
-        exact_num::push_text!(out, "{}", exact_num::Shortest(n));
-    }
+    exact_num::push_js(n, out);
 }
 
 thread_local! {
@@ -310,6 +382,181 @@ pub fn assembled(build: impl FnOnce(&mut String)) -> Value {
             Value::str(&s)
         }
     })
+}
+
+/// `Math.round` (ECMA-262): the integer nearest `x`, a tie toward +∞, and -0
+/// for a negative `x` that rounds to zero; NaN and the infinities are their
+/// own. `x - floor(x)` is exact for a finite double (below 2^52 the two share
+/// the grid; above it `x` is already an integer), so the tie test is too.
+/// Not `f64::round`, which breaks a tie away from zero. @ref LLP 1102 §3.2
+pub fn js_round(x: f64) -> f64 {
+    if !x.is_finite() {
+        return x;
+    }
+    let f = x.floor();
+    let r = if x - f >= 0.5 { f + 1.0 } else { f };
+    if r == 0.0 && x.is_sign_negative() {
+        -0.0
+    } else {
+        r
+    }
+}
+
+/// `parseNumber(text)` (LLP 1102 §3.1): `trim`'s whitespace around an
+/// optional sign, digits with an optional fraction or a fraction alone, and
+/// an optional decimal exponent; the correctly rounded double (`exact_num`,
+/// as `Number()` reads it), or `None` for any other text, for a result past
+/// the largest finite, and for a nonzero numeral that rounds to zero.
+pub fn parse_number(text: &str) -> Option<f64> {
+    let t = text.trim_matches(is_js_space);
+    let b = t.as_bytes();
+    let mut i = usize::from(matches!(b.first(), Some(b'+' | b'-')));
+    let digits = |i: &mut usize| {
+        let start = *i;
+        while b.get(*i).is_some_and(u8::is_ascii_digit) {
+            *i += 1;
+        }
+        *i - start
+    };
+    let whole = digits(&mut i);
+    let mut fraction = 0;
+    if b.get(i) == Some(&b'.') {
+        i += 1;
+        fraction = digits(&mut i);
+    }
+    if whole + fraction == 0 {
+        return None;
+    }
+    let mantissa_end = i;
+    if matches!(b.get(i), Some(b'e' | b'E')) {
+        i += 1;
+        if matches!(b.get(i), Some(b'+' | b'-')) {
+            i += 1;
+        }
+        if digits(&mut i) == 0 {
+            return None;
+        }
+    }
+    if i != b.len() {
+        return None;
+    }
+    // `exact_num` stops an exponent at 65,536 as std does, which a numeral
+    // of more digits than that can outrun (`0.`, 65,535 zeros, `1e655360`
+    // is past the largest finite), so a long one is read short first.
+    let n = if whole + fraction <= SHORT_DIGITS {
+        exact_num::parse_f64(t).ok()?
+    } else {
+        exact_num::parse_f64(&short_numeral(b, mantissa_end)).ok()?
+    };
+    let nonzero = b[..mantissa_end].iter().any(|c| (b'1'..=b'9').contains(c));
+    (n.is_finite() && (n != 0.0 || !nonzero)).then_some(n)
+}
+
+/// More significant digits than a halfway point between two doubles has
+/// (767): the rest only break a tie, as one sticky digit does.
+const SHORT_DIGITS: usize = 800;
+
+/// A numeral `parse_number` admitted, of the same value to the double it
+/// rounds to: its first `SHORT_DIGITS` significant digits, a `1` after them
+/// for any nonzero rest, and the exponent that keeps their place; past
+/// `10^±400`, `1e±400`, which overflows or underflows as the numeral does.
+fn short_numeral(b: &[u8], mantissa_end: usize) -> String {
+    let (sign, mantissa) = match b.first() {
+        Some(&c @ (b'+' | b'-')) => (c == b'-', &b[1..mantissa_end]),
+        _ => (false, &b[..mantissa_end]),
+    };
+    let point = mantissa
+        .iter()
+        .position(|&c| c == b'.')
+        .unwrap_or(mantissa.len());
+    let digits: Vec<u8> = mantissa
+        .iter()
+        .copied()
+        .filter(u8::is_ascii_digit)
+        .collect();
+    let mut out = String::from(if sign { "-" } else { "" });
+    let (Some(lead), Some(last)) = (
+        digits.iter().position(|&c| c != b'0'),
+        digits.iter().rposition(|&c| c != b'0'),
+    ) else {
+        out.push('0');
+        return out;
+    };
+    let rest = &b[(mantissa_end + 1).min(b.len())..];
+    let (negative, rest) = match rest.first() {
+        Some(&c @ (b'+' | b'-')) => (c == b'-', &rest[1..]),
+        _ => (false, rest),
+    };
+    // Saturated far past any reach a numeral within `MAX_STRING` has.
+    let exponent = rest
+        .iter()
+        .fold(0i64, |e, &c| (e * 10 + i64::from(c - b'0')).min(1 << 50));
+    let exponent = if negative { -exponent } else { exponent };
+    // The value is `0.D × 10^place`, `D` the significant digits.
+    let place = point as i64 - lead as i64 + exponent;
+    if !(-400..=400).contains(&place) {
+        out.push_str(if place > 0 { "1e400" } else { "1e-400" });
+        return out;
+    }
+    let significant = &digits[lead..=last];
+    let kept = &significant[..significant.len().min(SHORT_DIGITS)];
+    out.extend(kept.iter().map(|&c| char::from(c)));
+    let mut written = kept.len() as i64;
+    if kept.len() < significant.len() {
+        out.push('1');
+        written += 1;
+    }
+    out.push('e');
+    push_number((place - written) as f64, &mut out);
+    out
+}
+
+/// A `YYYY-MM-DD` date (years 0 through 9999, a real day of the month).
+fn iso_date(s: &str) -> Option<(i64, i64, i64)> {
+    let b = s.as_bytes();
+    if b.len() != 10 || b[4] != b'-' || b[7] != b'-' {
+        return None;
+    }
+    let num = |r: std::ops::Range<usize>| {
+        b[r.clone()]
+            .iter()
+            .all(u8::is_ascii_digit)
+            .then(|| s[r].parse::<i64>().ok())?
+    };
+    let (y, m, d) = (num(0..4)?, num(5..7)?, num(8..10)?);
+    let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
+    let days = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    ((1..=12).contains(&m) && d >= 1 && d <= days[m as usize - 1]).then_some((y, m, d))
+}
+
+/// `calendarDiff(from, to, unit)` (LLP 1102 §3.4): the whole years or months
+/// from `from` to `to`, counted as an age is — a period completes when the
+/// later date's month and day (for months, its day) reach the earlier
+/// date's — and negated when `to` is earlier, as `Temporal.PlainDate.prototype
+/// .until` counts with `largestUnit` years or months. `None` for a date that
+/// is not `YYYY-MM-DD`.
+pub fn calendar_diff(from: &str, to: &str, months: bool) -> Option<i64> {
+    let (a, b) = (iso_date(from)?, iso_date(to)?);
+    let (early, late, sign) = if b < a { (b, a, -1) } else { (a, b, 1) };
+    let n = if months {
+        (late.0 - early.0) * 12 + (late.1 - early.1) - i64::from(late.2 < early.2)
+    } else {
+        (late.0 - early.0) - i64::from((late.1, late.2) < (early.1, early.2))
+    };
+    Some(sign * n)
 }
 
 /// ECMA-262's WhiteSpace and LineTerminator: what `String.prototype.trim`
@@ -454,9 +701,41 @@ mod tests {
         values.extend((0..10_000).map(|_| f64::from_bits(next())));
         for n in values {
             if n != 0.0 && n.is_finite() && (1e-6..1e21).contains(&n.abs()) {
-                assert_eq!(format_number(n), exact_num::Shortest(n).to_string());
+                // Rust's shortest text, but for a tie between two shortest
+                // forms, where JavaScript takes the even one: as short, and
+                // it reads back as `n`.
+                let (ours, rust) = (format_number(n), exact_num::Shortest(n).to_string());
+                if ours != rust {
+                    assert_eq!(ours.len(), rust.len(), "{n:e}");
+                    assert_eq!(ours.parse::<f64>(), Ok(n), "{n:e}");
+                }
             }
         }
+    }
+
+    #[test]
+    fn a_tie_between_two_shortest_forms_takes_the_even_one_as_javascript_does() {
+        // Each is exactly halfway between two 17-digit decimals that both
+        // read back as it; JavaScript (and the Lean semantics) print the even.
+        for (bits, js) in [
+            (0x4314_e17f_1d0f_1d8d_u64, "1469358899709795.2"),
+            (0x42bc_bf5b_965b_6990, "31608200911721.562"),
+            (0xc2e6_a575_0d63_7d24, "-199199113812969.12"),
+        ] {
+            assert_eq!(format_number(f64::from_bits(bits)), js);
+        }
+        assert_eq!(format_number(0.1 + 0.2), "0.30000000000000004");
+        assert_eq!(
+            format_number(123456789012345680000.0),
+            "123456789012345680000"
+        );
+    }
+
+    #[test]
+    fn non_finite_numbers_print_as_javascript_prints_them() {
+        assert_eq!(format_number(f64::INFINITY), "Infinity");
+        assert_eq!(format_number(f64::NEG_INFINITY), "-Infinity");
+        assert_eq!(format_number(f64::NAN), "NaN");
     }
 
     #[test]
@@ -486,6 +765,28 @@ mod tests {
             );
         }
     }
+    /// An encoding one byte past `MAX_STRING` traps, after the route
+    /// segment's own refusal of `""` (LLP 1090 D6).
+    #[test]
+    fn the_encoders_trap_one_byte_past_the_longest_string() {
+        let plan = exact_plan::builder::PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1)
+            .finish()
+            .unwrap();
+        let encode = |f, text: &str| call(f, &[Value::str(text)], 0.0, &plan, None, None, None);
+        let max = crate::vm::MAX_STRING;
+        for f in [Stdlib::EncodeURIComponent, Stdlib::EncodeRouteSegment] {
+            // A space encodes to `%20`: three bytes.
+            let fits = "a".repeat(max - 3) + " ";
+            assert!(encode(f, &fits).is_ok_and(|v| v.as_str().map(str::len) == Some(max)));
+            let over = "a".repeat(max - 2) + " ";
+            assert_eq!(encode(f, &over), Err(CallError::StringTooLong));
+        }
+        assert_eq!(
+            encode(Stdlib::EncodeRouteSegment, ""),
+            Err(CallError::TypeMismatch)
+        );
+    }
+
     #[test]
     fn at_answers_what_javascript_answers() {
         let plan = exact_plan::builder::PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1)
@@ -649,5 +950,95 @@ mod tests {
             panic!("trim answers a string");
         };
         assert!(Value::same_str(&s, &out));
+    }
+
+    /// LLP 1102 §3.1–§3.4: the same cases as host/web/tests/js-runtime.test.mjs's
+    /// over roster.js, whose oracle is `Number`, `Math.round` and `Math.ceil`.
+    #[test]
+    fn number_and_date_reads_are_javascript_s() {
+        let bits = |x: Option<f64>| x.map(f64::to_bits);
+        for (text, want) in [
+            (" 12.5 ", Some(12.5)),
+            ("-3", Some(-3.0)),
+            ("+.5", Some(0.5)),
+            ("5.", Some(5.0)),
+            ("5.e3", Some(5000.0)),
+            ("1E-2", Some(0.01)),
+            ("00012", Some(12.0)),
+            ("-0", Some(-0.0)),
+            ("0e999999999999", Some(0.0)),
+            ("\u{a0}\t7\n", Some(7.0)),
+            ("\u{feff}8", Some(8.0)),
+            ("9007199254740993", Some(9007199254740992.0)),
+            ("1.7976931348623157e308", Some(f64::MAX)),
+            ("2.4703282292062328e-324", Some(5e-324)),
+            ("1.7976931348623159e308", None),
+            ("2.4703282292062327e-324", None),
+            ("1e-400", None),
+            ("1e999999999999", None),
+            ("", None),
+            (".", None),
+            ("+", None),
+            ("1e", None),
+            ("1e+", None),
+            (".e1", None),
+            ("12px", None),
+            ("0x1F", None),
+            ("1_000", None),
+            ("Infinity", None),
+            ("NaN", None),
+            ("1 2", None),
+            ("1,5", None),
+            ("\u{85}9", None),
+            ("\u{661}", None),
+            // Past `exact_num`'s exponent reach: read short.
+            (&format!("0.{}1e655360", "0".repeat(65_535)), None),
+            (&format!("0.{}1e70300", "0".repeat(70_000)), Some(1e299)),
+            (
+                &format!("-{}e-65630", "1".repeat(65_536)),
+                Some(-1.1111111111111112e-95),
+            ),
+            (&format!("{}e-1000", "0".repeat(70_000)), Some(0.0)),
+            (&format!("1{}", "0".repeat(400)), None),
+            (&format!("1{}e-655360", "0".repeat(65_535)), None),
+        ] {
+            assert_eq!(bits(parse_number(text)), bits(want), "{text:?}");
+        }
+        for (x, want) in [
+            (2.5, 3.0),
+            (-2.5, -2.0),
+            (-1.5, -1.0),
+            (0.49999999999999994, 0.0),
+            (-0.4, -0.0),
+            (-0.5, -0.0),
+            (-0.0, -0.0),
+            (4503599627370495.5, 4503599627370496.0),
+            (-4503599627370495.5, -4503599627370495.0),
+            (f64::INFINITY, f64::INFINITY),
+        ] {
+            assert_eq!(js_round(x).to_bits(), f64::to_bits(want), "round({x})");
+        }
+        assert!(js_round(f64::NAN).is_nan());
+        for (from, to, years, months) in [
+            ("1990-06-15", "2026-06-14", Some(35), Some(431)),
+            ("1990-06-15", "2026-06-15", Some(36), Some(432)),
+            ("2024-02-29", "2025-02-28", Some(0), Some(11)),
+            ("2024-02-29", "2025-03-01", Some(1), Some(12)),
+            ("2024-01-31", "2024-02-29", Some(0), Some(0)),
+            ("2024-01-31", "2024-03-01", Some(0), Some(1)),
+            ("2026-06-14", "1990-06-15", Some(-35), Some(-431)),
+            ("2024-03-01", "2024-01-31", Some(0), Some(-1)),
+            ("2024-05-05", "2024-05-05", Some(0), Some(0)),
+            // A reversed zero is +0 on the JS target too (`n && sign * n`).
+            ("2024-02-29", "2024-01-31", Some(0), Some(0)),
+            ("0000-02-29", "9999-12-31", Some(9999), Some(119_998)),
+            ("2025-02-29", "2026-01-01", None, None),
+            ("2024-13-01", "2026-01-01", None, None),
+            ("2024-1-01", "2026-01-01", None, None),
+            ("2024-01-01", " 2026-01-01", None, None),
+        ] {
+            assert_eq!(calendar_diff(from, to, false), years, "years {from} {to}");
+            assert_eq!(calendar_diff(from, to, true), months, "months {from} {to}");
+        }
     }
 }

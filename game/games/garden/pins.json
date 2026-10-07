@@ -1,0 +1,17 @@
+{
+  "ticks": {
+    "0": "0x567fb953a3936f0f",
+    "5136": "0x84bdee160cf25b17"
+  },
+  "saves": {
+    "continuation": "5a046649280711d724f813aeeaee0ad7fbec58293f5ab8e471525898d8b203b0"
+  },
+  "hosts": [
+    "linux",
+    "web"
+  ],
+  "inputs": "bfb4f8bd735014f8c7fd487a5ccde96a38eab900e46a3cb5797ef398c6b7b669",
+  "game": "garden",
+  "generated": "bun game/prove.mjs garden --repin --hosts 'linux,web'",
+  "at": "2c19c834853f9a169c70704b58f0ed255a8d7daa"
+}

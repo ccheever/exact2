@@ -13,7 +13,7 @@ impl Game for Art {
     }
     fn tick(_: &mut World, _: &Input, _: &()) {}
 }
-fn fresh() -> WorldSurface<Art, exact_game_render::ModelPresentation, true> {
+fn fresh() -> WorldSurface<Art, exact_game_render::ModelExecutor, true> {
     let mut surface = WorldSurface::default();
     surface.bind(&[], None).unwrap();
     surface
@@ -63,6 +63,7 @@ fn terminal_declaration_requests_no_more_frames() {
             period_ms: 0.,
             children_generation: 0,
             shader_generation: 0,
+            headroom: 1.0,
         },
     )
     .unwrap();
@@ -225,8 +226,7 @@ fn replacement_device_draws_identical_pixels() {
     let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
         return;
     };
-    let mut surface =
-        WorldSurface::<VisibleArt, exact_game_render::ModelPresentation, true>::default();
+    let mut surface = WorldSurface::<VisibleArt, exact_game_render::ModelExecutor, true>::default();
     surface.device_ready(exact_gpu::wgpu::Features::empty());
     surface.bind(&[], None).unwrap();
     let path =
@@ -247,6 +247,7 @@ fn replacement_device_draws_identical_pixels() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let (before, _) = fixture::render(&gpu, &mut surface, &frame).unwrap();
     surface.device_lost();
@@ -272,7 +273,8 @@ fn textureless_live_model_survives_unrelated_retirement_and_module_device_loss()
     struct Pair;
     impl Game for Pair {
         const ID: &'static str = "retirement-pair";
-        const ASSETS: &'static [&'static str] = &["a.model", "b.model"];
+        // B is declared and stays resident; A is a cosmetic, which retires unshown.
+        const ASSETS: &'static [&'static str] = &["b.model"];
         type Args = ();
         fn actions() -> Actions {
             Actions::new().button("retire", &["KeyR"])
@@ -292,7 +294,7 @@ fn textureless_live_model_survives_unrelated_retirement_and_module_device_loss()
     }
     static REGISTRY: Registry = Registry {
         surfaces: &[("world", 0, || {
-            Box::<WorldSurface<Pair, exact_game_render::ModelPresentation, true>>::default()
+            Box::<WorldSurface<Pair, exact_game_render::ModelExecutor, true>>::default()
         })],
         shaders: &[],
     };
@@ -312,10 +314,11 @@ fn textureless_live_model_survives_unrelated_retirement_and_module_device_loss()
     module.set_seekable(true);
     let id = module.create_headless("world").unwrap();
     assert!(module.bind(id, &[], None));
-    assert_eq!(module.take_assets(id).requests, ["a.model", "b.model"]);
-    for name in ["a.model", "b.model"] {
-        assert!(module.asset(id, name, Ok(&bytes)));
-    }
+    // Setup waits for B; A is requested once setup shows it.
+    assert_eq!(module.take_assets(id).requests, ["b.model"]);
+    assert!(module.asset(id, "b.model", Ok(&bytes)));
+    assert_eq!(module.take_assets(id).requests, ["a.model"]);
+    assert!(module.asset(id, "a.model", Ok(&bytes)));
     let mut frame = Frame {
         width: 64.,
         height: 64.,
@@ -325,6 +328,7 @@ fn textureless_live_model_survives_unrelated_retirement_and_module_device_loss()
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let (before, _) = module.readback(id, &frame).unwrap();
     assert!(

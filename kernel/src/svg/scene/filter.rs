@@ -143,12 +143,14 @@ impl Chain {
 
 /// One CSS filter function (Filter Effects 1 §12) appended to `chain`, its
 /// `SourceGraphic` the chain so far, growing the region from `visual` (the
-/// box it filters, with any stroke) by what it spreads.
+/// box it filters, with any stroke) by what it spreads. Colours resolve
+/// under the `dark` appearance; `text_color` already has.
 fn function(
     chain: &mut Chain,
     f: &FilterFn,
     visual: Option<Rect>,
     text_color: crate::style::Color,
+    dark: bool,
 ) {
     let src = chain.source();
     let grow = |chain: &mut Chain, by: Rect| {
@@ -169,7 +171,8 @@ fn function(
             grow(&mut *chain, (-g, -g, 2.0 * g, 2.0 * g));
         }
         FilterFn::DropShadow(dx, dy, blur, color) => {
-            let color = color.unwrap_or(text_color);
+            // A reference resolves as the host reported it (LLP 1095 D1).
+            let color = color.map_or(text_color, |c| c.resolve(dark));
             // The third length is the standard deviation itself (Filter
             // Effects 1 §10.9: `feGaussianBlur stdDeviation="[radius]"`),
             // not `box-shadow`'s blur radius of 2σ: halved, F3's shadow fell
@@ -285,10 +288,12 @@ fn function(
 /// over a box of no size, so its region is how far past the box the
 /// result reaches (a host adds the box's size); its subregions are the
 /// whole region. `None` for `none`, or a list naming a `filter` element,
-/// which a box does not take.
+/// which a box does not take. Its colours, `currentcolor` (`text_color`)
+/// included, resolve under the `dark` appearance.
 pub fn box_filter(
     list: &crate::svg::filter::FilterList,
-    text_color: crate::style::Color,
+    text_color: crate::style::ColorValue,
+    dark: bool,
 ) -> Option<Filter> {
     if list.0.is_empty() || list.0.iter().any(|f| matches!(f, FilterFn::Url(_))) {
         return None;
@@ -298,7 +303,13 @@ pub fn box_filter(
         region: None,
     };
     for f in &list.0 {
-        function(&mut chain, f, Some((0.0, 0.0, 0.0, 0.0)), text_color);
+        function(
+            &mut chain,
+            f,
+            Some((0.0, 0.0, 0.0, 0.0)),
+            text_color.resolve(dark),
+            dark,
+        );
     }
     Some(Filter {
         region: chain.region.unwrap_or((0.0, 0.0, 0.0, 0.0)),
@@ -352,7 +363,13 @@ impl Resolver<'_, '_> {
                 };
                 chain.region = Some(chain.region.map_or(region, |c| union(c, region)));
             } else {
-                function(&mut chain, f, visual, node.style.text_color.resolve(false));
+                function(
+                    &mut chain,
+                    f,
+                    visual,
+                    node.style.text_color.resolve(false),
+                    false,
+                );
             }
         }
         let region = chain.region.unwrap_or((0.0, 0.0, 0.0, 0.0));
@@ -597,7 +614,7 @@ impl Resolver<'_, '_> {
                     )
                 }
                 "feConvolveMatrix" => {
-                    let (ox, oy) = pair(prop(PropId::Order), 3.0);
+                    let (ox, oy) = pair(prop(PropId::FeOrder), 3.0);
                     let (ox, oy) = (ox.max(1.0) as u32, oy.max(1.0) as u32);
                     let kernel = numbers(prop(PropId::KernelMatrix));
                     let sum: f32 = kernel.iter().sum();
@@ -728,17 +745,17 @@ impl Resolver<'_, '_> {
 
     /// `flood-color` with `flood-opacity`, straight sRGB.
     fn flood(&self, style: &crate::generated::StyleProps) -> [f32; 4] {
-        let c = match &style.flood_color {
+        let c = match &style.rare.flood_color {
             Paint::CurrentColor => style.text_color.resolve(false),
             Paint::Color(c) => c.resolve(false),
             _ => crate::style::Color(0x0000_00ff),
         };
-        rgba(c, style.flood_opacity)
+        rgba(c, style.rare.flood_opacity)
     }
 
     /// `lighting-color`, straight sRGB.
     fn lighting_color(&self, style: &crate::generated::StyleProps) -> [f32; 3] {
-        let c = match &style.lighting_color {
+        let c = match &style.rare.lighting_color {
             Paint::CurrentColor => style.text_color.resolve(false),
             Paint::Color(c) => c.resolve(false),
             _ => crate::style::Color(0xffff_ffff),

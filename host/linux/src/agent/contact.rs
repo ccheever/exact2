@@ -28,16 +28,19 @@ fn duration(request: &Value) -> Result<f64, String> {
     Ok(ms)
 }
 
-pub(super) fn answer<D: DataSource>(p: &mut Presenter<D>, request: &Value) -> String {
+pub(crate) fn answer<D: DataSource>(p: &mut Presenter<D>, request: &Value) -> String {
     perform(p, request).unwrap_or_else(|e| error(&e))
 }
 fn perform<D: DataSource>(p: &mut Presenter<D>, request: &Value) -> Result<String, String> {
     let phase = request["phase"].as_str().ok_or("contact needs a phase")?;
     let allowed: &[&str] = match phase {
-        "down" => &["op", "session", "phase", "id", "x", "y"],
-        "move" => &["op", "session", "phase", "x", "y", "dx", "dy", "ms"],
-        "hold" => &["op", "session", "phase", "ms"],
-        "up" | "cancel" => &["op", "session", "phase"],
+        "down" => &["op", "session", "phase", "id", "x", "y", "mouse"],
+        "move" => &[
+            "op", "session", "phase", "x", "y", "dx", "dy", "ms", "mouse",
+        ],
+        // `virtual` is the driver's flag that it will not also seek (platformer R7).
+        "hold" => &["op", "session", "phase", "ms", "mouse", "virtual"],
+        "up" | "cancel" => &["op", "session", "phase", "mouse"],
         _ => return Err("unknown contact phase".into()),
     };
     if request
@@ -133,7 +136,7 @@ fn perform<D: DataSource>(p: &mut Presenter<D>, request: &Value) -> Result<Strin
             "up" => {
                 p.pointer_up(x, y, from)?;
             }
-            "cancel" => p.pointer_cancel(from)?,
+            "cancel" => p.pointer_lost(from)?,
             _ => unreachable!(),
         }
     }
@@ -142,6 +145,7 @@ fn perform<D: DataSource>(p: &mut Presenter<D>, request: &Value) -> Result<Strin
 fn reply<D: DataSource>(p: &Presenter<D>, phase: &str, at: Option<(f32, f32)>) -> String {
     serde_json::json!({
         "phase": phase, "contact": p.contact_position().is_some(), "at": at,
+        "clock": p.host().now(),
         "delivery": "presenter", "carrier": "linux", "mode": "headless",
         "native": "Presenter.pointer_*", "timing": "seekable; physical delivery unobserved"
     })

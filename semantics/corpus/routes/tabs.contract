@@ -1,0 +1,95 @@
+// Tabs: each keeps its stack; select shows one, reselecting the current
+// tab pops it to its root, an unknown tab is refused; open goes to the
+// declared tab; push stays on the selected tab whatever the route's own;
+// go selects another tab whose top is the location.
+routes nav
+  tab home "/"
+    note "/note/:id"
+  tab search "/search"
+    result "/search/:q"
+  tab profile "/profile"
+    settings "/settings"
+  notfound
+
+component App
+  derive current = top(nav)
+  action select(name: string)
+    nav = select(nav, name)
+  action push(url: string)
+    nav = push(nav, url)
+  action open(url: string)
+    nav = open(nav, url)
+  action go(url: string)
+    nav = go(nav, url)
+  action back
+    nav = back(nav)
+  view
+    column
+      text nav.tab testId="tab"
+      text current.url testId="url"
+      text `${depth(nav)}` testId="depth"
+      text current.tab testId="entry-tab"
+      each t in nav.tabs key=t.name
+        text `${t.name}:${length(t.stack)}` testId=`tab-${t.name}`
+      button "x" press=select("home") testId="sel-home"
+      button "x" press=select("search") testId="sel-search"
+      button "x" press=select("profile") testId="sel-profile"
+      button "x" press=select("note") testId="sel-note"
+      button "x" press=select("nope") testId="sel-nope"
+      button "x" press=push("/note/1") testId="push-note"
+      button "x" press=push("/search/cats") testId="push-result"
+      button "x" press=push("/settings") testId="push-settings"
+      button "x" press=push("/missing/page") testId="push-missing"
+      button "x" press=open("/search/dogs") testId="open-result"
+      button "x" press=open("/settings") testId="open-settings"
+      button "x" press=open("/what") testId="open-missing"
+      button "x" press=go("/search/dogs") testId="go-result"
+      button "x" press=go("/note/1") testId="go-note"
+      button "x" press=back testId="back"
+
+test "select keeps stacks; reselect pops to root"
+  tap "push-note"
+  tap "sel-search"
+  expect text "tab" == "search"
+  tap "push-result"
+  tap "sel-home"
+  expect text "url" == "/note/1"
+  tap "sel-home"
+  expect text "url" == "/"
+  tap "sel-search"
+  expect text "url" == "/search/cats"
+
+test "unknown tabs are refused"
+  tap "sel-nope"
+  tap "sel-note"
+  expect text "tab" == "home"
+
+test "push stays on the selected tab"
+  tap "push-settings"
+  expect text "tab" == "home"
+  expect text "entry-tab" == "home"
+  tap "push-result"
+  expect text "depth" == "3"
+
+test "open goes to the declared tab"
+  tap "open-result"
+  expect text "tab" == "search"
+  tap "open-settings"
+  expect text "tab" == "profile"
+  tap "back"
+  tap "back"
+
+test "notfound absorbs unknown locations on the first tab"
+  tap "sel-profile"
+  tap "push-missing"
+  tap "open-missing"
+  expect text "tab" == "home"
+  tap "back"
+
+test "go selects another tab's top"
+  tap "open-result"
+  tap "sel-home"
+  tap "go-result"
+  expect text "tab" == "search"
+  tap "go-note"
+  tap "go-note"

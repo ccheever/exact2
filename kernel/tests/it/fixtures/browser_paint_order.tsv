@@ -1,0 +1,18 @@
+a sticky header over plain rows	position:relative;width:400px;height:400px	2>1>position:sticky;top:0px;height:40px & 3>1>height:40px;margin-top:-20px & 4>1>height:40px	10,30	2	2	-
+a relative box over a plain follower	position:relative;width:400px;height:400px	2>1>position:relative;height:40px & 3>1>height:40px;margin-top:-20px	10,30	2	2	-
+the nested-z fixture §3.1	position:relative;width:400px;height:400px	2>1>position:absolute;z-index:1;left:0px;top:0px;width:100px;height:100px & 3>1>height:200px & 4>3>position:absolute;z-index:2;left:20px;top:20px;width:100px;height:100px	50,50 110,110 150,150	4 4 3	2 4 3	3
+a level-0 escape is covered by a later static box §3.2	position:relative;width:400px;height:400px	2>1>height:40px & 3>2>position:relative;top:30px;height:40px & 4>1>height:40px	10,50 10,75	3 4	4 4	4
+a z holder over a plain follower §3.3	position:relative;width:400px;height:400px	2>1>height:40px & 3>2>position:absolute;z-index:2;left:50px;top:20px;width:50px;height:60px & 4>1>height:40px;margin-top:-10px	10,35 60,35 60,60	4 3 3	2 3 3	2
+a z holder under a positioned follower §3.1	position:relative;width:400px;height:400px	2>1>height:40px & 3>2>position:absolute;z-index:2;left:0px;top:20px;width:100px;height:60px & 4>1>position:relative;height:40px	10,50 10,30	3 3	4 3	2
+a negative z under a positioned parent §3.1	position:relative;width:400px;height:400px	2>1>position:relative;height:60px & 3>2>position:absolute;z-index:-1;left:0px;top:20px;width:100px;height:60px & 4>1>height:40px;margin-top:-20px	10,10 10,30 10,70	2 2 4	2 3 3	2
+a holder after a positioned box §3.3	position:relative;width:400px;height:400px	2>1>position:relative;height:40px & 3>1>height:40px;margin-top:-20px & 4>3>position:relative;height:20px;top:10px & 5>1>height:40px;margin-top:-30px	10,25 10,45 10,55	2 4 5	3 4 3	3
+scale 1 stacks	position:relative;width:400px;height:400px	2>1>scale:1;height:40px & 3>1>height:40px;margin-top:-20px	10,30	2	2	-
+opacity 1 does not stack	position:relative;width:400px;height:400px	2>1>opacity:1;height:40px & 3>1>height:40px;margin-top:-20px	10,30	3	3	-
+a flex item with z-index 0 stacks	position:relative;width:400px;height:400px	2>1>display:flex;height:60px & 3>2>width:100px;height:40px;z-index:0 & 4>2>width:100px;height:40px;margin-left:-50px	75,10	3	3	-
+a flex item without z-index does not	position:relative;width:400px;height:400px	2>1>display:flex;height:60px & 3>2>width:100px;height:40px & 4>2>width:100px;height:40px;margin-left:-50px	75,10	4	4	-
+an inapplicable z on a fading block	position:relative;width:400px;height:400px	2>1>opacity:0.5;z-index:5;height:40px & 3>1>position:relative;z-index:1;height:40px;margin-top:-20px	10,30	3	3	-
+a positioned box keeps its level-0 descendants	position:relative;width:400px;height:400px	2>1>position:relative;height:40px & 3>2>position:relative;height:40px;top:10px & 4>1>height:40px;margin-top:-20px	10,45 10,55	3 4	3 4	-
+a nested z holder §3.1	position:relative;width:400px;height:400px	2>1>height:40px & 3>2>height:40px & 4>3>position:absolute;z-index:2;left:50px;top:20px;width:50px;height:60px & 5>1>height:40px;margin-top:-10px	60,45 10,35	4 5	5 5	3 5
+an opacity transition stacks at rest §3.4	position:relative;width:400px;height:400px	2>1>position:sticky;top:0px;height:40px & 3>1>height:40px;margin-top:-20px;transition:opacity 1s	10,30	2	3	-
+a color transition does not stack	position:relative;width:400px;height:400px	2>1>position:sticky;top:0px;height:40px & 3>1>height:40px;margin-top:-20px;transition:color 1s	10,30	2	2	-
+a negative z at the root stays above its background §3.1	position:relative;width:400px;height:400px	2>1>position:absolute;z-index:-1;left:0px;top:0px;width:100px;height:100px	10,10	1	2	-

@@ -1,0 +1,354 @@
+// Authored tests (LLP 1017 P7), the driver's half: `contract test <file>`
+// turns a file's `test` blocks into steps, and this drives them through the
+// session the operations use (`agent.mjs`'s `open`). `agent.mjs` re-exports it.
+import { spawnSync } from 'node:child_process';
+import { readdirSync, rmSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { open } from './agent.mjs';
+import { duringOp } from './agent-drag.mjs';
+import { driveStore, faultSpecOf, launchFacts } from './agent-launch.mjs';
+import { resolveApp } from './app.mjs';
+
+/** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else a checkbox's `checked` as `true` or `false`, else a control's value (a select's options
+ * are its choices, not its text; LLP 1087 wizard trials), else its descendants' in order — the web's `textContent`, a button's
+ * label — else a field's value. `nodes` is a `tree` reply's, in preorder. */
+export function textOf(nodes, node, live = false) {
+  if (node.props.text != null) return node.props.text;
+  const at = nodes.indexOf(node), runs = [];
+  // A checkbox or switch (only those take `checked`): `true` or `false`.
+  if (node.type === 'Control' && node.props.checked != null) return String(node.props.checked);
+  if (node.type === 'Control' && node.props.value != null) return node.props.value;
+  // `live`: only what an active screen shows (a covered descendant's text is not this node's name).
+  for (let i = at + 1; i < nodes.length && nodes[i].depth > node.depth; i++) if (nodes[i].props.text != null && !(live && nodes[i].inactive)) runs.push(nodes[i].props.text);
+  return runs.length ? runs.join('') : node.props.value;
+}
+
+// What a person activates, most direct first: a control, or a view a press or an edit acts on (2); one taking a gesture
+// or focus (1); none (0) — a `scroll` or `pointermove` handler only watches.
+const PRESSES = new Set(['press', 'change', 'input', 'submit', 'select', 'dblclick']);
+const GESTURES = new Set(['contextmenu', 'focus', 'swiperight', 'pan', 'drop']);
+const tier = (n) => n.type === 'Control' || n.type === 'TextInput' || (n.handlers ?? []).some((h) => PRESSES.has(h)) ? 2 : (n.handlers ?? []).some((h) => GESTURES.has(h)) ? 1 : 0;
+const interactive = (n) => tier(n) > 0;
+const name = (n) => n.props.testId ?? (n.props.accessibilityLabel ? `"${n.props.accessibilityLabel}"` : null);
+
+/** A target no testId carries, by the name a person reads (`nodes` a whole `tree` reply's, in preorder): the node whose
+ * accessibilityLabel is exactly `target`, else whose text (`textOf`) is: on the active screens first (their text without a
+ * covered descendant's), then anywhere. The most directly interactive win; of nested ones the outermost interactive,
+ * or the innermost otherwise. More than one left
+ * refuses, naming them; none returns null. */
+export function nodeNamed(nodes, target) {
+  let ends = null; // each node's preorder index and the end of its subtree, computed once and only on a match
+  const spans = () => {
+    ends = new Map();
+    const open = [];
+    nodes.forEach((n, i) => {
+      while (open.length && open.at(-1).n.depth >= n.depth) { const o = open.pop(); ends.set(o.n, [o.i, i]); }
+      open.push({ n, i });
+    });
+    for (const o of open) ends.set(o.n, [o.i, nodes.length]);
+  };
+  const passes = [true, false].flatMap((live) => [(n) => n.props.accessibilityLabel, (n) => textOf(nodes, n, live)].map((read) => [live, read]));
+  for (const [live, read] of passes) {
+    let found = nodes.filter((n) => { if (live && n.inactive) return false; const v = read(n); return v != null && String(v).trim() === target; });
+    if (!found.length) continue;
+    const top = found.reduce((t, n) => Math.max(t, tier(n)), 0);
+    found = found.filter((n) => tier(n) === top);
+    if (found.length > 1) {
+      if (!ends) spans();
+      const kept = [];
+      for (const n of found) { // preorder: an ancestor comes before what it holds
+        const inside = (m) => { const [i, end] = ends.get(m), [j] = ends.get(n); return j > i && j < end; };
+        if (interactive(n)) { if (!kept.length || !inside(kept.at(-1))) kept.push(n); } // kept subtrees are disjoint
+        else { while (kept.length && inside(kept.at(-1))) kept.pop(); kept.push(n); }
+      }
+      found = kept;
+    }
+    if (found.length === 1) return found[0];
+    throw new Error(`${JSON.stringify(target)} names ${found.length} views: ${found.slice(0, 8).map((n) => `${n.id}${n.props.testId ? ` (${n.props.testId})` : ''} ${n.type}`).join(', ')}${found.length > 8 ? ', …' : ''}; target one by its view id`);
+  }
+  return null;
+}
+
+/** A few targets an agent can name instead of a point: interactive views' testIds and labels, else their text. */
+export function targetsIn(nodes, limit = 12) {
+  const named = [...new Set(nodes.filter((n) => interactive(n) && !n.inactive).map((n) => {
+    const text = textOf(nodes, n);
+    return name(n) ?? (text != null && String(text).trim() ? JSON.stringify(String(text).trim()) : null);
+  }).filter(Boolean))];
+  return named.length ? `; targets here: ${named.slice(0, limit).join(', ')}${named.length > limit ? ', …' : ''}` : '';
+}
+
+/** Where a native host keeps a drive's scratch stores (host/apple and host/linux `configure_storage`), or
+ * null where the driver cannot reach them: an iOS simulator's are in its app container and go with the app. */
+export function storeBase(appId, host, env = process.env, home = homedir()) {
+  if (host === 'macos' || host === 'mac') return resolve(home, 'Library/Caches/exact', appId, 'agent');
+  if (host === 'linux') return resolve(env.XDG_CACHE_HOME?.startsWith('/') ? env.XDG_CACHE_HOME : resolve(home, '.cache'), 'exact', appId, 'agent');
+  return null;
+}
+const alive = pid => { try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; } };
+/** The stores of authored-test runs that are gone (`<storage>.r<pid>-<tag>.t<n>`, the pid no longer running):
+ * a run killed before it removed its own. A live run's are left alone, so concurrent runs never share or
+ * empty one another's. */
+export function sweepTestStores(base, storage) {
+  if (!base) return;
+  let names = []; try { names = readdirSync(base); } catch { return; }
+  const ours = new RegExp(`^${storage.replace(/[.]/g, '\\.')}\\.r(\\d+)-[0-9a-z]+\\.t\\d+$`);
+  for (const name of names) { const m = name.match(ours); if (m && !alive(Number(m[1]))) rmSync(resolve(base, name), { recursive: true, force: true }); }
+}
+/** A launch line's op and the `open` option it sets (`size` aside: it is two numbers). */
+const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed: 'seed' };
+
+/**
+ * Run a `test "…"` file against a host. Each test is a session of its own
+ * from the first frame, opened with its launch lines — `size`, `epoch`,
+ * `time-zone`, `locale`, `seed`, the test's own or the file's (the compiler
+ * puts them first), else the drive's flags — with app storage of its own: a scratch store
+ * `<storage>.r<pid>-<tag>.t<n>` of this run's (Chrome's profile for it on the web), emptied at
+ * launch and removed after the test (with any a killed run left), so an app
+ * that keeps its data in storage loads and no test, concurrent run or
+ * earlier run sees another's writes. The app's data lands before the first step (and after a `reload`), unless
+ * the test says `before data`. A failed expect names the test, the line, and what
+ * was seen. Returns `{ passed, failed, results }`.
+ */
+export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, failFetch, storage = 'test', touch = 'agent', chrome: bars = 'agent' } = {}) {
+  const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
+  // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
+  const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
+  if (c.status !== 0) throw new Error(c.stderr?.trim() || c.error?.message || 'contract test compiler failed');
+  const tests = JSON.parse(c.stdout);
+  const results = [];
+  // Where the host keeps its stores, as it will see its environment (a drive's env overrides the driver's).
+  const launched = { ...process.env, ...(env ?? {}) };
+  const id = resolveApp(app).id, chrome = host === 'web' && (browser ?? launched.EXACT_WEB_BROWSER ?? 'chrome') === 'chrome';
+  const base = device ? null : chrome ? driveStore(id, storage, env).base : host === 'web' ? null : storeBase(id, host, launched, launched.HOME || homedir());
+  // A run's own names where the driver can remove them; a simulator's (one drive at a time: a launch ends the
+  // last) reuse one store a test, emptied at launch, so they cannot pile up in its app container.
+  const tag = base ? `.r${process.pid}-${Math.random().toString(36).slice(2, 8)}` : '';
+  sweepTestStores(base, storage);
+  for (const [n, t] of tests.entries()) {
+    const failures = [];
+    const store = base || host !== 'web' ? `${storage}${tag}.t${n}` : storage, fresh = { ...(env ?? {}), EXACT_AGENT_STORAGE_FRESH: '1' };
+    // A test's launch lines lead its steps and override the drive's flags (habits F7).
+    // The drive's `--fail-fetch` is every test's, with its own leading `fail fetch` lines added (LLP 1103 D3).
+    const facts = { size, seed, locale, timeZone, epoch, failFetch };
+    const lines = [];
+    let beforeData = false, leading = 0;
+    // `fail fetch` lines that lead the steps are armed before the app's first data load (LLP 1103 D3).
+    const armed = new Map(); // prefix -> the line that armed it with a count
+    for (const st of t.steps) {
+      if (st.op === 'before-data') beforeData = true;
+      else if (st.op === 'fail-fetch') { facts.failFetch = [facts.failFetch, st.times == null ? st.prefix : `${st.prefix}\t${st.times}`].filter(Boolean).join('\n'); if (st.times != null) armed.set(st.prefix, st.line); }
+      else if (st.op === 'size') facts.size = [st.width, st.height];
+      else if (LAUNCH[st.op]) facts[LAUNCH[st.op]] = st.value;
+      else break;
+      lines.push(st.line);
+      leading++;
+    }
+    // A zone or locale the driver refuses fails this test at its line, not the run.
+    try { launchFacts({ ...facts, env: env ?? {} }); } catch (e) {
+      results.push({ name: t.name, failures: [`${t.name}: ${lines.length ? `line ${lines.join(', ')}` : "the drive's launch flags"}: ${e.message}`] });
+      continue;
+    }
+    // A drag on an iOS simulator is the touch runner's real gesture (LLP 1080.000 §11; chat2 diary: an authored
+    // test could not drag there); every other step stays the agent's. A phone has no runner yet: its drag says so.
+    // `--touch platform` makes every tap a real touch too (splitter rough 12: a test of what a finger reaches).
+    const drags = !device && ['ios', 'host-ios'].includes(host) && t.steps.some((st) => st.op === 'drag');
+    const fingers = touch !== 'agent' ? touch : drags ? 'drag' : 'agent';
+    const launch = (environment) => open({ host, browser, plan, ...facts, env: environment, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars });
+    let s = await launch(fresh);
+    // The app's data lands before the first step, as `clock data` lands it: activation and every request in flight,
+    // the clock unmoved and no timer fired (habits, pomodoro, kanban: a store opened at launch raced the first step).
+    // `before data` does not wait (what has landed then is the host's: a native app ran on real time before the
+    // driver connected). An unsettled wait leaves the expects to name what is still in flight.
+    const data = async () => { if (!beforeData) await s.clock('data'); };
+    // `reload`: the app restarts on the store it had (mail F19, kanban F25): the web page loads again in its
+    // profile, keeping what the origin stored; a native app relaunches on the same scratch store, not emptied.
+    // It asks what persists, so storage the app started and did not await finishes first, as `clock data` lands it
+    // (LLP 1097 D9): a write lost at `reload` is what a crash does. The next `logs` begins with what it waited for.
+    const reload = async () => {
+      const b = (await s.state().catch(() => ({}))).background, waiting = b ? b.queued + b.inFlight : 0;
+      if (waiting) {
+        const r = await s.clock('data');
+        if (r.settled === false) throw new Error(`reload: the app's storage did not finish before the restart: ${r.diagnostic ?? r.reason}`);
+      }
+      const notes = waiting ? [`reload: waited for ${waiting} storage operation${waiting === 1 ? '' : 's'}`] : [];
+      // The fault table as it is now, not as it was at launch (LLP 1103 D3): a cleared or spent fault stays so.
+      // A page whose table no fetch or fault request made yet still has its launch's; an unreadable state is an error.
+      const now = await s.state().catch((e) => { throw new Error(`reload: could not read the fault table to carry: ${e.message}`); });
+      const failFetch = now.faults ? faultSpecOf(now.faults) : undefined;
+      if (s.host === 'web') { await s.carrier.reset({ keep: true, failFetch }); s.now = 0; s.logCursor = 0; s.notes = notes; return; }
+      await s.close(); s = await open({ host, browser, plan, ...facts, failFetch: failFetch ?? facts.failFetch, env, app, webDist, device, phone, url, storage: store, touch: fingers, chrome: bars }); s.notes = notes;
+    };
+    // The clock stands still between steps: what an input started (a reply,
+    // a mutation's `then`, a timer, a transition) lands at a clock step. A
+    // failed expect after an input with none says so (kanban F19).
+    let input = null;
+    // The line whose `close` closed the window, if one did.
+    let closedAt = null;
+    // An input the host could not perform fails its step: an unsupported drag or a refused tap did nothing to assert on.
+    // An input that closed the window (`close`, or a press the app answered with `close()`) ends what can run.
+    let current = null;
+    const delivered = (r) => { if (r?.error || r?.delivery === 'unsupported') throw new Error(r.error ?? r.reason ?? 'the host does not support this input'); if (r?.closed) closedAt = current; };
+    // With no input since the clock last moved, a request still in flight (the boot's own, or one a jump
+    // left on real time) is named: the expect read the value before its reply (workout F1).
+    const fail = async (message) => {
+      if (input != null) return failures.push(`${message} (the clock has not moved since line ${input}'s input: a reply, a mutation's \`then\` or a transition lands at \`clock settle\`; a timer fires when the clock reaches its time, \`clock +N\`)`);
+      const pending = ((await s.state().catch(() => ({}))).pending ?? []).filter((p) => !p.device).map((p) => p.name);
+      failures.push(pending.length ? `${message} (${pending.length} request${pending.length === 1 ? '' : 's'} still in flight: ${pending.join(', ')}; a reply lands at a \`clock\` step, as \`clock settle\`)` : message);
+    };
+    try {
+      try { await data(); } catch (e) { failures.push(`${t.name}: waiting for the app's data before the first step: ${e.message}`); }
+      // A counted fault that matched no fetch fails the test at the line that armed it (LLP 1103 D3).
+      // A table the host never made (no fetch consulted it) matched nothing either; an unreadable state is said so.
+      const unfired = async (prefix) => {
+        const line = armed.get(prefix);
+        if (line == null) return;
+        armed.delete(prefix);
+        let state;
+        try { state = await s.state(); } catch (e) { failures.push(`${t.name}: line ${line}: fail fetch ${JSON.stringify(prefix)}: could not read whether it fired: ${e.message}`); return; }
+        const f = (state.faults ?? []).find((e) => e.prefix === prefix);
+        if (!f || f.hits === 0) failures.push(`${t.name}: line ${line}: fail fetch ${JSON.stringify(prefix)} times ${f?.times ?? '?'} matched no fetch`);
+      };
+      // Before an input while counted faults are outstanding: those that fired leave the check, so a press the app
+      // answers with `close()` cannot take an unfired one's evidence with it (LLP 1103 D3).
+      const INPUTS = new Set(['tap', 'drag', 'type', 'key', 'pick', 'clipboard', 'resize']);
+      const settleFired = async () => {
+        if (!armed.size) return;
+        const faults = (await s.state()).faults ?? [];
+        for (const f of faults) if (f.hits > 0) armed.delete(f.prefix);
+      };
+      for (const [n, st] of (failures.length ? [] : t.steps).entries()) {
+        const at = `${t.name}: line ${st.line}`;
+        if (closedAt != null) { failures.push(`${at}: the window closed at line ${closedAt}, so nothing after it runs`); break; }
+        current = st.line;
+        try {
+          if (INPUTS.has(st.op)) await settleFired();
+          switch (st.op) {
+            case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': case 'before-data': break; // the session opened with it
+            // A driver fault (LLP 1103): a leading one was a launch line; a later one arms (or re-arms) now, a `pass` stops it.
+            case 'fail-fetch': {
+              if (n < leading) break;
+              await unfired(st.prefix);
+              const r = await s.op({ op: 'prefer', faults: { fail: st.prefix, ...(st.times != null ? { times: st.times } : {}) } });
+              if (r?.error) throw new Error(r.error);
+              if (st.times != null) armed.set(st.prefix, st.line);
+              break;
+            }
+            case 'pass-fetch': { const r = await s.op({ op: 'prefer', faults: { pass: st.prefix } }); if (r?.error) throw new Error(r.error); break; }
+            // The driver's `tap` forms (feed F10): `into` brings a virtualized list's row into view by its key.
+            case 'tap': {
+              const opts = st.form === 'into' ? { into: { key: st.key } }
+                : st.form === 'pinch' ? { pinch: st.scale, ...(st.at ? { at: st.at } : {}) }
+                : st.form === 'mediasession' ? { mediaSession: st.action, ...(st.seconds != null ? { seconds: st.seconds } : {}) }
+                : st.form !== 'press' ? { [st.form]: true }
+                : st.modifiers ? { modifiers: st.modifiers } : undefined;
+              delivered(await s.tap(st.target, opts)); input = st.line; break;
+            }
+            case 'drag': {
+              const drag = { ...(st.to != null ? { to: st.to, ...(st.at ? { at: st.at } : {}) } : { dx: st.dx, dy: st.dy }), ...(st.from ? { from: st.from } : {}), ...(st.mouse ? { mouse: true } : {}), ...(st.press != null ? { press: st.press } : {}), ...(st.over != null ? { over: st.over } : {}), ...(st.hold != null ? { hold: st.hold } : {}) };
+              if (st.during?.length) drag.during = st.during.map((op) => () => duringOp(s, op));
+              delivered(await s.tap(st.target, { drag })); input = st.line; break;
+            }
+            case 'type': {
+              // `append`: after the field's value as the tree shows it, the text a keyboard would add (feed F8).
+              let text = st.text;
+              if (st.append) {
+                const { nodes } = await s.tree(), field = nodes.find((n) => n.props.testId === st.target && !n.inactive) ?? nodes.find((n) => n.props.testId === st.target);
+                if (field && typeof field.props.value !== 'string') throw new Error(`type … append: "${st.target}" shows no text value to append to`);
+                if (field?.props.type === 'password' && field.props.value !== '') throw new Error(`type … append: "${st.target}" is a password field, whose value the tree does not show`);
+                text = (field?.props.value ?? '') + text;
+              }
+              delivered(await s.type(st.target, text)); input = st.line; break;
+            }
+            case 'reload': await reload(); await data(); input = null; break;
+            case 'key': delivered(await s.type(st.target, { key: st.key, ...(st.phase ? { phase: st.phase } : {}), ...(st.for != null ? { for: st.for } : {}) })); input = st.line; break;
+            // A held picker, by the node its answer arrives at or its capability (files F11); paths are the test file's.
+            case 'pick': delivered(st.paths.length ? await s.type(`@${st.target}`, st.paths.map((p) => resolve(dirname(resolve(file)), p)).join('\n') + '\n') : await s.tap(`@${st.target}`, { choice: 'cancel' })); input = st.line; break;
+            case 'clipboard': delivered(await s.type(st.target, { clipboard: st.edit, text: st.text })); input = st.line; break;
+            case 'clock': await s.clock(st.arg); input = null; break;
+            case 'resize': delivered(await s.resize(st.width, st.height)); input = st.line; break;
+            // The window's close button (studio diary R17): a window a `beforeunload` keeps stays and the test goes on;
+            // one that closed takes the session, so a step after it fails naming it.
+            // Counted faults are checked first: a window that closes takes the table with it.
+            case 'close': for (const prefix of [...armed.keys()]) await unfired(prefix); delivered(await s.closeWindow()); input = st.line; break;
+            case 'screenshot': await s.screenshot(st.path); break;
+            case 'expect-tree': {
+              const tree = await s.tree();
+              const found = tree.nodes.some((n) => n.props.testId === st.target);
+              // The first step of a test that waited for data cannot see the boot's loading view (authoring bench).
+              const first = !beforeData && t.steps.slice(0, t.steps.indexOf(st)).every((p) => p.op in LAUNCH || p.op === 'size');
+              if (found !== st.present) await fail(`${at}: expected testId "${st.target}" ${st.present ? 'present' : 'absent'}, it was ${found ? 'present' : 'absent'}${first && st.present ? ' (the test waited for the app\'s data before its first step; `before data`, a launch line, starts without that wait)' : ''}`);
+              break;
+            }
+            case 'expect-text': {
+              const { nodes } = await s.tree();
+              // As a target is found: a covered screen's copy only when no active one carries it (shop F16).
+              const matches = nodes.filter((n) => n.props.testId === st.target), n = matches.find((m) => !m.inactive) ?? matches[0];
+              const got = n ? textOf(nodes, n) : undefined;
+              if (got !== st.value) await fail(`${at}: text of "${st.target}" is ${n ? JSON.stringify(got) : 'absent (no view carries that testId)'}, expected ${JSON.stringify(st.value)}`);
+              break;
+            }
+            case 'expect-state': {
+              const state = await s.state();
+              const bag = { ...(state.resources ?? {}), ...(state.derives ?? {}), ...(state.slots ?? {}) };
+              // A field or a list index at any depth, `name.field` or `rows.0` (feed F10, drums R7).
+              const [name, ...fields] = st.name.split('.');
+              if (!(name in bag)) { failures.push(`${at}: no state named "${name}"`); break; }
+              let got = bag[name], path = name, missing = null;
+              for (const field of fields) {
+                if (got === null || typeof got !== 'object' || !(field in got)) { missing = field; break; }
+                got = got[field]; path += `.${field}`;
+              }
+              if (missing != null) { failures.push(`${at}: ${path} has no field "${missing}" (${got !== null && typeof got === 'object' && !Array.isArray(got) ? `its fields: ${Object.keys(got).join(', ')}` : `it is ${JSON.stringify(got).slice(0, 200)}`})`); break; }
+              if (JSON.stringify(got) !== JSON.stringify(st.value)) await fail(`${at}: ${st.name} is ${JSON.stringify(got)}, expected ${JSON.stringify(st.value)}`);
+              break;
+            }
+            // The runner's voice table, the whole record (LLP 1096 D10): a voice of that
+            // source matching every clause given, or none; a dropped call is not a voice.
+            case 'expect-sound': {
+              const sounds = (await s.state(undefined, undefined, false, false, { sounds: 'all' })).sounds;
+              const clauses = ['at', 'gain', 'ends', 'by'].filter((k) => st[k] != null), said = clauses.map((k) => ` ${k} ${st[k]}`).join('');
+              if (!sounds) { failures.push(`${at}: the app declares no sound, so the runner keeps no voice table`); break; }
+              const first = sounds.voices[0]?.at ?? Infinity;
+              if (sounds.evicted > 0 && (st.at != null ? st.at < first : !st.present)) { failures.push(`${at}: voices before t=${first} are no longer recorded (the record keeps the last ${sounds.recorded})`); break; }
+              const found = sounds.voices.some((v) => v.src === st.src && clauses.every((k) => v[k] === st[k]));
+              if (found !== st.present) {
+                const of = sounds.voices.filter((v) => v.src === st.src).slice(-8).map((v) => `#${v.id} at ${v.at} gain ${v.gain} ends ${v.ends} by ${v.by}`);
+                // A voice is recorded by the commit that issued it: no clock hint applies.
+                failures.push(`${at}: expected ${st.present ? 'a' : 'no'} voice of "${st.src}"${said}; ${of.length ? `its voices: ${of.join('; ')}` : 'it has no voice'}`);
+              }
+              break;
+            }
+            // The media session the host reports (LLP 1098 D10): a field, the owner by its testId, or an offered action.
+            case 'expect-mediasession': {
+              const ms = (await s.state()).mediaSession;
+              if (!ms) { failures.push(`${at}: this host reports no media session`); break; }
+              if (st.action != null) {
+                if (ms.actions.includes(st.action) !== st.present) await fail(`${at}: expected the media session ${st.present ? 'to offer' : 'not to offer'} "${st.action}"; it offers ${ms.actions.length ? ms.actions.join(', ') : 'nothing'}${ms.owner == null ? ' (no owner)' : ''}`);
+                break;
+              }
+              const got = st.field === 'owner' ? (ms.owner == null ? null : ms.testId ?? `view ${ms.owner}`) : st.field === 'playbackState' ? ms.playbackState : ms.metadata?.[st.field] ?? null;
+              if (got !== st.value) await fail(`${at}: mediasession ${st.field} is ${JSON.stringify(got)}, expected ${JSON.stringify(st.value)}`);
+              break;
+            }
+            default: failures.push(`${at}: unknown step ${st.op}`);
+          }
+        } catch (e) {
+          failures.push(`${at}: ${e.message}`);
+          break;
+        }
+      }
+      if (closedAt == null) for (const prefix of [...armed.keys()]) await unfired(prefix);
+      else for (const [prefix, line] of armed) failures.push(`${t.name}: line ${line}: fail fetch ${JSON.stringify(prefix)} matched no fetch before the window closed at line ${closedAt}`);
+    } finally {
+      // A window the test closed took its session (on macOS, the app) with it: nothing is left to close but the carrier.
+      await s.close().catch((e) => { if (closedAt == null) throw e; });
+    }
+    results.push({ name: t.name, failures });
+    if (base) rmSync(resolve(base, store), { recursive: true, force: true });
+  }
+  const failed = results.filter((r) => r.failures.length).length;
+  return { passed: results.length - failed, failed, results };
+}

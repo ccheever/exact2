@@ -1,0 +1,40 @@
+// map / filter / join / length / isEmpty / first / at over a list from a
+// source. Assertions are properties that hold for any answer; the
+// differential run compares the values.
+shape Item
+  id: string
+  n: number
+  on: bool
+
+component App
+  resource items = items() as shape list<Item>
+  derive ids = map(items, i => i.id)
+  derive ons = filter(items, i => i.on)
+  derive offs = filter(items, i => not i.on)
+  derive split = length(ons) + length(offs) == length(items)
+  derive doubled = map(items, i => i.n * 2)
+  derive indexed = join(map(items, (i, k) => `${k}:${i.id}`), ",")
+  derive allNums = join(map(items, i => i.n), "|")
+  derive bools = join(map(items, i => i.on), " ")
+  derive empty = isEmpty(items)
+  derive emptyAgree = empty == (length(items) == 0)
+  derive firstId = match first(items) { case some(i) => i.id, case none => "none" }
+  derive lastId = match at(items, -1) { case some(i) => i.id, case none => "none" }
+  derive atZero = at(items, 0) == first(items)
+  derive outOfRange = at(items, length(items)) == none
+  derive mapLen = length(map(items, i => i.n)) == length(items)
+  view
+    column
+      text indexed testId="indexed"
+      text allNums testId="nums"
+      text bools testId="bools"
+      text firstId testId="first"
+      text lastId testId="last"
+      text `${length(ons)}/${length(items)}` testId="count"
+
+test "list properties"
+  expect state split == true
+  expect state emptyAgree == true
+  expect state atZero == true
+  expect state outOfRange == true
+  expect state mapLen == true

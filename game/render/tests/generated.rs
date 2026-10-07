@@ -2,7 +2,7 @@
 #[path = "fixture/device.rs"]
 mod test_device;
 use exact_game::*;
-use exact_game_render::{ModelPresentation, WorldSurface};
+use exact_game_render::{ModelExecutor, WorldSurface};
 use exact_gpu::{fixture, Frame, Surface};
 
 struct Props;
@@ -53,7 +53,7 @@ fn generated_props_upload_once_share_a_draw_and_keep_vertex_colors() {
     let Some(gpu) = test_device::device_or_skip(fixture::device()) else {
         return;
     };
-    let mut surface = WorldSurface::<Props, ModelPresentation, true>::default();
+    let mut surface = WorldSurface::<Props, ModelExecutor, true>::default();
     surface
         .bind(&[Value::Number(0.), Value::Bool(false)], None)
         .unwrap();
@@ -73,6 +73,7 @@ fn generated_props_upload_once_share_a_draw_and_keep_vertex_colors() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let (pixels, _) = fixture::render(&gpu, &mut surface, &frame).unwrap();
     assert!(surface.error().is_none(), "{:?}", surface.error());
@@ -107,7 +108,7 @@ fn generated_props_upload_once_share_a_draw_and_keep_vertex_colors() {
         draws: u32,
         instances: u32,
     }
-    let state = |s: &mut WorldSurface<Props, ModelPresentation, true>| -> State {
+    let state = |s: &mut WorldSurface<Props, ModelExecutor, true>| -> State {
         json::from_str::<Reply>(&s.agent(r#"{"op":"state"}"#).unwrap())
             .unwrap()
             .world
@@ -164,4 +165,165 @@ fn generated_props_upload_once_share_a_draw_and_keep_vertex_colors() {
             uploads
         );
     }
+}
+
+struct Grove;
+#[derive(Default, Args)]
+struct GroveArgs {
+    trees: u32,
+    primitive: bool,
+    fruit: bool,
+}
+impl Game for Grove {
+    const ID: &'static str = "generated-grove";
+    type Args = GroveArgs;
+    fn setup(w: &mut World, args: &GroveArgs) {
+        // A flat-shaded eight-sided cone, like the forest's generated pine.
+        let mut positions = Vec::new();
+        let mut normals = Vec::new();
+        for i in 0..8 {
+            let (a, b) = (
+                i as f32 * std::f32::consts::FRAC_PI_4,
+                (i + 1) as f32 * std::f32::consts::FRAC_PI_4,
+            );
+            let p = [
+                [0., 4., 0.],
+                [math::cos(a), 0., math::sin(a)],
+                [math::cos(b), 0., math::sin(b)],
+            ];
+            let n = Vec3::from(p[1]).cross(Vec3::from(p[2])).normalize();
+            for v in p {
+                positions.extend(v);
+                normals.extend(n.to_array());
+            }
+        }
+        let pine = w
+            .generated(
+                "pine.model",
+                asset::MeshData {
+                    uvs: vec![0.; positions.len() / 3 * 2],
+                    indices: (0..positions.len() as u32 / 3).collect(),
+                    positions,
+                    normals,
+                    bounds: [-1., 0., -1., 1., 4., 1.],
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        let side = (args.trees as f32).sqrt().ceil() as u32;
+        for i in 0..args.trees {
+            let (x, z) = ((i % side) as f32 * 3., (i / side) as f32 * 3.);
+            let tree = if args.primitive {
+                // Two primitives per tree, as the forest's primitive variant.
+                w.spawn((Transform::at(x, 1., -z), Mesh::cylinder(0.2, 2.)));
+                w.spawn((Transform::at(x, 3., -z), Mesh::sphere(1.)))
+            } else {
+                w.spawn((Transform::at(x, 0., -z), pine.clone()))
+            };
+            // One to three static children per plant, as the garden's fruit.
+            for k in 0..if args.fruit { 1 + i % 3 } else { 0 } {
+                let at = Transform::at(0.4 * k as f32 - 0.4, 1.5, 0.3);
+                if args.primitive {
+                    w.spawn((at, Mesh::sphere(0.15), Parent(tree)));
+                } else {
+                    w.spawn((at.with_scale(Vec3::splat(0.1)), pine.clone(), Parent(tree)));
+                }
+            }
+        }
+        w.spawn((
+            Transform::at(5., 10., 5.).looking_at(Vec3::ZERO, Vec3::Y),
+            DirectionalLight::default(),
+        ));
+        w.spawn_named(
+            "camera",
+            (
+                Transform::at(0., 2., 6.).looking_at(Vec3::new(0., 2., 0.), Vec3::Y),
+                Camera::default(),
+            ),
+        );
+    }
+    fn tick(w: &mut World, _: &Input, _: &GroveArgs) {
+        // Only the camera moves; every tree is static.
+        w.require_mut::<Transform>("camera").position.z -= 0.05;
+    }
+}
+
+/// Frame CPU (feed + encode, GPU excluded) over static model instances while
+/// the camera walks, on the live clock (a seekable clock observes the world): `TREES=100000 cargo test --release -p exact-game-render
+/// --test generated grove_frame_cpu -- --ignored --nocapture`; `PRIMITIVE=1`
+/// draws each tree as two primitives instead; `FRUIT=1` parents one to three
+/// static children to each tree, as the garden's fruit.
+#[test]
+#[ignore = "release CPU measurement over static generated instances; GPU host"]
+fn grove_frame_cpu() {
+    let Some(gpu) = test_device::device_or_skip(fixture::device()) else {
+        return;
+    };
+    let trees: u32 = std::env::var("TREES").map_or(100_000, |n| n.parse().unwrap());
+    let primitive = std::env::var("PRIMITIVE").is_ok();
+    let fruit = std::env::var("FRUIT").is_ok();
+    let format = exact_gpu::wgpu::TextureFormat::Rgba8Unorm;
+    let mut surface = WorldSurface::<Grove, ModelExecutor, true>::default();
+    surface
+        .bind(
+            &[
+                Value::Number(f64::from(trees)),
+                Value::Bool(primitive),
+                Value::Bool(fruit),
+            ],
+            None,
+        )
+        .unwrap();
+    surface.device_ready(exact_gpu::wgpu::Features::empty());
+    surface.prepare_assets(&gpu.device, &gpu.queue, format);
+    let texture = gpu
+        .device
+        .create_texture(&exact_gpu::wgpu::TextureDescriptor {
+            label: Some("grove"),
+            size: exact_gpu::wgpu::Extent3d {
+                width: 640,
+                height: 360,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: exact_gpu::wgpu::TextureDimension::D2,
+            format,
+            usage: exact_gpu::wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+    let view = texture.create_view(&Default::default());
+    let mut samples = Vec::new();
+    for i in 0..400 {
+        let frame = Frame {
+            width: 640.,
+            height: 360.,
+            scale: 1.,
+            now_ms: f64::from(i) * 1000. / 60.,
+            seekable: false,
+            period_ms: 0.,
+            children_generation: 0,
+            shader_generation: 0,
+            headroom: 1.0,
+        };
+        let mut encoder = gpu.device.create_command_encoder(&Default::default());
+        let start = std::time::Instant::now();
+        surface.render(&frame, &gpu.device, &gpu.queue, &mut encoder, &view, format);
+        let ms = start.elapsed().as_secs_f64() * 1000.;
+        gpu.queue.submit([encoder.finish()]);
+        surface.submitted();
+        gpu.device
+            .poll(exact_gpu::wgpu::PollType::wait_indefinitely())
+            .unwrap();
+        assert!(surface.error().is_none(), "{:?}", surface.error());
+        if i >= 100 {
+            samples.push(ms);
+        }
+    }
+    samples.sort_by(f64::total_cmp);
+    eprintln!(
+        "GROVE trees={trees} primitive={primitive} fruit={fruit} frame CPU p50={:.3} ms p95={:.3} ms",
+        samples[samples.len() / 2],
+        samples[samples.len() * 95 / 100]
+    );
 }

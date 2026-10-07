@@ -56,7 +56,7 @@ final class ReorderMacTests: XCTestCase {
         XCTAssertEqual(calls.log, [], "inside the slop nothing is recognized")
         text.mouseDragged(with: event(.leftMouseDragged, text, down: 10))
         text.mouseDragged(with: event(.leftMouseDragged, text, down: 70))
-        XCTAssertEqual(p.views[2]?.layer?.zPosition, 1000, "the lifted row paints above later rows")
+        XCTAssertEqual(p.views[2]?.layer?.zPosition, 0.001, "the lifted row paints above later rows")
         text.mouseUp(with: event(.leftMouseUp, text, down: 70))
         XCTAssertEqual(calls.log, ["begin 3 top=0.0", "move 7 dy=0.0", "move 7 dy=60.0", "drop 7 dy=60.0"])
         let hold = try XCTUnwrap(p.reorder)

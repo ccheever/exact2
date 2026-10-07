@@ -15,12 +15,17 @@ final class MarkupRunsTests: XCTestCase {
             XCTAssertNotNil(MarkupRuns.navigationURL(href), href)
         }
         let base = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
-        for href in ["javascript:probe", "data:text/plain,probe", "file:///tmp/probe", "custom:probe", "/relative"] {
+        for href in ["javascript:probe", "data:text/plain,probe", "file:///tmp/probe", "custom:probe", "relative", "../sibling", "//example.test/path"] {
             let runs = MarkupRuns.expand("[visible](\(href))", base: base, color: nil)
             XCTAssertEqual(runs.map(\.text).joined(), "visible", href)
             XCTAssertTrue(runs.allSatisfy { $0.href.isEmpty }, href)
             XCTAssertTrue(runs.allSatisfy { !$0.decoration.contains("underline") }, href)
         }
+        // An absolute path needs no document base: a location in the app,
+        // followed through the navigation root (notes diary, LLP 1045 D4).
+        let path = MarkupRuns.expand("[Ideas](/note/3)", base: base, color: nil)
+        XCTAssertEqual(path.first { $0.text == "Ideas" }?.href, "/note/3")
+        XCTAssertEqual(path.first { $0.text == "Ideas" }?.decoration, "underline")
     }
 
     func testASourceExpandsIntoStyledRunsAgainstTheNodesFont() {
@@ -47,6 +52,10 @@ final class MarkupRunsTests: XCTestCase {
         XCTAssertEqual(bullet.color?[3], 255 * 0.62)
         XCTAssertEqual(runs.first { $0.text == "quoted" }?.color?[3], 255 * 0.62)
         // The item's text is its own run, followed by the block's newline glyph.
-        XCTAssertEqual(runs.first { $0.text == " one" }?.color?[3], 255)
+        XCTAssertEqual(runs.first { $0.text == "one" }?.color?[3], 255)
+        // The item's runs carry its indent, its marker hung before it (LLP 1045 D4).
+        XCTAssertTrue(bullet.hang); XCTAssertEqual(bullet.indent, 40)
+        XCTAssertEqual(runs.first { $0.text == "one" }?.indent, 40)
+        XCTAssertEqual(runs.first { $0.text == "quoted" }?.indent, 0)
     }
 }

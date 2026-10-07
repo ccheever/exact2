@@ -1,0 +1,22 @@
+// `now()` is the clock: 0 at boot, advanced by `clock +ms`; a derive that
+// reads it updates on the next commit.
+component App
+  state stamp = -1
+  derive later = stamp + 1
+  action mark
+    stamp = now()
+  view
+    column
+      text `${stamp}` testId="stamp"
+      button "mark" press=mark testId="mark"
+
+test "marks"
+  tap "mark"
+  expect state stamp == 0
+  clock +250
+  tap "mark"
+  expect state stamp == 250
+  clock +0.5
+  tap "mark"
+  expect state stamp == 250.5
+  expect state later == 251.5

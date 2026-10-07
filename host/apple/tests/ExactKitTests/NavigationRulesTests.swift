@@ -208,6 +208,16 @@ final class NavigationRulesTests: XCTestCase {
         XCTAssertFalse(NavigationRules.panMayBegin(startX: 40, overSwipeRight: true, velocity: CGPoint(x: 300, y: 20)))
         XCTAssertTrue(NavigationRules.panMayBegin(startX: 40, overSwipeRight: false, velocity: CGPoint(x: 300, y: 20)))
         XCTAssertFalse(NavigationRules.panMayBegin(startX: 40, overSwipeRight: false, velocity: CGPoint(x: 20, y: 300)))
+        // Asked before any motion: allowed, unless over a swipe past the edge.
+        XCTAssertTrue(NavigationRules.panMayBegin(startX: 12, overSwipeRight: true, velocity: .zero))
+        XCTAssertTrue(NavigationRules.panMayBegin(startX: 40, overSwipeRight: false, velocity: .zero))
+        XCTAssertFalse(NavigationRules.panMayBegin(startX: 40, overSwipeRight: true, velocity: .zero))
+        // Zero velocity reads the travel: horizontal pops, vertical is refused.
+        let horizontal = NavigationRules.popDirection(velocity: .zero, travel: CGPoint(x: 12, y: 2))
+        XCTAssertTrue(NavigationRules.panMayBegin(startX: 40, overSwipeRight: false, velocity: horizontal))
+        let vertical = NavigationRules.popDirection(velocity: .zero, travel: CGPoint(x: 1, y: 14))
+        XCTAssertFalse(NavigationRules.panMayBegin(startX: 10, overSwipeRight: false, velocity: vertical))
+        XCTAssertEqual(NavigationRules.popDirection(velocity: CGPoint(x: 0, y: 300), travel: CGPoint(x: 12, y: 0)), CGPoint(x: 0, y: 300), "a velocity wins")
     }
 
     /// D1: `closedby="none"` refuses the sheet gesture; anything else permits it.
@@ -372,6 +382,48 @@ final class MacShortcutTests: XCTestCase {
         ordinary.action = #selector(MenuAction.invoke(_:))
         XCTAssertTrue(menu.performKeyEquivalent(with: event("x", window: window)))
         XCTAssertEqual(menu.items[0].keyEquivalent, "\u{f700}", "Dispatch must not restore a stale equivalent over a plan update")
+    }
+
+    /// Issue #110: a key that types no Latin character (Korean 2-Set's ㅠ on
+    /// B, key code 11) is its physical key's chord, as the web falls back to
+    /// `code`; a Latin character is the key whatever the physical key is
+    /// (AZERTY, Dvorak, German's ö), so one chord fires, never two.
+    func testNonLatinCharactersMatchThePhysicalKeyAndLatinOnesTheirOwn() throws {
+        // The physical key's character is the Mac's ASCII-capable layout's.
+        guard KeyCodes.asciiCharacters(11, shift: false, option: false) == "b",
+              KeyCodes.asciiCharacters(45, shift: false, option: false) == "n" else {
+            throw XCTSkip("the ASCII-capable layout has no B on key 11 or N on key 45")
+        }
+        let presenter = Presenter(), window = window(presenter)
+        defer { window.close() }
+        _ = button(1, "Toggle Sidebar", "Meta+B", in: presenter)
+        _ = button(2, "New Thread", "Meta+N", in: presenter)
+        _ = button(3, "Inspector", "Meta+Shift+B Meta+;", in: presenter)
+        var presses: [UInt32] = []
+        presenter.onPress = { presses.append($0) }
+        XCTAssertTrue(presenter.shortcuts.perform(event("ㅠ", window: window, code: 11)))
+        XCTAssertTrue(presenter.shortcuts.perform(event("ㅠ", window: window, modifiers: [.command, .shift], code: 11)))
+        XCTAssertTrue(presenter.shortcuts.perform(event("n", window: window, code: 11)))
+        XCTAssertTrue(presenter.shortcuts.perform(event("b", window: window, code: 45)))
+        XCTAssertFalse(presenter.shortcuts.perform(event("q", window: window, code: 11)))
+        XCTAssertFalse(presenter.shortcuts.perform(event("ö", window: window, code: 41)), "German's ö is a Latin letter, not ;")
+        XCTAssertFalse(presenter.shortcuts.perform(event("ㅠ", window: window, modifiers: [.command, .control], code: 11)))
+        XCTAssertEqual(presses, [1, 3, 2, 1])
+        // XCTest has no key window, so the item's action (`activate`) does not
+        // press; that it is the item AppKit sends is what the menu decides.
+        let menu = ShortcutMenu(title: "File")
+        presenter.shortcuts.attach(menu)
+        var sent: [String] = []
+        let observer = NotificationCenter.default.addObserver(forName: NSMenu.didSendActionNotification, object: menu, queue: nil) {
+            sent.append(($0.userInfo?["MenuItem"] as? NSMenuItem)?.title ?? "")
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+        XCTAssertTrue(menu.performKeyEquivalent(with: event("ㅠ", window: window, code: 11)))
+        XCTAssertEqual(sent, ["Toggle Sidebar"])
+        XCTAssertEqual(menu.items[0].keyEquivalent, "b", "The visible menu equivalent stays the declared letter")
+        XCTAssertFalse(menu.performKeyEquivalent(with: event("ㅠ", window: window, modifiers: [.command, .control], code: 11)))
+        XCTAssertFalse(menu.performKeyEquivalent(with: event("ㅂ", window: window, code: 15)), "R's key has no command")
+        XCTAssertEqual(sent, ["Toggle Sidebar"])
     }
 
     func testOptionMatchesProducedCharactersAndDoesNotMatchDeadKeys() {
@@ -541,6 +593,46 @@ final class MacShortcutTests: XCTestCase {
         XCTAssertTrue(file.items.first === open)
     }
 
+    /// Studio diary R16: a command's chord places it — Edit's own stand in
+    /// for the host's items, View's join View — and no chord is in the bar
+    /// twice; a host item gets its chord back when the command goes.
+    func testEditAndViewCommandsTakeTheirPlacesAndTheHostsStepAside() {
+        let presenter = Presenter()
+        let window = window(presenter)
+        defer { window.close() }
+        let previousServices = NSApp.servicesMenu
+        let previousWindows = NSApp.windowsMenu
+        defer { NSApp.servicesMenu = previousServices; NSApp.windowsMenu = previousWindows }
+        let undo = button(1, "Undo Move", "Meta+z", in: presenter)
+        _ = button(2, "Duplicate", "Meta+d", in: presenter)
+        _ = button(3, "Zoom In", "Meta+=", in: presenter)
+        _ = button(4, "Close Board", "Meta+w", in: presenter)
+        _ = button(5, "Export", "Meta+e", in: presenter)
+        let bar = DevMenu.makeMenu(shortcuts: presenter.shortcuts, documents: false)
+        let menu = { (title: String) in bar.items.first { $0.submenu?.title == title }!.submenu! }
+        let shown = { (title: String) in menu(title).items.filter { !$0.isHidden && !$0.isSeparatorItem } }
+        for _ in 0..<3 { presenter.shortcuts.sync() }
+        XCTAssertEqual(shown("Edit").first?.title, "Undo Move")
+        XCTAssertEqual(shown("Edit").first?.keyEquivalent, "z")
+        XCTAssertEqual(menu("Edit").items.filter { $0.title == "Undo" }.map(\.isHidden), [true])
+        XCTAssertEqual(shown("Edit").last?.title, "Duplicate")
+        XCTAssertEqual(shown("View").first?.title, "Zoom In")
+        XCTAssertEqual(shown("File").map(\.title).prefix(2), ["Close Board", "Export"])
+        let close = menu("File").items.first { $0.title == "Close Window" }!
+        XCTAssertEqual(close.keyEquivalent, "", "⌘W is the app's Close Board, once")
+        let all: [NSMenuItem] = bar.items.flatMap { (item: NSMenuItem) -> [NSMenuItem] in item.submenu?.items ?? [] }
+        let closers = all.filter { (item: NSMenuItem) -> Bool in item.keyEquivalent == "w" && item.keyEquivalentModifierMask == .command }
+        XCTAssertEqual(closers.map(\.title), ["Close Board"])
+        // A command that goes (a field being edited drops its chord) gives the host's back.
+        undo.removeFromSuperview()
+        presenter.views.removeValue(forKey: undo.id)
+        presenter.shortcuts.sync()
+        XCTAssertEqual(shown("Edit").first?.title, "Undo")
+        XCTAssertEqual(shown("Edit").first?.keyEquivalent, "z")
+        XCTAssertEqual(shown("Edit").last?.title, "Duplicate")
+        XCTAssertEqual(shown("Edit").last?.keyEquivalent, "d")
+    }
+
     func testShortcutsRespectDisabledInertHiddenRepeatedAndWindowOwnership() {
         let presenter = Presenter()
         let window = window(presenter)
@@ -630,6 +722,11 @@ final class MacToolbarTests: XCTestCase {
         XCTAssertEqual(w.title, "Another question")
         p.headTitle(nil)
         XCTAssertEqual(w.title, "Original")
+        // `head edited` (LLP 1069.010 D6): the window's edited mark.
+        p.headEdited(true)
+        XCTAssertTrue(w.isDocumentEdited)
+        p.headEdited(false)
+        XCTAssertFalse(w.isDocumentEdited)
     }
 
     func testRequiresBothExplicitDeclarationAndWindowOwnerAttachment() {

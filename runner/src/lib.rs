@@ -12,6 +12,8 @@
 //! - [`vm`] — the expression VM: a stack machine over [`Value`]s, one
 //!   dispatch loop, typed traps, never UB.
 //! - [`stdlib`] — the roster's implementations, once.
+//! - [`strings`] — strings as JavaScript has them: order, `slice` and
+//!   `replaceAll` over UTF-16 code units.
 //! - [`compare`] — value identity, substitution and `==`, once.
 //! - [`held`] — a settled resource's value; a compiled one no one else
 //!   holds is released to the plan's bytes.
@@ -53,6 +55,8 @@ pub mod grants;
 pub mod head;
 pub mod held;
 pub mod instance;
+pub mod lists;
+pub mod notify;
 pub mod page;
 pub mod perf;
 pub mod request;
@@ -61,9 +65,12 @@ pub mod save_file;
 /// The picker's helpers a host shares (LLP 1069.002): types by name,
 /// `accept` matching, the HEIC rule, a `type @t` answer's paths.
 pub use runner::picker as picker_support;
+pub mod machine;
 pub mod share;
+pub mod sound;
 pub mod stdlib;
 pub mod store;
+pub mod strings;
 pub mod surface_record;
 pub mod time;
 pub mod uses;
@@ -75,28 +82,32 @@ pub use exact_canvas;
 pub use exact_plan::{Items, Str, Value};
 pub use format::formatting;
 pub use head::Head;
+pub use instance::collection::{set_bootstrap_extent, set_lead_scale};
 pub use instance::collection::{
     AnchorCorrection, CollectionFeedback, CollectionFill, CollectionRow, CollectionSnapshot,
-    FeedbackError, ListAxis, ReorderBinding, ReorderFrame, ReorderGeometry, ReorderProgress,
-    ReorderStart, ReorderToken, ReorderWrapper, RowMeasurement,
+    FeedbackError, ListAxis, ReorderBinding, ReorderEnding, ReorderFrame, ReorderGeometry,
+    ReorderPhase, ReorderProgress, ReorderStart, ReorderStep, ReorderToken, ReorderWrapper,
+    RowMeasurement,
 };
 pub use instance::{DocNode, DocTree, DocTreeError, ListLinks, SurfaceUpdate, LISTS};
 pub use page::Page;
 pub use request::{
     io_grants, Answer, Dispatch, FailureKind, HttpScheduling, Message, Outcome, Placement, Reply,
     Request, RequestOut, Response, SurfaceOutcome, SurfaceRequest, Work, MAX_HOST_WORK_BYTES,
-    NATIVE_URL,
+    MAX_TIMEOUT_MS, NATIVE_URL,
 };
 pub use runner::{
-    canvas_engine, routing, virtual_frame, Advanced, Announce, AuthLinks, CanvasEngine, CanvasLink,
-    CanvasList, Carried, Checkpoint, Command, ControlValue, DataError, DataSource, DeviceLinks,
-    DrawReply, DrawRequest, Drawn, Event, FormatLink, Geometry, GeometryLink, Hold, HoldAnswer,
-    InFlight, Interrupt, Limits, ListTextPosition, Native, NativeCall, NativeHandler, Picked,
-    PickerLinks, PickerRequest, RouterChange, RouterLink, Routing, Runner, RunnerError,
-    RunnerLinks, StreamCount, SurfaceAnswer, Target, Timed, JOURNAL_RING, MAX_CLOCK_MS, PICKED,
-    TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
+    canvas_engine, routing, virtual_frame, Advanced, Announce, AuthLinks, BackgroundState,
+    CanvasEngine, CanvasLink, CanvasList, Carried, Checkpoint, Command, ControlValue, DataError,
+    DataSource, DeviceLinks, DrawReply, DrawRequest, Drawn, DropEvent, Event, FieldSelection,
+    FormatLink, Geometry, GeometryLink, Hold, HoldAnswer, InFlight, Interrupt, KeyModifiers,
+    Limits, ListTextPosition, Native, NativeCall, NativeHandler, Picked, PickerLinks,
+    PickerRequest, PointerEvent, ResizeRect, RouterChange, RouterLink, Routing, Runner,
+    RunnerError, RunnerLinks, ScrollEvent, SelectionDirection, StreamCount, SurfaceAnswer, Target,
+    Timed, WheelEvent, BACKGROUND, JOURNAL_RING, MAX_CLOCK_MS, PICKED, QUEUE_BOUND,
+    RESIZE_UNDELIVERED, TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
 };
 pub use store::{Store, StoreError, StoreWrite};
 pub use uses::{svg_filters, svg_islands, uses, Capability, Uses};
-pub use viewport::{Contrast, Fold, Posture, Preferences, Viewport};
+pub use viewport::{Contrast, Fold, Gamut, Hover, Pointer, Posture, Preferences, Viewport};
 pub use vm::Trap;

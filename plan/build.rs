@@ -49,6 +49,12 @@ struct Opcode {
 struct StdlibEntry {
     name: String,
     params: Vec<String>,
+    /// The trailing parameters a call may omit, as the constant each
+    /// defaults to (LLP 1088 D2), in JavaScript's spelling: only
+    /// `Number.MAX_VALUE`, an index past any end, since a plan's number
+    /// constants are finite.
+    #[serde(default)]
+    optional: Vec<String>,
     returns: String,
 }
 
@@ -221,8 +227,16 @@ fn validate(schema: &Schema) {
                         && l.ends_with('"')
                         && !l[1..l.len() - 1].contains('"')
                 });
+            // A whole-number literal in a range, `0..=100` (LLP 1102 §3.2:
+            // `toFixed`'s digits), likewise written at the call.
+            let range = param
+                && t.split_once("..=").is_some_and(|(a, b)| {
+                    a.parse::<u32>()
+                        .is_ok_and(|a| b.parse::<u32>().is_ok_and(|b| a <= b))
+                });
             assert!(
                 literals
+                    || range
                     || matches!(
                         t.as_str(),
                         "number"
@@ -235,11 +249,24 @@ fn validate(schema: &Schema) {
                             | "list<Router>"
                             | "list<Entry>"
                             | "list<string>"
+                            | "option<string>"
+                            | "option<number>"
                     ),
                 "format: stdlib `{}` type `{t}`",
                 f.name
             );
         }
+    }
+    for f in &schema.stdlib {
+        assert!(
+            f.optional.len() <= f.params.len()
+                && f.optional.iter().all(|d| d == "Number.MAX_VALUE")
+                && f.params[f.params.len() - f.optional.len()..]
+                    .iter()
+                    .all(|p| p == "number"),
+            "format: stdlib `{}` optional defaults must be trailing numbers, `Number.MAX_VALUE`",
+            f.name
+        );
     }
     assert!(schema.stdlib.len() <= 255, "format: stdlib exceeds u8");
 }
@@ -354,6 +381,41 @@ fn main() {
                 );
             }
             let _ = writeln!(w, "    }} }}");
+            let _ = writeln!(
+                w,
+                "    /// The fewest arguments a call may write: the trailing optional\n    /// ones are filled with [`Stdlib::defaults`] (LLP 1088 D2)."
+            );
+            let _ = writeln!(
+                w,
+                "    pub fn min_arity(self) -> usize {{ self.arity() - self.defaults().len() }}"
+            );
+            let _ = writeln!(
+                w,
+                "    /// The values the trailing optional parameters take when a call omits them."
+            );
+            let _ = writeln!(
+                w,
+                "    pub fn defaults(self) -> &'static [f64] {{ match self {{"
+            );
+            for f in schema.stdlib.iter().filter(|f| !f.optional.is_empty()) {
+                let ds: Vec<&str> = f.optional.iter().map(|_| "f64::MAX").collect();
+                let _ = writeln!(
+                    w,
+                    "        Stdlib::{} => &[{}],",
+                    pascal(&f.name),
+                    ds.join(", ")
+                );
+            }
+            let _ = writeln!(w, "        _ => &[],");
+            let _ = writeln!(w, "    }} }}");
+            let _ = writeln!(
+                w,
+                "    /// The defaults a call of `given` arguments leaves for the parameters it omits."
+            );
+            let _ = writeln!(
+                w,
+                "    pub fn omitted(self, given: usize) -> &'static [f64] {{ let d = self.defaults(); &d[(given + d.len()).saturating_sub(self.arity()).min(d.len())..] }}"
+            );
             let _ = writeln!(w, "    /// Declared return type, as the table spells it.");
             let _ = writeln!(
                 w,
@@ -556,6 +618,27 @@ fn main() {
             .filter(|fl| matches!(parse_codec(&fl.codec), Codec::Code))
         {
             let _ = write!(w, " for r in &self.{} {{ f(r.{}); }}", t.name, fl.name);
+        }
+    }
+    let _ = writeln!(w, " }}");
+    // Every data range a row names: the data pool's only references (no
+    // opcode operand addresses it), so a rewrite of the pool remaps these.
+    let _ = writeln!(w, "    /// Call `f` with every data range a table row names, table by table: the data pool's only references.");
+    let _ = write!(
+        w,
+        "    pub fn each_bytes_mut(&mut self, f: &mut dyn FnMut(&mut Bytes)) {{"
+    );
+    for t in &schema.tables {
+        for fl in t
+            .fields
+            .iter()
+            .filter(|fl| matches!(parse_codec(&fl.codec), Codec::Bytes))
+        {
+            let _ = write!(
+                w,
+                " for r in &mut self.{} {{ f(&mut r.{}); }}",
+                t.name, fl.name
+            );
         }
     }
     let _ = writeln!(w, " }}");

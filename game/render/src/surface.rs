@@ -13,7 +13,7 @@ use exact_gpu::{
 
 /// Optional presentation executor. The default `()` links no executor code.
 /// Implementations must use a discarding output whenever `seekable` is true.
-pub trait Presentation: Default {
+pub trait Executor: Default {
     /// This executor needs the host's audio session when using live time.
     fn wants_audio(&self) -> bool {
         false
@@ -39,18 +39,14 @@ pub trait Presentation: Default {
     /// Called synchronously on key/pointer down, within the browser's gesture.
     fn unlock(&mut self) {}
 }
-impl Presentation for () {}
+impl Executor for () {}
 
 use crate::renderer::RETIRED_BUDGET;
 
 /// One simulation and its lazily created GPU renderer, for an exact canvas.
 /// Model pipelines prepare during delivery; primitive pipelines prepare at first render.
-pub struct WorldSurface<
-    G: Game,
-    P: Presentation = (),
-    const ASSETS: bool = false,
-    H: crate::Hooks = (),
-> {
+pub struct WorldSurface<G: Game, P: Executor = (), const ASSETS: bool = false, H: crate::Hooks = ()>
+{
     sim: Option<Sim<G>>,
     pending_restore: Option<(Vec<u8>, Restore)>,
     placed: crate::placed::Placements,
@@ -61,7 +57,8 @@ pub struct WorldSurface<
     hook_poses: crate::hooks::Poses,
     gpu_timing: Option<crate::hooks::gpu_timing::GpuTiming>,
     /// What the last `render` encoded, for timing once the module submits it.
-    encoded: Option<(crate::Needs, bool, (u32, bool))>,
+    // The timestamp pairs the last encoded frame wrote, until it is submitted.
+    encoded: Option<u64>,
     render: Option<(crate::renderer::RendererWithAssets<ASSETS>, Feed)>,
     format: Option<wgpu::TextureFormat>,
     payloads: textures::Payloads,
@@ -82,7 +79,7 @@ pub struct WorldSurface<
     hidden: bool,
     interrupted: bool,
 }
-impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> Default
+impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Default
     for WorldSurface<G, P, ASSETS, H>
 {
     fn default() -> Self {
@@ -119,7 +116,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> Default
         }
     }
 }
-impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, P, ASSETS, H> {
+impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, P, ASSETS, H> {
     fn check_primitive_assets(&mut self) -> Result<(), SurfaceError> {
         if ASSETS {
             return Ok(());
@@ -268,7 +265,7 @@ fn observer<'a, const ASSETS: bool>(
         start = (measure && left > 0 && left <= 240).then(Stamp::now);
     }
 }
-impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> Surface
+impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> Surface
     for WorldSurface<G, P, ASSETS, H>
 {
     fn clock(&mut self, seekable: bool) {
@@ -571,6 +568,9 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> Surface
     fn placement(&self, index: usize) -> Option<exact_gpu::Placement> {
         self.placed.placement(index)
     }
+    fn high_dynamic_range(&self) -> bool {
+        G::HIGH_DYNAMIC_RANGE
+    }
     fn wants_input(&self) -> bool {
         true
     }
@@ -602,8 +602,11 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> Surface
                 phase,
                 x,
                 y,
+                dx,
+                dy,
+                kind,
+                buttons,
                 at_ms,
-                ..
             } => E::Pointer {
                 id: u64::from(*id),
                 phase: match phase {
@@ -614,6 +617,14 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> Surface
                 },
                 x: *x,
                 y: *y,
+                dx: *dx,
+                dy: *dy,
+                // A finger's contact is its phase, not a mouse button.
+                buttons: if *kind == exact_gpu::PointerKind::Touch {
+                    0
+                } else {
+                    *buttons
+                },
                 at_ms: *at_ms,
             },
             InputEvent::Control {
@@ -642,6 +653,10 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> Surface
                 at_ms: *at_ms,
             },
             InputEvent::Blur { at_ms } => E::Blur { at_ms: *at_ms },
+            InputEvent::Message { text, at_ms } => E::Message {
+                text: text.clone(),
+                at_ms: *at_ms,
+            },
         };
         if let Err(error) = sim.validate_input(&e) {
             self.refusal = Some(SurfaceError(error));
@@ -882,7 +897,7 @@ fn world_state(reply: &str) -> bool {
 #[path = "surface_tests.rs"]
 mod tests;
 #[cfg(test)]
-impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, P, ASSETS, H> {
+impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, P, ASSETS, H> {
     pub(crate) fn renderer_for_test(
         &mut self,
     ) -> Option<&mut crate::renderer::RendererWithAssets<ASSETS>> {
@@ -899,7 +914,7 @@ mod lifecycle_tests {
         suspended: bool,
         unlocked: bool,
     }
-    impl Presentation for Hook {
+    impl Executor for Hook {
         fn wants_audio(&self) -> bool {
             true
         }
@@ -999,6 +1014,7 @@ mod residency_tests {
             period_ms: 0.,
             children_generation: 0,
             shader_generation: 0,
+            headroom: 1.0,
         }
     }
     fn model() -> exact_game::asset::Model {
@@ -1011,7 +1027,7 @@ mod residency_tests {
         let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
             return;
         };
-        let mut s = WorldSurface::<Cosmetic, crate::ModelPresentation, true>::default();
+        let mut s = WorldSurface::<Cosmetic, crate::ModelExecutor, true>::default();
         s.device_ready(wgpu::Features::empty());
         s.bind(&[], None).unwrap();
         let model = model();
@@ -1064,7 +1080,7 @@ mod residency_tests {
         let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
             return;
         };
-        let mut s = WorldSurface::<Cosmetic, crate::ModelPresentation, true>::default();
+        let mut s = WorldSurface::<Cosmetic, crate::ModelExecutor, true>::default();
         s.device_ready(wgpu::Features::empty());
         s.bind(&[], None).unwrap();
         let mut model = model();
@@ -1118,7 +1134,7 @@ mod residency_tests {
         let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
             return;
         };
-        let mut s = WorldSurface::<Cosmetic, crate::ModelPresentation, true>::default();
+        let mut s = WorldSurface::<Cosmetic, crate::ModelExecutor, true>::default();
         s.device_ready(wgpu::Features::empty());
         s.bind(&[], None).unwrap();
         let mut model = model();
@@ -1222,7 +1238,7 @@ mod residency_tests {
         let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
             return;
         };
-        let mut s = WorldSurface::<Cosmetic, crate::ModelPresentation, true>::default();
+        let mut s = WorldSurface::<Cosmetic, crate::ModelExecutor, true>::default();
         s.device_ready(wgpu::Features::empty());
         s.bind(&[], None).unwrap();
         let mut model = model();
@@ -1270,7 +1286,7 @@ mod residency_tests {
     }
     #[test]
     fn ready_reasons_name_declaration_and_render_failures() {
-        let mut s = WorldSurface::<Fox, crate::ModelPresentation, true>::default();
+        let mut s = WorldSurface::<Fox, crate::ModelExecutor, true>::default();
         s.device_ready(wgpu::Features::empty());
         s.bind(&[], None).unwrap();
         s.asset("fox.model", Err(AssetError::Missing));
@@ -1306,7 +1322,7 @@ mod residency_tests {
         let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
             return;
         };
-        let mut surface = WorldSurface::<Fox, crate::ModelPresentation, true>::default();
+        let mut surface = WorldSurface::<Fox, crate::ModelExecutor, true>::default();
         surface.device_ready(wgpu::Features::empty());
         surface.bind(&[], None).unwrap();
         surface.asset(
@@ -1328,6 +1344,7 @@ mod residency_tests {
             period_ms: 0.,
             children_generation: 0,
             shader_generation: 0,
+            headroom: 1.0,
         };
         exact_gpu::fixture::render(&gpu, &mut surface, &frame).unwrap();
         let before = surface.render.as_ref().unwrap().0.residency_work().json();

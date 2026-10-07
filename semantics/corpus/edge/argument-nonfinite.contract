@@ -1,0 +1,23 @@
+// A handler's argument outside its parameter's type: a number that is not
+// finite. The runner refuses the action before its body runs
+// (ArgumentType); the web JS target once ran it.
+component App
+  state n = 0
+  state last = "none"
+  action set(k: number)
+    n = 1
+    last = "ran"
+  view
+    column
+      text `${n} ${last}` testId="state"
+      button "inf" press=set(1 / 0) testId="inf"
+      button "nan" press=set(0 / 0) testId="nan"
+      button "one" press=set(1) testId="one"
+
+test "non-finite arguments are refused"
+  tap "inf"
+  expect state last == "none"
+  tap "nan"
+  expect state n == 0
+  tap "one"
+  expect state last == "ran"

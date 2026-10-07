@@ -190,6 +190,35 @@ fn independent_fetch_is_explicit_bounded_and_keeps_each_invocation() {
     }
 }
 
+#[test]
+fn a_fetch_deadline_reaches_the_request_and_its_timeout_rejects_with_its_kind() {
+    let mut m = module();
+    m.bind(&contract::compile("component App\n  resource result = timed(250) as shape string\n  view\n    text result\n").unwrap());
+    let mut s = store();
+    let args = [Value::Number(250.0)];
+    let request = later(m.answer(&mut s, "timed", &args).unwrap());
+    assert_eq!(request.timeout_ms, Some(250));
+    let timed_out = Outcome::Failed {
+        kind: exact_runner::FailureKind::Timeout,
+        message: "the request timed out after 250 ms".into(),
+    };
+    assert_eq!(
+        now(m.parse(&mut s, "timed", &args, timed_out).unwrap()),
+        Value::str("failed: Timeout: the request timed out after 250 ms")
+    );
+    // A deadline out of range is the fetch's TypeError, before any request.
+    for bad in [0.0, -1.0, 1.5, 3600001.0] {
+        let refused = now(m.answer(&mut s, "timed", &[Value::Number(bad)]).unwrap());
+        assert!(
+            refused.as_str().is_some_and(|m| m.contains(
+                "exactTimeout must be an integer number of milliseconds from 1 to 3600000"
+            )),
+            "{refused:?}"
+        );
+        assert_eq!(m.in_flight(), 0);
+    }
+}
+
 fn event(id: &str, data: &str, coalesced: u32) -> Outcome {
     Outcome::Message(exact_runner::Message {
         event: String::new(),
@@ -400,6 +429,21 @@ fn a_failed_fetch_is_a_fetch_error_the_module_turns_into_its_own_words() {
         .parse(&mut s, "login", &args, response(500, "<html>"))
         .unwrap());
     assert_eq!(session(&v).2, "Castle answered HTTP 500 without JSON");
+}
+
+/// Hermes watches a fetch's signal through Ibex's abort hooks, which an
+/// app's listener cannot stop, and leaves no listener behind (review r4a
+/// 7, 8; the browser realm's listener is js/web/tests/browser.rs's).
+#[test]
+fn a_reused_signal_gains_no_listener_per_fetch() {
+    let mut m = module();
+    m.bind(&contract::compile(&SHARED.replace("thread(story)", "reused()")).unwrap());
+    let mut s = store();
+    for _ in 0..2 {
+        later(m.answer(&mut s, "reused", &[]).unwrap());
+        let v = now(m.parse(&mut s, "reused", &[], response(200, "ok")).unwrap());
+        assert_eq!(session(&v).2, "0/0");
+    }
 }
 
 #[test]
@@ -633,6 +677,156 @@ fn two_targets_asking_one_source_with_equal_arguments_each_settle_with_their_own
     assert_eq!(r.data().in_flight(), 0);
 }
 
+/// Two resources whose answers share one fetch (hn-reader F7).
+const SHARED: &str = r#"
+shape Session
+  ok: bool
+  username: string
+  error: string
+
+component App
+  state story = ""
+  resource detail = item(story) as shape Session
+  resource comments = thread(story) as shape Session
+  action open
+    story = "8863"
+  view
+    column
+      button press=open testId="open"
+        text "Open"
+      text detail.error testId="detail"
+      text comments.error testId="comments"
+"#;
+
+/// An answer that awaits a promise another answer's fetch settles waits for
+/// it, as in a browser, rather than refusing the press that asked
+/// (LLP 1027.003.000 §13, the module-wide rule; hn-reader F7).
+#[test]
+fn an_answer_awaiting_another_answers_fetch_waits_for_it_and_both_settle() {
+    use exact_runner::{Dispatch, Work};
+    let plan = contract::compile(SHARED).expect("the fixture's Contract compiles");
+    let baked = contract::bake(plan, Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap()).unwrap();
+    let mut r = Runner::boot(
+        baked,
+        Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.dispatch(view_of(&r, "open"), Event::Press).unwrap();
+    let asked = r.take_requests();
+    assert_eq!(asked.len(), 2, "the fetch, and the answer that waits on it");
+    let (fetch, waiting): (Vec<_>, Vec<_>) =
+        asked.iter().partition(|a| a.request.continuation.is_none());
+    assert_eq!(fetch[0].request.url, "https://api.castle.xyz/item/8863");
+    let token = waiting[0].request.continuation.unwrap();
+    assert!(
+        matches!(r.dispatch_work(token), Dispatch::Held),
+        "it waits while the fetch it shares is in flight"
+    );
+    assert!(r.release_work().is_empty(), "nothing has landed yet");
+    r.fulfill(fetch[0].ticket, response(200, "the story"))
+        .unwrap();
+    let released = r.release_work();
+    assert_eq!(released.len(), 1, "the delivery wakes the waiting answer");
+    let (woken, Dispatch::Run(Work::Now(work))) = released.into_iter().next().unwrap() else {
+        panic!("a waiting answer is asked again at once");
+    };
+    assert_eq!(woken, token);
+    r.fulfill(waiting[0].ticket, work()).unwrap();
+    assert_eq!(text_of(&r, "detail").as_deref(), Some("the story"));
+    assert_eq!(text_of(&r, "comments").as_deref(), Some("the story"));
+    assert!(!r.has_pending());
+    assert_eq!(r.data().in_flight(), 0);
+}
+
+/// An answer that awaits another's fetch and then fetches on its own: its
+/// second request runs, though its continuation ran as the other answer,
+/// which had already settled (review r4a, finding 1).
+#[test]
+fn a_fetch_made_after_awaiting_another_answers_fetch_is_not_left_behind() {
+    use exact_runner::{Dispatch, Work};
+    let plan = contract::compile(&SHARED.replace("thread(story)", "followup(story)"))
+        .expect("the fixture's Contract compiles");
+    let baked = contract::bake(plan, Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap()).unwrap();
+    let mut r = Runner::boot(
+        baked,
+        Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.dispatch(view_of(&r, "open"), Event::Press).unwrap();
+    let asked = r.take_requests();
+    let (fetch, waiting): (Vec<_>, Vec<_>) =
+        asked.iter().partition(|a| a.request.continuation.is_none());
+    let token = waiting[0].request.continuation.unwrap();
+    assert!(matches!(r.dispatch_work(token), Dispatch::Held));
+    r.fulfill(fetch[0].ticket, response(200, "the story"))
+        .unwrap();
+    assert_eq!(text_of(&r, "detail").as_deref(), Some("the story"));
+    let (_, Dispatch::Run(Work::Now(work))) = r.release_work().into_iter().next().unwrap() else {
+        panic!("the waiting answer is asked again");
+    };
+    r.fulfill(waiting[0].ticket, work()).unwrap();
+    let more = r.take_requests();
+    assert_eq!(more.len(), 1, "its own second fetch is handed out");
+    assert_eq!(more[0].request.url, "https://api.castle.xyz/comments/8863");
+    r.fulfill(more[0].ticket, response(200, "talk")).unwrap();
+    assert_eq!(text_of(&r, "comments").as_deref(), Some("the story + talk"));
+    assert!(!r.has_pending());
+    assert_eq!(r.data().in_flight(), 0);
+}
+
+/// An answer that fetches without awaiting and finishes while another answer
+/// awaits its own fetch: its request is still handed out, not left in the
+/// module (Grok's batch 2 review, runtime). A ticket made while the answer
+/// was still in flight is its own, whoever else is pending.
+#[test]
+fn an_unawaited_fetch_is_sent_while_another_answer_is_in_flight() {
+    let src = SHARED
+        .replace(
+            "  resource comments = thread(story) as shape Session\n",
+            "  mutation saved as shape Session\n  action save\n    send saved = saveQuietly(\"8863\")\n",
+        )
+        .replace(
+            "      text comments.error testId=\"comments\"\n",
+            "      button press=save testId=\"save\"\n        text \"Save\"\n      match saved\n        case some(s)\n          text s.error testId=\"saved\"\n        case none\n          text \"\"\n",
+        );
+    let plan = contract::compile(&src).expect("the fixture's Contract compiles");
+    let baked = contract::bake(plan, Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap()).unwrap();
+    let mut r = Runner::boot(
+        baked,
+        Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.dispatch(view_of(&r, "open"), Event::Press).unwrap();
+    let item = r.take_requests();
+    assert_eq!(item.len(), 1);
+    assert_eq!(item[0].request.url, "https://api.castle.xyz/item/8863");
+    r.dispatch(view_of(&r, "save"), Event::Press).unwrap();
+    let saved = r.take_requests();
+    assert_eq!(
+        saved.len(),
+        1,
+        "the unawaited POST is handed out: {saved:?}"
+    );
+    assert_eq!(saved[0].request.url, "https://api.castle.xyz/save/8863");
+    assert_eq!(saved[0].request.method, "POST");
+    r.fulfill(saved[0].ticket, response(200, "")).unwrap();
+    assert_eq!(text_of(&r, "saved").as_deref(), Some("saved"));
+    r.fulfill(item[0].ticket, response(200, "the story"))
+        .unwrap();
+    assert_eq!(text_of(&r, "detail").as_deref(), Some("the story"));
+    assert!(!r.has_pending());
+    assert_eq!(r.data().in_flight(), 0);
+}
+
 // --- the kept answer (LLP 1027 D4, as ruled 2026-09-03) --------------------
 
 #[test]
@@ -814,4 +1008,50 @@ fn a_worker_placed_answer_takes_a_large_reply_as_it_takes_a_small_one() {
         assert!(ok && username == "ada", "{size}");
         assert_eq!(text.len(), size, "{size}");
     }
+}
+
+/// A superseded send's continuation runs, never vanishes (the Signal
+/// clone's stuck `flushing` flag): the runner lets its request go, its fetch
+/// rejects as `Aborted`, and its `finally` clears what it set.
+#[test]
+fn a_let_go_call_waiting_on_a_fetch_runs_its_continuation() {
+    use exact_runner::{DataSource, Target};
+    let mut m = module();
+    m.bind(&contract::compile("component App\n  mutation sent as shape string\n  resource busy = flushing() as shape string\n  action go(v: string)\n    send sent = flush(v)\n  view\n    text busy\n").unwrap());
+    let mut s = store();
+    let request = later(
+        m.answer_for(Target::Mutation(0), &mut s, "flush", &[Value::str("hi")])
+            .unwrap(),
+    );
+    assert_eq!(request.method, "POST");
+    assert_eq!(
+        now(m.answer(&mut s, "flushing", &[]).unwrap()),
+        Value::str("true ")
+    );
+    // A newer send replaced it: nothing of the first is in flight.
+    m.forgotten(&s, &[]);
+    assert_eq!(
+        now(m.answer(&mut s, "flushing", &[]).unwrap()),
+        Value::str("false Aborted: the answer was let go before this reply; the request may already have been sent")
+    );
+    assert_eq!(m.in_flight(), 0);
+}
+
+/// A stream's promise never settles, ended or let go: no second rejection
+/// after its mapper took the end (review of the let-go fix).
+#[test]
+fn a_let_go_stream_does_not_reject_its_fetch() {
+    use exact_runner::{DataSource, Target};
+    let mut m = module();
+    m.bind(&contract::compile("component App\n  resource feed = events(\"0\") as shape string\n  view\n    text feed\n").unwrap());
+    let mut s = store();
+    let request = later(
+        m.answer_for(Target::Resource(0), &mut s, "events", &[Value::str("0")])
+            .unwrap(),
+    );
+    assert!(request.stream);
+    m.forgotten(&s, &[]);
+    assert_eq!(m.in_flight(), 0);
+    let logs = m.take_logs().join("\n");
+    assert!(!logs.contains("unhandled rejection"), "{logs}");
 }

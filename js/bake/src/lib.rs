@@ -4,6 +4,8 @@
 
 #![deny(missing_docs)]
 
+#[path = "../../package_tool.rs"]
+mod package_tool;
 mod resident;
 #[cfg(test)]
 mod sources_tests;
@@ -11,6 +13,7 @@ pub use resident::Producer;
 
 use contract::DataSource;
 use exact_js::Module;
+use package_tool::package_tool;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -250,7 +253,7 @@ fn build_sources(
     rust: Option<&dyn DataSource>,
     composer: Option<Composer<'_>>,
 ) -> Result<(), String> {
-    if !matches!(platform, "web" | "macos" | "ios" | "linux") {
+    if !matches!(platform, "web" | "macos" | "ios" | "linux" | "windows") {
         return Err(format!(
             "module client executor is not yet implemented for {platform}"
         ));
@@ -352,6 +355,8 @@ fn build_sources(
             origin(&root, &mounted, name).display()
         );
     }
+    // And the Contract libraries the app uses, wherever they are installed.
+    contract::rerun_if_changed(&root.join("app.contract"));
     Ok(())
 }
 
@@ -362,7 +367,7 @@ pub struct Tools {
     pub tsc: PathBuf,
     /// The bundler (`EXACT_ROLLDOWN`).
     pub rolldown: PathBuf,
-    /// The compiler paired with the host's lean Hermes (`EXACT_HERMESC`).
+    /// The compiler paired with the host's verified lean Hermes bundle.
     pub hermesc: PathBuf,
 }
 
@@ -372,23 +377,23 @@ impl Default for Tools {
         let tool = |key: &str, fallback: PathBuf| {
             std::env::var_os(key).map(PathBuf::from).unwrap_or(fallback)
         };
-        let arch = if std::env::consts::ARCH == "aarch64" {
-            "arm64"
-        } else {
-            "x64"
-        };
         Self {
-            tsc: tool("EXACT_TSC", root.join("node_modules/.bin/tsc")),
-            rolldown: tool("EXACT_ROLLDOWN", root.join("node_modules/.bin/rolldown")),
-            hermesc: tool(
-                "EXACT_HERMESC",
-                if cfg!(target_os = "linux") {
-                    root.join(format!("../ibex/tools/hermes-vanilla/hermesc-linux-{arch}"))
-                } else {
-                    root.join(format!("../ibex/tools/hermes-vanilla/hermesc-macos-{arch}"))
-                },
-            ),
+            tsc: tool("EXACT_TSC", package_tool(&root, "tsc")),
+            rolldown: tool("EXACT_ROLLDOWN", package_tool(&root, "rolldown")),
+            hermesc: PathBuf::from(hermes_lean_sys::HERMESC_PATH),
         }
+    }
+}
+
+impl Tools {
+    fn check_engine(&self) -> Result<(), String> {
+        if exact_js::ENGINE_INPUTS != hermes_lean_sys::LEAN_ENGINE_DIGEST {
+            return Err(
+                "Hermes compiler bundle differs from the linked executor; rebuild the producer"
+                    .into(),
+            );
+        }
+        Ok(())
     }
 }
 
@@ -516,6 +521,22 @@ fn origin(root: &Path, mounts: &[(String, PathBuf)], name: &Path) -> PathBuf {
     }
 }
 
+/// Every Contract source compiling the app reads, and every `package.json`
+/// its resolution read, by path, with their bytes (LLP 1091 D10): read
+/// before the compile and after, so a plan is built from one state of the
+/// app's packages as of the app's own files, or the bake is refused.
+fn contract_inputs(app: &Path) -> Result<BTreeMap<PathBuf, Option<Vec<u8>>>, String> {
+    let graph = contract::source_graph(&app.join("app.contract"));
+    Ok(graph
+        .sources
+        .iter()
+        .map(|source| &source.path)
+        .filter(|path| path.is_absolute())
+        .chain(&graph.consulted)
+        .map(|path| (path.clone(), std::fs::read(path).ok()))
+        .collect())
+}
+
 /// Capture the app-local source graph, and the directories the manifest
 /// mounts beside it. External/npm imports intentionally fail in the private
 /// snapshot until dependency capture is implemented; they must not silently
@@ -539,6 +560,13 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
             }
             if matches!(&*name, ".git" | "node_modules" | "target" | "dist")
                 || name.starts_with(".exact-js-bake-")
+                // The app's dot directories hold what no build reads: `.exact/`
+                // keeps an agent's diary, evidence, logs and runtime files
+                // (Depot: a `results.json` beside the app made every build stale).
+                || (at == root && name.starts_with('.') && entry.path().is_dir())
+                // The driver reads a test file; no build does, so editing
+                // one rebuilds nothing (trivia F8).
+                || name.ends_with(".test.contract")
                 // Written beside app.ts for an editor (below); the bake makes its own.
                 || (at == root && name == DECLARATIONS)
             {
@@ -559,18 +587,28 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
                     path.display()
                 ));
             }
-            if kind.is_symlink() {
-                return Err(format!("source links are not captured: {}", path.display()));
-            }
-            if kind.is_dir() {
-                walk(root, &path, out, total, mounts, prefix)?;
-            } else if matches!(
+            let captured = matches!(
                 path.extension().and_then(|s| s.to_str()),
                 Some("ts" | "json" | "contract" | "ttf" | "otf")
             ) || ["assets", "deck", "gpu/shaders"]
                 .iter()
-                .any(|tree| relative.starts_with(tree))
-            {
+                .any(|tree| relative.starts_with(tree));
+            // Links are refused, except a document link outside the captured
+            // trees (CLAUDE.md → AGENTS.md): no build reads one. The web
+            // build's capture keeps the same rule (host/web-js/build.mjs).
+            if kind.is_symlink() {
+                let document = matches!(
+                    path.extension().and_then(|s| s.to_str()),
+                    Some("md" | "txt")
+                );
+                if captured || !document || path.is_dir() {
+                    return Err(format!("source links are not captured: {}", path.display()));
+                }
+                continue;
+            }
+            if kind.is_dir() {
+                walk(root, &path, out, total, mounts, prefix)?;
+            } else if captured {
                 if !kind.is_file() {
                     return Err(format!("source is not a regular file: {}", path.display()));
                 }
@@ -647,7 +685,7 @@ fn digest(bytes: &[u8]) -> String {
 /// Build `app.contract` plus `app.ts`, including app-local imports. The app
 /// exports `appId`, `grants`, and `answer`; the generated entry checks their
 /// types and supplies the executor ABI. No source or source-adjacent generated
-/// declaration is overwritten. This producer currently requires macOS Hermes.
+/// declaration is overwritten. This producer requires its host's lean Hermes.
 pub fn bake(app: &Path, tools: &Tools) -> Result<Baked, String> {
     let stage = Scratch::new(&std::env::temp_dir())?;
     bake_in(
@@ -680,8 +718,10 @@ fn bake_in(
     if !exact_js::ENGINE_LINKED {
         return Err("TypeScript bake requires the lean Hermes executor on this producer".into());
     }
+    tools.check_engine()?;
     let app = app.canonicalize().map_err(|e| e.to_string())?;
     let captured = sources(&app)?;
+    let inputs = contract_inputs(&app)?;
     if !captured.contains_key(Path::new("app.ts"))
         || !captured.contains_key(Path::new("app.contract"))
     {
@@ -722,24 +762,26 @@ fn bake_in(
         }
     }
     *previous = captured.clone();
-    // A changed graph (including a newly added import) is a refused capture.
-    if sources(&app)? != captured {
-        return Err("app sources changed during capture; retry the build".into());
-    }
+    // The Contract is compiled where it lives, as the web build compiles it
+    // (LLP 1091 D10): its uses, packages and links resolve as they do for
+    // every other reader, with no staged copy to tell apart from the
+    // original. The capture is checked again after, so the plan is built
+    // from the bytes captured, or the bake is refused.
     // Every independent refusal, one after another as `contract build`
     // prints them, in the bake's output and the dev overlay.
     let development = matches!(mode, BakeMode::Development { .. });
-    let (plan, mut source_map) =
-        contract::compile_path_all(&stage.join("app.contract"), development).map_err(|errors| {
-            errors
-                .into_iter()
-                .map(|e| contract_error(e, stage, &app))
-                .collect::<Vec<_>>()
-                .join("\n")
-        })?;
-    if let Some(map) = source_map.as_mut() {
-        map.relocate_sources(stage, &app)?;
+    let compiled = contract::compile_path_all(&app.join("app.contract"), development);
+    // A changed graph (including a newly added import) is a refused capture.
+    if sources(&app)? != captured || contract_inputs(&app)? != inputs {
+        return Err("app sources changed during capture; retry the build".into());
     }
+    let (plan, source_map) = compiled.map_err(|errors| {
+        errors
+            .into_iter()
+            .map(|e| e.to_string())
+            .collect::<Vec<_>>()
+            .join("\n")
+    })?;
     let mut declarations = contract::typescript(&plan)?;
     // Canvas 2D (LLP 1056 D1): a module that exports `draw` and `surfaces`
     // speaks ABI 2, and only it carries the recorder.
@@ -791,7 +833,12 @@ fn bake_in(
     }
     let script = std::fs::read(stage.join("app.js")).map_err(|e| e.to_string())?;
     let bytecode = std::fs::read(stage.join("app.hbc")).map_err(|e| e.to_string())?;
-    let module = Module::inspect(bytecode.clone())?;
+    let mut module = Module::inspect(bytecode.clone())?;
+    // The 100 ms per-call budget is a runtime promise about a device, not
+    // about a build machine's load: a loaded Mac failed the Signal Clone's
+    // bake at 104.8 ms, then passed on retry. A build fails on the source,
+    // never on how busy the machine was (LLP 1027 §6).
+    module.set_budget_ms(f64::INFINITY);
     let app_id = module.app_id().to_owned();
     let grants = module.grants().to_owned();
     let surfaces: serde_json::Map<String, serde_json::Value> = module
@@ -849,45 +896,9 @@ const CANVAS_ENTRY: &str = "import { canvasSeam } from './__exact_canvas.js';\ne
 
 /// What a drawing module's author types against (LLP 1056 D1, stages 1–2):
 /// the context is the web's own interface, narrowed to the built members,
-/// with `drawImage` and `createPattern` taking an image handle (D9).
-const CANVAS_TYPES: &str = "
-/** An image, by the URL or asset an `image` node's `src` takes (LLP 1056 D9). */
-export type ImageHandle = string;
-/** The 2D context a surface draws with (LLP 1056 §3, stages 1 and 2). */
-export type Ctx2D = Pick<OffscreenCanvasRenderingContext2D,
-  | 'save' | 'restore' | 'reset'
-  | 'translate' | 'rotate' | 'scale' | 'transform' | 'setTransform' | 'resetTransform' | 'getTransform'
-  | 'beginPath' | 'moveTo' | 'lineTo' | 'quadraticCurveTo' | 'bezierCurveTo' | 'arc' | 'arcTo' | 'ellipse' | 'rect' | 'roundRect' | 'closePath'
-  | 'fill' | 'stroke' | 'clip' | 'fillRect' | 'strokeRect' | 'clearRect'
-  | 'lineWidth' | 'lineCap' | 'lineJoin' | 'miterLimit' | 'setLineDash' | 'getLineDash' | 'lineDashOffset'
-  | 'fillStyle' | 'strokeStyle' | 'createLinearGradient' | 'createRadialGradient' | 'createConicGradient'
-  | 'globalAlpha' | 'globalCompositeOperation'
-  | 'shadowColor' | 'shadowBlur' | 'shadowOffsetX' | 'shadowOffsetY'
-  | 'imageSmoothingEnabled' | 'imageSmoothingQuality'
-  | 'font' | 'textAlign' | 'textBaseline' | 'direction' | 'letterSpacing' | 'wordSpacing'
-  | 'fontKerning' | 'fontStretch' | 'fontVariantCaps' | 'textRendering'
-  | 'fillText' | 'strokeText' | 'measureText'
-  | 'createImageData' | 'putImageData'> & {
-  drawImage(image: ImageHandle, dx: number, dy: number): void;
-  drawImage(image: ImageHandle, dx: number, dy: number, dw: number, dh: number): void;
-  drawImage(image: ImageHandle, sx: number, sy: number, sw: number, sh: number, dx: number, dy: number, dw: number, dh: number): void;
-  createPattern(image: ImageHandle, repetition: string | null): CanvasPattern | null;
-};
-/** What one draw is told (LLP 1056 D4–D6). */
-export interface Frame {
-  readonly time: number;
-  readonly mounted: number;
-  readonly cause: 'mount' | 'args' | 'size' | 'frame' | 'image' | 'font';
-  readonly causes: readonly string[];
-  readonly width: number;
-  readonly height: number;
-  readonly pixelWidth: number;
-  readonly pixelHeight: number;
-  readonly scale: number;
-}
-/** A module's `draw`: true asks for another frame. */
-export type Draw = (surface: string, args: any, ctx: Ctx2D, frame: Frame) => boolean;
-";
+/// with `drawImage` and `createPattern` taking an image handle (D9). The web
+/// build's type check appends the same file (host/web-js/build.mjs).
+const CANVAS_TYPES: &str = include_str!("canvas-types.d.ts");
 
 /// Whether `app.ts` exports `name` (a function, a binding, or in a list).
 fn exports(source: &str, name: &str) -> bool {
@@ -913,23 +924,6 @@ fn exports(source: &str, name: &str) -> bool {
         list.split(|c: char| c == ',' || c == '{' || c.is_whitespace())
             .any(|w| w == name)
     })
-}
-
-fn contract_error(mut error: contract::CompileError, stage: &Path, app: &Path) -> String {
-    let canonical = stage.canonicalize().unwrap_or_else(|_| stage.to_path_buf());
-    for path in error
-        .file
-        .iter_mut()
-        .chain(error.related.iter_mut().filter_map(|r| r.file.as_mut()))
-    {
-        if let Ok(relative) = path
-            .strip_prefix(stage)
-            .or_else(|_| path.strip_prefix(&canonical))
-        {
-            *path = app.join(relative);
-        }
-    }
-    error.to_string()
 }
 
 /// With async break checks in every loop and function, so a host can
@@ -984,11 +978,16 @@ fn compile_once(stage: &Path, tools: &Tools) -> Result<(), String> {
     std::fs::write(
         stage.join("__exact_bundle.mjs"),
         r#"
+import { assertCapturedModule, ambientRefusals } from './__exact_config.mjs';
 export default {
   input: '__exact_entry.ts',
   tsconfig: '__exact_tsconfig.json',
   plugins: [{ name: 'captured-sources', load(id) {
-    if (!id.startsWith(process.cwd() + '/')) throw new Error('module outside captured app: ' + id);
+    assertCapturedModule(process.cwd(), id);
+    return null;
+  }, transform(code, id) {
+    const why = ambientRefusals(process.cwd(), id, code, (c, o) => this.parse(c, o));
+    if (why.length) throw new Error(why.join('\n'));
     return null;
   }}],
 };

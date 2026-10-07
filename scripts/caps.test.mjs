@@ -11,7 +11,7 @@ if (!Bun.which('cargo', { PATH: process.env.PATH })) throw new Error(`these test
 delete process.env.EXACT_APP_DIR;
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, mkdtempSync, readFileSync, realpathSync, utimesSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, dirname, relative, resolve } from 'node:path';
@@ -20,8 +20,10 @@ import { runInNewContext } from 'node:vm';
 import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMatches, copyStaticTree, copyStaticTreeIfPresent, installStaticCandidate, listAssets, listPublicFiles, publicFileCards, readDevGeneration, retainDevGeneration, shaderInterfaceDigests, staticFile, readStaticFile, serveStatic, syncStaticTree, watchStaticTrees, webEnvelope } from '../host/web/serve.mjs';
 import { assertWebDistApp, jsonLines } from './agent.mjs';
 import { verifyBakeFiles, pendingBuildInputs } from './app.mjs';
-import { gitIgnored, newerThan } from './agent-launch.mjs';
-import { copyAppleStaticTrees, developmentLaunchEnvironment, deviceLaunchArgs } from '../host/apple/build.mjs';
+import { driveStore, newerThan, notBuildInput, receiptChanges, webStore } from './agent-launch.mjs';
+import { storeBase, sweepTestStores } from './agent-test.mjs';
+import { copyAppleStaticTrees } from '../host/apple/build.mjs';
+import { developmentLaunchEnvironment, deviceLaunchArgs } from '../host/apple/devices.mjs';
 import { classify, publishRoot, webRelease } from './deploy.mjs';
 import { DirectoryOrigin, webRootPath, webReleasePath, sha256 } from './origin.mjs';
 const CAPS = join(dirname(fileURLToPath(import.meta.url)), 'caps.mjs');
@@ -613,17 +615,48 @@ for (const [name, html, files, expectCode, expect] of [
   rmSync(dir,{recursive:true,force:true});
 }
 {
-  // A screenshot saved into an app is not an input; an ignored file the bake captures still is.
-  const dir=realpathSync(mkdtempSync(join(tmpdir(),'exact-ignored-inputs-')));
-  for(const sub of ['shots','gen','shader-gen']) mkdirSync(join(dir,sub));
-  for(const [name,text] of [['.gitignore','/shots/\n/local.ts\n/gen/\n/shader-gen/\n'],['app.contract','view'],['local.ts','key'],['shots/one.png','png'],['shots/notes.txt','notes'],['gen/made.rs','fn f() {}'],['shader-gen/paint.wgsl','fn main() {}'],['shader-gen/table.bin','bytes']]) writeFileSync(join(dir,name),text);
-  const walk=()=>newerThan(0,[dir],gitIgnored(dir,[join(dir,'shader-gen')])).map(p=>relative(dir,p)).sort();
+  // A screenshot, log, export, shot, tool, repro or test saved into an app is not an input,
+  // ignored by Git or not; what the bake captures, a declared shader root, a crate's files
+  // (including a csv beside them), a native module's script, presentation and logic scripts,
+  // a game's art and an icon the manifest names are. An ignored file outside those
+  // (scratch/) and a saved world are not. A helper script (drive.sh) is not.
+  const dir=realpathSync(mkdtempSync(join(tmpdir(),'exact-build-inputs-')));
+  for(const sub of ['shots','tools','repros','gen','shader-gen','data','modules/web','art','scratch','logic/src','assets','presentation']) mkdirSync(join(dir,sub),{recursive:true});
+  for(const [name,text] of [['.gitignore','/local.ts\n/gen/\n/shader-gen/\n/notes/\n/modules/\n/art/\n/icon.png\n/data/table.bin\n/scratch/\n'],['Cargo.toml','[workspace]'],['app.json','{"icons":[{"src":"icon.png"}]}'],['icon.png','png'],['app.contract','view'],['local.ts','key'],['run.log','log'],['shots/one.png','png'],['shots/notes.txt','notes'],['shots/exported.json','{}'],['tools/probe.mjs','mjs'],['tools/levels.ops','ops'],['repros/bug.contract','view'],['app.test.ts','test'],['app.test.contract','test'],['drive.sh','sh'],['export.csv','a,b'],['logic/build.mjs','mjs'],['logic/src/foo.test.rs','rs'],['assets/x.js','js'],['presentation/view.mjs','mjs'],['data/ledger.csv','a,b'],['gen/made.rs','fn f() {}'],['shader-gen/paint.wgsl','fn main() {}'],['shader-gen/table.bin','bytes'],['data/Cargo.toml','[package]'],['data/table.bin','bytes'],['modules/web/index.js','js'],['art/strip.png','png'],['art/fox.glb','glb'],['run.world','world'],['scratch/out.bin','bytes']]) writeFileSync(join(dir,name),text);
+  const walk=()=>newerThan(0,[dir],notBuildInput(dir,[join(dir,'shader-gen')])).map(p=>relative(dir,p)).sort();
   const outside=walk();
   spawnSync('git',['init','-q'],{cwd:dir});
-  const inside=walk();
-  result('the staleness walk skips gitignored files no build reads',
-    JSON.stringify(inside)==='["app.contract","gen/made.rs","local.ts","shader-gen/paint.wgsl","shader-gen/table.bin"]'&&outside.length===7,JSON.stringify({inside,outside}));
+  const inside=walk(),want='["Cargo.toml","app.contract","app.json","art/fox.glb","art/strip.png","assets/x.js","data/Cargo.toml","data/ledger.csv","data/table.bin","gen/made.rs","icon.png","local.ts","logic/build.mjs","modules/web/index.js","presentation/view.mjs","shader-gen/paint.wgsl","shader-gen/table.bin"]';
+  result('the staleness walk skips what an agent leaves in an app, never what a build reads',
+    JSON.stringify(inside)===want&&JSON.stringify(outside)===want.replace('"presentation/view.mjs",','"presentation/view.mjs","scratch/out.bin",'),JSON.stringify({inside,outside}));
+  const receipt=join(dir,'receipt.json');
+  writeFileSync(receipt,JSON.stringify({target:'aarch64-apple-darwin'}));
+  writeFileSync(join(dir,'pins.json'),'{}');
+  const built=new Date(Date.now()+10000),edited=new Date(+built+10000);
+  utimesSync(receipt,built,built);
+  for(const name of ['pins.json','app.contract','drive.sh','tools/probe.mjs','shots/exported.json']) utimesSync(join(dir,name),edited,edited);
+  const game={dir,target:join(dir,'missing-target'),manifest:{game:true},crate:()=>'game-macos'};
+  const changed=receiptChanges(receipt,game).map(p=>relative(dir,p)).sort();
+  result('a game receipt ignores pins and driver scripts, and still sees the contract',
+    JSON.stringify(changed)==='["app.contract"]',JSON.stringify(changed));
   rmSync(dir,{recursive:true,force:true});
+}
+{
+  // A killed authored-test run's stores are swept; a live run's, another name's and a plain store stay.
+  const base=mkdtempSync(join(tmpdir(),'exact-test-stores-'));
+  for(const name of ['test.r999999-ab12.t0','test.r999999-ab12.t1',`test.r${process.pid}-cd34.t0`,'test','test.t0','mine.r999999-ab12.t0','tests.r999999-ab12.t0']) mkdirSync(join(base,name));
+  sweepTestStores(base,'test');
+  const left=readdirSync(base).sort();
+  rmSync(base,{recursive:true,force:true});
+  result('authored-test stores: a dead run\'s are swept, a live run\'s and other names stay',
+    JSON.stringify(left)===JSON.stringify(['mine.r999999-ab12.t0','test','test.r'+process.pid+'-cd34.t0','test.t0','tests.r999999-ab12.t0'].sort()),JSON.stringify(left));
+  result('authored-test stores live where the hosts keep them',storeBase('com.x','mac',{},'/h')==='/h/Library/Caches/exact/com.x/agent'&&storeBase('com.x','linux',{XDG_CACHE_HOME:'/c'},'/h')==='/c/exact/com.x/agent'&&storeBase('com.x','linux',{XDG_CACHE_HOME:'rel'},'/h')==='/h/.cache/exact/com.x/agent'&&storeBase('com.x','ios')===null);
+  // dash, weather, kanban: a web store is a kept Chrome profile and one origin, the same port each drive.
+  const a=webStore('com.x','pulse',{},'/h','darwin'),b=webStore('com.x','pulse',{XDG_CACHE_HOME:'/c'},'/h','linux'),c=webStore('com.x','other',{},'/h','darwin');
+  result('a web drive\'s named store keeps its profile and port',a.profile==='/h/Library/Caches/exact/com.x/agent-web/pulse'&&b.base==='/c/exact/com.x/agent-web'&&a.port===b.port&&a.port>=20000&&a.port<48000&&c.port!==a.port,JSON.stringify([a,b,c]));
+  // review b5-c 3: the driver opens Chrome's store where runTests sweeps and removes it, under the drive's env.
+  const d=driveStore('com.x','pulse',{XDG_CACHE_HOME:'/iso',HOME:'/hh'},'linux'),e=driveStore('com.x','pulse',{HOME:'/hh'},'darwin');
+  result('a drive\'s env places its web store',d.base==='/iso/exact/com.x/agent-web'&&e.profile==='/hh/Library/Caches/exact/com.x/agent-web/pulse',JSON.stringify([d,e]));
 }
 // A matching hand-written exact.json is not build identity. The agent must
 // consume the complete private marker verifier before it drives a dist.
@@ -641,6 +674,14 @@ for (const [name, html, files, expectCode, expect] of [
   const stream = new (await import('node:stream')).PassThrough(), writes = [], lines = jsonLines(stream, {write: x => writes.push(x)}, []), pending = lines.ask({op:'state'}).catch(e => e.message);
   lines.fail('phone crashed'); lines.fail('socket closed'); const later = await lines.ask({op:'logs'}).catch(e => e.message);
   result('a dead agent rejects pending and future requests without writing again', await pending === 'phone crashed' && later === 'phone crashed' && writes.length === 1); stream.destroy();
+  // A reply split over many chunks (a `state` carrying a large surface record), and two in one chunk.
+  const split = new (await import('node:stream')).PassThrough(), host = [], replies = jsonLines(split, {write() {}}, host);
+  const big = replies.ask({op:'state'}), next = replies.ask({op:'logs'}), third = replies.ask({op:'tree'});
+  const text = JSON.stringify({record: 'x'.repeat(4 << 20)}) + '\n';
+  for (let i = 0; i < text.length; i += 65536) split.write(text.slice(i, i + 65536));
+  split.write('{"n":2}\n{"n":3}\nstray');
+  const [a, b, c] = await Promise.all([big, next, third]); split.write('\n');
+  result('agent replies split over chunks or sharing one are each read whole', a.record.length === 4 << 20 && b.n === 2 && c.n === 3 && host[0] === 'app: stray'); split.destroy();
   const inherited = { EXACT_DEV_PLAN: '/tmp/local.plan', PRESERVED: 'yes' };
   const launched = developmentLaunchEnvironment(['--run', '--url', 'http://192.168.1.20:8765'], inherited);
   const invalid = [['--url', 'https://example.test'], ['--run', '--url'], ['--run', '--url', '/tmp/app.plan'], ['--run', '--url', 'file:///tmp/app.plan'], ['--run', '--url', 'https://a.test', '--url', 'https://b.test']];

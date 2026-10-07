@@ -195,7 +195,7 @@ order) must be unchanged. If so, visits, stacks and ids
 are retained and Params are rebound by name from each URL; otherwise the
 new value is `Router::launch(new_table, old_top.url)`, with the same fallback
 rule. Other root slots and matching resources retain their existing carry
-behavior; row slots are never carried.
+behavior; row and arm slots are never carried (a `late` root slot is).
 
 Runner commits continue to return `exact_kernel::CommitReceipt` unchanged.
 `Runner::take_router_change() -> Option<RouterChange>` is a separate drain
@@ -471,6 +471,56 @@ field and by pc, value shapes, jump resolution), `runner/tests/now_screen.rs`
 reorder, `when` flip, timers, commands, refusals leave the kernel untouched,
 schema mismatch), the `math` pins. All under `cargo test --workspace`; clippy
 `-D warnings`, fmt, wasm, and `caps` green on 2026-08-28.
+
+**`pointerdown` and `pointerup`** (2026-10-03, Charlie: yes, with the Signal
+Clone's hold-to-record mic as the consumer; DEFERRED under Motion's gesture
+arena). These are DOM's names for a touch or the primary button going down on
+a node, and coming up or being cancelled. A cancel is delivered as
+`pointerup`, so an action that started something hears the end, unless its
+node is removed while the pointer is down. A removed node has no handler
+left to run, and the hosts then forget the pointer (an app that starts
+something on `pointerdown` keeps the node mounted until the up).
+Each hands its action a `PointerEvent` when the action takes one (LLP 1056
+§8.6, 2026-10-04, with `pointermove`, the pointer's moves while held and a
+free pointer's over the node), and neither is recognized: the down fires before
+any gesture has decided, and both sit beside `press`, `pan` and
+`contextmenu` without taking anything from them. On the web a cancel is
+DOM's `pointercancel`. DOM's order holds: down, up, then the click's
+`press`. The innermost enabled node that hears either one takes the pointer, on
+every host (a disabled one, a control or any node with `disabled`, passes it to an enabled ancestor), and only the
+primary pointer counts, and its
+up arrives wherever the pointer lifts: heard on the document on the web (a
+pointer capture would also retarget the click and press on a lift
+elsewhere), where the pointer leaving the document (out of the window, into
+a frame) or the window losing focus also ends it, and a node the tree has
+removed is never called, through AppKit's own mouse-up routing, and with the touch on
+UIKit.
+- **Web** (`glue.js` with `input-glue.js` `pointer`; the JS target's
+  `pointer.js`): the element's own events. The innermost claims the event
+  as it bubbles, so its ancestors' handlers leave it.
+- **iOS** (`IOS/PointerIOS.swift`): a gesture recognizer that only observes.
+  It never recognizes and can neither prevent nor be prevented, so a press,
+  a pan, a long press and the scroll view keep their touches. Each node's
+  recognizer skips a touch that a nearer enabled pointer node takes. An idle
+  one does not keep a row out of the node pool.
+- **macOS** (`MouseChainMac`): `mouseDown`/`mouseUp`, on the innermost
+  enabled node from the hit view up, held on the presenter until the button
+  comes up. A native button's own tracking loop reports both (its up
+  before the action it sends). A held node's release, or a reset, clears
+  the hold.
+- **Linux** (`presenter/pointer.rs`, 2026-10-04): beside the contact, on the
+  innermost enabled node under the press; a cancel is an up.
+- **ABI:** dispatch kinds 29, 30 and 31 (`pointermove`), each with the
+  record's line.
+- **Agent:** `tap` remains an activation (`press`). The pointer events are
+  driven by real touches (LLP 1080.000's `touch: platform`) or by the hosts'
+  tests.
+
+Tests: `contract/cli/tests/it/pointer.rs` (the runner and DOM's order),
+`testAPointerNodeObservesItsTouchWithoutPreventingAnything` (iOS), and
+`testPointerDownAndUpReachTheNearestPointerNodeAroundThePress` (macOS), and
+`host/web/tests/pointer.test.mjs` (Chrome: order, a lift elsewhere, the
+secondary button, a disabled node).
 
 `swiperight` is the next EventKind after `dblclick`: a recognized, payload-free
 host event. It preserves authored action arguments and journals once on a

@@ -25,7 +25,7 @@ fn sample_ops() -> Vec<Op> {
     s.mask.set(StyleId::Width);
     s.flex_grow = 1.0;
     s.mask.set(StyleId::FlexGrow);
-    s.grid_template_columns = exact_kernel::GridTracks::equal(3);
+    s.rare.grid_template_columns = exact_kernel::GridTracks::equal(3);
     s.mask.set(StyleId::GridTemplateColumns);
     vec![
         Op::CreateView {

@@ -347,6 +347,9 @@ pub struct InstanceWork {
     pub derives_evaluated: usize,
     /// Store bytes copied so a refusal could put the store back.
     pub store_bytes_copied: usize,
+    /// Retiring list rows rebound to another item instead of building one
+    /// (LLP 1078).
+    pub rows_rebound: usize,
 }
 
 /// Per-commit evaluation context and deterministic work counters.
@@ -395,6 +398,15 @@ pub struct Update<'a> {
     /// kept update would have written as a style op: what tells a list its
     /// rows' typography changed ([`Tree::update`]).
     text_styled: bool,
+    /// The views of list rows rebound to another item (LLP 1078), every one
+    /// a fresh mount to motion and to the host: the commit's receipt names
+    /// them `renewed`.
+    pub renewed: Vec<ViewId>,
+    /// List rows mounted out of their port, and those that showed (LLP 1055 D13).
+    pub shown: collection::shown::RowsShown,
+    /// Rebind retiring list rows to new items (LLP 1078), as the runner was
+    /// told ([`crate::Runner::set_row_reuse`]).
+    pub reuse: bool,
 }
 
 impl<'a> Update<'a> {
@@ -417,6 +429,9 @@ impl<'a> Update<'a> {
             notes: Vec::new(),
             discard: false,
             text_styled: false,
+            renewed: Vec::new(),
+            shown: Default::default(),
+            reuse: false,
         }
     }
 
@@ -646,6 +661,14 @@ fn roots_of(children: &[Child]) -> Vec<ViewId> {
     out
 }
 
+/// The first of [`roots_of`], without collecting the rest.
+fn first_root(children: &[Child]) -> Option<ViewId> {
+    children.iter().find_map(|c| match c {
+        Child::Node(n) => Some(n.view),
+        Child::Region(r) => r.first_root(),
+    })
+}
+
 fn push_roots(children: &[Child], out: &mut Vec<ViewId>) {
     for c in children {
         match c {
@@ -861,7 +884,11 @@ impl NodeInst {
                 },
                 // A class choice's row the chosen style does not set is
                 // `none`: an explicit unset, cleared to the kernel's default.
-                BindingKind::Style if matches!(value, Value::Option(None)) => {
+                // So is CSS's `unset`, and `inherit` on an inherited row.
+                BindingKind::Style
+                    if matches!(value, Value::Option(None))
+                        || bridge::unsets(binding.id, &value) =>
+                {
                     let style = exact_kernel::StyleId::from_bit(binding.id as u32)
                         .expect("known to the bridge");
                     let mut mask = exact_kernel::StyleMask::default();
@@ -873,14 +900,14 @@ impl NodeInst {
                 }
                 BindingKind::Style => {
                     let p = patch.get_or_insert_with(StyleProps::default);
-                    match bridge::set_style(p, binding.id, &value, plan.stacks.len()) {
+                    match bridge::set_plan_style(p, binding.id, &value, plan) {
                         Ok(exact_kernel::StyleId::Animation) => {
                             let dropped = u.sites.keyframes.resolve(&mut p.animation);
                             u.notes.extend(dropped);
                         }
                         // An exit names keyframes as `animation` does (LLP 1063).
                         Ok(exact_kernel::StyleId::ExitAnimation) => {
-                            let dropped = u.sites.keyframes.resolve(&mut p.exit_animation);
+                            let dropped = u.sites.keyframes.resolve(&mut p.rare.exit_animation);
                             u.notes.extend(dropped);
                         }
                         Ok(_) => {}
@@ -1023,16 +1050,24 @@ fn repeated(region: RegionsId, key: &Value, ident: &str) -> String {
 
 /// One canonical key text: strings, finite numbers (`-0` is `0`, matching the
 /// VM's equality), bools. NaN is not a key.
-fn key_text(v: &Value) -> Option<String> {
+pub(crate) fn key_text(v: &Value) -> Option<String> {
+    let mut text = String::new();
+    key_text_into(v, &mut text).then_some(text)
+}
+
+/// [`key_text`] appended to `out`; whether `v` is a key.
+fn key_text_into(v: &Value, out: &mut String) -> bool {
     match v {
-        v @ exact_plan::str_value!() => Some(exact_num::text!("s:{}", v.text())),
-        Value::Number(n) if n.is_finite() => Some(exact_num::text!(
+        v @ exact_plan::str_value!() => exact_num::push_text!(out, "s:{}", v.text()),
+        Value::Number(n) if n.is_finite() => exact_num::push_text!(
+            out,
             "n:{}",
             exact_num::Shortest(if *n == 0.0 { 0.0 } else { *n })
-        )),
-        Value::Bool(b) => Some(exact_num::text!("b:{}", b)),
-        _ => None,
+        ),
+        Value::Bool(b) => exact_num::push_text!(out, "b:{}", b),
+        _ => return false,
     }
+    true
 }
 
 /// The root of the instance tree: the plan's top-level sites.

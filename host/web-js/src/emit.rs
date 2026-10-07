@@ -9,7 +9,7 @@
 //! `when`/`match`/`each` over closures that build an arm or a row. Timers
 //! last. Everything reactive is lazy, so declaration order is free.
 
-use crate::code::{self, Frame, Scope, Uses};
+use crate::code::{self, Scope, Uses};
 use crate::style;
 use exact_kernel::{NodeType, PropId, StyleId};
 use exact_plan::{BindingKind, EventKind, Plan, RegionKind, Value};
@@ -18,8 +18,13 @@ use std::fmt::Write as _;
 
 #[path = "motion.rs"]
 mod motion;
+#[path = "regions.rs"]
+mod regions;
 #[path = "rows.rs"]
 mod rows;
+#[path = "timers.rs"]
+mod timers;
+use regions::root_slot;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Site {
@@ -85,6 +90,7 @@ impl Sites {
 
 pub struct Output {
     pub js: String,
+    pub paint: String,
     pub names: String,
     /// The locations rendered at build (`render=build` routes without
     /// parameters, and the not-found page), as JSON.
@@ -126,66 +132,6 @@ pub fn value_js(v: &Value) -> String {
     }
 }
 
-pub fn dump(plan: &Plan) {
-    let mut uses = Uses::default();
-    let s = Scope::default();
-    let f = |code: exact_plan::Code, uses: &mut Uses, scope: &Scope, params: usize| {
-        code::function(plan, plan.code(code), scope, params, uses)
-            .unwrap_or_else(|e| format!("<{e}>"))
-    };
-    eprintln!("router: {:?}", plan.router);
-    for (i, r) in plan.slots.iter().enumerate() {
-        eprintln!(
-            "slot {i} {} = {}",
-            plan.str(r.name),
-            f(r.init, &mut uses, &s, 0)
-        );
-    }
-    for (i, r) in plan.derives.iter().enumerate() {
-        eprintln!(
-            "derive {i} {} = {}",
-            plan.str(r.name),
-            f(r.body, &mut uses, &s, 0)
-        );
-    }
-    for (i, r) in plan.resources.iter().enumerate() {
-        eprintln!(
-            "resource {i} {} = {}(..{})",
-            plan.str(r.name),
-            plan.str(r.source),
-            r.args.len
-        );
-    }
-    let a = Scope {
-        action: true,
-        ..Scope::default()
-    };
-    for (i, r) in plan.actions.iter().enumerate() {
-        eprintln!(
-            "action {i} {} = {}",
-            plan.str(r.name),
-            f(r.body, &mut uses, &a, r.params.len as usize)
-        );
-    }
-    for (i, r) in plan.regions.iter().enumerate() {
-        eprintln!(
-            "region {i} {:?} parent {:?} arm {:?} order {} arms {:?}",
-            r.kind, r.parent, r.arm, r.order, r.arms
-        );
-    }
-    for (i, n) in plan.nodes.iter().enumerate() {
-        eprintln!(
-            "node {i} type {:?} parent {:?} arm {:?} order {} bindings {} handlers {}",
-            NodeType::from_wire(n.node_type),
-            n.parent,
-            n.arm,
-            n.order,
-            n.bindings.len,
-            n.handlers.len
-        );
-    }
-}
-
 struct Em<'a> {
     plan: &'a Plan,
     sites: &'a Sites,
@@ -193,6 +139,8 @@ struct Em<'a> {
     uses: Uses,
     out: String,
     classes: Vec<String>,
+
+    paint: bool,
     warnings: Vec<String>,
     row_actions: std::collections::BTreeSet<usize>,
     markdown: bool,
@@ -202,6 +150,8 @@ struct Em<'a> {
     flow: bool,
     /// Whether a virtualized list is in the plan (`list.js` is imported).
     list: bool,
+    /// Whether a `video` or `audio` is in the plan (`media.js` is installed).
+    media: bool,
     /// Whether an image draws a symbol (`symbols.js`), and whether a
     /// binding names one (its roles are then the plan's strings).
     symbols: (bool, bool),
@@ -234,6 +184,17 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     let sites = Sites::new(plan)?;
     let mut warnings = Vec::new();
     let parts = style::project(plan, &sites, &mut warnings)?;
+    let paint = crate::paint::needed(plan, &parts);
+    let mut parts = parts;
+    if !paint {
+        for p in parts.iter_mut().flatten() {
+            let bits: u32 = p.props.remove("data-exact-f").unwrap().parse().unwrap();
+            if bits & 128 != 0 && bits & 2 == 0 {
+                p.css.push_str("isolation:isolate;");
+                p.props.insert("data-exact-policy".into(), String::new());
+            }
+        }
+    }
     let mut em = Em {
         plan,
         sites: &sites,
@@ -241,6 +202,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         uses: Uses::default(),
         out: String::new(),
         classes: Vec::new(),
+        paint,
         warnings,
         row_actions: Default::default(),
         markdown: false,
@@ -249,6 +211,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         editor: false,
         flow: false,
         list: false,
+        media: false,
         symbols: (false, false),
         heights: Default::default(),
         transforms: Default::default(),
@@ -284,20 +247,21 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
                 )
             })
             .collect();
-        let (routes, launch) = (em.uses.rt("routes"), em.uses.rt("launch"));
+        let (routes, launch, here) = (
+            em.uses.rt("routes"),
+            em.uses.rt("launch"),
+            em.uses.rt("launchLocation"),
+        );
         let row = plan.slot(slot);
         let signal = if dev_reload {
             format!(
-                "$devSig({},{launch}(location.pathname+location.search),{},{},1)",
+                "$devSig({},{launch}({here}()),{},{},1)",
                 serde_json::to_string(plan.str(row.name)).unwrap(),
                 serde_json::to_string(&type_code(plan, row.ty)).unwrap(),
                 type_json(plan, row.ty)
             )
         } else {
-            format!(
-                "{}({launch}(location.pathname+location.search))",
-                em.uses.rt("sig")
-            )
+            format!("{}({launch}({here}()))", em.uses.rt("sig"))
         };
         let _ = write!(
             body,
@@ -355,25 +319,13 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     // Slots, in order: an initializer reads only earlier slots.
     for (i, r) in plan.slots.iter().enumerate() {
         if r.owner.is_some()
+            || r.late
             || plan.router == Some(exact_plan::SlotsId(i as u32))
             || plan.locale == Some(exact_plan::SlotsId(i as u32))
         {
-            continue; // a row slot lives on its row; the router and locale are above
+            continue; // an owned slot lives on its instance; a late one, the router and locale elsewhere
         }
-        let init = code::expression(plan, plan.code(r.init), &top, &mut em.uses)
-            .map_err(|e| format!("slot {}: {e}", plan.str(r.name)))?;
-        let ty = serde_json::to_string(&type_code(plan, r.ty)).unwrap();
-        if dev_reload {
-            let _ = write!(
-                body,
-                "const s_{i}=$devSig({},{init},{ty},{});",
-                serde_json::to_string(plan.str(r.name)).unwrap(),
-                type_json(plan, r.ty)
-            );
-        } else {
-            let sig = em.uses.rt("sig");
-            let _ = write!(body, "const s_{i}={sig}({init},{ty});");
-        }
+        root_slot(plan, i, &top, dev_reload, &mut em.uses, &mut body)?;
     }
     for (i, r) in plan.derives.iter().enumerate() {
         let f = code::function(plan, plan.code(r.body), &top, 0, &mut em.uses)
@@ -381,8 +333,13 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         let memo = em.uses.rt("memo");
         let _ = write!(
             body,
-            "const d_{i}={memo}({f},{});",
-            serde_json::to_string(&type_code(plan, r.ty)).unwrap()
+            "const d_{i}={memo}({f},{}{});",
+            serde_json::to_string(&type_code(plan, r.ty)).unwrap(),
+            if site_attrs {
+                format!(",{}", serde_json::to_string(plan.str(r.name)).unwrap())
+            } else {
+                String::new()
+            }
         );
     }
     // The reserved sources facts.js answers, their declared fields filled by name.
@@ -428,10 +385,14 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         } else {
             em.uses.rt("res")
         };
+        // An `else` row's compiled answer is the bake's for every launch,
+        // never asked again (each was a worker turn; the runner's
+        // `is_placeholder_row`, review B4): it is settled, not a bake.
+        let kept = if is_placeholder { ",1" } else { "" };
         let carry = if dev_reload {
-            format!(",{}", type_json(plan, r.ty))
+            format!(",{}{kept}", type_json(plan, r.ty))
         } else {
-            String::new()
+            kept.to_string()
         };
         let _ = write!(
             body,
@@ -449,14 +410,23 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             .map(|x| format!("r_{}", plan.mutation_refreshes[x.0 as usize].resource.0))
             .collect();
         let mt = em.uses.rt("mut");
+        // A queue's sends wait their turn (LLP 1092 D6; schedule.js).
         let _ = write!(
             body,
-            "const m_{i}={mt}({},s_{},[{}],{});",
+            "const m_{i}={mt}({},s_{},[{}],{}{});",
             serde_json::to_string(plan.str(m.name)).unwrap(),
             m.slot.0,
             refreshes.join(","),
-            serde_json::to_string(&type_code(plan, m.ty)).unwrap()
+            serde_json::to_string(&type_code(plan, m.ty)).unwrap(),
+            if m.queue { ",1" } else { "" }
         );
+    }
+    // A child's state used outside every region: initialized as the root
+    // instance renders, after the derives and resources (LLP 1017 P4c).
+    for (i, r) in plan.slots.iter().enumerate() {
+        if r.late {
+            root_slot(plan, i, &top, dev_reload, &mut em.uses, &mut body)?;
+        }
     }
     for (i, r) in plan.actions.iter().enumerate() {
         // An action that touches row slots takes the row in force first.
@@ -477,8 +447,47 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             em.row_actions.insert(i);
             f = f.replacen('(', "($r,", 1).replace("($r,)", "($r)");
         }
+        // The parameters' types: an argument outside its type is refused,
+        // as the runner refuses it (ArgumentType), before the body runs. A
+        // hidden parameter (`@capture:…`, a child's captured prop) is the
+        // compiler's argument: its numbers need not be finite.
+        let types: Vec<String> = r
+            .params
+            .iter()
+            .map(|p| {
+                let param = plan.param(p);
+                let code = type_code(plan, param.ty);
+                let code = if plan.str(param.name).starts_with('@') {
+                    code.replace('n', "N")
+                } else {
+                    code
+                };
+                serde_json::to_string(&code).unwrap()
+            })
+            .collect();
+        // A string parameter's name, which an argument past MAX_STRING
+        // names (the runner's StringTooLong, LLP 1090 D6).
+        let names: Vec<String> = r
+            .params
+            .iter()
+            .map(|p| match type_code(plan, plan.param(p).ty).as_str() {
+                "s" => serde_json::to_string(plan.str(plan.param(p).name)).unwrap(),
+                _ => "0".into(),
+            })
+            .collect();
         let act = em.uses.rt("act");
-        let _ = write!(body, "const a_{i}={act}({f});");
+        if types.is_empty() {
+            let _ = write!(body, "const a_{i}={act}({f});");
+        } else {
+            let tail = if names.iter().any(|n| n != "0") {
+                format!(",{},[{}]", rows as u8, names.join(","))
+            } else if rows {
+                ",1".into()
+            } else {
+                String::new()
+            };
+            let _ = write!(body, "const a_{i}={act}({f},[{}]{tail});", types.join(","));
+        }
     }
     for (i, m) in plan.mutations.iter().enumerate() {
         if let Some(a) = m.then {
@@ -510,12 +519,22 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         }
         let _ = write!(body, "$symbols({{{}}});", roles.join(","));
     }
-    let (mount, paint) = (em.uses.rt("mount"), em.uses.rt("paintOwn"));
-    let own = serde_json::to_string(&style::paint_own()).unwrap();
-    let _ = write!(body, "{paint}({own});{mount}($R=>{{{view}}});");
+    if paint {
+        let painting = em.uses.rt("usePaint");
+        let _ = write!(body, "{painting}($paint());");
+    }
+    if em.media {
+        let media = em.uses.rt("useMedia");
+        let _ = write!(body, "{media}($media());");
+    }
+    let mount = em.uses.rt("mount");
+    let _ = write!(body, "{mount}($R=>{{{view}}});");
     // A plan whose actions read geometry fetches the page's reader after
     // first paint, as the wasm host does for an artifact that imports it.
-    if em.uses.names.contains("x_frame") || em.uses.names.contains("x_measure") {
+    if ["x_frame", "x_measure", "x_elementFromPoint"]
+        .iter()
+        .any(|name| em.uses.names.contains(*name))
+    {
         let geo = em.uses.rt("geo");
         let _ = write!(body, "{geo}();");
     }
@@ -559,20 +578,12 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         list("d", plan.derives.len()),
         list("r", plan.resources.len())
     );
-    for t in plan.timers.iter() {
-        if t.frame {
-            // LLP 1073: once per presented frame, virtual frames on a seek.
-            let frames = em.uses.rt("frames");
-            let _ = write!(body, "{frames}(a_{});", t.action.0);
-            continue;
-        }
-        let every = em.uses.rt("every");
-        let _ = write!(
-            body,
-            "{every}({},a_{},{});",
-            t.interval_ms, t.action.0, t.once as u8
-        );
+    // The queues read the state a stalled `next` saw (LLP 1092 D3).
+    if plan.mutations.iter().any(|m| m.queue) {
+        let queues = em.uses.rt("queues");
+        let _ = write!(body, "{queues}($state);");
     }
+    timers::timers(&mut em, &mut body)?;
     let viewport = em.parts[sites.root as usize].as_ref().and_then(|p| {
         let fit = p.props.get("viewportFit");
         let widget = p.props.get("interactiveWidget");
@@ -671,14 +682,22 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         pages.join(",")
     );
     let imports: Vec<String> = em.uses.names.iter().cloned().collect();
+    let budget: Vec<String> = em.uses.budget.iter().cloned().collect();
     let js = format!(
-        "// Generated by exact-web-js from the app's plan. Do not edit.\nimport{{{}}}from\"./rt.js\";{}{}{}\nexport const sources={{{}}};export const wait={};export default function(){{{body}return $state}}\n",
+        "// Generated by exact-web-js from the app's plan. Do not edit.\nimport{{{}}}from\"./rt.js\";{}{}{}{}\nexport const sources={{{}}};export const wait={};export default function(){{{body}return $state}}\n",
         imports.join(","),
+        if budget.is_empty() {
+            String::new()
+        } else {
+            format!("import{{{}}}from\"./budget.js\";", budget.join(","))
+        },
         if roots { "import{navigation as $navigation}from\"./navigation.js\";" } else { "" },
         if dev_reload { "import{devResource as $devRes,devSignal as $devSig}from\"./checkpoint.js\";" } else { "" },
         // Loaded pieces, imported only where the plan uses them.
         [
+            (paint, "import{paintUse as $paint}from\"./paint.js\";"),
             (em.list, "import{vl as $vl}from\"./list.js\";"),
+            (em.media, "import{mediaUse as $media}from\"./media.js\";"),
             (!facts.is_empty(), facts.as_str()),
             (em.symbols.0, "import{symbols as $symbols}from\"./symbols.js\";"),
         ]
@@ -736,6 +755,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     }
     Ok(Output {
         js,
+        paint: crate::paint::runtime(plan),
         css,
         names: names_js,
         pages: build_pages(plan),
@@ -874,10 +894,6 @@ impl Em<'_> {
         Ok(())
     }
 
-    fn f(&mut self, code: exact_plan::Code, scope: &Scope) -> Result<String, String> {
-        code::function(self.plan, self.plan.code(code), scope, 0, &mut self.uses)
-    }
-
     fn node(&mut self, i: u32, parent: &str, scope: &Scope) -> Result<(), String> {
         let plan = self.plan;
         let row = &plan.nodes[i as usize];
@@ -926,16 +942,12 @@ impl Em<'_> {
         } else {
             parts.tag.as_str()
         };
-        if element == "img" {
-            let bound = row.bindings.iter().map(|b| plan.binding(b)).any(|b| {
-                b.kind == BindingKind::Prop
-                    && b.id == PropId::ImageSource as u16
-                    && style::literal(plan, plan.code(b.expr)).is_none()
-            });
-            if bound || parts.props.contains_key("data-symbol-path") {
-                self.symbols.0 = true;
-                self.symbols.1 |= bound;
-            }
+        if let Some(bound) = (element == "img")
+            .then(|| self.image_piece(i, &parts))
+            .flatten()
+        {
+            self.symbols.0 = true;
+            self.symbols.1 |= bound;
         }
         let (mut attrs, content, extra) = rows::attributes(element, &parts.props);
         let mut css = parts.css.clone();
@@ -945,11 +957,15 @@ impl Em<'_> {
         // own declaration: inline, as the live host writes every row, not
         // the class (a class's custom property would be inherited).
         let presence = rows::presence_decls(&mut css);
-        // A node with press feedback: the web host's input piece shows it.
-        if presence.contains("--exact-press:") {
+        // Press feedback, a press haptic, or a native button's highlight: the input piece shows it.
+        if presence.contains("--exact-press:")
+            || presence.contains("--exact-press-haptic:")
+            || attrs.iter().any(|a| a.0 == "data-button-style")
+        {
             let press = self.uses.rt("pressFeedback");
             let _ = write!(self.out, "{press}();");
         }
+        self.clocks_in(&presence);
         if element == "a" {
             attrs.push(("data-view".into(), String::new()));
         }
@@ -968,10 +984,19 @@ impl Em<'_> {
                 kinds.iter().map(|k| k.name()).collect::<Vec<_>>().join(" "),
             ));
         }
-        if kinds
-            .iter()
-            .any(|k| matches!(k, EventKind::Focus | EventKind::Blur | EventKind::Key))
-            && !matches!(element, "input" | "button")
+        // A pressable is focusable too, as natively (chat F14; input-glue.js),
+        // and so is a clipboard listener: the clipboard's events go to the focus.
+        let on = kinds.iter().any(|k| {
+            matches!(
+                k.name(),
+                "focus" | "blur" | "key" | "press" | "copy" | "cut" | "paste"
+            )
+        });
+        // An authored `tabindex` is explicit and wins, a negative one
+        // included (LLP 1088 D7.3); a bound one `P` sets over this.
+        if on
+            && !["input", "button", "select", "textarea", "a", "summary"].contains(&element)
+            && !attrs.iter().any(|(k, _)| k == "tabindex")
         {
             attrs.push(("tabindex".into(), "0".into()));
         }
@@ -1027,13 +1052,12 @@ impl Em<'_> {
             let pr = self.uses.rt("pr");
             let _ = write!(self.out, "{pr}({e});");
         }
-        self.element_extras(&parts.tag, &e, &attrs);
+        self.element_extras(&parts.tag, &e, &attrs, &parts.props);
         // Its surface's inputs, named or positional (LLP 1009 D2).
         if let Some(sf) = row.surface {
             let sf = &plan.surfaces[sf.0 as usize];
             // A surface the app's GPU module draws (the build names them)
-            // goes to it; any other is a Canvas 2D surface, drawn by the
-            // data module and replayed by the web host's own glue.
+            // goes to it; any other is a Canvas 2D surface, drawn by the data module and replayed by the web host's own glue.
             let name = plan.str(sf.name);
             let gpu = gpu_surfaces().iter().any(|s| s == name);
             let named = sf.mode == exact_plan::SurfaceArgsMode::Named;
@@ -1103,8 +1127,17 @@ impl Em<'_> {
                 );
             }
         }
-        if element == "video" && parts.props.get("muted").map(String::as_str) == Some("true") {
+        self.media |= element == "video" || element == "audio";
+        if (element == "video" || element == "audio")
+            && parts.props.get("muted").map(String::as_str) == Some("true")
+        {
             let _ = write!(self.out, "{e}.muted=!0;");
+        }
+        // A literal `checked` is the model's as a bound one is (rt.js `P`): the
+        // box keeps it when clicked, and the agent tree reports it.
+        if let (true, Some(v)) = (element == "input", parts.props.get("checked")) {
+            let v = if v == "true" { "!0" } else { "!1" };
+            let _ = write!(self.out, "{e}.checked={e}.$checked={v};");
         }
         // A `markup="markdown"` text builds its pieces (LLP 1045 D3).
         let markdown = node_type == NodeType::Text
@@ -1120,7 +1153,24 @@ impl Em<'_> {
         self.editor(i, element, &e)?;
         for (k, b) in row.bindings.iter().enumerate() {
             let b = plan.binding(b);
-            if style::literal(plan, plan.code(b.expr)).is_some() {
+            // tvOS's focus guide has no DOM property, whether literal or bound.
+            if b.kind == BindingKind::Prop && b.id == PropId::FocusGuide as u16 {
+                continue;
+            }
+            // Nor has the status bar's style (LLP 1105 D7).
+            if b.kind == BindingKind::Prop
+                && (b.id == PropId::StatusBarStyle as u16
+                    || b.id == PropId::StatusBarAnimation as u16)
+            {
+                continue;
+            }
+            if let Some(v) = style::literal(plan, plan.code(b.expr)) {
+                // A literal source is built into pieces too, once: left as a
+                // constant it painted nothing (notes diary's link repro).
+                if markdown && b.kind == BindingKind::Prop && b.id == PropId::Text as u16 {
+                    let source = serde_json::to_string(v.as_str().unwrap_or_default()).unwrap();
+                    self.markdown(&e, &format!("()=>{source}"));
+                }
                 continue;
             }
             let f = self
@@ -1152,6 +1202,10 @@ impl Em<'_> {
                         "{p}({e},{},{f});",
                         serde_json::to_string(&name).unwrap()
                     );
+                    // A bound context menu popover (LLP 1021 §5.1): read at the event.
+                    if prop == PropId::ContextPopover {
+                        let _ = write!(self.out, "{}({e});", self.uses.rt("cp"));
+                    }
                 }
                 BindingKind::Style => self.style_row(i, b, &parts, &e, &f)?,
             }
@@ -1167,6 +1221,12 @@ impl Em<'_> {
             self.motion = true;
             let on = self.uses.rt("onReorder");
             let _ = write!(self.out, "{on}({e},e{l});");
+        } else if self.computed_reorder(i) {
+            // A computed `reorderFor` (a board's `cards-${col.id}`, LLP 1094
+            // D1) names its list at run time, as the runner's binding does.
+            self.motion = true;
+            let on = self.uses.rt("onReorder");
+            let _ = write!(self.out, "{on}({e},null);");
         }
         self.wrap_flow(i, &e, scope)?;
         let mut edges = ["0".to_string(), "0".to_string()];
@@ -1191,6 +1251,16 @@ impl Em<'_> {
                 | EventKind::Message
                 | EventKind::Contextmenu
                 | EventKind::Dblclick
+                | EventKind::Pointerdown
+                | EventKind::Pointerup
+                | EventKind::Pointermove
+                | EventKind::Copy
+                | EventKind::Cut
+                | EventKind::Paste
+                | EventKind::Selectionchange
+                | EventKind::Beforeunload
+                | EventKind::Wheel
+                | EventKind::Drop
                 | EventKind::Play
                 | EventKind::Playing
                 | EventKind::Pause
@@ -1205,10 +1275,20 @@ impl Em<'_> {
                 | EventKind::Seeked
                 | EventKind::Ratechange
                 | EventKind::Volumechange
+                // @ref LLP 1042 — through `media.js`, a bool payload.
+                | EventKind::Fullscreenchange
+                // @ref LLP 1098 D6 — the media session's, through `media.js`.
+                | EventKind::Seekbackward
+                | EventKind::Seekforward
+                | EventKind::Seekto
+                | EventKind::Previoustrack
+                | EventKind::Nexttrack
+                | EventKind::Stop
                 | EventKind::Scroll
                 | EventKind::Refresh
                 | EventKind::Pan
                 | EventKind::Cancel
+                | EventKind::Resize
                 | EventKind::Select => {}
                 // The motion piece's: the swipe's holds, a pan's velocity.
                 EventKind::Swiperight
@@ -1229,24 +1309,16 @@ impl Em<'_> {
             if self.row_actions.contains(&(h.action.0 as usize)) {
                 args.insert(0, scope.rows.clone().unwrap_or_else(|| "{}".into()));
             }
+            // Its arguments are evaluated in the action's commit (`.t`): one
+            // that traps refuses it, as the runner's handler evaluation does
+            // (LLP 1090 D1).
             let handler = if args.is_empty() {
                 format!("a_{}", h.action.0)
             } else {
-                args.push("...v".into());
-                format!("(...v)=>a_{}({})", h.action.0, args.join(","))
+                format!("a_{}.t(()=>[{}])", h.action.0, args.join(","))
             };
             // The motion and input pieces' events (rt.js), only where used.
-            let piece = match h.event {
-                EventKind::Swiperight => Some("onSwipe"),
-                EventKind::Pan => Some("onPan"),
-                EventKind::Panrelease => Some("onPanRelease"),
-                EventKind::Select => Some("onSelect"),
-                EventKind::Heightrelease => Some("onHeight"),
-                EventKind::Transformgeometry => Some("onTGeom"),
-                EventKind::Transformrelease => Some("onTRelease"),
-                EventKind::Reorderdrop => Some("onDrop"),
-                _ => None,
-            };
+            let piece = crate::events::piece(h.event);
             if let Some(piece) = piece {
                 let f = self.uses.rt(piece);
                 let owner = match (h.event, self.heights.get(&i), self.transforms.get(&i)) {
@@ -1267,16 +1339,18 @@ impl Em<'_> {
                 edges[(h.event == EventKind::Reachend) as usize] = handler;
                 continue;
             }
-            let _ = write!(self.out, "{on}({e},\"{}\",{handler});", h.event.name());
+            // The event family's binder (rt.js), imported only where a plan binds it.
+            let bind = crate::events::binder(h.event).map(|b| format!(",{}", self.uses.rt(b)));
+            let (bind, name) = (bind.unwrap_or_default(), h.event.name());
+            let _ = write!(self.out, "{on}({e},\"{name}\",{handler}{bind});");
         }
         if virtualized {
             let opts = self.list_options(i, scope, &edges)?;
-            let [Site::Region(r)] = self.sites.of_node(i) else {
+            let &[Site::Region(r)] = self.sites.of_node(i) else {
                 return Err(format!(
                     "node {i}: a virtualized list needs one direct `each`"
                 ));
             };
-            let r = *r;
             if plan.regions[r as usize].kind != RegionKind::Each {
                 return Err(format!(
                     "node {i}: a virtualized list needs one direct `each`"
@@ -1360,130 +1434,6 @@ impl Em<'_> {
             edges[1]
         ))
     }
-
-    fn region(&mut self, r: u32, parent: &str, scope: &Scope) -> Result<(), String> {
-        let plan = self.plan;
-        let row = &plan.regions[r as usize];
-        let subject = self
-            .f(row.subject, scope)
-            .map_err(|x| format!("region {r}: {x}"))?;
-        let arms: Vec<u32> = row.arms.iter().map(|a| a.0).collect();
-        match row.kind {
-            RegionKind::When | RegionKind::Match => {
-                let bound = (row.kind == RegionKind::Match).then(|| format!("b{r}"));
-                let mut inner = scope.clone();
-                inner.frames.push(Frame {
-                    bound: bound.clone(),
-                    ..Frame::default()
-                });
-                let mut bodies = Vec::new();
-                for (k, arm) in arms.iter().enumerate() {
-                    let saved = std::mem::take(&mut self.out);
-                    // `match`'s none arm holds no binding.
-                    let sc = if k == 0 {
-                        inner.clone()
-                    } else {
-                        let mut s = scope.clone();
-                        s.frames.push(Frame::default());
-                        s
-                    };
-                    self.children(self.sites.of_arm(*arm), "p", &sc)?;
-                    let built = std::mem::replace(&mut self.out, saved);
-                    let params = match (&bound, k) {
-                        (Some(b), 0) => format!("(p,{b})"),
-                        _ => "p".into(),
-                    };
-                    bodies.push(format!("{params}=>{{{built}}}"));
-                }
-                while bodies.len() < 2 {
-                    bodies.push("0".into());
-                }
-                let f = self.uses.rt(if row.kind == RegionKind::When {
-                    "when"
-                } else {
-                    "match"
-                });
-                let _ = write!(
-                    self.out,
-                    "{f}({parent},{subject},{},{});",
-                    bodies[0], bodies[1]
-                );
-            }
-            RegionKind::Each => self.each(r, parent, scope, None)?,
-        }
-        Ok(())
-    }
-
-    /// An `each`, or a virtualized list's rows when `list` carries the
-    /// list's options (list.js `vl`).
-    fn each(
-        &mut self,
-        r: u32,
-        parent: &str,
-        scope: &Scope,
-        list: Option<String>,
-    ) -> Result<(), String> {
-        let plan = self.plan;
-        let row = &plan.regions[r as usize];
-        let subject = self
-            .f(row.subject, scope)
-            .map_err(|x| format!("region {r}: {x}"))?;
-        let arms: Vec<u32> = row.arms.iter().map(|a| a.0).collect();
-        let (item, index) = (format!("i{r}"), format!("x{r}"));
-        let mut inner = scope.clone();
-        inner.frames.push(Frame {
-            item: Some(item.clone()),
-            index: Some(index.clone()),
-            bound: None,
-        });
-        let key = code::expression(plan, plan.code(row.key), &inner, &mut self.uses)
-            .map_err(|x| format!("region {r} key: {x}"))?;
-        // The row's own slots, started from their initializers when
-        // the row is created and kept with its key (LLP 1017 P4c).
-        let mut own = Vec::new();
-        for (k, slot) in plan.slots.iter().enumerate() {
-            if slot.owner.map(|o| o.0) == Some(r) {
-                let init = code::expression(plan, plan.code(slot.init), &inner, &mut self.uses)
-                    .map_err(|x| format!("row slot {}: {x}", plan.str(slot.name)))?;
-                let sig = self.uses.rt("sig");
-                own.push(format!("{k}:{sig}({init})"));
-            }
-        }
-        let mut rows_decl = String::new();
-        if !own.is_empty() {
-            let name = format!("$r{r}");
-            rows_decl = match &scope.rows {
-                Some(outer) => format!("const {name}={{...{outer},{}}};", own.join(",")),
-                None => format!("const {name}={{{}}};", own.join(",")),
-            };
-            inner.rows = Some(name);
-        }
-        let saved = std::mem::take(&mut self.out);
-        self.out.push_str(&rows_decl);
-        self.children(self.sites.of_arm(arms[0]), "p", &inner)?;
-        let built = std::mem::replace(&mut self.out, saved);
-        match list {
-            Some(opts) => {
-                let _ = write!(
-                    self.out,
-                    "$vl({parent},{subject},({item},{index})=>{key},(p,{item},{index})=>{{{built}}},{opts});"
-                );
-            }
-            None => {
-                let each = self.uses.rt("each");
-                let pure = if crate::reads::pure_key(&key, &item, &index) {
-                    ",1"
-                } else {
-                    ""
-                };
-                let _ = write!(
-                    self.out,
-                    "{each}({parent},{subject},({item},{index})=>{key},(p,{item},{index})=>{{{built}}}{pure});"
-                );
-            }
-        }
-        Ok(())
-    }
 }
 
 /// The surfaces the app's GPU module draws, as the build names them
@@ -1495,4 +1445,52 @@ fn gpu_surfaces() -> Vec<String> {
         .filter(|s| !s.is_empty())
         .map(str::to_string)
         .collect()
+}
+
+#[cfg(test)]
+mod else_rows {
+    use exact_runner::{DataError, DataSource, Value};
+
+    struct Answers;
+    impl DataSource for Answers {
+        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+            match source {
+                "preview" => Ok(Value::Number(1.0)),
+                "full" => Ok(Value::Number(2.0)),
+                _ => Err(DataError::UnknownSource(source.into())),
+            }
+        }
+    }
+
+    /// Review B4: an `else` row's build-time answer is the bake's for every
+    /// launch (the runner never asks it again), so the JS target receives it
+    /// settled (`res`'s last argument), while the resource it stands in for
+    /// keeps its build-time answer as a first frame to ask again at launch.
+    #[test]
+    fn an_else_row_is_settled_and_its_owner_is_a_bake() {
+        let plan = contract::compile(
+            "component App\n  resource full = full() as shape number else preview()\n  view\n    text `${full}`\n",
+        )
+        .unwrap();
+        let plan = contract::bake(plan, Answers).unwrap();
+        let js = super::emit(&plan, false, false).unwrap().js;
+        let rows: Vec<&str> = js
+            .split("const r_")
+            .skip(1)
+            .map(|s| s.split(';').next().unwrap())
+            .collect();
+        let owner = rows
+            .iter()
+            .find(|r| r.contains("\"full\""))
+            .expect("full's row");
+        let other = rows
+            .iter()
+            .find(|r| !r.contains("\"full\""))
+            .expect("the else row");
+        assert!(other.ends_with(",1)"), "the else row is settled: {other}");
+        assert!(
+            !owner.ends_with(",1)"),
+            "the owner is a bake to ask again: {owner}"
+        );
+    }
 }

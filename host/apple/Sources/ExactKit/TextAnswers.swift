@@ -28,10 +28,12 @@ enum TextAnswerKey {
         out.append(italic ? 1 : 0); out.append(lineHeight == nil ? 0 : 1)
         put((lineHeight ?? 0).bitPattern, &out); put(spacing.bitPattern, &out); put(numeric, &out)
     }
-    private static func paragraph(_ align: Int, _ clamp: Int, _ wrap: Int, _ direction: Int, _ space: Int, _ out: inout [UInt8]) {
+    private static func paragraph(_ align: Int, _ clamp: Int, _ wrap: Int, _ direction: Int, _ space: Int,
+                                  _ indent: Double, _ hyphens: Int, _ out: inout [UInt8]) {
         put(Int32(truncatingIfNeeded: align), &out); put(Int32(truncatingIfNeeded: clamp), &out)
         put(Int32(truncatingIfNeeded: wrap), &out); put(Int32(truncatingIfNeeded: direction), &out)
         put(Int32(truncatingIfNeeded: space), &out)
+        put(Int32(bitPattern: Float(indent).bitPattern), &out); put(Int32(truncatingIfNeeded: hyphens), &out)
     }
     private static func finish(_ out: [UInt8]) -> Int {
         var h = Hasher()
@@ -50,13 +52,18 @@ enum TextAnswerKey {
             }
             fields(single(r.size), Int32(truncatingIfNeeded: r.weight), Int32(truncatingIfNeeded: r.family), r.italic,
                    r.lineHeight.map(single), single(r.letterSpacing), Int32(truncatingIfNeeded: r.numeric), &out)
+            // A list item's lines start at its indent (LLP 1045 D4): only an
+            // expanded Markdown spec has one, never a request's plain runs.
+            if r.indent != 0 || r.hang { out.append(r.hang ? 2 : 1); put(single(r.indent).bitPattern, &out) }
         }
         out.append(spec.strut == nil ? 0 : 1)
         if let s = spec.strut {
             fields(single(s.size), Int32(truncatingIfNeeded: s.weight), Int32(truncatingIfNeeded: s.family), s.italic,
                    s.lineHeight.map(single), single(s.letterSpacing), Int32(truncatingIfNeeded: s.numeric), &out)
         }
-        paragraph(spec.align, spec.lineClamp, spec.overflowWrap, spec.direction, spec.whiteSpace, &out)
+        paragraph(spec.align, spec.lineClamp, spec.overflowWrap, spec.direction, spec.whiteSpace,
+                  single(spec.textIndent), spec.hyphens, &out)
+        if spec.hyphens == 2 { out.append(contentsOf: Array(spec.language.utf8)) }
         return finish(out)
     }
     /// The same bytes from the kernel's request, before any `String` is made
@@ -79,7 +86,8 @@ enum TextAnswerKey {
         out.append(1)
         run(request.strut)
         paragraph(Int(request.align), Int(request.line_clamp), Int(request.overflow_wrap), Int(request.direction),
-                  Int(request.white_space), &out)
+                  Int(request.white_space), Double(request.text_indent), Int(request.hyphens), &out)
+        if request.hyphens == 2, let lang = request.lang { out.append(contentsOf: UnsafeBufferPointer(start: lang, count: request.lang_len)) }
         return finish(out)
     }
     /// A length at the kernel's precision.

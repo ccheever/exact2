@@ -1,4 +1,3 @@
-struct Point { position_range: vec4<f32>, color_intensity: vec4<f32> }
 struct Frame {
     view_proj: mat4x4<f32>,
     camera_alpha: vec4<f32>,
@@ -6,7 +5,11 @@ struct Frame {
     sun_color_count: vec4<f32>,
     zenith_ambient: vec4<f32>,
     ground_exposure: vec4<f32>,
-    points: array<Point, 16>,
+    // A second, unshadowed directional light (lux-scaled like the sun).
+    fill_direction_illuminance: vec4<f32>,
+    fill_color: vec4<f32>,
+    // Local lights (lights.wgsl): count, camera near, slices per log2 metre, grid word offset.
+    lights_info: vec4<f32>,
     inverse_view_proj: mat4x4<f32>,
     view_depth: vec4<f32>,
     horizon_disc: vec4<f32>,
@@ -19,6 +22,9 @@ struct Frame {
     logical_size: vec4<f32>,
     // SH9 diffuse irradiance / π, premultiplied (ibl.rs, ibl.wgsl).
     irradiance: array<vec4<f32>, 9>,
+    // An environment map drawn as the sky: intensity (0: the procedural sky),
+    // yaw about +Y, RGBM range.
+    sky: vec4<f32>,
 }
 @group(0) @binding(0) var<uniform> frame: Frame;
 fn environment(y: f32) -> vec3<f32> {

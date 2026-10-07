@@ -12,7 +12,7 @@ fn kernel() -> Kernel {
     root.mask.set(StyleId::Width);
     root.height = Dimension::Points(100.0);
     root.mask.set(StyleId::Height);
-    root.background_color = Color::rgba(1, 2, 3, 4).into();
+    root.background_color = Some(Color::rgba(1, 2, 3, 4).into());
     root.mask.set(StyleId::BackgroundColor);
     let mut leaf = StyleProps::default();
     leaf.font_size = 10.0;
@@ -173,7 +173,7 @@ fn envelope_round_trips_rows_styles_and_props() {
     assert_eq!(snap.styles[0].width, Dimension::Points(100.0));
     assert_eq!(
         snap.styles[0].background_color,
-        ColorValue::Fixed(Color::rgba(1, 2, 3, 4))
+        Some(ColorValue::Fixed(Color::rgba(1, 2, 3, 4)))
     );
     assert!(snap.styles[0].mask.has(StyleId::BackgroundColor));
     assert_eq!(snap.styles[1].opacity, 0.5);

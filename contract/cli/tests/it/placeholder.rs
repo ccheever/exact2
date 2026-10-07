@@ -26,6 +26,8 @@ struct Blog {
     not_loaded: std::rc::Rc<std::cell::Cell<bool>>,
     /// A failure isn't data here: parse refuses it (a worker-placed module).
     refuse_failures: bool,
+    /// A launch's module, whose home post isn't the bake's (feed F24).
+    live: bool,
 }
 
 fn post(id: &str, title: &str) -> Value {
@@ -40,7 +42,7 @@ impl DataSource for Blog {
     fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
         match source {
             "emptyPost" => Ok(post("", "")),
-            "post" if home(args) => Ok(post("", "Home")),
+            "post" if home(args) => Ok(post("", if self.live { "Home, live" } else { "Home" })),
             "comments" if home(args) => Ok(Value::list(Vec::new())),
             other => Err(DataError::Unavailable(format!("{other} answers later"))),
         }
@@ -79,6 +81,7 @@ impl DataSource for Blog {
             // A failure is data the source shapes (LLP 1016 D4).
             ("post", _) => post("7", "Unavailable"),
             ("comments", _) => Value::list(vec![Value::str("first")]),
+            ("savePost", _) => post("8", "Saved"),
             (other, _) => return Err(DataError::UnknownSource(other.into())),
         }))
     }
@@ -275,9 +278,8 @@ fn a_module_not_loaded_at_boot_shows_placeholders_until_data_ready() {
     let requests = r.take_requests();
     let targets: Vec<&str> = requests.iter().map(|q| q.target.as_str()).collect();
     assert_eq!(targets, ["post", "comments"]);
-    // The bake answered the placeholder's own arguments from no store: that
-    // answer stands, as it does when the source is ready at boot (Seth's
-    // Crew port asked each `#else` again, a worker turn each).
+    // A placeholder row is the bake's for every launch: it isn't asked
+    // again (Seth's Crew port asked each `#else` again, a worker turn each).
     assert!(
         !r.journal().any(|l| l.contains("query post#else")),
         "{:?}",
@@ -287,6 +289,133 @@ fn a_module_not_loaded_at_boot_shows_placeholders_until_data_ready() {
     r.fulfill(requests[0].ticket, ok()).unwrap();
     assert_eq!(text_of(&r, "title"), "Hello");
     assert_eq!(text_of(&r, "state"), "ready");
+}
+
+#[test]
+fn a_send_before_the_module_loads_waits_for_it() {
+    // Notes diary: a document opened at launch reached an action before the
+    // native host loaded the TypeScript module, and its send was refused —
+    // the document lost. The send waits, pending, and goes at data_ready.
+    let src = corpus()
+        .replace(
+            "  resource comments",
+            "  mutation saved as shape Post refreshes comments then afterSave\n  state note = \"\"\n  action save\n    send saved = savePost(\"7\")\n  action afterSave\n    note = \"then ran\"\n  resource comments",
+        )
+        .replace(
+            "      text `${length(comments)}",
+            "      text (pending(saved) ? \"sending\" : note) testId=\"sent\"\n      text `${length(comments)}",
+        );
+    let built = Blog {
+        later_at_build: true,
+        ..Blog::default()
+    };
+    let plan = contract::bake(contract::compile(&src).unwrap(), built).unwrap();
+    let data = Blog::default();
+    data.not_loaded.set(true);
+    let loaded = data.not_loaded.clone();
+    let mut r = boot(&plan, data, "/").unwrap();
+    r.act("save", vec![])
+        .expect("the action commits; its send waits");
+    assert_eq!(text_of(&r, "sent"), "sending");
+    assert!(
+        r.take_requests().is_empty(),
+        "nothing asks a module that isn't loaded"
+    );
+    assert!(
+        r.journal()
+            .any(|l| l.ends_with("send saved: waits until the data source is ready")),
+        "{:?}",
+        r.journal().collect::<Vec<_>>()
+    );
+    loaded.set(false);
+    r.data_ready().unwrap();
+    let requests = r.take_requests();
+    let saved = requests
+        .iter()
+        .find(|q| q.target == "saved")
+        .expect("sent at data_ready");
+    assert_eq!(text_of(&r, "sent"), "sending");
+    let before = r.journal().count();
+    r.fulfill(saved.ticket, ok()).unwrap();
+    r.land_then();
+    assert_eq!(text_of(&r, "sent"), "then ran");
+    // What the mutation refreshes is asked again when its reply lands.
+    let after: Vec<&str> = r.journal().skip(before).collect();
+    assert!(
+        after.iter().any(|l| l.contains("query comments")),
+        "{after:?}"
+    );
+
+    // An assignment to the mutation's slot drops a send still waiting, as it
+    // forgets a request in flight.
+    let src = src.replace(
+        "    note = \"then ran\"",
+        "    note = \"then ran\"\n  action clear\n    saved = none",
+    );
+    let plan = contract::bake(
+        contract::compile(&src).unwrap(),
+        Blog {
+            later_at_build: true,
+            ..Blog::default()
+        },
+    )
+    .unwrap();
+    let data = Blog::default();
+    data.not_loaded.set(true);
+    let loaded = data.not_loaded.clone();
+    let mut r = boot(&plan, data, "/").unwrap();
+    r.act("save", vec![]).unwrap();
+    r.act("clear", vec![]).unwrap();
+    assert_eq!(text_of(&r, "sent"), "");
+    loaded.set(false);
+    r.data_ready().unwrap();
+    assert!(!r.take_requests().iter().any(|q| q.target == "saved"));
+}
+
+#[test]
+fn a_build_time_answer_is_the_first_frame_and_asked_again_when_the_module_loads() {
+    // Feed F24: a no-argument resource kept its bake's answer forever on
+    // macOS while the web, which asks its module at launch, showed a live
+    // one. The bake's answer is the first frame; data_ready asks again.
+    let plan = contract::bake(contract::compile(&corpus()).unwrap(), Blog::default()).unwrap();
+    let data = Blog {
+        live: true,
+        ..Blog::default()
+    };
+    data.not_loaded.set(true);
+    let loaded = data.not_loaded.clone();
+    let mut r = boot(&plan, data, "/").unwrap();
+    assert_eq!(text_of(&r, "title"), "Home");
+    assert_eq!(text_of(&r, "state"), "ready");
+    assert!(r.take_requests().is_empty());
+    let shown = |name: &str| format!("{name} shows its build-time answer until its source answers");
+    for name in ["post", "comments"] {
+        assert!(r.journal().any(|l| l.ends_with(&shown(name))), "{name}");
+    }
+    assert!(!r.journal().any(|l| l.ends_with(&shown("post#else"))));
+    loaded.set(false);
+    r.data_ready().unwrap();
+    assert_eq!(text_of(&r, "title"), "Home, live");
+    assert_eq!(text_of(&r, "state"), "ready");
+    let journal: Vec<&str> = r.journal().collect();
+    assert!(
+        !journal.iter().any(|l| l.contains("query post#else")),
+        "{journal:?}"
+    );
+    assert!(
+        journal
+            .iter()
+            .any(|l| l.ends_with("post answered: replaces its build-time answer")),
+        "{journal:?}"
+    );
+    assert!(
+        journal
+            .iter()
+            .any(|l| l.ends_with("comments answered: equal to its build-time answer")),
+        "{journal:?}"
+    );
+    // Asked once: a later commit leaves the answer alone.
+    assert_eq!(r.data_ready().unwrap(), None);
 }
 
 #[test]

@@ -223,7 +223,7 @@ implement physical vertical recognition or establish native frame performance.
 
 ## 7. Determinism (`math.rs`)
 
-`exp`, `sin`, `cos` route through `libm` 0.2.16 (pinned; a test reads
+`exp`, `sin`, `cos` and `ln` (`ln` since LLP 1099 D2) route through `libm` 0.2.16 (pinned; a test reads
 `Cargo.lock`); `sqrt` is IEEE correctly rounded. All arithmetic is f64 with no
 FMA contraction. The same inputs give the same bits on every target
 (`the_same_inputs_give_the_same_bits`), and the value at `t` does not depend on

@@ -107,7 +107,7 @@ impl<D: DataSource> Host<D> {
                 return false;
             }
             if n.key != binding.target
-                && (p.translate != (0., 0.)
+                && ((p.translate != (0., 0.) || p.translate_percent != (0., 0.))
                     || p.scale != 1.
                     || self.engine.is_active(node, Property::Translate)
                     || self.engine.is_active(node, Property::Scale))

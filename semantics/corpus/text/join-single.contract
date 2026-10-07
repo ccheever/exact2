@@ -1,0 +1,33 @@
+// join with one item returns it unchanged (a string) or printed (a number
+// or bool); with none it is empty; the separator appears only between.
+shape Row
+  s: string
+  n: number
+  b: bool
+
+component App
+  resource rows = rows() as shape list<Row>
+  state count = 1
+  derive taken = filter(rows, (r, i) => i < count)
+  derive ss = join(map(taken, r => r.s), "--")
+  derive ns = join(map(taken, r => r.n), "--")
+  derive bs = join(map(taken, r => r.b), "--")
+  derive none0 = join(filter(map(rows, r => r.s), s => false), "--")
+  derive sepCount = length(ss) >= 2 * (length(taken) - 1)
+  action more
+    count = count + 1
+  view
+    column
+      text ss testId="ss"
+      text ns testId="ns"
+      text bs testId="bs"
+      button "more" press=more testId="more"
+
+test "growing joins"
+  expect state none0 == ""
+  expect state sepCount == true
+  tap "more"
+  expect state sepCount == true
+  tap "more"
+  tap "more"
+  expect state sepCount == true

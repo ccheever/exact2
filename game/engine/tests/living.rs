@@ -117,3 +117,33 @@ fn bounded_settle_names_unfinished_work() {
         .iter()
         .any(|e| e.line.contains("settle exhausted: crate remains awake")));
 }
+// Save mode once round-tripped every tick: 205-310 s against 15 s Off for the
+// forest's proof. It now rebuilds at each advance's last tick (what a proof
+// observes) and every 16th tick inside one, and still agrees with Off.
+#[test]
+fn paranoid_save_rebuilds_at_observed_and_sampled_ticks_only() {
+    let mut off = Sim::<Living>::new(()).unwrap();
+    let mut save = Sim::<Living>::new(()).unwrap().paranoid(Paranoid::Save);
+    for s in [&mut off, &mut save] {
+        s.run(0.);
+    }
+    let rebuilds = |s: &Sim<Living>| s.world().presentation_generation();
+    let start = rebuilds(&save);
+    save.run(1000.);
+    off.run(1000.);
+    // Ticks 16, 32 and 48 of 60, then the last.
+    assert_eq!(rebuilds(&save) - start, 4);
+    save.run(1000. / 60.);
+    off.run(1000. / 60.);
+    assert_eq!(rebuilds(&save) - start, 5);
+    // A tick that receives input is rebuilt too: ticks 62 (the key), 64, 80,
+    // 96, 112 and the last, 121.
+    for s in [&mut off, &mut save] {
+        s.key_down("KeyW");
+        s.run(1000.);
+    }
+    assert_eq!(rebuilds(&save) - start, 11);
+    assert_eq!(rebuilds(&off), 0);
+    assert_eq!(save.world().hash(), off.world().hash());
+    assert_eq!(save.save().unwrap(), off.save().unwrap());
+}

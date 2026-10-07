@@ -14,14 +14,16 @@ import QuartzCore
 final class BoxFilter {
     /// Stands where the box stands (its geometry mirrored), clipped by the
     /// box's `clip-path` after the filter, as CSS orders them.
-    private let picture = CALayer()
+    let picture = CALayer()
     /// The filtered pixels, over the region in the box's bounds space.
     private let content = CALayer()
     /// The box's mask while filtered: nothing of the box itself shows.
     let hide = CALayer()
     /// `Filter::encode` over a box of no size: its region is how far past
-    /// the box the result reaches.
+    /// the box the result reaches. `darkProgram`: the chain under a dark
+    /// appearance, when its colours differ there (LLP 1095 D5).
     private var program: [Float] = []
+    private var darkProgram: [Float]?
 
     init() {
         for l in [picture, content, hide] {
@@ -32,17 +34,20 @@ final class BoxFilter {
         picture.addSublayer(content)
     }
 
-    /// The style's `filter` (`{"p": [...], "rc": [...]}`); whether the box
-    /// is filtered (a chain this host runs, on a device with a GPU).
+    /// The style's `filter` (`{"p": [...], "pd": [...], "rc": [...]}`);
+    /// whether the box is filtered (a chain this host runs, on a device with
+    /// a GPU).
     func set(_ value: BatchValue?) -> Bool {
         guard case .object(let o)? = value, let p = o["p"]?.numbers, p.count > 5 else { return false }
         program = p.map(Float.init)
+        darkProgram = o["pd"]?.numbers.map { $0.map(Float.init) }.flatMap { $0.count == program.count ? $0 : nil }
         return SvgFilterGPU.runs(program)
     }
 
     /// Draw the box's picture again, `scale` pixels per point. `clip`: the
     /// box's `clip-path` as a mask for the picture.
-    func render(_ box: CALayer, clip: CALayer?, scale: CGFloat) {
+    func render(_ box: CALayer, clip: CALayer?, scale: CGFloat, dark: Bool) {
+        let program = dark ? darkProgram ?? self.program : self.program
         guard let parent = box.superlayer, program.count > 5 else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -58,7 +63,6 @@ final class BoxFilter {
         picture.anchorPoint = box.anchorPoint
         picture.position = box.position
         picture.transform = box.transform
-        picture.zPosition = box.zPosition
         picture.opacity = box.opacity
         picture.isHidden = box.isHidden
         picture.mask = clip

@@ -13,13 +13,13 @@ final class PressFeedbackMacTests: XCTestCase {
 
     override func tearDown() { window?.close(); window = nil }
 
-    private func fixture(style: NodeStyle = ["press_scale": 0.97]) -> (Presenter, NodeView) {
+    private func fixture(style: NodeStyle = ["press_scale": 0.97], kind: String = "view") -> (Presenter, NodeView) {
         _ = NSApplication.shared
         let p = Presenter()
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 400), styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView = p.viewport
-        let node = NodeView(id: 1, kind: "view", presenter: p)
+        let node = NodeView(id: 1, kind: kind, presenter: p)
         node.handlers = ["press"]
         node.frame = NSRect(x: 50, y: 50, width: 200, height: 100)
         p.root.addSubview(node); p.views[1] = node
@@ -48,6 +48,17 @@ final class PressFeedbackMacTests: XCTestCase {
         XCTAssertFalse(v.pressed)
         XCTAssertEqual(v.press.to, 1)
         XCTAssertEqual(pressed, [1], "the click is the tap it was")
+    }
+
+    /// A `text` with its own `press` is clicked, as a `<span onClick>` is,
+    /// rather than selected (spreadsheet F12).
+    func testATextWithAPressIsClicked() throws {
+        let (p, v) = fixture(style: [:], kind: "text")
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        v.mouseDown(with: event(v, .leftMouseDown, 100, 50))
+        v.mouseUp(with: event(v, .leftMouseUp, 100, 50))
+        XCTAssertEqual(pressed, [1])
     }
 
     func testReducedMotionKeepsThePress() throws {

@@ -1,0 +1,33 @@
+// A gated `every` (LLP 1092 D8): it runs while its gate holds, keeps its
+// phase while the gate stays true, and its own third tick drops it (an
+// action reads the state it started with: `n` before this tick).
+component App
+  state on = false
+  state n = 0
+  state other = 0
+  action start
+    on = true
+  action poke
+    other = other + 1
+  action tick
+    n = n + 1
+    if n % 3 == 2
+      on = false
+  task beat when on
+    every(100, tick)
+  view
+    column
+      text `${n}` testId="n"
+      button "start" press=start testId="start"
+      button "poke" press=poke testId="poke"
+
+test "three ticks, then idle"
+  clock +50
+  tap "start"
+  clock +150
+  tap "poke"
+  clock +1000
+  expect state n == 3
+  tap "start"
+  clock +300
+  expect state n == 6

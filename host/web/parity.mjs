@@ -12,8 +12,9 @@
 // interaction gallery's artifacts, which link geometry because its sheet reads
 // it (build them first: its web dist, its Linux host, its macOS app), and
 // holds every answer to the fixture's own.
-// --paint compares nested sibling z-index and SVG blend backdrops on web
-// and macOS, sampling flat fills rather than font or antialiasing pixels.
+// --paint compares nested sibling z-index, SVG blend backdrops, and colours
+// and a fade the hosts once disagreed on, on web and macOS, sampling flat
+// fills rather than font or antialiasing pixels.
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { readFileSync, writeFileSync, mkdtempSync, rmSync, mkdirSync } from 'node:fs';
@@ -23,7 +24,7 @@ import { decodePng } from '../../scripts/png.mjs';
 
 const here = resolve(new URL('.', import.meta.url).pathname);
 const root = resolve(here, '../..');
-const run = (args) => spawnSync('cargo', ['run', '-q', '--release', '-p', 'exact-web', '--bin', 'parity', '--', ...args], { cwd: root, encoding: 'utf8' });
+const run = (args) => spawnSync('cargo', ['run', '-q', '--release', '-p', 'exact-web', '--bin', 'parity', '--', ...args], { cwd: root, encoding: 'utf8', env: { ...process.env, HERMES_LEAN_SYS_OFFLINE: '1' } });
 
 // LLP 1063: these are recordings of one script, not a browser oracle. Boxes
 // use CSS pixels/points; 0.1 tolerates native layout rounding, opacity 0.005
@@ -183,7 +184,12 @@ async function paintParity() {
       // LLP 1055.000 §10c: Core Animation blends in the display's colour
       // space. This tests which backdrop participates, not colour fidelity;
       // 64 still distinguishes every red, blue and black outcome here.
-      const samples = await samplePaint(session, expected, resolve(dir, `${host}.png`), host === 'macos' ? 64 : 8);
+      const tolerance = host === 'macos' ? 64 : 8;
+      const samples = await samplePaint(session, expected.filter(p => !p.after), resolve(dir, `${host}.png`), tolerance);
+      // Then a press and half a fade on the agent's clock (feed F20, trivia F6).
+      await session.tap('flip');
+      await session.clock('+500');
+      samples.push(...await samplePaint(session, expected.filter(p => p.after), resolve(dir, `${host}-after.png`), tolerance));
       writeFileSync(resolve(dir, `${host}.json`), JSON.stringify(samples, null, 2) + '\n');
       for (const sample of samples) if (!sample.matches) failures.push(`${host} ${sample.node} (${sample.x},${sample.y}): ${sample.actual}, expected ${sample.rgb}`);
       console.log(`paint ${host}: ${samples.filter(s => s.matches).length}/${samples.length} probes match`);

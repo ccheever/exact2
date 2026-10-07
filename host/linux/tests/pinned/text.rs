@@ -205,12 +205,17 @@ fn declared_bytes_are_the_resolved_faces_and_the_painted_geometry() {
                     line_height: None,
                     letter_spacing: 0.0,
                     font_variant_numeric: 0,
+                    indent: 0.0,
+                    hang: false,
+                    mark: 0,
+                    href: String::new(),
                 }],
                 align: TextAlign::Left,
                 line_clamp: 0,
                 overflow_wrap: exact_kernel::OverflowWrap::Normal,
                 white_space: exact_kernel::WhiteSpace::Normal,
                 direction: exact_kernel::Direction::Ltr,
+                text_indent: 0.0,
             },
             None,
         );
@@ -410,4 +415,74 @@ fn a_drop_cap_flows_its_auto_height_paragraph_and_what_follows_moves() {
         );
     }
     assert!(heights[1] > heights[0], "{heights:?}");
+}
+
+/// LLP 1093 D8, D12: a paragraph a multi-column flow breaks is painted in
+/// each column, clipped to its fragment, with the rule between; a hit sees
+/// fragments, never the union's gap; `tap` aims inside the first fragment;
+/// `layout` prints the fragments and the columns.
+#[test]
+fn a_paragraph_across_columns_paints_hits_and_taps_its_fragments() {
+    pin_font();
+    let source = concat!(
+        "component App\n  view\n    view width=420 height=60 background-color=\"#ffffff\"\n",
+        "      view column-count=2 column-gap=20 height=40 column-fill=\"auto\" column-rule=\"4px solid #ff0000\" testId=\"flow\"\n",
+        "        text \"one\\ntwo\\nthree\" white-space=\"pre\" font-size=16 line-height=\"20px\" color=\"#000000\" testId=\"para\"\n",
+    );
+    let plan = contract::compile(source).unwrap();
+    let (mut p, error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (420.0, 60.0),
+        1.0,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let kernel = p.host().kernel();
+    let id = |t: &str| kernel.node_by_key(kernel.find_by_test_id(t)[0]).unwrap().id;
+    let (para, flow) = (id("para"), id("flow"));
+    // `layout`: two fragments, two lines then one, and the columns.
+    let reply: serde_json::Value = serde_json::from_str(&p.layout_json(Some(para), false)).unwrap();
+    let frags = reply["node"]["column_fragments"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert_eq!(frags.len(), 2, "{reply}");
+    assert_eq!(
+        (frags[0]["x"].as_f64(), frags[1]["x"].as_f64()),
+        (Some(0.0), Some(220.0))
+    );
+    assert_eq!(frags[0]["lines"], serde_json::json!([0, 2]));
+    assert_eq!(frags[1]["lines"], serde_json::json!([2, 3]));
+    let reply: serde_json::Value = serde_json::from_str(&p.layout_json(Some(flow), false)).unwrap();
+    assert_eq!(
+        reply["node"]["columns"].as_array().unwrap().len(),
+        2,
+        "{reply}"
+    );
+    // Hits: inside each fragment the paragraph, in the gap and below the
+    // second fragment's one line its container.
+    assert_eq!(p.hit(10.0, 30.0), Some(para));
+    assert_eq!(p.hit(230.0, 10.0), Some(para));
+    assert_eq!(p.hit(210.0, 10.0), Some(flow));
+    assert_eq!(p.hit(230.0, 30.0), Some(flow));
+    assert!(p.tap(para).is_ok());
+    // Paint: ink for lines 1–2 in the first column and line 3 in the second,
+    // nothing below the second column's line, the rule centred in the gap.
+    let frame = p.frame();
+    let ink = |x0: u32, y0: u32, x1: u32, y1: u32| {
+        (y0..y1).any(|y| {
+            (x0..x1).any(|x| {
+                let c = frame.pixel(x, y).unwrap().demultiply();
+                c.red() < 128 && c.green() < 128 && c.blue() < 128
+            })
+        })
+    };
+    assert!(ink(0, 0, 200, 20) && ink(0, 20, 200, 40));
+    assert!(ink(220, 0, 420, 20));
+    assert!(!ink(220, 20, 420, 60) && !ink(0, 40, 200, 60));
+    let rule = frame.pixel(210, 20).unwrap().demultiply();
+    assert_eq!((rule.red(), rule.green(), rule.blue()), (255, 0, 0));
 }

@@ -1,0 +1,40 @@
+// `length` counts UTF-16 code units, as the web's String#length does.
+component App
+  state s = "hello"
+  derive n = length(s)
+  derive empty = isEmpty(s)
+  action set(v: string)
+    s = v
+  view
+    column
+      input value=s change=set testId="in"
+      text `${n}` testId="n"
+      text `${empty}` testId="empty"
+
+test "ascii"
+  expect state n == 5
+  expect state empty == false
+
+test "emoji counts two"
+  type "in" "😀"
+  expect state n == 2
+  type "in" "a😀b"
+  expect state n == 4
+  type "in" "👍🏽"
+  expect state n == 4
+
+test "bmp non-ascii counts one"
+  type "in" "ü日本"
+  expect state n == 3
+  type "in" "é"
+  expect state n == 2
+
+test "empty"
+  type "in" ""
+  expect state n == 0
+  expect state empty == true
+  expect text "empty" == "true"
+
+test "family emoji with joiners"
+  type "in" "👨‍👩‍👧"
+  expect state n == 8

@@ -580,3 +580,74 @@ fn a_let_is_a_local_for_its_block_and_a_record_names_its_shape_and_fields() {
         assert_eq!(spelling(uses[0]), "done");
     }
 }
+
+#[test]
+fn a_call_refers_to_its_callee_and_the_caller_writes_what_it_writes() {
+    // LLP 1089 D5: `symbols --name enter` answers what Enter touches.
+    let source = r#"component App
+  state sel = 0
+  state seen = 0
+  state log = ""
+  action follow(v: number)
+    seen = v
+  action enter(next: number)
+    log = "enter"
+    follow(next)
+  view
+    column
+      button press=enter(1) testId="enter"
+        text "enter"
+      Row(go=follow)
+
+component Row
+  props
+    go: action
+  state taps = 0
+  action tap
+    go(2)
+    taps = taps + 1
+  view
+    button press=tap testId="tap"
+      text "tap"
+"#;
+    let f = Fixture::new("calls");
+    let graph = f.query(source);
+    let enter = definition(&graph, "action", "enter", None);
+    assert_eq!(enter["writes"], serde_json::json!(["seen", "log"]));
+    let call = at_line(&graph, "follow", line(source, "    follow(next)"));
+    assert_eq!(call.len(), 1);
+    assert_eq!(target(&graph, call[0])["kind"], "action");
+    let prop = at_line(&graph, "go", line(source, "    go(2)"));
+    assert_eq!(prop.len(), 1);
+    assert_eq!(target(&graph, prop[0])["kind"], "prop");
+    // A prop call writes the owner's slots, none of this component's.
+    let tap = definition(&graph, "action", "tap", None);
+    assert_eq!(tap["writes"], serde_json::json!(["taps"]));
+}
+
+#[test]
+fn an_ambiguous_call_in_an_imported_component_is_refused_alike_with_its_declaration() {
+    // LLP 1089 D1: build and navigation report the same refusal, its
+    // related location in the imported file where the prop is declared.
+    let f = Fixture::new("ambiguous");
+    let viewer = f.write(
+        "viewer.contract",
+        "component Viewer\n  props\n    close: action\n  action swiped\n    close()\n  view\n    button press=swiped testId=\"swipe\"\n      text \"x\"\n",
+    );
+    let root = f.write(
+        "app.contract",
+        "use Viewer from \"./viewer.contract\"\ncomponent App\n  state open = true\n  action dismiss\n    open = false\n  view\n    Viewer(close=dismiss)\n",
+    );
+    let build = contract::compile_path(&root).unwrap_err();
+    let query = contract::symbols_json(&root, None).unwrap_err();
+    assert_eq!(build, query);
+    assert_eq!(build.id, "syntax-call-ambiguous", "{build}");
+    let viewer = viewer.canonicalize().unwrap();
+    assert_eq!(build.file.as_deref(), Some(viewer.as_path()));
+    assert_eq!(build.span.line, 5);
+    let related = build.related.first().expect("the declaration");
+    assert_eq!(
+        (related.file.as_deref(), related.span.line),
+        (Some(viewer.as_path()), 3)
+    );
+}

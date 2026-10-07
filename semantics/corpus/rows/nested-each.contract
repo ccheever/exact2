@@ -1,0 +1,26 @@
+// Nested `each`: inner rows read the outer item and index; testIds combine
+// both indices.
+shape Group
+  name: string
+  members: list<string>
+
+component App
+  resource groups = groups() as shape list<Group>
+  state last = ""
+  action choose(g: string, m: string, gi: number, mi: number)
+    last = `${gi}.${mi} ${m} in ${g}`
+  view
+    column
+      text last testId="last"
+      each g, gi in groups key=gi
+        column testId=`group-${gi}`
+          text g.name testId=`gname-${gi}`
+          each m, mi in g.members key=mi
+            button m press=choose(g.name, m, gi, mi) testId=`m-${gi}-${mi}`
+              text `${gi}/${mi}/${m}` testId=`mt-${gi}-${mi}`
+
+test "nested taps"
+  tap "m-0-0"
+  tap "m-1-0"
+  tap "m-0-1"
+  tap "m-2-2"

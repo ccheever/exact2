@@ -33,7 +33,7 @@ fn list(
     let num = b.primitive(TypeKind::Number);
     let zero = b.constant(&Value::Number(0.0));
     let slot = b.slot(&format!("row_counter_{}", region.0), num, zero);
-    b.set_slot_owner(slot, region);
+    b.set_slot_owner(slot, arms[0]);
     b.node(NodeType::View as u8, None, Some(arms[0]), 0, &[], &[], None)
 }
 
@@ -315,4 +315,53 @@ fn ordinary_eager_lists_may_enclose_or_be_inside_a_virtual_collection() {
     assert_eq!(disabled_inner.tree.collections().len(), 1);
     let disabled_outer = from_plan(nested_plan(2, false, true, false)).unwrap();
     assert_eq!(disabled_outer.tree.collections().len(), 2);
+}
+
+/// A `scroll-restoration` that traps refuses the tree as every other
+/// binding of a collection does (LLP 1090 D6), where it once read as `auto`.
+#[test]
+fn a_trapping_scroll_restoration_is_refused_like_every_binding() {
+    let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
+    let enabled = b.constant(&Value::Bool(true));
+    let height = b.constant(&Value::Number(320.0));
+    let restoration = code(&mut b, |a| {
+        a.simple(Opcode::None).simple(Opcode::Unwrap);
+    });
+    let root = b.node(
+        NodeType::List as u8,
+        None,
+        None,
+        0,
+        &[
+            binding(BindingKind::Prop, PropId::Virtualized as u16, enabled),
+            binding(
+                BindingKind::Style,
+                exact_kernel::StyleId::Height as u16,
+                height,
+            ),
+            binding(
+                BindingKind::Prop,
+                PropId::ScrollRestoration as u16,
+                restoration,
+            ),
+        ],
+        &[],
+        None,
+    );
+    let subject = b.constant(&values(10));
+    let key = code(&mut b, |a| {
+        a.load_item(0);
+    });
+    let (_, arms) = b.region(RegionKind::Each, Some(root), None, 0, subject, key, 1);
+    b.node(NodeType::View as u8, None, Some(arms[0]), 0, &[], &[], None);
+    let error = from_plan(b.finish().unwrap())
+        .err()
+        .expect("the trap refuses the tree");
+    assert!(
+        matches!(
+            error,
+            InstanceError::Trap(crate::vm::Trap::UnwrapNone { .. })
+        ),
+        "{error:?}"
+    );
 }

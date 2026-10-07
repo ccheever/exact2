@@ -108,7 +108,7 @@ component NewMessageSheet
                 text person.name font-size=17
                   color=(recipientSelection == person.id ? "#ffffff": "light-dark(#007aff, #0a84ff)")
                   line-clamp=1
-            input id="recipient-search"
+            input appearance="none" id="recipient-search"
               testId="recipient-search"
               autocapitalize="none"
               autocorrect="off"
@@ -223,7 +223,7 @@ component NewMessageSheet
               padding-top=6
               padding-bottom=6
               gap=5
-              textarea id="new-composer"
+              textarea appearance="none" id="new-composer"
                 testId="new-composer"
                 disabled=(not editable)
                 value=newDraft

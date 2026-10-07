@@ -239,6 +239,7 @@ dependencies = [
  "exact-num",
  "exact-plan",
  "icu_locale",
+ "serde_json",
 ]
 
 [[package]]
@@ -286,6 +287,17 @@ checksum = "78c8292055d1c1df0cce5d180393dc8cce0abec0a7102adb6c7b1eef6016d60a"
 dependencies = [
  "generic-array",
  "typenum",
+]
+
+[[package]]
+name = "cssparser"
+version = "0.37.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c9cdaae01d5ed7882b04d795e7f752f46ff52d2fa3b50a20d28c464510bba98"
+dependencies = [
+ "dtoa-short",
+ "itoa",
+ "smallvec",
 ]
 
 [[package]]
@@ -392,6 +404,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "117240f60069e65410b3ae1bb213295bd828f707b5bec6596a1afc8793ce0cbc"
 
 [[package]]
+name = "dtoa"
+version = "1.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c3cf4824e2d5f025c7b531afcb2325364084a16806f6d47fbc1f5fbd9960590"
+
+[[package]]
+name = "dtoa-short"
+version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd1511a7b6a56299bd043a9c167a6d2bfb37bf84a6dfceaba651168adfb43c87"
+dependencies = [
+ "dtoa",
+]
+
+[[package]]
 name = "ed25519"
 version = "2.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -438,6 +465,7 @@ name = "exact-bake"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-color",
  "exact-filesystem",
  "exact-gpu-reflect",
  "exact-kernel",
@@ -452,6 +480,15 @@ dependencies = [
 name = "exact-canvas"
 version = "0.1.0"
 dependencies = [
+ "exact-color",
+ "exact-motion",
+ "exact-num",
+]
+
+[[package]]
+name = "exact-color"
+version = "0.1.0"
+dependencies = [
  "exact-num",
 ]
 
@@ -463,6 +500,7 @@ dependencies = [
  "libc",
  "serde_json",
  "sha2",
+ "windows-sys",
 ]
 
 [[package]]
@@ -495,9 +533,11 @@ name = "exact-game-audio"
 version = "0.1.0"
 dependencies = [
  "exact-game",
+ "libloading",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
+ "windows",
 ]
 
 [[package]]
@@ -508,6 +548,7 @@ dependencies = [
  "ctt-astcenc",
  "ctt-intel-texture-compressor",
  "exact-game",
+ "flate2",
  "gltf",
  "image",
  "lewton",
@@ -538,8 +579,10 @@ dependencies = [
  "exact-game-bake",
  "exact-gpu",
  "exact-gpu-reflect",
+ "flate2",
  "glam 0.33.7",
  "serde_json",
+ "sha2",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
@@ -572,6 +615,7 @@ dependencies = [
 name = "exact-grants"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
  "url",
 ]
 
@@ -579,8 +623,11 @@ dependencies = [
 name = "exact-kernel"
 version = "0.1.0"
 dependencies = [
+ "cssparser",
+ "exact-color",
  "exact-motion",
  "exact-num",
+ "exact-svg-filter",
  "exact-textflow",
  "serde",
  "serde_json",
@@ -592,6 +639,7 @@ dependencies = [
 name = "exact-motion"
 version = "0.1.0"
 dependencies = [
+ "exact-color",
  "exact-num",
  "libm",
 ]
@@ -632,6 +680,10 @@ dependencies = [
  "exact-route",
  "sha2",
 ]
+
+[[package]]
+name = "exact-svg-filter"
+version = "0.1.0"
 
 [[package]]
 name = "exact-textflow"
@@ -835,6 +887,7 @@ dependencies = [
  "log",
  "presser",
  "thiserror",
+ "windows",
 ]
 
 [[package]]
@@ -1629,6 +1682,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
+name = "range-alloc"
+version = "0.1.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca45419789ae5a7899559e9512e58ca889e41f04f1f2445e9f4b290ceccd1d08"
+
+[[package]]
 name = "rapier3d"
 version = "0.35.3"
 dependencies = [
@@ -1945,6 +2004,7 @@ name = "taffy"
 version = "0.14.0"
 dependencies = [
  "arrayvec",
+ "cssparser",
  "serde",
  "slotmap",
  "smallvec",
@@ -2208,6 +2268,7 @@ dependencies = [
  "android_system_properties",
  "arrayvec",
  "ash",
+ "bit-set",
  "bitflags",
  "block2",
  "bytemuck",
@@ -2226,11 +2287,13 @@ dependencies = [
  "objc2-foundation",
  "objc2-metal",
  "objc2-quartz-core",
+ "once_cell",
  "ordered-float",
  "parking_lot",
  "portable-atomic",
  "portable-atomic-util",
  "profiling",
+ "range-alloc",
  "raw-window-handle",
  "raw-window-metal",
  "renderdoc-sys",
@@ -2240,6 +2303,7 @@ dependencies = [
  "wgpu-naga-bridge",
  "wgpu-types",
  "windows",
+ "windows-core",
 ]
 
 [[package]]

@@ -1,37 +1,44 @@
 //! One acknowledged interaction picture and one submitted picture. Headless
 //! and agent frames remain immediate; no glyph/command graph is copied.
 use super::*;
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "android", test))]
 use crate::paint::Presentation;
 use crate::paint::ScrollBounds;
+use exact_kernel::id::IdMap;
 use exact_kernel::{Kernel, NodeKey};
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "android", test))]
 use std::cell::RefCell;
 use std::rc::Rc;
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "android", test))]
 use std::sync::Arc;
 
 struct Identity {
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "android", test))]
     origin: Rc<()>,
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "android", test))]
     succeeded: bool,
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "android", test))]
     activatable: bool,
 }
 struct Witness {
     origin: Rc<()>,
-    keys: BTreeMap<ViewId, NodeKey>,
-    scroll: BTreeMap<ViewId, ScrollBounds>,
-    parents: BTreeMap<ViewId, Option<ViewId>>,
+    /// Each painted node's key, parent and (a box's) scroll bounds: one
+    /// table, sized once per paint.
+    nodes: IdMap<ViewId, Seen>,
     document: (f32, f32),
     viewport: (f32, f32),
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "android", test))]
     scale: u32,
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "android", test))]
     model_scroll: BTreeMap<ViewId, collection::ModelScroll>,
 }
-#[cfg(any(target_os = "linux", test))]
+/// What a picture showed of one node.
+struct Seen {
+    key: NodeKey,
+    parent: Option<ViewId>,
+    scroll: Option<ScrollBounds>,
+}
+#[cfg(any(target_os = "linux", target_os = "android", test))]
 struct Picture {
     paint: Presentation,
     boxes: Vec<PaintedBox>,
@@ -40,7 +47,7 @@ struct Picture {
 
 /// The pending pixel owner. ACK consumes its metadata even if a caller retains
 /// the pixel Arc for VNC, so acknowledged paragraph history cannot accumulate.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "android", test))]
 pub(crate) struct SubmittedFrame {
     pub(crate) pixels: Arc<Pixmap>,
     identity: Rc<Identity>,
@@ -104,8 +111,9 @@ impl State {
             let Some(node) = kernel.node(id) else {
                 return false;
             };
-            if a.keys.get(&id) != Some(&node.key)
-                || a.parents.get(&id).copied() != Some(node.parent)
+            let seen = a.nodes.get(&id);
+            if seen.map(|s| s.key) != Some(node.key)
+                || seen.map(|s| s.parent) != Some(node.parent)
                 || node.style.display == exact_kernel::Display::None
             {
                 return false;
@@ -121,7 +129,7 @@ impl State {
         Some(
             self.witness()
                 .filter(|_| self.allows(kernel, id))
-                .and_then(|a| a.scroll.get(&id).copied())
+                .and_then(|a| a.nodes.get(&id).and_then(|s| s.scroll))
                 .unwrap_or(ScrollBounds {
                     axes: (Overflow::Hidden, Overflow::Hidden),
                     max: (0., 0.),
@@ -134,7 +142,7 @@ impl State {
         }
         self.witness()
             .filter(|_| self.allows(kernel, id))
-            .and_then(|a| a.parents.get(&id).copied().flatten())
+            .and_then(|a| a.nodes.get(&id).and_then(|s| s.parent))
             .filter(|parent| self.allows(kernel, *parent))
     }
     pub(super) fn document(&self) -> Option<(f32, f32)> {
@@ -165,7 +173,7 @@ impl<D: DataSource> Presenter<D> {
             })
     }
 
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "android", test))]
     pub(crate) fn display_frame(&mut self) -> Option<SubmittedFrame> {
         if self.display.blocked() {
             return None;
@@ -174,6 +182,7 @@ impl<D: DataSource> Presenter<D> {
         // afterward moves B into its receipt, without deep-copying any payload.
         let old_paint = self.brush.presentation();
         let old_boxes = std::mem::take(&mut self.boxes);
+        self.boxes_serial += 1;
         self.display.active = true;
         self.display.rendering = true;
         let pixels = self.frame();
@@ -187,28 +196,35 @@ impl<D: DataSource> Presenter<D> {
         let kernel = self.host.kernel();
         let mut witness = Witness {
             origin: self.display.origin.clone(),
-            keys: BTreeMap::new(),
-            scroll: BTreeMap::new(),
-            parents: BTreeMap::new(),
+            nodes: IdMap::default(),
             document: self.live_document(),
             viewport: self.viewport,
             scale: self.brush.scale.to_bits(),
             model_scroll: self.painted_collection_scroll(&self.boxes),
         };
         if self.last_frame_succeeded {
+            witness.nodes.reserve(self.boxes.len());
             for b in &self.boxes {
                 if let Some(n) = kernel.node(b.id) {
-                    witness.keys.insert(b.id, n.key);
-                    witness.parents.insert(b.id, n.parent);
-                    witness.scroll.insert(
+                    let scroll = Some(self.brush.scroll_bounds(
+                        kernel,
+                        self.host.content_region(),
+                        &n,
+                        limits.get(&b.id).copied(),
+                    ));
+                    witness.nodes.insert(
                         b.id,
-                        self.brush.scroll_bounds(
-                            kernel,
-                            self.host.content_region(),
-                            &n,
-                            limits.get(&b.id).copied(),
-                        ),
+                        Seen {
+                            key: n.key,
+                            parent: n.parent,
+                            scroll,
+                        },
                     );
+                    // An `svg`'s elements paint inside its box and are hit
+                    // there (`svg_hit`), with no boxes of their own.
+                    if n.node_type == NodeType::Svg {
+                        witness_svg(kernel, &n, &mut witness);
+                    }
                 }
             }
         }
@@ -217,6 +233,7 @@ impl<D: DataSource> Presenter<D> {
             boxes: std::mem::replace(&mut self.boxes, old_boxes),
             witness,
         };
+        self.boxes_serial += 1;
         self.display.pending = Some(identity.clone());
         Some(SubmittedFrame {
             pixels,
@@ -225,7 +242,7 @@ impl<D: DataSource> Presenter<D> {
         })
     }
 
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "android", test))]
     pub(crate) fn display_complete(&mut self, frame: &SubmittedFrame) -> bool {
         if !self
             .display
@@ -244,6 +261,7 @@ impl<D: DataSource> Presenter<D> {
                 let model_scroll = std::mem::take(&mut picture.witness.model_scroll);
                 self.brush.replace_presentation(picture.paint);
                 self.boxes = picture.boxes;
+                self.boxes_serial += 1;
                 self.display.acknowledged = Some(picture.witness);
                 self.retire_acknowledged_pointer();
                 self.acknowledge_collection_scroll(model_scroll);
@@ -306,3 +324,23 @@ impl<D: DataSource> Presenter<D> {
 }
 #[cfg(test)]
 mod tests;
+
+/// Witness an `svg`'s element subtree, so a hit on one of its elements finds
+/// its handler through the painted `svg` (an attached display allows only
+/// what the picture showed).
+#[cfg(any(target_os = "linux", target_os = "android", test))]
+fn witness_svg(kernel: &Kernel, node: &exact_kernel::NodeRef<'_>, witness: &mut Witness) {
+    for id in node.children() {
+        if let Some(child) = kernel.node(id) {
+            // A box's own scroll bounds stay (an element that is also a box).
+            let seen = witness.nodes.entry(id).or_insert(Seen {
+                key: child.key,
+                parent: child.parent,
+                scroll: None,
+            });
+            seen.key = child.key;
+            seen.parent = child.parent;
+            witness_svg(kernel, &child, witness);
+        }
+    }
+}

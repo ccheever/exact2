@@ -1,4 +1,4 @@
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 import QuartzCore
 
@@ -9,11 +9,20 @@ import QuartzCore
 /// focal point; the anchor moves whenever a recognizer starts or stops or the
 /// finger count changes, which also absorbs UIKit's centroid jump.
 final class TransformContact {
+    #if os(tvOS)
+    // tvOS has no pinch; nothing makes a contact there.
+    let pinch: UIGestureRecognizer
+    #else
     let pinch: UIPinchGestureRecognizer
+    #endif
     var panning = false, pinching = false
     /// The pair's value, the focal point (window points) and pinch scale at the anchor.
     var anchor: (value: TransformDragPosition, focal: CGPoint, scale: CGFloat, touches: Int)?
+    #if os(tvOS)
+    init(_ pinch: UIGestureRecognizer) { self.pinch = pinch }
+    #else
     init(_ pinch: UIPinchGestureRecognizer) { self.pinch = pinch }
+    #endif
 }
 
 extension NodeView {
@@ -29,6 +38,8 @@ extension NodeView {
         return TransformDragPosition(matrix: source.affineTransform(), center: .zero)
     }
     func updateTransformDragGesture() {
+        // tvOS has no multi-finger pan or pinch.
+        #if !os(tvOS)
         if presenter?.transformBindings[id]?.target != nil, transformRecognizer == nil {
             let pan = UIPanGestureRecognizer(target: self, action: #selector(transformDragging(_:)))
             pan.maximumNumberOfTouches = 2; pan.delegate = self
@@ -43,14 +54,54 @@ extension NodeView {
             if let pinch = transformContact?.pinch { removeGestureRecognizer(pinch) }
             transformContact = nil
         }
+        #endif
     }
     /// The binding's recognizers: eligible handles only, and the pinch only
     /// where the platform would not zoom — a node from here up whose
     /// `touch-action` excludes `pinch-zoom`, as the browser decides (§2).
+    /// The pan leaves the platform an axis the handle's own `touch-action`
+    /// names when a scroller would take it (rule 2: `pan-x` on a pager's
+    /// photo pages it sideways), as a browser cancels the pointer; `auto`
+    /// and `manipulation` keep every drag the binding's, and a pan joining
+    /// the binding's pinch is always admitted (rule 6).
     func transformShouldBegin(_ gesture: UIGestureRecognizer) -> Bool? {
         guard gesture === transformRecognizer || gesture === transformContact?.pinch else { return nil }
         guard SwipeInput.allows(self), presenter?.transformBindings[id]?.target != nil else { return false }
-        return gesture === transformRecognizer || !allowsPinchZoom
+        guard gesture === transformRecognizer else { return !allowsPinchZoom }
+        let action = style["touch_action"]?.string ?? "auto"
+        guard action != "auto", action != "manipulation", let pan = gesture as? UIPanGestureRecognizer else { return true }
+        if let pinch = transformContact?.pinch, pinch.state == .began || pinch.state == .changed { return true }
+        let velocity = pan.velocity(in: self), translation = pan.translation(in: self)
+        let direction = velocity == .zero ? translation : velocity
+        guard direction != .zero else { return true }
+        let location = pan.location(in: self)
+        return !platformPans(direction, from: CGPoint(x: location.x - translation.x, y: location.y - translation.y))
+    }
+    /// Whether the platform takes a drag in `direction` begun at `start`
+    /// (this view's points): `touch-action` intersected from the node hit
+    /// there up through the scroller that would move — the nearest enabled
+    /// one that can on that axis (its insets count), or past one at its edge to the
+    /// scroller it chains to — its owner included, as CSS and
+    /// `ScrollView.gestureRecognizerShouldBegin` decide. With no such
+    /// scroller nothing would take it.
+    func platformPans(_ direction: CGPoint, from start: CGPoint) -> Bool {
+        let horizontal = abs(direction.x) > abs(direction.y)
+        var view: UIView? = hitTest(start, with: nil) ?? self
+        while let current = view {
+            if let scroll = current as? ScrollView {
+                let i = scroll.adjustedContentInset
+                let room = horizontal ? scroll.contentSize.width + i.left + i.right - scroll.bounds.width
+                                      : scroll.contentSize.height + i.top + i.bottom - scroll.bounds.height
+                if scroll.isScrollEnabled, (horizontal ? scroll.scrollsX : scroll.scrollsY) && room > 0.5 {
+                    if let owner = scroll.superview as? NodeView, !owner.allowsTouchPan(direction) { return false }
+                    if !scroll.chains(direction) { return true }
+                }
+            } else if let node = current as? NodeView, !node.allowsTouchPan(direction) {
+                return false
+            }
+            view = current.superview
+        }
+        return false
     }
     var allowsPinchZoom: Bool {
         var view: UIView? = self
@@ -72,6 +123,7 @@ extension NodeView {
         guard let clipID = presenter?.transformBindings[id]?.clip, let clip = presenter?.views[clipID], let window else { return nil }
         return clip.convert(CGPoint(x: clip.bounds.midX, y: clip.bounds.midY), to: window)
     }
+    #if !os(tvOS)
     @objc func transformDragging(_ gesture: UIGestureRecognizer) {
         guard let contact = transformContact, let pan = transformRecognizer else { return }
         let time = CACurrentMediaTime(), isPan = gesture === pan
@@ -113,6 +165,7 @@ extension NodeView {
         default: break
         }
     }
+    #endif
 }
 extension Presenter {
     func transformFacts(_ binding: TransformDragBinding) -> TransformGeometryFacts? {

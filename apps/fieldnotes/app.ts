@@ -135,8 +135,9 @@ async function library(query: string, storage: Storage): Promise<Library> {
     const result = await withDatabase(storage,db=>notes(db,query));
     return {...result,message:'',ready:true};
   } catch (error) {
-    const why=message(error);
-    return {notes:[],total:0,message:why.includes('unsupported by this host')||why.includes('during bake') ? 'Opening your notebook…' : 'Could not open your notebook: '+why,ready:false};
+    // A refusal's code says why (docs/reference.md): no storage yet at bake.
+    const code=error && typeof error==='object' && 'code' in error ? error.code : undefined;
+    return {notes:[],total:0,message:code==='bake'||code==='unsupported' ? 'Opening your notebook…' : 'Could not open your notebook: '+message(error),ready:false};
   }
 }
 async function saveNote(noteId:string,title:string,body:string,pinned:boolean,version:number,storage:Storage,store:Store): Promise<Saved> {

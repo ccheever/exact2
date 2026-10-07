@@ -13,7 +13,7 @@ impl<D: DataSource> Presenter<D> {
         region: crate::content_region::ContentRegionRegistration,
     ) -> Result<(Self, Option<String>), HostError> {
         let (mut presenter, error) = Self::boot_with_assets(
-            plan,
+            crate::host::PlanBytes::Copied(plan),
             data,
             viewport,
             scale,
@@ -27,6 +27,7 @@ impl<D: DataSource> Presenter<D> {
         Ok((presenter, error))
     }
     /// Region completion readiness. No timer or input event is needed to resume.
+    #[cfg(unix)]
     pub fn content_region_fd(&self) -> Option<std::os::unix::io::RawFd> {
         self.host.content_region_fd()
     }
@@ -50,6 +51,9 @@ impl<D: DataSource> Presenter<D> {
         self.host
             .sync_canvases(self.brush.scale as f64, true, &self.assets);
         self.brush.canvases = self.host.canvas_snapshots();
+        self.brush
+            .canvases
+            .extend(self.surfaces.pixels(&mut self.host, self.brush.scale));
         // The display carrier stages the paint's owners/boxes and publishes
         // them only on the matching flip. Headless/agent frames stay immediate.
         let deferred = self.display.submitting();
@@ -59,6 +63,8 @@ impl<D: DataSource> Presenter<D> {
         if let Some(error) = self.refine_collections() {
             self.host.log(error);
         }
+        let dirty = self.host.take_row_dirty();
+        self.brush.rows_dirty(self.host.kernel(), dirty);
         let roots = self.host.roots();
         let collection_limits = if self.host.content_region().is_some() {
             self.collection_scroll_limits()
@@ -76,6 +82,7 @@ impl<D: DataSource> Presenter<D> {
         );
         let model_scroll = deferred.then(|| self.collection_paint_scroll()).flatten();
         let menu = self.menu_paint();
+        let selection = self.focus.map(|id| self.field_selection(id));
         let host = &self.host;
         let presented = |id: ViewId| host.presented(id);
         let scene = Scene {
@@ -83,12 +90,15 @@ impl<D: DataSource> Presenter<D> {
             hidden: &|id| host.route_visibility(id).0,
             roots: &roots,
             presented: &presented,
+            paths: &|id| host.presented_path(id),
             scroll: model_scroll.as_ref().unwrap_or(&self.scroll),
             page: self.page,
             images: &self.images.bitmaps,
             focus: self.focus,
+            selection,
             pointer: self.pointer,
             controls: &self.controls,
+            chosen: &self.chosen,
             menu,
         };
         let region = host.content_region();
@@ -184,6 +194,7 @@ impl<D: DataSource> Presenter<D> {
             self.host.log(note);
         }
         self.boxes = boxes;
+        self.boxes_serial += 1;
         if self.last_frame_succeeded {
             self.host.flow_damage.clear();
         }

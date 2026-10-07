@@ -25,7 +25,7 @@ pub use layout::{layout_presented, LayoutMotion};
 pub use paint::PaintMotion;
 
 use crate::generated::{
-    BoxSizing, Display, InterpolateSize, NodeType, PropId, StyleId, StyleMask, StyleProps,
+    BoxSizing, Display, InterpolateSize, NodeType, PropId, StyleId, StyleProps,
 };
 use crate::id::NodeKey;
 use crate::kernel::Kernel;
@@ -33,6 +33,19 @@ use crate::style::{ColorValue, Dimension};
 use crate::txn::CommitReceipt;
 use exact_motion::{Animations, Change, Engine, EngineError, Property, Transitions, Value};
 use std::collections::BTreeMap;
+
+/// The live nodes a commit restates to motion, once each: those it created
+/// or touched, and those a producer renewed (LLP 1078).
+pub fn receipt_nodes(receipt: &CommitReceipt) -> impl Iterator<Item = NodeKey> + '_ {
+    let renewed: crate::id::IdSet<NodeKey> = receipt.renewed.iter().copied().collect();
+    receipt
+        .created
+        .iter()
+        .chain(&receipt.touched)
+        .copied()
+        .filter(move |key| !renewed.contains(key))
+        .chain(receipt.renewed.iter().copied())
+}
 
 /// The engine's node number for a kernel node.
 pub fn motion_node(key: NodeKey) -> u64 {
@@ -64,6 +77,10 @@ pub struct MotionSync {
     /// Its targets are not here: a host observes `Property::Layout` after
     /// layout, from the laid-out origin in the parent.
     pub layout: Vec<(u64, Transitions)>,
+    /// Each created or touched node's clock timeline, its
+    /// `animation-timeline: clock(Name)` (LLP 1055.002). Before `animations`:
+    /// the plays they start join it once every row is applied.
+    pub clocks: Vec<(u64, Option<String>)>,
     /// Each created or touched node's `animation` row (LLP 1055 D5).
     pub animations: Vec<(u64, Animations)>,
     /// Each created or touched node's drag timeline rows, and each consumer
@@ -73,11 +90,23 @@ pub struct MotionSync {
     pub timelines: Vec<TimelineRows>,
     /// The sync's eligible targets; ordinary receipt sync has four per node.
     pub changes: Vec<Change>,
+    /// Each created or touched `path`'s `d`, absolute (LLP 1055.000 D15):
+    /// `None` unless its `transition` covers `d` and the data is whole.
+    pub paths: Vec<(u64, Option<exact_motion::PathValue>)>,
 }
 
 impl MotionSync {
     /// Feed the engine, in order.
     pub fn apply(&self, engine: &mut Engine) -> Result<(), EngineError> {
+        // A clock timeline's joins wait for every row (LLP 1055.002): the
+        // start a join takes does not depend on the order of the nodes.
+        engine.hold_clock_joins();
+        let applied = self.apply_rows(engine);
+        engine.join_clocks();
+        applied
+    }
+
+    fn apply_rows(&self, engine: &mut Engine) -> Result<(), EngineError> {
         for node in &self.removed {
             engine.remove(*node);
         }
@@ -92,6 +121,12 @@ impl MotionSync {
         }
         for change in &self.changes {
             engine.observe(*change)?;
+        }
+        for (node, path) in &self.paths {
+            engine.observe_path(*node, path.clone());
+        }
+        for (node, clock) in &self.clocks {
+            engine.set_animation_clock(*node, clock.as_deref());
         }
         for (node, animations) in &self.animations {
             engine.set_animations(*node, animations)?;
@@ -114,14 +149,20 @@ pub type TimelineRows = (
 );
 
 /// The animatable rows of one style, as engine values. CSS's own property
-/// vocabulary: `translate` (two lengths), `scale`, `rotate` (degrees),
+/// vocabulary: `translate` (two lengths, then two percentages of the box),
+/// `scale`, `rotate` (degrees),
 /// `opacity`. Height is intentionally absent: only an explicitly registered
 /// owner is adopted through [`Kernel::height_motion_sync`], including at boot.
 pub fn targets(style: &StyleProps) -> [(Property, Value); 4] {
     [
         (
             Property::Translate,
-            Value::new(style.translate.x as f64, style.translate.y as f64),
+            Value::four(
+                style.translate.x as f64,
+                style.translate.y as f64,
+                style.translate_percent.x as f64,
+                style.translate_percent.y as f64,
+            ),
         ),
         (Property::Scale, Value::scalar(style.scale as f64)),
         (Property::Rotate, Value::scalar(style.rotate as f64)),
@@ -176,9 +217,27 @@ fn paint_bit(property: Property) -> u16 {
         .map_or(0, |i| 1 << i)
 }
 
-fn color(c: ColorValue, dark: bool) -> Value {
+fn color(c: ColorValue, dark: bool) -> Option<Value> {
+    // LLP 1100 D3: a profile's colour is never interpolated; it flips discretely.
+    if matches!(c, ColorValue::Profiled(_)) {
+        return None;
+    }
+    // LLP 1100 D2: a wide colour moves in Oklab, unclipped.
+    if let ColorValue::Wide(id) = c {
+        if let Some(w) = crate::style::wide::wide(id) {
+            let half = w.half(dark);
+            let linear = half.linear_srgb();
+            // Moving stores signed 1/2048ths. A color outside that range
+            // must change discretely, never flatten at the storage ceiling.
+            if linear.iter().any(|v| !(-16.0..=15.999).contains(v)) {
+                return None;
+            }
+            let [l, a, b] = exact_color::MixSpace::Oklab.from_linear_srgb(linear);
+            return Some(Value::oklab(l, a, b, half.alpha));
+        }
+    }
     let c = c.resolve(dark);
-    Value::rgba8(c.r(), c.g(), c.b(), c.a())
+    Some(Value::rgba8(c.r(), c.g(), c.b(), c.a()))
 }
 
 /// A node's paint targets under an appearance (LLP 1055.000 D6, LLP 1062
@@ -202,14 +261,14 @@ pub fn color_targets(
     dark: bool,
 ) -> Vec<(Property, Option<Value>)> {
     let s = node.style;
-    if s.transition.0.is_empty() && s.animation.0.is_empty() && s.exit_animation.0.is_empty() {
+    if s.transition.0.is_empty() && s.animation.0.is_empty() && s.rare.exit_animation.0.is_empty() {
         return Vec::new();
     }
     let animated: Vec<Property> = s
         .animation
         .properties()
         .into_iter()
-        .chain(s.exit_animation.properties())
+        .chain(s.rare.exit_animation.properties())
         .collect();
     // `fill` and `stroke` paint only in an `svg`; a box's computed paint
     // is the initial one and moves nothing.
@@ -224,39 +283,34 @@ pub fn color_targets(
     }
     let text = node.text_color();
     let paint = |id: StyleId| match node.computed(id) {
-        crate::style::RowValue::Paint(crate::svg::Paint::Color(c)) => Some(color(*c, dark)),
-        crate::style::RowValue::Paint(crate::svg::Paint::CurrentColor) => Some(color(text, dark)),
+        crate::style::RowValue::Paint(crate::svg::Paint::Color(c)) => color(*c, dark),
+        crate::style::RowValue::Paint(crate::svg::Paint::CurrentColor) => color(text, dark),
         _ => None,
     };
     let [top, right, bottom, left] = s.border_colors(text);
     // @ref LLP 1077 D4 — the engine moves the list's first shadow; the
     // rest change at once (declared in LLP 1001).
     let first = s.box_shadow.0.first();
-    let shadow = first.map_or(crate::style::Color::TRANSPARENT, |f| f.color.resolve(dark));
-    let alpha = shadow.a() as f64 / 255.0;
-    let unit = |c: u8| c as f64 / 255.0;
+    let shadow = first.map_or(ColorValue::Fixed(crate::style::Color::TRANSPARENT), |f| {
+        f.color
+    });
     wanted
         .into_iter()
         .map(|p| {
             let value = match p {
-                Property::Color => Some(color(text, dark)),
-                Property::BackgroundColor => Some(color(s.background_color, dark)),
+                Property::Color => color(text, dark),
+                Property::BackgroundColor => color(s.background_color.unwrap_or(text), dark),
                 Property::Fill => paint(StyleId::Fill),
                 Property::Stroke => paint(StyleId::Stroke),
-                Property::BorderTopColor => Some(color(top, dark)),
-                Property::BorderRightColor => Some(color(right, dark)),
-                Property::BorderBottomColor => Some(color(bottom, dark)),
-                Property::BorderLeftColor => Some(color(left, dark)),
-                Property::TintColor => Some(color(s.tint_color, dark)),
+                Property::BorderTopColor => color(top, dark),
+                Property::BorderRightColor => color(right, dark),
+                Property::BorderBottomColor => color(bottom, dark),
+                Property::BorderLeftColor => color(left, dark),
+                Property::TintColor => color(s.tint_color.unwrap_or(text), dark),
                 Property::BoxShadow => Some(first.map_or(Value::ZERO, |f| {
                     Value::four(f.offset.x as f64, f.offset.y as f64, f.blur as f64, 0.0)
                 })),
-                _ => Some(Value::rgba(
-                    unit(shadow.r()),
-                    unit(shadow.g()),
-                    unit(shadow.b()),
-                    alpha,
-                )),
+                _ => color(shadow, dark),
             };
             (p, value)
         })
@@ -271,9 +325,7 @@ impl Kernel {
         let Some(node) = self.node_by_key(key) else {
             return Vec::new();
         };
-        let mut mask = StyleMask::EMPTY;
-        mask.set(StyleId::StrokeDashoffset);
-        let offset = node.computed_style(mask).stroke_dashoffset;
+        let offset = node.computed_row(StyleId::StrokeDashoffset, |s| s.stroke_dashoffset);
         let mut out = vec![(Property::StrokeDashoffset, Value::scalar(offset as f64))];
         // `r` animates as a length in user units; a percentage radius
         // resolves against its viewport at paint time and is not a target.
@@ -318,7 +370,10 @@ impl Kernel {
     /// CSS starts no transition from `display: none`.
     pub fn layout_box(&self, key: NodeKey) -> Option<Value> {
         let node = self.node_by_key(key)?;
-        node.style.layout_transition.matching(Property::Layout)?;
+        node.style
+            .rare
+            .layout_transition
+            .matching(Property::Layout)?;
         let arena = self.arena();
         let mut slot = Some(key.index);
         while let Some(s) = slot {
@@ -384,11 +439,10 @@ impl Kernel {
         dark: impl Appearance,
         owners: &mut PaintOwners,
     ) -> MotionSync {
-        for key in &receipt.destroyed {
+        for key in receipt.destroyed.iter().chain(&receipt.renewed) {
             owners.0.remove(&motion_node(*key));
         }
-        let keys = receipt.created.iter().chain(receipt.touched.iter());
-        self.paint_adopt(keys.copied(), dark, owners)
+        self.paint_adopt(receipt_nodes(receipt), dark, owners)
     }
 
     /// [`Self::paint_sync`] for chosen nodes: a host's boot, which hears the
@@ -516,9 +570,8 @@ impl Kernel {
             Dimension::Auto => {}
             _ => return None,
         }
-        let mut mask = StyleMask::EMPTY;
-        mask.set(StyleId::InterpolateSize);
-        let allowed = node.computed_style(mask).interpolate_size == InterpolateSize::AllowKeywords;
+        let allowed = node.computed_row(StyleId::InterpolateSize, |s| s.interpolate_size)
+            == InterpolateSize::AllowKeywords;
         let arena = self.arena();
         let mut slot = owner.index;
         loop {
@@ -595,12 +648,19 @@ impl Kernel {
     /// kernel produced; a key the commit destroyed resolves to nothing, which
     /// is exactly what makes it a removal.
     pub fn motion_sync(&self, receipt: &CommitReceipt) -> MotionSync {
+        // A renewed node is forgotten and heard again as new (LLP 1078).
         let mut sync = MotionSync {
-            removed: receipt.destroyed.iter().copied().map(motion_node).collect(),
+            removed: receipt
+                .destroyed
+                .iter()
+                .chain(&receipt.renewed)
+                .copied()
+                .map(motion_node)
+                .collect(),
             ..MotionSync::default()
         };
-        for key in receipt.created.iter().chain(receipt.touched.iter()) {
-            self.motion_sync_node(*key, &mut sync);
+        for key in receipt_nodes(receipt) {
+            self.motion_sync_node(key, &mut sync);
         }
         // A consumer the commit left alone whose name now finds another
         // timeline (LLP 1057.003 D4).
@@ -625,14 +685,109 @@ impl Kernel {
                     let row = if self.hidden(&d) {
                         Animations::default()
                     } else {
-                        d.style.animation.clone()
+                        self.animation_row(&d)
                     };
                     sync.animations.push((motion_node(d.key), row));
                 }
                 stack.extend(d.children());
             }
         }
+        // A list row that showed: the animations below it that waited start
+        // (LLP 1055 D13), as a resumed `animation-play-state` starts them.
+        for key in &receipt.revealed {
+            let Some(node) = self.node_by_key(*key) else {
+                continue;
+            };
+            let mut stack = vec![node.id];
+            while let Some(id) = stack.pop() {
+                let Some(d) = self.node(id) else {
+                    continue;
+                };
+                if !d.style.animation.0.is_empty()
+                    && d.style.rare.animation_trigger == crate::AnimationTrigger::View
+                    && !self.hidden(&d)
+                {
+                    sync.animations
+                        .push((motion_node(d.key), self.animation_row(&d)));
+                }
+                stack.extend(d.children());
+            }
+        }
         sync
+    }
+
+    /// A row a list mounted out of its port: whether an animation below it
+    /// waits for the row to show (`animation-trigger: view`, LLP 1055 D13).
+    /// Until [`Kernel::reveal`] those are held at their start.
+    pub fn await_view(&mut self, row: crate::ViewId) -> bool {
+        // Rows destroyed before they showed are forgotten here.
+        if self.awaiting.len() >= 256 {
+            let gone: Vec<crate::ViewId> = self
+                .awaiting
+                .iter()
+                .copied()
+                .filter(|v| self.node(*v).is_none())
+                .collect();
+            for v in gone {
+                self.awaiting.remove(&v);
+            }
+        }
+        let mut stack = vec![row];
+        while let Some(id) = stack.pop() {
+            let Some(d) = self.node(id) else {
+                continue;
+            };
+            if !d.style.animation.0.is_empty()
+                && d.style.rare.animation_trigger == crate::AnimationTrigger::View
+            {
+                self.awaiting.insert(row);
+                return true;
+            }
+            stack.extend(d.children());
+        }
+        self.awaiting.remove(&row);
+        false
+    }
+
+    /// Whether animations wait on `row` ([`Kernel::await_view`]).
+    pub fn is_awaiting(&self, row: crate::ViewId) -> bool {
+        self.awaiting.contains(&row)
+    }
+
+    /// The row shows (or is bound again where it shows): whether animations
+    /// waited on it. The commit that says so names it in
+    /// [`CommitReceipt::revealed`].
+    pub fn reveal(&mut self, row: crate::ViewId) -> bool {
+        self.awaiting.remove(&row)
+    }
+
+    /// Whether the node's animations wait for a list row above it to show.
+    pub fn awaits_view(&self, node: &crate::kernel::NodeRef<'_>) -> bool {
+        if self.awaiting.is_empty()
+            || node.style.rare.animation_trigger != crate::AnimationTrigger::View
+        {
+            return false;
+        }
+        let mut cur = Some(node.id);
+        while let Some(id) = cur {
+            if self.awaiting.contains(&id) {
+                return true;
+            }
+            cur = self.node(id).and_then(|n| n.parent);
+        }
+        false
+    }
+
+    /// The node's `animation` row as its executors hear it: every entry
+    /// paused while the node waits for its list row to show (LLP 1055 D13).
+    pub fn animation_row(&self, node: &crate::kernel::NodeRef<'_>) -> Animations {
+        let mut row = node.style.animation.clone();
+        if !row.0.is_empty() && self.awaits_view(node) {
+            for a in &mut row.0 {
+                a.paused = true;
+            }
+        }
+        row
     }
 
     /// Whether the node or an ancestor is `display: none`: CSS runs no
@@ -671,6 +826,16 @@ impl Kernel {
                     velocity: None,
                 });
             }
+            // @ref LLP 1055.000 D15 — a path's `d`, read only where a
+            // transition moves it, as a colour target is.
+            if node.node_type == NodeType::SvgPath {
+                let path = node
+                    .style
+                    .transition
+                    .matching(Property::D)
+                    .and_then(|_| crate::svg::parse_d_motion(node.props.str(PropId::D)?));
+                sync.paths.push((id, path));
+            }
             if node.node_type.is_svg_shape() {
                 for (property, value) in self.svg_targets(*key) {
                     sync.changes.push(Change {
@@ -681,15 +846,24 @@ impl Kernel {
                     });
                 }
             }
-            sync.layout.push((id, node.style.layout_transition.clone()));
+            sync.layout
+                .push((id, node.style.rare.layout_transition.clone()));
             // An empty row is how a removed animation reaches the engine; an
             // empty row on a node that never had one costs one map lookup.
             // A hidden node runs none (LLP 1055.000 D15).
             let row = if !node.style.animation.0.is_empty() && self.hidden(&node) {
                 Animations::default()
             } else {
-                node.style.animation.clone()
+                self.animation_row(&node)
             };
+            sync.clocks.push((
+                id,
+                node.style
+                    .rare
+                    .animation_timeline
+                    .clock()
+                    .map(str::to_owned),
+            ));
             sync.animations.push((id, row));
             sync.timelines
                 .push(crate::timeline::rows(self.arena(), key.index));

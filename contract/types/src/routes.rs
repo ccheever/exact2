@@ -103,6 +103,30 @@ pub(super) fn value_call(name: &str, args: &[Expr], scope: &Scope, shapes: &Shap
 }
 
 /// Router roster entries require the runtime context declared by `routes`.
+/// The router's `push` and `replace` are also the web's list and text
+/// spellings (`xs.push(x)`, `s.replace(a, b)`): a call that cannot be the
+/// router's says what to write instead (@ref LLP 1088 D7.4).
+pub(super) fn not_the_router(
+    f: Stdlib,
+    args: &[Expr],
+    scope: &Scope,
+    shapes: &Shapes,
+    span: Span,
+) -> Result<(), TypeError> {
+    let list = || {
+        args.first()
+            .is_some_and(|a| matches!(infer(a, scope, shapes), Ok(Ty::List(_))))
+    };
+    let why = match f {
+        Stdlib::Push if list() => {
+            contract_syntax::idioms::refusal("push").expect("refused")
+        }
+        Stdlib::Replace if args.len() == 3 => "`replace(nav, location)` is the router's; for text, write `replaceAll(s, find, with)`, the web's `String.prototype.replaceAll` (LLP 1088 D2)".into(),
+        _ => return Ok(()),
+    };
+    err("type-refused-idiom", why, span)
+}
+
 pub(super) fn require_table(f: Stdlib, shapes: &Shapes, span: Span) -> Result<(), TypeError> {
     let needs_table = f
         .params()

@@ -89,7 +89,7 @@ fn device_event_json_preserves_every_variant_and_refuses_fields_by_name() {
             ("pen", PointerKind::Pen),
         ] {
             let text = format!(
-                r#"{{"t":"pointer","phase":"{phase}","id":1,"x":10.5,"y":20,"kind":"{kind}","buttons":1,"at":2}}"#
+                r#"{{"t":"pointer","phase":"{phase}","id":1,"x":10.5,"y":20,"dx":-3,"dy":0.5,"kind":"{kind}","buttons":1,"at":2}}"#
             );
             assert_eq!(
                 parse_input(&text).unwrap(),
@@ -98,6 +98,8 @@ fn device_event_json_preserves_every_variant_and_refuses_fields_by_name() {
                     phase: expected,
                     x: 10.5,
                     y: 20.0,
+                    dx: -3.0,
+                    dy: 0.5,
                     kind: device,
                     buttons: 1,
                     at_ms: 2.0
@@ -142,8 +144,7 @@ fn device_event_json_preserves_every_variant_and_refuses_fields_by_name() {
         assert!(parse_input(&json.replace("1234.5", "1e999")).is_err());
         assert!(parse_input(&json.replace(phase, "invalid")).is_err());
     }
-    let pointer =
-        r#"{"t":"pointer","phase":"down","id":1,"x":10,"y":20,"kind":"mouse","buttons":1,"at":2}"#;
+    let pointer = r#"{"t":"pointer","phase":"down","id":1,"x":10,"y":20,"dx":0,"dy":0,"kind":"mouse","buttons":1,"at":2}"#;
     let mut module = Module::new(&EMPTY);
     for (text, field) in [
         (r#"{"t":"blur","at":1e999}"#.into(), "at"),
@@ -160,6 +161,8 @@ fn device_event_json_preserves_every_variant_and_refuses_fields_by_name() {
         ),
         (pointer.replace("\"x\":10", "\"x\":1e100"), "x"),
         (pointer.replace("\"y\":20", "\"y\":[]"), "y"),
+        (pointer.replace("\"dx\":0,", ""), "dx"),
+        (pointer.replace("\"dy\":0", "\"dy\":1e100"), "dy"),
     ] {
         assert!(!module.input_json(1, &text));
         let error = module.take_error();
@@ -571,6 +574,7 @@ fn headless_ownership_keeps_every_non_drawing_seam() {
         period_ms: 0.0,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     for _ in 0..2 {
         assert_eq!(m.render(id, &f), None);
@@ -927,6 +931,7 @@ fn every_render_prepares_retained_assets_before_surface_readiness() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     assert!(module.readback(id, &frame).is_some());
     module.lose_device();

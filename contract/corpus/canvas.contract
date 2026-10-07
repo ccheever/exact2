@@ -19,6 +19,6 @@ component Map
       canvas testId="bare"
       canvas surface=aurora(`${zoom}`) width="100%" height=120 testId="sky"
         column padding=12 gap=8
-          button press=zoomIn aria-label="Zoom in the sky" testId="sky-zoom"
+          button press=zoomIn aria-label="Zoom in the sky" testId="sky-zoom" text-align="start"
             text "Zoom" color="#ffffff"
-          input value=label input=setLabel placeholder="Label" aria-label="Label" testId="sky-label" color="#ffffff"
+          input appearance="none" value=label input=setLabel placeholder="Label" aria-label="Label" testId="sky-label" color="#ffffff"

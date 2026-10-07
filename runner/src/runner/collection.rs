@@ -11,6 +11,32 @@ impl<D: DataSource> Runner<D> {
             .map(Tree::collections)
             .unwrap_or_default()
     }
+    /// Each mounted list's view, data generation and axis ([`Tree::collection_data`]).
+    pub fn collection_data(&self) -> Vec<(ViewId, u64, bool)> {
+        self.tree
+            .as_ref()
+            .map(Tree::collection_data)
+            .unwrap_or_default()
+    }
+    /// One list's entry of [`Runner::collections`].
+    pub fn collection(&self, view: ViewId) -> Option<CollectionSnapshot> {
+        self.tree.as_ref().and_then(|tree| tree.collection(view))
+    }
+    /// [`Tree::collection_mounted`].
+    pub fn collection_mounted(&self, view: ViewId, out: &mut Vec<(ViewId, u64)>) {
+        out.clear();
+        if let Some(tree) = &self.tree {
+            tree.collection_mounted(view, out);
+        }
+    }
+    /// [`Runner::collections`] with only each list's first mounted row
+    /// ([`Tree::collections_shallow`]).
+    pub fn collections_shallow(&self) -> Vec<CollectionSnapshot> {
+        self.tree
+            .as_ref()
+            .map(Tree::collections_shallow)
+            .unwrap_or_default()
+    }
     /// Bound borrowed traversal and count all collections/rows before copying
     /// numeric host snapshots. No keys, records or action frames are captured.
     pub fn collections_bounded(
@@ -82,14 +108,26 @@ impl<D: DataSource> Runner<D> {
         let mut ids = std::mem::take(&mut self.ids);
         let result = {
             let mut update = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
+            update.reuse = self.reuse;
             tree.update_collection(&mut update, feedback, fill)
-                .map(|changed| (changed, update.ops, update.surfaces, update.notes))
+                .map(|changed| {
+                    (
+                        changed,
+                        update.ops,
+                        update.surfaces,
+                        update.notes,
+                        update.renewed,
+                        update.shown,
+                    )
+                })
         };
         self.tree = Some(tree);
         self.ids = ids;
         let ((changed, edge), ops, surfaces) = match result {
-            Ok((changed, ops, surfaces, notes)) => {
+            Ok((changed, ops, surfaces, notes, renewed, shown)) => {
                 self.notes = notes;
+                self.renewed = renewed;
+                self.shown.extend(shown);
                 (changed, ops, surfaces)
             }
             Err(error) => {
@@ -106,7 +144,14 @@ impl<D: DataSource> Runner<D> {
             now_ms: self.now_ms,
             error: None,
         };
-        if changed || !ops.is_empty() {
+        // A row that showed with animations waiting on it is a commit of its
+        // own when the report changed nothing else (LLP 1055 D13).
+        let revealed = self
+            .shown
+            .revealed
+            .iter()
+            .any(|v| self.kernel.is_awaiting(*v));
+        if changed || !ops.is_empty() || revealed {
             match self.apply(ops) {
                 Ok(receipt) => {
                     self.publish_surfaces(surfaces);
@@ -258,5 +303,29 @@ impl EdgeState {
                         .zip(now.iter())
                         .any(|((ak, av), (bk, bv))| ak != bk || !equivalent(av, bv))
             })
+    }
+}
+
+impl<D: DataSource> Runner<D> {
+    /// After a batch applies (LLP 1055 D13): the views it renewed, taken.
+    pub(super) fn settle_shown(
+        &mut self,
+        shown: crate::instance::collection::shown::RowsShown,
+        receipt: &mut exact_kernel::CommitReceipt,
+    ) -> Vec<ViewId> {
+        // Rows that showed stop holding their animations, and rows mounted
+        // out of their port start to, before a host hears the commit.
+        let renewed = std::mem::take(&mut self.renewed);
+        for view in shown.revealed {
+            // A row bound again where it shows is heard as new (`renewed`),
+            // which starts it: only a row that stayed is named revealed.
+            if self.kernel.reveal(view) && !renewed.contains(&view) {
+                receipt.revealed.extend(self.kernel.arena().key_of(view));
+            }
+        }
+        for view in shown.awaiting {
+            self.kernel.await_view(view);
+        }
+        renewed
     }
 }

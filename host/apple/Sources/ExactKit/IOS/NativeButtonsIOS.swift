@@ -6,7 +6,7 @@
 // node's activation (D4); the node keeps keys and focus; the control is the
 // one accessibility element. A glass style's control is the glass body the
 // glass-group pass isolates (D9).
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 /// UIKit's button, as a native button's control: never a UIKit focus item
@@ -22,8 +22,21 @@ final class NativeButtonIOS: UIButton {
         var testId: String?
         var selected: Bool
         var expanded: String?
+        var pressed: String?
     }
     var written: Written?
+    /// Its natural size, kept for what it was measured with: UIKit lays the
+    /// configuration out again for each ask, and every batch asks.
+    private var measured: (written: Written?, traits: [AnyHashable], size: CGSize)?
+    var naturalSize: CGSize {
+        let t = traitCollection
+        let traits: [AnyHashable] = [t.preferredContentSizeCategory, t.legibilityWeight.rawValue, t.displayScale]
+        if let measured, measured.written == written, measured.traits == traits { return measured.size }
+        let s = intrinsicContentSize
+        let size = CGSize(width: ceil(s.width), height: ceil(s.height))
+        measured = (written, traits, size)
+        return size
+    }
     /// Whether it draws glass: a glass row on iOS 26 and later.
     var isGlass = false
     /// The configuration drawn, its name in the table's iOS column.
@@ -91,9 +104,9 @@ extension ControlHost {
         // (`LinkedDesign`), the table's earlier column: UIKit draws a glass
         // configuration there as a bordered button.
         var current = false
-        if #available(iOS 26.0, *) { current = LinkedDesign.liquidGlass }
+        if #available(iOS 26.0, tvOS 26.0, *) { current = LinkedDesign.liquidGlass }
         let name = ButtonFace.drawn(current ? face.ios : face.iosBefore26).name
-        if #available(iOS 26.0, *) {
+        if #available(iOS 26.0, tvOS 26.0, *) {
             switch name {
             case "glass": return (.glass(), name, true)
             case "prominentGlass": return (.prominentGlass(), name, true)
@@ -118,11 +131,12 @@ extension ControlHost {
     /// written only when one of them changes (a rewrite each batch would
     /// restart UIKit's own animations).
     func configureNative(_ button: NativeButtonIOS, _ owner: NodeView, accent: UIColor?) {
-        let face = presenter.buttonFace?(owner.id) ?? ButtonFace()
+        let face = self.face(owner.id)
         let written = NativeButtonIOS.Written(
             face: face, accent: accent, enabled: !owner.disabled,
-            label: owner.props["accessibilityLabel"] ?? face.title, testId: owner.props["testId"],
-            selected: owner.props["accessibilitySelected"] == "true", expanded: owner.props["accessibilityExpanded"])
+            label: owner.props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 } ?? face.title, testId: owner.props["testId"],
+            selected: owner.props["accessibilitySelected"] == "true", expanded: owner.props["accessibilityExpanded"],
+            pressed: owner.pressedState)
         guard button.written != written else { return }
         if !face.known, button.written?.face.style != face.style {
             presenter.session?.log("buttonStyle `\(face.style)` is not a button style; drawing bordered")
@@ -140,7 +154,8 @@ extension ControlHost {
         button.accessibilityLabel = written.label
         button.accessibilityIdentifier = written.testId
         if written.selected { button.accessibilityTraits.insert(.selected) } else { button.accessibilityTraits.remove(.selected) }
-        if #available(iOS 18, *) {
+        button.setAccessibilityToggle(written.pressed)
+        if #available(iOS 18, tvOS 18, *) {
             button.accessibilityExpandedStatus = written.expanded.map { $0 == "true" ? .expanded : .collapsed } ?? .unsupported
         }
         button.drawn = drawn

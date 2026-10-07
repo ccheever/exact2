@@ -51,6 +51,56 @@ pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeE
     Ok((prop, out))
 }
 
+/// Whether `value` is a CSS-wide keyword that leaves row `id` unset
+/// ([`StyleValue::unsets`]): the row is cleared, as a class choice's
+/// `none` is, and nothing is refused.
+pub fn unsets(id: u16, value: &Value) -> bool {
+    matches!(value, exact_plan::str_value!())
+        && StyleId::from_bit(id as u32)
+            .is_some_and(|style| StyleValue::Text(value.text().into()).unsets(style))
+}
+
+/// [`set_style`] for a binding of `plan`: a `platform-color()` only as one
+/// of the plan's own string literals (LLP 1095 D3), so data, a template or
+/// a concatenation never chooses which platform colour a host looks up. A
+/// literal chosen by state (a ternary's arm, a class) is still the plan's.
+pub fn set_plan_style(
+    patch: &mut StyleProps,
+    id: u16,
+    value: &Value,
+    plan: &exact_plan::Plan,
+) -> Result<StyleId, BridgeError> {
+    if let v @ exact_plan::str_value!() = value {
+        let text = v.text();
+        if text.contains("platform-color(") && !plan.strings.iter().any(|s| s == text) {
+            let style = StyleId::from_bit(id as u32).ok_or(BridgeError::UnknownStyle(id))?;
+            return Err(BridgeError::StyleKind {
+                style,
+                value: value.clone(),
+            });
+        }
+    }
+    // Profiles are parsed in the owning plan, even before a candidate is accepted.
+    // Ordinary styles allocate no declaration table.
+    let _profiles = matches!(value, exact_plan::str_value!())
+        .then(|| {
+            value
+                .text()
+                .as_bytes()
+                .windows(8)
+                .any(|w| w.eq_ignore_ascii_case(b"color(--"))
+        })
+        .unwrap_or(false)
+        .then(|| {
+            exact_kernel::style::profiled::declarations(
+                plan.profiles
+                    .iter()
+                    .map(|row| (plan.str(row.name), plan.str(row.src), plan.str(row.intent))),
+            )
+        });
+    set_style(patch, id, value, plan.stacks.len())
+}
+
 /// Set style row `id` on `patch` from `value`.
 pub fn set_style(
     patch: &mut StyleProps,
@@ -100,19 +150,30 @@ pub fn set_style(
     Ok(style)
 }
 
-/// The plan's `@keyframes` by name, parsed once per plan (LLP 1055 D5).
+/// The plan's `@keyframes` by name, each parsed once per plan (LLP 1055 D5),
+/// the first time an `animation` names it: a plan's rules are many and a
+/// first frame starts few of them.
 #[derive(Debug, Default)]
-pub struct KeyframesTable(Vec<(String, exact_motion::Keyframes)>);
+pub struct KeyframesTable(
+    Vec<(
+        String,
+        String,
+        std::cell::OnceCell<Option<exact_motion::Keyframes>>,
+    )>,
+);
 
-/// Parse the plan's `keyframes` table. The compiler validated every row; one
-/// that no longer parses (a plan from another evaluator) names nothing.
+/// The plan's `keyframes` table. The compiler validated every row; one that
+/// no longer parses (a plan from another evaluator) names nothing.
 pub fn keyframes(plan: &exact_plan::Plan) -> KeyframesTable {
     KeyframesTable(
         plan.keyframes
             .iter()
-            .filter_map(|row| {
-                let rule = exact_motion::Keyframes::parse(plan.str(row.css)).ok()?;
-                Some((plan.str(row.name).to_string(), rule))
+            .map(|row| {
+                (
+                    plan.str(row.name).to_string(),
+                    plan.str(row.css).to_string(),
+                    std::cell::OnceCell::new(),
+                )
             })
             .collect(),
     )
@@ -122,16 +183,47 @@ impl KeyframesTable {
     /// Give an `animation` row its keyframes; a name no rule has starts no
     /// animation, as in CSS, and is returned as a journal line.
     pub fn resolve(&self, row: &mut exact_motion::Animations) -> Vec<String> {
-        row.resolve(|name| self.0.iter().find(|(n, _)| n == name).map(|(_, k)| k))
-            .into_iter()
-            .map(|name| format!("animation-name `{name}` matches no keyframes: no animation"))
-            .collect()
+        row.resolve(|name| {
+            self.0
+                .iter()
+                .filter(|(n, ..)| n == name)
+                .find_map(|(_, css, rule)| {
+                    rule.get_or_init(|| exact_motion::Keyframes::parse(css).ok())
+                        .as_ref()
+                })
+        })
+        .into_iter()
+        .map(|name| format!("animation-name `{name}` matches no keyframes: no animation"))
+        .collect()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_platform_color_is_admitted_only_as_a_plan_literal() {
+        let literal = "platform-color(ios bridgeTestColor, #010203)";
+        let mut plan = exact_plan::Plan::default();
+        plan.strings.push(literal.into());
+        let color = StyleId::TextColor as u16;
+        let mut style = StyleProps::default();
+        assert!(set_plan_style(&mut style, color, &Value::str(literal), &plan).is_ok());
+        for built in [
+            "platform-color(ios bridgeTestOtherColor, #010203)",
+            "linear-gradient(platform-color(ios bridgeTestColor, #010203), #fff)",
+        ] {
+            assert!(
+                matches!(
+                    set_plan_style(&mut style, color, &Value::str(built), &plan),
+                    Err(BridgeError::StyleKind { .. })
+                ),
+                "{built}"
+            );
+        }
+        assert!(set_plan_style(&mut style, color, &Value::str("#fff"), &plan).is_ok());
+    }
 
     #[test]
     fn css_percentages_accept_browser_exponents() {
@@ -143,6 +235,6 @@ mod tests {
             0,
         )
         .unwrap();
-        assert_eq!(style.grid_template_columns.css(), "100%");
+        assert_eq!(style.rare.grid_template_columns.css(), "100%");
     }
 }

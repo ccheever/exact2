@@ -5,7 +5,7 @@ use exact_raster::{
     Demand, Gate, PixelSize, Priority, RasterKey, RasterLease, Refusal, RequestId, RequestStatus,
     Stats, ViewKey, SESSION_BYTES, SUBSCRIPTIONS,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -23,12 +23,19 @@ mod control_tests;
 #[cfg(test)]
 #[path = "image/decode_tests.rs"]
 mod decode_tests;
+#[path = "image/jpeg.rs"]
+mod jpeg_decode;
 #[path = "image/png.rs"]
 mod png_decode;
 #[path = "image/workers.rs"]
 mod workers;
 pub use assets::{AssetResolver, Assets};
 pub use bitmap::Bitmap;
+#[cfg(target_os = "android")]
+#[path = "image/hardware.rs"]
+mod hardware;
+#[cfg(target_os = "android")]
+pub use hardware::hardware_pictures;
 use workers::{Backend, Prepared, SourceOwner};
 
 struct View {
@@ -58,6 +65,13 @@ pub struct Images {
     pub loaded: Vec<(String, (u32, u32))>,
     decode_enabled: bool,
     deferred: usize,
+    /// The image nodes in preorder, as of a kernel epoch: the walk
+    /// [`Images::sync_visible`] needs, redone only after a commit.
+    pub(crate) order: Option<(u64, Vec<ViewId>)>,
+    /// Where each of those nodes' and each row group's first painted box is,
+    /// for the painted boxes of a serial and the order of an epoch: one walk
+    /// of the boxes a paint, not one a pass.
+    pub(crate) box_index: Option<(u64, u64, std::collections::HashMap<ViewId, usize>)>,
 }
 
 /// Accepted pixels and natural size, or explicit empty-source removal.
@@ -81,11 +95,37 @@ impl Images {
             loaded: Vec::new(),
             decode_enabled: true,
             deferred: 0,
+            order: None,
+            box_index: None,
         }
     }
     pub(crate) fn candidate(&self, assets: Assets) -> Self {
         Self::make(assets, self.backend.clone())
     }
+    /// Size the decoded-image budget to the screen, as the Apple host does
+    /// (`RasterLoader.viewportBudget`): eight viewport-sized RGBA bitmaps,
+    /// 32–192 MiB, so the pictures a scroll leaves stay cached for its return
+    /// instead of decoding again (on a 3x phone the 32 MiB floor held about
+    /// one screen of the heavy list's photos).
+    pub fn fit(&self, viewport: (f32, f32), scale: f32) {
+        let pixels = f64::from(viewport.0 * scale) * f64::from(viewport.1 * scale);
+        let floor = exact_raster::SESSION_BYTES as f64;
+        // EXACT_IMAGE_VIEWPORTS: how many viewports of pictures to keep
+        // decoded (8, Apple's RasterLoader rule, unless a host says).
+        let viewports = std::env::var("EXACT_IMAGE_VIEWPORTS")
+            .ok()
+            .and_then(|v| v.parse::<f64>().ok())
+            .filter(|v| *v > 0.0)
+            .unwrap_or(8.0);
+        let cap = (192.0f64 * 1024.0 * 1024.0).max(pixels * 4.0 * viewports);
+        let budget = if pixels.is_finite() && pixels > 0.0 {
+            (pixels * 4.0 * viewports).clamp(floor, cap)
+        } else {
+            floor
+        };
+        self.backend.session.set_budget(budget as u64);
+    }
+
     /// The shared session ledger, including allocations retained by old owners.
     pub fn stats(&self) -> Stats {
         self.backend.session.stats()
@@ -111,7 +151,7 @@ impl Images {
         visible: impl Fn(ViewId) -> bool,
     ) -> Vec<Report> {
         let mut reports = Vec::new();
-        let mut seen = BTreeSet::new();
+        let mut seen = std::collections::HashSet::with_capacity(live.len().min(SUBSCRIPTIONS));
         self.deferred = 0;
         for id in live {
             let Some(node) = kernel.node(*id) else {
@@ -149,8 +189,8 @@ impl Images {
                 symbol_size: None,
             });
             view.desired = (node.frame.width * scale, node.frame.height * scale);
-            view.visible = visible(*id);
-            // LLP 1035.004.000: symbols are an empty em square on Linux,
+            // LLP 1035.004.000: a symbol is an em square no file fills (the
+            // paint walk strokes a portable role's path into it, `symbol`),
             // never a file request and never the previously accepted raster.
             if source.starts_with("symbol:") {
                 if let Some((request, _)) = view.request.take() {
@@ -162,9 +202,8 @@ impl Images {
                 view.refusal = None;
                 view.displayed_source.clear();
                 self.bitmaps.remove(id);
-                let size = node
-                    .computed_style(exact_kernel::StyleMask::INHERITED)
-                    .font_size;
+                // The one row, read where it is set: no style copied a pass.
+                let size = node.computed_row(exact_kernel::StyleId::FontSize, |s| s.font_size);
                 if view.source != source || view.symbol_size != Some(size) {
                     reports.push((*id, (size > 0.).then_some((size, size))));
                     view.source = source.to_owned();
@@ -172,12 +211,25 @@ impl Images {
                 }
                 continue;
             }
+            // Only a picture loads by whether it shows: a symbol's never asked.
+            view.visible = visible(*id);
             if view.symbol_size.take().is_some() {
                 reports.push((*id, None));
             }
             if !view.visible {
-                if let Some((request, _)) = view.request.take() {
-                    self.backend.cancel(request);
+                // A decode under way finishes into the cache (`poll` lets go
+                // of it then): a row a fling carries past before its picture
+                // is decoded would otherwise throw the work away, and the
+                // next row showing that picture decode it again.
+                if let Some((request, _)) = view.request {
+                    let decoding = matches!(
+                        self.backend.session.status(request),
+                        Some(RequestStatus::Decoding)
+                    );
+                    if !decoding {
+                        self.backend.cancel(request);
+                        view.request = None;
+                    }
                 }
                 view.lease = None;
                 self.bitmaps.remove(id);
@@ -217,6 +269,29 @@ impl Images {
             self.remove(id);
         }
         reports.extend(self.poll());
+        reports
+    }
+    /// Views a commit renewed (LLP 1078): one that shows a picture of a
+    /// source its node no longer names starts as a new image does, with no
+    /// picture and no natural size; one whose source is the same keeps its
+    /// picture, as a new one would find it decoded. A symbol is resolved
+    /// from its source at every sync.
+    pub fn renew(&mut self, kernel: &Kernel, ids: &[ViewId]) -> Vec<Report> {
+        let mut reports = Vec::new();
+        for id in ids {
+            let Some(view) = self.views.get(id) else {
+                continue;
+            };
+            let source = kernel
+                .node(*id)
+                .and_then(|n| n.props.str(PropId::ImageSource).map(str::to_owned))
+                .unwrap_or_default();
+            if view.symbol_size.is_some() || view.source == source {
+                continue;
+            }
+            self.remove(*id);
+            reports.push((*id, None));
+        }
         reports
     }
     fn remove(&mut self, id: ViewId) {
@@ -260,7 +335,21 @@ impl Images {
                 }
                 _ => continue,
             };
-            if !view.visible || !self.decode_enabled {
+            if !view.visible {
+                // Its decode has finished since it went out of view: kept
+                // cold, its delivery cell free for the pictures that show.
+                if let Some((request, _)) = view.request {
+                    if !matches!(
+                        self.backend.session.status(request),
+                        Some(RequestStatus::Decoding)
+                    ) {
+                        self.backend.cancel(request);
+                        view.request = None;
+                    }
+                }
+                continue;
+            }
+            if !self.decode_enabled {
                 continue;
             }
             // Ask for the intended bucket first: a cache hit requires no new
@@ -321,6 +410,18 @@ impl Images {
                         continue;
                     }
                 };
+                // A picture of this source already decoded (or decoding) a
+                // little larger serves this view too: no second decode, no
+                // second charge.
+                let wanted = u64::from(decode.pixels.width) * u64::from(decode.pixels.height);
+                let decode = self
+                    .backend
+                    .session
+                    .covering(source, self.generation, 1, decode.pixels, wanted * 5 / 2)
+                    .filter(|p| *p != decode.pixels)
+                    .and_then(|p| png_decode::DecodePlan::new(header, (p.width, p.height)).ok())
+                    .filter(|p| p.peak_bytes() <= admission_budget)
+                    .unwrap_or(decode);
                 let demand = Demand {
                     view: view.key,
                     key: RasterKey {
@@ -449,6 +550,7 @@ impl Images {
         self.loaded.clear();
         self.generation = self.backend.generation();
     }
+    #[cfg(unix)]
     pub(crate) fn wake_fd(&self) -> std::os::fd::RawFd {
         self.backend.wake_fd()
     }
@@ -500,10 +602,13 @@ fn plan(
     }
     .min(2048. / natural.width.max(natural.height) as f32);
     let longest = natural.width.max(natural.height);
-    let bucket = ((longest as f32 * scale).ceil().max(1.) as u32)
-        .div_ceil(128)
-        .saturating_mul(128)
-        .min(longest);
+    let wanted = (longest as f32 * scale).ceil().max(1.) as u32;
+    let bucket = if header.snaps() {
+        wanted.div_ceil(32).saturating_mul(32)
+    } else {
+        wanted.div_ceil(128).saturating_mul(128)
+    }
+    .min(longest);
     let mut pixels = (
         (u64::from(natural.width) * u64::from(bucket)).div_ceil(u64::from(longest)) as u32,
         (u64::from(natural.height) * u64::from(bucket)).div_ceil(u64::from(longest)) as u32,
@@ -526,6 +631,9 @@ fn resize_changes_decode(
     previous: (f32, f32),
     next: (f32, f32),
 ) -> bool {
+    if previous == next {
+        return false;
+    }
     let (Ok(before), Ok(after)) = (
         plan(header, previous, SESSION_BYTES),
         plan(header, next, SESSION_BYTES),

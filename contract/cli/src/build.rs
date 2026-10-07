@@ -46,7 +46,7 @@ fn error(id: &str, message: String, file: Option<&str>) -> contract::CompileErro
         id: id.into(),
         message,
         span: contract_syntax::Span::default(),
-        file: file.map(Into::into),
+        file: file.map(|file| Path::new(file).into()),
         related: Box::new([]),
     }
 }
@@ -88,9 +88,34 @@ pub(super) fn run(args: &[String]) -> ExitCode {
     };
     // The map is always built: it prices each component for the summary.
     let want_map = map;
-    let (plan, map) = match contract::compile_path_all(Path::new(input), true) {
+    // A game's surface arguments are checked apart: against a declaration
+    // older than the game's Rust they are warnings, never hiding the
+    // compile's own refusals (the platformer's diary, R4).
+    let surfaces = contract::surface_findings(Path::new(input));
+    let refused = match &surfaces {
+        Ok(s) if s.newer.is_none() => s.findings.clone(),
+        Ok(_) => Vec::new(),
+        // An unreadable declaration; the compile reports unreadable sources.
+        Err(all) => all
+            .iter()
+            .filter(|e| e.id == "analyze-surface-declaration")
+            .cloned()
+            .collect(),
+    };
+    let compiled = contract::compile_path_all_unchecked(Path::new(input), true);
+    if let Ok(s) = &surfaces {
+        if s.newer.is_some() {
+            crate::surface_warnings(s);
+        }
+    }
+    let (plan, map) = match compiled {
+        Ok(_) if !refused.is_empty() => return report_all(&refused, json, 1),
         Ok(compiled) => compiled,
-        Err(errors) => return report_all(&errors, json, 1),
+        Err(mut errors) => {
+            errors.extend(refused);
+            errors.truncate(contract::MAX_DIAGNOSTICS);
+            return report_all(&errors, json, 1);
+        }
     };
     let bytes = plan.encode();
     if let Some(output) = output {

@@ -4,7 +4,7 @@
 use contract::DataSource;
 
 fn main() {
-    println!("cargo:rerun-if-changed=../app.contract");
+    contract::rerun_if_changed(std::path::Path::new("../app.contract"));
     println!("cargo:rerun-if-changed=../app.json");
     println!("cargo:rerun-if-changed=../assets");
     println!("cargo:rerun-if-changed=../data");
@@ -21,6 +21,8 @@ fn main() {
     let app_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let target = std::env::var("TARGET").unwrap_or_default();
     let platform = match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
+        // Its crop handles and pinch need a touchscreen, which an Apple TV lacks.
+        Ok("tvos") => panic!("Photo Editor has no tvOS build: its editing needs a touchscreen"),
         Ok("ios") => "ios",
         _ => "macos",
     };

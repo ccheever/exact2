@@ -1,0 +1,21 @@
+# Code review: a batch of list rows alone skips the route projection, round 2 (132b5bd1b), 2026-10-06 (astra)
+
+- **Family:** OpenAI. `gpt-6-astra` via `codex exec`, reasoning effort xhigh, sandbox read-only, `-C` a detached worktree at `132b5bd1b`.
+- **Method:** one brief (sha256 `ae8b3f5216e1fd6adde68a7048f643c1291e651f3fcb424ffe199e9016d9f38d`), shared with grok. Round 2, blind to the other review. The author (Claude) is not a reviewer.
+- **Transcription:** the final message, unedited.
+- **Verdict:** DO NOT LAND.
+- **Disposition (r3):** 1 and 2 taken in one rule: a rows list must also hold nothing the projection reads by name or role, wherever it sits: a tablist (its tint comes from its ancestors), the Back control, a route, or a route's named content scroller (`ChromeIndex`'s `role:tablist`, `navigationBack` and `named`). A row holding a tablist is a test. 3 taken generally: `NavigationHost.settled` is set only when a sync runs to its end, so any sync that stops early (a refused presentation, the first draw, a transition, a modal still closing) leaves the next batch owed whatever it holds; it replaces round 1's `drawOwed`. 4 taken in part: the gate's tests remain session-less (with no session nothing is owed, so the skip shows); the navigation suites cover the pop, transition and tab paths with a session. No flat-leaf or tvOS test.
+
+---
+
+DO NOT LAND
+
+1. **MATERIAL — Named content scrollers remain unprotected.** [ListRowsIOS.swift:19](host/apple/Sources/ExactKit/IOS/ListRowsIOS.swift:19) checks Back ids but omits `navigationScroll`. Creating or destroying a named `scroll` inside a virtualized row therefore skips synchronization. Yet the scroller’s identity determines whether the route hook reruns ([NavigationBarIOS.swift:433](host/apple/Sources/ExactKit/IOS/NavigationBarIOS.swift:433)). A hook that hides scroll indicators never configures the newly created scroller; previously it did. **Fix:** protect named scroll targets and structural changes affecting their resolution. Round 1’s dependency-exclusion disposition is incomplete.
+
+2. **MATERIAL — An ancestor of an adopted tablist can change its projection.** The classifier checks ancestors of the changed node, but not projected descendants ([ListRowsIOS.swift:48](host/apple/Sources/ExactKit/IOS/ListRowsIOS.swift:48)). Consider a virtualized row wrapping the root’s adopted tablist: adding `accent_color` to that row is accepted as rows-only. Navigation resolves tint from the tablist’s nearest contributing ancestor and retains that source in its dynamic color ([NavigationTabsIOS.swift:264](host/apple/Sources/ExactKit/IOS/NavigationTabsIOS.swift:264)). The native bar retains the previous tint source. This also affects tvOS. **Fix:** invalidate navigation for changes to a tablist’s inherited tint sources, including ancestors above it.
+
+3. **MATERIAL — A refused presentation loses its retry.** Synchronization clears `pendingSync`, then returns when another controller already occupies the presentation owner ([NavigationIOS.swift:347](host/apple/Sources/ExactKit/IOS/NavigationIOS.swift:347), [NavigationIOS.swift:381](host/apple/Sources/ExactKit/IOS/NavigationIOS.swift:381)). Nothing records this in `syncOwed`. After that controller dismisses, a rows-only batch can leave the declared modal absent; the previous unconditional pass retried it. **Fix:** retain synchronization debt across this refusal and test dismissal followed solely by a row update.
+
+4. **MINOR — The new gate test cannot establish projection correctness or owed-sync recovery.** Its fixture has neither a session nor a window; assertions only count attempted calls ([ListRowsIOSTests.swift:16](host/apple/tests/ExactKitTests/ListRowsIOSTests.swift:16), [ListRowsIOSTests.swift:79](host/apple/tests/ExactKitTests/ListRowsIOSTests.swift:79)). Removing `syncOwed` would still pass. **Fix:** add mounted assertions for these regressions, first-draw deferral and native dismissal/pop recovery; cover flat leaves, nested lists and tvOS.
+
+Round 1’s operation-pattern, presented-badge and first-draw fixes hold. Both `isHidden` guards and the landed idle-tick fixes look sound. Changed files satisfy the line limit; `git diff --check` passed. UIKit tests were not run in the read-only checkout.

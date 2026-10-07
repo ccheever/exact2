@@ -42,6 +42,109 @@ final class KeyboardFocusIOSTests: XCTestCase {
         _ = target?.perform(action, with: command)
     }
 
+    func testBlockLinksOpenWithoutAHandlerAndRespectAuthoredPressAndDisabled() {
+        final class Delegate: ExactSessionDelegate {
+            var urls: [String] = []
+            func exactSession(_ session: ExactSession, command name: String, args: [Any]) {
+                if name == "openURL", let url = args.first as? String { urls.append(url) }
+            }
+        }
+        let delegate = Delegate()
+        let session = ExactApp.shared.makeSession(delegate: delegate, label: "block-link")
+        defer { session.destroy() }
+        let p = session.presenter
+        let link = NodeView(id: 9001, kind: "button", presenter: p)
+        link.frame = CGRect(x: 0, y: 0, width: 200, height: 40)
+        p.root.addSubview(link); p.views[link.id] = link
+        link.applyProps(set: ["href": "https://example.test/article"], clear: [])
+        XCTAssertTrue(link.activate(at: link.convert(CGPoint(x: 10, y: 10), to: nil)) === link)
+        XCTAssertEqual(delegate.urls, ["https://example.test/article"])
+        var presses: [UInt32] = []
+        p.onPress = { presses.append($0) }
+        link.handlers = ["press"]
+        p.press(link.id)
+        XCTAssertEqual(presses, [link.id])
+        XCTAssertEqual(delegate.urls.count, 1)
+        link.handlers = []
+        link.applyProps(set: ["disabled": "true"], clear: [])
+        p.press(link.id)
+        XCTAssertEqual(delegate.urls.count, 1)
+        link.applyProps(set: ["inert": "true"], clear: ["disabled"])
+        p.press(link.id)
+        XCTAssertEqual(delegate.urls.count, 1)
+        link.applyProps(set: ["href": "//example.test/relative"], clear: ["inert"])
+        p.press(link.id)
+        XCTAssertEqual(delegate.urls.last, "//example.test/relative")
+        XCTAssertTrue(link.accessibilityActivate())
+        XCTAssertEqual(delegate.urls.count, 3)
+    }
+
+    // These unhosted UIKit tests exercise the responder chain, not the system
+    // keyboard window. Verify keyboard visibility in a launched app.
+    func testNativeSelectMenuPreservesShortcutFocusAndAllowsTextEntry() throws {
+        guard #available(iOS 17.4, *) else { throw XCTSkip("UIKit menu activation requires iOS 17.4") }
+        let session = ExactApp.shared.makeSession(label: "select-keyboard")
+        let view = ExactView(session: session), host = UIViewController()
+        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        let window = scene.map { UIWindow(windowScene: $0) }
+            ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.addSubview(view)
+        view.frame = host.view.bounds
+        view.layoutIfNeeded()
+        defer { window.endEditing(true); session.destroy(); window.isHidden = true }
+        let p = session.presenter
+        let button = try XCTUnwrap(p.controls.makeValueControl("select", 900) as? UIButton)
+        button.frame = CGRect(x: 32, y: 200, width: 250, height: 44)
+        button.menu = UIMenu(children: [UIAction(title: "Chocolate Glaze") { _ in }, UIAction(title: "Blueberry Spread") { _ in }])
+        view.addSubview(button)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertTrue(view.becomeFirstResponder())
+        button.performPrimaryAction()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        func containsOption(_ node: UIView) -> Bool {
+            (node as? UILabel)?.text == "Blueberry Spread" || node.subviews.contains(where: containsOption)
+        }
+        XCTAssertTrue(containsOption(window), "the real UIKit menu opened")
+        XCTAssertTrue(view.isFirstResponder, "shortcut focus survives opening the menu")
+        // nil lets UIKit request its default keyboard for this responder.
+        // A nontext responder must instead supply input with no height.
+        XCTAssertEqual(view.inputView?.bounds.height, 0, "shortcut focus must not request a system keyboard")
+        button.contextMenuInteraction?.dismissMenu()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let shortcut = NodeView(id: 901, kind: "button", presenter: p)
+        p.views[shortcut.id] = shortcut
+        p.root.addSubview(shortcut)
+        shortcut.frame = CGRect(x: 32, y: 350, width: 100, height: 44)
+        shortcut.handlers = ["press"]
+        shortcut.applyProps(set: ["accessibilityKeyShortcuts": "Meta+g"], clear: [])
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let command = try XCTUnwrap(view.keyCommands?.first { $0.input == "g" && $0.modifierFlags == .command })
+        let action = try XCTUnwrap(command.action)
+        let target = try XCTUnwrap(view.target(forAction: action, withSender: command) as? NSObject)
+        _ = target.perform(action, with: command)
+        XCTAssertEqual(pressed, [shortcut.id], "hardware shortcuts still reach the app after a menu")
+        view.endEditing(true)
+        let field = UITextField(frame: CGRect(x: 32, y: 300, width: 250, height: 44))
+        view.addSubview(field)
+        XCTAssertTrue(field.becomeFirstResponder())
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertNil(view.inputView, "text entry must not inherit the shortcut responder’s empty input view")
+        field.insertText("Glaze")
+        XCTAssertEqual(field.text, "Glaze")
+        let editor = UITextView(frame: CGRect(x: 32, y: 300, width: 250, height: 100))
+        view.addSubview(editor)
+        XCTAssertTrue(editor.becomeFirstResponder())
+        XCTAssertNil(view.inputView, "multiline editing must also inherit the system keyboard")
+        editor.insertText("Chocolate\nGlaze")
+        XCTAssertEqual(editor.text, "Chocolate\nGlaze")
+        XCTAssertTrue(view.becomeFirstResponder())
+        XCTAssertEqual(view.inputView?.bounds.height, 0, "shortcut focus requests no keyboard again after editing")
+    }
+
     func testTabWalksControlsInTreeOrderAndSkipsText() throws {
         let (p, first, text, field, last) = fixture()
         defer { withExtendedLifetime(p) {} }
@@ -68,6 +171,43 @@ final class KeyboardFocusIOSTests: XCTestCase {
         XCTAssertNil(first.focusRing, "the ring leaves with the focus")
         XCTAssertTrue(first.becomeFirstResponder())
         XCTAssertNil(first.focusRing, "a touch's focus shows no ring")
+    }
+
+    /// HTML's `tabindex` (LLP 1088 D7.3): an explicit value makes a plain box
+    /// focusable and, ≥ 0, a Tab stop, positive first; a negative one takes
+    /// the focus but not Tab; absent is never `0`; a disabled button stays
+    /// out, and a disabled box is a stop (Chrome's `<div disabled>`).
+    func testTabindexMakesABoxFocusableAndOrdersTab() {
+        let (p, first, _, field, last) = fixture()
+        defer { withExtendedLifetime(p) {} }
+        func box(_ id: UInt32, _ props: [String: String], kind: String = "view") -> NodeView {
+            let n = NodeView(id: id, kind: kind, presenter: p)
+            n.applyProps(set: props, clear: [])
+            n.frame = CGRect(x: 220, y: CGFloat(id) * 20, width: 100, height: 10)
+            p.root.addSubview(n); p.views[id] = n
+            return n
+        }
+        let stop = box(10, ["tabIndex": "0"]), plain = box(11, [:]), early = box(12, ["tabIndex": "1"])
+        let skipped = box(13, ["tabIndex": "-1"]), disabled = box(14, ["tabIndex": "0", "disabled": "true"])
+        let off = box(15, ["tabIndex": "0", "disabled": "true"], kind: "button")
+        XCTAssertFalse(plain.canBecomeFirstResponder, "absent is not tabindex=0")
+        XCTAssertTrue(disabled.canBecomeFirstResponder, "disabled means nothing on a box")
+        XCTAssertFalse(off.canBecomeFirstResponder, "a disabled button is out")
+        XCTAssertTrue(skipped.becomeFirstResponder(), "-1 takes the focus by tap or script")
+        p.moveFocus(backward: false)
+        XCTAssertTrue(early.isFirstResponder, "from a node out of the order, Tab starts at the first: a positive tabindex")
+        p.moveFocus(backward: false)
+        XCTAssertTrue(first.isFirstResponder, "then tree order")
+        p.moveFocus(backward: false)
+        XCTAssertTrue(field.field?.isFirstResponder == true)
+        p.moveFocus(backward: false); p.moveFocus(backward: false)
+        XCTAssertTrue(stop.isFirstResponder, "tabindex=0 with no handler is a stop, in tree order")
+        p.moveFocus(backward: false)
+        XCTAssertTrue(disabled.isFirstResponder, "then the disabled box")
+        p.moveFocus(backward: false)
+        XCTAssertTrue(early.isFirstResponder, "the order wraps, skipping -1 and the disabled button")
+        p.moveFocus(backward: true)
+        XCTAssertTrue(disabled.isFirstResponder)
     }
 
     /// UIKit's focus search (`FocusSearch`) finds nothing in a tree of

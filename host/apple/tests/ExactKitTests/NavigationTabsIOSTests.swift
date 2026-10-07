@@ -69,6 +69,55 @@ final class NavigationTabsIOSTests: XCTestCase {
         if tabs.delegate?.tabBarController?(tabs, shouldSelect: target) ?? true { tabs.selectedIndex = index }
     }
 
+    /// Regression (590d73531): a root overlay with a z-index after the
+    /// tablist, the pattern docs/agent-pitfalls.md gives for full-screen
+    /// overlays, paints and takes touches over the native tab container. Dense
+    /// ranks had put the container over every authored sibling, so the
+    /// overlay was laid out, in the tree, and invisible (LLP 1083.000 D4).
+    func testARootOverlayWithAZIndexIsOverTheNativeTabs() throws {
+        let session = try fixture("tabs-overlay")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        // Pressed directly: the button may sit below the fold of the home tab.
+        session.presenter.press(try node(session, "show-overlay").id)
+        let overlayNode = { session.presenter.views.values.first { $0.props["testId"] == "root-overlay" } }
+        until("the overlay mounts") { overlayNode() != nil }
+        let overlay = try node(session, "root-overlay")
+        let parent = try XCTUnwrap(overlay.superview)
+        XCTAssertTrue(tabs.view.superview === parent, "the overlay and the tab container are siblings")
+        XCTAssertGreaterThan(overlay.layer.zPosition, tabs.view.layer.zPosition, "the overlay paints over the tabs")
+        let middle = overlay.convert(CGPoint(x: overlay.bounds.midX, y: overlay.bounds.midY), to: nil)
+        let hit = try XCTUnwrap(overlay.window?.hitTest(middle, with: nil))
+        XCTAssertTrue(hit.isDescendant(of: overlay), "and takes the touch: \(type(of: hit))")
+        let close = try node(session, "hide-overlay")
+        let reply = Agent(session: session).tap(["id": Int(close.id)])
+        XCTAssertEqual(reply["pressed"] as? Int, Int(close.id), "\(reply)")
+        until("the overlay closes") { overlayNode() == nil }
+    }
+
+    /// A root toast after the tablist, positioned with no `z-index` (the
+    /// toast of contract/corpus/tabs.contract): the tab container paints at
+    /// the routes' place, so the later positioned sibling paints and takes
+    /// the touch over it, as CSS paints positioned siblings in tree order
+    /// (splitter rough 3: on iOS such a toast was never seen).
+    func testARootToastAfterTheTablistIsOverTheNativeTabs() throws {
+        let session = try fixture("tabs-toast")
+        let tabs = try XCTUnwrap(session.presenter.navigation.tabController)
+        session.presenter.press(try node(session, "say").id)
+        let toastNode = { session.presenter.views.values.first { $0.props["testId"] == "root-toast" } }
+        until("the toast mounts") { toastNode() != nil }
+        let toast = try node(session, "root-toast")
+        XCTAssertTrue(tabs.view.superview === toast.superview, "the toast and the tab container are siblings")
+        let siblings = try XCTUnwrap(toast.superview).subviews
+        XCTAssertGreaterThan(siblings.firstIndex { $0 === toast }!, siblings.firstIndex { $0 === tabs.view }!, "the toast is after the container")
+        XCTAssertGreaterThanOrEqual(toast.layer.zPosition, tabs.view.layer.zPosition, "and no lower")
+        let middle = toast.convert(CGPoint(x: toast.bounds.midX, y: toast.bounds.midY), to: nil)
+        let hit = try XCTUnwrap(toast.window?.hitTest(middle, with: nil))
+        XCTAssertTrue(hit.isDescendant(of: toast), "it takes the touch: \(type(of: hit))")
+        let reply = Agent(session: session).tap(["id": Int(toast.id)])
+        XCTAssertEqual(reply["pressed"] as? Int, Int(toast.id), "\(reply)")
+        until("the toast closes") { toastNode() == nil }
+    }
+
     func testEveryTabKeepsItsStackItsScrollAndItsDraftAndReselectPopsToRoot() throws {
         let session = try fixture("tabs")
         let navigation = session.presenter.navigation
@@ -78,6 +127,18 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertFalse(tabs.tabBar.isHidden)
         XCTAssertEqual(tabs.viewControllers?.map { $0.tabBarItem.title }, ["Home", "Second"])
         XCTAssertTrue(try node(session, "tabs").isHidden, "the bar takes the authored tablist's place")
+        // The container paints where the panels are among the root's
+        // children: under the tablist after them, as CSS paints a later
+        // sibling over an earlier one (shop F21, recipes F23).
+        let root = try node(session, "navigation"), tablist = try node(session, "tabs")
+        let order = root.subviews.map { ObjectIdentifier($0) }
+        XCTAssertLessThan(try XCTUnwrap(order.firstIndex(of: ObjectIdentifier(tabs.view))), try XCTUnwrap(order.firstIndex(of: ObjectIdentifier(tablist))), "the tablist after the panels paints over the container")
+        XCTAssertGreaterThan(try XCTUnwrap(order.firstIndex(of: ObjectIdentifier(tabs.view))), try XCTUnwrap(order.firstIndex(of: ObjectIdentifier(try node(session, "panels")))), "the container paints over the panels' box")
+        // The tablist's `accent-color` is the bar's tint (recipes F20, shop F28).
+        let tint = try XCTUnwrap(tabs.tabBar.tintColor).resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
+        var rgb: (CGFloat, CGFloat, CGFloat, CGFloat) = (0, 0, 0, 0)
+        tint.getRed(&rgb.0, green: &rgb.1, blue: &rgb.2, alpha: &rgb.3)
+        XCTAssertEqual([rgb.0, rgb.1, rgb.2].map { Int(($0 * 255).rounded()) }, [0x38, 0x38, 0xf5])
         let home = try XCTUnwrap(tabs.viewControllers?[0] as? UINavigationController)
         let second = try XCTUnwrap(tabs.viewControllers?[1] as? UINavigationController)
         XCTAssertEqual(second.viewControllers.count, 1, "another tab's stack is built too")
@@ -90,7 +151,19 @@ final class NavigationTabsIOSTests: XCTestCase {
         until("Second selected by the router") { tabs.selectedIndex == 1 }
         XCTAssertEqual(home.viewControllers.count, 2, "Home's stack is kept")
         // A change made while Home is hidden shows when it is selected.
+        XCTAssertNil(second.tabBarItem.badgeValue, "no badge box, no badge")
         try tapNode(session, "bump-second")
+        // The count's filled box on the Second tab is its item's badge (§9.9).
+        until("the badge follows the authored box") { second.tabBarItem.badgeValue == "1" }
+        // The box goes, the badge goes; it comes back with the box.
+        try tapNode(session, "unbump-second")
+        until("the badge leaves with its box") { second.tabBarItem.badgeValue == nil }
+        try tapNode(session, "bump-second")
+        until("and comes back with it") { second.tabBarItem.badgeValue == "1" }
+        XCTAssertNil(home.tabBarItem.badgeValue, "a transparent box is no badge; Second's \"1\" beside its pill shows the pill is none either")
+        // A badge a hook set on a tab that never authored one stays through
+        // that tab's face changing (its selected symbol).
+        home.tabBarItem.badgeValue = "hook"
         // A draft and a scroll in Second.
         let draft = try node(session, "draft")
         _ = Agent(session: session).type(["id": Int(draft.id), "text": "kept"])
@@ -105,6 +178,7 @@ final class NavigationTabsIOSTests: XCTestCase {
         // Away and back.
         tapTab(tabs, 0)
         until("Home selected") { tabs.selectedIndex == 0 }
+        XCTAssertEqual(home.tabBarItem.badgeValue, "hook", "the hook's badge stays")
         XCTAssertEqual(home.topViewController?.navigationItem.title, "Detail", "the pushed screen survived")
         XCTAssertTrue(try node(session, "counts").accessibleText.contains("count 1"), "the hidden tab's update shows")
         tapTab(tabs, 1)
@@ -152,6 +226,20 @@ final class NavigationTabsIOSTests: XCTestCase {
         try tapNode(session, "detail")
         until("detail pushed in Home") { home.viewControllers.count == 2 && home.transitionCoordinator == nil }
         XCTAssertEqual(mayPop(home), pops(home).map { _ in true }, "the pushed screen with its back control pops")
+        // Over a `swiperight` row the edge decides: a finger that landed at
+        // x = 1 pops, and the start is where it landed, not the pan's
+        // translation origin (which leaves out the travel before recognition).
+        let detail = try node(session, "route-detail")
+        detail.handlers.insert("swiperight")
+        defer { detail.handlers.remove("swiperight") }
+        // (A test cannot place a `UITouch`, so `shouldReceive`'s first-finger
+        // gate is proved by the live drive, LLP 1080.000 §11.)
+        for pop in pops(home).compactMap({ $0 as? UIPanGestureRecognizer }) {
+            navigation.notePopTouchDown(pop, at: CGPoint(x: 30, y: 400))
+            XCTAssertFalse(navigation.popShouldBegin(pop, in: home.view, velocity: right), "landed past the edge: the row's swipe")
+            navigation.notePopTouchDown(pop, at: CGPoint(x: 1, y: 400))
+            XCTAssertTrue(navigation.popShouldBegin(pop, in: home.view, velocity: right), "landed at the edge: the pop")
+        }
         XCTAssertFalse(mayPop(home, velocity: CGPoint(x: 20, y: 600)).contains(true), "a vertical pan is the content's")
         XCTAssertFalse(mayPop(second).contains(true), "a hidden tab's stack does not pop")
         // Its own depth decides once it shows: Second is a root.

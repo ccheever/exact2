@@ -66,6 +66,7 @@ final class ReorderHold {
     enum Phase { case active, settling, finished }
     weak var presenter: Presenter?
     weak var handle: NodeView?
+    private weak var lifted: NodeView?
     let calls: ReorderCalls
     private let generation: Int?
     private(set) var state: ReorderState
@@ -183,17 +184,24 @@ final class ReorderHold {
     /// Whether `view` is this contact's lifted row (until it finishes).
     func lifts(_ view: UInt32) -> Bool { phase != .finished && state.wrapper == view }
 
-    /// A batch's style can restore the row's authored z-index; keep it lifted.
+    /// Keep the lift through mounting and changes to its siblings.
     func raiseLifted() { if phase != .finished { raise(true) } }
 
     /// The lifted row paints above its later siblings while it is held.
     private func raise(_ on: Bool) {
-        guard let view = presenter?.views[state.wrapper] else { return }
-        let z = on ? 1000 : view.usedZIndex
-        #if os(iOS)
-        view.layer.zPosition = z
-        #else
-        view.layer?.zPosition = z
+        let view: NodeView?
+        if on {
+            view = presenter?.views[state.wrapper]
+            if lifted !== view { lifted?.setLifted(false); lifted = view }
+        } else {
+            // A finished receipt may name wrapper 0, or the old row may
+            // already be a ghost outside the presenter's lookup map.
+            view = lifted
+            lifted = nil
+        }
+        guard let view else { return }
+        view.setLifted(on)
+        #if os(macOS)
         if !on || view.arrangeShift != view.translate { view.applyTransform() }
         #endif
     }

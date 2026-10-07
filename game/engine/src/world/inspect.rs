@@ -39,13 +39,32 @@ impl World {
     pub fn seed(&self) -> u64 {
         self.state.seed
     }
+    /// A random stream for presentation only (`Game::present`), seeded from the
+    /// world seed, the tick and `salt`: the same each time a boundary is
+    /// presented, different per seed, and never drawn from the world's stream, so
+    /// visuals cannot change the simulation.
+    pub fn presentation_rng(&self, salt: u64) -> Rng {
+        // Each input passes a full splitmix finalizer before the next joins, so
+        // no two (seed, tick, salt) triples share a stream by cancelling bits.
+        fn mix(mut n: u64) -> u64 {
+            n = n.wrapping_add(0x9e37_79b9_7f4a_7c15);
+            n = (n ^ (n >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+            n = (n ^ (n >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+            n ^ (n >> 31)
+        }
+        Rng::new(mix(mix(
+            mix(self.seed() ^ 0x6a09_e667_f3bc_c908) ^ self.tick()
+        ) ^ salt))
+    }
     /// Restart the world's random stream from an explicit game argument.
     pub fn reseed(&mut self, seed: u64) {
+        self.sim_writes(format_args!("reseeded the world"));
         self.state.seed = seed;
         self.rng.insert(Rng::new(seed));
     }
     /// Keep clock settle running. Reasons expire at the start of the next tick.
     pub fn busy(&self, reason: &'static str) {
+        self.sim_writes(format_args!("reported busy `{reason}`"));
         self.mutated();
         self.state.busy.borrow_mut().push(reason.into());
     }
@@ -58,8 +77,9 @@ impl World {
             && self.state.busy.borrow().is_empty()
             && !self
                 .components
-                .values()
-                .map(|s| (s, self.storage::<crate::Ambient>()))
+                .iter()
+                .filter(|(name, _)| !self.registry[*name].presentation)
+                .map(|(_, s)| (s, self.storage::<crate::Ambient>()))
                 .chain(
                     self.resources
                         .iter()
@@ -81,6 +101,9 @@ impl World {
             Vec::new()
         };
         for (&name, storage) in &self.components {
+            if self.registry[name].presentation {
+                continue;
+            }
             if reasons.len() == 8 {
                 break;
             }
@@ -131,8 +154,9 @@ impl World {
             return None;
         }
         self.components
-            .values()
-            .map(|s| (s, self.storage::<crate::Ambient>()))
+            .iter()
+            .filter(|(name, _)| !self.registry[*name].presentation)
+            .map(|(_, s)| (s, self.storage::<crate::Ambient>()))
             .chain(
                 self.resources
                     .iter()
@@ -147,6 +171,7 @@ impl World {
         self.mutated();
         self.in_tick = true;
         self.followed.set(false);
+        self.emitted.set(false);
         self.state.busy.get_mut().clear();
         for e in self.fresh.drain(..) {
             self.state.slots[e.index as usize].fresh = false;
@@ -182,16 +207,30 @@ impl World {
     }
     pub(crate) fn restore_publications(&mut self, values: BTreeMap<String, crate::values::Stored>) {
         *self.published.borrow_mut() = values;
+        self.published_text.borrow_mut().clear();
     }
+    /// The whole record. Exact (`rounded == false`, what the host receives),
+    /// each value's text is kept from its last change, so a change to one
+    /// field re-encodes only that field.
     pub(crate) fn published_json(&self, rounded: bool) -> String {
+        let published = self.published.borrow();
+        let mut text = self.published_text.borrow_mut();
         let mut out = String::from("{");
-        for (i, (key, value)) in self.published.borrow().iter().enumerate() {
+        for (i, (key, value)) in published.iter().enumerate() {
             if i != 0 {
                 out.push(',');
             }
             crate::json::quote_into(&mut out, key);
             out.push(':');
-            value.append_json(&mut out, rounded);
+            if rounded {
+                value.append_json(&mut out, true);
+            } else {
+                out.push_str(text.entry(key.clone()).or_insert_with(|| {
+                    let mut one = String::new();
+                    value.append_json(&mut one, false);
+                    one
+                }));
+            }
         }
         out.push('}');
         out
@@ -238,181 +277,6 @@ pub(crate) enum ObservationState {
     Unknown,
     Still,
     Changing,
-}
-
-/// Observations ordered by category, storage name, then entity index.
-#[derive(Default)]
-pub(crate) struct Observation {
-    entries: Vec<(u8, &'static str, Entity, u64)>,
-    scratch: Vec<(usize, u64)>,
-    published: Vec<(String, u64)>,
-}
-impl World {
-    pub(crate) fn observe(&self, out: &mut Observation) {
-        self.observe_with_hash(out, false);
-    }
-    #[track_caller]
-    pub(crate) fn observe_with_hash(&self, out: &mut Observation, full: bool) {
-        let at = std::panic::Location::caller();
-        self.check_reads(at);
-        let mut full = full.then(crate::hash::Hasher::default);
-        if let Some(w) = &mut full {
-            w.begin_struct();
-            w.field("state");
-            self.state.write(w);
-            w.field("rng");
-        }
-        let rng = self.rng.get(at).unwrap();
-        let rng_hash = match &mut full {
-            Some(w) => w.with_observation(&*rng),
-            None => crate::hash::of(&*rng),
-        };
-        let published = self.published.borrow();
-        let observed = || {
-            published
-                .iter()
-                .filter(|(name, _)| !self.derived_publications.contains(*name))
-        };
-        out.published
-            .resize_with(observed().count(), Default::default);
-        for ((key, hash), (name, value)) in out.published.iter_mut().zip(observed()) {
-            if key != name {
-                key.clone_from(name);
-            }
-            *hash = crate::hash::of(value);
-        }
-        out.entries.clear();
-        let ambient = self.storage::<crate::Ambient>();
-        for e in self.entities() {
-            if ambient.is_some_and(|s| s.has(e.index() as usize)) {
-                continue;
-            }
-            out.entries.push((0, "exists", e, 0));
-        }
-        for (e, _) in self.query::<&crate::Parent>().iter() {
-            if ambient.is_some_and(|s| s.has(e.index() as usize)) {
-                continue;
-            }
-            if let Some(pose) = self.global(e) {
-                out.entries
-                    .push((1, "global", e, crate::hash::of(&pose.to_cols_array())));
-            }
-        }
-        if let Some(w) = &mut full {
-            w.field("components");
-            w.begin_struct();
-        }
-        for (&name, storage) in &self.components {
-            out.scratch.clear();
-            if let Some(w) = &mut full {
-                w.key(name);
-            }
-            storage.snapshot(ambient, &mut out.scratch, full.as_mut(), &|i| {
-                self.entity_at(i)
-            });
-            out.entries.extend(out.scratch.iter().map(|&(i, hash)| {
-                (
-                    2,
-                    name,
-                    Entity {
-                        index: i as u32,
-                        generation: self.state.slots[i].generation,
-                    },
-                    hash,
-                )
-            }));
-        }
-        if let Some(mut w) = full.take() {
-            w.end_struct();
-            // Leave resources lazy: observing rest must never snapshot ambient executors.
-            *self.hash_prefix.borrow_mut() = Some((self.mutation_epoch(), w));
-        }
-        // Keep the dedicated RNG in a separate observation category so names remain sorted.
-        out.entries.push((3, "Rng", SINGLETON, rng_hash));
-        for (&name, storage) in &self.resources {
-            if self.registry[name].ambient {
-                continue;
-            }
-            out.scratch.clear();
-            storage.snapshot(None, &mut out.scratch, None, &|_| SINGLETON);
-            out.entries.extend(
-                out.scratch
-                    .iter()
-                    .map(|&(_, hash)| (4, name, SINGLETON, hash)),
-            );
-        }
-    }
-    pub(crate) fn compare(&mut self, before: &Observation, after: &Observation) {
-        self.observed_epoch = self.mutation_epoch();
-        self.changing.clear();
-        self.observation = if before.entries == after.entries && before.published == after.published
-        {
-            ObservationState::Still
-        } else {
-            ObservationState::Changing
-        };
-        if before.published != after.published {
-            for (key, _) in before.published.iter().chain(&after.published) {
-                if self.changing.len() >= 8 {
-                    break;
-                }
-                if before.published.iter().find(|v| &v.0 == key)
-                    != after.published.iter().find(|v| &v.0 == key)
-                {
-                    let reason = format!("published.{key}");
-                    if !self.changing.contains(&reason) {
-                        self.changing.push(reason);
-                    }
-                }
-            }
-        }
-        let (mut a, mut b) = (0, 0);
-        while (a < before.entries.len() || b < after.entries.len()) && self.changing.len() < 8 {
-            let old = before.entries.get(a);
-            let new = after.entries.get(b);
-            if old == new {
-                a += 1;
-                b += 1;
-                continue;
-            }
-            let key = |v: &(u8, &'static str, Entity, u64)| (v.0, v.1, v.2);
-            let entry = match (old, new) {
-                (Some(old), Some(new)) => match key(old).cmp(&key(new)) {
-                    std::cmp::Ordering::Less => {
-                        a += 1;
-                        old
-                    }
-                    std::cmp::Ordering::Greater => {
-                        b += 1;
-                        new
-                    }
-                    std::cmp::Ordering::Equal => {
-                        a += 1;
-                        b += 1;
-                        new
-                    }
-                },
-                (Some(old), None) => {
-                    a += 1;
-                    old
-                }
-                (None, Some(new)) => {
-                    b += 1;
-                    new
-                }
-                _ => break,
-            };
-            let name = self
-                .name(entry.2)
-                .map(str::to_owned)
-                .unwrap_or_else(|| format!("#{}", entry.2.index()));
-            self.changing.push(format!(
-                "{}.{}",
-                if entry.0 >= 3 { "resource" } else { &name },
-                entry.1
-            ));
-        }
-    }
 }
 
 #[cfg(test)]

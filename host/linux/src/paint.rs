@@ -25,23 +25,35 @@ use exact_kernel::{
     Dimension, Display, Kernel, NodeRef, NodeType, ObjectFit, Overflow, PropId, StyleId, StyleMask,
     StyleProps, ViewId,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 use std::sync::Arc;
 use tiny_skia::{Pixmap, Point, Transform};
+mod backend;
 pub mod border;
+mod caret;
 pub(crate) mod control;
 pub(crate) mod damage;
 pub mod gradient;
 pub use gradient::GradientPaint;
-mod inline;
+mod fragments;
+pub(crate) use fragments::{center as tap_point, hits};
+pub(crate) use lift::{Ghost, Lift};
+pub(crate) mod inline;
+mod layer;
+mod lift;
+mod native;
+pub use native::NativeKind;
+mod order;
 mod placed;
 mod presented;
 mod region;
+pub mod rows;
 mod shadow;
 mod space;
 mod svg;
 mod text_clip;
+mod text_decoration;
 mod text_shadow;
 mod text_stroke;
 use inline::{presented_color, presented_text_colors, text_backgrounds, text_palette};
@@ -50,12 +62,21 @@ pub(crate) use region::{ActionNode, ActionSlot, RegionActions, ScrollBounds};
 pub use svg::{resolve_with, Ink, SvgPaint};
 
 // Only an explicit row makes a raster a template; motion may supply its ink.
-fn image_tint(style: &StyleProps, presented: &Presented, dark: bool) -> Option<[u8; 4]> {
+// `currentcolor` is the node's `color` (feed F1).
+fn image_tint(node: &NodeRef<'_>, presented: &Presented, dark: bool) -> Option<[u8; 4]> {
+    let style = node.style;
     style.mask.has(StyleId::TintColor).then(|| {
         presented
             .colors
             .color(exact_motion::Property::TintColor)
-            .unwrap_or_else(|| rgba(style.tint_color.resolve(dark)))
+            .unwrap_or_else(|| {
+                rgba(
+                    style
+                        .tint_color
+                        .unwrap_or_else(|| node.text_color())
+                        .resolve(dark),
+                )
+            })
     })
 }
 
@@ -162,16 +183,17 @@ impl BoxPaint {
     fn capture(node: &NodeRef<'_>, kernel: &Kernel, dark: bool, w: f32) -> Self {
         let s = node.style;
         let widths = s.border_widths();
-        let current = node
-            .computed_style(StyleMask::of(StyleId::TextColor))
-            .text_color;
+        let current = node.computed_row(StyleId::TextColor, |s| s.text_color);
         let colors = s.border_colors(current);
         let env = kernel.env();
         let pad = |d: Dimension| match d.resolve(&env) {
             Dimension::Points(p) => p,
             Dimension::Percent(p) => w * p / 100.0,
             Dimension::Calc(p, x) => w * p / 100.0 + x,
-            Dimension::Auto | Dimension::Env(..) | Dimension::Segment(..) => 0.0,
+            Dimension::Auto
+            | Dimension::Env(..)
+            | Dimension::Segment(..)
+            | Dimension::Viewport(..) => 0.0,
         };
         // @ref LLP 1053.000 D4 — a material wins over `backdrop-filter`; a
         // name the table lacks draws ultra-thin ([`material_note`]).
@@ -188,21 +210,21 @@ impl BoxPaint {
                 s.border_radius_bottom_left,
             ]
             .map(|d| d.resolve(&env)),
-            corners: Some(s.corner_shape).filter(|c| !c.is_round()),
+            corners: Some(s.rare.corner_shape).filter(|c| !c.is_round()),
             clip: s.background_clip,
             widths,
             colors: colors.map(|c| rgba(c.resolve(dark))),
             background: match material {
                 // The material's tint where the author painted no background,
                 // as the web's rule sits under an inline one (LLP 1053.000 D4).
-                Some(m) if s.background_color.resolve(dark).a() == 0 => {
+                Some(m) if s.background_color.unwrap_or(current).resolve(dark).a() == 0 => {
                     if dark {
                         m.dark
                     } else {
                         m.light
                     }
                 }
-                _ => rgba(s.background_color.resolve(dark)),
+                _ => rgba(s.background_color.unwrap_or(current).resolve(dark)),
             },
             gradients: gradient::Captured::capture(s, dark),
             shadows: shadow::ShadowPaint::capture(s, dark),
@@ -243,8 +265,17 @@ impl BoxPaint {
         }
     }
     fn paint(&self, backend: &mut dyn Backend, geometry: &BoxGeometry, ts: Transform) {
-        for band in self.shadow_fills(geometry) {
-            backend.fill_border(&band, ts);
+        // The outer shadows, the list's first on top: by the backend's blur
+        // where it has one, else as bands.
+        for s in self.shadows.iter().rev().filter(|s| !s.inset()) {
+            if let Some((color, sigma, shape)) = s.blurred(&geometry.outer) {
+                if backend.blurred_shadow(&shape, color, sigma, &geometry.outer, ts) {
+                    continue;
+                }
+            }
+            for band in s.fills(&geometry.outer, self.widths) {
+                backend.fill_border(&band, ts);
+            }
         }
         // @ref LLP 1053.000 D2 — the backdrop blurs under the background.
         if self.backdrop > 0.0 {
@@ -344,6 +375,8 @@ pub struct PaintedBox {
     pub clip: Option<Rect4>,
     /// The scroll offset for a scroll container.
     pub scroll: Option<(f32, f32)>,
+    /// Generic pointer eligibility of this painted scene, including inheritance.
+    pub(crate) pointer_hit: bool,
     projective: Option<ProjectiveHit>,
     affine: Option<(Transform, Rect4)>,
     press: f32,
@@ -409,6 +442,8 @@ pub struct Scene<'a> {
     pub roots: &'a [ViewId],
     /// A node's presentation values.
     pub presented: &'a dyn Fn(ViewId) -> Presented,
+    /// A path's `d` while a transition moves it (LLP 1055.000 D15).
+    pub paths: &'a dyn Fn(ViewId) -> Option<exact_motion::PathValue>,
     /// Scroll offsets of scroll containers (host state, LLP 1010).
     pub scroll: &'a BTreeMap<ViewId, (f32, f32)>,
     /// The page's scroll offset: the window is a viewport over a document.
@@ -417,8 +452,13 @@ pub struct Scene<'a> {
     pub images: &'a BTreeMap<ViewId, Arc<Bitmap>>,
     /// The focused input, if any (its caret is painted).
     pub focus: Option<ViewId>,
+    /// The focused text field's selection (x2apps codeedit #2).
+    pub selection: Option<exact_runner::FieldSelection>,
     /// Unbound checkboxes' own states, which the host keeps (LLP 1069.001 D4).
     pub controls: &'a BTreeMap<ViewId, bool>,
+    /// Values chosen in a date, range or select, or typed into a field, since
+    /// its bound value last changed: (choice, bound).
+    pub chosen: &'a BTreeMap<ViewId, (String, String)>,
     /// A select's open menu, painted over everything (LLP 1069.001 D7).
     pub menu: Option<control::MenuPaint>,
     /// The pointer, in viewport points, when the host draws one.
@@ -433,135 +473,7 @@ pub struct Frame {
     pub boxes: Vec<PaintedBox>,
 }
 
-/// What draws the walk's output. Coordinates are viewport points with a
-/// transform (points → points); a backend applies the device scale itself.
-pub trait Backend {
-    /// `"gpu"` or `"cpu"`.
-    fn name(&self) -> &'static str;
-    /// A new frame of this size in points at this scale, cleared to white.
-    fn begin(&mut self, width: f32, height: f32, scale: f32);
-    /// Seed a clipped repaint from an accepted frame; false means full repaint.
-    fn damage(&mut self, _previous: &Pixmap, _rects: &[Rect4]) -> bool {
-        false
-    }
-    /// Begin from an accepted frame, clipped; false leaves a white frame to repaint.
-    fn begin_damage(
-        &mut self,
-        width: f32,
-        height: f32,
-        scale: f32,
-        previous: &Pixmap,
-        rects: &[Rect4],
-    ) -> bool {
-        self.begin(width, height, scale);
-        self.damage(previous, rects)
-    }
-    /// Fill a shape.
-    fn fill(&mut self, shape: &Shape, color: [u8; 4], ts: Transform);
-    /// Fill a shape with a gradient placed in its coordinates (LLP 1066).
-    fn fill_gradient(&mut self, shape: &Shape, gradient: &gradient::GradientPaint, ts: Transform);
-    /// CSS `backdrop-filter: blur(σ)` (LLP 1053.000 D2): what is painted
-    /// under `shape` so far, blurred (σ in points, mirrored edges) and put
-    /// back inside it, under the current clip.
-    fn backdrop_blur(&mut self, _shape: &Shape, _sigma: f32, _ts: Transform) {}
-    /// Fill one colour's share of a border (LLP 1053 G2): its region even-odd, clipped (non-zero).
-    fn fill_border(&mut self, part: &border::BorderFill, ts: Transform);
-    /// Draw a picture scaled into `dst`, clipped to every shape in `clips`.
-    /// An explicit tint replaces its RGB through the picture's alpha alone.
-    fn image(
-        &mut self,
-        image: &Arc<Bitmap>,
-        dst: Rect4,
-        clips: &[Shape],
-        ts: Transform,
-        tint: Option<[u8; 4]>,
-    );
-    /// An SVG island's pixels over `dst` in `ts`'s space, blended by `mode`.
-    fn island_image(&mut self, _pixels: Arc<Pixmap>, _dst: Rect4, _ts: Transform, _mode: u8) {}
-    /// Composite a rendered canvas child (not a decoded image asset).
-    fn surface_image(&mut self, _pixels: Arc<Pixmap>, _dst: Rect4) {}
-    /// Composite a 2D canvas's bitmap into `dst`, clipped (LLP 1056 D7).
-    fn canvas(&mut self, _pixels: &Arc<Pixmap>, _dst: Rect4, _clips: &[Shape], _ts: Transform) {}
-    /// Paint a paragraph with its top-left at `origin`.
-    fn text(
-        &mut self,
-        text: &mut TextEngine,
-        paragraph: &Paragraph,
-        palette: &[RunPaint],
-        origin: (f32, f32),
-        ts: Transform,
-    );
-    /// Paint one SVG shape in `ts`'s space (LLP 1055 D4).
-    fn svg_path(&mut self, _shape: &SvgPaint<'_>, _ts: Transform) {}
-    /// Clip to an SVG `clipPath` in `ts`'s space until as many pops as this
-    /// returns (LLP 1055.000 D10): the union of its shapes, intersected with
-    /// its own clip and with whatever clip is in force.
-    fn push_svg_clip(&mut self, _clip: &exact_kernel::svg::scene::Clip, _ts: Transform) -> usize {
-        0
-    }
-    /// Clip everything until the matching pop to a shape.
-    fn push_clip(&mut self, shape: &Shape, ts: Transform);
-    /// Push the kernel's validated CSS path in border-box coordinates.
-    /// Returns whether a clip was pushed (recording/custom backends may opt out).
-    fn push_css_clip(&mut self, _path: &exact_kernel::clip::ClipPath, _ts: Transform) -> bool {
-        false
-    }
-    /// End a clip.
-    fn pop_clip(&mut self);
-    /// Composite everything until the matching pop at an opacity.
-    fn push_opacity(&mut self, alpha: f32);
-    /// CSS `mask-image` (LLP 1077 D2): what paints until [`Backend::pop_mask`]
-    /// is one group, clipped to `shape`, the border box.
-    fn push_mask(&mut self, _shape: &Shape, _ts: Transform) {
-        self.push_opacity(1.0);
-    }
-    /// The group, kept where `mask` (a gradient, or one colour) is opaque
-    /// over `shape`, the border box, and nowhere outside it.
-    fn pop_mask(&mut self, _shape: &Shape, _mask: &Result<GradientPaint, [u8; 4]>, _ts: Transform) {
-        self.pop_opacity();
-    }
-    /// End an opacity layer.
-    fn pop_opacity(&mut self);
-    /// The pointer arrow at a point.
-    fn pointer(&mut self, x: f32, y: f32);
-    /// The frame's pixels.
-    fn finish(&mut self) -> Result<Pixmap, String>;
-    /// The last frame's (encode + render, readback) milliseconds, on a
-    /// backend that has them.
-    fn last_frame_ms(&self) -> Option<(f64, f64)> {
-        None
-    }
-}
-
-/// Where a fully transparent subtree draws: nowhere.
-struct Unpainted;
-impl Backend for Unpainted {
-    fn name(&self) -> &'static str {
-        "none"
-    }
-    fn begin(&mut self, _: f32, _: f32, _: f32) {}
-    fn fill(&mut self, _: &Shape, _: [u8; 4], _: Transform) {}
-    fn fill_gradient(&mut self, _: &Shape, _: &gradient::GradientPaint, _: Transform) {}
-    fn fill_border(&mut self, _: &border::BorderFill, _: Transform) {}
-    fn image(&mut self, _: &Arc<Bitmap>, _: Rect4, _: &[Shape], _: Transform, _: Option<[u8; 4]>) {}
-    fn text(
-        &mut self,
-        _: &mut TextEngine,
-        _: &Paragraph,
-        _: &[RunPaint],
-        _: (f32, f32),
-        _: Transform,
-    ) {
-    }
-    fn push_clip(&mut self, _: &Shape, _: Transform) {}
-    fn pop_clip(&mut self) {}
-    fn push_opacity(&mut self, _: f32) {}
-    fn pop_opacity(&mut self) {}
-    fn pointer(&mut self, _: f32, _: f32) {}
-    fn finish(&mut self) -> Result<Pixmap, String> {
-        Err("a transparent subtree has no frame".into())
-    }
-}
+pub use backend::Backend;
 
 /// The painter: the walk over one backend.
 pub struct Painter {
@@ -574,13 +486,21 @@ pub struct Painter {
     /// app's `setScheme` last said; `light` until it says otherwise.
     pub dark: bool,
     backend: Box<dyn Backend>,
+    #[cfg(test)]
+    pub(crate) rank_passes: usize,
+    /// Retained until the kernel commits; scroll and damage paints reuse it.
+    pub(crate) paint_epoch: Option<u64>,
+    ranks: Rc<BTreeMap<ViewId, i64>>,
+    /// This epoch's walked nodes' potentials, and passes since a full one.
+    fresh_order: HashMap<ViewId, exact_kernel::paint_order::Potentials>,
+    rank_increments: u32,
     pub(crate) placements: BTreeMap<ViewId, crate::placement::Placement>,
     /// Each 2D canvas's latest bitmap (LLP 1056).
     pub(crate) canvases: BTreeMap<ViewId, crate::canvas2d::CanvasPaint>,
     viewport: (f32, f32),
     cpu_ms: Option<f64>,
-    // One generational source, lifted only inside its existing List clip.
-    pub(crate) arrange_lift: Option<(exact_kernel::NodeKey, exact_kernel::NodeKey)>,
+    /// What a reorder lifts: a row in its list, or a ghost over everything.
+    pub(crate) lift: Lift,
     // One lease per actually accepted owner, not one global width per string.
     // Retained while a subsequent backend frame fails.
     accepted_text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
@@ -589,15 +509,21 @@ pub struct Painter {
     damage: damage::Retained,
     /// `backgroundMaterial` names the schema lacks, and those not yet logged.
     materials: (std::collections::BTreeSet<String>, Vec<String>),
+    decoration_warning: bool,
     /// The node a 3D island paints flat, its own transform being the warp's
     /// (LLP 1077 D8).
     pub(crate) flatten: Option<ViewId>,
+    rows: rows::Rows,
+    /// The `svg` painting now: its elements the reader animates.
+    svg_layers: Vec<(ViewId, Presented)>,
+    /// How many boxes the last walk painted: the next one's room.
+    boxes_hint: usize,
 }
 
 // O(painted owners) references and numeric publication metadata, not copied
 // glyphs/commands or a new render graph. The display retains acknowledged A
 // here while one submitted B owns its corresponding leases.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "android", test))]
 pub(crate) struct Presentation {
     text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
     picture: Option<Rc<region::Picture>>,
@@ -610,6 +536,13 @@ struct Walk<'a, 'b> {
     text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
     skip: Option<exact_kernel::NodeKey>,
     replay: Option<&'b region::Replay<'b>>,
+    /// Each node's rank among its siblings (LLP 1083.000 §2.4), twice its
+    /// value, from the kernel's one definition.
+    ranks: Rc<BTreeMap<ViewId, i64>>,
+    /// Painting a ghost, whose root this is: the `visibility: hidden` the
+    /// row inherits from its wrapper shows, one its own nodes set does not
+    /// (`lift.rs`; b6 review B4).
+    reveal: Option<ViewId>,
 }
 
 impl Painter {
@@ -633,7 +566,7 @@ impl Painter {
         std::mem::take(&mut self.materials.1)
     }
 
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "android", test))]
     pub(crate) fn presentation(&self) -> Presentation {
         Presentation {
             text: self.accepted_text.clone(),
@@ -644,7 +577,7 @@ impl Painter {
             }),
         }
     }
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "android", test))]
     pub(crate) fn replace_presentation(&mut self, mut state: Presentation) -> Presentation {
         std::mem::swap(&mut self.accepted_text, &mut state.text);
         std::mem::swap(&mut self.region_picture, &mut state.picture);
@@ -658,17 +591,27 @@ impl Painter {
             scale,
             dark: false,
             backend,
+            #[cfg(test)]
+            rank_passes: 0,
+            paint_epoch: None,
+            fresh_order: HashMap::new(),
+            rank_increments: 0,
+            ranks: Rc::default(),
             accepted_text: BTreeMap::new(),
-            arrange_lift: None,
+            lift: Lift::default(),
             region_picture: None,
             region_frame: None,
             damage: Default::default(),
             materials: Default::default(),
+            decoration_warning: false,
             placements: BTreeMap::new(),
             canvases: BTreeMap::new(),
             viewport: (0., 0.),
             cpu_ms: None,
             flatten: None,
+            rows: Default::default(),
+            boxes_hint: 0,
+            svg_layers: Vec::new(),
         }
     }
 
@@ -823,22 +766,36 @@ impl Painter {
         }
         self.damage.next.clear();
         self.damage.unsupported = false;
+        if self.paint_epoch != Some(scene.kernel.epoch()) {
+            self.refresh_ranks(scene.kernel);
+            self.paint_epoch = Some(scene.kernel.epoch());
+            #[cfg(test)]
+            {
+                self.rank_passes += 1;
+            }
+        }
         let mut walk = Walk {
             scene,
-            boxes: Vec::new(),
+            boxes: Vec::with_capacity(self.boxes_hint),
             text: BTreeMap::new(),
             skip,
             replay,
+            ranks: self.ranks.clone(),
+            reveal: None,
         };
+        self.rows_begin(&walk);
         for root in scene.roots {
             self.node(&mut walk, *root, Transform::identity(), scene.page, None);
         }
+        self.paint_ghost(&mut walk);
+        self.rows_end();
         if let Some(menu) = &scene.menu {
             self.menu(menu);
         }
         if let Some((px, py)) = scene.pointer {
             self.backend.pointer(px, py);
         }
+        self.boxes_hint = walk.boxes.len();
         let finished = self.backend.finish();
         if self.backend.name() == "cpu" {
             self.cpu_ms = Some(started.elapsed().as_secs_f64() * 1000.);
@@ -879,7 +836,9 @@ impl Painter {
         offset: (f32, f32),
         clip_rect: Option<Rect4>,
     ) {
+        let offset = sticky(walk.scene, id, offset);
         if self.placed(walk, id, ts, offset, clip_rect) {
+            self.row_refuse();
             return;
         }
         if let Some(replay) = walk.replay.filter(|r| {
@@ -908,8 +867,10 @@ impl Painter {
         let f = node.frame;
         let (x, y, w, h) = paint_rect(f, offset);
         let p = (walk.scene.presented)(id);
+        self.row_node(node.key, f, &p);
         // @ref LLP 1077 D8 — turned or moved in space: painted apart, warped.
         if self.spatial(walk, &node, &p, (x, y, w, h), ts, offset, clip_rect) {
+            self.row_refuse();
             self.damage.unsupported = true;
             return;
         }
@@ -925,9 +886,18 @@ impl Painter {
             || node.style.backdrop_blur > 0.0
             || self.material_note(&node)
             || !p.colors.is_empty();
-        let ts = if p.moves() && self.flatten != Some(id) {
+        let origin = node.style.transform_origin.resolve(w, h);
+        let layer = match self.flatten == Some(id) {
+            true => layer::Opened { lowered: 0 },
+            false => self.box_layer(node.key, &p, (x, y, w, h), origin, ts),
+        };
+        self.damage.unsupported |= layer.lowered != 0;
+        let ts = if layer.transform() {
+            // The layer turns it; a layout transition's offset is drawn.
+            ts.pre_translate(p.layout[0], p.layout[1])
+        } else if p.moves() && self.flatten != Some(id) {
             // About `transform-origin`, the centre unless authored (LLP 1061 D6).
-            ts.pre_concat(p.transform((x, y, w, h), node.style.transform_origin.resolve(w, h)))
+            ts.pre_concat(p.transform((x, y, w, h), origin))
         } else {
             ts
         };
@@ -935,8 +905,19 @@ impl Painter {
             let (ox, oy) = effective_overflow(&node);
             ox != Overflow::Visible || oy != Overflow::Visible
         };
+        // CSS `visibility` is inherited and per element: a hidden box keeps
+        // its geometry, paints nothing of its own, and is not a hit. A
+        // descendant that computes `visible` still paints and is hit.
+        // `opacity: 0` is the one that blanks the group. A ghost asks
+        // `revealed` (LLP 1094): the wrapper's inherited hidden shows, and
+        // a node that sets its own hidden does not.
+        let visible = paints(walk.scene.kernel, id, walk.reveal);
         walk.boxes.push(PaintedBox {
             id,
+            pointer_hit: node
+                .computed_row(exact_kernel::StyleId::PointerEvents, |s| s.pointer_events)
+                != exact_kernel::PointerEvents::None
+                && visible,
             projective: None,
             affine: Some((ts, (x, y, w, h))),
             press: p.press,
@@ -944,26 +925,33 @@ impl Painter {
             clip: clip_rect,
             scroll: scrolls.then(|| walk.scene.scroll.get(&id).copied().unwrap_or((0.0, 0.0))),
         });
-        let opacity = p.opacity.clamp(0.0, 1.0);
+        let opacity = if layer.opacity() {
+            1.0
+        } else {
+            p.opacity.clamp(0.0, 1.0)
+        };
         // CSS opacity is paint only: a transparent subtree is still hit (the
         // walk records its boxes) and draws through a backend that draws nothing.
-        let drawn =
-            (opacity <= 0.0).then(|| std::mem::replace(&mut self.backend, Box::new(Unpainted)));
+        // Visibility is not that: only this box's own paint is skipped.
+        let drawn = (opacity <= 0.0)
+            .then(|| std::mem::replace(&mut self.backend, Box::new(layer::Unpainted)));
         if drawn.is_none() && opacity < 1.0 {
             self.backend.push_opacity(opacity);
         }
+        // The node's own appearance (a `color-scheme` above it, LLP 1034 §8)
+        // for its mask and everything it paints below.
+        let previous = self.dark;
+        self.dark = p.dark.unwrap_or(previous);
         // @ref LLP 1077 D2 — the mask is the border box's gradient's alpha.
         let mask = gradient::Captured::mask(node.style, self.dark).map(|m| m.place((x, y, w, h)));
         if mask.is_some() {
             self.backend.push_mask(&Shape::rect((x, y, w, h)), ts);
         }
         // @ref LLP 1043.000 §3 D7 — polygon demo ink and exclusion share an outline.
-        let path_clip = !node.style.clip_path.commands().is_empty()
+        let path_clip = !node.style.rare.clip_path.commands().is_empty()
             && self
                 .backend
-                .push_css_clip(&node.style.clip_path, ts.pre_translate(x, y));
-        let previous = self.dark;
-        self.dark = p.dark.unwrap_or(previous);
+                .push_css_clip(&node.style.rare.clip_path, ts.pre_translate(x, y));
         self.content(walk, &node, (x, y, w, h), ts, offset, clip_rect);
         self.dark = previous;
         if path_clip {
@@ -977,6 +965,7 @@ impl Painter {
             None if opacity < 1.0 => self.backend.pop_opacity(),
             None => {}
         }
+        self.layer_close(layer);
     }
 
     fn content(
@@ -988,6 +977,7 @@ impl Painter {
         offset: (f32, f32),
         clip_rect: Option<Rect4>,
     ) {
+        let paints_self = paints(walk.scene.kernel, node.id, walk.reveal);
         let shown = (walk.scene.presented)(node.id);
         // Paint motion's values over the captured box (LLP 1055.000 D6,
         // LLP 1062 D5): background, border sides and shadow.
@@ -996,98 +986,58 @@ impl Painter {
         let geometry = paint.geometry(rect);
         // @ref LLP 1063 — a layout transition's size is the surface's alone.
         let surface = paint.geometry(shown.surface(rect));
-        paint.paint(self.backend.as_mut(), &surface, ts);
+        // A hidden box paints none of its own chrome. Children still do,
+        // and a text node still walks its runs so a visible inline paints.
+        if paints_self {
+            paint.paint(self.backend.as_mut(), &surface, ts);
+            self.column_rules(walk.scene.kernel, node, rect, ts);
+        }
         let outer = geometry.outer;
         let content = geometry.content;
         let s = node.style;
         match node.node_type {
+            NodeType::Text => self.text_node(walk, node, &geometry, rect, ts),
+            // The rest is this element's own paint (its picture, field, or control).
+            _ if !paints_self => {}
             // @ref LLP 1056 D7 — a 2D canvas's kept bitmap fills its content box.
             NodeType::Canvas => {
+                self.row_refuse();
                 if let Some(c) = self.canvases.get(&node.id) {
                     let clips = [Shape::rect(content), outer];
                     self.backend.canvas(&c.pixels, content, &clips, ts);
+                } else {
+                    self.native(node, content, &outer, ts);
                 }
             }
             NodeType::Image => {
-                if let Some(img) = walk.scene.images.get(&node.id) {
-                    if let Some(dst) = object_fit(img.natural(), s.object_fit, content) {
-                        self.backend.image(
-                            img,
-                            dst,
-                            &[Shape::rect(content), outer],
-                            ts,
-                            image_tint(s, &shown, self.dark),
-                        );
-                    }
-                }
-            }
-            NodeType::Text => {
-                // The kernel measures a Text subtree as one paragraph. Inline
-                // descendants deliberately have zero frames, not paint boxes.
-                let build = || {
-                    let mut spec = text_spec(&node.computed_style(StyleMask::INHERITED), "");
-                    spec.runs = node
-                        .text_runs()
-                        .iter()
-                        .map(|run| Run::from_style(&run.text, run.style))
-                        .collect();
-                    spec.collapse_white_space()
-                };
-                let paragraph = if let Some(stamp) = node.paragraph_stamp() {
-                    // @ref LLP 1043.000 §3 D7 — ordinary text takes the same
-                    // retained identity path; flow only adds exclusion geometry.
-                    self.text.borrow_mut().flow_identified(
-                        &stamp,
-                        content.2,
-                        &node
-                            .flow_shapes()
-                            .iter()
-                            .map(|s| s.translate(-geometry.inset.0, -geometry.inset.1))
-                            .collect::<Vec<_>>(),
-                        self.accepted_text.get(&node.key),
-                        build,
-                    )
+                self.row_image(node.id, walk.scene.images.get(&node.id));
+                if node
+                    .props
+                    .str(exact_kernel::PropId::ImageSource)
+                    .is_some_and(|s| s.starts_with("symbol:"))
+                {
+                    self.symbol(node, content, image_tint(node, &shown, self.dark), ts);
                 } else {
-                    let spec = build();
-                    (!spec.is_empty())
-                        .then(|| self.text.borrow_mut().paragraph(&spec, Some(content.2)))
-                };
-                if let Some(paragraph) = paragraph {
-                    let mut palette = Vec::new();
-                    text_palette(walk.scene.kernel, node, self.dark, &mut palette);
-                    presented_text_colors(walk, node, &mut palette);
-                    walk.text.insert(node.key, paragraph.clone());
-                    // CSS `text-overflow: ellipsis` in a clipping box: an
-                    // over-wide line ends in "…" (LLP 1053 G5; paint only).
-                    let shown = (s.text_overflow == exact_kernel::TextOverflow::Ellipsis
-                        && effective_overflow(node).0 != Overflow::Visible)
-                        .then(|| paragraph.ellipsized(content.2))
-                        .flatten()
-                        .unwrap_or_else(|| paragraph.clone());
-                    // Inline backgrounds, under the glyphs, per line fragment.
-                    let mut backgrounds = Vec::new();
-                    text_backgrounds(walk.scene.kernel, node, None, self.dark, &mut backgrounds);
-                    for (r, color) in shown.run_backgrounds(&backgrounds) {
-                        self.backend.fill(
-                            &Shape::rect((content.0 + r.0, content.1 + r.1, r.2, r.3)),
-                            color,
-                            ts,
-                        );
+                    self.backend.slot_begin(node.id);
+                    if let Some(img) = walk.scene.images.get(&node.id) {
+                        if let Some(dst) = object_fit(img.natural(), s.object_fit, content) {
+                            self.backend.image(
+                                img,
+                                dst,
+                                &[Shape::rect(content), outer],
+                                ts,
+                                image_tint(node, &shown, self.dark),
+                            );
+                        }
                     }
-                    let kernel = walk.scene.kernel;
-                    self.text_paint(
-                        node,
-                        kernel,
-                        &shown,
-                        &palette,
-                        (content.0, content.1),
-                        rect,
-                        ts,
-                    );
+                    self.backend.slot_end();
                 }
             }
             NodeType::TextInput => {
-                let value = node.props.str(PropId::Value).unwrap_or("");
+                self.row_refuse();
+                // Typed text its bound value has not replaced (LLP 1069.001 D4).
+                let value = control::choice(node, walk.scene.chosen.get(&node.id))
+                    .unwrap_or_else(|| node.props.str(PropId::Value).unwrap_or(""));
                 let placeholder = value.is_empty();
                 // A password is masked, one bullet a character, as the web and
                 // Apple's secure fields draw it.
@@ -1124,6 +1074,18 @@ impl Painter {
                     presented_color(walk, node)
                         .unwrap_or_else(|| rgba(node.text_color().resolve(self.dark)))
                 };
+                // The focused field's selection (x2apps codeedit #2).
+                let field = caret::FieldText {
+                    style: &computed,
+                    value,
+                    masked: node.props.str(PropId::Type) == Some("password"),
+                    origin: (content.0, oy),
+                };
+                let focused = walk.scene.focus == Some(node.id);
+                let selection = walk.scene.selection.filter(|_| focused);
+                if let Some(s) = selection {
+                    self.field_highlight(&field, s, ts);
+                }
                 {
                     let mut engine = self.text.borrow_mut();
                     self.backend.text(
@@ -1137,28 +1099,28 @@ impl Painter {
                         ts,
                     );
                 }
-                if walk.scene.focus == Some(node.id) {
-                    let caret_x = content.0 + if placeholder { 0.0 } else { paragraph.width };
-                    let caret_h = if paragraph.height > 0.0 {
-                        paragraph.height
-                    } else {
-                        computed.font_size * 1.2
-                    };
-                    self.backend.fill(
-                        &Shape::rect((caret_x, oy, 1.0, caret_h)),
-                        rgba(
-                            computed
-                                .caret_color
-                                .unwrap_or(node.text_color())
-                                .resolve(self.dark),
-                        ),
-                        ts,
+                if focused {
+                    let caret = rgba(
+                        computed
+                            .caret_color
+                            .unwrap_or(node.text_color())
+                            .resolve(self.dark),
                     );
+                    let at_end = || exact_runner::FieldSelection::at_end(value);
+                    self.field_caret(&field, caret, selection.unwrap_or_else(at_end), ts);
+                    if node.props.str(PropId::FieldStyle).is_some() {
+                        let accent = control::accent(node, self.dark).unwrap_or(control::ACCENT);
+                        self.field_ring(&surface.outer, accent, ts);
+                    }
                 }
             }
             NodeType::Svg => self.svg(walk, node, rect, content, ts),
+            NodeType::Video | NodeType::WebView | NodeType::NativeView => {
+                self.native(node, content, &outer, ts)
+            }
             NodeType::Control if node.props.str(PropId::Type) == Some("select") => {
-                let label = walk.scene.kernel.select_chosen(node.id).map(|c| c.label);
+                let label =
+                    control::select_label(walk.scene.kernel, node, walk.scene.chosen.get(&node.id));
                 self.field_control(node, content, ts, label.as_deref().unwrap_or(""), true);
             }
             // @ref LLP 1069.001 D7 — a date control is a field showing its
@@ -1169,17 +1131,11 @@ impl Painter {
                     Some("date" | "time" | "datetime-local")
                 ) =>
             {
-                let value = node.props.str(PropId::Value).unwrap_or("");
-                let shown = match (value, node.props.str(PropId::Type)) {
-                    ("", Some("date")) => "yyyy-mm-dd",
-                    ("", Some("time")) => "--:--",
-                    ("", _) => "yyyy-mm-ddT--:--",
-                    (v, _) => v,
-                };
+                let shown = control::date_text(node, walk.scene.chosen.get(&node.id));
                 self.field_control(node, content, ts, shown, false);
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("range") => {
-                self.range_control(node, content, ts)
+                self.range_control(node, content, ts, walk.scene.chosen.get(&node.id))
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("button") => {
                 let title = walk.scene.kernel.press_face(node.id).and_then(|f| f.title);
@@ -1220,38 +1176,40 @@ impl Painter {
         } else {
             offset
         };
-        let lift = self
-            .arrange_lift
-            .filter(|(list, _)| *list == node.key)
-            .and_then(|(_, key)| walk.scene.kernel.node_by_key(key))
-            .filter(|source| source.parent == Some(node.id))
-            .map(|source| source.id);
-        // A native button's children are its face, painted above (LLP 1069.011 D5).
-        let native =
-            node.node_type == NodeType::Control && node.props.str(PropId::Type) == Some("button");
-        let mut children: Vec<_> = node
-            .children()
-            .into_iter()
-            .filter(|id| Some(*id) != lift && !native)
-            .collect();
-        children.sort_by(
-            |a, b| match (self.placements.get(a), self.placements.get(b)) {
-                (Some(a), Some(b)) => a.depth().total_cmp(&b.depth()),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                _ => std::cmp::Ordering::Equal,
-            },
-        );
-        for child in children {
-            self.node(walk, child, ts, child_offset, child_rect);
-        }
-        if let Some(child) = lift {
-            self.node(walk, child, ts, child_offset, child_rect);
-        }
+        self.children(walk, node, ts, child_offset, child_rect);
         if clips {
             self.backend.pop_clip();
         }
     }
+}
+
+/// @ref LLP 1083 D4 — a sticky box moves by its constraint's offset at its
+/// scroller's scroll: the scroller's own, the page's for a root that does
+/// not scroll itself, none for a box that only clips. Painted there, it is
+/// hit there too.
+fn sticky(scene: &Scene<'_>, id: ViewId, offset: (f32, f32)) -> (f32, f32) {
+    let kernel = scene.kernel;
+    let Some(node) = kernel
+        .node(id)
+        .filter(|n| n.style.position_type == exact_kernel::PositionType::Sticky)
+    else {
+        return offset;
+    };
+    let Some(c) = kernel.sticky_constraint(node.key) else {
+        return offset;
+    };
+    let Some(scroller) = kernel.node(c.scroller) else {
+        return offset;
+    };
+    let scroll = if effective_overflow(&scroller) != (Overflow::Visible, Overflow::Visible) {
+        scene.scroll.get(&c.scroller).copied().unwrap_or((0.0, 0.0))
+    } else if scroller.parent.is_none() {
+        scene.page
+    } else {
+        (0.0, 0.0)
+    };
+    let (dx, dy) = c.offset(scroll);
+    (offset.0 - dx, offset.1 - dy)
 }
 
 /// Where a picture goes under CSS `object-fit`, centred in the content box:
@@ -1298,6 +1256,7 @@ pub fn text_spec(s: &StyleProps, text: &str) -> Spec {
         overflow_wrap: s.overflow_wrap,
         white_space: s.white_space,
         direction: s.direction,
+        text_indent: s.text_indent,
     }
     .collapse_white_space()
 }
@@ -1310,7 +1269,7 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
     let mut y = if s.mask.has(StyleId::OverflowY) {
         s.overflow_y
     } else if node.node_type.scrolls_by_default() {
-        Overflow::Scroll
+        Overflow::Auto
     } else {
         Overflow::Visible
     };
@@ -1320,9 +1279,9 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
         Overflow::Visible
     };
     if x == Overflow::Visible && y != Overflow::Visible {
-        x = Overflow::Scroll;
+        x = Overflow::Auto;
     } else if y == Overflow::Visible && x != Overflow::Visible {
-        y = Overflow::Scroll;
+        y = Overflow::Auto;
     }
     (x, y)
 }
@@ -1337,7 +1296,9 @@ pub fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
         Dimension::Points(p) => p,
         Dimension::Percent(p) => against * p / 100.0,
         Dimension::Calc(p, x) => against * p / 100.0 + x,
-        Dimension::Auto | Dimension::Env(..) | Dimension::Segment(..) => 0.0,
+        Dimension::Auto | Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..) => {
+            0.0
+        }
     };
     let pad_right = pad(node.style.padding_right, node.frame.width);
     let pad_bottom = pad(node.style.padding_bottom, node.frame.width);
@@ -1401,3 +1362,35 @@ pub const POINTER: [(f32, f32); 7] = [
 
 #[cfg(test)]
 mod paragraph_tests;
+
+/// Whether `id` paints, is hit, and is exposed. In a ghost, [`revealed`];
+/// otherwise the computed `visibility` (inherited). A missing node does not
+/// veto a caller that already has nothing to draw.
+pub(crate) fn paints(kernel: &Kernel, id: ViewId, reveal: Option<ViewId>) -> bool {
+    match reveal {
+        Some(root) => revealed(kernel, id, root),
+        None => kernel.node(id).is_none_or(|n| {
+            n.computed_row(exact_kernel::StyleId::Visibility, |s| s.visibility)
+                == exact_kernel::Visibility::Visible
+        }),
+    }
+}
+
+/// Whether `id` shows in the ghost of `root`: the nearest `visibility` set
+/// on it or an ancestor below the ghost's root decides, as in the web's
+/// clone whose root alone is made visible (`group-glue.js`); none set shows.
+pub(crate) fn revealed(kernel: &Kernel, id: ViewId, root: ViewId) -> bool {
+    let arena = kernel.arena();
+    let mut at = arena.key_of(id).map(|k| k.index);
+    while let Some(slot) = at {
+        if arena.local_id(slot) == root {
+            return true;
+        }
+        let style = arena.style(slot);
+        if style.mask.has(exact_kernel::StyleId::Visibility) {
+            return style.visibility == exact_kernel::Visibility::Visible;
+        }
+        at = arena.parent(slot);
+    }
+    true
+}

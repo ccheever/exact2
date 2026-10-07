@@ -3,6 +3,7 @@
 
 /// The local zone's current UTC offset in minutes east, from the C
 /// library's zone database (`TZ`, else `/etc/localtime`); zero without one.
+#[cfg(unix)]
 pub fn local_offset_minutes() -> f64 {
     // SAFETY: `time(NULL)` reads the clock; `localtime_r` writes only the
     // `tm` it is given and returns null on failure.
@@ -14,6 +15,11 @@ pub fn local_offset_minutes() -> f64 {
         }
         tm.tm_gmtoff as f64 / 60.0
     }
+}
+
+#[cfg(windows)]
+pub fn local_offset_minutes() -> f64 {
+    chrono::Local::now().offset().local_minus_utc() as f64 / 60.0
 }
 
 /// Under the agent, the date at the clock's zero (`EXACT_AGENT_EPOCH`, Unix
@@ -36,6 +42,7 @@ pub fn agent_time(
 
 /// A zone's UTC offset at a Unix instant, from the C library's database.
 /// The agent's process adopts the agent zone as its `TZ` to ask.
+#[cfg(unix)]
 pub(crate) fn offset_minutes_at(zone: &str, epoch_ms: f64) -> f64 {
     if matches!(zone, "UTC" | "Etc/UTC") {
         return 0.0;
@@ -57,6 +64,17 @@ pub(crate) fn offset_minutes_at(zone: &str, epoch_ms: f64) -> f64 {
         }
         tm.tm_gmtoff as f64 / 60.0
     }
+}
+
+#[cfg(windows)]
+pub(crate) fn offset_minutes_at(zone: &str, epoch_ms: f64) -> f64 {
+    use chrono::{Offset, TimeZone};
+    let Ok(zone) = zone.parse::<chrono_tz::Tz>() else {
+        return 0.0;
+    };
+    zone.timestamp_millis_opt(epoch_ms as i64)
+        .single()
+        .map_or(0.0, |at| at.offset().fix().local_minus_utc() as f64 / 60.0)
 }
 
 /// Place and entropy are sampled once at launch. Agent mode bypasses every
@@ -125,10 +143,15 @@ fn zone_name(value: &str) -> Option<String> {
         return None;
     }
     // A POSIX rule such as PST8PDT,M3.2.0,M11.1.0 is not an IANA name.
-    std::fs::metadata(std::path::Path::new("/usr/share/zoneinfo").join(name))
+    #[cfg(unix)]
+    return std::fs::metadata(std::path::Path::new("/usr/share/zoneinfo").join(name))
         .ok()
         .filter(|meta| meta.is_file())
-        .map(|_| name.into())
+        .map(|_| name.into());
+    #[cfg(windows)]
+    name.parse::<chrono_tz::Tz>()
+        .ok()
+        .map(|zone| zone.name().into())
 }
 
 #[cfg(test)]

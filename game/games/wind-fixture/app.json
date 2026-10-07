@@ -1,0 +1,29 @@
+{
+  "game": {
+    "assets": true,
+    "render": {
+      "crate": "wind-fixture-render",
+      "hooks": "Wind",
+      "shaders": "shaders::SHADERS"
+    }
+  },
+  "gpu": {
+    "shaderRoots": [
+      "render/shaders"
+    ],
+    "shaderPreludes": {
+      "sky": [
+        "exact-game-render:frame"
+      ],
+      "wind_forward": [
+        "exact-game-render:material",
+        "exact-game-render:material_shadows",
+        "render/wgsl/wind.wgsl"
+      ],
+      "wind_shadow": [
+        "exact-game-render:material",
+        "render/wgsl/wind.wgsl"
+      ]
+    }
+  }
+}

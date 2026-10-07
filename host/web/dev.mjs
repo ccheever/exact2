@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 // The resident dev loop: edit app.contract → the page shows it, no cargo
 // build in the loop. Usage: bun host/web/dev.mjs [--app caltrain] [--port 8765] [--lan] [--wasm]
+//   [--allow-host <name>]…
 // An app the JS target takes (LLP 1071) runs on it instead, rebuilt and
 // reloaded per edit (host/web-js/dev.mjs); --wasm keeps it on this loop.
 //
@@ -9,6 +10,9 @@
 // the compile errors on /__dev and the dev generations (LLP 1023 D8, amended
 // 2026-09-23). Either way the server answers only to the names it printed, and
 // the local iOS installer's token reaches only a page loaded over loopback.
+// `--allow-host <name>` (repeatable) adds a name it answers to — a tunnel's
+// public name (`tuft host`, cloudflared, ngrok) forwarding to loopback — for
+// every request, the /__dev event streams included; never the token.
 // The agent carrier is not here and never binds the LAN.
 //
 // One Rust process (the app's `dev` bin, exact_web::dev) watches the source
@@ -31,16 +35,16 @@ import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { canonicalBytes, classifyArtifacts, cohortReceipt } from '../../scripts/deploy.mjs';
 import { filesystem } from '../../scripts/filesystem.mjs';
-import { developmentGate, installBrowserOrigins, LOCAL_IOS_INSTALL_ENDPOINT } from '../../scripts/install-page.mjs';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, unwatchFile, watch, watchFile } from 'node:fs';
-import { resolve } from 'node:path';
+import { allowHostArgs, developmentGate, installBrowserOrigins, LOCAL_IOS_INSTALL_ENDPOINT } from '../../scripts/install-page.mjs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, readlinkSync, realpathSync, rmSync, statSync, unwatchFile, watch, watchFile } from 'node:fs';
+import { basename, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/rust.mjs';
 import { gpuModules, shaderWatchRoots, rustPolicy, rebuildPolicy } from '../../scripts/app.mjs';
 import { webDist, cargoReproducibilityFlags, compilerPaths, developmentBuildEnv, developmentCandidate, pendingBuildInputs, readBuilds, resolveApp } from '../../scripts/app.mjs';
 import { developmentLinks } from '../apple/build.mjs';
 import { webRequestURL } from '../../scripts/origin.mjs';
 import { localInstaller } from './local-install.mjs';
-import { applyShaderTreeChange, sendStaticBody, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, saveTrace, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
+import { applyShaderTreeChange, sendStaticBody, watchLauncher, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, saveTrace, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
@@ -48,8 +52,20 @@ const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? 
 // one restarts in place, never waiting on a wasm rebuild.
 const buildEnv = {...developmentBuildEnv(),EXACT_UPDATE_TRUST:'development',EXACT_WEB_LINK:'all'};
 let app = resolveApp(arg('--app', undefined));
-const port = Number(arg('--port', 8765));
 const lan = argv.includes('--lan');
+/** The first of 100 ports from `from` up that `host` can listen on: another app's loop holding 8765 is common.
+ * A probe does not reserve it; a loop started at the same moment can still take it, and its listen error says so. */
+async function freePort(from, host) {
+  for (let p = from; p < from + 100; p++) {
+    const free = await new Promise((ok) => { const t = createServer(); t.once('error', () => ok(false)); t.listen(p, host, () => t.close(() => ok(true))); });
+    if (free) return p;
+  }
+  console.error(`ports ${from}–${from + 99} are all in use; --port <n> picks another`);
+  process.exit(1);
+}
+// An explicit --port is kept (and fails loudly if taken); the default moves to a free one.
+const port = argv.includes('--port') || argv.includes('--serve-as') ? Number(arg('--port', 8765)) : await freePort(8765, lan ? '0.0.0.0' : '127.0.0.1');
+if (port !== 8765 && !argv.includes('--port') && !argv.includes('--serve-as')) console.log(`port 8765 is in use; serving on ${port} (--port picks one)`);
 // `--serve-as <port>` (internal): the resident loop's producers behind the
 // JS loop on that port (host/web-js/dev.mjs forwards a native client's
 // requests here): its names are that port's, and it listens on loopback.
@@ -57,7 +73,8 @@ const servedAs = arg('--serve-as', null) == null ? null : Number(arg('--serve-as
 const host = lan && servedAs == null ? '0.0.0.0' : '127.0.0.1';
 // The addresses printed at startup are the only names requests may use.
 const origins = installBrowserOrigins({ host: lan ? '0.0.0.0' : '127.0.0.1', port: servedAs ?? port });
-const gate = developmentGate(origins, servedAs ?? port);
+const allowHosts = allowHostArgs(argv);
+const gate = developmentGate(origins, servedAs ?? port, allowHosts);
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const dist = webDist();
 const source = resolve(app.dir, 'app.contract');
@@ -66,7 +83,7 @@ const source = resolve(app.dir, 'app.contract');
 // A game (LLP 1071 §8: its runtime is on wasm), and `--wasm` (the loop a
 // native client opening the dev URL reads), run the resident wasm loop below.
 if (!argv.includes('--wasm') && servedAs == null && app.manifest.game === undefined) {
-  await (await import('../web-js/dev.mjs')).devJs({ app, dist, port, host, origins, gate, lan });
+  await (await import('../web-js/dev.mjs')).devJs({ app, dist, port, host, origins, gate, lan, allowHosts });
 }
 // Behind the JS loop (`--serve-as`) an app's resident loop is its producers
 // alone: nothing loads its page, so its builds are the web crate's bake
@@ -397,7 +414,13 @@ function watchModuleSources(directory, ignore, changed) {
           if (ignore(name)) continue;
           if (++entries > 4096) throw new Error('module watcher source graph exceeds 4096 entries');
           const path = resolve(directory, name), stat = lstatSync(path, { bigint: true });
-          if (stat.isSymbolicLink()) { state.push([name,'symlink']); continue; }
+          // A link is what it leads to: retargeting it is an edit.
+          if (stat.isSymbolicLink()) {
+            let target = '';
+            try { const to = statSync(path, { bigint: true }); target = `${readlinkSync(path)}:${metadata(to)}:${to.dev}:${to.ino}`; } catch { target = 'dangling'; }
+            state.push([name, `symlink:${target}`]);
+            continue;
+          }
           if (stat.isDirectory()) { walk(path,name+'/',depth+1); continue; }
           if (!/\.(ts|contract|json)$/.test(name)) continue;
           if (!stat.isFile()) { state.push([name,'not-regular']); continue; }
@@ -440,6 +463,49 @@ function watchModuleSources(directory, ignore, changed) {
   return { get error(){return refusal;}, close(){closed=true;clearInterval(poll);directoryWatch.close();for(const file of files.values())file.watch.close();files.clear();} };
 }
 let moduleWatch = null, moduleTimer = null, moduleRun = 0, moduleStage = null, moduleSaved = 0;
+/** The Contract sources the app reads from packages (LLP 1091 D10), and
+ * the directories to watch for them: each package's root, and the nearest
+ * existing directory of a file resolution looked for and did not find. */
+function contractGraph() {
+  const r = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'sources', resolve(app.dir, 'app.contract')], { cwd: root, env: toolingEnv, encoding: 'utf8' });
+  const nearest = (path) => { while (!existsSync(path) && dirname(path) !== path) path = dirname(path); return path; };
+  try {
+    const graph = JSON.parse(r.stdout);
+    const files = new Set([...graph.sources.filter(s => s.origin === 'package').map(s => s.path), ...graph.consulted]);
+    // A file looked for and not found: its nearest existing directory, but
+    // only inside a package or a node_modules — never the app or above it.
+    // A consulted manifest's directory is a package even when resolution
+    // then refused it.
+    // Either separator: `contract sources` prints the platform's paths.
+    const under = (d, root) => { const r = relative(root, d); return r === '' || (!r.startsWith('..') && !isAbsolute(r)); };
+    const inside = d => graph.packages.some(p => under(d, p.root)) || /(^|[\\/])node_modules([\\/]|$)/.test(d)
+      || graph.consulted.some(c => basename(c) === 'package.json' && dirname(c) === d);
+    // Watched where they really are: a watch root that is a link is refused.
+    const real = d => { try { return realpathSync(d); } catch { return d; } };
+    const dirs = new Set([...graph.packages.map(p => p.root), ...graph.consulted.map(c => nearest(dirname(c))).filter(inside)].map(real));
+    // One entry of a directory: where a node_modules not made yet would be
+    // (its making is an install), and an install that is a link (its
+    // retargeting is an edit no file inside sees).
+    const shallow = new Map();
+    for (const c of graph.consulted) {
+      const match = [...c.matchAll(/[\\/]node_modules[\\/]/g)].pop();
+      if (match) {
+        const parent = c.slice(0, match.index);
+        if (!existsSync(resolve(parent, 'node_modules')) && existsSync(parent)) shallow.set(`${parent}\0node_modules`, [parent, 'node_modules']);
+      }
+      // Every link on the way to it — the install, a linked node_modules,
+      // a linked scope — is one entry of its directory.
+      for (let dir = dirname(c); dirname(dir) !== dir; dir = dirname(dir)) {
+        try { if (lstatSync(dir).isSymbolicLink()) shallow.set(`${dirname(dir)}\0${basename(dir)}`, [dirname(dir), basename(dir)]); } catch {}
+      }
+    }
+    // Every source and every path resolution looked at: a hidden import not
+    // made yet, or a link whose target is elsewhere, is scanned by its path.
+    const sources = new Set([...graph.sources.filter(s => isAbsolute(s.path)).map(s => s.path), ...graph.consulted]);
+    return { files, dirs, shallow: [...shallow.values()], sources };
+  } catch { return { files: new Set(), dirs: new Set(), shallow: [], sources: new Set() }; }
+}
+
 function startModuleCompiler() {
   const built = spawnSync('cargo', ['build', '-q', '--release', '-p', 'exact-js-bake'], { cwd: root, env: toolingEnv, stdio: 'inherit' });
   if (built.status !== 0) throw new Error('the module producer did not build');
@@ -489,6 +555,8 @@ function startModuleCompiler() {
         push(announcement());
       } catch (error) { console.error(error.message); push({ error: error.message }); }
       finally {
+        // A failed generation still names the packages to watch for its fix.
+        watchPackages();
         if (request) rmSync(request.stage, { recursive: true, force: true });
         active = null; moduleStage = null;
         if (request && request.id !== moduleRun) produce();
@@ -508,12 +576,44 @@ function startModuleCompiler() {
     if (rebuildOn.typescript === "save") moduleTimer = setImmediate(produce);
   };
   // The declarations the producer writes beside app.ts are its output, not a source.
-  const watches = [watchModuleSources(app.dir, name => name === 'app.contract.d.ts' || skipped.test(name) || /(^|\/)\./.test(name)
-    || assetTrees.some(([tree]) => resolve(app.dir,name) === tree || resolve(app.dir,name).startsWith(tree+'/')), moduleChanged)];
+  // A Contract source the compile read is an input even in a dot directory.
+  const contractSources = new Set(contractGraph().sources);
+  // A source, or a directory on the way to one: the scan descends into it.
+  const contractInput = path => contractSources.has(path) || [...contractSources].some(s => s.startsWith(path + '/') || s.startsWith(path + '\\'));
+  const watches = [watchModuleSources(app.dir, name => name === 'app.contract.d.ts' || (skipped.test(name) && !contractInput(resolve(app.dir, name)))
+    || (/(^|\/)\./.test(name) && !contractInput(resolve(app.dir, name)))
+    || (assetTrees.some(([tree]) => resolve(app.dir,name) === tree || resolve(app.dir,name).startsWith(tree+'/')) && !contractInput(resolve(app.dir, name))), moduleChanged)];
   // Directories the manifest mounts beside app.ts (typescript.sources) are sources too.
   for (const path of Object.values(app.manifest.typescript?.sources ?? {})) {
     watches.push(watchModuleSources(realpathSync(resolve(app.dir, path)), name => skipped.test(name) || /(^|\/)\./.test(name), moduleChanged));
   }
+  // And the Contract packages it uses, wherever installed (a package's own
+  // dot directories are its sources too; only its node_modules is not).
+  const packageDirs = new Set();
+  const watchPackages = () => {
+    const graph = contractGraph();
+    for (const source of graph.sources) contractSources.add(source);
+    for (const dir of graph.dirs) {
+      if (packageDirs.has(dir) || !existsSync(dir)) continue;
+      packageDirs.add(dir);
+      // A package that cannot be watched is said, never a stop to the producer.
+      try {
+        const handle = watchModuleSources(dir, name => /(^|\/)node_modules(\/|$)/.test(name), moduleChanged);
+        if (handle.error) { console.error(`cannot watch ${dir}: ${handle.error.message}`); handle.close(); }
+        else watches.push(handle);
+      } catch (error) { console.error(`cannot watch ${dir}: ${error.message}`); }
+    }
+    for (const [dir, entry] of graph.shallow) {
+      const key = `shallow:${dir}:${entry}`;
+      if (packageDirs.has(key)) continue;
+      packageDirs.add(key);
+      try {
+        const handle = watch(dir, (_event, name) => { if (String(name) === entry) moduleChanged(); });
+        watches.push({ error: null, close: () => handle.close() });
+      } catch (error) { console.error(`cannot watch ${dir}: ${error.message}`); }
+    }
+  };
+  watchPackages();
   moduleWatch = { get error() { return watches.find(w => w.error)?.error ?? null; }, close() { for (const w of watches) w.close(); } };
   if (moduleWatch.error) { console.error(moduleWatch.error.message); push({error:moduleWatch.error.message}); }
 
@@ -802,7 +902,11 @@ let optionalRootsSeen = optionalRoots();
 function watchCompilerInputs() {
   // Poll declared file metadata: saves and replacement survive directory-event
   // coalescing. Only open-ended source discovery needs a directory watch.
-  const files=new Set([...builtReceipts.flatMap(r=>r.binary.inputs.map(f=>f.path)),...rustInputFiles,...gpuInputs,...appInputs,...failedInputs].filter(p=>!skipped.test(p)&&!p.includes('/.cargo/')));
+  // A Contract package's files are inputs wherever they are installed,
+  // node_modules included (LLP 1091 D10).
+  const contract=contractGraph();
+  const outside=p=>skipped.test(p)&&!contract.files.has(p);
+  const files=new Set([...builtReceipts.flatMap(r=>r.binary.inputs.map(f=>f.path)),...rustInputFiles,...gpuInputs,...appInputs,...failedInputs,...contract.files].filter(p=>!outside(p)&&!p.includes('/.cargo/')));
   for(const receipt of builtReceipts)for(const missing of receipt.binary.missing)files.add(missing);
   files.add(resolve(app.dir,'app.json'));
   compilerInputFiles = files;
@@ -813,7 +917,7 @@ function watchCompilerInputs() {
   const targets=new Set([...files,...directories]);
   for(const [path,handle] of watched)if(!targets.has(path)){handle.close();watched.delete(path);}
   for(const target of targets) {
-    if(skipped.test(target)||target.includes('/.cargo/')||watched.has(target))continue;
+    if(outside(target)||target.includes('/.cargo/')||watched.has(target))continue;
     const file=files.has(target),dir=file?resolve(target,'..'):target;
     const changedPath=name=>{
       if(file)name=target.slice(target.lastIndexOf('/')+1);
@@ -1065,7 +1169,7 @@ const server = createServer(async (req, res) => {
   const file = url.pathname === '/' ? '/index.html' : url.pathname;
   if (file === '/dev.js') { res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }); res.end(readFileSync(resolve(root, 'host/web/dev.js'))); return; }
   // The module artifact as it is now, not as the last build copied it: a reload picks up an edit (LLP 1067 D5).
-  if (file.startsWith('/modules/') && app.modules.web && /^\/modules\/[\w./-]+\.js$/.test(file) && !file.includes('..')) { const path = resolve(app.dir, 'modules/web', file.slice('/modules/'.length)); if (existsSync(path)) { res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }); res.end(readFileSync(path)); return; } }
+  if (file.startsWith('/modules/') && app.modules.web && /^\/modules\/[\w./-]+\.js$/.test(file) && !file.includes('..')) { const path = resolve(dirname(app.modules.web), file.slice('/modules/'.length)); if (existsSync(path)) { res.writeHead(200, { 'content-type': 'text/javascript', 'cache-control': 'no-store' }); res.end(readFileSync(path)); return; } }
   try {
     if (!found) { res.writeHead(404); res.end(); return; }
     let body = found.body;
@@ -1077,7 +1181,7 @@ const server = createServer(async (req, res) => {
     sendStaticBody(req, res, body, { 'content-type': webContentType(found.route), ...(index ? { vary: 'Accept' } : {}), 'cache-control': 'no-store' });
   } catch { try { res.writeHead(404); res.end(); } catch { /* mid-write */ } }
 });
-server.on('error', (e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}`); killCompiler(); process.exit(1); });
+server.on('error', (e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}${e.code === 'EADDRINUSE' ? ' (another dev loop? --port <n> picks another)' : ''}`); killCompiler(); process.exit(1); });
 await readStaticFileAsync(dist, '/index.html'); // warm the reader before advertising readiness
 server.listen(port, host, () => {
   // Every usable IPv4 with --lan, none silently picked (D8): a utun/VPN
@@ -1086,7 +1190,10 @@ server.listen(port, host, () => {
   if (lan && urls.length === 1) console.log('no LAN interface found; serving loopback only in effect');
   console.log(urls.join('\n'));
   console.log(urls.map(url => `  Open in native: ${url}__dev/open`).join('\n'));
+  if (allowHosts.length) console.log(`  also answering to ${allowHosts.join(', ')} (--allow-host)`);
   console.log(`  (dev loop on ${source.replace(root + '/', '')} and the wasm's crates; ${lan ? 'LAN bind — any peer on this network can read the app, its compile errors and dev generations; macOS may ask to allow bun' : 'loopback only — --lan to serve a phone on this network'}; ctrl-c to stop)`);
 });
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);
+process.on('SIGHUP', stop);
+watchLauncher(stop);

@@ -92,6 +92,21 @@ final class SwipeActionsIOSTests: XCTestCase {
         XCTAssertTrue(p.swipeActions.ownsAction(4), "an unprojected row's controls are still its actions")
     }
 
+    /// The projection restores what the host had said of a control, not
+    /// CSS's `display: none` (review B1): shown again, it is visible.
+    func testAProjectionRestoresTheHostsWordNotDisplay() throws {
+        let p = fixture()
+        let owner = try XCTUnwrap(p.views[1]), delete = try XCTUnwrap(p.views[4])
+        delete.applyStyle(["display": "none"])
+        XCTAssertTrue(delete.isHidden)
+        p.swipeActions.touch(owner)
+        XCTAssertNotNil(p.swipeActions.cell(of: owner), "projected")
+        turn()
+        XCTAssertNil(p.swipeActions.cell(of: owner), "released")
+        delete.applyStyle([:])
+        XCTAssertFalse(delete.isHidden, "displayed again, nothing the host said hides it")
+    }
+
     func testARefusedRowSwipesByItsScroll() throws {
         let p = fixture()
         let owner = try XCTUnwrap(p.views[1]), row = try XCTUnwrap(p.views[2])
@@ -102,6 +117,45 @@ final class SwipeActionsIOSTests: XCTestCase {
         XCTAssertTrue(row.superview === scroll)
         XCTAssertEqual(scroll.contentSize.width, 390)
         XCTAssertFalse(p.swipeActions.ownsAction(4))
+        // The refusal names the rule the row broke (splitter rough 10).
+        XCTAssertTrue(p.swipeActions.refusal(of: owner)?.contains("\"delete\" names no one descendant of it") == true, p.swipeActions.refusal(of: owner) ?? "none")
+    }
+
+    /// The agent's tap on an action no swipe revealed (an authored test's
+    /// `tap delete-…`, splitter rough 12) presses its control as UIKit's
+    /// action would, and leaves the row at rest again; a disabled control's
+    /// action is not offered, and a node no row owns is not an action.
+    func testAnUnrevealedActionIsPerformedAsAssistiveTechnologyPerformsIt() throws {
+        let p = fixture()
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let owner = try XCTUnwrap(p.views[1])
+        XCTAssertEqual(p.swipeActions.perform(4), true)
+        XCTAssertEqual(pressed, [4])
+        turn()
+        XCTAssertNil(p.swipeActions.cell(of: owner), "released again")
+        XCTAssertNil(p.swipeActions.perform(3), "the content is not an action")
+        // Projected by a touch, it is performed without projecting again.
+        p.swipeActions.touch(owner)
+        XCTAssertEqual(p.swipeActions.perform(4), true)
+        XCTAssertEqual(pressed, [4, 4])
+        turn()
+        var disable = BatchOp(op: .props, nodeID: 4); disable.props = ["disabled": "true"]
+        apply(p, [disable])
+        XCTAssertEqual(p.swipeActions.perform(4), false, "a disabled control offers no action")
+        XCTAssertEqual(pressed, [4, 4])
+    }
+
+    /// A content half a point short of its row (a hairline border on the
+    /// scroll) is refused with both sizes (splitter rough 10).
+    func testARefusalNamesTheSizesItCompared() throws {
+        let p = fixture()
+        let owner = try XCTUnwrap(p.views[1])
+        XCTAssertNil(p.swipeActions.refusal(of: owner))
+        apply(p, [frame(3, 0, 300, 79.5)])
+        let refusal = try XCTUnwrap(p.swipeActions.refusal(of: owner))
+        XCTAssertTrue(refusal.contains("swipeContent \"body\" is 300x79.5, not the row's 300x80 border box"), refusal)
+        XCTAssertNotNil(owner.scroll, "and the row swipes by its scroll")
     }
 
     func testAProjectedCellFollowsTheRowsHeight() throws {

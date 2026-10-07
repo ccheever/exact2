@@ -1,15 +1,16 @@
 {
-  "game": "particles-fixture",
   "ticks": {
-    "300": "0x8dc0cac2d2645d93"
+    "300": "0x7bae8de8662184b9"
   },
   "saves": {
-    "continuation": "6f850600b9b7a87f6e12d2c42adc587c8ef5dc9d48ecea1b2af51ecfbd34a7e6"
+    "continuation": "136aa7901c53a62097c27cfa7e59a69584d6f99f865350629aef6372e04ef185"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "generated": "bun game/prove.mjs particles-fixture --repin",
-  "at": "e4e2d6503fc29c4516c6b685b6593679d0261385"
+  "inputs": "78f94a63bd11042e04f793cfc520e2c877047c050008093b9a08de1ee03d6e6e",
+  "game": "particles-fixture",
+  "generated": "bun game/prove.mjs particles-fixture --repin --hosts 'linux,web'",
+  "at": "bd6d0aee7e5d2d0c71fda875800b889543052e52"
 }

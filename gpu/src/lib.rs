@@ -34,6 +34,8 @@ mod acquire;
 mod binding;
 mod children;
 mod frame;
+#[cfg(all(test, target_os = "macos"))]
+mod hdr_tests;
 mod input;
 pub use input::{InputEvent, PointerKind, PointerPhase};
 pub mod json;
@@ -70,6 +72,10 @@ pub struct Frame {
     /// pipeline at the next frame. The module sets it; a fixture passes
     /// what [`shaders::shader_generation`] says.
     pub shader_generation: u32,
+    /// How far above SDR white (1.0) this frame may draw (LLP 1100 D12b); 1
+    /// unless the surface asked ([`Surface::high_dynamic_range`]) and got an
+    /// HDR target.
+    pub headroom: f32,
 }
 
 impl Frame {
@@ -249,6 +255,12 @@ pub trait Surface {
     fn take_error(&mut self) -> Option<SurfaceError> {
         None
     }
+    /// Draw above SDR white (LLP 1100 D12b): where the platform can, the
+    /// target is `Rgba16Float` in extended sRGB, up to [`Frame::headroom`].
+    /// Asked once, when the canvas is created.
+    fn high_dynamic_range(&self) -> bool {
+        false
+    }
     /// Raw input inside this canvas (LLP 1046.002 S1); app gestures elsewhere are untouched.
     fn wants_input(&self) -> bool {
         false
@@ -378,7 +390,7 @@ struct Instance {
     /// The next texture, acquired off the presenter's thread (`acquire`).
     #[cfg(not(target_arch = "wasm32"))]
     acquire: acquire::Acquire,
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
     layer: Option<usize>,
     outstanding: BTreeSet<String>,
     answered: BTreeSet<String>,
@@ -391,6 +403,9 @@ struct Instance {
     children_generation: u32,
     /// Per-child textures (LLP 1014 D5), by index.
     each: Vec<Option<ChildTexture>>,
+    /// Its target is extended sRGB (LLP 1100 D12b).
+    hdr: bool,
+    headroom: f32,
 }
 
 impl Instance {
@@ -589,6 +604,77 @@ impl Module {
         // The browser's canvas default is linear `bgra8unorm`; a native
         // executor that picked an sRGB format would show every color lighter
         // (LLP 1009 D1: the browser is the oracle). Prefer a non-sRGB format.
+        let caps = target.get_capabilities(&gpu.adapter);
+        if let Some(f) = caps.formats.iter().find(|f| !f.is_srgb()) {
+            config.format = *f;
+            config.view_formats = vec![];
+        }
+        // LLP 1100 D12b: extended sRGB continues the 8-bit target's encoding
+        // past 1, so one shader serves both.
+        let surface = factory();
+        let hdr = surface.high_dynamic_range()
+            && caps
+                .color_spaces(wgpu::TextureFormat::Rgba16Float)
+                .contains(wgpu::SurfaceColorSpaces::EXTENDED_SRGB);
+        if hdr {
+            config.format = wgpu::TextureFormat::Rgba16Float;
+            config.color_space = wgpu::SurfaceColorSpace::ExtendedSrgb;
+            config.view_formats = vec![];
+        }
+        config.present_mode = wgpu::PresentMode::AutoVsync;
+        target.configure(&gpu.device, &config);
+        let id = self.insert(surface, Some((target, config)))?;
+        if let Some(inst) = self.instances.get_mut(&id) {
+            inst.hdr = hdr;
+        }
+        Some(id)
+    }
+
+    /// Whether canvas `id` draws above SDR white: it asked, and its target
+    /// is extended sRGB (LLP 1100 D12b).
+    pub fn high_dynamic_range(&self, id: u32) -> bool {
+        self.instances.get(&id).is_some_and(|i| i.hdr)
+    }
+
+    /// The headroom an HDR canvas draws its next frames to (LLP 1100 D12b);
+    /// at least 1.
+    pub fn set_headroom(&mut self, id: u32, headroom: f32) {
+        if let Some(inst) = self.instances.get_mut(&id) {
+            let h = if headroom.is_finite() {
+                headroom.max(1.0)
+            } else {
+                1.0
+            };
+            if inst.headroom != h {
+                inst.headroom = h;
+                inst.dirty = true;
+            }
+        }
+    }
+
+    /// Give a canvas made without a target ([`Module::create_headless`]) a
+    /// platform target to present to, configured as [`Module::create`] does
+    /// (a host whose windows come after the surface, as Android's do).
+    pub fn attach(
+        &mut self,
+        id: u32,
+        target: wgpu::Surface<'static>,
+        width: u32,
+        height: u32,
+    ) -> bool {
+        self.check_device();
+        let Some(gpu) = self.gpu.as_ref() else {
+            return self.fail::<()>("no device").is_some();
+        };
+        if let Some(why) = shaders::missing(self.registry.shaders) {
+            return self.fail::<()>(why).is_some();
+        }
+        let Some(mut config) = target.get_default_config(&gpu.adapter, width.max(1), height.max(1))
+        else {
+            return self
+                .fail::<()>("the adapter cannot present to this target")
+                .is_some();
+        };
         let formats = target.get_capabilities(&gpu.adapter).formats;
         if let Some(f) = formats.iter().find(|f| !f.is_srgb()) {
             config.format = *f;
@@ -596,7 +682,31 @@ impl Module {
         }
         config.present_mode = wgpu::PresentMode::AutoVsync;
         target.configure(&gpu.device, &config);
-        self.insert(*factory, Some((target, config)))
+        let features = gpu.device.features();
+        let Some(inst) = self.instances.get_mut(&id) else {
+            return self.fail::<()>(format!("no canvas {id}")).is_some();
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            inst.acquire = Default::default();
+        }
+        inst.presentation = Some(Arc::new(target));
+        inst.config = Some(config);
+        inst.surface.device_ready(features);
+        inst.dirty = true;
+        true
+    }
+
+    /// Drop a canvas's target (its window is going); its state stays.
+    pub fn detach(&mut self, id: u32) {
+        if let Some(inst) = self.instances.get_mut(&id) {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                inst.acquire = Default::default();
+            }
+            inst.presentation = None;
+            inst.config = None;
+        }
     }
 
     /// Create surface ownership without a device, target, or registered shaders.
@@ -605,19 +715,18 @@ impl Module {
         else {
             return self.fail(format!("no surface named `{name}` in this module"));
         };
-        self.insert(*factory, None)
+        self.insert(factory(), None)
     }
 
     fn insert(
         &mut self,
-        factory: Factory,
+        mut surface: Box<dyn Surface>,
         presentation: Option<(wgpu::Surface<'static>, wgpu::SurfaceConfiguration)>,
     ) -> Option<u32> {
         self.next += 1;
         let id = self.next;
-        let mut surface = factory();
         surface.clock(self.seekable);
-        if let (Some(_), Some(gpu)) = (&presentation, &self.gpu) {
+        if let Some(gpu) = &self.gpu {
             surface.device_ready(gpu.device.features());
         }
         let (presentation, config) = presentation.map_or((None, None), |(target, config)| {
@@ -633,7 +742,7 @@ impl Module {
                 config,
                 #[cfg(not(target_arch = "wasm32"))]
                 acquire: Default::default(),
-                #[cfg(any(target_os = "macos", target_os = "ios"))]
+                #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
                 layer: None,
                 outstanding: BTreeSet::new(),
                 answered: BTreeSet::new(),
@@ -643,6 +752,8 @@ impl Module {
                 children: None,
                 children_generation: 0,
                 each: Vec::new(),
+                hdr: false,
+                headroom: 1.0,
             },
         );
         Some(id)
@@ -957,7 +1068,7 @@ impl Module {
     /// # Safety
     /// `raw` is a live `MTLTexture` of that size and format, valid until
     /// the canvas is destroyed or another texture replaces it.
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
     pub unsafe fn texture_from_metal(
         &mut self,
         id: u32,
@@ -1106,6 +1217,10 @@ impl Module {
     #[cfg(not(target_arch = "wasm32"))]
     pub fn readback(&mut self, id: u32, frame: &Frame) -> Option<(fixture::Pixels, bool)> {
         self.check_device();
+        if let Some(why) = shaders::missing(self.registry.shaders) {
+            self.error = why;
+            return None;
+        }
         self.flush();
         let gpu = self.gpu.as_ref()?;
         let Some(inst) = self.instances.get_mut(&id) else {
@@ -1125,6 +1240,7 @@ impl Module {
             period_ms: self.period_ms,
             children_generation: inst.children_generation,
             shader_generation: shaders::shader_generation(),
+            headroom: 1.0,
             ..*frame
         };
         let (width, height) = frame.pixels();
@@ -1205,3 +1321,43 @@ pub mod web;
 
 mod asset_name;
 pub use asset_name::asset_name;
+
+/// The panic line a GPU module reports before it aborts, from the hook's
+/// `PanicHookInfo` ("panicked at <file>:<line>:<column>:\n<message>").
+fn panic_line(info: &dyn std::fmt::Display) -> String {
+    format!("GPU module panicked: {info}")
+}
+
+/// Release GPU modules abort on panic. On the web that surfaces only as
+/// `RuntimeError: unreachable`, so the message goes to the console first; a
+/// native module repeats it after the default report, whose backtrace would
+/// otherwise push it out of a log's tail. Installed once, at load.
+pub(crate) fn report_panics() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| {
+        #[cfg(target_arch = "wasm32")]
+        std::panic::set_hook(Box::new(|info| web::console_error(&panic_line(info))));
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let default = std::panic::take_hook();
+            std::panic::set_hook(Box::new(move |info| {
+                default(info);
+                eprintln!("{}", panic_line(info));
+            }));
+        }
+    });
+}
+
+#[cfg(test)]
+mod panic_tests {
+    // The formatter alone: the process-wide hook is never swapped under
+    // concurrently running tests.
+    #[test]
+    fn a_panic_line_names_the_message_and_location() {
+        let info = "panicked at gpu/src/frame.rs:12:5:\nslot has not been initialized";
+        assert_eq!(
+            super::panic_line(&info),
+            "GPU module panicked: panicked at gpu/src/frame.rs:12:5:\nslot has not been initialized"
+        );
+    }
+}

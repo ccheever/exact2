@@ -19,18 +19,24 @@
 #![deny(missing_docs)]
 
 pub mod ast;
+mod clock;
 pub mod fmt;
 pub mod idioms;
 pub mod inline;
 pub mod lexer;
 pub mod parser;
+pub mod scope;
 mod share;
 mod spans;
 
 pub use ast::*;
-pub use inline::{expand, expand_all, expand_mapped, inline, Expanded, Instance};
+pub use clock::{resolve_clock_timelines, resolve_clock_timelines_in};
+pub use inline::{
+    expand, expand_all, expand_checked, expand_mapped, expand_typed, hygiene, inline, Expanded,
+    Instance, Owner,
+};
 pub use lexer::{Lexer, Token, TokenKind};
-pub use parser::{parse, parse_source, parse_source_all, SyntaxError};
+pub use parser::{is_launch, parse, parse_source, parse_source_all, same_launch, SyntaxError};
 pub use share::share_calls;
 pub use spans::VisitSpans;
 
@@ -64,3 +70,85 @@ impl std::fmt::Display for Span {
         write!(f, "{}:{}", self.line, self.col)
     }
 }
+
+/// The commands a host answers (LLP 1005 §3): every name an action body may
+/// call. The web host's `command` op, the Apple session's queue, and the Linux
+/// presenter's `run_commands` match these by name; any other name would reach
+/// them and be refused there, silently to the author, so the type pass
+/// refuses it. It lives here, not in the type pass, because expansion reads
+/// it too: a statement naming one is the command, never a call; one whose
+/// component also has an action, `action` prop or inject of that name, its
+/// own action included, is refused as ambiguous (LLP 1089 D1,
+/// `syntax-call-ambiguous`).
+pub const HOST_COMMANDS: &[&str] = &[
+    "blur",
+    "copyText",
+    "deliveryActivate",
+    "deliveryCheck",
+    // A media element's, by HTML's method names (podcast F8, F18):
+    // `fastSeek(id, seconds)` seeks each time, `load(id)` loads its source again.
+    "fastSeek",
+    "focus",
+    "format",
+    // @ref LLP 1077 D14 — `haptic("success" | "warning" | "error" | …)`.
+    "haptic",
+    "openURL",
+    "load",
+    // `requestFullscreen("id")`: the `video` with that HTML id takes the
+    // screen, as HTML's Element.requestFullscreen(); `fullscreenchange` says
+    // when it did and when it left.
+    "requestFullscreen",
+    // `reload()`: the development host boots the app again, as its dev
+    // menu's Reload does; a host without a dev menu refuses it.
+    "reload",
+    "selectText",
+    // `el.setSelectionRange(start, end, direction)` on a text field by its
+    // `id` (x2apps codeedit #2): `setSelectionRange("editor", 4, 4)`.
+    "setSelectionRange",
+    "setScheme",
+    // @ref LLP 1069.000 D3 — `:root { font-size }`: `setRootFontSize(px)`
+    // sets the root size `rem` follows, over the host's; `"medium"` hands it
+    // back. The runner's own; the web also sets it on the document.
+    "setRootFontSize",
+    // @ref LLP 1069.002 D2 — `HTMLInputElement.showPicker()` on a file input.
+    "showPicker",
+    // @ref LLP 1101.001 P5 — `HTMLDialogElement.showModal()` by the dialog's
+    // `id`, from an action; `close(id)` closes it (bare `close()` is still
+    // the window's).
+    "showModal",
+    "share",
+    // Local notifications by the Notification API's names (rules/DEFERRED.md,
+    // 2026-10-04): `showNotification(title=, body=, tag=, showTrigger=)` and
+    // `closeNotification(tag)`.
+    "showNotification",
+    "closeNotification",
+    // @ref LLP 1069.010 D3 — export: the host copies an `app:/` file out.
+    "saveFile",
+    // @ref LLP 1069.010 D2 — the File System Access API's pickers.
+    "showOpenFilePicker",
+    "showDirectoryPicker",
+    "showSaveFilePicker",
+    // @ref LLP 1070.000 — a virtualized list's row brought into view, by key.
+    "scrollIntoView",
+    // The inverse of a canvas's `message=`: `postMessage(text, "world")` queues
+    // text into the surface of that name, delivered in order, never coalesced.
+    "postMessage",
+    // `event.preventDefault()` for the `key` or `wheel` event that ran the
+    // action: the host skips its default action, the key's or the scroll;
+    // for `beforeunload`, the window stays open (docs/contract-grammar.md#events).
+    "preventDefault",
+    // `event.stopPropagation()` for the same event: no ancestor's `key`
+    // handler hears it, and its default still happens (files diary F8).
+    "stopPropagation",
+    // `window.close()` (studio diary R17): the window closes without asking
+    // its `beforeunload` again — what an app calls once its own "Save
+    // changes?" is answered. An action prop named `close` may be bound, but
+    // calling it is refused as ambiguous (LLP 1089 D1, `syntax-call-ambiguous`).
+    "close",
+    // @ref LLP 1096 D2 — `playSound(src, at=, gain=, group=)`,
+    // `playSounds(hits)` and `stopSounds(group=)`: the runner keeps the voice
+    // table, so every host skips them as the runner's own.
+    "playSound",
+    "playSounds",
+    "stopSounds",
+];

@@ -15,7 +15,7 @@ use exact_kernel::{
 };
 
 mod identified;
-use exact_plan::{Plan, StackMemberKind};
+use exact_plan::Plan;
 use std::ffi::c_void;
 
 /// Offer value meaning "as wide/tall as the content wants".
@@ -88,6 +88,16 @@ pub struct CRequest {
     pub exclusion_count: usize,
     /// 1 when the one run is Markdown source the host expands (LLP 1045 D3).
     pub markup: u8,
+    /// CSS `text-indent`, points.
+    pub text_indent: f32,
+    /// CSS `hyphens`: 0 manual (the initial value, so a zeroed request
+    /// is CSS's), 1 none, 2 auto.
+    pub hyphens: u8,
+    /// The document's language (UTF-8, not NUL-terminated), whose
+    /// hyphenation points `auto` takes; empty is unknown.
+    pub lang: *const u8,
+    /// Its length in bytes.
+    pub lang_len: usize,
 }
 
 /// What the callback returns.
@@ -105,6 +115,11 @@ pub struct CMetrics {
 /// The callback's type.
 pub type MeasureFn = extern "C" fn(ctx: *mut c_void, request: *const CRequest) -> CMetrics;
 
+/// @ref LLP 1093 D6 — each line box's bottom, in content coordinates, of the
+/// paragraph `request` answers: writes `min(count, cap)` and returns `count`.
+pub type LinesFn =
+    extern "C" fn(ctx: *mut c_void, request: *const CRequest, out: *mut f32, cap: usize) -> usize;
+
 /// One declared face in the synchronous boot catalog callback. The UTF-8
 /// strings live for the duration of the callback and are not NUL-terminated.
 #[repr(C)]
@@ -120,7 +135,7 @@ pub struct CFontFace {
     pub source_len: usize,
     /// Plan stack id.
     pub stack: u16,
-    /// CSS weight.
+    /// CSS weight; with an empty source, 0 names a local family and 1 a generic.
     pub weight: u16,
     /// 1 for italic.
     pub italic: u8,
@@ -146,24 +161,42 @@ pub type FontsFn = extern "C" fn(ctx: *mut c_void, catalog: *const CFontCatalog)
 pub fn install_fonts(plan: &Plan, callback: FontsFn, ctx: *mut c_void) {
     let mut faces = Vec::new();
     for (stack_index, stack) in plan.stacks.iter().enumerate() {
-        let member = plan.stack_member(stack.members.iter().next().expect("validated stack"));
-        if member.kind != StackMemberKind::Family {
+        if stack_index < 8 {
             continue;
         }
-        let family = plan.familie(member.family.expect("validated family member"));
-        let name = plan.str(family.name);
-        for face_id in family.faces.iter() {
-            let face = plan.face(face_id);
-            let source = plan.str(face.source);
-            faces.push(CFontFace {
-                family: name.as_ptr(),
-                family_len: name.len(),
-                source: source.as_ptr(),
-                source_len: source.len(),
-                stack: stack_index as u16,
-                weight: face.weight,
-                italic: u8::from(face.italic),
-            });
+        for member_id in stack.members.iter() {
+            let member = plan.stack_member(member_id);
+            let (name, family) = if let Some(id) = member.family {
+                (plan.str(plan.familie(id).name), Some(plan.familie(id)))
+            } else {
+                (member.kind.name(), None)
+            };
+            if family.is_none_or(|f| f.faces.len == 0) {
+                faces.push(CFontFace {
+                    family: name.as_ptr(),
+                    family_len: name.len(),
+                    source: "".as_ptr(),
+                    source_len: 0,
+                    stack: stack_index as u16,
+                    weight: u16::from(family.is_none()),
+                    italic: 0,
+                });
+            }
+            if let Some(family) = family {
+                for face_id in family.faces.iter() {
+                    let face = plan.face(face_id);
+                    let source = plan.str(face.source);
+                    faces.push(CFontFace {
+                        family: name.as_ptr(),
+                        family_len: name.len(),
+                        source: source.as_ptr(),
+                        source_len: source.len(),
+                        stack: stack_index as u16,
+                        weight: face.weight,
+                        italic: u8::from(face.italic),
+                    });
+                }
+            }
         }
     }
     let catalog = CFontCatalog {
@@ -176,19 +209,24 @@ pub fn install_fonts(plan: &Plan, callback: FontsFn, ctx: *mut c_void) {
 /// A kernel measurer backed by the app's callback.
 pub struct CallbackMeasurer {
     f: MeasureFn,
+    lines: Option<LinesFn>,
     ctx: *mut c_void,
     memo: identified::Memo,
+    /// The document language (`TextMeasurer::set_language`), for `hyphens: auto`.
+    language: String,
 }
 
 impl CallbackMeasurer {
     /// Wrap `f` with its context for one installed metric catalog.
     /// Construct a new measurer when that catalog changes; Apple boot and
     /// candidate preparation already do so before invoking the font hook.
-    pub fn new(f: MeasureFn, ctx: *mut c_void) -> CallbackMeasurer {
+    pub fn new(f: MeasureFn, ctx: *mut c_void, lines: Option<LinesFn>) -> CallbackMeasurer {
         CallbackMeasurer {
             f,
+            lines,
             ctx,
             memo: identified::Memo::default(),
+            language: String::new(),
         }
     }
 }
@@ -222,6 +260,17 @@ impl CallbackMeasurer {
         request: &TextMeasureRequest<'_>,
         stamp: Option<&ParagraphStamp>,
     ) -> CMetrics {
+        let f = self.f;
+        self.foreign(request, stamp, |ctx, c| f(ctx, c))
+    }
+
+    // The request as the C seam carries it, alive for `call`.
+    fn foreign<R>(
+        &self,
+        request: &TextMeasureRequest<'_>,
+        stamp: Option<&ParagraphStamp>,
+        call: impl FnOnce(*mut c_void, &CRequest) -> R,
+    ) -> R {
         // CSS collapsing before CoreText, as the browser does (LLP 1053 G5);
         // Markdown source keeps its own lines. The strings live for the call.
         let collapsed = (request.paragraph.markup == exact_kernel::Markup::None)
@@ -275,10 +324,18 @@ impl CallbackMeasurer {
             exclusions: shapes.flat.as_ptr(),
             exclusion_count: shapes.flat.len(),
             markup: u8::from(request.paragraph.markup == exact_kernel::Markup::Markdown),
+            text_indent: request.paragraph.text_indent,
+            hyphens: match request.paragraph.hyphens {
+                exact_kernel::Hyphens::Manual => 0,
+                exact_kernel::Hyphens::None => 1,
+                exact_kernel::Hyphens::Auto => 2,
+            },
+            lang: self.language.as_ptr(),
+            lang_len: self.language.len(),
         };
         // The one foreign call: the app's function, with the structs above
         // alive for its duration and read-only.
-        (self.f)(self.ctx, &c)
+        call(self.ctx, &c)
     }
 }
 
@@ -299,8 +356,43 @@ fn sanitize(m: CMetrics) -> TextMetrics {
 }
 
 impl TextMeasurer for CallbackMeasurer {
+    fn set_language(&mut self, language: &str) {
+        // `hyphens: auto` breaks by the language's points: answers by the old
+        // one are another paragraph's.
+        if self.language != language {
+            self.language = language.to_owned();
+            self.memo = identified::Memo::default();
+        }
+    }
+
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
         sanitize(self.foreign_measure(request, None))
+    }
+
+    /// @ref LLP 1093 D6 — the paragraph's line boxes, from the app's hook.
+    fn lines(
+        &mut self,
+        stamp: &ParagraphStamp,
+        request: &TextMeasureRequest<'_>,
+        bottoms: &mut Vec<f32>,
+    ) {
+        let Some(lines) = self.lines else {
+            return;
+        };
+        let mut out = vec![0.0f32; 64];
+        let count = self.foreign(request, Some(stamp), |ctx, c| {
+            let count = lines(ctx, c, out.as_mut_ptr(), out.len());
+            if count > out.len() {
+                out.resize(count, 0.0);
+                lines(ctx, c, out.as_mut_ptr(), out.len())
+            } else {
+                count
+            }
+        });
+        out.truncate(count.min(out.len()));
+        if out.iter().all(|b| b.is_finite()) {
+            bottoms.extend(out);
+        }
     }
 
     fn measure_identified(

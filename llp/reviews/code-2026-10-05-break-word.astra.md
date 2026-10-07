@@ -1,0 +1,21 @@
+# Code review: overflow-wrap on Apple, break-word and min-content at UAX #14 opportunities, 2026-10-05 (astra)
+
+- **Family:** OpenAI. `gpt-6-astra` via `codex exec`, reasoning effort xhigh, sandbox read-only, `-C /tmp/x25`.
+- **Method:** one brief (sha256 `36384c312bdc9c0fa32f1a221ba2559257bcb1e71e17c46c1c589820d8a59d1c`), shared with grok. Round 1, blind to the other review. Reviewed the staged diff in a worktree at 652d0f450. The author (Claude) is not a reviewer.
+- **Transcription:** the review's findings and verdict, unedited.
+- **Verdict:** NOT READY.
+- **Disposition (r2):** All taken. Content ends are now one forward pass (`TextEngine.breakEnds`): a boundary's own forced break (CR LF as one unit; LF, CR, VT, FF, NEL, U+2028, U+2029) is not content, and only U+0020 and U+0009 before it hang, so no-break spaces (U+00A0, U+2007, U+202F) stay content and alternating tabs and spaces are linear. The region worker no longer has its own terminator-blind scan: `suggestBreak` uses the same `breakEnds` and `cssBreak` with the forced-break cap (found by binary search), for `normal` and `break-word`. Min-content pieces trim only spaces, tabs and forced breaks, and a piece ending at a soft hyphen is measured with the visible hyphen layout draws (`inkedSoftHyphen`'s "-"). New tests: CR LF as one break, spaces before a forced break hanging, spaces after it kept as the next line's indent, a trailing NBSP not hanging, NBSP ends kept in pieces, a SHY piece measured with its hyphen, a linear-time check over 20,000 alternating tabs and spaces, and worker/paragraph parity over these inputs at three widths for `normal` and `break-word`.
+
+---
+
+NOT READY
+
+1. [Text.swift:1198](/tmp/x25/host/apple/Sources/ExactKit/Text.swift:1198) — **must-fix:** Forced-break terminators remain in `contentEnds`. CoreText’s cluster fit stops between CR and LF: at ample width, `"a\r\nb"` becomes `["a\r", "\n", "b"]` under `break-word`. Similarly, `"a  \nb"` at 10 px with 17 px Helvetica becomes three lines despite the spaces being hangable. Pre-wrap preserves these inputs. **Fix:** exclude the complete forced-break terminator and preceding hanging whitespace when computing content fit, while consuming the entire terminator in the returned range. Apply this to both implementations and add explicit expected-range tests.
+
+2. [RegionWorkerLayout.swift:137](/tmp/x25/host/apple/Sources/ExactKit/RegionWorkerLayout.swift:137) — **must-fix:** Routing `break-word` through `suggestBreak` introduces consumption past forced breaks. For `"a\n   b"` at ample width, the worker returns `["a\n   ", "b"]`; Text.swift returns `["a\n", "   b"]`. The worker’s scan accepts the following whitespace boundary because its trimmed content end equals the newline boundary, removing the next line’s indentation. **Fix:** cap boundary selection at the next forced break, sharing Text.swift’s corrected selection logic. Add worker/main parity assertions for spaces and tabs following every supported separator.
+
+3. [Text.swift:1331](/tmp/x25/host/apple/Sources/ExactKit/Text.swift:1331), [RegionWorkerLayout.swift:267](/tmp/x25/host/apple/Sources/ExactKit/RegionWorkerLayout.swift:267) — **must-fix:** The new min-content pieces can end at SHY, but their measurement leaves that SHY invisible. For `"WWW\u{AD}q"` in 17 px Helvetica, the widest measured piece is approximately 48.14 px; the rendered `"WWW-"` needs 53.50 px. Consequently, `normal` overflows at its reported minimum, and `break-word` needs an emergency break that min-content must exclude. **Fix:** measure selected SHY boundaries with the same visible hyphen used by layout, consistent with [CSS hyphenation sizing](https://www.w3.org/TR/css-text-3/#hyphens-property).
+
+4. [Text.swift:1196](/tmp/x25/host/apple/Sources/ExactKit/Text.swift:1196) — **must-fix:** Computing content ends is quadratic for preserved alternating tabs and spaces. The tokenizer emits boundaries `[2, 4, …]` for `"\t "` repeated, and every boundary scans backward to zero. A 20,000-character input therefore performs 100,010,000 character checks on each layout. **Fix:** compute trailing-whitespace starts in one forward pass, reusing the result across adjacent boundaries; use the same implementation in the worker.
+
+These cases were checked with read-only native CoreText probes; I did not rebuild or rerun XCTest.

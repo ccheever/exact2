@@ -24,13 +24,15 @@
 //! host builds, or it is no page.
 
 use super::element::{
-    blocks, contents, css_style_of, folds, host_css_of, props_of, svg_props_of, tag_of,
+    blocks, contents, css_style_of, folds, host_css_of, props_of, restricts_touch, svg_props_of,
+    tag_of,
 };
 use super::{font_names, layers, Host};
 
 #[path = "page.rs"]
 mod page;
 use crate::css;
+use exact_kernel::paint_order::{self, Child, Facts};
 use exact_kernel::SortedMap;
 use exact_kernel::{NodeFacts, PropId, ViewId};
 use exact_plan::EventKind;
@@ -267,6 +269,7 @@ fn write<S: Source>(
 ) -> Result<(String, String, bool, Option<Computed>, String), DocumentError> {
     let mut walk = Walk {
         src,
+        isolation: isolation(src, roots),
         computed,
         fonts,
         handlers,
@@ -275,6 +278,7 @@ fn write<S: Source>(
         out: String::new(),
         links: 0,
         buttons: 0,
+        touch: 0,
         select: None,
         scroll_document: false,
         css: std::collections::HashMap::new(),
@@ -282,9 +286,8 @@ fn write<S: Source>(
         sink: writing.sink,
         sent: 0,
     };
-    let mut after = false;
     for root in roots {
-        after |= walk.element(*root, after, None, 16., false)?;
+        walk.element(*root, None, 16., false)?;
     }
     let rest = walk.out[walk.sent..].to_string();
     Ok((
@@ -296,12 +299,69 @@ fn write<S: Source>(
     ))
 }
 
+/// Decide every list before an opening tag can be streamed. This source may
+/// be a DocTree with no kernel; the rule is still the kernel's pure functions.
+fn isolation<S: Source>(src: &S, roots: &[ViewId]) -> SortedMap<ViewId, Child> {
+    fn walk<S: Source>(
+        src: &S,
+        id: ViewId,
+        beside_exclusion: bool,
+        parent_display: Option<exact_kernel::Display>,
+        out: &mut SortedMap<ViewId, Child>,
+    ) -> Child {
+        let node = src.facts(id).expect("live document node");
+        let children = src.children(id);
+        let exclusion = children.iter().any(|c| {
+            src.facts(*c).is_some_and(|c| {
+                c.style.position_type == exact_kernel::PositionType::Absolute
+                    && c.style.wrap_flow == exact_kernel::WrapFlow::Both
+            })
+        });
+        let own = paint_order::own_from(Facts {
+            style: node.style,
+            props: node.props,
+            kind: node.node_type,
+            root: node.is_root,
+            parent_display,
+            beside_exclusion,
+            holds_layout_transition: children.iter().any(|c| {
+                src.facts(*c)
+                    .is_some_and(|c| c.style.mask.has(exact_kernel::StyleId::LayoutTransition))
+            }),
+        });
+        let mut records: Vec<_> = children
+            .iter()
+            .map(|c| walk(src, *c, exclusion, Some(node.style.display), out))
+            .collect();
+        let facts: Vec<_> = records.iter().map(|c| (c.own, c.potentials)).collect();
+        for ((id, child), isolated) in children
+            .iter()
+            .zip(&mut records)
+            .zip(paint_order::decide(&facts))
+        {
+            child.isolated = isolated;
+            out.insert(*id, *child);
+        }
+        Child {
+            own,
+            isolated: false,
+            potentials: paint_order::potentials(&records),
+        }
+    }
+    let mut out = SortedMap::new();
+    for root in roots {
+        let child = walk(src, *root, false, None, &mut out);
+        out.insert(*root, child);
+    }
+    out
+}
+
 /// Add the rules `style`'s animations name, once each by name, for the
 /// head: a reader without JavaScript sees them play (LLP 1055 D7).
 fn animations(style: &exact_kernel::StyleProps, keyframes: &mut SortedMap<String, String>) {
     if let Some(link) = crate::link::linked().animations {
         let press = css::press_composes(style);
-        for a in style.animation.0.iter().chain(&style.exit_animation.0) {
+        for a in style.animation.0.iter().chain(&style.rare.exit_animation.0) {
             let name = (link.name)(a, press);
             if keyframes.get(&name).is_none() {
                 let rule = format!("@keyframes {}{{{}}}", name, (link.body)(a, press));
@@ -419,6 +479,7 @@ pub fn tab_routes(
 
 struct Walk<'r, 'w, S: Source> {
     src: &'r S,
+    isolation: SortedMap<ViewId, Child>,
     computed: Option<Computed>,
     fonts: Vec<String>,
     handlers: SortedMap<ViewId, Vec<EventKind>>,
@@ -429,6 +490,9 @@ struct Walk<'r, 'w, S: Source> {
     /// second starts inside it, and a button's containers are `<span>`s.
     links: u32,
     buttons: u32,
+    /// Open boxes that restrict touch (`element::restricts_touch`): a folded
+    /// text under one is an inline box.
+    touch: u32,
     /// The open `select`'s value: the option that carries it is `selected`.
     select: Option<String>,
     scroll_document: bool,
@@ -443,24 +507,20 @@ struct Walk<'r, 'w, S: Source> {
 }
 
 impl<S: Source> Walk<'_, '_, S> {
-    /// The element and its subtree; whether it paints with the positioned
-    /// (`layers::layered`), for the siblings after it. `after`: one before
-    /// it does.
+    /// The element and its subtree, with isolation already decided.
     fn element(
         &mut self,
         id: ViewId,
-        after: bool,
         up: Option<ViewId>,
         inherited_font: f32,
         folded: bool,
-    ) -> Result<bool, DocumentError> {
+    ) -> Result<(), DocumentError> {
         let src = self.src;
         let node = src.facts(id).expect("the runner's tree names live views");
         let above = up.and_then(|u| src.facts(u));
-        let parent = above.map(|o| o.style.display);
         if node.node_type.is_metadata() {
             // The page's `<head>`, never an element (as the live host).
-            return Ok(false);
+            return Ok(());
         }
         let refuse = |reason: &str| DocumentError {
             view: id,
@@ -495,8 +555,8 @@ impl<S: Source> Walk<'_, '_, S> {
         };
         animations(node.style, &mut self.keyframes);
         let children = src.children(id);
-        let paint = layers::paint_of(&node, parent);
-        let isolated = layers::isolated(paint, after);
+        let paint = self.isolation.get(&id).copied().unwrap_or_default();
+        let isolated = paint.isolated || paint.own.policy;
         let holds = children.len() == 1
             && src.facts(children[0]).is_some_and(|c| {
                 let handled = self
@@ -505,13 +565,55 @@ impl<S: Source> Walk<'_, '_, S> {
                     .is_some_and(|k| !k.is_empty());
                 folds(&c, &node, above.as_ref(), true, handled)
             });
-        let css = blocks(contents(host_css_of(&node, text, tag), folded), holds);
+        let css = blocks(
+            contents(host_css_of(&node, text, tag), folded, self.touch > 0),
+            holds,
+        );
         let mut style = layers::with_isolation(css, isolated);
         let kept = self.computed.is_some().then(|| style.clone());
         // `glue.js` create: a canvas is a `div` holding the surface element.
         let element = if tag == "canvas" { "div" } else { tag };
         self.route_children(&node, &children);
         let chosen = (element == "select").then(|| props.get("value").cloned());
+        // A waiting keyed row is opaque to adoption. Its complete paint
+        // summary lets the JS target decide siblings without visiting it.
+        // Its parent and siblings can change before it adopts: keep inputs,
+        // not their current effects on z applicability or text-flow policy.
+        let waiting = paint_order::own_from(Facts {
+            style: node.style,
+            props: node.props,
+            kind: node.node_type,
+            root: node.is_root,
+            parent_display: None,
+            beside_exclusion: false,
+            holds_layout_transition: children.iter().any(|c| {
+                src.facts(*c)
+                    .is_some_and(|c| c.style.mask.has(exact_kernel::StyleId::LayoutTransition))
+            }),
+        });
+        // Bits mirror paint.js's template facts, plus descendant potentials.
+        let flags = u16::from(waiting.positioned)
+            | (u16::from(waiting.stacks && !waiting.policy) << 1)
+            | (u16::from(waiting.policy) << 2)
+            | (u16::from(waiting.outside) << 3)
+            | (u16::from(paint.potentials.z) << 4)
+            | (u16::from(paint.potentials.level0) << 5)
+            | (u16::from(node.style.isolation == exact_kernel::Isolation::Isolate) << 6)
+            | (u16::from(node.is_root) << 7)
+            | (u16::from(node.style.mask.has(exact_kernel::StyleId::LayoutTransition)) << 8)
+            | (u16::from(node.style.position_type == exact_kernel::PositionType::Absolute) << 9)
+            | (u16::from(node.style.wrap_flow == exact_kernel::WrapFlow::Both) << 10)
+            | (u16::from(node.node_type == exact_kernel::NodeType::Text) << 11)
+            | (u16::from(matches!(
+                node.style.display,
+                exact_kernel::Display::Flex | exact_kernel::Display::Grid
+            )) << 12);
+        let z = node.style.mask.has(exact_kernel::StyleId::ZIndex).then(|| {
+            node.style
+                .z_index
+                .clamp(-paint_order::Z_MAX, paint_order::Z_MAX)
+        });
+        let z = z.map_or_else(|| "null".into(), |z| z.to_string());
         let mut attrs: Vec<(String, Option<String>)> = Vec::new();
         let mut content: Option<String> = None;
         let mut markup: Option<String> = None;
@@ -551,7 +653,7 @@ impl<S: Source> Walk<'_, '_, S> {
                     "textarea" => content = Some(value.clone()),
                     _ => {}
                 },
-                "checked" | "inert" | "disabled" | "readonly" => {
+                "checked" | "inert" | "disabled" | "readonly" | "multiple" => {
                     if value == "true" {
                         attrs.push((name.clone(), None));
                     }
@@ -563,7 +665,7 @@ impl<S: Source> Walk<'_, '_, S> {
                 | "playsinline"
                 | "disablepictureinpicture"
                 | "disableremoteplayback"
-                    if element == "video" =>
+                    if element == "video" || element == "audio" =>
                 {
                     if value == "true" {
                         attrs.push((name.clone(), None));
@@ -615,16 +717,22 @@ impl<S: Source> Walk<'_, '_, S> {
                 .iter()
                 .any(|k| matches!(k, EventKind::Focus | EventKind::Blur | EventKind::Key))
         });
-        if hears && !matches!(element, "input" | "button") {
+        // An authored `tabindex` is explicit and wins, a negative one
+        // included (LLP 1088 D7.3), as `glue.js`'s `hasAttribute` check does.
+        if hears
+            && !matches!(element, "input" | "button")
+            && !attrs.iter().any(|(n, _)| n == "tabindex")
+        {
             attrs.push(("tabindex".into(), Some("0".into())));
         }
         if !style.is_empty() {
             attrs.push(("style".into(), Some(style)));
         }
+        attrs.push(("data-exact-paint".into(), Some(format!("[{flags},{z}]"))));
         self.open(id, element, &attrs)?;
-        if matches!(element, "img" | "input") {
+        if matches!(element, "img" | "input" | "hr") {
             // Void: no content, no end tag.
-            return Ok(layers::layered(paint, isolated, false));
+            return Ok(());
         }
         if tag == "canvas" {
             if self.style.is_some() {
@@ -654,8 +762,9 @@ impl<S: Source> Walk<'_, '_, S> {
         let (link, button) = (element == "a", element == "button");
         self.links += u32::from(link);
         self.buttons += u32::from(button);
+        let touch = restricts_touch(&node);
+        self.touch += u32::from(touch);
         let outer = chosen.map(|value| std::mem::replace(&mut self.select, value));
-        let mut under = false;
         let only = children.len() == 1;
         for child in children.iter().copied() {
             let handled = self.handlers.get(&child).is_some_and(|k| !k.is_empty());
@@ -663,18 +772,19 @@ impl<S: Source> Walk<'_, '_, S> {
                 && src
                     .facts(child)
                     .is_some_and(|c| folds(&c, &node, above.as_ref(), true, handled));
-            under |= self.element(child, under, Some(id), font, fold)?;
+            self.element(child, Some(id), font, fold)?;
         }
         if let Some(outer) = outer {
             self.select = outer;
         }
         self.links -= u32::from(link);
         self.buttons -= u32::from(button);
+        self.touch -= u32::from(touch);
         self.out.push_str("</");
         self.out.push_str(element);
         self.out.push('>');
         self.stream();
-        Ok(layers::layered(paint, isolated, under))
+        Ok(())
     }
 
     /// Hand the sink what has been written since, once it is a chunk.
@@ -768,14 +878,19 @@ impl<S: Source> Walk<'_, '_, S> {
     }
 
     /// `renderMarkup`: each piece a `span`, or an `a` when it is a link to
-    /// a navigable destination; newlines are `<br>`s.
+    /// a navigable destination; newlines are `<br>`s. A list item's
+    /// paragraph is a block `span` padded by its indent, its marker hung in
+    /// the gutter by a negative `text-indent` (LLP 1045 D4).
     fn markup(&mut self, id: ViewId, json: &str) -> Result<(), DocumentError> {
         let refuse = |reason: String| DocumentError { view: id, reason };
+        // At a paragraph's start; inside a list item's block.
+        let (mut start, mut block) = (true, false);
         for piece in markup_pieces(json).map_err(refuse)? {
             let link = piece.flags & 8 != 0 && !piece.href.is_empty() && navigable(&piece.href);
             if link && self.links > 0 {
                 return Err(refuse("a Markdown link inside a link".into()));
             }
+            let hang = piece.flags & 32 != 0;
             let mut style = String::new();
             if piece.scale != "1" {
                 style.push_str(&format!("font-size:{}em;", piece.scale));
@@ -795,6 +910,11 @@ impl<S: Source> Walk<'_, '_, S> {
             if piece.flags & 16 != 0 {
                 style.push_str("opacity:0.62;");
             }
+            if hang {
+                style.push_str(
+                    "display:inline-flex;justify-content:flex-end;width:40px;white-space:pre;text-indent:0;",
+                );
+            }
             let element = if link { "a" } else { "span" };
             let mut attrs = Vec::new();
             if !style.is_empty() {
@@ -803,16 +923,69 @@ impl<S: Source> Walk<'_, '_, S> {
             if link {
                 attrs.push(("href".to_owned(), Some(piece.href.clone())));
             }
-            self.open(id, element, &attrs)?;
-            for (n, line) in piece.text.split('\n').enumerate() {
+            let lines: Vec<&str> = if hang {
+                vec![piece.text.as_str()]
+            } else {
+                piece.text.split('\n').collect()
+            };
+            // One element per paragraph the piece is in, as the page makes them.
+            let mut open = false;
+            for (n, line) in lines.into_iter().enumerate() {
                 if n > 0 {
-                    self.out.push_str("<br>");
+                    if !open {
+                        self.paragraph(id, (&mut start, &mut block), &piece.indent, hang)?;
+                        self.open(id, element, &attrs)?;
+                    }
+                    self.out.push_str("<br></");
+                    self.out.push_str(element);
+                    self.out.push('>');
+                    (open, start) = (false, true);
                 }
-                escape(&mut self.out, line, false).map_err(|e| refuse(e.to_owned()))?;
+                if !line.is_empty() {
+                    if !open {
+                        self.paragraph(id, (&mut start, &mut block), &piece.indent, hang)?;
+                        self.open(id, element, &attrs)?;
+                        open = true;
+                    }
+                    escape(&mut self.out, line, false).map_err(|e| refuse(e.to_owned()))?;
+                }
             }
-            self.out.push_str("</");
-            self.out.push_str(element);
-            self.out.push('>');
+            if open {
+                self.out.push_str("</");
+                self.out.push_str(element);
+                self.out.push('>');
+            }
+        }
+        if block {
+            self.out.push_str("</span>");
+        }
+        Ok(())
+    }
+
+    /// A paragraph begins at `state.0`: a list item's (a nonzero indent) is
+    /// a block, closing the one before it, and a hung marker pulls its first
+    /// line back by the gutter.
+    fn paragraph(
+        &mut self,
+        id: ViewId,
+        state: (&mut bool, &mut bool),
+        indent: &str,
+        hang: bool,
+    ) -> Result<(), DocumentError> {
+        let (start, block) = state;
+        if !std::mem::take(start) {
+            return Ok(());
+        }
+        if std::mem::take(block) {
+            self.out.push_str("</span>");
+        }
+        if indent != "0" {
+            let mut css = format!("display:block;padding-left:{indent}px;");
+            if hang {
+                css.push_str("text-indent:-40px;");
+            }
+            self.open(id, "span", &[("style".to_owned(), Some(css))])?;
+            *block = true;
         }
         Ok(())
     }
@@ -1022,10 +1195,12 @@ struct Piece {
     weight: String,
     flags: u8,
     href: String,
+    /// A list item's indent, CSS px; "0" outside a list.
+    indent: String,
 }
 
 /// Read the host's own `markupPieces` back (`[[text, scale, weight, flags,
-/// href], …]`), as the linked Markdown capability wrote them; anything else
+/// href, indent?], …]`), as the linked Markdown capability wrote them; anything else
 /// is a defect.
 fn markup_pieces(json: &str) -> Result<Vec<Piece>, String> {
     let mut p = Json::new(json);
@@ -1045,6 +1220,12 @@ fn markup_pieces(json: &str) -> Result<Vec<Piece>, String> {
         let flags = p.number()?.parse::<u8>().map_err(|e| e.to_string())?;
         p.expect(b',')?;
         let href = p.string()?;
+        let indent = if p.peek() == Some(b',') {
+            p.next();
+            p.number()?
+        } else {
+            "0".to_owned()
+        };
         p.expect(b']')?;
         pieces.push(Piece {
             text,
@@ -1052,6 +1233,7 @@ fn markup_pieces(json: &str) -> Result<Vec<Piece>, String> {
             weight,
             flags,
             href,
+            indent,
         });
         match p.next() {
             Some(b',') => continue,

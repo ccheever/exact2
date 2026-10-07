@@ -82,3 +82,21 @@ implementation starts (`llp/reviews/1080*.astra.md`).
 - `perf`, frame timing, hitches, traces: LLP 1079.
 - A devtools UI, a views server, or a live inspector (`DEFERRED.md`).
 - Android. There is no Android host.
+
+## 5. From the Signal clone
+
+LLP 1080.000 §10 records what the Signal clone needs, in its order of need:
+the native shell under the agent (stage 3's presentation flip, ideally ahead
+of the native aim, and targets D4 does not name: the search controller's field
+and Cancel, the title-view segment, and a module's custom title view); a
+stage 3 proof that `tree --ax` reads that shell (adding 1080.002 D3's chrome
+roots if it does not); and a proposed whole-gesture
+`drag` form of `tap` for six gestures whose outcome can be checked after the
+lift: the edge swipe back, swipe-to-reply, the viewer's dismiss drag, the
+swipe-action reveal, a page sheet's swipe to dismiss, and the mic's press,
+slide and release.
+
+Charlie approved items 1 and 4 on 2026-10-03. Item 4 is built: LLP 1080.000
+§11, `tap <target> drag <dx> <dy> [from <x> <y>] [press <ms>] [over <ms>]
+[hold <ms>] [during "<op>" …]`, with the edge-swipe fix it found. Stage 3
+stays with this document's implementer.

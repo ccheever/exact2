@@ -527,7 +527,7 @@ component App
           text "Hide"
         button press=outside testId="outside"
           text "Outside"
-      input value=draft change=edit testId="composer" height=32
+      input value=draft input=edit testId="composer" height=32
       text replying testId="replying" height=20
       view id="owner" width=360.25 height=200.5 overflow-x="hidden" overflow-y="hidden"
         list id="content" testId="transcript" virtualized=true width=360.25 height=200.5 padding-left=1.3 border-width=0.7 border-style="solid" box-sizing="border-box"
@@ -551,6 +551,8 @@ component MessageBubble
         let plan = contract::compile(source).unwrap().encode();
         let assets = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain"));
         let (mut p, error) = if region {
+            // A region an earlier boot in this test dropped retires first.
+            crate::content_region::test_wait_idle();
             Presenter::boot_with_content_region(
                 &plan,
                 data,
@@ -593,7 +595,8 @@ component MessageBubble
             assert!(Instant::now() < end, "existing real worker watchdog");
             assert!(p.host.content_region().unwrap().refusal().is_none());
             std::thread::sleep(Duration::from_millis(1));
-            assert!(p.poll_content_region().is_none());
+            let error = p.poll_content_region();
+            assert!(error.is_none(), "{error:?}");
         }
     }
     pub(crate) fn ack(p: &mut Presenter<Rows>) -> SubmittedFrame {

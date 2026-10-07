@@ -38,7 +38,13 @@
 #![deny(missing_docs)]
 
 pub mod agent;
+#[cfg(target_os = "android")]
+pub mod android;
+#[cfg(target_os = "android")]
+pub mod android_hint;
 pub mod app;
+#[cfg(target_os = "android")]
+pub mod canvas;
 mod canvas2d;
 pub mod content_region;
 pub mod delivery;
@@ -46,12 +52,14 @@ pub mod delivery;
 pub mod display;
 pub mod executor;
 pub mod fetch;
+mod file;
 pub mod frames;
 pub mod gpu;
 pub mod host;
 pub mod image;
 #[cfg(target_os = "linux")]
 pub mod input;
+mod media_session;
 pub mod navigation;
 pub mod paint;
 pub mod picker;
@@ -59,11 +67,33 @@ mod placement;
 pub mod presenter;
 pub mod raster;
 mod surfaces;
+pub mod teardown;
 pub mod text;
+#[cfg(any(target_os = "android", test))]
+#[path = "canvas/travel.rs"]
+mod travel;
 #[cfg(target_os = "linux")]
 pub mod vnc;
+mod wake;
 mod zone;
+
+/// Install the Windows event-loop wake for native work, images and text results.
+/// Removing it at shutdown releases the event loop without stopping shared workers.
+#[cfg(windows)]
+pub fn set_event_waker(waker: Option<std::sync::Arc<dyn Fn() + Send + Sync>>) {
+    wake::install(waker);
+}
 
 pub use app::run;
 pub use host::{Host, HostError};
 pub use presenter::Presenter;
+
+/// Run `f` inside an atrace section on Android (Perfetto shows it on this
+/// thread); elsewhere just `f`.
+#[inline]
+pub(crate) fn traced<T>(_name: &core::ffi::CStr, f: impl FnOnce() -> T) -> T {
+    #[cfg(target_os = "android")]
+    return android::trace(_name, f);
+    #[cfg(not(target_os = "android"))]
+    f()
+}

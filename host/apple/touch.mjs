@@ -6,7 +6,8 @@ import {spawnSync} from 'node:child_process';
 import {copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {resolve} from 'node:path';
-import {phone, profile, identity, entitlements, infoPlist, simulator, install} from './build.mjs';
+import {entitlements, infoPlist, install} from './build.mjs';
+import {phone, profile, identity, simulator} from './devices.mjs';
 
 const args = process.argv.slice(2);
 function option(flag) {
@@ -64,7 +65,7 @@ run('plutil', ['-insert', 'ExactTouchEarlySession', '-bool', String(earlySession
 if (device) {
   const dev = phone(option('--phone')), prof = profile(dev.udid, app.id);
   const ent = resolve(stage, 'entitlements.plist');
-  writeFileSync(ent, entitlements(app, prof.team));
+  writeFileSync(ent, entitlements(app, prof.team, true, null, { prefix: prof.prefix }));
   copyFileSync(prof.path, resolve(bundle, 'embedded.mobileprovision'));
   run('codesign', ['--force', '--sign', identity(prof.team), '--timestamp=none', '--entitlements', ent, bundle]);
   run('codesign', ['--verify', '--strict', bundle]);

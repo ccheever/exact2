@@ -8,6 +8,7 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+pub mod colors;
 pub mod compat;
 mod reach;
 mod receipt;

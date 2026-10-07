@@ -62,6 +62,14 @@ impl ScrollBounds {
     /// block list, x for a flex (row) one, the runner's rule at creation
     /// (LLP 1070 H1).
     fn capture(node: &NodeRef<'_>, kernel: &Kernel, collection_max: Option<f32>) -> Self {
+        let axes = effective_overflow(node);
+        // Not a scroll container: nothing to measure; it never moves.
+        if axes == (Overflow::Visible, Overflow::Visible) && collection_max.is_none() {
+            return Self {
+                axes,
+                max: (0., 0.),
+            };
+        }
         let (width, height) = content_size(node, kernel);
         let mut max = (
             (width - node.frame.width).max(0.),
@@ -72,10 +80,7 @@ impl ScrollBounds {
             Some(main) => max.1 = main,
             None => {}
         }
-        Self {
-            axes: effective_overflow(node),
-            max,
-        }
+        Self { axes, max }
     }
     pub(crate) fn clamp(self, offset: (f32, f32)) -> (f32, f32) {
         (
@@ -102,6 +107,7 @@ struct NodePaint {
     ordinal: usize,
     key: NodeKey,
     id: ViewId,
+    pointer_hit: bool,
     paint: BoxPaint,
     payload: Payload,
     opacity: f32,
@@ -270,7 +276,7 @@ impl Picture {
                         Payload::Image(
                             image.clone(),
                             node.style.object_fit,
-                            super::image_tint(node.style, &(scene.presented)(id), painter.dark),
+                            super::image_tint(&node, &(scene.presented)(id), painter.dark),
                         )
                     }),
                     NodeType::Svg => Payload::Svg(Rc::new(super::svg::resolve_svg(
@@ -305,7 +311,7 @@ impl Picture {
                 };
                 cost += 2 * usize::from(opacity < 1.)
                     + 2 * usize::from(clips)
-                    + 2 * usize::from(!node.style.clip_path.commands().is_empty())
+                    + 2 * usize::from(!node.style.rare.clip_path.commands().is_empty())
                     + 2 * usize::from(scroll_offset.is_some());
             }
             command_cost = command_cost
@@ -376,11 +382,14 @@ impl Picture {
                 ordinal,
                 key: node.key,
                 id,
+                pointer_hit: node
+                    .computed_row(exact_kernel::StyleId::PointerEvents, |s| s.pointer_events)
+                    != exact_kernel::PointerEvents::None,
                 paint,
                 payload,
                 opacity,
                 clips,
-                css_clip: node.style.clip_path.clone(),
+                css_clip: node.style.rare.clip_path.clone(),
                 scroll: scroll_offset,
                 action,
             });
@@ -593,6 +602,7 @@ impl<'a> Replay<'a> {
                                 || !(actions.motion)(n.key, &picture.action_identity)
                                 || !p.translate.0.is_finite()
                                 || !p.translate.1.is_finite()
+                                || p.translate_percent != (0., 0.)
                                 || p.scale != 1.
                                 || p.rotate != 0.
                                 || p.layout != Presented::IDENTITY.layout
@@ -607,8 +617,9 @@ impl<'a> Replay<'a> {
                             let (x, y, w, h) = paint_rect(f.frame, offset);
                             let (ox, oy) = node.style.transform_origin.resolve(w, h);
                             let (cx, cy) = (x + ox, y + oy);
+                            let (tx, ty) = p.translate_at(w, h);
                             transform = parent.pre_concat(
-                                Transform::from_translate(cx + p.translate.0, cy + p.translate.1)
+                                Transform::from_translate(cx + tx, cy + ty)
                                     .pre_rotate(p.rotate)
                                     .pre_scale(p.scale, p.scale)
                                     .pre_translate(-cx, -cy),
@@ -722,6 +733,7 @@ impl<'a> Replay<'a> {
                     let parent = r.transform;
                     if r.live_hit {
                         walk.boxes.push(PaintedBox {
+                            pointer_hit: n.pointer_hit,
                             projective: None,
                             affine: Some((parent, g.outer.rect)),
                             press: 1.,
@@ -810,6 +822,7 @@ mod hit_tests {
             let ts = Transform::from_rotate_at(degrees, 50.0, 50.0);
             let rect = (0.0, 0.0, 100.0, 100.0);
             let b = PaintedBox {
+                pointer_hit: true,
                 id: 1,
                 rect: bbox(ts, rect),
                 clip: None,

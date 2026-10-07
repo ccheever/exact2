@@ -288,7 +288,8 @@ fn if_when_and_their_explicit_else_need_non_empty_blocks() {
 #[test]
 fn rejections_carry_stable_ids_and_spans() {
     let cases = [
-        ("use theme from \"x\"\n", "contract-no-imports", 1),
+        ("use theme from \"./theme.ts\"\n", "contract-no-imports", 1),
+        ("use theme from \"./theme\"\n", "contract-no-imports", 1),
         (
             "component A\n  state x = 1\n\tview\n",
             "syntax-tab-indent",
@@ -329,8 +330,14 @@ fn rejections_carry_stable_ids_and_spans() {
             "syntax-expected-declaration",
             3,
         ),
-        // `[]` is the empty list; a list literal with items is not Contract.
-        ("component A\n  derive xs = [1, 2]\n", "syntax-expected", 2),
+        // A list literal's items are separated by commas, and the web's
+        // spread is refused with the `concat` it means (LLP 1088 §9.1).
+        ("component A\n  derive xs = [1 2]\n", "syntax-expected", 2),
+        (
+            "component A\n  derive xs = [...ys, 1]\n",
+            "syntax-refused-idiom",
+            2,
+        ),
     ];
     for (src, id, line) in cases {
         let err = parse(src).unwrap_err();
@@ -361,6 +368,25 @@ fn an_elements_attributes_continue_on_deeper_lines_that_begin_with_name_equals()
     };
     assert_eq!(tag, "text");
     assert_eq!(attrs[0].name, "font-size");
+
+    // Continued lines may sit deeper than the children that follow them.
+    let file = parse("component A\n  view\n    main\n        display=\"flex\" gap=8\n        padding=4\n      text \"a\"\n        font-size=12\n      text \"b\"\n    text \"after\"\n").unwrap();
+    let Node::Element {
+        attrs, children, ..
+    } = &file.components[0].view[0]
+    else {
+        panic!()
+    };
+    assert_eq!(
+        attrs.iter().map(|a| a.name.as_str()).collect::<Vec<_>>(),
+        ["display", "gap", "padding"]
+    );
+    assert_eq!(children.len(), 2);
+    assert_eq!(file.components[0].view.len(), 2);
+    // A deeper block that is not attributes still has to dedent to a level.
+    let e =
+        parse("component A\n  view\n    main\n        text \"a\"\n      text \"b\"\n").unwrap_err();
+    assert_eq!(e.id, "syntax-bad-dedent");
 
     // At the element's own depth (or shallower) `name=` is refused.
     let e = parse("component A\n  view\n    column gap=8\n      text \"a\"\n    width=40\n")
@@ -459,8 +485,85 @@ fn let_starts_a_statement_only_before_a_name_and_records_build_with_named_argume
         if matches!(&then[0], Stmt::Let { name, .. } if name == "word")));
     assert!(matches!(&body[2], Stmt::Assign { target, .. } if target == "let"));
     let e =
-        parse("component A\n  action go\n    let view = 1\n  view\n    text \"a\"\n").unwrap_err();
+        parse("component A\n  action go\n    let in = 1\n  view\n    text \"a\"\n").unwrap_err();
     assert_eq!(e.id, "syntax-expected-name", "{e:?}");
     let e = parse("component A\n  action go\n    let a 1\n  view\n    text \"a\"\n").unwrap_err();
     assert_eq!(e.id, "syntax-expected", "{e:?}");
+}
+
+#[test]
+fn template_text_decodes_the_escapes_a_string_does_and_escaped_interpolation_is_literal() {
+    fn parts(template: &str) -> Vec<TemplatePart> {
+        let src = format!("component A\n  state x = 1\n  view\n    text {template}\n");
+        let file = parse(&src).unwrap();
+        let Node::Element { positional, .. } = &file.components[0].view[0] else {
+            panic!()
+        };
+        let Expr::Template(parts, _) = &positional[0] else {
+            panic!("{:?}", positional[0])
+        };
+        parts.clone()
+    }
+    fn text(template: &str) -> String {
+        match parts(template).as_slice() {
+            [TemplatePart::Text(t)] => t.clone(),
+            other => panic!("{template}: {other:?}"),
+        }
+    }
+    assert_eq!(text(r"`a\${x}`"), "a${x}");
+    assert_eq!(text(r"`a\tb\nc`"), "a\tb\nc");
+    assert_eq!(text(r#"`\`\\\"\$`"#), "`\\\"$");
+    // `\\` before `${` is an escaped backslash; the interpolation still runs.
+    let p = parts(r"`a\\${x}\`b`");
+    assert!(
+        matches!(&p[0], TemplatePart::Text(t) if t == "a\\"),
+        "{p:?}"
+    );
+    assert!(
+        matches!(&p[1], TemplatePart::Expr(Expr::Ident(n, _)) if n == "x"),
+        "{p:?}"
+    );
+    assert!(matches!(&p[2], TemplatePart::Text(t) if t == "`b"), "{p:?}");
+    // The same escape table as a string, and the same refusal past it.
+    let e = parse("component A\n  view\n    text `ok \\q`\n").unwrap_err();
+    assert_eq!(e.id, "syntax-bad-escape", "{e:?}");
+    assert_eq!((e.span.line, e.span.col), (3, 14), "{e:?}");
+    let accepted = r#"a string accepts \n \t \" \\ \` \$"#;
+    assert_eq!(e.message, format!("unknown escape `\\q`; {accepted}"));
+    // A string's refusal names the escapes it accepts too.
+    let e = parse("component A\n  view\n    text \"a\\rb\"\n").unwrap_err();
+    assert_eq!(e.id, "syntax-bad-escape", "{e:?}");
+    assert_eq!(e.message, format!("unknown escape `\\r`; {accepted}"));
+    // A `\` that ends the line (trailing spaces trimmed) escapes nothing.
+    let e = parse("component A\n  view\n    text \"a\\  \n").unwrap_err();
+    assert_eq!(e.id, "syntax-bad-escape", "{e:?}");
+    assert_eq!(
+        e.message,
+        format!("a `\\` ends the line, escaping nothing; {accepted}")
+    );
+}
+
+#[test]
+fn a_mutations_clauses_may_continue_on_indented_lines() {
+    // The codeedit diary: `then` on the next line was `syntax-expected-section`.
+    let src = "component A\n  mutation edited as shape Jump refreshes page\n    then followEdit\n  mutation saved as shape Ok\n    queue\n    refreshes files, page\n    then reload\n  state n = 0\n  view\n    text \"a\"\n";
+    let file = parse(src).unwrap();
+    let a = &file.components[0];
+    let [edited, saved] = &a.mutations[..] else {
+        panic!("two mutations: {:?}", a.mutations.len())
+    };
+    assert_eq!(
+        edited.refreshes.iter().map(|r| &*r.0).collect::<Vec<_>>(),
+        ["page"]
+    );
+    assert_eq!(edited.then.as_ref().map(|t| &*t.0), Some("followEdit"));
+    assert!(saved.queue);
+    assert_eq!(saved.refreshes.len(), 2);
+    assert_eq!(saved.then.as_ref().map(|t| &*t.0), Some("reload"));
+    assert_eq!(a.states[0].name, "n");
+    // Out of order, the continued line is named.
+    let src = "component A\n  mutation m as shape Ok\n    then x\n    refreshes page\n  view\n    text \"a\"\n";
+    let err = parse(src).unwrap_err();
+    assert_eq!(err.id, "syntax-expected", "{}", err.message);
+    assert!(err.message.contains("in that order"), "{}", err.message);
 }

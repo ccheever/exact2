@@ -115,7 +115,7 @@
     "declarations": {
       "patterns": [
         {
-          "match": "^(component|shape|style|keyframes)\\s+([A-Za-z_](?:[A-Za-z0-9_]|-[A-Za-z])*)",
+          "match": "^(component|shape|style|keyframes|timeline)\\s+([A-Za-z_](?:[A-Za-z0-9_]|-[A-Za-z])*)",
           "captures": {
             "1": {
               "name": "keyword.declaration.exact-contract"
@@ -162,10 +162,21 @@
           }
         },
         {
-          "match": "^(font|test)(?=\\s+\")",
+          "match": "^(font|test|sound)(?=\\s+\")",
           "captures": {
             "1": {
               "name": "keyword.declaration.exact-contract"
+            }
+          }
+        },
+        {
+          "match": "^(color-profile)\\s+(--[A-Za-z_](?:[A-Za-z0-9_]|-[A-Za-z])*)",
+          "captures": {
+            "1": {
+              "name": "keyword.declaration.exact-contract"
+            },
+            "2": {
+              "name": "entity.name.type.exact-contract"
             }
           }
         },
@@ -208,7 +219,7 @@
           }
         },
         {
-          "match": "^\\s*(tap|type|clock|screenshot|expect)(?=\\s)",
+          "match": "^\\s*(tap|type|clock|screenshot|expect|reload)(?=\\s|$)",
           "captures": {
             "1": {
               "name": "keyword.control.test.exact-contract"
@@ -239,7 +250,7 @@
     "view-tags": {
       "patterns": [
         {
-          "match": "^\\s*(view|box|column|row|dialog|main|header|nav|section|footer|article|aside|list|scroll|text|button|link|textarea|input|canvas|iframe|video|image|svg|symbol|marker|mask|pattern|foreignObject|filter|feBlend|feColorMatrix|feComponentTransfer|feComposite|feConvolveMatrix|feDiffuseLighting|feDisplacementMap|feDropShadow|feFlood|feFuncR|feFuncG|feFuncB|feFuncA|feGaussianBlur|feMerge|feMergeNode|feMorphology|feOffset|feSpecularLighting|feTile|feTurbulence|feDistantLight|fePointLight|feSpotLight|tspan|defs|linearGradient|radialGradient|stop|use|clipPath|g|path|polyline|polygon|circle|ellipse|line|rect|select|option|head)(?=\\s|$)(?!\\s*[=:])",
+          "match": "^\\s*(view|box|column|row|dialog|hr|main|header|nav|section|footer|article|aside|list|scroll|text|button|link|textarea|input|canvas|iframe|video|audio|image|svg|symbol|marker|mask|pattern|foreignObject|filter|feBlend|feColorMatrix|feComponentTransfer|feComposite|feConvolveMatrix|feDiffuseLighting|feDisplacementMap|feDropShadow|feFlood|feFuncR|feFuncG|feFuncB|feFuncA|feGaussianBlur|feMerge|feMergeNode|feMorphology|feOffset|feSpecularLighting|feTile|feTurbulence|feDistantLight|fePointLight|feSpotLight|tspan|defs|linearGradient|radialGradient|stop|use|clipPath|g|path|polyline|polygon|circle|ellipse|line|rect|select|option|head)(?=\\s|$)(?!\\s*[=:])",
           "captures": {
             "1": {
               "name": "support.type.view.exact-contract"
@@ -267,7 +278,7 @@
     "attributes": {
       "patterns": [
         {
-          "match": "(?<![A-Za-z0-9_\\-])(?:press|change|input|cancel|select|hover|focus|blur|key|submit|load|message|contextmenu|dblclick|swiperight|refresh|scroll|pan|panrelease|loadedmetadata|durationchange|timeupdate|play|playing|pause|ended|waiting|seeking|seeked|ratechange|volumechange|error|canplay|navigate|heightrelease|transformgeometry|transformrelease|reorderdrop|reachstart|reachend)(?![A-Za-z0-9_]|-[A-Za-z])(?=\\s*=(?!=))",
+          "match": "(?<![A-Za-z0-9_\\-])(?:press|change|input|cancel|select|hover|focus|blur|key|submit|load|message|contextmenu|dblclick|swiperight|refresh|scroll|pan|panrelease|loadedmetadata|durationchange|fullscreenchange|timeupdate|play|playing|pause|ended|waiting|seeking|seeked|ratechange|volumechange|error|canplay|seekbackward|seekforward|seekto|previoustrack|nexttrack|stop|navigate|heightrelease|transformgeometry|transformrelease|reorderdrop|reachstart|reachend|beforeunload|copy|cut|drop|paste|pointerdown|pointermove|pointerup|resize|selectionchange|wheel)(?![A-Za-z0-9_]|-[A-Za-z])(?=\\s*=(?!=))",
           "name": "support.function.event.exact-contract"
         },
         {
@@ -291,7 +302,7 @@
           "name": "constant.language.exact-contract"
         },
         {
-          "match": "(?<![A-Za-z0-9_\\-])(?:when|if|else|each|in|key|match|case|as|shape|mount|from|to|then|refreshes|children)(?![A-Za-z0-9_]|-[A-Za-z])",
+          "match": "(?<![A-Za-z0-9_\\-])(?:when|if|else|each|in|key|match|case|as|shape|mount|from|to|then|refreshes|with|children)(?![A-Za-z0-9_]|-[A-Za-z])",
           "name": "keyword.control.exact-contract"
         },
         {
@@ -370,6 +381,9 @@
           "include": "#numbers"
         },
         {
+          "include": "#commands"
+        },
+        {
           "include": "#calls"
         },
         {
@@ -377,6 +391,14 @@
         },
         {
           "include": "#operators"
+        }
+      ]
+    },
+    "commands": {
+      "patterns": [
+        {
+          "name": "support.function.builtin.exact-contract",
+          "match": "(?<![A-Za-z0-9_\\-])(?:blur|copyText|deliveryActivate|deliveryCheck|fastSeek|focus|format|haptic|openURL|load|requestFullscreen|reload|selectText|setSelectionRange|setScheme|setRootFontSize|showPicker|showModal|share|showNotification|closeNotification|saveFile|showOpenFilePicker|showDirectoryPicker|showSaveFilePicker|scrollIntoView|postMessage|preventDefault|stopPropagation|close|playSound|playSounds|stopSounds)(?=\\s*\\()"
         }
       ]
     }

@@ -17,15 +17,13 @@ pub struct Producer {
 impl Producer {
     /// Start a producer using the requested tools. Compiler overrides are not ignored.
     pub fn new(tools: Tools) -> Result<Self, String> {
+        if exact_js::ENGINE_LINKED {
+            tools.check_engine()?;
+        }
         let stage = Scratch::new(&std::env::temp_dir())?;
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let standard = |tool: &Path, name: &str| {
-            tool.canonicalize().ok()
-                == root
-                    .join("node_modules/.bin")
-                    .join(name)
-                    .canonicalize()
-                    .ok()
+            tool.canonicalize().ok() == super::package_tool(&root, name).canonicalize().ok()
                 && tool.exists()
         };
         let compiler = if standard(&tools.tsc, "tsc") && standard(&tools.rolldown, "rolldown") {
@@ -134,47 +132,29 @@ impl Drop for Compiler {
 
 const WORKER: &str = r#"
 import { rolldown } from 'rolldown';
-import { readFileSync, writeFileSync, realpathSync, rmSync } from 'node:fs';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
-import { resolve, dirname, sep } from 'node:path';
+import { realpathSync, rmSync } from 'node:fs';
+import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline';
 const stage=realpathSync(process.argv[1]);
 const libraries=resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))),'lib');
-const tsc=resolve(libraries,'tsc'), execute=promisify(execFile);
-// Short-lived native checks trade fewer GC cycles for a soft Go memory limit
-// (not an RSS cap); explicit user settings always win.
-const checkEnv={GOGC:'300',GOMEMLIMIT:'128MiB',GOMAXPROCS:'4',...process.env};
-const allowed = path => { path=resolve(path);return path === stage || path.startsWith(stage+sep) || path === libraries || path.startsWith(libraries+sep); };
+const tsc=resolve(libraries,'tsc');
 const config=resolve(stage,'__exact_tsconfig.json');
 // The native builder owns dependency and diagnostic invalidation, including
 // globals and standard libraries. Its cache never comes from the app capture.
-async function check() {
-  let files;
-  try { ({stdout:files}=await execute(tsc,['--project',config,'--pretty','false','--listFiles'],{cwd:stage,env:checkEnv,encoding:'utf8',maxBuffer:4*1024*1024})); }
-  catch(error) {
-    const diagnostics=String(error.stdout??'').split(/\r?\n/).filter(line=>! /^(?:\/|[A-Za-z]:[\\/]).*\.[cm]?[jt]sx?$/.test(line)).join('\n');
-    throw new Error(diagnostics+String(error.stderr??'') || String(error.message));
-  }
-  // Check the compiler's actual resolved graph, including type-only imports.
-  // An external declaration must not influence an accepted app artifact.
-  for(const path of files.trim().split(/\r?\n/)) {
-    if(!path || !allowed(realpathSync(path)))throw new Error('module outside captured app: '+path);
-  }
-}
 async function compile() {
   // Generated output is not a captured input. Remove it before resolution,
   // so an app's ./app.js import follows the same TS substitution as one-shot.
   rmSync(resolve(stage,'app.js'),{force:true});
-  const { configure } = await import(resolve(stage,'__exact_config.mjs'));
+  const { configure, check, assertCapturedModule, ambientRefusals } = await import(resolve(stage,'__exact_config.mjs'));
   configure(stage, true);
-  const checking=check().then(()=>null,error=>error);
+  const checking=check(stage,tsc,libraries).then(()=>null,error=>error);
   let failed;
   try {
   const bundle=await rolldown({cwd:stage,input:resolve(stage,'__exact_entry.ts'),platform:'neutral',
     tsconfig:config,
-    plugins:[{name:'captured-sources',load(id){if(!id.startsWith(stage+sep))throw new Error('module outside captured app: '+id);return null;}}]});
+    plugins:[{name:'captured-sources',load(id){assertCapturedModule(stage,id);return null;},
+      transform(code,id){const why=ambientRefusals(stage,id,code,(c,o)=>this.parse(c,o));if(why.length)throw new Error(why.join('\n'));return null;}}]});
   try { await bundle.write({file:resolve(stage,'app.js'),format:'iife',name:'exact'}); }
   finally { await bundle.close(); }
   process.stdout.write('{"phase":"bundled"}\n');
@@ -189,76 +169,10 @@ for await(const line of createInterface({input:process.stdin,crlfDelay:Infinity}
 }
 "#;
 
-// Shared by the one-shot and resident compilers. Read only captured configuration;
-// the producer still owns checking policy and the ambient library surface.
-pub(super) const CONFIG: &str = r#"
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { resolve, relative, dirname, sep, isAbsolute } from 'node:path';
-export function configure(stage, incremental=false) {
-  const inside = (path) => {
-    if (path !== stage && !path.startsWith(stage+sep)) throw new Error('tsconfig: path outside captured app: '+path);
-    return path;
-  };
-  const mapping=resolve(stage,'__exact_paths.json');
-  const roots=existsSync(mapping) ? JSON.parse(readFileSync(mapping,'utf8')) : {app:stage,mounts:[]};
-  const within=(path,root)=>path===root || path.startsWith(root+sep);
-  const origins=[...roots.mounts.map(([name,path])=>[resolve(stage,name),path]),[stage,roots.app]];
-  const source = path => {
-    const [at,from]=origins.find(([at])=>within(path,at));
-    return resolve(from,relative(at,path));
-  };
-  const captured = path => {
-    const match=[...origins].sort((a,b)=>b[1].length-a[1].length).find(([,from])=>within(path,from));
-    if (!match) throw new Error('tsconfig: path outside captured app: '+path);
-    return inside(resolve(match[0],relative(match[1],path)));
-  };
-  const local = path => './'+relative(stage,captured(path)).split(sep).join('/');
-  const object = (value, label) => {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('tsconfig: '+label+' must be an object');
-    return value;
-  };
-  const chain = new Set();
-  function read(path) {
-    inside(path);
-    if (chain.has(path)) throw new Error('tsconfig: cyclic extends: '+path);
-    chain.add(path);
-    const json=object(Bun.JSONC.parse(readFileSync(path,'utf8')),path), dir=source(dirname(path));
-    let inherited={};
-    for (const parent of json.extends === undefined ? [] : Array.isArray(json.extends) ? json.extends : [json.extends]) {
-      if (typeof parent !== 'string' || !parent.startsWith('.')) throw new Error('tsconfig: extends must name a captured relative config');
-      let target=captured(resolve(dir,parent));
-      if (!existsSync(target) && !target.endsWith('.json')) target+='.json';
-      inherited={...inherited,...read(target)};
-    }
-    const options=object(json.compilerOptions ?? {},'compilerOptions');
-    if (options.baseUrl !== undefined) {
-      if (typeof options.baseUrl !== 'string') throw new Error('tsconfig: baseUrl must be a string');
-      inherited.base=resolve(dir,options.baseUrl);
-      captured(inherited.base);
-    }
-    if (options.paths !== undefined) inherited.paths={map:object(options.paths,'paths'),dir};
-    chain.delete(path);
-    return inherited;
-  }
-  const entry=resolve(stage,'tsconfig.json');
-  const {base,paths:declared}=existsSync(entry) ? read(entry) : {};
-  const paths={};
-  for (const [key,values] of Object.entries(declared?.map ?? {})) {
-    if (key.split('*').length>2 || !Array.isArray(values) || !values.length || values.some(v=>typeof v!=='string' || v.split('*').length>2 || isAbsolute(v))) {
-      throw new Error('tsconfig: paths.'+key+' must name relative paths with at most one wildcard');
-    }
-    paths[key]=values.map(value=>local(resolve(base ?? declared.dir,value)));
-    // TypeScript 7 removed baseUrl. Lower its fallback to paths, shared with
-    // Rolldown, so existing editor configuration retains the same resolution.
-    if (base) paths[key].push(local(resolve(base,key)));
-  }
-  if (base && !paths['*']) paths['*']=[local(resolve(base,'*'))];
-  const config={compilerOptions:{noEmit:true,strict:true,target:'ES2020',module:'ESNext',moduleResolution:'bundler',lib:['ES2020','WebWorker'],paths,
-    ...(incremental ? {incremental:true,tsBuildInfoFile:resolve(stage,'__exact_build.tsbuildinfo')} : {})},files:['__exact_entry.ts']};
-  const path=resolve(stage,'__exact_tsconfig.json'), bytes=JSON.stringify(config);
-  if (!existsSync(path) || readFileSync(path,'utf8')!==bytes) writeFileSync(path,bytes);
-}
-"#;
+/// The one TypeScript configuration and its check (`typescript.mjs`), shared
+/// by the one-shot and resident compilers and by the web build. It reads only
+/// captured configuration; the producer still owns the stage.
+pub(super) const CONFIG: &str = include_str!("typescript.mjs");
 
 #[cfg(test)]
 mod tests {
@@ -330,8 +244,8 @@ mod tests {
         write(
             "__exact_paths.json",
             &serde_json::json!({
-                "app": stage.0.join("original/app"),
-                "mounts": [["lib", stage.0.join("original/shared")]]
+                "app": stage.0.join("original").join("app"),
+                "mounts": [["lib", stage.0.join("original").join("shared")]]
             })
             .to_string(),
         );

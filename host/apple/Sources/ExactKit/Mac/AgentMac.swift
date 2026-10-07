@@ -61,8 +61,25 @@ extension Agent {
 
     var presenter: Presenter { session.presenter }
 
-    /// AppKit animates nothing here that a seek does not move.
-    func nativeInFlight() -> Bool { false }
+    /// AppKit animates nothing here that a seek does not move, but for a
+    /// list's smooth correction under platform timing, the clip view's
+    /// animator (LLP 1070.000 §11): the fixed point is where it lands.
+    func nativeInFlight() -> Bool { !presenter.collections.animating.isEmpty }
+
+    /// `tap {close:true}`: the window's close button, pressed as ⌘W, File ▸
+    /// Close Window and the red button press it (`performClose`), so its
+    /// delegate asks the session's `beforeunload` first (studio diary R17)
+    /// and a window it keeps stays open. Whoever owns the window decides:
+    /// the app's adapter, or an embedder's delegate. A closed window takes
+    /// its session with it, and the app's last one the app.
+    func closeWindow() -> [String: Any] {
+        guard contact == nil else { return ["error": "release the held contact before closing the window"] }
+        guard let window = presenter.viewport.window else { return ["error": "no window to close"] }
+        window.performClose(nil)
+        let closed = !window.isVisible
+        return ["closed": closed, "delivery": "platform-window", "native": "NSWindow.performClose"]
+            .merging(closed ? [:] : ["kept": "the window's delegate kept it open (a `beforeunload` called `preventDefault()`)"]) { a, _ in a }
+    }
 
     /// Diagnostic tap {resize:[w,h]} (LLP 1041 §8). Resize the containing
     /// NSWindow, allowing ExactView's ordinary fit/inset path to follow.
@@ -265,13 +282,15 @@ extension Agent {
         }
         node["scroll"] = scroll
         node["clip"] = clip
-        var visible: [String: Any] = ["hidden": host.isHiddenOrHasHiddenAncestor, "inert": host.inert, "inViewport": b.intersects(NSRect(origin: .zero, size: clipView.bounds.size)), "clipped": clipped]
+        // CSS `visibility: hidden` with nothing of it showing, or a hidden run (e28279b3b keeps the view).
+        let cssHidden = !host.accessibilityExposed || presenter.inlineText(UInt32(id))?.hidden == true
+        var visible: [String: Any] = ["hidden": host.isHiddenOrHasHiddenAncestor || cssHidden, "inert": host.inert, "inViewport": b.intersects(NSRect(origin: .zero, size: clipView.bounds.size)), "clipped": clipped]
         if host.isHiddenOrHasHiddenAncestor {
             // Name the ancestor that hides it, never leave a reader guessing.
             var s: NSView? = host
             while let v = s, !v.isHidden { s = v.superview }
             if let v = s { visible["hiddenBy"] = (v as? NodeView).map { "#\($0.id)" } ?? String(describing: Swift.type(of: v)) }
-        }
+        } else if cssHidden { visible["hiddenBy"] = "visibility" }
         node["visible"] = visible
         var native: [String: Any] = ["view": String(describing: Swift.type(of: v)), "sheet": false]
         if presenter.inlineText(UInt32(id)) != nil { native["inline"] = true }
@@ -312,15 +331,49 @@ extension Agent {
         return presenter.textHost(UInt32(id))
     }
 
+    /// The agent's `reveal` (ledger F7, shop F11): before a tap or a type, a
+    /// view whose middle is out of view is scrolled to the middle of each
+    /// enclosing clip view it is outside of, innermost first, then the page's
+    /// — as the web's `scrollIntoView` does there (block centre, inline only
+    /// as far as it takes), each clamped to its range. The clip views' bounds
+    /// observers tell the app, as a person's scroll does.
+    func reveal(_ req: [String: Any]) -> [String: Any] {
+        guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        let from = box(v)
+        var scrolled = false
+        for case let clip as NSClipView in sequence(first: v.superview, next: { $0?.superview }).compactMap({ $0 }) {
+            let frame = v.convert(v.bounds, to: clip), port = clip.bounds
+            let mid = CGPoint(x: frame.midX, y: frame.midY)
+            if port.contains(mid) { continue }
+            var origin = port.origin
+            if mid.y < port.minY || mid.y >= port.maxY { origin.y = mid.y - port.height / 2 }
+            if mid.x < port.minX || mid.x >= port.maxX { origin.x = frame.maxX > port.maxX ? frame.maxX - port.width : frame.minX }
+            let to = clip.constrainBoundsRect(NSRect(origin: origin, size: port.size)).origin
+            if to == port.origin { continue }
+            clip.scroll(to: to)
+            (clip.superview as? NSScrollView)?.reflectScrolledClipView(clip)
+            scrolled = true
+        }
+        guard scrolled else { return ["revealed": Int(v.id), "scrolled": false] }
+        presenter.settlePump()
+        let to = box(v)
+        return ["revealed": Int(v.id), "scrolled": true,
+                "from": [Agent.r2(from.midX), Agent.r2(from.midY)], "to": [Agent.r2(to.midX), Agent.r2(to.midY)]]
+    }
+
     /// A contact held across requests (LLP 1035.003 D1): the mouse button
     /// down at a point in the viewport, dragged along a declared path,
     /// held, released — each phase a real `NSEvent` through `sendEvent`,
     /// the path a click takes, with the run loop turning between the steps
     /// of a timed move so AppKit tracks them as it would a hand's. Every
     /// other operation answers while the button is down. Mouse cancellation
-    /// releases the platform contact and clears the driver ownership.
+    /// releases the platform contact and clears the driver ownership. The
+    /// `down`'s `modifiers` are held in every event of the contact, and a
+    /// `move` or `up` that names others holds those from it on (#107).
     func contact(_ phase: String, _ req: [String: Any]) -> [String: Any] {
         guard let win = presenter.viewport.window else { return ["error": "no window"] }
+        guard let named = Agent.heldModifiers(req) else { return ["error": "tap: modifiers are Shift, Control, Alt and Meta, joined by +"] }
+        if req["modifiers"] != nil, phase == "hold" || phase == "cancel" { return ["error": "tap \(phase): modifiers ride on down, move and up"] }
         let clip = presenter.viewport.contentView
         let toWindow = { (p: CGPoint) -> NSPoint in clip.convert(NSPoint(x: p.x + clip.bounds.origin.x, y: p.y + clip.bounds.origin.y), to: nil) }
         // The contact's own timeline (LLP 1057 §10.6): a timed move's events
@@ -329,9 +382,12 @@ extension Agent {
         // the driver's round trips between requests.
         let send = { [self] (type: NSEvent.EventType, p: CGPoint) in
             let t = contactClock
-            if let e = NSEvent.mouseEvent(with: type, location: toWindow(p), modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1) {
+            if let e = NSEvent.mouseEvent(with: type, location: toWindow(p), modifierFlags: contactFlags, timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1) {
                 presenter.menus.pointer(e)
-                win.sendEvent(e)
+                // Through the application, as a hand's event comes: its local
+                // monitors see it (a grouped drag's, whose grip is hidden while
+                // its ghost stands for it; LLP 1094 D6), then the window.
+                NSApp.sendEvent(e)
             }
         }
         let at = { (p: CGPoint) -> [Double] in [Agent.r2(p.x), Agent.r2(p.y)] }
@@ -343,6 +399,9 @@ extension Agent {
             let b = box(v)
             let p = CGPoint(x: req["x"] as? Double ?? b.midX, y: req["y"] as? Double ?? b.midY)
             contactClock = ProcessInfo.processInfo.systemUptime
+            // The button is down: the pointer no longer rests where it hovered.
+            presenter.agentPointer = nil
+            contactFlags = named
             send(.leftMouseDown, p)
             contact = p
             return ["contact": Int(v.id), "phase": "down", "at": at(p), "delivery": "platform"]
@@ -351,6 +410,7 @@ extension Agent {
             let to = CGPoint(x: req["x"] as? Double ?? from.x + (req["dx"] as? Double ?? 0), y: req["y"] as? Double ?? from.y + (req["dy"] as? Double ?? 0))
             guard to.x.isFinite, to.y.isFinite else { return ["error": "move needs finite coordinates"] }
             let ms = max(0, req["ms"] as? Double ?? 0)
+            if req["modifiers"] != nil { contactFlags = named }
             let steps = max(1, Int(ms / 16))
             for i in 1...steps {
                 let t = CGFloat(i) / CGFloat(steps)
@@ -363,20 +423,25 @@ extension Agent {
         case "hold":
             guard let p = contact else { return ["error": "no contact is down"] }
             let ms = max(0, req["ms"] as? Double ?? 0)
-            if ms > 0 { RunLoop.main.run(until: Date(timeIntervalSinceNow: ms / 1000)) }
+            // A test drag's hold is virtual time (platformer R7): the driver seeks
+            // the clock, so the run loop does not sleep the gesture out.
+            if ms > 0, req["virtual"] as? Bool != true { RunLoop.main.run(until: Date(timeIntervalSinceNow: ms / 1000)) }
             contactClock += ms / 1000
             return ["phase": "hold", "at": at(p), "delivery": "platform"]
         case "up":
             guard let p = contact else { return ["error": "no contact is down"] }
             contactClock += 1.0 / 60
+            if req["modifiers"] != nil { contactFlags = named }
             send(.leftMouseUp, p)
             contact = nil
+            contactFlags = []
             return ["phase": "up", "at": at(p), "delivery": "platform"]
         case "cancel":
             guard let p = contact else { return ["error": "no contact is down"] }
             contactClock += 1.0 / 60
             send(.leftMouseUp, p)
             contact = nil
+            contactFlags = []
             return ["phase": "cancel", "at": at(p), "delivery": "platform"]
         default:
             return ["error": "unknown phase \(phase) (down, move, hold, up, cancel)"]
@@ -395,19 +460,15 @@ extension Agent {
                 return ["error": "tap #\(node.id): its middle is outside the viewport; scroll it into view first"]
             }
         }
-        if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil,
+        if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil, req["mouse"] == nil, req["auxclick"] == nil, req["clicks"] == nil,
            let id = req["id"] as? UInt32, let run = presenter.inlineText(id), let node = presenter.textHost(id) {
-            guard node.window != nil, !node.inert, !node.disabled else { return ["error": "inline node #\(id) is unavailable"] }
-            if req["hover"] as? Bool == true {
-                presenter.hoverInline(run.handlers.contains("hover") ? id : nil)
-                return ["tapped": Int(id), "hover": true]
-            }
-            if node.activateInline(id) { return ["tapped": Int(id), "delivery": "host-activation", "native": "inline-text"] }
+            guard node.window != nil, !node.inert, !node.disabled, !run.hidden else { return ["error": "inline node #\(id) is unavailable"] }
+            if req["hover"] as? Bool != true, node.activateInline(id) { return ["tapped": Int(id), "delivery": "host-activation", "native": "inline-text"] }
         }
 
         if let phase = req["phase"] as? String { return contact(phase, req) }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
-           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil, req["mouse"] == nil, req["auxclick"] == nil, req["clicks"] == nil,
            let activated = presenter.toolbar.activate(node) {
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "NSToolbarItem"]
                 : ["error": "native toolbar item #\(id) is unavailable"]
@@ -416,42 +477,76 @@ extension Agent {
             return ["error": "native toolbar geometry is system-owned; only button host activation is supported"]
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
-           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil, req["mouse"] == nil, req["auxclick"] == nil, req["clicks"] == nil,
            let activated = presenter.controls.activate(node) {
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "control"]
                 : ["error": "control #\(id) is disabled, inert or not shown"]
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
-           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil, req["mouse"] == nil, req["auxclick"] == nil, req["clicks"] == nil,
            let activated = presenter.segments.activate(node) {
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "segmented-control"]
                 : ["error": "native segment #\(id) is unavailable"]
         }
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
-        let b = box(v)
+        let b = v.tapBox(box(v))
+        // A wrapped run's union can include blank space. Hover a painted
+        // fragment, then let the normal hit test decide who receives it.
+        let inlinePoint = req["hover"] as? Bool == true && (req["id"] as? UInt32).flatMap(presenter.inlineText) != nil
+            ? tapPoint(req, node: v) : nil
+        let center = inlinePoint ?? CGPoint(x: b.midX, y: b.midY)
         // The middle of the box as seen — through a surface's placement when
-        // there is one (LLP 1014 D5) — as a point in the window.
+        // there is one (LLP 1014 D5) — as a point in the window. `at` is a
+        // point in the view (a mouse click, a context menu), the same
+        // conversion a pinch uses; the reply names that point, not the middle.
         let clip = presenter.viewport.contentView
-        let p = clip.convert(NSPoint(x: (req["x"] as? Double ?? b.midX) + clip.bounds.origin.x, y: (req["y"] as? Double ?? b.midY) + clip.bounds.origin.y), to: nil)
-        let at = [Agent.r2(b.midX), Agent.r2(b.midY)]
+        let localAt: CGPoint? = {
+            guard let raw = req["at"] as? [Double], raw.count == 2, raw.allSatisfy(\.isFinite) else { return nil }
+            return CGPoint(x: raw[0], y: raw[1])
+        }()
+        if req["at"] != nil, localAt == nil { return ["error": "at needs two finite numbers"] }
+        let p = localAt.map { v.convert($0, to: nil) } ?? clip.convert(NSPoint(x: (req["x"] as? Double ?? center.x) + clip.bounds.origin.x, y: (req["y"] as? Double ?? center.y) + clip.bounds.origin.y), to: nil)
+        let at = localAt.map { [Agent.r2($0.x), Agent.r2($0.y)] } ?? [Agent.r2(req["x"] as? Double ?? center.x), Agent.r2(req["y"] as? Double ?? center.y)]
         if req["wheel"] == nil,
            !clip.bounds.contains(clip.convert(p, from: nil)) {
             return ["error": "tap #\(v.id): its middle is outside the viewport; scroll it into view first"]
         }
         if req["hover"] as? Bool == true {
+            // The pointer rests here until the next hover: a layout that moves
+            // other content under it is hit-tested again (`followPointer`).
+            presenter.agentPointer = p
             if let node = win.contentView?.hitTest(p) as? NodeView, node.canvasInput != nil,
                let event = NSEvent.mouseEvent(with: .mouseMoved, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0) {
                 node.mouseMoved(with: event)
+                presenter.flushHoverMove()
                 return ["tapped": Int(v.id), "hover": true, "at": at, "delivery": "platform"]
             }
             // The pointer moved onto the target: the node with a hover
             // handler at the hit point enters (and whatever was hovered
-            // leaves), as a tracking area would report for a real move.
-            var n: NSView? = win.contentView?.hitTest(p) ?? v
-            while let cur = n, !((cur as? NodeView)?.handlers.contains("hover") ?? false) { n = cur.superview }
-            if let node = n as? NodeView { presenter.hover(node, true) } else if let h = presenter.hovered { presenter.hover(h, false) }
-            return ["tapped": Int(v.id), "hover": true, "at": at]
+            // leaves), as a tracking area would report for a real move, and
+            // the nearest `pointermove` node hears the move (LLP 1056 §3).
+            var mover: NSView? = win.contentView?.hitTest(p) ?? v
+            while let cur = mover, !((cur as? NodeView)?.handlers.contains("pointermove") ?? false) { mover = cur.superview }
+            if let node = mover as? NodeView, let event = NSEvent.mouseEvent(with: .mouseMoved, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0) {
+                node.pointerHovered(event)
+                presenter.flushHoverMove()
+            }
+            var n: NSView? = win.contentView?.hitTest(p)
+            var inline: UInt32?
+            while let cur = n {
+                if let node = cur as? NodeView {
+                    inline = node.inlineTarget(at: node.local(p), handler: "hover")?.id
+                    if inline != nil || node.handlers.contains("hover") { break }
+                }
+                n = cur.superview
+            }
+            presenter.hoverInline(inline)
+            if inline == nil {
+                if let node = n as? NodeView { presenter.hover(node, true) }
+                else if let h = presenter.hovered { presenter.hover(h, false) }
+            }
+            return ["tapped": req["id"] as? Int ?? Int(v.id), "hover": true, "at": at]
         }
         if let wheel = req["wheel"] as? [Double], wheel.count == 2 {
             // The web's sign (a positive dy scrolls down), pixel units. The
@@ -472,34 +567,20 @@ extension Agent {
             // and outside the session clock; `layout` reports the overscroll
             // it leaves behind.
             guard wheel.allSatisfy(\.isFinite) else { return ["error": "wheel deltas must be finite"] }
+            // The modifiers held (studio diary R3: ⌘-scroll; a pinch is Control's).
+            guard let flags = Agent.heldModifiers(req) else { return ["error": "tap: modifiers are Shift, Control, Alt and Meta, joined by +"] }
+            // A wheel is the mouse's, where it then rests (CDP's `mouseWheel` moves it there too):
+            // the target's middle, or `at` in it.
+            presenter.agentPointer = p
             let gesture = req["gesture"] as? Bool == true
-            let whole = { (d: Double) -> Int32 in Int32(min(max(d.rounded(), -1_000_000), 1_000_000)) }
-            let screen = win.convertPoint(toScreen: p)
-            let location = CGPoint(x: screen.x, y: (NSScreen.screens.first?.frame.height ?? 0) - screen.y)
-            let target = win.contentView?.hitTest(p) ?? v
-            // CGScrollPhase: began 1, changed 2, ended 4.
             let halfX: Double = wheel[0] / 2
             let halfY: Double = wheel[1] / 2
-            let restX: Double = wheel[0] - halfX
-            let restY: Double = wheel[1] - halfY
-            var steps: [(phase: Int64, dx: Double, dy: Double)] = [(0, wheel[0], wheel[1])]
-            if gesture {
-                steps = [(1, halfX, halfY), (2, restX, restY), (4, 0, 0)]
-            }
-            for (phase, dx, dy) in steps {
-                guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2, wheel1: -whole(dy), wheel2: -whole(dx), wheel3: 0) else { return ["error": "no wheel event"] }
-                cg.location = location
-                if gesture {
-                    // A trackpad's deltas are continuous; without this the
-                    // event reads as a wheel's notches and the phase is moot.
-                    cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
-                    cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
-                }
-                guard let e = NSEvent(cgEvent: cg) else { return ["error": "no wheel event"] }
-                target.scrollWheel(with: e)
-            }
+            let began: Int64 = 1, changed: Int64 = 2, ended: Int64 = 4, none: Int64 = 0
+            let steps: [(phase: Int64, dx: Double, dy: Double)] = gesture
+                ? [(began, halfX, halfY), (changed, wheel[0] - halfX, wheel[1] - halfY), (ended, 0, 0)] : [(none, wheel[0], wheel[1])]
+            guard Agent.wheel(steps, gesture: gesture, at: p, in: win, flags: flags) else { return ["error": "no wheel event at a window point (CGEventSetWindowLocation)"] }
             session.presenter.settlePump()
-            return ["tapped": Int(v.id), "wheel": wheel, "gesture": gesture, "at": at]
+            return ["tapped": Int(v.id), "wheel": wheel, "gesture": gesture, "at": at, "delivery": "platform"]
         }
         if let scale = req["pinch"] as? Double {
             // A trackpad pinch: magnify events (began, changed…, ended) whose
@@ -527,26 +608,51 @@ extension Agent {
             return ["tapped": Int(v.id), "pinch": scale, "at": at, "delivery": "platform"]
         }
         if v.kind == "iframe" { return session.webviews.tap(v, request: req, at: at) }
-        // A double click is two real clicks, the second with clickCount 2.
-        for clicks in 1...(req["dblclick"] as? Bool == true ? 2 : 1) {
+        // Files dragged in from Finder (studio diary R19): the drag session
+        // AppKit would run, without a drag — each path as a dropped file's URL
+        // at the point, through the same filter, minting and event.
+        if let paths = req["drop"] as? [String] {
+            guard let node = NodeView.dropTarget(win.contentView?.hitTest(p) ?? v) else { return ["error": "view \(v.id) takes no drop: nothing under it declares `drop`"] }
+            guard node.drop(paths.map { URL(fileURLWithPath: $0) }, at: p) else { return ["error": "drop: refused: no file of a type this app declares"] }
+            session.presenter.settlePump()
+            return ["tapped": Int(node.id), "at": at, "drop": paths.count, "delivery": "presenter"]
+        }
+        // The modifiers held through the click (gallery F20: shift-click).
+        guard let held = Agent.heldModifiers(req) else { return ["error": "tap: modifiers are Shift, Control, Alt and Meta, joined by +"] }
+        // A right click (minesweeper F8), or the middle button's (`auxclick`,
+        // #107): the button down and up at the point through the application,
+        // as a mouse's are routed; `rightMouseUp` answers it on the node with
+        // a `contextmenu` handler.
+        if req["contextmenu"] as? Bool == true || req["auxclick"] as? Bool == true {
+            let right = req["contextmenu"] as? Bool == true
+            guard Agent.otherClick(right ? .right : .center, at: p, in: win, clicks: 1, flags: held) else { return ["error": "no mouse event at a window point (CGEventSetWindowLocation)"] }
+            return ["tapped": Int(v.id), "at": at, right ? "contextmenu" : "auxclick": true, "delivery": "platform"]
+        }
+        // A double click is two real clicks, the second with clickCount 2;
+        // `clicks n` is n, each with the count so far (a triple click selects a line).
+        let count = req["clicks"] == nil ? (req["dblclick"] as? Bool == true ? 2 : 1) : req["clicks"] as? Int ?? 0
+        guard (1...3).contains(count) else { return ["error": "tap: clicks is 1, 2 or 3"] }
+        for clicks in 1...count {
             let t = ProcessInfo.processInfo.systemUptime
             let eventNumber = AgentMouseRelease.nextEventNumber()
-            guard let down = NSEvent.mouseEvent(with: .leftMouseDown, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: clicks, pressure: 1),
-                  let up = NSEvent.mouseEvent(with: .leftMouseUp, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: clicks, pressure: 0),
+            guard let down = NSEvent.mouseEvent(with: .leftMouseDown, location: p, modifierFlags: held, timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: clicks, pressure: 1),
+                  let up = NSEvent.mouseEvent(with: .leftMouseUp, location: p, modifierFlags: held, timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: clicks, pressure: 0),
                   let release = AgentMouseRelease(up)
             else { return ["error": "no mouse event"] }
             // NSTextView and AVKit controls may track synchronously inside mouseDown.
             // Put this click's release in the queue before entering that loop.
             NSApp.postEvent(up, atStart: true)
             presenter.menus.pointer(down)
-            win.sendEvent(down)
+            // Through the application, as a hand's click comes: its local
+            // monitors see it, then the window (#107).
+            NSApp.sendEvent(down)
             // The queue's wrapper identifies the release, but its window location
             // is re-derived from the window server's and lands elsewhere by the
             // window's screen offset: a pointer tap pressed down and released
             // outside its button. Send this click's own release.
             presenter.menus.pointer(up)
             if release.takeQueued(from: NSApp) != nil {
-                win.sendEvent(up)
+                NSApp.sendEvent(up)
             }
         }
         return ["tapped": Int(v.id), "at": at, "delivery": "platform"]
@@ -572,8 +678,12 @@ extension Agent {
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
+        if let edit = req["clipboard"] as? String { return clipboardType(v, edit, req["text"] as? String) }
         if v.kind == "native", req["key"] == nil { return nativeType(v, req) }
-        if session.canvases.wantsInput(v.id) { return canvasType(v, req) }
+        // A canvas key takes the same path as a real keyDown: shortcuts and
+        // `key` handlers, then the event, which forwards to the surface.
+        // canvasType sent the surface only, so Escape and KeyP never reached
+        // Contract (platformer repro canvas-keys-macos).
         if req["key"] == nil, let reply = presenter.controls.type(v, req["text"] as? String ?? "") { return reply }
         if v.props["editable"] == "false", req["key"] == nil { return ["error": "view \(v.id) is readonly"] }
         // @ref LLP 1038 D11 — type on the root delivers a location.
@@ -587,6 +697,9 @@ extension Agent {
             let parts = normalized.split(separator: "+").map(String.init)
             let rawKey = parts.last ?? chord
             let device = KeyCodes.device(rawKey)
+            // An unknown name is a refusal, not text: typing "End" inserted
+            // the letters e-n-d (notes repro mac-agent-named-keys).
+            if device == nil, rawKey != "Plus" { return ["error": "key: unsupported key \(rawKey)"] }
             let key = device?.key ?? rawKey
             var modifiers: NSEvent.ModifierFlags = []
             for modifier in parts.dropLast() {
@@ -594,6 +707,11 @@ extension Agent {
                 case "Control": modifiers.insert(.control); case "Alt": modifiers.insert(.option)
                 default: return ["error": "unknown key modifier \(modifier)"] }
             }
+            // A modifier alone is held as it goes down, as the web's keydown
+            // for Shift says `shiftKey`; AppKit has it as a flags change, not
+            // a key for a responder (chat F8).
+            let lone = device.map { KeyCodes.modifier($0.code) } == true
+            if lone { modifiers.insert(["Shift": .shift, "Control": .control, "Alt": .option, "Meta": .command][key] ?? []) }
             // NSWindow delivery bypasses the local event monitor. Share its
             // pressed-control route before making any responder change.
             let phase = req["phase"] as? String
@@ -636,26 +754,24 @@ extension Agent {
                 _ = v.focusSurfacePointer()
             } else if v.acceptsFirstResponder {
                 if win.firstResponder !== v { win.makeFirstResponder(v) }
-            } else { return ["error": "view \(v.id) takes no key"] }
-            let (chars, code): (String, UInt16) = {
-                switch key {
-                case "Plus": return ("+", 24)
-                case "Space": return (" ", 49)
-                case "c": return (key, 8)
-                case "o": return (key, 31)
-                case "Enter": return ("\r", 36)
-                case "Escape": return ("\u{1b}", 53)
-                case "Tab": return ("\t", 48)
-                case "Backspace": return ("\u{7f}", 51)
-                case "ArrowUp": return ("\u{F700}", 126)
-                case "ArrowDown": return ("\u{F701}", 125)
-                case "ArrowLeft": return ("\u{F702}", 123)
-                case "ArrowRight": return ("\u{F703}", 124)
-                default:
-                    let code = device.flatMap { device in KeyCodes.mac.first(where: { $0.value == device.code })?.key }
-                    return (key, UInt16(code ?? 0))
-                }
-            }()
+            }
+            // A target that takes no focus leaves it where it is, as the web's
+            // `focus()` on one does: the key goes to whatever holds the focus,
+            // or to the page's shortcuts when nothing does (pomodoro F5).
+            let chars: String
+            let code: UInt16
+            if rawKey == "Plus" {
+                (chars, code) = ("+", 24)
+            } else if let device, let mac = KeyCodes.mac.first(where: { $0.value == device.code })?.key {
+                (chars, code) = (KeyCodes.eventText(code: device.code, raw: rawKey, lone: lone), UInt16(mac))
+            } else if let device, let function = KeyCodes.functionCharacter(device.code), device.code.hasPrefix("F") {
+                // F21–F24, which no Mac keyboard has (Carbon names to F20):
+                // the web's driver presses them, so this one does, as their
+                // AppKit function characters with no virtual key.
+                (chars, code) = (function, UInt16.max)
+            } else {
+                return ["error": "key: unsupported key \(rawKey)"]
+            }
             let t = ProcessInfo.processInfo.systemUptime
             // Both character fields preserve Shift. AppKit interprets a
             // Shift-Tab as BackTab (U+0019), not a forward Tab with flags.
@@ -666,7 +782,10 @@ extension Agent {
             // This driver sends directly to NSWindow, bypassing NSApplication's
             // local monitor. Use the same session command router first.
             presenter.flushKeyViewLoop()
-            if phase != "up", presenter.menus.key(down) || presenter.dialogs.key(down) || presenter.shortcuts.perform(down) {
+            // The monitor's route (`Presenter.routeKey`): shortcuts, the focus's
+            // `key` handlers (a prevented key goes no further), then the menus'
+            // and dialogs' defaults.
+            if phase != "up", presenter.routeKey(down, focused: true, in: win) {
                 if phase != "down" { _ = presenter.menus.key(up) }
                 if phase == "down", let release = req["releaseKey"] as? String {
                     // A host command consumed the down; its up belongs to no module instance.
@@ -675,41 +794,51 @@ extension Agent {
                         return ["phase": "up", "delivery": "recognized"]
                     }
                 }
-                return ["typed": Int(v.id), "key": chord, "value": v.textArea?.string ?? v.field?.stringValue ?? ""]
+                return ["typed": Int(v.id), "key": chord, "value": Agent.shownValue(v.textArea?.string ?? v.field?.stringValue ?? "", of: v)]
             }
             if v.kind == "native" { return nativeType(v, req, token: nativeToken) }
             // Accessory test windows may have a first responder before
             // NSApp has a keyWindow. Deliver to the named responder first.
+            // An Edit menu chord (⌘X, ⌘C, ⌘V) first, whether or not a window is
+            // key (the agent's need not be): its action through the responder chain,
+            // as the menu would send it (spreadsheet F14: ⌘V's paste).
+            let edits: [String: Selector] = ["x": #selector(NSText.cut(_:)), "c": #selector(NSText.copy(_:)), "v": #selector(NSText.paste(_:))]
+            if phase != "up", modifiers == .command, let action = edits[key], win.firstResponder?.tryToPerform(action, with: nil) == true {
+                return ["typed": Int(v.id), "key": chord, "delivery": "platform"]
+            }
             if phase != "up", modifiers.contains(.command), v.performKeyEquivalent(with: down) || NSApp.mainMenu?.performKeyEquivalent(with: down) == true {
                 return ["typed": Int(v.id), "key": chord]
             }
-            if phase != "up" { win.sendEvent(down) }
-            if phase != "down" { win.sendEvent(up) }
+            if phase != "up", !lone { win.sendEvent(down) }
+            if phase != "down", !lone { win.sendEvent(up) }
             if phase == "down", let token = req["releaseKey"] as? String {
                 keyReleases[token] = { [weak v] in
                     v?.keyUp(with: up)
                     return ["typed": Int(v?.id ?? 0), "phase": "up", "delivery": "platform"]
                 }
             }
-            return ["typed": Int(v.id), "key": key, "value": v.textArea?.string ?? v.field?.stringValue ?? ""]
+            return ["typed": Int(v.id), "key": key, "value": Agent.shownValue(v.textArea?.string ?? v.field?.stringValue ?? "", of: v)]
         }
         if let f = v.textArea {
             if !win.isKeyWindow { win.makeKey() }
-            win.makeFirstResponder(f)
+            if win.firstResponder !== f { win.makeFirstResponder(f) }
             f.selectAll(nil)
-            f.insertText(req["text"] as? String ?? "", replacementRange: f.selectedRange())
+            f.insertText(TextInputLimit.prefix(req["text"] as? String ?? "", props: v.props), replacementRange: f.selectedRange())
             return ["typed": Int(v.id), "value": f.string]
         }
         guard let f = v.field else { return ["error": "view \(v.id) is not an input"] }
-        let text = req["text"] as? String ?? ""
+        let text = TextInputLimit.prefix(req["text"] as? String ?? "", props: v.props)
         // The field editor needs a key window; an accessory app's is not
         // one until asked (and asking does not activate the app).
         if !win.isKeyWindow { win.makeKey() }
-        win.makeFirstResponder(f)
+        // A field already being edited keeps its editor: asking again would
+        // end the editing (a blur) and begin it (a focus), which a person's
+        // typing never does.
+        if f.currentEditor().map({ win.firstResponder !== $0 }) ?? true { win.makeFirstResponder(f) }
         guard let editor = f.currentEditor() as? NSTextView else { return ["error": "the field has no editor"] }
         editor.selectAll(nil)
         editor.insertText(text, replacementRange: editor.selectedRange())
-        return ["typed": Int(v.id), "value": f.stringValue]
+        return ["typed": Int(v.id), "value": Agent.shownValue(f.stringValue, of: v)]
     }
 
     /// `CGWindowListCreateImage` of one window of this process, without its
@@ -722,7 +851,23 @@ extension Agent {
         guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil } // RTLD_DEFAULT
         let create = unsafeBitCast(symbol, to: Create.self)
         // kCGWindowListOptionIncludingWindow; kCGWindowImageBoundsIgnoreFraming | kCGWindowImageBestResolution
-        return create(.null, 1 << 3, UInt32(number), 1 << 0 | 1 << 3)?.takeRetainedValue()
+        guard let image = create(.null, 1 << 3, UInt32(number), 1 << 0 | 1 << 3)?.takeRetainedValue(), !emptyPicture(image) else { return nil }
+        return image
+    }
+
+    /// Whether the window server's picture holds nothing. A display that is
+    /// asleep, or a locked screen, still answers, with a transparent picture
+    /// a pixel or two short of the window: no picture, not a wrong one. An
+    /// opaque window's has no transparent pixel, so its average says.
+    static func emptyPicture(_ image: CGImage) -> Bool {
+        var pixel = [UInt8](repeating: 0, count: 4)
+        let drawn = pixel.withUnsafeMutableBytes { bytes -> Bool in
+            guard let one = CGContext(data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            one.draw(image, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            return true
+        }
+        return !drawn || pixel[3] == 0
     }
 
     func screenshot(_ req: [String: Any]) -> [String: Any] {
@@ -747,29 +892,22 @@ extension Agent {
             CATransaction.flush()
             let refresh = 1 / Double(max(30, window.screen?.maximumFramesPerSecond ?? 60))
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 2 * refresh + 0.004))
-            guard let image = Self.ownWindowImage(window.windowNumber) else { return ["error": "the window server gave no picture of window \(window.windowNumber)"] }
+            guard let image = Self.ownWindowImage(window.windowNumber) else { return ["error": "the window server gave no picture of window \(window.windowNumber); a display that is asleep or a locked screen gives an empty one"] }
             guard let png = NSBitmapImageRep(cgImage: image).converting(to: .sRGB, renderingIntent: .default)?.representation(using: .png, properties: [:]) else { return ["error": "no PNG"] }
             do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
             var r: [String: Any] = ["screenshot": path, "window": true, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height), "scale": Agent.r2(window.backingScaleFactor)]
             if loading > 0 { r["imagesPending"] = loading }
             return r
         }
-        guard let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { return ["error": "no bitmap for the viewport"] }
         Capture.web = session.webviews.snapshots().merging(session.natives.snapshots()) { web, _ in web }
         let hidden = (presenter.views.values.compactMap(\.web) + session.natives.snapshotViews).map { ($0, $0.isHidden) }
         hidden.forEach { $0.0.isHidden = true }
         // As a capture: every canvas paints its picture, read back from the
         // module, and every iframe paints its arm snapshot at its node.
-        let fills = Capture.hideBoxFills(in: v)
-        Capture.capturing = true
-        v.cacheDisplay(in: v.bounds, to: rep)
-        Capture.capturing = false
-        Capture.restore(fills)
+        let picture = Capture.picture(of: v)
         hidden.forEach { $0.0.isHidden = $0.1 }
         Capture.web = [:]
-        // The display's profile can be P3. Agent pixel comparisons and films
-        // consume sRGB bytes, so convert the pixels rather than just retagging.
-        guard let png = rep.converting(to: .sRGB, renderingIntent: .default)?.representation(using: .png, properties: [:]) else { return ["error": "no sRGB PNG"] }
+        guard let png = picture?.representation(using: .png, properties: [:]) else { return ["error": "no sRGB PNG of the viewport"] }
         do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
         var r: [String: Any] = ["screenshot": path, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height)]
         if loading > 0 { r["imagesPending"] = loading }
@@ -789,5 +927,108 @@ extension Agent {
         (Agent.systemAppearance ?? NSApp.effectiveAppearance).bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
     nonisolated(unsafe) static var systemAppearance: NSAppearance?
+    /// `prefer contrast more` (LLP 1095 D7): the high-contrast variant of the
+    /// system appearance, so views redraw and platform colours resolve as
+    /// Increase Contrast shows them.
+    func systemContrast(more: Bool) {
+        let following = NSApp.appearance == nil || NSApp.appearance === Agent.systemAppearance
+        let dark = systemDark
+        let name: NSAppearance.Name = dark ? (more ? .accessibilityHighContrastDarkAqua : .darkAqua) : (more ? .accessibilityHighContrastAqua : .aqua)
+        Agent.systemAppearance = NSAppearance(named: name)
+        if following { NSApp.appearance = Agent.systemAppearance }
+    }
+}
+
+extension Capture {
+    /// `view` as the agent's screenshot shows it, in sRGB: drawn into sRGB,
+    /// so a translucent fill blends there as Chrome blends it, whatever the
+    /// display's profile (spreadsheet F18), and agent pixel comparisons and
+    /// films read sRGB bytes.
+    static func picture(of view: NSView) -> NSBitmapImageRep? {
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)?.retagging(with: .sRGB) else { return nil }
+        draw(view, to: rep)
+        return rep
+    }
+
+    /// `view` drawn by `cacheDisplay` as the window shows it: as a capture
+    /// (`capturing`), box fills an inset shadow paints hidden, siblings in
+    /// their z order, animations at what they present.
+    static func draw(_ view: NSView, to rep: NSBitmapImageRep) {
+        let shown = showAnimations(in: view.layer)
+        let fills = hideBoxFills(in: view), ordered = paintOrder(in: view)
+        capturing = true
+        view.cacheDisplay(in: view.bounds, to: rep)
+        capturing = false
+        ordered(); restore(fills); shown()
+    }
+
+    /// `cacheDisplay` draws subviews in array order; the window server
+    /// composites siblings by `zPosition`, which carries CSS `z-index`
+    /// (the kernel's paint rank, LLP 1083.000). For the capture, each view's subviews are in the
+    /// order they show — a sticky header over the rows that scroll under it
+    /// (spreadsheet F13), a raised dropdown over the content after it (shop
+    /// F18) — and the closure returned puts them back.
+    private static func paintOrder(in root: NSView) -> () -> Void {
+        var undo: [(NSView, [NSView])] = []
+        func walk(_ view: NSView) {
+            let subviews = view.subviews
+            if subviews.contains(where: { ($0.layer?.zPosition ?? 0) != 0 }) {
+                // Stable: equal z keeps document order.
+                let shown = subviews.enumerated().sorted {
+                    let (a, b) = ($0.element.layer?.zPosition ?? 0, $1.element.layer?.zPosition ?? 0)
+                    return a != b ? a < b : $0.offset < $1.offset
+                }.map(\.element)
+                if shown != subviews { undo.append((view, subviews)); arrange(view, shown) }
+            }
+            subviews.forEach(walk)
+        }
+        walk(root)
+        return { for (view, subviews) in undo.reversed() { arrange(view, subviews) } }
+    }
+
+    /// Reorder in place: assigning `subviews` detaches and reattaches them,
+    /// which resigns a first responder among them (`CollectionMac`).
+    private static func arrange(_ view: NSView, _ order: [NSView]) {
+        var ranks = Dictionary(uniqueKeysWithValues: order.enumerated().map { (ObjectIdentifier($0.element), $0.offset) })
+        withUnsafeMutablePointer(to: &ranks) { context in
+            view.sortSubviews({ left, right, raw in
+                let rank = raw!.assumingMemoryBound(to: [ObjectIdentifier: Int].self).pointee
+                let a = rank[ObjectIdentifier(left)] ?? 0, b = rank[ObjectIdentifier(right)] ?? 0
+                return a < b ? .orderedAscending : a > b ? .orderedDescending : .orderedSame
+            }, context: context)
+        }
+    }
+
+    /// `cacheDisplay` draws the layers' model values, never what Core
+    /// Animation shows: a lowered animation (a box's `opacity` keyframes,
+    /// an SVG shape's paint) was captured at its underlying value while the
+    /// window showed it playing (shop F25). For the capture, each animated
+    /// key path's model value is what the layer presents; the closure
+    /// returned puts the model back.
+    private static func showAnimations(in root: CALayer?) -> () -> Void {
+        guard let root else { return {} }
+        CATransaction.flush() // presentation() reads committed animations
+        var undo: [(CALayer, String, Any?)] = []
+        func walk(_ layer: CALayer) {
+            if let keys = layer.animationKeys(), !keys.isEmpty, let shown = layer.presentation() {
+                var paths: Set<String> = []
+                for key in keys { if let path = (layer.animation(forKey: key) as? CAPropertyAnimation)?.keyPath { paths.insert(path) } }
+                for path in paths {
+                    undo.append((layer, path, layer.value(forKeyPath: path)))
+                    layer.setValue(shown.value(forKeyPath: path), forKeyPath: path)
+                }
+            }
+            layer.sublayers?.forEach(walk)
+            if let mask = layer.mask { walk(mask) }
+        }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        walk(root)
+        CATransaction.commit()
+        return {
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            for (layer, path, value) in undo.reversed() { layer.setValue(value, forKeyPath: path) }
+            CATransaction.commit()
+        }
+    }
 }
 #endif

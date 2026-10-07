@@ -20,6 +20,7 @@ final class NativeButtonMac: NSButton {
         var testId: String?
         var selected: Bool
         var expanded: String?
+        var pressed: String?
     }
     var written: Written?
     /// Whether it draws glass: the glass bezel, in the macOS 26 design.
@@ -27,6 +28,18 @@ final class NativeButtonMac: NSButton {
     /// The look drawn, its name in the table's macOS column.
     var drawn = "push"
     override var acceptsFirstResponder: Bool { false }
+    // `pointerdown`/`pointerup` (LLP 1005 §Events): AppKit's tracking loop
+    // takes the button's mouse events, so the node hears them here. The up
+    // goes before the action the loop sends, DOM's order.
+    override func mouseDown(with event: NSEvent) {
+        owner?.pointerPressed(event)
+        super.mouseDown(with: event)
+        owner?.pointerReleased(nil)
+    }
+    override func sendAction(_ action: Selector?, to target: Any?) -> Bool {
+        owner?.pointerReleased(nil)
+        return super.sendAction(action, to: target)
+    }
 }
 
 extension NodeView {
@@ -118,8 +131,9 @@ extension ControlHost {
         let face = presenter.buttonFace?(owner.id) ?? ButtonFace()
         let written = NativeButtonMac.Written(
             face: face, accent: accent, enabled: !owner.disabled,
-            label: owner.props["accessibilityLabel"] ?? face.title, testId: owner.props["testId"],
-            selected: owner.props["accessibilitySelected"] == "true", expanded: owner.props["accessibilityExpanded"])
+            label: owner.props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 } ?? face.title, testId: owner.props["testId"],
+            selected: owner.props["accessibilitySelected"] == "true", expanded: owner.props["accessibilityExpanded"],
+            pressed: owner.pressedState)
         guard button.written != written else { return }
         if !face.known, button.written?.face.style != face.style {
             presenter.session?.log("buttonStyle `\(face.style)` is not a button style; drawing bordered")
@@ -148,6 +162,7 @@ extension ControlHost {
         button.setAccessibilityIdentifier(written.testId)
         button.setAccessibilitySelected(written.selected)
         if let expanded = written.expanded { button.setAccessibilityExpanded(expanded == "true") }
+        button.setAccessibilityToggle(written.pressed, else: .button)
         button.drawn = look
         if button.isGlass != glass {
             button.isGlass = glass

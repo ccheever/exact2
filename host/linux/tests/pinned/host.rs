@@ -227,17 +227,108 @@ fn disabled_controls_refuse_pointer_and_text_input() {
     );
 }
 
+/// A keydown bubbles to every ancestor's `key` handler, innermost first, and
+/// a handler's `preventDefault()` keeps its character out of the field
+/// (docs/contract-grammar.md#keys; calc F3, minesweeper F7).
+#[test]
+fn a_key_bubbles_and_prevent_default_keeps_its_character_out() {
+    let source = r#"component Keys
+  state text = ""
+  state heard = ""
+  action typed(v: string)
+    text = v
+  action field(k: string)
+    heard = `${heard}f${k}`
+    if k == "x"
+      preventDefault()
+  action outer(k: string)
+    heard = `${heard}o${k}`
+  view
+    column key=outer
+      input value=text input=typed key=field testId="field"
+"#;
+    let plan = contract::compile(source).unwrap();
+    let (mut p, error) =
+        Presenter::boot(&plan.encode(), NoData, (390.0, 844.0), 1.0, assets()).unwrap();
+    assert!(error.is_none());
+    let field = view(&p, "field");
+    for key in ["7", "x"] {
+        p.type_key(field, key, key, true, false).unwrap();
+    }
+    let slot = |p: &Presenter<NoData>, name: &str| p.host().runner().slot(name).cloned();
+    assert_eq!(slot(&p, "text"), Some(Value::str("7")), "x was prevented");
+    assert_eq!(slot(&p, "heard"), Some(Value::str("f7o7fxox")));
+}
+
+/// A key carries the modifiers held: the agent's chord holds them for its
+/// key, and a keyboard's Control chord reaches the handlers, starts nothing
+/// and types nothing (chat F2: Enter sends, Shift+Enter breaks the line;
+/// kanban F27: Ctrl+S).
+#[test]
+fn a_key_carries_its_modifiers_from_a_chord_and_the_keyboard() {
+    let source = r#"component Keys
+  state draft = ""
+  state sent = ""
+  state saved = 0
+  action write(v: string)
+    draft = v
+  action compose(k: string, e: KeyboardEvent)
+    if k == "Enter" and not e.shiftKey
+      sent = draft
+      draft = ""
+      preventDefault()
+    if e.ctrlKey and k == "s"
+      saved = saved + 1
+  view
+    column
+      textarea value=draft input=write key=compose testId="area"
+"#;
+    let plan = contract::compile(source).unwrap();
+    let (mut p, error) =
+        Presenter::boot(&plan.encode(), NoData, (390.0, 844.0), 1.0, assets()).unwrap();
+    assert!(error.is_none());
+    let area = view(&p, "area");
+    for key in ["a", "Shift+Enter", "b"] {
+        let r = handle(
+            &mut p,
+            &format!(r#"{{"op":"type","id":{area},"key":"{key}"}}"#),
+        );
+        assert!(!r.contains("error"), "{key}: {r}");
+    }
+    let slot = |p: &Presenter<NoData>, name: &str| p.host().runner().slot(name).cloned();
+    assert_eq!(slot(&p, "draft"), Some(Value::str("a\nb")));
+    p.hardware_key("ControlLeft", "Control", true, false);
+    p.hardware_key("KeyS", "s", true, false);
+    p.hardware_key("KeyS", "s", false, false);
+    p.hardware_key("ControlLeft", "Control", false, false);
+    assert_eq!(slot(&p, "saved"), Some(Value::Number(1.0)));
+    assert_eq!(
+        slot(&p, "draft"),
+        Some(Value::str("a\nb")),
+        "a chord types nothing"
+    );
+    handle(
+        &mut p,
+        &format!(r#"{{"op":"type","id":{area},"key":"Enter"}}"#),
+    );
+    assert_eq!(slot(&p, "sent"), Some(Value::str("a\nb")));
+    assert_eq!(slot(&p, "draft"), Some(Value::str("")));
+}
+
 #[test]
 fn unsupported_emoji_picker_does_not_dispatch_a_fake_selection() {
     let plan = contract::compile(
         r#"component Picker
   state value = "kept"
+  state draft = ""
   action change(next: string)
     value = next
+  action edit(next: string)
+    draft = next
   view
     column
       input emojiPicker=true change=change testId="picker"
-      input change=change testId="text"
+      input value=draft input=edit change=change testId="text"
 "#,
     )
     .unwrap();
@@ -253,6 +344,8 @@ fn unsupported_emoji_picker_does_not_dispatch_a_fake_selection() {
     assert_eq!(p.host().runner().slot("value"), Some(&Value::str("kept")));
     let input = view(&p, "text");
     p.type_text(input, "☕️").unwrap();
+    // `input` edits; `change` commits on Enter, as hardware typing does (cbf1b3311).
+    p.type_key(input, "Enter", "Enter", true, false).unwrap();
     assert_eq!(p.host().runner().slot("value"), Some(&Value::str("☕️")));
 }
 
@@ -443,11 +536,7 @@ fn a_nonregular_image_is_refused_off_the_boot_thread_without_blocking_a_worker()
 fn agent_requests_answer_on_the_wire() {
     let mut p = boot();
     let l = handle(&mut p, "{\"op\":\"layout\"}");
-    assert!(
-        l.contains("\"viewport\":{\"w\":390,\"h\":844}"),
-        "{}",
-        &l[..80]
-    );
+    assert!(l.contains("\"viewport\":{\"w\":390,\"h\":844}"), "{l}");
     let id = view(&p, "change-station");
     let t = handle(&mut p, &format!("{{\"op\":\"tap\",\"id\":{id}}}"));
     assert!(t.starts_with(&format!("{{\"tapped\":{id},\"at\":[")), "{t}");

@@ -21,30 +21,44 @@
 
 mod class;
 mod collection;
+mod color_profile;
+mod contain;
 pub mod controls;
 pub mod dataset;
+mod error;
 pub mod expr;
+mod fields;
 mod fonts;
+mod grouped;
+mod handlers;
 mod keyframes;
 mod lint;
 mod media;
+mod menus;
 mod native;
 mod routes;
+mod shorthands;
 mod sites;
+mod sounds;
 mod stmts;
 mod strings;
 mod svg;
 pub mod tags;
+mod timers;
 mod values;
+pub mod vocab;
 
 pub use dataset::{data_words, hook_words};
+pub use error::LowerError;
+pub(crate) use error::{err, err_one};
+pub use fields::Profile;
 pub use lint::lint;
 use lint::{unknown_attr, unknown_tag};
 pub use native::{is_module_tag, module_tags};
 pub use sites::{Declared, NodeSite, Origin, Sites};
 
 use contract_analyze::Analysis;
-use contract_syntax::{Attr, Expr, File, FnDecl, Node, Span, TaskKind};
+use contract_syntax::{Attr, Expr, File, FnDecl, Node, Owner, Span};
 use contract_types::{Checked, Ref, Scope, Ty, Types};
 use exact_kernel::{NodeType, StyleId};
 use exact_plan::asm::Asm;
@@ -55,44 +69,6 @@ use exact_plan::{
 };
 use std::collections::BTreeMap;
 use std::path::Path;
-
-/// A typed rejection.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LowerError {
-    /// Stable id.
-    pub id: &'static str,
-    /// What went wrong.
-    pub message: String,
-    /// Where.
-    pub span: Span,
-}
-
-impl std::fmt::Display for LowerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} [{}] {}", self.span, self.id, self.message)
-    }
-}
-
-/// One refusal, as the plural result lowering returns.
-fn err_one(id: &'static str, message: impl Into<String>, span: Span) -> Vec<LowerError> {
-    vec![LowerError {
-        id,
-        message: message.into(),
-        span,
-    }]
-}
-
-pub(crate) fn err<T>(
-    id: &'static str,
-    message: impl Into<String>,
-    span: Span,
-) -> Result<T, LowerError> {
-    Err(LowerError {
-        id,
-        message: message.into(),
-        span,
-    })
-}
 
 /// The compiler identity a plan carries: the crate version folded with the
 /// configuration digest (there is no configuration yet).
@@ -108,6 +84,8 @@ pub fn compiler_identity() -> u64 {
 pub(crate) struct Lowerer<'a> {
     pub b: PlanBuilder,
     sites: Option<Sites>,
+    /// The surface the plan is for: a text field's sheet differs.
+    profile: Profile,
     pub types: &'a Types,
     pub root: &'a contract_syntax::Component,
     pub ty_ids: BTreeMap<String, TypesId>,
@@ -125,10 +103,10 @@ pub(crate) struct Lowerer<'a> {
     /// The file's `fn` declarations, by name, expanded inline at each call
     /// (LLP 1017 P5), each with its body's repeated calls bound once.
     pub fns: BTreeMap<&'a str, (&'a FnDecl, &'a Expr)>,
-    /// The region each `each` lowered to, by the inliner's tag (LLP 1017 P4c).
-    pub each_regions: BTreeMap<u32, exact_plan::RegionsId>,
-    /// The item/binding scope at each expanded `each`, for row-slot initializers.
-    pub each_scopes: BTreeMap<u32, Scope>,
+    /// The arm each region arm lowered to, by the inliner's tag and arm
+    /// index, with the scope in force inside it: what a lifted child state
+    /// owned by that arm is initialized in (LLP 1017 P4c).
+    pub arm_scopes: BTreeMap<(u32, u8), (exact_plan::ArmsId, Scope)>,
     /// Every generic and declared family name to its stack id.
     pub font_stacks: BTreeMap<String, StacksId>,
     /// Declared families, for the literal weight/style synthesis diagnostic.
@@ -150,10 +128,13 @@ pub(crate) struct Lowerer<'a> {
     pub(crate) svg_depth: u32,
     /// Whether the enclosing element contains its exclusions (LLP 1043.000).
     parent_positioned: bool,
+    parent_bounded_column: bool,
     /// Where a native button may not be, from the nearest ancestor that says.
     pub(crate) button_context: Option<&'static str>,
     /// Whether the element being lowered is a popover's direct child.
     pub(crate) popover_child: bool,
+    /// Where the element being lowered sits relative to a navigation root.
+    nav_place: routes::NavPlace,
     host_transforms: std::collections::BTreeSet<(Span, u32)>,
 }
 
@@ -185,19 +166,21 @@ pub fn lower(
     _analysis: &Analysis,
     asset_root: Option<&Path>,
 ) -> Result<Plan, LowerError> {
-    lower_with_sites(checked, _analysis, asset_root, false)
+    lower_with_sites(checked, _analysis, asset_root, false, Profile::Web)
         .map(|(plan, _)| plan)
         .map_err(|mut all| all.swap_remove(0))
 }
 
 /// Lower, reporting every independent refusal: each element and each of its
 /// attributes is lowered whatever its siblings' fate (at most
-/// [`MAX_REFUSALS`]). `mapped` also returns the development source sites.
+/// [`MAX_REFUSALS`]). `mapped` also returns the development source sites;
+/// `profile` is the surface the plan is for.
 pub fn lower_all(
     checked: &Checked<'_>,
     analysis: &Analysis,
     asset_root: Option<&Path>,
     mapped: bool,
+    profile: Profile,
 ) -> Result<(Plan, Option<Sites>), Vec<LowerError>> {
     if mapped && checked.expanded.instances.is_empty() {
         return Err(vec![LowerError {
@@ -206,7 +189,7 @@ pub fn lower_all(
             span: checked.expanded.root.span,
         }]);
     }
-    lower_with_sites(checked, analysis, asset_root, mapped)
+    lower_with_sites(checked, analysis, asset_root, mapped, profile)
 }
 
 fn lower_with_sites(
@@ -214,6 +197,7 @@ fn lower_with_sites(
     _analysis: &Analysis,
     asset_root: Option<&Path>,
     capture_sites: bool,
+    profile: Profile,
 ) -> Result<(Plan, Option<Sites>), Vec<LowerError>> {
     // Keep the exact expansion whose root and row slots inference checked.
     let Checked {
@@ -232,6 +216,7 @@ fn lower_with_sites(
     let mut l = Lowerer {
         b: PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, compiler_identity()),
         sites: capture_sites.then(|| Sites::declared(ex)),
+        profile,
         types,
         root,
         ty_ids: BTreeMap::new(),
@@ -252,11 +237,12 @@ fn lower_with_sites(
         fn_depth: 0,
         svg_depth: 0,
         parent_positioned: true,
+        parent_bounded_column: false,
         button_context: None,
         popover_child: false,
+        nav_place: Default::default(),
         host_transforms: Default::default(),
-        each_regions: BTreeMap::new(),
-        each_scopes: BTreeMap::new(),
+        arm_scopes: BTreeMap::new(),
         font_stacks: BTreeMap::new(),
         declared_fonts: BTreeMap::new(),
         fixed: BTreeMap::new(),
@@ -265,11 +251,12 @@ fn lower_with_sites(
         texts_used: Default::default(),
     };
     l.declare_fonts(file, asset_root)?;
+    l.declare_sounds(file, asset_root)?;
     // Styles: rows only, literal only (the parser holds the second), by name.
     for s in &file.styles {
         for a in &s.attrs {
             match tags::attr(&a.name) {
-                Some(tags::AttrTarget::Styles(_)) | Some(tags::AttrTarget::Flex) => {}
+                Some(tags::AttrTarget::Styles(_) | tags::AttrTarget::Flex | tags::AttrTarget::Shorthand) => {}
                 Some(tags::AttrTarget::Prop(p)) if p.styleable() => {} // LLP 1069.011 D12
                 Some(_) => l.errors.push(LowerError {
                     id: "lower-style-attr",
@@ -302,6 +289,7 @@ fn lower_with_sites(
     }
     let refused = l.declare_keyframes(file);
     l.errors.extend(refused);
+    let _profiles = l.declare_color_profiles(file);
     // Shapes first, in declaration order, so type ids are stable.
     for s in &file.shapes {
         l.ty_id(&Ty::Record(s.name.clone()))?;
@@ -375,7 +363,7 @@ fn lower_with_sites(
     // Bodies.
     let scope = types.component_scope(root, root_types);
     for (i, s) in root.states.iter().enumerate() {
-        if ex.owners[i].is_none() && !(i == 0 && file.routes.is_some()) {
+        if ex.owners[i] == Owner::Root && !(i == 0 && file.routes.is_some()) {
             let code = l.expr_code(&s.expr, &scope, 0)?;
             l.b.set_slot_init(l.slots[i], code);
         }
@@ -456,41 +444,15 @@ fn lower_with_sites(
         l.b.set_action_body(l.actions[i], code);
     }
     for (i, m) in root.mutations.iter().enumerate() {
+        if m.queue {
+            l.b.set_mutation_queue(l.mutations[i]);
+        }
         if let Some((name, _)) = &m.then {
             let action = l.actions[root.actions.iter().position(|a| &a.name == name).unwrap()];
             l.b.set_mutation_then(l.mutations[i], action);
         }
     }
-    for t in &root.tasks {
-        let action = l.actions[root
-            .actions
-            .iter()
-            .position(|a| a.name == t.timer.1)
-            .unwrap()];
-        let word = match t.kind {
-            TaskKind::Every => "every",
-            TaskKind::After => "after",
-            TaskKind::Frame => {
-                l.b.frame_timer(action);
-                continue;
-            }
-        };
-        let Expr::Number(ms, _) = &t.timer.0 else {
-            return Err(err_one(
-                "lower-timer-literal",
-                format!("`{word}` needs a literal number of milliseconds"),
-                t.timer.2,
-            ));
-        };
-        if !(ms.is_finite() && ms.fract() == 0.0 && *ms >= 1.0 && *ms <= u32::MAX as f64) {
-            return Err(err_one(
-                "lower-timer-interval",
-                format!("`{word}` needs a whole number of milliseconds, at least 1; given {ms}"),
-                t.timer.2,
-            ));
-        }
-        l.b.timer(*ms as u32, action, t.kind == TaskKind::After);
-    }
+    l.timers(&root.tasks, &scope)?;
     // The view, inlined (by `expand`, above).
     let view = &root.view;
     if view.len() != 1 {
@@ -517,29 +479,35 @@ fn lower_with_sites(
         l.errors.truncate(MAX_REFUSALS);
         return Err(l.errors);
     }
-    // Row slots: each lifted state owned by an `each` names its region now
-    // that the regions exist (LLP 1017 P4c).
+    // Child state (LLP 1017 P4c): each lifted state is initialized where its
+    // instance is created — in its owning arm's scope, now that the arms
+    // exist, or, for a use outside every region, at the boot render.
     for (i, owner) in ex.owners.iter().enumerate() {
-        if let Some(tag) = owner {
-            let region = *l.each_regions.get(tag).ok_or_else(|| LowerError {
-                id: "lower-row-slot",
-                message: format!(
-                    "row slot `{}` names an `each` that was not lowered",
-                    root.states[i].name
-                ),
-                span: root.states[i].span,
-            })?;
-            let item_scope = l.each_scopes.get(tag).cloned().ok_or_else(|| LowerError {
-                id: "lower-row-slot",
-                message: format!(
-                    "row slot `{}` names an `each` with no item scope",
-                    root.states[i].name
-                ),
-                span: root.states[i].span,
-            })?;
-            let init = l.expr_code(&root.states[i].expr, &item_scope, 0)?;
-            l.b.set_slot_init(l.slots[i], init);
-            l.b.set_slot_owner(l.slots[i], region);
+        let state = &root.states[i];
+        match *owner {
+            Owner::Root => {}
+            Owner::Instance => {
+                let init = l.expr_code(&state.expr, &scope, 0)?;
+                l.b.set_slot_init(l.slots[i], init);
+                l.b.set_slot_late(l.slots[i]);
+            }
+            Owner::Arm { tag, arm } => {
+                let (id, arm_scope) =
+                    l.arm_scopes
+                        .get(&(tag, arm))
+                        .cloned()
+                        .ok_or_else(|| LowerError {
+                            id: "lower-row-slot",
+                            message: format!(
+                                "child state `{}` names a region that was not lowered",
+                                state.name
+                            ),
+                            span: state.span,
+                        })?;
+                let init = l.expr_code(&state.expr, &arm_scope, 0)?;
+                l.b.set_slot_init(l.slots[i], init);
+                l.b.set_slot_owner(l.slots[i], id);
+            }
         }
     }
     l.bake_texts()?;
@@ -677,16 +645,44 @@ impl<'a> Lowerer<'a> {
                 // only the case nothing on the path can bound is refused.
                 // `class=` expands its style's rows first; the node's own
                 // attribute of the same name replaces the style's (LLP 1017 P6).
+                // @ref LLP 1084 D7 — a grouped list's sheet, under its classes.
+                let (mut sheet, unmarked) = grouped::split(attrs);
+                let attrs = unmarked.as_ref().unwrap_or(attrs);
                 let (class_label, mut expanded) = self.class_rows(attrs)?.unzip();
-                let class_len = expanded.as_ref().map_or(0, Vec::len);
+                let native = expanded
+                    .iter()
+                    .flatten()
+                    .chain(attrs.iter())
+                    .rev()
+                    .find(|a| a.name == "appearance");
+                if tag == "button"
+                    && native.is_some_and(|a| matches!(&a.value, Expr::Str(v, _) if v == "auto"))
+                {
+                    grouped::native_rows(&mut sheet);
+                }
+                // @ref LLP 1104 D2, D3 — a text field's sheet, under its classes.
+                let dressed = fields::sheet(
+                    tag,
+                    expanded.iter().flatten().chain(attrs),
+                    *span,
+                    &mut sheet,
+                    self.profile,
+                )?;
+                let class_len = expanded.as_ref().map_or(0, Vec::len) + sheet.len();
                 let expanded = match &mut expanded {
                     Some(rows) => {
+                        fields::over_sheet(rows, &sheet);
+                        rows.splice(0..0, sheet.iter().cloned());
                         rows.extend(attrs.iter().filter(|a| a.name != "class").cloned());
                         rows.as_slice()
                     }
+                    None if !sheet.is_empty() => {
+                        expanded = Some([sheet.clone(), attrs.to_vec()].concat());
+                        expanded.as_deref().expect("just set")
+                    }
                     None => attrs.as_slice(),
                 };
-                tags::validate_button_display(tag, expanded)?;
+                values::check_position_area(expanded)?;
                 tags::check_exclusion(&t, expanded, self.parent_positioned)?;
                 let composed = self.compose_animation(expanded)?;
                 let expanded = composed.as_deref().unwrap_or(expanded);
@@ -694,6 +690,17 @@ impl<'a> Lowerer<'a> {
                     svg::coerce_lengths(tag, svg::in_svg(self.svg_depth > 0, parent_tag), expanded);
                 let expanded = lengths.as_deref().unwrap_or(expanded);
                 self.check_svg(tag, parent_tag, expanded, *span)?;
+                // @ref LLP 1034 §8 — an inline run paints in its paragraph's
+                // scheme: no host gives a run an appearance of its own.
+                if tag == "text" && parent_tag == Some("text") {
+                    if let Some(a) = expanded.iter().find(|a| a.name == "color-scheme") {
+                        return Err(LowerError {
+                            id: "lower-attr-tag",
+                            message: "`color-scheme` on an inline `text` run: a run paints in its paragraph's scheme (LLP 1034 §8); set it on the paragraph or a box above".into(),
+                            span: a.span,
+                        });
+                    }
+                }
                 // @ref LLP 1055.000 D4 — an `svg` inside an `svg` is a viewport.
                 // Inside an `svg`, `svg` is a viewport and `text` is SVG text
                 // (LLP 1055.000 D4, D11).
@@ -714,14 +721,32 @@ impl<'a> Lowerer<'a> {
                 let expanded = canonical_type.as_deref().unwrap_or(expanded);
                 let control = controls::control(tag, expanded)?;
                 let t = control.map_or(t.clone(), |kind| controls::tag(kind, t.clone()));
+                let t = if dressed { fields::tag(t) } else { t };
+                let face = (control == Some("button"))
+                    .then(|| grouped::unsheet(children))
+                    .flatten();
+                let children = face.as_ref().unwrap_or(children);
                 if control == Some("button") {
                     self.check_native_button(expanded, children, *span)?;
                 }
                 controls::check_nesting(tag, parent_tag, *span)?;
-                let numeric = controls::range_attrs(control, expanded);
+                self.check_menu_shapes(tag, expanded, children, *span)?;
+                let numeric = controls::range_attrs(tag, control, expanded);
                 let expanded = numeric.as_deref().unwrap_or(expanded);
+                // @ref LLP 1084 D1, D3 — a grouped list's sheet, before its
+                // author's rows, and its sections' shape.
+                let grouped = grouped::style(tag, expanded)?;
+                let (listed, sections);
+                let (expanded, children) = match grouped {
+                    Some(style) => {
+                        listed = [grouped::list_rows(style, *span), expanded.to_vec()].concat();
+                        sections = grouped::sections(style, children)?;
+                        (listed.as_slice(), &sections)
+                    }
+                    None => (expanded, children),
+                };
                 tags::validate_list(tag, expanded, *span)?;
-                self.check_collection(tag, expanded, children, *span)?;
+                self.check_collection(tag, expanded, children, *span, scope)?;
                 // A row list is a flex item of its column like any carousel;
                 // CSS's own fix keeps its spacers' extent from widening that
                 // column: `min-width: 0`, unless the author set one (LLP 1070
@@ -742,10 +767,13 @@ impl<'a> Lowerer<'a> {
                     attrs
                 });
                 let expanded = row_list.as_deref().unwrap_or(expanded);
+                media::check_session(tag, expanded)?;
+                let audio = media::audio_rows(tag, expanded, *span)?;
+                let expanded = audio.as_deref().unwrap_or(expanded);
                 // @ref LLP 1074 T1 — a box that contains its absolutely positioned
                 // descendants on every host is lowered `position: relative`.
                 let in_svg = svg::in_svg(self.svg_depth > 0, parent_tag);
-                let relative = tags::positioned(
+                let relative = contain::positioned(
                     &t,
                     expanded,
                     in_svg,
@@ -764,7 +792,11 @@ impl<'a> Lowerer<'a> {
                 if tag == "scroll"
                     && !clips_y
                     && parent_stacks
-                    && !has(&["height", "max-height", "flex"])
+                    && !has(&["height", "max-height"])
+                    && !expanded
+                        .iter()
+                        .any(|a| a.name == "flex" && values::flex_bounds(&a.value))
+                    && !values::shrinking_scroll(expanded, self.parent_bounded_column)
                 {
                     return err(
                         "lower-scroll-unbounded",
@@ -773,6 +805,7 @@ impl<'a> Lowerer<'a> {
                     );
                 }
                 controls::check_zero_size(tag, expanded, children, *span)?;
+                let nav_place = self.nav_place.enter(tag, expanded, children, *span)?;
                 // @ref LLP 1038 D8 — only the first root selects navigation.
                 if has(&["navigate"])
                     && (parent_tag.is_some()
@@ -869,7 +902,12 @@ impl<'a> Lowerer<'a> {
                 for a in &own {
                     self.errors.extend(native::refused(tag, a));
                 }
+                let flex = tags::flex_container(tag, expanded);
                 for (index, a) in expanded.iter().enumerate() {
+                    if let Some(e) = flex.and_then(|f| tags::multicol_on_flex(f, a).err()) {
+                        self.errors.push(e);
+                        continue;
+                    }
                     if native::leftover(tag, a)
                         || refused.contains(&a.name.as_str())
                         || dataset::word(&a.name).is_some()
@@ -878,6 +916,7 @@ impl<'a> Lowerer<'a> {
                     }
                     if let Err(e) = self.attr(
                         tag,
+                        contract_syntax::payload_control(tag, attrs),
                         a,
                         scope,
                         locals,
@@ -889,7 +928,9 @@ impl<'a> Lowerer<'a> {
                         self.errors.push(e);
                     }
                     if let Some(origins) = &mut origins {
-                        let origin = if index < class_len {
+                        let origin = if index < sheet.len() {
+                            Origin::Tag
+                        } else if index < class_len {
                             Origin::Class(class_label.clone().expect("class attribute"))
                         } else {
                             Origin::Own
@@ -1042,7 +1083,12 @@ impl<'a> Lowerer<'a> {
                     &mut self.popover_child,
                     expanded.iter().any(|a| a.name == "popover"),
                 );
+                let bounded = self.parent_bounded_column;
+                self.parent_bounded_column = values::bounded_column(tag, expanded, bounded);
+                let nav_place = std::mem::replace(&mut self.nav_place, nav_place);
                 let lowered = self.nodes(children, Some(id), arm, scope, locals, Some(tag));
+                self.nav_place = nav_place;
+                self.parent_bounded_column = bounded;
                 self.button_context = button_context;
                 self.popover_child = popover_child;
                 self.parent_positioned = parent_positioned;
@@ -1060,6 +1106,7 @@ impl<'a> Lowerer<'a> {
                 *span,
             ),
             Node::When {
+                tag,
                 cond,
                 then,
                 otherwise,
@@ -1072,6 +1119,8 @@ impl<'a> Lowerer<'a> {
                         .region(RegionKind::When, parent, arm, order, subject, unit, 2);
                 let mut inner = scope.clone();
                 inner.push_region(None);
+                self.arm_scopes.insert((*tag, 0), (arms[0], inner.clone()));
+                self.arm_scopes.insert((*tag, 1), (arms[1], inner.clone()));
                 self.nodes(then, None, Some(arms[0]), &inner, locals, parent_tag)?;
                 self.nodes(otherwise, None, Some(arms[1]), &inner, locals, parent_tag)
             }
@@ -1092,14 +1141,14 @@ impl<'a> Lowerer<'a> {
                 let mut inner = scope.clone();
                 inner.push_each(var, index.as_deref(), item_ty);
                 let key = self.expr_code(key, &inner, locals)?;
-                let (r, arms) =
+                let (_r, arms) =
                     self.b
                         .region(RegionKind::Each, parent, arm, order, subject, key, 1);
-                self.each_regions.insert(*tag, r);
-                self.each_scopes.insert(*tag, inner.clone());
+                self.arm_scopes.insert((*tag, 0), (arms[0], inner.clone()));
                 self.nodes(body, None, Some(arms[0]), &inner, locals, parent_tag)
             }
             Node::Match {
+                tag,
                 subject,
                 some,
                 none,
@@ -1116,6 +1165,8 @@ impl<'a> Lowerer<'a> {
                         .region(RegionKind::Match, parent, arm, order, code, unit, 2);
                 let mut some_scope = scope.clone();
                 some_scope.push_region(Some((some.0.clone(), Ref::Bound(0), bound_ty)));
+                self.arm_scopes
+                    .insert((*tag, 0), (arms[0], some_scope.clone()));
                 self.nodes(
                     &some.1,
                     None,
@@ -1126,6 +1177,8 @@ impl<'a> Lowerer<'a> {
                 )?;
                 let mut none_scope = scope.clone();
                 none_scope.push_region(None);
+                self.arm_scopes
+                    .insert((*tag, 1), (arms[1], none_scope.clone()));
                 self.nodes(none, None, Some(arms[1]), &none_scope, locals, parent_tag)
             }
         }
@@ -1135,6 +1188,7 @@ impl<'a> Lowerer<'a> {
     fn attr(
         &mut self,
         tag: &str,
+        control: Option<&str>,
         a: &Attr,
         scope: &Scope,
         locals: u16,
@@ -1143,33 +1197,68 @@ impl<'a> Lowerer<'a> {
         surface: &mut Option<exact_plan::SurfacesId>,
         font: &[FontUse],
     ) -> Result<(), LowerError> {
-        let Some(target) = tags::attr(&a.name) else {
+        let Some(mut target) = tags::attr_valued(&a.name, &a.value) else {
             return Err(unknown_attr(tag, a));
         };
+        // HTML's global `title` on any element but `head`: advisory text, the
+        // platform's tooltip (studio diary R24); `head`'s is the document's.
+        if a.name == "title" && tag != "head" {
+            target = tags::AttrTarget::Prop(exact_kernel::PropId::Title);
+        }
         // @ref LLP 1024 D1 — `load` and `message` are a module's too.
         let module = native::is_module_tag(tag) && a.name != "sandbox";
         if (tag != "iframe"
             && matches!(a.name.as_str(), "sandbox" | "load" | "message")
             && !(tag == "canvas" && a.name == "message")
+            && !(tag == "image" && a.name == "load")
             && !module)
-            || (tag != "iframe" && tag != "video" && a.name == "src")
+            || (!matches!(tag, "iframe" | "video" | "audio") && a.name == "src")
         {
             return err(
                 "lower-attr-tag",
                 format!(
                     "`{}` belongs to {}, not `{tag}`",
                     a.name,
-                    if a.name == "message" {
-                        "`iframe` or `canvas`"
-                    } else {
-                        "`iframe`"
+                    match a.name.as_str() {
+                        "message" => "`iframe` or `canvas`",
+                        "load" => "`iframe`, `image` or a native module",
+                        _ => "`iframe`",
                     }
                 ),
                 a.span,
             );
         }
+        // An SVG element's own attribute (a filter primitive's `mode`, `in`,
+        // `values`…) does nothing on a box: refused by name rather than kept
+        // as a prop no host reads (feed F19: CSS `order` once landed here).
+        let svg_tag = svg::is_element(tag) || matches!(tag, "svg" | "text" | "tspan");
+        if !svg_tag && !module && svg::svg_only_prop(&a.name) {
+            return err(
+                "lower-attr-tag",
+                format!(
+                    "`{}` is an SVG element's attribute; it does nothing on `{tag}`",
+                    a.name
+                ),
+                a.span,
+            );
+        }
+        if a.name == "alt" && tag != "image" {
+            return err(
+                "lower-attr-tag",
+                format!("`alt` belongs to `image`, not `{tag}`; another element's accessible name is `aria-label`"),
+                a.span,
+            );
+        }
+        if !svg_tag && !module && a.name == "mask" {
+            return err(
+                "lower-attr-tag",
+                "`mask` masks SVG elements so far; a box takes `mask-image` (a gradient)",
+                a.span,
+            );
+        }
         // @ref LLP 1048.003 D1 — a document's metadata, and nothing else.
-        let head_field = tags::HEAD_FIELDS.contains(&a.name.as_str());
+        let head_field =
+            tags::HEAD_FIELDS.contains(&a.name.as_str()) && !(a.name == "title" && tag != "head");
         if head_field != (tag == "head") {
             return err(
                 "lower-attr-tag",
@@ -1212,6 +1301,28 @@ impl<'a> Lowerer<'a> {
                 a.span,
             );
         }
+        if tag != "text" && a.name == "selectionchange" {
+            return err(
+                "lower-attr-tag",
+                format!("`selectionchange` belongs to `text`: it reports the part of the reader's text selection inside one paragraph, not `{tag}`"),
+                a.span,
+            );
+        }
+        // @ref LLP 1045 D3 — `none` or `markdown`, styling a `text`'s or a
+        // `textarea`'s own string; another word did nothing (notes #1).
+        if a.name == "markup" {
+            if !matches!(tag, "text" | "textarea") {
+                let message = format!("`markup` belongs to `text` (the reader) or `textarea` (the editor), not `{tag}`");
+                return err("lower-attr-tag", message, a.span);
+            }
+            if matches!(&a.value, Expr::Str(s, _) if s != "markdown" && s != "none") {
+                return err(
+                    "lower-attr-value",
+                    "`markup` is \"markdown\" or \"none\"",
+                    a.span,
+                );
+            }
+        }
         if tag != "list" && matches!(a.name.as_str(), "reachstart" | "reachend") {
             return err(
                 "lower-attr-tag",
@@ -1220,20 +1331,22 @@ impl<'a> Lowerer<'a> {
             );
         }
         match target {
+            tags::AttrTarget::Shorthand => self.bind_shorthand(a, scope, locals, font, bindings)?,
             tags::AttrTarget::Flex => {
-                // CSS `flex: <n>` is `<n> 1 0%`: grow n, shrink 1, basis 0%.
-                let (grow, ty) = self.typed_code(&a.value, scope, locals)?;
-                values::check_style_value(a, &[StyleId::FlexGrow], &ty, font)?;
-                let one = self.b.constant(&Value::Number(1.0));
-                let zero_basis = self.b.constant(&Value::str("0%"));
-                for (row, code) in [
-                    ("flex_grow", grow),
-                    ("flex_shrink", one),
-                    ("flex_basis", zero_basis),
-                ] {
+                for (index, row) in [StyleId::FlexGrow, StyleId::FlexShrink, StyleId::FlexBasis]
+                    .into_iter()
+                    .enumerate()
+                {
+                    let value = values::flex_component(&a.value, index)?;
+                    let component = Attr { value, ..a.clone() };
+                    let (code, ty) = self.typed_code(&component.value, scope, locals)?;
+                    if index < 2 && matches!(ty, Ty::String) {
+                        return err("lower-attr-type", "a computed `flex` must be a number, a literal CSS shorthand or a choice of literal shorthands; for a computed basis write the longhands, as in `flex-grow=1 flex-shrink=1 flex-basis=w`", a.span);
+                    }
+                    values::check_style_value(&component, &[row], &ty, font)?;
                     bindings.push(BindingsRow {
                         kind: BindingKind::Style,
-                        id: exact_kernel::StyleId::from_name(row).unwrap() as u16,
+                        id: row as u16,
                         expr: code,
                     });
                 }
@@ -1250,9 +1363,9 @@ impl<'a> Lowerer<'a> {
                     });
                     return Ok(());
                 }
-                // CSS's one-to-four-value `border-color`: a binding a side.
-                if rows == values::BORDER_COLORS {
-                    if let Some(sides) = values::border_color_sides(&a.value)? {
+                // CSS's one-to-four-value box shorthands: a binding a side.
+                if values::four_sided(rows) {
+                    if let Some(sides) = values::sides(&a.name, &a.value)? {
                         for (&row, value) in rows.iter().zip(sides) {
                             let (code, ty) = self.typed_code(&value, scope, locals)?;
                             let side = Attr { value, ..a.clone() };
@@ -1297,8 +1410,22 @@ impl<'a> Lowerer<'a> {
                 } else {
                     &a.value
                 };
-                let (code, ty) = self.typed_code(value, scope, locals)?;
+                let (mut asm, mut depth) = (Asm::new(), locals);
+                let ty = expr::compile(self, &mut asm, value, scope, &mut depth)?;
                 values::check_prop_value(&a.name, value, a.span, prop, &ty)?;
+                // ARIA's word-valued states; a bool is written as `true`/`false`.
+                if values::aria_words(prop).is_some() && ty == Ty::Bool {
+                    asm.call(exact_plan::Stdlib::ToString);
+                }
+                // An enumerated attribute whose IDL attribute is a bool takes
+                // one, as its words (shop diary F7).
+                if let (Ty::Bool, Some((yes, no))) = (&ty, values::bool_words(prop)) {
+                    let word = |w: &str| Box::new(Expr::Str(w.into(), a.span));
+                    let words = Expr::Ternary(Box::new(value.clone()), word(yes), word(no), a.span);
+                    (asm, depth) = (Asm::new(), locals);
+                    expr::compile(self, &mut asm, &words, scope, &mut depth)?;
+                }
+                let code = self.b.code(asm);
                 bindings.push(BindingsRow {
                     kind: BindingKind::Prop,
                     id: prop as u16,
@@ -1335,87 +1462,9 @@ impl<'a> Lowerer<'a> {
                 *surface = Some(self.b.surface(name, &codes));
             }
             tags::AttrTarget::Handler(event) => {
-                let (name, args): (&str, &[Expr]) = match &a.value {
-                    Expr::Ident(n, _) => (n, &[]),
-                    Expr::Call(n, args, _) => (n, args),
-                    _ => {
-                        return err(
-                            "lower-handler",
-                            "a handler is an action name or `action(args)`",
-                            a.span,
-                        )
-                    }
-                };
-                let Some(ai) = self.root.actions.iter().position(|x| x.name == name) else {
-                    return err(
-                        "lower-unknown-action",
-                        format!("`{name}` is not an action of the root"),
-                        a.span,
-                    );
-                };
-                // The view is inlined, so a handler behind a child's `action`
-                // prop names the real action here: its arity is checked now,
-                // not at dispatch (LLP 1006 §8's circle-back; LLP 1017 P1b).
-                let params = self.root.actions[ai].params.len();
-                let valid = contract_analyze::handler_arity(event, args.len())
-                    .is_some_and(|range| range.contains(&params));
-                if !valid {
-                    return err(
-                        "lower-handler-arity",
-                        format!(
-                            "`{name}` takes {params} parameter(s); `{event}=` supplies {}{}",
-                            args.len(),
-                            match event {
-                                "hover" => " plus whether the pointer is over",
-                                "key" => " plus the key's name",
-                                "change" | "input" => " plus the new value",
-                                "message" => " plus the message",
-                                "scroll" => " plus scrollLeft and scrollTop",
-                                "heightrelease" => " plus height and velocity",
-                                "panrelease" => " plus vx and vy",
-                                "transformgeometry" => " plus four geometry numbers",
-                                "transformrelease" => " plus six transform release numbers",
-                                _ => "",
-                            }
-                        ),
-                        a.span,
-                    );
-                }
-                if event == "reorderdrop"
-                    && self.types.components[0].actions[ai][args.len()..]
-                        != [Ty::String, Ty::Option(Box::new(Ty::String))]
-                {
-                    return err(
-                        "lower-handler-type",
-                        "`reorderdrop` supplies string and option<string>",
-                        a.span,
-                    );
-                }
-                if matches!(
-                    event,
-                    "pan"
-                        | "panrelease"
-                        | "heightrelease"
-                        | "transformgeometry"
-                        | "transformrelease"
-                ) && self.types.components[0].actions[ai][args.len()..]
-                    .iter()
-                    .any(|ty| *ty != Ty::Number)
-                {
-                    return err(
-                        "lower-handler-type",
-                        format!("`{event}` supplies only numeric payload parameters"),
-                        a.span,
-                    );
-                }
-                let mut codes = Vec::new();
-                for arg in args {
-                    codes.push(self.expr_code(arg, scope, locals)?);
-                }
-                let kind =
-                    EventKind::from_name(event).expect("tag table admitted an unknown handler");
-                handlers.push((kind, self.actions[ai], codes));
+                self.handler(tag, event, control, a, scope, locals, handlers)?;
             }
+            tags::AttrTarget::MediaMetadata => self.media_metadata(a, scope, locals, bindings)?,
         }
         Ok(())
     }

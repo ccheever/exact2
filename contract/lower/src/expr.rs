@@ -12,7 +12,7 @@ use exact_plan::{Opcode, Stdlib};
 /// A host command's arguments in the order its hosts read them. `share`'s
 /// are named (LLP 1069.003 D1) and lower as `(title, text, url)`, `None`
 /// for an absent one, so the plan's `Command` op stays positional.
-pub(crate) fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
+pub fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
     let named = |want: &str| {
         args.iter().find_map(|a| match a {
             Expr::NamedArg(n, value, _) if n == want => Some(value.as_ref()),
@@ -20,20 +20,45 @@ pub(crate) fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e E
         })
     };
     // @ref LLP 1070.000 §1: the list, the key, then the options in a fixed
-    // order, `none` where the author left the web's default.
+    // order, `none` where the author left the web's default: six, the
+    // runner's own. An element's (minesweeper F3) is four, the id and the
+    // options, which the runner leaves to its host.
     if name == "scrollIntoView" {
         let mut out: Vec<_> = args
             .iter()
             .filter(|a| !matches!(a, Expr::NamedArg(..)))
             .map(Some)
             .collect();
-        out.extend(["block", "inline", "behavior", "row"].map(named));
+        let element = out.len() == 1;
+        out.extend(["block", "inline", "behavior"].map(named));
+        if !element {
+            out.push(named("row"));
+        }
         return out;
     }
-    if name != "share" {
-        return args.iter().map(Some).collect();
+    // `saveFile(id, text=, suggestedName=)` lowers as `(id, none,
+    // suggestedName, text)`: four, where the copy of a file is three.
+    if name == "saveFile" && args.iter().any(|a| matches!(a, Expr::NamedArg(..))) {
+        return vec![args.first(), None, named("suggestedName"), named("text")];
     }
-    ["title", "text", "url"]
+    // @ref LLP 1096 D2 — the sound first, then `at`, `gain` and `group`,
+    // `none` where the author left the default (now, 1, no group).
+    if name == "playSound" {
+        let src = args.iter().find(|a| !matches!(a, Expr::NamedArg(..)));
+        return std::iter::once(src)
+            .chain(["at", "gain", "group"].map(named))
+            .collect();
+    }
+    // The Web Share API's members, the Notification API's title and
+    // options, and `stopSounds`' group, in a fixed order, `none` where the
+    // author gave none.
+    let order: &[&str] = match name {
+        "share" => &["title", "text", "url"],
+        "showNotification" => &["title", "body", "tag", "showTrigger"],
+        "stopSounds" => &["group"],
+        _ => return args.iter().map(Some).collect(),
+    };
+    order
         .iter()
         .map(|want| {
             args.iter().find_map(|a| match a {
@@ -96,9 +121,15 @@ pub(crate) fn compile(
             asm.simple(Opcode::None);
             Ty::Option(Box::new(Ty::Unknown))
         }
-        Expr::EmptyList(_) => {
-            asm.list(0);
-            Ty::List(Box::new(Ty::Unknown))
+        // `[a, b]` (LLP 1088 §9.1): the items, then `List n`.
+        Expr::List(items, _) => {
+            let mut item = Ty::Unknown;
+            for x in items {
+                let t = compile(l, asm, x, scope, locals)?;
+                item = item.unify(&t).unwrap_or(Ty::Unknown);
+            }
+            asm.list(items.len() as u32);
+            Ty::List(Box::new(item))
         }
         Expr::Some(inner, _) => {
             let t = compile(l, asm, inner, scope, locals)?;
@@ -230,7 +261,9 @@ pub(crate) fn compile(
                 let template = l.path_expr(args, *span, scope)?;
                 return compile(l, asm, &template, scope, locals);
             }
-            if contract_types::strings::is_text_call(name, scope) {
+            if !l.fns.contains_key(name.as_str())
+                && contract_types::strings::is_text_call(name, scope)
+            {
                 return l.text_call(asm, args, *span, scope, locals);
             }
             if name == "failed" {
@@ -331,10 +364,19 @@ pub(crate) fn compile(
             for a in args {
                 given.push(compile(l, asm, a, scope, locals)?);
             }
+            // The defaults of trailing optional parameters the call omitted
+            // (LLP 1088 D2): the plan's call always carries the full arity.
+            for &d in f.omitted(args.len()) {
+                asm.number(d);
+            }
             asm.call(f);
-            match (f, given.first()) {
+            match (f, given.first(), given.get(1)) {
                 // `first(list<T>)` is `option<T>` (LLP 1054.000 C4).
-                (Stdlib::First | Stdlib::At, Some(Ty::List(item))) => Ty::Option(item.clone()),
+                (Stdlib::First | Stdlib::At, Some(Ty::List(item)), _) => Ty::Option(item.clone()),
+                // A list's own type, or text's (LLP 1088 §9.1).
+                (Stdlib::Concat, Some(a), Some(b)) => a.unify(b).unwrap_or(Ty::Unknown),
+                (Stdlib::Slice, Some(t @ (Ty::String | Ty::List(_))), _) => t.clone(),
+                (Stdlib::Concat | Stdlib::Slice, ..) => Ty::Unknown,
                 _ => Ty::from_roster(f.returns()),
             }
         }
@@ -467,6 +509,14 @@ pub(crate) fn compile(
             *locals -= 1;
             asm.drop_local();
             ty
+        }
+        Expr::Typed(value, ty, span) => {
+            let t = compile(l, asm, value, scope, locals)?;
+            contract_types::ascribe(&t, ty, &l.types.shapes, *span).map_err(|e| LowerError {
+                id: e.id,
+                message: e.message,
+                span: e.span,
+            })?
         }
         Expr::Arrow { span, .. } => {
             return err(

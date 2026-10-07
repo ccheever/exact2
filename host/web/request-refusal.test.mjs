@@ -1,9 +1,10 @@
 import { expect, test } from 'bun:test';
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, resolve } from 'node:path';
+import { dirname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
+import { Worker } from 'node:worker_threads';
 import { Cdp } from '../../scripts/agent.mjs';
 import { request } from './http-body.js';
 import { deferredFulfill, refusal } from './navigation.js';
@@ -17,7 +18,7 @@ function normalized(spec) {
   const scratch = mkdtempSync(resolve(tmpdir(), 'exact-grants-'));
   const input = resolve(scratch, 'grants.txt');
   writeFileSync(input, spec);
-  const target = resolve(process.env.CARGO_TARGET_DIR || resolve(ROOT, 'target'), 'debug/exact-web-js');
+  const target = resolve(process.env.CARGO_TARGET_DIR || resolve(ROOT, 'target'), `debug/exact-web-js${process.platform === 'win32' ? '.exe' : ''}`);
   const result = existsSync(target)
     ? spawnSync(target, ['normalize-grants', input], { cwd: ROOT, encoding: 'utf8' })
     : spawnSync('cargo', ['run', '-q', '-p', 'exact-web-js', '--', 'normalize-grants', input], { cwd: ROOT, encoding: 'utf8' });
@@ -75,7 +76,8 @@ test('wasm and JS request executors refuse outside origins and redirects, and ad
       expect(new TextDecoder().decode(admitted.body)).toBe('ok');
       const redirected = await run({ method: 'GET', url: `${origin.url}redirect`, headers: [] });
       expect(redirected.failed ?? redirected.kind).toBe(2);
-      expect(redirected.message ?? text(redirected)).toBe("outside the app's grants (net.fetch)");
+      // It names where the redirect led (podcast F5), as the native executor does.
+      expect(redirected.message ?? text(redirected)).toBe(`outside the app's grants (net.fetch): redirected to ${destination.url.origin}`);
       const grantedRedirect = await run({ method: 'GET', url: `${origin.url}granted-redirect`, headers: [] });
       expect(grantedRedirect.failed ?? grantedRedirect.kind ?? 0).toBe(0);
       expect(new TextDecoder().decode(grantedRedirect.body)).toBe('granted');
@@ -117,7 +119,7 @@ test('the wasm early request is claimed and its ungranted final redirect is Refu
     const request = { method: 'GET', url: `${origin.url}redirect`, headers: [] };
     expect(fetchEarly(request, set)).toBeFunction();
     const response = await (await import('./http-body.js')).request(request, { grantSet: set, controllers: new Set(), moduleLoader: { claim } });
-    expect([response.kind, text(response)]).toEqual([2, "outside the app's grants (net.fetch)"]);
+    expect([response.kind, text(response)]).toEqual([2, `outside the app's grants (net.fetch): redirected to ${destination.url.origin}`]);
     expect(destinationHits).toBe(1);
     expect(fetchEarly({ ...request, url: `${destination.url}outside` }, set)).toBeNull();
   } finally { origin.stop(true); destination.stop(true); }
@@ -235,14 +237,91 @@ test('filesystem admission is component-based and refuses traversal', () => {
   expect(coversPath(set, 'fs.write', 'app:/data/other')).toBe(false);
 });
 
+// LLP 1069.010 D1, files F2: a folder the person chose is one reach on the
+// web, for a TypeScript source (`files`) and a Rust request (`run`), with
+// the codes and refusals ibex2's `run_document` gives both on Hermes.
+test('a chosen folder is the same storage for a TypeScript source and a Rust request', async () => {
+  globalThis.exact = {};
+  try {
+    await import(`./documents-glue.js?documents=${Date.now()}`);
+    let chosen;
+    const host = globalThis.exact.documents.install({ dispatch: (_, kind, payload) => { chosen = [kind, payload]; }, log() {}, openFile: () => false });
+    host.answer({ node: 1 }, 'showDirectoryPicker', [{ name: 'chosen', files: [{ path: 'a.txt', bytes: btoa('A') }, { path: 'sub/b.txt', bytes: btoa('B') }] }]);
+    expect(chosen[0]).toBe(1);
+    const doc = chosen[1], both = normalized('fs.read doc:/\nfs.write doc:/'), read = normalized('fs.read doc:/');
+    expect(doc).toMatch(/^doc:\/\d+\/chosen$/);
+    const fs = globalThis.exact.documents.files(both), text = (b) => new TextDecoder().decode(b);
+    expect(await fs.readdir(doc)).toEqual(['a.txt', 'sub']);
+    expect(await fs.readdir(doc.replace(/\/chosen$/, ''))).toEqual(['chosen']);
+    expect(text(await fs.readFile(`${doc}/sub/b.txt`))).toBe('B');
+    expect(await fs.stat(`${doc}/sub`)).toMatchObject({ size: 0, isDirectory: true, isFile: false });
+    expect(await fs.stat(`${doc}/a.txt`)).toMatchObject({ size: 1, isFile: true });
+    await fs.writeFile(`${doc}/new.txt`, new TextEncoder().encode('hi'));
+    await fs.appendFile(`${doc}/new.txt`, new TextEncoder().encode('!'));
+    expect(text(await fs.readFile(`${doc}/new.txt`))).toBe('hi!');
+    await fs.mkdir(`${doc}/x/y`);
+    expect(await fs.readdir(`${doc}/x`)).toEqual(['y']);
+    await fs.rm(`${doc}/new.txt`);
+    const code = (p) => p.then(() => 'ok', (e) => `${e.kind} ${e.code}`);
+    expect(await Promise.all([
+      code(fs.readFile(`${doc}/absent`)), code(fs.readFile(`${doc}/../escape`)), code(fs.readFile(`${doc}/sub`)),
+      code(fs.readdir(`${doc}/a.txt`)), code(fs.rm(`${doc}/sub`)), code(fs.rm(doc)), code(fs.rename(`${doc}/a.txt`, `${doc}/c.txt`)),
+      code(fs.readFile('doc:/999999/a.txt')), code(globalThis.exact.documents.files(read).writeFile(`${doc}/a.txt`, new Uint8Array([1]))),
+      // Review B6: writing the chosen folder itself, or a folder in it, is EISDIR, as on Hermes.
+      code(fs.writeFile(doc, new Uint8Array([1]))), code(fs.appendFile(doc, new Uint8Array([1]))), code(fs.writeFile(`${doc}/sub`, new Uint8Array([1]))),
+    ])).toEqual(['Unavailable ENOENT', 'Unavailable denied', 'Unavailable EISDIR', 'Unavailable ENOTDIR', 'Unavailable ENOTEMPTY',
+      'Unavailable failed', 'Unavailable failed', 'Unavailable failed', 'Unavailable denied', 'Unavailable EISDIR', 'Unavailable EISDIR', 'Unavailable EISDIR']);
+    // A Rust source's storage request: the same operation, its bytes as base64.
+    expect(await globalThis.exact.documents.run('fs.readFile', { path: `${doc}/a.txt` }, null, read)).toEqual({ base64: btoa('A') });
+    await expect(globalThis.exact.documents.run('fs.writeFile', { path: `${doc}/a.txt` }, new Uint8Array([1]), read)).rejects.toThrow(/^denied: fs.writeFile .*needs `fs.write doc:\/`/);
+  } finally { delete globalThis.exact; }
+});
+
+test('quoted source scopes keep their original lines and native tuples are inert in browsers', () => {
+  const native = 'fs.read "C:\\\\Users\\\\With Space"';
+  const app = 'fs.read "app:/data/with space"';
+  const set = normalized(`${native}\n${app}`);
+  expect(grantError(set)).toBeNull();
+  expect(coversPath(set, 'fs.read', 'app:/data/with space/file')).toBe(true);
+  expect(coversPath(set, 'fs.read', 'C:/Users/With Space/file')).toBe(false);
+  expect(grantError(scopedGrantSet(set, native))).toBeNull();
+  expect(grantError(scopedGrantSet(set, 'fs.read "C:/Users/With Space"'))).toContain('source scope');
+  expect(grantError(scopedGrantSet(set, 'fs.read "app:/data/with\\u0020space"'))).toContain('source scope');
+  expect(coversPath(scopedGrantSet(set, ''), 'fs.read', 'app:/data/with space/file')).toBe(false);
+});
+
+test('sealed native tuples still require valid source grammar and exact decoded components', () => {
+  const seal = entries => {
+    const set = { version: 1, entries, error: null };
+    let hash = 0xcbf29ce484222325n;
+    for (const byte of new TextEncoder().encode(JSON.stringify(set))) {
+      hash ^= BigInt(byte); hash = BigInt.asUintN(64, hash * 0x100000001b3n);
+    }
+    return { ...set, seal: hash.toString(16).padStart(16, '0') };
+  };
+  for (const [source, component] of [
+    ['fs.read "C:/safe" fs.write C:/', 'safe'],
+    ['fs.read "C:/safe"', 'outside'],
+    ['fs.read "C:/CON.txt"', 'CON.txt'],
+    ['fs.read "C:/bad\\u007f"', 'bad\u007f'],
+    ['fs.read "C:/bad\\uD800"', 'bad\ud800'],
+    ['fs.read C:/bad\ud800', 'bad\ud800'],
+    ['fs.read C:/bad\udc00', 'bad\udc00'],
+  ]) expect(grantError(seal([[1, source, ['fs-read', 'win:C', component], null]]))).toBe('the grant set was not validated');
+  const boundary = '💾'.repeat(127) + 'x';
+  expect(grantError(normalized(`fs.read ${JSON.stringify(`C:/${boundary}`)}`))).toBeNull();
+  expect(grantError(normalized(`fs.read ${JSON.stringify(`C:/${boundary}x`)}`))).not.toBeNull();
+});
+
 test('the production file command refuses a source outside the admitted fs.read prefix', async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-files-admission-'));
   writeFileSync(resolve(dir, 'files.js'), readFileSync(resolve(ROOT, 'host/web-js/files.js'), 'utf8')
     .replace("from './rt.js'", "from './rt-stub.js'").replace("from './navigation.js'", "from './navigation-stub.js'"));
   writeFileSync(resolve(dir, 'rt-stub.js'), `export const journal=[],clock={now:0,agent:true},inflight={n:0},Hosts={},OnHooks={},Views=new Map(),data={appId:'test.files'};export const nextTicket=()=>1,viewId=()=>1;\n`);
   writeFileSync(resolve(dir, 'navigation-stub.js'), `export const reportPlace=()=> ['en','UTC','1'].join(String.fromCharCode(0));\n`);
-  writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'"));
-  for (const name of ['grant-admission.js', 'navigation.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
+  cpSync(resolve(ROOT, 'host/web-js/pointer.js'), resolve(dir, 'pointer.js'));
+  writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'").replaceAll("'../web/faults.js'", "'./faults.js'"));
+  for (const name of ['grant-admission.js', 'faults.js', 'navigation.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
   const documentDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'document');
   Object.defineProperty(globalThis, 'document', { configurable: true, value: { getElementById: () => ({ localName: 'button', isConnected: true, getAttribute: () => null, dispatchEvent() {} }) } });
   globalThis.exact = {};
@@ -266,12 +345,14 @@ test('the web matcher consumes the Rust grammar corpus', () => {
     const set = normalized(item.spec);
     expect(!grantError(set), item.spec).toBe(item.ok);
     for (const [url, admitted] of item.fetch ?? []) expect(admitsNetwork(set, url, 'fetch'), `${item.spec}: ${url}`).toBe(admitted);
+    for (const [cap, path, admitted] of item.fs ?? []) expect(coversPath(set, cap, path), `${item.spec}: ${path}`).toBe(admitted);
+    for (const [cap, path] of item.nativeFs ?? []) expect(coversPath(set, cap, path), `${item.spec}: inert ${path}`).toBe(false);
   }
   expect(grantError(normalized('net.fetch\fhttps://api.example'))).toBeNull();
   expect(grantError(normalized('net.fetch\u2028https://api.example\n# paragraph\u2029separator'))).toBeNull();
   const portZero = normalized('net.fetch http://example.test:0');
   expect([grantError(portZero), admitsNetwork(portZero, 'http://example.test:0/x', 'fetch')]).toEqual([null, true]);
-});
+}, 15_000);
 
 test('network grants are selected by the requested operation, not ws URL spelling', async () => {
   const fetchSet = normalized('net.fetch wss://socket.example');
@@ -310,18 +391,21 @@ test('a clean JS dist imports every lazy storage and document entry with its com
     for (const name of ['grant-admission.js', 'storage-fs.js', 'storage-sqlite.js', 'storage-request.js', 'picker-glue.js', 'documents-glue.js']) {
       await import(`${pathToFileURL(resolve(dist, name)).href}?built=${Date.now()}-${name}`);
     }
-    for (const name of ['navigation.js', 'storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm']) expect(existsSync(resolve(dist, name)), name).toBe(true);
+    for (const name of ['storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm']) expect(existsSync(resolve(dist, name)), name).toBe(true);
   } finally { rmSync(dist, { recursive: true, force: true }); }
 }, 60_000);
 
-test('a built TypeScript source reaches fetch through the app grant binding', async () => {
+test('a built TypeScript source refuses fetch and storage without grants', async () => {
   if (!process.env.CHROME || !existsSync(process.env.CHROME)) return;
   let destinationHits = 0;
   const destination = Bun.serve({ port: 0, fetch() { destinationHits++; return new Response('raw browser fetch', { headers: { 'access-control-allow-origin': '*' } }); } });
-  const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-fetch-build-')), dist = resolve(dir, 'dist'), profile = resolve(dir, 'chrome');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact ts fetch # ')), dist = resolve(dir, 'dist'), profile = resolve(dir, 'chrome');
   writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Grant probe', app: { id: 'test.grant-probe', name: 'Grant probe' }, host: { web: {} } }));
   writeFileSync(resolve(dir, 'app.contract'), `shape Result\n  value: string\ncomponent Probe\n  resource result = probe() as shape Result\n  view\n    text result.value testId="result"\n`);
-  writeFileSync(resolve(dir, 'app.ts'), `export const appId='test.grant-probe',grants='';export async function answer(source){if(source!=='probe')return null;try{await fetch(${JSON.stringify(destination.url.href)});return {value:'raw browser fetch'};}catch(error){return {value:error.name+':'+error.kind};}}\n`);
+  // The app dependency must be rewritten; copied host modules must retain browser
+  // globals. Rewriting both would make the generated appGlobal self-referential.
+  writeFileSync(resolve(dir, 'fetch-request.ts'), `export async function attempt(_args:any,_store:any,storage:any){const results=[];try{await fetch(${JSON.stringify(destination.url.href)});results.push('raw browser fetch');}catch(error:any){results.push(error.name+':'+error.kind);}for(const call of [()=>storage.fs.readFile('app:/data/file'),()=>storage.sqlite.open('app:/data/test.db')]){try{await call();results.push('unexpected storage');}catch(error:any){results.push(error.kind+':'+error.code);}}return {value:results.join('|')};}\n`);
+  writeFileSync(resolve(dir, 'app.ts'), `import type { Answer, Sources } from './app.contract.d.ts';\nimport { attempt } from './fetch-request.ts';\nexport const appId='test.grant-probe',grants='';\nconst sources: Sources = { probe: attempt };\nexport const answer: Answer = (source, args, store, storage, native) => sources[source](args as never, store, storage, native) as never;\n`);
   const built = spawnSync(process.execPath, ['host/web-js/build.mjs', 'grant-probe', '--out', dist, '--render', 'none'], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: dir } });
   let page, child, cdp, exited;
   try {
@@ -329,7 +413,7 @@ test('a built TypeScript source reaches fetch through the app grant binding', as
     page = Bun.serve({ port: 0, async fetch(request) {
       const name = new URL(request.url).pathname === '/' ? 'index.html' : decodeURIComponent(new URL(request.url).pathname.slice(1));
       const file = resolve(dist, name);
-      if (!file.startsWith(dist + '/') || !existsSync(file)) return new Response('not found', { status: 404 });
+      if (!file.startsWith(dist + sep) || !existsSync(file)) return new Response('not found', { status: 404 });
       return new Response(Bun.file(file));
     } });
     child = spawn(process.env.CHROME, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
@@ -343,11 +427,54 @@ test('a built TypeScript source reaches fetch through the app grant binding', as
     await call('Page.navigate', { url: page.url.href });
     const result = await call('Runtime.evaluate', { expression: `(async()=>{for(let i=0;i<120;i++){await new Promise(r=>requestAnimationFrame(r));const value=document.querySelector('[data-testid="result"]')?.textContent;if(value)return value;}return document.body.innerText;})()`, returnByValue: true, awaitPromise: true });
     expect(result.exceptionDetails).toBeUndefined();
-    expect(result.result.value).toBe('FetchError:Refused');
+    expect(result.result.value).toBe('FetchError:Refused|Unavailable:denied|Unavailable:denied');
+    expect(existsSync(resolve(dist, 'storage-fs.js'))).toBe(false);
+    expect(existsSync(resolve(dist, 'storage-sqlite.js'))).toBe(false);
     expect(destinationHits).toBe(0);
   } finally {
-    if (child?.pid) { try { process.kill(-child.pid, 'SIGKILL'); } catch {} await exited; }
+    if (child?.pid) { try { if (process.platform === 'win32') child.kill(); else process.kill(-child.pid, 'SIGKILL'); } catch {} await exited; }
     page?.stop(true); destination.stop(true);
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 60_000);
+
+// @ref LLP 1069.002 D7 — an `image` shows a file the app keeps in `app:/data`
+// on the JS target, bound or literal, and again after the page reloads
+// (recipes F9, gallery F7): the web host's file store, as an object URL.
+test('an app:/data image shows from the page\'s store, after a reload too', async () => {
+  if (!process.env.CHROME || !existsSync(process.env.CHROME)) return;
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-app-image-')), dist = resolve(dir, 'dist'), profile = resolve(dir, 'chrome');
+  const png = [137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,6,0,0,0,31,21,196,137,0,0,0,13,73,68,65,84,120,218,99,252,207,192,80,15,0,4,133,1,128,132,169,140,33,0,0,0,0,73,69,78,68,174,66,96,130];
+  writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Image probe', app: { id: 'test.image-probe', name: 'Image probe' }, host: { web: {} } }));
+  writeFileSync(resolve(dir, 'app.contract'), `shape Photo\n  path: string\n  how: string\ncomponent Probe\n  resource photo = photo() as shape Photo\n  view\n    column\n      text photo.how testId="how"\n      image photo.path width=4 height=4 testId="bound"\n      when photo.how != ""\n        image "app:/data/p.png" width=4 height=4 testId="literal"\n`);
+  writeFileSync(resolve(dir, 'app.ts'), `import type { Answer, Sources } from './app.contract.d.ts';\nexport const appId = 'test.image-probe', grants = 'fs.read app:/data\\nfs.write app:/data';\nconst P = 'app:/data/p.png';\nconst sources: Sources = { photo: async (_args, _store, storage) => {\n  try { await storage!.fs.stat(P); return { path: P, how: 'found' }; } catch {}\n  await storage!.fs.atomicWriteFile(P, new Uint8Array([${png}]));\n  return { path: P, how: 'written' };\n} };\nexport const answer: Answer = (source, args, store, storage, native) => sources[source](args as never, store, storage, native) as never;\n`);
+  const built = spawnSync(process.execPath, ['host/web-js/build.mjs', 'image-probe', '--out', dist, '--render', 'none'], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: dir } });
+  let page, child, cdp, exited;
+  try {
+    expect(built.status, built.stderr || built.stdout).toBe(0);
+    page = Bun.serve({ port: 0, async fetch(request) {
+      const name = new URL(request.url).pathname === '/' ? 'index.html' : decodeURIComponent(new URL(request.url).pathname.slice(1));
+      const file = resolve(dist, name);
+      if (!file.startsWith(dist + sep) || !existsSync(file)) return new Response('not found', { status: 404 });
+      return new Response(Bun.file(file));
+    } });
+    child = spawn(process.env.CHROME, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+    cdp = new Cdp(child.stdio[3], child.stdio[4]);
+    exited = new Promise(resolveExit => child.on('exit', () => { cdp.fail('browser closed'); resolveExit(); }));
+    const { targetInfos } = await cdp.send('Target.getTargets');
+    const target = targetInfos.find(info => info.type === 'page') ?? await cdp.send('Target.createTarget', { url: 'about:blank' });
+    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
+    const call = (method, params = {}) => cdp.send(method, params, sessionId);
+    await call('Page.enable');
+    // Each image's `src` (an object URL, never `app:`) once both have decoded, and what the source did.
+    const shown = async () => (await call('Runtime.evaluate', { expression: `(async()=>{const img=id=>document.querySelector('[data-testid="'+id+'"]');for(let i=0;i<240;i++){await new Promise(r=>requestAnimationFrame(r));const how=img('how')?.textContent,a=img('bound'),b=img('literal');if(how&&a?.complete&&a.naturalWidth&&b?.complete&&b.naturalWidth)return [how,a.src.slice(0,5),b.src.slice(0,5),a.naturalWidth];}return document.body.innerHTML;})()`, returnByValue: true, awaitPromise: true })).result.value;
+    await call('Page.navigate', { url: page.url.href });
+    expect(await shown()).toEqual(['written', 'blob:', 'blob:', 1]);
+    await call('Page.reload');
+    expect(await shown()).toEqual(['found', 'blob:', 'blob:', 1]);
+  } finally {
+    if (child?.pid) { try { if (process.platform === 'win32') child.kill(); else process.kill(-child.pid, 'SIGKILL'); } catch {} await exited; }
+    page?.stop(true);
     rmSync(dir, { recursive: true, force: true });
   }
 }, 60_000);
@@ -384,10 +511,10 @@ test('rust-data decodes an ABI child scope before the production executor refuse
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-rust-data-'));
   const grants = 'net.fetch https://api.example\nnet.fetch https://outside.example\nsecret.keep token', set = normalized(grants);
   for (const name of ['rust-data.js', 'admission.js']) {
-    const source = readFileSync(resolve(ROOT, 'host/web-js', name), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'");
+    const source = readFileSync(resolve(ROOT, 'host/web-js', name), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'").replaceAll("'../web/faults.js'", "'./faults.js'");
     writeFileSync(resolve(dir, name), source);
   }
-  for (const name of ['http-body.js', 'grant-admission.js', 'navigation.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
+  for (const name of ['http-body.js', 'grant-admission.js', 'faults.js', 'navigation.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
   writeFileSync(resolve(dir, 'admission-data.js'), `import {createGrantSet} from './admission.js';export const rustGrantSet=createGrantSet(${JSON.stringify(set)}),tsGrantSet=createGrantSet(${JSON.stringify(normalized(''))});\n`);
   const memory = new WebAssembly.Memory({ initial: 1 }), out = 32768;
   let output = new Uint8Array();
@@ -435,11 +562,12 @@ test('ts-data installs the native Store facade and a later gpu-glue shader uses 
   writeFileSync(resolve(dir, 'ts-data.js'), readFileSync(resolve(ROOT, 'host/web-js/ts-data.js'), 'utf8')
     .replace('__APP_TS__', pathToFileURL(app).href).replace('__AUTH_IMPORT__', '').replace('__AUTH_INSTALL__', '')
     .replace("from './rt.js'", "from './rt-stub.js'"));
-  writeFileSync(resolve(dir, 'rt-stub.js'), `export const clock={agent:false,now:0},journal=[],Resources=[];export const checkpoint=()=>({kept:null});export const commit=f=>f();export const R=()=>{};\n`);
+  writeFileSync(resolve(dir, 'rt-stub.js'), `export const clock={agent:false,now:0},journal=[],Resources=[],inflight={n:0};export const checkpoint=()=>({kept:null});export const commit=f=>f();export const R=()=>{};export const painted=()=>Promise.resolve();\n`);
   writeFileSync(resolve(dir, 'names.js'), `export const sourceTypes={read:[[],'s'],kept:[[],'s']};\n`);
-  writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'"));
+  writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'").replaceAll("'../web/faults.js'", "'./faults.js'"));
   writeFileSync(resolve(dir, 'admission-data.js'), `import {createGrantSet} from './admission.js';export const tsGrantSet=createGrantSet(${JSON.stringify(set)});\n`);
-  for (const name of ['grant-admission.js', 'navigation.js', 'gpu-glue.js', 'gpu-assets.js', 'pace.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
+  for (const name of ['grant-admission.js', 'faults.js', 'navigation.js', 'gpu-glue.js', 'gpu-assets.js', 'pace.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
+  cpSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), resolve(dir, 'ts-fetch.js'));
   writeFileSync(resolve(dir, 'gpu.js'), `export default async()=>{};export const gpu_load=async()=>{},gpu_shader_names=()=> '["shader"]',gpu_shaders_clear=()=>{},gpu_shader=()=>true,gpu_unload=()=>{},gpu_child_view=()=>{};\n`);
   const descriptors = Object.fromEntries(['fetch', 'document', 'window', 'requestAnimationFrame', 'cancelAnimationFrame', 'devicePixelRatio'].map(name => [name, Object.getOwnPropertyDescriptor(globalThis, name)]));
   const shaderFetches = [], browserFetch = async input => { shaderFetches.push(String(input)); return new Response('shader'); };
@@ -464,6 +592,115 @@ test('ts-data installs the native Store facade and a later gpu-glue shader uses 
     for (const [name, descriptor] of Object.entries(descriptors)) {
       if (descriptor) Object.defineProperty(globalThis, name, descriptor); else delete globalThis[name];
     }
+    delete globalThis.exact;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// The JS target checks a TypeScript answer as Hermes does (js/value's
+// `decode_tree`), with Hermes's message (ledger F11).
+test('ts-data refuses an answer outside its shape as Hermes does', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-shape-'));
+  const app = resolve(dir, 'source.js');
+  writeFileSync(app, `export const appId='test.shape';export const grants='';
+const day = t => ({ id: 'd', transactions: [t] });
+const answers = {
+  spread: { days: [day({ id: 'a', amount: 1, cents: 100 })], note: null },
+  missing: { days: [day({ id: 'a' })], note: null },
+  absent: { days: [day({ id: 'a', amount: 1 })], note: undefined },
+  nan: { days: [day({ id: 'a', amount: NaN })], note: null },
+  kind: { days: 'none', note: null },
+  dropped: { days: [day({ id: 'a', amount: 1, later: undefined, f() {} })], note: 'n' },
+};
+import { fetch } from './ts-fetch.js';
+export function answer(name, args, store, storage) {
+  // A socket the grants do not name: its end, mapped (LLP 1016.000).
+  if (name === 'stream') return fetch('ws://127.0.0.1:9/feed', { exactStream: e => e.type + ' ' + e.kind + ': ' + e.message });
+  if (name === 'read') return storage.fs.readFile('app:/data/x').then(() => 'read', e => e.kind + ' ' + e.code + ' ' + e.message);
+  return name === 'later' ? Promise.resolve(answers.spread) : answers[args[0]];
+}
+`);
+  writeFileSync(resolve(dir, 'ts-data.js'), readFileSync(resolve(ROOT, 'host/web-js/ts-data.js'), 'utf8')
+    .replace('__APP_TS__', pathToFileURL(app).href).replace('__AUTH_IMPORT__', '').replace('__AUTH_INSTALL__', '')
+    .replace("from './rt.js'", "from './rt-stub.js'"));
+  writeFileSync(resolve(dir, 'rt-stub.js'), `export const clock={agent:false,now:0},journal=[],Resources=[],inflight={n:0};export const checkpoint=()=>({kept:null});export const commit=f=>f();export const R=()=>{};export const painted=()=>Promise.resolve();\n`);
+  const ledger = '{"days":["[",{"id":"s","transactions":["[",{"id":"s","amount":"n"}]}],"note":["?","s"]}';
+  writeFileSync(resolve(dir, 'names.js'), `export const sourceTypes={ledger:[["s"],${ledger}],later:[[],${ledger}],read:[[],"s"],stream:[[],"s"]};\n`);
+  writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'").replaceAll("'../web/faults.js'", "'./faults.js'"));
+  writeFileSync(resolve(dir, 'admission-data.js'), `import {createGrantSet} from './admission.js';export const tsGrantSet=createGrantSet(${JSON.stringify(normalized('fs.read app:/data'))});\n`);
+  for (const name of ['grant-admission.js', 'faults.js', 'navigation.js', 'storage-environment.js', 'http-body.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
+  for (const name of ['ts-fetch.js', 'ts-stream.js']) cpSync(resolve(ROOT, 'host/web-js', name), resolve(dir, name));
+  try {
+    const ts = await import(`${pathToFileURL(resolve(dir, 'ts-data.js')).href}?shape=${Date.now()}`), data = { q: [] };
+    ts.install(data);
+    const refusal = which => { try { data.answer('ledger', [which], new Map()); return null; } catch (e) { return [e.kind, e.message]; } };
+    const outside = '`ledger` answered outside its shape: ';
+    expect(refusal('spread')).toEqual(['Unavailable', outside + 'field `days`: field `transactions`: field `cents` is not in the shape']);
+    expect(refusal('missing')).toEqual(['Unavailable', outside + 'field `days`: field `transactions`: field `amount` is missing']);
+    expect(refusal('absent')).toEqual(['Unavailable', outside + 'field `note` is missing']);
+    expect(refusal('nan')).toEqual(['Unavailable', outside + 'field `days`: field `transactions`: field `amount`: expected a number, got null']);
+    expect(refusal('kind')).toEqual(['Unavailable', outside + 'field `days`: expected an array, got a string']);
+    // What `JSON.stringify` leaves out is not there for Hermes either.
+    expect(data.answer('ledger', ['dropped'], new Map()).v).toEqual([[['d', [['a', 1]]]], 'n']);
+    await expect(data.answer('later', [], new Map()).promise).rejects.toThrow('`later` answered outside its shape: field `days`: field `transactions`: field `cents` is not in the shape');
+    // A storage refusal's code is Hermes's (kanban F28): a drive with no scratch store.
+    globalThis.location = { href: 'http://localhost/?agent' };
+    expect(await data.answer('read', [], new Map()).promise).toBe('Unavailable agent storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)');
+    // A stream is the answer's, opened by the runtime, admitted as the wasm host admits it: a socket by
+    // `net.websocket` (x2apps dash diary: refused as `net.fetch`). Outside an answer it says where to start one.
+    const stream = data.answer('stream', [], new Map());
+    expect(await stream.stream(() => {}, new AbortController())).toEqual({ v: "error Refused: outside the app's grants (net.websocket)" });
+    const { fetch } = await import(pathToFileURL(resolve(dir, 'ts-fetch.js')).href);
+    await expect(fetch('wss://a.example', { exactStream: e => e })).rejects.toThrow('before the answer\'s first await');
+  } finally {
+    delete globalThis.location;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// LLP 1027.000 D3 on the JS target: the app's modules get guarded bindings
+// in place of the page's clock, Math.random and timers, injected as the web
+// build injects them, and Hermes's fixture of aliases refuses with Hermes's words.
+test("the JS target refuses a data module's clock, randomness and timers as Hermes does", async () => {
+  const { transformSync } = await import('rolldown/utils');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-inputs-'));
+  const build = readFileSync(resolve(ROOT, 'host/web-js/build.mjs'), 'utf8');
+  const bound = JSON.parse(/const bound = (\[[^\]]*\]);/.exec(build)[1].replaceAll("'", '"').replace(/\s+/g, ''));
+  const guards = resolve(dir, 'ts-fetch.js');
+  cpSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), guards);
+  writeFileSync(resolve(dir, 'admission.js'), 'export const fetchWith = () => Promise.reject(new Error("no fetch here"));\n');
+  writeFileSync(resolve(dir, 'admission-data.js'), 'export const tsGrantSet = null;\n');
+  const fixture = resolve(ROOT, 'js/tests/fixtures/inputs.ts');
+  const app = transformSync(fixture, readFileSync(fixture, 'utf8'), { inject: { ...Object.fromEntries(bound.map(name => [name, [guards, name]])),
+    ...Object.fromEntries(['globalThis', 'window', 'self'].map(name => [name, [guards, 'appGlobal']])) } });
+  expect(app.errors).toEqual([]);
+  writeFileSync(resolve(dir, 'app.js'), app.code);
+  const page = { Date: globalThis.Date, random: Math.random };
+  try {
+    await import(`${pathToFileURL(resolve(dir, 'app.js')).href}?inputs=${Date.now()}`);
+    const { answer } = globalThis.exact;
+    const forms = { now: 'Date.now()', new: 'new Date()', call: 'Date()', 'call-with-arg': 'Date()', random: 'Math.random()',
+      'alias-now': 'Date.now()', 'alias-random': 'Math.random()', 'alias-date': 'new Date()', 'prototype-constructor': 'new Date()',
+      'computed-now': 'Date.now()', 'computed-random': 'Math.random()', 'bound-now': 'Date.now()', 'bound-new': 'new Date()', reflect: 'new Date()',
+      'intl-format': 'Intl.DateTimeFormat.format()', 'intl-format-undefined': 'Intl.DateTimeFormat.format()',
+      'intl-parts': 'Intl.DateTimeFormat.formatToParts()', 'intl-parts-undefined': 'Intl.DateTimeFormat.formatToParts()',
+      'intl-format-alias': 'Intl.DateTimeFormat.format()', 'intl-format-alias-undefined': 'Intl.DateTimeFormat.format()',
+      'intl-parts-alias': 'Intl.DateTimeFormat.formatToParts()', 'intl-parts-alias-undefined': 'Intl.DateTimeFormat.formatToParts()',
+      'intl-format-getter': 'Intl.DateTimeFormat.format()', 'intl-format-computed': 'Intl.DateTimeFormat.format()',
+      'intl-parts-prototype': 'Intl.DateTimeFormat.formatToParts()', timeout: 'setTimeout()', interval: 'setInterval()',
+      'computed-timeout': 'setTimeout()', frame: 'requestAnimationFrame()', performance: 'performance.now()' };
+    for (const [form, api] of Object.entries(forms)) {
+      const atInit = answer('atInit', [form]);
+      expect(atInit.startsWith(api) && atInit.includes('as an argument'), `${form} at initialization: ${atInit}`).toBe(true);
+      expect(() => answer('ambient', [form]), form).toThrow(api);
+    }
+    // Explicit inputs keep the language's behavior.
+    expect(answer('explicit', [86_400_000, 7])).toBe('1970-01-02T00:00:00.000Z/' + ((Math.imul(7, 1664525) + 1013904223) >>> 0));
+    expect(answer('utc', [])).toBe('2024-02-29T12:34:56.789Z/12/1709210096789/true');
+    expect(answer('intl', [0])).toBe('1970/1970/1970/1970');
+    // The page's own are untouched.
+    expect([globalThis.Date, Math.random, typeof Date.now()]).toEqual([page.Date, page.random, 'number']);
+  } finally {
     delete globalThis.exact;
     rmSync(dir, { recursive: true, force: true });
   }
@@ -498,4 +735,371 @@ test('module-glue prepare accepts normalized formatting and exact-only grants', 
     }
     delete globalThis.exact;
   }
+});
+
+test('ts-data always supplies storage, refusing ungranted operations without loading adapters', async () => {
+  const methods = ['readFile', 'writeFile', 'atomicWriteFile', 'appendFile', 'readdir', 'mkdir', 'rm', 'stat', 'rename', 'copyFile', 'realpath'];
+  for (const spec of ['', 'net.fetch https://api.example']) for (const query of ['', '?agent=1', '?agent=1&storage=test']) {
+    const locationDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'location');
+    Object.defineProperty(globalThis, 'location', { configurable: true, value: { href: `http://localhost/${query}` } });
+    const dir = mkdtempSync(resolve(tmpdir(), 'exact-no-storage-'));
+    writeFileSync(resolve(dir, 'source.js'), `export const appId='test.no-storage';
+export function answer(name, args, store, storage) {
+  if (name === 'work') return storage.work(Promise.resolve('done'));
+  if (name === 'document') return storage.fs.readFile('doc:/picked/file').catch(error => error.kind + ':' + error.code);
+  if (name === 'directories') return JSON.stringify(storage.fs.directories);
+  return (name === 'open' ? storage.sqlite.open('app:/data/test.db')
+    : storage.fs[name]('app:/data/file', new Uint8Array([1])))
+    .then(() => 'unexpected success', error => error.kind + ':' + error.code);
+}`);
+    writeFileSync(resolve(dir, 'ts-data.js'), readFileSync(resolve(ROOT, 'host/web-js/ts-data.js'), 'utf8')
+      .replace('__APP_TS__', './source.js').replace('__AUTH_IMPORT__', '').replace('__AUTH_INSTALL__', ''));
+    writeFileSync(resolve(dir, 'rt.js'), 'export const clock={now:0},journal=[],Resources=[],inflight={n:0};export const checkpoint=()=>({kept:null});export const commit=f=>f();export const R=()=>{};export const painted=()=>Promise.resolve();');
+    writeFileSync(resolve(dir, 'names.js'), `export const sourceTypes=${JSON.stringify(Object.fromEntries([...methods, 'open', 'work', 'directories', 'document'].map(n => [n, [[], 's']])))};`);
+    writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'").replaceAll("'../web/faults.js'", "'./faults.js'"));
+    writeFileSync(resolve(dir, 'admission-data.js'), `import {createGrantSet} from './admission.js';export const tsGrantSet=createGrantSet(${JSON.stringify(normalized(spec))});`);
+    for (const name of ['grant-admission.js', 'faults.js', 'navigation.js', 'http-body.js', 'storage-environment.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
+    cpSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), resolve(dir, 'ts-fetch.js'));
+    // No storage adapters are installed: a grant refusal must not need them.
+    try {
+      const ts = await import(pathToFileURL(resolve(dir, 'ts-data.js')).href), data = { q: [] };
+      ts.install(data);
+      for (const name of [...methods, 'open']) expect(await data.answer(name, [], new Map()).promise, name).toBe(query === '?agent=1' ? 'Unavailable:agent' : 'Unavailable:denied');
+      expect(await data.answer('document', [], new Map()).promise).toBe('Unavailable:denied');
+      expect(await data.answer('work', [], new Map()).promise).toBe('done');
+      expect(JSON.parse(data.answer('directories', [], new Map()).v)).toEqual({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' });
+    } finally {
+      if (locationDescriptor) Object.defineProperty(globalThis, 'location', locationDescriptor); else delete globalThis.location;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+// The page realm's storage hands an answer's operations to the background
+// before it retires the answer's owner (LLP 1097 D7): a write still in flight
+// when its answer replied resolves the app's promise through its re-pointed
+// cell, and a completion already queued for the answer moves with it.
+test('storage re-homes an answer\'s writes to the background before retiring it', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-rehome-'));
+  try {
+    cpSync(resolve(ROOT, 'host/web/storage.js'), resolve(dir, 'storage.js'));
+    writeFileSync(resolve(dir, 'storage-environment.js'), "export const directories = {}; export const agentStorageRefusal = 'no store'; export const storageKey = () => 'k';");
+    // Each write lands when the test says.
+    writeFileSync(resolve(dir, 'storage-fs.js'), 'export const createFileSystem = () => ({ writeFile: () => new Promise(ok => globalThis.landWrite.push(ok)) });');
+    globalThis.landWrite = [];
+    const { createStorage } = await import(pathToFileURL(resolve(dir, 'storage.js')).href);
+    const answer = {}, background = {};
+    let owner = answer;
+    const storage = createStorage({ Error, Promise, structuredClone }, { appId: 'test', grantSet: null }, () => owner, 'k');
+    const results = [];
+    const first = storage.capability.fs.writeFile('app:/data/a', 'one').then(() => results.push('first'));
+    const second = storage.capability.fs.writeFile('app:/data/b', 'two').then(() => results.push('second'));
+    for (let i = 0; i < 20 && globalThis.landWrite.length < 2; i++) await new Promise(r => setTimeout(r, 1));
+    globalThis.landWrite.shift()(); // the first lands while the answer is current: queued for it
+    await new Promise(r => setTimeout(r, 1));
+    // The answer replies: its owner's storage becomes the background's.
+    storage.rehome(answer, background);
+    storage.retire(answer);
+    owner = null;
+    globalThis.landWrite.shift()(); // the second lands after its answer is gone
+    await storage.deliver(background);
+    await storage.deliver(background);
+    await Promise.all([first, second]);
+    expect(results).toEqual(['first', 'second']);
+  } finally {
+    delete globalThis.landWrite;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// A read queued behind a write the answer did not await is issued later, in
+// the background round that delivers the write (LLP 1097 D7). The cell has
+// to belong to the answer that asked, which is current when the read is
+// accepted. Attributing it when the adapter runs attributes it to the
+// background, and the parked answer's deliver waits forever.
+test('a read queued behind a background write stays the answer\'s', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-queued-owner-'));
+  const workerPath = resolve(dir, 'worker.mjs');
+  writeFileSync(workerPath, `
+import { readFileSync } from 'node:fs';
+import * as api from './storage.js';
+const realSetTimeout = setTimeout;
+self.land = [];
+const checkpoint = () => new Promise(resolve => {
+  const channel = new MessageChannel();
+  channel.port1.onmessage = () => { channel.port1.close(); channel.port2.close(); resolve(); };
+  channel.port2.postMessage(null);
+});
+const wait = ms => new Promise(resolve => realSetTimeout(resolve, ms));
+async function until(pred) {
+  for (let i = 0; i < 50 && !pred(); i++) await wait(10);
+}
+let context = null;
+const backgroundOwner = {};
+self.__exact_host = op => {
+  if (!context) throw new Error('host call outside an answer');
+  if (op === 5) return;
+  if (op === 13) return '1';
+};
+const storage = api.createStorage(self, { appId: 'test', grantSet: null }, () => context.owner, 'k');
+if (typeof api.bindAnswerStorage === 'function') api.bindAnswerStorage(self, storage, () => context.owner);
+eval(readFileSync(${JSON.stringify(resolve(ROOT, 'js/src/prelude.js'))}, 'utf8'));
+self.__exact_storage = storage.capability;
+self.__exact_install_storage();
+self.__exact_main_thread();
+self.exact = { abi: 1, appId: 'test', answer(name, _args, _store, cap) {
+  if (name === 'write') { cap.fs.writeFile('app:/data/note', 'x'); return 'wrote'; }
+  return cap.fs.readFile('app:/data/note');
+}};
+try {
+  const writeOwner = {};
+  context = { owner: writeOwner };
+  const started = JSON.parse(self.__exact_call('write', '[]'));
+  const wrote = JSON.parse(self.__exact_settle(String(started.call)));
+  if (wrote.tag !== 0) throw new Error('write did not reply: ' + JSON.stringify(wrote));
+  storage.rehome(writeOwner, backgroundOwner);
+  storage.retire(writeOwner);
+  context = null;
+  await until(() => self.land.length >= 1);
+
+  const readOwner = {};
+  context = { owner: readOwner };
+  const read = JSON.parse(self.__exact_call('read', '[]'));
+  await checkpoint();
+  const parked = JSON.parse(self.__exact_settle(String(read.call)));
+  if (!parked.waiting) throw new Error('read did not park: ' + JSON.stringify(parked));
+  context = null;
+
+  context = { owner: backgroundOwner };
+  self.__exact_enter_background();
+  self.land.shift()();
+  await checkpoint();
+  if (!storage.deliverNow(backgroundOwner)) throw new Error('background write was not waiting');
+  await checkpoint();
+  await until(() => self.land.length >= 1);
+  const pending = storage.deliver(readOwner);
+  await checkpoint();
+  let verdict = 'not-issued';
+  if (self.land.length) {
+    self.land.shift()();
+    await checkpoint();
+    verdict = await Promise.race([pending.then(() => 'answer', () => 'rejected'), wait(250).then(() => 'stuck')]);
+  }
+  postMessage(verdict);
+} catch (error) {
+  postMessage('error: ' + (error && error.stack || error));
+}
+`);
+  writeFileSync(resolve(dir, 'storage-environment.js'), "export const directories = {}; export const agentStorageRefusal = 'no store'; export const storageKey = () => 'k';");
+  writeFileSync(resolve(dir, 'storage-fs.js'), `export const createFileSystem = () => ({
+  writeFile: () => new Promise(ok => globalThis.land.push(() => ok(''))),
+  readFile: () => new Promise(ok => globalThis.land.push(() => ok('contents'))),
+});`);
+  cpSync(resolve(ROOT, 'host/web/storage.js'), resolve(dir, 'storage.js'));
+  const worker = new Worker(pathToFileURL(workerPath), { type: 'module' });
+  try {
+    const verdict = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('worker hung')), 5000);
+      worker.on('message', value => { clearTimeout(timer); resolve(value); });
+      worker.on('error', error => { clearTimeout(timer); reject(error); });
+    });
+    expect(verdict).toBe('answer');
+  } finally {
+    await worker.terminate();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// A realm worker with the real prelude and a filesystem that lands when the
+// test says. `body` posts one verdict.
+async function realmVerdict(body) {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-letgo-'));
+  const prelude = JSON.stringify(resolve(ROOT, 'js/src/prelude.js'));
+  writeFileSync(resolve(dir, 'worker.mjs'), `
+import { readFileSync } from 'node:fs';
+import * as api from './storage.js';
+const realSetTimeout = setTimeout;
+const checkpoint = () => new Promise(resolve => {
+  const channel = new MessageChannel();
+  channel.port1.onmessage = () => { channel.port1.close(); channel.port2.close(); resolve(); };
+  channel.port2.postMessage(null);
+});
+const wait = ms => new Promise(resolve => realSetTimeout(resolve, ms));
+async function until(pred) {
+  for (let i = 0; i < 50 && !pred(); i++) await wait(10);
+}
+self.land = [];
+self.writes = 0;
+let context = null;
+self.__exact_host = op => {
+  if (!context) throw new Error('host call outside an answer');
+  if (op === 5) return;
+  if (op === 13) return '1';
+};
+const storage = api.createStorage(self, { appId: 'test', grantSet: null }, () => context.owner, 'k');
+if (typeof api.bindAnswerStorage === 'function') api.bindAnswerStorage(self, storage, () => context.owner);
+eval(readFileSync(${prelude}, 'utf8'));
+self.__exact_storage = storage.capability;
+self.__exact_install_storage();
+self.__exact_main_thread();
+const scratch = owner => ({ owner });
+(async () => {
+${body}
+})();
+`);
+  writeFileSync(resolve(dir, 'storage-environment.js'), "export const directories = {}; export const agentStorageRefusal = 'no store'; export const storageKey = () => 'k';");
+  writeFileSync(resolve(dir, 'storage-fs.js'), `export const createFileSystem = () => ({
+  writeFile: () => new Promise(ok => { globalThis.writes++; globalThis.land.push(() => ok('')); }),
+  readFile: () => new Promise(ok => globalThis.land.push(() => ok('contents'))),
+});`);
+  cpSync(resolve(ROOT, 'host/web/storage.js'), resolve(dir, 'storage.js'));
+  const worker = new Worker(pathToFileURL(resolve(dir, 'worker.mjs')), { type: 'module' });
+  try {
+    return await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('worker hung')), 5000);
+      worker.on('message', value => { clearTimeout(timer); resolve(value); });
+      worker.on('error', error => { clearTimeout(timer); reject(error); });
+    });
+  } finally {
+    await worker.terminate();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+// A send between its own storage steps is superseded. The step in flight has
+// to finish and the step chained on it has to run; retiring the owner drops
+// the step and the module's later storage never starts (LLP 1097, ios7).
+test('a superseded send between storage steps still writes on the wasm realm', async () => {
+  const verdict = await realmVerdict(`
+self.exact = { abi: 1, appId: 'test', answer(name, _a, _s, cap) {
+  if (name === 'pair') return cap.fs.writeFile('app:/data/a', '1').then(() => cap.fs.writeFile('app:/data/b', '2')).then(() => 'pair');
+  return cap.fs.readFile('app:/data/b');
+}};
+try {
+  const owner = {};
+  context = scratch(owner);
+  const started = JSON.parse(self.__exact_call('pair', '[]'));
+  await until(() => self.land.length >= 1);
+  const owed = new Map();
+  let pumping = false;
+  const pump = async () => { while (pumping) { if (self.land.length) self.land.shift()(); await wait(1); } };
+  if (typeof api.finishLetGo === 'function') {
+    if (self.__exact_forget(String(started.call)) !== 'storage') throw new Error('forget did not keep the chain');
+    owed.set(started.call, owner);
+    pumping = true; pump();
+    await api.finishLetGo(storage, owed, {
+      letGo: () => self.__exact_let_go('', ''),
+      disposed: () => false,
+      deliver: async (at) => {
+        const prev = context; context = scratch(at);
+        try { await storage.deliver(at); await checkpoint(); }
+        finally { context = prev; }
+      },
+    });
+    pumping = false;
+  } else {
+    storage.retire(owner);
+    self.__exact_forget(String(started.call));
+    pumping = true; const running = pump();
+    await wait(80); pumping = false; await running;
+  }
+  let verdict = 'dropped';
+  if (self.writes >= 2) {
+    context = scratch({});
+    const read = JSON.parse(self.__exact_call('read', '[]'));
+    await until(() => self.land.length >= 1);
+    const pending = storage.deliver(context.owner);
+    self.land.shift()();
+    await checkpoint();
+    const settled = JSON.parse(self.__exact_settle(String(read.call)));
+    const delivered = await Promise.race([pending.then(() => 'answer', () => 'rejected'), wait(250).then(() => 'stuck')]);
+    verdict = settled.tag === 0 && delivered === 'answer' ? 'answer' : 'stuck:' + JSON.stringify(settled) + ':' + delivered;
+  }
+  postMessage(verdict + ':' + self.writes);
+} catch (error) {
+  postMessage('error: ' + (error && error.stack || error));
+}
+`);
+  expect(verdict).toBe('answer:2');
+});
+
+// Retire can still race a completion already in flight. That completion has
+// to reject the promise the prelude is waiting on, so the head clears and
+// the next operation is issued.
+test('retiring an in-flight storage owner settles the prelude head', async () => {
+  const verdict = await realmVerdict(`
+self.exact = { abi: 1, appId: 'test', answer(name, _a, _s, cap) {
+  if (name === 'lose') return cap.fs.writeFile('app:/data/a', '1');
+  return cap.fs.readFile('app:/data/a');
+}};
+try {
+  const owner = {};
+  context = scratch(owner);
+  const started = JSON.parse(self.__exact_call('lose', '[]'));
+  await until(() => self.land.length >= 1);
+  storage.retire(owner);
+  self.land.shift()();
+  await checkpoint();
+  const lost = JSON.parse(self.__exact_settle(String(started.call)));
+  if (lost.tag !== 2) { postMessage('stuck:' + JSON.stringify(lost)); return; }
+  context = scratch({});
+  const read = JSON.parse(self.__exact_call('read', '[]'));
+  await checkpoint();
+  await until(() => self.land.length >= 1);
+  if (!self.land.length) { postMessage('not-issued'); return; }
+  const pending = storage.deliver(context.owner);
+  self.land.shift()();
+  await checkpoint();
+  const delivered = await Promise.race([pending.then(() => 'answer', () => 'rejected'), wait(250).then(() => 'stuck')]);
+  const settled = JSON.parse(self.__exact_settle(String(read.call)));
+  postMessage(delivered === 'answer' && settled.tag === 0 ? 'advanced' : 'stuck:' + delivered + ':' + JSON.stringify(settled));
+} catch (error) {
+  postMessage('error: ' + (error && error.stack || error));
+}
+`);
+  expect(verdict).toBe('advanced');
+});
+
+test('a request deadline cancels a server that never answers, on the wasm and TypeScript paths', async () => {
+  const origin = Bun.serve({ port: 0, idleTimeout: 0, fetch: () => new Promise(() => {}) });
+  const set = normalized(`net.fetch ${origin.url.origin}`);
+  try {
+    const started = Date.now();
+    const timed = await request({ method: 'GET', url: origin.url.href, headers: [], timeoutMs: 150 }, { grantSet: set, controllers: new Set() });
+    expect([timed.kind, text(timed)]).toEqual([10, 'the request timed out after 150 ms']);
+    const refused = await request({ method: 'GET', url: origin.url.href, headers: [], timeoutMs: 0 }, { grantSet: set, controllers: new Set() });
+    expect(refused.kind).toBe(2);
+    const error = await fetchWith(set, origin.url.href, { exactTimeout: 150 }).catch(e => e);
+    expect([error.name, error.kind, error.message]).toEqual(['FetchError', 'Timeout', 'the request timed out after 150 ms']);
+    expect(Date.now() - started).toBeLessThan(5000);
+    await expect(fetchWith(set, origin.url.href, { exactTimeout: 1.5 })).rejects.toThrow('exactTimeout must be an integer number of milliseconds from 1 to 3600000');
+  } finally { origin.stop(true); }
+});
+
+test('the web build\'s deadline covers a stalled body, and keeps the caller\'s own abort', async () => {
+  // Headers at once, then a body that never ends.
+  const origin = Bun.serve({ port: 0, idleTimeout: 0, fetch: () => new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('partial')); } })) });
+  const set = normalized(`net.fetch ${origin.url.origin}`);
+  try {
+    const stalled = await fetchWith(set, origin.url.href, { exactTimeout: 150 }).catch(e => e);
+    expect([stalled.name, stalled.kind, stalled.message]).toEqual(['FetchError', 'Timeout', 'the request timed out after 150 ms']);
+    // A bodyless status, and the response's own URL, come through a deadline.
+    const empty = Bun.serve({ port: 0, fetch: () => new Response(null, { status: 204 }) });
+    try {
+      const done = await fetchWith(normalized(`net.fetch ${empty.url.origin}`), empty.url.href, { exactTimeout: 2000 });
+      expect([done.status, done.url, await done.text()]).toEqual([204, empty.url.href, '']);
+    } finally { empty.stop(true); }
+    // A body that arrived in time stays readable after the deadline.
+    const quick = Bun.serve({ port: 0, fetch: () => new Response('in time') });
+    try {
+      const arrived = await fetchWith(normalized(`net.fetch ${quick.url.origin}`), quick.url.href, { exactTimeout: 100 });
+      await new Promise(r => setTimeout(r, 250));
+      expect(await arrived.text()).toBe('in time');
+    } finally { quick.stop(true); }
+    const aborted = new AbortController(); aborted.abort();
+    const own = await fetchWith(set, new Request(origin.url.href, { signal: aborted.signal }), { exactTimeout: 5000 }).catch(e => e);
+    expect([own.name, own.kind]).toEqual(['FetchError', 'Network']);
+    const kept = await fetchWith(set, new Request(origin.url.href, { signal: aborted.signal }), { signal: undefined, exactTimeout: 5000 }).catch(e => e);
+    expect(kept.kind).toBe('Network');
+  } finally { origin.stop(true); }
 });

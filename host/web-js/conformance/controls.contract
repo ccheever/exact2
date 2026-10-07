@@ -1,0 +1,49 @@
+// data: sparkline
+// Synthetic conformance plan: the agent's `type` on a control and its reveal
+// before a tap, on both executors (calendar F7, kanban F17, ledger F7, shop
+// F10/F11). A select is chosen by an option's label, a date, a time and a range
+// take their HTML values, a checkbox `true`: each `input` then `change`, as a
+// person choosing would. A button inside a scroller and one below the page's
+// fold are scrolled into view before their taps. The options carry no `value`,
+// so each one's value is its label (HTML).
+component Controls
+  state pick = "Alpha"
+  state day = ""
+  state hour = ""
+  state level = 5
+  state agreed = false
+  state far = 0
+  state inner = 0
+  action choose(value: string)
+    pick = value
+  action setDay(value: string)
+    day = value
+  action setHour(value: string)
+    hour = value
+  action setLevel(value: number)
+    level = value
+  action agree(value: bool)
+    agreed = value
+  action pressFar
+    far = far + 1
+  action pressInner
+    inner = inner + 1
+  view
+    column testId="root" gap=8 padding=8 background-color="#ffffff"
+      select value=pick change=choose testId="pick"
+        option "Alpha"
+        option "Beta"
+      input type="date" value=day change=setDay testId="day"
+      input type="time" value=hour change=setHour testId="hour"
+      input type="range" min=0 max=10 value=level change=setLevel testId="level"
+      input type="checkbox" checked=agreed change=agree testId="agree"
+      input type="checkbox" checked=true change=agree testId="lit-on" aria-label="On"
+      input type="checkbox" checked=false change=agree testId="lit-off" aria-label="Off"
+      text `${pick} ${day} ${hour} ${level} ${agreed} ${far} ${inner}` testId="values"
+      scroll testId="inner-scroll" height=80
+        box height=300
+        button press=pressInner testId="inner"
+          text "inner"
+      box height=1600
+      button press=pressFar testId="far"
+        text "far"

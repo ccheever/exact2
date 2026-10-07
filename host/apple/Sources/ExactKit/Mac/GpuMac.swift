@@ -41,6 +41,8 @@ final class MetalView: NSView {
 final class Canvases {
     lazy var lifecycle = CanvasLifecycle(self)
     weak var session: ExactSession?
+    /// postMessage events waiting for a live canvas of their surface name.
+    var pendingPosts: [(name: String, text: String, at: Double)] = []
     final class Entry {
         let view: NodeView
         let name: String
@@ -188,6 +190,11 @@ final class Canvases {
                 guard let self, deferred.remove(key) != nil else { return }
                 load(key)
                 session?.frames.requestCanvas()
+                // Work queued while this wave loaded settles when the wave's
+                // last module has loaded or failed: no later batch is owed to
+                // drain it (an idle tick is skipped). Not before, or a module
+                // still loading would answer its tickets "unavailable".
+                if deferred.isEmpty { session?.drainSurfaceWorkNow() }
             }
         }
     }
@@ -227,6 +234,7 @@ final class Canvases {
         e.each = m.wantsChildrenEach(e.id) != 0
         e.through = e.each || m.wantsChildren(e.id) != 0
         e.wantsInput = m.wantsInput?(e.id) == 1 && m.input != nil
+        deliverPosts() // a post held for this surface, if the canvas is live already
         if e.wantsInput { e.view.canvasInput = CanvasInput(view: e.view) }
         if e.through { capture(m, e) }
     }
@@ -245,7 +253,7 @@ final class Canvases {
                 if r != 0 { return false }
                 continue
             }
-            let hidden = child.isHidden
+            let hidden = child.hiddenByHost
             if child.placementHidden { child.isHidden = false }
             defer { child.isHidden = hidden }
             guard let rep = Capture.bitmap(of: child, scale: scale), let data = rep.bitmapData else { continue }
@@ -470,6 +478,7 @@ final class Canvases {
             // D4 (d): every frame while editing under the overlay — but not
             // twice on the turn a batch already captured.
             if e.through, !e.view.paintedThisTurn, let overlay = e.view.overlay, Canvases.editing(under: overlay) { capture(m, e) }
+            m.syncDynamicRange(e.id, view: e.view, layer: e.view.metal?.layer)
             guard live(e.view.id) === e, e.wants || m.dirty(e.id) != 0, let metal = e.view.metal else { continue }
             let wall = CACurrentMediaTime()
             if wall < e.starvedUntil { more = true; continue }

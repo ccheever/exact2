@@ -5,7 +5,9 @@
 // shows an NSSavePanel sheet and copies the `app:/` file to the chosen URL,
 // and iOS copies it into a scratch file and hands that to the exporting
 // document picker. The chosen name arrives as `change` on the element `id`
-// names; a dismissed panel is HTML's `cancel` there.
+// names; a dismissed panel is HTML's `cancel` there. `saveFile(id, text=…,
+// suggestedName=…)` saves the text itself: the host writes it to a scratch
+// file and goes on as for a copy (x2apps notes #4).
 import Foundation
 import UniformTypeIdentifiers
 #if canImport(UIKit)
@@ -15,18 +17,33 @@ import AppKit
 #endif
 
 extension Picker {
-    /// `saveFile(id, from, suggestedName)`, from any action.
+    /// `saveFile(id, from, suggestedName)`, or `(id, none, suggestedName,
+    /// text)` for `text=`, from any action.
     func save(_ args: [Any]) {
         var request: [String: Any] = ["command": "saveFile", "agent": ExactEnv.agentMode]
-        let strings = args.compactMap { $0 as? String }
-        if args.count == 3, strings.count == 3 {
-            request["id"] = strings[0]; request["from"] = strings[1]; request["suggestedName"] = strings[2]
+        let strings = args.map { $0 as? String }
+        if args.count == 3, let id = strings[0], let from = strings[1], let name = strings[2] {
+            request["id"] = id; request["from"] = from; request["suggestedName"] = name
+        } else if args.count == 4, strings[1] == nil, let id = strings[0], let name = strings[2], let text = strings[3] {
+            request["id"] = id; request["text"] = text; request["suggestedName"] = name
         }
         let ruling = session.runtime.command(request)
         let view = (ruling["view"] as? NSNumber)?.uint32Value
         if ruling["refused"] != nil { if let view { saveCancelled(view) }; return }
-        guard ruling["present"] as? Bool == true, let view, let from = ruling["from"] as? String,
-              let name = ruling["suggestedName"] as? String else { return }
+        guard ruling["present"] as? Bool == true, let view, let name = ruling["suggestedName"] as? String else { return }
+        if let text = ruling["text"] as? String {
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("exact-text-\(UUID().uuidString)", isDirectory: true)
+            let file = dir.appendingPathComponent(name)
+            do {
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                try Data(text.utf8).write(to: file)
+            } catch {
+                session.log("saveFile: refused: \(error.localizedDescription)"); saveCancelled(view); return
+            }
+            presentSave(view: view, file: file, name: name)
+            return
+        }
+        guard let from = ruling["from"] as? String else { return }
         guard let file = appFile(from), FileManager.default.fileExists(atPath: file.path) else {
             session.log("saveFile: refused: \(from) does not exist"); saveCancelled(view); return
         }
@@ -39,6 +56,13 @@ extension Picker {
         guard reply["capability"] as? String == "export", let view = (reply["node"] as? NSNumber)?.uint32Value else { return }
         if reply["answered"] as? String == "cancel" { saveCancelled(view); return }
         let destination = URL(fileURLWithPath: (request["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines))
+        if let text = (reply["request"] as? [String: Any])?["text"] as? String {
+            do { try Data(text.utf8).write(to: destination) } catch {
+                session.log("saveFile: refused: \(error.localizedDescription)"); saveCancelled(view); return
+            }
+            saved(view, name: destination.lastPathComponent)
+            return
+        }
         guard let from = (reply["request"] as? [String: Any])?["from"] as? String, let file = appFile(from) else {
             session.log("saveFile: refused: no app file to copy"); saveCancelled(view); return
         }
@@ -75,7 +99,14 @@ extension Picker {
     }
 }
 
-#if canImport(UIKit)
+#if os(tvOS)
+extension Picker {
+    func presentSave(view: UInt32, file _: URL, name _: String) {
+        // tvOS has no document picker to export through.
+        session.log("saveFile: refused: no document picker"); saveCancelled(view)
+    }
+}
+#elseif canImport(UIKit)
 extension Picker {
     /// iOS: a scratch copy under the suggested name, handed to the
     /// exporting document picker, which moves a copy where the person says.

@@ -14,8 +14,11 @@ use tiny_skia::Transform;
 pub struct Presented {
     /// The view's resolved appearance, when supplied by the host.
     pub dark: Option<bool>,
-    /// Points.
+    /// `translate`'s lengths, points.
     pub translate: (f32, f32),
+    /// `translate`'s percentages of the border box (chess diary #4),
+    /// resolved where the box is painted ([`Presented::translate_at`]).
+    pub translate_percent: (f32, f32),
     /// Uniform.
     pub scale: f32,
     /// Host feedback, multiplied into scale without entering the motion engine.
@@ -32,6 +35,9 @@ pub struct Presented {
     /// A layout transition's offset from the laid-out origin and scale of
     /// the laid-out size, `[dx, dy, sx, sy]` (LLP 1063).
     pub layout: [f32; 4],
+    /// What the reader plays instead of the engine (`crate::host::lower`'s
+    /// bits): painted at the underlying values, in a layer it moves.
+    pub lowered: u8,
 }
 
 impl Presented {
@@ -39,6 +45,7 @@ impl Presented {
     pub const IDENTITY: Presented = Presented {
         dark: None,
         translate: (0.0, 0.0),
+        translate_percent: (0.0, 0.0),
         scale: 1.0,
         press: 1.0,
         rotate: 0.0,
@@ -46,6 +53,7 @@ impl Presented {
         svg: [None; 8],
         colors: PaintValues::NONE,
         layout: [0.0, 0.0, 1.0, 1.0],
+        lowered: 0,
     };
 
     /// The committed style's values (what the engine starts from).
@@ -53,6 +61,7 @@ impl Presented {
         Presented {
             dark: None,
             translate: (s.translate.x, s.translate.y),
+            translate_percent: (s.translate_percent.x, s.translate_percent.y),
             scale: s.scale,
             press: 1.0,
             rotate: s.rotate,
@@ -60,11 +69,23 @@ impl Presented {
             svg: [None; 8],
             colors: PaintValues::NONE,
             layout: Presented::IDENTITY.layout,
+            lowered: 0,
         }
+    }
+
+    /// The used translation of a `w` × `h` border box: its lengths plus
+    /// its percentages of the box, as CSS resolves `translate`.
+    pub fn translate_at(&self, w: f32, h: f32) -> (f32, f32) {
+        let (px, py) = self.translate_percent;
+        (
+            self.translate.0 + px / 100.0 * w,
+            self.translate.1 + py / 100.0 * h,
+        )
     }
 
     pub(super) fn moves(&self) -> bool {
         self.translate != (0.0, 0.0)
+            || self.translate_percent != (0.0, 0.0)
             || self.scale != 1.0
             || self.press != 1.0
             || self.rotate != 0.0
@@ -77,12 +98,13 @@ impl Presented {
     /// ([`Presented::surface`]).
     pub(super) fn transform(
         &self,
-        (x, y, _, _): (f32, f32, f32, f32),
+        (x, y, w, h): (f32, f32, f32, f32),
         (ox, oy): (f32, f32),
     ) -> Transform {
         let (cx, cy) = (x + ox, y + oy);
         let [dx, dy, ..] = self.layout;
-        Transform::from_translate(cx + dx + self.translate.0, cy + dy + self.translate.1)
+        let (tx, ty) = self.translate_at(w, h);
+        Transform::from_translate(cx + dx + tx, cy + dy + ty)
             .pre_rotate(self.rotate)
             .pre_scale(self.scale * self.press, self.scale * self.press)
             .pre_translate(-cx, -cy)

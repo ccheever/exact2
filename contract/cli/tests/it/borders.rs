@@ -150,9 +150,9 @@ fn a_bad_side_or_a_fifth_value_is_refused_at_compile_time() {
     for (value, says) in [
         (
             "#ff0000 #00ff00 #0000ff #ffffff #000000",
-            "one to four colours",
+            "one to four values",
         ),
-        ("#ff0000 red", "not a valid `border-color`"),
+        ("#ff0000 blurple", "not a valid `border-color`"),
     ] {
         let src = format!("component A\n  view\n    box border-color=\"{value}\"\n");
         let e = contract::compile(&src).unwrap_err();
@@ -162,4 +162,133 @@ fn a_bad_side_or_a_fifth_value_is_refused_at_compile_time() {
     let e =
         contract::compile("component A\n  view\n    box border-left-color=\"#12\"\n").unwrap_err();
     assert_eq!(e.id, "lower-attr-value", "{e}");
+}
+
+#[test]
+fn padding_margin_border_width_and_inset_take_one_to_four_values_as_css_expands_them() {
+    // Each shorthand against its longhands: `"a b c"` is top a, right b, bottom c, left b.
+    let r = boot(
+        "component A\n  view\n    column\n      box testId=\"short\" padding=\"1px 2px 3px\" margin=\"4px 5%\" border-width=\"6px 7px 8px 9px\" border-style=\"solid none\" position=\"absolute\" inset=\"calc(50% - 4px) 10px\"\n      box testId=\"long\" padding-top=1 padding-right=2 padding-bottom=3 padding-left=2 margin-top=4 margin-right=\"5%\" margin-bottom=4 margin-left=\"5%\" border-top-width=6 border-right-width=7 border-bottom-width=8 border-left-width=9 border-top-style=\"solid\" border-right-style=\"none\" border-bottom-style=\"solid\" border-left-style=\"none\" position=\"absolute\" top=\"calc(50% - 4px)\" right=10 bottom=\"calc(50% - 4px)\" left=10\n      box testId=\"one\" padding=\"12px\" padding-left=3\n",
+    );
+    let (short, long) = (style_of(&r, "short"), style_of(&r, "long"));
+    macro_rules! same {
+        ($($field:ident),*) => { $(assert_eq!(short.$field, long.$field, stringify!($field));)* };
+    }
+    same!(
+        padding_top,
+        padding_right,
+        padding_bottom,
+        padding_left,
+        margin_top,
+        margin_right,
+        margin_bottom,
+        margin_left,
+        border_width_top,
+        border_width_right,
+        border_width_bottom,
+        border_width_left,
+        border_style_top,
+        border_style_right,
+        border_style_bottom,
+        border_style_left,
+        top,
+        right,
+        bottom,
+        left
+    );
+    let one = style_of(&r, "one");
+    assert_eq!(one.padding_top, one.padding_bottom);
+    assert_ne!(
+        one.padding_top, one.padding_left,
+        "a later longhand still wins"
+    );
+    let e = contract::compile("component A\n  view\n    box padding=\"1px 2px 3px 4px 5px\"\n")
+        .unwrap_err();
+    assert!(
+        format!("{e}").contains("`padding` takes one to four values"),
+        "{e}"
+    );
+}
+
+/// Ledger2 Rough 5: `border-radius` is CSS's one-to-four-value corner
+/// shorthand (top-left, top-right, bottom-right, bottom-left), in an
+/// attribute and a `style`, as `padding` is a side's.
+#[test]
+fn border_radius_takes_one_to_four_corners() {
+    let r = boot(
+        "style Sheet\n  border-radius=\"18px 9px\"\ncomponent A\n  view\n    column\n      box border-radius=\"18px 18px 0 0\" testId=\"top\" width=40 height=40\n      box border-radius=\"1px 2px 3px\" testId=\"three\" width=40 height=40\n      box class=Sheet testId=\"sheet\" width=40 height=40\n      box border-radius=\"50%\" testId=\"one\" width=40 height=40\n",
+    );
+    let corners = |id: &str| {
+        let s = style_of(&r, id);
+        [
+            s.border_radius_top_left,
+            s.border_radius_top_right,
+            s.border_radius_bottom_right,
+            s.border_radius_bottom_left,
+        ]
+        .map(|c| format!("{c:?}"))
+    };
+    let [tl, tr, br, bl] = corners("top");
+    assert!(tl == tr && br == bl && tl != br, "{:?}", corners("top"));
+    let [tl, tr, br, bl] = corners("three");
+    assert!(
+        tr == bl && tl != tr && br != tr && tl != br,
+        "{:?}",
+        corners("three")
+    );
+    let [tl, tr, br, bl] = corners("sheet");
+    assert!(tl == br && tr == bl && tl != tr, "{:?}", corners("sheet"));
+    let [tl, tr, br, bl] = corners("one");
+    assert!(tl == tr && tr == br && br == bl, "{:?}", corners("one"));
+    let e = contract::compile(
+        "component A\n  view\n    box border-radius=\"18px / 9px 1px 2px 3px\"\n",
+    )
+    .unwrap_err();
+    assert!(
+        format!("{e}").contains("`border-radius` takes one to four values (top-left"),
+        "{e}"
+    );
+}
+
+#[test]
+fn a_numeric_border_says_to_quote_the_shorthand() {
+    let says = |attr: &str| {
+        contract::compile(&format!(
+            "component App\n  state x = true\n  view\n    view {attr} testId=\"b\"\n"
+        ))
+        .unwrap_err()
+        .message
+    };
+    let compiles = |attr: &str| {
+        contract::compile(&format!(
+            "component App\n  state x = true\n  view\n    view {attr} testId=\"b\"\n"
+        ))
+        .unwrap_or_else(|e| panic!("{attr}: {e}"));
+    };
+    assert_eq!(
+        says("border=0"),
+        "`border`: `0` is a number, and a CSS shorthand is a string, so write `\"0\"`"
+    );
+    compiles("border=\"0\"");
+    assert_eq!(says("border-top=2"), "`border-top`: `2` is a number, and a CSS shorthand is a string, as CSS writes it: `\"2px solid #ccc\"`");
+    compiles("border-top=\"2px solid #ccc\"");
+    // One arm of a choice: the literal is named, and its replacement keeps the choice.
+    assert_eq!(says("border=(x ? \"0\" : 1)"), "`border`: `1` is a number, and a CSS shorthand is a string, as CSS writes it: `\"1px solid #ccc\"`");
+    compiles("border=(x ? \"0\" : \"1px solid #ccc\")");
+    // A negative width (a style folds `-1` into a number) gets no example: no width is negative.
+    let error = contract::compile(
+        "style Card\n  border=-1\ncomponent App\n  view\n    view class=Card testId=\"b\"\n",
+    )
+    .unwrap_err();
+    assert_eq!(
+        error.message,
+        "`border`: `-1` is a number, and a CSS shorthand is a string, as CSS writes it"
+    );
+    // text-decoration has no number form to suggest.
+    let error =
+        contract::compile("component App\n  view\n    text \"a\" text-decoration=1\n").unwrap_err();
+    assert_eq!(
+        error.message,
+        "`text-decoration`: `1` is a number, and a CSS shorthand is a string, as CSS writes it"
+    );
 }

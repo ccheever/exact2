@@ -528,12 +528,30 @@ one listing at launch, and the app's own secrets stay in the Keychain
 itself; the app still cannot read a kept answer. The web keeps them in
 page storage as before; Linux keeps nothing.
 
+**Written off the commit (2026-10-05).** Each kept answer was written in
+the commit that kept it (a file, a rename, a sync), on the owner thread,
+while the main thread waited on the commit: on the Signal clone opening a
+chat fulfilled a dozen requests and their writes held the opening frame
+for 62 ms. Apple now hands kept writes to one writer thread: what waits
+is the last value per key, so a store that changes faster than the disk
+holds no more than its keys, and the last kept is the last written; a
+launch's snapshot and an orderly exit wait for the writer; a failed
+write is journaled at a later commit, by the successor of a host a reload
+replaced; an answer a crash (or macOS's sudden termination) loses is
+fetched again. The app's secrets stay synchronous (LLP 1018).
+
 **Storage readers (2026-09-07):** the same `resources.reader` marker covers
 filesystem and SQLite access. A storage call records an external read even when
 bake refuses it; it does not invent a secret read or key. Storage-backed resources
 therefore show their kept answer or baked placeholder on the first frame and
 refresh through `data_ready()` after activation. Fieldnotes exercises this path:
 a returning notebook opens its saved notes without a user action.
+
+**Compiled answers are first frames (2026-10-04).** `data_ready` also asks
+every resource that showed a compiled answer, even one whose arguments are
+the bake's. Only an `else` row is not asked. The module at launch is not the
+module the bake ran, and the web asks it at launch. Feed's no-argument
+`explore()` stayed empty on macOS while the web filled it (LLP 1048.003 D6).
 
 The alternative — create the engine before boot, since it is 0.3 ms —
 was considered and not taken, not because the number is large but because the rule
@@ -665,8 +683,9 @@ Each request captures the current source graph and runs full strict diagnostics;
 bundling and HBC compilation overlap checking, but bytecode inspection and the bake
 wait for checking to succeed. Resolved type-only imports must also stay inside the
 capture or pinned standard libraries. An invalid, deleted or superseded input
-cannot reuse a previous successful result. Both producer paths check the full
-`ES2020,WebWorker` standard libraries: data modules use web APIs, not DOM UI types
+cannot reuse a previous successful result. Both producer paths, and the web build
+(calc F2, calendar F9: one configuration, `js/bake/src/typescript.mjs`), check the
+full ES2023 and `WebWorker` standard libraries: data modules use web APIs, not DOM UI types
 such as `Window`, `Document` or `HTMLElement`, which native hosts cannot support.
 This is a cross-host type boundary, not a sandbox: the browser iframe can expose
 additional globals incidentally, and ambient worker types grant no runtime API.
@@ -704,6 +723,120 @@ The repeated Fieldnotes measurements above supersede that one-off timing. D6 rec
 subsequent async data parity, iOS simulator guard sweep and TypeScript Caltrain
 UI drive, physical iOS guard execution and physical live-URL replacement;
 signed module delivery remains owed.
+
+#### D5 Windows captured-module paths (2026-10-04, implemented)
+
+**Implementer:** Codex Windows lane, 2026-10-04. This is a bounded repair of
+the existing producer containment check. Parent independently reviewed and
+approved this scope before implementation, requiring absolute incoming IDs,
+concrete regular-file admission and the real filesystem/refusal cases below.
+It does not enable the Windows native JavaScript executor: `js/build.rs` still
+leaves `ENGINE_LINKED=false` there. Producer tests returning at that guard are
+not evidence of a linked Hermes runtime or successful native TypeScript bake.
+
+On SDK `a73a3ae4a`, the actual no-Hermes one-shot and resident configuration
+tests both refuse their captured `__exact_entry.ts`. The one-shot generated
+Rolldown plugin tests `id.startsWith(process.cwd() + '/')`; Windows supplies
+backslash file IDs. The first error uses the real short-name temporary path
+`C:\\Users\\CHARLI~1\\AppData\\Local\\Temp\\.exact-js-bake-…` and says
+`module outside captured app`. The resident test first invokes that same
+one-shot producer, so its failure does not yet establish a resident defect.
+The captured-source names test separately expects slash-delimited strings
+where its API returns `PathBuf`; that assertion should compare paths.
+
+The proposed change shares one internal captured-module assertion from the
+already shared `typescript.mjs` with the one-shot and resident Rolldown
+plugins. It requires an absolute file ID, resolves both the stage and module
+through the filesystem, and uses `node:path.relative` component containment:
+refuse an absolute relative result, `..`, or a path beginning `..` plus the
+platform separator. An empty result is not a module. This accepts a captured
+file across separator, case and Windows short/long-name spellings without
+accepting a sibling prefix or a link resolving outside the stage. Missing or
+virtual modules still refuse. No fallback reads the uncaptured app, no output
+is published on refusal, and no import authority, package resolution, native
+runtime admission, compiler deadline or receipt format changes. The capture
+remains producer-owned; this check does not introduce an adversarial-writer
+filesystem sandbox or relax existing source-link refusal.
+
+The first implementation check found that Bun's `realpathSync` preserves an
+uppercase Unicode input spelling while `realpathSync.native` returns the
+actual on-disk spelling; both sides therefore use the native operation before
+component comparison. A resident fixture's fabricated origin paths also
+mixed separators through `PathBuf::join("original/shared")`; host-native
+component joins make that fixture match the producer's canonical origins.
+
+Independent peer review identified that Windows `path.relative` folds case,
+including in a case-sensitive directory. Parent reviewed and approved the
+additional requirement that joining the canonical root and computed relative
+path exactly reconstruct the canonical file. Alternate spelling must already
+resolve to its real spelling; a distinct canonical sibling is not admitted.
+The guard regression injects differing canonical prefix spellings to exercise
+this condition; it is explicitly synthetic, not a case-sensitive NTFS claim.
+An additional owned directory probe successfully enabled NTFS case sensitivity
+with `fsutil`, created distinct `stage` and `STAGE` directories, and exercised
+the actual helper: its own file was accepted and the case-only sibling's file
+was refused. Only that ignored probe directory's attribute was changed.
+
+Focused Windows qualification: all six library tests passed after the review
+guard, including actual one-shot/resident bundling and byte agreement, config
+invalidation/refusal/recovery, space/Unicode and casing aliases, and a real
+junction escape. The preexisting Unix shell recovery test is now explicitly
+Unix-only. The other 11 producer tests compiled and passed, but most return at
+the unavailable native-engine guard; the ordinary web producer's real
+TypeScript check and build did execute. The initial failure logs remain under
+`target/upstream-a73/`. A separate existing `scripts/app.test.mjs` Cargo-graph
+case uses a POSIX shell wrapper, colon PATH and Unix artifact suffixes; its
+Windows trace assertion failed, while the five other focused metadata/receipt,
+shader-pack, environment and deterministic-web flag tests passed. This is not a
+claim that the complete JavaScript test suite or linked native JS is qualified.
+Final independent code review approved the shared guard, both call sites and
+the stated evidence limits. On this Windows checkout, the final default build
+and 2,310 tests passed (54 existing ignores), default and affected producer
+strict Clippy passed, caps and boot passed. All 164 workspace packages passed
+format checking before the narrow change; both affected packages passed again
+after it. The optional Contract differential check was attempted and refused
+because `lake` is not installed; no Lean qualification is claimed.
+
+After rebasing onto `80c52506c` (platform colours), the default build and
+2,319 tests passed (54 existing ignores), default and native presenter strict
+Clippy passed, all 164 packages passed formatting, and caps/boot passed.
+The six actual producer library tests passed again. The rebuilt Contract CLI
+resolved and compiled Skirmish's single source and Markdown's app plus package
+source, with source maps. A focused native tint test passed with explicit CPU
+painting. Its first run had mistakenly named `EXACT_PAINT` rather than
+`EXACT_PAINTER`, so that successful Auto-painter run is not CPU-only evidence;
+the corrected run is recorded separately under `target/upstream-80c/`.
+The incoming colour schema changes its checked wire digest and bake identity;
+old style modules must be rebuilt. Game EXSIM v7 is unchanged, and Skirmish
+uses explicit text colours and no symbol tint. Native/browser game consumer
+qualification against this newer SDK remains separate from this compiler fix.
+
+The subsequent `f708c99cf` Contract-scope update was mistakenly rebased and
+published with this fix before its combined qualification. No history was
+rewritten and no frozen game SDK was changed. The combined default build and
+2,327 tests passed; strict Windows lint found two unused variables in a new
+alias-package fixture whose symlink and assertions were Unix-only. Marking the
+whole fixture Unix-only removes its assertion-free Windows pass. The repaired
+combined tree passed the repeated build, 2,326 tests (54 existing ignores),
+strict default Clippy, formatting, caps and boot. Six actual JS-bake library
+tests and strict producer lint also passed against `f708c99cf`. Rebuilt
+Skirmish and Markdown plans were byte-identical to their `80c52506c` plans;
+Markdown's actual graph reported its package and consulted manifest. These
+results close that combined-code gate gap; Windows alias-symlink coverage and
+actual newer-SDK game-host qualification are not inferred from them.
+
+Qualification is the existing actual TypeScript/Rolldown no-Hermes tests in
+both producer modes plus a bounded real-filesystem guard regression: nested
+captured file accepted; sibling-prefix, parent traversal, missing/non-file ID
+and outside target refused; Windows junction escape refused when the fixture
+can create it, with any privilege limitation reported explicitly. Include a
+space/Unicode stage and, where available, the actual short-name temporary
+root. Keep the existing invalid-config/refusal/recovery checks and compare
+produced script bytes between modes. The genuine Unix shell-wrapper producer
+test remains Unix-only and is not claimed as Windows drain/recovery coverage.
+Run the affected tests and strict lint, scoped formatting, then the repository
+gates; retain the initial failure logs and the missing-Lean advice result.
+No browser, GPU or native game launch is needed for this compiler-path repair.
 
 ### D6 — The web: the browser is the executor; one wasm import; the same module under two loaders
 
@@ -782,20 +915,38 @@ parallel fetch, binary bodies, four transport failures, typed argument/source
 errors, sync/async exceptions, stuck promises, corrupt/identity refusals and
 disposal during a draining turn. Page and guest builtins remain untouched.
 
-**iOS execution (Codex, 2026-09-07).** `js/build.rs` selects lean CMake archives
-for the actual Rust target: `ios-simulator` for `*-ios-sim`/x86 iOS, `ios` for
-devices. The host bake still uses the macOS VM/compiler; its shim explicitly
-selects the macOS SDK even when the parent build targets iOS. All three engine
-archives are copied into `OUT_DIR`, so normal bake receipts inventory the
-actual linked engine inputs. Missing target archives produce a named refusing
-stub, not an apparent working executor. Rust-only clients still link no VM.
+**Hermes pin decision (Charlie, 2026-10-06).** Exact now consumes Ibex 2's
+split `ibex2` / `hermes-lean-sys` crates and their pinned, attested Hermes
+`260318099.0.4` bundles. This replaces Exact's `260318099.0.0` private
+provisioning. The install-once installer performs acquisition explicitly;
+offline builds set `HERMES_LEAN_SYS_OFFLINE` and never download or compile an
+engine in `build.rs`. Waiting would only make the migration gnarlier.
 
-Provisioning uses pristine Hermes at the commit `js/build.rs` pins
-(`HERMES_PIN`, the one place it is written), matching the sibling ibex vanilla
-headers and compiler. Do not substitute the full iOS framework (it embeds
-a compiler). `host/apple/build.mjs --ios` runs this recipe itself when a
-platform's archives are missing (LLP 1036.001 D5). For each platform it
-configures the source with CMake:
+**Linux/Windows Intl (E2, 2026-10-06).** Exact selects `ibex2/intl`, never
+`intl-all-locales`, and installs `INTL` on Linux and Windows. Linux links the
+English tier (`en`, `en-US`, complete currency data; unsupported locales fall
+back to `en-US`); Ibex's stripped arm64 consumer measurement is 11,478,968 B,
+**+524,296 B** over the 10,954,672 B base tier. Windows binds the Windows 10
+2004+ OS ICU from System32 by full path through function pointers, with no ICU
+link flags or data archive. Apple does neither: its engine keeps OS Intl.
+
+**Apple execution (Codex, 2026-09-07; v4 acquisition 2026-10-06).**
+`hermes-lean-sys` selects the digest-pinned Ibex v4 bundle for the actual Rust
+target: `aarch64-apple-ios` for a device, the universal iOS Simulator asset for
+`aarch64-apple-ios-sim` or `x86_64-apple-ios`, and the tvOS device or arm64
+Simulator bundle. The paired host bundle supplies `hermesc`; the target bundle
+supplies the lean archive. Cargo builds are forced offline. Before invoking
+Cargo, `host/apple/build.mjs` checks that the selected target bundle is installed
+and, when it is absent, refuses with the exact
+`hermes-lean-sys-installer --target <triple>` command. tvOS builds use Exact's
+17.0 deployment floor, above v4's 15.0 minimum. Apple retains Hermes's OS-backed
+Intl and does not install Ibex's `INTL` group. Rust-only clients still link no VM.
+
+**Dated history — retired 2026-10-06.** The 2026-09-07 implementation built
+three lean archives from pristine Hermes source at Exact's private pin. It did
+not substitute the full iOS framework (which embeds a compiler). For each
+platform it configured the source with CMake as follows; this is measurement
+history, not a supported provisioning recipe:
 
 ```sh
 cmake -S <matching-hermes-source> -B <build-dir> -G Ninja \
@@ -809,15 +960,14 @@ cmake -S <matching-hermes-source> -B <build-dir> -G Ninja \
 cmake --build <build-dir> --target hermesvmlean_a jsi boost_context -j 8
 ```
 
-For device use `iphoneos`. The import file defines an `IMPORTED` executable
+For device it used `iphoneos`. The import file defined an `IMPORTED` executable
 `imported-hermesc` with `IMPORTED_LOCATION` pointing to the matching macOS
-compiler. These output paths are kept under each of
+compiler. Its output paths were kept under each of
 `~/.cache/exact/hermes/<pin>-lean-ios/{ios,ios-simulator}/`:
 `lib/libhermesvmlean_a.a`, `jsi/libjsi.a`, and
 `external/boost/boost_1_86_0/libs/context/libboost_context.a`.
-`EXACT_HERMES_IOS_DIR` overrides that root. The build receipt names these
-archives relative to the root. `EXACT_HERMES_DIR` continues to supply
-`hermes-headers` and `macos-static`.
+That private cache, its overrides, and the CMake provisioner were deleted when
+the attested Ibex bundles became the one acquisition path.
 
 An external L=0 module client built with ordinary `host/apple/build.mjs --ios`
 ran on iPhone 17 Pro / iOS 26.5 simulator: async after `Promise.resolve()`, two
@@ -1083,16 +1233,14 @@ has the answer that the split already exists, plus one more cut.
    exactly this today for the request executor and the Keychain
    (host/apple/Cargo.toml:27, host/linux/Cargo.toml:30). This is "the
    stdlib available to Rust," and it is done.
-2. **The engine build** — the vanilla Hermes lean VM and `hermesc`,
-   per platform, with the receipt that binds bytecode to VM
+2. **The engine build** — now implemented by Ibex's vendored
+   `hermes-lean-sys` and install-once installer (2026-10-06): the vanilla
+   Hermes lean VM and `hermesc`, per platform, with the receipt that binds bytecode to VM
    (`ios/Frameworks-vanilla/`: `macos-static/libhermesvmlean_a.a`,
    `hermes.xcframework`, `tools/hermes-vanilla/hermesc-macos-arm64`,
-   `hermes-input-receipt.json`). Today it is a directory and a path in
-   a `build.rs`. **Proposed: a crate** — `hermes-lean-sys` for this
-   text — that carries the archives (or fetches them by digest at
-   build), the headers, the link lines (build.rs:5–16 of ibex2's, less
-   the Objective-C++), and `hermesc`'s path, and that both ibex2's
-   engine layer and `exact-js` depend on. Owed for it: a Linux
+   `hermes-input-receipt.json`). The crate exports the headers, link lines,
+   and paired `hermesc`; both Ibex's bindings door and `exact-js` depend on it.
+   Acquisition is never a build-script side effect. Owed for it: a Linux
    `x86_64`/`aarch64` lean build (the Hetzner builders, the Linux host)
    and an iOS device measurement (§10 Q7).
 3. **ibex2's runtime layer** — `engine/hermes.rs`, `hermes_shim.cc`,
@@ -1212,10 +1360,13 @@ restart, backup, deletion, and transactional restore. Snapback2 remains deferred
   `performance.now` (the clock is the runner's), WebSocket and streams
   (a trigger), `crypto` (deliberately later). Marginal size over the
   lean engine: unmeasured; ibex2's binding bytecode is 28 KB.
-  **2026-09-14 implementation:** LLP 1027.001 installs URL/URLSearchParams,
-  TextEncoder, UTF-8 TextDecoder and atob/btoa through Ibex's algorithms.
-  Browser realms retain browser implementations. This does not claim the
-  entire proposed tier, other text encodings, or a new Headers implementation.
+  **2026-09-14 implementation, updated 2026-10-06:** LLP 1027.001 installs
+  URL/URLSearchParams, TextEncoder and atob/btoa through Ibex's algorithms.
+  With Hermes 0.4, native keeps Hermes's built-in WHATWG TextDecoder (including
+  UTF-16LE/BE, `fatal`, streaming and `ignoreBOM`) rather than carrying Exact's
+  removed UTF-8-only polyfill. Browser realms retain browser implementations;
+  Chrome remains the parity oracle. This does not claim the entire proposed
+  tier or a new Headers implementation.
 - **`console`**, admitted as the one host binding (Charlie, 2026-09-03;
   the alternatives — `fetch`, timers, a clock, secrets, files — are each
   refused by D1's rule, and the pure helpers are §10 Q6): `console.log` into the runner's `logs` (the agent API's,
@@ -1300,6 +1451,8 @@ p50 where repeated.
 | `hermesc` alone (2026-09-03, Charlie's question): the 6 KB module, process start included | **7 ms** (10 runs, 70 ms) |
 | `hermesc` on synthetic bundles, `-O0` / `-O` | 100 KB: 20 / 20 ms · 1 MB: 0.21 / 0.27 s · 5 MB: 1.0 / 1.7 s — about 3–5 MB/s of source; `-O` dead-code-eliminates, so those bytecode sizes are not comparable; the real module is 1.85× its script |
 | Runtime create · bytecode load (n=20) | **0.322 ms · 0.008 ms** |
+| Ibex bindings-door adoption, E1 (2026-10-06) | **+259 KB stripped (+4.8%) · +2.2 ms per module load** — universal hardening, deferred intrinsic capture, and group install |
+| Ibex v4 refresh and Apple E2 (2026-10-06) | **+520 B stripped over E1 · 2.049 ms/load median** (15 loads; E1 2.045 ms) — tvOS, Simulator thinning and Headers ownership add no material Apple cost |
 | Cases byte-identical (values) or equal (errors) | **20 / 20** — six sources, three argument sets of `board` (a full day, a terminus, mid-day), three of `search` (one hit, three, all), six error paths with the crate's exact messages |
 | `login`: `answer` → request; `parse(200)` → a `Session` record; `parse(Refused)` → the crate's exact refusal text | as designed (D1) |
 
@@ -1340,15 +1493,26 @@ reads only).
 
 ## 6. Costs and budgets
 
-- **Binary:** +1.8 MB per native binary that links `exact-js` —
-  TypeScript apps only; a Rust-only app pays nothing (D3). Against
+- **Binary:** the original lean-engine probe measured +1.8 MB per native binary
+  that links `exact-js`. The 2026-10-06 Ibex bindings-door adoption adds
+  **259 KB stripped (+4.8%)** to the shipping comparison; the v4 E2 refresh
+  changes the identical stripped harness by only **+520 bytes**. TypeScript
+  apps only; a Rust-only app pays nothing (D3). Against
   `rules/RULES.md`'s budgets it is not on any; against the phone it
   is the one number §10 asks about first, as LLP 1026 did for its 1.0.
-- **Boot:** +0.33 ms, after first pixel (D4); the first-frame budget is
-  untouched by construction. The one frame of `pending` for a
+- **Boot:** the original probe measured +0.33 ms. The 2026-10-06 bindings door
+  adds **2.2 ms per module load** for universal hardening, deferred intrinsic
+  capture, and group install. The identical E2 harness measured **2.049 ms**
+  median across 15 loads, versus E1's **2.045 ms**. Both remain after first pixel (D4); the
+  first-frame budget is untouched by construction. The one frame of `pending` for a
   store-reading resource is the observable cost.
 - **Per call:** microseconds to tens of microseconds, per resource
-  change, never per frame (§5).
+  change, never per frame (§5). The 100 ms per-call budget is a runtime
+  promise about a device. The bake's module (`js/bake`, after `Module::inspect`) is not held
+  to it (2026-10-03): a heavily loaded build Mac failed the Signal Clone's
+  bake at 104.8 ms and passed on retry. A build fails on the source, not on
+  the machine's load. A runaway call hangs the bake as it did before; the
+  budget is measured after a call returns, so it never ended one.
 - **Edit loop:** +20 ms in the bake; the 100 ms edit-to-present budget
   holds with room.
 - **Checks:** none added. The type check is bake's; the byte-equality

@@ -1,5 +1,25 @@
 // The same utility corpus runs in Hermes and Chrome. Returning JSON keeps the
 // Contract signature small; the separate transfer corpus also uses Bun's JSON.
+// What an object says of itself never steers a copy (review r4a 5, 9, 10):
+// its own `constructor`, getters and tags, a key named `__proto__`, holes.
+function steered() {
+  const proto=structuredClone(JSON.parse('{"__proto__":{"admin":true},"ok":1}'));
+  const bytes=new Uint8Array([1,2]);
+  Object.defineProperty(bytes,'constructor',{value:function(){return new Uint8Array([99,99]);}});
+  Object.defineProperty(bytes,'buffer',{get(){return new ArrayBuffer(8);}});
+  const bytesCopy=structuredClone(bytes), sortedBytes=bytes.toSorted(), withBytes=bytes.with(0,7);
+  const date=new Date(5); Object.defineProperty(date,'getTime',{value:()=>9});
+  const fake={[Symbol.toStringTag]:'Date',n:1};
+  const map=new Map([[1,2]]); Object.defineProperty(map,'forEach',{value:()=>{}});
+  const re=/a/g; Object.defineProperty(re,'flags',{value:'i'}); Object.defineProperty(re,'global',{value:false});
+  let visits=0;
+  const holes=[2,,1].toSorted(); holes.map(()=>visits++);
+  return {proto:[Object.keys(proto),Object.getPrototypeOf(proto)===Object.prototype,'admin' in proto,JSON.stringify(proto)],
+    bytes:[Array.from(bytesCopy),Object.getPrototypeOf(bytesCopy)===Uint8Array.prototype,bytesCopy.buffer.byteLength,Array.from(sortedBytes),Object.getPrototypeOf(sortedBytes)===Uint8Array.prototype,Array.from(withBytes)],
+    date:structuredClone(date).getTime(), fake:[Object.keys(structuredClone(fake)),typeof (structuredClone(fake) as any).getTime],
+    map:[...structuredClone(map)], re:[structuredClone(re).flags,structuredClone(re).source],
+    holes:[holes.length,0 in holes,1 in holes,2 in holes,visits]};
+}
 export function exercise(source: string): string {
   const encoder = new TextEncoder();
   if(source==='text') {
@@ -19,7 +39,12 @@ export function exercise(source: string): string {
       }
     }
     const view = new DataView(new Uint8Array([88,0,65,89]).buffer,1,2);
-    return JSON.stringify({labels,splitCases,encoded:Array.from(encoder.encode('a\0é😀\ud800z\udfff')),into,bytes:Array.from(bytes),chunks,rejected,reset:fatal.decode(new Uint8Array([65])),bom:new TextDecoder('utf8',{ignoreBOM:true}).decode(new Uint8Array([239,187,191])),view:decoder.decode(view),invalid:decoder.decode(new Uint8Array([0xed,0xa0,0x80,0xe2,0x28,0xa1]))});
+    const utf16 = new Uint8Array([255,254,65,0,61,216,0,222]);
+    const utf16le = new TextDecoder('utf-16le').decode(utf16);
+    let utf16Fatal=false;
+    try{new TextDecoder('utf-16le',{fatal:true}).decode(new Uint8Array([65]));}catch(e){utf16Fatal=e instanceof TypeError;}
+    const utf16Bom=[new TextDecoder('utf-16le').decode(new Uint8Array([255,254,65,0])),new TextDecoder('utf-16le',{ignoreBOM:true}).decode(new Uint8Array([255,254,65,0]))];
+    return JSON.stringify({labels,splitCases,encoded:Array.from(encoder.encode('a\0é😀\ud800z\udfff')),into,bytes:Array.from(bytes),chunks,rejected,reset:fatal.decode(new Uint8Array([65])),bom:new TextDecoder('utf8',{ignoreBOM:true}).decode(new Uint8Array([239,187,191])),utf16le,utf16Fatal,utf16Bom,view:decoder.decode(view),invalid:decoder.decode(new Uint8Array([0xed,0xa0,0x80,0xe2,0x28,0xa1]))});
   }
   if(source==='url') {
     const url = new URL('../c?q=a%20b&x=1&x=2#old','https://例え.テスト/a/b/');
@@ -32,6 +57,83 @@ export function exercise(source: string): string {
     const seen=[iterator.next().value];live.append('b','2');seen.push(iterator.next().value);
     const visits:string[]=[];live.forEach((v,k)=>{visits.push(k+v);if(k==='a')live.append('c','3');});
     return JSON.stringify({seen,visits,first,linked,href:url.href,same:params===url.searchParams,entries:Array.from(params),bad:URL.canParse('/x'),parse:URL.parse('not a url'),nul:new URLSearchParams([['\0','\0']]).get('\0')});
+  }
+  if(source==='standard') {
+    // What a web developer expects of a data module (docs/reference.md):
+    // the globals Hermes is given (js/src/standard.js, Ibex's abort.js).
+    const shared={n:1}, cyclic:any={shared,list:[shared,shared],when:new Date(86400000),re:/a+/gi,
+      map:new Map<unknown,unknown>([[shared,'k'],['v',shared]]),set:new Set([1,shared]),bytes:new Uint8Array([1,2,3]).subarray(1),
+      boxed:Object('s'),big:12n,error:new RangeError('far',{cause:shared}),sparse:[1,,3],get read(){return 'got';}};
+    cyclic.self=cyclic;
+    const copy=structuredClone(cyclic);
+    const refused=[()=>{},Symbol('s'),Promise.resolve(),new WeakMap()].map(v=>{try{structuredClone(v);return 'cloned';}catch(e){return (e as DOMException).name;}});
+    const controller=new AbortController(), heard:string[]=[];
+    controller.signal.addEventListener('abort',()=>heard.push('listener'));
+    controller.signal.onabort=()=>heard.push('onabort');
+    controller.abort();
+    let thrown='';
+    try{controller.signal.throwIfAborted();}catch(e){thrown=(e as DOMException).name;}
+    const any=AbortSignal.any([new AbortController().signal,AbortSignal.abort('why')]);
+    return JSON.stringify({
+      distinct:copy!==cyclic&&copy.shared!==shared, shared:copy.list[0]===copy.list[1]&&copy.list[0]===copy.shared&&copy.map.get('v')===copy.shared,
+      cyclic:copy.self===copy, when:copy.when.getTime(), re:[copy.re.source,copy.re.flags], map:[...copy.map.values()].length, set:copy.set.has(copy.shared),
+      bytes:[Array.from(copy.bytes),copy.bytes.byteOffset,copy.bytes.buffer.byteLength], boxed:typeof copy.boxed, big:String(copy.big),
+      error:[copy.error instanceof RangeError,copy.error.message,copy.error.cause===copy.shared], sparse:[copy.sparse.length,1 in copy.sparse], read:copy.read,
+      refused, aborted:[controller.signal.aborted,(controller.signal.reason as DOMException).name,thrown,heard], any:[any.aborted,any.reason],
+      sorted:[[3,1,2].toSorted(),[3,1,2].toSorted((a,b)=>b-a),Array.prototype.toSorted.call({length:2,0:'b',1:'a'})],
+      typed:[Array.from(new Int8Array([1,-2,3]).toReversed()),Array.from(new Int8Array([3,-2,1]).toSorted()),Array.from(new Int8Array([1,2,3]).with(-1,9))],
+      newer:[[1,2,3].at(-1),[1,2,3].findLast(n=>n<3),Object.groupBy([1,2,3],n=>n%2?'odd':'even'),'a.b'.replaceAll('.','/'),typeof Promise.withResolvers],
+      ...steered(),
+    });
+  }
+  if(source==='microtask') {
+    const order:string[]=[];
+    queueMicrotask(()=>order.push('first'));
+    Promise.resolve().then(()=>order.push('promise'));
+    queueMicrotask(()=>{order.push('throws');throw new Error('reported, not rejected');});
+    queueMicrotask(()=>order.push('after'));
+    order.push('sync');
+    return new Promise<string>(done=>queueMicrotask(()=>done(JSON.stringify(order)))) as unknown as string;
+  }
+  if(source==='abort') {
+    // A fetch's `signal`, before and after the request starts; the reply of
+    // the aborted one is never awaited.
+    const early=fetch('https://example.invalid/early',{signal:AbortSignal.abort()}).then(()=>'fetched',e=>(e as Error).name);
+    const controller=new AbortController();
+    const late=fetch('https://example.invalid/late',{signal:controller.signal}).then(()=>'fetched',e=>(e as Error).name);
+    controller.abort(new Error('mine'));
+    // An abort listener the app added first cannot stop the fetch's own
+    // (review r4a 8); a signal that is no AbortSignal is a TypeError.
+    const quiet=new AbortController();
+    quiet.signal.addEventListener('abort',e=>e.stopImmediatePropagation());
+    const suppressed=fetch('https://example.invalid/quiet',{signal:quiet.signal}).then(()=>'fetched',e=>(e as Error).name);
+    quiet.abort();
+    const bad=fetch('https://example.invalid/bad',{signal:{aborted:false} as unknown as AbortSignal}).then(()=>'fetched',e=>(e as Error).name);
+    return Promise.all([early,late,late.then(()=>controller.signal.reason.message),suppressed,bad]).then(JSON.stringify) as unknown as string;
+  }
+  if(source==='hooks') {
+    const hook=(globalThis as any).__exact_ibex2_abort_hooks;
+    return JSON.stringify({present:'__exact_ibex2_abort_hooks' in globalThis,own:typeof hook?.own,subscribe:typeof hook?.subscribe});
+  }
+  // Intl.NumberFormat as the browser formats it (x2apps stocks #3: Hermes
+  // on macOS printed `9,274,743` for compact): compact in its displays,
+  // currency and percent, each in a few locales.
+  if(source==='intl') {
+    const values=[0,-0,0.5,0.0123,1,12,999,999.9,1000,1234,1250,9999,12345,99999,123456,999999,1e6,1234567,9274743,99999999,543578062292.7,1e12,1.5e13,-2500,-9274743,1e15];
+    const locales=['en-US','de-DE','fr-FR','ja-JP','es-ES','en-GB','pt-BR','it-IT','zh-CN','ko-KR','en-IN','hi-IN'];
+    const out:Record<string,string[]>={};
+    for(const locale of locales) for(const [name,options] of [
+      ['compact',{notation:'compact'}],
+      ['compact2',{notation:'compact',maximumFractionDigits:2}],
+      ['compact-sd',{notation:'compact',maximumSignificantDigits:3}],
+    ] as [string,Intl.NumberFormatOptions][]) out[locale+' '+name]=values.map(v=>new Intl.NumberFormat(locale,options).format(v));
+    out['en-US toLocaleString']=values.map(v=>v.toLocaleString('en-US',{notation:'compact'}));
+    for(const locale of ['en-US','de-DE','fr-FR']) {
+      out[locale+' currency']=[1234.5,-0.41,166.07].map(v=>new Intl.NumberFormat(locale,{style:'currency',currency:'USD'}).format(v));
+      out[locale+' percent']=[0.0041,-0.0041,0.5].map(v=>new Intl.NumberFormat(locale,{style:'percent',minimumFractionDigits:2}).format(v));
+      out[locale+' resolved']=[new Intl.NumberFormat(locale,{notation:'compact'}).resolvedOptions().notation as string];
+    }
+    return JSON.stringify(out);
   }
   if(source==='base64') {
     const inputs=['','Zg','Zh','Zg==','Zm8','Zm9','Zm9v',' /w==\n','AA=='];
@@ -81,9 +183,12 @@ function transfer(mode:string):unknown {
 }
 // Exercise the actual native envelope parser, including replies the ordinary
 // serializer cannot emit. Restore stringify before it visits capture paths.
+// An async mode replaces the call's envelope; a sync one the reply its settle
+// gives after the checkpoint (a value given at once is a call too).
 function wire(text:string,mode:string):unknown {
   const stringify=JSON.stringify;
   JSON.stringify=((value:unknown,replacer:never,space:never)=>{
+    if(!mode.startsWith('async')&&(value as {tag?:number}|null)?.tag===3) return stringify(value,replacer,space);
     JSON.stringify=stringify;
     stringify(value,replacer,space);
     return text;

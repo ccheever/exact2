@@ -189,18 +189,19 @@ impl HookTargets {
         frame: &crate::FrameInput<'_>,
         size: (u32, u32),
         opaque: bool,
-    ) {
+        split: f32,
+    ) -> bool {
         let view = if opaque {
             self.scene.as_ref().map(|(_, d)| d)
         } else {
             self.final_depth.as_ref()
         };
         let (Some(view), Some(depth)) = (view, &self.depth) else {
-            return;
+            return false;
         };
         let u = depth_interface::depth::DepthView {
             inverse_projection: frame.proj.inverse().to_cols_array_2d(),
-            viewport: [size.0 as f32, size.1 as f32, 0., 0.],
+            viewport: [size.0 as f32, size.1 as f32, split, 0.],
         };
         queue.write_buffer(&depth.uniform, 0, &u.bytes());
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -227,6 +228,7 @@ impl HookTargets {
         pass.set_pipeline(&depth.pipeline);
         pass.set_bind_group(0, &depth.bind, &[]);
         pass.draw(0..3, 0..1);
+        true
     }
 }
 #[allow(dead_code)]

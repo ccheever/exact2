@@ -507,13 +507,11 @@ component Child
         "searchParam",
         "encodeURIComponent",
     ] {
+        // An app's `fn` of a router verb's name shadows it.
         let source = format!(
-            "fn {name}(value: string): string = value\ncomponent App\n  view\n    text \"hello\"\n"
+            "fn {name}(value: string): string = value\ncomponent App\n  view\n    text {name}(\"hello\")\n"
         );
-        assert_eq!(
-            contract::compile(&source).unwrap_err().id,
-            "contract-fn-shadows-roster"
-        );
+        contract::compile(&source).unwrap();
     }
     let plan = contract::compile("component App\n  view\n    text \"hello\"\n").unwrap();
     assert!(plan.router.is_none() && plan.routes.is_empty());
@@ -656,5 +654,121 @@ fn navigate_delivers_one_location_or_lets_the_action_ignore_it() {
             .replace("button id=\"back\"", "button navigate=home id=\"back\""),
     ] {
         assert!(contract::compile(&source).is_err());
+    }
+}
+
+#[test]
+fn a_route_is_a_child_of_its_root_or_of_a_tabpanel_and_nowhere_else() {
+    // @ref LLP 1038 D6, LLP 1075.003 §3.7 — where every host finds routes
+    // (hn-reader F5: a route behind a centering column was ignored).
+    let tabs = r#"routes nav
+  tab home "/"
+    item "/item"
+  tab saved "/saved"
+component App
+  action back
+    nav = back(nav)
+  action pick(name: string)
+    nav = select(nav, name)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" display="flex" flex-direction="column"
+      column flex=1 position="relative"
+        each t in nav.tabs key=t.name
+          column role="tabpanel" id=`panel-${t.name}` position="absolute" top=0 right=0 bottom=0 left=0
+            STACK
+      row role="tablist"
+        button role="tab" aria-controls="panel-home" press=pick("home")
+          text "Home"
+        button role="tab" aria-controls="panel-saved" press=pick("saved")
+          text "Saved"
+"#;
+    let stack = "each e in t.stack key=e.id\n              column navigationKey=`${e.id}` position=\"absolute\" inset=0\n                text e.url";
+    contract::compile(&tabs.replace("STACK", stack)).unwrap();
+    // A route inside a route is shown by no host.
+    let nested = stack.replace("text e.url", "column navigationKey=\"inner\"");
+    let error = contract::compile(&tabs.replace("STACK", &nested)).unwrap_err();
+    assert_eq!(error.id, "lower-route-place", "{error}");
+    assert!(error.message.contains("inside another route"), "{error}");
+    // Behind a wrapper inside a panel: the message names the path.
+    let wrapped = "column\n              each e in t.stack key=e.id\n                column navigationKey=`${e.id}`";
+    let error = contract::compile(&tabs.replace("STACK", wrapped)).unwrap_err();
+    assert_eq!(error.id, "lower-route-place", "{error}");
+    assert!(
+        error
+            .message
+            .contains("`main > column > column > column > column`"),
+        "{error}"
+    );
+    // A key outside any root is not a route.
+    contract::compile(
+        "component App\n  view\n    column navigationKey=\"a\"\n      column navigationKey=\"b\"\n",
+    )
+    .unwrap();
+}
+
+#[test]
+fn a_route_scroll_names_an_element_of_the_route_that_scrolls_on_y() {
+    // @ref LLP 1075.003 §3.5 — `navigationScroll` names the route's content
+    // scroller by HTML id; refused only where that provably fails.
+    let source = r#"routes nav
+  home "/"
+component App
+  action back
+    nav = back(nav)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back"
+      each e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` NAMED position="absolute" inset=0 display="flex" flex-direction="column"
+          header
+            text "Title"
+          BODY
+
+component Pane
+  props
+    name: string
+  view
+    scroll id=name flex=1 min-height=0
+      text "row"
+"#;
+    let compile = |named: &str, body: &str| {
+        contract::compile(&source.replace("NAMED", named).replace("BODY", body))
+    };
+    let named = "navigationScroll=\"list\"";
+    let accepted = [
+        "scroll id=\"list\" flex=1 min-height=0\n            text \"row\"",
+        "column id=\"list\" flex=1 min-height=0 overflow-y=\"auto\"",
+        // CSS: a visible y beside a scrolling x computes to auto.
+        "column id=\"list\" flex=1 min-height=0 overflow-x=\"hidden\"",
+        // What the compiler cannot see through is given the benefit.
+        "column id=e.url",
+        "column id=\"list\" overflow-y=(e.url == \"/\" ? \"auto\" : \"hidden\")",
+        "when e.url == \"/\"\n            scroll id=\"list\" flex=1 min-height=0",
+        "Pane(name=\"list\")",
+        // A computed id may name the scroller beside a static still box.
+        "column id=\"list\"\n          scroll id=e.url flex=1 min-height=0",
+        "scroll id=\"list\" flex=1 min-height=0 overflow-x=\"hidden\"",
+    ];
+    for body in accepted {
+        compile(named, body).unwrap_or_else(|e| panic!("{body}: {e}"));
+    }
+    // Not literal, or empty: nothing to check.
+    compile("navigationScroll=e.url", "column").unwrap();
+    compile("navigationScroll=\"\"", "column").unwrap();
+    // No element carries the id.
+    let error = compile(named, "scroll id=\"lst\" flex=1 min-height=0").unwrap_err();
+    assert_eq!(error.id, "lower-route-scroll", "{error}");
+    assert!(error.message.contains("names no element"), "{error}");
+    // The element that does never scrolls on y.
+    for body in [
+        "column id=\"list\" flex=1",
+        "column id=\"list\" flex=1 overflow-y=\"hidden\" overflow-x=\"auto\"",
+        "column id=\"list\" overflow=\"hidden\"",
+        // A `scroll` or `list` whose y a literal row stills.
+        "scroll id=\"list\" flex=1 min-height=0 overflow=\"hidden\"",
+        "list id=\"list\" flex=1 min-height=0 overflow-y=\"hidden\"",
+    ] {
+        let error = compile(named, body).unwrap_err();
+        assert_eq!(error.id, "lower-route-scroll", "{body}: {error}");
+        assert!(error.message.contains("never scrolls on y"), "{error}");
     }
 }

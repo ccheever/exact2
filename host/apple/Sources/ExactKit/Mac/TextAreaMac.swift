@@ -19,9 +19,28 @@ final class TextArea: NSTextView {
     weak var owner: NodeView?
     var markup: MarkupEditor?
 
+    // The ARIA states AppKit has no property for (`NodeView.ariaAttribute`).
+    override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+        super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { owner?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
+    }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        owner?.ariaAttribute(attribute.rawValue) ?? super.accessibilityAttributeValue(attribute)
+    }
+
     override func resignFirstResponder() -> Bool {
         if let markup, !hasMarkedText() { markup.bookmark = selectedRange() }
         return super.resignFirstResponder()
+    }
+    /// `focus` as the web fires it: when the editor takes the focus, not at
+    /// its first edit (`textDidBeginEditing`; jukebox F23). `blur` is
+    /// `textDidEndEditing`, which AppKit posts whenever the focus leaves.
+    override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        // A selection a script set while it had no focus (x2apps codeedit #2).
+        if ok, let owner { owner.presenter?.fieldSelections.focused(owner) }
+        if ok { owner?.showFieldFocus(true) }
+        if ok, let owner, owner.handlers.contains("focus") { owner.presenter?.focus(owner.id) }
+        return ok
     }
 
     override func insertNewline(_ sender: Any?) {
@@ -74,7 +93,7 @@ final class TextArea: NSTextView {
         if string.isEmpty, !placeholder.isEmpty {
             (placeholder as NSString).draw(in: bounds, withAttributes: [
                 .font: font ?? NSFont.systemFont(ofSize: 16),
-                .foregroundColor: (textColor ?? .black).withAlphaComponent(0.3),
+                .foregroundColor: (textColor ?? SystemColor.canvasText).withAlphaComponent(0.3),
             ])
         }
     }
@@ -89,6 +108,14 @@ extension NodeView {
     }
 
     var allowsInputSpellChecking: Bool { props["spellcheck"] != "false" }
+
+    /// What `autocorrect` and `spellcheck` ask of an editor: a textarea's
+    /// text view or an input's field editor.
+    func applyTextChecking(_ v: NSTextView) {
+        v.isAutomaticSpellingCorrectionEnabled = allowsInputCorrection
+        v.isContinuousSpellCheckingEnabled = allowsInputSpellChecking
+        v.keepsTypedText(!allowsInputCorrection)
+    }
 
     func makeTextArea() {
         let f = TextArea(usingTextLayoutManager: true)
@@ -151,8 +178,8 @@ extension NodeView {
         writeValue(props["value"] ?? "", into: f)
         f.isEditable = !disabled && props["editable"] != "false"
         f.isSelectable = !disabled
-        f.isAutomaticSpellingCorrectionEnabled = allowsInputCorrection
-        f.isContinuousSpellCheckingEnabled = allowsInputSpellChecking
+        applyTextChecking(f)
+        f.contentType = Autofill.contentType(props["autocomplete"], fallback: nil)
         f.setAccessibilityLabel(props["accessibilityLabel"])
         f.setAccessibilityIdentifier(props["testId"])
         (f as? TextArea)?.placeholder = props["placeholder"] ?? ""
@@ -161,7 +188,7 @@ extension NodeView {
         guard let f = textArea, let t = text else { return }
         guard !f.hasMarkedText() else { layoutTextArea(); return }
         f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
-        f.textColor = color("text_color", .black)
+        f.textColor = color("text_color", SystemColor.canvasText)
         f.insertionPointColor = caretColor
         let paragraph = NSMutableParagraphStyle()
         if let height = usedLineHeight {
@@ -183,6 +210,9 @@ extension NodeView {
         f.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         f.setFrameSize(NSSize(width: scroller.contentSize.width, height: max(f.frame.height, scroller.contentSize.height)))
     }
+    func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+        TextInputLimit.allows(textView.string, range: affectedCharRange, replacement: replacementString ?? "", props: props)
+    }
     func textDidChange(_ notification: Notification) {
         guard let f = textArea else { return }
         if let editor = (f as? TextArea)?.markup, editor.applying || editor.styling { return }
@@ -195,7 +225,6 @@ extension NodeView {
     }
     func textDidBeginEditing(_ notification: Notification) {
         presenter?.collections.pinsChanged()
-        if handlers.contains("focus") { presenter?.focus(id) }
         publishMarkupSelection(force: true)
     }
     func textViewDidChangeSelection(_ notification: Notification) {
@@ -206,8 +235,61 @@ extension NodeView {
     }
     func textDidEndEditing(_ notification: Notification) {
         presenter?.collections.pinsChanged()
+        showFieldFocus(false)
         presenter?.commitEdit(id, textArea?.string ?? "", change: handlers.contains("change"))
         if handlers.contains("blur") { presenter?.blur(id) }
     }
+}
+
+private var heldSubstitutions: UInt8 = 0
+
+extension NSTextView {
+    /// No correction keeps the text as typed, as HTML's `autocorrect="off"`
+    /// asks (#111): no smart quotes or dashes and no text replacement, which
+    /// AppKit would otherwise apply after a pause in typing. What the view
+    /// had (AppKit's, or the person's from the Substitutions menu) is held,
+    /// and given back once correction is allowed again: for the window's one
+    /// field editor, when a field that allows it takes the focus.
+    func keepsTypedText(_ keep: Bool) {
+        let held = objc_getAssociatedObject(self, &heldSubstitutions) as? [Bool]
+        if keep, held == nil {
+            objc_setAssociatedObject(self, &heldSubstitutions, [isAutomaticQuoteSubstitutionEnabled, isAutomaticDashSubstitutionEnabled, isAutomaticTextReplacementEnabled], .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            isAutomaticQuoteSubstitutionEnabled = false
+            isAutomaticDashSubstitutionEnabled = false
+            isAutomaticTextReplacementEnabled = false
+        } else if !keep, let held {
+            objc_setAssociatedObject(self, &heldSubstitutions, nil, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+            isAutomaticQuoteSubstitutionEnabled = held[0]
+            isAutomaticDashSubstitutionEnabled = held[1]
+            isAutomaticTextReplacementEnabled = held[2]
+        }
+    }
+}
+
+/// An input's field: `focus` when it takes the focus (its field editor then
+/// edits it), as the web fires it, not at its first edit
+/// (`controlTextDidBeginEditing`; jukebox F23). `blur` is
+/// `controlTextDidEndEditing`, which AppKit sends whenever the editor leaves.
+/// Its cell serves the node's ARIA attributes (`FieldCell`, Accessibility.swift).
+final class Field: NSTextField {
+    override class var cellClass: AnyClass? { get { FieldCell.self } set {} }
+    override func becomeFirstResponder() -> Bool { focused(delegate) { super.becomeFirstResponder() } }
+}
+final class SecureField: NSSecureTextField {
+    override class var cellClass: AnyClass? { get { SecureFieldCell.self } set {} }
+    override func becomeFirstResponder() -> Bool { focused(delegate) { super.becomeFirstResponder() } }
+}
+/// The field editor selects the whole value as it takes a field, which is
+/// no `select` of the person's; a selection a script set while the field
+/// had no focus is shown instead (x2apps codeedit #2).
+private func focused(_ delegate: NSTextFieldDelegate?, _ become: () -> Bool) -> Bool {
+    let owner = delegate as? NodeView, selections = owner?.presenter?.fieldSelections
+    let ok = selections?.quietly(become) ?? become()
+    if ok, let owner { selections?.focused(owner) }
+    if ok { owner?.showFieldFocus(true) }
+    // The window's one field editor still has the last field's checking.
+    if ok, let owner, let editor = owner.field?.currentEditor() as? NSTextView { owner.applyTextChecking(editor) }
+    if ok, let owner, owner.handlers.contains("focus") { owner.presenter?.focus(owner.id) }
+    return ok
 }
 #endif

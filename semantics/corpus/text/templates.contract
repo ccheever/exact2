@@ -1,0 +1,21 @@
+// Templates: adjacent parts, literal `$` and braces, expressions with
+// operators and calls inside `${}`. (Escapes: text/template-escapes.)
+component App
+  state n = 4
+  state s = "ab"
+  view
+    column
+      text `${n}${n}${s}` testId="adjacent"
+      text `$ {n} ${"$"}{n}` testId="dollars"
+      text `{${n}}` testId="braces"
+      text `${n * 2 + 1}|${length(s) == 2 ? "two" : "other"}` testId="exprs"
+      text `${`${`${s}`}`}` testId="deep"
+      text `` testId="empty"
+
+test "templates"
+  expect text "adjacent" == "44ab"
+  expect text "dollars" == "$ {n} ${n}"
+  expect text "braces" == "{4}"
+  expect text "exprs" == "9|two"
+  expect text "deep" == "ab"
+  expect text "empty" == ""

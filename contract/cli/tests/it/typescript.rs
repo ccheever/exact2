@@ -15,7 +15,8 @@ shape Item
 component App
   state query = ""
   resource items = search(query) as shape list<Item>
-  mutation outcome as shape option<Item>
+  resource found = find(query) as shape option<Item>
+  mutation outcome as shape Item
   action save
     send outcome = save(query, true)
   view
@@ -26,6 +27,7 @@ const VALID: &str = r#"
 import type { Answer, Args, Result, Source, Sources, Store, Storage } from './app.contract.d.ts';
 const sources: Sources = {
   search: ([query], store) => [{ id: query, enabled: store.get('token') !== null, scores: [1], child: null }],
+  find: () => null,
   save: async ([query, enabled], store) => {
     store.set('token', query);
     store.forget('old');
@@ -37,7 +39,7 @@ declare const store: Store;
 declare const storage: Storage;
 answer('search', ['Palo'], store, storage);
 answer('save', ['Palo', true], store, storage);
-const nullable: Result<'save'> = null;
+const nullable: Result<'find'> = null;
 // @ts-expect-error argument order is the Contract's
 const swapped: Args<'save'> = [true, 'Palo'];
 // @ts-expect-error the caller must supply every argument
@@ -188,6 +190,50 @@ const wrong: Result<'board'> = [{ id: 'mv', name: 'Mountain View', zone: 4, dist
         "{}{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+#[ignore = "async lane: typechecks the guides' TypeScript examples with tsc; bun scripts/async.mjs runs it"]
+fn every_typescript_example_in_the_guides_checks_against_its_contracts_types() {
+    // LLP 1086 D10: each `ts` block after a `contract` block in the same
+    // section is checked against that Contract's `contract types` output.
+    let mut failures = Vec::new();
+    let mut checked = 0;
+    for block in crate::docs::blocks() {
+        let Some(source) = block.contract.as_deref().filter(|_| block.info == "ts") else {
+            continue;
+        };
+        checked += 1;
+        let fixture = Fixture::new();
+        fixture.write("app.contract", source);
+        let plan = match contract::compile_path(&fixture.0.join("app.contract")) {
+            Ok(plan) => plan,
+            Err(e) => {
+                failures.push(format!("{}: its contract: {e}", block.at()));
+                continue;
+            }
+        };
+        fixture.write("app.contract.d.ts", &contract::typescript(&plan).unwrap());
+        let output = fixture.check(&block.body);
+        if !output.status.success() {
+            failures.push(format!(
+                "{}:\n{}{}",
+                block.at(),
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            ));
+        }
+    }
+    assert!(
+        checked > 0,
+        "no TypeScript examples follow a contract block"
+    );
+    assert!(
+        failures.is_empty(),
+        "{} of {checked} TypeScript examples fail tsc:\n{}",
+        failures.len(),
+        failures.join("\n")
     );
 }
 

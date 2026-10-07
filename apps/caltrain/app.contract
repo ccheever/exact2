@@ -46,6 +46,10 @@ shape DeliveryState
   seq: number
   staged: bool
 
+// CSS's `pointer` (Media Queries 4): a TV remote points at nothing.
+shape Viewport
+  pointer: string
+
 component Caltrain
   state nowMs = 1787915400000
   state screen = "home"
@@ -76,11 +80,15 @@ component Caltrain
   resource allStations = stations(location) as shape list<Station>
   resource matches = search(query, location) as shape list<Station>
   resource delivery = exactDelivery() as shape DeliveryState
+  resource viewport = exactViewport() as shape Viewport
+  derive tv = viewport.pointer == "none"
 
   action tick
     nowMs = nowMs + 1000
   action activateUpdate
     deliveryActivate()
+  action reloadApp
+    reload()
   action openStations
     screen = "stations"
   action openDeck
@@ -98,7 +106,7 @@ component Caltrain
     searchFocused = false
   action setQuery(value)
     query = value
-  action setScheme(scheme: string)
+  action chooseScheme(scheme: string)
     setScheme(scheme)
   action setMaterial(m: string)
     material = m
@@ -107,7 +115,8 @@ component Caltrain
   action focusDeparture(id)
     focus = some(id)
   derive skyOn = match sky { case some(c) => true, case none => false }
-  derive canvasColor = match sky { case some(c) => c, case none => "#ffffff" }
+  // With the sky off, a light grey page: the white cards keep their edges.
+  derive canvasColor = match sky { case some(c) => c, case none => "#edf0f4" }
   action hoverStation(id, over)
     hoverId = id
     hoverOn = over
@@ -138,14 +147,16 @@ component Caltrain
     // frame — or in a plain scroll, to see what each costs on a phone. The
     // root's background is what a phone paints behind the status bar and
     // the home indicator (the web's rule): the sky's dark, or white.
-    main testId="caltrain-main" width="100%" height="100%" background-color=canvasColor
+    // Text is sized in em from this root: 16 on a phone or a desktop, 24 on
+    // a TV (pointer none), read across a room.
+    main testId="caltrain-main" viewport-fit="cover" width="100%" height="100%" font-size=(tv ? 24 : 16) background-color=canvasColor
       // @ref LLP 1020 D6 — the iframe screen is outside the live canvas.
       when screen == "web-deck"
-        section role="region" aria-label="Deck fixture" testId="deck-screen" padding=20 gap=12
+        section role="region" aria-label="Deck fixture" testId="deck-screen" padding-top="calc(env(safe-area-inset-top) + 20px)" padding-right="calc(env(safe-area-inset-right) + 20px)" padding-bottom="calc(env(safe-area-inset-bottom) + 20px)" padding-left="calc(env(safe-area-inset-left) + 20px)" gap=12
           row align-items="center" justify-content="space-between"
-            text "Web deck" font-size=20 font-weight=700 color="#ffffff"
-            button press=goHome aria-label="Back" testId="deck-back" padding=8 background-color="#ffffff"
-              text "Back" font-size=13
+            text "Web deck" font-size="1.25em" font-weight=700 color="#ffffff"
+            button press=goHome aria-label="Back" aria-keyshortcuts="Escape" testId="deck-back" padding=8 background-color="#ffffff"
+              text "Back" font-size="0.8125em"
           // The hosted-deck sandbox pair (LLP 1020 §8 Q1's survey): same-origin
           // scripts, so the agent's guest outline is live on the web arm too.
           iframe src="/deck/index.html" sandbox="allow-scripts allow-same-origin" testId="deck-frame" load=recordDeckLoad message=recordDeckMessage
@@ -154,8 +165,8 @@ component Caltrain
       else
         // The sky or the plain page around the same content, written once:
         // `Sky` declares a slot and the content is what is indented under it.
-        Sky(on=skyOn, material=material, selectedId=selectedId)
-          Content(station=station, selectedId=selectedId, screen=screen, material=material, deck=deck, focus=focus, nowMs=nowMs, query=query, sky=skyOn, hoverId=hoverId, hoverOn=hoverOn, searchFocused=searchFocused, lastKey=lastKey, northBoard=northBoard, southBoard=southBoard, nearby=nearby, allStations=allStations, matches=matches, delivery=delivery, openStations=openStations, openDeck=openDeck, setScheme=setScheme, setMaterial=setMaterial, toggleDeck=toggleDeck, toggleSky=toggleSky, focusDeparture=focusDeparture, selectStation=selectStation, setQuery=setQuery, goHome=goHome, hoverStation=hoverStation, focusSearch=focusSearch, blurSearch=blurSearch, searchKey=searchKey, activateUpdate=activateUpdate)
+        Sky(on=skyOn, material=material, selectedId=selectedId, dim=tv)
+          Content(tv=tv, station=station, selectedId=selectedId, screen=screen, material=material, deck=deck, focus=focus, nowMs=nowMs, query=query, sky=skyOn, hoverId=hoverId, hoverOn=hoverOn, searchFocused=searchFocused, lastKey=lastKey, northBoard=northBoard, southBoard=southBoard, nearby=nearby, allStations=allStations, matches=matches, delivery=delivery, openStations=openStations, openDeck=openDeck, setScheme=chooseScheme, setMaterial=setMaterial, toggleDeck=toggleDeck, toggleSky=toggleSky, focusDeparture=focusDeparture, selectStation=selectStation, setQuery=setQuery, goHome=goHome, hoverStation=hoverStation, focusSearch=focusSearch, blurSearch=blurSearch, searchKey=searchKey, activateUpdate=activateUpdate, reloadApp=reloadApp)
       // @ref LLP 1048.003 D1 — a link preview's summary; the title stays the app's.
       head description="The next Caltrain departures, north and south, from the station nearest you."
 
@@ -164,23 +175,28 @@ component Sky
     on: bool
     material: string
     selectedId: string
+    dim: bool
   slot
   view
     // The sky is optional (the "Sky off" button): the same content inside
     // the aurora canvas — captured through its surface, the shader every
     // frame — or in a plain scroll, to see what each costs on a phone.
+    // Dimmed on a TV, where the full aurora is too bright across a room.
+    // It fills the screen (`viewport-fit="cover"`); the content keeps to the
+    // safe area: a phone's status bar and home indicator, a TV's overscan.
     when on
       canvas surface=glass(material, selectedId) width="100%" height="100%" testId="sky"
-        scroll width="100%" height="100%"
+        scroll width="100%" height="100%" background-color=(dim ? "#05081a99" : "#05081a00") padding-top="env(safe-area-inset-top)" padding-right="env(safe-area-inset-right)" padding-bottom="env(safe-area-inset-bottom)" padding-left="env(safe-area-inset-left)" box-sizing="border-box"
           children
     else
-      scroll width="100%" height="100%"
+      scroll width="100%" height="100%" padding-top="env(safe-area-inset-top)" padding-right="env(safe-area-inset-right)" padding-bottom="env(safe-area-inset-bottom)" padding-left="env(safe-area-inset-left)" box-sizing="border-box"
         children
 
 component Content
   inject
     accent: string
   props
+    tv: bool
     station: Station
     selectedId: string
     screen: string
@@ -215,102 +231,138 @@ component Content
     blurSearch: action
     searchKey: action
     activateUpdate: action
+    reloadApp: action
   view
-    column gap=16 padding=20 max-width=640 align-self="center" width="100%" box-sizing="border-box"
-      // An update is staged (LLP 1030 D7): say so, and let the person take it
-      // now — with carry, the selected station survives — or at the next launch.
-      when delivery.staged
-        row justify-content="space-between" align-items="center" background-color="#fff4d6" border-radius=12 padding=12 testId="update-banner"
-          text "An update is ready" font-size=13 font-weight=600 color="#5a4a1a" testId="update-ready"
-          button press=activateUpdate aria-label="Apply the update now" testId="delivery-activate" padding=8 border-radius=8 background-color="#1e3a5f"
-            text "Update now" font-size=12 font-weight=600 color="#ffffff"
-      header width="100%" background-color="#ffffffd9" border-radius=16 padding=14 box-sizing="border-box"
-        row justify-content="space-between" align-items="center"
-          column gap=2
-            image "assets/caltrain.png" width=96 object-fit="contain" aria-label="A Caltrain train" testId="logo"
-            text "Caltrain" font-size=13 font-weight=700 letter-spacing=1.2 color=accent testId="brand"
-            text station.name font-size=24 font-weight=700 testId="station-name" aria-level=1
-            text `${distanceText(station.distance)} · ${walkText(station.distance)}` font-size=12 color="#666666"
-          column gap=6 align-items="flex-end"
-            button press=openStations aria-label="Change station" testId="change-station" padding=8 border-radius=8 background-color="#eeeeee"
-              text "Change station" font-size=13 font-weight=600
-            button press=openDeck aria-label="Open web deck" testId="open-deck" padding=8 border-radius=8 background-color="#eeeeee"
-              text "Web deck" font-size=12 font-weight=600
-            row gap=6
-              button press=setScheme("light") aria-label="Light" testId="scheme-light"
-                text "Light" font-size=12
-              button press=setScheme("dark") aria-label="Dark" testId="scheme-dark"
-                text "Dark" font-size=12
-              button press=toggleSky aria-label="Toggle the sky" testId="sky-toggle"
-                when sky
-                  text "Sky off" font-size=12
-                else
-                  text "Sky on" font-size=12
-            row gap=6
-              button press=setMaterial("glass") aria-label="Glass" testId="material-glass"
-                text "Glass" font-size=12 font-weight=600
-              button press=setMaterial("ink") aria-label="Ink" testId="material-ink"
-                text "Ink" font-size=12 font-weight=600
-              button press=setMaterial("crt") aria-label="CRT" testId="material-crt"
-                text "CRT" font-size=12 font-weight=600
-              button press=toggleDeck aria-label="Deck" testId="deck-toggle"
-                text "Deck" font-size=12 font-weight=600 color=accent
-
-      when screen == "home"
-        column padding=20 gap=4 height=220 box-sizing="border-box" justify-content="flex-end" testId="aurora"
-          when material == "glass"
-            text "Next stop" font-size=12 font-weight=700 letter-spacing=1.2 color="#9ad8ff"
-            text station.name font-size=34 font-weight=800 color="#ffffff" testId="aurora-title"
-            text `${distanceText(station.distance)} · ${walkText(station.distance)} · the whole app laid out by the kernel, painted by CoreText, refracted by the aurora` font-size=12 color="#d0e4ff"
-          else
-            text "Next stop" font-size=12 font-weight=700 letter-spacing=1.2 color="#8a5a2b"
-            text station.name font-size=34 font-weight=800 color="#2a1f14" testId="aurora-title"
-            text `${distanceText(station.distance)} · ${walkText(station.distance)} · the whole app laid out by the kernel, painted by CoreText, composed by the surface` font-size=12 color="#5a4a3a"
-        canvas surface=map(allStations, selectedId, northBoard, nowMs) width="100%" height=160 border-radius=16 testId="line-map"
-          column height="100%" box-sizing="border-box" padding-top=16 padding-bottom=16 justify-content="space-between"
-            each s in allStations key=s.id
-              row align-items="center" height=14 testId=`map-${s.id}`
-                view flex=1
-                view width=14 height=14 align-items="center" justify-content="center"
-                  when s.id == selectedId
-                    view width=14 height=14 border-radius=7 background-color="#bf382b"
+    // One column on a phone; on a TV, two halves: the station and its map
+    // on the left, the departures (or the station list) on the right.
+    view display="flex" flex-direction=(tv ? "row" : "column") gap=(tv ? 0 : 16) padding=(tv ? 0 : 20) max-width=(tv ? 4000 : 640) align-self="center" width="100%" height=(tv ? "100%" : "auto") box-sizing="border-box"
+      column gap=16 width=(tv ? "50%" : "100%") padding=(tv ? 20 : 0) box-sizing="border-box" focusGuide="auto" testId="column-station"
+        // An update is staged (LLP 1030 D7): say so, and let the person take it
+        // now — with carry, the selected station survives — or at the next launch.
+        when delivery.staged
+          row justify-content="space-between" align-items="center" background-color="#fff4d6" border-radius=12 padding=12 testId="update-banner"
+            text "An update is ready" font-size="0.8125em" font-weight=600 color="#5a4a1a" testId="update-ready"
+            button press=activateUpdate aria-label="Apply the update now" testId="delivery-activate" padding=8 border-radius=8 background-color="#1e3a5f"
+              text "Update now" font-size="0.75em" font-weight=600 color="#ffffff"
+        header width="100%" background-color="#ffffffd9" border-radius=16 padding=14 box-sizing="border-box"
+          row justify-content="space-between" align-items="center"
+            column gap=2
+              image "assets/caltrain.png" width=96 object-fit="contain" aria-label="A Caltrain train" testId="logo"
+              text "Caltrain" font-size="0.8125em" font-weight=700 letter-spacing=1.2 color=accent testId="brand"
+              text station.name font-size="1.5em" font-weight=700 testId="station-name" aria-level=1
+              text `${distanceText(station.distance)} · ${walkText(station.distance)}` font-size="0.75em" color="#666666"
+            column gap=6 align-items="flex-end"
+              // The development host's Reload, as its dev menu has it. Only a
+              // The large buttons, the full width of the column: a remote's Up
+              // from a small button below lands here even when none is above it.
+              column gap=6 align-items="flex-end" width="100%" focusGuide="auto"
+                // TV shows it: a Siri Remote has no gesture for the dev menu.
+                when tv
+                  button press=reloadApp aria-label="Reload" testId="reload" padding=8 border-radius=8 background-color="#eeeeee"
+                    text "Reload" font-size="0.75em" font-weight=600
+                button press=openStations aria-label="Change station" testId="change-station" padding=8 border-radius=8 background-color="#eeeeee"
+                  text "Change station" font-size="0.8125em" font-weight=600
+                button press=openDeck aria-label="Open web deck" testId="open-deck" padding=8 border-radius=8 background-color="#eeeeee"
+                  text "Web deck" font-size="0.75em" font-weight=600
+              // The small buttons get room for a focus ring (a TV remote, Tab, VoiceOver);
+              // a TV draws its ring outside the button, so its rows are wider apart.
+              row gap=(tv ? 12 : 6)
+                // A TV has no light and dark scheme for the app to choose.
+                when not tv
+                  button press=setScheme("light") aria-label="Light" testId="scheme-light"
+                    text "Light" font-size="0.75em"
+                  button press=setScheme("dark") aria-label="Dark" testId="scheme-dark"
+                    text "Dark" font-size="0.75em"
+                button press=toggleSky aria-label="Toggle the sky" testId="sky-toggle" padding=8 border-radius=8
+                  when sky
+                    text "Sky off" font-size="0.75em"
                   else
-                    view width=7 height=7 border-radius=3.5 background-color="#666666"
-                view flex=1 padding-left=10
-                  text s.name font-size=11 color="#444444" testId=`map-name-${s.id}`
-        section role="region" aria-label="Departures" gap=14 testId="home-screen"
-          when deck
-            canvas surface=stack(northBoard, focus, deck, nowMs) width="100%" height=460 testId="deck"
-              each d in northBoard key=d.id
-                button press=focusDeparture(d.id) aria-label=`Train ${d.train}` testId=`card-${d.id}` width="100%"
-                  column border-radius=16 padding=16 gap=6 background-color="#ffffff" width="100%" box-sizing="border-box"
-                    row gap=8 align-items="flex-end"
-                      text countdownText(d.at, nowMs) font-size=30 font-weight=800
-                      text "min" font-size=13 color="#666666"
-                    text `${formatTime(d.at, 0, "short")} · Train ${d.train} · ${d.service} to ${d.headsign}` font-size=13 color="#444444"
-          else
-            DirectionCard(title="Northbound", board=northBoard, nowMs=nowMs, testId="board-north")
-          DirectionCard(title="Southbound", board=southBoard, nowMs=nowMs, testId="board-south")
-      else
-        section role="region" aria-label="Stations" gap=12 testId="stations-screen" background-color="#ffffffd9" border-radius=16 padding=14 box-sizing="border-box"
-          input value=query input=setQuery focus=focusSearch blur=blurSearch key=searchKey placeholder="Search stations" aria-label="Search stations" testId="station-search" padding=12 border-radius=10 border-style="solid" border-width=1 border-color="#cccccc"
-          when searchFocused
-            text `searching · last key ${lastKey}` font-size=11 color="#999999" testId="search-hint"
-          when query == ""
-            column gap=8
-              text "Nearest" font-size=12 font-weight=700 letter-spacing=0.8 color="#999999"
-              each s in nearby key=s.id
-                StationRow(station=s, press=selectStation, hover=hoverStation, hot=(hoverOn and s.id == hoverId))
-              text "All stations" font-size=12 font-weight=700 letter-spacing=0.8 color="#999999"
+                    text "Sky on" font-size="0.75em"
+              row gap=(tv ? 12 : 6)
+                button press=setMaterial("glass") aria-label="Glass" testId="material-glass" padding=8 border-radius=8
+                  text "Glass" font-size="0.75em" font-weight=600
+                button press=setMaterial("ink") aria-label="Ink" testId="material-ink" padding=8 border-radius=8
+                  text "Ink" font-size="0.75em" font-weight=600
+                button press=setMaterial("crt") aria-label="CRT" testId="material-crt" padding=8 border-radius=8
+                  text "CRT" font-size="0.75em" font-weight=600
+                button press=toggleDeck aria-label="Deck" testId="deck-toggle" padding=8 border-radius=8
+                  text "Deck" font-size="0.75em" font-weight=600 color=accent
+        when screen == "home"
+          // A fixed band of sky on a TV, where the left column has room; on a
+          // phone it fits its text, so the departures stay on screen.
+          column padding=20 gap=4 height=(tv ? 220 : "auto") box-sizing="border-box" justify-content="flex-end" testId="aurora"
+            when material == "glass"
+              text "Next stop" font-size="0.75em" font-weight=700 letter-spacing=1.2 color=(sky ? "#9ad8ff" : "#2a6f9e")
+              text station.name font-size="2.125em" font-weight=800 color=(sky ? "#ffffff" : "#111111") testId="aurora-title"
+              text `${distanceText(station.distance)} · ${walkText(station.distance)} · the whole app laid out by the kernel, painted by CoreText, refracted by the aurora` font-size="0.75em" color=(sky ? "#d0e4ff" : "#555555")
+            else
+              text "Next stop" font-size="0.75em" font-weight=700 letter-spacing=1.2 color="#8a5a2b"
+              text station.name font-size="2.125em" font-weight=800 color="#2a1f14" testId="aurora-title"
+              text `${distanceText(station.distance)} · ${walkText(station.distance)} · the whole app laid out by the kernel, painted by CoreText, composed by the surface` font-size="0.75em" color="#5a4a3a"
+          canvas surface=map(allStations, selectedId, northBoard, nowMs, tv ? 24 : 16) width="100%" height="15em" border-radius=16 testId="line-map"
+            column height="100%" box-sizing="border-box" padding-top=16 padding-bottom=16 justify-content="space-between"
               each s in allStations key=s.id
-                StationRow(station=s, press=selectStation, hover=hoverStation, hot=(hoverOn and s.id == hoverId))
-          else
-            column gap=8
-              text "Matches" font-size=12 font-weight=700 letter-spacing=0.8 color="#999999"
-              each s in matches key=s.id
-                StationRow(station=s, press=selectStation, hover=hoverStation, hot=(hoverOn and s.id == hoverId))
-          button press=goHome aria-label="Back" testId="stations-back"
-            text "Back" font-size=13
+                row align-items="center" height="1.25em" testId=`map-${s.id}`
+                  view flex=1
+                  view width="0.875em" height="0.875em" align-items="center" justify-content="center"
+                    when s.id == selectedId
+                      view width="0.875em" height="0.875em" border-radius="0.4375em" background-color="#bf382b"
+                    else
+                      view width="0.4375em" height="0.4375em" border-radius="0.21875em" background-color="#666666"
+                  view flex=1 padding-left=10
+                    text s.name font-size="0.875em" color="#444444" testId=`map-name-${s.id}`
+      Pane(tv=tv)
+        when screen == "home"
+          section role="region" aria-label="Departures" display="flex" flex-direction="column" gap=14 testId="home-screen"
+            when deck
+              canvas surface=stack(northBoard, focus, deck, nowMs) width="100%" height=460 testId="deck"
+                each d in northBoard key=d.id
+                  button press=focusDeparture(d.id) aria-label=`Train ${d.train}` testId=`card-${d.id}` width="100%" text-align="start"
+                    column border-radius=16 padding=16 gap=6 background-color="#ffffff" width="100%" box-sizing="border-box"
+                      row gap=8 align-items="flex-end"
+                        text countdownText(d.at, nowMs) font-size="1.875em" font-weight=800
+                        text "min" font-size="0.8125em" color="#666666"
+                      text `${formatTime(d.at, 0, "short")} · Train ${d.train} · ${d.service} to ${d.headsign}` font-size="0.8125em" color="#444444"
+            else
+              DirectionCard(title="Northbound", board=northBoard, nowMs=nowMs, focusDeparture=focusDeparture, testId="board-north")
+            DirectionCard(title="Southbound", board=southBoard, nowMs=nowMs, focusDeparture=focusDeparture, testId="board-south")
+        else
+          section role="region" aria-label="Stations" display="flex" flex-direction="column" gap=12 testId="stations-screen" background-color="#ffffffd9" border-radius=16 padding=14 box-sizing="border-box"
+            input appearance="none" value=query input=setQuery focus=focusSearch blur=blurSearch key=searchKey placeholder="Search stations" aria-label="Search stations" testId="station-search" padding=12 border-radius=10 border-style="solid" border-width=1 border-color="#cccccc"
+            when searchFocused
+              text `searching · last key ${lastKey}` font-size="0.6875em" color="#999999" testId="search-hint"
+            when query == ""
+              column gap=8
+                text "Nearest" font-size="0.75em" font-weight=700 letter-spacing=0.8 color="#999999"
+                each s in nearby key=s.id
+                  StationRow(station=s, press=selectStation, hover=hoverStation, hot=(hoverOn and s.id == hoverId))
+                text "All stations" font-size="0.75em" font-weight=700 letter-spacing=0.8 color="#999999"
+                each s in allStations key=s.id
+                  StationRow(station=s, press=selectStation, hover=hoverStation, hot=(hoverOn and s.id == hoverId))
+            else
+              column gap=8
+                text "Matches" font-size="0.75em" font-weight=700 letter-spacing=0.8 color="#999999"
+                each s in matches key=s.id
+                  StationRow(station=s, press=selectStation, hover=hoverStation, hot=(hoverOn and s.id == hoverId))
+            button press=goHome aria-label="Back" aria-keyshortcuts="Escape" testId="stations-back"
+              text "Back" font-size="0.8125em"
+
+// The departures' half: on a TV its own scroll, the full height, so the
+// station on the left stays put while the remote moves down the board.
+// Its focus guide brings a Right from the left column back to the row the
+// remote last left.
+component Pane
+  props
+    tv: bool
+  slot
+  view
+    when tv
+      scroll width="50%" height="100%" focusGuide="auto" testId="column-board"
+        column gap=16 padding=20 box-sizing="border-box"
+          children
+    else
+      column gap=16 width="100%" testId="column-board"
+        children
 
 component DirectionCard
   inject
@@ -319,17 +371,19 @@ component DirectionCard
     title: string
     board: list<Departure>
     nowMs: number
+    focusDeparture: action
     testId: string
   view
     column border-radius=16 padding=16 gap=10 background-color="#ffffffd9" testId=testId
-      text title font-size=13 font-weight=700 color=accent
+      text title font-size="0.8125em" font-weight=700 color=accent
       when isEmpty(board)
-        text "No more trains today" font-size=14 color="#666666"
+        text "No more trains today" font-size="0.875em" color="#666666"
       else
         each d in board key=d.id
-          row gap=8 align-items="flex-end" testId=`dep-${d.id}`
-            text countdownText(d.at, nowMs) font-size=28 font-weight=700 testId=`countdown-${d.id}`
-            text `min · ${formatTime(d.at, 0, "short")} · Train ${d.train} · ${d.service} to ${d.headsign}` font-size=13 color="#666666"
+          // Focusable, so Tab and a TV remote can reach each departure.
+          row gap=8 align-items="center" focus=focusDeparture(d.id) aria-label=`Train ${d.train}` testId=`dep-${d.id}`
+            text countdownText(d.at, nowMs) font-size="1.75em" font-weight=700 testId=`countdown-${d.id}`
+            text `min · ${formatTime(d.at, 0, "short")} · Train ${d.train} · ${d.service} to ${d.headsign}` font-size="0.8125em" color="#666666"
 
 component StationRow
   props
@@ -338,13 +392,13 @@ component StationRow
     hover: action
     hot: bool
   view
-    button press=press(station.id) hover=hover(station.id) aria-label=station.name testId=`station-${station.id}` width="100%"
+    button press=press(station.id) hover=hover(station.id) aria-label=station.name testId=`station-${station.id}` width="100%" text-align="start"
       // One row whose highlight is bound, not two arms: a hover then sets
       // two rows on one view instead of retiring five views and building
       // five more (`perf stations-screen during "tap station-mv hover"`,
       // LLP 1079 §8).
       row justify-content="space-between" align-items="center" padding-top=10 padding-bottom=10 border-bottom-style="solid" border-bottom-width=1 border-color="#e0e0e0" width="100%" background-color=(hot ? "#f2f2f2" : "#00000000") testId=(hot ? `station-hot-${station.id}` : `row-${station.id}`)
         column gap=2
-          text station.name font-size=15 font-weight=600
-          text `Zone ${station.zone}` font-size=12 color="#999999"
-        text distanceText(station.distance) font-size=12 color="#666666"
+          text station.name font-size="0.9375em" font-weight=600
+          text `Zone ${station.zone}` font-size="0.75em" color="#999999"
+        text distanceText(station.distance) font-size="0.75em" color="#666666"

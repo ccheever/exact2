@@ -27,7 +27,7 @@ extension NodeView {
         #endif
         // The kernel measures the CSS content box; borders and padding must
         // not become extra wrapping room when that paragraph is painted.
-        let width = contentBox().width
+        let width = paragraphBox().width
         if textLayoutValid, let cached = cachedTextLayout, cached.width == width { return cached.paragraph }
         guard let paragraph = text?.paragraph(paragraphSpec(), width: width, flow: flowShapes.map { $0.translated(CGPoint(x: -contentBox().minX, y: -contentBox().minY)) }) else { return nil }
         if paragraph.flowIncomplete { presenter?.session?.log("wrap-flow: text #\(id) is incomplete and uses ordinary layout") }
@@ -70,43 +70,51 @@ extension NodeView {
         #endif
     }
 
+    /// CSS start/end resolve from direction, for paragraphs and native editors.
+    var textAlignmentCode: Int {
+        let rtl = style["direction"]?.string == "rtl"
+        switch style["text_align"]?.string {
+        case "left": return 0
+        case "center": return 1
+        case "right": return 2
+        case "justify": return 3
+        case "end": return rtl ? 0 : 2
+        default: return rtl ? 2 : 0
+        }
+    }
     func paragraphSpec() -> Spec {
         if let spec = cachedTextSpec { return spec }
-        // Physical, as the kernel's paragraph is: CSS's initial `start` and
-        // `end` follow `direction` (LLP 1053).
-        let rtl = style["direction"]?.string == "rtl"
-        let align: Int
-        switch style["text_align"]?.string {
-        case "left": align = 0
-        case "center": align = 1
-        case "right": align = 2
-        case "justify": align = 3
-        case "end": align = rtl ? 0 : 2
-        default: align = rtl ? 2 : 0 // `start`
-        }
+        let align = textAlignmentCode, rtl = style["direction"]?.string == "rtl"
         var runs: [Run] = []
         // An inline run is not in the view hierarchy — its paragraph owns it
         // and it was removed from any superview — so it has no appearance of
         // its own to read. It inherits the paragraph's, which is the one
         // actually on screen. @ref LLP 1034 D2
-        let night = drawsDark
+        let night = drawsDark, contrast = drawsHighContrast, elevated = drawsElevated
+        // The view's own tint, read once, where anything here names it (LLP 1095 D8).
+        let tint = style.values.contains(where: \.namesTint) || inlineText.contains(where: \.namesTint) ? viewTint : nil
         if props["markup"] == "markdown", let source = props["text"] {
             // Markdown source: the archive expands it into runs, the same
             // expansion the measurer used (LLP 1045 D3).
-            runs = MarkupRuns.expand(source, base: textRun(""), color: channels("text_color", dark: night))
+            runs = MarkupRuns.expand(source, base: textRun(""), color: textChannels("text_color", dark: night))
+            if style["visibility"]?.string == "hidden" { for i in runs.indices { runs[i].hidden = true } }
             // `currentcolor` in a shadow or stroke is each piece's own colour.
-            let rows = RunPaintRows(style), own = channels("text_color", dark: night) ?? [0, 0, 0, 255]
-            for i in runs.indices { (runs[i].shadow, runs[i].stroke) = rows.resolve(dark: night, color: runs[i].color ?? own) }
+            let rows = RunPaintRows(style), own = channels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast)
+            for i in runs.indices { (runs[i].shadow, runs[i].stroke) = rows.resolve(dark: night, contrast: contrast, elevated: elevated, tint: tint, color: runs[i].color ?? own) }
         } else if let value = props["text"] {
-            runs.append(InlineText.run(value, style: style, href: props["href"] ?? "", dark: night))
+            runs.append(InlineText.run(value, style: style, href: props["href"] ?? "", dark: night, contrast: contrast, elevated: elevated, tint: tint))
         } else {
-            runs = inlineText.filter(\.paints).map { $0.run(dark: night) }
+            runs = inlineText.filter(\.paints).map { $0.run(dark: night, contrast: contrast, elevated: elevated, tint: tint) }
             // A container's background covers its descendants' fragments (CSS).
-            if inlineText.contains(where: { !$0.paints && $0.run(dark: night).background != nil }) {
+            if inlineText.contains(where: { !$0.paints && $0.run(dark: night, contrast: contrast, elevated: elevated, tint: tint).background != nil }) {
                 let byId = Dictionary(inlineText.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
                 for (i, leaf) in inlineText.filter(\.paints).enumerated() where runs[i].background == nil {
                     var up = byId[leaf.parent]
-                    while let run = up, runs[i].background == nil { runs[i].background = run.run(dark: night).background; up = byId[run.parent] }
+                    while let run = up, runs[i].background == nil {
+                        let paint = run.run(dark: night, contrast: contrast, elevated: elevated, tint: tint)
+                        if !paint.hidden { runs[i].background = paint.background }
+                        up = byId[run.parent]
+                    }
                 }
             }
         }
@@ -118,10 +126,15 @@ extension NodeView {
         // `text-overflow: ellipsis` applies to a box that clips its inline overflow.
         let clips = (style["overflow_x"]?.string).map { $0 != "visible" } ?? false
         var spec = Spec(runs: runs, align: align, lineClamp: lineClamp,
-                        color: channels("text_color", dark: night) ?? [0, 0, 0, 255],
+                        color: textChannels("text_color", dark: night) ?? SystemColor.canvasTextChannels(dark: night, contrast: contrast),
                         overflowWrap: style["overflow_wrap"]?.string == "anywhere" ? 2 : style["overflow_wrap"]?.string == "break-word" ? 1 : 0, direction: rtl ? 1 : 0, whiteSpace: whiteSpace, strut: textRun(""))
         spec.ellipsis = lineClamp == 0 && clips && style["text_overflow"]?.string == "ellipsis"
         spec.source = source
+        spec.textIndent = CGFloat(Float(number("text_indent")))
+        spec.hyphens = ["none": 1, "auto": 2][style["hyphens"]?.string ?? ""] ?? 0
+        // The kernel's measurer hyphenates by the same document language.
+        if spec.hyphens == 2 { spec.language = presenter?.documentLanguage ?? "" }
+        spec.hyphenateAuto()
         // One shadow over the paragraph when its runs agree (LLP 1077 D3).
         spec.gatherShadows()
         cachedTextSpec = spec

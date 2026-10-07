@@ -38,6 +38,26 @@ pub(super) fn query(resource: &str, source: &str) -> String {
     text!("query {}: {}", resource, source)
 }
 
+/// A source not ready at boot: the bake's answer shows until it is ready
+/// and answers again (LLP 1048.003 D6; feed F24). The web JS target says
+/// the same (`rt.js`).
+pub(super) fn build_time(resource: &str) -> String {
+    text!(
+        "{} shows its build-time answer until its source answers",
+        resource
+    )
+}
+
+/// That ask answered: the line says whether the first frame was right.
+pub(super) fn revalidated(resource: &str, same: bool) -> String {
+    let what = if same {
+        "equal to its build-time answer"
+    } else {
+        "replaces its build-time answer"
+    };
+    text!("{} answered: {}", resource, what)
+}
+
 pub(super) fn advanced(fired: usize, epoch: u64) -> String {
     let plural = if fired == 1 { "" } else { "s" };
     text!("advance → {} timer{} fired, epoch {}", fired, plural, epoch)
@@ -56,8 +76,37 @@ pub(super) fn kept(ticket: u64, name: &str) -> String {
     )
 }
 
+/// A watched topic changed while a request was in flight (LLP 1016.002 D4).
+pub(super) fn waits_for(topic: &str, ticket: u64, name: &str) -> String {
+    text!(
+        "changed {}: request {} ({}) lands first, then it is asked again",
+        topic,
+        ticket,
+        name
+    )
+}
+
+/// That request's reply landed (or failed): the resource is asked again.
+pub(super) fn asked_again(ticket: u64, name: &str) -> String {
+    text!(
+        "{}: asked again, a watched topic changed while request {} was in flight",
+        name,
+        ticket
+    )
+}
+
 pub(super) fn forgot(ticket: u64, name: &str) -> String {
     text!("forget request {} ({})", ticket, name)
+}
+
+/// Sends that waited and were never asked (LLP 1092 D4).
+pub(super) fn forgot_waiting(n: usize, name: &str) -> String {
+    text!(
+        "forgot {} waiting send{} ({})",
+        n,
+        if n == 1 { "" } else { "s" },
+        name
+    )
 }
 
 pub(super) fn enqueued(ticket: u64, name: &str, request: &Request) -> String {
@@ -88,6 +137,18 @@ pub(super) fn dropped(ticket: u64, summary: &str) -> String {
         "reply {} dropped: no such request in flight [{}]",
         ticket,
         summary
+    )
+}
+
+pub(super) fn unsent(name: &str) -> String {
+    text!("send {}: waits until the data source is ready", name)
+}
+
+pub(super) fn unsent_refused(name: &str, error: &str) -> String {
+    text!(
+        "send {}, made before the data source was ready, refused: {}",
+        name,
+        error
     )
 }
 

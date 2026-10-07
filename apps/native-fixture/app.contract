@@ -14,6 +14,8 @@ routes nav
     detail "/detail"
     rows "/rows"
     sheet "/sheet"
+    chat "/chat"
+    photo "/photo"
   tab second "/second"
 
 // The hooked list's rows (LLP 1075.003.000), from the fixture's data source,
@@ -24,6 +26,16 @@ shape Row
 
 shape Rows
   items: list<Row>
+
+// The map providers installed, for the "Open in…" chooser (LLP 1021): rows
+// from data, because only the run time knows what is installed.
+shape Provider
+  id: string
+  name: string
+  icon: string
+
+shape Providers
+  items: list<Provider>
 
 component NativeFixture
   state popoverValue = ""
@@ -97,6 +109,8 @@ component NativeFixture
   state received = ""
   action bump
     count = count + 1
+  action unbump
+    count = 0
   action fire
     emit = emit + 1
   action toggle
@@ -132,6 +146,22 @@ component NativeFixture
   action compose
     composed = composed + 1
   mutation rows as shape Rows
+  // Asked as the chooser opens, never at boot: a session without the
+  // fixture's source (the UIKit tests' host) never asks.
+  mutation providers as shape Providers
+  derive providerItems = match providers { case some(p) => p.items, case none => [] }
+  state remembered = "apple"
+  state opened = ""
+  action openIn(id: string)
+    remembered = id
+    opened = id
+  action refreshProviders
+    send providers = providers()
+  // A context menu with a preview (LLP 1021 §5.1): its source's own
+  // `contextmenu` counts the openings; tapping the preview pushes Detail.
+  state peeks = 0
+  action peeked
+    peeks = peeks + 1
   derive rowItems = match rows { case some(r) => r.items, case none => [] }
   action showRows
     nav = push(nav, "/rows")
@@ -158,57 +188,114 @@ component NativeFixture
     draft = text
   action selectTab(name: string)
     nav = select(nav, name)
+  // A root overlay with a z-index after the tabs (docs/agent-pitfalls.md's
+  // pattern for full-screen overlays): it paints and takes touches over the
+  // native tab container (LLP 1083.000 D4).
+  state overlayShown = false
+  action showOverlay
+    overlayShown = true
+  action hideOverlay
+    overlayShown = false
+  state toast = ""
+  action say
+    toast = "Saved"
+  action hush
+    toast = ""
   action openSheet
     nav = push(nav, "/sheet")
+  // LLP 1075.003 §9.10: a pressable title with an avatar and a subtitle, a
+  // route pushed with the tablist hidden, and one with no header.
+  state subtitle = "Online"
+  state titlePresses = 0
+  action openChat
+    nav = push(nav, "/chat")
+  action openPhoto
+    nav = push(nav, "/photo")
+  action pressTitle
+    titlePresses = titlePresses + 1
+  action toggleSubtitle
+    subtitle = subtitle == "" ? "Online" : ""
+  // A subtitle as a line of symbols and texts (§9.10).
+  state muted = false
+  action toggleMuted
+    muted = not muted
+  // The tablist hidden over the root, as Signal's chat-list multi-select
+  // hides its tab bar (LLP 1075.003 §3.7, amended 2026-10-05).
+  state choosing = false
+  action toggleChoosing
+    choosing = not choosing
   view
     main navigationKey=`${top(nav).id}` navigationBack="back" testId="navigation" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#111111" font-family="system-ui"
       column testId="panels" flex=1 min-height=0 position="relative"
         each t in nav.tabs key=t.name
           column role="tabpanel" id=`panel-${t.name}` testId=`panel-${t.name}` position="absolute" top=0 right=0 bottom=0 left=0
             each e in t.stack key=e.id
-              column navigationKey=`${e.id}` navigationPresentation=(e.name == "sheet" ? "modal" : "") navigationDetent=(e.name == "sheet" ? "300 large" : "") navigationScroll=(e.name == "second" ? "list-second" : "list-detail") data-screen=e.name data-menu="compose" data-violate=violate data-transition=transition testId=`route-${e.name}` position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column" background-color="#ffffff"
-                header testId=`header-${e.name}` display="flex" flex-direction="row" align-items="center" gap=8 padding=12 flex-shrink=0 border-bottom-width=1 border-bottom-style="solid" border-color="#e5e7eb"
-                  when e.name == "detail" or e.name == "rows"
-                    button id="back" press=back testId="back" aria-label="Back" padding=6 background-color="#e5e7eb"
-                      image "symbol:back" width=20 height=20
-                  when e.name == "sheet"
-                    button id="back" press=back testId="close-sheet" aria-label="Close" padding=6 background-color="#e5e7eb"
-                      image "symbol:close" width=20 height=20
-                  when e.name == "home"
-                    // A drawn face (LLP 1075.003 §9.6): a button whose one
-                    // child is a filled box holding a text is an image item.
-                    button press=compose aria-label="Profile" testId="badge-item" padding=0
-                      column width=32 height=32 border-radius=16 background-color="#e3e3fe" align-items="center" justify-content="center"
-                        text "AB" font-size=13 color="#3838f5"
-                    // A popover's invoker is a bar item opening a UIMenu.
-                    button popovertarget="bar-menu" aria-label="More" testId="menu-item" padding=6 background-color="#e5e7eb"
-                      image "symbol:sf/ellipsis.circle" width=20 height=20
-                    // A search field in the header: the item's search controller.
-                    input type="search" value=query input=setQuery placeholder="Search the fixture" testId="header-search" width=80
-                    // A text tablist in the header: the item's segmented title view.
-                    row role="tablist" testId="header-segments"
-                      button role="tab" aria-selected=(segment == "all") press=chooseSegment("all") testId="segment-all"
-                        text "All"
-                      button role="tab" aria-selected=(segment == "missed") press=chooseSegment("missed") testId="segment-missed"
-                        text "Missed"
-                  text (e.name == "home" ? "Fixture" : e.name == "detail" ? "Detail" : e.name == "rows" ? "Rows" : e.name == "sheet" ? "Sheet" : "Second") aria-level=(e.name == "home" or e.name == "second" ? 1 : 2) testId=`title-${e.name}` flex=1 font-weight=700 font-size=20
-                  button id="compose" press=compose aria-label="Compose" testId=`compose-${e.name}` padding=6 background-color="#e5e7eb"
-                    image "symbol:compose" width=20 height=20
+              column navigationKey=`${e.id}` navigationPresentation=(e.name == "sheet" ? "modal" : "") navigationDetent=(e.name == "sheet" ? "300 large" : "") navigationScroll=(e.name == "second" ? "list-second" : (e.name == "chat" ? "list-chat" : "list-detail")) data-screen=e.name data-menu="compose" data-violate=violate data-transition=transition testId=`route-${e.name}` position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column" background-color="#ffffff"
+                // A route with no header has no bar (§9.10).
+                when e.name != "photo"
+                  header testId=`header-${e.name}` display="flex" flex-direction="row" align-items="center" gap=8 padding=12 flex-shrink=0 border-bottom-width=1 border-bottom-style="solid" border-color="#e5e7eb"
+                    when e.name == "detail" or e.name == "rows" or e.name == "chat"
+                      button id="back" press=back testId="back" aria-label="Back" padding=6 background-color="#e5e7eb"
+                        image "symbol:back" width=20 height=20
+                    when e.name == "sheet"
+                      button id="back" press=back testId="close-sheet" aria-label="Close" padding=6 background-color="#e5e7eb"
+                        image "symbol:close" width=20 height=20
+                    when e.name == "home"
+                      // A drawn face (LLP 1075.003 §9.6): a button whose one
+                      // child is a filled box holding a text is an image item.
+                      button press=compose aria-label="Profile" testId="badge-item" padding=0
+                        column width=32 height=32 border-radius=16 background-color="#e3e3fe" align-items="center" justify-content="center"
+                          text "AB" font-size=13 color="#3838f5"
+                      // A popover's invoker is a bar item opening a UIMenu.
+                      button popovertarget="bar-menu" aria-label="More" testId="menu-item" padding=6 background-color="#e5e7eb"
+                        image "symbol:sf/ellipsis.circle" width=20 height=20
+                      // A search field in the header: the item's search controller.
+                      input type="search" value=query input=setQuery placeholder="Search the fixture" testId="header-search" width=80
+                      // A text tablist in the header: the item's segmented title view.
+                      row role="tablist" testId="header-segments"
+                        button role="tab" aria-selected=(segment == "all") press=chooseSegment("all") testId="segment-all"
+                          text "All"
+                        button role="tab" aria-selected=(segment == "missed") press=chooseSegment("missed") testId="segment-missed"
+                          text "Missed"
+                    // A pressable group around the heading, with an avatar and
+                    // a subtitle: the item's title, drawn, tapped (§9.10).
+                    when e.name == "chat"
+                      row press=pressTitle testId="title-group" flex=1 align-items="center" gap=8
+                        column width=32 height=32 border-radius="50%" background-color="#dcfce7" align-items="center" justify-content="center"
+                          text "CD" font-size=13 color="#166534"
+                        column
+                          text "Chat" aria-level=2 testId="title-chat" font-weight=700 font-size=17
+                          when subtitle != "" and not muted
+                            text subtitle testId="subtitle-chat" font-size=12 color="#6b7280"
+                          when muted
+                            row gap=3 align-items="center" testId="subtitle-glyphs" aria-label="Muted, disappearing messages after 1 week"
+                              image "symbol:sf/bell.slash" width=12 height=12 object-fit="contain"
+                              text "Muted" font-size=12 color="#6b7280"
+                              image "symbol:sf/timer" width=12 height=12 object-fit="contain"
+                              text "1w" font-size=12 color="#6b7280"
+                    when e.name != "chat"
+                      text (e.name == "home" ? "Fixture" : e.name == "detail" ? "Detail" : e.name == "rows" ? "Rows" : e.name == "sheet" ? "Sheet" : "Second") aria-level=(e.name == "home" or e.name == "second" ? 1 : 2) testId=`title-${e.name}` flex=1 font-weight=700 font-size=20
+                    button id="compose" press=compose aria-label="Compose" testId=`compose-${e.name}` padding=6 background-color="#e5e7eb"
+                      image "symbol:compose" width=20 height=20
                 when e.name == "home"
                   column id="bar-menu" popover="auto" position="absolute" role="menu" width=200 padding=8 background-color="#ffffff"
-                    button press=bump popovertarget="bar-menu" popovertargetaction="hide" role="menuitem" testId="bar-menu-bump" height=44
+                    button press=bump popovertarget="bar-menu" popovertargetaction="hide" role="menuitem" testId="bar-menu-bump" height=44 text-align="start"
                       text "Bump from the bar"
                 when e.name == "home"
                   column testId="fixture" gap=8 padding=12
                     row gap=6 flex-wrap="wrap"
                       button press=detail testId="detail" padding=6 background-color="#e5e7eb"
                         text "Detail"
+                      button press=toggleChoosing testId="toggle-choosing" padding=6 background-color="#e5e7eb"
+                        text "Choose"
                       button press=showRows testId="rows" padding=6 background-color="#e5e7eb"
                         text "Rows"
                       button press=customTransition testId="transition" padding=6 background-color="#e5e7eb"
                         text "Transition"
                       button press=openSheet testId="sheet" padding=6 background-color="#e5e7eb"
                         text "Sheet"
+                      button press=openChat testId="chat" padding=6 background-color="#e5e7eb"
+                        text "Chat"
                       column hook="badge" data-tone=(composed > 0 ? "busy" : "info") testId="hooked-badge" width=20 height=20 border-radius=10 background-color="#f59e0b"
                     text ("composed " + toString(composed)) testId="composed"
                     row role="toolbar" toolbarPlacement="window" aria-label="Window" testId="window-toolbar" gap=6
@@ -226,6 +313,53 @@ component NativeFixture
                         text "Reject"
                       button press=mode testId="mode" padding=6 background-color="#e5e7eb"
                         text "Mode"
+                    // An "Open in…" chooser (LLP 1021): the invoker refreshes
+                    // what is installed as it opens; a menu on every host,
+                    // titled by its aria-label, each row its provider's icon,
+                    // the remembered one checked; the same rows as a sheet
+                    // when the popover asks for one (role="alertdialog").
+                    button press=showOverlay testId="show-overlay" padding=6 background-color="#e5e7eb"
+                      text "Overlay"
+                    button press=say testId="say" padding=6 background-color="#e5e7eb"
+                      text "Toast"
+                    row gap=6 flex-wrap="wrap"
+                      button press=refreshProviders popovertarget="open-in" testId="open-in" padding=6 background-color="#e5e7eb"
+                        text "Open in Maps"
+                      button press=refreshProviders popovertarget="open-in-sheet" testId="open-in-sheet" padding=6 background-color="#e5e7eb"
+                        text "Open in (sheet)"
+                      text ("opened " + opened) testId="opened"
+                    column id="open-in" popover="auto" position="absolute" role="menu" aria-label="Open location in" width=220 padding=8 background-color="#ffffff"
+                      each p in providerItems key=p.id
+                        button press=openIn(p.id) aria-checked=(p.id == remembered) popovertarget="open-in" popovertargetaction="hide" role="menuitemradio" testId=`open-in-${p.id}` height=44 display="flex" flex-direction="row" align-items="center" gap=8
+                          image p.icon width=24 height=24
+                          text p.name
+                      // HTML's separator: a section break in the native menu;
+                      // a flex item, so its auto side margins are zeroed.
+                      hr testId="open-in-rule" margin-left=0 margin-right=0
+                      button popovertarget="open-in" popovertargetaction="hide" testId="open-in-cancel" height=44
+                        text "Cancel"
+                    column id="open-in-sheet" popover="auto" position="absolute" role="alertdialog" aria-label="Open location in" width=220 padding=8 background-color="#ffffff"
+                      each p in providerItems key=p.id
+                        button press=openIn(p.id) aria-checked=(p.id == remembered) popovertarget="open-in-sheet" popovertargetaction="hide" testId=`open-in-sheet-${p.id}` height=44
+                          text p.name
+                      button popovertarget="open-in-sheet" popovertargetaction="hide" testId="open-in-sheet-cancel" height=44
+                        text "Cancel"
+                    // A context menu (LLP 1021 §5.1): a long press on iOS lifts
+                    // the row into UIKit's menu with the preview above it; the
+                    // preview's press is the commit, popping into Detail.
+                    button press=detail contextmenu=peeked contextPopover="peek" testId="peek" aria-label="Detail, long press to peek" display="flex" flex-direction="row" align-items="center" gap=8 padding=10 border-radius=12 background-color="#eef2ff"
+                      text "Peek at Detail" flex=1
+                      text ("peeks " + toString(peeks)) testId="peeks" font-size=12 color="#6b7280"
+                    column id="peek" popover="auto" position="absolute" role="menu" width=300 padding=8 gap=4 background-color="#ffffff"
+                      button contextPreview=true press=detail popovertarget="peek" popovertargetaction="hide" testId="peek-preview" aria-label="Open Detail" display="flex" flex-direction="column" gap=6 width="100%" height=180 padding=16 box-sizing="border-box" border-radius=12 background-color="#e0e7ff"
+                        text "Detail" font-weight=700 font-size=20
+                        text "A preview of the Detail screen, laid out by the kernel and shown by UIKit." font-size=14 color="#374151"
+                      button press=bump popovertarget="peek" popovertargetaction="hide" testId="peek-bump" height=44
+                        image "symbol:sf/plus.circle" width=20 height=20 object-fit="contain"
+                        text "Bump"
+                      hr margin-left=0 margin-right=0
+                      button press=unbump destructive=true popovertarget="peek" popovertargetaction="hide" testId="peek-clear" height=44
+                        text "Clear"
                     row gap=6
                       button press=grow testId="grow" padding=6
                         text "Grow content"
@@ -285,22 +419,84 @@ component NativeFixture
                     column padding=12 gap=8
                       text ("composed " + toString(composed)) testId="composed-detail"
                       column testId="tall" height=1600 background-color="#f3f4f6"
+                // An "Open in…" at the foot of a card (LLP 1021 §5): its
+                // chooser above it, centred on it (`top span-all`), as a menu
+                // and as a sheet. Below the Detail screen's scroll, so it stays at
+                // the foot whatever the screen's height.
+                when e.name == "detail"
+                  row testId="open-above-card" gap=6 padding=12 flex-shrink=0 justify-content="center"
+                    button press=refreshProviders popovertarget="open-above" testId="open-above" padding=6 background-color="#e5e7eb"
+                      text "Open in (above)"
+                    button press=refreshProviders popovertarget="open-above-sheet" testId="open-above-sheet" padding=6 background-color="#e5e7eb"
+                      text "Open in (sheet above)"
+                    column id="open-above" testId="open-above-menu" popover="auto" position="absolute" position-area="top span-all" margin-bottom=12 role="menu" aria-label="Open location in" width=220 padding=8 background-color="#ffffff"
+                      each p in providerItems key=p.id
+                        button press=openIn(p.id) aria-checked=(p.id == remembered) popovertarget="open-above" popovertargetaction="hide" role="menuitemradio" testId=`open-above-${p.id}` height=44
+                          text p.name
+                    column id="open-above-sheet" popover="auto" position="absolute" position-area="top span-all" role="alertdialog" aria-label="Open location in" width=220 padding=8 background-color="#ffffff"
+                      each p in providerItems key=p.id
+                        button press=openIn(p.id) popovertarget="open-above-sheet" popovertargetaction="hide" testId=`open-above-sheet-${p.id}` height=44
+                          text p.name
+                      button popovertarget="open-above-sheet" popovertargetaction="hide" testId="open-above-sheet-cancel" height=44
+                        text "Cancel"
+                when e.name == "chat"
+                  scroll id="list-chat" testId="list-chat" flex=1 min-height=0
+                    column padding=12 gap=8
+                      button press=openPhoto testId="photo" padding=6 background-color="#e5e7eb"
+                        text "Photo"
+                      button press=toggleSubtitle testId="toggle-subtitle" padding=6 background-color="#e5e7eb"
+                        text "Subtitle"
+                      button press=toggleMuted testId="toggle-muted" padding=6 background-color="#e5e7eb"
+                        text "Muted"
+                      text ("title presses " + toString(titlePresses)) testId="title-presses"
+                      column testId="tall-chat" height=1600 background-color="#f0fdf4"
+                when e.name == "photo"
+                  column testId="photo-view" flex=1 background-color="#000000" padding=12
+                    button id="back" press=back testId="photo-back" aria-label="Close" padding=6 background-color="#e5e7eb" align-self="flex-start"
+                      text "Close"
                 when e.name == "second"
                   scroll id="list-second" testId="list-second" flex=1 min-height=0
                     column padding=12 gap=8
-                      input value=draft input=setDraft testId="draft" aria-label="Draft" placeholder="A draft" padding=6 border-width=1 border-style="solid" border-color="#d1d5db"
+                      input appearance="none" value=draft input=setDraft testId="draft" aria-label="Draft" placeholder="A draft" padding=6 border-width=1 border-style="solid" border-color="#d1d5db"
                       button press=bump testId="bump-second" padding=6 background-color="#e5e7eb"
                         text "Bump"
+                      button press=unbump testId="unbump-second" padding=6 background-color="#e5e7eb"
+                        text "Clear"
                       exact-screen testId="screen" width="100%" height=96
                       text "Second" testId="second-top"
                       column testId="tall-second" height=1600 background-color="#eef2ff"
-      row role="tablist" aria-label="Tabs" testId="tabs" flex-shrink=0 height=56 border-top-width=1 border-top-style="solid" border-color="#e5e7eb" align-items="stretch"
+      // Hidden on Chat and Photo, so the tab bar hides for them (§9.10);
+      // its accent tints the bar's selected item.
+      row role="tablist" aria-label="Tabs" testId="tabs" accent-color="#3838f5" display=((choosing and top(nav).name == "home") or top(nav).name == "chat" or top(nav).name == "photo" ? "none" : "flex") flex-shrink=0 height=56 border-top-width=1 border-top-style="solid" border-color="#e5e7eb" align-items="stretch"
         button role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=selectTab("home") testId="tab-home" flex=1 display="flex" flex-direction="column" align-items="center" justify-content="center" gap=2
           image (nav.tab == "home" ? "symbol:home-fill" : "symbol:home") width=22 height=22
           text "Home" font-size=11
+          // Not a badge (§9.9): a count box made transparent.
+          column position="absolute" top=0 right=0 opacity=0 background-color="#ef4444" testId="faded-home"
+            text "9" font-size=8
         button role="tab" aria-controls="panel-second" aria-selected=(nav.tab == "second") press=selectTab("second") testId="tab-second" flex=1 display="flex" flex-direction="column" align-items="center" justify-content="center" gap=2
           image (nav.tab == "second" ? "symbol:person-fill" : "symbol:person") width=22 height=22
           text "Second" font-size=11
+          // Not a badge, beside the one below: a filled pill around a text and
+          // a dot (a flat leaf). Were it taken, two boxes would make none.
+          row position="absolute" top=0 left=0 background-color="#e5e7eb" testId="pill-second"
+            text "pill" font-size=8
+            box width=4 height=4 background-color="#ef4444"
+          // A filled box holding a text: the bar item's badge (LLP 1075.003 §9.9).
+          when count > 0
+            column testId="badge-second" position="absolute" top=4 right=24 min-width=16 height=16 padding-left=4 padding-right=4 border-radius=8 background-color="#ef4444" align-items="center" justify-content="center"
+              text toString(count) font-size=10 color="#ffffff"
+      // A root toast after the tablist, positioned with no z-index: it
+      // paints and takes touches over the routes, as later positioned
+      // siblings do on the web (contract/corpus/tabs.contract; splitter
+      // rough 3).
+      when toast != ""
+        button press=hush testId="root-toast" position="absolute" top=60 left=16 right=16 padding=12 background-color="#111827" border-radius=8
+          text toast color="#ffffff"
+      when overlayShown
+        column testId="root-overlay" role="dialog" aria-label="Overlay" position="absolute" top=0 right=0 bottom=0 left=0 z-index=10 background-color="#000000cc" align-items="center" justify-content="center"
+          button press=hideOverlay testId="hide-overlay" padding=12 background-color="#ffffff"
+            text "Close"
 
 component HookedRows
   props
@@ -312,8 +508,13 @@ component HookedRows
     column flex=1 min-height=0
       button press=toggleReuse testId="reuse" padding=6 margin=12 background-color="#e5e7eb"
         text (reuse ? "Rows reused" : "Rows not reused")
+      // Each row's context menu (LLP 1021 §5.1): a row that names one still
+      // parks in the node pool and is lent to the next (NodePoolIOS).
+      column id="row-menu" popover="auto" position="absolute" role="menu" width=200 padding=8 background-color="#ffffff"
+        button popovertarget="row-menu" popovertargetaction="hide" testId="row-menu-close" height=44
+          text "Close"
       list virtualized=true width="100%" flex=1 min-height=0 overflow-x="hidden" estimated-item-height=40 testId="hooked-list"
         each r in items key=r.n
-          row height=40 align-items="center" gap=8 padding-left=12 testId=`row-${r.n}`
+          row contextPopover="row-menu" height=40 align-items="center" gap=8 padding-left=12 testId=`row-${r.n}`
             column hook="dot" data-reuse=(reuse ? "true" : "false") width=12 height=12 border-radius=6 background-color="#6366f1"
             text ("Row " + toString(r.n))

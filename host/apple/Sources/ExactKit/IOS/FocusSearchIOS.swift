@@ -20,7 +20,7 @@
 // thread in a fast fling of the Extra Heavy feed — to reach the few it can
 // focus. Only the viewport answers: UIKit logs, at every init, each view of
 // a class that answers `focusItems(in:)`.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 enum FocusSearch {
@@ -52,6 +52,9 @@ enum FocusSearch {
 }
 /// A session's viewport (`Presenter.viewport`), which answers the search.
 final class Viewport: ScrollView {
+    // tvOS focuses exact2's own nodes (RemoteTVOS), so its search sees every view.
+    #if !os(tvOS)
     override func focusItems(in rect: CGRect) -> [any UIFocusItem] { FocusSearch.items(self, in: rect) }
+    #endif
 }
 #endif

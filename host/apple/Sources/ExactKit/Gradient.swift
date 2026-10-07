@@ -30,6 +30,11 @@ struct Gradient {
     let shape: Shape
     private let light: [CGFloat]
     private let dark: [CGFloat]?
+    /// Stops CSS interpolated outside sRGB (LLP 1100 D2): already dense, in
+    /// extended linear sRGB with alpha 0–1.
+    private let lightLinear: Bool
+    private let darkLinear: Bool
+    private func linear(dark: Bool) -> Bool { dark && self.dark != nil ? darkLinear : lightLinear }
 
     init?(_ value: BatchValue?) {
         guard case .object(let o)? = value, let light = o["stops"]?.numbers,
@@ -47,6 +52,8 @@ struct Gradient {
         }
         self.light = light.map { CGFloat($0) }
         dark = o["dark"]?.numbers.map { $0.map { CGFloat($0) } }
+        lightLinear = o["space"]?.string == "srgb-linear"
+        darkLinear = o["darkSpace"]?.string == "srgb-linear"
     }
 
     /// A `background-image`'s layers (LLP 1077 D5): one gradient's object,
@@ -83,6 +90,14 @@ struct Gradient {
     /// steps leave it nothing to disagree about.
     func stops(dark isDark: Bool, dense: Bool = false) -> ([CGFloat], [CGColor]) {
         var s = isDark ? dark ?? light : light
+        if linear(dark: isDark), let space = CGColorSpace(name: CGColorSpace.extendedLinearSRGB) {
+            var locations: [CGFloat] = [], colors: [CGColor] = []
+            for i in stride(from: 0, to: s.count, by: 5) {
+                locations.append(s[i])
+                colors.append(ColorRange.tagged(CGColor(colorSpace: space, components: Array(s[i + 1..<i + 5])) ?? CGColor(gray: 0, alpha: 0)))
+            }
+            return (locations, colors)
+        }
         if dense {
             var out: [CGFloat] = []
             for i in stride(from: 0, to: s.count, by: 5) {
@@ -151,7 +166,7 @@ struct Gradient {
 
     /// Paint inside `clip` (the border box's rounded outline), placed in
     /// `box`: over whatever was drawn before, under what is drawn after.
-    func paint(_ ctx: CGContext, clip: CGPath, box: CGRect, dark: Bool) {
+    func paint(_ ctx: CGContext, clip: CGPath, box: CGRect, dark: Bool, limit: String? = nil) {
         let place = placement(in: box)
         ctx.saveGState(); defer { ctx.restoreGState() }
         ctx.addPath(clip); ctx.clip()
@@ -163,7 +178,7 @@ struct Gradient {
             return
         }
         let (locations, colors) = stops(dark: dark)
-        guard let g = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: colors as CFArray, locations: locations) else { return }
+        guard let g = CGGradient(colorsSpace: CGColorSpace(name: linear(dark: dark) ? CGColorSpace.extendedLinearSRGB : CGColorSpace.sRGB), colors: colors as CFArray, locations: locations) else { return }
         switch place {
         case .axial(let a, let b):
             ctx.drawLinearGradient(g, start: a, end: b, options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
@@ -210,19 +225,18 @@ struct Gradient {
         }
     }
 
-    /// Straight sRGB mixing, as the stops are already laid out to look as
-    /// CSS's premultiplied mix does.
+    /// Straight mixing in the stops' own space, as the stops are already
+    /// laid out to look as CSS's premultiplied mix does.
     private static func mix(_ a: CGColor, _ b: CGColor, _ t: CGFloat) -> CGColor {
         let x = a.components ?? [0, 0, 0, 0], y = b.components ?? [0, 0, 0, 0]
-        guard x.count == 4, y.count == 4 else { return t < 0.5 ? a : b }
-        return CGColor(srgbRed: x[0] + (y[0] - x[0]) * t, green: x[1] + (y[1] - x[1]) * t,
-                       blue: x[2] + (y[2] - x[2]) * t, alpha: x[3] + (y[3] - x[3]) * t)
+        guard x.count == 4, y.count == 4, let space = a.colorSpace else { return t < 0.5 ? a : b }
+        return CGColor(colorSpace: space, components: (0..<4).map { x[$0] + (y[$0] - x[$0]) * t }) ?? a
     }
 
     /// A gradient layer covering `bounds`, placed in `box` (same space).
-    func apply(_ layer: CAGradientLayer, bounds: CGRect, box: CGRect, dark: Bool) {
+    func apply(_ layer: CAGradientLayer, bounds: CGRect, box: CGRect, dark: Bool, limit: String? = nil, stops made: ([CGFloat], [CGColor])? = nil) {
         let place = placement(in: box)
-        var (locations, colors) = stops(dark: dark, dense: true)
+        var (locations, colors) = made ?? stops(dark: dark, dense: true)
         let unit = { (p: CGPoint) in
             CGPoint(x: bounds.width > 0 ? (p.x - bounds.minX) / bounds.width : 0, y: bounds.height > 0 ? (p.y - bounds.minY) / bounds.height : 0)
         }
@@ -249,6 +263,7 @@ struct Gradient {
         let numbers = locations.map { NSNumber(value: Double($0)) }
         if layer.locations != numbers { layer.locations = numbers }
         if (layer.colors as? [CGColor]) != colors { layer.colors = colors }
+        layer.applyColorRange(limit: limit)
     }
 }
 
@@ -260,10 +275,11 @@ extension BatchValue {
     /// is something to the view that shows it.
     ///
     /// Nested too: a layer list, a shadow list's or a text shadow's colour,
-    /// a symbol palette (LLP 1077).
+    /// a symbol palette (LLP 1077), and a box filter with a dark program
+    /// (`pd`, LLP 1095 D9).
     var isSchemeGradient: Bool {
         switch self {
-        case .object(let o): return o["dark"] != nil || o.values.contains { $0.isSchemeColor || $0.isSchemeGradient }
+        case .object(let o): return o["dark"] != nil || o["pd"] != nil || o.values.contains { $0.isSchemeColor || $0.isSchemeGradient }
         case .array(let a): return a.contains { $0.isSchemeColor || $0.isSchemeGradient }
         default: return false
         }
@@ -288,7 +304,7 @@ extension NodeView {
     /// The gradient painted by `draw(_:)`, over the background and under
     /// the border, inside the border box's outline.
     func paintGradient(_ ctx: CGContext, clip: CGPath) {
-        guard surface == nil else { return }
+        guard surface == nil, !cssVisibilityHidden else { return }
         #if os(iOS)
         // A fixed gradient is the layer's (LLP 1066 D7).
         if gradientLayered && boxGradient != nil { return }

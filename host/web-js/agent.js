@@ -3,15 +3,22 @@
 // `scripts/agent.mjs web` asks. Input and screenshots stay the carrier's own
 // (CDP). Loaded only under `?agent`; never part of an app's boot bytes.
 import names, { types } from './names.js';
-import { R, eq, pieces, pageHistory, Head } from './rt.js';
+import { pieces, pageHistory, Head, navigateRoot, Tasks, journal } from './rt.js';
 import * as perf from './perf.js';
-import { environment, navigation, guestOutline, guestTap, guestType, viewBox, foldEnv, preferFold } from './navigation.js';
+import { faultOp, faultsJson, setFaultLog } from '../web/faults.js';
+import { environment, navigation, unselected, guestOutline, guestTap, guestType, viewBox, foldEnv, preferFold, typedControl, typeControl, reveal, animationClocks, pageReporter } from './navigation.js';
 // A runtime value as the runner's typed JSON: records by field name.
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
-const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['placeholder', 'placeholder'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hook', 'hook'], ['data-nativeviewmodulename', 'nativeViewModuleName'], ['data-nativeviewprops', 'nativeViewProps']];
-const TYPES = { TEMPLATE: 'Head', BUTTON: 'Pressable', INPUT: 'TextInput', TEXTAREA: 'TextInput', VIDEO: 'Video', IMG: 'Image', IFRAME: 'WebView', A: 'Pressable' };
+const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-pressed', 'accessibilityPressed'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['placeholder', 'placeholder'], ['autocomplete', 'autocomplete'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hook', 'hook'], ['data-nativeviewmodulename', 'nativeViewModuleName'], ['data-nativeviewprops', 'nativeViewProps']];
+const TYPES = { TEMPLATE: 'Head', BUTTON: 'Pressable', INPUT: 'TextInput', TEXTAREA: 'TextInput', VIDEO: 'Video', AUDIO: 'Video', IMG: 'Image', IFRAME: 'WebView', A: 'Pressable' };
+/** The view an operation names: its id, else the first node with that testId on an active screen, a covered
+ * screen's or an unselected tab's copy only when no active one carries it, as the runner's `target`. */
+const targetOf = (nodes, t) => { const named = nodes.filter(n => n.props.testId === t); return nodes.find(n => n.id === t) ?? named.find(n => !n.inactive) ?? named[0]; };
 export function install(exact) {
   const views = exact.views, id = exact.viewId;
+  let page;
+  const ownPage = () => page ??= (f => ({ prefer: p => { f.prefer(p); return f.read(); } }))(pageReporter(true));
+  setFaultLog(line => journal.push(`t=${exact.clock.now} ${line}`)); // the runner's journal line for an injected failure (LLP 1103 D2)
   // A Markdown text's pieces are its content, not views.
   // A view leaving with its exit animation (presence-glue.js) is no view: the runner destroyed it.
   // A paragraph text flows around shapes is its fragments on the page; the
@@ -25,21 +32,27 @@ export function install(exact) {
   // An SVG element's node type, by element.rs's tags (a nested `svg` is a viewport).
   const SVG = { svg: 'Svg', g: 'SvgGroup', path: 'SvgPath', polyline: 'SvgPolyline', polygon: 'SvgPolygon', circle: 'SvgCircle', line: 'SvgLine', rect: 'SvgRect', ellipse: 'SvgEllipse', defs: 'SvgDefs', linearGradient: 'SvgLinearGradient', radialGradient: 'SvgRadialGradient', stop: 'SvgStop', use: 'SvgUse', symbol: 'SvgSymbol', clipPath: 'SvgClipPath', text: 'SvgText', tspan: 'SvgTSpan', marker: 'SvgMarker', mask: 'SvgMask', pattern: 'SvgPattern', foreignObject: 'SvgForeignObject', filter: 'SvgFilter' };
   const svg = el => el.localName === 'svg' && el.parentElement?.namespaceURI === el.namespaceURI ? 'SvgViewport' : SVG[el.localName] ?? (el.localName.startsWith('fe') ? 'SvgFe' : 'View');
-  const type = el => el.exactNative ? 'NativeView' : el.namespaceURI === 'http://www.w3.org/2000/svg' ? svg(el) : el.exactMarkup ? 'TextInput' : el.localName === 'select' || el.localName === 'button' && el.hasAttribute('data-button-style') || el.localName === 'input' && /^(file|checkbox|range|date|time|datetime-local)$/.test(el.type) ? 'Control' : el.localName === 'option' || el.hasAttribute('data-exact-text') || run(el) ? 'Text' : el.querySelector(':scope > canvas[data-surface]') ? 'Canvas' : el.dataset.scroll ? (el.getAttribute('role') === 'list' ? 'List' : 'ScrollView') : TYPES[el.tagName] ?? 'View';
+  const type = el => el.exactNative ? 'NativeView' : el.namespaceURI === 'http://www.w3.org/2000/svg' ? svg(el) : el.exactMarkup ? 'TextInput' : el.localName === 'select' || el.localName === 'button' && el.hasAttribute('data-button-style') || el.localName === 'input' && /^(file|checkbox|radio|range|date|time|datetime-local)$/.test(el.type) ? 'Control' : el.localName === 'option' || el.hasAttribute('data-exact-text') || run(el) ? 'Text' : el.querySelector(':scope > canvas[data-surface]') ? 'Canvas' : el.dataset.scroll ? (el.getAttribute('role') === 'list' ? 'List' : 'ScrollView') : TYPES[el.tagName] ?? 'View';
   const record = (el, depth) => {
     const props = {};
     if (el.dataset.testid) props.testId = el.dataset.testid;
-    if (el.tagName === 'IMG') props.imageSource = el.dataset.symbolSource ?? el.getAttribute('src') ?? '';
+    if (el.tagName === 'IMG') props.imageSource = el.dataset.symbolSource ?? el.dataset.appSrc ?? el.getAttribute('src') ?? '';
     if (el.hasAttribute('aria-label')) props.accessibilityLabel = el.getAttribute('aria-label');
     else if (el.tagName === 'IMG' && el.getAttribute('alt')) props.accessibilityLabel = el.getAttribute('alt');
     // A paragraph of runs has no text of its own: its runs carry it.
     if (/^(Text|SvgText|SvgTSpan)$/.test(type(el)) && (el.$source != null || !kids(el).length)) props.text = el.$source ?? (flowed(el) ? el.$flow.text : el.textContent);
-    if ('value' in el && el.tagName !== 'BUTTON' && el.type !== 'checkbox') props.value = el.value;
+    // An option's, a checkbox's and a radio's value is its authored `value` (the DOM's falls back to its label, or `on`), as the runner's tree gives it.
+    if ('value' in el && el.tagName !== 'BUTTON' && (!(el.tagName === 'OPTION' || el.type === 'checkbox' || el.type === 'radio') || el.hasAttribute('value'))) props.value = el.value;
+    // A password field's value is never agent output (#134): a fixed mark, whatever its length, and its `type` as the runner's tree gives it.
+    if (el.tagName === 'INPUT' && el.type === 'password') { props.type = 'password'; if (props.value) props.value = '•••'; }
+    // A checkbox's or radio's model value, as the runner's tree gives its `checked` row.
+    if (el.$checked !== undefined) props.checked = el.$checked;
     // The runner's props that element.rs writes as attributes, by its names.
     for (const [attr, prop, num] of PROPS) if (el.hasAttribute(attr)) props[prop] = num ? Number(el.getAttribute(attr)) : el.getAttribute(attr);
     // The intent `tree --ax` reads (LLP 1080.002 D7), as the runner names it.
     if (el.hasAttribute('inert')) props.inert = true;
     if (el.getAttribute('aria-hidden') === 'true') props.accessibilityElementsHidden = true;
+    if (el.getAttribute('aria-modal') === 'true') props.accessibilityModal = true;
     if (el.hasAttribute('autofocus')) props.autofocus = true; else if (el.dataset.autofocus === 'false') props.autofocus = false;
     const n = { id: id(el), type: type(el), depth, props };
     if (el.dataset.exactOn) n.handlers = el.dataset.exactOn.split(' ');
@@ -57,10 +70,11 @@ export function install(exact) {
     }
     return n;
   };
+  // `inactive` (the runner's tree): under a route or tab its navigation root has not selected (shop F16).
   const all = () => {
-    const out = [];
-    const walk = (el, d) => { const n = record(el, d); out.push(n); n.children = kids(el).map(c => walk(c, d + 1).id); return n; };
-    kids(document.getElementById('exact-root')).forEach(el => walk(el, 0));
+    const out = [], root = document.getElementById('exact-root'), off = new Set([...root.querySelectorAll('[navigationBack]')].flatMap(unselected));
+    const walk = (el, d, dead) => { const n = record(el, d); out.push(n); if ((dead ||= off.has(el))) n.inactive = true; n.children = kids(el).map(c => walk(c, d + 1, dead).id); return n; };
+    kids(root).forEach(el => walk(el, 0, false));
     return out;
   };
   // The runner's tags (LLP 1035.002 D3): a commit is an epoch; a JS page
@@ -78,7 +92,7 @@ export function install(exact) {
   // (`dynamic` when a binding wrote it), an inherited one comes from the
   // nearest view that declares it, else `initial`; values are the browser's
   // computed ones, under the runner's row names.
-  const INHERITED = { text_color: 'color', font_family: 'font-family', font_size: 'font-size', font_weight: 'font-weight', font_style: 'font-style', line_height: 'line-height', letter_spacing: 'letter-spacing', font_variant_numeric: 'font-variant-numeric', direction: 'direction', white_space: 'white-space', overflow_wrap: 'overflow-wrap', text_align: 'text-align' };
+  const INHERITED = { text_color: 'color', font_family: 'font-family', font_size: 'font-size', font_weight: 'font-weight', font_style: 'font-style', line_height: 'line-height', letter_spacing: 'letter-spacing', font_variant_numeric: 'font-variant-numeric', direction: 'direction', white_space: 'white-space', overflow_wrap: 'overflow-wrap', text_align: 'text-align', text_indent: 'text-indent', hyphens: 'hyphens', widows: 'widows', orphans: 'orphans' };
   const rowOf = prop => Object.keys(INHERITED).find(k => INHERITED[k] === prop) ?? prop.replace(/^-+/, '').replace(/-/g, '_');
   // A class's rule may be nested: the build wraps them all in
   // `#exact-root#exact-root { & .cN { … } }` for specificity (emit.rs).
@@ -125,6 +139,8 @@ export function install(exact) {
       // A development build names the element's plan node (emit.rs `data-site`).
       ...(el.dataset?.site != null ? { site: Number(el.dataset.site) } : {}),
       space: { viewport: rect(r), local: { w: r2(el.clientWidth), h: r2(el.clientHeight) }, capture: { scale: devicePixelRatio } },
+      // A box a multi-column flow fragments: one rect per column (LLP 1093 D12).
+      ...(el.getClientRects().length > 1 ? { column_fragments: [...el.getClientRects()].map(rect) } : {}),
       scroll, clip,
       visible: { hidden: el.checkVisibility ? !el.checkVisibility({ visibilityProperty: true }) : false, inert: !!el.closest('[inert]'), inViewport: r.right > 0 && r.bottom > 0 && r.left < innerWidth && r.top < innerHeight, clipped },
       native: { element: el.localName, ...(el.hasAttribute('data-symbol-source') ? { symbol: {
@@ -146,21 +162,24 @@ export function install(exact) {
   // to where the last one ends, as the wasm host's does.
   // (navigation.js's `animationClock`, restated; the build gives this module
   // its own copy of navigation.js, so it could now be imported.)
-  const starts = new WeakMap(), held = new WeakSet();
+  // A synced animation starts on its clock's boundary (LLP 1055.002).
+  const starts = new WeakMap(), held = new WeakSet(), clocks = animationClocks(document);
+  // A scroll-driven animation follows its scroll, not a clock.
+  const timed = () => document.getAnimations().filter(a => !a.timeline || a.timeline instanceof DocumentTimeline);
   const anim = {
-    register(t) { for (const a of document.getAnimations()) if (!starts.has(a)) { starts.set(a, t); if (a.playState === 'paused') held.add(a); } },
-    seek(to) {
-      for (const a of document.getAnimations()) {
+    register(t) { clocks.commit(); for (const a of timed()) if (!starts.has(a)) { starts.set(a, clocks.start(a, t) ?? t); if (a.playState === 'paused') held.add(a); } },
+    seek(to, sync = true) {
+      for (const a of timed()) {
         const timing = a.effect?.getComputedTiming();
         if (!timing || held.has(a)) continue;
         const t = to - (starts.get(a) ?? exact.clock.now);
         if (t >= timing.endTime && timing.endTime !== Infinity) a.finish(); else { a.pause(); a.currentTime = t; }
       }
-      exact.synced?.();
+      if (sync) exact.synced?.();
     },
     settle() {
       let to = Math.max(exact.clock.now, exact.settleAt?.() ?? 0);
-      for (const a of document.getAnimations()) {
+      for (const a of timed()) {
         const timing = a.effect?.getComputedTiming();
         if (timing && timing.endTime !== Infinity && !held.has(a)) to = Math.max(to, (starts.get(a) ?? exact.clock.now) + timing.endTime);
       }
@@ -175,18 +194,12 @@ export function install(exact) {
     if (!images && document.querySelector('#exact-root img[src*=".gif" i], #exact-root img[src*=".webp" i]')) images = import('./image-glue.js').then(() => exact.holdImages({ root: document.getElementById('exact-root'), now: () => exact.clock.now }));
     images?.then(h => h.seek());
   };
-  const seek = () => { anim.register(exact.clock.now); anim.seek(exact.clock.now); holdImages(); };
-  exact.After.push(seek);
+  const seek = (sync = true) => { anim.register(exact.clock.now); anim.seek(exact.clock.now, sync); holdImages(); };
+  // motion.js owns post-commit reconciliation. The agent registers a
+  // commit's new animations here, and reconciles only when its clock moves.
+  exact.After.push(() => seek(false));
   // Held device requests (LLP 1069.007 D3): `openAuthSession`'s (auth.js).
   const holds = () => [...exact.auth?.holds() ?? [], ...exact.files?.holds() ?? []];
-  // After a clock move, `exactTime` is answered again where its answer
-  // changed: the offset at the new virtual instant, which a DST change
-  // moves (LLP 1069.007 D2), as the wasm host's `exact_set_time` after `clock`.
-  const retime = () => {
-    const time = exact.data.reserved?.exactTime;
-    const stale = time ? exact.resources.filter(r => r.source === 'exactTime' && !eq(r.value, time('exactTime', [], r.name))) : [];
-    if (stale.length) exact.commit(() => { for (const r of stale) R(r); }, 'time');
-  };
   const settleGpu = async () => await exact.gpu?.settled?.() ?? [];
   const gpuPendingReply = (req, pending) => {
     const names = pending.map(item => item.name ?? 'GPU work');
@@ -197,14 +210,15 @@ export function install(exact) {
     await pieces();
     const beforeGpu = await settleGpu();
     if (beforeGpu.length) return gpuPendingReply(req, beforeGpu);
-    seek();
+    // A read presents this clock without standing in for a commit hook.
+    seek(false);
     // `tap @t <choice>` / `type @t <value>` answer a held request (D4).
     if ((req.op === 'tap' || req.op === 'type') && req.ticket != null) return (await exact.files?.answer(req)) ?? (exact.auth ? exact.auth.answer(req) : { error: `not pending: @${req.ticket}` });
     switch (req.op) {
       case 'tree': {
         let nodes = all(), roots = nodes.filter(n => n.depth === 0).map(n => n.id);
         if (req.target != null) {
-          const hit = nodes.find(n => n.id === req.target || n.props.testId === req.target);
+          const hit = targetOf(nodes, req.target);
           if (!hit) return { error: `no view matches ${req.target}` };
           nodes = req.shallow ? [hit] : nodes.filter(n => n === hit || views.get(hit.id).contains(views.get(n.id)));
           roots = [hit.id];
@@ -243,16 +257,46 @@ export function install(exact) {
           // A tap addressed to an iframe enters its guest (glue.js, LLP 1020 D4).
           return el instanceof HTMLIFrameElement ? guestTap(el, req) : {};
         }
-      case 'type': { const el = views.get(req.id); return el instanceof HTMLIFrameElement ? guestType(el, req) : {}; }
+      // A control's value is set, not typed (LLP 1069.001 D9; navigation.js), as the web host's glue.js sets it.
+      // A location typed into the navigation root is its `navigate` (LLP 1038 D11), as glue.js delivers it.
+      case 'type': { const el = views.get(req.id); if (el?.hasAttribute('navigationBack') && req.key == null) return navigateRoot(req.text ?? '') ? { typed: req.id, delivery: 'recognized', handled: true } : { handled: true, error: 'the navigation root has no `navigate` handler' }; return typedControl(el) && req.key == null ? typeControl(el, req) : el instanceof HTMLIFrameElement ? guestType(el, req) : {}; }
+      case 'reveal': return { ...reveal(views.get(req.id), req.id), ...tags() }; // before a tap or a type
       case 'logs': { const j = exact.journal, from = Math.max(req.since ?? 0, j.start); return { lines: j.slice(from - j.start), from, next: j.start + j.length }; }
       // `perf <target>` (LLP 1079 D2): the plan sites under a view, with their work (perf.js).
       case 'perf': {
         if (req.frames) return { virtual: true }; // the agent's clock presents no frame (LLP 1079 D4)
         let el = document.getElementById('exact-root');
-        if (req.target != null) { const hit = all().find(n => n.id === req.target || n.props.testId === req.target); if (!hit) return { error: `no view matches ${req.target}` }; el = views.get(hit.id); }
+        // The view `tree` names (review b5-c 1).
+        if (req.target != null) { const hit = targetOf(all(), req.target); if (!hit) return { error: `no view matches ${req.target}` }; el = views.get(hit.id); }
         return perf.reply(el, tags());
       }
       case 'clock': {
+        // The end of an input (LLP 1012 §2): the `then`s of the answers it
+        // settled land, the clock unmoved and no timer fired (Runner::land_then).
+        if (req.land) {
+          // The clock is unmoved, so nothing reconciles here: each landed commit registered its animations (exact.After).
+          const stopped = exact.advance(exact.clock.now, false, undefined, false);
+          if (typeof stopped === 'string') { seek(false); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
+          seek(false);
+          return { clock: exact.clock.now };
+        }
+        // `clock data`: the app's data lands — a Rust module's activation (a resource `waiting`, rt.js) and every
+        // request in flight, each answer's `then` landed — at the clock as it stands, no timer fired. A test's
+        // first step waits for it (habits, pomodoro, kanban: storage opened after the first step).
+        if (req.data) {
+          const end = performance.now() + 20000, busy = () => exact.inflight.n > holds().length, activating = () => exact.resources.some(r => r.waiting);
+          for (let round = 0; round < 16; round++) {
+            while ((busy() || activating()) && performance.now() < end) await new Promise(r => setTimeout(r, 5));
+            if (activating() || busy()) return { clock: exact.clock.now, settled: false, reason: activating() ? 'data' : 'requests' };
+            const stopped = exact.advance(exact.clock.now, false, undefined, false);
+            seek(false);
+            if (typeof stopped === 'string') return { error: `clock: ${stopped}`, clock: exact.clock.now };
+            // A `then` that sent asks again; what it sends lands in the next round.
+            // A `then` that read a baked resource whose source is not ready leaves it waiting, in no flight (review b5-c 2).
+            if (!busy() && !activating()) return { clock: exact.clock.now, settled: true };
+          }
+          return { clock: exact.clock.now, settled: false, reason: activating() ? 'data' : 'requests' };
+        }
         if (req.settle) {
           // Settled: no request in flight and no commit pending, within 20 s.
           // Virtualized lists report until a round sends nothing, reading
@@ -278,7 +322,7 @@ export function install(exact) {
             for (let stops = 0; ; stops++) {
               const before = exact.inflight.n, held = stops < 4096 && performance.now() < end;
               const stopped = exact.advance(to, false, held ? () => exact.inflight.n > before : undefined);
-              if (typeof stopped === 'string') { retime(); seek(); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
+              if (typeof stopped === 'string') { seek(); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
               if (!stopped) break;
               while (exact.inflight.n > holds().length && performance.now() < end) await new Promise(r => setTimeout(r, 1));
             }
@@ -286,7 +330,6 @@ export function install(exact) {
             seek();
             await new Promise(r => requestAnimationFrame(() => r()));
           }
-          retime();
           const gpuPending = await settleGpu();
           if (gpuPending.length) return gpuPendingReply(req, gpuPending);
           const waiting = holds();
@@ -298,22 +341,33 @@ export function install(exact) {
         // host's does (Runner::advance_until_request): the runner keeps one
         // request per target, so the next tick's send would drop it.
         // A jump that fires timers which send nothing is one advance (one
-        // journal line), as the runner's is.
+        // journal line), as the runner's is. What was in flight before the
+        // jump lands before a timer fires too, as the wasm and native hosts'
+        // jumps wait for it (calendar F10: a store's reply is on real time).
+        // An armed `then` or a queue's `next` is due as a timer is (LLP 1092 D6).
+        const due = () => exact.clock.timers.some(t => t.due <= req.to) || exact.mutations?.some(m => m.due <= req.to || m.next <= req.to);
+        // A view transition on its way is ready first, so its animations
+        // start at this clock, not the one the jump reaches (LLP 1013.000 D9).
+        await exact.viewTransition?.();
         for (const end = performance.now() + 20000; ;) {
+          while (due() && exact.inflight.n > holds().length && performance.now() < end) await new Promise(r => setTimeout(r, 1));
           const before = exact.inflight.n, stopped = exact.advance(req.to, false, () => exact.inflight.n > before);
           // A refusal stops the jump at its time: the runner's error (a timer's, a `then`'s).
-          if (typeof stopped === 'string') { retime(); seek(); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
+          if (typeof stopped === 'string') { seek(); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
           if (!stopped) break;
           // A reply is usually a task or two away: poll at the browser's
           // shortest timer, not a frame's worth (a 300 ms timer's minute
           // is 200 of these).
           while (exact.inflight.n > holds().length && performance.now() < end) await new Promise(r => setTimeout(r, 1));
         }
-        retime(); seek();
+        seek();
         await new Promise(r => requestAnimationFrame(() => r()));
         const gpuPending = await settleGpu();
         if (gpuPending.length) return gpuPendingReply(req, gpuPending);
-        return { clock: exact.clock.now };
+        // Requests still in flight on real time, which a jump does not wait for (`clock settle` does): the driver says so.
+        const inflight = exact.inflight.n - holds().length, b = exact.data?.background?.(), background = b ? b.queued + b.inFlight : 0;
+        // The module's storage still to land beside it (LLP 1097 D9).
+        return { clock: exact.clock.now, ...(inflight > 0 ? { inflight } : {}), ...(background > 0 ? { background } : {}) };
       }
       case 'tags': return tags();
       // @ref LLP 1080.002 D4 — the ids `tree` gives, where CDP's DOM snapshot reads them, and the document's nonce.
@@ -321,7 +375,9 @@ export function install(exact) {
       case 'state': {
         const [slots, derives, resources] = names.map((list, k) => Object.fromEntries(list.map((n, i) => [n, typed(exact.state[k][i](), types[k][i])])));
         // What is in flight: the network's by resource, then held device requests.
-        const pending = [...exact.resources.filter(r => r.ticket).map(r => ({ name: r.name, ticket: r.ticket.id })), ...holds()];
+        // A stream is pending until its first message, then listed in `streams` (LLP 1016.000 D5).
+        const pending = [...exact.resources.filter(r => r.ticket && !r.ticket.messages).map(r => ({ name: r.name, ticket: r.ticket.id })), ...holds()];
+        const streams = exact.resources.filter(r => r.ticket?.ctl).map(r => ({ name: r.name, ticket: r.ticket.id, messages: r.ticket.messages, coalesced: r.ticket.coalesced }));
         // The painted surface of views with presence rows, exit ghosts included (glue.js `st.presence`).
         // Focus, the keyboard's overlap and the document's language, as glue.js's `state` adds them.
         const active = document.activeElement && document.activeElement !== document.body ? document.activeElement : null, activeId = active ? id(active) : null;
@@ -329,15 +385,27 @@ export function install(exact) {
         const focus = { logical: activeId, editor: active && (active.localName === 'input' || active.localName === 'textarea' || active.exactMarkup) ? activeId : null, responder: active?.localName ?? null, pending: null };
         const language = { lang: document.documentElement.lang || 'en', dir: document.documentElement.dir || 'ltr' };
         const keyboard = { visible: overlap > 0, overlap: Math.round(overlap * 100) / 100, policy: document.querySelector('[interactiveWidget]')?.getAttribute('interactiveWidget') ?? 'resizes-visual', interactive: false };
-        const media = [...document.querySelectorAll('#exact-root video')].map(el => ({ id: id(el), state: { currentTime: el.currentTime, duration: Number.isFinite(el.duration) ? el.duration : null, paused: el.paused, muted: el.muted, volume: el.volume, playbackRate: el.playbackRate, readyState: el.readyState, videoWidth: el.videoWidth, videoHeight: el.videoHeight, src: el.currentSrc, error: el.error ? { code: el.error.code, message: el.error.message } : null, renderer: 'HTMLVideoElement' } }));
+        const media = [...document.querySelectorAll('#exact-root video, #exact-root audio')].map(el => ({ id: id(el), state: { currentTime: el.currentTime, duration: Number.isFinite(el.duration) ? el.duration : null, paused: el.paused, muted: el.muted, volume: el.volume, playbackRate: el.playbackRate, readyState: el.readyState, videoWidth: el.videoWidth, videoHeight: el.videoHeight, src: el.currentSrc, error: el.error ? { code: el.error.code, message: el.error.message } : null, renderer: el.constructor.name } }));
         // The active head's fields, `null` where none is set, as the runner's `state.head` (agent.rs).
-        const head = Object.fromEntries(['title', 'description', 'image', 'canonical', 'robots', 'status'].map(k => [k, Head['head' + k[0].toUpperCase() + k.slice(1)] ?? null]));
-        return { slots, derives, resources, pending, head, focus, language, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...(exact.hookStats ? { hooks: exact.hookStats } : {}), ...tags() };
+        const head = { ...Object.fromEntries(['title', 'description', 'image', 'canonical', 'robots', 'status'].map(k => [k, Head['head' + k[0].toUpperCase() + k.slice(1)] ?? null])), edited: Head.headEdited === 'true' };
+        // The drive's app storage (trivia F7): none unless it names a scratch store, as storage-environment.js's `storageKey`.
+        const store = new URL(performance.getEntriesByType?.('navigation')[0]?.name ?? location.href).searchParams.get('storage');
+        const storage = store == null ? { available: false, code: 'agent', message: 'storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)' } : { available: true, store };
+        // Each queue's waiting sends (LLP 1092 D10), as the runner's `state.queued`.
+        const queued = Object.fromEntries((exact.mutations ?? []).filter(m => m.wait?.length).map(m => [m.name, m.wait.length]));
+        // Each task's next due time, `null` while idle or spent (LLP 1092 D10), as the runner's `state.tasks`.
+        const tasks = Object.fromEntries(Tasks.map(t => [t.name, exact.clock.timers.includes(t) ? t.due : null]));
+        // The module's storage (LLP 1097 D8), as the runner's `state.background`.
+        const background = exact.data?.background?.();
+        const faults = faultsJson();
+        return { slots, derives, resources, pending, streams, ...(faults.length ? { faults } : {}), ...(background ? { background } : {}), tasks, queued, notifications: exact.notices ?? [], ...(exact.sounds ? { sounds: exact.sounds.state(req.sounds === 'all') } : {}), head, focus, language, storage, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, mediaSession: exact.mediaSession?.state(id) ?? { owner: null, claimants: [], actions: [], playbackState: 'none', published: 'none' }, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.surfaceRefusals ? { surfaceRefusals: exact.surfaceRefusals() } : {}), reorder: exact.reorderState?.() ?? null, ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...(exact.hookStats ? { hooks: exact.hookStats } : {}), ...tags() };
       }
-      // The page group (LLP 1069.000 D6), where the plan reads `exactPage` (facts.js).
+      // The page group (LLP 1069.000 D6), where the plan reads `exactPage` (facts.js); else the drive's facts
+      // held here, so `root-font-size` still sets the root element's size `rem` follows (D3), as glue.js does.
       // The fold group (LLP 1078 D7) likewise: through facts.js where the plan reads the fold's fields (it re-answers them), else the
       // substitute lands here for `layout.env`; without a fold group the fold stays as it is.
-      case 'prefer': try { return { page: exact.page ? exact.page.prefer(req.page ?? {}) : {}, fold: !req.fold ? foldEnv() : exact.fold ? exact.fold.prefer(req.fold) : preferFold(Object.keys(req.fold).length ? req.fold : null) }; } catch (e) { return { error: e.message }; }
+      // The driver's fetch faults (LLP 1103 D3), a form of `prefer`: the page's table, as glue.js answers it.
+      case 'prefer': if (req.faults) return faultOp(req.faults); try { return { page: (exact.page ?? ownPage()).prefer(req.page ?? {}), fold: !req.fold ? foldEnv() : exact.fold ? exact.fold.prefer(req.fold) : preferFold(Object.keys(req.fold).length ? req.fold : null) }; } catch (e) { return { error: e.message }; }
       default: return { error: `${req.op} is not carried by the JS target` };
     }
   };

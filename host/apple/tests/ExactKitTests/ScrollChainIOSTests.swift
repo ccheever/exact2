@@ -58,6 +58,49 @@ final class ScrollChainIOSTests: XCTestCase {
         defer { withExtendedLifetime(page_none) {} }
         XCTAssertFalse(none.handsOff(CGPoint(x: 0, y: 400)))
         XCTAssertFalse(none.bounces, "`none` has no band")
+        // A style that leaves `none` gets its band back at the next drag.
+        none.superview.flatMap { $0 as? NodeView }?.style["overscroll_behavior_y"] = .string("auto")
+        _ = none.handsOff(CGPoint(x: 0, y: 400))
+        XCTAssertTrue(none.bounces, "leaving `none` restores the band")
+        // A sideways flick does not give the band back to a vertical `none`.
+        none.superview.flatMap { $0 as? NodeView }?.style["overscroll_behavior_y"] = .string("none")
+        _ = none.handsOff(CGPoint(x: 400, y: 0))
+        XCTAssertFalse(none.bounces, "a vertical `none` keeps no band under a horizontal drag")
+    }
+
+    /// Forced vertical bounce (`fitScroll`): a short page keeps it through a
+    /// stray point of width, and a carousel, as tall as its content, does not
+    /// take it.
+    func testAShortPageBouncesThroughAStrayPointOfWidthAndACarouselDoesNot() {
+        let p = Presenter()
+        func scroller(content: CGSize, row: Bool = false, rowChild: Bool = false) -> ScrollView {
+            let node = NodeView(id: 1, kind: "scroll", presenter: p)
+            if row { node.style["display"] = .string("flex") }
+            node.frame = CGRect(x: 0, y: 0, width: 300, height: 600)
+            let sv = ScrollView(frame: node.bounds)
+            sv.scrollsX = true
+            sv.scrollsY = true
+            node.addSubview(sv)
+            if rowChild {
+                let strip = NodeView(id: 2, kind: "view", presenter: p)
+                strip.style["display"] = .string("flex")
+                strip.frame = CGRect(origin: .zero, size: content)
+                sv.addSubview(strip)
+            }
+            node.scroll = sv
+            node.content = content
+            node.fitScroll()
+            return sv
+        }
+        XCTAssertTrue(scroller(content: CGSize(width: 300, height: 200)).alwaysBounceVertical, "a short page")
+        XCTAssertTrue(scroller(content: CGSize(width: 301.5, height: 200)).alwaysBounceVertical, "a short page a point too wide")
+        XCTAssertTrue(scroller(content: CGSize(width: 900, height: 1200)).alwaysBounceVertical, "vertical travel")
+        XCTAssertTrue(scroller(content: CGSize(width: 320, height: 200)).alwaysBounceVertical, "a short page a few points too wide")
+        XCTAssertFalse(scroller(content: CGSize(width: 900, height: 600)).alwaysBounceVertical, "a carousel")
+        XCTAssertFalse(scroller(content: CGSize(width: 900, height: 180)).alwaysBounceVertical, "a carousel shorter than its box")
+        XCTAssertFalse(scroller(content: CGSize(width: 360, height: 180), row: true).alwaysBounceVertical, "a short flex-row strip")
+        XCTAssertFalse(scroller(content: CGSize(width: 360, height: 180), rowChild: true).alwaysBounceVertical, "a block port around a flex-row strip")
+        XCTAssertTrue(scroller(content: CGSize(width: 301.5, height: 600)).alwaysBounceVertical, "a page that fills its port, a point too wide")
     }
 
     func testNothingAroundToTakeItKeepsTheBand() {

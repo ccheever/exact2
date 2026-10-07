@@ -1,0 +1,23 @@
+// A chain of calls (LLP 1089): each callee's parameters and locals are its
+// own, and every write lands in the one commit.
+component App
+  state a = ""
+  state b = ""
+  state c = ""
+  action third(x: string)
+    c = x
+  action second(x: string)
+    let y = `${x}2`
+    b = y
+    third(`${y}3`)
+  action first(x: string)
+    a = x
+    second(`${x}1`)
+  view
+    column
+      text `${a} ${b} ${c}` testId="out"
+      button "go" press=first("go") testId="go"
+
+test "chain"
+  tap "go"
+  expect text "out" == "go go12 go123"

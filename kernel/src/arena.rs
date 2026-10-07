@@ -20,9 +20,9 @@ use crate::generated::{
     FieldSizing, InheritedStyle, NodeType, PropId, StyleId, StyleMask, StyleProps,
 };
 use crate::id::{Frame, NodeFlags, NodeKey, ViewId};
-use crate::props::PropList;
+use crate::props::{PropList, PropValue};
 use crate::style::Env;
-use crate::text::{ParagraphStamp, TextDomain, TextRevisions, TextRun, TextStyle};
+use crate::text::{ParagraphStamp, TextDomain, TextRevisions, TextRun};
 
 /// Columnar node storage. Cloning forks authored state into a fresh paragraph
 /// namespace: either arena can subsequently receive independent transactions.
@@ -42,6 +42,10 @@ pub struct NodeArena {
     styles: Vec<Rc<StyleProps>>,
     shared: SharedStyles,
     props: Vec<PropList>,
+    /// Live nodes per prop id and per node type: a host's scan for a few
+    /// props or types skips the walk when no node has them.
+    prop_counts: Vec<u32>,
+    type_counts: Vec<u32>,
     flags: Vec<NodeFlags>,
     layout_passes: Vec<u64>,
     geometry_passes: Vec<(u32, u64)>,
@@ -49,8 +53,12 @@ pub struct NodeArena {
     // @ref LLP 1043.000 §3 D4 — no per-node vector or allocation.
     pub(crate) flow: IdMap<u32, crate::flow::FlowState>,
     pub(crate) exclusion_slots: SlotSet,
+    /// @ref LLP 1093 D7 — multi-column containers and their last cuts.
+    pub(crate) frag: crate::fragment::FragState,
     /// Slots whose style writes a row in `rem`/`em` (LLP 1069.000 D3).
     pub(crate) relative_slots: SlotSet,
+    /// Slots that are `position: sticky` (LLP 1083 D3).
+    pub(crate) sticky_slots: SlotSet,
     /// The timeline-bearing nodes and what each follower's name resolves
     /// to (LLP 1057.003 D4), kept by the linked lookup after each commit.
     pub(crate) timelines: crate::timeline::Registry,
@@ -98,13 +106,17 @@ impl Clone for NodeArena {
             styles: self.styles.clone(),
             shared: self.shared.clone(),
             props: self.props.clone(),
+            prop_counts: self.prop_counts.clone(),
+            type_counts: self.type_counts.clone(),
             flags: self.flags.clone(),
             layout_passes: self.layout_passes.clone(),
             geometry_passes: self.geometry_passes.clone(),
             frames: self.frames.clone(),
             flow: self.flow.clone(),
             exclusion_slots: self.exclusion_slots.clone(),
+            frag: self.frag.clone(),
             relative_slots: self.relative_slots.clone(),
+            sticky_slots: self.sticky_slots.clone(),
             timelines: self.timelines.clone(),
             root_font_size_next: self.root_font_size_next,
             contents: self.contents.clone(),
@@ -165,7 +177,9 @@ impl NodeArena {
         self.renew_text_namespace();
         self.flow.clear();
         self.exclusion_slots.clear();
+        self.frag = Default::default();
         self.relative_slots.clear();
+        self.sticky_slots.clear();
         self.timelines = Default::default();
         for slot in 0..self.live.len() {
             self.live[slot] = false;
@@ -174,6 +188,8 @@ impl NodeArena {
             self.styles[slot] = self.shared.default_style();
             self.props[slot].clear();
             self.flags[slot] = NodeFlags::default();
+            self.prop_counts.clear();
+            self.type_counts.clear();
             self.frames[slot] = Frame::default();
             self.contents[slot] = (0.0, 0.0);
             self.intrinsic[slot] = None;
@@ -280,6 +296,13 @@ impl NodeArena {
     /// Node type of a slot.
     pub fn node_type(&self, slot: u32) -> NodeType {
         self.node_types[slot as usize]
+    }
+
+    /// Whether a slot is a `<button>` element on the web: a Pressable,
+    /// whatever its ARIA role, unless an `href` makes it an `<a>`.
+    pub(crate) fn is_button(&self, slot: u32) -> bool {
+        self.node_type(slot) == NodeType::Pressable
+            && self.props(slot).str(crate::PropId::Href).is_none()
     }
 
     /// Parent slot.
@@ -495,6 +518,34 @@ impl NodeArena {
         out
     }
 
+    /// The style that supplies row `id` of [`NodeArena::computed_style`]:
+    /// one row read without copying a whole style.
+    pub fn computed_source(&self, slot: u32, id: StyleId) -> &StyleProps {
+        let own = &self.styles[slot as usize];
+        if own.mask.has(id) || !id.inherited() {
+            return own;
+        }
+        let mut cur = self.parents[slot as usize];
+        while let Some(p) = cur {
+            if self.styles[p as usize].mask.has(id) {
+                return &self.styles[p as usize];
+            }
+            cur = self.parents[p as usize];
+        }
+        if self.document_style.mask.has(id) {
+            return &self.document_style;
+        }
+        own
+    }
+
+    /// [`crate::text::TextStyle::from_style`] of the computed style, read
+    /// where its rows are set, without copying a style.
+    pub fn text_style(&self, slot: u32) -> crate::text::TextStyle {
+        crate::text::TextStyle::from_rows(&self.styles[slot as usize], |rows, take| {
+            self.copy_inherited(slot, rows, take)
+        })
+    }
+
     /// Values used only to compare inherited rows across a topology change.
     /// No unrelated style payloads are copied into these transient snapshots.
     pub(crate) fn computed_inherited(&self, slot: u32) -> InheritedStyle {
@@ -542,7 +593,9 @@ impl NodeArena {
     /// @ref LLP 1053 §0 G5
     pub fn paragraph(&self, slot: u32) -> crate::text::Paragraph {
         let mut paragraph =
-            crate::text::Paragraph::from_style(&self.computed_style(slot, StyleMask::INHERITED));
+            crate::text::Paragraph::from_rows(&self.styles[slot as usize], |rows, take| {
+                self.copy_inherited(slot, rows, take)
+            });
         paragraph.markup = self.markup(slot);
         if self.node_types[slot as usize] == NodeType::TextInput
             && !paragraph.white_space.model().preserves()
@@ -570,8 +623,7 @@ impl NodeArena {
         boundary: &mut crate::text::case::WordBoundary,
     ) {
         let s = slot as usize;
-        let computed = self.computed_style(slot, StyleMask::INHERITED);
-        let style = TextStyle::from_style(&computed);
+        let style = self.text_style(slot);
         match self.node_types[s] {
             NodeType::TextInput => {
                 // An input has a line box even when empty (the web's
@@ -616,7 +668,11 @@ impl NodeArena {
                     let shown = if self.markup(slot) == crate::text::Markup::Markdown {
                         text.into()
                     } else {
-                        crate::text::case::shown(computed.text_transform, text, *boundary)
+                        let hyphens = self.computed_source(slot, StyleId::Hyphens).hyphens;
+                        let transform = self
+                            .computed_source(slot, StyleId::TextTransform)
+                            .text_transform;
+                        hyphens.shown(crate::text::case::shown(transform, text, *boundary))
                     };
                     boundary.push(text);
                     out.push(TextRun { text: shown, style });
@@ -638,16 +694,16 @@ impl NodeArena {
     pub fn shown_text(&self, slot: u32) -> Option<std::borrow::Cow<'_, str>> {
         let text = self.props[slot as usize].str(PropId::Text)?;
         let transform = self
-            .computed_style(slot, StyleMask::of(StyleId::TextTransform))
+            .computed_source(slot, StyleId::TextTransform)
             .text_transform;
+        let hyphens = self.computed_source(slot, StyleId::Hyphens).hyphens;
         if self.node_types[slot as usize] != NodeType::Text
-            || transform == crate::TextTransform::None
             || self.markup(slot) == crate::text::Markup::Markdown
         {
             return Some(text.into());
         }
         if transform != crate::TextTransform::Capitalize {
-            return Some(transform.apply(text, ""));
+            return Some(hyphens.shown(transform.apply(text, "")));
         }
         let mut owner = slot;
         while self.is_inline_run(owner) {
@@ -712,10 +768,12 @@ impl NodeArena {
         self.generations[s] = if next == 0 { 1 } else { next };
         self.live[s] = true;
         self.node_types[s] = node_type;
+        bump(&mut self.type_counts, node_type as usize, true);
         self.local_ids[s] = id;
         self.parents[s] = None;
         self.children[s].clear();
         self.styles[s] = self.shared.default_style();
+        self.uncount_props(slot);
         self.props[s].clear();
         self.flags[s] = NodeFlags::CREATED;
         self.layout_dirty.insert(slot);
@@ -732,13 +790,17 @@ impl NodeArena {
 
     pub(crate) fn free_slot(&mut self, slot: u32) {
         self.exclusion_slots.remove(slot);
+        self.frag.forget(slot);
         self.relative_slots.remove(slot);
+        self.sticky_slots.remove(slot);
         self.layout_dirty.remove(slot);
         self.flow.remove(&slot);
         let s = slot as usize;
         debug_assert!(self.live[s], "free of a dead slot");
         self.by_local.remove(&self.local_ids[s]);
         self.live[s] = false;
+        bump(&mut self.type_counts, self.node_types[s] as usize, false);
+        self.uncount_props(slot);
         self.text_revisions[s] = TextRevisions::default();
         self.parents[s] = None;
         self.children[s] = Vec::new();
@@ -759,6 +821,9 @@ impl NodeArena {
     }
 
     pub(crate) fn set_parent(&mut self, slot: u32, parent: Option<u32>) {
+        if parent.is_some() && self.parents[slot as usize] != parent {
+            self.flags[slot as usize].insert(NodeFlags::ATTACHED);
+        }
         self.parents[slot as usize] = parent;
     }
 
@@ -802,6 +867,7 @@ impl NodeArena {
             NodeFlags::TEXT_DIRTY,
             NodeFlags::CHILDREN_DIRTY,
             NodeFlags::GEOMETRY_CHANGED,
+            NodeFlags::ATTACHED,
         ] {
             self.flags[slot as usize].remove(clear);
         }
@@ -830,6 +896,16 @@ impl NodeArena {
         } else {
             self.relative_slots.insert(slot);
         }
+        if style.position_type == crate::PositionType::Sticky {
+            self.sticky_slots.insert(slot);
+        } else {
+            self.sticky_slots.remove(slot);
+        }
+        if crate::fragment::is_multicol(&style) {
+            self.frag.containers.insert(slot);
+        } else {
+            self.frag.containers.remove(slot);
+        }
         self.styles[slot as usize] = self.shared.intern(style);
     }
 
@@ -838,8 +914,45 @@ impl NodeArena {
         self.shared.len()
     }
 
-    pub(crate) fn props_mut(&mut self, slot: u32) -> &mut PropList {
-        &mut self.props[slot as usize]
+    /// Set a prop; the previous value.
+    pub(crate) fn set_prop(
+        &mut self,
+        slot: u32,
+        id: PropId,
+        value: PropValue,
+    ) -> Option<PropValue> {
+        let old = self.props[slot as usize].set(id, value);
+        if old.is_none() {
+            bump(&mut self.prop_counts, id as usize, true);
+        }
+        old
+    }
+
+    /// Clear a prop; the value it had.
+    pub(crate) fn remove_prop(&mut self, slot: u32, id: PropId) -> Option<PropValue> {
+        let old = self.props[slot as usize].remove(id);
+        if old.is_some() {
+            bump(&mut self.prop_counts, id as usize, false);
+        }
+        old
+    }
+
+    fn uncount_props(&mut self, slot: u32) {
+        for (id, _) in self.props[slot as usize].iter() {
+            bump(&mut self.prop_counts, id as usize, false);
+        }
+    }
+
+    /// Whether any live node (attached or not) has prop `id`.
+    pub fn has_prop(&self, id: PropId) -> bool {
+        self.prop_counts.get(id as usize).is_some_and(|n| *n > 0)
+    }
+
+    /// Whether any live node (attached or not) is a `node_type`.
+    pub fn has_type(&self, node_type: NodeType) -> bool {
+        self.type_counts
+            .get(node_type as usize)
+            .is_some_and(|n| *n > 0)
     }
 
     pub(crate) fn flags_mut(&mut self, slot: u32) -> &mut NodeFlags {
@@ -974,15 +1087,23 @@ mod tests {
             (StyleId::FontWeight, number(700.0)),
             (StyleId::FontStyle, text("italic")),
             (StyleId::FontFamily, number(3.0)),
+            (StyleId::Cursor, text("grab")),
             (StyleId::TextAlign, text("right")),
             (StyleId::LineHeight, number(1.5)),
             (StyleId::LetterSpacing, number(2.0)),
             (StyleId::FontVariantNumeric, text("tabular-nums")),
             (StyleId::TextColor, text("light-dark(#112233, #ffffff)")),
             (StyleId::WhiteSpace, text("pre-wrap")),
+            (StyleId::DynamicRangeLimit, text("constrained")),
+            (StyleId::ColorScheme, text("dark")),
             (StyleId::OverflowWrap, text("anywhere")),
             (StyleId::InterpolateSize, text("allow-keywords")),
             (StyleId::TextTransform, text("uppercase")),
+            (StyleId::TextIndent, number(24.0)),
+            (StyleId::Hyphens, text("auto")),
+            // LLP 1093 D4.
+            (StyleId::Widows, number(4.0)),
+            (StyleId::Orphans, number(3.0)),
             (StyleId::TextShadow, text("1px 2px 3px #000")),
             (StyleId::TextStrokeWidth, number(2.0)),
             (StyleId::TextStrokeColor, text("#ff0000")),
@@ -1006,6 +1127,7 @@ mod tests {
             (StyleId::TextAnchor, text("middle")),
             (StyleId::DominantBaseline, text("central")),
             (StyleId::PointerEvents, text("stroke")),
+            (StyleId::Cursor, text("crosshair")),
             (StyleId::MarkerStart, text("url(#a)")),
             (StyleId::MarkerMid, text("url(#a)")),
             (StyleId::MarkerEnd, text("url(#a)")),
@@ -1071,8 +1193,8 @@ mod tests {
         arena.set_children(p, vec![r1, r2]);
         arena.set_parent(r1, Some(p));
         arena.set_parent(r2, Some(p));
-        arena.props_mut(r1).set(PropId::Text, "Hello ".into());
-        arena.props_mut(r2).set(PropId::Text, "world".into());
+        arena.set_prop(r1, PropId::Text, "Hello ".into());
+        arena.set_prop(r2, PropId::Text, "world".into());
         arena.style_mut(r2).font_size = 20.0;
         let mut runs = Vec::new();
         arena.text_runs(p, &mut runs);
@@ -1083,7 +1205,7 @@ mod tests {
         assert!(arena.is_inline_run(r1));
         assert_eq!(arena.measure_owner(r2), p);
         // An own `text` prop suppresses the children.
-        arena.props_mut(p).set(PropId::Text, "override".into());
+        arena.set_prop(p, PropId::Text, "override".into());
         let mut runs = Vec::new();
         arena.text_runs(p, &mut runs);
         assert_eq!(runs.len(), 1);
@@ -1221,5 +1343,17 @@ mod paragraph_stamp_tests {
             !old.same_metrics(&new),
             "allocation serial must still differ"
         );
+    }
+}
+
+/// One more (`up`) or one fewer node in a per-id count.
+fn bump(counts: &mut Vec<u32>, index: usize, up: bool) {
+    if counts.len() <= index {
+        counts.resize(index + 1, 0);
+    }
+    if up {
+        counts[index] += 1;
+    } else {
+        counts[index] = counts[index].saturating_sub(1);
     }
 }

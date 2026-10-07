@@ -168,12 +168,27 @@ final class NavigationBarIOSTests: XCTestCase {
         _ = press.perform(NSSelectorFromString(action), with: control)
         until("the tab pressed") { state(session, "segment") as? String == "missed" }
         until("the selection follows aria-selected") { control.selectedSegmentIndex == 1 }
+        // Sized for the text size and weight it shows, when they change and
+        // no batch follows (every batch leaves it alone otherwise).
+        let segments = try XCTUnwrap((top as? RouteController)?.titleSegments)
+        for (category, weight) in [(UIContentSizeCategory.accessibilityExtraLarge, UILegibilityWeight.regular), (.accessibilityExtraLarge, .bold)] {
+            control.frame.size = CGSize(width: 1, height: 1)
+            control.traitOverrides.preferredContentSizeCategory = category
+            control.traitOverrides.legibilityWeight = weight
+            control.updateTraitsIfNeeded()
+            XCTAssertEqual(segments.sized?.traits, [category, weight.rawValue] as [AnyHashable])
+            XCTAssertGreaterThanOrEqual(control.frame.width, 180, "sized again: two segments, 90 pt each at least")
+            XCTAssertGreaterThan(control.frame.height, 1)
+        }
     }
 
     func testAPushedRouteShowsBackAsTheAuthoredControlAndAPopPressesItOnce() throws {
         let session = try fixture("bar-push", module: false)
         let agent = Agent(session: session)
-        _ = agent.tap(["id": Int(try node(session, "detail").id)])
+        let tapped = try node(session, "detail")
+        let reply = agent.tap(["id": Int(tapped.id)])
+        XCTAssertNil(reply["error"], "\(reply)")
+        XCTAssertEqual(reply["pressed"] as? Int, Int(tapped.id), "the native projection stays above its authored holders")
         let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
         until("the detail route is pushed") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
         let detail = try XCTUnwrap(nav.topViewController), home = nav.viewControllers[0]
@@ -197,6 +212,29 @@ final class NavigationBarIOSTests: XCTestCase {
         spin(0.2)
         XCTAssertEqual(nav.viewControllers.count, 1)
         XCTAssertEqual(backs(session), 1, "Back once")
+    }
+
+    /// A pop UIKit finishes with no enabled Back control to press (here,
+    /// disabled just before the bar's pop, as a tap racing that batch does)
+    /// presses nothing, and the native stack goes back to the one the router
+    /// still declares, not one route short of it. The Brooks port's fork
+    /// needed a repair for this; main already restores the stack, with the
+    /// batch before the pop or during it, and this keeps it so.
+    func testAPopThatOutlivesItsBackControlRestoresTheDeclaredStack() throws {
+        let session = try fixture("bar-back-gone", module: false)
+        let agent = Agent(session: session)
+        XCTAssertNil(agent.tap(["id": Int(try node(session, "detail").id)])["error"])
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        until("the detail route is pushed") { nav.viewControllers.count == 2 && nav.transitionCoordinator == nil }
+        let p = session.presenter
+        let name = try XCTUnwrap(p.views.values.first { $0.props["navigationBack"] != nil }?.props["navigationBack"])
+        let back = try XCTUnwrap(p.views.values.first { $0.props["id"] == name && $0.handlers.contains("press") })
+        p.apply(wireBatch([["op": "props", "id": Int(back.id), "set": ["disabled": "true"], "clear": []]]))
+        nav.popViewController(animated: true)
+        until("the transition ends and the declared stack is back") { nav.transitionCoordinator == nil && nav.viewControllers.count == 2 }
+        spin(0.2)
+        XCTAssertEqual(nav.viewControllers.count, 2, "the router still declares the detail route")
+        XCTAssertEqual(backs(session), 0, "no enabled Back control, so nothing is pressed")
     }
 
     func testAForwardedCustomTransitionPopsOnceAndACancelledOneNever() throws {

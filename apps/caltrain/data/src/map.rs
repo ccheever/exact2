@@ -2,17 +2,19 @@
 //! `rules/DEFERRED.md`), drawn by the data crate with the web's canvas
 //! calls. It was a wgpu surface (LLP 1009); the drawing is the same.
 //!
-//! Arguments, in `canvas surface=map(line, selectedId, board, nowMs)` order:
-//! the stations in line order (records `[id, name, zone, distance]`), the
-//! selected station's id, the northbound board (records `[id, train,
-//! service, headsign, at]`), and the clock. It draws the line and the next
+//! Arguments, in `canvas surface=map(line, selectedId, board, nowMs, em)`
+//! order: the stations in line order (records `[id, name, zone, distance]`),
+//! the selected station's id, the northbound board (records `[id, train,
+//! service, headsign, at]`), the clock, and the `em` the rows are sized in
+//! (16 points, 24 on a TV). It draws the line and the next
 //! northbound train as a square sliding toward the selected station as its
 //! countdown runs. The stations — a dot and a name each — are the canvas's
 //! children (LLP 1014), laid out by the kernel over the bitmap. The two
 //! agree on where a station is by construction: the children are a column
-//! with 16 points of padding and 14-point rows spread `space-between`, so
-//! the first row's centre is 23 points from the top and the last 23 from
-//! the bottom, and the train interpolates between the same centres. `nowMs`
+//! with 16 points of padding and `1.25em` rows spread `space-between`, so
+//! the first row's centre is 16 points and `0.625em` from the top and the
+//! last as far from the bottom, and the train interpolates between the same
+//! centres; the line and the train scale with `em`. `nowMs`
 //! ticks once a second, so the map draws on `args` alone.
 
 use exact_runner::exact_canvas::{Context2d, DrawError, Frame};
@@ -47,8 +49,8 @@ pub fn train_progress(board: &Value, now: f64) -> Option<f64> {
 
 /// Draw the map into `ctx` at `frame`'s size.
 pub fn draw(args: &[Value], ctx: &Context2d, frame: &Frame) -> Result<bool, DrawError> {
-    let [line, selected, board, now] = args else {
-        return Err(format!("map: expected 4 arguments, got {}", args.len()).into());
+    let [line, selected, board, now, em] = args else {
+        return Err(format!("map: expected 5 arguments, got {}", args.len()).into());
     };
     let stations: Vec<&str> = fields(line)
         .ok_or("map: line is not a list")?
@@ -57,6 +59,8 @@ pub fn draw(args: &[Value], ctx: &Context2d, frame: &Frame) -> Result<bool, Draw
         .collect();
     let selected = text(Some(selected)).ok_or("map: selectedId is not a string")?;
     let now = number(Some(now)).ok_or("map: nowMs is not a number")?;
+    let em = number(Some(em)).ok_or("map: em is not a number")?;
+    let k = em / 16.0;
     let (w, h) = (frame.width, frame.height);
     ctx.clear_rect(0.0, 0.0, w, h);
     ctx.set_fill_style_str("#f7f7f7");
@@ -66,10 +70,10 @@ pub fn draw(args: &[Value], ctx: &Context2d, frame: &Frame) -> Result<bool, Draw
         return Ok(false);
     }
     let x = 0.5 * w;
-    let (top, bottom) = (23.0, h - 23.0);
+    let (top, bottom) = (16.0 + 0.625 * em, h - 16.0 - 0.625 * em);
     let y_of = |i: usize| top + (bottom - top) * (i as f64 / (n.max(2) - 1) as f64);
     ctx.set_fill_style_str("#bfbfbf");
-    ctx.fill_rect(x - 1.5, top, 3.0, bottom - top);
+    ctx.fill_rect(x - 1.5 * k, top, 3.0 * k, bottom - top);
     let sel = stations.iter().position(|id| *id == selected);
     if let (Some(sel), Some(progress)) = (sel, train_progress(board, now)) {
         // Northbound: from the next station south (the higher index) toward
@@ -77,7 +81,7 @@ pub fn draw(args: &[Value], ctx: &Context2d, frame: &Frame) -> Result<bool, Draw
         let from = (sel + 1).min(n - 1);
         let y = y_of(from) + (y_of(sel) - y_of(from)) * progress;
         ctx.set_fill_style_str("#2980e6");
-        ctx.fill_rect(x - 18.0 - 5.0, y - 5.0, 10.0, 10.0);
+        ctx.fill_rect(x - 23.0 * k, y - 5.0 * k, 10.0 * k, 10.0 * k);
     }
     Ok(false)
 }
@@ -131,6 +135,7 @@ mod tests {
             Value::str("a"),
             Value::list(vec![departure("next", 1_200_000.0)]),
             Value::Number(600_000.0),
+            Value::Number(16.0),
         ];
         assert_eq!(draw(&args, &ctx, &frame), Ok(false));
         let lists = ctx.take_lists();

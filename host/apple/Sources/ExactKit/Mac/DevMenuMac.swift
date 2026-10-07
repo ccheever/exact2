@@ -1,5 +1,6 @@
 // The standalone Mac menu bar: standard application and window commands,
-// with app-declared shortcuts in File, Go and Settings. File — New Window ⌘N
+// with app-declared shortcuts in File, Edit, View, Go and Settings by their
+// chords (ShortcutsMac.swift; studio diary R16). File — New Window ⌘N
 // exists under `launch_handler` `navigate-new` (LLP 1069.010 D4), Open… ⌘O
 // when the app declares documents it opens (LLP 1033);
 // Edit always (the field editor's command keys — ⌘A/X/C/V/Z — are menu
@@ -141,7 +142,7 @@ public enum DevMenu {
         // copy, paste, and undo.
         let editItem = NSMenuItem()
         bar.addItem(editItem)
-        let edit = NSMenu(title: "Edit")
+        let edit = ShortcutMenu(title: "Edit")
         edit.addItem(withTitle: "Undo", action: Selector(("undo:")), keyEquivalent: "z")
         let redo = edit.addItem(withTitle: "Redo", action: Selector(("redo:")), keyEquivalent: "z")
         redo.keyEquivalentModifierMask = [.command, .shift]
@@ -153,7 +154,7 @@ public enum DevMenu {
         let selectAll = edit.addItem(withTitle: "Select All", action: #selector(EditMenuTarget.selectAll(_:)), keyEquivalent: "a")
         selectAll.target = editTarget
         editItem.submenu = edit
-        let view = NSMenu(title: "View")
+        let view = ShortcutMenu(title: "View")
         let fullScreen = view.addItem(withTitle: "Enter Full Screen", action: #selector(NSWindow.toggleFullScreen(_:)), keyEquivalent: "f")
         fullScreen.keyEquivalentModifierMask = [.command, .control]
         bar.addItem(withTitle: "View", action: nil, keyEquivalent: "").submenu = view
@@ -166,7 +167,7 @@ public enum DevMenu {
         window.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
         bar.addItem(withTitle: "Window", action: nil, keyEquivalent: "").submenu = window
         NSApp.windowsMenu = window
-        shortcuts.attach(file, application: appMenu, navigation: go)
+        shortcuts.attach(file, application: appMenu, navigation: go, edit: edit, view: view)
         if enabled {
             let devItem = NSMenuItem()
             bar.addItem(devItem)
@@ -204,6 +205,21 @@ public enum DevMenu {
         return menu.items.map { $0.isSeparatorItem ? "—" : $0.title }
     }
 
+    /// The menu bar as drawn, for the agent's `state` (studio diary R16):
+    /// each menu's shown items, with the chord each answers (`⇧⌘Z`).
+    public static var menuBar: [[String: Any]] {
+        (NSApp.mainMenu?.items ?? []).dropFirst().compactMap(\.submenu).map { menu in
+            menu.delegate?.menuNeedsUpdate?(menu)
+            return ["title": menu.title, "items": menu.items.filter { !$0.isHidden }.map { item -> String in
+                if item.isSeparatorItem { return "—" }
+                guard !item.keyEquivalent.isEmpty else { return item.title }
+                let m = item.keyEquivalentModifierMask
+                let chord = (m.contains(.control) ? "⌃" : "") + (m.contains(.option) ? "⌥" : "") + (m.contains(.shift) ? "⇧" : "") + (m.contains(.command) ? "⌘" : "")
+                return "\(item.title) \(chord)\(item.keyEquivalent.uppercased())"
+            }]
+        }
+    }
+
     /// The typed URL — the affordance a physical device actually uses
     /// (LLP 1023 Stage 1): seeded with the last value, kept in defaults.
     static func openProject() {
@@ -239,7 +255,9 @@ public enum DevMenu {
         }
         let started = CACurrentMediaTime()
         let batch = session.boot(size: session.presenter.viewportSize)
-        print("reloaded in \(String(format: "%.1f", (CACurrentMediaTime() - started) * 1000)) ms\(batch.error.map { " — \($0)" } ?? "")")
+        // stderr, never stdout: stdout is the agent's reply channel on macOS,
+        // and a reply-shaped line there answers the driver's next request.
+        fputs("exact: reloaded in \(String(format: "%.1f", (CACurrentMediaTime() - started) * 1000)) ms\(batch.error.map { " — \($0)" } ?? "")\n", stderr)
     }
 
     static func info() -> String {

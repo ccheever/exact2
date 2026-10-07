@@ -1118,6 +1118,25 @@ the same knob: the lead is not the lever for the rows never shown; a
 reversal-aware window (rows behind the travel retired sooner, the forward
 lead kept) or a cheaper row to build is.
 
+### 8.12 A call the owner never saw: the paired transform packet (2026-10-03)
+
+The Signal Clone's photo viewer could not be dragged on a phone (Charlie,
+build 10). `Runtime.transformMotion` (`TransformDragBridge.swift`) called
+`exact_transform_motion` from main, not as an owner job. The runtimes live
+in the owner thread's registry, so the call found none: "runtime 2: no such
+runtime". So every transform drag (LLP 1057.001 §4: the photo handle's pan
+and pinch) was refused at its first geometry report, and the hold never
+began. It is now an owner job like every other call in `Bridge.swift`. Also,
+a presented route's transition, and a dismissal's, ends with
+`transformGeometry.changed()` (`ModalIOS`). A drag inside a route presented with a transform transition
+(iOS 18's zoom) measured its geometry while the transition's transforms were
+still on its ancestors, and nothing measured it again until something else
+laid out.
+
+Test: `TransformMotionOwnerTests` (a packet from main reaches its runtime).
+Driven on the simulator: in the clone's full-screen photo route, a drag down
+moves the photo and dismisses it.
+
 ## 9. Amending LLP 1050.000 D3 (ruled, Q5)
 
 D3 today: "a row may take longer than a frame, but never mid-fling." Amended:

@@ -154,3 +154,41 @@ fn the_signed_out_guard_stays_on_the_tick() {
     r.advance(300.0).unwrap();
     assert_eq!(current(&r).0, "login");
 }
+
+/// The `testId` views on the shown screen, and on the covered ones.
+fn views(r: &Runner<Api>, id: &str) -> (Vec<exact_kernel::ViewId>, Vec<exact_kernel::ViewId>) {
+    let k = r.kernel();
+    k.find_by_test_id(id)
+        .into_iter()
+        .map(|key| k.node_by_key(key).unwrap().id)
+        .partition(|v| !r.inactive(*v))
+}
+
+fn value(r: &Runner<Api>, view: exact_kernel::ViewId) -> String {
+    let node = r.kernel().node(view).unwrap();
+    node.props
+        .str(exact_kernel::PropId::Value)
+        .unwrap_or_default()
+        .to_string()
+}
+
+#[test]
+fn a_draft_survives_navigating_away_and_back() {
+    // Every stack entry stays mounted under the top, hidden and inert; the
+    // sign-in form's draft is its entry's, so Back finds it as it was left.
+    let mut r = boot("/login");
+    let (shown, _) = views(&r, "email");
+    r.dispatch(shown[0], exact_runner::Event::Input("a@b.c".into()))
+        .unwrap();
+    r.act("go", vec![Value::str("/register")]).unwrap();
+    assert_eq!(current(&r).0, "register");
+    let (shown, covered) = views(&r, "email");
+    assert_eq!(value(&r, shown[0]), "", "the new entry starts empty");
+    assert_eq!(covered.len(), 1, "the sign-in entry stays mounted");
+    assert_eq!(value(&r, covered[0]), "a@b.c");
+    r.act("back", vec![]).unwrap();
+    assert_eq!(current(&r).0, "login");
+    let (shown, covered) = views(&r, "email");
+    assert!(covered.is_empty(), "the register entry left the stack");
+    assert_eq!(value(&r, shown[0]), "a@b.c", "the draft survived Back");
+}

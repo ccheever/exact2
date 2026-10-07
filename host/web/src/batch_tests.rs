@@ -54,6 +54,7 @@ fn cases() -> Vec<(&'static str, String)> {
         canonical: None,
         robots: Some("noindex".into()),
         status: Some(404),
+        edited: false,
     };
     let bare = exact_runner::Head::default();
     let surface = exact_runner::SurfaceUpdate {
@@ -151,7 +152,7 @@ fn cases() -> Vec<(&'static str, String)> {
                     "opacity",
                     0.0,
                     16.5,
-                    &[(0.0, 0.0), (0.25, 1.0), (1e21, -0.0)],
+                    &[[0.0; 4], [0.25, 1.0, 0.0, 0.0], [1e21, -0.0, 0.0, 0.0]],
                     false,
                 )
             }),
@@ -164,7 +165,7 @@ fn cases() -> Vec<(&'static str, String)> {
                     "translate",
                     12.25,
                     300.0,
-                    &[(0.1, 0.2), (-3.5, 1e-7)],
+                    &[[0.1, 0.2, 0.0, 0.0], [-3.5, 1e-7, 0.0, 0.0]],
                     true,
                 )
             }),
@@ -181,7 +182,7 @@ fn cases() -> Vec<(&'static str, String)> {
                     9,
                     "translate",
                     (0.0, 300.0),
-                    &[(0.1, 0.2), (0.0, 0.0)],
+                    &[[0.1, 0.2, 0.0, 0.0], [0.0; 4]],
                 )
             }),
         ),

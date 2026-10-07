@@ -1,6 +1,6 @@
 //! The only unsafe boundary. Presence bits own initialized slots, and row leases
 //! exclude aliasing (`lease.rs`). Structural edits require an exclusive world borrow.
-use crate::{Data, DataError, Entity, Reader, Writer};
+use crate::{Data, DataError, Reader, Writer};
 use std::any::Any;
 use std::cell::Cell;
 use std::marker::PhantomData;
@@ -21,6 +21,12 @@ pub use query::{Query, QueryBorrow, QueryIter, QueryRows};
 
 /// Number of entity-indexed slots in each component page.
 pub const PAGE: usize = 512;
+// Storage identities key derived caches; they never reach saves or hashes.
+fn instance() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
+}
 const WORDS: usize = PAGE / 64;
 
 /// What a guard releases when it drops: its own hold on one row (or a whole
@@ -153,6 +159,7 @@ impl<C: Data> Storage<C> {
         let lease = self.raw.lease_row(index, true, leases, at).ok_or(Refused)?;
         self.edited();
         self.mark_page(index / PAGE);
+        self.mark_row(index);
         Ok(Some(RefMut {
             ptr: self.ptr(index),
             _lease: lease,
@@ -185,13 +192,6 @@ pub(crate) trait Erased {
     fn has(&self, index: usize) -> bool;
     /// The exclusive lease an engine read of every row would alias, if any.
     fn read_conflict(&self, leases: &Leases, at: At) -> Option<Conflict>;
-    fn snapshot(
-        &self,
-        skip: Option<&Storage<crate::Ambient>>,
-        out: &mut Vec<(usize, u64)>,
-        full: Option<&mut crate::hash::Hasher>,
-        entity: &dyn Fn(usize) -> Entity,
-    );
     fn moving(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> bool;
     fn visit_moving(
         &self,
@@ -201,13 +201,27 @@ pub(crate) trait Erased {
     );
     fn settle_tick(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> Option<u64>;
     fn write_one(&self, index: usize, w: &mut dyn Writer) -> bool;
+    /// Identity for caches keyed by page generation or revision.
+    fn instance(&self) -> u64;
+    /// Write generation of the whole storage.
+    fn revision(&self) -> u64;
+    fn page_count(&self) -> usize;
+    fn page_generation(&self, page: usize) -> u64;
+    /// Hash each present row of one page, in index order.
+    fn digest_page(&self, page: usize, each: &mut dyn FnMut(usize, u64));
     fn any(&self) -> &dyn Any;
     fn any_mut(&mut self) -> &mut dyn Any;
     fn len(&self) -> usize;
     fn remove(&mut self, index: usize);
-    fn write(&self, w: &mut dyn Writer, entity: &dyn Fn(usize) -> Entity);
-    fn read(&mut self, r: &mut dyn Reader, valid: &dyn Fn(Entity) -> bool)
-        -> Result<(), DataError>;
+    /// Erase every row.
+    fn clear(&mut self);
+    /// The save representation: columnar rows, or a resource's value.
+    fn write_save(&self, w: &mut dyn Writer);
+    fn read_save(
+        &mut self,
+        r: &mut dyn Reader,
+        alive: &dyn Fn(u32) -> bool,
+    ) -> Result<(), DataError>;
 }
 pub(crate) fn make<C: Data>(name: &'static str, epoch: std::rc::Rc<Cell<u64>>) -> Box<dyn Erased> {
     Box::new(Storage::<C> {
@@ -234,27 +248,36 @@ impl<C: Data> Erased for Storage<C> {
     fn remove(&mut self, index: usize) {
         self.raw.erase(index);
     }
+    fn clear(&mut self) {
+        self.raw.erase_all();
+    }
     fn write_one(&self, index: usize, w: &mut dyn Writer) -> bool {
         self.raw.write_one(index, w)
     }
-    fn write(&self, w: &mut dyn Writer, entity: &dyn Fn(usize) -> Entity) {
-        self.raw.write(w, entity);
+    fn instance(&self) -> u64 {
+        self.raw.instance()
     }
-    fn read(
+    fn revision(&self) -> u64 {
+        self.raw.revision()
+    }
+    fn page_count(&self) -> usize {
+        self.raw.page_count()
+    }
+    fn page_generation(&self, page: usize) -> u64 {
+        self.raw.page_generation(page)
+    }
+    fn digest_page(&self, page: usize, each: &mut dyn FnMut(usize, u64)) {
+        self.raw.digest_page(page, each);
+    }
+    fn write_save(&self, w: &mut dyn Writer) {
+        self.raw.write_save(w);
+    }
+    fn read_save(
         &mut self,
         r: &mut dyn Reader,
-        valid: &dyn Fn(Entity) -> bool,
+        alive: &dyn Fn(u32) -> bool,
     ) -> Result<(), DataError> {
-        self.raw.read(r, valid)
-    }
-    fn snapshot(
-        &self,
-        skip: Option<&Storage<crate::Ambient>>,
-        out: &mut Vec<(usize, u64)>,
-        full: Option<&mut crate::hash::Hasher>,
-        entity: &dyn Fn(usize) -> Entity,
-    ) {
-        self.raw.snapshot(skip, out, full, entity);
+        self.raw.read_save(r, alive)
     }
     fn moving(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> bool {
         self.raw.moving(now, skip)

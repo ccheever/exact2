@@ -2,6 +2,7 @@
 
 mod agent;
 mod animation;
+mod aria;
 mod borders;
 mod canvas;
 mod collection;
@@ -11,9 +12,11 @@ mod height;
 mod height_drag;
 mod holds;
 mod host;
+mod lengths;
 mod lists;
 mod navigation;
 mod page;
+mod paint_order;
 mod pan_release;
 mod parity;
 mod presence;

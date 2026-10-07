@@ -1,6 +1,6 @@
 // @ref LLP 1008 §9 — UIKit owns modal presentation and its keyboard guide.
 // The session's viewport moves into that container; layout remains the kernel's.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 private final class ModalController: UIViewController, UIGestureRecognizerDelegate {
@@ -16,11 +16,17 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         self.host = host
         self.routeID = routeID
         super.init(nibName: nil, bundle: nil)
+        #if os(tvOS)
+        // tvOS has no sheets; every modal covers the screen.
+        modalPresentationStyle = .overFullScreen
+        #else
         modalPresentationStyle = fullscreen ? .overFullScreen : .pageSheet
         if !fullscreen { updateDetent(detent) }
+        #endif
     }
     private var detentValue: String?
     func updateDetent(_ value: String?) {
+        #if !os(tvOS)
         guard modalPresentationStyle == .pageSheet,
               let sheet = sheetPresentationController,
               detentValue != value || sheet.detents.isEmpty else { return }
@@ -46,11 +52,28 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         }
         if viewIfLoaded?.window != nil { sheet.animateChanges(configure) }
         else { configure() }
+        #endif
     }
     required init?(coder: NSCoder) { nil }
+    #if os(iOS)
+    // LLP 1105 D6: UIKit asks a presented controller that covers the screen;
+    // it answers the presenter's one resolved style, as the root does.
+    override var preferredStatusBarStyle: UIStatusBarStyle { host?.presenter.statusBar.style ?? .default }
+    #endif
     private var backdropTap: UITapGestureRecognizer?
+    /// Each appearance, the first and one after a cancelled interactive dismissal.
+    var appeared: (() -> Void)?
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        appeared?()
+        #if os(iOS)
+        // Back after a cancelled drag or zoom dismissal, which no completion
+        // resolves: what landed during the gesture shows now (LLP 1105 D5).
+        // The finished coordinator may still be installed: only a newly
+        // started push or pop holds the style.
+        let resolve = { [weak self] in self?.host?.presenter.resolveStatusBar(settled: true) }
+        if !(transitionCoordinator?.animate(alongsideTransition: nil, completion: { _ in resolve() }) ?? false) { resolve() }
+        #endif
         guard backdropTap == nil, let container = presentationController?.containerView else { return }
         let tap = UITapGestureRecognizer(target: self, action: #selector(tappedBackdrop))
         tap.delegate = self
@@ -67,6 +90,10 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
     @objc private func tappedBackdrop() { host?.dismissByBackdrop(routeID) }
     override func loadView() {
         view = UIView()
+        #if os(tvOS)
+        // tvOS has neither grouped backgrounds nor a keyboard layout guide.
+        view.backgroundColor = .white
+        #else
         view.backgroundColor = .secondarySystemGroupedBackground
         let probe = UIView()
         probe.isHidden = true
@@ -79,6 +106,7 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
             probe.widthAnchor.constraint(equalToConstant: 0),
             probe.heightAnchor.constraint(equalToConstant: 0),
         ])
+        #endif
     }
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
@@ -111,6 +139,10 @@ private final class Presentation {
     var geometry: [UInt32: (node: NodeView, ops: [BatchOp.Kind: BatchOp])] = [:]
     var presenting = true
     var animated = false
+    /// Samples where a zoom lands while the route's nodes are still mapped:
+    /// run as a Close destroys the route (`prepare`), so the zoom back starts
+    /// from the photo as it is then, zoomed or panned.
+    var sampleLanding: (() -> Void)?
     var alreadyDismissed = false
 
     init(host: ModalHost, route: NodeView, navigation: UIViewController,
@@ -130,6 +162,32 @@ private final class Presentation {
     }
 }
 
+/// A zoom's last alignment answer (`ModalHost.present`), and whether the
+/// zoom now running is the person's interactive dismissal, which lands
+/// unaligned.
+final class ZoomLanding {
+    var rect: CGRect?
+    private(set) var interactive = false
+    /// `interactiveDismissShouldBegin`'s answer, passed through: an accepted
+    /// dismissal lands unaligned until the route appears again.
+    func dismissal(begins: Bool) -> Bool {
+        if begins { interactive = true }
+        return begins
+    }
+    /// The route appeared: first, or again after the finger cancelled.
+    func appeared() { interactive = false }
+    /// What `alignmentRectProvider` answers for a resolved rect: none while an
+    /// interactive dismissal runs. UIKit follows the finger with the whole
+    /// route and, given an alignment rect, re-bases the content onto it at
+    /// lift-off: a visible jump and a held frame (a plain UIKit fixture does
+    /// the same). Unaligned, the release carries the drag on in one motion,
+    /// the route cross-fading into its source.
+    func answer(_ resolved: CGRect?) -> CGRect? {
+        if let resolved { rect = resolved }
+        return interactive ? nil : rect
+    }
+}
+
 final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     unowned let presenter: Presenter
     private var layers: [Presentation] = []
@@ -138,6 +196,8 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     private var retiring: [Presentation] = []
     private var dismissing: Presentation?
     private var closing = false
+    /// The fullscreen controller hidden until its zoom starts (`present`).
+    private weak var zoomGuard: UIViewController?
     private var refusedRoute: UInt32?
     var active: Bool { !layers.isEmpty || !retiring.isEmpty || closing }
     var inTransition: Bool {
@@ -167,6 +227,28 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
     var coordinateView: UIView? { layers.last?.controller.viewIfLoaded }
     var owner: UIViewController? { layers.last?.controller }
     var routes: [(node: NodeView, kind: String)] { layers.map { ($0.route, $0.kind) } }
+    #if os(iOS)
+    /// The topmost presented route the status bar sits over (LLP 1105 D2): a
+    /// full-screen one always; a sheet only at its large detent on a
+    /// compact-width screen. Nil when the bar is over the screen behind.
+    /// The topmost covering presentation's navigation view (its routes and
+    /// their pushes, not the app's root nodes that ride along with the
+    /// viewport); nil when the bar is over the primary screen. Every
+    /// presentation's navigation view, which the primary screen's scope
+    /// leaves out; and every presentation's whole view, where a node may sit.
+    var statusBarScope: (covering: UIView?, presented: [UIView], views: [UIView]) {
+        let covering = layers.last { layer in
+            let c = layer.controller
+            if c.modalPresentationStyle == .overFullScreen { return true }
+            guard let sheet = c.sheetPresentationController, c.traitCollection.horizontalSizeClass == .compact else { return false }
+            return (sheet.selectedDetentIdentifier ?? sheet.detents.first?.identifier) == .large
+        }
+        return (covering?.navigation.viewIfLoaded, layers.compactMap { $0.navigation.viewIfLoaded }, layers.compactMap { $0.controller.viewIfLoaded })
+    }
+    /// Every presented controller re-reads the style with the root (D6):
+    /// UIKit asks the topmost one that covers, which a sheet over it may hide.
+    func statusBarChanged() { for layer in layers { layer.controller.setNeedsStatusBarAppearanceUpdate() } }
+    #endif
 
     init(presenter: Presenter) { self.presenter = presenter }
 
@@ -185,6 +267,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
             $0.op == .destroy && $0.id == layer.route.id
         }) {
             let controller = layer.controller
+            layer.sampleLanding?()
             controller.freeze()
             controller.retiringRoot = layer.route
             controller.retiringNavigation = presenter.navigation.preserveModalContent(in: controller)
@@ -243,6 +326,30 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         }
     }
 
+    /// The image a zoom's end shows: the node itself, or the first image
+    /// among its authored descendants (each node's children are in its
+    /// `container`), depth first.
+    static func zoomImage(_ node: NodeView) -> NodeView? {
+        if node.kind == "image" { return node }
+        for child in node.container.subviews.compactMap({ $0 as? NodeView }) {
+            if let image = zoomImage(child) { return image }
+        }
+        return nil
+    }
+
+    /// Where a zoom lands, in the zoomed controller's view: the target's box,
+    /// or for an image the image as drawn (its `object-fit` in its content
+    /// box, clipped there), sized from its own pixels or, before they land,
+    /// `fallbackNatural`.
+    static func zoomAlignment(target: NodeView, fallbackNatural: CGSize?, in zoomed: UIView) -> CGRect {
+        let box = target.convert(target.bounds, to: zoomed)
+        guard let image = zoomImage(target),
+              let natural = image.raster?.image.naturalSize ?? fallbackNatural, natural.width > 0, natural.height > 0 else { return box }
+        let content = image.contentBox()
+        let drawn = RasterGeometry.rect(natural: natural, content: content, fit: image.style["object_fit"]?.string ?? "fill")
+        return image.convert(drawn.intersection(content), to: zoomed)
+    }
+
     func canPresent(from parent: UIViewController, route: NodeView) -> Bool {
         guard parent.presentedViewController == nil else {
             if refusedRoute != route.id {
@@ -266,11 +373,37 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         home.addSubview(background.view)
         background.view.frame = frame
         let controller = layer.controller
-        if #available(iOS 18.0, *), layer.kind == "fullscreen", route.props["navigationSource"] != nil {
+        if #available(iOS 18.0, tvOS 18.0, *), layer.kind == "fullscreen", route.props["navigationSource"] != nil {
             let options = UIViewController.Transition.ZoomOptions()
+            let landing = ZoomLanding()
             options.interactiveDismissShouldBegin = { [weak self, weak route] context in
                 guard let self, let route, context.willBegin else { return false }
-                return !self.refusesDismissal(of: route)
+                return landing.dismissal(begins: !self.refusesDismissal(of: route))
+            }
+            controller.appeared = landing.appeared
+            // Where the source lands: the presented route's own element with
+            // the source's id, when it has one; for an image, the image as it
+            // is drawn (`object-fit`), so the zoom morphs photo into photo
+            // rather than the whole route into the thumbnail with two photos
+            // cross-fading (LLP 1035.001, the zoom's alignment).
+            // The last answer, for the zoom back after a Close: by then the
+            // route's nodes have left the presenter's map (`release`) though
+            // UIKit still shows them. `prepare` samples it just before.
+            let resolve: (UIView, NodeView?) -> CGRect? = { [weak self, weak route] zoomed, sourceView in
+                guard let self, let route, let name = route.props["navigationSource"],
+                      let target = presenter.views.values.filter({
+                          $0.props["id"] == name && $0.window != nil && $0.isDescendant(of: route)
+                      }).min(by: { $0.id < $1.id }) else { return nil }
+                // Before the viewer's own pixels land, the source's image (the
+                // view UIKit zooms from) is the same photo.
+                let source = sourceView.flatMap(Self.zoomImage)
+                return Self.zoomAlignment(target: target, fallbackNatural: source?.raster?.image.naturalSize, in: zoomed)
+            }
+            options.alignmentRectProvider = { context in
+                landing.answer(context.zoomedViewController.viewIfLoaded.flatMap { resolve($0, context.sourceView as? NodeView) })
+            }
+            layer.sampleLanding = { [weak controller] in
+                if let zoomed = controller?.viewIfLoaded, let rect = resolve(zoomed, nil) { landing.rect = rect }
             }
             controller.preferredTransition = .zoom(options: options, sourceViewProvider: { [weak self, weak route, weak preceding] _ in
                 guard let self, let route, let preceding,
@@ -281,23 +414,49 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
                         ($0 === preceding || $0.isDescendant(of: preceding))
                 }.min(by: { $0.id < $1.id })
             })
+            // Hidden until UIKit's zoom has it: on a device a frame could be
+            // drawn with the presented view in place at full size before the
+            // zoom took it over (one frame of the whole destination, then the
+            // presenting screen again, then the zoom).
+            controller.view.alpha = 0
+            zoomGuard = controller
         }
         layers.append(layer)
         controller.isModalInPresentation = refusesDismissal(of: route)
         controller.loadViewIfNeeded()
         presenter.navigation.move(to: controller) { controller.view.addSubview(presenter.viewport) }
         controller.presentationController?.delegate = self
-        owner.present(controller, animated: !ExactEnv.agentFreezes) { [weak self, weak layer] in
+        let guarded = zoomGuard === controller
+        zoomGuard = nil
+        owner.present(controller, animated: !ExactEnv.agentFreezes) { [weak self, weak layer, weak controller] in
+            if guarded { UIView.performWithoutAnimation { controller?.view.alpha = 1 } }
             guard let self, let layer else { return }
             layer.presenting = false
+            #if os(iOS)
+            // Up: what the bar sits over now (LLP 1105 D5).
+            presenter.resolveStatusBar()
+            #endif
             DispatchQueue.main.async { [weak self, weak layer] in
                 guard let self, let layer else { return }
                 if layers.contains(where: { $0 === layer }) {
                     fit()
                     presenter.navigation.modalDidDismiss()
                 }
+                // The transition's transforms are gone: a transform drag in
+                // the presented route measures again, or it stays refused
+                // until something else lays out (LLP 1057.001 §4).
+                presenter.transformGeometry.changed()
+                presenter.syncModal()
                 drainRetired()
             }
+        }
+        if guarded {
+            // Shown as the transition starts, in the block UIKit runs with
+            // its first frame; at once if there is no coordinator or it
+            // refuses the block; and in any case when the presentation ends.
+            let show = { UIView.performWithoutAnimation { controller.view.alpha = 1 } }
+            let taken = controller.transitionCoordinator?.animate(alongsideTransition: { _ in show() }, completion: { _ in show() }) ?? false
+            if !taken { show() }
         }
         fit()
     }
@@ -338,12 +497,20 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
             guard let self, dismissing === layer else { return }
             dismissing = nil
             retiring.removeAll { $0 === layer }
+            #if os(iOS)
+            // Gone: what the bar sits over now (LLP 1105 D5).
+            presenter.resolveStatusBar()
+            #endif
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 drainRetired()
                 guard let session = presenter.session, session.state != .destroyed else { return }
                 presenter.navigation.modalDidDismiss()
                 fit()
+                // As after a presentation: what the dismissal's transition
+                // covered measures again (a drag in the route left on top).
+                presenter.transformGeometry.changed()
+                presenter.syncModal()
             }
         }
         if layer.alreadyDismissed || layer.controller.presentingViewController == nil { completion() }
@@ -394,6 +561,16 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
             layer.controller.retiringNavigation = presenter.navigation.preserveModalContent(in: layer.controller)
             closeTop(animated: false, refit: false)
         }
+    }
+}
+#endif
+
+#if os(iOS)
+// A sheet dragged between detents moves what the status bar sits over
+// with no batch (LLP 1105 D5).
+extension ModalHost: UISheetPresentationControllerDelegate {
+    func sheetPresentationControllerDidChangeSelectedDetentIdentifier(_ sheetPresentationController: UISheetPresentationController) {
+        presenter.resolveStatusBar()
     }
 }
 #endif

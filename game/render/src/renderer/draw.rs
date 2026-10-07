@@ -73,6 +73,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         time: crate::HookTime,
         poses: &crate::hooks::Poses,
     ) -> Result<Stats, RenderError> {
+        self.timed.set(0);
         if H::ENABLED && self.hook_metrics.is_none() {
             self.hook_metrics = Some(Box::default());
         }
@@ -108,26 +109,87 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         }
         if H::ENABLED && ASSETS {
             self.check_custom_materials(hooks.materials())?;
+            // A change in custom materials rebatches: those models draw unmerged.
+            let custom = hooks.materials();
+            if custom.len() != self.models.custom.len()
+                || custom
+                    .iter()
+                    .any(|c| !self.models.custom.contains(&c.material))
+            {
+                self.models.custom = custom.iter().map(|c| c.material).collect();
+                self.models.revision += 1;
+            }
             self.models
                 .custom_data(&self.queue, |slot| hooks.instance_data(slot));
         }
-        let (scene_copy, retained) = self.prepare_targets(size, needs);
-        let cascades = self.prepare_effects(frame);
-        self.environment.prepare(&self.queue, &frame.environment);
-        self.queue.write_buffer(
-            &self.uniform,
-            0,
-            bytes(&frame::uniform(
-                frame,
-                cascades.as_ref(),
-                size,
-                &self.environment.irradiance,
-            )),
-        );
+        // This frame's quads and translucent order first: the split below
+        // follows the soft particles actually drawn.
         self.quads
             .frame::<ASSETS>(frame, &self.models.textures, !self.cull.keep_all);
+        self.select_levels(frame);
         self.order_translucent(frame);
         self.quads.order::<ASSETS>(&self.device, &self.queue);
+        // Soft particles read the opaque depth: the translucent pass splits from
+        // the opaque one (not under a scene copy, whose continuation draws them
+        // hard). Depth stays retained once they have drawn, so toggling them
+        // never recreates the targets (and drops bloom and SSAO).
+        let soft = self.quads.soft_drawn() && !needs.contains(crate::Needs::SCENE_COPY);
+        self.soft_retained |= soft;
+        let (scene_copy, retained) = self.prepare_targets(
+            size,
+            needs,
+            frame.ambient_occlusion.is_some() || self.soft_retained,
+        );
+        self.quads.soft_pass(
+            &self.device,
+            &self.queue,
+            soft.then_some(&self.targets.depth),
+            (frame.proj * frame.view).inverse(),
+            self.depth_split(),
+        );
+        let cascades = self.prepare_effects(frame);
+        let map = frame.environment_map.and_then(|m| {
+            let texture = self.models.textures.get(m.texture).filter(|t| t.active)?;
+            Some(crate::ibl::MapSource {
+                view: &texture.view,
+                digest: texture.digest,
+                intensity: m.intensity,
+                rgbm: m.rgbm,
+                rotation: m.rotation,
+            })
+        });
+        if self
+            .environment
+            .prepare(&self.device, &self.queue, &frame.environment, map)
+        {
+            self.rebind();
+        }
+        if self
+            .lights
+            .prepare(&self.device, &self.queue, frame, size, &self.local_plan)
+        {
+            self.rebind();
+        }
+        // A visible sky map draws once resident; the procedural sky until then.
+        self.sky_ready = frame.environment_map.is_some_and(|m| {
+            m.visible
+                && self
+                    .models
+                    .textures
+                    .get(m.texture)
+                    .is_some_and(|t| t.active)
+        });
+        let mut uniform = frame::uniform(
+            frame,
+            self.sky_ready,
+            cascades.as_ref(),
+            size,
+            &self.environment.irradiance,
+            self.lights.info,
+        );
+        // An authored map's intensity scales its filtered light at sample time.
+        uniform[31] *= self.environment.ambient_scale();
+        self.queue.write_buffer(&self.uniform, 0, bytes(&uniform));
         self.prepare_cull(frame, cascades.as_ref(), hooks.materials());
         let mut state = Resolved {
             size,
@@ -139,10 +201,18 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             times,
             draws: 0,
         };
-        self.environment.encode(encoder);
+        if self.environment.encode(encoder, frame.timestamps) {
+            self.mark(timing::ENVIRONMENT);
+        }
+        if self.environment.mapped() {
+            // The GPU-projected SH replaces the uniform's CPU irradiance.
+            encoder.copy_buffer_to_buffer(&self.environment.sh, 0, &self.uniform, 144 * 4, 144);
+        }
         if ASSETS {
             if let Some(skin) = &self.models.skinning {
-                skin.encode(encoder, frame.timestamps);
+                if skin.encode(encoder, frame.timestamps) && frame.timestamps.is_some() {
+                    self.mark(16);
+                }
             }
         }
         if H::ENABLED {
@@ -151,14 +221,51 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             hooks
                 .compute(encoder, &view)
                 .map_err(|e| hook_error("compute", e))?;
-            timing::encoder_stamp(&self.device, encoder, frame.timestamps, 17, true);
+            if timing::encoder_stamp(&self.device, encoder, frame.timestamps, 17, true) {
+                self.mark(17);
+            }
             state.times[1] = start.map(|s| s.elapsed());
         }
-        self.cull.encode(encoder, self.current, frame.timestamps);
+        if self.cull.encode(encoder, self.current, frame.timestamps) && frame.timestamps.is_some() {
+            self.mark(timing::CULL);
+        }
+        self.encode_local_culls(encoder);
         state.draws += self.encode_shadows(encoder, frame, hooks.materials());
+        state.draws += self.encode_local_shadows(encoder, hooks.materials(), frame.timestamps);
         self.encode_forward(encoder, &mut state, frame, hooks, &view)?;
+        if self.quads.soft_active() {
+            self.encode_translucent(encoder, &mut state, frame);
+        }
         if scene_copy {
             self.encode_surface(encoder, &mut state, frame, hooks, &view)?;
+        }
+        if let Some(settings) = frame.ambient_occlusion {
+            let (scale, _) = settings.quality.plan();
+            if self
+                .ssao
+                .as_ref()
+                .is_none_or(|s| !s.fits(&self.targets, scale))
+            {
+                self.ssao = Some(crate::ssao::Ssao::new(&self.device, &self.targets, scale));
+                self.texture_creations += 1;
+            }
+            if frame.timestamps.is_some() {
+                self.mark(timing::SSAO);
+                self.mark(timing::SSAO_APPLY);
+            }
+            self.ssao.as_ref().unwrap().encode(
+                &self.queue,
+                encoder,
+                frame,
+                settings,
+                &self.targets.resolved,
+                size,
+                self.depth_split(),
+                frame.timestamps,
+            );
+            state.draws += 2;
+        } else {
+            self.ssao = None;
         }
         self.encode_post(encoder, target, &mut state, frame, hooks, &view)?;
         self.cull.copy_counts(&self.device, encoder);
@@ -222,7 +329,6 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 models: &self.models,
                 pipelines: &self.pipelines,
                 instance: &binds.layout,
-                empty: &binds.empty,
             })
         } else {
             None
@@ -267,9 +373,15 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     }
 
     // Attachments grow in 64-pixel buckets; hook services add retained targets.
-    fn prepare_targets(&mut self, size: (u32, u32), needs: crate::Needs) -> (bool, bool) {
+    fn prepare_targets(
+        &mut self,
+        size: (u32, u32),
+        needs: crate::Needs,
+        occlusion: bool,
+    ) -> (bool, bool) {
         let scene_copy = needs.contains(crate::Needs::SCENE_COPY);
-        let retained = scene_copy || needs.contains(crate::Needs::FINAL_DEPTH);
+        // Occlusion reads the forward pass's depth too.
+        let retained = scene_copy || occlusion || needs.contains(crate::Needs::FINAL_DEPTH);
         let replace_targets = size.0 > self.targets.size.0
             || size.1 > self.targets.size.1
             || retained != self.targets.retained;
@@ -280,6 +392,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 bucket(size.1).max(self.targets.size.1),
             );
             self.bloom = None;
+            self.ssao = None;
             self.targets = Targets::with_retention(
                 &self.device,
                 capacity,
@@ -331,14 +444,16 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 self.shadows = Some(ShadowMaps::new(
                     &self.device,
                     c.count,
-                    &self.pipelines.shadow_layout,
                     &self.pipelines.camera_layout,
                 ));
+                self.shadow_sample_stale = true;
             }
             self.shadows.as_ref().unwrap().write(&self.queue, c);
-        } else {
-            self.shadows = None;
+        } else if self.shadows.take().is_some() {
+            self.shadow_sample_stale = true;
         }
+        self.prepare_local(frame);
+        self.refresh_shadow_sample();
         if frame.environment.bloom.is_some() {
             if self.bloom.is_none() {
                 self.bloom = Some(BloomTargets::new(
@@ -360,6 +475,30 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
 
     // One total translucent order; opaque/primitive batches remain retained.
     // Blended models the camera cannot see stay out of it (NaN depth marks them).
+    /// One level of detail per entity, from its displayed position.
+    fn select_levels(&mut self, frame: &FrameInput<'_>) {
+        if !ASSETS || self.levels.entries.is_empty() {
+            return;
+        }
+        let (poses, indices) = (&self.models.poses, &self.models.pose_indices);
+        let words = &self.attachment_words;
+        self.levels.select(|e| {
+            let position = attachment_matrix(words, e.slot).map_or_else(
+                || {
+                    let history = poses[indices[e.record as usize]];
+                    crate::world::scene::interpolate(history, frame.alpha).position
+                },
+                |m| m.w_axis.truncate(),
+            );
+            position.distance(frame.camera_position)
+        });
+        if self.levels.changed {
+            if let Some(skinning) = &mut self.models.skinning {
+                skinning.activate(&self.queue, &self.levels.hidden);
+            }
+        }
+    }
+
     fn order_translucent(&mut self, frame: &FrameInput<'_>) {
         if !ASSETS {
             return;
@@ -367,6 +506,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         let camera = crate::cull::planes(frame.proj * frame.view);
         for (_, slot, depth) in &mut self.models.transparent {
             let index = (self.slot_list[*slot as usize] - crate::RENDER_SLOT_BASE) as usize;
+            if self.levels.hidden.get(index).copied().unwrap_or(false) {
+                *depth = f32::NAN;
+                continue;
+            }
             let record = &self.models.records[index];
             let mesh = &self.meshes[record.geometry.0];
             let history = self.models.poses[self.models.pose_indices[index]];

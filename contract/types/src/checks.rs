@@ -4,9 +4,11 @@ use super::{
     arms, disagree, err, infer, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError, Types,
 };
 use contract_syntax::{
-    one_spelling_edit, Attr, Binding, Component, Expr, File, Node, Span, TemplatePart, TypeExpr,
+    Attr, Binding, Component, Expr, File, Node, Owner, Span, TemplatePart, TypeExpr, HOST_COMMANDS,
 };
 use std::collections::{BTreeMap, BTreeSet};
+
+mod sounds;
 
 /// Reject recursive functions without revisiting completed subgraphs.
 pub(super) fn check_function_cycles(file: &File) -> Result<(), TypeError> {
@@ -85,7 +87,8 @@ fn calls_in(e: &Expr, indices: &BTreeMap<&str, usize>, out: &mut Vec<usize>) {
         Expr::Some(x, _)
         | Expr::Unary(_, x, _)
         | Expr::Member(x, _, _)
-        | Expr::NamedArg(_, x, _) => calls_in(x, indices, out),
+        | Expr::NamedArg(_, x, _)
+        | Expr::Typed(x, _, _) => calls_in(x, indices, out),
         Expr::Binary(_, a, b, _) => {
             calls_in(a, indices, out);
             calls_in(b, indices, out);
@@ -117,12 +120,8 @@ fn calls_in(e: &Expr, indices: &BTreeMap<&str, usize>, out: &mut Vec<usize>) {
                 }
             }
         }
-        Expr::Number(..)
-        | Expr::Str(..)
-        | Expr::Bool(..)
-        | Expr::None(_)
-        | Expr::EmptyList(_)
-        | Expr::Ident(..) => {}
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::Ident(..) => {}
+        Expr::List(items, _) => items.iter().for_each(|x| calls_in(x, indices, out)),
     }
 }
 
@@ -147,9 +146,15 @@ pub(super) fn call_arity<P: std::fmt::Display>(
     params: impl IntoIterator<Item = P>,
 ) -> String {
     let params: Vec<_> = params.into_iter().map(|p| p.to_string()).collect();
+    // A trailing optional parameter is spelled `number?` (LLP 1088 D2).
+    let required = params.iter().filter(|p| !p.ends_with('?')).count();
+    let count = if required == params.len() {
+        params.len().to_string()
+    } else {
+        format!("{required} to {}", params.len())
+    };
     format!(
-        "`{name}` takes {} argument(s), given {given}; expected `{name}({})`",
-        params.len(),
+        "`{name}` takes {count} argument(s), given {given}; expected `{name}({})`",
         params.join(", ")
     )
 }
@@ -248,83 +253,6 @@ impl Shapes {
     }
 }
 
-// Suggestions change only a refusal's text. Global functions have authored
-// names here; lifted child actions do not, so scoped actions only disambiguate.
-pub(super) fn unknown_function(
-    name: &str,
-    scope: &Scope,
-    shapes: &Shapes,
-    span: Span,
-) -> TypeError {
-    // The web's list operations and number formatters Contract refuses
-    // (LLP 1017.003 §Diagnostics) say what to do instead.
-    if let Some(why) = contract_syntax::idioms::refusal(name) {
-        return TypeError {
-            id: "type-refused-idiom",
-            message: why,
-            span,
-        };
-    }
-    let mut message = format!(
-        "`{name}` is not in the stdlib roster and is not an action; data comes from a `resource`"
-    );
-    if let Some(candidate) = similar_function(name, scope, shapes) {
-        message.push_str(&format!("; did you mean `{candidate}`?"));
-    }
-    TypeError {
-        id: "type-unknown-function",
-        message,
-        span,
-    }
-}
-
-fn similar_function<'a>(name: &str, scope: &'a Scope, shapes: &'a Shapes) -> Option<&'a str> {
-    if !name.is_ascii() || !(3..=64).contains(&name.len()) {
-        return None;
-    }
-    let global = |candidate: &str| {
-        matches!(candidate, "pending" | "failed")
-            || (candidate == "path" && shapes.routes.is_some())
-            || shapes.fns.contains_key(candidate)
-            || super::Stdlib::from_name(candidate)
-                .is_some_and(|f| super::routes::require_table(f, shapes, Span::default()).is_ok())
-    };
-    let names = shapes
-        .fns
-        .keys()
-        .map(String::as_str)
-        .chain(super::Stdlib::ALL.iter().map(|f| f.name()))
-        .chain(["pending", "failed", "path"]);
-    let mut found = None;
-    for candidate in names {
-        if !one_spelling_edit(name.as_bytes(), candidate.as_bytes()) || !global(candidate) {
-            continue;
-        }
-        if found.is_some_and(|previous| previous != candidate) {
-            return None;
-        }
-        found = Some(candidate);
-    }
-    let candidate = found?;
-    for frame in &scope.frames {
-        for (scoped, _, _) in &frame.names {
-            // Expansion can append instance suffixes. The stem is only a
-            // conservative ambiguity veto, never an offered correction.
-            let authored = scoped.split('#').next().unwrap();
-            if authored != candidate
-                && one_spelling_edit(name.as_bytes(), authored.as_bytes())
-                && matches!(
-                    scope.lookup(scoped),
-                    Some((Ref::Action(_) | Ref::Prop(_), Ty::Action(_)))
-                )
-            {
-                return None;
-            }
-        }
-    }
-    Some(candidate)
-}
-
 /// Reject shape cycles before lowering recursively materializes plan types.
 pub(super) fn check_shape_cycles(file: &File, shapes: &Shapes) -> Result<(), TypeError> {
     let indices: BTreeMap<&str, usize> = file
@@ -389,33 +317,43 @@ fn visit_shape(
     Ok(())
 }
 
-/// The lexical scope at each expanded `each` tag.
+/// The lexical scope at each expanded region arm, by tag and arm, whose
+/// subject types now, and whether every region's subject typed. A region
+/// over a list a later write completes (`state items = []`) is skipped,
+/// with all it holds: the view check refuses a list that never types
+/// (@ref LLP 1088 D6's two repros, without its fixed point).
 fn owner_scopes(
     c: &Component,
     ct: &ComponentTypes,
     types: &Types,
-) -> Result<BTreeMap<u32, Scope>, TypeError> {
+) -> (BTreeMap<(u32, u8), Scope>, bool) {
     let mut scopes = BTreeMap::new();
-    collect_owner_scopes(
+    let complete = collect_owner_scopes(
         &c.view,
         &types.component_scope(c, ct),
         &types.shapes,
         &mut scopes,
-    )?;
-    Ok(scopes)
+    );
+    (scopes, complete)
 }
 
-/// Infer lifted row-slot initializers in the region frames that own them.
+/// Infer each lifted child state's initializer where its instance is
+/// created: in its use site's scope, after derives and resources have
+/// types, so it may read them, a row's item, a `match` binding, and every
+/// earlier state (LLP 1017 P4c).
 pub(super) fn infer_owned_state_initializers(
     c: &Component,
     ct: &mut ComponentTypes,
     types: &Types,
-    owners: Option<&[Option<u32>]>,
+    owners: Option<&[Owner]>,
 ) -> Result<(), TypeError> {
     let Some(owners) = owners else {
         return Ok(());
     };
-    let scopes = owner_scopes(c, ct, types)?;
+    if owners.iter().all(|o| *o == Owner::Root) {
+        return Ok(());
+    }
+    let (scopes, complete) = owner_scopes(c, ct, types);
     let mut names: Vec<(String, Ref, Ty)> = c
         .props
         .iter()
@@ -426,24 +364,57 @@ pub(super) fn infer_owned_state_initializers(
         let i = c.props.len() + j;
         names.push((p.name.clone(), Ref::Prop(i as u32), ct.props[i].clone()));
     }
+    // What settled before any instance renders: derives and resources.
+    let mut settled = Vec::new();
+    for (i, d) in c.derives.iter().enumerate() {
+        settled.push((d.name.clone(), Ref::Derive(i as u32), ct.derives[i].clone()));
+    }
+    for (i, r) in c.resources.iter().enumerate() {
+        settled.push((
+            r.name.clone(),
+            Ref::Resource(i as u32),
+            ct.resources[i].clone(),
+        ));
+    }
+    for (i, m) in c.mutations.iter().enumerate() {
+        let t = Ty::Option(Box::new(ct.mutations[i].clone()));
+        settled.push((m.name.clone(), Ref::Mutation(i as u32), t));
+    }
     for (i, state) in c.states.iter().enumerate() {
-        if let Some(tag) = owners.get(i).copied().flatten() {
-            let Some(owner_scope) = scopes.get(&tag) else {
-                return err(
-                    "type-row-slot",
-                    format!("row state `{}` has no owning `each`", state.name),
-                    state.span,
-                );
-            };
+        let regions = match owners.get(i).copied().unwrap_or(Owner::Root) {
+            Owner::Root => None,
+            Owner::Instance => Some(Vec::new()),
+            Owner::Arm { tag, arm } => {
+                let Some(owner_scope) = scopes.get(&(tag, arm)) else {
+                    if !complete {
+                        // Its region was skipped: the view check says why.
+                        names.push((state.name.clone(), Ref::Slot(i as u32), ct.slots[i].clone()));
+                        continue;
+                    }
+                    return err(
+                        "type-row-slot",
+                        format!("child state `{}` has no owning region", state.name),
+                        state.span,
+                    );
+                };
+                Some(
+                    owner_scope
+                        .frames
+                        .iter()
+                        .filter(|frame| frame.region)
+                        .cloned()
+                        .collect(),
+                )
+            }
+        };
+        if let Some(regions) = regions {
             let mut scope = Scope::default();
-            scope.frames_reset(&names);
-            scope.frames.extend(
-                owner_scope
-                    .frames
-                    .iter()
-                    .filter(|frame| frame.region)
-                    .cloned(),
-            );
+            scope.push(settled.clone());
+            scope.push(names.clone());
+            scope.frames.extend(regions);
+            if let Some(e) = super::component::initializer_scope(c, i, &scope, &types.shapes) {
+                return Err(e);
+            }
             ct.slots[i] = infer(&state.expr, &scope, &types.shapes)?;
         }
         names.push((state.name.clone(), Ref::Slot(i as u32), ct.slots[i].clone()));
@@ -455,19 +426,25 @@ fn collect_owner_scopes(
     nodes: &[Node],
     scope: &Scope,
     shapes: &Shapes,
-    scopes: &mut BTreeMap<u32, Scope>,
-) -> Result<(), TypeError> {
+    scopes: &mut BTreeMap<(u32, u8), Scope>,
+) -> bool {
+    let mut complete = true;
     for node in nodes {
         match node {
             Node::Element { children, .. } | Node::Use { children, .. } => {
-                collect_owner_scopes(children, scope, shapes, scopes)?;
+                complete &= collect_owner_scopes(children, scope, shapes, scopes);
             }
             Node::Children { .. } => {}
             Node::When {
-                then, otherwise, ..
+                tag,
+                then,
+                otherwise,
+                ..
             } => {
-                collect_owner_scopes(then, scope, shapes, scopes)?;
-                collect_owner_scopes(otherwise, scope, shapes, scopes)?;
+                scopes.insert((*tag, 0), scope.clone());
+                scopes.insert((*tag, 1), scope.clone());
+                complete &= collect_owner_scopes(then, scope, shapes, scopes);
+                complete &= collect_owner_scopes(otherwise, scope, shapes, scopes);
             }
             Node::Each {
                 tag,
@@ -477,43 +454,38 @@ fn collect_owner_scopes(
                 body,
                 ..
             } => {
-                let ty = infer(list, scope, shapes)?;
-                let Ty::List(item) = ty else {
-                    return err(
-                        "type-each-list",
-                        format!("`each` needs a list, given `{ty}`"),
-                        list.span(),
-                    );
+                let Ok(Ty::List(item)) = infer(list, scope, shapes) else {
+                    complete = false;
+                    continue;
                 };
                 let mut inner = scope.clone();
                 inner.push_each(var, index.as_deref(), *item);
-                scopes.insert(*tag, inner.clone());
-                collect_owner_scopes(body, &inner, shapes, scopes)?;
+                scopes.insert((*tag, 0), inner.clone());
+                complete &= collect_owner_scopes(body, &inner, shapes, scopes);
             }
             Node::Match {
+                tag,
                 subject,
                 some,
                 none,
                 ..
             } => {
-                let ty = infer(subject, scope, shapes)?;
-                let Ty::Option(item) = ty else {
-                    return err(
-                        "type-match-subject",
-                        format!("`match` needs an option, given `{ty}`"),
-                        subject.span(),
-                    );
+                let Ok(Ty::Option(item)) = infer(subject, scope, shapes) else {
+                    complete = false;
+                    continue;
                 };
                 let mut inner = scope.clone();
                 inner.push_region(Some((some.0.clone(), Ref::Bound(0), *item)));
-                collect_owner_scopes(&some.1, &inner, shapes, scopes)?;
+                scopes.insert((*tag, 0), inner.clone());
+                complete &= collect_owner_scopes(&some.1, &inner, shapes, scopes);
                 let mut none_scope = scope.clone();
                 none_scope.push_region(None);
-                collect_owner_scopes(none, &none_scope, shapes, scopes)?;
+                scopes.insert((*tag, 1), none_scope.clone());
+                complete &= collect_owner_scopes(none, &none_scope, shapes, scopes);
             }
         }
     }
-    Ok(())
+    complete
 }
 
 /// A slot's fill, checked where `children` stands with its caller's scope
@@ -691,35 +663,6 @@ fn check_inject_nodes(
     Ok(())
 }
 
-/// The commands a host answers (LLP 1005 §3): every name an action body may
-/// call. The web host's `command` op, the Apple session's queue, and the Linux
-/// presenter's `run_commands` match these by name; any other name would reach
-/// them and be refused there, silently to the author, so it is refused here.
-pub(super) const HOST_COMMANDS: &[&str] = &[
-    "blur",
-    "copyText",
-    "deliveryActivate",
-    "deliveryCheck",
-    "focus",
-    "format",
-    // @ref LLP 1077 D14 — `haptic("success" | "warning" | "error" | …)`.
-    "haptic",
-    "openURL",
-    "selectText",
-    "setScheme",
-    // @ref LLP 1069.002 D2 — `HTMLInputElement.showPicker()` on a file input.
-    "showPicker",
-    "share",
-    // @ref LLP 1069.010 D3 — export: the host copies an `app:/` file out.
-    "saveFile",
-    // @ref LLP 1069.010 D2 — the File System Access API's pickers.
-    "showOpenFilePicker",
-    "showDirectoryPicker",
-    "showSaveFilePicker",
-    // @ref LLP 1070.000 — a virtualized list's row brought into view, by key.
-    "scrollIntoView",
-];
-
 /// The three pickers' positional arguments (LLP 1069.010 D2): an element
 /// id, then `multiple` (a bool) for `showOpenFilePicker` or
 /// `suggestedName` (a string) for `showSaveFilePicker`.
@@ -774,21 +717,43 @@ fn picker_args(
 }
 
 /// `saveFile(id, from, suggestedName)` (LLP 1069.010 D3): three strings,
-/// positional. Whether `from` is granted is the host's to refuse.
+/// positional. Whether `from` is granted is the host's to refuse. Or the
+/// file's text itself, `saveFile(id, text=…, suggestedName=…)`, so
+/// exporting what is on screen is one press (x2apps notes #4): the names
+/// are `share`'s `text` and `showSaveFilePicker`'s `suggestedName`.
 fn save_file_args(
     args: &[Expr],
     scope: &Scope,
     shapes: &Shapes,
     span: Span,
 ) -> Result<(), TypeError> {
-    if args.len() != 3 || args.iter().any(|a| matches!(a, Expr::NamedArg(..))) {
+    let named = |want: &str| {
+        args.iter()
+            .filter(|a| matches!(a, Expr::NamedArg(n, ..) if n == want))
+            .count()
+    };
+    let positional = args
+        .iter()
+        .filter(|a| !matches!(a, Expr::NamedArg(..)))
+        .count();
+    let file = args.len() == 3 && positional == 3;
+    let text = args.len() == 3
+        && positional == 1
+        && named("text") == 1
+        && named("suggestedName") == 1
+        && !matches!(args[0], Expr::NamedArg(..));
+    if !file && !text {
         return err(
             "type-save-file-argument",
-            "`saveFile` takes three strings: `saveFile(\"export-file\", \"app:/data/export.json\", \"export.json\")`",
+            "`saveFile` takes three strings, `saveFile(\"export-file\", \"app:/data/export.json\", \"export.json\")`, or the text to save, `saveFile(\"export-file\", text=body, suggestedName=\"note.md\")`",
             span,
         );
     }
     for arg in args {
+        let arg = match arg {
+            Expr::NamedArg(_, value, _) => value.as_ref(),
+            arg => arg,
+        };
         let t = infer(arg, scope, shapes)?;
         if Ty::String.unify(&t).is_none() {
             return err(
@@ -849,27 +814,131 @@ fn share_args(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Resu
     Ok(())
 }
 
+/// `showNotification(title=, body=, tag=, showTrigger=)`: the Notification
+/// API's title and options by name, named only, `title` required; strings,
+/// and `showTrigger` a number (when to show it, in epoch milliseconds: the
+/// Notification Triggers draft's `TimestampTrigger`). `closeNotification(tag)`:
+/// one string. Whether the grants name `device.notifications` is the host's
+/// to refuse, as `fetch`'s grants are.
+fn notification_args(
+    name: &str,
+    args: &[Expr],
+    scope: &Scope,
+    shapes: &Shapes,
+    span: Span,
+) -> Result<(), TypeError> {
+    const USAGE: &str = "`showNotification(title=…, body=…, tag=…, showTrigger=…)`";
+    if name == "closeNotification" {
+        let one = matches!(args, [tag] if !matches!(tag, Expr::NamedArg(..)));
+        if !one || Ty::String.unify(&infer(&args[0], scope, shapes)?).is_none() {
+            return err(
+                "type-notification-argument",
+                "`closeNotification` takes the tag it closes: `closeNotification(\"reminder-1\")`",
+                span,
+            );
+        }
+        return Ok(());
+    }
+    let mut seen = BTreeSet::new();
+    for arg in args {
+        let Expr::NamedArg(arg_name, value, at) = arg else {
+            return err(
+                "type-notification-argument",
+                format!("`showNotification` takes named arguments: {USAGE}"),
+                arg.span(),
+            );
+        };
+        let want = match arg_name.as_str() {
+            "title" | "body" | "tag" => Ty::String,
+            "showTrigger" => Ty::Number,
+            other => {
+                return err(
+                    "type-notification-argument",
+                    format!("`showNotification` has no argument `{other}`; it takes title=, body=, tag= and showTrigger="),
+                    *at,
+                )
+            }
+        };
+        if !seen.insert(arg_name.as_str()) {
+            return err(
+                "type-notification-argument",
+                format!("`{arg_name}=` is given twice"),
+                *at,
+            );
+        }
+        let t = infer(value, scope, shapes)?;
+        if want.unify(&t).is_none() {
+            let what = match want {
+                Ty::Number => "a number: epoch milliseconds",
+                _ => "a string",
+            };
+            return err(
+                "type-notification-argument",
+                format!("`{arg_name}=` is {what}, not `{t}`"),
+                value.span(),
+            );
+        }
+    }
+    if !seen.contains("title") {
+        return err(
+            "type-notification-argument",
+            format!("`showNotification` needs `title=`: {USAGE}"),
+            span,
+        );
+    }
+    Ok(())
+}
+
 /// `scrollIntoView("list-id", key, block=, inline=, behavior=, row=)` (LLP
 /// 1070.000 §1): a virtualized list's `id` as a literal, a row key, and the
 /// web's `ScrollIntoViewOptions` by name with literal values; `row=` names an
 /// inner list's outer row. Whether the list exists is the runner's to find.
+/// With one positional argument, `scrollIntoView("element-id", block=,
+/// inline=, behavior=)` is `Element.scrollIntoView()` on any element by its
+/// HTML `id`, as `focus("id")` names one (minesweeper F3): its scroll
+/// containers, innermost first, then the page; the host finds it.
 fn into_view_args(
     args: &[Expr],
     scope: &Scope,
     shapes: &Shapes,
     span: Span,
 ) -> Result<(), TypeError> {
-    const USAGE: &str = "`scrollIntoView(\"list-id\", key, block=\"start\", inline=\"nearest\", behavior=\"auto\", row=outerKey)`";
+    const USAGE: &str = "`scrollIntoView(\"element-id\", block=\"start\", inline=\"nearest\", behavior=\"auto\")`, or a virtualized list's row by key: `scrollIntoView(\"list-id\", key, …, row=outerKey)`";
     let positional: Vec<_> = args
         .iter()
         .filter(|a| !matches!(a, Expr::NamedArg(..)))
         .collect();
-    let [list, key] = positional.as_slice() else {
-        return err(
-            "type-scroll-into-view",
-            format!("{USAGE}: a list's `id` and a row's key, then options by name"),
-            span,
-        );
+    let (list, key) = match positional.as_slice() {
+        [element] => (element, None),
+        [list, key] => (list, Some(key)),
+        _ => {
+            return err(
+                "type-scroll-into-view",
+                format!("{USAGE}: an element's `id`, or a list's `id` and a row's key, then options by name"),
+                span,
+            )
+        }
+    };
+    let Some(key) = key else {
+        // Any string names the element, as `focus` takes one.
+        if infer(list, scope, shapes)? != Ty::String {
+            return err(
+                "type-scroll-into-view",
+                format!("the element is named by its `id`, a string: {USAGE}"),
+                list.span(),
+            );
+        }
+        if let Some(Expr::NamedArg(_, _, at)) = args
+            .iter()
+            .find(|a| matches!(a, Expr::NamedArg(name, ..) if name == "row"))
+        {
+            return err(
+                "type-scroll-into-view",
+                "`row=` names an inner list's outer row: it goes with a list's `id` and a row's key",
+                *at,
+            );
+        }
+        return into_view_options(args, scope, shapes, USAGE);
     };
     if !matches!(list, Expr::Str(..)) {
         return err(
@@ -879,6 +948,16 @@ fn into_view_args(
         );
     }
     infer(key, scope, shapes)?;
+    into_view_options(args, scope, shapes, USAGE)
+}
+
+/// The web's `ScrollIntoViewOptions` by name, literal values, each once.
+fn into_view_options(
+    args: &[Expr],
+    scope: &Scope,
+    shapes: &Shapes,
+    usage: &str,
+) -> Result<(), TypeError> {
     let mut seen = BTreeSet::new();
     for arg in args {
         let Expr::NamedArg(name, value, at) = arg else {
@@ -901,7 +980,7 @@ fn into_view_args(
             _ => {
                 return err(
                     "type-scroll-into-view",
-                    format!("`scrollIntoView` has no option `{name}`: {USAGE}"),
+                    format!("`scrollIntoView` has no option `{name}`: {usage}"),
                     *at,
                 )
             }
@@ -926,15 +1005,16 @@ pub(super) fn check_command(
     args: &[Expr],
     scope: &Scope,
     shapes: &Shapes,
+    component: &str,
     span: Span,
 ) -> Result<(), TypeError> {
     if !HOST_COMMANDS.contains(&name) {
-        let message = match scope.lookup(name) {
-            Some((Ref::Action(_), Ty::Action(_))) => format!(
-                "`{name}` is an action, not a host command: an action is not callable from an action; put its statements here, or bind it to an element (`press={name}`)"
-            ),
-            Some((Ref::Prop(_), Ty::Action(_))) => format!(
-                "`{name}` is an action prop, not a host command: an action is not callable from an action; bind it to an element (`press={name}`)"
+        // A name some component declares as an action is told where it is
+        // (LLP 1089 D10): this component's own and its action props and
+        // injects are calls, which never reach here.
+        let message = match shapes.actions.get(name) {
+            Some(owner) if owner != component => format!(
+                "`{name}` is an action of `{owner}`, not in `{component}`'s scope; pass it as an `action` prop or `provide` it"
             ),
             _ => format!(
                 "`{name}` is not a host command; the hosts answer {}",
@@ -943,11 +1023,35 @@ pub(super) fn check_command(
         };
         return err("type-unknown-command", message, span);
     }
+    if name == "preventDefault" && !args.is_empty() {
+        return err(
+            "type-prevent-default",
+            "`preventDefault()` takes no arguments: it prevents the default action of the event that ran this action (a key's, a wheel's scroll, a `beforeunload`'s close)",
+            span,
+        );
+    }
+    if name == "close" && args.len() > 1 {
+        return err(
+            "type-close",
+            "`close()` closes the window this session shows, without asking its `beforeunload` again; `close(id)` closes the dialog with that `id` (LLP 1101.001 P5); nothing else",
+            span,
+        );
+    }
+    if name == "stopPropagation" && !args.is_empty() {
+        return err(
+            "type-stop-propagation",
+            "`stopPropagation()` takes no arguments: it stops the key event that ran this action at this handler, so no ancestor's `key` handler hears it",
+            span,
+        );
+    }
     if name == "share" {
         return share_args(args, scope, shapes, span);
     }
     if name == "saveFile" {
         return save_file_args(args, scope, shapes, span);
+    }
+    if name == "showNotification" || name == "closeNotification" {
+        return notification_args(name, args, scope, shapes, span);
     }
     if name.starts_with("show") && name.ends_with("Picker") && name != "showPicker" {
         return picker_args(name, args, scope, shapes, span);
@@ -955,10 +1059,75 @@ pub(super) fn check_command(
     if name == "scrollIntoView" {
         return into_view_args(args, scope, shapes, span);
     }
+    if name == "fastSeek" || name == "load" {
+        return super::media::command_args(name, args, scope, shapes, span);
+    }
+    if name == "setSelectionRange" {
+        return crate::selection::selection_range_args(args, scope, shapes, span);
+    }
+    if name == "setRootFontSize" {
+        return root_font_size_args(args, scope, shapes, span);
+    }
+    if matches!(name, "playSound" | "playSounds" | "stopSounds") {
+        return sounds::args(name, args, scope, shapes, span);
+    }
+    if name == "postMessage" {
+        // The web's argument order, `postMessage(message, target)`: the target
+        // is a surface's literal name, checked against the app's canvases.
+        const USAGE: &str = "`postMessage(text, \"world\")`";
+        let [text, surface] = args else {
+            return err(
+                "type-post-message",
+                format!("{USAGE}: the message, then a surface's literal name"),
+                span,
+            );
+        };
+        if !matches!(infer(text, scope, shapes)?, Ty::String) {
+            return err(
+                "type-post-message",
+                format!("the message is a string: {USAGE}"),
+                text.span(),
+            );
+        }
+        if !matches!(surface, Expr::Str(..)) {
+            return err(
+                "type-post-message",
+                format!("the surface is named literally, as in `surface=world()`: {USAGE}"),
+                surface.span(),
+            );
+        }
+        return Ok(());
+    }
     for arg in args {
         infer(arg, scope, shapes)?;
     }
     Ok(())
+}
+
+/// `setRootFontSize(px)`, a number of CSS pixels, or `setRootFontSize("medium")`,
+/// CSS's keyword for the host's own size (LLP 1069.000 D3). A size the
+/// source spells as zero or less is refused here; a computed one, when it
+/// runs.
+fn root_font_size_args(
+    args: &[Expr],
+    scope: &Scope,
+    shapes: &Shapes,
+    span: Span,
+) -> Result<(), TypeError> {
+    let fits = match args {
+        [Expr::Str(s, _)] => s == "medium",
+        [Expr::Number(n, _)] => *n > 0.0,
+        [arg] => matches!(infer(arg, scope, shapes)?, Ty::Number),
+        _ => false,
+    };
+    if fits {
+        return Ok(());
+    }
+    err(
+        "type-root-font-size",
+        "`setRootFontSize(px)` takes the root font size in px, above 0 (`rem` follows it, as `:root { font-size }`), or `setRootFontSize(\"medium\")` for the host's own size",
+        span,
+    )
 }
 
 /// Check a view, recording each attribute's refusal and moving on. A

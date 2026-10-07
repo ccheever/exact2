@@ -19,7 +19,8 @@
 //! cards point at the origin-wide immutable blob tree, as a live publisher's
 //! stream does.
 
-use exact_update::{canonical_bytes, Check, Embedded, Envelope, Store};
+use crate::support::{finished, open_store};
+use exact_update::{canonical_bytes, Check, Embedded, Envelope};
 use std::path::{Path, PathBuf};
 
 const HEAD: &[u8] = include_bytes!("fixtures/publisher/exact.json");
@@ -168,10 +169,14 @@ fn one_byte_changed_anywhere_is_refused() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn the_published_stream_is_staged_whole_by_a_client() {
     let temp = Temp::new("stream");
     let head = Envelope::parse(HEAD).unwrap();
-    let mut store = Store::open(
+    let mut store = open_store(
         &temp.0,
         Embedded {
             app_id: APP.into(),
@@ -266,7 +271,7 @@ fn the_published_stream_is_staged_whole_by_a_client() {
 
     // The next launch selects it; the same head is then Current.
     drop(store);
-    let mut next = Store::open(
+    let mut next = open_store(
         &temp.0,
         Embedded {
             app_id: APP.into(),
@@ -327,11 +332,11 @@ assert.deepEqual(mixed.rows.map(({kind, platform}) => [kind, platform]).sort(), 
 console.log('level-zero deploy: binary only, zero stream discovery or head reads; mixed runs retain only A streams');
 "#;
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-    let result = std::process::Command::new("bun")
+    let mut command = std::process::Command::new("bun");
+    command
         .args(["--input-type=module", "-e", script])
-        .current_dir(root)
-        .output()
-        .expect("Bun runs the existing publisher");
+        .current_dir(root);
+    let result = finished(&mut command);
     assert!(
         result.status.success(),
         "{}{}",

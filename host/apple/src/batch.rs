@@ -27,6 +27,10 @@ pub struct Batch {
     canvas: bool,
     /// A canvas draw is owed to a turn of its own (LLP 1072 §8.5).
     canvas_owed: bool,
+    /// A control's viewless contents changed (a native button's face, a
+    /// select's options), which put no op on any view: the presenter
+    /// configures its controls (LLP 1069.011 §9).
+    pub controls: bool,
     /// Image handles a 2D canvas asked for (LLP 1056 D9): the presenter
     /// decodes each and answers `exact_canvas_image`.
     images: Vec<String>,
@@ -188,6 +192,10 @@ impl Batch {
     /// One Arrange contact's state (LLP 1041 §8.5): its reorder serial as a
     /// decimal string, the List and lifted wrapper views (0 once gone), and
     /// `active`, `settling`, `finished` or `refused`.
+    /// A grouped session's `reorder` op, built whole (`arrange_group.rs`).
+    pub(crate) fn push_op(&mut self, op: String) {
+        self.ops.push(op);
+    }
     pub(crate) fn reorder(&mut self, token: u64, ids: (u32, u32), phase: &str, dispatched: bool) {
         self.ops.push(format!("{{\"op\":\"reorder\",\"token\":\"{token}\",\"list\":{},\"wrapper\":{},\"phase\":\"{phase}\",\"dispatched\":{dispatched}}}", ids.0, ids.1));
     }
@@ -301,7 +309,8 @@ impl Batch {
     /// A 2D canvas's stamped lists (LLP 1056 D4), in order, for the Core
     /// Graphics replayer: `[address, length]` pairs the reader copies out
     /// as it decodes the batch (the host keeps them alive until then). `fresh` starts a new bitmap at `w`×`h`;
-    /// `box` is the content box in the view's border box, where it shows.
+    /// `box` is the content box in the view's border box, where it shows;
+    /// `p3` and `float16` are its getContext settings (LLP 1100 D12a).
     pub fn canvas2d(
         &mut self,
         c: &exact_runner::CanvasList,
@@ -311,8 +320,8 @@ impl Batch {
         let mut s = String::new();
         let _ = write!(
             s,
-            "{{\"op\":\"canvas2d\",\"id\":{},\"lifetime\":{},\"generation\":{},\"seq\":{},\"fresh\":{},\"w\":{},\"h\":{},\"scale\":{},\"stretch\":{},\"animating\":{},\"box\":[{},{},{},{}],\"radii\":[{},{},{},{},{},{},{},{}],\"lists\":[",
-            c.view, c.lifetime, c.generation, c.seq, c.fresh, c.pixel_width, c.pixel_height, c.scale, c.stretch, c.animating,
+            "{{\"op\":\"canvas2d\",\"id\":{},\"lifetime\":{},\"generation\":{},\"seq\":{},\"fresh\":{},\"w\":{},\"h\":{},\"scale\":{},\"stretch\":{},\"animating\":{},\"p3\":{},\"float16\":{},\"box\":[{},{},{},{}],\"radii\":[{},{},{},{},{},{},{},{}],\"lists\":[",
+            c.view, c.lifetime, c.generation, c.seq, c.fresh, c.pixel_width, c.pixel_height, c.scale, c.stretch, c.animating, c.settings.p3, c.settings.float16,
             content.0, content.1, content.2, content.3, radii[0].0, radii[0].1, radii[1].0, radii[1].1, radii[2].0, radii[2].1, radii[3].0, radii[3].1
         );
         for (i, l) in c.lists.iter().enumerate() {
@@ -434,6 +443,59 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// `{"op":"sound","files":[…],"ops":[…]}` (LLP 1096 D8): the voice
+    /// table's `play` and `end` ops in runner milliseconds, and at a boot
+    /// the files to decode, in declaration order (a new boot silences the
+    /// last one's voices). Nothing is sent when there is nothing to say.
+    pub fn sound(
+        &mut self,
+        ops: Vec<exact_runner::sound::SoundOp>,
+        plan: Option<&exact_plan::Plan>,
+    ) {
+        use exact_runner::sound::SoundOp;
+        let files = plan.filter(|p| !p.sounds.is_empty());
+        if ops.is_empty() && files.is_none() {
+            return;
+        }
+        let mut s = String::from("{\"op\":\"sound\"");
+        if let Some(plan) = files {
+            s.push_str(",\"files\":[");
+            for (i, row) in plan.sounds.iter().enumerate() {
+                if i > 0 {
+                    s.push(',');
+                }
+                quote(plan.str(row.src), &mut s);
+            }
+            s.push(']');
+        }
+        s.push_str(",\"ops\":[");
+        for (i, op) in ops.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            let _ = match op {
+                SoundOp::Play {
+                    id,
+                    sound,
+                    at,
+                    gain,
+                } => write!(
+                    s,
+                    "{{\"op\":\"play\",\"id\":{id},\"sound\":{sound},\"at\":{},\"gain\":{}}}",
+                    exact_runner::agent::num(*at),
+                    exact_runner::agent::num(*gain)
+                ),
+                SoundOp::End { id, at } => write!(
+                    s,
+                    "{{\"op\":\"end\",\"id\":{id},\"at\":{}}}",
+                    exact_runner::agent::num(*at)
+                ),
+            };
+        }
+        s.push_str("]}");
+        self.ops.push(s);
+    }
+
     /// `{"op":"destroy","id":…}`.
     pub fn destroy(&mut self, id: u32) {
         self.ops.push(format!("{{\"op\":\"destroy\",\"id\":{id}}}"));
@@ -446,6 +508,22 @@ impl Batch {
         self.ops.push(format!("{{\"op\":\"exit\",\"id\":{id}}}"));
     }
 
+    /// `{"op":"flight","id":…,"from":…}` — the view's shared-element name
+    /// arrives from `from` (LLP 1013.000 D4). Sent before the batch's
+    /// destroys: the presenter captures where `from` is shown, then, once
+    /// the batch is applied, lifts `id` and flies it from there to its place
+    /// by the `flight` progress it is presented.
+    pub fn flight(&mut self, id: u32, from: u32) {
+        self.ops
+            .push(format!("{{\"op\":\"flight\",\"id\":{id},\"from\":{from}}}"));
+    }
+
+    /// `{"op":"land","id":…}` — the flight's curve settled: the view goes
+    /// back to its place.
+    pub fn land(&mut self, id: u32) {
+        self.ops.push(format!("{{\"op\":\"land\",\"id\":{id}}}"));
+    }
+
     /// `{"op":"roots","ids":[…]}`.
     pub fn roots(&mut self, ids: &[u32]) {
         let mut s = String::from("{\"op\":\"roots\",\"ids\":");
@@ -454,16 +532,17 @@ impl Batch {
         self.ops.push(s);
     }
 
-    /// `{"op":"title","title":…}`: the active head's title, `null` when no
-    /// head sets one (LLP 1048.003 D1). The app owning the window or scene
-    /// shows it; an embedded view never claims that chrome.
-    pub fn title(&mut self, title: Option<&str>) {
+    /// `{"op":"title","title":…,"edited":…}`: the active head's title,
+    /// `null` when no head sets one (LLP 1048.003 D1), and whether it says
+    /// the document is `edited` (LLP 1069.010 D6). The app owning the window
+    /// or scene shows them; an embedded view never claims that chrome.
+    pub fn title(&mut self, title: Option<&str>, edited: bool) {
         let mut s = String::from("{\"op\":\"title\",\"title\":");
         match title {
             Some(title) => quote(title, &mut s),
             None => s.push_str("null"),
         }
-        s.push('}');
+        let _ = write!(s, ",\"edited\":{edited}}}");
         self.ops.push(s);
     }
 
@@ -481,6 +560,54 @@ impl Batch {
         crate::style::push_num(&mut s, w);
         s.push_str(",\"h\":");
         crate::style::push_num(&mut s, h);
+        s.push('}');
+        self.ops.push(s);
+    }
+
+    /// Twice the sibling paint rank, losslessly encoded (LLP 1083.000 D4).
+    pub fn rank(&mut self, id: u32, rank: i64) {
+        self.ops
+            .push(format!("{{\"op\":\"rank\",\"id\":{id},\"rank\":{rank}}}"));
+    }
+
+    /// `{"op":"fragments","id":…,"fragments":[[x,y,w,h,first,end,dx,dy],…],
+    /// "columns":[[x,y,w,h,holds],…]}` — a box's fragments in its own frame
+    /// and a container's columns in its border box (LLP 1093 D7), or
+    /// `{"op":"fragments","id":…}` when it has neither any more.
+    pub fn fragments(&mut self, id: u32, record: &str) {
+        self.ops
+            .push(format!("{{\"op\":\"fragments\",\"id\":{id}{record}}}"));
+    }
+
+    /// `{"op":"sticky","id":…,"scroller":…,"natural":[…],"limit":[…],
+    /// "port":[…],"insets":[…]}` — a sticky box's constraint (LLP 1083 D3),
+    /// or `{"op":"sticky","id":…}` when it is no longer sticky.
+    pub fn sticky(&mut self, id: u32, constraint: Option<&exact_kernel::StickyConstraint>) {
+        let mut s = format!("{{\"op\":\"sticky\",\"id\":{id}");
+        if let Some(c) = constraint {
+            let _ = write!(s, ",\"scroller\":{}", c.scroller);
+            for (name, rect) in [("natural", c.natural), ("limit", c.limit), ("port", c.port)] {
+                let _ = write!(s, ",\"{name}\":[");
+                for (i, v) in rect.into_iter().enumerate() {
+                    if i > 0 {
+                        s.push(',');
+                    }
+                    crate::style::push_num(&mut s, v);
+                }
+                s.push(']');
+            }
+            s.push_str(",\"insets\":[");
+            for (i, v) in c.insets.into_iter().enumerate() {
+                if i > 0 {
+                    s.push(',');
+                }
+                match v {
+                    Some(v) => crate::style::push_num(&mut s, v),
+                    None => s.push_str("null"),
+                }
+            }
+            s.push(']');
+        }
         s.push('}');
         self.ops.push(s);
     }
@@ -563,6 +690,9 @@ impl Batch {
         }
         if self.canvas_owed {
             s.push_str(",\"canvasOwed\":true");
+        }
+        if self.controls {
+            s.push_str(",\"controls\":true");
         }
         if !self.images.is_empty() {
             s.push_str(",\"canvasImages\":[");
@@ -747,4 +877,53 @@ mod tests {
         assert!(wire.contains(r#""refusal":"outside the app's grants""#));
         assert!(!wire.contains("body"));
     }
+}
+
+/// The fields of a `fragments` op ([`Batch::fragments`]), each with a leading comma.
+pub fn fragments_json(
+    fragments: Option<&[exact_kernel::fragment::Fragment]>,
+    columns: Option<&exact_kernel::fragment::Columns>,
+) -> String {
+    let mut s = String::new();
+    let list = |s: &mut String, name: &str, rows: Vec<Vec<f32>>| {
+        let _ = write!(s, ",\"{name}\":[");
+        for (i, row) in rows.iter().enumerate() {
+            s.push_str(if i > 0 { ",[" } else { "[" });
+            for (j, v) in row.iter().enumerate() {
+                if j > 0 {
+                    s.push(',');
+                }
+                crate::style::push_num(s, *v);
+            }
+            s.push(']');
+        }
+        s.push(']');
+    };
+    if let Some(frags) = fragments {
+        let rows = frags
+            .iter()
+            .map(|g| {
+                vec![
+                    g.x,
+                    g.y,
+                    g.width,
+                    g.height,
+                    g.lines.0 as f32,
+                    g.lines.1 as f32,
+                    g.dx,
+                    g.dy,
+                ]
+            })
+            .collect();
+        list(&mut s, "fragments", rows);
+    }
+    if let Some(c) = columns {
+        let rows = c
+            .columns
+            .iter()
+            .map(|c| vec![c.x, c.y, c.width, c.height, f32::from(u8::from(c.holds))])
+            .collect();
+        list(&mut s, "columns", rows);
+    }
+    s
 }

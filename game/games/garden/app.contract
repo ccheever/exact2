@@ -1,0 +1,201 @@
+shape ShopRow
+  id: string
+  name: string
+  rarity: string
+  color: string
+  price: string
+  stock: number
+  owned: number
+  affordable: bool
+  held: bool
+
+shape BagRow
+  id: string
+  label: string
+  weight: string
+  value: string
+  mutated: bool
+
+// The world publishes three records (status, shop, backpack); Contract sees
+// their fields as one surface record.
+shape Hud
+  sheckles: string
+  sheckles_n: number
+  held: string
+  prompt: string
+  weather: string
+  weather_left: string
+  restock_in: string
+  plants: number
+  fruit: number
+  ripe: number
+  mutated: number
+  size: number
+  expand_cost: string
+  last: string
+  away: string
+  garden_time: string
+  events: number
+  queued: number
+  shop: list<ShopRow>
+  bag: list<BagRow>
+  bag_count: number
+  bag_value: string
+  bag_page: number
+  bag_pages: number
+
+shape Time
+  epochAtZero: number
+
+// Commands (`buy carrot`, `sell all`, …) are messages to the world.
+component Garden
+  state playing = false
+  state again = false
+  state paused = false
+  state panel = "shop"
+  state smooth = false
+  resource hud = exactSurface("world") as shape Hud
+  resource time = exactTime() as shape Time
+
+  action play
+    playing = true
+
+  action togglePause
+    paused = not paused
+
+  action restart
+    again = not again
+    paused = false
+
+  action show(p: string)
+    panel = panel == p ? "" : p
+
+  action run(c: string)
+    postMessage(c, "world")
+
+  action toggleSmooth
+    smooth = not smooth
+
+  view
+    main width="100%" height="100%" background-color="#1b2a1f" color="#fdfbf3" font-family="system-ui"
+      when playing
+        canvas surface=world(seed=7, paused=paused, restart=again, epoch=time.epochAtZero, smooth=smooth) testId="world" width="100%" height="100%" position="relative"
+          column testId="hud" position="absolute" top=12 left=12 right=12 gap=8
+            row testId="topbar" gap=8 align-items="center" flex-wrap="wrap"
+              text `${hud.sheckles}¢` testId="sheckles" aria-label=`${hud.sheckles_n} sheckles` padding=10 border-radius=10 background-color="#14532dd9" font-size=20 font-weight=800 color="#bef264"
+              text (hud.weather_left == "" ? hud.weather : `${hud.weather} · ${hud.weather_left}`) testId="weather" aria-live="polite" padding=10 border-radius=10 background-color=(hud.weather == "Clear" ? "#1e293bcc" : "#1d4ed8d9")
+              text `Restock ${hud.restock_in}` testId="restock" padding=10 border-radius=10 background-color="#1e293bcc"
+              text `${hud.plants} plants · ${hud.ripe}/${hud.fruit} ripe · ${hud.mutated} mutated` testId="census" padding=10 border-radius=10 background-color="#1e293bcc" font-size=13
+              text `Day ${hud.garden_time}` testId="garden-time" padding=10 border-radius=10 background-color="#1e293bcc" font-size=13
+              row flex=1 justify-content="flex-end" gap=8
+                button press=show("shop") testId="shop-tab" aria-label="Seed shop" padding=10 border-radius=10 background-color=(panel == "shop" ? "#65a30d" : "#1e293bcc")
+                  text "Shop"
+                button press=show("bag") testId="bag-tab" aria-label=`Backpack, ${hud.bag_count} fruit` padding=10 border-radius=10 background-color=(panel == "bag" ? "#65a30d" : "#1e293bcc")
+                  text `Backpack ${hud.bag_count}`
+                button press=show("tools") testId="tools-tab" aria-label="Garden tools" padding=10 border-radius=10 background-color=(panel == "tools" ? "#65a30d" : "#1e293bcc")
+                  text "Garden"
+                button press=togglePause testId="pause" aria-label=(paused ? "Resume" : "Pause") padding=10 border-radius=10 background-color="#1e293bcc"
+                  text (paused ? "Resume" : "Pause")
+            when panel == "shop"
+              column testId="shop" width=340 max-height=440 padding=10 gap=6 border-radius=12 background-color="#0f172ae6"
+                row justify-content="space-between" align-items="center"
+                  text "Seed shop" font-size=18 font-weight=700
+                  text `Restock in ${hud.restock_in}` font-size=13 color="#cbd5e1"
+                list testId="shop-list" max-height=380 overflow-x="hidden" overflow-y="scroll"
+                  each s in hud.shop key=s.id
+                    ShopItem(s=s, buy=run(`buy ${s.id}`), equip=run(`equip ${s.id}`))
+            when panel == "bag"
+              column testId="bag" width=340 max-height=440 padding=10 gap=6 border-radius=12 background-color="#0f172ae6"
+                row justify-content="space-between" align-items="center"
+                  text `Backpack · ${hud.bag_count}` font-size=18 font-weight=700
+                  button press=run("sell all") testId="sell-all" aria-label=`Sell all for ${hud.bag_value} sheckles` padding=8 border-radius=8 background-color="#ca8a04"
+                    text `Sell all ${hud.bag_value}¢` font-weight=700
+                when hud.bag_count == 0
+                  text "Harvest ripe fruit with E" color="#94a3b8" testId="bag-empty"
+                when hud.bag_pages > 1
+                  row align-items="center" justify-content="space-between" gap=8
+                    button press=run("page prev") testId="bag-newer" aria-label="Newer fruit" disabled=(hud.bag_page == 1) padding=6 border-radius=6 background-color="#334155"
+                      text "Newer"
+                    text `Page ${hud.bag_page} of ${hud.bag_pages}` testId="bag-page" font-size=13 color="#cbd5e1"
+                    button press=run("page next") testId="bag-older" aria-label="Older fruit" disabled=(hud.bag_page == hud.bag_pages) padding=6 border-radius=6 background-color="#334155"
+                      text "Older"
+                list virtualized=true testId="bag-list" height=340 overflow-x="hidden" estimated-item-height=44
+                  each b in hud.bag key=b.id
+                    BagItem(b=b, sell=run(`sell ${b.id}`))
+            when panel == "tools"
+              column testId="tools" width=340 padding=12 gap=8 border-radius=12 background-color="#0f172ae6"
+                text `Garden ${hud.size}×${hud.size}` font-size=18 font-weight=700
+                row gap=8 flex-wrap="wrap"
+                  button press=run("harvest all") testId="harvest-all" padding=10 border-radius=8 background-color="#15803d"
+                    text `Harvest all ${hud.ripe}`
+                  button press=run("expand") testId="expand" padding=10 border-radius=8 background-color="#1d4ed8"
+                    text `Expand ${hud.expand_cost}¢`
+                  button press=run("zoom") testId="zoom" padding=10 border-radius=8 background-color="#334155"
+                    text "Zoom"
+                text "Stress" font-size=14 color="#cbd5e1" padding-top=6
+                row gap=8 flex-wrap="wrap"
+                  button press=run("fill 100") testId="fill-100" padding=8 border-radius=8 background-color="#334155"
+                    text "+100"
+                  button press=run("fill 1000") testId="fill-1000" padding=8 border-radius=8 background-color="#334155"
+                    text "+1,000"
+                  button press=run("fill 10000") testId="fill-10000" padding=8 border-radius=8 background-color="#334155"
+                    text "+10,000"
+                  button press=run("away 3600") testId="away-hour" padding=8 border-radius=8 background-color="#334155"
+                    text "Away 1 h"
+                  button press=toggleSmooth testId="smooth" aria-label=(smooth ? "Stepped growth" : "Smooth growth") padding=8 border-radius=8 background-color=(smooth ? "#7c3aed" : "#334155")
+                    text (smooth ? "Smooth" : "Stepped")
+                text `${hud.events} events run · ${hud.queued} queued` font-size=12 color="#94a3b8" testId="events"
+          when paused
+            column testId="paused" position="absolute" top=72 right=12 padding=12 gap=8 border-radius=12 background-color="#0f172ae6"
+              text "Paused" font-size=20 font-weight=700
+              button press=restart testId="restart" aria-label="Restart" padding=10 border-radius=8 background-color="#334155"
+                text "Restart"
+          when hud.away != ""
+            text hud.away testId="away" position="absolute" top=72 right=12 max-width=320 padding=10 border-radius=10 background-color="#7c2d12e6" font-size=13
+          column position="absolute" left=150 right=150 bottom=24 align-items="center" gap=6
+            when hud.prompt != ""
+              text hud.prompt testId="prompt" aria-live="polite" padding=10 border-radius=10 background-color="#0f172ad9" font-size=16
+            when hud.last != ""
+              text hud.last testId="last" padding=6 border-radius=8 background-color="#0f172a99" font-size=13 color="#e2e8f0"
+            text (hud.held == "" ? "No seeds in hand" : `Holding ${hud.held}`) testId="held" font-size=13 color="#bef264"
+          button action="move" role="slider" aria-label="Move" testId="move" position="absolute" left=24 bottom=24 width=96 height=96 border-radius=48 background-color="#ffffff33"
+            text "Move"
+          button action="act" testId="act" aria-label="Plant or harvest (E)" position="absolute" right=24 bottom=24 width=96 height=96 border-radius=48 background-color="#65a30d"
+            text "E" font-size=28 font-weight=800
+      else
+        column width="100%" height="100%" box-sizing="border-box" padding=24 align-items="center" justify-content="center" gap=20
+          text "Grow a Garden" font-size=52 font-weight=800 color="#bef264"
+          column width="100%" max-width=380 align-items="center" gap=6
+            text "Walk with WASD · E plants and harvests" width="100%" text-align="center"
+            text "Buy seeds, sell fruit, expand the garden" width="100%" text-align="center"
+            text "Rain, snow and storms mutate ripening fruit" width="100%" text-align="center" color="#cbd5e1"
+            text "It keeps growing while you are away" width="100%" text-align="center" color="#cbd5e1"
+          button press=play autofocus aria-label="Play" testId="play" padding=16 border-radius=12 background-color="#65a30d"
+            text "Play" font-size=20 font-weight=700
+
+component ShopItem
+  props
+    s: ShopRow
+    buy: action
+    equip: action
+  view
+    row testId=`shop-${s.id}` align-items="center" gap=8 padding=8 border-radius=8 background-color=(s.held ? "#365314" : "#1e293b") margin-bottom=6
+      column flex=1 gap=2
+        text s.name font-weight=700
+        text `${s.rarity} · ${s.price}¢ · stock ${s.stock}` font-size=12 color=s.color
+      when s.owned > 0
+        button press=equip testId=`equip-${s.id}` aria-label=`Hold ${s.name}, ${s.owned} owned` padding=6 border-radius=6 background-color="#334155"
+          text `×${s.owned}` font-size=13
+      button press=buy testId=`buy-${s.id}` aria-label=`Buy ${s.name} for ${s.price}` disabled=(s.stock == 0 or not s.affordable) padding=8 border-radius=6 background-color=(s.stock > 0 and s.affordable ? "#65a30d" : "#475569")
+        text (s.stock == 0 ? "Sold out" : "Buy") font-size=13
+
+component BagItem
+  props
+    b: BagRow
+    sell: action
+  view
+    row testId=`bag-${b.id}` height=44 box-sizing="border-box" align-items="center" gap=8 padding-left=8 padding-right=8 border-bottom-width=1 border-bottom-style="solid" border-color="#334155"
+      text b.label flex=1 color=(b.mutated ? "#facc15" : "#fdfbf3") white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+      text b.weight font-size=12 color="#94a3b8"
+      button press=sell testId=`sell-${b.id}` aria-label=`Sell ${b.label} for ${b.value}` padding=6 border-radius=6 background-color="#ca8a04"
+        text `${b.value}¢` font-size=12

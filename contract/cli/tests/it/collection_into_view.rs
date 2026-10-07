@@ -55,12 +55,60 @@ fn the_command_is_checked_by_name() {
             "type-scroll-into-view",
         ),
         (r#"scrollIntoView(n, n)"#, "type-scroll-into-view"),
-        (r#"scrollIntoView("feed")"#, "type-scroll-into-view"),
+        (r#"scrollIntoView(n)"#, "type-scroll-into-view"),
+        (r#"scrollIntoView("cell", row=n)"#, "type-scroll-into-view"),
+        (
+            r#"scrollIntoView("cell", inline="left")"#,
+            "type-scroll-into-view",
+        ),
+        (r#"scrollIntoView()"#, "type-scroll-into-view"),
     ] {
         let source = APP.replace(r#"scrollIntoView("feed", n, block="end")"#, statement);
         let error = contract::compile(&source).unwrap_err().to_string();
         assert!(error.contains(id), "{statement}: {error}");
     }
+}
+
+/// One positional argument is `Element.scrollIntoView()` on any element by
+/// its `id`, as `focus("id")` names one (minesweeper F3): the runner hands
+/// it to the host with its options, `none` where the web's default holds.
+#[test]
+fn an_elements_scroll_into_view_is_the_hosts() {
+    let source = r#"component App
+  state n = 7
+  action go
+    scrollIntoView(`cell-${n}`, block="nearest", inline="nearest")
+  view
+    column
+      button "go" press=go testId="go"
+      scroll height=100
+        box id="cell-7" height=50
+"#;
+    let mut r = Runner::boot(
+        contract::compile(source).unwrap(),
+        Data,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let go = r.kernel().find_by_test_id("go")[0];
+    let id = r.kernel().node_by_key(go).unwrap().id;
+    r.dispatch(id, exact_runner::Event::Press).unwrap();
+    let commands = r.take_commands();
+    let [command] = commands.as_slice() else {
+        panic!("{commands:?}")
+    };
+    assert_eq!(command.name, "scrollIntoView");
+    assert_eq!(
+        command.args,
+        vec![
+            Value::str("cell-7"),
+            Value::str("nearest"),
+            Value::str("nearest"),
+            Value::NONE
+        ]
+    );
 }
 
 struct Data;

@@ -39,9 +39,27 @@ pub use clip::{Clip, ClipShape};
 pub use island::{Mask, Pattern};
 pub use text::{TextChunk, TextItem, TextRun};
 
-/// A host's presented value for a node's property: a running transition's
-/// or a sampled animation's; `None` shows the row.
-pub type Presented<'a> = &'a dyn Fn(NodeKey, Property) -> Option<Value>;
+/// What a host's motion engine presents: a node's value for a property (a
+/// running transition's or a sampled animation's), and a path's `d` while a
+/// transition moves it (LLP 1055.000 D15); `None` shows the row. A closure
+/// over the values is one that presents no path.
+pub trait Present {
+    /// The presented value of `p` on `key`.
+    fn value(&self, key: NodeKey, p: Property) -> Option<Value>;
+    /// The presented `d` of the path `key`.
+    fn path(&self, _key: NodeKey) -> Option<exact_motion::PathValue> {
+        None
+    }
+}
+
+impl<F: Fn(NodeKey, Property) -> Option<Value>> Present for F {
+    fn value(&self, key: NodeKey, p: Property) -> Option<Value> {
+        self(key, p)
+    }
+}
+
+/// A host's [`Present`].
+pub type Presented<'a> = &'a dyn Present;
 
 /// One `svg`, resolved.
 #[derive(Debug, Clone, PartialEq)]
@@ -319,7 +337,16 @@ fn cascade(node: &NodeRef<'_>, inherited: &StyleProps) -> StyleProps {
 
 impl Resolver<'_, '_> {
     fn value(&self, key: NodeKey, p: Property) -> Option<Value> {
-        (self.presented)(key, p).filter(|v| v.is_finite())
+        self.presented.value(key, p).filter(|v| v.is_finite())
+    }
+
+    /// A path's `d`: the presented one while a transition moves it, else
+    /// the attribute's.
+    fn d<'n>(&self, node: &NodeRef<'n>) -> Option<std::borrow::Cow<'n, str>> {
+        match self.presented.path(node.key) {
+            Some(path) => Some(std::borrow::Cow::Owned(path.to_d())),
+            None => node.props.str(PropId::D).map(std::borrow::Cow::Borrowed),
+        }
     }
 
     /// The inherited properties an animation or transition is moving on
@@ -418,7 +445,7 @@ impl Resolver<'_, '_> {
                 Kind::Shape(Box::new(shape))
             }
         };
-        let clip = if style.clip_path.url().is_some() {
+        let clip = if style.rare.clip_path.url().is_some() {
             let bbox = match &kind {
                 Kind::Shape(s) => s.path.bounds(),
                 _ => self.bbox(node, &style, vp),
@@ -427,7 +454,7 @@ impl Resolver<'_, '_> {
         } else {
             None
         };
-        let mask = if style.svg_mask.url().is_some() {
+        let mask = if style.rare.svg_mask.url().is_some() {
             let bbox = match &kind {
                 Kind::Shape(s) => s.path.bounds(),
                 _ => self.bbox(node, &style, vp),
@@ -472,11 +499,15 @@ impl Resolver<'_, '_> {
     /// The element's transform, or `None` when every part is the identity.
     fn transform(&self, node: &NodeRef<'_>, style: &StyleProps, vp: Viewport) -> Option<Transform> {
         let key = node.key;
-        let translate = self
-            .value(key, Property::Translate)
-            .map_or((style.translate.x, style.translate.y), |v| {
-                (v.x as f32, v.y as f32)
-            });
+        // Lengths, then percentages of the reference box (CSS Transforms 1
+        // §4, as `transform-origin`'s; chess diary #4).
+        let (translate, percent) = self.value(key, Property::Translate).map_or(
+            (
+                (style.translate.x, style.translate.y),
+                (style.translate_percent.x, style.translate_percent.y),
+            ),
+            |v| ((v.x as f32, v.y as f32), (v.z as f32, v.w as f32)),
+        );
         let rotate = self
             .value(key, Property::Rotate)
             .map_or(style.rotate, |v| v.x as f32);
@@ -488,6 +519,7 @@ impl Resolver<'_, '_> {
         // identity: a host that plays the animation itself needs somewhere
         // to play it (Apple's transform pair, LLP 1055.001).
         if translate == (0.0, 0.0)
+            && percent == (0.0, 0.0)
             && rotate == 0.0
             && scale == 1.0
             && tf::is_identity(matrix)
@@ -517,6 +549,10 @@ impl Resolver<'_, '_> {
                 (x - half, y - half, w + 2.0 * half, h + 2.0 * half)
             }
         };
+        let translate = (
+            translate.0 + percent.0 / 100.0 * reference.2,
+            translate.1 + percent.1 / 100.0 * reference.3,
+        );
         Some(Transform {
             origin: origin.point(reference),
             translate,
@@ -606,6 +642,10 @@ impl Resolver<'_, '_> {
                 .map_or(vp.d(style.r), |v| v.x as f32);
             let (cx, cy) = (vp.x(style.cx), vp.y(style.cy));
             return circle(cx, cy, r).map(|p| (p, Some((cx, cy, r))));
+        }
+        if node.node_type == NodeType::SvgPath {
+            let path = super::parse_d(&self.d(node)?);
+            return (!path.0.is_empty()).then_some((path, None));
         }
         geometry(node.node_type, node.props, style, vp).map(|p| (p, None))
     }

@@ -30,7 +30,7 @@
 #include <stdint.h>
 
 /* The ABI's version: part of the compatibility id (LLP 1030 D3a). */
-#define EXACT_ABI_VERSION 10
+#define EXACT_ABI_VERSION 12
 
 #ifdef __cplusplus
 extern "C" {
@@ -45,11 +45,12 @@ typedef struct ExactRasterDemand {
     uint64_t view, view_generation, source, generation;
     uint32_t width, height, natural_width, natural_height;
     uint32_t priority; /* 0 visible, 1 overscan */
+    uint32_t variant;  /* storage (LLP 1100 D7): 1 sRGB8, 2 own-space 8, 3 deep 16F, 4 HDR 16F, 5 reduced 8 */
     uint64_t encoded_bytes, header_bytes, stride, scratch_bytes;
 } ExactRasterDemand;
 typedef struct ExactRasterWork {
     uint64_t permit, session, source, generation, charge;
-    uint32_t width, height;
+    uint32_t width, height, variant;
 } ExactRasterWork;
 typedef struct ExactRasterReady { uint64_t lease, payload; } ExactRasterReady;
 typedef struct ExactRasterStats {
@@ -164,6 +165,10 @@ typedef struct ExactMeasureRequest {
     const ExactFlowShape *exclusions;
     size_t exclusion_count;
     uint8_t markup;        /* 1: the one run is Markdown source; expand it with exact_markup_pieces (LLP 1045 D3) */
+    float text_indent;     /* CSS text-indent, points: the first line's inset from its start edge */
+    uint8_t hyphens;       /* CSS hyphens: 0 manual (the initial value), 1 none (soft hyphens already arrive as U+034F), 2 auto */
+    const uint8_t *lang;   /* the document language, UTF-8 (auto's hyphenation points); lang_len 0 is unknown */
+    size_t lang_len;
 } ExactMeasureRequest;
 
 /* LLP 1045 D3/D4. Markdown source into display pieces, the same for measure and paint. */
@@ -174,6 +179,8 @@ typedef struct ExactMarkupPiece {
     uint8_t italic, mono, strike;
     uint8_t role;                       /* 0 ink, 1 code, 2 link, 3 marker, 4 quote */
     const uint8_t *href; size_t href_len; /* a link's target; null when none */
+    float indent;                       /* CSS px: the head indent of the paragraph it is in (a list item's) */
+    uint8_t hang;                       /* 1: a list marker, hung before the indent, its end at it */
 } ExactMarkupPiece;
 /* Writes the pieces and their count, valid until exact_markup_free(handle). Zero on invalid UTF-8. */
 uint64_t exact_markup_pieces(const uint8_t *utf8, size_t len, const ExactMarkupPiece **out, size_t *count);
@@ -257,6 +264,11 @@ typedef struct ExactCanvasText {
 typedef struct ExactCanvasMetrics { double v[11]; } ExactCanvasMetrics;
 typedef ExactCanvasMetrics (*ExactCanvasTextFn)(void *ctx, const ExactCanvasText *run);
 void exact_set_canvas_text(ExactRuntime rt, ExactCanvasTextFn measure);
+/* LLP 1093 D6: each line box's bottom, in content coordinates, of the paragraph a request
+ * answers, with exact_set_measure's context. Writes min(count, cap) floats and returns count.
+ * NULL (the default) keeps every paragraph whole in a multi-column flow. */
+typedef size_t (*ExactLinesFn)(void *ctx, const ExactMeasureRequest *request, float *out, size_t cap);
+void exact_set_lines(ExactRuntime rt, ExactLinesFn lines);
 void exact_set_wake(ExactRuntime rt, ExactWakeFn wake, void *ctx);
 void exact_set_fonts(ExactRuntime rt, ExactFontsFn fonts, void *ctx);
 
@@ -311,6 +323,9 @@ uint32_t exact_fulfill_surface(ExactRuntime rt, uint64_t ticket, uint32_t kind, 
 /* LLP 1038 D5/D8: input URL -> UTF-8 canonical location in exact_out.
  * The launch setter takes that location before any boot/prepare call. */
 uint32_t exact_location_of(ExactRuntime rt, size_t len);
+/* LLP 1038 §7: 1 when the input location names a declared route (a followed
+ * link to it navigates in the app), else 0. */
+uint32_t exact_route_matches(ExactRuntime rt, size_t len);
 uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
 /* kind: 0 = press, 1 = change, 2 = hover in, 3 = hover out, 4 = focus,
  * 5 = blur, 6 = key, 7 = submit, 8 = iframe load, 9 = iframe message,
@@ -324,11 +339,23 @@ uint32_t exact_set_launch_location(ExactRuntime rt, size_t len);
  * 22 = refresh (the platform's pull-to-refresh control fired; no payload);
  * 28 = panrelease (UTF-8 vx,vy; px/s, once when a pan that began ends; a
  *      cancelled contact releases at 0,0; LLP 1057 §10.6);
+ * 29 = pointerdown, 30 = pointerup, 31 = pointermove (UTF-8
+ *      offsetX,offsetY,buttons,pressure,pointerType,pointerId,clientX,clientY:
+ *      content-box CSS px, DOM's buttons bits, 0 to 1, mouse|pen|touch, then
+ *      the viewport point; LLP 1056 §3 stage 3, LLP 1094 D11);
+ * 40 = a text field's input, 41 its change, 42 its select (UTF-8
+ *      start,end,direction,text: UTF-16 offsets, forward|backward|none, then
+ *      the whole value verbatim; x2apps codeedit #2);
  * any other kind is refused with an error batch.
  * Format lists are space-separated command tokens. Link keeps the remaining bytes.
  * A change's text, key's name, or guest message is the payload in the input
  * buffer's first len bytes. */
 uint32_t exact_dispatch(ExactRuntime rt, uint32_t view, uint32_t kind, size_t len, double now_ms);
+/* A scroll container the presenter shows (or, nonzero page, the page) now
+ * stands at left, top CSS px (scrollLeft, scrollTop), handler or not: what
+ * frame() and measure() subtract from the kernel's scroll-free box, so an
+ * action reads the box where the viewer sees it (LLP 1051.000 D1). No batch. */
+void exact_scrolled(ExactRuntime rt, uint32_t page, uint32_t view, double left, double top);
 /* Versioned LE collection feedback in exact_in; returns the ordinary batch. */
 uint32_t exact_collection_feedback(ExactRuntime rt, size_t len, double now_ms);
 /* The agent's tap <list> into <key> (LLP 1070.000): "key\nblock\ninline" in
@@ -354,6 +381,25 @@ uint32_t exact_transform_motion(uint32_t rt, uint32_t len);
 uint32_t exact_reorder_begin(ExactRuntime rt, uint32_t handle, double scroll_top, double now_ms);
 uint32_t exact_reorder_move(ExactRuntime rt, uint64_t token, double dy, double scroll_top, uint32_t inside, double now_ms);
 uint32_t exact_reorder_end(ExactRuntime rt, uint64_t token, uint32_t drop, double dy, double scroll_top, uint32_t inside, double velocity, double now_ms);
+/* Dropping across lists (reorderGroup, LLP 1094 D5-D9). A grouped grip lifts
+ * with group_begin: ghost nonzero when the host draws the row in its top
+ * layer (the runner then hides the row itself until group_finish); zero for
+ * a key's or custom action's session. move_into hands the ghost centre's y in
+ * target's (a grouped list view) content, at target_scroll_top as its
+ * collection feedback reports it; inside zero (the centre in no grouped
+ * port) keeps the certified gap. step: 1 earlier, 2 later, 3 the previous
+ * grouped list, 4 the next. group_end drops into the session's target
+ * (nonzero) or cancels; a holding drop ignores a cancel. Every reply, and
+ * every later batch that changes it, carries {"op":"reorder","group":true,
+ * "token","list","wrapper","phase":"active"|"holding"|"cancelling"|
+ * "settling"|"finished"|"refused","dispatched","ending":null|"landed"|"gone"|
+ * "timeout","target","row"}: row is the wrapper that holds the dragged row
+ * now, where a ghost lands. A new lift is refused until group_finish. */
+uint32_t exact_reorder_group_begin(ExactRuntime rt, uint32_t handle, double scroll_top, uint32_t ghost, double now_ms);
+uint32_t exact_reorder_move_into(ExactRuntime rt, uint64_t token, uint32_t target, double content_y, double target_scroll_top, uint32_t inside, double now_ms);
+uint32_t exact_reorder_step(ExactRuntime rt, uint64_t token, uint32_t step, double now_ms);
+uint32_t exact_reorder_group_end(ExactRuntime rt, uint64_t token, uint32_t drop, double now_ms);
+uint32_t exact_reorder_group_finish(ExactRuntime rt, uint64_t token, double now_ms);
 uint32_t exact_hold_begin(ExactRuntime rt, uint32_t view, uint32_t property, double now_ms);
 uint32_t exact_has_hold(ExactRuntime rt, uint64_t token);
 uint32_t exact_hold_update(ExactRuntime rt, uint64_t token, double x, double y, double now_ms);
@@ -374,7 +420,7 @@ uint32_t exact_pan_sample(ExactRuntime rt, uint32_t first, double x, double y, d
 double exact_pan_velocity(ExactRuntime rt, uint32_t axis, double t);
 /* The runner's clock: timers. Nonzero until_request stops after a timer that
  * sends, the clock at its due time (an agent's jump; the wall clock passes 0). */
-uint32_t exact_advance(ExactRuntime rt, double now_ms, uint32_t until_request);
+uint32_t exact_advance(ExactRuntime rt, double now_ms, uint32_t mode);
 /* @ref LLP 1073 D5: a presented display frame — timers due by now_ms, then
  * every frame task once at it. The batch says "frames" while one wants it. */
 uint32_t exact_frame(ExactRuntime rt, double now_ms);
@@ -439,6 +485,13 @@ uint32_t exact_scheme(ExactRuntime rt, uint32_t dark);
  * differs from the session's: its node's light-dark() colours resolve by it
  * (LLP 1062). */
 uint32_t exact_view_scheme(ExactRuntime rt, uint32_t view, uint32_t dark);
+/** LLP 1095 D1: every colour reference the presenter should resolve, as JSON
+ *  `[[kind, id, "name"], …]` in the output buffer; returns its length. */
+uint32_t exact_color_references(ExactRuntime rt);
+/** LLP 1095 D1: what the presenter resolved them to, as LE records in the
+ *  input buffer (u8 kind, u8 dark, u16 id, u8 r, g, b, a); returns the
+ *  batch's length. */
+uint32_t exact_colors(ExactRuntime rt, size_t len);
 uint32_t exact_tick(ExactRuntime rt, double now_ms);      /* a motion frame, only while "motion" is true */
 /* An image node loaded: its bitmap's pixel counts, taken one-for-one as
  * points (never divided by the backing scale — a 2× asset is not half its
@@ -457,10 +510,19 @@ uint32_t exact_host_covers(ExactRuntime rt, size_t len);
 /* A select's options (LLP 1069.001 D5), JSON in the output buffer, not a
  * batch: {"options":[{"value","label","disabled"}],"chosen":index|null}. */
 uint32_t exact_select_options(ExactRuntime rt, uint32_t view);
+/* A radio's group (x2apps survey #2), JSON in the output buffer, not a batch:
+ * {"group":[view...],"next":view|null,"previous":view|null} — the radios of its
+ * name in tree order, and the enabled radio ArrowDown/ArrowUp moves the check to. */
+uint32_t exact_radio_group(ExactRuntime rt, uint32_t view);
 /* A button's face, custom or native (LLP 1069.011.000 D1), JSON in the output
  * buffer, not a batch: {"button":bool,"title":string|null,"symbol":apple-name|null,
  * "raster","leading","fits":bool,"label":string|null,"style",...the native style}. */
 uint32_t exact_press_face(ExactRuntime rt, uint32_t view);
+/* A grouped list's sections and rows (LLP 1084 D4), JSON in the output
+ * buffer, not a batch: {"style","sections":[{"view","header","footer","rows":
+ * [{"view","custom","symbol","title","secondary","subtitle","accessory",
+ * "target","pressable","destructive","disabled"}]}]}, or null. */
+uint32_t exact_grouped_list(ExactRuntime rt, uint32_t view);
 
 /* The agent API (LLP 1012): a request in the input buffer's first len bytes
  * ({"op":"tree"} / "state" / "logs" / "settle"), the reply in the output

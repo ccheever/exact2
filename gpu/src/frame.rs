@@ -122,6 +122,7 @@ impl Module {
             period_ms: self.period_ms,
             children_generation: inst.children_generation,
             shader_generation: shaders::shader_generation(),
+            headroom: if inst.hdr { inst.headroom } else { 1.0 },
             ..*frame
         };
         let open = self.open.get_or_insert_with(|| Open {
@@ -179,7 +180,7 @@ impl Module {
         // after recording: its drawable is in the submit, and must not be
         // shown.
         // Canvases whose first frame this is (`Module::seen`).
-        let mut first: Vec<Arc<AtomicBool>> = open
+        let first: Vec<Arc<AtomicBool>> = open
             .canvases
             .iter()
             .filter(|c| c.texture.is_some())
@@ -187,7 +188,9 @@ impl Module {
             .filter(|i| !i.seen.load(Ordering::Acquire))
             .map(|i| i.seen.clone())
             .collect();
-        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
+        let mut first = first;
+        #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
         let rode = {
             let ride = open.canvases.iter().all(|c| c.failed.is_none());
             let drawn = open.canvases.iter().filter(|c| c.texture.is_some()).count();
@@ -201,7 +204,7 @@ impl Module {
             // scheduled twice).
             before.is_some_and(|n| presented_with_submit(&gpu.queue) == Some(n + drawn))
         };
-        #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+        #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "tvos")))]
         let rode = {
             gpu.queue.submit([open.encoder.finish()]);
             false
@@ -287,7 +290,7 @@ fn shown(first: Vec<Arc<AtomicBool>>) {
 /// been scheduled if canvases in it draw their `first` frame; how many
 /// drawables it has presented that way so far. `None` off Metal, with
 /// `first` shown at once.
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
 fn ride_next_submit(queue: &wgpu::Queue, first: Vec<Arc<AtomicBool>>) -> Option<usize> {
     // SAFETY: a flag, a callback and a counter of the queue wgpu owns;
     // nothing is encoded.
@@ -306,7 +309,7 @@ fn ride_next_submit(queue: &wgpu::Queue, first: Vec<Arc<AtomicBool>>) -> Option<
 
 /// How many drawables this queue has presented with the submit that drew
 /// them; `None` off Metal.
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
 fn presented_with_submit(queue: &wgpu::Queue) -> Option<usize> {
     // SAFETY: a counter of the queue wgpu owns is read; nothing is encoded.
     unsafe { queue.as_hal::<wgpu::hal::api::Metal>() }.map(|q| q.counts().presented_with_submit)

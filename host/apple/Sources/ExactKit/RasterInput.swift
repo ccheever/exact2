@@ -24,6 +24,9 @@ final class RasterCancellation: @unchecked Sendable {
 /// spool to a bounded temporary file and are reused for metadata and decode.
 final class RasterInput: @unchecked Sendable {
     static var httpCacheUsage: [String: Int] { RasterDownload.cacheUsage }
+    /// A `data:` source's bound, in bytes of URL text, on every host (LLP 1011
+    /// §2; `exact_raster::MAX_DATA_URL_BYTES`, the web hosts' `DATA_LIMIT`).
+    static let dataLimit = 1024 * 1024
     let url: URL
     let encodedBytes: Int
     private let temporary: Bool
@@ -35,23 +38,49 @@ final class RasterInput: @unchecked Sendable {
         guard !cancellation.isCancelled else { throw URLError(.cancelled) }
         // The app's own file (LLP 1069.002 D7): a picked photo's preview.
         if name.hasPrefix("app:/") {
-            guard let url = AppFiles.url(name) else { throw RasterFailure.decode }
+            guard let url = AppFiles.url(name) else { throw RasterFailure.unresolved }
             let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
             guard values.isRegularFile == true, let count = values.fileSize,
                   count > 0, count <= RasterMetadata.encodedLimit else { throw RasterFailure.encodedLimit }
             return RasterInput(url: url, encodedBytes: count, temporary: false)
         }
+        // A `data:` URL (RFC 2397), as a page's `<img>` takes one: its bytes,
+        // spooled like a download's, so metadata and decode read a file.
+        if name.hasPrefix("data:") {
+            guard name.utf8.count <= dataLimit, let bytes = dataURL(name), !bytes.isEmpty else { throw RasterFailure.decode }
+            let file = try RasterSpool.file()
+            try bytes.write(to: file, options: .atomic)
+            return RasterInput(url: file, encodedBytes: bytes.count, temporary: true)
+        }
         if let url = URL(string: name), let scheme = url.scheme {
-            guard scheme == "https" || scheme == "http" else { throw RasterFailure.decode }
+            guard scheme == "https" || scheme == "http" else { throw RasterFailure.unresolved }
             let download = try RasterDownload(url: url)
             let (file, count) = try download.run(cancellation)
             return RasterInput(url: file, encodedBytes: count, temporary: true)
         }
-        guard let url = resolver.url(name, maximumBytes: RasterMetadata.encodedLimit) else { throw RasterFailure.decode }
+        guard let url = resolver.url(name, maximumBytes: RasterMetadata.encodedLimit) else { throw RasterFailure.unresolved }
         let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
         guard values.isRegularFile == true, let count = values.fileSize,
               count > 0, count <= RasterMetadata.encodedLimit else { throw RasterFailure.encodedLimit }
         return RasterInput(url: url, encodedBytes: count, temporary: false)
+    }
+    /// A `data:` URL's bytes: base64 after `;base64`, else percent-decoded;
+    /// whitespace and percent escapes in base64 forgiven, as browsers do.
+    static func dataURL(_ name: String) -> Data? {
+        let utf8 = Array(name.utf8.dropFirst(5))
+        guard let comma = utf8.firstIndex(of: UInt8(ascii: ",")) else { return nil }
+        let meta = String(decoding: utf8[..<comma], as: UTF8.self).lowercased()
+        var body: [UInt8] = []
+        var i = comma + 1
+        while i < utf8.count {
+            if utf8[i] == UInt8(ascii: "%"), i + 2 < utf8.count, let byte = UInt8(String(decoding: utf8[i + 1...i + 2], as: UTF8.self), radix: 16) {
+                body.append(byte); i += 3
+            } else { body.append(utf8[i]); i += 1 }
+        }
+        guard meta.hasSuffix(";base64") else { return Data(body) }
+        var text = String(decoding: body.filter { ![9, 10, 12, 13, 32].contains($0) }, as: UTF8.self)
+        while text.count % 4 != 0 { text += "=" }
+        return Data(base64Encoded: text)
     }
     func metadata() throws -> RasterMetadata {
         let file = try FileHandle(forReadingFrom: url)
@@ -69,6 +98,12 @@ final class RasterInput: @unchecked Sendable {
         guard bytes.count == encodedBytes else { throw RasterFailure.decode }
         return bytes
     }
+}
+
+/// A response that is not 2xx: its status is the image's `error` (LLP 1011 §4).
+struct RasterHTTPStatus: Error, CustomStringConvertible {
+    let code: Int
+    var description: String { "HTTP \(code)" }
 }
 
 private final class RasterDownload: NSObject, URLSessionDataDelegate, @unchecked Sendable {
@@ -89,7 +124,7 @@ private final class RasterDownload: NSObject, URLSessionDataDelegate, @unchecked
     private var failure: Error?
     init(url: URL) throws {
         self.url = url
-        destination = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("exact-raster-\(UUID().uuidString)")
+        destination = try RasterSpool.file()
         guard FileManager.default.createFile(atPath: destination.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { throw RasterFailure.decode }
         file = try FileHandle(forWritingTo: destination)
         super.init()
@@ -116,8 +151,10 @@ private final class RasterDownload: NSObject, URLSessionDataDelegate, @unchecked
     }
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
                     completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        guard response.expectedContentLength <= RasterMetadata.encodedLimit,
-              (response as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) ?? false else {
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            failure = RasterHTTPStatus(code: (response as? HTTPURLResponse)?.statusCode ?? 0); completionHandler(.cancel); return
+        }
+        guard response.expectedContentLength <= RasterMetadata.encodedLimit else {
             failure = RasterFailure.encodedLimit; completionHandler(.cancel); return
         }
         completionHandler(.allow)

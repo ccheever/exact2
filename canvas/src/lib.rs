@@ -5,18 +5,20 @@
 //!
 //! - [`context`]: the recorder, [`Context2d`], with web-sys's method names.
 //! - [`list`]: the bytes every host replays, and the structural check.
-//! - [`color`]: CSS Color 4's sRGB forms and the canvas serialisation.
+//! - [`color`]: CSS Color 4 and the canvas serialisation — exact-motion's
+//!   parser, the one every colour row reads with.
 //! - [`geom`]: the author matrix and f64 arc, `arcTo` and `roundRect`
 //!   geometry, resolved at the call.
 //! - [`seam`]: the TypeScript recorder's reply (`canvas/recorder.js`).
 //!
-//! A leaf: it depends on nothing, so the runner and every host can reach it.
+//! It depends on nothing above exact-motion, so the runner and every host
+//! can reach it.
 //! An app's artifact carries it only if its data module draws.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
-pub mod color;
+pub use exact_motion::color::css as color;
 pub mod context;
 pub mod font;
 pub mod geom;
@@ -26,8 +28,8 @@ pub mod seam;
 
 pub use color::Rgba;
 pub use context::{
-    images_in, CanvasGradient, CanvasPattern, CanvasWindingRule, Context2d, DomException,
-    DomMatrix, Env, ImageData, ImageSlot, ImageTable, Images, Style,
+    images_in, CanvasGradient, CanvasPattern, CanvasWindingRule, ColorSpace, Context2d,
+    DomException, DomMatrix, Env, ImageData, ImageSlot, ImageTable, Images, Style,
 };
 pub use font::{Font, RawMetrics, TextEngine, TextMetrics, TextRun};
 pub use geom::{Matrix, Radius};

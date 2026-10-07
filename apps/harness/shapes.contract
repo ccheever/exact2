@@ -1,0 +1,108 @@
+// The harness's data seam: what the Rust data module (apps/harness/data)
+// answers and what the terminal entry renders. Shared by both sides; the
+// data module's `to_value` builds exactly these records.
+// @ref LLP 1101 (terminal apps)
+
+// A styled run of text. Colours are CSS colours ("#rrggbb") or "" for the
+// inherited one.
+shape Run
+  text: string
+  fg: string
+  bg: string
+  bold: bool
+  italic: bool
+  dim: bool
+  under: bool
+  strike: bool
+  // A link (OSC 8 in a terminal: Cmd-click opens it), or "".
+  href: string
+
+// One pre-coloured line: code, a diff, tool output, ANSI art.
+shape Line
+  runs: list<Run>
+
+// One block of rendered Markdown, or of pre-coloured lines.
+//   kind: "p" | "h1" | "h2" | "h3" | "li" | "quote" | "code" | "rule" | "lines"
+//   depth: list nesting (0 for top level); marker: "•", "1." for an item
+//   lang: a code block's language; runs: inline content (p, h*, li, quote)
+//   lines: a code block's highlighted lines, or "lines" content
+shape Block
+  kind: string
+  depth: number
+  marker: string
+  lang: string
+  runs: list<Run>
+  lines: list<Line>
+
+// One transcript entry.
+//   id: a decimal number, strictly increasing, never reused
+//   kind: "user" | "assistant" | "more" | "tool" | "notice" | "error" |
+//     "banner" | "image"; a streamed reply is one "assistant" entry (its
+//     first block) then a "more" entry per later block
+//   busy: still changing (streaming, running, awaiting approval); a settled
+//     entry never changes again, so an inline terminal prints it once
+//   title: a tool's call, "Bash(ls -la)"; status: "running" | "ok" | "error" |
+//     "denied" | "waiting"
+//   blocks: the rendered body; more: lines hidden from a long tool output
+//   image: an image file's path ("" when none), cols × rows its cell box
+//   link: what the title links to (a tool's file), or ""
+//   model: the label of the model the entry's turn started with ("mock"
+//     for the mock); "" outside a turn (banner, notices, commands)
+shape Entry
+  id: string
+  kind: string
+  busy: bool
+  title: string
+  status: string
+  blocks: list<Block>
+  more: number
+  image: string
+  cols: number
+  rows: number
+  link: string
+  model: string
+
+// A tool call waiting for the person's answer.
+shape Approval
+  id: string
+  tool: string
+  summary: string
+  lines: list<Line>
+
+shape ModelChoice
+  id: string
+  label: string
+  provider: string
+  available: bool
+
+// Everything the screen shows, as one snapshot (topic "session").
+//   phase: "idle" | "thinking" | "streaming" | "tool" | "waiting"
+//   approval: the pending tool call, its id "" when none
+//   retired: how many entries `retire(id)` has dropped (printed, no longer
+//     answered); queued: prompts sent while a turn runs, oldest first
+shape Session
+  model: string
+  provider: string
+  cwd: string
+  branch: string
+  busy: bool
+  phase: string
+  tokensIn: number
+  tokensOut: number
+  contextPct: number
+  entries: list<Entry>
+  approval: Approval
+  toast: string
+  models: list<ModelChoice>
+  retired: number
+  queued: list<string>
+  // Which transcript: `/clear` starts a new one.
+  epoch: number
+
+// A running animation's frame (topic none: asked again on each tick).
+shape Frame
+  title: string
+  lines: list<Line>
+
+shape Ack
+  ok: bool

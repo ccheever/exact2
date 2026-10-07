@@ -92,6 +92,99 @@ final class PresenceIOSTests: XCTestCase {
         p.reset()
     }
 
+    /// Measured again when what sizes it changes: a segment's title, the
+    /// text size, a hook's background image; not otherwise.
+    func testASegmentedTablistIsMeasuredAgainWhenWhatSizesItChanges() throws {
+        let p = tabBarFixture()
+        defer { p.reset() }
+        var reports: [CGSize?] = []
+        p.onIntrinsic = { sizes in
+            for (id, size) in sizes where id == 10 { reports.append(size) }
+        }
+        p.apply(wireBatch([
+            ["op": "children", "id": 11, "ids": [14]],
+            ["op": "children", "id": 12, "ids": [16]],
+        ]))
+        let control = try XCTUnwrap(p.segments.control(of: 10))
+        drainIntrinsicSizes()
+        XCTAssertEqual(reports.last ?? nil, control.intrinsicContentSize)
+        // A hook's background image, taller than the control.
+        let tall = UIGraphicsImageRenderer(size: CGSize(width: 4, height: 60)).image { _ in }
+        control.setBackgroundImage(tall, for: .normal, barMetrics: .default)
+        p.segments.sync()
+        drainIntrinsicSizes()
+        XCTAssertEqual((reports.last ?? nil)?.height, control.intrinsicContentSize.height, "a hook's look is measured")
+        control.setBackgroundImage(nil, for: .normal, barMetrics: .default)
+        p.segments.sync()
+        drainIntrinsicSizes()
+        XCTAssertEqual((reports.last ?? nil)?.height, control.intrinsicContentSize.height, "and again when it goes")
+        // A larger text size.
+        control.traitOverrides.preferredContentSizeCategory = .accessibilityExtraExtraExtraLarge
+        control.updateTraitsIfNeeded()
+        p.segments.sync()
+        drainIntrinsicSizes()
+        XCTAssertEqual((reports.last ?? nil)?.height, control.intrinsicContentSize.height, "the text size is in what it is measured from")
+    }
+
+    func testSegmentsReportNativeHeightWithoutRepeatedOrStaleMeasurements() throws {
+        let p = tabBarFixture()
+        defer { p.reset() }
+        var reports: [CGSize?] = []
+        p.onIntrinsic = { sizes in
+            for (id, size) in sizes where id == 10 { reports.append(size) }
+        }
+        p.apply(wireBatch([
+            ["op": "children", "id": 11, "ids": [14]],
+            ["op": "children", "id": 12, "ids": [16]],
+        ]))
+        let owner = try XCTUnwrap(p.views[10])
+        let control = try XCTUnwrap(p.segments.control(of: 10))
+        drainIntrinsicSizes()
+        let size = try XCTUnwrap(reports.last ?? nil)
+        XCTAssertEqual(size, control.intrinsicContentSize, "the control's own size, not the box's")
+        XCTAssertGreaterThan(size.height, 20, "an unsized text row must not squash the native control")
+        XCTAssertEqual(control.frame, owner.contentBox(), "the kernel still owns the final box")
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0,
+                            "w": 400.0, "h": Double(size.height)]]))
+        drainIntrinsicSizes()
+        let count = reports.count
+        p.segments.sync()
+        drainIntrinsicSizes()
+        XCTAssertEqual(reports.count, count, "unchanged native sizes are not published again")
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0,
+                            "w": 300.0, "h": Double(size.height)]]))
+        drainIntrinsicSizes()
+        XCTAssertEqual(reports.count, count, "its height does not follow the box's width, so a resize does not remeasure")
+        XCTAssertEqual(control.frame, owner.contentBox())
+        // The control fills the content box: a border-box minimum also holds
+        // the padding and border around it; a content-box one does not.
+        p.apply(wireBatch([["op": "style", "id": 10,
+                            "style": ["box_sizing": "border-box", "padding_top": 6.0, "padding_bottom": 4.0]]]))
+        drainIntrinsicSizes()
+        XCTAssertEqual((reports.last ?? nil)?.height, size.height + 10)
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0,
+                            "w": 300.0, "h": Double(size.height + 10)]]))
+        XCTAssertEqual(control.frame, owner.contentBox())
+        XCTAssertEqual(control.frame.height, size.height, "the padding does not squash the control")
+        p.apply(wireBatch([["op": "style", "id": 10,
+                            "style": ["box_sizing": "content-box", "padding_top": 6.0, "padding_bottom": 4.0]]]))
+        drainIntrinsicSizes()
+        XCTAssertEqual((reports.last ?? nil)?.height, size.height)
+        // Measured at zero width too: tabs replaced there still reserve it.
+        p.apply(wireBatch([["op": "frame", "id": 10, "x": 0.0, "y": 0.0, "w": 0.0, "h": 0.0],
+                           ["op": "children", "id": 10, "ids": [12, 11]]]))
+        drainIntrinsicSizes()
+        XCTAssertEqual((reports.last ?? nil)?.height, size.height, "a zero-width tablist keeps its native minimum")
+        let replaced = try XCTUnwrap(p.segments.control(of: 10))
+        p.apply(wireBatch([["op": "props", "id": 10,
+                            "set": ["accessibilityRole": "tablist", "accessibilityOrientation": "vertical"]]]))
+        drainIntrinsicSizes()
+        XCTAssertNil(reports.last ?? nil, "leaving the projection clears its native minimum")
+        XCTAssertNil(control.superview)
+        XCTAssertNil(replaced.superview)
+        XCTAssertFalse(try XCTUnwrap(p.views[11]).isHidden)
+    }
+
     func testMissingRawSymbolsKeepTabBarsAndClearSegmentImages() throws {
         let p = tabBarFixture()
         defer { p.reset() }
@@ -194,7 +287,9 @@ final class PresenceIOSTests: XCTestCase {
         XCTAssertNil(p.views[3], "its subtree too")
         XCTAssertTrue(leaving.superview === parent, "still in the window")
         XCTAssertTrue(inner.superview === leaving)
-        XCTAssertTrue(parent.subviews.last === leaving, "above its old siblings")
+        XCTAssertTrue(parent.subviews.first === leaving, "the ghost keeps its tree slot")
+        XCTAssertGreaterThan(leaving.paintZPosition, sibling.paintZPosition)
+        XCTAssertEqual(parent.paintRank, 1)
         XCTAssertEqual(leaving.frame, CGRect(x: 0, y: 0, width: 400, height: 50), "its last box")
         XCTAssertEqual(sibling.frame.minY, 0, "its sibling takes its place")
         XCTAssertFalse(leaving.isUserInteractionEnabled)
@@ -203,6 +298,7 @@ final class PresenceIOSTests: XCTestCase {
         XCTAssertEqual(leaving.alpha, 0.25, accuracy: 1e-6, "the engine animates it")
         p.apply(wireBatch([["op": "destroy", "id": 2]]))
         XCTAssertNil(leaving.superview, "the exit ended")
+        XCTAssertEqual(parent.paintRank, parent.rank)
         XCTAssertNil(inner.superview?.superview)
         XCTAssertTrue(p.views[4] === sibling)
     }

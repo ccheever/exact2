@@ -13,7 +13,7 @@ import { closeFilesystemReader, filesystemRead } from './filesystem.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
-import { developmentGate, developmentInstallPage, installData, installPage, installProblems, writeInstallPages, installBrowserOrigins, installNetworkPage, localInstallURL } from './install-page.mjs';
+import { allowHostArgs, allowHostName, developmentGate, developmentInstallPage, installData, installPage, installProblems, writeInstallPages, installBrowserOrigins, installNetworkPage, localInstallURL } from './install-page.mjs';
 import { readManifest, rustPolicy, rebuildPolicy } from './app.mjs';
 import { compressionCache, developmentOpenPage, listPublicFiles, readStaticFile, serveStatic, staticWatchChanges, applyStaticTreeChange, warmCompression } from '../host/web/serve.mjs';
 import { request as httpRequest } from 'node:http';
@@ -321,6 +321,40 @@ test('a development server answers only to its printed names; its token and phon
   assert.throws(()=>localInstallURL('device',loopback,8879),/--lan/);
 });
 
+test('--allow-host admits a tunnel name to every request but never makes it local', () => {
+  const interfaces={lo0:[{address:'127.0.0.1',family:'IPv4',internal:true}]};
+  const request=(host,peer='127.0.0.1')=>({headers:{host},socket:{remoteAddress:peer}});
+  const loopback=installBrowserOrigins({host:'127.0.0.1',port:8879,interfaces});
+  // The default is unchanged: a tunnel forwarding to loopback is refused (421).
+  assert.equal(developmentGate(loopback,8879).check(request('abc.tuft.dev')).allowed,false);
+  const names=allowHostArgs(['--app','beacons','--allow-host','ABC.tuft.dev','--port','8879','--allow-host','pinned.example:8443']);
+  assert.deepEqual(names,['abc.tuft.dev','pinned.example:8443']);
+  const gate=developmentGate(loopback,8879,names);
+  // A tunnel's Host has no port (https), or the public one; the name admits any port.
+  assert.deepEqual(gate.check(request('abc.tuft.dev')),{allowed:true,local:false});
+  assert.deepEqual(gate.check(request('ABC.tuft.dev:443')),{allowed:true,local:false});
+  assert.deepEqual(gate.check(request('pinned.example:8443')),{allowed:true,local:false});
+  assert.equal(gate.check(request('pinned.example')).allowed,false,'name:port admits that port only');
+  assert.equal(gate.check(request('pinned.example:80')).allowed,false);
+  // DNS rebinding under any other name is still refused; loopback is still local.
+  assert.equal(gate.check(request('evil.abc.tuft.dev')).allowed,false);
+  assert.equal(gate.check(request('rebound.example:8879')).allowed,false);
+  assert.deepEqual(gate.check(request('127.0.0.1:8879')),{allowed:true,local:true});
+  // A tunnel that rewrites Host to loopback still carries the internet: not local.
+  for (const header of ['forwarded','x-forwarded-for','x-forwarded-host'])
+    assert.deepEqual(gate.check({headers:{host:'127.0.0.1:8879',[header]:'for=203.0.113.9'},socket:{remoteAddress:'127.0.0.1'}}),{allowed:true,local:false},header);
+  // A cross-site browser POST is refused; a same-origin or Origin-less one is not.
+  const post=(origin,host='127.0.0.1:8879')=>gate.check({method:'POST',headers:{host,...(origin===undefined?{}:{origin})},socket:{remoteAddress:'127.0.0.1'}});
+  assert.deepEqual(post('https://evil.example'),{allowed:false,local:false});
+  assert.deepEqual(post('null'),{allowed:false,local:false});
+  assert.deepEqual(post('http://127.0.0.1:8879'),{allowed:true,local:true});
+  assert.deepEqual(post(undefined),{allowed:true,local:true});
+  assert.deepEqual(post('https://abc.tuft.dev','abc.tuft.dev'),{allowed:true,local:false});
+  for (const bad of [undefined,'','https://abc.tuft.dev','*.tuft.dev','abc.tuft.dev/','-abc.example','a b'])
+    assert.throws(()=>allowHostName(bad),/--allow-host takes a host name/);
+  assert.throws(()=>allowHostArgs(['--allow-host']),/--allow-host/);
+});
+
 test('the dev opening page offers only the admitted, token-bearing links, escaped', () => {
   const app = {id:'test.one', displayName:'<b>One</b>', crate:()=>'one-apple', manifest:{}};
   const page = 'http://127.0.0.1:8879/?q="x"', token = 'a'.repeat(64);
@@ -352,10 +386,13 @@ test('the production server sends warm bodies compressed, with validators', asyn
   const glue = Buffer.from('export const glue = 1;\n'.repeat(2000)), page = '<!doctype html><title>x</title>' + '<p>page</p>'.repeat(200);
   writeFileSync(join(dir, 'index.html'), page); writeFileSync(join(dir, 'glue.js'), glue);
   writeFileSync(join(dir, 'app.wasm'), Buffer.alloc(4096, 7)); writeFileSync(join(dir, 'manifest.json'), '{}');
+  // A game's baked assets compress too (garden's art: 6.65 MiB -> 1.82 MiB gzip).
+  mkdirSync(join(dir, 'assets'), { recursive: true }); const model = Buffer.alloc(8192, 3);
+  writeFileSync(join(dir, 'assets/crop.model'), model); writeFileSync(join(dir, 'assets/0-srgb-straight.bc.tex'), Buffer.alloc(8192, 5));
   // A fresh resident reader: a timed-out test's cleanup can kill the shared one.
   closeFilesystemReader();
   const compression = compressionCache();
-  assert.equal(await warmCompression(dir, compression), 4);
+  assert.equal(await warmCompression(dir, compression), 6);
   const get = (server, path, headers = {}) => new Promise((done, fail) => {
     const req = httpRequest({ host: '127.0.0.1', port: server.address().port, path, headers }, res => {
       const chunks = []; res.on('data', c => chunks.push(c)); res.on('end', () => done({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
@@ -369,6 +406,9 @@ test('the production server sends warm bodies compressed, with validators', asyn
     const br = await get(production, '/glue.js', { 'accept-encoding': 'gzip, br' });
     assert.equal(br.headers['content-encoding'], 'br'); assert.equal(br.headers.vary, 'Accept-Encoding');
     assert.ok(br.body.length < glue.length / 10); assert.deepEqual(brotliDecompressSync(br.body), glue);
+    const crop = await get(production, '/assets/crop.model', { 'accept-encoding': 'br' });
+    assert.equal(crop.headers['content-encoding'], 'br'); assert.equal(crop.headers['content-type'], 'application/vnd.exact.model');
+    assert.deepEqual(brotliDecompressSync(crop.body), model);
     const gz = await get(production, '/glue.js', { 'accept-encoding': 'gzip, br;q=0' });
     assert.equal(gz.headers['content-encoding'], 'gzip'); assert.deepEqual(gunzipSync(gz.body), glue);
     const identity = await get(production, '/glue.js', { 'accept-encoding': 'identity' });

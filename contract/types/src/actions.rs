@@ -1,7 +1,7 @@
 //! Action bodies (LLP 1017 P2): statements through every branch, and the
 //! block-scoped, immutable `let` locals of LLP 1035.005.000 D2.
 
-use super::{checks, err, infer, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError};
+use super::{calls, checks, err, infer, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError};
 use contract_syntax::{Component, Expr, Span, Stmt, TemplatePart};
 
 /// The `let`s a block sees: those in force (declared above, in it or a
@@ -56,6 +56,10 @@ impl Cx<'_, '_> {
                     _ => None,
                 }));
             if let Some(e) = read_too_early(stmt, &scope, &lets) {
+                self.sink.push(e);
+                continue;
+            }
+            if let Some(e) = calls::called_for_value(stmt, &scope, self.shapes) {
                 self.sink.push(e);
                 continue;
             }
@@ -132,7 +136,7 @@ impl Cx<'_, '_> {
                     return err(
                         "type-let-reassign",
                         format!(
-                            "`{target}` is the `let` on line {}, and a local is never reassigned: give the new value its own `let`, or make `{target}` a `state`",
+                            "`{target}` is the `let` on line {}, and a local is never reassigned: choose its value where it is bound, `let {target} = cond ? this : that`; or give the new value its own `let`, or make `{target}` a `state`",
                             at.line
                         ),
                         *span,
@@ -172,8 +176,22 @@ impl Cx<'_, '_> {
                 }
             }
             Stmt::Command { name, args, span } => {
-                return checks::check_command(name, args, scope, shapes, *span)
+                // An action prop or injected action, called anywhere (LLP
+                // 1089 D1, D7): its arguments here, against its declared
+                // type; the action it names is run, and checked, after
+                // lifting.
+                if !contract_syntax::HOST_COMMANDS.contains(&name.as_str()) {
+                    if let Some((Ref::Prop(_), Ty::Action(params))) = scope.lookup(name) {
+                        return calls::prop_args(name, params, args, scope, shapes, *span);
+                    }
+                }
+                // Refused as ambiguous (LLP 1089 D1): not a host command's too.
+                if shapes.ambiguous.contains(span) {
+                    return Ok(());
+                }
+                return checks::check_command(name, args, scope, shapes, &c.name, *span);
             }
+            Stmt::Call { .. } => return calls::check(stmt, self.lifted, c, scope, shapes),
             Stmt::Send {
                 target,
                 source,
@@ -259,7 +277,7 @@ fn read_too_early(stmt: &Stmt, scope: &Scope, lets: &Lets<'_>) -> Option<TypeErr
         Stmt::Let { expr, .. } | Stmt::Assign { expr, .. } => {
             names(expr, &mut Vec::new(), &mut reads)
         }
-        Stmt::Command { args, .. } | Stmt::Send { args, .. } => {
+        Stmt::Command { args, .. } | Stmt::Send { args, .. } | Stmt::Call { args, .. } => {
             for a in args {
                 names(a, &mut Vec::new(), &mut reads);
             }
@@ -290,7 +308,8 @@ fn names<'e>(e: &'e Expr, bound: &mut Vec<&'e str>, out: &mut Vec<(&'e str, Span
                 out.push((n, *span));
             }
         }
-        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) | Expr::EmptyList(_) => {}
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
+        Expr::List(items, _) => items.iter().for_each(|x| names(x, bound, out)),
         Expr::Template(parts, _) => {
             for p in parts {
                 if let TemplatePart::Expr(x) = p {
@@ -301,6 +320,7 @@ fn names<'e>(e: &'e Expr, bound: &mut Vec<&'e str>, out: &mut Vec<(&'e str, Span
         Expr::Some(x, _)
         | Expr::Member(x, _, _)
         | Expr::NamedArg(_, x, _)
+        | Expr::Typed(x, _, _)
         | Expr::Unary(_, x, _) => names(x, bound, out),
         Expr::Call(_, args, _) => args.iter().for_each(|a| names(a, bound, out)),
         Expr::Binary(_, a, b, _) => {

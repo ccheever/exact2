@@ -27,16 +27,25 @@ impl<D: DataSource> Presenter<D> {
 
     /// What a point in box `b` hits: inside an `svg`, the element under it
     /// by `pointer-events`; else the box itself.
-    pub(super) fn svg_hit(&self, b: &crate::paint::PaintedBox, x: f32, y: f32) -> ViewId {
+    pub(super) fn svg_hit(&self, b: &crate::paint::PaintedBox, x: f32, y: f32) -> Option<ViewId> {
         let kernel = self.host.kernel();
+        let box_hit = || b.pointer_hit.then_some(b.id);
         let Some(node) = kernel.node(b.id).filter(|n| n.node_type == NodeType::Svg) else {
-            return b.id;
+            return box_hit();
         };
         let content = exact_kernel::svg::scene::content_box(&node);
-        let scene =
-            crate::paint::resolve_with(kernel, &node, content, &|id| self.host.presented(id));
+        let scene = crate::paint::resolve_with(
+            kernel,
+            &node,
+            content,
+            &|id| self.host.presented(id),
+            &|id| self.host.presented_path(id),
+        );
         scene
             .hit((x - b.rect.0 - content.0, y - b.rect.1 - content.1))
-            .unwrap_or(b.id)
+            // A root-none can still contain an explicitly auto child. The
+            // resolved scene also owns use-instance styles; do not refilter a
+            // shape's hit using the referenced node's uninstanced style.
+            .or_else(box_hit)
     }
 }

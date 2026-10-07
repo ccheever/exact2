@@ -22,6 +22,9 @@ pub enum InputEvent {
     Absolute(Option<f32>, Option<f32>),
     /// The primary button went down (`true`) or up.
     Button(bool),
+    /// The secondary (2) or middle (4) button, by its `PointerEvent.buttons`
+    /// bit, went down (`true`) or up: a canvas's alone.
+    Aux(u32, bool),
     /// Carrier/device loss cancels without manufacturing a successful release.
     Cancel,
     /// A wheel: (dx, dy) in points, the web's sign (a positive `dy` scrolls
@@ -40,11 +43,14 @@ pub enum InputEvent {
     },
 }
 
-/// US keyboard state shared by evdev and VNC. Shift sides are independent;
-/// Ctrl/Meta shortcuts do not type or start game actions, but releases pass.
+/// US keyboard state shared by evdev and VNC. Shift sides are independent.
+/// A Ctrl/Meta chord passes: it is a `key` handler's (⌘S, kanban F27), and
+/// the presenter keeps it from typing or starting a game action
+/// (`hardware_key`).
 #[derive(Default)]
 pub(crate) struct Keyboard {
-    modifiers: u8,
+    /// The Shift keys held, a bit per side.
+    shifts: u8,
 }
 impl Keyboard {
     pub(crate) fn event(
@@ -60,21 +66,14 @@ impl Keyboard {
         let bit = match code {
             42 => 1,
             54 => 2,
-            29 => 4,
-            97 => 8,
-            125 => 16,
-            126 => 32,
             _ => 0,
         };
         if down {
-            self.modifiers |= bit;
+            self.shifts |= bit;
         } else {
-            self.modifiers &= !bit;
+            self.shifts &= !bit;
         }
-        if down && self.modifiers & !3 != 0 {
-            return None;
-        }
-        let shift = shift.unwrap_or(self.modifiers & 3 != 0);
+        let shift = shift.unwrap_or(self.shifts != 0);
         key(code, shift)?;
         Some(InputEvent::Key {
             code,
@@ -244,6 +243,9 @@ impl Input {
                             // BTN_LEFT (a mouse) and BTN_TOUCH (a
                             // touchscreen). Both are a primary press.
                             0x110 | 0x14a => out.push(InputEvent::Button(down)),
+                            // BTN_RIGHT, BTN_MIDDLE.
+                            0x111 => out.push(InputEvent::Aux(2, down)),
+                            0x112 => out.push(InputEvent::Aux(4, down)),
                             _ => {
                                 if let Some(event) = self.keyboard.event(code, value, None) {
                                     out.push(event);
@@ -373,6 +375,19 @@ pub(crate) fn key(code: u16, shift: bool) -> Option<(&'static str, &'static str)
         109 => ("PageDown", "PageDown", "PageDown"),
         110 => ("Insert", "Insert", "Insert"),
         111 => ("Delete", "Delete", "Delete"),
+        // KEY_F1 is 59; F11 and F12 are 87 and 88, not contiguous with F10.
+        59 => ("F1", "F1", "F1"),
+        60 => ("F2", "F2", "F2"),
+        61 => ("F3", "F3", "F3"),
+        62 => ("F4", "F4", "F4"),
+        63 => ("F5", "F5", "F5"),
+        64 => ("F6", "F6", "F6"),
+        65 => ("F7", "F7", "F7"),
+        66 => ("F8", "F8", "F8"),
+        67 => ("F9", "F9", "F9"),
+        68 => ("F10", "F10", "F10"),
+        87 => ("F11", "F11", "F11"),
+        88 => ("F12", "F12", "F12"),
         125 => ("MetaLeft", "Meta", "Meta"),
         126 => ("MetaRight", "Meta", "Meta"),
         _ => return None,
@@ -400,9 +415,12 @@ mod tests {
         }
         assert_eq!(keyboard.event(17, 3, None), None);
         assert_eq!(keyboard.event(0xffff, 1, None), None);
+        assert_eq!(key(59, false), Some(("F1", "F1")));
+        assert_eq!(key(87, false), Some(("F11", "F11")));
+        assert_eq!(key(88, false), Some(("F12", "F12")));
     }
     #[test]
-    fn shift_sides_and_shortcuts_do_not_swallow_releases() {
+    fn shift_sides_and_shortcut_chords_pass() {
         let mut keyboard = Keyboard::default();
         keyboard.event(42, 1, None);
         keyboard.event(54, 1, None);
@@ -418,7 +436,14 @@ mod tests {
         keyboard.event(54, 0, None);
         for modifier in [29, 97, 125, 126] {
             keyboard.event(modifier, 1, None);
-            assert_eq!(keyboard.event(17, 1, None), None);
+            assert!(matches!(
+                keyboard.event(17, 1, None),
+                Some(InputEvent::Key {
+                    code: 17,
+                    down: true,
+                    ..
+                })
+            ));
             assert!(matches!(
                 keyboard.event(17, 0, None),
                 Some(InputEvent::Key {

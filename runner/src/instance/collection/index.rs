@@ -15,9 +15,15 @@
 
 #![forbid(unsafe_code)]
 
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
+
+/// A row remeasured within this of the height it already has keeps that
+/// height: a translated row reads float32 ulps off (58 as 57.99997), and a
+/// revision bumped by that would refuse the drop a gap was certified for
+/// (LLP 1094 D7; list.js `MEASURE_NOISE`).
+pub(crate) const MEASURE_NOISE: f64 = 0.01;
 mod gaps;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -85,7 +91,7 @@ pub(crate) struct Window {
 #[derive(Debug)]
 pub(crate) struct SizeIndex {
     order: Rc<[Rc<str>]>,
-    positions: BTreeMap<Rc<str>, usize>,
+    positions: HashMap<Rc<str>, usize>,
     rows: Vec<RowHeight>,
     tree: SumTree,
     estimate: f64,
@@ -102,7 +108,7 @@ impl SizeIndex {
         let estimate = valid_height(estimated_height)?;
         Ok(Self {
             order: Rc::from([]),
-            positions: BTreeMap::new(),
+            positions: HashMap::new(),
             rows: Vec::new(),
             tree: SumTree::new(&[])?,
             estimate,
@@ -113,21 +119,40 @@ impl SizeIndex {
         })
     }
 
-    /// Transactional membership rebuild. Surviving keys retain heights and tokens;
-    /// same-key content changes must separately call `invalidate_row`/`invalidate_all`.
-    /// Deleted and later reinserted keys always receive new measurement generations.
+    /// [`Self::replace_keys_indexed`] of keys checked unique here.
+    #[cfg(test)]
     pub(crate) fn replace_keys(&mut self, keys: Vec<Rc<str>>) -> Result<(), IndexError> {
         if self.order.as_ref() == keys.as_slice() {
             return Ok(());
         }
-        let mut positions = BTreeMap::new();
-        let mut rows = Vec::with_capacity(keys.len());
-        let mut generation = self.next_generation;
+        let mut positions = HashMap::with_capacity(keys.len());
         for (i, key) in keys.iter().enumerate() {
             if positions.insert(key.clone(), i).is_some() {
                 return Err(IndexError::DuplicateKey(key.to_string()));
             }
-            let row = if let Some(&old) = self.positions.get(key) {
+        }
+        self.replace_keys_indexed(keys, positions)
+    }
+
+    /// Transactional membership rebuild from keys the caller already holds
+    /// unique, with each one's position (`positions[keys[i]] == i`).
+    /// Surviving keys retain heights and tokens; same-key content changes
+    /// must separately call `invalidate_row`/`invalidate_all`. Deleted and
+    /// later reinserted keys always receive new measurement generations.
+    pub(crate) fn replace_keys_indexed(
+        &mut self,
+        keys: Vec<Rc<str>>,
+        positions: HashMap<Rc<str>, usize>,
+    ) -> Result<(), IndexError> {
+        debug_assert_eq!(positions.len(), keys.len());
+        if self.order.as_ref() == keys.as_slice() {
+            return Ok(());
+        }
+        let mut rows = Vec::with_capacity(keys.len());
+        let mut generation = self.next_generation;
+        let fresh = self.positions.is_empty();
+        for key in keys.iter() {
+            let row = if let Some(&old) = self.positions.get(key).filter(|_| !fresh) {
                 self.rows[old]
             } else {
                 generation = next_generation(generation)?;
@@ -248,7 +273,9 @@ impl SizeIndex {
         format!(
             "{:?} {:?} {:?} {} {} {:?} {:?}",
             self.order,
-            self.positions,
+            self.positions
+                .iter()
+                .collect::<std::collections::BTreeMap<_, _>>(),
             self.rows,
             self.next_generation,
             self.epoch,
@@ -301,9 +328,25 @@ impl SizeIndex {
         })
     }
 
+    /// [`SizeIndex::measurement_token`] by position.
+    pub(crate) fn measurement_token_at(&self, index: usize) -> Option<MeasurementToken> {
+        self.rows.get(index).map(|row| MeasurementToken {
+            epoch: self.epoch,
+            generation: row.generation,
+        })
+    }
+
     pub(crate) fn is_measured(&self, key: &str) -> bool {
         self.position(key)
             .is_some_and(|i| self.rows[i].measured_epoch == Some(self.epoch))
+    }
+
+    /// [`SizeIndex::is_measured`] by position (keys are unique), without a
+    /// key lookup.
+    pub(crate) fn is_measured_at(&self, index: usize) -> bool {
+        self.rows
+            .get(index)
+            .is_some_and(|row| row.measured_epoch == Some(self.epoch))
     }
 
     /// Current measurements for a nonempty geometric band, in O(log N).
@@ -363,17 +406,53 @@ impl SizeIndex {
 
     /// Returns false for stale, deleted, or mismatched rows. Errors never mutate
     /// metadata; NaN/infinite/negative heights are rejected even for stale reports.
+    /// Whether a remeasure at `size` is noise on row `index`'s measured
+    /// height: within [`MEASURE_NOISE`] and on the same side of zero (a
+    /// zero-height row is skipped by windows and revived by invalidation).
+    pub(crate) fn noise_at(&self, index: usize, size: f64) -> bool {
+        self.is_measured_at(index)
+            && self
+                .height(index)
+                .is_some_and(|h| (h == 0.0) == (size == 0.0) && (h - size).abs() <= MEASURE_NOISE)
+    }
+    /// The height a remeasure at `size` leaves row `index`: its measured
+    /// height where the remeasure is noise, else `size`.
+    pub(crate) fn denoised(&self, index: usize, size: f64) -> f64 {
+        if self.noise_at(index, size) {
+            self.height(index).unwrap_or(size)
+        } else {
+            size
+        }
+    }
     pub(crate) fn set_measured_height(
         &mut self,
         key: &str,
         token: MeasurementToken,
         height: f64,
     ) -> Result<bool, IndexError> {
+        match self.position(key) {
+            Some(i) => self.set_measured_height_at(i, token, height),
+            None => valid_height(height).map(|_| false),
+        }
+    }
+
+    /// [`SizeIndex::set_measured_height`] by position (keys are unique).
+    pub(crate) fn set_measured_height_at(
+        &mut self,
+        i: usize,
+        token: MeasurementToken,
+        height: f64,
+    ) -> Result<bool, IndexError> {
         let height = valid_height(height)?;
-        if self.measurement_token(key) != Some(token) {
+        if self.measurement_token_at(i) != Some(token) {
             return Ok(false);
         }
-        let i = self.positions[key];
+        // The same height measured again this epoch: nothing to write.
+        if self.rows[i].height.to_bits() == height.to_bits()
+            && self.rows[i].measured_epoch == Some(self.epoch)
+        {
+            return Ok(true);
+        }
         self.tree.set(i, height)?;
         self.rows[i].height = height;
         self.rows[i].measured_epoch = Some(self.epoch);
@@ -435,8 +514,11 @@ impl SizeIndex {
 
     /// O(log N), no key copy. `follow_end` opts into following only if the clamped
     /// offset is at the end of a nonzero scrollport within host rounding tolerance.
-    /// Otherwise preserve
-    /// the first visible key's top relative to the scrollport (even if it shrinks).
+    /// Otherwise preserve the first visible key's top relative to the scrollport
+    /// (even if it shrinks), unless the offset is at the start: there, as CSS
+    /// scroll anchoring selects no anchor at a zero offset (Chrome's
+    /// `ScrollAnchor`), the list stays at its start and rows inserted above
+    /// show (mail F8: a mail list's newest message, a row Undo puts back).
     pub(crate) fn capture_anchor(
         &self,
         offset: f64,
@@ -444,20 +526,25 @@ impl SizeIndex {
         follow_end: bool,
     ) -> Result<Anchor, IndexError> {
         let offset = self.clamp_offset(offset, viewport)?;
-        let row = self.tree.find(offset, false);
-        let within = row.map_or(0.0, |i| (offset - self.tree.prefix(i)).max(0.0));
         // Browser scroll ranges round fractional CSS extents to whole pixels;
         // native document geometry also rounds through f32. Admit up to half a
         // logical pixel/point on every host, independent of extent (including
         // small resident windows); never follow a reader beyond that tolerance.
         let tolerance = 0.5;
+        let follows_end =
+            follow_end && viewport > 0.0 && self.max_offset(viewport) - offset <= tolerance;
+        // An end it follows wins: a short transcript is at both edges.
+        let row = if offset <= 0.0 && !follows_end {
+            None
+        } else {
+            self.tree.find(offset, false)
+        };
+        let within = row.map_or(0.0, |i| (offset - self.tree.prefix(i)).max(0.0));
         Ok(Anchor {
             order: Rc::clone(&self.order),
             row,
             within,
-            follows_end: follow_end
-                && viewport > 0.0
-                && self.max_offset(viewport) - offset <= tolerance,
+            follows_end,
         })
     }
 

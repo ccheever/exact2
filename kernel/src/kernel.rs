@@ -29,9 +29,12 @@ mod cover;
 mod document;
 mod geometry;
 mod intrinsic;
+mod sticky;
 mod trim;
 
 pub use cover::HostCover;
+pub(crate) use cover::{children_changed as cover_children_changed, header_inset};
+pub use sticky::StickyConstraint;
 
 /// How many receipts the kernel retains for late readers.
 pub const RECEIPT_RING: usize = 64;
@@ -125,10 +128,16 @@ impl<'a> NodeRef<'a> {
         self.arena.computed_style(self.slot, rows)
     }
 
+    /// One row of [`NodeRef::computed_style`], read where it is set
+    /// (`NodeArena::computed_source`), without copying a style.
+    pub fn computed_row<T>(&self, id: StyleId, read: impl FnOnce(&StyleProps) -> T) -> T {
+        read(self.arena.computed_source(self.slot, id))
+    }
+
     /// The run style this node's text measures and paints with: its own text
     /// rows, else its paragraph's, else the initial values.
     pub fn text_style(&self) -> TextStyle {
-        TextStyle::from_style(&self.computed_style(StyleMask::INHERITED))
+        self.arena.text_style(self.slot)
     }
 
     /// The nearest explicit HTML spelling-check hint in the logical tree.
@@ -157,6 +166,16 @@ impl<'a> NodeRef<'a> {
         match self.computed(StyleId::TextColor) {
             RowValue::ColorValue(c) => c,
             _ => unreachable!("text_color is a colour row"),
+        }
+    }
+
+    /// The colour scheme this node's subtree asks for (LLP 1034 §8): its
+    /// computed `color-scheme`, `None` for `normal`, the surrounding one.
+    pub fn color_scheme_dark(&self) -> Option<bool> {
+        match self.computed_row(StyleId::ColorScheme, |s| s.color_scheme) {
+            crate::ColorScheme::Normal => None,
+            crate::ColorScheme::Light => Some(false),
+            crate::ColorScheme::Dark => Some(true),
         }
     }
 
@@ -202,6 +221,9 @@ pub struct Kernel {
     on_demand: bool,
     /// Keeps nothing ([`Kernel::detached`]).
     detached: bool,
+    /// List rows mounted out of their port that hold an animation waiting
+    /// for the row to show (`animation-trigger: view`, LLP 1055 D13).
+    pub(crate) awaiting: crate::id::IdSet<ViewId>,
 }
 
 /// The engine tree, which a layout path has made sure of with `mirror`.
@@ -264,6 +286,7 @@ impl Kernel {
             region_leases: Default::default(),
             on_demand: true,
             detached: false,
+            awaiting: Default::default(),
         }
     }
 
@@ -303,6 +326,13 @@ impl Kernel {
     /// The arena, for readers that want the columns directly.
     pub fn arena(&self) -> &NodeArena {
         &self.arena
+    }
+
+    /// The arena, the engine tree and the measurer, for the multicol probe.
+    #[cfg(test)]
+    pub(crate) fn parts(&mut self) -> (&NodeArena, &LayoutTree, &mut dyn TextMeasurer) {
+        let tree = self.layout.as_deref().and_then(LayoutMirror::tree_ref);
+        (&self.arena, tree.expect("laid out"), self.measurer.as_mut())
     }
 
     /// Root wire ids in attach order.
@@ -385,6 +415,7 @@ impl Kernel {
         if !self.arena.is_root(slot) {
             return Err(LayoutError::NotARoot(root).into());
         }
+        self.replace_env(self.arena.env().with_viewport(offer))?;
         let region = self
             .region
             .as_mut()
@@ -473,6 +504,7 @@ impl Kernel {
                 return Err(LayoutError::DuplicatePresentedHeight(sample.node).into());
             }
         }
+        self.replace_env(self.arena.env().with_viewport(offer))?;
         engine(&mut self.layout).present_heights(&self.arena, presented);
         let result = match layout::compute(
             &mut self.arena,
@@ -711,6 +743,14 @@ impl Kernel {
         self.replace_env(next)
     }
 
+    /// Lay borders out as a terminal does: a drawn side is one cell (LLP
+    /// 1101.001 P13). The terminal host sets it on its own kernel before
+    /// the tree is built; it is this kernel's alone.
+    pub fn set_cell_borders(&mut self, on: bool) {
+        let next = self.arena.env().with_cell_borders(on);
+        let _ = self.replace_env(next);
+    }
+
     fn replace_env(&mut self, env: Env) -> Result<bool, KernelError> {
         if *self.arena.env() == env {
             return Ok(false);
@@ -722,7 +762,8 @@ impl Kernel {
         let users: Vec<u32> = self
             .arena
             .iter_live()
-            .filter(|s| uses_env(self.arena.style(*s)))
+            // A covered box too: its top cover can hold an inset (cover.rs).
+            .filter(|s| uses_env(self.arena.style(*s)) || self.arena.cover(*s).is_some())
             .collect();
         for slot in &users {
             if let (Some(node), Some(layout)) =
@@ -790,6 +831,41 @@ impl Kernel {
     pub fn node(&self, id: ViewId) -> Option<NodeRef<'_>> {
         let slot = self.arena.slot_of(id)?;
         Some(self.node_at(slot))
+    }
+
+    /// The nodes under `roots`, in preorder, whose type and props `keep`
+    /// accepts: a
+    /// walk over the arena's own child lists, allocating nothing per node
+    /// (a host's per-commit scan for the few nodes it cares about).
+    pub fn preorder_where(
+        &self,
+        roots: &[ViewId],
+        mut keep: impl FnMut(NodeType, &PropList) -> bool,
+    ) -> Vec<ViewId> {
+        let mut out = Vec::new();
+        let mut stack: Vec<u32> = roots
+            .iter()
+            .rev()
+            .filter_map(|id| self.arena.slot_of(*id))
+            .collect();
+        while let Some(slot) = stack.pop() {
+            if keep(self.arena.node_type(slot), self.arena.props(slot)) {
+                out.push(self.arena.local_id(slot));
+            }
+            stack.extend(self.arena.children(slot).iter().rev());
+        }
+        out
+    }
+
+    /// Whether any live node has prop `id` (a [`Kernel::preorder_where`]
+    /// for it can be skipped when none does).
+    pub fn has_prop(&self, id: PropId) -> bool {
+        self.arena.has_prop(id)
+    }
+
+    /// Whether any live node is a `node_type`.
+    pub fn has_type(&self, node_type: NodeType) -> bool {
+        self.arena.has_type(node_type)
     }
 
     /// One node by key; `None` once that allocation is gone.
@@ -913,6 +989,7 @@ impl Kernel {
             region_leases: Default::default(),
             on_demand: self.on_demand,
             detached: self.detached,
+            awaiting: Default::default(),
         }
     }
 }
@@ -929,121 +1006,7 @@ impl std::fmt::Debug for Kernel {
 }
 
 #[cfg(test)]
-mod presented_height_tests {
-    use super::*;
-    use crate::{Dimension, PresentedHeight};
-
-    #[test]
-    fn engine_fault_rebuild_reapplies_projection_and_equal_sample_stays_clean() {
-        let mut k = Kernel::with_monospace();
-        let mut style = StyleProps::default();
-        style.height = Dimension::Points(180.0);
-        style.mask.set(StyleId::Height);
-        style.box_sizing = BoxSizing::BorderBox;
-        style.mask.set(StyleId::BoxSizing);
-        k.apply(
-            0,
-            1,
-            &[
-                Op::CreateView {
-                    id: 1,
-                    node_type: NodeType::View,
-                },
-                Op::SetStyle {
-                    id: 1,
-                    patch: Box::new(style.clone()),
-                },
-                Op::CreateView {
-                    id: 2,
-                    node_type: NodeType::View,
-                },
-                Op::SetStyle {
-                    id: 2,
-                    patch: Box::new(style),
-                },
-                Op::SetChildren {
-                    id: 1,
-                    children: vec![2],
-                },
-                Op::AttachRoot { id: 1 },
-            ],
-        )
-        .unwrap();
-        let p = PresentedHeight {
-            node: k.node(1).unwrap().key,
-            epoch: k.epoch(),
-            px: 320.0,
-        };
-        let samples = [
-            p,
-            PresentedHeight {
-                node: k.node(2).unwrap().key,
-                px: 90.0,
-                ..p
-            },
-        ];
-        let offer = Offer::definite(400.0, 600.0);
-        k.compute_layout_presented(1, offer, &samples).unwrap();
-        // Missing derived state exercises the real Engine error/rebuild path,
-        // without changing the authored columns or a production test hook.
-        k.arena.set_taffy(p.node.index, None);
-        k.compute_layout_presented(1, offer, &samples).unwrap();
-        assert!(!k.tree().faulted());
-        assert_eq!(k.node(1).unwrap().frame.height, 320.0);
-        assert_eq!(k.node(2).unwrap().frame.height, 90.0);
-        let node = k.arena.taffy(p.node.index).unwrap();
-        assert!(!k.tree().is_dirty(node));
-        let arena = k.arena.clone();
-        k.tree_mut().present_heights(&arena, &samples);
-        assert!(
-            !k.tree().is_dirty(node),
-            "equal projection must not call Taffy set_style"
-        );
-        // Target measurement recovers the derived tree without publishing the
-        // authored endpoint, and restores every active sample after rebuilding.
-        let before = k.export(None).unwrap();
-        k.arena.set_taffy(p.node.index, None);
-        let owners = samples.map(|p| p.node);
-        let targets = k.measure_height_targets(1, offer, &owners).unwrap();
-        assert_eq!(
-            targets.iter().map(|p| p.px).collect::<Vec<_>>(),
-            vec![180.0, 180.0]
-        );
-        assert_eq!(k.export(None).unwrap(), before);
-        assert_eq!(k.tree().height_samples(k.epoch()), samples);
-        k.arena.set_taffy(samples[1].node.index, None);
-        assert_eq!(
-            k.measure_height_targets(1, offer, &owners).unwrap(),
-            targets
-        );
-        assert_eq!(k.export(None).unwrap(), before);
-        assert_eq!(k.tree().height_samples(k.epoch()), samples);
-        assert!(k
-            .compute_layout_presented(1, offer, &samples)
-            .unwrap()
-            .changed
-            .is_empty());
-        let node = k.arena.taffy(p.node.index).unwrap();
-        let mut style = k.arena.style(p.node.index).clone();
-        style.height = Dimension::Points(400.0);
-        k.apply(
-            0,
-            2,
-            &[Op::SetStyle {
-                id: 1,
-                patch: Box::new(style),
-            }],
-        )
-        .unwrap();
-        assert!(
-            !k.tree().is_dirty(node),
-            "central authored write preserves identical derived height"
-        );
-        k.compute_layout(1, offer).unwrap();
-        assert_eq!(k.node(1).unwrap().frame.height, 400.0);
-        assert_eq!(k.node(2).unwrap().frame.height, 180.0);
-    }
-}
+mod presented_height_tests;
 
 #[cfg(test)]
 mod paragraph_domain_tests {

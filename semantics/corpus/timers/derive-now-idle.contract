@@ -1,0 +1,13 @@
+// The clock advances with no timer and no tap: is a derive over now()
+// re-settled by the advance alone? No: it holds
+// its value from the last commit.
+component App
+  derive t = now()
+  view
+    text `${t}` testId="t"
+
+test "idle advance"
+  clock +100
+  clock +100
+  expect state t == 0
+  expect text "t" == "0"

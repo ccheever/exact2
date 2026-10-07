@@ -41,18 +41,25 @@ struct Run: Hashable {
     var href: String = ""
     /// The inline box's `background-color`: paint, never metrics.
     var background: [Double]? = nil
+    /// CSS visibility hides ink without changing shaping or descendant visibility.
+    var hidden = false
     /// Its own `text-shadow` (offset x, y, blur, r g b a) when the
     /// paragraph's runs differ (`Spec.gatherShadows`), and its
     /// `-webkit-text-stroke` (width, r g b a): paint (LLP 1077 D3, D7).
     var shadow: [Double]? = nil
     var stroke: [Double]? = nil
+    /// A Markdown list item's head indent and hung marker (LLP 1045 D4,
+    /// `LineInsets`): where its paragraph's lines start, so a metric.
+    var indent: CGFloat = 0
+    var hang = false
 
     static func == (lhs: Run, rhs: Run) -> Bool {
         guard lhs.size == rhs.size, lhs.weight == rhs.weight, lhs.family == rhs.family,
               lhs.italic == rhs.italic, lhs.lineHeight == rhs.lineHeight,
               lhs.letterSpacing == rhs.letterSpacing, lhs.numeric == rhs.numeric, lhs.color == rhs.color,
               lhs.decoration == rhs.decoration, lhs.href == rhs.href,
-              lhs.background == rhs.background, lhs.shadow == rhs.shadow, lhs.stroke == rhs.stroke else { return false }
+              lhs.hidden == rhs.hidden, lhs.background == rhs.background, lhs.shadow == rhs.shadow, lhs.stroke == rhs.stroke,
+              lhs.indent == rhs.indent, lhs.hang == rhs.hang else { return false }
         // CoreText's ranges address the original UTF16 source. Swift String's
         // canonical equality would alias NFC/NFD paragraphs with different
         // source lengths, so both equality and hashing use the exact UTF8.
@@ -77,8 +84,11 @@ struct Run: Hashable {
         hasher.combine(decoration)
         hasher.combine(href)
         hasher.combine(background)
+        hasher.combine(hidden)
         hasher.combine(shadow)
         hasher.combine(stroke)
+        hasher.combine(indent)
+        hasher.combine(hang)
     }
 }
 
@@ -101,6 +111,14 @@ struct Spec: Hashable {
     var ellipsis = false
     /// Collapsed → source offsets for the runs above (LLP 1053 G5).
     var source = SourceMap()
+    /// CSS `text-indent` in points, the paragraph's first line only.
+    var textIndent: CGFloat = 0
+    /// CSS `hyphens`: 0 manual (the initial value), 1 none (soft hyphens
+    /// already arrive as U+034F), 2 auto.
+    var hyphens = 0
+    /// The document language whose hyphenation points `auto` takes; empty
+    /// for `none` and `manual`, which need none.
+    var language = ""
     /// CSS `text-shadow` (LLP 1077 D3) shared by every run: offset x, y and
     /// blur in points, then the colour's r g b a (0–255), resolved for the
     /// appearance. Nil when the runs' own differ (`gatherShadows`).
@@ -112,16 +130,32 @@ struct Spec: Hashable {
 /// beside a Spec but never part of its identity: equal shaped text is equal.
 struct SourceMap: Hashable {
     var edits: [ExactCollapseEdit] = []
+    /// Where `hyphens: auto` put a soft hyphen, as shaped UTF-16 offsets
+    /// (`Spec.hyphenateAuto`): text the source does not have.
+    var inserted: [Int] = []
     static func == (_: SourceMap, _: SourceMap) -> Bool { true }
     func hash(into hasher: inout Hasher) {}
+    /// A shaped UTF-16 offset's source offset.
+    func source(_ shaped: Int) -> Int {
+        var lo = 0, hi = inserted.count
+        while lo < hi { let mid = (lo + hi) / 2; if inserted[mid] < shaped { lo = mid + 1 } else { hi = mid } }
+        return beforeInsertion(shaped - lo)
+    }
+    /// A source UTF-16 offset's shaped offset; removed text maps to where it
+    /// was, and an offset after an inserted soft hyphen stays after it.
+    func collapsed(_ source: Int) -> Int {
+        var at = collapsedBeforeInsertion(source)
+        for p in inserted where p <= at { at += 1 }
+        return at
+    }
     /// A collapsed UTF-16 offset's source offset.
-    func source(_ collapsed: Int) -> Int {
+    private func beforeInsertion(_ collapsed: Int) -> Int {
         var lo = 0, hi = edits.count
         while lo < hi { let mid = (lo + hi) / 2; if Int(edits[mid].utf16) <= collapsed { lo = mid + 1 } else { hi = mid } }
         return collapsed + (lo == 0 ? 0 : Int(edits[lo - 1].removed))
     }
     /// A source UTF-16 offset's collapsed offset; removed text maps to where it was.
-    func collapsed(_ source: Int) -> Int {
+    private func collapsedBeforeInsertion(_ source: Int) -> Int {
         var lo = 0, hi = edits.count
         while lo < hi { let mid = (lo + hi) / 2; if Int(edits[mid].utf16 + edits[mid].removed) <= source { lo = mid + 1 } else { hi = mid } }
         let at = source - (lo == 0 ? 0 : Int(edits[lo - 1].removed))
@@ -227,6 +261,8 @@ final class Paragraph {
     let baselines: [CGFloat]
     /// Flow origins already include interval alignment; empty for ordinary text.
     let origins: [CGFloat]
+    /// Where each line starts: `text-indent`, a list item's head indent.
+    var insets = LineInsets()
     /// Logical source ownership, including trimmed whitespace, one per fragment.
     let fragments: [ExactFlowFragment]
     var flowIncomplete = false
@@ -369,6 +405,7 @@ extension Spec {
         value.ellipsis = false
         value.source = SourceMap()
         for i in value.runs.indices {
+            value.runs[i].hidden = false
             value.runs[i].color = nil
             value.runs[i].decoration = ""
             value.runs[i].href = ""
@@ -383,14 +420,6 @@ extension Spec {
         }
         return value
     }
-}
-
-private struct RegisteredFace {
-    let weight: Int
-    let italic: Bool
-    /// Created from the registered URL itself — never from the Contract alias
-    /// or a lookup in the system font library (LLP 1019 D3).
-    let descriptor: CTFontDescriptor
 }
 
 /// CoreText's process-wide registration, once per URL, never undone.
@@ -585,7 +614,25 @@ final class TextEngine {
         for row in rows {
             let stack = Int(row.stack)
             if let name = row.family, row.family_len > 0 {
-                familyStacks[String(decoding: UnsafeBufferPointer(start: name, count: row.family_len), as: UTF8.self)] = stack
+                let name = String(decoding: UnsafeBufferPointer(start: name, count: row.family_len), as: UTF8.self)
+                if familyStacks[name] == nil { familyStacks[name] = stack }
+            }
+            let name = row.family.map { String(decoding: UnsafeBufferPointer(start: $0, count: row.family_len), as: UTF8.self) } ?? ""
+            if row.source_len == 0 {
+                if stack < 8 { continue }
+                let generics = ["system-ui", "ui-sans-serif", "sans-serif", "ui-serif", "serif", "ui-monospace", "monospace", "ui-rounded"]
+                let generic = row.weight == 1 ? generics.firstIndex(of: name) : nil
+                let descriptor: CTFontDescriptor?
+                if let generic { descriptor = CTFontCopyFontDescriptor(font(size: 16, weight: 400, family: generic, italic: false) as CTFont) }
+                else {
+                    // An installed family is its real faces, matched as declared
+                    // ones are: traits on a family descriptor never chose the
+                    // italic or bold file (the reader diary's Georgia).
+                    staged[stack, default: []] += Self.installedFaces(name)
+                    continue
+                }
+                if let descriptor { staged[stack, default: []].append(RegisteredFace(family: name, generic: generic, weight: 0, italic: false, descriptor: descriptor)) }
+                continue
             }
             guard let sourceBytes = row.source else { failed.insert(stack); continue }
             let source = String(decoding: UnsafeBufferPointer(start: sourceBytes, count: row.source_len), as: UTF8.self)
@@ -595,8 +642,8 @@ final class TextEngine {
                 continue
             }
             if let url = fontURL(source) { pendingFonts.append(url) }
-            staged[stack, default: []].append(RegisteredFace(
-                weight: Int(row.weight), italic: row.italic != 0, descriptor: descriptor))
+            staged[stack, default: []].append(RegisteredFace(family: name, generic: nil, weight: Int(row.weight),
+                italic: row.italic != 0, descriptor: Self.declaredFace(descriptor, weight: Int(row.weight))))
         }
         for stack in failed {
             staged.removeValue(forKey: stack)
@@ -617,27 +664,6 @@ final class TextEngine {
     private func fontURL(_ source: String) -> URL? {
         guard URL(string: source)?.scheme == nil, !source.hasPrefix("/") else { return nil }
         return resolve(source)
-    }
-
-    private static func matched(_ faces: [RegisteredFace], weight: Int, italic: Bool) -> RegisteredFace {
-        let styled = faces.filter { $0.italic == italic }
-        let candidates = styled.isEmpty ? faces : styled
-        func rank(_ face: RegisteredFace) -> (Int, Int) {
-            let w = face.weight
-            if weight >= 400 && weight <= 500 {
-                if w >= weight && w <= 500 { return (0, w - weight) }
-                if w < weight { return (1, weight - w) }
-                return (2, w - 500)
-            }
-            if weight < 400 {
-                return w <= weight ? (0, weight - w) : (1, w - weight)
-            }
-            return w >= weight ? (0, w - weight) : (1, weight - w)
-        }
-        return candidates.dropFirst().reduce(candidates[0]) { best, face in
-            let a = rank(best), b = rank(face)
-            return b.0 < a.0 || (b.0 == a.0 && b.1 < a.1) ? face : best
-        }
     }
 
     func font(_ run: Run) -> PlatformFont {
@@ -663,7 +689,18 @@ final class TextEngine {
         if let f = fonts[key] { return f }
         if let faces = catalog[family], !faces.isEmpty {
             let face = TextEngine.matched(faces, weight: weight, italic: italic)
-            let f = CTFontCreateWithFontDescriptor(face.descriptor, size, nil) as PlatformFont
+            func candidate(_ face: RegisteredFace) -> PlatformFont {
+                if let generic = face.generic { return font(size: size, weight: weight, family: generic, italic: italic) }
+                return CTFontCreateWithFontDescriptor(face.descriptor, size, nil) as PlatformFont
+            }
+            let base = candidate(face)
+            var seen = Set<String>(), cascade: [CTFontDescriptor] = []
+            for member in faces where seen.insert(member.family).inserted {
+                let group = faces.filter { $0.family == member.family }
+                cascade.append(CTFontCopyFontDescriptor(candidate(TextEngine.matched(group, weight: weight, italic: italic)) as CTFont))
+            }
+            let descriptor = CTFontDescriptorCreateWithAttributes([kCTFontCascadeListAttribute: cascade] as CFDictionary)
+            let f = CTFontCreateCopyWithAttributes(base as CTFont, size, nil, descriptor) as PlatformFont
             fonts[key] = f
             return f
         }
@@ -721,12 +758,16 @@ final class TextEngine {
         return CTFontCreateCopyWithAttributes(font as CTFont, size, nil, d) as PlatformFont
     }
 
-    /// A color from the style dictionary's `[r,g,b,a]` bytes (sRGB).
+    /// A color from the style dictionary's `[r,g,b,a]` bytes (sRGB), or
+    /// `textChannels`' nine, in the colour's own space (LLP 1100 D2).
     static func color(_ c: [Double]) -> PlatformColor {
+        if c.count == 9, (0...2).contains(Int(c[4])), case let name = [CGColorSpace.extendedSRGB, CGColorSpace.extendedDisplayP3, CGColorSpace.extendedLinearSRGB][Int(c[4])],
+           let space = CGColorSpace(name: name), let made = CGColor(colorSpace: space, components: c[5...].map { CGFloat($0) }),
+           let color = PlatformColor(cgColor: ColorRange.tagged(made)) as PlatformColor? { return color }
         #if canImport(UIKit)
-        UIColor(red: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
+        return UIColor(red: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
         #else
-        NSColor(srgbRed: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
+        return NSColor(srgbRed: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
         #endif
     }
 
@@ -739,17 +780,18 @@ final class TextEngine {
         var offset = 0
         for r in spec.runs {
             var a: [NSAttributedString.Key: Any] = [.font: font(r), .foregroundColor: r.color.map(TextEngine.color) ?? color]
+            if r.hidden { a[.exactHidden] = true }
             // A centred stroke over the fill: Core Text's negative width,
             // in percent of the run's size (LLP 1077 D7). Each run's own.
             if let st = r.stroke, st.count == 5, st[0] > 0, r.size > 0 {
                 a[.strokeWidth] = -st[0] / Double(r.size) * 100
                 a[.strokeColor] = TextEngine.color(Array(st[1...]))
             }
-            if let sh = r.shadow, sh.count == 7 { a[.exactShadow] = TextRunShadow(sh) }
+            if let sh = r.shadow, TextEngine.isShadow(sh) { a[.exactShadow] = TextRunShadow(sh) }
             if r.letterSpacing != 0 { a[.kern] = r.letterSpacing }
             if r.decoration.contains("underline") || (r.decoration.isEmpty && !r.href.isEmpty) { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
             if r.decoration.contains("line-through") { a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
-            if let fill = r.background.map(TextEngine.color), fill.cgColor.alpha > 0 {
+            if !r.hidden, let fill = r.background.map(TextEngine.color), fill.cgColor.alpha > 0 {
                 let f = a[.font] as! PlatformFont
                 let (ascent, descent) = CSSLineBox.content(f as CTFont)
                 a[.exactBackground] = InlineBackground(color: fill.cgColor, ascent: ascent, descent: descent)
@@ -801,10 +843,15 @@ final class TextEngine {
 
     /// Urgent raster work stays on the text engine's owning thread and uses
     /// the existing bounded residency policy for its exact painted typesetter.
-    func rasterLines(_ spec: Spec, ranges: [CFRange]) -> (NSAttributedString, [CTLine]) {
+    func rasterLines(_ spec: Spec, ranges: [CFRange], width: CGFloat = .infinity) -> (NSAttributedString, [CTLine]) {
         let identity = residency.identity(spec)
         let source = shape(TextShapeKey(identity: identity, paint: TextPaint(spec)), identity: identity)
-        return (source.attributed, ranges.map { CTTypesetterCreateLine(source.typesetter, $0) })
+        let insets = source.lineInsets
+        return (source.attributed, ranges.map {
+            let inset = insets.at($0.location).width
+            return TextEngine.finishedLine(CTTypesetterCreateLine(source.typesetter, $0), source: source.attributed, range: $0,
+                                           justify: spec.align == 3 ? Double(width - inset) : nil)
+        })
     }
 
     /// The line geometry the kernel's measurement of `spec` at `width`
@@ -918,7 +965,7 @@ final class TextEngine {
     }
 
     func layout(_ shape: TextShape, width: CGFloat, breaks: Paragraph? = nil, ranges: [CFRange]? = nil) -> Paragraph {
-        let spec = shape.spec, typesetter = shape.typesetter
+        let spec = shape.spec, typesetter = shape.typesetter, insets = shape.lineInsets
         let length = shape.identity.utf16Count
         let strut = spec.strut ?? spec.runs.first
         func extents(_ run: Run) -> (CGFloat, CGFloat) { CSSLineBox.extents(font(run) as CTFont, height: run.lineHeight) }
@@ -947,19 +994,19 @@ final class TextEngine {
         var start = 0
         var clampedRange: CFRange?
         let limit = width.isFinite ? Double(width) : Double.greatestFiniteMagnitude
-        // CoreText breaks a word when it cannot fit; CSS normal instead lets
-        // that word overflow. Public Unicode line boundaries distinguish those
-        // emergency breaks from ordinary opportunities (including CJK).
-        var boundaries: [Int] = []
-        var boundaryIndex = 0
+        // CSS breaks a line at the last Unicode line-break opportunity that
+        // fits; `anywhere` keeps CoreText's breaking (TextBreaks.swift).
+        var plan = LineBreakPlan()
+        let text = shape.attributed.string as NSString
         // `nowrap` takes no soft break (below), so it needs none of them.
-        if spec.overflowWrap == 0 && spec.wraps && width.isFinite && breaks == nil && ranges == nil {
-            if let cached = shape.lineBreakBoundaries { boundaries = cached }
+        if spec.overflowWrap != 2 && spec.wraps && width.isFinite && breaks == nil && ranges == nil {
+            if let cached = shape.lineBreakBoundaries { plan.boundaries = cached }
             else {
-                boundaries = lineBoundaries(shape.attributed.string as NSString, length: length)
-                shape.lineBreakBoundaries = boundaries
+                plan.boundaries = lineBoundaries(shape.attributed.string as NSString, length: length)
+                shape.lineBreakBoundaries = plan.boundaries
                 residency.refresh(shape)
             }
+            plan.prepare(text, length: length)
         }
         while start < length {
             if spec.lineClamp > 0 && lines.count == spec.lineClamp { break }
@@ -976,13 +1023,17 @@ final class TextEngine {
                 // ones CoreText and pre-wrap take) ends a line; nothing else does.
                 count = CTTypesetterSuggestLineBreak(typesetter, start, Double.greatestFiniteMagnitude)
             } else {
-                count = CTTypesetterSuggestLineBreak(typesetter, start, limit)
-                while boundaryIndex < boundaries.count && boundaries[boundaryIndex] < start + count {
-                    boundaryIndex += 1
+                // CSS `text-indent` takes its room from the first line only,
+                // a list item's indent from each of its lines.
+                let room = limit - Double(insets.at(start).width)
+                plan.advance(to: start)
+                func suggest(_ room: Double) -> Int {
+                    plan.suggest(typesetter, start: start, room: room, offerWidth: width, breakWord: spec.overflowWrap == 1, length: length, text: text)
                 }
-                if boundaryIndex < boundaries.count {
-                    count = boundaries[boundaryIndex] - start
-                }
+                count = suggest(room)
+                // A soft hyphen's break shows one, which must fit (TextBreaks).
+                count = Self.fitSoftHyphen(start: start, count: count, room: room, boundaries: plan.boundaries, source: shape.attributed,
+                                           typesetter: typesetter, length: length, retry: suggest)
             }
             if count <= 0 { count = length - start }
             let range = CFRangeMake(start, count)
@@ -990,15 +1041,24 @@ final class TextEngine {
             var line: CTLine
             // Ordinary CTLines depend on this immutable shape and their exact
             // source range. Width-dependent ellipses never enter this path.
-            if let oldLine, CTLineGetStringRange(oldLine).location == start, CTLineGetStringRange(oldLine).length == count {
+            // A justified one also depends on the width, so it is made again.
+            if spec.align != 3, let oldLine, CTLineGetStringRange(oldLine).location == start, CTLineGetStringRange(oldLine).length == count {
                 line = oldLine
-            } else { line = CTTypesetterCreateLine(typesetter, range) }
+            } else { line = TextEngine.inkedSoftHyphen(CTTypesetterCreateLine(typesetter, range), source: shape.attributed, range: range) }
+            var clamps = false
             if spec.lineClamp > 0 && lines.count + 1 == spec.lineClamp && start + count < length {
                 line = ellipsizedLine(spec, range: NSRange(location: start, length: count), width: limit) ?? line
                 clampedRange = range
+                clamps = true
             }
             var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
-            let w = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
+            // The natural width, the first line's indent in it: justification
+            // fills the box, never sizes it.
+            let indent = insets.at(start).width
+            let w = max(0, CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading)) + indent)
+            if spec.align == 3, !clamps, width.isFinite {
+                line = TextEngine.justified(line, source: shape.attributed, range: range, width: limit - Double(indent))
+            }
             // CSS inline boxes share a baseline. Include the paragraph strut
             // and only the runs on this line, preserving each font's half-leading.
             var above = minimum.0, below = minimum.1
@@ -1071,6 +1131,7 @@ final class TextEngine {
                                   height: explicit ? y : ceil(y), lineBottoms: lineBottoms,
                                   shape: shape, offeredWidth: width, glyphCount: glyphCount)
         paragraph.clampedRange = clampedRange
+        paragraph.insets = insets
         return paragraph
     }
 
@@ -1134,7 +1195,9 @@ final class TextEngine {
         return CTLineCreateTruncatedLine(line, width, .end, token)
     }
 
-    /// As narrow as the content can be: the longest unbreakable piece.
+    /// As narrow as the content can be: the longest unbreakable piece, cut
+    /// at the line-break opportunities layout takes (UAX #14), not only at
+    /// spaces: a URL's hyphen is one, as in the browser.
     func minContentWidth(_ spec: Spec) -> CGFloat {
         let identity = residency.identity(spec)
         if let width = residency.minimum(identity) { return width }
@@ -1164,17 +1227,22 @@ final class TextEngine {
         // target; unique words beyond it are measured normally, never omitted.
         var words: [Run: CGFloat] = [:]
         var wordBytes = 0
-        for r in spec.runs {
-            for word in r.text.split(whereSeparator: { $0.isWhitespace }) {
+        // CSS `text-indent` is part of the first line, so of its first word's
+        // piece; a list item's indent of each of its words, its marker hung.
+        var indent = spec.textIndent
+        for r in spec.runs where !r.hang {
+            for word in unbreakablePieces(r.text) {
                 var one = spec
                 one.runs = [Run(text: String(word), size: r.size, weight: r.weight, family: r.family, italic: r.italic, lineHeight: r.lineHeight, letterSpacing: r.letterSpacing, numeric: r.numeric)]
                 let key = one.runs[0]
-                if let width = words[key] { widest = max(widest, width); continue }
+                defer { indent = 0 }
+                let inset = indent + r.indent
+                if let width = words[key] { widest = max(widest, width + inset); continue }
                 // This probe needs one scalar, never a cached width-specific
                 // Paragraph or a historical per-word CTTypesetter.
                 let line = CTLineCreateWithAttributedString(attributed(one))
                 let width = CSSLineBox.layoutWidth(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
-                widest = max(widest, width)
+                widest = max(widest, width + inset)
                 let bytes = key.text.utf8.count + MemoryLayout<Run>.stride + MemoryLayout<CGFloat>.stride
                 if bytes <= residency.softTargetBytes - wordBytes {
                     words[key] = width; wordBytes += bytes
@@ -1194,8 +1262,7 @@ final class TextEngine {
         // Graphics' blur is CSS's radius; its offset is base space, y up.
         if let s = spec.shadow {
             ctx.saveGState()
-            ctx.setShadow(offset: CGSize(width: s[0], height: -s[1]), blur: s[2],
-                          color: CGColor(srgbRed: s[3] / 255, green: s[4] / 255, blue: s[5] / 255, alpha: s[6] / 255))
+            ctx.setShadow(offset: CGSize(width: s[0], height: -s[1]), blur: s[2], color: TextEngine.shadowColor(s))
             ctx.beginTransparencyLayer(auxiliaryInfo: nil)
         }
         defer { if spec.shadow != nil { ctx.endTransparencyLayer(); ctx.restoreGState() } }
@@ -1255,22 +1322,9 @@ final class TextEngine {
         // Preserve measureSeconds as cache/layout work, excluding Run/Spec
         // decoding: a fallback adds its failed borrowed lookup interval below.
         let lookupSeconds = CACurrentMediaTime() - lookupStarted
-        func run(_ run: ExactTextRun) -> Run {
-            Run(text: String(decoding: UnsafeBufferPointer(start: run.text, count: run.len), as: UTF8.self), size: CGFloat(run.font_size), weight: Int(run.font_weight), family: Int(run.font_family), italic: run.italic != 0, lineHeight: run.has_line_height != 0 ? CGFloat(run.line_height) : nil, letterSpacing: CGFloat(run.letter_spacing), numeric: Int(run.font_variant_numeric))
-        }
-        let spec: Spec
-        if let knownIdentity {
-            // A new width needs layout, but exact borrowed matching already
-            // proved these owned runs and metric fields are the same request.
-            spec = knownIdentity.geometry
-        } else {
-            var runs = UnsafeBufferPointer(start: request.runs, count: request.count).map(run)
-            // Markdown source arrives as one run; the archive expands it the
-            // same way the presenter paints it (LLP 1045 D3).
-            if request.markup != 0, let source = runs.first { runs = MarkupRuns.expand(source.text, base: source, color: nil) }
-            // Metric-only keys match the geometry used by the colored presenter.
-            spec = Spec(runs: runs, align: Int(request.align), lineClamp: Int(request.line_clamp), color: [0, 0, 0, 255], overflowWrap: Int(request.overflow_wrap), direction: Int(request.direction), whiteSpace: Int(request.white_space), strut: run(request.strut))
-        }
+        // A new width needs layout, but exact borrowed matching already
+        // proved these owned runs and metric fields are the same request.
+        let spec = knownIdentity?.geometry ?? requestSpec(request)
         let started = CACurrentMediaTime()
         if request.exclusion_count > 0, let shapes = request.exclusions {
             let flow = UnsafeBufferPointer(start: shapes, count: request.exclusion_count).map(TextFlowShape.init)
@@ -1304,6 +1358,25 @@ final class TextEngine {
         }
         measureSeconds += lookupSeconds + (CACurrentMediaTime() - started)
         return metrics
+    }
+
+    /// The paragraph a request describes, as the presenter paints it.
+    func requestSpec(_ request: ExactMeasureRequest) -> Spec {
+        func run(_ run: ExactTextRun) -> Run {
+            Run(text: String(decoding: UnsafeBufferPointer(start: run.text, count: run.len), as: UTF8.self), size: CGFloat(run.font_size), weight: Int(run.font_weight), family: Int(run.font_family), italic: run.italic != 0, lineHeight: run.has_line_height != 0 ? CGFloat(run.line_height) : nil, letterSpacing: CGFloat(run.letter_spacing), numeric: Int(run.font_variant_numeric))
+        }
+        var runs = UnsafeBufferPointer(start: request.runs, count: request.count).map(run)
+        // Markdown source arrives as one run; the archive expands it the
+        // same way the presenter paints it (LLP 1045 D3).
+        if request.markup != 0, let source = runs.first { runs = MarkupRuns.expand(source.text, base: source, color: nil) }
+        // Metric-only keys match the geometry used by the colored presenter.
+        var made = Spec(runs: runs, align: Int(request.align), lineClamp: Int(request.line_clamp), color: [0, 0, 0, 255], overflowWrap: Int(request.overflow_wrap), direction: Int(request.direction), whiteSpace: Int(request.white_space), strut: run(request.strut))
+        made.textIndent = CGFloat(request.text_indent); made.hyphens = Int(request.hyphens)
+        if made.hyphens == 2, let lang = request.lang {
+            made.language = String(decoding: UnsafeBufferPointer(start: lang, count: request.lang_len), as: UTF8.self)
+        }
+        made.hyphenateAuto()
+        return made
     }
 
     /// The C ABI's synchronous font seam, invoked before the kernel asks its
@@ -1353,9 +1426,9 @@ enum TextLinePaint {
     /// ink fell below the line box it was measured in.
     /// `scale`: base-space units per point, for a run's own shadow (1 in a
     /// view's context, the pixel scale in a bitmap the host made).
-    static func draw(_ line: CTLine, at origin: CGPoint, in ctx: CGContext, scale: CGFloat = 1) {
+    static func draw(_ line: CTLine, at origin: CGPoint, in ctx: CGContext, scale: CGFloat = 1, pass: Pass = .all) {
         ctx.saveGState()
-        for (rect, color) in backgrounds(line, at: origin) {
+        for (rect, color) in backgrounds(line, at: origin) where pass.paintsBackgrounds {
             ctx.setFillColor(color); ctx.fill(rect)
         }
         // The text matrix is not graphics state; put the caller's back.
@@ -1364,7 +1437,7 @@ enum TextLinePaint {
         ctx.scaleBy(x: 1, y: -1)
         ctx.textMatrix = .identity
         ctx.textPosition = .zero
-        if !drawShadowed(line, in: ctx, scale: scale) { CTLineDraw(line, ctx) }
+        if !drawShadowed(line, in: ctx, scale: scale, pass: pass) { CTLineDraw(line, ctx) }
         ctx.textMatrix = matrix
         ctx.restoreGState()
     }

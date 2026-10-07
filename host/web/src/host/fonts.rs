@@ -19,18 +19,7 @@ pub struct FontFace {
 }
 
 pub(super) fn font_names(plan: &Plan) -> Vec<String> {
-    plan.stacks
-        .iter()
-        .enumerate()
-        .map(|(i, _)| {
-            let stack = plan.stack(StacksId(i as u32));
-            let member = plan.stack_member(stack.members.iter().next().expect("validated stack"));
-            match member.kind {
-                StackMemberKind::Family => format!("ExactPlanStack{i}"),
-                generic => generic.name().to_string(),
-            }
-        })
-        .collect()
+    crate::css::font_family_names(plan)
 }
 
 thread_local! {
@@ -60,19 +49,8 @@ pub(crate) fn decode_plan(bytes: &[u8]) -> Result<Plan, exact_plan::PlanError> {
 /// The plan's declared faces, in stack order.
 pub fn font_faces(plan: &Plan) -> Vec<FontFace> {
     let mut out = Vec::new();
-    for (stack_index, stack) in plan.stacks.iter().enumerate() {
-        let member = plan.stack_member(
-            stack
-                .members
-                .iter()
-                .next()
-                .expect("validated non-empty stack"),
-        );
-        if member.kind != StackMemberKind::Family {
-            continue;
-        }
-        let family = plan.familie(member.family.expect("validated family member"));
-        let name = format!("ExactPlanStack{stack_index}");
+    for (i, family) in plan.families.iter().enumerate() {
+        let name = crate::css::font_alias(plan, exact_plan::FamiliesId(i as u32));
         for face_id in family.faces.iter() {
             let face = plan.face(face_id);
             out.push(FontFace {

@@ -14,10 +14,32 @@ needs it. An app whose other screens draw too can give the world a module of its
 (`gpu.modules` in `app.json`, LLP 1009 D6), loaded only when the world's canvas mounts.
 Removing the app's game module removes the engine from its bundle.
 The root build, test and boot checks stay independent of the engine workspace.
+
+On Windows, build from the generated game's directory in PowerShell:
+
+```powershell
+bun exact.mjs windows --run
+```
+
+For an older external game, run `bun ../exact2/scripts/exact.mjs new . --update`
+once to refresh its runner. From the SDK root, the equivalent is
+`bun host/windows/build.mjs my-game` with `EXACT_APP_DIR` naming the game.
+
+The resulting `my-game/dist-windows` directory contains the standalone executable,
+game DLL and assets. Keep these files together; the executable resolves assets
+relative to itself and needs no web server. `--release` selects the release profile,
+and `--run` opens the game. The initial Windows host uses GPU canvas readback and
+CPU UI composition, and reports mean and p50/p95 frame costs when its window closes.
+It supports store level 0; native update-store delivery is refused. Use
+`bun my-game/proof.mjs windows` for the native gameplay and pixel proof.
+For a bounded development window measurement, set `EXACT_AGENT_WINDOW_FRAMES`
+to 1–10,000 and optionally `EXACT_AGENT_WINDOW_TAP` to one authored test ID to tap
+after first pixel. Production bakes ignore these agent variables.
+
 Asset names have no fixed per-surface count limit. Web loading still bounds
 concurrent requests and decoded asset bytes; a queued request's timeout begins
 when its fetch starts.
-Weird Castle is the external consumer, with a full-screen Beacons demo in its own
+Weird Castle was the first external consumer, with a full-screen Beacons demo in its own
 engine module; its title sky never loads the engine.
 
 The integration source is Black's `lane/game` at `126daba5` plus its working-tree
@@ -35,12 +57,17 @@ bun game/new.mjs ./my-game
 bun game/dev.mjs ./my-game
 ```
 
-Open the dev server's printed URL. Edit `my-game/logic/src/lib.rs` for gameplay or
+Open the dev server's printed URL. It serves on 8765, or on the next free port when
+another dev loop holds 8765 (it says so); `--port <n>` chooses one and fails at once,
+before building, if that port is in use. `--lan` serves a phone on this network. Edit `my-game/logic/src/lib.rs` for gameplay or
 `my-game/app.contract` for UI. Gameplay reloads carry the running world; shared
 app-runtime edits reload the page. The server also prints **Open in native**.
 Edits inside `Game::setup` take effect on a fresh game; in the starter, pause and
 choose **Restart** to apply them.
 To explore the existing sample instead, run `bun game/dev.mjs beacons`.
+`game/dev.mjs` passes the dev server's flags through (`--port`, `--lan`, and
+`--allow-host <name>`, repeatable, to serve the game through a tunnel such as
+`tuft host`; without it a request under any name but the printed ones gets 421).
 
 In another terminal, establish the new game's proof baseline:
 
@@ -57,6 +84,11 @@ beacons, pause/restart, touch controls, a ground grid, pads, fog, sun shadows an
 
 A bare name (`bun game/new.mjs my-game`) creates `game/games/my-game`; a path chooses
 the directory. From an empty directory, `bun /path/to/exact2/game/new.mjs .` works too.
+A game outside this checkout — `bun scripts/exact.mjs new ../my-game --game` makes
+one, as `exact new` makes an app — also gets an app's `exact.mjs` and `AGENTS.md`:
+`bun exact.mjs test-rust` (the hostless tests), `web`, `web-build`, `test web`
+(`app.test.contract`; also `macos`, `ios`), `agent`, `mac`, `ios`, `windows`, `contract`,
+`prove` and `feedback`, with the exact2 checkout named once (LLP 1086).
 Generation writes only inside that game. A game is the files its author writes; bakes
 generate its hosts, Cargo workspace and lock, ignored, under `.shells/`.
 
@@ -65,8 +97,9 @@ generate its hosts, Cargo workspace and lock, ignored, under `.shells/`.
 | `logic/src/lib.rs` | Scene setup, typed arguments and the tick function |
 | `app.contract` | Menus, HUD, layout, accessibility and app actions |
 | `proof.mjs`, `logic/tests/*.rs` | Real-host assertions and hostless simulation tests |
+| `app.test.contract` | Menus and HUD driven on a host (`bun scripts/agent.mjs <host> --test`) |
 | `pins.json` | Verified tick/save baselines, written by `prove.mjs` |
-| `app.json` (optional) | Authored keys only: a title, bundle id, `game.audio`, `game.assets`, a data crate |
+| `app.json` (optional) | Authored keys only: a title, bundle id, `game.audio`, `game.assets`, data and render crates |
 | `logic/Cargo.toml`, `Cargo.lock` (optional) | Only when the game adds dependencies ([below](#exact2-integration)) |
 
 The crate is `<Game::ID>-logic` and the bundle id `com.exact.<Game::ID>`; the title
@@ -74,6 +107,56 @@ follows the directory name. Run the Rust tests with
 `bun game/app/shells.mjs ./my-game --test` — in a fresh clone too, with no bake and
 no environment variables. It generates `.shells/`, resolves offline and locked, runs
 the determinism lints and then `cargo test` on the game's crates.
+The generated workspace carries the SDK's Rust toolchain pin, including for games
+outside the SDK. Explicit `cargo +toolchain` and `RUSTUP_TOOLCHAIN` overrides still
+apply. Run direct Cargo commands from the game's `.shells/` directory so they also load its deterministic compiler
+flags and lint configuration; `--manifest-path` alone does not load that config
+when Cargo starts elsewhere. Regenerate the shells after updating the SDK.
+
+### Authored render hooks
+
+Use `game.render` to add game-owned passes through the existing
+`exact_game_render::Hooks` API. Keep GPU resources in an authored `render/`
+crate; its Cargo package must match the declaration, end in `-render`, and set
+`workspace = "../.shells"` under `[package]`. `bun game/new.mjs my-game --render`
+scaffolds one:
+
+```json
+{"game":{"render":{"crate":"my-game-render","hooks":"Fog","shaders":"shaders::SHADERS"}},
+ "gpu":{"shaderRoots":["render/shaders"]}}
+```
+
+`hooks` and optional `shaders` are Rust paths exported by that crate: `hooks` its
+`Hooks` type, `shaders` its reflected registry symbol (not shader files). Omit
+`shaders` for the empty registry. Shader files and preludes use the explicit
+`gpu.shaderRoots` and `gpu.shaderPreludes` declarations; nothing is discovered
+implicitly. The registry has type `&'static [(&'static str, u64)]`, holding shader
+names and reflected interface hashes. The generated GPU shell combines these hooks
+with `game.audio` and `game.assets`. Never edit `.shells/` to install hooks. The
+older `game.presentation`/`presentation/`/`type` spelling is refused with this
+rename (LLP 1046.008 amendment); "presentation" now names only derived appearance
+state (`#[derive(Presentation)]`, `Game::present`).
+Render games also expose `exact-gpu.workspace = true` and
+`exact-gpu-reflect.workspace = true` (the latter as a build dependency). The bake
+writes the shader inventory, each shader after its `gpu.shaderPreludes` exactly as
+it ships, to the directory `EXACT_GAME_SHADERS` names; `render/build.rs` calls
+`exact_gpu_reflect::generate` on it, writes the generated Rust to `OUT_DIR`, and
+exports its `SHADERS` table, so the registry matches what hosts register. A prelude
+may name the renderer's own WGSL by set (`exact-game-render:frame`,
+`exact-game-render:material`, `exact-game-render:material_shadows`, the files of
+`FRAME_WGSL`, `MATERIAL_WGSL` and `MATERIAL_SHADOWS_WGSL`) rather than SDK paths.
+Generated registry keys are file stems such as `fog`, without `.wgsl`.
+
+The render crate may depend on logic to read component/resource types through
+`RenderWorld`. Logic, data, native/web host adapters and build-time metadata must
+not depend on it, including indirectly or behind target-specific/build
+dependencies. The bake checks Cargo's unfiltered dependency graph. Hooks cannot
+mutate the saved world through `RenderWorld`; gameplay state stays in logic.
+The render crate receives normal strict Clippy and package tests, while the simulation
+determinism lints remain scoped to logic. Run the ordinary bake after declaring the
+crate, or `bun game/app/shells.mjs ./my-game --update-lock` when adding dependencies.
+Source/manifest edits invalidate GPU builds and proof inputs; declared shaders keep
+their existing reflection, delivery and live-reload behavior.
 
 ## The programming model
 
@@ -99,7 +182,8 @@ assert!(sim.local_position("player").unwrap().x > 0.0);
 ```
 
 - A tick calls ordinary functions in the order you write them. Physics is an
-  explicit `physics::step(w)`; animation is `animation::step(w)`.
+  explicit `physics::step(w)`; animation is `animation::step(w)`. Emitters step after the tick unless it
+  called `emitter::step(w)` to choose their order; they never step twice a tick.
 - `#[derive(Component)]` declares per-entity data; `#[derive(Resource)]` declares
   singleton data. Their `Data` representation supplies saves, hashes and agent JSON.
 - Names and entity handles address the same world: `w.require_mut::<Transform>("fox")`
@@ -157,7 +241,10 @@ in components or resources.
 
 After the first GPU build, the compiler and dev loop check surface names and
 arguments against the emitted `.shells/surfaces.json`, including hidden branches
-and imports. Rust argument edits reach that declaration through the next GPU build.
+and imports. Rust argument edits reach that declaration through the next GPU build,
+so while the game's Rust is newer than it, `contract build` reports its findings as
+warnings beside every other diagnostic, and `contract types` and `contract rust`
+never stop on them; a bake checks them against the declaration it has just written.
 The dev compiler retains its last good plan on an error.
 
 ### Movement and appearance
@@ -173,6 +260,22 @@ The dev compiler retains its last good plan on an error.
 | Grid and fog | `Material::grid(color, spacing)` and the saved `Environment`/`Fog` resource |
 | Fade a glowing mesh | Attach `Glow(Tween)` to `Material::glow`; retarget once and let the renderer sample at frame time. |
 | Fade a point light | Attach `Lit(Spring)` and call `lit.to(w.tick_end(), intensity)`. |
+| A flashlight | `SpotLight { inner, outer, range, intensity, .. }` along the entity's −Z; intensity in candela, as `PointLight`'s |
+| Shadows from a lamp | Add `LightShadows` to a `SpotLight` or `PointLight`; the renderer shadows the nearest few |
+| A moon | A second `DirectionalLight` (in entity order) is an unshadowed fill |
+| Team colours, mutation looks | A `Material` on a model entity tints every node and adds emission; `NodeMaterials` per named node or `MaterialOverrides` per material (one model in every team's colours), written from `Game::present` |
+| Cheaper far trees and crowds | `ModelLod { levels: vec![LodLevel { distance: 30., model: "tree_low.model".into() }], hide: Some(120.) }` on the entity |
+| Fade a tree between camera and player | `Opacity(0.3)` on the entity from `Game::present`: a dithered fade, no sorting, never in a save or pin |
+| A first-person weapon | Add `ViewModel` to each part; it draws in front of the world and casts no shadow |
+| Contact shadows in creases | `w.insert_resource(AmbientOcclusion::default())` turns on SSAO (off by default) |
+| Lighting from a photographed sky | `w.insert_resource(EnvironmentMap::new("sky.tex"))` with the equirect in `Game::ASSETS` |
+| Texture generated terrain | UVs in the `MeshData`, a material sampling a `.tex` from `art/textures/`, through `w.generated_model` |
+| Fire, smoke and sparks | `ParticleLook { texture, atlas, fps, stretch, soft }` beside an `Emitter`; `soft: 0.5` fades smoke into the ground |
+| A painted, visible sky | The same `EnvironmentMap` with `visible: true` (and `rotation` to turn it) |
+| Mouse look | `input.pointer()`'s `delta` is the device's motion this tick, not a difference of positions. Mark the canvas `data-pointer-lock="true"` (declared in `app.json`'s `data`) and a mouse press captures the mouse on the web, macOS and iPadOS (`GCMouse`) until Escape or blur, so the delta never stops at an edge; the Linux host always sends evdev's relative motion. |
+| Turn the drawn camera between ticks | Put `MouseLook { yaw_per_point, pitch_per_point, pitch_limit }` on the camera at the rates the tick turns it by: the drawn camera and its children turn by `Sim::unshown_motion()`, so a turn shows at the next frame whatever the tick and display rates (`engine/tests/look.rs`). Presentation only; insert it in `setup` or register it. |
+| Right or middle mouse button | Bind it as a key: `.button("aim", &["MouseRight"])`; `MouseLeft` and `MouseMiddle` too (`MOUSE_BUTTONS`). Touch contacts press none. |
+| Start a selection rectangle | `input.pointer().and_then(\|p\| p.press_origin)` is the latest MouseLeft/touch Down point, even if movement and Up reach the same tick. Gate commands on your action's pressed/released edges. The origin survives normal Up and saves; Cancel, Blur or replacement clears it. EXSIM v7 saves are required. |
 
 `Character` saves velocity and configuration and reports displacement, grounded,
 jumped and landed. `near`/`near_xz` use current global poses, inclusive radii and
@@ -212,17 +315,35 @@ together. Nested records, lists, options and scalars retain their names and JSON
 Contract validates kinds against the shape: missing fields default, extra fields
 are ignored. Enum variants are not Contract values. Rust field names are not
 checked against the Contract shape at bake time. A rebuild or restore publishes
-again; no app data module is needed.
+again; no app data module is needed. The whole record may be up to 16 MiB of JSON
+(a whole inventory fits); a field change re-encodes only that field. A record over
+the limit, or one the shape refuses, leaves the last accepted one standing and is
+named, with its size and the limit, in the app's log and the agent's
+`state.surfaceRefusals`.
 Only the first live canvas owns a given surface's public record.
 
 `w.emit("won")` separately queues a string for the canvas's `message=` handler.
 Undelivered events save in order but stay outside the simulation hash.
+
+Commands go the other way as messages: an action calls
+`postMessage("buy carrot", "world")` and the next tick reads every message posted
+since, in order, from `input.messages()`. Nothing is coalesced, nothing needs an
+acknowledgement, and a delivered message is not part of a later save. Use live
+arguments for settings, messages for things that happen once.
 
 ## Proof pins
 
 `pins.json` owns the game's expected tick hashes and continuation-save digests.
 The generated proof uses `pin(tick, snapshot)` and `pinSave(name, path)`;
 Rust tests use `sim.assert_pin(include_str!("../../pins.json"))`.
+
+Pins cover the simulation only. Presentation state (`#[derive(Presentation)]`,
+`Game::present`) is outside hashes and saves, so prove looks separately: assert
+presentation values (`sim.world().get::<Offset>(e)`) at an explicit tick, and compare
+pixels at an explicit tick and alpha; never by moving a pin. "Settled" means the
+simulation settled; a bobbing world rests. Agent state reports simulated poses
+(`Transform`, `global`); the displayed pose is `World::drawn`, and presentation rows
+appear beside the components they decorate, read-only.
 
 ```sh
 bun game/prove.mjs ./my-game
@@ -240,9 +361,15 @@ Every update records the matching source-input digest; a Git commit is recorded
 when one exists. A game without commits can repin under the same agreement checks.
 `CHROME` selects the headless browser.
 
-Paranoid runs check simulation and saves. Each tick uses the normal restore path,
-which resets presentation interpolation; use ordinary runs for appearance and
-motion comparisons.
+Paranoid runs check simulation and saves. Save and FreshGame modes rebuild the
+world through the normal restore path at the last tick of every advance (every
+point a proof observes), at every tick that received input, and every 16th tick
+inside an advance, which resets presentation interpolation. A save bug visible only
+in a tick none of those cover (state that lives one unobserved, input-free tick
+and is gone by the next sample) is no longer caught; run the proof with shorter
+`clock` steps to sample more ticks. use ordinary runs for appearance and motion comparisons. The
+driver moves a long `clock +N` in one-second steps, each its own operation, so a
+seek's length is not bounded by a host's answer window (Chrome's 15 s).
 
 `PASS` means the complete saved baseline was checked. Partial/build-only runs and
 baseline collection report `UNVERIFIED`; failed assertions report `FAIL`. A
@@ -289,7 +416,7 @@ These JSON captures are **not `.world` binary saves** or a complete explanation 
 a hash. Opaque executor state stays opaque; inspection can omit or round internal
 values. A differing hash with equal inspected values is reported explicitly.
 Capture on the agent clock without concurrent drives. Mixed-tick/hash reads and
-truncated entity lists (currently over 512 entities) are refused. Capturing and
+incomplete entity lists are refused; `captureWorld` reads every page. Capturing and
 comparing state does not advance the clock or mutate the world.
 
 ## The agent's interface
@@ -304,7 +431,11 @@ EXACT_APP_DIR=./my-game EXACT_WEB_DIST=./my-game/dist bun scripts/agent.mjs web 
 ```
 
 For a `prove.mjs` web build, set `EXACT_WEB_DIST` to the printed artifact directory's
-`dist/`. `state world:*` reads up to 512 entities; `under world:player` narrows it.
+`dist/`. `state world:*` reads entities a page at a time (512 by default):
+`state world:* from 512 limit 2000` reads the next ones, and the reply carries
+`total` and `next`; `under world:player` narrows it. `state world:* resources` adds
+every resource's value. In a proof, `session.world('world').snapshot({all:true})`
+reads every page at one tick and `resources()` the resources.
 `clock settle` advances the owned clock and explains remaining work instead of sleeping.
 
 In a proof, `session.world('world')` supplies `hold`, `run`, `settle`, `get`,
@@ -380,7 +511,11 @@ like any added dependency, it resolves against the SDK lock or the game's own.
 The type implements `DataSource + Default`; the generated hosts supply the existing
 `Storage<D>` adapter. Return synchronous resource placeholders before `activate`;
 storage work starts after first pixel. This linked composition uses `rust: false`.
+Keep saves, scores and settings in app storage (SQLite or files under `app:/data`,
+with `exact-data.workspace = true`), not under `secret.keep`, which is for secrets;
+`docs/reference.md`, "Rust data sources", has the requests and a best-times example.
 Games without `game.data` add no data-source dependency.
+
 [Tennis](games/tennis/README.md) uses one for HTTP: the world publishes a numbered
 question, `resource plan = jev(hud.ask)` posts it, and the answer returns as a
 `#[live]` string argument that the tick applies only when its id matches.
@@ -406,14 +541,16 @@ that location when explicitly set. Without
 The SDK owns one lock, [`app/shells.lock`](app/shells.lock): the lock of the union of
 every generated shell's dependencies. A game's workspace starts from it and keeps its
 subset; each version must be the SDK lock's, so bakes, deploys and proofs still resolve
-`--locked --offline` and no local cache chooses a version. A game that adds a
+`--locked --offline` and no local cache chooses a version. A registry package the SDK
+lock lacks but exact2's root `Cargo.lock` pins (a core crate's new dependency) is
+admitted at the root lock's version and checksum until the SDK lock is refreshed. A game that adds a
 dependency writes `logic/Cargo.toml` (`package.workspace = "../.shells"`, SDK crates as
 `exact-game.workspace = true`) and captures its own `Cargo.lock` with
 `bun game/app/shells.mjs ./my-game --update-lock`; commit and review that lock. SDK
 crates alone need no lock of the game's own. When the SDK's dependencies change,
 `bun game/app/shells.mjs --update-lock` refreshes the SDK lock, and
 `bun app/shells.mjs --test` refuses a stale one. The game workspace also carries
-the core’s vendored patches and `apple-dev` profile; the existing SDK test checks
+the core’s vendored patches and `host-dev` profile; the existing SDK test checks
 those against the root workspace. Web builds retain the game’s non-contracting
 floating-point flag alongside the core’s path-remapping flags.
 
@@ -435,6 +572,12 @@ Put models, sprite PNGs and WAV or Ogg Vorbis sounds under `art/`;
 each texture as RGBA8, BC and ASTC files of which a device fetches one
 ([texture payloads](bake/README.md#texture-payloads)). Name the authored `x.tex`
 everywhere. Declare simulation dependencies in `Game::ASSETS`; setup waits for them.
+Put everything else the game shows in `Game::STREAMED`: those are fetched from the
+start, after `ASSETS`, but Play does not wait for them; each draws as it lands and
+stays resident. Simulation cannot read a streamed asset (`w.model` is None), so
+load order never reaches the hash; a save refuses only while a shown one is in
+flight. A model a tick animates or reads belongs in `ASSETS`. Streamed names are
+models and textures (sounds are not streamed yet), and never also in `ASSETS`.
 Models and sprites need the asset-capable module; sounds and untextured emitters do
 not. See [the audio executor](audio/README.md) and
 [the audio fixture](games/audio-fixture/logic/src/lib.rs) for sampled sounds.
@@ -491,8 +634,9 @@ The checkout expects sibling `../ibex` and `../snapback-sb4` source repositories
 For an isolated checkout, links in its private parent may point at existing copies.
 Run `bun install --frozen-lockfile` at the Exact2 root before Cargo validation.
 
-If the Cargo cache is empty, first generate the game, then materialize its adapters
-and fetch the SDK lock's versions from the Exact2 root:
+`bun scripts/exact.mjs setup` fetches the SDK lock's versions into Cargo's cache
+(`setup --check` says whether they are all there). A game that adds packages fetches
+its own after materializing its adapters:
 
 ```sh
 bun game/app/shells.mjs ./my-game

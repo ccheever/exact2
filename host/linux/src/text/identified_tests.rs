@@ -125,12 +125,15 @@ fn paint(p: &mut Painter, k: &Kernel) -> crate::paint::Frame {
             roots: &k.roots(),
             hidden: &|_| false,
             presented: &|_| Presented::IDENTITY,
+            paths: &|_| None,
             scroll: &BTreeMap::new(),
             page: (0., 0.),
             images: &BTreeMap::new(),
             focus: None,
+            selection: None,
             pointer: None,
             controls: &BTreeMap::new(),
+            chosen: &BTreeMap::new(),
             menu: None,
         },
         (360., 160.),
@@ -563,6 +566,10 @@ mod owned_spec {
             line_height: None,
             letter_spacing: 0.,
             font_variant_numeric: 0,
+            indent: 0.,
+            hang: false,
+            mark: 0,
+            href: String::new(),
         }
     }
     fn spec(text: &str) -> Spec {
@@ -574,6 +581,7 @@ mod owned_spec {
             overflow_wrap: exact_kernel::OverflowWrap::Normal,
             white_space: exact_kernel::WhiteSpace::Normal,
             direction: exact_kernel::Direction::Ltr,
+            text_indent: 0.0,
         }
     }
     fn stamp_tree(text: &str) -> Kernel {

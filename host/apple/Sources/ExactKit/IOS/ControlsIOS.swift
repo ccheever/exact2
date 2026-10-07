@@ -4,11 +4,12 @@
 // `accent-color` and a checkmark (UIKit has no checkbox). Contract owns the
 // value: the control flips at once, reports, and shows the committed
 // `checked` after the action (D4). `appearance: none` draws nothing native.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
-/// Safari iOS's checkbox: a 16×16 rounded square, filled and checked when on.
-final class ExactCheckbox: UIControl {
+/// Safari iOS's checkbox: a 16×16 rounded square, filled and checked when
+/// on. A radio is drawn on it (`ExactRadio`, RadioIOS.swift).
+class ExactCheckbox: UIControl {
     var isOn = false { didSet { if isOn != oldValue { setNeedsDisplay(); updateAccessibility() } } }
     var accent: UIColor? { didSet { setNeedsDisplay() } }
     override var isEnabled: Bool { didSet { setNeedsDisplay(); updateAccessibility() } }
@@ -18,17 +19,17 @@ final class ExactCheckbox: UIControl {
         backgroundColor = .clear
         contentMode = .redraw
         isAccessibilityElement = true
-        addTarget(self, action: #selector(toggle), for: .touchUpInside)
+        addTarget(self, action: #selector(activated), for: .touchUpInside)
         updateAccessibility()
     }
     required init?(coder: NSCoder) { nil }
     override var intrinsicContentSize: CGSize { CGSize(width: 16, height: 16) }
-    @objc private func toggle() {
+    @objc func activated() {
         isOn.toggle()
         sendActions(for: .valueChanged)
     }
     /// VoiceOver reads it as Safari's: a button with a checked state.
-    private func updateAccessibility() {
+    func updateAccessibility() {
         accessibilityTraits = isEnabled ? .button : [.button, .notEnabled]
         accessibilityValue = isOn ? "checked" : "unchecked"
     }
@@ -51,7 +52,12 @@ final class ExactCheckbox: UIControl {
             check.stroke()
         } else {
             let ring = UIBezierPath(roundedRect: box.insetBy(dx: 0.5, dy: 0.5), cornerRadius: side * 0.25)
+            #if os(tvOS)
+            // tvOS has no systemBackground; the ring shows what is behind it.
+            UIColor.clear.setFill()
+            #else
             UIColor.systemBackground.withAlphaComponent(alpha).setFill()
+            #endif
             ring.fill()
             ring.lineWidth = 1
             UIColor.systemGray.withAlphaComponent(alpha).setStroke()
@@ -71,6 +77,25 @@ final class ControlHost: NSObject {
     var menus: [UInt32: SelectMenu] = [:]
     /// A range's last reported value while it moves, so each is sent once.
     var lastRange: [UInt32: String] = [:]
+    /// A range's bound value last written into it: written again only when
+    /// it changes (LLP 1069.001 D4, amended 2026-10-04).
+    var appliedRange: [UInt32: String] = [:]
+    /// A radio's group from the kernel (`exact_radio_group`; x2apps survey #2).
+    var radioGroup: ((UInt32) -> RadioGroup)?
+    /// A select's choice the bound value has not caught up with yet.
+    var picked: [UInt32: String] = [:]
+    /// Each native button's face as the runner last gave it. A face is the
+    /// control's viewless contents, which change only in a batch that says
+    /// so (`Batch.controls`), and its own props, which change only in a
+    /// batch that touches it: every other batch keeps it, and asks the
+    /// runner nothing.
+    private var faces: [UInt32: ButtonFace] = [:]
+    func face(_ id: UInt32) -> ButtonFace {
+        if let face = faces[id] { return face }
+        let face = presenter.buttonFace?(id) ?? ButtonFace()
+        faces[id] = face
+        return face
+    }
 
     init(_ presenter: Presenter) { self.presenter = presenter }
 
@@ -80,21 +105,39 @@ final class ControlHost: NSObject {
         if let existing = controls[node.id], kinds[node.id] == kind { return existing }
         controls.removeValue(forKey: node.id)?.removeFromSuperview()
         menus.removeValue(forKey: node.id)
+        appliedRange.removeValue(forKey: node.id)
         let made: UIControl
         switch kind {
+        #if os(tvOS)
+        // tvOS has no UISwitch; a checkbox stands in.
+        case "switch": made = ExactCheckbox(frame: .zero)
+        #else
         case "switch": made = UISwitch()
+        #endif
         case "checkbox": made = ExactCheckbox(frame: .zero)
+        case "radio": made = ExactRadio(frame: .zero) // x2apps survey #2
         case "button": made = makeNativeButton(node) // LLP 1069.011
         default: made = makeValueControl(kind, node.id)
         }
         made.tag = Int(node.id)
+        // Its natural size follows text size, weight and scale, which no batch says.
+        MainActor.assumeIsolated {
+            made.registerForTraitChanges([UITraitPreferredContentSizeCategory.self, UITraitLegibilityWeight.self, UITraitDisplayScale.self]) { [weak self] (_: UIControl, _: UITraitCollection) in
+                self?.presenter.requestProjectionSync()
+            }
+        }
         if kind == "switch" || kind == "checkbox" { made.addTarget(self, action: #selector(changed(_:)), for: .valueChanged) }
+        if kind == "radio" { made.addTarget(self, action: #selector(radioTapped(_:)), for: .touchUpInside) }
         controls[node.id] = made
         kinds[node.id] = kind
         return made
     }
 
-    func sync() {
+    /// `contents`: a control's viewless contents may have changed (a batch
+    /// with `controls`, or a sync outside any batch); `touched`, the nodes
+    /// the batch changed.
+    func sync(contents: Bool = true, touched: [UInt32] = []) {
+        if contents { faces.removeAll() } else { for id in touched { faces.removeValue(forKey: id) } }
         let owners = ControlKinds.indexed.flatMap { presenter.carrying($0) }.filter { $0.kind == "control" }
         let live = Set(owners.map(\.id))
         // A leaving control keeps drawing until its exit ends (LLP 1069.011 D9).
@@ -102,9 +145,12 @@ final class ControlHost: NSObject {
         for id in Array(controls.keys) where !live.contains(id) && !leaving.contains(id) {
             controls.removeValue(forKey: id)?.removeFromSuperview()
             reported.removeValue(forKey: id)
+            faces.removeValue(forKey: id)
             kinds.removeValue(forKey: id)
             menus.removeValue(forKey: id)
             lastRange.removeValue(forKey: id)
+            appliedRange.removeValue(forKey: id)
+            picked.removeValue(forKey: id)
         }
         var sizes: [(UInt32, CGSize?)] = []
         for owner in owners {
@@ -117,8 +163,19 @@ final class ControlHost: NSObject {
             }
             let mount = owner.controlMount
             if control.superview !== mount { mount.addSubview(control) }
+            if control.isHidden != owner.cssVisibilityHidden { control.isHidden = owner.cssVisibilityHidden }
             let on = owner.props["checked"].map { $0 == "true" }
             let accent = owner.channels("accent_color").map { TextEngine.color($0) }
+            #if os(tvOS)
+            if let b = control as? NativeButtonIOS {
+                configureNative(b, owner, accent: accent)
+            } else if let c = control as? ExactCheckbox {
+                if let on { c.isOn = on }
+                assign(c, \.accent, accent)
+            } else {
+                configureValue(control, owner, accent: accent)
+            }
+            #else
             if let b = control as? NativeButtonIOS {
                 configureNative(b, owner, accent: accent)
             } else if let s = control as? UISwitch {
@@ -130,6 +187,7 @@ final class ControlHost: NSObject {
             } else {
                 configureValue(control, owner, accent: accent)
             }
+            #endif
             if !(control is NativeButtonIOS) {
                 assign(control, \.isEnabled, !owner.disabled)
                 assign(control, \.accessibilityLabel, owner.props["accessibilityLabel"])
@@ -145,7 +203,11 @@ final class ControlHost: NSObject {
                 let frame = control.frame(forAlignmentRect: box)
                 if control.frame != frame { control.frame = frame }
             } else {
+                #if os(tvOS)
+                let width = natural.width
+                #else
                 let width = control is UISlider ? box.width : natural.width
+                #endif
                 assign(control, \.frame, CGRect(x: box.midX - width / 2, y: box.midY - natural.height / 2,
                                                 width: width, height: natural.height))
             }
@@ -168,12 +230,18 @@ final class ControlHost: NSObject {
     @objc private func changed(_ sender: UIControl) {
         let id = UInt32(sender.tag)
         guard presenter.views[id] != nil else { return }
+        #if os(tvOS)
+        let on = (sender as? ExactCheckbox)?.isOn ?? false
+        #else
         let on = (sender as? UISwitch)?.isOn ?? (sender as? ExactCheckbox)?.isOn ?? false
+        #endif
         presenter.checked(id, on)
         // The committed state is authoritative: an action that refused the
         // toggle snaps the control back (D4).
         if let committed = presenter.views[id]?.props["checked"].map({ $0 == "true" }) {
+            #if !os(tvOS)
             if let s = sender as? UISwitch, s.isOn != committed { s.setOn(committed, animated: true) }
+            #endif
             if let c = sender as? ExactCheckbox, c.isOn != committed { c.isOn = committed }
         }
     }
@@ -183,9 +251,16 @@ final class ControlHost: NSObject {
         // A native button takes the ordinary tap path (LLP 1069.011 D10).
         guard let control = controls[node.id], !(control is NativeButtonIOS) else { return nil }
         guard control.window != nil, control.isEnabled, !node.inert else { return false }
+        // A radio's tap, the host's own (x2apps survey #2).
+        if control is ExactRadio { radioTapped(control); return true }
+        #if os(tvOS)
+        if control is ExactCheckbox { control.sendActions(for: .touchUpInside) }
+        else { return openValue(control) }
+        #else
         if let s = control as? UISwitch { s.setOn(!s.isOn, animated: false); s.sendActions(for: .valueChanged) }
         else if control is ExactCheckbox { control.sendActions(for: .touchUpInside) }
         else { return openValue(control) }
+        #endif
         return true
     }
 
@@ -195,9 +270,15 @@ final class ControlHost: NSObject {
         if let value = valueObservation(control) {
             return value.merging(["size": [Agent.r2(control.bounds.width), Agent.r2(control.bounds.height)]]) { a, _ in a }
         }
-        let on = (control as? UISwitch)?.isOn ?? (control as? ExactCheckbox)?.isOn ?? false
-        return ["view": control is UISwitch ? "UISwitch" : "checkbox", "on": on,
+        #if os(tvOS)
+        let on = (control as? ExactCheckbox)?.isOn ?? false
+        return ["view": "checkbox", "on": on,
                 "size": [Agent.r2(control.bounds.width), Agent.r2(control.bounds.height)]]
+        #else
+        let on = (control as? UISwitch)?.isOn ?? (control as? ExactCheckbox)?.isOn ?? false
+        return ["view": control is UISwitch ? "UISwitch" : control is ExactRadio ? "radio" : "checkbox", "on": on,
+                "size": [Agent.r2(control.bounds.width), Agent.r2(control.bounds.height)]]
+        #endif
     }
 
     func reset() {
@@ -207,6 +288,9 @@ final class ControlHost: NSObject {
         kinds.removeAll()
         menus.removeAll()
         lastRange.removeAll()
+        appliedRange.removeAll()
+        picked.removeAll()
+        faces.removeAll()
     }
 }
 

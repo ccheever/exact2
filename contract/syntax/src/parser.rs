@@ -5,14 +5,21 @@
 //! in the first column, so one run reports each declaration's first error.
 
 use crate::ast::*;
-use crate::lexer::{template_expr_end, LexError, Lexer, Token, TokenKind};
+use crate::lexer::{escaped, template_expr_end, LexError, Lexer, Token, TokenKind};
 use crate::Span;
 
+mod color_profile;
+mod decls;
 mod expr;
 mod keyframes;
+mod media_session;
+mod names;
 #[path = "routes.rs"]
 mod routes;
+mod sounds;
 mod steps;
+pub use steps::{is_launch, same_launch};
+use steps::{launch_word, LAUNCH};
 
 /// A parse failure.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -208,39 +215,6 @@ impl Parser {
         }
     }
 
-    fn ident(&mut self) -> R<(String, Span)> {
-        match self.peek_kind().clone() {
-            TokenKind::Ident(w) if !is_keyword(&w) => {
-                let t = self.next();
-                Ok((w, t.span))
-            }
-            // A keyword where a name goes says so, and how to get out of it
-            // (LLP 1054 L2: a shape field `key`, an action `view`).
-            TokenKind::Ident(w) => self.err(
-                "syntax-expected-name",
-                format!("expected a name, found `{w}`, a reserved word: choose another name (`{w}s`, `my{}{}`)", w[..1].to_uppercase(), &w[1..]),
-            ),
-            other => self.err(
-                "syntax-expected-name",
-                format!("expected a name, found {}", describe(&other)),
-            ),
-        }
-    }
-
-    /// A name in a place the grammar can't mistake for syntax: a shape field,
-    /// a prop, a member after `.`, a named argument. A keyword that only
-    /// structures a file (`state`, `key`, `view`, …) is a name here; one that
-    /// shapes an expression or a block (`when`, `if`, `match`, …) never is.
-    fn field_name(&mut self) -> R<(String, Span)> {
-        match self.peek_kind().clone() {
-            TokenKind::Ident(w) if is_name_word(&w) => {
-                let t = self.next();
-                Ok((w, t.span))
-            }
-            _ => self.ident(),
-        }
-    }
-
     fn newline(&mut self) -> R<()> {
         match self.peek_kind() {
             TokenKind::Newline => {
@@ -375,9 +349,13 @@ impl Parser {
                     self.next();
                 }
                 TokenKind::Ident(w) if w == "font" => file.fonts.push(self.font_decl()?),
+                TokenKind::Ident(w) if w == "sound" => file.sounds.push(self.sound_decl()?),
                 TokenKind::Ident(w) if w == "routes" => {
                     if file.routes.is_some() {
-                        return self.err("route-duplicate", "an app declares exactly one `routes` table");
+                        return self.err(
+                            "route-duplicate",
+                            "an app declares exactly one `routes` table",
+                        );
                     }
                     file.routes = Some(self.routes_decl()?);
                 }
@@ -390,8 +368,30 @@ impl Parser {
                     }
                     file.keyframes.push(decl);
                 }
+                TokenKind::Ident(w) if w == "timeline" => {
+                    let span = self.expect_word("timeline")?;
+                    let name = self.named_ident(span)?;
+                    self.newline()?;
+                    if let Some(first) = file.timelines.iter().find(|t| t.name == name) {
+                        return duplicate("timeline", &name, span, first.span);
+                    }
+                    file.timelines.push(TimelineDecl { name, span });
+                }
+                TokenKind::Ident(w) if w == "color-profile" => self.color_profile(file)?,
                 TokenKind::Ident(w) if w == "fn" => file.fns.push(self.fn_decl()?),
                 TokenKind::Ident(w) if w == "test" => file.tests.push(self.test_decl()?),
+                TokenKind::Ident(w) if LAUNCH.contains(&w.as_str()) => {
+                    let line = self.step()?;
+                    if let Some(first) = file.launch.iter().find(|s| same_launch(s, &line)) {
+                        return duplicate(
+                            "launch line",
+                            launch_word(&line),
+                            line.span(),
+                            first.span(),
+                        );
+                    }
+                    file.launch.push(line);
+                }
                 TokenKind::Ident(w) if w == "component" => {
                     let component = self.component()?;
                     if let Some(first) = file
@@ -405,26 +405,49 @@ impl Parser {
                 }
                 TokenKind::Ident(w) if w == "use" => file.uses.push(self.use_decl()?),
                 other => {
+                    if let Some(e) = self.continued_expression("syntax-expected-declaration") {
+                        return e;
+                    }
                     return self.err(
                         "syntax-expected-declaration",
                         format!(
-                        "expected `routes`, `font`, `shape`, `style`, `keyframes`, `fn`, `use`, or `component`, found {}",
+                        "expected `routes`, `font`, `sound`, `shape`, `style`, `keyframes`, `timeline`, `color-profile`, `fn`, `use`, or `component`, found {}",
                         describe(other)
                     ),
-                    )
+                    );
                 }
             }
         }
         Ok(true)
     }
 
-    /// `use Name from "./file.contract"` (LLP 1017 P8). Only a `.contract`
-    /// file may be used: no TypeScript, no packages, no behaviours — data
-    /// comes from the app's Rust data source and formatting from the roster
+    /// `use A, B as C from "./file.contract"` (LLP 1017 P8, LLP 1091 D2).
+    /// Only a `.contract` file may be used: no TypeScript, no behaviours —
+    /// data comes from the app's data source and formatting from the roster
     /// or a `fn` (LLP 1004 D4).
     fn use_decl(&mut self) -> R<UseDecl> {
         let span = self.expect_word("use")?;
-        let name = self.named_ident(span)?;
+        let mut names = Vec::new();
+        loop {
+            let (name, name_span) = self.ident()?;
+            if names.is_empty() {
+                self.names.names.insert(span, name_span);
+            }
+            let alias = if self.at_ident("as") {
+                self.next();
+                Some(self.ident()?.0)
+            } else {
+                None
+            };
+            names.push(UseName {
+                name,
+                alias,
+                span: name_span,
+            });
+            if !self.eat_punct(",") {
+                break;
+            }
+        }
         self.expect_word("from")?;
         let path = match self.peek_kind().clone() {
             TokenKind::Str(s) => {
@@ -438,7 +461,14 @@ impl Parser {
                 )
             }
         };
-        if !path.ends_with(".contract") {
+        // A relative path names a `.contract` file; `exact:name` and a
+        // package name are resolved by the driver (LLP 1091 D8/D9). Any other
+        // file — TypeScript, JavaScript, JSON — is never Contract's to load.
+        let relative = path.starts_with("./") || path.starts_with("../");
+        let other = [".ts", ".tsx", ".js", ".mjs", ".cjs", ".json"]
+            .iter()
+            .any(|ext| path.ends_with(ext));
+        if (relative && !path.ends_with(".contract")) || other {
             return Err(SyntaxError {
                 id: "contract-no-imports",
                 message: format!("`use … from \"{path}\"` is not admitted: only a `.contract` file may be used — data comes from the app's Rust data source and formatting from the stdlib roster (LLP 1004 D4)"),
@@ -446,7 +476,7 @@ impl Parser {
             });
         }
         self.newline()?;
-        Ok(UseDecl { name, path, span })
+        Ok(UseDecl { names, path, span })
     }
 
     /// `fn name(param: type, …): type = expr` (LLP 1017 P5).
@@ -475,6 +505,7 @@ impl Parser {
         self.expect_punct(":")?;
         let ret = self.type_expr()?;
         self.expect_punct("=")?;
+        self.on_its_line("fn")?;
         let body = self.expr()?;
         self.newline()?;
         Ok(FnDecl {
@@ -510,6 +541,19 @@ impl Parser {
         while !matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
             let (aname, aspan) = match (self.peek_kind().clone(), self.peek2().clone()) {
                 (TokenKind::Ident(n), TokenKind::Punct("=")) => (n, self.next().span),
+                // CSS's `background-color: "…"` (ledger F3): the row it meant,
+                // rewritten (LLP 1088 D7.4).
+                (TokenKind::Ident(n), TokenKind::Punct(":")) => {
+                    let value = match &self.tokens[(self.pos + 2).min(self.tokens.len() - 1)].kind {
+                        TokenKind::Str(v) => format!("{v:?}"),
+                        TokenKind::Number(v) => v.to_string(),
+                        _ => "…".into(),
+                    };
+                    return self.err(
+                        "syntax-expected-attr",
+                        format!("`{n}:` is CSS's declaration; a line of `{owner}` is `attr=literal`: write `{n}={value}`"),
+                    );
+                }
                 (other, _) => {
                     return self.err(
                         "syntax-expected-attr",
@@ -532,7 +576,10 @@ impl Parser {
                 }
                 other => other,
             };
-            if !matches!(value, Expr::Number(..) | Expr::Str(..) | Expr::Bool(..)) {
+            // A `timeline`'s name is a constant too (LLP 1055.002 D2).
+            let timeline = matches!(aname.as_str(), "animation-timeline" | "animationTimeline")
+                && matches!(value, Expr::Ident(..));
+            if !timeline && !matches!(value, Expr::Number(..) | Expr::Str(..) | Expr::Bool(..)) {
                 return Err(SyntaxError {
                     id: "contract-style-literal",
                     message: format!("`{aname}` in `{owner}` must be a literal: a style is constant, and a node's own attribute may compute"),
@@ -641,7 +688,7 @@ impl Parser {
                             self.next();
                             self.newline()?;
                             let list = self.block(|p| {
-                                let (name, span) = p.field_name()?;
+                                let (name, span) = p.ident()?;
                                 p.expect_punct(":")?;
                                 let ty = p.type_expr()?;
                                 p.newline()?;
@@ -664,7 +711,7 @@ impl Parser {
                             self.newline()?;
                             let mut provides: Vec<Binding> = Vec::new();
                             for b in self.block(|p| {
-                                let (name, span) = p.field_name()?;
+                                let (name, span) = p.ident()?;
                                 let expr = if p.eat_punct("=") {
                                     p.expr()?
                                 } else {
@@ -688,8 +735,12 @@ impl Parser {
                         "state" | "derive" => {
                             let t = self.next();
                             let name = self.named_ident(t.span)?;
+                            self.type_annotation(&w, &name, ":")?;
                             self.expect_punct("=")?;
+                            self.on_its_line(&w)?;
                             let expr = self.expr()?;
+                            let none = matches!(expr, Expr::None(_));
+                            self.type_annotation(&w, &name, if none { "as none" } else { "as" })?;
                             self.newline()?;
                             let b = Binding {
                                 name,
@@ -724,16 +775,41 @@ impl Parser {
                         other => {
                             return self.err(
                                 "syntax-unknown-section",
-                                format!("unknown section `{other}`"),
+                                format!("unknown section `{other}`{}", names::section_hint(other)),
                             )
                         }
                     }
                 }
+                // A one-line declaration continued on an indented line (a
+                // resource's `else` under it; authoring bench).
+                TokenKind::Indent
+                    if matches!(self.peek2(), TokenKind::Ident(w)
+                        if matches!(w.as_str(), "else" | "then" | "refreshes" | "as")) =>
+                {
+                    let TokenKind::Ident(w) = self.peek2().clone() else {
+                        unreachable!()
+                    };
+                    let example = if w == "else" {
+                        " (like `resource tasks = loadTasks() as shape list<Task> else empty()`)"
+                    } else {
+                        ""
+                    };
+                    return self.err(
+                        "syntax-expected-section",
+                        format!(
+                            "`{w} …` is indented under the line above, and a declaration is one \
+                             line: join them{example}"
+                        ),
+                    );
+                }
                 other => {
+                    if let Some(e) = self.continued_expression("syntax-expected-section") {
+                        return e;
+                    }
                     return self.err(
                         "syntax-expected-section",
                         format!("expected a section, found {}", describe(&other)),
-                    )
+                    );
                 }
             }
         }
@@ -787,38 +863,6 @@ impl Parser {
             identity,
             shape,
             placeholder,
-            span,
-        })
-    }
-
-    fn mutation(&mut self) -> R<MutationDecl> {
-        let span = self.expect_word("mutation")?;
-        let name = self.named_ident(span)?;
-        self.expect_word("as")?;
-        self.expect_word("shape")?;
-        let shape = self.type_expr()?;
-        let mut refreshes = Vec::new();
-        if self.at_ident("refreshes") {
-            self.next();
-            loop {
-                refreshes.push(self.ident()?);
-                if !self.eat_punct(",") {
-                    break;
-                }
-            }
-        }
-        let then = if self.at_ident("then") {
-            let then_span = self.next().span;
-            Some(self.named_ident(then_span).map(|name| (name, then_span))?)
-        } else {
-            None
-        };
-        self.newline()?;
-        Ok(MutationDecl {
-            name,
-            shape,
-            refreshes,
-            then,
             span,
         })
     }
@@ -877,8 +921,20 @@ impl Parser {
             let mut otherwise = Vec::new();
             if self.at_ident("else") {
                 self.next();
-                self.newline()?;
-                otherwise = self.required_block(span, "else", |p| p.stmt())?;
+                // `else if` is an `else` whose one statement is the next
+                // `if`: the tree, so the plan and the semantics, is the
+                // nested form's (the chess, kanban2 and spreadsheet diaries).
+                if self.at_ident("if") {
+                    otherwise = vec![self.stmt()?];
+                } else if self.at_ident("when") {
+                    return self.err(
+                        "syntax-else-keyword",
+                        "an action branches with `if`; `when` is a view's: write `else if`",
+                    );
+                } else {
+                    self.after_else("if")?;
+                    otherwise = self.required_block(span, "else", |p| p.stmt())?;
+                }
             }
             return Ok(Stmt::If {
                 cond,
@@ -950,7 +1006,9 @@ impl Parser {
                 span,
             });
         }
-        if self.at_ident("refresh") {
+        // `refresh` starts a statement only before a name, as `send` and
+        // `let` do (LLP 1088 D5): `refresh = x` assigns a state so named.
+        if self.at_ident("refresh") && matches!(self.peek2(), TokenKind::Ident(_)) {
             let span = self.expect_word("refresh")?;
             let target = self.named_ident(span)?;
             self.newline()?;
@@ -985,65 +1043,6 @@ impl Parser {
             "syntax-expected-statement",
             "expected `slot = expr`, `let name = expr`, `command(args)`, `send mutation = source(args)`, `refresh resource`, `if cond`, or `match option`",
         )
-    }
-
-    fn task(&mut self) -> R<Task> {
-        let span = self.expect_word("task")?;
-        let name = self.named_ident(span)?;
-        self.expect_word("mount")?;
-        self.newline()?;
-        let mut timer = None;
-        self.block(|p| {
-            let (f, fspan) = p.ident()?;
-            let mut kind = match f.as_str() {
-                "every" => TaskKind::Every,
-                "after" => TaskKind::After,
-                _ => {
-                    return p.err(
-                        "contract-task-body",
-                        "a task body is `every(ms, action)`, `every(frame, action)` or `after(ms, action)`",
-                    )
-                }
-            };
-            p.expect_punct("(")?;
-            // `every(frame, a)`: `frame` there is a word, not an expression (LLP 1073 D1).
-            let frame = p.at_ident("frame") && matches!(p.peek2(), TokenKind::Punct(","));
-            let ms = if frame {
-                if kind == TaskKind::After {
-                    return p.err(
-                        "contract-task-body",
-                        "`after` takes milliseconds; `every(frame, action)` fires each frame",
-                    );
-                }
-                kind = TaskKind::Frame;
-                let at = p.next().span;
-                Expr::Number(0.0, at)
-            } else {
-                p.expr()?
-            };
-            p.expect_punct(",")?;
-            let action = p.named_ident(fspan)?;
-            p.expect_punct(")")?;
-            p.newline()?;
-            if timer.is_some() {
-                return duplicate("task entry", &f, fspan, span);
-            }
-            timer = Some((kind, (ms, action, fspan)));
-            Ok(())
-        })?;
-        let (kind, timer) = timer.ok_or(SyntaxError {
-            id: "contract-task-body",
-            message:
-                "a task needs `every(ms, action)`, `every(frame, action)` or `after(ms, action)`"
-                    .into(),
-            span,
-        })?;
-        Ok(Task {
-            name,
-            kind,
-            timer,
-            span,
-        })
     }
 
     // ---- view -------------------------------------------------------------
@@ -1101,6 +1100,12 @@ impl Parser {
                 self.newline()?;
                 Ok(Node::Children { span })
             }
+            // An action's `if` written in a view (authoring bench).
+            "if" => self.err(
+                "syntax-stray-keyword",
+                "`if` is an action's statement: a view chooses with `when <condition>`, \
+                 and an `else` after its block at the same indent",
+            ),
             "when" => {
                 self.next();
                 let cond = self.expr()?;
@@ -1109,10 +1114,22 @@ impl Parser {
                 let mut otherwise = Vec::new();
                 if self.at_ident("else") {
                     self.next();
-                    self.newline()?;
-                    otherwise = self.required_block(span, "else", |p| p.node())?;
+                    // `else when` is an `else` whose one node is the next
+                    // `when`, as `else if` is in an action.
+                    if self.at_ident("when") {
+                        otherwise = vec![self.node()?];
+                    } else if self.at_ident("if") {
+                        return self.err(
+                            "syntax-else-keyword",
+                            "a view branches with `when`; `if` is an action's: write `else when`",
+                        );
+                    } else {
+                        self.after_else("when")?;
+                        otherwise = self.required_block(span, "else", |p| p.node())?;
+                    }
                 }
                 Ok(Node::When {
+                    tag: 0,
                     cond,
                     then,
                     otherwise,
@@ -1184,6 +1201,7 @@ impl Parser {
                     span,
                 })?;
                 Ok(Node::Match {
+                    tag: 0,
                     subject,
                     some,
                     none,
@@ -1192,7 +1210,7 @@ impl Parser {
             }
             "else" | "case" => self.err(
                 "syntax-stray-keyword",
-                format!("`{word}` without a matching construct"),
+                names::stray(&word),
             ),
             "map" | "filter" if matches!(self.peek2(), TokenKind::Punct("(")) => self.err(
                 "syntax-map-view",
@@ -1387,57 +1405,6 @@ impl Parser {
         self.last = deepest;
         Ok(out)
     }
-}
-
-/// A keyword that may still be a name where one is expected: every keyword but
-/// those that begin or join an expression, a region, or a statement.
-fn is_name_word(w: &str) -> bool {
-    !is_keyword(w)
-        || !matches!(
-            w,
-            "when" | "if" | "else" | "each" | "in" | "match" | "case" | "as" | "fn" | "refresh"
-        )
-}
-
-fn is_keyword(w: &str) -> bool {
-    matches!(
-        w,
-        "component"
-            | "font"
-            | "shape"
-            | "state"
-            | "derive"
-            | "resource"
-            | "mutation"
-            | "refresh"
-            | "action"
-            | "task"
-            | "view"
-            | "props"
-            | "when"
-            | "if"
-            | "else"
-            | "style"
-            | "fn"
-            | "test"
-            | "expect"
-            | "from"
-            | "provide"
-            | "children"
-            | "inject"
-            | "slot"
-            | "each"
-            | "in"
-            | "key"
-            | "match"
-            | "case"
-            | "writes"
-            | "mount"
-            | "as"
-            | "and"
-            | "or"
-            | "not"
-    )
 }
 
 fn describe(k: &TokenKind) -> String {

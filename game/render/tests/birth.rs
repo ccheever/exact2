@@ -73,7 +73,7 @@ fn first_presented_skin_matches_current_pose_in_its_rectangle() {
     };
     fn first<const H: u8>(gpu: &exact_game_render::exact_gpu::Gpu, event: &str) -> fixture::Pixels {
         let data = assets();
-        let mut s = WorldSurface::<Birth<H>, exact_game_render::ModelPresentation, true>::default();
+        let mut s = WorldSurface::<Birth<H>, exact_game_render::ModelExecutor, true>::default();
         s.device_ready(exact_gpu::wgpu::Features::empty());
         s.bind(&[], None).unwrap();
         for _ in 0..16 {
@@ -91,6 +91,7 @@ fn first_presented_skin_matches_current_pose_in_its_rectangle() {
             period_ms: 1000. / 60.,
             children_generation: 0,
             shader_generation: 0,
+            headroom: 1.0,
         };
         fixture::render(gpu, &mut s, &f).unwrap();
         f.now_ms = 1000. / 240.;
@@ -257,7 +258,7 @@ fn rigid_node_animation_moves_pixels_and_glow_dims_baked_emission() {
         }],
         ..Default::default()
     }];
-    let mut surface = WorldSurface::<Rigid, exact_game_render::ModelPresentation, true>::default();
+    let mut surface = WorldSurface::<Rigid, exact_game_render::ModelExecutor, true>::default();
     surface.device_ready(wgpu::Features::empty());
     surface.bind(&[], None).unwrap();
     assert_eq!(surface.assets().requests, ["rig.model"]);
@@ -272,8 +273,9 @@ fn rigid_node_animation_moves_pixels_and_glow_dims_baked_emission() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
-    let render = |surface: &mut WorldSurface<Rigid, exact_game_render::ModelPresentation, true>,
+    let render = |surface: &mut WorldSurface<Rigid, exact_game_render::ModelExecutor, true>,
                   frame: &Frame| {
         let (image, _) = fixture::render(&gpu, surface, frame).unwrap();
         assert!(surface.error().is_none(), "{:?}", surface.error());

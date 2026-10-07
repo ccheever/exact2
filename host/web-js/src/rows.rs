@@ -11,40 +11,69 @@ use exact_web::host::template::Parts;
 use std::fmt::Write as _;
 
 impl Em<'_> {
+    /// Whether image `i` needs symbols.js — it draws a symbol, its source is
+    /// bound, or its source is an `app:/` file, which symbols.js resolves
+    /// (`data-app-src`, LLP 1069.002 D7) — and whether its source is bound.
+    pub(super) fn image_piece(&self, i: u32, parts: &Parts) -> Option<bool> {
+        let plan = self.plan;
+        let bound = plan.nodes[i as usize]
+            .bindings
+            .iter()
+            .map(|b| plan.binding(b))
+            .any(|b| {
+                b.kind == BindingKind::Prop
+                    && b.id == PropId::ImageSource as u16
+                    && style::literal(plan, plan.code(b.expr)).is_none()
+            });
+        let app = parts
+            .props
+            .get("src")
+            .is_some_and(|s| s.starts_with("app:/"));
+        (bound || app || parts.props.contains_key("data-symbol-path")).then_some(bound)
+    }
+
+    /// @ref LLP 1055.002 — a synced animation: the web host's clocks
+    /// (navigation.js `animationClocks`, through rt.js), made once, set a
+    /// joined animation's start after each commit; under the agent its
+    /// register does (agent.js).
+    pub(super) fn clocks(&mut self) {
+        let (clocks, after, clock) = (
+            self.uses.rt("animationClocks"),
+            self.uses.rt("After"),
+            self.uses.rt("clock"),
+        );
+        let _ = write!(
+            self.out,
+            "if(!globalThis.__exactClocks&&typeof requestAnimationFrame==\"function\"&&!globalThis.__exactRender){{const c=globalThis.__exactClocks={clocks}(document);{after}.push(()=>{clock}.agent||c.sync());}}"
+        );
+    }
+
+    /// [`Self::clocks`] when a static declaration puts the node on a clock.
+    pub(super) fn clocks_in(&mut self, declarations: &str) {
+        if declarations.contains("--exact-animation-clock:") {
+            self.clocks();
+        }
+    }
+
+    pub(super) fn f(
+        &mut self,
+        code: exact_plan::Code,
+        scope: &crate::code::Scope,
+    ) -> Result<String, String> {
+        crate::code::function(self.plan, self.plan.code(code), scope, 0, &mut self.uses)
+    }
+
     /// A bound paint fact for the CSS sibling-order rule. The expression is
     /// pure; the same effect scope as its style owns this attribute.
     pub(super) fn paint_binding(&mut self, kind: NodeType, b: &BindingsRow, e: &str, f: &str) {
-        if kind.is_svg_element() || kind.is_metadata() {
+        if !self.paint || kind.is_svg_element() || kind.is_metadata() {
             return;
         }
-        let fact = match b.kind {
-            BindingKind::Style => StyleId::from_bit(b.id as u32).and_then(|id| {
-                Some(match id {
-                    StyleId::PositionType => {
-                        ("data-exact-position".into(), "v!=null&&v!==\"static\"")
-                    }
-                    StyleId::Display => ("data-exact-flex".into(), "v===\"flex\"||v===\"grid\""),
-                    StyleId::ZIndex => ("data-exact-z".into(), "v!=null&&v!==\"auto\""),
-                    id if exact_web::host::layers::STACKS.contains(&id) => {
-                        (format!("data-exact-stack-{}", id as u16), "v!=null")
-                    }
-                    _ => return None,
-                })
-            }),
-            BindingKind::Prop => PropId::from_wire(b.id).and_then(|id| {
-                let condition = match id {
-                    PropId::BackgroundMaterial | PropId::NavigationKey => "v!=null",
-                    PropId::NavigationPresentation => "v===\"modal\"",
-                    _ => return None,
-                };
-                Some((format!("data-exact-stack-prop-{}", id as u16), condition))
-            }),
-        };
-        if let Some((name, condition)) = fact {
+        if let Some((name, value)) = crate::paint::binding(self.plan, kind, b) {
             let p = self.uses.rt("P");
             let _ = write!(
                 self.out,
-                "{p}({e},\"{name}\",()=>{{const v=({f})();return ({condition})?\"\":null}});"
+                "{p}({e},\"{name}\",()=>{{const v=({f})();return {value}}});"
             );
         }
     }
@@ -79,7 +108,11 @@ impl Em<'_> {
                 .map(|b| plan.binding(b))
                 .find(|b| b.kind == BindingKind::Style && b.id == id as u16)
         };
-        let timeline = binding(StyleId::AnimationTimeline).is_some();
+        // A clock (LLP 1055.002) plays on the page's timeline: only a drag
+        // timeline's consumer is paused for the drag to seek.
+        let clock = |s: &str| s.trim_start().starts_with("clock(");
+        let timeline = binding(StyleId::AnimationTimeline)
+            .is_some_and(|t| style::can_be(plan, plan.code(t.expr), &|s| !clock(s)));
         let id = StyleId::from_bit(b.id as u32).ok_or("unknown style row")?;
         if matches!(
             id,
@@ -92,6 +125,9 @@ impl Em<'_> {
         ) {
             self.uses.rt("gridValue");
         }
+        if id == StyleId::AnimationTimeline && style::can_be(plan, plan.code(b.expr), &clock) {
+            self.clocks();
+        }
         let refuse = |why: &str| Err(format!("node {i}: {why} is not in the JS target"));
         // (name, unit, map): a map is JavaScript of the value (`null` writes none).
         let one = |name: &str, map: Option<String>| vec![(name.to_string(), String::new(), map)];
@@ -99,7 +135,7 @@ impl Em<'_> {
             // @ref LLP 1077 D8 — the `rotate` and `translate` attributes bind
             // these with the same value: the angle's and xy's declaration
             // writes the author's whole text.
-            StyleId::RotateAxis | StyleId::TranslateZ => {
+            StyleId::RotateAxis | StyleId::TranslateZ | StyleId::TranslatePercent => {
                 let pair = if id == StyleId::RotateAxis { StyleId::Rotate } else { StyleId::Translate };
                 if binding(pair).is_some_and(|o| plan.code(o.expr) == plan.code(b.expr)) {
                     return Ok(());
@@ -115,12 +151,19 @@ impl Em<'_> {
                 if id == StyleId::TextStrokeColor {
                     return Ok(());
                 }
-                one("-webkit-text-stroke", Some(style::SYSTEM_COLOR_MAP.to_string()))
+                one("-webkit-text-stroke", Some(style::color_map(plan)))
             }
             // @ref LLP 1077 D8 — 0 is `none`, as css.rs writes it.
             StyleId::Perspective => one(
                 "perspective",
                 Some("v=>v==null?v:/^\\s*[+-]?(0+\\.?0*|\\.0+)(px)?\\s*$/i.test(v)?\"none\":typeof v===\"number\"?`${v}px`:v".into()),
+            ),
+            // @ref LLP 1093 §1 — the row's 0 is CSS `auto`, as css.rs writes
+            // it. `setProperty("column-count", "0")` does not stick, so the
+            // unit sample would journal the refusal and leave a class rule.
+            StyleId::ColumnCount => one(
+                "column-count",
+                Some("v=>v==null?v:typeof v===\"number\"?(v===0?\"auto\":v):v".into()),
             ),
             // A stack index: css.rs's declaration for each, by index.
             StyleId::FontFamily => {
@@ -133,6 +176,8 @@ impl Em<'_> {
                 if display.is_some_and(|d| d != "block")
                     || parts.css.contains("overflow-x:scroll")
                     || parts.css.contains("overflow-y:scroll")
+                    || parts.css.contains("overflow-x:auto")
+                    || parts.css.contains("overflow-y:auto")
                 {
                     self.warnings.push(format!(
                         "node {i}: style row line_clamp skipped: legacy line-clamp requires a non-scrolling block"
@@ -146,6 +191,13 @@ impl Em<'_> {
                     ("-webkit-box-orient".into(), String::new(), when("\"vertical\"")),
                     ("overflow".into(), String::new(), when("\"hidden\"")),
                 ]
+            }
+            // @ref LLP 1077 D14 — host-owned, as `press-scale`: the custom
+            // property input-glue.js plays at the press (css.rs).
+            StyleId::PressHaptic => {
+                let press = self.uses.rt("pressFeedback");
+                let _ = write!(self.out, "{press}();");
+                one("--exact-press-haptic", Some("v=>v==null||v===\"none\"?null:v".into()))
             }
             // The feedback's factor, and `scale` as its product (css.rs), on
             // a node whose own `scale` does not also compose through it.
@@ -212,14 +264,30 @@ impl Em<'_> {
                     use exact_kernel::StyleCodec as C;
                     let colors = matches!(
                         id.codec(),
-                        C::ColorValue | C::KeywordColor | C::Paint | C::BackgroundImage | C::MaskImage | C::BoxShadow | C::TextShadow
+                        C::ColorValue | C::KeywordColor | C::Paint | C::BackgroundImage | C::MaskImage | C::BoxShadow | C::TextShadow | C::Filter
                     );
-                    let system = style::SYSTEM_COLOR_MAP.as_str();
                     // Composed with the row's own map (`accent-color` has one).
                     let map = match w.map {
-                        Some(m) if colors => Some(format!("v=>({m})(({system})(v))")),
+                        Some(m) if colors => Some(format!("v=>({m})(({})(v))", style::color_map(plan))),
                         Some(m) => Some(m.to_string()),
-                        None => colors.then(|| system.to_string()),
+                        None => colors.then(|| style::color_map(plan)),
+                    };
+                    // A computed image the native hosts refuse is dropped
+                    // here too, and journaled as they journal it, so the web
+                    // never paints what a Mac drops (studio diary R15).
+                    let map = if matches!(id, StyleId::BackgroundImage | StyleId::MaskImage) {
+                        let names = exact_kernel::gradient::REFUSED
+                            .iter()
+                            .map(|(p, _)| p.trim_end_matches('('))
+                            .collect::<Vec<_>>()
+                            .join("|");
+                        let inner = map.unwrap_or_else(|| "v=>v".into());
+                        Some(format!(
+                            "v=>{{if(v!=null&&/(^|[^a-z0-9-])({names})\\(/i.test(v)){{const x=globalThis.exact;x?.journal?.push(`t=${{x.now?.()??0}} invalid {} value ${{JSON.stringify(String(v))}}; unset`);return null}}return({inner})(v)}}",
+                            id.name().replace('_', "-")
+                        ))
+                    } else {
+                        map
                     };
                     (w.name, w.unit, map)
                 })
@@ -397,11 +465,14 @@ pub(super) fn presence_decls(css: &mut String) -> String {
             "--exact-exit-animation:",
             "--exact-drag-timeline:",
             "--exact-animation-timeline:",
+            // A synced animation's clock (LLP 1055.002), read the same way.
+            "--exact-animation-clock:",
             "--exact-animation-range:",
             "--exact-timeline-scope:",
-            // The press feedback's factor (LLP 1061), which input-glue.js
-            // reads from the element's own style.
+            // The press feedback's factor (LLP 1061) and haptic (LLP 1077
+            // D14), which input-glue.js reads from the element's own style.
             "--exact-press:",
+            "--exact-press-haptic:",
         ]
         .iter()
         .any(|p| decl.starts_with(p))
@@ -424,8 +495,27 @@ impl Em<'_> {
 
     /// What an element needs once made: a canvas's surface, a native
     /// module's mount (LLP 1024 D3), a hooked node's page-module hook (LLP
-    /// 1075.003.000, `data-hook` among its static attributes).
-    pub(crate) fn element_extras(&mut self, tag: &str, e: &str, attrs: &[(String, String)]) {
+    /// 1075.003.000, `data-hook` among its static attributes), and the
+    /// constant values settled once its tree is in place, as bound ones are
+    /// (rt.js `drain`): a select's, which its options carry (calendar diary
+    /// F6), and a scroller's offsets (F8).
+    pub(crate) fn element_extras(
+        &mut self,
+        tag: &str,
+        e: &str,
+        attrs: &[(String, String)],
+        props: &exact_kernel::SortedMap<String, String>,
+    ) {
+        for name in ["value", "scrollTop", "scrollLeft"] {
+            if let Some(v) = props
+                .get(name)
+                .filter(|_| name != "value" || tag == "select")
+            {
+                let p = self.uses.rt("P");
+                let v = serde_json::to_string(v).unwrap();
+                let _ = write!(self.out, "{p}({e},\"{name}\",()=>{v});");
+            }
+        }
         if tag == "canvas" {
             let cv = self.uses.rt("cv");
             let _ = write!(self.out, "{cv}({e});");
@@ -435,6 +525,10 @@ impl Em<'_> {
         }
         if attrs.iter().any(|(k, _)| k == "data-hook") {
             let _ = write!(self.out, "{}({e});", self.uses.rt("hk"));
+        }
+        // A context menu's popover (LLP 1021 §5.1), named by a literal.
+        if attrs.iter().any(|(k, _)| k == "contextpopover") {
+            let _ = write!(self.out, "{}({e});", self.uses.rt("cp"));
         }
     }
 
@@ -467,6 +561,15 @@ pub(super) fn attributes(
                     attrs.push(("data-autofocus".into(), "false".into()));
                 }
             }
+            // The app's own file (LLP 1069.002 D7): symbols.js shows it
+            // through an object URL, media.js plays it (podcast F19); the
+            // browser has no `app:` scheme.
+            "src" if matches!(element, "img" | "video" | "audio") && value.starts_with("app:/") => {
+                attrs.push(("data-app-src".into(), value.clone()));
+            }
+            "poster" if element == "video" && value.starts_with("app:/") => {
+                attrs.push(("data-app-poster".into(), value.clone()));
+            }
             "src" if element == "img" && value.starts_with("symbol:") => {
                 attrs.push((
                     name.clone(),
@@ -482,12 +585,13 @@ pub(super) fn attributes(
                 attrs.push((name.clone(), value.clone()));
                 css.push_str("touch-action:none;");
             }
+            // A select's value is its options' (`element_extras`).
             "value" => match element {
-                "input" | "button" => attrs.push((name.clone(), value.clone())),
+                "input" | "button" | "option" => attrs.push((name.clone(), value.clone())),
                 "textarea" => content = Some(value.clone()),
                 _ => {}
             },
-            "checked" | "inert" | "disabled" | "readonly" => {
+            "checked" | "inert" | "disabled" | "readonly" | "multiple" => {
                 if value == "true" {
                     attrs.push((name.clone(), String::new()));
                 }
@@ -499,7 +603,7 @@ pub(super) fn attributes(
             | "playsinline"
             | "disablepictureinpicture"
             | "disableremoteplayback"
-                if element == "video" =>
+                if element == "video" || element == "audio" =>
             {
                 if value == "true" {
                     attrs.push((name.clone(), String::new()));
@@ -513,4 +617,178 @@ pub(super) fn attributes(
         }
     }
     (attrs, content, css)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::style::{
+        color_map,
+        tests::{role, run},
+    };
+
+    /// A bound `filter` (LLP 1095 D1) is written through the colour map:
+    /// the emitted binding wraps its value in `color_map(plan)`, which turns
+    /// a role into its CSS, an admitted `platform-color()` literal into its
+    /// fallback, and refuses one the plan does not hold.
+    #[test]
+    fn a_bound_filter_goes_through_the_colour_map() {
+        let literal = "drop-shadow(0px 2px 4px platform-color(ios webJsFilterColor, #010203))";
+        let source = format!(
+            r#"component App
+  state on = false
+  action flip
+    on = !on
+  view
+    column
+      button press=flip testId="flip"
+        text "Flip"
+      text "Shadow" filter=(on ? "{literal}" : "drop-shadow(0px 2px 4px system-orange)")
+"#
+        );
+        let plan = contract::compile(&source).unwrap();
+        let js = crate::emit::emit(&plan, false, false).unwrap().js;
+        let map = color_map(&plan);
+        assert!(
+            map.contains("webJsFilterColor"),
+            "the plan admits the literal"
+        );
+        assert!(
+            js.contains(&format!(",\"filter\",\"\",()=>({map})((")),
+            "the bound filter is not mapped:\n{js}"
+        );
+        assert_eq!(
+            run(
+                &map,
+                &[
+                    "drop-shadow(0px 2px 4px system-orange)",
+                    literal,
+                    "drop-shadow(0px 2px 4px platform-color(ios webJsOtherColor, #010203))",
+                ]
+            ),
+            serde_json::json!([
+                format!("drop-shadow(0px 2px 4px {})", role("system-orange")),
+                "drop-shadow(0px 2px 4px #010203ff)",
+                null,
+            ])
+        );
+    }
+
+    /// A bound `column-count` of 0 is CSS `auto` (LLP 1093 §1), as css.rs
+    /// writes the row. The JS target must write that string: `setProperty`
+    /// rejects `"0"`, the inline declaration drops, a class rule stays, and
+    /// the journal records the refusal. Toggling 2 then 0 computes `auto`.
+    #[test]
+    fn a_bound_column_count_of_zero_computes_to_auto() {
+        let plan = contract::compile(
+            r#"component App
+  state n = 2
+  action auto
+    n = 0
+  view
+    view column-count=n testId="flow"
+      view
+"#,
+        )
+        .unwrap();
+        let js = crate::emit::emit(&plan, false, false).unwrap().js;
+        let marker = "\"column-count\",\"";
+        let at = js
+            .find(marker)
+            .unwrap_or_else(|| panic!("no column-count write:\n{js}"));
+        let rest = &js[at + marker.len()..];
+        let (unit, after) = rest.split_once('"').expect("unit");
+        let map = after
+            .strip_prefix(",()=>(")
+            .and_then(|mapped| mapped.find(")((").map(|end| mapped[..end].to_string()));
+        let map_src = map.unwrap_or_else(|| "v=>v".into());
+        let script = format!(
+            "const map={map_src};const unit={unit:?};const write=v=>{{const m=map(v);return m==null?null:typeof m===\"number\"?m+unit:String(m)}};console.log(JSON.stringify([write(0),write(2),write(null)]))"
+        );
+        let bun = std::process::Command::new(std::env::var("BUN").unwrap_or_else(|_| "bun".into()))
+            .args(["-e", &script])
+            .output()
+            .expect("bun");
+        assert!(
+            bun.status.success(),
+            "{}",
+            String::from_utf8_lossy(&bun.stderr)
+        );
+        let written: serde_json::Value = serde_json::from_slice(&bun.stdout).unwrap();
+        assert_eq!(
+            written,
+            serde_json::json!(["auto", "2", null]),
+            "column-count write unit={unit:?} map={map_src}\n{js}"
+        );
+        let dir = std::env::temp_dir().join(format!("exact-column-count-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let page = dir.join("col.html");
+        let html = format!(
+            r#"<!doctype html><meta charset="utf-8"><style>#flow{{column-count:3;width:320px}}</style><div id="flow">column</div><pre id="out"></pre><script>
+const journal=[];
+function css(e,prop,unit,v){{const t=v==null?null:typeof v==="number"?v+unit:String(v);if(t==null){{e.style.removeProperty(prop);return}}e.style.removeProperty(prop);e.style.setProperty(prop,t);if(!e.style.getPropertyValue(prop))journal.push(`unset ${{prop}}: ${{JSON.stringify(v)}} is not a value it takes`)}}
+const map={map_src};const unit={unit:?};const flow=document.getElementById("flow");
+const apply=v=>css(flow,"column-count",unit,map(v));
+apply(2);const after2=getComputedStyle(flow).columnCount;const journal2=journal.slice();journal.length=0;
+apply(0);const after0=getComputedStyle(flow).columnCount;
+document.getElementById("out").textContent=JSON.stringify({{after2,after0,journal2,journal0:journal.slice(),inline:flow.style.getPropertyValue("column-count")}});
+</script>"#
+        );
+        std::fs::write(&page, html).unwrap();
+        let chrome = std::env::var("CHROME").unwrap_or_else(|_| {
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome".into()
+        });
+        // `--dump-dom` prints the page and then does not exit (a keychain
+        // lookup keeps the process up), so read until the result and stop it.
+        let mut child = std::process::Command::new(&chrome)
+            .args([
+                "--headless=new",
+                "--disable-gpu",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--virtual-time-budget=2000",
+                &format!("--user-data-dir={}", dir.join("profile").display()),
+                "--dump-dom",
+                &format!("file://{}", page.display()),
+            ])
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .unwrap_or_else(|e| panic!("chrome ({chrome}): {e}"));
+        let mut stdout = child.stdout.take().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            let mut tmp = [0u8; 8192];
+            loop {
+                match std::io::Read::read(&mut stdout, &mut tmp) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        buf.extend_from_slice(&tmp[..n]);
+                        if buf.windows(6).any(|w| w == b"</pre>") {
+                            break;
+                        }
+                    }
+                }
+            }
+            let _ = tx.send(buf);
+        });
+        let dumped = rx.recv_timeout(std::time::Duration::from_secs(20));
+        let _ = child.kill();
+        let _ = child.wait();
+        let dumped = dumped.unwrap_or_else(|_| panic!("chrome ({chrome}) dumped no DOM"));
+        let dom = String::from_utf8_lossy(&dumped);
+        let raw = dom
+            .split_once("<pre id=\"out\">")
+            .and_then(|(_, rest)| rest.split_once("</pre>"))
+            .map(|(body, _)| body)
+            .unwrap_or_else(|| panic!("no computed style in\n{dom}"));
+        let computed: serde_json::Value =
+            serde_json::from_str(&raw.replace("&quot;", "\"")).expect(raw);
+        assert_eq!(computed["after2"], "2", "{computed}");
+        assert_eq!(computed["after0"], "auto", "{computed}");
+        assert_eq!(computed["journal2"], serde_json::json!([]), "{computed}");
+        assert_eq!(computed["journal0"], serde_json::json!([]), "{computed}");
+        assert_eq!(computed["inline"], "auto", "{computed}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

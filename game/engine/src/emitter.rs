@@ -13,6 +13,9 @@ pub enum Shape {
     Sphere(f32),
     /// Cone with base radius and height, pointing along Y.
     Cone(f32, f32),
+    /// Uniform volume inside a centred box of these full dimensions: rain or snow
+    /// over an area.
+    Box(Vec3),
 }
 /// Interpolation of the two authored lifetime keys.
 #[derive(Clone, Copy, Debug, Default, Data)]
@@ -117,15 +120,71 @@ pub struct Emitter {
     pub running: bool,
     /// Saved emission history, independent of renderer residency.
     pub state: EmitterState,
+    /// With [`WorldSpace`]: each live birth batch's world pose at birth, by birth
+    /// tick, for derivation. Not saved here: [`WorldSpace`] carries the saved copy,
+    /// and a load restores this from it.
+    #[data(skip)]
+    pub origins: Vec<(u64, crate::Affine3A)>,
+}
+/// Particles of this entity's [`Emitter`] stay where they were born instead of
+/// moving with it: a rocket's trail is one emitter. Insert `WorldSpace::default()`;
+/// the emitter records each live batch's birth pose here, so a restored trail
+/// draws where the continuous one does.
+#[derive(Clone, Debug, Default, PartialEq, Component)]
+pub struct WorldSpace {
+    /// Each live batch's birth pose, oldest first.
+    pub origins: Vec<Origin>,
+}
+/// One birth batch's world pose: its birth tick and column-major affine.
+#[derive(Clone, Copy, Debug, Default, PartialEq, crate::Data)]
+pub struct Origin {
+    /// The emitter age the batch was born at.
+    pub tick: u64,
+    /// `Affine3A::to_cols_array` of the emitter's pose that tick.
+    pub pose: [f32; 12],
+}
+/// Restore each world-space emitter's derivation poses from its saved origins.
+/// Saves are untrusted: a non-finite pose refuses the load, and origins naming
+/// no live batch (or repeating one) are dropped, so at most one per batch remains.
+pub(crate) fn rehydrate(w: &World) -> Result<(), crate::DataError> {
+    for (entity, e) in w.query::<&mut Emitter>().iter() {
+        let Some(mut space) = w.get_mut::<WorldSpace>(entity) else {
+            continue;
+        };
+        if let Some(bad) = space
+            .origins
+            .iter()
+            .find(|o| !o.pose.iter().all(|v| v.is_finite()))
+        {
+            return Err(crate::DataError::new(format!(
+                "WorldSpace origin at tick {} of #{} is not finite",
+                bad.tick,
+                entity.index()
+            )));
+        }
+        let births = &e.state.births;
+        let mut seen = std::collections::BTreeSet::new();
+        space
+            .origins
+            .retain(|o| births.iter().any(|b| b.tick == o.tick) && seen.insert(o.tick));
+        e.origins = space
+            .origins
+            .iter()
+            .map(|o| (o.tick, crate::Affine3A::from_cols_array(&o.pose)))
+            .collect();
+    }
+    Ok(())
 }
 impl Clone for Emitter {
     fn clone(&self) -> Self {
         Self {
             state: self.state.clone(),
+            origins: self.origins.clone(),
             ..*self
         }
     }
     fn clone_from(&mut self, source: &Self) {
+        self.origins.clone_from(&source.origins);
         self.shape = source.shape;
         self.rate = source.rate;
         self.lifetime = source.lifetime;
@@ -164,6 +223,7 @@ impl Default for Emitter {
             additive: true,
             running: true,
             state: EmitterState::default(),
+            origins: Vec::new(),
         }
     }
 }
@@ -214,6 +274,7 @@ impl Emitter {
                 Shape::Point => true,
                 Shape::Sphere(r) => r.is_finite() && r >= 0.,
                 Shape::Cone(r, h) => r.is_finite() && h.is_finite() && r >= 0. && h >= 0.,
+                Shape::Box(size) => size.is_finite() && size.min_element() >= 0.,
             };
         if valid {
             Ok(())
@@ -260,6 +321,7 @@ impl Emitter {
             } else {
                 (t, 0.5 * t * t)
             };
+            let birth_pose = self.origins.iter().find(|(tick, _)| *tick == birth.tick);
             let u = self.ease.at((t / birth.lifetime).clamp(0., 1.));
             let size = math::lerp(self.size[0], self.size[1], u);
             let color = std::array::from_fn(|i| math::lerp(self.color[0][i], self.color[1][i], u));
@@ -285,14 +347,46 @@ impl Emitter {
                         let r = r * y * math::sqrt(random());
                         Vec3::new(r * math::cos(angle), h * y, r * math::sin(angle))
                     }
+                    Shape::Box(size) => {
+                        size * (Vec3::new(random(), random(), random()) - Vec3::splat(0.5))
+                    }
                 };
                 let y = 1. - random() * (1. - spread_cos);
                 let r = math::sqrt((1. - y * y).max(0.));
                 let v = Vec3::new(r * math::cos(angle), y, r * math::sin(angle)) * self.speed;
-                visit(Particle {
-                    position: origin + v * travel + self.gravity * gravity,
-                    size,
-                    color,
+                // d(travel)/dt and d(gravity)/dt for the drawn motion.
+                let (speed, fall) = if self.drag > 0.0001 {
+                    let decay = math::exp(-self.drag * t);
+                    (decay, (1. - decay) / self.drag)
+                } else {
+                    (1., t)
+                };
+                let local = origin + v * travel + self.gravity * gravity;
+                let velocity = v * speed + self.gravity * fall;
+                visit(match birth_pose {
+                    Some((_, pose)) => Particle {
+                        position: pose.transform_point3(local),
+                        velocity: pose.transform_vector3(velocity),
+                        age: t,
+                        lifetime: birth.lifetime,
+                        // The emitter's scale at birth, as a local particle's
+                        // is its current one.
+                        size: size
+                            * math::sqrt(
+                                pose.matrix3.x_axis.length() * pose.matrix3.y_axis.length(),
+                            ),
+                        color,
+                        world: true,
+                    },
+                    None => Particle {
+                        position: local,
+                        velocity,
+                        age: t,
+                        lifetime: birth.lifetime,
+                        size,
+                        color,
+                        world: false,
+                    },
                 });
             }
             remaining -= birth.count.min(remaining);
@@ -307,17 +401,30 @@ fn mix(mut n: u64) -> u64 {
 /// Unsaved output of deterministic derivation, consumed directly by the renderer.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Particle {
-    /// Local position.
+    /// Local position, or a world position when `world`.
     pub position: Vec3,
+    /// Local velocity, for stretched particles.
+    pub velocity: Vec3,
+    /// Seconds since birth, for flipbooks.
+    pub age: f32,
+    /// The birth's lifetime in seconds.
+    pub lifetime: f32,
     /// Quad diameter.
     pub size: f32,
     /// Linear straight RGBA.
     pub color: [f32; 4],
+    /// Born in world space ([`WorldSpace`]): `position` is not the emitter's.
+    pub world: bool,
 }
-/// Advance saved emitter state once from Game::tick. Existing particles reserve
-/// capacity first; births share remaining capacity in entity order. Invalid emitters
-/// report a named journal line and do not emit. No renderer or wall clock is involved.
+/// Advance saved emitter state once from Game::tick, to choose its order; the
+/// simulation steps emitters after the tick otherwise, and never twice a tick.
+/// Existing particles reserve capacity first; births share remaining capacity in
+/// entity order. Invalid emitters report a named journal line and do not emit.
+/// No renderer or wall clock is involved.
 pub fn step(w: &World) {
+    if w.in_tick && w.emitted.replace(true) {
+        return;
+    }
     let hz = w.hz() as f64;
     let mut alive = 0u32;
     for (_, e) in w.query::<&mut Emitter>().iter() {
@@ -337,6 +444,9 @@ pub fn step(w: &World) {
             (age.saturating_sub(1) - b.tick.min(age.saturating_sub(1))) as f64 / hz
                 < b.lifetime as f64
         });
+        let births = &e.state.births;
+        e.origins
+            .retain(|(tick, _)| births.iter().any(|b| b.tick == *tick));
         e.state.alive = e
             .state
             .births
@@ -369,6 +479,25 @@ pub fn step(w: &World) {
                 key: mix(e.seed).wrapping_add(state.stream),
                 lifetime: e.lifetime,
             });
+        }
+        // One lookup: retire dead batches' origins and record a new birth's.
+        if let Some(mut space) = w.get_mut::<WorldSpace>(entity) {
+            let births = &state.births;
+            space
+                .origins
+                .retain(|o| births.iter().any(|b| b.tick == o.tick));
+            if count > 0 {
+                // This tick's pose, including a parent moved this tick and an
+                // emitter spawned this tick (World::global is the last boundary's).
+                let pose = w
+                    .current_global(entity)
+                    .unwrap_or(crate::Affine3A::IDENTITY);
+                e.origins.push((state.age, pose));
+                space.origins.push(Origin {
+                    tick: state.age,
+                    pose: pose.to_cols_array(),
+                });
+            }
         }
         state.stream = state.stream.wrapping_add(u64::from(wanted) * 8);
         state.alive += count;

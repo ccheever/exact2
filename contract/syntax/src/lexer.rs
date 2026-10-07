@@ -79,6 +79,28 @@ impl Lexer {
         }
     }
 
+    /// Whether the innermost open block holds only `name=` lines: an
+    /// element's continued attributes, with no nested block of its own.
+    fn attributes_only(out: &[Token]) -> bool {
+        let Some(open) = out
+            .iter()
+            .rposition(|t| matches!(t.kind, TokenKind::Indent))
+        else {
+            return false;
+        };
+        let block = &out[open + 1..];
+        !block.iter().any(|t| matches!(t.kind, TokenKind::Dedent))
+            && block
+                .split(|t| matches!(t.kind, TokenKind::Newline))
+                .filter(|line| !line.is_empty())
+                .all(|line| {
+                    matches!(
+                        (line.first().map(|t| &t.kind), line.get(1).map(|t| &t.kind)),
+                        (Some(TokenKind::Ident(_)), Some(TokenKind::Punct("=")))
+                    )
+                })
+    }
+
     /// Tokens and every line's refusal. A refused line ends where it failed
     /// (brackets it opened are closed), so the lines after it lex, and parse,
     /// as they would without it.
@@ -151,8 +173,10 @@ impl Lexer {
                         },
                     });
                 } else {
+                    let mut popped = 0;
                     while indent < *indents.last().unwrap() {
                         indents.pop();
+                        popped += 1;
                         out.push(Token {
                             kind: TokenKind::Dedent,
                             span: Span {
@@ -160,6 +184,16 @@ impl Lexer {
                                 ..Span::point(line_no, first_col)
                             },
                         });
+                    }
+                    // An element's continued `name=` lines may sit deeper than
+                    // its children: the children then open the same block at
+                    // their own level, as if the attributes had been indented to it.
+                    if popped == 1
+                        && indent > *indents.last().unwrap()
+                        && Self::attributes_only(&out[..out.len() - 1])
+                    {
+                        out.pop();
+                        indents.push(indent);
                     }
                     if indent != *indents.last().unwrap() {
                         return Err(LexError {
@@ -239,10 +273,21 @@ impl Lexer {
                 }
                 if c.is_ascii_digit() {
                     let start = pos;
-                    while pos < bytes.len()
-                        && ((bytes[pos] as char).is_ascii_digit() || bytes[pos] == b'.')
+                    while pos < bytes.len() && (bytes[pos] as char).is_ascii_digit() {
+                        pos += 1;
+                    }
+                    // A dot is the decimal point only when a digit follows, so
+                    // `rows.0.steps` is an index and then a field, not the
+                    // number `0.` (drums R7).
+                    if bytes.get(pos) == Some(&b'.')
+                        && bytes
+                            .get(pos + 1)
+                            .is_some_and(|n| (*n as char).is_ascii_digit())
                     {
                         pos += 1;
+                        while pos < bytes.len() && (bytes[pos] as char).is_ascii_digit() {
+                            pos += 1;
+                        }
                     }
                     let text = &trimmed[start..pos];
                     let n: f64 = text.parse().map_err(|_| LexError {
@@ -285,6 +330,36 @@ impl Lexer {
                         },
                     });
                     pos = end + 1;
+                    continue;
+                }
+                if c == '#' {
+                    // A hex color is a string, bare as CSS writes it
+                    // (`background-color=#1f9d6244`, in a keyframe as on a
+                    // node; x2apps dash): `#` and 3, 4, 6 or 8 hex digits.
+                    // Anything else names what `#` is not.
+                    let digits = bytes[pos + 1..]
+                        .iter()
+                        .take_while(|b| b.is_ascii_hexdigit())
+                        .count();
+                    let end = pos + 1 + digits;
+                    let word = bytes
+                        .get(end)
+                        .is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_' || *b == b'-');
+                    if !matches!(digits, 3 | 4 | 6 | 8) || word {
+                        return Err(LexError {
+                            id: "syntax-unexpected-char",
+                            message: "unexpected `#`: a hex color is `#` and 3, 4, 6 or 8 hex digits (`#1f9d62`), and a comment starts with `//`".into(),
+                            span,
+                        });
+                    }
+                    out.push(Token {
+                        kind: TokenKind::Str(trimmed[pos..end].to_string()),
+                        span: Span {
+                            end_col: col_of(end).col,
+                            ..span
+                        },
+                    });
+                    pos = end;
                     continue;
                 }
                 let mut matched = None;
@@ -365,21 +440,19 @@ impl Lexer {
         let mut chars = text[start + 1..].char_indices();
         while let Some((i, c)) = chars.next() {
             match c {
-                '\\' => match chars.next() {
-                    Some((_, 'n')) => out.push('\n'),
-                    Some((_, 't')) => out.push('\t'),
-                    Some((_, '"')) => out.push('"'),
-                    Some((_, '\\')) => out.push('\\'),
-                    Some((_, '`')) => out.push('`'),
-                    Some((_, '$')) => out.push('$'),
-                    _ => {
-                        return Err(LexError {
-                            id: "syntax-bad-escape",
-                            message: "unknown escape".into(),
-                            span,
-                        })
+                '\\' => {
+                    let next = chars.next().map(|(_, c)| c);
+                    match next.and_then(escaped) {
+                        Some(c) => out.push(c),
+                        None => {
+                            return Err(LexError {
+                                id: "syntax-bad-escape",
+                                message: bad_escape(next),
+                                span,
+                            })
+                        }
                     }
-                },
+                }
                 c if c == quote => return Ok((out, start + 1 + i + 1)),
                 c => out.push(c),
             }
@@ -390,6 +463,29 @@ impl Lexer {
             span,
         })
     }
+}
+
+/// The message for a `\` no escape follows: it names the escapes a string accepts.
+pub(crate) fn bad_escape(next: Option<char>) -> String {
+    let accepted = "a string accepts \\n \\t \\\" \\\\ \\` \\$";
+    match next {
+        Some(c) => format!("unknown escape `\\{c}`; {accepted}"),
+        None => format!("a `\\` ends the line, escaping nothing; {accepted}"),
+    }
+}
+
+/// The character `\c` stands for, in a `"…"` string and a template's text
+/// alike: `\n`, `\t`, `\"`, `\\`, `` \` `` and `\$` (so `\${` is literal).
+pub(crate) fn escaped(c: char) -> Option<char> {
+    Some(match c {
+        'n' => '\n',
+        't' => '\t',
+        '"' => '"',
+        '\\' => '\\',
+        '`' => '`',
+        '$' => '$',
+        _ => return None,
+    })
 }
 
 /// The byte offset of the backtick closing a template literal. Nested

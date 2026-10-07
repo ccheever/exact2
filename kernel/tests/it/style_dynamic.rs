@@ -19,6 +19,25 @@ fn translate_text_is_a_narrow_css_pixel_subset_with_atomic_refusal() {
             .unwrap();
         assert_eq!(s.translate, exact_kernel::Vec2 { x, y }, "{text}");
     }
+    // A percentage of the box is the percent row's, the length row's zero
+    // (chess diary #4); both rows take their part of the one text.
+    for (text, px, pct) in [
+        ("-50% -50%", (0.0, 0.0), (-50.0, -50.0)),
+        ("12px 25%", (12.0, 0.0), (0.0, 25.0)),
+        ("1.5e1% 0", (0.0, 0.0), (15.0, 0.0)),
+    ] {
+        for row in [StyleId::Translate, StyleId::TranslatePercent] {
+            s.set_dynamic(row, &StyleValue::Text(text.into())).unwrap();
+        }
+        assert_eq!(
+            (s.translate, s.translate_percent),
+            (
+                exact_kernel::Vec2 { x: px.0, y: px.1 },
+                exact_kernel::Vec2 { x: pct.0, y: pct.1 }
+            ),
+            "{text}"
+        );
+    }
     let max = format!("{}px 0", f32::MAX as f64);
     s.set_dynamic(StyleId::Translate, &StyleValue::Text(max))
         .unwrap();
@@ -33,8 +52,9 @@ fn translate_text_is_a_narrow_css_pixel_subset_with_atomic_refusal() {
         // A third length is `translate`'s z (LLP 1077 D8), a fourth nothing.
         "1px 2px 0px 0px",
         "1px 2px 3",
-        "10% 0",
-        "calc(1px + 2px) 0",
+        "10%% 0",
+        "% 0",
+        "calc(1px + 2%) 0",
         "NaNpx 0",
         "infpx 0",
         "1e39px 0",
@@ -182,7 +202,7 @@ fn every_dynamic_codec_fills_its_row_and_marks_the_mask() {
     assert_eq!(s.z_index, -2);
     assert_eq!(
         s.background_color,
-        ColorValue::Fixed(Color::rgba(255, 0, 0, 128))
+        Some(ColorValue::Fixed(Color::rgba(255, 0, 0, 128)))
     );
     assert_eq!(s.text_color, ColorValue::Fixed(Color(0x1122_33ff)));
     assert_eq!(s.flex_direction, exact_kernel::FlexDirection::Column);
@@ -323,7 +343,7 @@ fn grid_css_values_reach_set_dynamic_in_every_style_value_shape() {
         assert_eq!(got, want, "{id:?}");
     }
 
-    let before = style.grid_template_columns.clone();
+    let before = style.rare.grid_template_columns.clone();
     assert_eq!(
         style.set_dynamic(
             StyleId::GridTemplateColumns,
@@ -333,7 +353,7 @@ fn grid_css_values_reach_set_dynamic_in_every_style_value_shape() {
             style: StyleId::GridTemplateColumns,
         })
     );
-    assert_eq!(style.grid_template_columns, before);
+    assert_eq!(style.rare.grid_template_columns, before);
 
     style
         .set_dynamic(

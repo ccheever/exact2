@@ -18,8 +18,10 @@ import PhotosUI
 import AppKit
 #endif
 
-/// The app's directories behind `app:/`, told by the library with each
-/// picked name, so an `image` source can read a picked file (D7).
+/// The app's directories behind `app:/`, so an `image` source can read the
+/// app's own file (D7): told by the library at boot and with each picked
+/// name, so a photo kept in `app:/data` shows after a relaunch with nothing
+/// picked (recipes F18).
 enum AppFiles {
     private static let lock = NSLock()
     private static var roots: [String: URL] = [:]
@@ -27,6 +29,12 @@ enum AppFiles {
         guard let r = reply["roots"] as? [String: String] else { return }
         lock.lock(); defer { lock.unlock() }
         for (name, path) in r { roots[name] = URL(fileURLWithPath: path, isDirectory: true) }
+    }
+    /// The roots the library has now (`appRoots`), before the first frame's
+    /// images load and again once storage is configured.
+    static func learn(_ runtime: Runtime) {
+        let reply = try? JSONSerialization.jsonObject(with: Data(runtime.agent("{\"op\":\"appRoots\"}").utf8))
+        learn(reply as? [String: Any] ?? [:])
     }
     /// The file an `app:/data|cache|tmp/…` path names; nil for `..` or a root.
     static func url(_ path: String) -> URL? {
@@ -158,19 +166,36 @@ final class Picker: NSObject {
     }
 
     /// D6: JPEG at quality 0.9, orientation applied, with no metadata copied
-    /// (so no location).
+    /// (so no location). The color profile is kept, and an HDR photo is
+    /// written with an ISO 21496-1 gain map from iOS 18 / macOS 15; before
+    /// that it becomes its SDR picture (LLP 1100 D13).
     static func jpeg(from: URL, to: URL) throws {
         guard let source = CGImageSourceCreateWithURL(from as CFURL, nil),
               let (w, h) = pixels(from),
-              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                  kCGImageSourceCreateThumbnailFromImageAlways: true,
-                  kCGImageSourceCreateThumbnailWithTransform: true,
-                  kCGImageSourceThumbnailMaxPixelSize: max(w, h),
-              ] as CFDictionary),
               let destination = CGImageDestinationCreateWithURL(to as CFURL, UTType.jpeg.identifier as CFString, 1, nil)
         else { throw CocoaError(.fileReadCorruptFile) }
-        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.9] as CFDictionary)
+        var decode: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(w, h),
+        ]
+        var encode: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: 0.9]
+        if #available(iOS 18, macOS 15, tvOS 18, *), isHDR(source) {
+            decode[kCGImageSourceDecodeRequest] = kCGImageSourceDecodeToHDR
+            encode[kCGImageDestinationEncodeRequest] = kCGImageDestinationEncodeToISOGainmap
+        }
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, decode as CFDictionary)
+        else { throw CocoaError(.fileReadCorruptFile) }
+        CGImageDestinationAddImage(destination, image, encode as CFDictionary)
         guard CGImageDestinationFinalize(destination) else { throw CocoaError(.fileWriteUnknown) }
+    }
+
+    /// A gain map of either kind, or a PQ or HLG transfer (LLP 1100 D4).
+    static func isHDR(_ source: CGImageSource) -> Bool {
+        if CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, kCGImageAuxiliaryDataTypeHDRGainMap) != nil { return true }
+        if #available(iOS 18, macOS 15, tvOS 18, *),
+           CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, kCGImageAuxiliaryDataTypeISOGainMap) != nil { return true }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)?.colorSpace.map(isHDRSpace) ?? false
     }
 
     /// `accept` as Apple's types: `image/*` and `video/*` their families,
@@ -187,7 +212,14 @@ final class Picker: NSObject {
     }
 }
 
-#if canImport(UIKit)
+#if os(tvOS)
+extension Picker {
+    func present(_ r: Request) {
+        // tvOS has no photo or document picker.
+        session.log("picker: refused: no picker"); cancel(r.view)
+    }
+}
+#elseif canImport(UIKit)
 extension Picker: PHPickerViewControllerDelegate, UIDocumentPickerDelegate {
     func present(_ r: Request) {
         guard var controller = session.presenter.root.window?.rootViewController else {

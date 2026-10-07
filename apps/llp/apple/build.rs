@@ -4,7 +4,7 @@
 use contract::DataSource;
 
 fn main() {
-    println!("cargo:rerun-if-changed=../app.contract");
+    contract::rerun_if_changed(std::path::Path::new("../app.contract"));
     println!("cargo:rerun-if-changed=../app.json");
     println!("cargo:rerun-if-changed=../data");
     println!("cargo:rerun-if-changed=../../markdown/parse");
@@ -24,6 +24,10 @@ fn main() {
     let app_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let target = std::env::var("TARGET").unwrap_or_default();
     let platform = match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
+        // It reads an llp/ directory from the file system, which an Apple TV has none of.
+        Ok("tvos") => panic!(
+            "LLP has no tvOS build: it reads documents from a directory an Apple TV does not have"
+        ),
         Ok("ios") => "ios",
         _ => "macos",
     };

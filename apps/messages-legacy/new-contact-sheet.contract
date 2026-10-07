@@ -183,7 +183,7 @@ component NewContactSheet
                     flex-shrink=0
                     text "phone" font-size=17
                     image "symbol:back" rotate=180 font-size=12 tint-color="#8e8e93"
-                  input id="contact-phone"
+                  input appearance="none" id="contact-phone"
                     testId="contact-phone"
                     aria-label="Phone"
                     placeholder="Phone"
@@ -245,7 +245,7 @@ component NewContactSheet
                       justify-content="center"
                       box width=13 height=2 border-radius=1 background-color="#ffffff"
                   text "home" font-size=17 width=92 flex-shrink=0
-                  input id="contact-email"
+                  input appearance="none" id="contact-email"
                     testId="contact-email"
                     aria-label="Email"
                     placeholder="Email"
@@ -326,7 +326,7 @@ component NewContactSheet
               border-radius=28
               class=ContactFormSurface
               text "Notes" font-size=17
-              textarea id="contact-notes"
+              textarea appearance="none" id="contact-notes"
                 testId="contact-notes"
                 aria-label="Notes"
                 value=contactNotes
@@ -358,7 +358,7 @@ component NewContactSheet
           popovertarget="discard-contact-confirmation"
           popovertargetaction="hide"
           color="#ff3b30"
-          height=48 justify-content="center"
+          height=48
           border-radius=24
           background-color="light-dark(#ffffff, #38383a)"
           text "Discard Changes" font-size=17
@@ -366,5 +366,5 @@ component NewContactSheet
           popovertarget="discard-contact-confirmation"
           popovertargetaction="hide"
           class=AccentText
-          height=44 justify-content="center"
+          height=44
           text "Cancel" font-size=17

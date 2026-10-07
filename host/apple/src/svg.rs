@@ -147,6 +147,12 @@ impl SvgState {
         }
     }
 
+    /// Every scene sent so far is rebuilt: the colours it resolved changed
+    /// (LLP 1095 D1). An unchanged scene is not sent again.
+    pub(crate) fn all_dirty(&mut self) {
+        self.dirty.extend(self.sent.keys().copied());
+    }
+
     /// Whether an SVG element handles presses; its scene says so.
     pub(crate) fn handlers(&mut self, id: ViewId, press: bool) {
         if press {
@@ -264,8 +270,7 @@ fn scene(
 ) -> String {
     // A sampled animation's value now; a lowered one is Core Animation's,
     // so the scene carries its underlying value and the spec.
-    let presented = |key: NodeKey, p: Property| engine.sampled_value(motion_node(key), p);
-    let resolved = exact_kernel::svg::scene::resolve(kernel, node, bx, &presented);
+    let resolved = exact_kernel::svg::scene::resolve(kernel, node, bx, &Sampled(engine));
     let mut s = String::new();
     let _ = write!(
         s,
@@ -294,6 +299,20 @@ fn scene(
     );
     s.push('}');
     s
+}
+
+/// The engine's values as a scene presents them: a sampled animation's
+/// value now, and a path's `d` while a transition moves it (LLP 1055.000
+/// D15).
+struct Sampled<'e>(&'e Engine);
+
+impl exact_kernel::svg::scene::Present for Sampled<'_> {
+    fn value(&self, key: NodeKey, p: Property) -> Option<Value> {
+        self.0.sampled_value(motion_node(key), p)
+    }
+    fn path(&self, key: NodeKey) -> Option<exact_motion::PathValue> {
+        self.0.presented_path(motion_node(key))
+    }
 }
 
 fn affine_json(t: Affine, s: &mut String) {
@@ -997,8 +1016,39 @@ fn paint_json(paint: Option<&ShapePaint>, s: &mut String) {
         return server_json(server, paint.opacity, s);
     }
     let a = |alpha: u8| ((alpha as f32) * paint.opacity).round() as u8;
-    match paint.color.pair() {
-        ColorValue::System(_) => {} // `pair` never returns one
+    if let ColorValue::Profiled(id) = paint.color {
+        if let Some(p) = exact_kernel::style::profiled::profiled(id) {
+            return crate::style::push_profiled(s, &p, paint.opacity);
+        }
+    }
+    // LLP 1100 D2: a colour in its own space paints in that space.
+    if let ColorValue::Wide(id) = paint.color {
+        if let Some(w) = exact_kernel::style::wide::wide(id) {
+            s.push_str("{\"cs\":[");
+            let faded = |mut h: exact_color::Wide| {
+                h.alpha *= f64::from(paint.opacity);
+                h
+            };
+            crate::style::push_wide(s, faded(w.light));
+            if let Some(d) = w.dark {
+                s.push(',');
+                crate::style::push_wide(s, faded(d));
+            }
+            s.push_str("]}");
+            return;
+        }
+    }
+    // LLP 1095 D1: a reference paints what the presenter reported; a new
+    // report rebuilds the scene.
+    let color = match paint.color {
+        c @ (ColorValue::Role(_)
+        | ColorValue::Platform(_)
+        | ColorValue::Wide(_)
+        | ColorValue::Moving(..)
+        | ColorValue::Profiled(_)) => ColorValue::LightDark(c.resolve(false), c.resolve(true)),
+        c => c,
+    };
+    match color {
         ColorValue::Fixed(c) => {
             let _ = write!(s, "[{},{},{},{}]", c.r(), c.g(), c.b(), a(c.a()));
         }
@@ -1016,6 +1066,11 @@ fn paint_json(paint: Option<&ShapePaint>, s: &mut String) {
                 a(d.a())
             );
         }
+        ColorValue::Role(_)
+        | ColorValue::Platform(_)
+        | ColorValue::Wide(_)
+        | ColorValue::Moving(..)
+        | ColorValue::Profiled(_) => s.push_str("null"),
     }
 }
 

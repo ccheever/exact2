@@ -1,8 +1,11 @@
 //! Collection-certified Arrange. No host clock, motion executor or data preview.
+//! A list with a `reorderGroup` adds a target and a hold (`reorder_group.rs`,
+//! LLP 1094); every call here keeps the source's token.
+use super::reorder_group::Session;
 use super::*;
 use crate::instance::collection::{
-    Collection, ReorderBinding, ReorderFrame, ReorderGeometry, ReorderProgress, ReorderStart,
-    ReorderToken,
+    Collection, ReorderBinding, ReorderFrame, ReorderGeometry, ReorderPhase, ReorderProgress,
+    ReorderStart, ReorderToken,
 };
 use exact_kernel::{Display, NodeKey, NodeType, Op, PropId};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -59,7 +62,10 @@ impl<D: DataSource> Runner<D> {
             if at.style.rotate != 0.0
                 || at.style.scale != 1.0
                 || (at.key != binding.wrapper
-                    && (at.style.translate.x != 0.0 || at.style.translate.y != 0.0))
+                    && (at.style.translate.x != 0.0
+                        || at.style.translate.y != 0.0
+                        || at.style.translate_percent.x != 0.0
+                        || at.style.translate_percent.y != 0.0))
             {
                 return None;
             }
@@ -80,10 +86,21 @@ impl<D: DataSource> Runner<D> {
     }
     /// Admit one preview only after the host acquired the existing interaction pin.
     /// Refused identity/facts do not consume a serial or change any styles/pins.
+    /// The session stays in its list, a grouped one too; a host that drags
+    /// between lists begins with `begin_group_reorder` (LLP 1094 D4).
     pub fn begin_reorder(
         &mut self,
         binding: ReorderBinding,
         geometry: ReorderGeometry,
+    ) -> Result<Option<ReorderStart>, RunnerError> {
+        self.begin_session(binding, geometry, None, false)
+    }
+    pub(super) fn begin_session(
+        &mut self,
+        binding: ReorderBinding,
+        geometry: ReorderGeometry,
+        group: Option<String>,
+        ghost: bool,
     ) -> Result<Option<ReorderStart>, RunnerError> {
         if self.reorder_owner.is_some()
             || self.reorder_binding(binding.handle) != Some(binding)
@@ -99,13 +116,39 @@ impl<D: DataSource> Runner<D> {
             serial,
         };
         let handle = self.kernel.node_by_key(binding.handle).unwrap().id;
+        let grouped = group.is_some();
         let (accepted, ops) = self.edit_reorder(binding.list, |c, u, _| {
-            c.begin_preview(u, binding, token, handle)
+            if !c.begin_preview(u, binding, token, handle)? {
+                return Ok(None);
+            }
+            let item = c.preview_item();
+            if grouped {
+                c.set_grouped();
+                if ghost {
+                    c.set_hidden(u, item.as_ref().map(|(ident, _)| ident.clone()))?;
+                }
+            }
+            Ok(item)
         })?;
-        if accepted != Some(true) {
+        let Some(Some((item, key))) = accepted else {
             return Ok(None);
-        }
+        };
         self.reorder_owner = Some(binding.list);
+        self.reorder_session = Some(Box::new(Session {
+            token,
+            target: binding.list,
+            group,
+            phase: ReorderPhase::Active,
+            ending: None,
+            deadline_ms: None,
+            item,
+            key,
+            before: None,
+            place: None,
+            ghost,
+            touched: vec![binding.list],
+            warned: false,
+        }));
         let receipt = self.apply_reorder_ops(ops)?;
         Ok(Some(ReorderStart { token, receipt }))
     }
@@ -126,6 +169,9 @@ impl<D: DataSource> Runner<D> {
         geometry: ReorderGeometry,
         content_y: f64,
     ) -> Result<ReorderProgress, RunnerError> {
+        if self.is_grouped(token) {
+            return self.preview_reorder_into(token, token.list, geometry, content_y);
+        }
         if !self.has_reorder(token) || self.reorder_geometry(token.list).as_ref() != Some(&geometry)
         {
             return Ok(ReorderProgress::Stale);
@@ -145,11 +191,16 @@ impl<D: DataSource> Runner<D> {
     }
     /// Consume terminal eligibility once and dispatch exact private keys while the
     /// source pin remains owned. Host rebase/end MUST precede `finish_reorder`.
+    /// A grouped session's `geometry` is its target's; it drops there and
+    /// may hold (`ReorderFrame::phase`, LLP 1094 D8).
     pub fn drop_reorder(
         &mut self,
         token: ReorderToken,
         geometry: ReorderGeometry,
     ) -> Result<Option<CommitReceipt>, RunnerError> {
+        if self.is_grouped(token) {
+            return self.drop_group(token, geometry);
+        }
         if !self.has_reorder(token) || self.reorder_geometry(token.list).as_ref() != Some(&geometry)
         {
             return Ok(None);
@@ -161,6 +212,7 @@ impl<D: DataSource> Runner<D> {
         // Reset targets join the action's one instance commit. The descriptor is
         // already terminal, so reentry cannot dispatch twice or reacquire it.
         self.reorder_ops.extend(ops);
+        self.set_phase(token, ReorderPhase::Settling);
         let view = self.kernel.node_by_key(token.list).unwrap().id;
         let result = self.dispatch(view, Event::ReorderDrop { item, before });
         if result.is_err() {
@@ -172,6 +224,7 @@ impl<D: DataSource> Runner<D> {
         result.map(Some)
     }
     /// Enter the no-action terminal phase; retain the pin until host hold cleanup.
+    /// A hold is past cancelling: its send is out (LLP 1094 D8).
     pub fn cancel_reorder(
         &mut self,
         token: ReorderToken,
@@ -182,14 +235,52 @@ impl<D: DataSource> Runner<D> {
         if !c.preview_active(token) {
             return Ok(None);
         }
+        if self.is_grouped(token) {
+            let ops = self.end_session(None, false)?;
+            return self.apply_reorder_ops(ops);
+        }
         let (_, ops) = self.edit_reorder(token.list, |c, u, _| c.end_preview(u))?;
+        self.set_phase(token, ReorderPhase::Cancelling);
         self.apply_reorder_ops(ops)
     }
     /// Bounded live wrapper identities/targets for host before/after C0 rebasing.
     /// Current viewport presentation and mapping remain the host's responsibility.
+    /// It says where the session stands, its target, and which mounted
+    /// wrapper holds the dragged row now (LLP 1094 D4, D8).
     pub fn reorder_frame(&self, token: ReorderToken) -> Option<ReorderFrame> {
-        self.reorder_collection(token.list)?
-            .preview_frame(&self.kernel, token)
+        let mut frame = self
+            .reorder_collection(token.list)?
+            .preview_frame(&self.kernel, token)?;
+        let Some(s) = self.reorder_session.as_deref().filter(|s| s.token == token) else {
+            return Some(frame);
+        };
+        frame.phase = s.phase;
+        frame.ending = s.ending;
+        frame.target = Some(s.target);
+        let mut lists = vec![s.target, token.list];
+        if let Some(group) = s.group.as_deref() {
+            lists.extend(self.group_lists(group));
+        }
+        frame.row = lists.into_iter().find_map(|list| {
+            self.reorder_collection(list)?
+                .wrapper_of(&self.kernel, &s.item)
+        });
+        Some(frame)
+    }
+    /// Whether `token` is a live session on a grouped list.
+    pub(super) fn is_grouped(&self, token: ReorderToken) -> bool {
+        self.reorder_session
+            .as_deref()
+            .is_some_and(|s| s.token == token && s.group.is_some())
+    }
+    fn set_phase(&mut self, token: ReorderToken, phase: ReorderPhase) {
+        if let Some(s) = self
+            .reorder_session
+            .as_deref_mut()
+            .filter(|s| s.token == token)
+        {
+            s.phase = phase;
+        }
     }
     /// Retire the terminal descriptor and only its still-owned interaction pin.
     /// Hosts may defer this through the source return spring; finish only when
@@ -209,20 +300,31 @@ impl<D: DataSource> Runner<D> {
         if c.preview_token() != Some(token) {
             return Ok(None);
         }
-        let (finished, ops) = self.edit_reorder(token.list, |c, u, frames| {
+        let (finished, mut ops) = self.edit_reorder(token.list, |c, u, frames| {
             c.finish_preview(u, frames, token)
         })?;
         if finished != Some(true) {
             return Ok(None);
         }
         self.reorder_owner = None;
+        // Every row a grouped session hid shows again, and any gap left
+        // open closes (LLP 1094 D6).
+        if let Some(s) = self.reorder_session.take() {
+            for list in s.touched {
+                let (_, o) = self.edit_reorder(list, |c, u, _| {
+                    c.close_incoming(u, false)?;
+                    c.set_hidden(u, None)
+                })?;
+                ops.extend(o);
+            }
+        }
         self.apply(ops).map(Some)
     }
-    fn reorder_collection(&self, key: NodeKey) -> Option<&Collection> {
+    pub(super) fn reorder_collection(&self, key: NodeKey) -> Option<&Collection> {
         let id = self.kernel.node_by_key(key)?.id;
         self.tree.as_ref()?.reorder_collection(id)
     }
-    fn edit_reorder<T>(
+    pub(super) fn edit_reorder<T>(
         &mut self,
         key: NodeKey,
         edit: impl FnMut(&mut Collection, &mut Update<'_>, &[Frame]) -> Result<T, InstanceError>,
@@ -237,18 +339,24 @@ impl<D: DataSource> Runner<D> {
         let mut ids = std::mem::take(&mut self.ids);
         let result = {
             let mut u = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
+            u.reuse = self.reuse;
             tree.edit_reorder(id, &mut u, edit)
-                .map(|r| (r, u.ops, u.notes))
+                .map(|r| (r, u.ops, u.notes, u.renewed, u.shown))
         };
         self.tree = Some(tree);
         self.ids = ids;
-        let result = result.map(|(r, ops, notes)| {
+        let result = result.map(|(r, ops, notes, renewed, shown)| {
             self.notes.extend(notes);
+            self.renewed.extend(renewed);
+            self.shown.extend(shown);
             (r, ops)
         });
         result.map_err(Into::into)
     }
-    fn apply_reorder_ops(&mut self, ops: Vec<Op>) -> Result<Option<CommitReceipt>, RunnerError> {
+    pub(super) fn apply_reorder_ops(
+        &mut self,
+        ops: Vec<Op>,
+    ) -> Result<Option<CommitReceipt>, RunnerError> {
         if ops.is_empty() {
             Ok(None)
         } else {
@@ -261,12 +369,17 @@ impl<D: DataSource> Runner<D> {
         };
         let Some(c) = self.reorder_collection(owner) else {
             self.reorder_owner = None;
+            self.reorder_session = None;
             return Ok(Vec::new());
         };
         let Some(token) = c.preview_token() else {
             self.reorder_owner = None;
+            self.reorder_session = None;
             return Ok(Vec::new());
         };
+        if self.is_grouped(token) {
+            return self.reconcile_group();
+        }
         if !c.preview_active(token) || self.has_reorder(token) {
             return Ok(Vec::new());
         }

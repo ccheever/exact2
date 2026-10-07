@@ -136,10 +136,6 @@ pub enum PlanError {
     FaceSource {
         face: u32,
     },
-    /// A declared family has no face.
-    EmptyFamily {
-        family: u32,
-    },
     /// A family repeats one static `(weight, italic)` coordinate.
     DuplicateFace {
         family: u32,
@@ -147,7 +143,7 @@ pub enum PlanError {
         weight: u16,
         italic: bool,
     },
-    /// v1 accepts one member per stack (the table remains a range).
+    /// A CSS fallback stack requires one to 64 members.
     StackMembers {
         stack: u32,
         members: u32,
@@ -253,11 +249,21 @@ impl Plan {
         }
         if let Some(id) = self.router {
             let slot = self.slot(id);
-            if self.type_(slot.ty).kind != TypeKind::Record || slot.owner.is_some() {
+            if self.type_(slot.ty).kind != TypeKind::Record || slot.owner.is_some() || slot.late {
                 return Err(PlanError::BadReference {
                     table: "header",
                     row: 0,
                     field: "router",
+                });
+            }
+        }
+        // A late slot is a root slot: an owned one is its instance's.
+        for (i, slot) in self.slots.iter().enumerate() {
+            if slot.late && (slot.owner.is_some() || self.locale == Some(SlotsId(i as u32))) {
+                return Err(PlanError::BadReference {
+                    table: "slots",
+                    row: i as u32,
+                    field: "late",
                 });
             }
         }
@@ -376,9 +382,6 @@ impl Plan {
             }
         }
         for (i, family) in self.families.iter().enumerate() {
-            if family.faces.len == 0 {
-                return Err(PlanError::EmptyFamily { family: i as u32 });
-            }
             // A family's faces are few: a scan, not a hash table's code.
             let mut coordinates = Vec::new();
             for face_id in family.faces.iter() {
@@ -399,7 +402,7 @@ impl Plan {
             return Err(PlanError::TooManyStacks(self.stacks.len()));
         }
         for (i, stack) in self.stacks.iter().enumerate() {
-            if stack.members.len != 1 {
+            if !(1..=64).contains(&stack.members.len) {
                 return Err(PlanError::StackMembers {
                     stack: i as u32,
                     members: stack.members.len,
@@ -532,6 +535,12 @@ impl Plan {
         Ok(())
     }
 
+    /// The region whose instance frame holds an owned slot's value: its
+    /// owning arm's region. `None` for a root slot.
+    pub fn owner_region(&self, slot: &SlotsRow) -> Option<RegionsId> {
+        slot.owner.map(|arm| self.arm(arm).region)
+    }
+
     /// Validate the slot relation a mutation assignment relies on at runtime.
     pub fn validate_mutation_slot(&self, mutation: MutationsId) -> Result<(), PlanError> {
         let row = self.mutation(mutation);
@@ -550,6 +559,35 @@ impl Plan {
             });
         }
         Ok(())
+    }
+
+    /// This plan without its resources' compiled values (`initial` and
+    /// `initial_args`), the data pool rebuilt to hold only what its other
+    /// rows still name. It is what a data module binds with: a source reads
+    /// the plan's declarations there, never the bake's answers, which can be
+    /// most of a baked plan's bytes.
+    pub fn without_compiled_values(&self) -> Plan {
+        let mut plan = self.clone();
+        for row in &mut plan.resources {
+            row.initial = Bytes::default();
+            row.initial_args = Bytes::default();
+        }
+        let mut data = Vec::new();
+        let mut moved = std::collections::HashMap::new();
+        plan.each_bytes_mut(&mut |b: &mut Bytes| {
+            if b.len == 0 {
+                *b = Bytes::default();
+                return;
+            }
+            let offset = *moved.entry((b.offset, b.len)).or_insert_with(|| {
+                let at = data.len() as u32;
+                data.extend_from_slice(&self.data[b.offset as usize..(b.offset + b.len) as usize]);
+                at
+            });
+            b.offset = offset;
+        });
+        plan.data = std::borrow::Cow::Owned(data);
+        plan
     }
 }
 

@@ -7,6 +7,13 @@ use exact_gpu::{fixture, Frame, Surface};
 #[path = "../../bake/tests/samples.rs"]
 mod samples;
 
+/// BoxTextured's colour texture, named by its content at bake.
+fn box_texture() -> String {
+    static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    NAME.get_or_init(|| samples::sample("BoxTextured").textures[0].clone())
+        .clone()
+}
+
 #[derive(Default, Component)]
 struct Drift {
     velocity: Vec3,
@@ -49,7 +56,7 @@ fn sun_and_camera(w: &mut World, camera: Camera) {
         Transform::at(3., 2., -6.),
         PointLight {
             color: [1., 0.6, 0.2],
-            intensity: 40.,
+            intensity: 40. / crate::PHOTOMETRIC_SCALE,
             range: 12.,
         },
     ));
@@ -215,7 +222,7 @@ impl Game for Herd {
             if i % 2 == 0 {
                 w.spawn((Transform::at(at.x, at.y, at.z), Mesh::asset("glass.model")));
             } else {
-                let mut sprite = Sprite::new("BoxTextured/0-srgb-straight.tex", [1.5, 1.]);
+                let mut sprite = Sprite::new(box_texture(), [1.5, 1.]);
                 sprite.alpha = [
                     asset::AlphaMode::Opaque,
                     asset::AlphaMode::Mask,
@@ -243,7 +250,7 @@ fn gpu() -> Option<exact_gpu::Gpu> {
 // Draw each time culled, then with every item kept; pixels must be identical.
 // Returns the camera and cascade instance totals of each culled frame, and how
 // many quads (sprites, particles) the culled frames skipped in all.
-fn identical<G: Game, P: crate::Presentation, const ASSETS: bool>(
+fn identical<G: Game, P: crate::Executor, const ASSETS: bool>(
     gpu: &exact_gpu::Gpu,
     surface: &mut WorldSurface<G, P, ASSETS>,
     times: &[f64],
@@ -261,6 +268,7 @@ fn identical<G: Game, P: crate::Presentation, const ASSETS: bool>(
             period_ms: 0.,
             children_generation: 0,
             shader_generation: 0,
+            headroom: 1.0,
         };
         if let Some(r) = surface.renderer_for_test() {
             r.count_culled(true);
@@ -327,7 +335,7 @@ fn culling_changes_no_pixels_in_a_moving_primitive_field() {
 #[test]
 fn culling_changes_no_pixels_with_animated_skins_models_and_sockets() {
     let Some(gpu) = gpu() else { return };
-    let mut surface = WorldSurface::<Herd, crate::ModelPresentation, true>::default();
+    let mut surface = WorldSurface::<Herd, crate::ModelExecutor, true>::default();
     surface.device_ready(exact_gpu::wgpu::Features::empty());
     surface.bind(&[], None).unwrap();
     let fox = samples::sample("Fox");
@@ -343,9 +351,7 @@ fn culling_changes_no_pixels_with_animated_skins_models_and_sockets() {
     let format = exact_gpu::wgpu::TextureFormat::Rgba8Unorm;
     surface.prepare_assets(&gpu.device, &gpu.queue, format);
     for texture in surface.assets().requests {
-        let path = std::path::PathBuf::from(std::env::var_os("HOME").unwrap())
-            .join("Library/Caches/exact2-game/gltf-samples")
-            .join(&texture);
+        let path = samples::cache().join(&texture);
         surface.asset(&texture, Ok(&std::fs::read(path).unwrap()));
     }
     surface.prepare_assets(&gpu.device, &gpu.queue, format);
@@ -435,6 +441,7 @@ fn armed_perf_reports_culled_views_and_pass_times_without_hooks() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     fixture::render(&gpu, &mut surface, &frame).unwrap();
     let unarmed = surface.agent("{\"op\":\"state\"}").unwrap();
@@ -472,6 +479,7 @@ fn devices_without_indirect_execution_draw_the_same_pixels_directly() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let (culled, _) = fixture::render(&gpu, &mut surface, &frame).unwrap();
     // As on the iOS simulator: no indirect execution, so every group draws directly.

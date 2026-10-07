@@ -17,6 +17,13 @@ pub fn component(input: TokenStream) -> TokenStream {
     derive(input, Some("Component"))
 }
 
+/// A presentation-only component: excluded from saves, hashes and rest observation,
+/// written only by `Game::present`. Presentation resources are not supported.
+#[proc_macro_derive(Presentation, attributes(data))]
+pub fn presentation(input: TokenStream) -> TokenStream {
+    derive(input, Some("Presentation"))
+}
+
 /// Implement data and use the type's spelling as its resource name.
 #[proc_macro_derive(Resource, attributes(data))]
 pub fn resource(input: TokenStream) -> TokenStream {
@@ -251,10 +258,21 @@ fn expand_type(tokens: &[TokenTree], marker: Option<&str>) -> Result<String, Str
     };
     let mut out = format!("impl ::exact_game::Data for {name} {{ fn moving(&self, now: ::exact_game::Now) -> ::core::primitive::bool {{ let _ = now; {moving} }} fn settle_tick(&self, now: ::exact_game::Now) -> ::core::option::Option<::core::primitive::u64> {{ {settle} }} fn write(&self, w: &mut dyn ::exact_game::Writer) {{ {write} }} fn read(&mut self, r: &mut dyn ::exact_game::Reader) -> ::core::result::Result<(), ::exact_game::DataError> {{ {read} ::core::result::Result::Ok(()) }} }}");
     if let Some(marker) = marker {
+        let (marker, extra) = if marker == "Presentation" {
+            (
+                "Component",
+                " const PRESENTATION: ::core::primitive::bool = true;",
+            )
+        } else {
+            (marker, "")
+        };
         out += &format!(
-            "impl ::exact_game::{marker} for {name} {{ const NAME: &'static ::core::primitive::str = {:?}; }}",
+            "impl ::exact_game::{marker} for {name} {{ const NAME: &'static ::core::primitive::str = {:?};{extra} }}",
             clean(&name)
         );
+        if !extra.is_empty() {
+            out += &format!("impl ::exact_game::PresentationComponent for {name} {{}}");
+        }
     }
     Ok(out)
 }

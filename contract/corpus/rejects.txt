@@ -36,6 +36,17 @@ component A
   view
     text formatDate(0, 0, kind)
 ---
+== type-literal-digits
+component A
+  view
+    text toFixed(1.5, 101)
+---
+== type-list-item
+component A
+  state xs = [1, "two"]
+  view
+    text "a"
+---
 == type-operand
 component A
   derive x = 1 + "a"
@@ -260,6 +271,48 @@ component A
   view
     text "a"
 ---
+== syntax-task-start
+component A
+  state n = 1
+  action tick
+    n = n + 1
+  task t
+    after(60, tick)
+  view
+    text "a"
+---
+== type-task-gate
+component A
+  state toast = ""
+  action tick
+    toast = ""
+  task t when toast
+    after(60, tick)
+  view
+    text "a"
+---
+== type-task-key
+shape P
+  x: number
+component A
+  state p = P(x=1)
+  action tick
+    p = P(x=2)
+  task t key=p
+    after(60, tick)
+  view
+    text "a"
+---
+== analyze-task-gate-clock
+component A
+  state n = 1
+  action tick
+    n = n + 1
+  task t when now() < 1000
+    every(60, tick)
+  view
+    text "a"
+---
 == lower-leaf-children
 component A
   state q = ""
@@ -451,12 +504,6 @@ fn f(n: number): number = f(n)
 component A
   view
     text `${f(1)}`
----
-== contract-fn-shadows-roster
-fn floor(n: number): number = n
-component A
-  view
-    text `${floor(1)}`
 ---
 == syntax-expected-step
 test "t"
@@ -785,6 +832,34 @@ component A
       column navigate=follow navigationKey="home"
         text "Home"
 ---
+== lower-route-place
+# hn-reader F5: a route behind a wrapper is found by no host.
+routes nav
+  home "/"
+component A
+  action back
+    nav = back(nav)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back"
+      column align-items="center"
+        each e in stack(nav) key=e.id
+          column navigationKey=`${e.id}`
+            text e.url
+---
+== lower-route-scroll
+# A route's navigationScroll names an id nothing in the route carries.
+routes nav
+  home "/"
+component A
+  action back
+    nav = back(nav)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back"
+      each e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationScroll="list" position="absolute" inset=0
+          scroll id="feed" height=400
+            text e.url
+---
 == syntax-continuation-indent
 # LLP 1035.005 D1: an element's attributes continue only on lines deeper
 # than the element's; at its own depth `width=` is neither a child nor a
@@ -851,33 +926,102 @@ component A
       text "a"
 ---
 == type-unknown-command
-# An action is not callable from an action.
-component A
+# An action of another component is out of this one's scope: a call reaches
+# its own component's actions, its action props and its injects (LLP 1089).
+component App
   state n = 1
   action begin
     n = 2
+  view
+    Child()
+component Child
+  state m = 0
   action go
     begin()
   view
     button press=go
       text "a"
 ---
-== type-unknown-command
-# Nor is an action prop.
-component Child
-  props
-    comment: action
+== type-call-arity
+# A call passes every parameter the action takes (LLP 1089 D10).
+component A
+  state n = 1
+  action set(x: number, y: number)
+    n = x + y
   action go
-    comment("x")
+    set(1)
   view
     button press=go
       text "a"
-component App
-  state draft = ""
-  action post(text: string)
-    draft = text
+---
+== type-call-value
+# A call is a statement: it gives no value (LLP 1089 D1).
+component A
+  state n = 1
+  action begin
+    n = 2
+  action go
+    let x = begin()
+    n = 3
   view
-    Child(comment=post)
+    button press=go
+      text "a"
+---
+== type-call-action-arg
+# A call passes values, never an action (LLP 1089 D1).
+component A
+  state n = 1
+  action begin
+    n = 2
+  action run(what)
+    n = 3
+  action go
+    run(begin)
+  view
+    button press=go
+      text "a"
+---
+== syntax-call-cycle
+# No action calls itself, directly or through others (LLP 1089 D4).
+component A
+  state n = 1
+  action go
+    n = 2
+    go()
+  view
+    button press=go
+      text "a"
+---
+== syntax-call-target
+# A called action prop names an action where it is bound (LLP 1089 D7).
+component App
+  state n = 1
+  view
+    Child(cb=n + 1)
+component Child
+  props
+    cb: action
+  state m = 0
+  action go
+    cb()
+  view
+    button press=go
+      text "a"
+---
+== analyze-call-stale-read
+# A callee reads the state the action started with: a slot its caller
+# assigned first is stale behind the call (LLP 1089 D3).
+component A
+  state sel = 0
+  state seen = 0
+  action follow
+    seen = sel
+  action go
+    sel = 2
+    follow()
+  view
+    button press=go
+      text "a"
 ---
 == type-share-argument
 # `share` takes the Web Share API's names, named (LLP 1069.003 D1).
@@ -924,6 +1068,42 @@ component A
     button press=go
       text "a"
 ---
+== type-notification-argument
+# `showNotification` takes the Notification API's names, named.
+component A
+  action go
+    showNotification("Stretch")
+  view
+    button press=go
+      text "a"
+---
+== type-notification-argument
+# It needs a title.
+component A
+  action go
+    showNotification(body="Five minutes")
+  view
+    button press=go
+      text "a"
+---
+== type-notification-argument
+# `showTrigger` is a time in epoch milliseconds, not text.
+component A
+  action go
+    showNotification(title="Stretch", showTrigger="7:30")
+  view
+    button press=go
+      text "a"
+---
+== type-notification-argument
+# `closeNotification` takes the tag.
+component A
+  action go
+    closeNotification()
+  view
+    button press=go
+      text "a"
+---
 == type-file-picker-argument
 # `showSaveFilePicker` takes (id, suggestedName) (LLP 1069.010 D2).
 component A
@@ -938,6 +1118,15 @@ component A
 component A
   action go
     saveFile("out", "app:/data/a.json")
+  view
+    button press=go
+      text "a"
+---
+== type-save-file-argument
+# A file to copy or the text to save, not both (x2apps notes #4).
+component A
+  action go
+    saveFile("out", "app:/data/a.json", text="a", suggestedName="a.md")
   view
     button press=go
       text "a"
@@ -1030,6 +1219,18 @@ component A
     column
       map(xs, x => text x)
 ---
+== syntax-else-keyword
+# An action branches with `if`, a view with `when`: `else if` here.
+component A
+  state n = 0
+  action a
+    if n > 0
+      n = 1
+    else when n < 0
+      n = 2
+  view
+    text "a" press=a
+---
 == syntax-callback-view
 component A
   resource xs = xs() as shape list<string>
@@ -1069,6 +1270,14 @@ fn roomOf(id: string): number = frame(id).height
 component A
   view
     text toString(roomOf("x"))
+---
+== type-geometry-outside-action
+# LLP 1094 D10: `elementFromPoint` reads `frame`'s boxes, so only an action may.
+component A
+  derive under = elementFromPoint(10, 10)
+  view
+    column id="box"
+      text match under { case some(id) => id, case none => "" }
 ---
 == type-measure-literal-id
 # The runner answers `measure` before the action runs, so its id is a literal.
@@ -1162,3 +1371,95 @@ component A
     let a = 1
   view
     text "a"
+---
+== lower-reorder-collection
+component A
+  state moved = ""
+  resource rows = rows() as shape list<string>
+  action drop(item: string, before: option<string>)
+    moved = item
+  view
+    list id="cities" reorderdrop=drop height=300
+      each city in rows key=city
+        row
+          box reorderFor="cities" width=24 height=24
+          text city
+---
+== type-set-selection-range
+component A
+  state at = 0
+  action jump(k: string)
+    setSelectionRange("editor", "4")
+  view
+    textarea id="editor" value="text" key=jump
+---
+== type-sound-undeclared
+# LLP 1096 D2: a literal source names a declared sound.
+component A
+  action go
+    playSound("assets/kick.wav")
+  view
+    button "go" press=go
+---
+== type-play-sound
+# A literal gain outside 0–1, as a literal `volume` is.
+component A
+  action go
+    playSound(src, gain=1.5)
+  state src = "assets/kick.wav"
+  view
+    button "go" press=go
+---
+== type-play-sound
+# An option `playSound` does not take.
+component A
+  state src = "assets/kick.wav"
+  action go
+    playSound(src, rate=2)
+  view
+    button "go" press=go
+---
+== type-play-sound
+# A hit without `at`: `playSounds` reads a hit's fields by position.
+shape Hit
+  src: string
+  gain: number
+  group: string
+fn noHits(): list<Hit> = []
+component A
+  state hits = noHits()
+  action go
+    playSounds(hits)
+  view
+    button "go" press=go
+---
+== type-play-sound
+# A hit whose gain is a string.
+shape Hit
+  src: string
+  at: number
+  gain: string
+  group: string
+fn noHits(): list<Hit> = []
+component A
+  state hits = noHits()
+  action go
+    playSounds(hits)
+  view
+    button "go" press=go
+---
+== type-play-sound
+# `stopSounds` takes only `group=`.
+component A
+  action go
+    stopSounds("hat")
+  view
+    button "go" press=go
+---
+== lower-media-session
+component A
+  state seek = 0
+  action skip
+    seek = seek + 30
+  view
+    audio "assets/a.mp3" seekforward=skip

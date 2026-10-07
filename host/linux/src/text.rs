@@ -14,12 +14,13 @@
 //! in the box, which cosmic-text does itself. Glyphs are rasterized by swash
 //! once per (glyph, color) into small premultiplied pixmaps.
 
-mod cache;
+pub(crate) mod cache;
 mod catalog;
 mod catalog_recipe;
 mod flow;
 #[cfg(test)]
 mod flow_tests;
+mod font_cache;
 mod shaping;
 #[allow(dead_code)] // Private transfer proof; controller integration is a separate increment.
 pub(crate) mod transfer;
@@ -27,6 +28,7 @@ pub(crate) mod transfer;
 mod transfer_tests;
 use shaping::ShapedSource;
 mod ink;
+pub(crate) mod markup;
 pub use cache::{HandoffResidency, Residency, RetiringResidency};
 
 use crate::image::Assets;
@@ -70,6 +72,16 @@ pub struct Run {
     pub letter_spacing: f32,
     /// CSS `font-variant-numeric` bits (LLP 1053 G4): 1 is `tabular-nums`.
     pub font_variant_numeric: u8,
+    /// A Markdown list item's head indent, points: where its paragraph's
+    /// lines start (LLP 1045 D4).
+    pub indent: f32,
+    /// A Markdown list item's marker, hung before the indent.
+    pub hang: bool,
+    /// A Markdown piece's paint ([`markup::QUIET`], `UNDERLINE`, `STRIKE`);
+    /// 0 for every other run.
+    pub mark: u8,
+    /// A Markdown link's target ([`markup::target`]); empty otherwise.
+    pub href: String,
 }
 
 #[cfg(test)]
@@ -85,6 +97,10 @@ impl Clone for Run {
             line_height: self.line_height,
             letter_spacing: self.letter_spacing,
             font_variant_numeric: self.font_variant_numeric,
+            indent: self.indent,
+            hang: self.hang,
+            mark: self.mark,
+            href: self.href.clone(),
         }
     }
 }
@@ -103,6 +119,10 @@ impl Run {
             line_height: style.line_height,
             letter_spacing: style.letter_spacing,
             font_variant_numeric: style.font_variant_numeric,
+            indent: 0.0,
+            hang: false,
+            mark: 0,
+            href: String::new(),
         }
     }
 }
@@ -124,6 +144,8 @@ pub struct Spec {
     pub white_space: exact_kernel::WhiteSpace,
     /// CSS paragraph base direction.
     pub direction: exact_kernel::Direction,
+    /// CSS `text-indent`, points: the first line's inset from its start edge.
+    pub text_indent: f32,
 }
 
 impl Spec {
@@ -140,9 +162,36 @@ impl Spec {
         self
     }
 
+    /// The runs as the paragraph shows them: Markdown expanded ([`Self::markdown`]),
+    /// anything else collapsed ([`Self::collapse_white_space`]).
+    pub fn shown(self, markdown: bool) -> Self {
+        if markdown {
+            self.markdown()
+        } else {
+            self.collapse_white_space()
+        }
+    }
+
+    /// A `markup="markdown"` paragraph's: its one run of source expanded
+    /// into pieces (LLP 1045 D3), which keep their own lines — the source
+    /// is never collapsed, as on Apple.
+    pub fn markdown(mut self) -> Self {
+        if let [source] = self.runs.as_slice() {
+            self.runs = markup::expand(source);
+        }
+        self
+    }
+
     /// The spec a kernel measure request describes.
     pub fn from_request(request: &TextMeasureRequest<'_>) -> Spec {
-        Spec {
+        // A soft hyphen breaks and shows here as on every host; `auto`'s own
+        // hyphenation points need a language's patterns, which this pure-Rust
+        // host does not carry (LLP 1001).
+        static AUTO: std::sync::Once = std::sync::Once::new();
+        if request.paragraph.hyphens == exact_kernel::Hyphens::Auto {
+            AUTO.call_once(|| eprintln!("[Text] hyphens-auto: Linux has no hyphenation dictionary; `hyphens: auto` breaks only at soft hyphens, as `manual` (LLP 1001)"));
+        }
+        let spec = Spec {
             strut: Run::from_style("", request.paragraph.strut),
             runs: request
                 .runs
@@ -154,8 +203,9 @@ impl Spec {
             overflow_wrap: request.paragraph.overflow_wrap,
             white_space: request.paragraph.white_space,
             direction: request.paragraph.direction,
-        }
-        .collapse_white_space()
+            text_indent: request.paragraph.text_indent,
+        };
+        spec.shown(request.paragraph.markup == exact_kernel::Markup::Markdown)
     }
 
     /// Whether there is nothing to shape.
@@ -181,6 +231,8 @@ pub struct Paragraph {
     pub first_baseline: f32,
     /// CSS shared-baseline placement for each wrapped line, used by both painters.
     baselines: Arc<Vec<f32>>,
+    /// Each wrapped line box's bottom (LLP 1093 D6): where a column may end.
+    bottoms: Arc<Vec<f32>>,
     ink: RefCell<ink::Cache>,
     ellipsized: RefCell<Option<(f32, Rc<Paragraph>)>>,
     // S + L, excluding canonical key K. Shared S must be deduplicated across
@@ -211,9 +263,19 @@ impl Paragraph {
         self.owned_capacity_bytes() - self.source.accessible_capacity_bytes
     }
 
+    /// The runs it was shaped from, in the order glyphs' `metadata` index.
+    pub fn runs(&self) -> &[Run] {
+        &self.source.spec.runs
+    }
+
     /// CSS baselines in original wrapped-line order.
     pub fn baselines(&self) -> &[f32] {
         &self.baselines
+    }
+
+    /// Each wrapped line box's bottom, in the same order (LLP 1093 D6).
+    pub fn line_bottoms(&self) -> &[f32] {
+        &self.bottoms
     }
 
     /// Current CPU ink arrays, counted by allocated capacity. This grows lazily
@@ -404,6 +466,12 @@ impl FamilyChoice {
 pub struct GlyphRun {
     /// The font's data and collection index.
     pub font: PenikoFont,
+    /// Normalized variation coordinates (a variable face's `wght`).
+    pub coords: std::sync::Arc<[i16]>,
+    /// The face's file and collection index, when it was loaded from one.
+    pub file: Option<(std::sync::Arc<str>, u32)>,
+    /// The weight shaped with (the `wght` a variable face is set to).
+    pub weight: u16,
     /// Points.
     pub size: f32,
     /// Canonical run index, retained across font fallback and wrapping.
@@ -640,7 +708,7 @@ impl TextEngine {
 
     pub(crate) fn finish_text_frame(&mut self) {
         self.paragraphs.finish_handoff();
-        self.trim_paragraphs();
+        self.paragraphs.maintain();
     }
 
     pub(crate) fn retiring_accepted<'a>(
@@ -650,6 +718,7 @@ impl TextEngine {
         self.paragraphs.retiring(accepted)
     }
 
+    #[cfg(test)]
     pub(crate) fn trim_paragraphs(&mut self) {
         self.paragraphs.trim(None);
     }
@@ -933,9 +1002,12 @@ impl TextEngine {
         runs.into_iter()
             .filter_map(
                 |((id, weight, size, run_index, synthetic_italic), glyphs)| {
-                    let font = catalog.font_data(id, Weight(weight))?;
+                    let face = catalog.font_data(id, Weight(weight))?;
                     Some(GlyphRun {
-                        font,
+                        font: face.font,
+                        coords: face.coords,
+                        file: face.file,
+                        weight,
                         size: f32::from_bits(size),
                         run_index,
                         paint: palette[run_index],
@@ -991,6 +1063,38 @@ impl TextMeasurer for Measurer {
     ) -> TextMetrics {
         self.0.borrow_mut().measure_identified(stamp, request)
     }
+    fn height_free(&self) -> bool {
+        true
+    }
+    fn measure_known(
+        &mut self,
+        stamp: &ParagraphStamp,
+        width: AxisOffer,
+        _height: AxisOffer,
+    ) -> Option<TextMetrics> {
+        // Offers here are width-only: height never changes a paragraph.
+        let mut engine = self.0.borrow_mut();
+        let (key, spec) = engine.paragraphs.identified(stamp)?;
+        Some(engine.measure_for(&spec, width, key))
+    }
+
+    /// @ref LLP 1093 D6 — the line boxes of the paragraph the measure built.
+    fn lines(
+        &mut self,
+        stamp: &ParagraphStamp,
+        request: &TextMeasureRequest<'_>,
+        bottoms: &mut Vec<f32>,
+    ) {
+        let AxisOffer::Definite(width) = request.width else {
+            return;
+        };
+        let mut engine = self.0.borrow_mut();
+        let (key, spec) = engine.identified_spec(stamp, || Spec::from_request(request));
+        if !spec.is_empty() {
+            bottoms.extend_from_slice(engine.paragraph_for(&spec, Some(width), key).line_bottoms());
+        }
+    }
+
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
         let spec = Spec::from_request(request);
         let mut engine = self.0.borrow_mut();

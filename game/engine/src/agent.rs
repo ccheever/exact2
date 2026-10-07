@@ -1,7 +1,6 @@
 use crate::values::quote;
 use crate::{
-    json, spatial, Clock, Data, DataError, Entity, Game, Parent, Reader, Sim, Vec2, Vec3, Visible,
-    World,
+    json, spatial, Clock, Data, DataError, Entity, Game, Parent, Reader, Sim, Vec2, Vec3, World,
 };
 use std::collections::BTreeMap;
 use std::fmt::Write;
@@ -21,6 +20,9 @@ struct Request {
     x: Option<f32>,
     y: Option<f32>,
     since: u64,
+    from: u64,
+    limit: Option<u64>,
+    resources: bool,
 }
 impl Request {
     fn parse(text: &str) -> Result<Self, DataError> {
@@ -61,11 +63,41 @@ impl Request {
                     }
                 }
                 "since" => q.since.read(&mut r)?,
+                "from" => q.from.read(&mut r)?,
+                "limit" => {
+                    let mut n = 0u64;
+                    n.read(&mut r)?;
+                    if n == 0 || n > MAX_PAGE as u64 {
+                        return Err(DataError::new(format!(
+                            "limit must be 1..={MAX_PAGE}; page with from"
+                        ))
+                        .at("limit"));
+                    }
+                    q.limit = Some(n);
+                }
+                "resources" => q.resources.read(&mut r)?,
                 _ => r.skip()?,
             }
         }
         r.finish()?;
         Ok(q)
+    }
+}
+// Entity listings answer in pages: `from` an offset in hierarchy preorder, at most
+// `limit` entities (512 by default), with `total` and the `next` offset.
+const PAGE: usize = 512;
+const MAX_PAGE: usize = 100_000;
+fn page(q: &Request, start: usize, end: usize) -> (usize, usize) {
+    let from = start
+        .saturating_add(q.from.min(usize::MAX as u64) as usize)
+        .min(end);
+    let limit = q.limit.map_or(PAGE, |n| n as usize);
+    (from, from.saturating_add(limit).min(end))
+}
+fn page_tail(out: &mut String, to: usize, start: usize, end: usize) {
+    write!(out, "\"truncated\":{},\"total\":{}", to < end, end - start).unwrap();
+    if to < end {
+        write!(out, ",\"next\":{}", to - start).unwrap();
     }
 }
 fn encode<T: Data>(v: &T) -> Result<String, String> {
@@ -223,8 +255,9 @@ impl<G: Game> Sim<G> {
                 let subtree = q.under.as_deref().map(|n| resolve(w,n)).transpose()?;
                 let start = subtree.and_then(|e| all.iter().position(|(a,_,_)| *a == e)).unwrap_or(0);
                 let end = if subtree.is_some() { (start+1..all.len()).find(|&i| all[i].2 <= all[start].2).unwrap_or(all.len()) } else { all.len() };
+                let (from, to) = page(&q, start, end);
                 let mut out = format!("{{\"tick\":{tick},\"entities\":[");
-                for (i, &(e, parent, depth)) in all[start..end].iter().take(512).enumerate() {
+                for (i, &(e, parent, depth)) in all[from..to].iter().enumerate() {
                     if i != 0 { out.push(','); }
                     out.push('{');
                     identity_into(&mut out, w, e);
@@ -237,7 +270,9 @@ impl<G: Game> Sim<G> {
                     }
                     out.push_str("],\"tags\":[]}");
                 }
-                write!(out, "],\"truncated\":{}}}", end-start > 512).unwrap();
+                out.push_str("],");
+                page_tail(&mut out, to, start, end);
+                out.push('}');
                 Ok(out)
             }
             "state" if q.entity.as_deref() == Some("*") => {
@@ -245,8 +280,9 @@ impl<G: Game> Sim<G> {
                 let subtree = q.under.as_deref().map(|n| resolve(w,n)).transpose()?;
                 let start = subtree.and_then(|e| all.iter().position(|(a,_,_)| *a == e)).unwrap_or(0);
                 let end = if subtree.is_some() { (start+1..all.len()).find(|&i| all[i].2 <= all[start].2).unwrap_or(all.len()) } else { all.len() };
+                let (from, to) = page(&q, start, end);
                 let mut entities = String::new();
-                for (i, &(e, _, _)) in all[start..end].iter().take(512).enumerate() {
+                for (i, &(e, _, _)) in all[from..to].iter().enumerate() {
                     if i != 0 { entities.push(','); }
                     entities.push('{');
                     identity_into(&mut entities, w, e);
@@ -254,7 +290,10 @@ impl<G: Game> Sim<G> {
                     entities.push_str(&w.components_json(e).map_err(|e| e.to_string())?);
                     entities.push('}');
                 }
-                Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"entities\":[{entities}],\"truncated\":{}{}}}", w.hash(), end-start > 512, if q.busy { format!(",\"busy\":{}", encode(&self.changing(self.quiescent()))?) } else { String::new() }))
+                let mut tail = String::new();
+                page_tail(&mut tail, to, start, end);
+                let resources = if q.resources { format!(",\"resources\":{}", w.resources_json().map_err(|e| e.to_string())?) } else { String::new() };
+                Ok(format!("{{\"tick\":{tick},\"hash\":\"0x{:016x}\",\"entities\":[{entities}],{tail}{resources}{}}}", w.hash(), if q.busy { format!(",\"busy\":{}", encode(&self.changing(self.quiescent()))?) } else { String::new() }))
             }
             "state" if q.entity.is_some() => {
                 let e = resolve(w,q.entity.as_deref().unwrap())?;
@@ -263,8 +302,8 @@ impl<G: Game> Sim<G> {
             }
             "state" => {
                 let host_input = self.host_input();
-                Ok(format!("{{\"tick\":{tick},\"world\":{{\"name\":{},\"tick\":{tick},\"hz\":{},\"seed\":{},\"hash\":\"0x{:016x}\",\"entities\":{},\"paused\":{},\"loading\":{},\"assets\":{},\"restarted\":{},\"restored\":{}{},\"args\":{},\"resources\":{},\"audio\":{},\"input\":{{\"actions\":{},\"held\":{},\"forwarded\":{},\"controls\":{},\"forwardedControls\":{},\"controlContacts\":{}}},\"published\":{}}}}}",
-                quote(G::NAME), w.hz(), w.seed(), w.hash(), w.len(), G::paused(&self.args), encode(&w.assets.states.iter().filter(|(_, s)| **s == crate::asset::AssetState::Pending).map(|(n, _)| n.clone()).collect::<Vec<_>>())?, w.assets.state_json(), self.restarted, self.restored, self.restored_from.as_ref().filter(|_| self.restored).map_or_else(String::new, |a| format!(",\"restoredFrom\":{a}")), self.args_json, w.resources_json().map_err(|e|e.to_string())?, crate::audio::state(w), self.input.actions().json(), encode(&self.input.keys)?, encode(&host_input.keys)?, encode(&self.input.held_controls())?, encode(&host_input.held_controls())?, encode(&host_input.control_contacts())?, w.published_json(true)))
+                Ok(format!("{{\"tick\":{tick},\"world\":{{\"name\":{},\"tick\":{tick},\"hz\":{},\"seed\":{},\"hash\":\"0x{:016x}\",\"entities\":{},\"paused\":{},\"loading\":{},\"assets\":{},\"restarted\":{},\"restored\":{}{}{},\"args\":{},\"resources\":{},\"audio\":{},\"input\":{{\"actions\":{},\"held\":{},\"forwarded\":{},\"controls\":{},\"forwardedControls\":{},\"controlContacts\":{},\"refusedPosts\":{}}},\"published\":{}}}}}",
+                quote(G::NAME), w.hz(), w.seed(), w.hash(), w.len(), G::paused(&self.args), encode(&w.assets.states.iter().filter(|(_, s)| **s == crate::asset::AssetState::Pending).map(|(n, _)| n.clone()).collect::<Vec<_>>())?, w.assets.state_json(), self.restarted, self.restored, self.restored_from.as_ref().filter(|_| self.restored).map_or_else(String::new, |a| format!(",\"restoredFrom\":{a}")), self.paranoid_samples().map_or_else(String::new, |(skipped, owed)| format!(",\"paranoid\":{{\"skipped\":{skipped},\"owed\":{owed}}}")), self.args_json, w.resources_json().map_err(|e|e.to_string())?, crate::audio::state(w), self.input.actions().json(), encode(&self.input.keys)?, encode(&host_input.keys)?, encode(&self.input.held_controls())?, encode(&host_input.held_controls())?, encode(&host_input.control_contacts())?, self.refused_posts, w.published_json(true)))
             },
             "layout" if q.entity.is_some() => {
                 let e = resolve(w,q.entity.as_deref().ok_or("layout needs an entity")?)?;
@@ -322,7 +361,7 @@ impl<G: Game> Sim<G> {
                     encode(&depth)?,
                     format!(
                         "{{\"inFrustum\":{},\"behindCamera\":{behind},\"distance\":{}}}",
-                        inside && w.get::<Visible>(e).is_none_or(|v| v.0),
+                        inside && w.is_visible(e),
                         encode(&distance)?
                     ),
                 )

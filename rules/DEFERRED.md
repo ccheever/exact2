@@ -138,6 +138,20 @@ Linux skips Thai word breaking (Charlie, 2026-09-28): with no segmenter
 there, flowed Thai, Lao, Khmer and Myanmar text breaks only at spaces; no
 ICU4X dictionaries. Web and Apple take their platforms' words (LLP 1043.000 §8).
 
+**Expanded (orchestrator for Charlie, 2026-10-05, LLP 1093 §8: "admission via
+your offered trade"):** CSS multi-column (`columns`, `column-count`,
+`column-width`, `column-gap: normal`, `column-fill`, solid `column-rule`) and
+the break rules that only mean something inside it (`widows`, `orphans`,
+`break-before`/`-after`/`-inside` without page or region values). Native hosts
+fragment through the kernel's cut, and the web is the browser's own multicol,
+held to Chrome. The reader app's diary is the consumer: pagination and a
+two-page spread from one flow. Unblocks book pagination without a polled
+height or a duplicated chapter. Take: LLP 1043.000 stage 5
+(`shape-outside: <image>`, the dancer's traced silhouette) moves behind
+LLP 1093 stage 2. Still out: `column-span`, regions, paged media and `@page`,
+`box-decoration-break: clone`, and slicing decorated, fixed-height, flex-row
+and grid boxes (LLP 1093 §5).
+
 **Expanded (Charlie, 2026-09-21: "design and build a markdown editor that works
 across all Exact platforms"):** WYSIWYG Markdown editing and one-node Markdown
 reading (LLP 1045), Interview first. Unblocks rich posts that stay plain text
@@ -158,7 +172,8 @@ captioned figures — no camera, no generic file input. **Widened (Charlie,
 `file_handlers`, plus export and import copies to and from `app:/`. Unblocks
 the Markdown reader's remaining surfaces and Fieldnotes' backups. Take: none
 named (Charlie: "idk what to trade it for, maybe relax the limit slightly").
-Still no picker for any file, and no camera. Linux editing is v2
+Still no picker for any file, and no `capture` on the picker (the camera is a
+native module, §Components, 2026-10-02). Linux editing is v2
 (Charlie, 2026-09-21): web, iOS and macOS first; Linux reads.
 
 **Expanded (Charlie, 2026-09-21):** ship the full game engine from Black's
@@ -224,6 +239,51 @@ API stability": this surface (LLP 1075.003 §3.9) is named, and a break is one
 commit that changes the fixture and says what to change. Still refused: a
 deprecation window, native property names in Contract, and a JavaScript UI
 tier.
+**Expanded (Charlie, 2026-10-03: tab badges, "I think", kept minimal):** a
+tab's child that is a filled box holding one text is its tab bar item's badge
+(LLP 1075.003 §9.9), the box the web paints. The Signal Clone's unread-chats
+count on Chats is the consumer. Unblocks a native tab badge with no module.
+Take: none offered; waived by Charlie's approval. No badge attribute and no
+badge on a bare tablist's bar.
+**Expanded (Charlie, 2026-10-03: "Declarative nav basics"):** a heading's
+group as a richer title (avatar, subtitle, press), the tab bar hidden for a
+route pushed while the authored tablist is, no bar for a route with no
+header, and a named scroller under an inline title's bar (LLP 1075.003
+§9.10). The Signal Clone's conversation header and photo viewer are the
+consumer. Unblocks them with no module. Take: none offered; waived by
+Charlie's approval. No new attribute, no title menu, no bar added by a route.
+**Expanded (Charlie, 2026-10-03: "A native grouped-list role mapped to
+UICollectionView list layout"):** `list appearance="auto"` is a grouped list
+(LLP 1084): sections with a header and footer, rows read by shape, UIKit's
+own list on iOS and a measured sheet elsewhere; `listStyle` picks
+`inset-grouped`, `grouped` or `plain`. The Signal Clone's settings screens are
+the consumer. Unblocks native cell highlight, separators, dynamic type and
+VoiceOver rows in a settings screen without a module. Take: none offered;
+waived by Charlie's approval. No sidebar styles, no virtualized grouped list,
+no grouped swipe actions.
+**Expanded (Charlie, 2026-10-06, via the lead: "Recs seem good. Approve and
+push"):** hooks on every platform and what the agent sees of them (LLP
+1075.003.000.001). The changes:
+- app and window scopes;
+- a frame clock and timers on the session clock;
+- `input(text)` on an authored field;
+- Linux and Windows hooks: an overlay the hook replaces whole, and input it
+  only observes;
+- development-only diagnostics (`log`, `count`, `measure`, spans, `publish`)
+  and Exact's own timing of each call;
+- owned regions and parts in `tree`;
+- a crash breadcrumb;
+- per-platform hook words checked by the delivery classifier.
+
+`perf hooks` is a form of `perf`. Tapping a part is a form of `tap`, by real
+platform input only. Neither is a new operation. The consumers are the Signal
+Clone and `apps/native-fixture`. The ruling admits three pieces of
+apparatus: `exact.mjs hook <word>`, `EXACT_HOOKS=off` and the template's
+`AGENTS.md` hooks section. Take: none offered; waived by Charlie's approval.
+Still refused: claiming input on a painting host (a gesture arena), a tap that
+runs hook code by name, a hook that writes Contract state or dispatches, a
+node-scoped frame ticket, diagnostics collected in production, and JavaScript
+above the data seam on native. Android stays below, named but not built.
 
 ## Surfaces
 
@@ -237,8 +297,44 @@ explicitly stateless modules removes OS loading from the update latency path.
 Generic executor-private state migration stays out; this is one committed
 generation with an executor change, not a second app reload or patch protocol.
 
+**Expanded (Charlie, 2026-10-03, waiver: "So maybe we just say we support all
+Apple platforms in-tree, and out-of-tree is for like Amazon's new TV operating
+system thing"; "yeah, this sounds good, let's pull it in"):** the Apple
+platforms UIKit covers are in-tree surfaces: tvOS (Doug Lowder's port,
+`host/apple/build.mjs --tvos`; the Siri Remote's focus, Select and Menu) and
+visionOS when someone ports it. Each is a variant of the iOS presenter, not a
+new one: shared Swift admits it beside `os(iOS)`, Rust cfgs beside
+`target_os = "ios"`, and its own code compiles into its own binary alone.
+Unblocks Caltrain on an Apple TV. watchOS, which has no UIKit, stays out. A
+platform with its own UI stack (Amazon's Vega OS) is a host outside this
+repository, on the plan, runner and agent seams; its RFC is owed. The take is
+waived.
+
+**Admitted (Charlie, 2026-10-06: "this is pretty great. commit and push this
+and document that TUI is now an officially supported platform for Exact2";
+LLP 1101, 1101.000, 1101.001):** the terminal is an officially supported,
+in-tree surface. `host/terminal` (`exact-terminal`) runs a terminal entry —
+its own root `.contract`, compiled under the terminal profile (lengths in
+`ch`/`lh`, the schema's `terminal` admission) — inline (settled transcript
+entries printed once into the terminal's own scrollback, the live tail
+redrawn; selection, copy and tmux stay the terminal's) or full screen.
+Unblocks apps authored for the terminal: the coding harness
+(`apps/harness`, real models through OpenRouter, Anthropic, OpenAI and
+Ollama) and the todo fixture (`apps/todo`). A terminal entry is a separate
+application root on a separate medium, not a platform override (LLP 1101
+D9, §Authoring models). No take was named; the ruling stands as its own
+waiver until Charlie names one.
+
 - **Windows.** A working Direct2D host exists in the old repo. It is real work, and it
-  doubles the native matrix. Port it after the loop is proven.
+  doubles the native matrix. **Admitted (Charlie, 2026-10-04):** "make an exact2
+  implementation for the Windows platform, including the game engine" for standalone
+  Skirmish (LLP 1015.000). Take: single-player first; multiplayer and general Windows
+  app expansion wait behind the working game. The engine remains optional.
+  **Expanded (Charlie, 2026-10-04):** "something simple and app-like that uses a
+  lot of windows native stuff" admits Windows Desk, a bounded text workspace
+  using Contract and an app-local Win32 control presenter. General Windows
+  control parity remains behind these two consumers; no additional showcase
+  or framework is admitted by this example.
 - **Android.** Same.
 
 Every surface multiplies the sweep, the presenter count, and the number of ways one
@@ -255,7 +351,8 @@ change can break.
   no app-ABI generator.
 - **Platform-suffixed route overrides** (`.native.tsx`, `.mac.tsx`, ...). One route, one
   file. If a platform needs different behavior, that is a branch inside the component or
-  a bug in the presenter.
+  a bug in the presenter. A terminal entry (LLP 1101) is a separate application root on
+  a separate medium, not a platform override; GUI surfaces still have one source.
 
 ## Features carried over as "no"
 
@@ -300,6 +397,16 @@ change can break.
   benchmark app, scheduler, core feature matrix or second application-state graph.
   Production ABI changes, arbitrary object unification and a default shared heap
   remain unselected.
+- Notifications were never on the doing list (LLP 1069 §1 ranked them first of
+  the "next"). **Expanded (waived by the orchestrator under Charlie's 2026-10-04
+  delegation, "make decisions without me"):** local notifications by the web's
+  Notification API names — `showNotification` now or at a time, `closeNotification`
+  by tag — under the existing `device.notifications` grant. Consumers: the Habits
+  app's reminders (x2apps habits F13) and Dash's price alerts, both faked as
+  in-app banners. Unblocks a reminder that reaches the person outside the window.
+  Take: none offered. Still refused: push delivery from a server, actions and
+  replies on a notification, badges, repeating schedules, and a readable
+  permission fact.
 
 **Components** — roughly 15 built-in tags, not 40; roughly 12 Facet components, not 47.
 **Restated (Charlie, 2026-09-27, LLP 1069.001):** the tag count guards against
@@ -316,7 +423,61 @@ reading. Nothing that isn't HTML is added by it.
   view transitions moved behind the deck lane. LLP 1020 §6. What stays no from
   exact1's webview: `top` topology, navigation policy, the controller ops, `allow`,
   author-facing `srcdoc` — each with its return trigger in LLP 1020 §5.)
-- No camera anything.
+- **Expanded (LLP 1096; admitted by the orchestrator under Charlie's
+  2026-10-04 delegation, "make decisions without me"):** short sounds an
+  action can schedule: a `sound` declaration (a WAV in `assets/`, at most 10
+  s), `playSound(src, at=, gain=, group=)`, `playSounds(hits)` and
+  `stopSounds(group=)`. The runner keeps the voice table; the web plays
+  through Web Audio, Apple through one mixer in an arm loaded on demand;
+  Linux and Windows keep the record; `app.json`'s `audio_session` picks the
+  Apple session. Consumers: drums (R1–R3), snake (F1), trivia (F5).
+  Unblocks a retriggered, sample-accurate hit without two media elements per
+  voice or a 2 ms poll. Take (offered in LLP 1096 §9 Q1, accepted): the
+  `audio` element stops being the sound-effect path — R1's retrigger change
+  to the media glue is not built, and the guide's "Ding" recipe and LLP 1042
+  §8's sound-effect paragraph are deleted. Round-1 review A held that neither
+  is doing-list work; to the extent it is not, the admission stands on the
+  orchestrator's waiver under the same delegation. Still out: synthesis,
+  pitch and rate, pan, loops, fades and gain automation, effects, a handle to
+  one voice, a stop at a future time, compressed formats, sound produced by a
+  data module, microphone input, and output on Linux and Windows (LLP 1096
+  §7). No tag is added.
+- **Expanded (LLP 1098; admitted by the orchestrator under Charlie's
+  2026-10-04 delegation, "make decisions without me"):** the media session,
+  by the Media Session API's names, on HTML's media element:
+  `metadata=MediaMetadata(title=, artist=, album=, artwork=)` on an `audio`
+  or `video` claims it; `seekbackward`, `seekforward`, `seekto`,
+  `previoustrack`, `nexttrack` and `stop` are that element's events, with
+  `MediaSessionActionDetails`; the platform's play and pause act on the
+  element; position and playback state are the player's. The web publishes
+  through `navigator.mediaSession`, Apple through `MPNowPlayingInfoCenter`
+  and `MPRemoteCommandCenter` in the video arm; Linux and Windows keep the
+  record. On iOS it needs `audio_session: "playback"` and the `audio`
+  background mode. Consumers: podcast (F13, Top 5 #1), jukebox (media keys).
+  Unblocks media keys, Now Playing, the lock screen and Control Center, a
+  headset's buttons and the browser's media hub. Take (offered in LLP 1098
+  §9 Q1, accepted): LLP 1042 §5's "Complete-player extension design
+  (unimplemented)", a spec with no implementer or date, is deleted, and
+  `QUEUE.md`'s "Video (LLP 1042)" lines lose "complete the designed
+  track/controller and app audio-session ownership APIs"; to the extent that
+  is not doing-list work, the admission stands on the orchestrator's waiver
+  under the same delegation. Still out, each until a consumer asks: the
+  other actions (`skipad`, slides, calls, picture in picture), Apple's
+  scanning, rate, rating and like commands, an app-set `playbackState` or
+  position, more than one artwork size, `app:/` artwork, resuming the
+  player after an interruption and route policy, MPRIS on Linux and
+  Windows's transport controls; and from LLP 1042 §5's deleted design,
+  `source` and `track` children, a media controller (play, load, seek,
+  fullscreen and PiP requests with results), DRM, and downloads and caches
+  (LLP 1098 §7). No tag is added.
+- ~~No camera anything.~~ Moved 2026-10-02 (Charlie: "I don't know why camera is so
+  aggressively deferred. Can we change that and record the change? It's time to work
+  on it"; take waived, none offered): a camera is an app native module in LLP
+  1067.000's shape — one object per session holding a preview view and its calls
+  (start, stop, capture, flip), gated by the `device.camera` grant (LLP 1069.008), with
+  an agent substitute before the OS (LLP 1069.007). Unblocks taking a photo in an
+  app, on the web, iOS and macOS first. Not a built-in tag. Video recording and
+  barcode or document scanning stay out until a consumer asks.
 - ~~No gradient style rows. A gradient with anything on it is a canvas surface with
   children (LLP 1014 §5 — the take for widening `canvas`; the three rows return when a
   host earns them).~~ Moved 2026-09-26 (Seth Webster, for grnl; LLP 1066): one CSS
@@ -357,6 +518,27 @@ reading. Nothing that isn't HTML is added by it.
   §4.8, §5.3; Charlie, 2026-09-27). A reused view is indistinguishable from a
   new element; state that must survive scrolling lives in keyed data.
 
+**Actions** — an action does not call an action (LLP 1017 P4c: a child
+reaches its parent through `action` props bound to elements).
+**Expanded (Charlie, 2026-10-03: yes to the action-prop tail call):** a
+child's action may call one of its `action` props as its last statement (or
+the last statement of a last `if`/`match` branch). The compiler puts the named
+action's statements there, so it runs last in the same commit (LLP 1017 §P4c,
+"The tail call"). The Signal Clone's photo viewer is the consumer: its release
+decides to dismiss. Unblocks a child that decides, in its own logic, to tell
+its parent. Take: none offered; waived by Charlie's approval.
+**Expanded (LLP 1089; waived by the orchestrator under Charlie's 2026-10-04
+delegation, "make decisions without me"):** a call anywhere a statement may
+stand, to an action of the same component, an `action` prop, or an injected
+action, expanded into that commit; a host command keeps its name, and a
+call naming both a host command and an action in its component's scope is
+refused (`syntax-call-ambiguous`, amended 2026-10-05 with Charlie's approval:
+a new host command must never silently rebind an app's call). Consumers:
+Files' four copies of "open" (F27) and the spreadsheet's close-the-editor and
+move copies (F21); Mail's swipe (F18) is the tail call, once the docs say so.
+Take: none offered. Still refused: recursion, a return value, and an action
+passed as an argument.
+
 **Motion** — **in v1**, in the LLP 1002 shape: CSS's `transition` model. Targets
 are kernel style rows (`translate`, `scale`, `rotate`, `opacity`); a `transition`
 row on the node says how they get there; the web host emits it as CSS and does
@@ -366,6 +548,19 @@ the web. Gestures are in as follow-and-release: the platform recognizes, the
 engine holds a value and springs it back with the release velocity. The seekable
 clock is in, and it is the reason motion is testable: an agent advances time to
 `settle_time()` and reads; it never waits.
+
+**Expanded (Charlie, 2026-10-05, via the lead: approved LLP 1099's design,
+"move to code"):** `spring()` takes UIKit's parameterisations: duration and
+damping ratio, duration and bounce, response, and a labelled `velocity` and an
+end time on the physical spring, each lowered to the spring UIKit builds and
+cut where Core Animation cuts it. One implementation in `exact-motion`; the
+web plays its frames. Unblocks porting UIKit apps' springs by their own
+numbers (the Signal clone's menu, reply icon and photo viewer, now
+hand-sampled `linear()` curves). Take: the clone's hand-sampled curves are
+deleted when stage 1 lands. A take off the doing-list, or a waiver in
+Charlie's words, is still to be recorded here. Still out: SwiftUI's own
+spring evaluator, vector initial velocities, and per-iOS-version behaviour
+(LLP 1099 pins iOS 27.0).
 
 Moved off this list 2026-08-28 (LLP 1002 D6): **delegation to CSS on the web** — it
 unblocks a web host that ships zero motion bytes and a parity corpus with the
@@ -383,12 +578,44 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   Unblocks throwing what a `pan` drags by state, a card flung off a stack
   (`apps/spark`, admitted with it). Take: none: this is 1057 phase 2's item
   with its consumer. Still no phases, pointer ids or per-frame callbacks.
+  **Expanded (Charlie, 2026-10-03: yes to `pointerdown`/`pointerup`):** DOM's
+  two events, a touch or the primary button going down on a node and coming
+  up (a cancel is an up), with no payload and no recognition. They observe
+  beside `press`, `pan` and `contextmenu` and take nothing from them (LLP 1005
+  §Events). The Signal Clone's hold-to-record mic is the consumer: recording
+  starts the moment the finger lands. Unblocks hold-to-act controls. Take:
+  none offered; waived by Charlie's approval. Still no multi-touch.
+  **Built (2026-10-04, LLP 1056 §8.6; the widening confirmed by Charlie the
+  same day):** stage 3's pointer coordinates, which Canvas 2D's acceptance
+  admitted for a canvas's handlers, as a `PointerEvent` record (DOM's
+  offset, buttons, pressure, type and id) on these two and a new
+  `pointermove`, on any node. The paint app's diary (F1) is the consumer.
+  Take: none offered.
+  **Expanded (LLP 1094; waived by the orchestrator under Charlie's
+  2026-10-04 delegation, "make decisions without me"):** a reorder spanning
+  vertical virtualized lists that share a `reorderGroup`, in one session,
+  with a host-drawn top-layer ghost, a drop hold, keyboard and
+  custom-action moves, the action read `elementFromPoint`, and
+  `PointerEvent`'s `clientX`/`clientY`. Consumers: the two kanban builds
+  (F4). Unblocks moving cards on a board without a hand-built drag. Take:
+  none offered. Still out: reorder on row and nested lists (LLP 1094 §7),
+  drags into or out of the app, multi-item drags, grids, a gesture arena.
   **Expanded (Charlie, 2026-09-29: "Yeah add the every frame task"; take
   waived, none offered; waiver confirmed by Charlie 2026-09-30):** one root task form, `every(frame, action)`
   (LLP 1073): the action once per presented frame, never caught up, and on
   the agent's seekable clock a virtual 60 Hz display. Unblocks a ticker or
   an animation loop in step with the display (the web-framework bench's
   grid ticker). Per-node frame callbacks and frame arguments stay out.
+  **Expanded (LLP 1092; waived by the orchestrator under Charlie's
+  2026-10-04 delegation, "make decisions without me"):** a gated root task,
+  `task NAME when COND [key=EXPR]`, whose timer exists only while its
+  condition holds and restarts when its key changes; nothing runs when the
+  gate changes. Consumers: ledger2's undo toast, chat's and chat2's bots and
+  toasts, trivia's round (their diaries' Top-5). Unblocks an app that does
+  no work at rest while nothing is showing. Take: none offered. Still out:
+  a reaction to a state change (LLP 1017 P4c's `task … when [dep]`),
+  component-scoped and action-started timers, computed intervals, a gate
+  that reads `now()`, and cancelling a queued send.
 - **A second value graph.** No shared-value plane, derived values, bindings, or
   plan node graph. The style row is the binding.
   **Expanded (Charlie, 2026-09-27, LLP 1057.003: "approve those"; take waived, none
@@ -476,7 +703,8 @@ names them. `press-scale` stays as a declared non-CSS host-feedback row (LLP
 highlight is (a shrink is feedback, not motion).
 - **`runOnJS` and the escape hatch / runtime graph admission** — never existed here.
 
-**Tooling** — no Design Mode, no Guide system, no devtools UI, no TUI host, no blog/CMS.
+**Tooling** — no Design Mode, no Guide system, no devtools UI, no blog/CMS. (The
+TUI host came off on 2026-10-06: §Surfaces.)
 
 **Agent API** — 10 operations, not 90:
 
@@ -556,6 +784,10 @@ This half matters more than the feature half.
 - No migration guides.
 - Generated files are built, never committed.
 - Sparse prose. The code and the checks are the authority.
+  **Except the author guides (Charlie, 2026-10-04, LLP 1086 D9):** the guides under
+  `docs/` describe the shipped product to the people and agents building with it. A
+  change that alters what an author writes or runs updates them in the same change.
+  That is not apparatus and needs no approval; a new file there still does.
 
 ## Moving something off this list
 

@@ -14,14 +14,16 @@ const SHADOW_SAMPLE: &str = piece!("shadow_sample");
 const NO_SHADOW_SAMPLE: &str = piece!("no_shadow_sample");
 const IBL: &str = piece!("ibl");
 const FORWARD: &str = piece!("forward");
+const LIGHTS: &str = piece!("lights");
+const FADE: &str = piece!("fade");
 const MODEL: &str = piece!("model");
 /// The environment prefilter, a standalone module (ibl.rs).
 pub(crate) const ENVIRONMENT: &str = piece!("environment");
 
 fn primitive_sources() -> [String; 5] {
     [
-        [FRAME, TRANSFORM, SHADOW_SAMPLE, IBL, FORWARD].concat(),
-        [FRAME, TRANSFORM, piece!("shadow")].concat(),
+        [FRAME, TRANSFORM, SHADOW_SAMPLE, IBL, FADE, LIGHTS, FORWARD].concat(),
+        [FRAME, TRANSFORM, FADE, piece!("shadow")].concat(),
         [FRAME, piece!("sky")].concat(),
         [FRAME, piece!("tonemap")].concat(),
         [FRAME, piece!("bloom")].concat(),
@@ -49,7 +51,10 @@ pub(crate) fn model_source(shadow: bool) -> String {
     } else {
         (SHADOW_SAMPLE, "")
     };
-    [FRAME, TRANSFORM, sample, IBL, FORWARD, MODEL, tail].concat()
+    [
+        FRAME, TRANSFORM, sample, IBL, FADE, LIGHTS, FORWARD, MODEL, tail,
+    ]
+    .concat()
 }
 
 /// Pipelines every renderer creates at construction: eight forward, two shadow,
@@ -147,6 +152,17 @@ impl Pipelines {
                     count: None,
                 },
                 sampler(7, wgpu::SamplerBindingType::Filtering),
+                // Clustered local lights (lights.wgsl).
+                storage(8, wgpu::ShaderStages::FRAGMENT),
+                // Per-slot screen-door fade (fade.wgsl `faded`).
+                storage(9, wgpu::ShaderStages::FRAGMENT),
+                // An authored environment map drawn as the visible sky (sky.wgsl).
+                texture(
+                    10,
+                    wgpu::TextureSampleType::Float { filterable: true },
+                    wgpu::TextureViewDimension::D2,
+                ),
+                sampler(11, wgpu::SamplerBindingType::Filtering),
             ],
         );
         let tone_layout = layout(
@@ -160,8 +176,10 @@ impl Pipelines {
                 ),
             ],
         );
+        // Group 1 of every forward pipeline: sun cascades, the comparison
+        // sampler and local light shadows (placeholders when absent).
         let shadow_layout = layout(
-            "game sun sample",
+            "game shadow sample",
             &[
                 texture(
                     0,
@@ -169,6 +187,11 @@ impl Pipelines {
                     wgpu::TextureViewDimension::D2Array,
                 ),
                 sampler(1, wgpu::SamplerBindingType::Comparison),
+                texture(
+                    2,
+                    wgpu::TextureSampleType::Depth,
+                    wgpu::TextureViewDimension::D2Array,
+                ),
             ],
         );
         let camera_layout = layout("game cascade camera", &[uniform]);
@@ -233,7 +256,7 @@ impl Pipelines {
                 "game forward",
                 "vs",
                 Some(if shadow { "fs_shadow" } else { "fs" }),
-                &layouts[..if shadow { 2 } else { 1 }],
+                &layouts,
                 &vertex_layout,
                 depth(true, wgpu::CompareFunction::Less, Default::default()),
                 4,
@@ -243,22 +266,43 @@ impl Pipelines {
                 i & 4 != 0,
             )
         });
+        // Depth only, with a fragment stage that drops Opacity-faded texels so
+        // primitive shadows dither and vanish with the primitive.
         let shadow = std::array::from_fn(|i| {
-            make_pipeline(
-                device,
-                &shaders[1],
-                "game shadow",
-                "vs_shadow",
-                None,
-                &[Some(&scene_layout), Some(&camera_layout)],
-                &vertex_layout,
-                depth(true, wgpu::CompareFunction::Less, Default::default()),
-                1,
-                wgpu::TextureFormat::Rgba16Float,
-                None,
-                &[],
-                i != 0,
-            )
+            let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("game shadow"),
+                bind_group_layouts: &[Some(&scene_layout), Some(&camera_layout)],
+                immediate_size: 0,
+            });
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("game shadow"),
+                layout: Some(&layout),
+                vertex: wgpu::VertexState {
+                    module: &shaders[1],
+                    entry_point: Some("vs_shadow"),
+                    buffers: &vertex_layout,
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shaders[1],
+                    entry_point: Some("fs_shadow"),
+                    targets: &[],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    front_face: if i != 0 {
+                        wgpu::FrontFace::Cw
+                    } else {
+                        wgpu::FrontFace::Ccw
+                    },
+                    cull_mode: Some(wgpu::Face::Back),
+                    ..Default::default()
+                },
+                depth_stencil: depth(true, wgpu::CompareFunction::Less, Default::default()),
+                multisample: Default::default(),
+                multiview_mask: None,
+                cache: None,
+            })
         });
         let sky = make_pipeline(
             device,
@@ -335,7 +379,6 @@ impl Pipelines {
 }
 
 pub(crate) struct ModelPipelines {
-    pub empty: wgpu::BindGroupLayout,
     pub material: wgpu::BindGroupLayout,
     pub instance: wgpu::BindGroupLayout,
     pub forward: [Option<wgpu::RenderPipeline>; 32],
@@ -346,10 +389,6 @@ pub(crate) struct ModelPipelines {
 impl Pipelines {
     pub fn prepare_model(&mut self, device: &wgpu::Device, model: &exact_game::asset::Model) {
         let family = self.models.get_or_insert_with(|| {
-            let empty = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("game no shadows"),
-                entries: &[],
-            });
             let material = crate::model_pipeline::material_layout(device);
             let instance = crate::model_pipeline::instance_layout(device);
             let shaders = std::array::from_fn(|i| {
@@ -363,10 +402,10 @@ impl Pipelines {
                     label: Some("game model pipeline layout"),
                     bind_group_layouts: &[
                         Some(&self.scene_layout),
-                        Some(match i {
-                            0 => &empty,
-                            1 => &self.shadow_layout,
-                            _ => &self.camera_layout,
+                        Some(if i < 2 {
+                            &self.shadow_layout
+                        } else {
+                            &self.camera_layout
                         }),
                         Some(&material),
                         Some(&instance),
@@ -375,7 +414,6 @@ impl Pipelines {
                 })
             });
             ModelPipelines {
-                empty,
                 material,
                 instance,
                 forward: std::array::from_fn(|_| None),

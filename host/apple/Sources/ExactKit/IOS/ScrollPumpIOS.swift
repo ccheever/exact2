@@ -1,12 +1,10 @@
 // UIKit moves the scrollport; row construction follows outside its layout pass.
 // @ref LLP 1044.000 §6 S5; LLP 1010 §6 — visible-only rescue, bounded lead.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 final class ScrollPump: NSObject, UIScrollViewDelegate {
     private weak var presenter: Presenter?
-    private var link: CADisplayLink?
-    private lazy var target = ScrollPumpTarget(self)
     private var queued = false
     private var epoch = 0
     private var inScroll = false
@@ -34,11 +32,13 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         turnObserver = observer
     }
     deinit {
-        link?.invalidate()
+        FrameClock.shared.drop(self)
         restTimer?.invalidate()
         RasterWorkers.shared.travelling(self, false)
         if let turnObserver { CFRunLoopRemoveObserver(CFRunLoopGetMain(), turnObserver, .commonModes) }
     }
+    /// A pass is queued or frames are asked of the app's clock.
+    var asksForFrames: Bool { queued || FrameClock.shared.wants(self) }
     var sliceBudget: TimeInterval { min(0.004, max(0.001, refreshInterval * 0.24)) }
     /// Seconds a list must be still before what it cached for travel is
     /// let go (`ExactSession.rest`).
@@ -121,15 +121,22 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         lastScroll = CACurrentMediaTime()
         armRest(after: Self.restDelay)
         // A correction's move is not the reader's travel (LLP 1070.000 §2.5).
-        if let node, p.collections.owns(node.id), !p.collections.correcting { sample(node, now: lastScroll) }
+        // Nor is a smooth correction's frame (`OffsetDriver`).
+        if let node, p.collections.owns(node.id), !p.collections.correcting, !p.collections.animating.contains(node.id) { sample(node, now: lastScroll) }
         p.leaves.scrolled()
-        // What this frame shows has its text before it commits.
-        p.paintVisibleText()
-        textPending = true
+        // What this frame shows has its text before it commits. A pass
+        // follows only for work owed: a paragraph still without all its
+        // pixels, or a list's rows. A screen painted up front scrolls with
+        // none, and asks for no frames.
+        if p.paintVisibleText() { textPending = true }
+        guard textPending || !p.collections.fillPending.isEmpty else { return }
         scheduleAfterScroll()
         start()
     }
-    func scrollViewDidScroll(_ scrollView: UIScrollView) { scrolled(nil) }
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        presenter?.onScrolled?(nil, Double(scrollView.contentOffset.x), Double(scrollView.contentOffset.y))
+        presenter?.stickies.scrolled(nil); scrolled(nil)
+    }
 
     func batchApplied() {
         // A list that never scrolls, or whose rows change in place (live
@@ -172,13 +179,11 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         }
         return rows
     }
+    /// Frames from the app's clock (`FrameClock`) while a scroll moves or
+    /// work is owed, asked for once per scroll, not once per frame.
     private func start() {
-        guard link == nil else { return }
-        let value = CADisplayLink(target: target, selector: #selector(ScrollPumpTarget.tick(_:)))
-        let maximum = Float(presenter?.viewport.window?.screen.maximumFramesPerSecond ?? 60)
-        value.preferredFrameRateRange = CAFrameRateRange(minimum: min(60, maximum), maximum: maximum, preferred: maximum)
-        value.add(to: .main, forMode: .common)
-        link = value
+        guard !FrameClock.shared.wants(self) else { return }
+        FrameClock.shared.want(self, .scroll, rate: FrameClock.full(on: presenter?.viewport.window?.screen)) { [weak self] in self?.tick($0) }
     }
     /// Once scrolling has been still for `restDelay` after a scroll or a
     /// batch, the session trims its caches to what shows, as a browser
@@ -200,7 +205,7 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
             presenter?.session?.rest()
         }
     }
-    private func stop() { link?.invalidate(); link = nil; RasterWorkers.shared.travelling(self, false) }
+    private func stop() { FrameClock.shared.drop(self); RasterWorkers.shared.travelling(self, false) }
     private func scheduleAfterScroll() {
         guard !queued else { return }
         queued = true
@@ -211,7 +216,7 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
             self.pump()
         }
     }
-    fileprivate func tick(_ link: CADisplayLink) {
+    private func tick(_ link: CADisplayLink) {
         let interval = link.targetTimestamp - link.timestamp
         if interval > 0 { refreshInterval = interval }
         // UIKit's offset callback runs in layout. During travel its queued
@@ -239,7 +244,9 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         }
         // One image decode at a time while a list travels fast.
         RasterWorkers.shared.travelling(self, p.listViews.keys.contains { abs(velocity($0)) > Self.fastTravel })
-        if !textPending && p.collections.fillPending.isEmpty { stop() }
+        // Frames stay asked for until the scroll has been still for two of
+        // them, so a moving scroll keeps one steady request.
+        if !textPending && p.collections.fillPending.isEmpty && now - lastScroll >= refreshInterval * 2 { stop() }
     }
     /// Agent reads keep their settled contract, outside the scroll callback.
     func settle() {
@@ -263,11 +270,8 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
     func forget(_ id: UInt32) {
         travel[id] = nil; costs[id] = nil
     }
+    /// A smooth correction ended: no travel sample outlives it.
+    func forgetTravel(_ id: UInt32) { travel[id] = nil }
 
-}
-private final class ScrollPumpTarget: NSObject {
-    private weak var pump: ScrollPump?
-    init(_ pump: ScrollPump) { self.pump = pump }
-    @objc func tick(_ link: CADisplayLink) { pump?.tick(link) }
 }
 #endif

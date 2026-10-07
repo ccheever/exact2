@@ -54,6 +54,8 @@ impl Painter {
             text: BTreeMap::new(),
             skip: None,
             replay: None,
+            ranks: Rc::clone(&walk.ranks),
+            reveal: walk.reveal,
         };
         painter.node(&mut child_walk, id, Transform::identity(), (f.x, f.y), None);
         walk.text.extend(child_walk.text);

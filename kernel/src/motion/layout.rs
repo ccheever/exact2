@@ -13,6 +13,11 @@ pub struct LayoutMotion {
 }
 
 impl LayoutMotion {
+    /// Whether no node declares a layout transition.
+    pub fn is_empty(&self) -> bool {
+        self.tracked.is_empty()
+    }
+
     /// Remember the tree's declared layout transitions at boot. Their first
     /// post-layout observation takes the value without motion.
     pub fn adopt(&mut self, kernel: &Kernel, keys: impl IntoIterator<Item = NodeKey>) {
@@ -29,13 +34,17 @@ impl LayoutMotion {
         receipt: &CommitReceipt,
         engine: &mut Engine,
     ) -> Vec<NodeKey> {
-        for key in &receipt.destroyed {
+        // A renewed node is a new one (LLP 1078): no old box to move from.
+        for key in receipt.destroyed.iter().chain(&receipt.renewed) {
             self.tracked.remove(key);
         }
         let mut retired = Vec::new();
         for key in receipt.created.iter().chain(&receipt.touched) {
             if declares(kernel, *key) {
-                if self.tracked.insert(*key) && !receipt.created.contains(key) {
+                if self.tracked.insert(*key)
+                    && !receipt.created.contains(key)
+                    && !receipt.renewed.contains(key)
+                {
                     if let Some(value) = kernel.layout_box(*key) {
                         observe_box(engine, *key, value);
                     }
@@ -57,6 +66,31 @@ impl LayoutMotion {
         key: NodeKey,
         engine: &mut Engine,
         snap: bool,
+    ) -> Vec<NodeKey> {
+        self.observe_as(kernel, key, engine, snap, false)
+    }
+
+    /// Observe a box a list moved for no author: its window or a
+    /// measurement placed rows before it (LLP 1010). An idle box takes its
+    /// place with no transition, as UIKit's self-sizing does; the list keeps
+    /// what shows still by its scroll offset. One already moving still
+    /// moves.
+    pub fn observe_unauthored(
+        &mut self,
+        kernel: &Kernel,
+        key: NodeKey,
+        engine: &mut Engine,
+    ) -> Vec<NodeKey> {
+        self.observe_as(kernel, key, engine, false, true)
+    }
+
+    fn observe_as(
+        &mut self,
+        kernel: &Kernel,
+        key: NodeKey,
+        engine: &mut Engine,
+        snap: bool,
+        unauthored: bool,
     ) -> Vec<NodeKey> {
         let mut keys = vec![key];
         if let Some(node) = kernel.node_by_key(key) {
@@ -90,7 +124,17 @@ impl LayoutMotion {
             if snap && engine.remove_property(node, Property::Layout) {
                 retired.push(key);
             }
-            observe_box(engine, key, value);
+            if unauthored {
+                let observed = engine.observe_settled(Change {
+                    node,
+                    property: Property::Layout,
+                    value,
+                    velocity: None,
+                });
+                debug_assert!(observed.is_ok(), "layout is finite");
+            } else {
+                observe_box(engine, key, value);
+            }
         }
         retired
     }
@@ -113,6 +157,7 @@ impl LayoutMotion {
 fn declares(kernel: &Kernel, key: NodeKey) -> bool {
     kernel.node_by_key(key).is_some_and(|n| {
         n.style
+            .rare
             .layout_transition
             .matching(Property::Layout)
             .is_some()

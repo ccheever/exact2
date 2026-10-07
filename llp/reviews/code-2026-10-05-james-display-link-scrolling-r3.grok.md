@@ -1,0 +1,19 @@
+# Code review: James's display-link scrolling, round 3 (04af82601..6e476ab9d), 2026-10-05 (grok)
+
+- **Family:** xAI. `grok-4.7` via `~/.grok/bin/grok`, reasoning effort xhigh, `--no-subagents`, `--cwd` a detached worktree at `6e476ab9d`, plain output.
+- **Method:** one brief (sha256 `ec610dede83602fbbafbced39e201df11c222ae5b6809b00b1818257527cc2c6`), shared with astra. Round 3, blind to the other review. The authors are not reviewers.
+- **Transcription:** the review's findings and verdict, unedited.
+- **Verdict:** LAND.
+- **Disposition:** No findings. The keyframe ease it describes for a box in space is replaced by the one additive scale (astra r3 1), which is exact there as well.
+
+---
+
+LAND
+
+No findings.
+
+Round-1 and round-2 fixes hold on `04af82601..6e476ab9d`. Full-rate votes are `FrameClock.full(on:)` at the correction (`CollectionIOS.swift:356`), the reveal (`NavigationIOS.swift:693`), heavy leaves (`HeavyLeavesIOS.swift:212`), live SVG (`SvgFilterLive.swift:162`), and the pump (`ScrollPumpIOS.swift:186`). `.default` stays an abstention (`FrameClockIOS.swift:63-68`), so a paint-only 30–60 cap cannot pull those down. `deinit` invalidates (`FrameClockIOS.swift:80`). SVG clock traffic hops to main (`SvgFilterLive.swift:160`). The press ease is removed on rebind (`NodePoolIOS.swift:539`) and on any flight look (`PressFeedback.swift:157`, `244`), rebuilt when the origin moves (`194-198`), and a held release checks `press.start` (`206-215`). A flight's source is the presentation box while `"press"` is attached (`FlightsIOS.swift:76-80`). A 3D press is 13 samples of the matrix from the target space back to the shown one (`PressFeedback.swift:160-171`). Concatenating that additive delta with a later model still matches a rotate, axis, translate, translateZ, or engine-scale change; an origin change does not, and `followPressEase` rebuilds on `d`.
+
+The owed-work skip does not reopen the idle-tick holes. `scrollViewDidScroll` still runs collections, stickies, geometry, video, and gradients before the pump (`NodeViewIOS.swift:644-649`). `scrolled` samples travel, calls `leaves.scrolled()`, and paints visible text before it returns (`ScrollPumpIOS.swift:125-134`). Text that later loses pixels comes back through `requestText` (`149`, `NodeText.swift:69`, `TextRasterIOS.swift:189`, `239`) or the next scroll, which treats any unsettled paragraph as owed, including one offscreen (`TextRasterIOS.swift:386-395`). Rows owed after the link has stopped come through `requestFill` → `start()` (`ScrollPumpIOS.swift:151`, `184-186`); `fillPending` inserts call that (`Collection.swift:384`, `478`, `533`). The link tick is the idle wake once travel is 1.5 frames behind (`ScrollPumpIOS.swift:219-225`). Heavy leaves keep their own user. Agent timing is unchanged: a frozen agent snaps the press (`PressFeedback.swift:106-108`) and lands a correction immediately (`CollectionIOS.swift:143-147`); an agent-owned clock drops `Frames` off the link (`Frames.swift:80-84`). Order is snapshotted, a user removed before its turn does not tick, and one added mid-frame waits (`FrameClockIOS.swift:92-98`). The link pauses when the last user leaves (`72-74`). tvOS is in the same `os(iOS) || os(tvOS)` clock; background suspension is `CADisplayLink`'s, as with the old per-user links.
+
+Tests pin the rate merge, mid-frame drop, weak-owner release, the correction's full-rate vote, both press defects from round 2, rebind, resize, and held-release generation. They do not call `requestFill` or `requestText` once the pump is idle (`ScrollPumpIOSTests.swift:40-75`), and they do not read the reveal, heavy-leaf, or SVG votes. Those paths are correct on inspection; the round-3 disposition already left the pump cases untested. UIKit XCTests were not run here. Touched sources are under the 1,500-line cap (largest, `NavigationIOS.swift`, 797). The per-user link targets are gone. `rules/RULES.md` has nothing on this.

@@ -149,16 +149,19 @@ fn epoch_pause_live_gap_and_backwards_clock() {
 fn touch_is_data_and_pointer_wheel_deltas_expire() {
     let mut s = sim();
     s.viewport(800.0, 600.0);
-    for (id, phase, x, y) in [
-        (1, PointerPhase::Down, 100.0, 300.0),
-        (1, PointerPhase::Move, 160.0, 240.0),
-        (2, PointerPhase::Down, 700.0, 300.0),
+    for (id, phase, x, y, dx, dy) in [
+        (1, PointerPhase::Down, 100.0, 300.0, 0.0, 0.0),
+        (1, PointerPhase::Move, 160.0, 240.0, 60.0, -60.0),
+        (2, PointerPhase::Down, 700.0, 300.0, 0.0, 0.0),
     ] {
         s.input(InputEvent::Pointer {
             id,
             phase,
             x,
             y,
+            dx,
+            dy,
+            buttons: 0,
             at_ms: 0.0,
         });
     }
@@ -184,6 +187,26 @@ fn touch_is_data_and_pointer_wheel_deltas_expire() {
     s.input(InputEvent::Blur { at_ms: 34.0 });
     s.advance(100.0, Clock::Seekable);
     assert_eq!(s.world().resource::<Counts>().released, 1);
+}
+/// Moves coalesced inside one tick keep every event's device motion: a locked
+/// pointer's position never changes, so a position difference would lose it.
+#[test]
+fn coalesced_moves_keep_their_motion_and_the_first_move_counts() {
+    let mut s = sim();
+    for (at_ms, dx) in [(1.0, 5.0), (2.0, 7.0), (3.0, -2.0)] {
+        s.input(InputEvent::Pointer {
+            id: 1,
+            phase: PointerPhase::Move,
+            x: 40.0,
+            y: 30.0,
+            dx,
+            dy: 1.0,
+            buttons: 0,
+            at_ms,
+        });
+    }
+    s.advance(16.667, Clock::Seekable);
+    assert_eq!(s.world().resource::<Counts>().pointer, Vec2::new(10.0, 3.0));
 }
 #[derive(Default, Component)]
 struct Nested {
@@ -344,6 +367,30 @@ fn explicit_events_are_saved_in_order_and_publication_is_separate() {
     );
 }
 
+/// An overflowing queue drops its oldest move, but that move's motion joins the
+/// pointer's next event: 1,100 one-point moves in 1,100 ticks still turn 1,100.
+/// Before: 1,024 (the 76 dropped moves' motion was lost).
+#[test]
+fn overflow_drops_a_moves_position_but_keeps_its_motion() {
+    let mut s = sim();
+    for i in 0..1100 {
+        s.input(InputEvent::Pointer {
+            id: 1,
+            phase: PointerPhase::Move,
+            x: i as f32,
+            y: 0.0,
+            dx: 1.0,
+            dy: 0.0,
+            buttons: 0,
+            at_ms: 20.0 * (i + 1) as f64,
+        });
+    }
+    s.advance(30_000.0, Clock::Seekable);
+    assert_eq!(
+        s.world().resource::<Counts>().pointer,
+        Vec2::new(1100.0, 0.0)
+    );
+}
 #[test]
 fn overflow_warning_is_saved_behavior() {
     let mut a = sim();
@@ -502,6 +549,9 @@ fn restore_touch_viewport_continues_headless_and_resize_replaces_it() {
         phase: PointerPhase::Down,
         x: 700.0,
         y: 300.0,
+        dx: 0.0,
+        dy: 0.0,
+        buttons: 0,
         at_ms: 0.0,
     });
     a.run(100.0);
@@ -521,34 +571,45 @@ fn old_save_containers_are_refused_by_name_atomically() {
     let mut s = sim();
     let saved = s.save().unwrap();
     let mut old = saved.clone();
-    assert!(saved.starts_with(b"EXSIM\0\x05"));
+    assert!(saved.starts_with(b"EXSIM\0\x07"));
     old[6] = 4;
     assert!(s
         .restore(&old)
         .unwrap_err()
         .to_string()
-        .contains("EXSIM v5"));
+        .contains("EXSIM v7"));
     assert_eq!(s.save().unwrap(), saved);
     let saved = s.world().save();
     let mut old = saved.clone();
-    assert!(saved.starts_with(b"EXGAME\0\x03"));
-    old[7] = 2;
+    assert!(saved.starts_with(b"EXGAME\0\x04"));
+    old[7] = 3;
     assert!(s
         .world_mut()
         .load(&old)
         .unwrap_err()
         .to_string()
-        .contains("EXGAME v3"));
+        .contains("EXGAME v4"));
     assert_eq!(s.world().save(), saved);
 }
 
+/// A v6 save (before the primary pointer press origin) is refused by name.
+#[test]
+fn a_v6_save_is_refused_by_name() {
+    let mut s = sim();
+    let saved = s.save().unwrap();
+    let mut old = saved.clone();
+    old[6] = 6;
+    let error = s.restore(&old).unwrap_err().to_string();
+    assert!(error.contains("EXSIM v6 save predates v7"), "{error}");
+    assert_eq!(s.save().unwrap(), saved);
+}
 #[test]
 fn wrong_magic_reports_actual_bytes_and_expected_format() {
     let mut s = sim();
     let saved = s.save().unwrap();
     for bytes in [
         b"random!!".to_vec(),
-        b"EXGAME\0\x02".to_vec(),
+        b"EXGAME\0\x03".to_vec(),
         b"EXSIM\0\x04!".to_vec(),
         vec![0xff; 8],
         b"short".to_vec(),
@@ -556,12 +617,12 @@ fn wrong_magic_reports_actual_bytes_and_expected_format() {
         let seen = format!("{:02x?}", &bytes[..bytes.len().min(8)]);
         let error = s.restore(&bytes).unwrap_err().to_string();
         assert!(
-            error.contains(&seen) && error.contains("EXSIM v5"),
+            error.contains(&seen) && error.contains("EXSIM v7"),
             "{error}"
         );
         let error = s.world_mut().load(&bytes).unwrap_err().to_string();
         assert!(
-            error.contains(&seen) && error.contains("EXGAME v3"),
+            error.contains(&seen) && error.contains("EXGAME v4"),
             "{error}"
         );
         assert_eq!(s.save().unwrap(), saved);
@@ -1025,7 +1086,7 @@ fn restore_runs_no_setup_and_failed_world_validation_is_atomic() {
     }
     // Invalid world headers must be rejected before setup has any side effects.
     let mut bad = saved.clone();
-    let world = bad.windows(8).position(|v| v == b"EXGAME\0\x03").unwrap();
+    let world = bad.windows(8).position(|v| v == b"EXGAME\0\x04").unwrap();
     bad[world] = b'!';
     assert!(s.restore(&bad).is_err());
     assert_eq!(SETUPS.with(|calls| calls.replace(0)), 0);
@@ -1136,7 +1197,7 @@ fn restore_registers_argument_dependent_types_before_setup() {
     SETUPS.with(|calls| calls.set(0));
     let before = target.save().unwrap();
     let mut bad = before.clone();
-    let world = bad.windows(8).position(|v| v == b"EXGAME\0\x03").unwrap();
+    let world = bad.windows(8).position(|v| v == b"EXGAME\0\x04").unwrap();
     bad[world + 8] = 0xff;
     assert!(target.restore(&bad).is_err());
     assert_eq!(SETUPS.with(|calls| calls.get()), 0);
@@ -1216,6 +1277,9 @@ fn saves_canonicalize_consumed_input_edges_and_preserve_pending_events() {
             phase: PointerPhase::Down,
             x: 100.,
             y: 100.,
+            dx: 0.,
+            dy: 0.,
+            buttons: 1,
             at_ms: epoch + 6.,
         });
         s.input(InputEvent::Pointer {
@@ -1223,6 +1287,9 @@ fn saves_canonicalize_consumed_input_edges_and_preserve_pending_events() {
             phase: PointerPhase::Move,
             x: 110.,
             y: 105.,
+            dx: 10.,
+            dy: 5.,
+            buttons: 1,
             at_ms: epoch + 7.,
         });
         s.input(InputEvent::Wheel {
@@ -1273,4 +1340,121 @@ fn saves_canonicalize_consumed_input_edges_and_preserve_pending_events() {
             assert_eq!(drive(mode, epoch), expected, "{mode:?}");
         }
     }
+}
+
+// Grow a Garden's HUD sent commands through a live argument: two presses between
+// ticks kept only the second, and saves needed an acknowledge-and-reset protocol.
+mod posted {
+    use exact_game::*;
+    #[derive(Args, Default)]
+    pub struct Options {
+        #[live]
+        pub paused: bool,
+    }
+    #[derive(Default, Resource)]
+    pub struct Log(pub Vec<(u64, String)>);
+    pub struct Shop;
+    impl Game for Shop {
+        const ID: &'static str = "posted";
+        type Args = Options;
+        fn setup(w: &mut World, _: &Options) {
+            w.insert_resource(Log::default());
+        }
+        fn paused(a: &Options) -> bool {
+            a.paused
+        }
+        fn tick(w: &mut World, input: &Input, _: &Options) {
+            for m in input.messages() {
+                let tick = w.tick();
+                w.resource_mut::<Log>().0.push((tick, m.clone()));
+            }
+        }
+    }
+}
+#[test]
+fn posted_messages_reach_one_tick_each_in_order_and_are_saved_only_while_pending() {
+    use posted::*;
+    let log = |s: &Sim<Shop>| s.world().resource::<Log>().0.clone();
+    let mut s = Sim::<Shop>::new(Options::default()).unwrap();
+    s.run(0.);
+    s.post("buy carrot");
+    s.post("buy carrot");
+    s.post("sell all");
+    let pending = s.save().unwrap();
+    s.run(1000. / 60.);
+    let delivered = vec![
+        (0, "buy carrot".to_string()),
+        (0, "buy carrot".to_string()),
+        (0, "sell all".to_string()),
+    ];
+    assert_eq!(log(&s), delivered);
+    s.run(1000.);
+    assert_eq!(log(&s), delivered, "delivered once");
+    // A pending message travels with a save; a delivered one does not.
+    let mut fresh = Sim::<Shop>::new(Options::default()).unwrap();
+    fresh.restore(&pending).unwrap();
+    fresh.run(1000. / 60.);
+    assert_eq!(log(&fresh), delivered);
+    let after = s.save().unwrap();
+    let mut again = Sim::<Shop>::new(Options::default()).unwrap();
+    again.restore(&after).unwrap();
+    again.run(1000.);
+    assert_eq!(log(&again), delivered);
+    assert_eq!(again.world().hash(), {
+        s.run(1000.);
+        s.world().hash()
+    });
+    // Paused worlds hold messages for the first tick after the pause.
+    let mut p = Sim::<Shop>::new(Options { paused: true }).unwrap();
+    p.run(0.);
+    p.post("expand");
+    p.run(500.);
+    assert!(log(&p).is_empty());
+    p.bind(&[Value::Bool(false)], None).unwrap();
+    p.run(1000. / 60.);
+    assert_eq!(log(&p).len(), 1);
+    assert_eq!(log(&p)[0].1, "expand");
+    // A full input queue refuses new posts by name and never drops one queued.
+    let mut full = Sim::<Shop>::new(Options { paused: true }).unwrap();
+    full.run(0.);
+    for i in 0..1100 {
+        full.post(format!("m{i}"));
+    }
+    assert!(full
+        .agent(r#"{"op":"state"}"#)
+        .contains(r#""refusedPosts":76"#));
+    full.bind(&[Value::Bool(false)], None).unwrap();
+    full.run(1000. / 60.);
+    let got: Vec<_> = log(&full).into_iter().map(|(_, m)| m).collect();
+    assert_eq!(got, (0..1024).map(|i| format!("m{i}")).collect::<Vec<_>>());
+    let refusals = full
+        .world()
+        .journal()
+        .iter()
+        .filter(|e| e.line.contains("postMessage refused"))
+        .count();
+    assert_eq!(refusals, 1, "one journal line per overflow episode");
+    // The drained queue ends the episode: the next overflow journals again.
+    full.bind(&[Value::Bool(true)], None).unwrap();
+    for i in 0..1100 {
+        full.post(format!("n{i}"));
+    }
+    let refusals = full
+        .world()
+        .journal()
+        .iter()
+        .filter(|e| e.line.contains("postMessage refused"))
+        .count();
+    assert_eq!(refusals, 2, "two separate overflow episodes give two lines");
+    // Oversized messages refuse by name and change nothing.
+    let mut big = Sim::<Shop>::new(Options::default()).unwrap();
+    big.run(0.);
+    big.post("x".repeat(70_000));
+    big.run(100.);
+    assert!(log(&big).is_empty());
+    assert!(big
+        .world()
+        .journal()
+        .iter()
+        .any(|e| e.line.contains("exceeds")));
 }

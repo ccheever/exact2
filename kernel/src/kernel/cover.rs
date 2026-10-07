@@ -8,10 +8,18 @@
 //! heading the bar shows) is covered whole and laid out as `display: none`.
 //! Authored rows never change, and a host that reports nothing (the web,
 //! Linux, the agent's presentation) lays out exactly as authored.
+//!
+//! A replaced header that cleared the status bar itself (the web's
+//! `padding-top: env(safe-area-inset-top)` under `viewport-fit=cover`)
+//! hands that inset to its route's top cover, so the route's content starts
+//! at the bar's bottom whichever of the two padded it (LLP 1075.003 §9.10).
 
 use super::Kernel;
+use crate::arena::NodeArena;
 use crate::error::{KernelError, LayoutError};
 use crate::id::ViewId;
+use crate::layout::LayoutMirror;
+use crate::style::{Dimension, Edge};
 
 /// A host container's claim on one box.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -41,17 +49,56 @@ impl Kernel {
             }
         }
         let cover = cover.filter(|c| *c != HostCover::Edges([0.0; 4]));
-        if self.arena.cover(slot) == cover {
+        let before = self.arena.cover(slot);
+        if before == cover {
             return Ok(());
         }
         self.arena.set_cover(slot, cover);
         if let Some(r) = &mut self.region {
             r.intrinsic(slot);
         }
-        if let (Some(node), Some(layout)) = (self.arena.taffy(slot), self.layout.as_deref_mut()) {
-            layout.restyle(&self.arena, slot, node);
-            layout.mark_dirty(node);
+        // A box replaced or given back changes what its parent's top cover
+        // takes from it (`header_inset`).
+        let whole = |c: Option<HostCover>| c == Some(HostCover::Whole);
+        let parent = (whole(before) != whole(cover))
+            .then(|| self.arena.parent(slot))
+            .flatten();
+        for slot in std::iter::once(slot).chain(parent) {
+            if let (Some(node), Some(layout)) = (self.arena.taffy(slot), self.layout.as_deref_mut())
+            {
+                layout.restyle(&self.arena, slot, node);
+                layout.mark_dirty(node);
+            }
         }
         Ok(())
+    }
+}
+
+/// A box's children changed: a covered box's top cover may hold its first
+/// child's inset (`header_inset`), so its engine style is derived again.
+pub(crate) fn children_changed(arena: &NodeArena, layout: &mut dyn LayoutMirror, slot: u32) {
+    if let (Some(HostCover::Edges(_)), Some(node)) = (arena.cover(slot), arena.taffy(slot)) {
+        layout.restyle(arena, slot, node);
+        layout.mark_dirty(node);
+    }
+}
+
+/// The top inset a box's replaced first child cleared for itself: that
+/// child is covered whole and pads its top by `env(safe-area-inset-top)`.
+/// It counts only while a bar covers the box's top (`top > 0`); a scroller
+/// that goes under the bar is inset by the platform instead.
+pub(crate) fn header_inset(arena: &NodeArena, slot: u32, top: f32) -> f32 {
+    let Some(&first) = arena.children(slot).first() else {
+        return 0.0;
+    };
+    match (
+        top > 0.0,
+        arena.cover(first),
+        arena.style(first).padding_top,
+    ) {
+        (true, Some(HostCover::Whole), Dimension::Env(Edge::Top, _)) => {
+            arena.env().inset(Edge::Top)
+        }
+        _ => 0.0,
     }
 }

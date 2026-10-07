@@ -64,6 +64,9 @@ final class Adapter: ExactSessionDelegate {
             default: app.appearance = nil
             }
         case "openURL": open(args.first as? String ?? "", from: session)
+        // `window.close()` (studio diary R17): the window this session
+        // shows, without asking its `beforeunload` again.
+        case "close": windows.first { $0.session === session }?.close()
         default: FileHandle.standardError.write(Data("exact: unknown command \(name)\n".utf8))
         }
     }
@@ -139,7 +142,13 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
     /// The document delivered here last; `nil` while the window shows the
     /// app's own start, which the next document takes rather than opening
     /// a window beside it.
-    var document: String?
+    var document: String? {
+        // The proxy icon in the title bar (LLP 1069.010 D6): the document's
+        // own file, for a path; a folder's shows the folder.
+        didSet { window.representedURL = document.flatMap { $0.hasPrefix("/") ? URL(fileURLWithPath: $0) : nil } }
+    }
+    /// The app asked to close (`close()`): its `beforeunload` is not asked again.
+    private(set) var closing = false
     /// When this window was asked for (ms on the process clock) and the
     /// process's footprint just before: a later session's time to first
     /// pixel and its memory are measured from these.
@@ -240,10 +249,17 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
         }
     }
 
+    /// The app's `close()`: the window goes, unasked.
+    func close() {
+        closing = true
+        window.close()
+    }
+
     /// What the agent's `state` says of this window (LLP 1069.010).
     var observed: [String: Any] {
         var row: [String: Any] = [
             "session": label, "title": window.title, "document": document ?? NSNull(),
+            "edited": window.isDocumentEdited, "representedURL": window.representedURL?.path ?? NSNull(),
             "key": window.isKeyWindow, "tabs": window.tabbedWindows?.count ?? 1,
             "footprintBefore": footprintBefore,
         ]
@@ -251,6 +267,12 @@ final class DocumentWindow: NSObject, NSWindowDelegate {
         // reports); a later one's from when it was asked for.
         if let drawn = session.firstDrawMs { row["firstPixelMs"] = ((drawn - (label == "main" ? 0 : openedMs)) * 10).rounded() / 10 }
         return row
+    }
+
+    /// The red button, File ▸ Close Window and ⌘W ask the app first
+    /// (`beforeunload`, studio diary R17); a window it keeps stays.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        closing || session.beforeUnload()
     }
 
     func windowDidBecomeKey(_ notification: Notification) {
@@ -283,12 +305,15 @@ let session = firstWindow.session
 let view = firstWindow.view
 let window = firstWindow.window
 window.center()
-if !agentMode && !smoke && !windowConfig.isEmpty,
-   let identity = ExactEnv.appMetadata["CFBundleIdentifier"] as? String {
-    let frameName = identity + ".main"
-    window.setFrameUsingName(frameName)
-    window.setFrameAutosaveName(frameName)
-}
+/// The frame the window was left at (its autosave). AppKit keeps the content
+/// rect when `.fullSizeContentView` or a toolbar goes in, so a frame restored
+/// only before the window's chrome lost the titlebar's height at every launch
+/// (#113). It is restored before boot, so the plan boots near its size, and
+/// again once the window has its final style (`finishLaunching`), which is
+/// when the name goes on: setting it saves the current frame.
+let frameName = !agentMode && !smoke && !windowConfig.isEmpty
+    ? (ExactEnv.appMetadata["CFBundleIdentifier"] as? String).map { $0 + ".main" } : nil
+if let frameName { window.setFrameUsingName(frameName) }
 // Agent-driven apps run side by side (every session's smoke launches one):
 // centred, each would cover the last and starve its Metal layer of drawables.
 // Spread them by pid so no window is fully hidden.
@@ -360,6 +385,11 @@ func route(_ paths: [String]) {
     }
 }
 ExactDocuments.route = { route($0) }
+// A document chosen in the app's own picker is the window's, as a routed
+// one is: its proxy icon, and the next document goes to a window of its own.
+ExactDocuments.shown = { session, url in
+    windows.first { $0.session === session }?.document = url.standardizedFileURL.path
+}
 Agent.hostState = {
     ["documents": [
         "launchMode": ExactDocuments.launchMode,
@@ -367,11 +397,30 @@ Agent.hostState = {
         "recent": ExactDocuments.recent,
         "openRecentMenu": DevMenu.openRecentTitles,
         "footprint": footprint(),
-    ] as [String: Any]]
+    ] as [String: Any], "menus": DevMenu.menuBar]
 }
 
 final class Delegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    /// ⌘Q asks each window's app first (`beforeunload`, studio diary R17):
+    /// the first that keeps itself open comes forward with whatever it asks
+    /// and the quit stops there; once answered, its `close()` closes it, and
+    /// the last window closing ends the app. Nothing is held while the app
+    /// asks (LLP 1069.010 D7); a quit with storage still landing that an
+    /// answer started is held until it lands, five seconds at most (LLP
+    /// 1097 D10).
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        for w in windows where !w.closing && !w.session.beforeUnload() {
+            w.front()
+            return .terminateCancel
+        }
+        let hold = StorageHold(bound: 5, pending: { windows.contains { $0.session.storageOperations > 0 } },
+                               begin: { _ in }, end: { NSApp.reply(toApplicationShouldTerminate: true) })
+        guard hold.hold() else { return .terminateNow }
+        quitting = hold
+        return .terminateLater
+    }
+    var quitting: StorageHold?
     func applicationDidFinishLaunching(_ notification: Notification) {
         ExactEnv.stamp("didFinishLaunching")
         finishLaunching()
@@ -470,6 +519,13 @@ func finishLaunching() {
     let rustMs = session.rustMs
     let applyMs = session.applyMs
     let bootMs = session.bootMs
+    // Its final style, then the frame it was left at — before a document
+    // routed below can bring the window forward.
+    firstWindow.coverChrome()
+    if let frameName {
+        window.setFrameUsingName(frameName)
+        window.setFrameAutosaveName(frameName)
+    }
     // Becoming key can synchronously announce readiness. Initialize the guard
     // before ordering the window, not afterward (two stdin readers otherwise).
     if !launchDocuments.isEmpty {

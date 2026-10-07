@@ -4,8 +4,38 @@
 //! directories behind `app:/` (D4, D7), the copy into `app:/tmp/picked/`,
 //! and a picked image's pixel size read from its header (D3).
 
+use exact_runner::DataError;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+
+#[cfg(windows)]
+#[path = "picker_windows.rs"]
+mod windows;
+
+fn identity(name: &str) -> bool {
+    !matches!(name, "" | "." | "..")
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b".-_".contains(&b))
+        && leaf(name)
+}
+
+fn leaf(name: &str) -> bool {
+    if name.is_empty() || matches!(name, "." | "..") || name.contains('\0') {
+        return false;
+    }
+    #[cfg(windows)]
+    {
+        let mut parts = Path::new(name).components();
+        if ibex2::grant::WindowsPath::validate_component(name).is_err()
+            || !matches!(parts.next(), Some(std::path::Component::Normal(_)))
+            || parts.next().is_some()
+        {
+            return false;
+        }
+    }
+    true
+}
 
 /// Whether a `showPicker` is held for the agent: `EXACT_AGENT=1`, which a
 /// production bake has already dropped (LLP 1069.007 D2).
@@ -21,6 +51,134 @@ static ROOTS: Mutex<Option<[PathBuf; 3]>> = Mutex::new(None);
 pub fn set_roots(data: PathBuf, cache: PathBuf, temporary: PathBuf) {
     let _ = std::fs::remove_dir_all(temporary.join("picked"));
     *ROOTS.lock().unwrap_or_else(|e| e.into_inner()) = Some([data, cache, temporary]);
+}
+
+/// The app's `app:/data`, `app:/cache` and `app:/tmp` (LLP 1027.001): under
+/// the XDG bases (Windows: the user's LocalAppData), or a scripted drive's scratch tree (`--storage`), apart
+/// from the app's real files, with that tree when an authored test starts it
+/// empty (`EXACT_AGENT_STORAGE_FRESH`). `None`: an app with no id, or a
+/// drive with no scratch store, which has no storage.
+#[allow(clippy::type_complexity)]
+pub(crate) fn app_dirs(app_id: &str) -> Result<Option<([PathBuf; 3], Option<PathBuf>)>, DataError> {
+    // Scripted drives must not read or write the developer's app files;
+    // one that names a scratch tree gets storage there instead.
+    let scratch = match std::env::var_os("EXACT_AGENT") {
+        Some(_) => match agent_scratch()? {
+            Some(name) => Some(name),
+            None => return Ok(None),
+        },
+        None => None,
+    };
+    if app_id.is_empty() {
+        return Ok(None);
+    }
+    if !identity(app_id) {
+        return Err(DataError::Unavailable("unsafe app storage identity".into()));
+    }
+    #[cfg(windows)]
+    let (mut data, mut cache) = windows::bases(&windows::local_app_data()?, app_id)?;
+    #[cfg(not(windows))]
+    let (mut data, mut cache) = {
+        let home = std::env::var_os("HOME")
+            .map(PathBuf::from)
+            .filter(|p| p.is_absolute())
+            .ok_or_else(|| DataError::Unavailable("app storage needs an absolute HOME".into()))?;
+        let base = |variable: &str, fallback: &str| {
+            std::env::var_os(variable)
+                .map(PathBuf::from)
+                .filter(|p| p.is_absolute())
+                .unwrap_or_else(|| home.join(fallback))
+                .join("exact")
+                .join(app_id)
+        };
+        (
+            base("XDG_DATA_HOME", ".local/share").join("data"),
+            base("XDG_CACHE_HOME", ".cache"),
+        )
+    };
+    let mut fresh = None;
+    if let Some(name) = scratch {
+        cache = cache.join("agent").join(name);
+        if std::env::var_os("EXACT_AGENT_STORAGE_FRESH").is_some() {
+            fresh = Some(cache.clone());
+        }
+        data = cache.join("data");
+    }
+    // Sibling roots keep app:/cache grants from implicitly reaching tmp.
+    // The user's cache base avoids a predictable shared /tmp directory.
+    Ok(Some((
+        [data, cache.join("cache"), cache.join("temporary")],
+        fresh,
+    )))
+}
+
+/// The scratch directory a named agent drive keeps `secret.keep` in
+/// (`<scratch>/secrets` and `<scratch>/kv`), beside `app:/data`. `None` when
+/// this drive names no scratch store, or the app has no id: secrets stay in
+/// memory and the write log is dropped. Not the app's real data directory.
+pub(crate) fn agent_secret_root(app_id: &str) -> Option<PathBuf> {
+    if std::env::var_os("EXACT_AGENT").is_none() || app_id.is_empty() {
+        return None;
+    }
+    // `roots[0]` is `<scratch>/data`. Secrets live in the scratch tree, so
+    // a fresh drive's emptying of that tree ([`empty_fresh_tree`]) takes them too.
+    let (roots, _) = app_dirs(app_id).ok().flatten()?;
+    roots[0].parent().map(|path| path.to_path_buf())
+}
+
+/// The scratch trees a fresh drive has emptied in this process.
+static EMPTIED: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+/// Empty a fresh drive's scratch tree (`EXACT_AGENT_STORAGE_FRESH`) once a
+/// process: at the first boot that reads its store, before the snapshot and
+/// before any commit can write a secret or a kept answer into it. The
+/// post-pixel activation and any later boot here leave it as it is; emptying
+/// it again there removed what a commit in between had written while memory
+/// still held it, so a relaunch read nothing back.
+pub(crate) fn empty_fresh_tree(app_id: &str) -> Result<(), DataError> {
+    let Some((_, Some(tree))) = app_dirs(app_id)? else {
+        return Ok(());
+    };
+    let mut emptied = EMPTIED.lock().unwrap_or_else(|e| e.into_inner());
+    if emptied.contains(&tree) {
+        return Ok(());
+    }
+    match std::fs::remove_dir_all(&tree) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+            return Err(DataError::Unavailable(format!(
+                "EXACT_AGENT_STORAGE_FRESH: could not empty {}: {e}",
+                tree.display()
+            )));
+        }
+        _ => {}
+    }
+    emptied.push(tree);
+    Ok(())
+}
+
+/// A scripted drive's scratch storage (`EXACT_AGENT_STORAGE=<name>`): a tree
+/// of its own under the cache base, so a drive can exercise storage without
+/// touching the app's real files. Absent, a drive has no storage.
+fn agent_scratch() -> Result<Option<String>, DataError> {
+    let Some(name) = std::env::var_os("EXACT_AGENT_STORAGE") else {
+        return Ok(None);
+    };
+    match name.to_str() {
+        Some(name) if identity(name) => Ok(Some(name.to_owned())),
+        _ => Err(DataError::Unavailable(
+            "EXACT_AGENT_STORAGE: one name of letters, digits, '.', '-' or '_'".into(),
+        )),
+    }
+}
+
+/// The app's directories at boot, before storage is configured after first
+/// pixel: an `image "app:/data/…"` resolves from the first frame, whether or
+/// not anything was picked (D7; recipes F18). Nothing is emptied until
+/// storage is configured ([`set_roots`]).
+pub fn know_roots(app_id: &str) {
+    if let Ok(Some((roots, _))) = app_dirs(app_id) {
+        *ROOTS.lock().unwrap_or_else(|e| e.into_inner()) = Some(roots);
+    }
 }
 
 /// A scripted drive without a scratch store has no app directories; its
@@ -42,22 +200,23 @@ fn roots() -> [PathBuf; 3] {
 /// The file an `app:/data|cache|tmp/…` path names (D7): `None` for any
 /// other scheme, root, or a `..`.
 pub fn resolve(path: &str) -> Option<PathBuf> {
+    resolve_from(path, roots)
+}
+
+fn resolve_from(path: &str, roots: impl FnOnce() -> [PathBuf; 3]) -> Option<PathBuf> {
     let rest = path.strip_prefix("app:/")?;
     let (dir, rest) = rest.split_once('/')?;
-    let [data, cache, temporary] = roots();
-    let root = match dir {
-        "data" => data,
-        "cache" => cache,
-        "tmp" => temporary,
+    let index = match dir {
+        "data" => 0,
+        "cache" => 1,
+        "tmp" => 2,
         _ => return None,
     };
     let parts: Vec<&str> = rest.split('/').collect();
-    if parts
-        .iter()
-        .any(|p| p.is_empty() || *p == "." || *p == ".." || p.contains('\0'))
-    {
+    if parts.iter().any(|p| !leaf(p)) {
         return None;
     }
+    let root = roots().into_iter().nth(index)?;
     Some(parts.iter().fold(root, |p, part| p.join(part)))
 }
 
@@ -205,5 +364,50 @@ mod tests {
         assert_eq!(resolve("app:/tmp/../x"), None);
         assert_eq!(resolve("app:/etc/passwd"), None);
         assert_eq!(resolve("/etc/passwd"), None);
+    }
+
+    /// An `app:/data` image resolves before storage is configured, with
+    /// nothing picked (D7; recipes F18): in a child, whose roots are its own.
+    #[test]
+    fn app_roots_are_known_at_boot_before_storage() {
+        const CHILD: &str = "EXACT_LINUX_ROOTS_TEST";
+        if std::env::var_os(CHILD).is_none() {
+            let home = std::env::temp_dir().join(format!("exact-roots-{}", std::process::id()));
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "picker::tests::app_roots_are_known_at_boot_before_storage",
+                ])
+                .env(CHILD, "1")
+                .env("HOME", &home)
+                .env("EXACT_AGENT", "1")
+                .env("EXACT_AGENT_STORAGE", "s1")
+                .env_remove("XDG_DATA_HOME")
+                .env_remove("XDG_CACHE_HOME")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stdout)
+            );
+            assert!(!home.exists(), "knowing the roots creates nothing");
+            return;
+        }
+        know_roots("test.exact.roots");
+        let file = resolve("app:/data/photos/a.jpg").unwrap();
+        #[cfg(not(windows))]
+        assert!(
+            file.ends_with(".cache/exact/test.exact.roots/agent/s1/data/photos/a.jpg"),
+            "{}",
+            file.display()
+        );
+        #[cfg(windows)]
+        assert_eq!(
+            file,
+            windows::local_app_data()
+                .unwrap()
+                .join("exact/test.exact.roots/agent/s1/data/photos/a.jpg")
+        );
     }
 }

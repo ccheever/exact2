@@ -19,6 +19,7 @@ crate-type = ["rlib"]
 [dependencies]
 exact-data = { path = "../../data" }
 exact-textflow = { path = "../../textflow" }
+exact-color = { path = "../../color" }
 exact-kernel = { path = "../../kernel" }
 exact-markdown = { path = "../../markdown" }
 exact-motion = { path = "../../motion" }
@@ -29,7 +30,7 @@ exact-runner = { path = "../../runner" }
 # The executor for a request that leaves the process (LLP 1016 D2): ibex2's
 # standard library for a Rust consumer (ibex LLP 0068) — no engine, no
 # loader — taken from the sibling checkout, as Weird Castle takes exact2.
-ibex2 = { path = "../../vendor/ibex2", default-features = false }
+ibex2 = { path = "../../vendor/ibex/crates/ibex2", default-features = false }
 
 [dev-dependencies]
 caltrain = { path = "../../apps/caltrain" }

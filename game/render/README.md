@@ -35,6 +35,8 @@ CPU timing belongs to the caller; `draw` makes no performance clock calls.
 `WorldSurface<G, P, ASSETS, H>` accepts `H: Hooks`; `()` preserves the standard
 frame. `module!(Game, hooks = Effects, shaders = SHADERS)` exports a hooked canvas;
 add `assets` for engine-drawn custom model materials, and `audio` for audio support.
+A game names its hooks and shader pack in `app.json`'s `game.render` and the bake
+writes that line ([game README](../README.md#exact2-integration)).
 See LLP 1046.006.000 and `tests/hooks.rs` for the independent public fixture.
 
 Hooks borrow `RenderWorld` for immutable extraction and `FrameView` for the exact
@@ -54,11 +56,14 @@ refractors are outside this first composition contract.
 `CustomMaterial` replaces a loaded opaque, unskinned model material. The engine
 owns geometry/draws and a compact per-instance `data` word; the game supplies paired
 forward/shadow pipelines and group 2 resources. `MATERIAL_WGSL` supplies the frame,
-transforms and instance accessor. Group 1 is empty in forward and the light camera
-in shadow; group 3 is engine instances. Two vertex storage bindings remain under
-the default limit of eight. Custom forward shaders do not yet receive engine
-shadow maps; use conservative `ModelBounds` for GPU deformation. Batches with a
-custom material are never culled, because the game's vertex shader may move them.
+transforms and instance accessor. Group 1 holds the engine's shadow maps in forward
+and the light camera in shadow; group 3 is engine instances. Two vertex storage
+bindings remain under the default limit of eight. A forward module that appends
+`MATERIAL_SHADOWS_WGSL` gets `sun_shadow(world, normal)` (1 without sun shadows),
+`light_visibility`, `brdf` and `add_local_lights` over those maps and the scene's
+light buffer; it binds nothing more. Use conservative `ModelBounds` for GPU
+deformation. Batches with a custom material are never culled, because the game's
+vertex shader may move them.
 
 `app.json` declares `gpu.shaderRoots` and optional `gpu.shaderPreludes` (shader stem
 → ordered source paths), all relative to the manifest. The bake merges and reflects
@@ -124,7 +129,30 @@ saved types.
   against their individual plane depths. Raster depth bias is zero. Thin sheets
   cast; back faces are culled. Supported direct sun fades over N·L 0.01→0.005;
   at/below 0.005 no singular plane slope is evaluated, including beyond shadow reach.
-  Shadow-disabled lighting is unfaded. Ambient/emission/point lights are unaffected.
+  Shadow-disabled lighting is unfaded. Ambient, emission and the fill light are unaffected.
+- Local light shadows are opt-in: add the `LightShadows` marker to a `SpotLight` or
+  `PointLight`. A spot takes one 1024² Depth32Float layer (a perspective view of
+  its cone, up to 170°), a point light six (a cube's faces, picked per pixel by the major axis
+  from the light). Lights are served nearest first while the frame has layers
+  left, at most eight (`local_shadows::MAX_VIEWS`). One shadowed point light takes
+  six of the eight, leaving two spots; eight spots fit otherwise; the rest light
+  unshadowed. The layer array grows to the most layers a frame has used (4 MiB
+  each, at most 32 MiB) and is kept, so toggling a light reallocates nothing. Each layer's casters are culled
+  on the GPU (four views per cull pass) and drawn depth-only with the sun's caster
+  pipelines. Receivers offset 1.5 texels along the normal (less towards the light)
+  and take 3×3 PCF. Forward passes always bind group 1 (cascades, the comparison
+  sampler, local maps), with a one-texel placeholder for an absent map.
+- Screen-space ambient occlusion is off by default; inserting the engine's
+  `AmbientOcclusion { radius, intensity }` resource (or setting
+  `FrameInput::ambient_occlusion`) turns it on. It retains the forward depth and
+  takes hemisphere samples within `radius` metres around a normal rebuilt from
+  depth, at `quality`: `Low` half resolution and 8 samples, `Medium` (default) half
+  resolution and 12, `High` full resolution and 16. A depth-aware 3×3 upsample
+  (edges do not bleed) multiplies the resolved HDR colour before post and bloom. It darkens all light at a crease, not only ambient, and translucent
+  surfaces over a crease take its darkening. Off, no texture or pass exists.
+  The `Medium` default (half resolution, 12 samples) replaced full-resolution
+  occlusion: scenes with SSAO on change pixels slightly (intended; `High` is the
+  former full-resolution cost and look).
 - Bloom defaults to threshold 1, intensity 0.16, radius 1.5: one-sided knee, 13-tap
   downsampling and additive tent upsampling. Up to six RGBA16F levels, stopping
   before either dimension falls below 8; tiny outputs retain one level.
@@ -143,13 +171,30 @@ sun disc is left out because the sun is a direct light. When those colours chang
 (irradiance / π, in the frame uniform's `irradiance`, part of `FRAME_WGSL`) and
 renders a 32² RGBA16F cube whose six mips hold GGX-prefiltered radiance, roughness
 `mip / 5`, 256 samples per texel: 36 small passes before the frame's geometry.
+Diffuse SH follows every change; the cube is prefiltered again only when a colour
+moves more than 2% from the colours it was filtered from, or after the sky holds
+still for 30 frames, when it is made exact. A dusk dimming 0.1% a tick prefilters
+about once per 20 ticks instead of every tick.
 Primitive and model shaders share `ibl.wgsl`: split-sum specular samples the cube at
 the reflected direction and `roughness × 5` and scales it by Karis's analytic
 environment BRDF; diffuse is SH irradiance × base × (1 − metallic) × (1 − specular).
 `Environment.ambient` scales both, model occlusion multiplies both, and exposure and
 ACES apply once as before. Metals reflect the sky out of direct light; dielectrics
-reflect about 4% of it at normal incidence. An authored environment map would replace
-only the prefilter's `source()` and the SH projection's radiance function.
+reflect about 4% of it at normal incidence.
+
+An authored map replaces the sky as the source: the engine's `EnvironmentMap`
+resource (or `FrameInput::environment_map` for a direct renderer) names an
+equirectangular texture (+Y the top row, −Z the centre column) delivered as a `.tex`
+asset or added with `add_texture`, with a linear `intensity` and an optional RGBM
+`rgbm` range (radiance = rgb × alpha × range) that carries HDR through 8-bit, BC7 or
+ASTC payloads. The prefilter samples it at the level of detail matching each cube
+mip, and a compute pass projects its SH9 on the GPU into a buffer copied over the
+frame uniform's `irradiance` each frame. Both run once per map content, intensity or
+range change. With `visible`, the map is also the visible sky: the sky pass samples
+it (bilinear, mip 0) in place of the gradient and `background`, at its intensity and
+RGBM range; the sun disc and fog still apply. `rotation` turns the map about +Y for
+the light and the sky alike (a change filters again). Cube-map sources are not
+supported; the source is equirectangular.
 
 `Material::grid(color, spacing)` uses a derivative-antialiased world-space grid,
 projected onto any face in the existing forward shader. Positive saved spacing
@@ -181,6 +226,12 @@ module links neither model decoding nor the model shader family. Bind constructs
 the first asset preparation or render constructs Renderer. Feed setup and only the last two completed ticks
 of a seek. Frames interpolate on the GPU and visit retained camera/light/batch
 records, without per-instance CPU work on the primitive retained path.
+Model instances keep a CPU pose history only for translucent ordering and winding;
+a completed tick steps the instances in blocks whose local or propagated poses
+changed since the last step (`World::poses_changed_since`) and those still
+interpolating, so static instances, parented or not, cost nothing per tick or
+frame. Parented global poses are retained and recomputed only in changed blocks. A model batch stays one draw group per view unless an
+instance has a negative scale axis or an attachment.
 
 Feed checks storage write generations against each target history and reads only
 changed pages. It patches parented global poses into retained scratch, coalesces
@@ -242,29 +293,104 @@ delivery failure, not a wgpu error. `state.world.gpu` reports `textureFamily` an
 `textures: {bytes, <format>: count}` for the active delivered textures (device bytes
 are the delivered level bytes).
 
+`ViewModel` marks an entity for the camera's viewmodel layer (a first-person weapon,
+hands). Its opaque batches draw in the nearest `VIEWMODEL_DEPTH` (5%) of the depth
+range and the world in the rest, so the layer is in front of every wall it reaches
+into; it casts no shadows and still receives them. Mark each part: the marker is
+per entity, not inherited. Without a drawn viewmodel the world keeps the whole 0–1
+range. Blended viewmodel parts keep the layer's range in the translucent pass.
+While a viewmodel draws, raw depth is split: the layer fills [0, 0.05) and the
+world [0.05, 1]. The depths hooks receive (`SceneCopy.depth`, `PostInputs.depth`)
+are resolved to linear view depth with the split undone, so they are correct for
+both layers; SSAO skips viewmodel pixels and never samples them as occluders.
+
 Opaque batches stay retained. Only transparent draws are sorted each displayed
 frame, back-to-front in camera depth, using retained tick poses and local centers.
 They keep depth testing, disable depth writes, and do not cast shadows. A model's
-own materials are multiplied by entity base colour and have entity emission added.
+own materials are multiplied by entity base colour and have entity emission added:
+one model serves every team colour or mutation look. `NodeMaterials` adds a tint and
+emission per named node of one instance (stored in that node's instance record).
+`Opacity(o)` (presentation state, like `NodeMaterials`: written by `Game::present`,
+never saved or hashed) fades any instance, primitive or model: opaque surfaces drop pixels in
+an ordered 4×4 screen-door dither (depth stays exact, nothing is sorted; model
+shadows fade with it, primitive shadows too: their depth pass drops the same
+dithered texels, so at `Opacity(0)` an entity casts nothing), blended model
+materials multiply their alpha. This is coverage fading; a custom vertex or
+fragment shader that wants it calls `faded(slot, pixel)` (fade.wgsl, in
+`MATERIAL_SHADOWS_WGSL`) itself. Custom-material hooks ignore both.
+`MaterialOverrides` replaces a model material's base colour factor, zero channels
+included (and adds emission), on one instance: it becomes that material's records'
+tint with a flag that drops the authored factor, so instances in different colours
+still share their batches.
+Present rebuilds these every tick; the feed compares each entity's content, so
+unchanged looks cost nothing and changed ones (a pulsing glow) patch that entity's
+records and part looks in place in the instance buffer, without a rebatch. Only a
+look appearing on a merged part that had none (the part-look table changes shape)
+rebatches.
+At load, a model's rigid, non-blended parts that share a material merge into one
+draw: static parts into one mesh pre-transformed into model space (mirrored parts
+rewound), parts a clip animates into one mesh skinned with weight one to each
+part's node, through the palette rigid parts already use. A many-part prop or a
+rigid-limbed character is one draw per material. `NodeMaterials` still colours
+parts one by one: an instance's per-part looks follow its records in the instance
+buffer, each with its part's first vertex, and the record's last word points at
+them; the vertex shader takes the last part starting at or before its vertex.
+Static merges add no per-vertex data. The parts' own meshes stay resident: a model
+whose merged draw has a material a game's `CustomMaterial` shades draws its parts
+unmerged, since a custom vertex shader (wind sway about a node) sees node-local
+positions and the node's offset. Merging moves
+static vertices into model space on the CPU, so their pixels can differ from the
+unmerged draw by float rounding (an intended change, under 8 pixels in the tests).
+`ModelLod { levels, hide }` swaps an instance's model by camera distance. Each
+frame the renderer picks one level per entity from its displayed position, with a
+5% hysteresis band (presentation only), falling back to the nearest resident level
+while one streams in. Every other level's records carry a hidden word the GPU cull
+reads, in every view and keep-all group (shadow cascades and spot shadows too);
+the blended pass skips them, and their skinning jobs are not dispatched, so a far
+crowd skins nothing. Direct drawing (no indirect execution, or lists past the
+device's storage limits) has no per-instance cull and draws level 0 only. Levels
+share the pose, looks and opacity. Distances must be finite, increasing and
+positive, with `hide` beyond them; the feed refuses others by entity.
+`world.perf.culled.cameraTriangles` counts what the cull kept for the camera
+(`stats.triangles` counts every submitted level). On this Mac (`tests/lod_bench.rs`,
+20,000 2,048-triangle trees, 1080p): 36.7 M camera triangles and a 15.8 ms frame
+without `ModelLod`; 0.27 M and 4.5-7.9 ms with a 12-triangle level from 40 m and
+`hide: Some(400.)`.
 `Glow(Tween)` also multiplies the model's baked emissive factor and texture,
 including on entities without a `Material` component. Removing `Glow` restores
 authored emission. The model-only multiplier uses material slot 9 (primitive
 dimension X for primitive draws); it does not change authored model assets.
 
-Camera/sun/point rotations use normalized linear interpolation histories. The first posed sun
-wins. Point-light selection is feed-only: up to sixteen with positive tick-end
-intensity, ordered by squared camera distance then entity index. `Lit` contributes
-its nonnegative tick-end multiplier to eligibility. There is no incumbent advantage
-or saved selection; continuous feeds, long seeks and restores select the same order.
-At the sixteen-light boundary, two lights exchanging distance order can visibly
-pop between included and excluded; there is no hysteresis or crossfade.
+Camera/sun/light rotations use normalized linear interpolation histories. The first
+two posed `DirectionalLight`s in entity order light the scene: the first is the sun
+(shadowed when its `shadows` is set), the second an unshadowed fill such as the
+moon. Local lights are `PointLight` and `SpotLight` (a cone along the entity's −Z:
+full intensity inside `inner`, smoothly zero at `outer`, both half-angles in
+radians). Selection is feed-only: lights with positive tick-end intensity and
+range, ordered by squared camera distance, then points before spots, then entity
+index; the first `MAX_LIGHTS` (256) are drawn. `Lit` contributes its nonnegative
+tick-end multiplier to eligibility. There is no incumbent advantage or saved
+selection; continuous feeds, long seeks and restores select the same order. Lights
+past the cap are counted in `FrameInput::lights_dropped` and
+`state.world.perf.lights` (`{drawn, dropped}`), and the first frame that drops any
+logs a warning.
 
-`Lit(Spring)` on a point light samples the saved spring at presentation seconds and
+Each frame the renderer bins the drawn lights on the CPU into a 16 × 9 × 24 grid
+of screen tiles and exponential view-depth slices (`lights.rs`); the forward and
+model shaders read the fragment's cluster from one storage buffer (`lights.wgsl`).
+A light joins every cluster its range sphere may touch, so a pixel skips only
+lights whose windowed contribution is exactly zero there, in frame order.
+
+`Lit(Spring)` on a point or spot light samples the saved spring at presentation seconds and
 multiplies `PointLight.intensity`; negative overshoot clamps to zero. Keep the authored
 intensity constant and retarget once with `lit.to(now, 1.0)`. Sampling changes no
 world bytes. `Glow(Tween)` independently controls material emission. The GPU regression
 in `tests/world.rs` measures a non-emissive cube illuminated by a meshless spring light.
-Engine illuminance is lux: 10,000 lux maps to renderer radiance 3.
+Engine lights are photometric and share one scale, `PHOTOMETRIC_SCALE` (0.0003):
+`DirectionalLight.illuminance` is lux, and `PointLight.intensity` is candela, so a
+light delivers `intensity / d²` lux at `d` metres. 10,000 lux of sun, or a 10,000 cd
+lamp seen from 1 m, maps to renderer radiance 3; the 100 cd default lights a surface
+1 m away at 1% of the default sun. `FrameInput` carries renderer radiance.
 Missing materials/environment use defaults.
 
 Performance samples appear only in `state.world.perf`: live frame stamps, tick,
@@ -272,8 +398,14 @@ feed, encode (frame input through submit) and ticks/frame distributions. CPU sam
 rings retain 16,384 values. Seekable renders, agent advances and timed binds make
 no perf clock calls; samples do not enter hashes. Armed perf also reads back, a few
 frames late and asynchronously, `perf.culled` (instances each view drew: `camera`,
-`shadows[0..3]`) and, where timestamps are granted, `world.gpuMs` rings per pass
-(forward, the cascades, `cull`, hook stages). Arming allocates the query set and
+`shadows[0..3]`) and, where timestamps are granted, `world.gpuMs` rings for every
+pass by `GPU_PASS_NAMES`: forward, the cascades, local shadows, `cull`, skin palettes,
+the environment prefilter, SSAO, each bloom level (and `bloom`, first start to last
+end), tonemap, depth resolves and hook stages; the translucent run (particles,
+blended models) and inside-pass hook stages where the device times inside passes.
+A pass the frame did not run is not read. GPU timings also fill under the agent's
+virtual clock (seekable frames), so `state world perf:true` then `clock +ms` times
+an offscreen frame there; CPU frame rings stay live-only. Arming allocates the query set and
 readback buffers; an unarmed canvas creates none. GPU intervals overlap; do not sum
 them. The allocation-free claim covers
 only the `steady_sim_feed_and_frame_inputs_allocate_nothing` moving-cube/camera/light
@@ -444,6 +576,14 @@ a sprite/model interleaved by depth splits that batch. The particle fixture's
 20,000 instances use one particle draw plus tonemapping. No frame scans the world.
 Emitter state includes compact admitted-birth batches, never particle positions.
 The renderer never changes that saved state.
+
+Soft particles (`ParticleLook.soft`) fade alpha by the gap along the view ray to
+the opaque scene behind them. On a frame with any, the forward pass stores its
+multisampled colour and depth instead of continuing into translucency; a second
+pass loads them, keeps the depth read-only and binds it to the soft particle
+pipelines (sample 0). That store and reload is the cost, so it is opt-in per look.
+Under a hook's scene copy, whose continuation already owns translucency, soft
+particles draw hard.
 
 Camera, sprite and blended-model ordering use the same normalized shortest-path
 quaternion interpolation as the draw shader. Birth/restore/carry/teleport/parent

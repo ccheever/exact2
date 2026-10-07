@@ -1,0 +1,25 @@
+// A child's `derive` is an expression substituted where it is read, not a
+// runtime derive: it may be non-finite without refusing anything, where a
+// root derive of the same value would refuse the commit.
+component App
+  state n = 1
+  action zero
+    n = 0
+  view
+    column
+      Show(n=n)
+      button "zero" press=zero testId="zero"
+
+component Show
+  props
+    n: number
+  derive inv = 1 / n
+  derive nan = n / n
+  view
+    text `${inv} ${nan}` testId="show"
+
+test "child derive goes infinite"
+  expect text "show" == "1 1"
+  tap "zero"
+  expect state n == 0
+  expect text "show" == "Infinity NaN"

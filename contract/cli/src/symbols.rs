@@ -5,6 +5,7 @@ use crate::{
     sources::{self, Sources},
     CompileError, RelatedLocation,
 };
+use contract_syntax::scope::Kind;
 use contract_syntax::*;
 use contract_types::{Ref, Scope, Ty, Types};
 use std::{collections::BTreeMap, io::Write, path::Path};
@@ -240,7 +241,9 @@ pub fn symbols_json(path: &Path, name: Option<&str>) -> Result<String, CompileEr
     } else {
         let strings = crate::strings::load(&root, path).map_err(|mut all| all.swap_remove(0))?;
         let checked = contract_types::check_all(&file, false, contract_lower::tags::style, strings)
-            .map_err(|mut all| sources.resolve(all.swap_remove(0).into()))?;
+            .map_err(|mut all| {
+                sources.resolve(authored_action_hint(&file, all.swap_remove(0).into()))
+            })?;
         (checked.types, Some(checked.expanded))
     };
     let mut r = Resolver {
@@ -254,9 +257,16 @@ pub fn symbols_json(path: &Path, name: Option<&str>) -> Result<String, CompileEr
     };
     r.declarations();
     for import in &sources.imports {
-        for kind in ["component", "shape", "style", "fn"] {
+        let kinds: &[&str] = match import.kind {
+            Kind::Component => &["component"],
+            Kind::Call => &["shape", "fn"],
+            Kind::Style => &["style"],
+            Kind::Keyframes => &["keyframes"],
+            Kind::Timeline => &[],
+        };
+        for kind in kinds {
             if let Some(to) = r.graph.find(kind, &import.name, None, None) {
-                r.graph.refer(file.names.name(import.span), to);
+                r.graph.refer(import.span, to);
             }
         }
     }
@@ -276,6 +286,11 @@ struct Resolver<'a> {
 impl<'a> Resolver<'a> {
     fn declarations(&mut self) {
         let names = &self.file.names;
+        // An action writes what the actions it calls write (LLP 1089 D5):
+        // its effects are read with its component's calls expanded. A prop
+        // or inject call writes another component's slots, which no slot
+        // of this one is.
+        let (called, _) = contract_syntax::inline::calls::expand_file(self.file);
         for font in &self.file.fonts {
             self.graph
                 .define("font", &font.name, names.name(font.span), None, None);
@@ -345,11 +360,11 @@ impl<'a> Resolver<'a> {
                 .chain(c.states.iter().map(|s| s.name.as_str()))
                 .chain(c.mutations.iter().map(|m| m.name.as_str()))
                 .collect();
-            for action in &c.actions {
+            for (ai, action) in c.actions.iter().enumerate() {
                 let at =
                     self.graph
                         .define("action", &action.name, names.name(action.span), cn, None);
-                let effects = action.effects();
+                let effects = called.components[ci].actions[ai].effects();
                 let writes = slots
                     .iter()
                     .filter(|slot| effects.iter().any(|e| e.target == **slot))
@@ -579,6 +594,9 @@ impl<'a> Resolver<'a> {
             }
             for t in &c.tasks {
                 self.expr(&t.timer.0);
+                for e in t.gate.iter().chain(&t.key) {
+                    self.expr(e);
+                }
                 self.name(&t.timer.1, self.file.names.name(t.timer.2));
             }
             // A provided name is a declaration; its value reads the
@@ -608,12 +626,27 @@ impl<'a> Resolver<'a> {
                     self.target(&["state", "mutation"], target, *span);
                     self.expr(expr);
                 }
-                Stmt::Command { name, args, .. } => {
+                Stmt::Command { name, args, span } => {
                     if let ("focus" | "blur", [Expr::Str(id, span)]) =
                         (name.as_str(), args.as_slice())
                     {
                         self.graph.id(id, *span);
                     }
+                    // A call of an action, an action prop or an inject (LLP
+                    // 1089 D1) refers to it; a host command keeps its name.
+                    if !contract_syntax::HOST_COMMANDS.contains(&name.as_str()) {
+                        self.name(name, self.file.names.name(*span));
+                    }
+                    for arg in args {
+                        self.expr(arg);
+                    }
+                }
+                // Expansion's, never an authored tree's: the callee, and the
+                // caller's arguments. Its body is the callee's own.
+                Stmt::Call {
+                    action, args, span, ..
+                } => {
+                    self.name(action, self.file.names.name(*span));
                     for arg in args {
                         self.expr(arg);
                     }
@@ -736,6 +769,7 @@ impl<'a> Resolver<'a> {
                     some,
                     none,
                     span,
+                    ..
                 } => {
                     self.expr(subject);
                     let ty = match self.infer(subject) {
@@ -779,11 +813,12 @@ impl<'a> Resolver<'a> {
     }
     fn expr(&mut self, expr: &Expr) {
         match expr {
-            Expr::Number(..)
-            | Expr::Str(..)
-            | Expr::Bool(..)
-            | Expr::None(_)
-            | Expr::EmptyList(_) => {}
+            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
+            Expr::List(items, _) => {
+                for item in items {
+                    self.expr(item);
+                }
+            }
             Expr::Template(parts, _) => {
                 for part in parts {
                     if let TemplatePart::Expr(e) = part {
@@ -791,9 +826,10 @@ impl<'a> Resolver<'a> {
                     }
                 }
             }
-            Expr::NamedArg(_, inner, _) | Expr::Some(inner, _) | Expr::Unary(_, inner, _) => {
-                self.expr(inner)
-            }
+            Expr::NamedArg(_, inner, _)
+            | Expr::Typed(inner, _, _)
+            | Expr::Some(inner, _)
+            | Expr::Unary(_, inner, _) => self.expr(inner),
             Expr::Ident(name, span) => self.name(name, *span),
             Expr::Member(base, field, span) => {
                 self.expr(base);
@@ -881,6 +917,18 @@ impl<'a> Resolver<'a> {
 // can say which action spellings the author can use at a failing handler.
 // Walk it on refusal only; successful compilation does no diagnostic work.
 pub(crate) fn authored_action_hint(file: &File, mut error: CompileError) -> CompileError {
+    // An ambiguous call (LLP 1089 D1): the declaration it collides with.
+    if error.id == contract_syntax::inline::calls::Ambiguous::ID {
+        let found = contract_syntax::inline::calls::ambiguous(file);
+        if let Some(a) = found.into_iter().find(|a| a.span == error.span) {
+            error.related = Box::new([RelatedLocation {
+                span: a.declared,
+                file: None,
+                note: format!("the {} `{}` is declared here", a.what, a.name),
+            }]);
+        }
+        return error;
+    }
     if !matches!(
         error.id.as_str(),
         "type-unknown-name" | "type-unknown-function" | "analyze-unknown-action"

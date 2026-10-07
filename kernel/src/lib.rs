@@ -34,13 +34,17 @@ pub mod corner;
 pub mod error;
 pub mod export;
 mod flow;
+pub mod fragment;
 pub mod generated;
 pub mod gradient;
+pub mod grouped;
+pub mod handoff;
 pub mod id;
 pub mod kernel;
 pub mod layout;
 pub mod motion;
 pub mod node;
+pub mod paint_order;
 pub mod props;
 pub mod ratio;
 pub mod region;
@@ -61,8 +65,10 @@ pub use error::{
     ApplyError, DecodeError, KernelError, LayoutError, StyleDomainError, StyleValueError,
 };
 pub use generated::*;
+pub use grouped::{Accessory, GroupedList, GroupedRow, GroupedSection};
+pub use handoff::Handoff;
 pub use id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer, ViewId};
-pub use kernel::{HostCover, Kernel, NodeRef, PresentedHeight};
+pub use kernel::{HostCover, Kernel, NodeRef, PresentedHeight, StickyConstraint};
 pub use layout::LayoutReceipt;
 pub use motion::{motion_node, MotionSync};
 pub use node::NodeFacts;
@@ -72,9 +78,10 @@ pub use style::{
     link_segments, uses_env, BoxShadow, Color, ColorValue, Dimension, Edge, Env, EnvRefusal,
     GridFitContent, GridLine, GridPlacement, GridRepeat, GridRepeatCount, GridTrack,
     GridTrackComponent, GridTrackMax, GridTrackMin, GridTracks, LineHeight, Rect, RowValue,
-    SegmentVar, StyleValue, Transitions, Vec2,
+    SegmentVar, StyleValue, Transitions, Vec2, ViewportUnit,
 };
 pub use text::case::link as link_text_transform;
+pub use text::case::{linked_lowercase, lowercase_bounded, Lowercase};
 pub use text::{
     Markup, MonospaceMeasurer, ParagraphStamp, TextMeasureRequest, TextMeasurer, TextMetrics,
     TextRun, TextStyle,

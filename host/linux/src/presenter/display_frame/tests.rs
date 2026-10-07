@@ -61,7 +61,7 @@ const APP: &str = r##"component App
     every(250, tick)
   view
     column width=320 height=240
-      input value=draft change=edit testId="input" height=32
+      input value=draft input=edit testId="input" height=32
       when showing
         box press=press testId="target" width=100 height=32 background-color="#cc3300"
       box press=hide testId="hide" height=16
@@ -466,7 +466,7 @@ const VIEWPORT_APP: &str = r##"component App
     extent = 700
   view
     column testId="root" width="100%" height=extent background-color="#225599"
-      input testId="input" value=draft change=edit height=24
+      input testId="input" value=draft input=edit height=24
       box testId="shorten" press=shorten height=24
       box testId="lengthen" press=lengthen height=24
       box testId="target" press=press height=32 background-color="#cc3300"
@@ -798,6 +798,7 @@ fn timer_demand_pending_b_keeps_dirty_c_and_b_pixels() {
     assert_eq!(paints.get(), 2);
 }
 #[test]
+#[cfg(unix)]
 #[allow(unsafe_code)] // poll borrows this live executor FD with a zero timeout; it takes no ownership.
 fn timer_demand_nonvisual_command_wakes_existing_executor_without_paint() {
     let source = "component App\n  action tick\n    copyText(\"timer\")\n  task timer mount\n    every(250, tick)\n  view\n    text \"unchanged\"\n";
@@ -827,6 +828,19 @@ fn timer_demand_scheme_command_marks_its_visual_effect() {
     assert!(p.advance(250.).is_none());
     p.run_commands(Empty::default);
     assert!(p.brush.dark && p.dirty());
+}
+#[test]
+fn timer_root_font_size_command_is_laid_out_by_the_runner() {
+    // LLP 1069.000 D3: the app's `:root { font-size }`; this host has nothing to run.
+    let source = "component App\n  action tick\n    setRootFontSize(20)\n  task timer mount\n    every(250, tick)\n  view\n    view width=\"10rem\" height=\"2rem\"\n";
+    let (mut p, _, _) = timer_primed(source);
+    assert!(p.advance(250.).is_none());
+    assert_eq!(p.host.runner().root_font_size(), 20.0);
+    assert!(p.dirty());
+    p.run_commands(Empty::default);
+    assert!(p.commands.is_empty());
+    // The host's own 16 stays beneath it, for a new runner of this launch.
+    assert_eq!(p.host.runner().host_root_font_size(), 16.0);
 }
 #[test]
 fn timer_demand_focus_retirement_and_scroll_clamp_are_independent() {
@@ -1041,4 +1055,33 @@ fn a_frame_task_fires_once_per_display_frame_not_from_a_timeout() {
     assert!(p.animation_frame(5_000.).is_none());
     assert_eq!(slot(&p, "frames"), Some(Value::Number(2.)));
     assert_ne!(slot(&p, "at"), at);
+}
+
+const SVG_APP: &str = r##"component App
+  state count = 0
+  action press
+    count = count + 1
+  view
+    column width=320 height=240
+      button press=press testId="icon" width=48 height=48
+        svg width=48 height=48 viewBox="0 0 24 24"
+          path d="M0 0h24v24H0z" fill="#111827"
+      text `${count}` testId="count" height=20
+"##;
+
+#[test]
+fn a_press_on_an_svg_element_reaches_its_button_on_an_attached_display() {
+    let (mut p, _, _) = boot_app(SVG_APP);
+    let a = submit(&mut p).unwrap();
+    assert!(complete(&mut p, &a));
+    let icon = id(&p, "icon");
+    let (x, y) = point(&p, icon);
+    let (x, y) = (x + 20., y + 20.);
+    let hit = p.hit(x, y).unwrap();
+    assert_eq!(
+        p.host.kernel().node(hit).unwrap().node_type,
+        NodeType::SvgPath
+    );
+    assert_eq!(p.press_at(x, y, 1.), Some(icon));
+    assert_eq!(count(&p), "1");
 }

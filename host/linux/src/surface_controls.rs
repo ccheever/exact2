@@ -6,6 +6,20 @@ use exact_runner::Event;
 use serde_json::json;
 use std::collections::BTreeSet;
 
+/// A form control HTML lets `disabled` take out of focus and input: a
+/// button, an input or a control. On any other box `disabled` means
+/// nothing to focus or keys, as Chrome's `<div disabled>` (LLP 1088 D7.3,
+/// amended 2026-10-04); a pressable with an `href` is the web's `<a>`,
+/// which `disabled` does not touch either (review b5-delta).
+pub(crate) fn disabled_control(n: &exact_kernel::NodeRef<'_>) -> bool {
+    n.props.bool(PropId::Disabled) == Some(true)
+        && match n.node_type {
+            NodeType::Pressable => n.props.str(PropId::Href).is_none(),
+            NodeType::TextInput | NodeType::Control => true,
+            _ => false,
+        }
+}
+
 impl<D: DataSource> Presenter<D> {
     pub(crate) fn control_target(&self, id: u32) -> Option<u32> {
         let mut cursor = Some(id);
@@ -265,6 +279,22 @@ impl<D: DataSource> Presenter<D> {
     /// Route device keys through the same targeted path as agent keys.
     pub fn hardware_key(&mut self, code: &str, key: &str, down: bool, repeat: bool) {
         self.restore_controls();
+        self.hold_modifier(code, down);
+        // A hardware release returns before `type_key`, which is what forgets
+        // a shortcut's code. Left set, an agent key of that code after the
+        // button is gone delivers the down and swallows the up.
+        if !down {
+            self.shortcut_keys.remove(code);
+        }
+        // A Control or Meta chord is a shortcut, as a browser's: the focus's
+        // `key` handlers hear it, and no canvas or control starts with it.
+        if down && self.held & 0b1100_1100 != 0 {
+            if self.focus.is_some() {
+                let name = if code == "NumpadEnter" { "Enter" } else { key };
+                self.key_down(name, self.host.now());
+            }
+            return;
+        }
         let contact = if code == "Space" {
             u32::MAX - 1
         } else {
@@ -334,6 +364,9 @@ impl<D: DataSource> Presenter<D> {
             })
         }) {
             let _ = self.type_key(id, code, key, down, repeat);
+        } else if down && code == "Tab" {
+            // From no focus, Tab takes the first stop (LLP 1088 D7.3).
+            self.key_down("Tab", self.host.now());
         }
         if code == "Escape"
             && self.focus.is_some_and(|id| {
@@ -448,17 +481,41 @@ impl<D: DataSource> Presenter<D> {
         None
     }
 
-    /// The web's focusable nodes: controls, inputs, buttons and links, and a
+    /// The web's focusable nodes: controls, inputs, buttons and links, a
     /// node with a `focus`, `blur` or `key` handler (the web gives it a
-    /// `tabindex`), as the Apple hosts take the first responder.
+    /// `tabindex`), and any node with an explicit `tabindex`, a negative one
+    /// included (LLP 1088 D7.3), as the Apple hosts take the first
+    /// responder. What tap, `autofocus` and `focus()` may focus; Tab takes
+    /// only the `tabbable` ones.
+    ///
+    /// `disabled` keeps only a form control out (a button, an input, a
+    /// control), where HTML defines it; on a box it means nothing to focus,
+    /// as in Chrome (LLP 1088 D7.3, amended 2026-10-04).
     pub(crate) fn focusable(&self, id: ViewId) -> bool {
+        // A grouped list's grip takes the keys that move its row (LLP 1094 D9).
+        if self.group_grip(id).is_some() {
+            return true;
+        }
         self.host.kernel().node(id).is_some_and(|n| {
-            n.props.bool(PropId::Disabled) != Some(true)
-                && (n.props.str(PropId::Action).is_some()
+            n.computed_row(exact_kernel::StyleId::Visibility, |s| s.visibility)
+                == exact_kernel::Visibility::Visible
+                && !disabled_control(&n)
+                && (n.props.get(PropId::TabIndex).is_some()
+                    || n.props.str(PropId::Action).is_some()
                     || n.node_type == NodeType::TextInput
                     // A native button is a button under any role (LLP 1069.011.000 D1).
-                    || exact_kernel::ControlKind::of(n.node_type, n.props)
-                        == Some(exact_kernel::ControlKind::Button)
+                    // A checkbox and a radio are HTML's focusable controls: a
+                    // press focuses one, as Chrome's does, and a radio's arrows
+                    // move the focus (x2apps survey #2).
+                    || matches!(
+                        exact_kernel::ControlKind::of(n.node_type, n.props),
+                        Some(
+                            exact_kernel::ControlKind::Button
+                                | exact_kernel::ControlKind::Radio
+                                | exact_kernel::ControlKind::Checkbox
+                                | exact_kernel::ControlKind::Switch
+                        )
+                    )
                     || matches!(
                         n.props.str(PropId::AccessibilityRole),
                         Some("button" | "link")
@@ -468,7 +525,20 @@ impl<D: DataSource> Presenter<D> {
                         .runner()
                         .handlers_of(id)
                         .iter()
-                        .any(|k| matches!(k, EventKind::Focus | EventKind::Blur | EventKind::Key)))
+                        // A pressable is a tab stop, as on every host (chat F14).
+                        .any(|k| {
+                            matches!(
+                                k,
+                                EventKind::Focus
+                                    | EventKind::Blur
+                                    | EventKind::Key
+                                    | EventKind::Press
+                                    // The clipboard's events go to the focus.
+                                    | EventKind::Copy
+                                    | EventKind::Cut
+                                    | EventKind::Paste
+                            )
+                        }))
         })
     }
 
@@ -494,6 +564,30 @@ impl<D: DataSource> Presenter<D> {
             }
             return Some(control);
         }
+        self.focus_for_press(hit, now_ms);
+        if self.press_range(hit, x) || self.toggle_control(hit, now_ms) {
+            return Some(hit);
+        }
+        // A link under the press is followed after the press's own handler,
+        // as a click's default action follows its listeners (LLP 1038 §7).
+        let link = self.link_at(hit, x, y);
+        let Some(target) = self.handler_target(hit, EventKind::Press) else {
+            if let Some(href) = link {
+                self.follow(hit, &href, now_ms);
+                return Some(hit);
+            }
+            return self.surface_pointer(hit, x, y, now_ms);
+        };
+        self.dispatch_press(target, now_ms, true);
+        if let Some(href) = link {
+            self.follow(hit, &href, now_ms);
+        }
+        Some(target)
+    }
+
+    /// A press moves focus to the nearest focusable node at or above `hit`,
+    /// except that a canvas press leaves an editor focused.
+    fn focus_for_press(&mut self, hit: ViewId, now_ms: f64) {
         let mut focus = Some(hit);
         while let Some(id) = focus {
             if self.focusable(id) {
@@ -512,14 +606,36 @@ impl<D: DataSource> Presenter<D> {
             }
             self.queue_collections();
         }
-        if self.press_range(hit, x) || self.toggle_control(hit, now_ms) {
-            return Some(hit);
+        // A press in a text field puts its caret there (x2apps codeedit #2).
+        if let Some(id) = focus.filter(|id| self.focus == Some(*id)) {
+            self.press_field(id);
         }
-        let Some(target) = self.handler_target(hit, EventKind::Press) else {
-            return self.surface_pointer(hit, x, y, now_ms);
-        };
-        self.dispatch_press(target, now_ms, true);
-        Some(target)
+    }
+
+    /// The canvas a held contact on `hit` belongs to: the one `press_at` would
+    /// hand a click to, when no menu, control, range, toggle or press handler
+    /// takes it first. The canvas then sees the contact's down, every move and
+    /// its up as they happen, as the web's pointer events do.
+    pub(crate) fn canvas_contact_target(&self, hit: ViewId) -> Option<u32> {
+        let node = self.host.kernel().node(hit)?;
+        if self.menu.is_some()
+            || node.node_type == NodeType::Control
+            || crate::navigation::popover_invoker(self.host.kernel(), hit)
+            || self.brush.region_blocks_action(hit)
+            || self.control_target(hit).is_some()
+            || self.handler_target(hit, EventKind::Press).is_some()
+        {
+            return None;
+        }
+        self.input_surface(hit)
+    }
+
+    /// A held contact's down on its canvas: focus as a press does, then the
+    /// pointer's `down`. False when the canvas refuses it.
+    pub(crate) fn canvas_contact_down(&mut self, hit: ViewId, x: f32, y: f32, at: f64) -> bool {
+        self.focus_for_press(hit, at);
+        self.input_surface(hit)
+            .is_some_and(|view| self.canvas_pointer(view, "down", 1, x, y, at))
     }
 
     pub(crate) fn dispatch_press(&mut self, target: ViewId, now_ms: f64, pointer: bool) {
@@ -541,7 +657,14 @@ impl<D: DataSource> Presenter<D> {
                 target
             }
         });
-        if let Some(e) = self.host.dispatch_at(target, Event::Press, now_ms) {
+        // With the modifiers held (gallery F20: shift-click), as a click has them.
+        let held = self.modifiers();
+        let press = if held == Default::default() {
+            Event::Press
+        } else {
+            Event::PressWith(held)
+        };
+        if let Some(e) = self.host.dispatch_at(target, press, now_ms) {
             eprintln!("exact: {e}");
         }
         if let Some(e) = self.after_commit() {

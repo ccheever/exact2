@@ -176,29 +176,11 @@ pub fn equivalent_all(a: &[Value], b: &[Value]) -> bool {
 
 /// The language's structural equality; `None` when the kinds differ before
 /// the first difference.
+///
+/// The machine's ([`crate::machine::equal`]): the one the VM's `Eq` and `Ne`
+/// run, proved against the semantics' `Value.equal`.
 pub fn equal(a: &Value, b: &Value) -> Option<bool> {
-    Some(match (a, b) {
-        (Value::Number(a), Value::Number(b)) => a == b,
-        (Value::Bool(a), Value::Bool(b)) => a == b,
-        (a, b) if a.is_str() && b.is_str() => Value::same_str(a, b) || a.as_str() == b.as_str(),
-        (Value::Unit, Value::Unit) => true,
-        (Value::Option(None), Value::Option(None)) => true,
-        (Value::Option(Some(_)), Value::Option(None))
-        | (Value::Option(None), Value::Option(Some(_))) => false,
-        (Value::Option(Some(a)), Value::Option(Some(b))) => equal(a, b)?,
-        (Value::List(a), Value::List(b)) | (Value::Record(a), Value::Record(b)) => {
-            if a.len() != b.len() {
-                return Some(false);
-            }
-            for (x, y) in a.iter().zip(b.iter()) {
-                if !equal(x, y)? {
-                    return Some(false);
-                }
-            }
-            true
-        }
-        _ => return None,
-    })
+    crate::machine::equal(a, b)
 }
 
 #[cfg(test)]

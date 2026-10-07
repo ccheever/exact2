@@ -380,3 +380,207 @@ fn abi_kind18_uses_common_binary_codec_and_refuses_before_clock() {
         .unwrap()
         .contains("malformed reorder input"));
 }
+/// A remeasure mid-drag: the collection's rows, the source (`grip-0`'s row,
+/// the first) at `source` and the rest at 20.
+fn remeasure(h: &mut Host<Rows>, b: ReorderBinding, source: f64) {
+    let c = h.runner.collections().remove(0);
+    let f = CollectionFeedback {
+        view: c.view,
+        revision: c.revision,
+        scroll_sequence: c.scroll_sequence,
+        offset: 0.,
+        port_cross: 320.,
+        port_main: 100.,
+        cross: 320.,
+        focus_view: None,
+        interaction_view: Some(h.runner.kernel().node_by_key(b.handle).unwrap().id),
+        measurements: c
+            .rows
+            .iter()
+            .map(|r| RowMeasurement {
+                view: r.view,
+                epoch: r.epoch,
+                size: if r.index == 0 { source } else { 20. },
+            })
+            .collect(),
+    };
+    let reply = h.collection_feedback(&f.encode().unwrap());
+    assert!(reply.contains("\"error\":null"), "{reply}");
+}
+#[test]
+fn a_float_noise_remeasure_of_the_translated_source_keeps_the_preview() {
+    // habits F10: the source row, measured through its preview translate,
+    // came back 76 as 75.99998 and ended the drag; a real change still does.
+    for (size, drops) in [(20. - 1.5e-5, true), (25., false)] {
+        let (mut h, b) = fixture();
+        begin(&mut h, b);
+        accepted(&h.reorder_motion(&packet(&h, b, 16, 110., 50.)));
+        remeasure(&mut h, b, size);
+        let token = h.reorder_drags.active.as_ref().unwrap().token;
+        assert_eq!(h.runner.reorder_frame(token).unwrap().terminal, !drops);
+        let reply = h.reorder_motion(&packet(&h, b, 17, 200., 50.));
+        let count = if drops { 1. } else { 0. };
+        assert_eq!(
+            h.runner.slot("count"),
+            Some(&DataValue::Number(count)),
+            "{reply}"
+        );
+    }
+}
+
+/// Two grouped lists (LLP 1094 D5): a ghost's begin, op 21 naming the
+/// target by its view id, and the drop on it.
+struct Board(Vec<(String, String)>);
+impl DataSource for Board {
+    fn query(&mut self, name: &str, args: &[DataValue]) -> Result<DataValue, DataError> {
+        if name == "move" {
+            let item = args[0].as_str().unwrap().to_owned();
+            let at = self.0.iter().position(|(id, _)| *id == item).unwrap();
+            self.0.remove(at);
+            self.0
+                .insert(0, (item, args[1].as_str().unwrap().to_owned()));
+        }
+        Ok(DataValue::list(
+            self.0
+                .iter()
+                .map(|(id, col)| DataValue::record(vec![DataValue::str(id), DataValue::str(col)]))
+                .collect(),
+        ))
+    }
+}
+const BOARD: &str = r#"shape Card
+  id: string
+  col: string
+component App
+  state log = ""
+  resource initial = cards() as shape list<Card>
+  mutation moved as shape list<Card>
+  derive cards = match moved { case some(v) => v, case none => initial }
+  action dropA(item: string, before: option<string>, e: ReorderEvent)
+    log = `${item} ${e.from}>${e.to}`
+    send moved = move(item, "a")
+  action dropB(item: string, before: option<string>, e: ReorderEvent)
+    log = `${item} ${e.from}>${e.to}`
+    send moved = move(item, "b")
+  view
+    row
+      list id="a" testId="a" virtualized=true reorderGroup="g" reorderdrop=dropA height=100 width=100
+        each c in filter(cards, k => k.col == "a") key=c.id
+          column reorderFor="a" testId=`grip-${c.id}` height=20
+      list id="b" testId="b" virtualized=true reorderGroup="g" reorderdrop=dropB height=100 width=100
+        each c in filter(cards, k => k.col == "b") key=c.id
+          column reorderFor="b" testId=`grip-${c.id}` height=20
+"#;
+#[test]
+fn op_21_moves_the_gap_into_another_grouped_list_and_drops_there() {
+    crate::link::link_for_tests();
+    let cards = [("a1", "a"), ("a2", "a"), ("b1", "b")]
+        .map(|(i, c)| (i.to_owned(), c.to_owned()))
+        .to_vec();
+    let (mut h, _) = Host::boot(
+        &contract::compile(BOARD).unwrap().encode(),
+        Board(cards),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let handle = h.runner.kernel().find_by_test_id("grip-a1")[0];
+    let pin = h.runner.kernel().node_by_key(handle).unwrap().id;
+    for _ in 0..3 {
+        for c in h.runner.collections() {
+            let f = CollectionFeedback {
+                view: c.view,
+                revision: c.revision,
+                scroll_sequence: c.scroll_sequence + 1,
+                offset: 0.,
+                port_cross: 100.,
+                port_main: 100.,
+                cross: 100.,
+                focus_view: None,
+                interaction_view: c.rows.iter().any(|r| r.root == pin).then_some(pin),
+                measurements: c
+                    .rows
+                    .iter()
+                    .map(|r| RowMeasurement {
+                        view: r.view,
+                        epoch: r.epoch,
+                        size: 20.,
+                    })
+                    .collect(),
+            };
+            h.collection_feedback(&f.encode().unwrap());
+        }
+    }
+    let b = h.runner.reorder_binding(handle).unwrap();
+    let target = h.runner.kernel().find_by_test_id("b")[0];
+    let view = h.runner.kernel().node_by_key(target).unwrap().id;
+    let wire = |h: &Host<Board>, op: u32, flags: u32, list: NodeKey, record: bool, y: f64| {
+        let g = h.runner.reorder_geometry(list).unwrap();
+        let token = h
+            .reorder_drags
+            .active
+            .as_ref()
+            .map_or(0, |a| a.token.serial());
+        let mut v = Vec::new();
+        for n in [3u32, op] {
+            v.extend(n.to_le_bytes());
+        }
+        for n in [
+            h.reorder_drags.runtime,
+            motion_node(b.handle),
+            motion_node(b.list),
+            motion_node(b.wrapper),
+            motion_node(b.root),
+            b.row_epoch,
+            token,
+            g.revision,
+            g.scroll_sequence,
+        ] {
+            v.extend(n.to_le_bytes());
+        }
+        for n in [u32::from(record), flags] {
+            v.extend(n.to_le_bytes());
+        }
+        for n in [
+            g.scroll_top,
+            g.port_width,
+            g.port_height,
+            g.row_width,
+            g.total_extent,
+            y,
+            0.,
+            0.,
+            0.,
+            0.,
+            100.,
+        ] {
+            v.extend(n.to_le_bytes());
+        }
+        if record {
+            v.extend(u64::from(view).to_le_bytes());
+            v.extend(0u64.to_le_bytes());
+            v.extend(0f64.to_le_bytes());
+            v.extend(0f64.to_le_bytes());
+        }
+        v
+    };
+    let r = h.reorder_motion(&wire(&h, 15, 1, b.list, false, 0.));
+    assert!(r.contains("\"phase\":\"active\""), "{r}");
+    // Op 21 is refused without its record; with it, b certifies its gap.
+    assert!(h
+        .reorder_motion(&wire(&h, 21, 0, target, false, 5.))
+        .contains("error"));
+    let r = h.reorder_motion(&wire(&h, 21, 0, target, true, 5.));
+    assert!(
+        r.contains("\"certified\":true") && r.contains(&format!("\"target\":{view}")),
+        "{r}"
+    );
+    let r = h.reorder_motion(&wire(&h, 17, 0, target, true, 5.));
+    assert!(
+        r.contains("\"dispatched\":true") && r.contains("\"ending\":\"landed\""),
+        "{r}"
+    );
+    assert_eq!(h.runner.slot("log"), Some(&DataValue::str("a1 a>b")));
+    accepted(&h.reorder_motion(&wire(&h, 20, 0, b.list, false, 0.)));
+    assert!(h.reorder_drags.active.is_none());
+}

@@ -135,6 +135,8 @@ pub struct Module {
     placement: Placement,
     /// The Canvas 2D roster the bake read (LLP 1056 D1).
     canvas_surfaces: Vec<(String, usize)>,
+    /// A background round is out: the host holds its ticket (LLP 1097 D5).
+    background_out: bool,
 }
 impl Module {
     /// Construct from binary-admitted identity/grants and baked HBC digest.
@@ -151,6 +153,7 @@ impl Module {
             streams: Table::new(),
             placement: Placement::Main,
             canvas_surfaces: Vec::new(),
+            background_out: false,
         }
     }
 
@@ -339,6 +342,13 @@ impl Module {
                     unavailable("fetch headers are not an array of [name, value] strings")
                 })?;
                 request.body = r["body"].as_str().unwrap_or("").as_bytes().to_vec();
+                // `exactTimeout`, as the prelude checked it (1..=3600000 ms).
+                if let Some(ms) = r["timeout_ms"].as_u64() {
+                    request.timeout_ms =
+                        Some(u32::try_from(ms).map_err(|_| {
+                            unavailable("a request timeout must be 1 to 3600000 ms")
+                        })?);
+                }
                 if r["stream"] == true {
                     // The page opens it; its events come back as messages.
                     request = match Answer::stream(request) {
@@ -397,6 +407,14 @@ fn outcome_json(outcome: Outcome) -> Result<Json, DataError> {
     })
 }
 
+impl Module {
+    /// One of the realm's own operations on this module, its reply parsed.
+    fn realm(&self, op: &str) -> Result<Json, DataError> {
+        let bytes = call(object([("op", op.into()), ("id", self.id.into())]))?;
+        json::parse(&bytes).map_err(|e| unavailable(e.to_string()))
+    }
+}
+
 impl DataSource for Module {
     fn app_id(&self) -> &str {
         &self.app
@@ -422,7 +440,8 @@ impl DataSource for Module {
                 DataError::Unavailable(e)
                 | DataError::BadArguments(e)
                 | DataError::UnknownSource(e)
-                | DataError::Interface(e),
+                | DataError::Interface(e)
+                | DataError::DeferredAtBake(e),
             ) => exact_runner::DrawReply {
                 error: Some(e),
                 ..Default::default()
@@ -507,6 +526,14 @@ impl DataSource for Module {
     /// 1027.002 D3, change 1), scoped to this module's own names; the
     /// loader's registry runs the token its way.
     fn dispatch(&mut self, token: u64, store: &Store) -> Dispatch {
+        // A background round is a turn of the realm's own (LLP 1097 D7),
+        // under a registry token the realm hands out.
+        if token == exact_runner::BACKGROUND {
+            return match self.realm("background-round").map(|r| r["token"].as_u64()) {
+                Ok(Some(registry)) => Dispatch::Host(registry),
+                _ => Dispatch::Missing,
+            };
+        }
         let granted = Store::new(&self.grants, []).granted().to_vec();
         let snapshot: Vec<_> = store
             .snapshot()
@@ -528,6 +555,71 @@ impl DataSource for Module {
         }
     }
 
+    /// The page's realm finishes storage an answer did not await as the
+    /// background's (LLP 1097 D5, D7): a round goes out when its operation
+    /// is the one in flight and none is out.
+    fn background(&mut self, _: &Store) -> Option<Request> {
+        if self.background_out || !self.ready || self.placement != Placement::Main {
+            return None;
+        }
+        let state = self.realm("background").ok()?;
+        (state["head"] == true).then(|| {
+            self.background_out = true;
+            Request::continuation(exact_runner::BACKGROUND)
+        })
+    }
+
+    fn background_landed(
+        &mut self,
+        store: &Store,
+        outcome: Outcome,
+    ) -> Result<Option<Request>, DataError> {
+        self.background_out = false;
+        let body = match outcome {
+            Outcome::Response(response) => response.body,
+            Outcome::Failed { message, .. } => return Err(unavailable(message)),
+            _ => return Err(unavailable("a background round answered something else")),
+        };
+        let state = json::parse(&body).map_err(|e| unavailable(e.to_string()))?;
+        if state["delivered"] != true {
+            return Ok(None);
+        }
+        Ok(self.background(store))
+    }
+
+    fn background_state(&self) -> Option<exact_runner::BackgroundState> {
+        if !self.ready || self.placement != Placement::Main {
+            return None;
+        }
+        let state = self.realm("background").ok()?;
+        let n = |k: &str| state[k].as_u64().unwrap_or(0);
+        Some(exact_runner::BackgroundState {
+            queued: n("queued"),
+            in_flight: n("inFlight"),
+            done: n("done"),
+            failed: n("failed"),
+            last: state["last"].as_str().map(str::to_string),
+        })
+    }
+
+    fn take_logs(&mut self) -> Vec<String> {
+        if !self.ready {
+            return Vec::new();
+        }
+        let Ok(reply) = self.realm("journal") else {
+            return Vec::new();
+        };
+        reply["lines"]
+            .as_array()
+            .map(|lines| {
+                lines
+                    .iter()
+                    .filter_map(|l| l.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     fn discard(&mut self, token: u64) {
         let _ = call(object([
             ("op", "discard".into()),
@@ -537,7 +629,7 @@ impl DataSource for Module {
     }
     /// Calls whose requests the runner let go are dropped here, and the
     /// realm hears what is still in flight, to drop its own (LLP 1016 D5).
-    fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
+    fn forgotten(&mut self, _store: &exact_runner::Store, in_flight: &[InFlight<'_>]) {
         let mut keep = Vec::new();
         let mut requests = Vec::new();
         for InFlight {
@@ -711,12 +803,15 @@ mod tests {
                 .is_ok());
         }
         // Newer arguments replaced "a": only "ab" is in flight for the target.
-        module.forgotten(&[InFlight {
-            target: Target::Mutation(0),
-            source: "source",
-            args: &[Value::str("ab")],
-            continuation: Some(1),
-        }]);
+        module.forgotten(
+            &store,
+            &[InFlight {
+                target: Target::Mutation(0),
+                source: "source",
+                args: &[Value::str("ab")],
+                continuation: Some(1),
+            }],
+        );
         assert_eq!(module.waiting.len(), 2);
         let reply = |text: &str| {
             Outcome::Response(exact_runner::Response {

@@ -139,7 +139,10 @@ fn producer_bakes_the_bytecode_keeps_sources_untouched_and_refuses_bad_candidate
         Some(&Value::str("new: 1")),
         "same arguments must not reuse old logic's answer"
     );
-    assert_eq!(changed.data().take_logs(), ["message called"]);
+    assert!(changed
+        .journal()
+        .any(|line| line.ends_with("message called")));
+    assert!(changed.data().take_logs().is_empty());
     let mut same = paired(&second);
     same.module.load().unwrap();
     let mut reloaded = Runner::boot_carrying(
@@ -197,7 +200,7 @@ fn producer_bakes_the_bytecode_keeps_sources_untouched_and_refuses_bad_candidate
         "app.ts",
         &SOURCE.replace(
             "'./logic'",
-            &format!("'{}'", outside.0.join("logic").display()),
+            &serde_json::to_string(&outside.0.join("logic").to_string_lossy()).unwrap(),
         ),
     );
     let error = bake(&f.0, &Tools::default())
@@ -324,6 +327,29 @@ fn native_host_sessions_prepare_together_and_keep_the_live_app_when_one_refuses(
     if !exact_js::ENGINE_LINKED {
         return;
     }
+    // This is a Bridge protocol test, not qualification of Apple's HOME/Library
+    // defaults on another platform. A child owns its explicit storage-free drive.
+    const CHILD: &str = "EXACT_PRODUCER_BRIDGE_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "native_host_sessions_prepare_together_and_keep_the_live_app_when_one_refuses",
+            ])
+            .env(CHILD, "1")
+            .env("EXACT_AGENT", "1")
+            .env_remove("EXACT_AGENT_STORAGE")
+            .env_remove("EXACT_AGENT_STORAGE_FRESH")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
     let f = Fixture::new();
     let first = f.bake();
     let mut a = Bridge::<Module>::new();
@@ -331,9 +357,11 @@ fn native_host_sessions_prepare_together_and_keep_the_live_app_when_one_refuses(
     for bridge in [&mut a, &mut b] {
         prepare(bridge, &first).unwrap();
         let count = bridge.commit_plan();
-        assert!(output(bridge, count)["error"].is_null());
+        let committed = output(bridge, count);
+        assert!(committed["error"].is_null(), "{committed}");
         let count = bridge.data_ready();
-        assert!(output(bridge, count)["error"].is_null());
+        let activated = output(bridge, count);
+        assert!(activated["error"].is_null(), "{activated}");
     }
     let tree = ask(&mut b, "tree");
     let button = tree["nodes"]
@@ -410,7 +438,7 @@ fn storage_types_are_checked_by_the_actual_bake_without_granting_bake_io() {
     f.write("app.ts", &source);
     let baked = f.bake();
     assert!(baked.declarations.contains(include_str!(
-        "../../../vendor/ibex2/src/bindings/storage.d.ts"
+        "../../../vendor/ibex/crates/ibex2/src/bindings/storage.d.ts"
     )));
     let candidate = paired(&baked);
     let live = Runner::boot(
@@ -433,6 +461,105 @@ fn storage_types_are_checked_by_the_actual_bake_without_granting_bake_io() {
         .err()
         .expect("wrong storage parameters must fail tsc");
     assert!(error.contains("error TS"), "{error}");
+    // A source that lets the bake's refusal (`code: 'bake'`) through is the
+    // device's to answer, as on the web build: no compiled value, the
+    // placeholder until a launch asks it (kanban2 #5: the native build
+    // stopped here).
+    f.write(
+        "app.ts",
+        &SOURCE.replace(
+            "message: ([count]) => { console.log('message called'); return prefix + count; }",
+            "message: async ([count], store, storage) => { await storage.fs.readFile(storage.fs.directories.data + '/note'); return prefix + count; }",
+        ),
+    );
+    let baked = f.bake();
+    let plan = paired(&baked).plan;
+    let row = &plan.resources[0];
+    assert!(row.initial.len == 0 && row.reader);
+}
+
+#[test]
+fn bake_defers_uncaught_storage_but_keeps_source_errors_fatal() {
+    if !exact_js::ENGINE_LINKED {
+        return;
+    }
+    let f = Fixture::new();
+    let original =
+        "message: ([count]) => { console.log('message called'); return prefix + count; }";
+    let storage = "await storage.sqlite.open('app:/data/notes.db')";
+    let source = SOURCE.replace(
+        original,
+        &format!(
+            "message: async ([count], store, storage) => {{ {storage}; return prefix + count; }}"
+        ),
+    );
+    f.write("app.ts", &source);
+    let baked = f.bake();
+    let candidate = paired(&baked);
+    assert_eq!(candidate.plan.resources[0].initial.len, 0);
+    let mut live = Runner::boot(
+        candidate.plan,
+        candidate.module,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(live.resource("message"), Some(&Value::str("")));
+    assert!(
+        live.take_requests().is_empty(),
+        "bake deferral creates no fabricated request"
+    );
+    live.data().load().unwrap();
+    let error = live.data_ready().unwrap_err();
+    assert!(
+        format!("{error:?}").contains("Unavailable"),
+        "runtime storage refusal remains a failure: {error:?}"
+    );
+    f.write(
+        "app.contract",
+        &CONTRACT.replace("as shape string", "as shape string else fallback()"),
+    );
+    f.write(
+        "app.ts",
+        &source.replace(
+            "const sources: Sources = {",
+            "const sources: Sources = { fallback: () => 'loading',",
+        ),
+    );
+    let fallback = f.bake();
+    let candidate = paired(&fallback);
+    let live = Runner::boot(
+        candidate.plan,
+        candidate.module,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(live.resource("message"), Some(&Value::str("loading")));
+    f.write("app.ts", &source.replace("const sources: Sources = {", &format!("const sources: Sources = {{ fallback: async (_, store, storage) => {{ {storage}; return 'loading'; }},")));
+    let error = bake(&f.0, &Tools::default())
+        .err()
+        .expect("a storage-dependent placeholder cannot answer at bake");
+    assert!(error.contains("placeholder answers later"), "{error}");
+    f.write("app.contract", CONTRACT);
+    for body in [
+        "throw new Error('ordinary bug');".to_string(),
+        format!("try {{ {storage}; }} catch (_) {{}} throw new Error('ordinary bug');"),
+    ] {
+        f.write(
+            "app.ts",
+            &SOURCE.replace(
+                original,
+                &format!("message: async ([count], store, storage) => {{ {body} }}"),
+            ),
+        );
+        let error = bake(&f.0, &Tools::default())
+            .err()
+            .expect("ordinary source bugs must refuse baking");
+        assert!(error.contains("ordinary bug"), "{error}");
+    }
 }
 
 #[test]
@@ -585,8 +712,11 @@ fn resident_producer_honors_compiler_overrides() {
         return;
     }
     let f = Fixture::new();
+    // The native test harness rejects tsc's --noEmit argument on every host.
+    // This proves a real override ran and refused, without a Unix-only helper.
+    let refusing = std::env::current_exe().unwrap();
     let tools = Tools {
-        tsc: PathBuf::from("/usr/bin/false"),
+        tsc: refusing.clone(),
         ..Tools::default()
     };
     let mut producer = exact_js_bake::Producer::new(tools).unwrap();
@@ -594,7 +724,7 @@ fn resident_producer_honors_compiler_overrides() {
         .bake(&f.0, None)
         .err()
         .unwrap()
-        .contains("/usr/bin/false refused"));
+        .contains(&format!("{} refused", refusing.display())));
 }
 
 #[test]
@@ -666,6 +796,7 @@ fn resident_maps_name_original_imports_and_bake_refusals_after_capture() {
     assert!(!error.contains(".exact-js-bake-"), "{error}");
 }
 
+#[cfg(unix)]
 #[test]
 fn resident_compilation_refusals_are_drained_before_the_next_request() {
     if !exact_js::ENGINE_LINKED {
@@ -748,6 +879,78 @@ fn both_producer_paths_check_worker_web_types_and_refuse_dom_ui_types() {
     assert_eq!(producer.bake(&f.0, None).unwrap().receipt, f.bake().receipt);
 }
 
+/// One TypeScript configuration (`js/bake/src/typescript.mjs`) in both
+/// producers and the web build: ES2023 runs on Hermes as in a browser, a
+/// `.ts` import path resolves, and what one refuses every one refuses with
+/// the same diagnostic (calc F2, calendar F9/F11).
+#[test]
+fn every_build_takes_one_typescript_configuration_and_refuses_alike() {
+    let f = Fixture::new();
+    f.write("app.ts", &SOURCE.replace("'./logic'", "'./logic.ts'"));
+    f.write(
+        "app.json",
+        r#"{"name":"Logic","app":{"id":"test.exact.logic","name":"Logic"}}"#,
+    );
+    let accepted = "export const prefix = [['b', 2], ['a', 1]].toSorted().map(([k]) => k).join('').replaceAll('a', 'A') + [1, 2].at(-1) + [1, 2].findLast(n => n < 2) + Object.keys(Object.groupBy([1], n => 'g' + n)) + ': ';";
+    f.write("logic.ts", accepted);
+    let web = || {
+        let out = f.0.join("web-out");
+        let _ = std::fs::remove_dir_all(&out);
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let built = std::process::Command::new("bun")
+            .arg(root.join("host/web-js/build.mjs"))
+            .args(["logic", "--render", "none", "--out"])
+            .arg(&out)
+            .env("EXACT_APP_DIR", &f.0)
+            .current_dir(&root)
+            .output()
+            .unwrap();
+        if built.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&built.stderr).into_owned())
+        }
+    };
+    web().unwrap();
+    // The output sits inside the app here; the capture leaves it out
+    // rather than copying its own stage into itself (review r4a 2).
+    let stage = f.0.join("web-out/.gen/typescript");
+    assert!(stage.join("logic.ts").exists() && !stage.join("web-out").exists());
+    assert!(
+        f.0.join("app.contract.d.ts").exists(),
+        "a development build writes the declarations beside app.ts"
+    );
+    std::fs::remove_file(f.0.join("app.contract.d.ts")).unwrap();
+    let engine = exact_js::ENGINE_LINKED;
+    if engine {
+        let baked = f.bake();
+        let candidate = paired(&baked);
+        let live = Runner::boot(
+            candidate.plan,
+            candidate.module,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        assert_eq!(live.resource("message"), Some(&Value::str("Ab21g1: 0")));
+    }
+    // ES2024's RegExp `v` flag is not in Hermes, so not in the library.
+    f.write("logic.ts", "export const prefix = /[a]/v.source;");
+    let mut refusals = vec![web().unwrap_err()];
+    if engine {
+        let mut producer = exact_js_bake::Producer::new(Tools::default()).unwrap();
+        refusals.push(producer.bake(&f.0, None).err().unwrap());
+        refusals.push(bake(&f.0, &Tools::default()).err().unwrap());
+    }
+    for error in refusals {
+        assert!(
+            error.contains("logic.ts(1,28): error TS1501"),
+            "the one diagnostic: {error}"
+        );
+    }
+}
+
 #[test]
 fn an_alias_resolves_a_mounted_source_alike_in_both_producers_and_names_only_the_capture() {
     if !exact_js::ENGINE_LINKED {
@@ -801,5 +1004,194 @@ fn an_alias_resolves_a_mounted_source_alike_in_both_producers_and_names_only_the
         ] {
             assert!(error.contains("tsconfig"), "{error}");
         }
+    }
+}
+
+/// A first-frame source over the runtime's 100 ms budget still bakes: the
+/// budget is about a device, and a build machine's load must not fail a
+/// build (LLP 1027 §6). The loop is deterministic work, far over 100 ms
+/// on any machine this runs on, so the test never depends on timing.
+#[test]
+fn a_slow_first_frame_source_bakes_whatever_the_wall_clock() {
+    if !exact_js::ENGINE_LINKED {
+        return;
+    }
+    let f = Fixture::new();
+    f.write(
+        "app.ts",
+        &SOURCE.replace(
+            "return prefix + count;",
+            "let n = 0; for (let i = 0; i < 10_000_000; i++) n = (n + i) % 7; return prefix + count + n;",
+        ),
+    );
+    let baked = f.bake();
+    let candidate = paired(&baked);
+    let live = Runner::boot(
+        candidate.plan,
+        candidate.module,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(
+        live.resource("message").is_some(),
+        "the slow source's first frame is baked"
+    );
+}
+
+/// The clock in the app's own code is refused at build, by file and line,
+/// in both compilers, so a Bun test (no guard there) cannot hide it from a
+/// device that refuses it on first use (LLP 1027.000).
+#[test]
+fn the_clock_in_a_data_module_is_refused_at_build_by_file_and_line() {
+    if !exact_js::ENGINE_LINKED {
+        return;
+    }
+    let f = Fixture::new();
+    f.write(
+        "logic.ts",
+        "export const prefix = 'old: ';\nexport const stamp = () => Date.now();\n",
+    );
+    let error = bake(&f.0, &Tools::default())
+        .err()
+        .expect("Date.now() refused");
+    assert!(
+        error.contains("logic.ts:2:28: Date.now() is unavailable in data sources; pass time or a random seed as an argument"),
+        "{error}"
+    );
+    let mut producer = exact_js_bake::Producer::new(Tools::default()).unwrap();
+    assert!(producer
+        .bake(&f.0, None)
+        .err()
+        .unwrap()
+        .contains("logic.ts:2:28: Date.now()"));
+    // Through a global object, past `!`, after a CR line break.
+    f.write("logic.ts", "export const prefix = 'old: ';\rexport const a = () => globalThis.Date.now();\nexport const b = () => Date.now!();\nexport const c = () => window.setTimeout(() => {}, 1);\n");
+    let error = producer.bake(&f.0, None).err().unwrap();
+    assert!(error.contains("logic.ts:2:24: Date.now()"), "{error}");
+    assert!(error.contains("logic.ts:3:24: Date.now()"), "{error}");
+    assert!(
+        error.contains(
+            "logic.ts:4:24: setTimeout() is unavailable in data sources: there are no timers"
+        ),
+        "{error}"
+    );
+    // An angle-bracket assertion, a `declare`d class and a type-only
+    // namespace are erased: the global runs.
+    f.write("logic.ts", "export const prefix = 'old: ';\ndeclare class Date { static now(): number }\nnamespace Math { export type R = number }\nexport const a = () => (<any>Date).now() + Math.random();\n");
+    let error = producer.bake(&f.0, None).err().unwrap();
+    assert!(error.contains("logic.ts:4:24: Date.now()"), "{error}");
+    assert!(error.contains("logic.ts:4:44: Math.random()"), "{error}");
+    // An explicit date, a member named `now` elsewhere, a comment, and a
+    // `Date` or `performance` the module binds itself are fine.
+    f.write("logic.ts", "export const prefix = 'old: ';\n// Date.now() is refused\nexport const epoch = new Date(0).getTime() + ({ now: () => 1 }).now();\nexport const stamp = (performance: { now(): number }) => performance.now();\n");
+    assert!(
+        producer.bake(&f.0, None).is_ok(),
+        "{:?}",
+        producer.bake(&f.0, None).err()
+    );
+    f.write("logic.ts", "export const prefix = 'old: ';\nnamespace Date { export function now() { return 1; } }\nexport const local = () => Date.now();\n");
+    assert!(
+        producer.bake(&f.0, None).is_ok(),
+        "{:?}",
+        producer.bake(&f.0, None).err()
+    );
+}
+
+/// LLP 1091.001: a native producer keeps package identity without symlink privilege.
+#[cfg(windows)]
+#[test]
+fn windows_imported_packages_keep_identity_through_real_bakes() {
+    // No stub-engine skip: bake must succeed through real Hermes below.
+    let f = Fixture::new();
+    let package = f.0.join("node_modules/.packages/café # 雪");
+    std::fs::create_dir_all(package.join("src")).unwrap();
+    std::fs::create_dir_all(package.join(".hidden")).unwrap();
+    let inputs = [
+        (
+            package.join("package.json"),
+            r#"{"name":"fixture-ui","version":"1.0.0","exports":"./src/card.contract"}"#,
+        ),
+        (
+            package.join(".hidden/pad.contract"),
+            "style Pad\n  padding-top=10\n",
+        ),
+        (
+            package.join("src/card.contract"),
+            "use Pad from \"../.hidden/pad.contract\"\ncomponent Card\n  view\n    column class=Pad\n      text \"from package\"\n",
+        ),
+    ];
+    for (path, text) in &inputs {
+        std::fs::write(path, text).unwrap();
+    }
+    // These are the app's installed aliases, before the producer creates its stage.
+    let linked = exact_bake::bun()
+        .args([
+            "-e",
+            "const fs=require('node:fs'),p=require('node:path'); const root=fs.realpathSync.native(process.argv[1]),app=process.argv[2]; for(const name of ['ui','@survey/ui']){const link=p.join(app,'node_modules',name);fs.mkdirSync(p.dirname(link),{recursive:true});fs.symlinkSync(root,link,'junction');}",
+        ])
+        .arg(&package)
+        .arg(&f.0)
+        .output()
+        .unwrap();
+    assert!(
+        linked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&linked.stderr)
+    );
+    let contract = format!(
+        "use Card as First from \"ui\"\nuse Card as Second from \"@survey/ui\"\n{}",
+        CONTRACT.replace(
+            "      text message",
+            "      First()\n      Second()\n      text message"
+        )
+    );
+    f.write("app.contract", &contract);
+    contract::compile_path(&f.0.join("app.contract")).unwrap();
+    let graph = contract::source_graph(&f.0.join("app.contract"));
+    assert!(graph.errors.is_empty());
+    assert_eq!(graph.packages.len(), 2);
+    let canonical = package.canonicalize().unwrap();
+    assert!(graph.packages.iter().all(|p| p.root == canonical));
+    let card = package.join("src/card.contract").canonicalize().unwrap();
+    assert_eq!(graph.sources.iter().filter(|s| s.path == card).count(), 1);
+
+    let first = f.bake();
+    let candidate = paired(&first);
+    let live = Runner::boot(
+        candidate.plan,
+        candidate.module,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(live.resource("message"), Some(&Value::str("old: 0")));
+    let mut producer = exact_js_bake::Producer::new(Tools::default()).unwrap();
+    let resident = producer.bake(&f.0, None).unwrap();
+    let again = producer.bake(&f.0, None).unwrap();
+    assert_eq!(resident.plan, first.plan);
+    assert_eq!(again.receipt, resident.receipt);
+    let map: Json = serde_json::from_str(resident.source_map.as_ref().unwrap()).unwrap();
+    let nodes: Vec<_> = map["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|node| node["component"] == "Card")
+        .collect();
+    assert!(!nodes.is_empty());
+    for node in nodes {
+        assert_eq!(node["file"], card.to_str().unwrap());
+    }
+    for (path, text) in inputs {
+        assert_eq!(std::fs::read_to_string(path).unwrap(), text);
+    }
+    for (name, text) in [
+        ("app.contract", contract.as_str()),
+        ("app.ts", SOURCE),
+        ("logic.ts", "export const prefix = 'old: ';\n"),
+    ] {
+        assert_eq!(std::fs::read_to_string(f.0.join(name)).unwrap(), text);
     }
 }

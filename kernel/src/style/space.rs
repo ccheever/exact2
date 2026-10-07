@@ -3,7 +3,7 @@
 //! engine animates; its axis is a row of its own, which the `rotate`
 //! attribute sets beside it, each row taking its part of one value.
 
-use super::parse_pixel_length;
+use super::{parse_pixel_length, Vec2};
 
 /// The axis a `rotate` turns about, as authored (not normalised): `z` for
 /// a bare angle, CSS's initial.
@@ -114,6 +114,33 @@ fn axis_only(text: &str) -> Option<[f32; 3]> {
         }
         _ => None,
     }
+}
+
+/// `translate`'s x and y: each a length in px (unitless zero allowed) or a
+/// percentage of the node's own border box, as `(lengths, percentages)` —
+/// an axis is one or the other, the other part zero. `none` is deliberately
+/// not zero: CSS gives the two different containing-block and stacking
+/// semantics. A third length is z, its own row (LLP 1077 D8); `calc()` is
+/// refused.
+pub fn translate(text: &str) -> Option<(Vec2, Vec2)> {
+    // CSS whitespace is TAB, LF, FF, CR and SPACE; ASCII VT is not included.
+    let mut parts = text
+        .split(['\t', '\n', '\u{c}', '\r', ' '])
+        .filter(|s| !s.is_empty());
+    let axis = |token: &str| match token.strip_suffix('%') {
+        Some(n) => parse_pixel_length(&format!("{n}px")).map(|p| (0.0, p)),
+        None => parse_pixel_length(token).map(|l| (l, 0.0)),
+    };
+    let (x, px) = axis(parts.next()?)?;
+    let (y, py) = parts.next().map_or(Some((0.0, 0.0)), axis)?;
+    if parts
+        .next()
+        .is_some_and(|z| parse_pixel_length(z).is_none())
+        || parts.next().is_some()
+    {
+        return None;
+    }
+    Some((Vec2 { x, y }, Vec2 { x: px, y: py }))
 }
 
 /// `translate`'s z: its third length, 0 when it has two or fewer.

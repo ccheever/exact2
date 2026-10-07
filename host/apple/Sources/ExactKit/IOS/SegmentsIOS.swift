@@ -2,8 +2,8 @@
 // segmented control, or — when every tab is a symbol over its label, which is
 // a tab bar item's own shape — to a tab bar (LLP 1059). Contract remains the
 // state owner; UIKit owns the control. Layout stays authored: the control
-// fills the tablist's box.
-#if os(iOS)
+// fills the tablist's box and reports its native minimum height to layout.
+#if os(iOS) || os(tvOS)
 import UIKit
 
 private final class ExactSegmentedControl: UISegmentedControl {
@@ -70,6 +70,10 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
     func control(of id: UInt32) -> UISegmentedControl? { controls[id] }
     private var bars: [UInt32: ExactTabBar] = [:]
     private var sizes: [UInt32: CGSize] = [:]
+    /// A segmented control's own size, with what it was measured from: its
+    /// segments, their fonts and the text size. Measuring is UIKit laying out
+    /// every segment, and a sync runs after every batch (a fling's fills).
+    private var naturals: [UInt32: (source: String, size: CGSize)] = [:]
     private var hidden: [UInt32: Bool] = [:]
     private var members: [UInt32: [UInt32]] = [:]
     /// Tablists a tab container's bar has taken the place of, hidden here.
@@ -106,7 +110,9 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         // UIKit cancels the pending segment tap. Opening a context action must
         // not first navigate to that tab, nor commit selection when lifted.
         control.cancelTracking(with: nil)
+        #if !os(tvOS)
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        #endif
         presenter.contextmenu(tab.id)
     }
 
@@ -179,21 +185,60 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         }
         controls.removeValue(forKey: id)?.removeFromSuperview()
         removeBar(owner: id)
+        clearSize(owner: id)
     }
 
     private func removeBar(owner id: UInt32) {
-        bars.removeValue(forKey: id)?.removeFromSuperview()
+        guard let bar = bars.removeValue(forKey: id) else { return }
+        bar.removeFromSuperview()
+        clearSize(owner: id)
+    }
+
+    private func clearSize(owner id: UInt32) {
+        naturals.removeValue(forKey: id)
         if sizes.removeValue(forKey: id) != nil, let owner = presenter.views[id] {
             presenter.queueIntrinsicSize(owner, generation: owner.loadGeneration, nil)
         }
     }
 
-    private func measure(_ owner: NodeView, _ bar: ExactTabBar) {
-        guard bars[owner.id] === bar, presenter.views[owner.id] === owner,
-              owner.bounds.width > 0 else { return }
-        let height = bar.sizeThatFits(CGSize(width: owner.bounds.width, height: 0)).height
-        guard height.isFinite, height > 0 else { return }
-        let size = CGSize(width: owner.bounds.width, height: height)
+    private func natural(_ id: UInt32, _ control: UISegmentedControl) -> CGSize {
+        let fonts = [UIControl.State.normal, .selected].map { (control.titleTextAttributes(for: $0)?[.font] as? UIFont).map { "\($0.fontName) \($0.pointSize)" } ?? "" }
+        let segments = (0..<control.numberOfSegments).map { "\(control.titleForSegment(at: $0) ?? "")|\(control.imageForSegment(at: $0)?.size ?? .zero)|\(control.widthForSegment(at: $0))" }
+            + ["\(control.apportionsSegmentWidthsByContent)"]
+        let t = control.traitCollection
+        let source = "\(segments)|\(fonts)|\(t.preferredContentSizeCategory.rawValue)|\(t.legibilityWeight.rawValue)"
+        // A hook's own look (a background image, a divider) sizes it too:
+        // such a control is measured every time, as before.
+        let customized = control.backgroundImage(for: .normal, barMetrics: .default) != nil
+            || control.dividerImage(forLeftSegmentState: .normal, rightSegmentState: .normal, barMetrics: .default) != nil
+        if !customized, let known = naturals[id], known.source == source { return known.size }
+        let size = control.intrinsicContentSize
+        naturals[id] = customized ? nil : (source, size)
+        return size
+    }
+
+    private func measure(_ owner: NodeView, _ control: UIView) {
+        guard bars[owner.id] === control || controls[owner.id] === control, presenter.views[owner.id] === owner else { return }
+        var size: CGSize
+        if control is UISegmentedControl {
+            // Its own size, at any width of the box: its height does not
+            // follow that width, and a tablist's reported width is never read
+            // (the seam takes only a positive one), so a resize does not
+            // remeasure. It fills the content box, so a border-box minimum
+            // also holds the padding and border around it.
+            let natural = natural(owner.id, control as! UISegmentedControl)
+            size = CGSize(width: max(natural.width, 1), height: natural.height)
+            if owner.style["box_sizing"]?.string == "border-box" {
+                let border = owner.number("border_width")
+                size.height += owner.number("border_width_top", border) + owner.number("padding_top")
+                    + owner.number("border_width_bottom", border) + owner.number("padding_bottom")
+            }
+        } else {
+            guard owner.bounds.width > 0 else { return }
+            size = CGSize(width: owner.bounds.width,
+                          height: control.sizeThatFits(CGSize(width: owner.bounds.width, height: 0)).height)
+        }
+        guard size.width.isFinite, size.height.isFinite, size.height > 0 else { return }
         guard sizes[owner.id] != size else { return }
         sizes[owner.id] = size
         presenter.queueIntrinsicSize(owner, generation: owner.loadGeneration, size)
@@ -206,7 +251,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         if members[owner.id] != ids {
             restore(owner: owner.id)
             members[owner.id] = ids
-            for tab in tabs { hidden[tab.id] = tab.isHidden; tab.isHidden = true }
+            for tab in tabs { hidden[tab.id] = tab.hiddenByHost; tab.isHidden = true }
         } else {
             for tab in tabs { tab.isHidden = true }
         }
@@ -330,6 +375,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             let selected = tabs.firstIndex { $0.props["accessibilitySelected"] == "true" } ?? UISegmentedControl.noSegment
             if control.selectedSegmentIndex != selected { control.selectedSegmentIndex = selected }
             owner.bringSubviewToFront(control)
+            measure(owner, control)
         }
     }
 

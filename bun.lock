@@ -4,6 +4,9 @@
   "workspaces": {
     "": {
       "name": "exact2",
+      "dependencies": {
+        "@exact/reading": "workspace:*",
+      },
       "devDependencies": {
         "@sqlite.org/sqlite-wasm": "3.53.4-build1",
         "playwright-core": "1.63.0",
@@ -12,8 +15,14 @@
         "typescript": "7.0.2",
       },
     },
+    "packages/reading": {
+      "name": "@exact/reading",
+      "version": "0.1.0",
+    },
   },
   "packages": {
+    "@exact/reading": ["@exact/reading@workspace:packages/reading"],
+
     "@oxc-project/types": ["@oxc-project/types@0.150.0", "", {}, "sha512-rDS5/31E9HfPl/CIzGrn0DOlvBbXFseQ5URJ9sYMfstbKLD/c6Gm9vmRzRGDdAXyOIL4zmO37lc9RIwYqVruZw=="],
 
     "@rolldown/binding-android-arm-eabi": ["@rolldown/binding-android-arm-eabi@1.2.9", "", { "os": "android", "cpu": "arm" }, "sha512-tNISae1QEf/vkb3xkRcjV5SEdzPE97We5IVaa2Z8jSszQPZ8U60B/YCYpw4QI7VidYsBtKavczXf+DyDs9WGxw=="],

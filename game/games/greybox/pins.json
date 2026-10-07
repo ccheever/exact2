@@ -1,16 +1,17 @@
 {
   "ticks": {
-    "0": "0xf560b8cf6dd9601d",
-    "90": "0xc92812672686717e"
+    "0": "0x41e6f7a7fbccc126",
+    "90": "0x4d892b02503223cb"
   },
   "saves": {
-    "continuation": "ac641a9d1353c0e6c73e9d8867bbc5192dc6d46e407b08b6fd17e758dacac3dc"
+    "continuation": "c4589053ef56077a92ddf40305e34c83e43bd4e008793c86163249ffa9d3fbb1"
   },
   "hosts": [
     "linux",
     "web"
   ],
+  "inputs": "4da9d338fb67b0e491566c8f65d83fbdcb68677fab22194e98f4e8ea4c811f9c",
   "game": "greybox",
-  "generated": "bun game/prove.mjs greybox --repin --hosts linux,web",
-  "at": "8db5e42e8f05122e7f4ca265ba0bd480c6ab7621"
+  "generated": "bun game/prove.mjs greybox --repin --hosts 'linux,web'",
+  "at": "b61db278a90bdf5a5dd9c6073b7d7f89ad842ed8"
 }

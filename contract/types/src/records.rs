@@ -6,10 +6,16 @@
 use super::{checks, err, infer, Scope, Shapes, Ty, TypeError};
 use contract_syntax::{Expr, Span};
 
-/// Whether `name(…)` builds a record: a shape the app declares, never a
-/// compiler shape (`Router`, `Geometry`) or a `fn`.
+/// The compiler shapes an app builds as it builds its own: the Media
+/// Session's `MediaMetadata`, by the API's constructor (LLP 1098 D1).
+pub const COMPILER_RECORDS: &[&str] = &["MediaMetadata"];
+
+/// Whether `name(…)` builds a record: a shape the app declares or one of
+/// [`COMPILER_RECORDS`], never another compiler shape (`Router`,
+/// `Geometry`) or a `fn`.
 pub fn is_record_call(name: &str, shapes: &Shapes) -> bool {
-    shapes.declared.contains(name) && !shapes.fns.contains_key(name)
+    (shapes.declared.contains(name) || COMPILER_RECORDS.contains(&name))
+        && !shapes.fns.contains_key(name)
 }
 
 /// The base a copy starts from (the one positional argument), if any.

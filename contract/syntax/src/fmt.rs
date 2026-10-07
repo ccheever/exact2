@@ -6,7 +6,8 @@
 //! physical breaks remain, including comments and blank groups at file edges.
 
 use crate::{
-    parser::parse_tokens, Attr, File, Lexer, Node, Span, SyntaxError, Token, TokenKind, TypeExpr,
+    parser::parse_tokens, spans::VisitSpans, Attr, File, Lexer, Node, Span, SyntaxError, Token,
+    TokenKind, TypeExpr,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -40,8 +41,69 @@ pub fn format(src: &str) -> Result<String, SyntaxError> {
             span: Span::point(1, 1),
         });
     }
-    parse_tokens(after)?;
+    // Nor may a break change what a line means: a moved line that does not
+    // begin `name=` would become a child (habits F5). The tree, spans
+    // aside, must be the one that was read.
+    let (formatted_file, _) = parse_tokens(after)?;
+    if erase_spans(file) != erase_spans(formatted_file) {
+        return Err(SyntaxError {
+            id: "fmt-tree-change",
+            message: "formatting would change the parsed program; source was not written".into(),
+            span: Span::point(1, 1),
+        });
+    }
     Ok(out)
+}
+
+fn erase_spans(mut file: File) -> File {
+    file.visit_spans(&mut |span| *span = Span::default());
+    file
+}
+
+/// The conditional `:`s and the prefix operators, read from the tokens: every
+/// `?` opens a conditional, whose `:` is the next one at the same bracket
+/// depth; a `-` is prefix where no operand ends before it.
+fn operators(tokens: &[Token]) -> (BTreeSet<Span>, BTreeSet<Span>) {
+    let (mut colons, mut prefixes) = (BTreeSet::new(), BTreeSet::new());
+    let mut depth = 0usize;
+    let mut open: Vec<usize> = Vec::new();
+    let mut previous: Option<&Token> = None;
+    for t in tokens.iter().filter(|t| ordinary(t)) {
+        match &t.kind {
+            TokenKind::Punct("(" | "[" | "{") => depth += 1,
+            TokenKind::Punct(")" | "]" | "}") => {
+                depth = depth.saturating_sub(1);
+                while open.last().is_some_and(|&d| d > depth) {
+                    open.pop();
+                }
+            }
+            TokenKind::Punct("?") => open.push(depth),
+            TokenKind::Punct(":") if open.last() == Some(&depth) => {
+                open.pop();
+                colons.insert(t.span);
+            }
+            TokenKind::Punct("!") => {
+                prefixes.insert(t.span);
+            }
+            TokenKind::Punct("-") => {
+                let operand_ends = previous.is_some_and(|p| match &p.kind {
+                    TokenKind::Number(_) | TokenKind::Str(_) | TokenKind::Template(_) => true,
+                    TokenKind::Punct(p) => matches!(*p, ")" | "]" | "}"),
+                    TokenKind::Ident(w) => !matches!(
+                        w.as_str(),
+                        "and" | "or" | "not" | "in" | "when" | "if" | "match" | "with" | "return"
+                    ),
+                    _ => false,
+                });
+                if !operand_ends {
+                    prefixes.insert(t.span);
+                }
+            }
+            _ => {}
+        }
+        previous = Some(t);
+    }
+    (colons, prefixes)
 }
 
 fn ordinary(t: &Token) -> bool {
@@ -63,8 +125,16 @@ struct Layout<'a> {
     levels: Vec<usize>,
     attributes: BTreeSet<Span>,
     type_angles: BTreeSet<Span>,
-    /// A keyframe selector's `%`, which stays against its number: `50%`.
-    percents: BTreeSet<Span>,
+    /// A token that stays against the one before it: a keyframe selector's
+    /// `%` (`50%`), a test's viewport height (`1200x800`).
+    attached: BTreeSet<Span>,
+    /// A conditional's `:`, spaced as its `?` is: `a ? b : c` (habits F5).
+    ternary_colons: BTreeSet<Span>,
+    /// An element's tag, which keeps its space before a positional expression:
+    /// `text (n > 0 ? a : b)`, not a call `text(…)`.
+    tags: BTreeSet<Span>,
+    /// A prefix `-` or `!`, which stays against its operand: `-0.4`, `!done`.
+    prefixes: BTreeSet<Span>,
     breaks: BTreeMap<Span, usize>,
 }
 
@@ -76,6 +146,7 @@ impl<'a> Layout<'a> {
         let mut depth: usize = 0;
         let mut brackets: usize = 0;
         let mut widths: BTreeMap<usize, Vec<(usize, usize)>> = BTreeMap::new();
+        let (ternary_colons, prefixes) = operators(tokens);
         for (i, t) in tokens.iter().enumerate() {
             match &t.kind {
                 TokenKind::Indent => depth += 1,
@@ -130,7 +201,10 @@ impl<'a> Layout<'a> {
             levels,
             attributes: BTreeSet::new(),
             type_angles: BTreeSet::new(),
-            percents: BTreeSet::new(),
+            attached: BTreeSet::new(),
+            ternary_colons,
+            tags: BTreeSet::new(),
+            prefixes,
             breaks: BTreeMap::new(),
         }
     }
@@ -182,11 +256,35 @@ impl<'a> Layout<'a> {
                 let selector = self.tokens[start..].iter().take_while(|t| {
                     !matches!(t.kind, TokenKind::Newline | TokenKind::Eof) && Some(t.span) != first
                 });
-                self.percents.extend(
+                self.attached.extend(
                     selector
                         .filter(|t| t.kind == TokenKind::Punct("%"))
                         .map(|t| t.span),
                 );
+            }
+        }
+        // A test step's numbers are signed literals, not arithmetic:
+        // `drag 10 -4` (habits F5's sweep), and `size 1200x800` is one word.
+        for step in file
+            .launch
+            .iter()
+            .chain(file.tests.iter().flat_map(|t| &t.steps))
+        {
+            let Some(start) = self.position(step.span()) else {
+                continue;
+            };
+            let line = self.tokens[start..]
+                .iter()
+                .take_while(|t| !matches!(t.kind, TokenKind::Newline | TokenKind::Eof));
+            for (t, next) in line.clone().zip(line.skip(1)) {
+                if t.kind == TokenKind::Punct("-") {
+                    self.prefixes.insert(t.span);
+                }
+                if matches!(step, crate::Step::Size { .. } | crate::Step::Resize { .. })
+                    && matches!(t.kind, TokenKind::Number(_))
+                {
+                    self.attached.insert(next.span);
+                }
             }
         }
         for component in &file.components {
@@ -235,10 +333,11 @@ impl<'a> Layout<'a> {
                 } => {
                     // The button's normalized text child has its parent's
                     // span, but no corresponding source tag of its own.
-                    if self
+                    if let Some(i) = self
                         .position(*span)
-                        .is_some_and(|i| text(&self.tokens[i], self.lines) == tag)
+                        .filter(|&i| text(&self.tokens[i], self.lines) == tag)
                     {
+                        self.tags.insert(self.tokens[i].span);
                         let mut last_positional = positional.iter().map(|e| e.span()).max();
                         if tag == "button" {
                             if let Some(Node::Element {
@@ -325,6 +424,16 @@ impl<'a> Layout<'a> {
                 if last_positional.is_some_and(|last| a.span < last) {
                     continue;
                 }
+                // A bare flag (`autofocus`) cannot begin a continued line:
+                // one that does not begin `name=` is a child (habits F5).
+                // It stays on the line of the attribute before it.
+                if !component
+                    && self.position(a.span).is_some_and(|i| {
+                        self.tokens.get(i + 1).map(|t| &t.kind) != Some(&TokenKind::Punct("="))
+                    })
+                {
+                    continue;
+                }
                 self.breaks.insert(a.span, indent + 1);
                 if !component {
                     // Moving an attribute off the element's head creates a
@@ -367,19 +476,21 @@ impl<'a> Layout<'a> {
             let tight = attr_equals
                 || after_attr_equals
                 || self.type_angles.contains(&token.span)
-                || self.percents.contains(&token.span)
+                || self.attached.contains(&token.span)
                 || (a == "<" && self.type_angles.contains(&previous.span))
                 || matches!(b, ")" | "]" | ",")
                 || matches!(a, "(" | "[")
+                || self.prefixes.contains(&previous.span)
                 || a == "."
                 || (b == "." && !matches!(previous.kind, TokenKind::Number(_)))
                 || (b == "("
                     && matches!(previous.kind, TokenKind::Ident(_))
+                    && !self.tags.contains(&previous.span)
                     && !matches!(
                         a,
                         "when" | "if" | "match" | "not" | "and" | "or" | "in" | "with"
                     ))
-                || b == ":";
+                || (b == ":" && !self.ternary_colons.contains(&token.span));
             if !tight {
                 out.push(' ');
             }

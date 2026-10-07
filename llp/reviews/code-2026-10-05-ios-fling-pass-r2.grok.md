@@ -1,0 +1,19 @@
+# Code review r2: iOS, a fling no longer pays the presenter's whole pass per batch (5b33306bc..434e5ea32), 2026-10-05 (grok)
+
+- **Family:** xAI. `grok-4.7` via `~/.grok/bin/grok`, reasoning effort xhigh, `--no-subagents`, `--cwd` a detached worktree at `434e5ea32`, plain output.
+- **Method:** one brief (sha256 `1e769677616c0749d24d9985b2434376ac9d5b8a5755adbd652d4e0e0c70ec6d`), shared with astra. Round 2, blind to the other review. The author (Claude) is not a reviewer.
+- **Transcription:** the review's findings and verdict, unedited.
+- **Verdict:** LAND WITH CHANGES.
+- **Disposition (r3):** 1 taken: `TitleSegments.fit` keys on the titles, the content-size category and the legibility weight, and the control registers for both traits and sizes itself when they change, with no batch. 2 taken: the pitfall names the two callers. 3 taken: an ordinary empty `apply` is asserted to reach the presenter (as astra's 3); the bar-segments test changes text size and Bold Text with the titles unchanged and asserts the control was sized for them.
+
+---
+
+LAND WITH CHANGES
+
+Round 1 holds. The empty-batch skip is only `applyUnlessEmpty`, called from the timer (`Session.swift:1180`) and from `onScroll` (`Session.swift:734`). Agent clock (`Agent.swift:463`), press (`Session.swift:688`), and `scheme` (`Session.swift:1274`) still `apply`. The in-flight guard is unchanged (`Session.swift:941`). Idle-tick r3 holds: `requestProjectionSync` (`PresenterIOS.swift:35`) still mounts grouped lists, then segments, then `controls.sync()` with `contents` defaulting true, and does not call `prepare()`. Face, title, and fixed-gradient caches key on the value that is drawn; a new face, a larger text size, a new gradient, a new layer, and a dark flip are pinned. Touched sources are under 1,500 lines.
+
+1. MATERIAL — A header tablist keeps the width it was last `sizeToFit` for across Bold Text, and across a text-size change until some later non-empty batch. `NavigationBarIOS.swift:462` resizes only when `titles` or `preferredContentSizeCategory` change, and nothing registers the control for traits. `TitleSegments` (`NavigationBarIOS.swift:258`) has no trait callback, unlike native controls (`ControlsIOS.swift:114`), which also treat legibility weight as part of the size. `segmentedTitle` runs only from `navigation.sync` inside `apply`. An empty scroll used to take that path; it now returns at `Session.swift:941`, and an empty timer already did. Concrete case: a route whose header is a tablist, titles long enough that `sizeToFit` beats `90` pt per segment. Turn on Bold Text, or change Dynamic Type and then fling without another commit. Category is unchanged in the first case, so the next real batch still skips `sizeToFit`; in the second, the fling never reaches `segmentedTitle`, so the bar keeps the old frame while the font follows the new traits. Fix: put legibility weight in `sized` next to the category, and register the control for content-size category and legibility weight so the callback sizes immediately, the way `ControlHost` asks for a projection sync.
+
+2. MINOR — `docs/agent-pitfalls.md:87` says any commit whose writes show nowhere skips the post-apply pass. Only a timer batch and a scroll-event batch do (`Session.swift:931`). A press, a scheme change, or the agent clock still runs it. Fix: name those two callers, as LLP 1079 already does.
+
+3. MINOR — The new tests miss the skip's boundary and the tablist cache. `IdleTickTests.swift:38` only calls `applyUnlessEmpty`. Routing `scheme` or `onPress` through it would leave every assertion green. Nothing builds a header tablist and changes text size or Bold Text, so finding 1 does not fail a test. Fix: one empty batch through `apply` that increments `appliedBatches`, and one tablist whose width grows after `preferredContentSizeCategory` and after `legibilityWeight` with the titles unchanged.

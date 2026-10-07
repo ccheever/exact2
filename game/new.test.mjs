@@ -30,8 +30,9 @@ test('a newly generated game builds, refuses empty pins and captures without edi
   assert.ok(!existsSync(app));
   try {
     await run('bun', ['game/new.mjs', app]);
-    // A game is the files its author writes; no manifest, lock or app.json.
-    assert.deepEqual(readdirSync(app).sort(), ['.gitignore','README.md','app.contract','logic','pins.json','proof.mjs']);
+    // A game is the files its author writes; no manifest, lock or app.json. Outside
+    // this checkout it gets an app's runner and notes too (LLP 1086).
+    assert.deepEqual(readdirSync(app).sort(), ['.gitignore','AGENTS.md','CLAUDE.md','README.md','app.contract','app.test.contract','exact.mjs','logic','pins.json','proof.mjs']);
     assert.deepEqual(readdirSync(resolve(app, 'logic')).sort(), ['src','tests']);
     env.EXACT_APP_DIR = app;
     await run('bun', ['-e', 'import {resolveApp} from "./scripts/app.mjs"; resolveApp();']);
@@ -76,39 +77,49 @@ test('a newly generated game builds, refuses empty pins and captures without edi
     assert.notEqual(JSON.parse(readFileSync(receipt, 'utf8')).inputs, before.inputs);
     assert.equal(readFileSync(hostReceipt, 'utf8'), hostBefore, 'a logic edit retains the completed host');
     assert.deepEqual(readdirSync(app).filter(file => !['.shells','artifacts','target','dist','dist.previous','app.contract.d.ts'].includes(file)).sort(),
-      ['.gitignore','README.md','app.contract','logic','pins.json','proof.mjs'], 'bakes and proofs write only ignored outputs');
+      ['.gitignore','AGENTS.md','CLAUDE.md','README.md','app.contract','app.test.contract','exact.mjs','logic','pins.json','proof.mjs'], 'bakes and proofs write only ignored outputs');
   } finally {
     rmSync(directory, {recursive:true, force:true});
   }
 }, 600000);
 
-test('generated commands run from an external author directory with quoted paths', () => {
+test('generated commands run from an external author directory with quoted paths', async () => {
   const directory=realpathSync(mkdtempSync(resolve(tmpdir(), "game commands' workspace-")));
   const app=resolve(directory,'outside-game');mkdirSync(app);
   const quote=value=>`'${value.replaceAll("'", "'\\''")}'`;
   try {
     const created=spawnSync(process.execPath,[resolve(import.meta.dir,'new.mjs'),'.'],{cwd:app,encoding:'utf8'});
     assert.equal(created.status,0,created.stderr);
-    const commands=created.stdout.split('\n').filter(line=>line.startsWith('  bun ')).map(line=>line.trim());
-    assert.equal(commands.length,3,created.stdout);
+    // Its commands are its own runner's verbs, as an app's are (LLP 1086; the platformer's diary, R1).
+    const verbs=created.stdout.split('\n').filter(line=>line.startsWith('  bun exact.mjs ')).map(line=>line.trim().split(/\s+/)[2]);
+    assert.deepEqual(verbs,['test-rust','web','test','agent','mac','windows','prove'],created.stdout);
+    const runner=readFileSync(resolve(app,'exact.mjs'),'utf8');
+    for (const verb of verbs) assert.ok(new RegExp(`^  '?${verb}'?: \\[`,'m').test(runner),verb);
+    assert.match(readFileSync(resolve(app,'AGENTS.md'),'utf8'),/<!-- exact:begin[^]*an Exact game[^]*game[\\/]README\.md[^]*## The authoring diary[^]*<!-- exact:end -->/);
     const inspect=resolve(directory,'inspect command.mjs');
     writeFileSync(inspect,`import {readFileSync} from 'node:fs'; import {resolve} from 'node:path';
       const [script,...args]=process.argv.slice(2); const path=resolve(script); readFileSync(path);
       console.log(JSON.stringify({path,args}));`);
-    const run=command=>{
-      const result=spawnSync('/bin/sh',['-c',command.replace(/^bun /,`${quote(process.execPath)} ${quote(inspect)} `)],{cwd:app,encoding:'utf8'});
-      assert.equal(result.status,0,`${command}\n${result.stderr}`);
-      return JSON.parse(result.stdout);
+    const run=async command=>{
+      const raw=command.replace(/^bun /,`${quote(process.execPath)} ${quote(inspect)} `);
+      const result=await Bun.$`${{raw}}`.cwd(app).quiet().nothrow();
+      assert.equal(result.exitCode,0,`${command}\n${result.stderr}`);
+      return JSON.parse(result.stdout.toString());
     };
-    assert.deepEqual(commands.map(run),[
-      {path:resolve(import.meta.dir,'dev.mjs'),args:['.']},
-      {path:resolve(import.meta.dir,'prove.mjs'),args:['.']},
-      {path:resolve(app,'proof.mjs'),args:['web','--screenshot-only']},
-    ]);
+    // Execute the generated Windows verb against a recording SDK, without
+    // building or opening a host. Argument and app-path forwarding are real.
+    const sdk=resolve(directory,'recording SDK');
+    mkdirSync(resolve(sdk,'host/windows'),{recursive:true});
+    writeFileSync(resolve(sdk,'host/windows/build.mjs'),`console.log(JSON.stringify({args:process.argv.slice(2),app:process.env.EXACT_APP_DIR}));`);
+    const windows=spawnSync(process.execPath,['exact.mjs','windows','--release','--run'],{cwd:app,env:{...process.env,EXACT2:sdk},encoding:'utf8'});
+    assert.equal(windows.status,0,windows.stderr);
+    const forwarded=JSON.parse(windows.stdout);
+    assert.deepEqual(forwarded.args,['outside-game','--release','--run']);
+    assert.equal(realpathSync.native(forwarded.app),realpathSync.native(app));
     const readme=readFileSync(resolve(app,'README.md'),'utf8');
     assert.ok(!readme.includes('/path/to/exact2'),readme);
     const documented=[...readme.matchAll(/`(bun [^`]+)`/g)].map(match=>match[1]);
-    const resolved=documented.map(run);
+    const resolved=await Promise.all(documented.map(run));
     assert.ok(resolved.some(command=>command.path===resolve(import.meta.dir,'prove.mjs')));
     assert.ok(resolved.some(command=>command.path===resolve(import.meta.dir,'app/shells.mjs')));
   } finally {rmSync(directory,{recursive:true,force:true});}
@@ -176,6 +187,7 @@ test('shell test CLI honors an app path and keeps the no-path SDK sweep', () => 
     mkdirSync(bin);
     for (const file of ['Cargo.toml', '.cargo/config.toml', 'app/shells.mjs', 'app/shells.lock'])
       cpSync(resolve(import.meta.dir, file), resolve(sdk, file));
+    cpSync(resolve(import.meta.dir, '../rust-toolchain.toml'), resolve(parent, 'rust-toolchain.toml'));
     cpSync(resolve(import.meta.dir, 'new'), resolve(sdk, 'new'), {recursive:true});
     const fixture = resolve(sdk, 'games/fixture'), bench = resolve(sdk, 'bench/example');
     for (const app of [external, fixture, bench]) {
@@ -444,10 +456,30 @@ test('the SDK lock decides every version; a game that adds packages captures its
   assert.deepEqual(outsideWorkspaceProblems(import.meta.dir), []);
   const sdkCargo = Bun.TOML.parse(readFileSync(resolve(import.meta.dir, 'Cargo.toml'), 'utf8'));
   const coreCargo = Bun.TOML.parse(readFileSync(resolve(import.meta.dir, '../Cargo.toml'), 'utf8'));
-  assert.deepEqual(sdkCargo.profile['apple-dev'], coreCargo.profile['apple-dev']);
+  assert.deepEqual(sdkCargo.profile['host-dev'], coreCargo.profile['host-dev']);
   // The checked-in SDK lock is current for the union of every shell's dependencies.
   sdkLock();
 }, 120000);
+
+test('a root crate\'s new registry dependency or new path crate resolves before the SDK lock is refreshed', async () => {
+  const {outsideSdkLock,withRootPins}=await import('./app/shells.mjs');
+  const registry='registry+https://github.com/rust-lang/crates.io-index';
+  const block=(name,version,checksum)=>`[[package]]\nname = "${name}"\nversion = "${version}"\n${checksum?`source = "${registry}"\nchecksum = "${checksum}"\n`:''}`;
+  const lock=(...blocks)=>`version = 4\n\n${blocks.join('\n')}`;
+  // 15856ff7 gave kernel cssparser 0.37.0 and updated only the root Cargo.lock.
+  const sdk=lock(block('itoa','1.0.15','aa'),block('exact-kernel','0.1.0'));
+  const root=lock(block('cssparser','0.37.0','bb'),block('itoa','1.0.9','cc'),block('itoa','2.0.1','ee'),block('exact-svg-filter','0.1.0'),block('exact-kernel','0.1.0'));
+  const seeded=withRootPins(sdk,root), members=new Set(['x-logic']);
+  // A new major of a package the SDK lock holds (itoa 2) is new to it; a compatible one is not.
+  // 00d37ef9f split exact-svg-filter out of the kernel: a root path crate is the SDK's own.
+  assert.deepEqual(Bun.TOML.parse(seeded).package.map(p=>`${p.name} ${p.version}`),['itoa 1.0.15','exact-kernel 0.1.0','cssparser 0.37.0','itoa 2.0.1','exact-svg-filter 0.1.0'],'only packages new to the SDK are added');
+  assert.deepEqual(outsideSdkLock(lock(block('exact-svg-filter','0.1.0'),block('exact-kernel','0.1.0')),seeded,members),[]);
+  assert.deepEqual(outsideSdkLock(lock(block('itoa','2.0.1','ee')),seeded,members),[]);
+  assert.deepEqual(outsideSdkLock(lock(block('cssparser','0.37.0','bb'),block('itoa','1.0.15','aa')),seeded,members),[]);
+  assert.deepEqual(outsideSdkLock(lock(block('cssparser','0.37.1','dd')),seeded,members),[`cssparser 0.37.1 ${registry}`],'the root lock decides the version');
+  assert.deepEqual(outsideSdkLock(lock(block('itoa','1.0.9','cc')),seeded,members),[`itoa 1.0.9 ${registry}`],'the SDK lock still decides its own packages');
+  assert.equal(withRootPins(sdk,''),sdk);
+});
 
 
 test('an empty Cargo cache permits adapter generation and refuses offline resolution',async()=>{
@@ -467,13 +499,42 @@ test('an empty Cargo cache permits adapter generation and refuses offline resolu
 });
 
 
+test('a new game names its Rust type after the game, everywhere the template does', async () => {
+  const {gameDefaults}=await import('./app/shells.mjs');
+  const parent=realpathSync(mkdtempSync(resolve(tmpdir(),'game-new-type-'))), app=resolve(parent,'my-2d-game');
+  try {
+    createGame(app);
+    assert.equal(gameDefaults(app).game.type,'My2dGame');
+    const files=readdirSync(app,{recursive:true}).filter(file=>statSync(resolve(app,file)).isFile());
+    for(const file of files) assert.doesNotMatch(readFileSync(resolve(app,file),'utf8'),/SmallGame|small[-_]game|Small game/,file);
+    assert.match(readFileSync(resolve(app,'logic/tests/sim.rs'),'utf8'),/use my_2d_game_logic::My2dGame;\nuse my_2d_game_logic::\{Beacon, Options\};/);
+    assert.match(readFileSync(resolve(app,'app.contract'),'utf8'),/^component My2dGame$/m);
+  } finally {rmSync(parent,{recursive:true,force:true});}
+});
+
+test('game/dev.mjs takes the next free port unless --port names a busy one', async () => {
+  const {devPort}=await import('./dev.mjs');
+  const {createServer}=await import('node:net');
+  const held=createServer();
+  await new Promise(ok=>held.listen(8850,'127.0.0.1',ok));
+  try {
+    const chosen=await devPort(['--wasm'],{start:8850});
+    assert.ok(chosen.port>8850 && chosen.port<8900);
+    assert.deepEqual(chosen.args,['--wasm','--port',String(chosen.port)]);
+    await assert.rejects(devPort(['--port','8850']),/--port 8850: 127\.0\.0\.1:8850 is in use; choose another --port/);
+    await assert.rejects(devPort(['--port','x']),/--port needs a port number/);
+    await assert.rejects(devPort(['--port=8850']),/--port 8850: 127\.0\.0\.1:8850 is in use/);
+    assert.deepEqual(await devPort(['--port',String(chosen.port)]),{port:chosen.port,args:['--port',String(chosen.port)]});
+  } finally {await new Promise(ok=>held.close(ok));}
+});
+
 test('E10 compact authored manifest survives two bakes byte for byte', async () => {
   const {gameDefaults,gameShells}=await import('./app/shells.mjs');
   const parent=realpathSync(mkdtempSync(resolve(tmpdir(),'e10-manifest-'))), app=resolve(parent,'my-game');
   try {
     createGame(app);
     const path=resolve(app,'app.json');
-    const authored=JSON.stringify({app:{name:'My Game',id:'org.example.my-game'},game:{crate:'my-game-logic',type:'SmallGame'},host:{macos:{window:{width:960}}}},null,2)+'\n';
+    const authored=JSON.stringify({app:{name:'My Game',id:'org.example.my-game'},game:{crate:'my-game-logic',type:'MyGame'},host:{macos:{window:{width:960}}}},null,2)+'\n';
     writeFileSync(path,authored);
     for(let i=0;i<2;i++) {
       const manifest=gameDefaults(app);
@@ -585,4 +646,27 @@ test('copies of the same game own distinct intermediate build directories', asyn
       assert.equal(config.build['build-dir'], resolve(app,'target'));
     }
   } finally {rmSync(root,{recursive:true,force:true});}
+});
+
+test('a game whose type would shadow an engine export or a template item is refused', async () => {
+  const {createGame,takenTypes}=await import('./new.mjs');
+  const taken=takenTypes();
+  for (const type of ['World','Camera','Transform','Beacon','Options']) assert.ok(taken.has(type),type);
+  for (const name of ['world','camera','beacon']) assert.throws(()=>createGame(resolve(tmpdir(),`zz-${process.pid}`,name)),/would collide/);
+  assert.ok(!taken.has('Garden'));
+});
+
+test('--render scaffolds a render crate with an explicit shader root', async () => {
+  const {gameDefaults, gameShells} = await import('./app/shells.mjs');
+  const root = realpathSync(mkdtempSync(resolve(tmpdir(), 'render-scaffold-'))), app = resolve(root, 'my-game');
+  try {
+    createGame(app, undefined, {render:true});
+    const manifest = JSON.parse(readFileSync(resolve(app, 'app.json'), 'utf8'));
+    assert.deepEqual(manifest, {game:{render:{crate:'my-game-render', hooks:'Passes', shaders:'shaders::SHADERS'}}, gpu:{shaderRoots:['render/shaders']}});
+    for (const file of ['render/Cargo.toml', 'render/build.rs', 'render/src/lib.rs']) assert.ok(existsSync(resolve(app, file)), file);
+    assert.ok(statSync(resolve(app, 'render/shaders')).isDirectory());
+    gameShells(app, gameDefaults(app).game, import.meta.dir);
+    assert.equal(readFileSync(resolve(app, '.shells/gpu/src/lib.rs'), 'utf8'),
+      'exact_game_render::module!(game_logic::MyGame, hooks = game_render::Passes, shaders = game_render::shaders::SHADERS);\n');
+  } finally { rmSync(root, {recursive:true, force:true}); }
 });

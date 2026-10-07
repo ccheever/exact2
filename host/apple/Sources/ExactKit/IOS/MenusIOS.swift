@@ -11,12 +11,14 @@
 // fire, D1 — so a menu that refreshes its rows on that press shows the
 // refreshed rows.
 
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 final class MenuHost {
     private weak var presenter: Presenter?
     private var overlays: [UInt32: UIButton] = [:]
+    /// The target and press shape each overlay's menu was built for.
+    private var menuShapes: [UInt32: String] = [:]
     private var confirmation: Confirmation?
     /// Under the agent, the popovers open in their painted presentation
     /// (LLP 1021 D4), by `id`: each in the top layer while open, as macOS's
@@ -39,37 +41,63 @@ final class MenuHost {
     /// The top layer takes no touch itself, only what it holds.
     private final class TopLayer: UIView {
         override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-            let hit = super.hitTest(point, with: event)
-            return hit === self ? nil : hit
+            guard !isHidden, isUserInteractionEnabled, bounds.contains(point) else { return nil }
+            for child in NodeView.hitOrder(subviews) {
+                if let hit = child.hitTest(convert(point, to: child), with: event) { return hit }
+            }
+            return nil
         }
     }
 
-    /// An alertdialog-shaped popover has one action and one hide-only cancel.
+    /// An alertdialog-shaped popover has one or more actions and at most one
+    /// hide-only cancel: a chooser ("Open in…") is one action per choice.
     /// Retain this owner until native dismissal completes; ids alone are not
     /// enough because a restart can reuse them for unrelated controls.
-    private final class Confirmation: NSObject, UIPopoverPresentationControllerDelegate {
+    #if os(tvOS)
+    // tvOS has no popovers; the sheet keeps the adaptive delegate only.
+    private typealias ConfirmationDelegate = UIAdaptivePresentationControllerDelegate
+    #else
+    private typealias ConfirmationDelegate = UIPopoverPresentationControllerDelegate
+    #endif
+    private final class Confirmation: NSObject, ConfirmationDelegate {
         weak var host: MenuHost?
         weak var source: NodeView?
         weak var popover: NodeView?
-        weak var action: NodeView?
         let route: String?
         let alert: UIAlertController
         var finishing = false
-        init(host: MenuHost, source: NodeView, popover: NodeView, action: NodeView, message: String) {
-            self.host = host; self.source = source; self.popover = popover; self.action = action
-            route = host.presenter?.navigation.routeKey(containing: source)
-            alert = UIAlertController(title: nil, message: message, preferredStyle: .actionSheet)
+        /// An action as presented: the node, the title the sheet shows for
+        /// it, and whether it could be chosen.
+        final class Presented {
+            weak var node: NodeView?
+            let title: String, enabled: Bool
+            init(_ node: NodeView, title: String, enabled: Bool) { self.node = node; self.title = title; self.enabled = enabled }
         }
+        let actions: [Presented]
+        init(host: MenuHost, source: NodeView, popover: NodeView, actions: [Presented], title: String?, message: String) {
+            self.host = host; self.source = source; self.popover = popover; self.actions = actions
+            route = host.presenter?.navigation.routeKey(containing: source)
+            alert = UIAlertController(title: title, message: message.isEmpty ? nil : message, preferredStyle: .actionSheet)
+        }
+        func owns(_ node: NodeView) -> Bool { actions.contains { $0.node === node } }
         func adaptivePresentationStyle(for controller: UIPresentationController) -> UIModalPresentationStyle { .none }
+        #if !os(tvOS)
         func popoverPresentationControllerDidDismissPopover(_ controller: UIPopoverPresentationController) {
             host?.cancelled(self)
         }
+        #endif
         func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
             host?.cancelled(self)
         }
     }
 
     init(presenter: Presenter) { self.presenter = presenter }
+    #if os(iOS)
+    /// The context menus (LLP 1021 §5.1, ContextMenusIOS.swift).
+    private(set) lazy var context = ContextMenuHost(presenter: presenter!, menus: self)
+    #endif
+    /// The focus a native menu sets aside while it shows (MenuFocusIOS.swift).
+    private(set) lazy var focus = MenuFocus(presenter: presenter!)
 
     private func isDialog(_ node: NodeView) -> Bool { node.props["semanticTag"] == "dialog" }
     private func isConfirmation(_ node: NodeView) -> Bool {
@@ -113,7 +141,8 @@ final class MenuHost {
                 }
                 continue
             }
-            v.isHidden = true
+            // UIKit's setter is not free, even to the same value: every batch.
+            if !v.isHidden { v.isHidden = true }
             if let name = v.props["id"] { popovers[name] = v }
         }
         var live = Set<UInt32>()
@@ -142,7 +171,12 @@ final class MenuHost {
                 continue
             }
             let button = overlays[v.id] ?? {
+                #if os(iOS)
+                let b = MenuButton(type: .custom)
+                b.focus = focus
+                #else
                 let b = UIButton(type: .custom)
+                #endif
                 b.showsMenuAsPrimaryAction = true
                 b.autoresizingMask = [.flexibleWidth, .flexibleHeight]
                 overlays[v.id] = b
@@ -153,28 +187,50 @@ final class MenuHost {
             button.accessibilityLabel = v.props["accessibilityLabel"] ?? title(of: v)
             button.accessibilityIdentifier = v.props["testId"] ?? v.props["id"]
             button.isEnabled = !v.disabled
-            let invokerId = v.id
+            // One menu per invoker and press shape, kept across batches: it
+            // reads its rows each time it opens, so a batch (a poll's answer,
+            // every second) has nothing to change in it, and replacing it
+            // would reload a menu that is open — UIKit shows its "Loading…"
+            // row again each time.
             let hasPress = v.handlers.contains("press")
-            button.menu = UIMenu(children: [
-                UIDeferredMenuElement.uncached { [weak self, weak pop] completion in
-                    if hasPress { self?.presenter?.press(invokerId) }
-                    // The runner applies the press on its own thread; the
-                    // items are read after it has (80 ms is invisible under
-                    // the menu's own presentation).
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) {
-                        completion(pop.map { self?.items(of: $0) ?? [] } ?? [])
+            // The popover's `aria-label` titles the menu ("Open location in").
+            let heading = pop.props["accessibilityLabel"] ?? ""
+            let shape = "\(target)|\(hasPress)|\(heading)"
+            if menuShapes[v.id] != shape || button.menu == nil {
+                menuShapes[v.id] = shape
+                let invokerId = v.id
+                button.menu = UIMenu(title: heading, children: [
+                    UIDeferredMenuElement.uncached { [weak self] completion in
+                        // The popover by name now: the node a batch made
+                        // when the menu was built may since be another.
+                        let rows = { self?.popover(named: target).map { self?.items(of: $0) ?? [] } ?? [] }
+                        guard hasPress else { completion(rows()); return }
+                        self?.presenter?.press(invokerId)
+                        // The runner applies the press on its own thread; the
+                        // items are read after it has (80 ms is invisible under
+                        // the menu's own presentation).
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { completion(rows()) }
                     }
-                }
-            ])
+                ])
+            }
         }
         for (id, b) in overlays where !live.contains(id) {
             b.removeFromSuperview()
             overlays[id] = nil
+            menuShapes[id] = nil
         }
+        #if os(iOS)
+        context.sync()
+        #endif
+    }
+
+    /// A live popover by its id.
+    private func popover(named name: String) -> NodeView? {
+        presenter?.views.values.first { $0.props["id"] == name && ($0.props["popover"] != nil || isDialog($0)) }
     }
 
     private func live(_ node: NodeView) -> Bool { presenter?.views[node.id] === node }
-    private func eligible(_ node: NodeView, inertBoundary: UIView? = nil) -> Bool {
+    func eligible(_ node: NodeView, inertBoundary: UIView? = nil) -> Bool {
         guard live(node), !node.disabled, presenter?.navigation.isInactiveRoute(containing: node) == false else { return false }
         var ancestor: UIView? = node
         var checksInert = true
@@ -192,13 +248,30 @@ final class MenuHost {
         return true
     }
     private func valid(_ owner: Confirmation) -> Bool {
-        guard let source = owner.source, let pop = owner.popover, let action = owner.action else { return false }
+        guard let source = owner.source, let pop = owner.popover else { return false }
         let modal = isDialog(pop)
-        return eligible(source, inertBoundary: modal ? source : nil) && live(pop)
-            && eligible(action, inertBoundary: modal ? pop.superview : nil) && source.window != nil
-            && opens(source, pop) && closes(action, pop)
-            && action.isDescendant(of: pop) && isConfirmation(pop)
+        return eligible(source, inertBoundary: modal ? source : nil) && live(pop) && source.window != nil
+            && opens(source, pop) && isConfirmation(pop)
             && presenter?.navigation.routeKey(containing: source) == owner.route
+            && owner.actions.allSatisfy { presented(owner, $0) }
+    }
+    /// One of the owner's actions still shows what the sheet shows: live, in
+    /// its popover, closing it, its title and its enablement unchanged. A
+    /// row that now says something else (a reused row given another
+    /// provider) ends the sheet rather than dispatching under an old title.
+    private func presented(_ owner: Confirmation, _ entry: Confirmation.Presented) -> Bool {
+        guard let action = entry.node, let pop = owner.popover, live(action) else { return false }
+        return closes(action, pop) && action.isDescendant(of: pop) && title(of: action) == entry.title
+            && choosable(action, in: pop) == entry.enabled
+    }
+    private func choosable(_ action: NodeView, in pop: NodeView) -> Bool {
+        eligible(action, inertBoundary: isDialog(pop) ? pop.superview : nil)
+    }
+    /// The chosen action may be dispatched: the sheet is still the one
+    /// presented and this action was, and is, choosable.
+    private func valid(_ owner: Confirmation, chosen action: NodeView) -> Bool {
+        guard let pop = owner.popover, let entry = owner.actions.first(where: { $0.node === action }) else { return false }
+        return entry.enabled && presented(owner, entry) && choosable(action, in: pop)
     }
     private func cancelled(_ owner: Confirmation) {
         // UIKit also delivers this after a selected action's handler. That
@@ -207,7 +280,8 @@ final class MenuHost {
         owner.finishing = true
         confirmation = nil
     }
-    private func finish(_ owner: Confirmation, confirmed: Bool) {
+    /// `chosen` is the selected action, nil for the cancel.
+    private func finish(_ owner: Confirmation, chosen: NodeView?) {
         guard confirmation === owner, !owner.finishing else { return }
         owner.finishing = true
         owner.alert.dismiss(animated: !ExactEnv.agentFreezes) { [weak self, owner] in
@@ -218,7 +292,7 @@ final class MenuHost {
             // destroy the presenting editor or dismiss its parent sheet.
             DispatchQueue.main.async { [weak self, owner] in
                 guard let self, self.confirmation === owner else { return }
-                let action = confirmed && self.valid(owner) ? owner.action : nil
+                let action = chosen.flatMap { self.valid(owner) && self.valid(owner, chosen: $0) ? $0 : nil }
                 self.confirmation = nil
                 if let action { self.presenter?.press(action.id) }
             }
@@ -237,34 +311,53 @@ final class MenuHost {
         overlays.values.forEach { $0.removeFromSuperview() }
         overlays.removeAll()
         for name in Array(agentOpen.keys) { drop(name) }
+        #if os(iOS)
+        context.reset()
+        #endif
     }
 
     /// Whether `node` is an open popover in the top layer (the agent's).
-    func lifted(_ node: NodeView) -> Bool { agentOpen.values.contains { $0.popover === node } }
+    func lifted(_ node: NodeView) -> Bool {
+        #if os(iOS)
+        if context.lifts(node) { return true }
+        #endif
+        return agentOpen.values.contains { $0.popover === node }
+    }
     /// A children op on `parent` while a child of it is in the top layer:
     /// the child stays there, its index kept for its return; one the op
     /// drops closes.
+    /// A frame op on `node`: a context menu's lifted row takes it as its home.
+    func framed(_ node: NodeView) {
+        #if os(iOS)
+        context.framed(node)
+        #endif
+    }
     func children(_ parent: UIView, _ wanted: [NodeView]) {
+        #if os(iOS)
+        context.children(parent, wanted)
+        #endif
         for (name, entry) in agentOpen where entry.parent === parent {
             if let i = wanted.firstIndex(where: { $0 === entry.popover }) { entry.index = i } else { drop(name) }
         }
     }
     /// Into the top layer, above everything of the page's (its routes and
     /// containers are under the viewport's root) and so in the agent's
-    /// `screenshot`, anchored below its opener (as macOS's). Over a modal,
+    /// `screenshot`, anchored to its opener by its `position-area` (as
+    /// macOS's; below it by default). Over a modal,
     /// the modal's view.
     private func lift(_ entry: Lifted) {
         guard let presenter, let pop = entry.popover else { return }
         let host: UIView = presenter.modals.coordinateView ?? presenter.viewport
         if entry.layer.superview !== host || host.subviews.last !== entry.layer { host.addSubview(entry.layer) }
+        entry.layer.setPaintForeground()
         if entry.layer.frame != host.bounds { entry.layer.frame = host.bounds }
         if pop.superview !== entry.layer { entry.layer.addSubview(pop) }
         if pop.isHidden { pop.isHidden = false }
         guard let source = presenter.views[entry.source], source.window != nil else { return }
         let anchor = source.convert(source.bounds, to: entry.layer), size = pop.bounds.size
-        let x = max(0, min(anchor.minX, entry.layer.bounds.width - size.width))
-        let y = max(0, min(anchor.maxY, entry.layer.bounds.height - size.height))
-        let center = CGPoint(x: x + size.width / 2, y: y + size.height / 2)
+        let at = PositionArea.origin(PositionArea.of(pop), anchor: anchor, size: size,
+                                    margins: PositionArea.margins(of: pop), in: entry.layer.bounds)
+        let center = CGPoint(x: at.x + size.width / 2, y: at.y + size.height / 2)
         if pop.center != center { pop.center = center }
     }
     /// Out of the top layer, hidden, back where it was.
@@ -314,11 +407,32 @@ final class MenuHost {
             guard let self, let presenter, let pop, presenter.views[pop.id] === pop else { return }
             if self.agentOpen[name] != nil { self.drop(name); return }
             guard !hides else { return }
-            let entry = Lifted(source: source, popover: pop)
-            self.agentOpen[name] = entry
-            self.lift(entry)
-            if let field = Self.autofocus(in: pop) { presenter.focusNode(field) }
+            self.agentShow(pop, named: name, from: source)
         }
+    }
+    private func agentShow(_ pop: NodeView, named name: String, from source: UInt32) {
+        let entry = Lifted(source: source, popover: pop)
+        agentOpen[name] = entry
+        lift(entry)
+        if let field = Self.autofocus(in: pop) { presenter?.focusNode(field) }
+    }
+    /// Under the agent, a context menu (LLP 1021 §5.1) is its popover painted
+    /// in the top layer, anchored to `node`, as an invoker's (D4): its
+    /// preview row and menu rows are nodes the agent reads and taps. Called
+    /// after `node`'s own `contextmenu` has been delivered; any other open
+    /// popover closes, as a tap outside it would.
+    /// Whether it opened one.
+    @discardableResult
+    func agentContext(_ node: NodeView) -> Bool {
+        // Its own action may have unmounted or disabled it, or renamed its popover.
+        guard ExactEnv.agentMode, let presenter, let name = node.props["contextPopover"], eligible(node) else { return false }
+        for other in Array(agentOpen.keys) { drop(other) }
+        guard let pop = presenter.carrying("popover").first(where: { $0.props["id"] == name && !isConfirmation($0) }) else {
+            presenter.session?.log("context menu \(name) refused: no popover has that id")
+            return false
+        }
+        agentShow(pop, named: name, from: node.id)
+        return true
     }
     /// Whether a tap on `node` goes through the agent's painted popovers —
     /// one is open (the tap dismisses it first), or `node` is a painted
@@ -343,13 +457,17 @@ final class MenuHost {
         return owner.finishing || owner.alert.isBeingPresented || owner.alert.isBeingDismissed
     }
     func observation() -> [String: Any]? {
+        #if os(iOS)
+        if let open = context.observation() { return open }
+        #endif
         if confirmation == nil, ExactEnv.agentMode, let open = agentOpen.values.first, let pop = open.popover {
             return ["kind": "popover", "source": Int(open.source), "popover": Int(pop.id), "phase": "open"]
         }
         guard let owner = confirmation else { return nil }
         return ["kind": "confirmation", "source": owner.source.map { Int($0.id) as Any } ?? NSNull(),
                 "popover": owner.popover.map { Int($0.id) as Any } ?? NSNull(), "phase": inTransition ? "transition" : "open",
-                "actionStyle": owner.alert.actions.first?.style == .destructive ? "destructive" : "default"]
+                "actionStyle": owner.alert.actions.first?.style == .destructive ? "destructive" : "default",
+                "actions": owner.actions.count]
     }
     /// LLP 1080.001 D3: the views this host adds — a node's overlay button,
     /// an open popover's top layer — and the popovers it hides or lifts.
@@ -374,10 +492,13 @@ final class MenuHost {
     func activate(_ node: NodeView) -> Bool? {
         if ownsConfirmationNode(node) {
             guard let owner = confirmation, !inTransition, valid(owner) else { return false }
-            if owner.action === node { finish(owner, confirmed: true); return true }
+            if owner.owns(node) {
+                guard valid(owner, chosen: node) else { return false }
+                finish(owner, chosen: node); return true
+            }
             if let pop = owner.popover, node.isDescendant(of: pop), !node.disabled,
                closes(node, pop) {
-                finish(owner, confirmed: false); return true
+                finish(owner, chosen: nil); return true
             }
             return false
         }
@@ -386,6 +507,15 @@ final class MenuHost {
         }) else { return nil }
         guard opens(node, pop) else { return false }
         return openConfirmation(from: node, popover: pop)
+    }
+    /// A sheet action's handler: the action at `index` as presented, nil
+    /// for the cancel. Its own entry, never a successor's at that index.
+    private func select(_ owner: Confirmation, _ index: Int?) {
+        guard let index else { finish(owner, chosen: nil); return }
+        guard owner.actions.indices.contains(index), let node = owner.actions[index].node else {
+            finish(owner, chosen: nil); return
+        }
+        finish(owner, chosen: node)
     }
     private func openConfirmation(from source: NodeView, popover pop: NodeView) -> Bool {
         guard confirmation == nil, eligible(source), live(pop), source.window != nil else { return false }
@@ -401,27 +531,54 @@ final class MenuHost {
         let children = pop.container.subviews.compactMap { $0 as? NodeView }
         let actions = children.filter { $0.isButton && $0.handlers.contains("press") }
         let cancels = children.filter { $0.isButton && !$0.handlers.contains("press") && closes($0, pop) }
-        guard actions.count == 1, cancels.count == 1, let action = actions.first, let cancel = cancels.first,
-              children.allSatisfy({ $0.kind == "text" || $0 === action || $0 === cancel }),
-              [action, cancel].allSatisfy({ closes($0, pop) }),
-              eligible(action, inertBoundary: isDialog(pop) ? pop.superview : nil) else { return false }
+        let boundary = isDialog(pop) ? pop.superview : nil
+        // Refused shapes are said, never silently dropped: the tap opens nothing.
+        func refuse(_ why: String) -> Bool {
+            presenter?.session?.log("confirmation \(pop.props["id"] ?? "?") refused: \(why)")
+            return false
+        }
+        guard !actions.isEmpty else { return refuse("no action (a button with press)") }
+        guard cancels.count <= 1 else { return refuse("\(cancels.count) cancels; at most one hide-only button") }
+        guard children.allSatisfy({ child in child.kind == "text" || actions.contains { $0 === child } || cancels.contains { $0 === child } }) else {
+            return refuse("only text, actions and one cancel may be its rows")
+        }
+        guard actions.allSatisfy({ closes($0, pop) }) else { return refuse("each action must also hide it (popovertargetaction=hide)") }
+        // A disabled choice shows dimmed; the others stay choosable.
+        guard actions.contains(where: { eligible($0, inertBoundary: boundary) }) else { return refuse("every action is disabled") }
         var responder: UIResponder? = source
         while responder != nil && !(responder is UIViewController) { responder = responder?.next }
         guard let controller = responder as? UIViewController, controller.presentedViewController == nil,
               !controller.isBeingDismissed, !controller.isBeingPresented else { return false }
-        let owner = Confirmation(host: self, source: source, popover: pop, action: action,
-                                 message: children.filter { $0.kind == "text" }.map(title(of:)).joined(separator: "\n"))
-        // A native action's tint is its accent (LLP 1069.011.000 D5).
-        owner.alert.view.tintColor = action.isNativeButton
-            ? action.channels("accent_color").map { TextEngine.color($0) } ?? .systemBlue
-            : action.color("text_color", .systemBlue)
-        let actionStyle: UIAlertAction.Style = action.props["destructive"] == "true" ? .destructive : .default
-        owner.alert.addAction(UIAlertAction(title: title(of: action), style: actionStyle) { [weak self, weak owner] _ in
-            if let owner { self?.finish(owner, confirmed: true) }
-        })
-        owner.alert.addAction(UIAlertAction(title: title(of: cancel), style: .cancel) { [weak self, weak owner] _ in
-            if let owner { self?.finish(owner, confirmed: false) }
-        })
+        let presented = actions.map { Confirmation.Presented($0, title: title(of: $0), enabled: eligible($0, inertBoundary: boundary)) }
+        let texts = children.filter { $0.kind == "text" }
+        // A chooser (several actions, no explanatory text) is titled by its
+        // aria-label; a confirmation keeps its text as its only heading, as
+        // the native prompts it matches have no title row.
+        let heading = texts.isEmpty && actions.count > 1 ? pop.props["accessibilityLabel"] : nil
+        let owner = Confirmation(host: self, source: source, popover: pop, actions: presented,
+                                 title: heading, message: texts.map(title(of:)).joined(separator: "\n"))
+        // A native action's tint is its accent (LLP 1069.011.000 D5); the
+        // alert has one tint, the first action's.
+        let lead = actions[0]
+        owner.alert.view.tintColor = lead.isNativeButton
+            ? lead.channels("accent_color").map { TextEngine.color($0) } ?? .systemBlue
+            : lead.color("text_color", .systemBlue)
+        for (index, entry) in presented.enumerated() {
+            let action = actions[index]
+            let style: UIAlertAction.Style = action.props["destructive"] == "true" ? .destructive : .default
+            let alertAction = UIAlertAction(title: entry.title, style: style) { [weak self, weak owner] _ in
+                if let owner { self?.select(owner, index) }
+            }
+            alertAction.isEnabled = entry.enabled
+            if action.props["accessibilityChecked"] == "true" { alertAction.accessibilityTraits.insert(.selected) }
+            owner.alert.addAction(alertAction)
+        }
+        if let cancel = cancels.first {
+            owner.alert.addAction(UIAlertAction(title: title(of: cancel), style: .cancel) { [weak self, weak owner] _ in
+                if let owner { self?.select(owner, nil) }
+            })
+        }
+        #if !os(tvOS)
         guard let presentation = owner.alert.popoverPresentationController else { return false }
         presentation.sourceView = source
         // A labelled row anchors at its text; an icon control uses its box.
@@ -430,21 +587,46 @@ final class MenuHost {
         presentation.sourceRect = labelBox.isNull ? source.bounds : CGRect(x: labelBox.minX, y: 0, width: labelBox.width, height: source.bounds.height)
         presentation.permittedArrowDirections = []
         presentation.canOverlapSourceViewRect = true
+        Self.place(presentation, PositionArea.of(pop), source: source)
         presentation.delegate = owner
+        #endif
         confirmation = owner
         controller.present(owner.alert, animated: !ExactEnv.agentFreezes)
         return true
     }
+
+    #if !os(tvOS)
+    /// LLP 1021 §5: the sheet's side of its invoker, from its popover's
+    /// `position-area`. `none` keeps the arrowless placement above (D2's
+    /// below-left, native Messages' prompts). UIKit places a popover by the
+    /// arrow directions it permits — `.down` puts it above its source,
+    /// `.up` below — centred on the source rect where it fits, so a centred
+    /// area anchors at the whole invoker. `center` (the invoker's own cell)
+    /// anchors there with no arrow and may cover it, `none`'s presentation:
+    /// UIKit centres it across the invoker and picks its vertical position.
+    static func place(_ presentation: UIPopoverPresentationController, _ area: String, source: UIView) {
+        guard area != "none" else { return }
+        if PositionArea.centred(area) { presentation.sourceRect = source.bounds }
+        if area == "center" {
+            presentation.permittedArrowDirections = []
+            presentation.canOverlapSourceViewRect = true
+        } else {
+            presentation.permittedArrowDirections = area.hasPrefix("top") ? .down : .up
+            presentation.canOverlapSourceViewRect = false
+        }
+    }
+    #endif
 
     /// The menu grammar, extracted (LLP 1021 D3): button rows become
     /// actions; any other row is a section boundary.
     func items(of pop: NodeView) -> [UIMenuElement] {
         var sections: [[UIMenuElement]] = [[]]
         for case let row as NodeView in pop.container.subviews {
+            // A context menu's preview (§5.1) is not one of its items.
+            if row.props["contextPreview"] == "true" { continue }
             if row.handlers.contains("press") {
                 let id = row.id
-                // A row's symbol is its item's image, custom or native (LLP 1069.011.000 D5).
-                let image = row.isButton ? row.face?.symbol.flatMap { UIImage(systemName: $0) } : nil
+                let image = image(of: row)
                 let action = UIAction(title: title(of: row), image: image) { [weak self] _ in
                     self?.presenter?.press(id)
                 }
@@ -459,6 +641,35 @@ final class MenuHost {
         let filled = sections.filter { !$0.isEmpty }
         if filled.count <= 1 { return filled.first ?? [] }
         return filled.map { UIMenu(options: .displayInline, children: $0) }
+    }
+
+    /// A row's item image: its symbol, custom or native (LLP 1069.011.000
+    /// D5), else its `img` — a provider's own icon — once that has loaded.
+    /// The menu reads what the hidden row already holds; opening it never
+    /// fetches, and an image still loading is no image until the next open.
+    private func image(of row: NodeView) -> UIImage? {
+        guard row.isButton else { return nil }
+        if let symbol = row.face?.symbol { return UIImage(systemName: symbol) }
+        guard !row.isNativeButton, let img = Self.firstImage(in: row) else { return nil }
+        if let symbol = img.image, img.imageSource?.hasPrefix("symbol:") == true { return symbol }
+        return img.raster.map { Self.rowImage($0.image.image) }
+    }
+    /// A menu row draws an image at its own size: fit it in the row's icon
+    /// box, keeping its ratio.
+    static func rowImage(_ bitmap: CGImage) -> UIImage {
+        let side: CGFloat = 24, natural = CGSize(width: bitmap.width, height: bitmap.height)
+        let scale = min(side / max(natural.width, 1), side / max(natural.height, 1))
+        let size = CGSize(width: natural.width * scale, height: natural.height * scale)
+        return UIGraphicsImageRenderer(size: size).image { _ in
+            UIImage(cgImage: bitmap).draw(in: CGRect(origin: .zero, size: size))
+        }.withRenderingMode(.alwaysOriginal)
+    }
+    private static func firstImage(in view: UIView) -> NodeView? {
+        for case let node as NodeView in (view as? NodeView)?.container.subviews ?? view.subviews {
+            if node.kind == "image" { return node }
+            if let found = firstImage(in: node) { return found }
+        }
+        return nil
     }
 
     private func title(of v: NodeView) -> String {

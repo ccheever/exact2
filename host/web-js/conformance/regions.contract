@@ -64,6 +64,10 @@ component Regions
                 text it
                 when picked == some(it) or i == 0
                   text "★" testId=`star-${it}`
+        // A list at the arm's top: built into the arm's fragment, its later
+        // rows go where the arm landed (`rotate` drops one, `restore` adds).
+        each it in items key=it
+          text it testId=`bare-${it}`
       else
         text (mode == 2 ? "mode two hides the list" : "closed") testId="closed"
       text join(map(items, (x, i) => `${i}:${x}`), " ") testId="joined"

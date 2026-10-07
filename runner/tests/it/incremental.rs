@@ -195,14 +195,19 @@ fn event(rng: &mut Rng, kind: EventKind) -> Option<Event> {
         EventKind::Hover => Event::Hover(rng.below(2) == 0),
         EventKind::Focus => Event::Focus,
         EventKind::Blur => Event::Blur,
-        EventKind::Key => Event::Key(rng.pick(&["Enter", "Escape", "ArrowDown", "a"]).to_string()),
+        EventKind::Key => Event::key(rng.pick(&["Enter", "Escape", "Shift+ArrowDown", "a"])),
         EventKind::Submit => Event::Submit,
         EventKind::Load => Event::Load,
         EventKind::Message => Event::Message(text(rng)),
         EventKind::Contextmenu => Event::Contextmenu,
         EventKind::Dblclick => Event::Dblclick,
+        EventKind::Pointerdown => Event::Pointerdown(pointer(rng)),
+        EventKind::Pointerup => Event::Pointerup(pointer(rng)),
+        EventKind::Pointermove => Event::Pointermove(pointer(rng)),
         EventKind::Swiperight => Event::Swiperight,
-        EventKind::Scroll => Event::Scroll(0.0, (rng.below(5) * 40) as f64),
+        EventKind::Scroll => {
+            Event::scroll_payload(&format!("0,{},400,1000,400,200", rng.below(5) * 40)).unwrap()
+        }
         EventKind::Navigate => Event::Navigate(rng.pick(&["/", "/t/1", "/nowhere"]).to_string()),
         EventKind::Pan => Event::Pan(rng.below(9) as f64 - 4.0, 0.0),
         EventKind::Panrelease => Event::PanRelease((rng.below(9) as f64 - 4.0) * 250.0, 0.0),
@@ -723,4 +728,11 @@ fn store_provenance_propagates_through_unchanged_values() {
         assert!(r.resource_reads_store("input"), "full={full}");
         assert!(r.resource_reads_store("dependent"), "full={full}");
     }
+}
+
+/// A pointer sample somewhere over a node.
+fn pointer(rng: &mut Rng) -> exact_runner::PointerEvent {
+    let (x, y) = (rng.below(200), rng.below(200));
+    let line = format!("{x},{y},1,0.5,mouse,1,{x},{y}");
+    exact_runner::PointerEvent::parse(&line).unwrap()
 }

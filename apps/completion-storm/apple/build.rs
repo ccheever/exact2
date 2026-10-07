@@ -11,13 +11,19 @@ fn main() {
         println!("cargo:rerun-if-changed={path}");
     }
     let app = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    // Every Contract file the plan reads, used files and packages too.
+    contract::rerun_if_changed(&app.join("app.contract"));
     let plan = contract::compile_path(&app.join("app.contract")).expect("compile Completion Storm");
     let baked =
         contract::bake(plan, completion_storm_data::Storm::default()).expect("offline bake");
     let out = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
     std::fs::write(out.join("app.plan"), baked.encode()).unwrap();
     let manifest = contract::Manifest::read(&app).expect("app manifest");
-    let platform = if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("ios") {
+    // tvOS bakes the iOS host's plan.
+    let platform = if matches!(
+        std::env::var("CARGO_CFG_TARGET_OS").as_deref(),
+        Ok("ios" | "tvos")
+    ) {
         "ios"
     } else {
         "macos"

@@ -1,13 +1,97 @@
-import type { Storage } from "../../../vendor/ibex2/src/bindings/storage";
+import type { Storage } from "../../../vendor/ibex/crates/ibex2/src/bindings/storage";
 type Store = { get(name:string):string|null; set(name:string,value:string):void; forget(name:string):void };
 const appId = "dev.exact.storage-test";
-const grants = "fs.read app:/data\nfs.write app:/data\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";
+const grants = "fs.read app:/data\nfs.write app:/data\nfs.read doc:/\nfs.write doc:/\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n";
 
 // Work queued behind whatever the module started last, the way an app serializes its
 // database operations. The second answer's storage calls run in a later microtask.
 let tail: Promise<unknown> = Promise.resolve();
+let saves: Promise<unknown> = Promise.resolve(), saveError = "";
+let shared: Promise<{text:string}>;
 
-async function answer(_source:string, args:unknown[], store:Store, storage:Storage, native:{available:boolean; call(request:Record<string,unknown>):Record<string,unknown>; later(request:Record<string,unknown>):Promise<Record<string,unknown>>}|null) {
+// Background work (LLP 1097): the last save started and not awaited, and
+// the last failure a background step reported to the app.
+let saving: Promise<unknown> = Promise.resolve(), lastError = "";
+const bytes = (value: string) => new Uint8Array(Array.from(value).map(c => c.charCodeAt(0)));
+
+// Writes an answer starts and does not await (kanban F22): the answer is
+// given before they land, and they must land all the same.
+function answer(source:string, args:unknown[], store:Store, storage:Storage, native:any) {
+  const op = String(args[0]), value = String(args[1]);
+  if (op === "shared-live") {
+    shared = fetch("https://example.test/shared").then(async () => {
+      await storage.fs.atomicWriteFile(storage.fs.directories.data + "/shared", new Uint8Array([1]));
+      store.set("session", value);
+      return {text: value};
+    });
+    return shared;
+  }
+  if (op === "shared-wait") return shared.then(() => ({text: "waited"}));
+  const song = storage.fs.directories.data + "/song";
+  // The summary's edit: answered from memory, saved unawaited, in the answer.
+  if (op === "save") {
+    saving = storage.fs.atomicWriteFile(song, bytes(value)).catch((e) => { lastError = String(e.code); });
+    return {text:"saved " + value};
+  }
+  // The same save chained behind the last one: issued when that lands.
+  if (op === "save-chained") {
+    saving = saving.then(() => storage.fs.atomicWriteFile(song, bytes(value))).catch((e) => { lastError = String(e.code); });
+    return {text:"saved " + value};
+  }
+  // An answer that awaits background work: waits with the module.
+  if (op === "await-saving") return saving.then(() => ({text:"after " + lastError}));
+  // 258 writes at once: one in flight, 256 waiting, the 258th refused.
+  if (op === "flood") {
+    const codes: Promise<string>[] = [];
+    for (let i = 0; i < 258; i++) codes.push(storage.fs.writeFile(storage.fs.directories.data + "/flood", bytes(String(i))).then(() => "ok", (e) => String(e.code)));
+    return codes[257].then((code) => ({text:code}));
+  }
+  // What a background step may not do: fetch, or call the native module.
+  if (op === "save-then-fetch") {
+    storage.fs.atomicWriteFile(song, bytes(value)).then(() => fetch("https://example.test/later")).catch((e) => { lastError = e.message; });
+    return {text:"saved " + value};
+  }
+  if (op === "save-then-native") {
+    storage.fs.atomicWriteFile(song, bytes(value)).then(() => native.call({value})).catch((e) => { lastError = e.message; });
+    return {text:"saved " + value};
+  }
+  // A background write that fails: its promise rejects, as on the web.
+  if (op === "save-bad") {
+    storage.fs.writeFile(storage.fs.directories.data + "/absent/file", bytes(value)).catch((e) => { lastError = String(e.code); });
+    return {text:"saved " + value};
+  }
+  if (op === "reject") { Promise.reject(new Error("lost " + value)); return {text:"answered"}; }
+  if (op === "last-error") return {text:lastError};
+  // Each part appended to one log, awaited in turn: two such answers
+  // interleave at their awaits, as two async calls do on the web (D4.5).
+  if (op === "append") {
+    return (async () => {
+      for (const part of value.split(",")) await storage.fs.appendFile(storage.fs.directories.data + "/log", bytes(part + ";"));
+      return {text:value};
+    })();
+  }
+  if (op === "unawaited") {
+    storage.fs.atomicWriteFile(storage.fs.directories.data + "/unawaited", new Uint8Array(Array.from(value).map(c=>c.charCodeAt(0))));
+    return {text:"answered"};
+  }
+  // drums R10: a value given at once, its save chained behind a promise
+  // already resolved, so the write begins in the checkpoint after the call.
+  if (op === "deferred") {
+    saves = saves.then(() => storage.fs.atomicWriteFile(storage.fs.directories.data + "/deferred", new Uint8Array(Array.from(value).map(c=>c.charCodeAt(0)))))
+      .catch((e) => { saveError = String(e); });
+    return {text:"answered" + saveError};
+  }
+  if (op === "queued" || op === "queued-sync") {
+    tail = tail.then(async () => {
+      await storage.fs.mkdir(storage.fs.directories.data + "/queued");
+      await storage.fs.atomicWriteFile(storage.fs.directories.data + "/queued/file", new Uint8Array(Array.from(value).map(c=>c.charCodeAt(0))));
+    });
+    return op === "queued-sync" ? {text:"answered"} : Promise.resolve({text:"answered"});
+  }
+  return work(source, args, store, storage, native);
+}
+
+async function work(_source:string, args:unknown[], store:Store, storage:Storage, native:{available:boolean; call(request:Record<string,unknown>):Record<string,unknown>; later(request:Record<string,unknown>):Promise<Record<string,unknown>>}|null) {
   const op = String(args[0]), value = String(args[1]);
   if (op === 'later') {
     if (!native?.available) return {text: 'no native module'};
@@ -22,6 +106,48 @@ async function answer(_source:string, args:unknown[], store:Store, storage:Stora
     } catch(error:any) { return {text:error.message}; }
   }
   if (op === "placeholder") return {text: ""};
+  // A folder the person chose (LLP 1069.010 D1), `value` its `doc:` path:
+  // listed, read, written beside, and refused past what it holds.
+  if (op === "doc") {
+    const out: string[] = [], text = (b: ArrayBuffer) => String.fromCharCode(...new Uint8Array(b));
+    for (const name of await storage.fs.readdir(value)) {
+      const stat = await storage.fs.stat(value + "/" + name);
+      out.push(name + (stat.isDirectory ? "/" + stat.size : "=" + text(await storage.fs.readFile(value + "/" + name))));
+    }
+    await storage.fs.writeFile(value + "/new.txt", new Uint8Array([104, 105]));
+    out.push("new=" + text(await storage.fs.readFile(value + "/new.txt")));
+    await storage.fs.rm(value + "/new.txt");
+    const steps: (() => Promise<unknown>)[] = [
+      () => storage.fs.readFile(value + "/absent"),
+      () => storage.fs.readFile(value + "/../escape"),
+      () => storage.fs.readFile(value + "/sub"),
+      () => storage.fs.readdir(value + "/a.txt"),
+      () => storage.fs.rm(value + "/sub"),
+      () => storage.fs.rm(value),
+      () => storage.fs.rename(value + "/a.txt", value + "/b.txt"),
+      () => storage.fs.readFile("doc:/999999/a.txt"),
+      () => storage.fs.readFile("app:/data/note"),
+    ];
+    for (const step of steps) {
+      try { await step(); out.push("ok"); } catch (e: any) { out.push(e.kind + " " + e.code); }
+    }
+    return {text: out.join(" ")};
+  }
+  // Ledger's shape (ledger F12): every answer queued on one chain, a listing
+  // that reads, and a save that refuses bad input before touching storage.
+  if (op === "count" || op === "invalid") {
+    const run = tail.then(async () => {
+      if (op === "invalid") return {text: "invalid"};
+      const db = await storage.sqlite.open("app:/data/notes.db");
+      try {
+        await db.execute("CREATE TABLE IF NOT EXISTS notes (body TEXT UNIQUE)");
+        const rows = await db.query("SELECT count(*) FROM notes");
+        return {text: value + ":" + String(rows.rows[0][0])};
+      } finally { await db.close(); }
+    });
+    tail = run.catch(() => {});
+    return run;
+  }
   if (op === "serial") {
     const run = tail.then(async () => {
       const db = await storage.sqlite.open("app:/data/notes.db");
@@ -49,15 +175,52 @@ async function answer(_source:string, args:unknown[], store:Store, storage:Stora
     const result = await fetch("https://example.test/status/" + value + "?minute=" + minute);
     return {text:await result.text()};
   }
-  if (op === "file") {
+  if (op === "ordered") {
+    const ordered = storage.fs.directories.data + "/ordered";
+    let before = "";
+    try { before = String.fromCharCode(...new Uint8Array(await storage.fs.readFile(ordered))); } catch (_) {}
+    await storage.fs.atomicWriteFile(ordered, new Uint8Array(Array.from(before + value).map(c => c.charCodeAt(0))));
+    store.set("session", value);
+    return {text: value};
+  }
+  if (op === "file" || op === "file-kept") {
     await storage.fs.atomicWriteFile(path, new Uint8Array(Array.from(value).map(c=>c.charCodeAt(0))));
     const bytes = new Uint8Array(await storage.fs.readFile(path));
+    if (op === "file-kept") store.set("session", value);
     return { text: String.fromCharCode(...bytes) };
   }
   if (op === "library") {
     try { return {text:String.fromCharCode(...new Uint8Array(await storage.fs.readFile(path)))}; }
     catch (_) { return {text:"empty"}; }
   }
+  // Refusals carry a stable code beside their message (kanban F28).
+  if (op === "codes") {
+    const data = storage.fs.directories.data, out: string[] = [];
+    const steps: (() => Promise<unknown>)[] = [
+      () => storage.fs.readFile(data + "/absent"),
+      () => storage.fs.writeFile("app:/cache/no", new Uint8Array([1])),
+      () => storage.fs.readdir(data + "/note"),
+      () => storage.fs.mkdir(data + "/full").then(() => storage.fs.writeFile(data + "/full/x", new Uint8Array([1]))).then(() => storage.fs.rm(data + "/full")),
+      () => storage.sqlite.open("app:/data/other.db"),
+    ];
+    for (const step of steps) {
+      try { await step(); out.push("ok"); } catch (e:any) { out.push(e.kind + " " + e.code + " " + e.message); }
+    }
+    return {text: out.join("\n")};
+  }
+  // A long read (files F18: a folder's preview walking its tree), one
+  // storage step after another in one answer.
+  if (op === "walk") {
+    let steps = 0;
+    for (let i = 0; i < 24; i++) { await storage.fs.readdir(storage.fs.directories.data); steps++; }
+    return {text: value + ":" + steps};
+  }
+  // An independent read, on no chain (minesweeper F10).
+  if (op === "peek") {
+    try { return {text: value + ":" + String.fromCharCode(...new Uint8Array(await storage.fs.readFile(storage.fs.directories.data + "/note")))}; }
+    catch (_) { return {text: value + ":empty"}; }
+  }
+  if (op === "read-at") return {text:String.fromCharCode(...new Uint8Array(await storage.fs.readFile(storage.fs.directories.data + "/" + value)))};
   if (op === "read") return {text:String.fromCharCode(...new Uint8Array(await storage.fs.readFile(path)))};
   if (op === "refused") {
     try { await storage.fs.writeFile("app:/cache/no", new Uint8Array([1])); }
@@ -66,7 +229,7 @@ async function answer(_source:string, args:unknown[], store:Store, storage:Stora
   }
   if (op === "bake") {
     try { await storage.fs.readFile(path); }
-    catch (e:any) { return {text:e.kind + ":" + e.message}; }
+    catch (e:any) { return {text:e.kind + ":" + e.code + ":" + e.message}; }
     return {text:"read at bake"};
   }
   if (op === "fetch") {

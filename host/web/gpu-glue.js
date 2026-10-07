@@ -27,6 +27,18 @@ const pendingRecords = [];
 let drainingRecords = false;
 let planCarries = new Map();
 const surfaces = new Map(); // view id -> surface, input listeners and journal cursor
+// postMessage(text, name): held per surface name (at most exact.postBound, glue.js's
+// POST_BOUND = Linux POST_BOUND = Apple Canvases.postBound) until a canvas of
+// that name is live, then delivered in order to the live one with the lowest view.
+const posts = new Map(); // surface name -> posted message events awaiting its canvas
+function deliverPosts(name) {
+  const queued = posts.get(name);
+  const entry = [...surfaces.values()].filter(e => e.name === name && e.id && !e.terminal && live(e.view) === e).sort((a, b) => a.view - b.view)[0];
+  if (!entry || !queued?.length) return;
+  posts.delete(name);
+  for (const json of queued) if (!gpu.gpu_input(entry.id, json)) console.error("exact gpu:", gpu.gpu_error());
+  messages(entry); schedule();
+}
 const inputStyle = document.createElement("style");
 inputStyle.textContent = "[data-gpu-input]:focus{outline:none}";
 document.head.append(inputStyle);
@@ -82,6 +94,12 @@ async function settled() {
   while ((recoveringDevice || recoveryTimer) && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, 0));
   if (recoveringDevice || recoveryTimer) return pendingRecovery();
   const pending = await delivery.settled(() => surfaces.values());
+  // Presentation keeps at least the 2.5 s it has when nothing is delivered,
+  // counted from the moment every asset is in: a world declaring hundreds of
+  // models (garden's 202) can spend the shared wait on delivery and leave its
+  // first frame's preparation none. A recovery that begins while presenting
+  // is waited for within the same budget.
+  const presented = Math.max(deadline, performance.now() + 2500);
   if (!pending.length) {
       // Agent operations return after presentation reaches the committed clock,
       // including a child-text update published by the rendered world.
@@ -89,7 +107,7 @@ async function settled() {
       // simulation time. Surface::preparing keeps gpu_dirty true until usable.
       if (exact.now) for (;;) {
         if (recoveringDevice || recoveryTimer) {
-          if (performance.now() >= deadline) {
+          if (performance.now() >= presented) {
             pending.push(...pendingRecovery());
             break;
           }
@@ -102,7 +120,7 @@ async function settled() {
         }
         flush();
         if (!drew) break;
-        if (performance.now() >= deadline) {
+        if (performance.now() >= presented) {
           for (const entry of surfaces.values()) if (entry.id && !entry.terminal && gpu.gpu_dirty(entry.id)) pending.push({name:`GPU presentation ${entry.name}`,canvas:entry.view});
           break;
         }
@@ -312,12 +330,22 @@ function flush(module = gpu) {
   if (module && (module !== gpu || !terminalDevice) && !module.gpu_flush()) console.error("exact gpu:", module.gpu_error());
 }
 
+// An HDR surface's headroom (LLP 1100 D12b). The web has no headroom query:
+// 4 is near BT.2408's 203 cd/m² white under a 1000 cd/m² peak, and the
+// browser clips at the panel's own.
+function headroom(el) {
+  const limit = getComputedStyle(el).getPropertyValue("dynamic-range-limit").trim();
+  if (limit === "standard" || !matchMedia("(dynamic-range: high)").matches) return 1;
+  return limit === "constrained" ? 2 : 4;
+}
+
 function render(entry, now) {
   if (entry.terminal || (hidden && !exact.now) || recoveringDevice || recoveryTimer) return;
   const { w, h, s } = size(entry.el);
   const pw = Math.max(1, Math.round(w * s)), ph = Math.max(1, Math.round(h * s));
   if (entry.el.width !== pw || entry.el.height !== ph) { entry.el.width = pw; entry.el.height = ph; }
   supplyChildren(entry);
+  if (entry.hdr) gpu.gpu_headroom(entry.id, headroom(entry.host ?? entry.el));
   const r = gpu.gpu_render(entry.id, w, h, s, clockFor(now));
   if (r < 2) {
     exact.drawCallback?.(frameRaw, clockFor(now), frameGeneration, entry.view);
@@ -345,6 +373,7 @@ function render(entry, now) {
 // lattice (pace.js): a world drawn at the raw timestamp judders by the
 // timestamp's own jitter. The agent's clock (exact.now) bypasses this in clockFor.
 const pace = pacer();
+let liveWindow = false; // `perf frames live` (frames.js liveFrames): the world draws on its own frames at the lent clock
 let frameAt = null; // the last paced frame time: a render outside the frame loop redraws at it, never ahead of it
 let sentPeriod = 0, frameGeneration = 0, frameRaw = 0;
 function frame(now) {
@@ -364,8 +393,9 @@ function frame(now) {
   flush();
   if (more) globalThis.exact.frames?.activity(); // a development page's sampler watches a canvas in motion (LLP 1079 D3)
   // Under the agent's clock a frame is asked for by `clock`, never by the
-  // last frame: a surface that wants more renders again when time moves.
-  if (more && !exact.now) schedule();
+  // last frame: a surface that wants more renders again when time moves —
+  // except in a live window (`perf frames live`), which runs this loop.
+  if (more && (!exact.now || liveWindow)) schedule();
 }
 
 function schedule() { if ((!hidden || exact.now) && raf === null) raf = requestAnimationFrame(frame); }
@@ -392,9 +422,11 @@ function attach(entry) {
   entry.observer = new ResizeObserver(() => { if (entry.id && !entry.terminal) { render(entry, frameAt ?? performance.now()); flush(); } });
   entry.observer.observe(entry.el);
   entry.wantsInput = gpu.gpu_wants_input(entry.id);
+  entry.hdr = gpu.gpu_high_dynamic_range?.(entry.id) === true;
   if (entry.wantsInput) listen(entry);
   reportRestore(entry);
   messages(entry); schedule();
+  deliverPosts(entry.name);
 }
 function restorePending(entry, module = gpu, carrier = exact) {
   if (carrier.worldCarry === undefined || entry.attemptedCarry === carrier.worldCarry) return;
@@ -509,6 +541,24 @@ function listen(entry) {
   mutations.observe(el, {subtree:true, childList:true, attributes:true, attributeFilter:["data-action"]});
   const fallsThrough = (event) => event.target === el || event.target === entry.el;
   const point = (event) => { const r = el.getBoundingClientRect(); return { x: event.clientX - r.left, y: event.clientY - r.top }; };
+  // A canvas marked data-pointer-lock="true" (mouse look) captures the mouse on a
+  // press. Locked, a pointer event's motion is the device's (movementX/Y), so the
+  // world's deltas never stop at the canvas or screen edge though the position
+  // stays put; unlocked it is the position's change, as on every other host. A
+  // down or up carries none.
+  const lockable = () => (el.dataset.pointerLock ?? entry.el.dataset?.pointerLock) === "true";
+  const last = new Map(); // each pointer's last point on the canvas
+  on("pointerleave", (event) => { if (document.pointerLockElement !== el) last.delete(event.pointerId); });
+  const pointerAt = (event, phase) => {
+    const p = point(event), from = last.get(event.pointerId);
+    if ((phase === "up" || phase === "cancel") && event.pointerType !== "mouse") last.delete(event.pointerId); else last.set(event.pointerId, p);
+    if (phase !== "move") return { ...p, dx: 0, dy: 0 };
+    if (document.pointerLockElement === el) return { ...p, dx: event.movementX || 0, dy: event.movementY || 0 };
+    return { ...p, dx: from ? p.x - from.x : 0, dy: from ? p.y - from.y : 0 };
+  };
+  // The secondary button and the middle button are the world's (MouseRight, MouseMiddle).
+  on("contextmenu", (event) => { if (fallsThrough(event)) event.preventDefault(); });
+  on("mousedown", (event) => { if (event.button === 1 && fallsThrough(event)) event.preventDefault(); });
   for (const phase of ["down", "move", "up", "cancel"]) on(`pointer${phase}`, (event) => {
     const wasControl = controls.has(event.pointerId);
     cancelRemoved();
@@ -527,7 +577,8 @@ function listen(entry) {
     }
     if (!fallsThrough(event)) return;
     if (phase === "down") { if (!editable(document.activeElement)) el.focus({ preventScroll: true }); try { el.setPointerCapture(event.pointerId); } catch {} }
-    send(event, { t: "pointer", phase, id: event.pointerId, ...point(event), kind: event.pointerType || "mouse", buttons: event.buttons });
+    if (phase === "down" && event.pointerType === "mouse" && lockable() && document.pointerLockElement !== el) Promise.resolve(el.requestPointerLock?.()).catch(() => {});
+    send(event, { t: "pointer", phase, id: event.pointerId, ...pointerAt(event, phase), kind: event.pointerType || "mouse", buttons: event.buttons });
   });
   on("lostpointercapture", event => {
     const button = controls.get(event.pointerId);
@@ -582,7 +633,13 @@ function listen(entry) {
   window.addEventListener("keyup", pressedUp, true);
   on("keydown", event => {
     const target = event.target instanceof Element ? event.target : null;
-    if (event.defaultPrevented || event.isComposing || event.code === "Tab" || event.metaKey || event.ctrlKey || editable(target)) return;
+    if (event.defaultPrevented || event.isComposing || event.code === "Tab" || editable(target)) return;
+    // The focused game's own canvas owns Ctrl/Meta chords (RTS control groups).
+    // An editor or ordinary HUD control keeps its browser shortcuts.
+    if (event.metaKey || event.ctrlKey) {
+      if (target !== el && target !== entry.el) return;
+      event.preventDefault();
+    }
     const button = control(target);
     if (button && ["Space", "Enter", "NumpadEnter"].includes(event.code)) {
       event.preventDefault();
@@ -692,6 +749,14 @@ const api = {
     if(!(bytes instanceof Uint8Array)||bytes.length>HOST_WORK_LIMIT)throw Object.assign(new Error(`surface ${name}: invalid or oversized restore`),{kind:2});
     if(!gpu.gpu_restore(id,bytes,0))throw Object.assign(new Error(`surface ${name}: ${gpu.gpu_error()}`),{kind:2});
     messages(entry);schedule();
+  },
+  // postMessage(id, text) from Contract: one input event, stamped at the call,
+  // delivered in order; held until the canvas's surface exists.
+  post(name, text, at) {
+    const queued = posts.get(name) ?? posts.set(name, []).get(name);
+    if (queued.length >= (exact.postBound ?? 64)) { console.warn(`exact: postMessage: dropped: ${exact.postBound ?? 64} posts already wait for surface "${name}"`); return; }
+    queued.push(JSON.stringify({ t: "message", text, at }));
+    deliverPosts(name);
   },
   wantsInput: (view) => live(view)?.wantsInput === true,
   answers: (request) => request.entity !== undefined || request.world === true || request.contact !== undefined,
@@ -869,6 +934,18 @@ const api = {
     }
   },
   layout() { for (const entry of surfaces.values()) if (entry.id && !entry.terminal) { supplyChildren(entry); placeChildren(entry); } schedule(); },
+  /// A live window opens (`perf frames live`, frames.js): each world leaves the seek for its own frame loop
+  /// at the page's lent clock, its perf rings emptied and armed; closed, the seek returns and each world's perf is the reply.
+  live(on) {
+    liveWindow = on; gpu?.gpu_seekable(!on);
+    const worlds = [];
+    for (const entry of surfaces.values()) if (entry.id && !entry.terminal) {
+      const perf = agent(entry.view, { op: "state", ...(on ? { perf_reset: true } : { perf: true }) })?.world?.perf;
+      if (!on && perf) worlds.push({ canvas: entry.view, perf });
+    }
+    schedule();
+    return worlds;
+  },
   /// Time moved (the agent's `clock`): render what wants a frame, once.
   schedule() { for (const entry of surfaces.values()) if (entry.id && !entry.terminal && entry.wants) { entry.wants = false; gpu.gpu_bind_at(entry.id, JSON.stringify(entry.values), exact.now?.()); } schedule(); },
 };
@@ -991,6 +1068,8 @@ try {
       try { api.surface(s.id, s.name, s.values); } catch (error) { report(error); }
     }
     exact.pendingSurfaces = [];
+    for (const p of exact.pendingPosts ?? []) if (p.generation === exact.generation) api.post(p.name, p.text, p.at);
+    exact.pendingPosts = [];
   }
   // A refused initial surface must not prevent independent canvases from loading.
   for (const entry of waiting) { try { ensure(entry); } catch (error) { report(error); } }

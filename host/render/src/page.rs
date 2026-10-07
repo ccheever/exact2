@@ -82,9 +82,10 @@ pub fn page(shell: &str, rendered: &Rendered) -> Result<String, String> {
         cut(&mut html, navigation, navigation, "")?;
         cut(&mut html, wasm, ">\n", "")?;
     }
-    let root = "<div id=\"exact-root\"></div>";
-    let document = format!("<div id=\"exact-root\">{}</div>", rendered.document.root);
-    cut(&mut html, root, root, &document)?;
+    let (open, close) =
+        shell_root(&html).ok_or("the shell has no `<div id=\"exact-root\"></div>`")?;
+    let document = format!("{}{}</div>", &html[open.clone()], rendered.document.root);
+    html.replace_range(open.start..close, &document);
     let glue = "<script type=\"module\" src=\"./glue.js\"></script>";
     let entry = if interaction {
         "<script type=\"module\" src=\"./document-glue.js\"></script>"
@@ -197,7 +198,10 @@ pub(crate) fn is_js(shell: &str) -> bool {
 struct Places {
     html: (usize, usize),
     title: (usize, usize),
+    /// The root's opening tag, and the end of its `</div>`.
     root: usize,
+    root_open: usize,
+    root_end: usize,
     entry: usize,
 }
 
@@ -211,15 +215,18 @@ fn places(shell: &str) -> Result<Places, String> {
         .ok_or_else(|| lacks("viewport"))?
         + title;
     let stop = shell[meta..].find(">\n").ok_or_else(|| lacks("viewport"))? + meta + 2;
-    let root = shell.find(ROOT).ok_or_else(|| lacks(ROOT))?;
+    let (root, root_end) =
+        shell_root(shell).ok_or_else(|| lacks("<div id=\"exact-root\"></div>"))?;
     let entry = shell.find(JS_ENTRY).ok_or_else(|| lacks(JS_ENTRY))?;
-    if !(end <= title && stop <= root && root + ROOT.len() <= entry) {
+    if !(end <= title && stop <= root.start && root_end <= entry) {
         return Err("the JavaScript shell's places are out of order".into());
     }
     Ok(Places {
         html: (open, end),
         title: (title, stop),
-        root,
+        root: root.start,
+        root_open: root.end,
+        root_end,
         entry,
     })
 }
@@ -352,7 +359,7 @@ pub(crate) fn body_open_js(
             out.push_str(&shell[start..stop]);
         }
     }
-    out.push_str("<div id=\"exact-root\">");
+    out.push_str(&shell[js.at.root..js.at.root_open]);
     out
 }
 
@@ -368,7 +375,7 @@ pub(crate) fn body_close_js(
     let at = &js.at;
     let mut out = String::with_capacity(shell.len() - at.root + checkpoint.len() + 256);
     out.push_str("</div>");
-    out.push_str(&shell[at.root + ROOT.len()..at.entry]);
+    out.push_str(&shell[at.root_end..at.entry]);
     let _ = std::fmt::Write::write_fmt(
         &mut out,
         format_args!(
@@ -415,8 +422,37 @@ fn without_fonts(head: &str) -> String {
     out
 }
 
-/// The document's element in the shell.
-const ROOT: &str = "<div id=\"exact-root\"></div>";
+/// The document's element in the shell, `<div id="exact-root"></div>`,
+/// with what the build writes on it (`data-audio-session`, LLP 1096 D7):
+/// its opening tag's range and where its `</div>` ends.
+fn shell_root(shell: &str) -> Option<(std::ops::Range<usize>, usize)> {
+    const OPEN: &str = "<div id=\"exact-root\"";
+    let at = shell.find(OPEN)?;
+    let rest = &shell[at + OPEN.len()..];
+    let attrs = match rest.strip_prefix(" data-audio-session=\"") {
+        Some(value) => {
+            let quote = value.find('"')?;
+            if !value[..quote]
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b == b'-')
+            {
+                return None;
+            }
+            " data-audio-session=\"".len() + quote + 1
+        }
+        None => 0,
+    };
+    let open = at + OPEN.len() + attrs;
+    shell[open..]
+        .starts_with("></div>")
+        .then(|| (at..open + 1, open + "></div>".len()))
+}
+
+/// The shell's root opening tag, attributes and all (`direct.rs` marks a
+/// boot document's copy).
+pub(crate) fn root_open(shell: &str) -> &str {
+    shell_root(shell).map_or("<div id=\"exact-root\">", |(open, _)| &shell[open])
+}
 
 /// The shell stylesheet's static classes (`host/web-js/build.mjs`: `.c<n>{…}`
 /// inside `#exact-root#exact-root{…}`): by their CSS text, and, for a class

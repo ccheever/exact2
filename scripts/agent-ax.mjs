@@ -5,7 +5,7 @@
 // adds the intent of the views it joined and the findings (D7, D8).
 // Observations only: Chrome's names and roles are kept as Chrome gives them.
 
-const ROLES_INTERACTIVE = new Set(['button', 'link', 'textbox', 'searchbox', 'checkbox', 'switch', 'slider', 'tab', 'menuitem', 'combobox', 'option']);
+const ROLES_INTERACTIVE = new Set(['button', 'link', 'textbox', 'searchbox', 'checkbox', 'radio', 'switch', 'slider', 'tab', 'menuitem', 'combobox', 'option']);
 const FIELD = 200, BYTES = 256 * 1024, DEPTH = 64, EXCLUDED = 8;
 
 /** A request's `limit`, validated (D7): an integer 1–2000, 500 when absent. */
@@ -107,8 +107,12 @@ function collectWeb(nodes, snapshot, limit) {
         }
       }
       const states = {};
-      for (const name of ['disabled', 'selected', 'expanded', 'focused', 'busy', 'modal']) { const v = prop(n, name); if (v != null) states[name] = v === true || v === 'true'; }
+      for (const name of ['disabled', 'selected', 'expanded', 'focused', 'busy', 'modal', 'required']) { const v = prop(n, name); if (v != null) states[name] = v === true || v === 'true'; }
+      // ARIA's word-valued states, kept as their words; `false` is their absence.
+      for (const [name, as] of [['invalid', 'invalid'], ['hasPopup', 'haspopup']]) { const v = prop(n, name); if (v != null && v !== 'false' && v !== false) states[as] = String(v); }
       const checked = prop(n, 'checked'); if (checked != null) states.checked = checked === 'mixed' ? 'mixed' : checked === true || checked === 'true';
+      // An aria-pressed toggle's state (Chrome's `pressed`), as `checked` is kept.
+      const pressed = prop(n, 'pressed'); if (pressed != null) states.pressed = pressed === 'mixed' ? 'mixed' : pressed === true || pressed === 'true';
       const level = prop(n, 'level'); if (level != null) states.level = Number(level);
       const el = d !== undefined && isElement(d) ? attrs(d) : {};
       const tag = d !== undefined ? str(doc.nodes.nodeName[d]) : null;
@@ -257,12 +261,18 @@ export function axRole(e, source) {
     const traits = Array.isArray(raw) ? raw : [];
     if (e.native?.class === 'UITextField' || e.native?.class === 'UITextView') return 'textbox';
     if (traits.includes('button') && (e.value === 'checked' || e.value === 'unchecked')) return 'checkbox';
+    // UIKit has no radio trait: the host's drawn radio says so by its class (x2apps survey #2).
+    if (e.native?.class === 'ExactRadio') return 'radio';
     if (traits.includes('link')) return 'link';
     if (traits.includes('header')) return 'heading';
-    if (traits.includes('button')) return 'button';
+    // An aria-pressed toggle: Chrome's is a `button` with a pressed state.
+    if (traits.includes('button') || traits.includes('toggleButton')) return 'button';
     return e.role;
   }
-  if (source === 'appkit') return { AXButton: 'button', AXLink: 'link', AXHeading: 'heading', AXTextField: 'textbox', AXTextArea: 'textbox', AXCheckBox: 'checkbox' }[raw] ?? e.role;
+  // An aria-pressed toggle is AXCheckBox/AXToggle on AppKit, a `button` on the web.
+  if (source === 'appkit' && raw === 'AXCheckBox' && e.native?.subrole === 'AXToggle') return 'button';
+  if (source === 'appkit' && raw === 'AXCheckBox' && e.native?.subrole === 'AXSwitch') return 'switch';
+  if (source === 'appkit') return { AXButton: 'button', AXLink: 'link', AXHeading: 'heading', AXTextField: 'textbox', AXTextArea: 'textbox', AXCheckBox: 'checkbox', AXRadioButton: 'radio', AXSlider: 'slider', AXPopUpButton: 'combobox' }[raw] ?? e.role;
   return e.role;
 }
 // The states each source can observe, and the roles a state applies to (D6).
@@ -272,7 +282,7 @@ export function axRole(e, source) {
 // accessibilityExpandedStatus); AppKit's accessor cannot tell false from
 // unsupported, so the AppKit walk reports it only when true (TRUE_ONLY).
 const CAN = { 'chrome-cdp': ['checked', 'level', 'disabled', 'expanded'], uikit: ['checked', 'disabled', 'expanded'], appkit: ['checked', 'level', 'disabled', 'expanded'] };
-const APPLIES = { checked: r => r === 'checkbox', level: r => r === 'heading', disabled: () => true, expanded: () => true };
+const APPLIES = { checked: r => r === 'checkbox' || r === 'radio' || r === 'switch', level: r => r === 'heading', disabled: () => true, expanded: () => true };
 const ABSENT_IS_FALSE = new Set(['disabled']);
 const TRUE_ONLY = { appkit: new Set(['expanded']) };
 const checkedOf = (e, source) => source === 'uikit' && (e.value === 'checked' || e.value === 'unchecked') ? e.value === 'checked' : e.states?.checked;
@@ -345,7 +355,7 @@ export function renderAx(r) {
     const st = Object.entries(e.states ?? {}).filter(([, v]) => v !== false).map(([k, v]) => v === true ? k : `${k}=${v}`);
     const join = e.id == null ? ` (${e.native?.class ?? 'platform'})` : ` #${e.id}${e.via === 'owner' ? '^' : e.via === 'ancestor' ? '~' : ''}${e.testId != null ? ` [${e.testId}]` : ''}`;
     const f = e.frame ? ` ${e.frame.x},${e.frame.y} ${e.frame.w}×${e.frame.h}` : '';
-    lines.push(`${'  '.repeat(Math.max(0, d))}${e.role} ${q(e.name ?? '')}${e.value != null ? ` value=${q(e.value)}` : ''}${st.length ? ` [${st.join(' ')}]` : ''}${join}${f}${e.excluded?.length ? ` (excluded: ${e.excluded.join(', ')})` : ''}`);
+    lines.push(`${'  '.repeat(Math.max(0, d))}${e.role} ${q(e.name ?? '')}${e.value != null ? ` value=${q(e.value)}` : ''}${e.description ? ` description=${q(e.description)}` : ''}${st.length ? ` [${st.join(' ')}]` : ''}${join}${f}${e.excluded?.length ? ` (excluded: ${e.excluded.join(', ')})` : ''}`);
   }
   const findings = ax.findings ?? [];
   if (findings.length) {

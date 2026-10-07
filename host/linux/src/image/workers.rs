@@ -1,16 +1,15 @@
 //! The process owns exactly two persistent PNG workers. Waiting work is source
 //! identity/metadata; encoded bytes and raster buffers never enter this queue.
 use super::{assets::ImageInput, png_decode, Assets, Bitmap};
+use crate::wake::Stream as UnixStream;
 use exact_raster::{
     DecodePermit, Gate, RasterSession, Refusal, ResidentBytes, COLD_ENTRIES, PENDING_JOBS,
     SUBSCRIPTIONS,
 };
 use std::collections::BTreeMap;
 use std::io::{Cursor, Read, Seek, Write};
-use std::os::{
-    fd::{AsRawFd, RawFd},
-    unix::net::UnixStream,
-};
+#[cfg(unix)]
+use std::os::fd::{AsRawFd, RawFd};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, Weak};
 use std::time::Duration;
 
@@ -27,6 +26,20 @@ pub(super) struct SourceOwner {
     name: String,
     assets: Weak<Assets>,
     prepared: Mutex<Prepared>,
+}
+impl SourceOwner {
+    /// The file it reads, when it is one (not an update's bytes).
+    pub(super) fn file(&self) -> Option<std::path::PathBuf> {
+        match self.assets.upgrade()?.image_input(&self.name)? {
+            ImageInput::Path(path) => Some(path),
+            ImageInput::Bytes(_) => None,
+        }
+    }
+
+    /// The asset name it was asked for.
+    pub(super) fn name(&self) -> &str {
+        &self.name
+    }
 }
 struct State {
     sources: BTreeMap<u64, Weak<SourceOwner>>,
@@ -93,6 +106,7 @@ impl Backend {
         assets: &Arc<Assets>,
     ) -> Result<Arc<SourceOwner>, Refusal> {
         let mut state = self.state.lock().unwrap();
+        let mut queued = false;
         state.sources.retain(|_, source| source.strong_count() > 0);
         // Keep upgraded owners until AFTER releasing the index lock: their
         // asset descriptor may have an arbitrary final destructor.
@@ -125,12 +139,17 @@ impl Backend {
             });
             state.next_source = next;
             state.sources.insert(source.id, Arc::downgrade(&source));
+            queued = true;
             Ok(source)
         } else {
             Err(Refusal::Overflow)
         };
         drop(state);
         drop(owners);
+        // A header to read: a worker reads it now, not at its backstop timeout.
+        if queued {
+            self.session.wake();
+        }
         result
     }
     fn owners(&self) -> Vec<Arc<SourceOwner>> {
@@ -174,6 +193,7 @@ impl Backend {
         self.forget(id);
         self.session.cancel(id);
     }
+    #[cfg(unix)]
     pub fn wake_fd(&self) -> RawFd {
         self.wake_read.lock().unwrap().as_raw_fd()
     }
@@ -252,7 +272,7 @@ impl Backend {
             // This charge precedes the decoder and output allocations. On an
             // error decode_rows destroys both before the permit can retire.
             let charge = permit.allocation_charge();
-            let pixels = png_decode::decode_rows(input, &plan, || permit.is_cancelled())?;
+            let pixels = super::jpeg_decode::decode_pixels(input, &plan, || permit.is_cancelled())?;
             let bitmap = Arc::new(Bitmap::from_source(
                 pixels,
                 plan.natural(),
@@ -270,7 +290,7 @@ impl Backend {
         });
         match result {
             Ok(bitmap) => {
-                let bytes = bitmap.as_ref().as_ref().len() as u64;
+                let bytes = bitmap.bytes();
                 let _ = permit.complete(
                     bitmap,
                     ResidentBytes {
@@ -306,12 +326,7 @@ fn open(source: &SourceOwner) -> Result<(Box<dyn Input>, u64), Refusal> {
             Ok((Box::new(Cursor::new(bytes)), len))
         }
         ImageInput::Path(path) => {
-            use std::os::unix::fs::OpenOptionsExt;
-            let file = std::fs::OpenOptions::new()
-                .read(true)
-                .custom_flags(libc::O_NONBLOCK)
-                .open(path)
-                .map_err(|_| Refusal::DecodeFailed)?;
+            let file = crate::file::open_regular(&path).map_err(|_| Refusal::DecodeFailed)?;
             let metadata = file.metadata().map_err(|_| Refusal::DecodeFailed)?;
             if !metadata.is_file() {
                 return Err(Refusal::DecodeFailed);
@@ -342,7 +357,11 @@ impl Workers {
                 let owner = workers.clone();
                 std::thread::Builder::new()
                     .name(format!("exact-png-{n}"))
-                    .spawn(move || owner.run())
+                    .spawn(move || {
+                        #[cfg(target_os = "android")]
+                        crate::android::background_priority();
+                        owner.run()
+                    })
                     .expect("PNG worker");
             }
             workers
@@ -399,7 +418,12 @@ impl Workers {
         }
         drop(backends);
         before_wait();
-        if let Some(permit) = self.gate.wait_decode(Duration::from_millis(20)) {
+        // Requests, cancels, freed budget and sources to read all wake a
+        // worker, which takes the next turn at once (a header to read is no
+        // decode: waiting on for one held every first picture to the
+        // timeout); the timeout is only a backstop, so it is long enough not
+        // to be a poll.
+        if let Some(permit) = self.gate.wait_work(Duration::from_millis(200)) {
             *metadata_turn = true;
             self.complete(permit);
         }

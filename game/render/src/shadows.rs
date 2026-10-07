@@ -101,17 +101,13 @@ pub(crate) struct ShadowMaps {
     pub count: u32,
     pub layers: Vec<wgpu::TextureView>,
     pub cameras: Vec<wgpu::BindGroup>,
-    pub sample: wgpu::BindGroup,
+    /// Every cascade, sampled in group 1 (`Renderer::shadow_sample`).
+    pub view: wgpu::TextureView,
     uniform: wgpu::Buffer,
 }
 
 impl ShadowMaps {
-    pub fn new(
-        device: &wgpu::Device,
-        count: u32,
-        sample_layout: &wgpu::BindGroupLayout,
-        camera_layout: &wgpu::BindGroupLayout,
-    ) -> Self {
+    pub fn new(device: &wgpu::Device, count: u32, camera_layout: &wgpu::BindGroupLayout) -> Self {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("game sun cascades"),
             size: wgpu::Extent3d {
@@ -129,27 +125,6 @@ impl ShadowMaps {
         let view = texture.create_view(&wgpu::TextureViewDescriptor {
             dimension: Some(wgpu::TextureViewDimension::D2Array),
             ..Default::default()
-        });
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("game shadow comparison"),
-            compare: Some(wgpu::CompareFunction::LessEqual),
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
-        let sample = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("game sun sample"),
-            layout: sample_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-            ],
         });
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("game cascade cameras"),
@@ -187,7 +162,7 @@ impl ShadowMaps {
             count,
             layers,
             cameras,
-            sample,
+            view,
             uniform,
         }
     }

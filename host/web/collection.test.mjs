@@ -48,16 +48,19 @@ function setup() {
     globalThis.f?.controller?.dispose();
     globalThis.f?.motion?.reset();
     const root = document.getElementById('root');
-    root.innerHTML = `<div id="port" style="height:180px;width:320px;overflow:auto;border:3px solid;padding:0"><div style="height:50px"></div><div data-view="1" style="padding:10px 12px;overflow-anchor:auto"><div data-view="2" style="height:40px;display:flow-root"><input data-view="3"></div><div data-view="4" style="height:60px;display:flow-root"><button data-view="5">row</button></div><div style="height:1800px"></div></div></div>`;
+    const { own, ...rest } = options;
+    // `own`: the list is its own scrollport (an authored jump takes the collection path).
+    root.innerHTML = own ? `<div id="port" data-view="1" style="height:180px;width:320px;overflow:auto;padding:10px 12px;overflow-anchor:auto"><div data-view="2" style="height:40px;display:flow-root"><input data-view="3"></div><div data-view="4" style="height:60px;display:flow-root"><button data-view="5">row</button></div><div style="height:1800px"></div></div>`
+      : `<div id="port" style="height:180px;width:320px;overflow:auto;border:3px solid;padding:0"><div style="height:50px"></div><div data-view="1" style="padding:10px 12px;overflow-anchor:auto"><div data-view="2" style="height:40px;display:flow-root"><input data-view="3"></div><div data-view="4" style="height:60px;display:flow-root"><button data-view="5">row</button></div><div style="height:1800px"></div></div></div>`;
     const views = new Map([...root.querySelectorAll('[data-view]')].map(el => [+el.dataset.view, el]));
     const frames = new Map(), reports = [], wires = [];
     let serial = 0;
     const controller = createController({ root, views, report(bytes) {
       const d = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-      const read = { view: d.getUint32(4, true), revision: String(d.getBigUint64(8, true)), sequence: String(d.getBigUint64(16, true)), top: d.getFloat64(24, true), width: d.getFloat64(40, true), height: d.getFloat64(32, true), rowWidth: d.getFloat64(48, true), focus: d.getUint32(56, true), interaction: d.getUint32(60, true), rows: [] };
+      const read = { view: d.getUint32(4, true), revision: String(d.getBigUint64(8, true)), sequence: String(d.getBigUint64(16, true)), top: d.getFloat64(24, true), width: d.getFloat64(40, true), height: d.getFloat64(32, true), rowWidth: d.getFloat64(48, true), focus: d.getUint32(56, true), interaction: d.getUint32(60, true), velocity: d.getFloat64(64, true), rows: [] };
       for (let n = 0; n < d.getUint32(80, true); n++) read.rows.push({ view: d.getUint32(84 + n * 20, true), epoch: String(d.getBigUint64(88 + n * 20, true)), size: d.getFloat64(96 + n * 20, true) });
       wires.push(Array.from(bytes)); reports.push(read); return globalThis.f.onReport?.(read);
-    }, requestFrame(fn) { frames.set(++serial, fn); return serial; }, cancelFrame(id) { frames.delete(id); }, ...options });
+    }, requestFrame(fn) { frames.set(++serial, fn); return serial; }, cancelFrame(id) { frames.delete(id); }, ...rest });
     const snapshot = (revision = '1', extra = {}) => ({ view: 1, revision, scrollSequence: '0', totalExtent: 1900, count: 100, rows: [{ view: 2, root: 3, index: 0, start: 0, size: 40, epoch: '9007199254740993' }, { view: 4, root: 5, index: 99, start: 1840, size: 60, epoch: '2' }], correction: null, ...extra });
     const flush = () => { const pending = [...frames.values()]; frames.clear(); for (const fn of pending) fn(); };
     globalThis.f = { root, views, controller, snapshot, reports, wires, frames, flush, port: document.getElementById('port') };
@@ -277,6 +280,17 @@ test('collection read reuse: eligible nested correction alone reads geometry, la
   expect(result.repeated).toEqual({top:200,reads:[1,1,0,0]});
   expect(result.newer).toEqual({top:260,reads:[1,1,0,0]});
 });
+// Review B5: an absolute correction planned before the port resized in the same commit still lands (Apple's
+// and Linux's rule): the composer shrinks back after a send while the list follows its end.
+test('an absolute correction lands in the commit that resizes its port', async () => {
+  const result=await evaluate(`(() => {const f=fixture();
+    f.controller.commit([f.snapshot()]);f.port.scrollTop=160;f.port.dispatchEvent(new Event('scroll'));f.flush();
+    const seq=f.reports.at(-1).sequence;
+    f.port.style.height='150px';
+    f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:140}})]);
+    return {top:f.port.scrollTop};})()`);
+  expect(result).toEqual({top:200});
+});
 test('an anchor correction (from) moves the port by its shift after a later user scroll, once', async () => {
   const result=await evaluate(`(() => {const f=fixture();
     f.controller.commit([f.snapshot()]);f.port.scrollTop=160;f.port.dispatchEvent(new Event('scroll'));f.flush();
@@ -288,6 +302,119 @@ test('an anchor correction (from) moves the port by its shift after a later user
     f.controller.commit([f.snapshot('4',{correction:{...c,offset:102}})]);
     return {shifted,again,grown:f.port.scrollTop};})()`);
   expect(result).toEqual({shifted:232,again:232,grown:222});
+});
+test('under scroll-behavior: smooth an anchor correction still lands before the frame paints', async () => {
+  const result=await evaluate(`(() => {const f=fixture();f.port.style.scrollBehavior='smooth';
+    f.controller.commit([f.snapshot()]);f.port.scrollTo({top:160,behavior:'instant'});f.port.dispatchEvent(new Event('scroll'));f.flush();
+    const seq=f.reports.at(-1).sequence;
+    f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:112,from:140}})]);
+    return f.port.scrollTop;})()`);
+  expect(result).toBe(132);
+});
+test('a smooth correction animates and reports where it is headed until it lands (LLP 1070.000 §6.2)', async () => {
+  const result=await evaluate(`(async () => {const f=fixture();
+    f.controller.commit([f.snapshot()]);f.flush();
+    const seq=f.reports.at(-1).sequence;
+    f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:800,smooth:true}})]);
+    const started=f.port.scrollTop;
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+    f.port.dispatchEvent(new Event('scroll'));f.flush();
+    const midway=f.port.scrollTop,report=f.reports.at(-1);
+    await new Promise(r=>{const t=setTimeout(r,3000);f.port.addEventListener('scrollend',()=>{clearTimeout(t);r();},{once:true});});
+    return {started,midway,headed:report.top,sequence:report.sequence===seq,landed:f.port.scrollTop};})()`);
+  expect(result.started).toBeLessThan(860);
+  expect(result.headed).toBe(800);
+  expect(result.sequence).toBe(true);
+  expect(result.landed).toBe(860); // the list starts 60 px into its port
+});
+test('a smooth correction that arrives mid-flight is held, reported, and taken where it lands', async () => {
+  const result=await evaluate(`(async () => {const f=fixture();
+    const frames=n=>new Promise(r=>{const step=k=>k?requestAnimationFrame(()=>step(k-1)):r();step(n);});
+    const ended=()=>new Promise(r=>{const t=setTimeout(r,3000);f.port.addEventListener('scrollend',()=>{clearTimeout(t);r();},{once:true});});
+    f.controller.commit([f.snapshot()]);f.flush();
+    const seq=f.reports.at(-1).sequence;
+    f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:800,smooth:true}})]);
+    await frames(3);f.port.dispatchEvent(new Event('scroll'));f.flush();
+    const mid=f.port.scrollTop;
+    f.controller.commit([f.snapshot('3',{correction:{scrollSequence:seq,offset:900,smooth:true}})]);
+    f.port.dispatchEvent(new Event('scroll'));f.flush();
+    const report=f.reports.at(-1);
+    await ended();await frames(3);f.port.dispatchEvent(new Event('scroll'));f.flush();
+    const secondLeg=f.reports.at(-1);
+    await ended();f.port.dispatchEvent(new Event('scroll'));f.flush();
+    return {mid,headed:report.top,velocity:report.velocity,landed:f.port.scrollTop,sequence:f.reports.at(-1).sequence===seq,
+      secondLeg:{top:secondLeg.top,velocity:secondLeg.velocity,sequence:secondLeg.sequence===seq}};})()`);
+  expect(result.mid).toBeLessThan(860);
+  expect(result.headed).toBe(900);
+  expect(result.velocity).toBe(0);
+  expect(result.landed).toBe(960);
+  expect(result.sequence).toBe(true);
+  expect(result.secondLeg).toEqual({top:900,velocity:0,sequence:true}); // the held leg reports its destination too
+});
+test('an ordinary correction or a zero-length request ends a smooth one', async () => {
+  const result=await evaluate(`(async () => {const f=fixture();
+    const frames=n=>new Promise(r=>{const step=k=>k?requestAnimationFrame(()=>step(k-1)):r();step(n);});
+    f.controller.commit([f.snapshot()]);f.flush();
+    let seq=f.reports.at(-1).sequence;
+    f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:800,smooth:true}})]);
+    await frames(2);
+    f.controller.commit([f.snapshot('3',{correction:{scrollSequence:seq,offset:300}})]);
+    const instant=f.port.scrollTop;await frames(4);const stayed=f.port.scrollTop;
+    f.port.dispatchEvent(new Event('scroll'));f.flush();
+    seq=f.reports.at(-1).sequence;
+    f.controller.commit([f.snapshot('4',{correction:{scrollSequence:seq,offset:300,smooth:true}})]);
+    f.port.scrollTo({top:100,behavior:'instant'});f.port.dispatchEvent(new Event('scroll'));f.flush();
+    return {instant,stayed,afterZero:f.reports.at(-1).top};})()`);
+  expect(result.instant).toBe(360);
+  expect(result.stayed).toBe(360);
+  expect(result.afterZero).toBe(40); // the reader's scroll, reported where it is
+});
+test('an authored jump on a list that is its own scrollport ends a smooth correction', async () => {
+  const result=await evaluate(`(async () => {const f=fixture({own:true});
+    const frames=n=>new Promise(r=>{const step=k=>k?requestAnimationFrame(()=>step(k-1)):r();step(n);});
+    f.controller.commit([f.snapshot()]);f.flush();
+    const seq=f.reports.at(-1).sequence;
+    f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:1200,smooth:true}})]);
+    await frames(2);const moving=f.port.scrollTop;
+    f.controller.jump(1,400);await frames(2);f.flush();const jumped=f.port.scrollTop;
+    await frames(30);f.port.dispatchEvent(new Event('scroll'));f.flush();
+    return {moving,jumped,stayed:f.port.scrollTop,reported:f.reports.at(-1).top};})()`);
+  expect(result.moving).toBeLessThan(1200);
+  expect(result.jumped).toBe(400);
+  expect(result.stayed).toBe(400);
+  expect(result.reported).toBe(390); // the port, not the abandoned target (the list's padding is 10)
+});
+test('a mid-flight report after a flick carries no velocity', async () => {
+  const result=await evaluate(`(async () => {const f=fixture();
+    const frames=n=>new Promise(r=>{const step=k=>k?requestAnimationFrame(()=>step(k-1)):r();step(n);});
+    f.controller.commit([f.snapshot()]);f.flush();
+    for (const top of [40,90,140]) { f.port.scrollTo({top,behavior:'instant'});f.port.dispatchEvent(new Event('scroll'));await frames(1); }
+    f.flush();const flick=f.reports.at(-1).velocity;
+    const seq=f.reports.at(-1).sequence;
+    f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:800,smooth:true}})]);
+    f.controller.commit([f.snapshot('3',{correction:{scrollSequence:seq,offset:800,smooth:true}})]);
+    f.flush();return {flick,midflight:f.reports.at(-1).velocity};})()`);
+  expect(result.flick).not.toBe(0);
+  expect(result.midflight).toBe(0);
+});
+test('a scrollend before a smooth correction moves lands nothing; one after it moved and stopped short lands it', async () => {
+  const result=await evaluate(`(async () => {const f=fixture();
+    const frames=n=>new Promise(r=>{const step=k=>k?requestAnimationFrame(()=>step(k-1)):r();step(n);});
+    f.controller.commit([f.snapshot()]);f.flush();
+    const seq=f.reports.at(-1).sequence;
+    f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:800,smooth:true}})]);
+    f.port.dispatchEvent(new Event('scrollend'));f.flush();
+    const stale=f.reports.at(-1).top;
+    await frames(3);f.port.dispatchEvent(new Event('scroll'));
+    f.port.scrollTo({top:500,behavior:'instant'});f.port.dispatchEvent(new Event('scroll'));
+    f.port.dispatchEvent(new Event('scrollend'));f.flush();
+    const short=f.reports.at(-1).top;
+    f.controller.commit([f.snapshot('3',{correction:{scrollSequence:f.reports.at(-1).sequence,offset:900,smooth:true}})]);
+    for (let i=0;i<180&&f.port.scrollTop!==960;i++) await frames(1);
+    return {stale,short,landed:f.port.scrollTop};})()`);
+  expect(result.stale).toBe(800);
+  expect(result.short).toBe(440);
+  expect(result.landed).toBe(960);
 });
 test('collection read reuse: synchronous report replacement samples new nodes and epochs next pass', async () => {
   const result=await evaluate(`(() => {const f=fixture(),widths=[];let replaced=false;
@@ -423,6 +550,17 @@ test('the browser clamping a port to a shorter extent is not a scroll: the paint
     return {max,clamped,before,after:f.seen.at(-1)}; })()`);
   expect(result.clamped).toBe(result.max - 100);
   expect(result.after).toEqual({ ...result.before, reported: result.max, shown: result.max - 100 });
+});
+test('an anchor correction after the extent shrank under the port moves from where the reader was, not the clamp', async () => {
+  // A bounded window shifting forward (LLP 1027.004): the rows that leave
+  // above shrink the extent below the offset before the correction lands.
+  const result = await evaluate(`(() => { const f=(${jumpFixture})(); const tail=f.list.lastElementChild;
+    f.list.scrollTop=4000; f.list.dispatchEvent(new Event('scroll')); f.frames.splice(0).forEach(fn=>fn());
+    const seq=f.seen.at(-1).sequence; tail.style.height='2000px'; const clamped=f.list.scrollTop;
+    f.controller.commit([f.snapshot('2',{scrollSequence:seq,totalExtent:2100,correction:{scrollSequence:seq,offset:1000,from:4000}})]);
+    return {clamped,max:f.list.scrollHeight-f.list.clientHeight,top:f.list.scrollTop}; })()`);
+  expect(result.clamped).toBe(result.max);
+  expect(result.top).toBe(1000);
 });
 test('a scrollIntoView correction applies across the browser\'s own moves until the reader\'s input', async () => {
   const result = await evaluate(`(() => { const f=(${jumpFixture})();
@@ -1170,6 +1308,16 @@ test('Arrange pointer-up during unaccepted geometry cancels once without losing 
   const r=await evaluate(`(async()=>{f.controller.reorderMapping=f.savedMapping;for(const el of [f.source,f.views.get(2)])for(const a of el.getAnimations())a.finish();await new Promise(r=>setTimeout(r,0));f.flush();return {cancel:f.calls.filter(r=>r.op==='reorder-cancel').length,drop:f.calls.filter(r=>r.op==='reorder-terminal').length,rebase:f.calls.filter(r=>r.op==='reorder-rebase').length,finish:f.finished??0,pin:f.reports.at(-1).interaction};})()`);
   await evaluate('f.arrange.reset()');
   expect(r).toEqual({cancel:1,drop:0,rebase:1,finish:1,pin:0});
+});
+// habits F10: a touch is implicitly captured by the grip's child it lands on; taking capture to the grip bubbles that child's loss.
+test('Arrange touch on a grip\'s child drops once: the child\'s lost capture is not the release',async()=>{
+  const at=await evaluate(`(()=>{const f=(${arrangeFixture})(),g=document.createElement('div'),c=document.createElement('span');g.dataset.view='5';c.textContent='row';g.append(c);f.grip.replaceWith(g);f.views.set(5,f.grip=g);f.arrange.binding(f.binding);const r=c.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+  await protocol('Emulation.setTouchEmulationEnabled',{enabled:true,maxTouchPoints:1});
+  for(const [type,dy] of [['touchStart',0],['touchMove',-10],['touchMove',-30]])await protocol('Input.dispatchTouchEvent',{type,touchPoints:[{x:at.x,y:at.y+dy}]});
+  await protocol('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+  const r=await evaluate(`(()=>{f.flush();return {drop:f.calls.filter(r=>r.op==='reorder-terminal').length,cancel:f.calls.filter(r=>r.op==='reorder-cancel').length};})()`);
+  await protocol('Emulation.setTouchEmulationEnabled',{enabled:false});await evaluate('f.arrange.reset()');
+  expect(r).toEqual({drop:1,cancel:0});
 });
 test('Arrange destruction retires its binding listener and touch policy without waiting for reset',async()=>{
   const r=await evaluate(`(()=>{const f=(${arrangeFixture})();f.arrange.reset();f.grip.style.touchAction='pan-y';f.arrange.binding(f.binding);

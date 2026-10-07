@@ -56,6 +56,8 @@ final class Adapter: ExactSessionDelegate {
                 return
             }
             UIApplication.shared.open(url)
+        // A scene is the system's to close; an app cannot (studio diary R17).
+        case "close": session.log("close: unsupported: iOS closes a scene, an app does not")
         default: FileHandle.standardError.write(Data("exact: unknown command \(name)\n".utf8))
         }
     }
@@ -124,6 +126,16 @@ func agentReady() {
 let launchColor = UIColor(named: "ExactLaunch") ?? .white
 
 final class Controller: UIViewController {
+    #if os(tvOS)
+    // The session's view decides where focus returns (`ExactView`).
+    override var preferredFocusEnvironments: [any UIFocusEnvironment] { [exactView] }
+    #endif
+    // tvOS has no pointer lock, nor a status bar.
+    #if !os(tvOS)
+    override var prefersPointerLocked: Bool { ExactPointerLock.preferred }
+    /// The style the app declared (LLP 1105 D6); `onStatusBarStyle` says when.
+    override var preferredStatusBarStyle: UIStatusBarStyle { exactView.statusBarStyle }
+    #endif
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = launchColor
@@ -168,11 +180,20 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
                    UIKeyCommand(input: "\t", modifierFlags: .shift, action: #selector(focusLast))]
         tab.forEach { $0.wantsPriorityOverSystemBehavior = true }
         guard DevMenu.enabled else { return tab }
+        #if os(tvOS)
+        // tvOS key commands carry no title.
+        return tab + [
+            UIKeyCommand(input: "d", modifierFlags: .command, action: #selector(devMenu)),
+            UIKeyCommand(input: "r", modifierFlags: .command, action: #selector(devReload)),
+            UIKeyCommand(input: "r", modifierFlags: [.command, .shift], action: #selector(devReload)),
+        ]
+        #else
         return tab + [
             UIKeyCommand(title: "Exact Menu", action: #selector(devMenu), input: "d", modifierFlags: .command),
             UIKeyCommand(title: "Reload", action: #selector(devReload), input: "r", modifierFlags: .command),
             UIKeyCommand(title: "Reload", action: #selector(devReload), input: "r", modifierFlags: [.command, .shift]),
         ]
+        #endif
     }
     @objc func focusFirst() { session.moveFocus(backward: false) }
     @objc func focusLast() { session.moveFocus(backward: true) }
@@ -217,6 +238,9 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         }
         let c = Controller()
         w.rootViewController = c
+        #if !os(tvOS)
+        exactView.onStatusBarStyle = { [weak c] _ in c?.setNeedsStatusBarAppearanceUpdate() }
+        #endif
         window = w
         DevMenu.install(on: w, session: ExactIOS.session, controller: c, planPath: devPlanPath ?? environment["EXACT_PLAN"])
         w.makeKeyAndVisible()
@@ -240,6 +264,13 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     func sceneDidBecomeActive(_ scene: UIScene) {
         ExactIOS.session.becameActive()
     }
+    /// Leaving with storage still landing that an answer started: a
+    /// background task holds the app until it lands, or the system's time
+    /// runs out (LLP 1097 D10).
+    func sceneDidEnterBackground(_ scene: UIScene) {
+        storageHold = StorageHold.backgroundTask { ExactIOS.session.storageOperations > 0 }
+    }
+    var storageHold: StorageHold?
 }
 
 ExactEnv.stamp("main")

@@ -66,12 +66,15 @@ fn scene_frame(p: &Presenter<NoData>, dark: bool, backend: Box<dyn Backend>) -> 
         roots: &kernel.roots(),
         hidden: &|_| false,
         presented: &|_| Presented::IDENTITY,
+        paths: &|_| None,
         scroll: &BTreeMap::new(),
         page: (0.0, 0.0),
         images: &BTreeMap::new(),
         focus: None,
+        selection: None,
         pointer: None,
         controls: &BTreeMap::new(),
+        chosen: &BTreeMap::new(),
         menu: None,
     };
     let mut painter = Painter::new(p.text().clone(), 1.0, backend);
@@ -122,8 +125,8 @@ fn styled_paragraph_metrics_and_cpu_gpu_glyph_batches_agree() {
         assert_eq!(spec.runs[1].size, 18.0);
         let mut light = Vec::new();
         let mut dark = Vec::new();
-        text_palette(kernel, &node, false, &mut light);
-        text_palette(kernel, &node, true, &mut dark);
+        text_palette(kernel, &node, false, None, &mut light);
+        text_palette(kernel, &node, true, None, &mut dark);
         assert_eq!(light.len(), canonical.len());
         assert_eq!(dark.len(), canonical.len());
         let leaf = kernel.node(light[1].source).unwrap();
@@ -241,12 +244,15 @@ fn styled_paragraph_pixels_on_real_gpu_when_available() {
         roots: &kernel.roots(),
         hidden: &|_| false,
         presented: &|_| Presented::IDENTITY,
+        paths: &|_| None,
         scroll: &BTreeMap::new(),
         page: (0.0, 0.0),
         images: &BTreeMap::new(),
         focus: None,
+        selection: None,
         pointer: None,
         controls: &BTreeMap::new(),
+        chosen: &BTreeMap::new(),
         menu: None,
     };
     for (dark, colors) in [
@@ -284,4 +290,99 @@ fn styled_paragraph_pixels_on_real_gpu_when_available() {
             }
         }
     }
+}
+
+#[test]
+fn css_strike_through_changes_pixels_without_changing_layout() {
+    let mut plain = fixture("      text \"MMMM WWWW\" testId=\"line\" font-size=24\n");
+    let mut strike = fixture(
+        "      text \"MMMM WWWW\" testId=\"line\" font-size=24 text-decoration=\"line-through\"\n",
+    );
+    let frame = |p: &Presenter<NoData>| {
+        p.host()
+            .kernel()
+            .node_by_key(p.host().kernel().find_by_test_id("line")[0])
+            .unwrap()
+            .frame
+    };
+    assert_eq!(frame(&plain), frame(&strike));
+    let before = plain.frame();
+    let after = strike.frame();
+    assert_ne!(
+        before.data(),
+        after.data(),
+        "the decoration must actually paint"
+    );
+}
+
+#[test]
+fn html_maxlength_is_enforced_by_linux_typing() {
+    let plan = contract::compile("component App\n  state draft = \"\"\n  action edit(value: string)\n    draft = value\n  view\n    input value=draft input=edit maxlength=3 testId=\"limited\"\n").unwrap();
+    let (mut p, error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none());
+    let key = p.host().kernel().find_by_test_id("limited")[0];
+    let id = p.host().kernel().node_by_key(key).unwrap().id;
+    p.type_text(id, "a😀b").unwrap();
+    assert_eq!(
+        p.host().kernel().node(id).unwrap().props.str(PropId::Value),
+        Some("a😀")
+    );
+}
+
+#[test]
+fn paint_ranks_survive_repaints_and_scroll_until_a_kernel_commit() {
+    let mut p = fixture("      box height=900 testId=\"row\"\n");
+    p.frame();
+    let passes = p.brush.rank_passes;
+    let epoch = p.host().kernel().epoch();
+    p.frame();
+    p.wheel_at(40., 40., 0., 80.);
+    p.frame();
+    assert_eq!(p.host().kernel().epoch(), epoch);
+    assert_eq!(
+        p.brush.rank_passes, passes,
+        "repaint and scroll reuse the ranks"
+    );
+    let id = p.host().kernel().find_by_test_id("row")[0];
+    let id = p.host().kernel().node_by_key(id).unwrap().id;
+    let mut style = exact_kernel::StyleProps {
+        opacity: 0.5,
+        ..Default::default()
+    };
+    style.mask.set(exact_kernel::StyleId::Opacity);
+    p.host
+        .runner_mut()
+        .kernel_mut()
+        .apply(
+            0,
+            epoch + 1,
+            &[exact_kernel::Op::SetStyle {
+                id,
+                patch: Box::new(style),
+            }],
+        )
+        .unwrap();
+    p.frame();
+    assert_eq!(
+        p.brush.rank_passes,
+        passes + 1,
+        "a style commit recomputes ranks"
+    );
+    assert_eq!(p.brush.ranks[&id], 1);
+    let plan = contract::compile("component App\n  view\n    box width=100 height=100\n").unwrap();
+    p.reload(&plan.encode(), NoData).unwrap();
+    p.frame();
+    assert_eq!(
+        p.brush.rank_passes,
+        passes + 2,
+        "replacement kernels invalidate ranks"
+    );
 }

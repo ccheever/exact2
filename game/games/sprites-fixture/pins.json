@@ -1,16 +1,16 @@
 {
   "ticks": {
-    "300": "0x4a25336e5266aa60"
+    "300": "0x04bd5b984fb15ee6"
   },
   "saves": {
-    "continuation": "2049c98103f6950fbd0fccfd9340c14e605982bfb074833cd37c5dc71cb98d4b"
+    "continuation": "81af51c431c2fd9b0d27f1b9dfd76e49dda6aab431f405ba791fe31a8206320c"
   },
   "hosts": [
     "linux",
     "web"
   ],
+  "inputs": "bbea76faf0acf15ed30b329373387a042ecd54b6d3a9403484b110461f4147dc",
   "game": "sprites-fixture",
-  "generated": "bun game/prove.mjs sprites-fixture --repin --hosts linux,web",
-  "at": "64b5af14d0b08d4f35be20a08502e4834ad5f133",
-  "reason": "D6 saved Parallax component replaces tick name lookup"
+  "generated": "bun game/prove.mjs sprites-fixture --repin --hosts 'linux,web'",
+  "at": "2c19c834853f9a169c70704b58f0ed255a8d7daa"
 }

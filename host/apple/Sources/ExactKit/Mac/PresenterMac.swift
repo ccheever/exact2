@@ -28,8 +28,15 @@ final class Presenter {
     private(set) var chrome = ChromeIndex()
     /// Views leaving with their exit, by id (LLP 1063, `PresenceMac.swift`).
     var leaving: [UInt32: Leaving] = [:]
+    /// Shared elements in flight, by the arriver's id (LLP 1013.000, `FlightsMac.swift`).
+    var flights: [UInt32: Flight] = [:]
     /// A view's props were written (`NodeView.props`' own observer).
-    func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props) }
+    func propsChanged(_ view: NodeView) {
+        chrome.note(view.id, props: view.props)
+        if view.fieldFocused, view.disabled || view.props["fieldStyle"] == nil { view.fieldFocused = false }
+        // HTML's `title`: the platform's tooltip (studio diary R24).
+        if view.toolTip != view.props["title"] { view.toolTip = view.props["title"] }
+    }
     /// Views carrying an indexed prop, in id order (the passes' old order was
     /// a dictionary's, which is none).
     func carrying(_ key: String) -> [NodeView] {
@@ -52,6 +59,7 @@ final class Presenter {
     lazy var transformGeometry = TransformGeometryHost(self)
     var videoVisibility: VideoVisibilityHost?
     lazy var collections = CollectionHost(self)
+    lazy var stickies = StickyHost(self)
     /// Heavy leaves held while their rows are far or flying (LLP 1068 §5.1).
     lazy var leaves = HeavyLeaves(self)
     lazy var selection = TextSelection(self)
@@ -65,6 +73,9 @@ final class Presenter {
     /// The one Arrange contact, until its source settles; a test's calls.
     var reorder: ReorderHold?
     var reorderCalls: ReorderCalls?
+    /// A grouped session (LLP 1094), until its ghost lands; a test's calls.
+    var reorderGroup: ReorderGroupHold?
+    var reorderGroupCalls: ReorderGroupCalls?
     private var scrollObserver: NSObjectProtocol?
     private var visibleText: [UInt32: NSRect] = [:]
     private var textViewportIndex: TextViewportIndex?
@@ -79,6 +90,7 @@ final class Presenter {
     let canvas2d = Canvas2DHost()
     lazy var segments = SegmentHost(self)
     lazy var controls = ControlHost(self)
+    lazy var fieldSelections = FieldSelections(self)
     /// Nodes marked `hook="word"` (LLP 1075.003.000).
     lazy var elements = ElementHooks(self)
     lazy var shortcuts = ShortcutHost(presenter: self)
@@ -86,6 +98,8 @@ final class Presenter {
     /// The head's title goes to the window the app attached, through the
     /// toolbar host that already owns its title (LLP 1048.003 D1).
     func headTitle(_ title: String?) { toolbar.headTitle(title) }
+    /// `head edited` (LLP 1069.010 D6): the window's edited mark.
+    func headEdited(_ edited: Bool) { toolbar.headEdited(edited) }
     /// The first root's `viewportFit` prop (`"cover"` or nothing), as of the
     /// last batch; `onViewportFit` fires when it changes. macOS maps `cover`
     /// to a full-size-content window (the titlebar overlays the viewport;
@@ -104,6 +118,7 @@ final class Presenter {
             guard let self else { return false }
             return !self.applying && !self.resetting
         }
+        viewport.pressedGround = { [weak self] in self?.selection.clear() }
         viewport.documentView = root
         viewport.hasVerticalScroller = true
         viewport.hasHorizontalScroller = true
@@ -117,6 +132,8 @@ final class Presenter {
         // LLP 1050.000 stage 1: a collection reports its travel and builds
         // ahead in the pump's slices.
         collections.motion = { [unowned self] id in
+            // A smooth correction's animation is not the reader's travel.
+            if collections.animating.contains(id) { return nil }
             let velocity = listVelocity(id)
             return velocity == 0 ? nil : velocity
         }
@@ -126,12 +143,16 @@ final class Presenter {
             if !pumping { queuePostSyncSlice() }
         }
         scrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
-            object: viewport.contentView, queue: .main) { [weak self] _ in self?.scrolled(); self?.transformGeometry.changed(); self?.videoVisibility?.changed() }
+            object: viewport.contentView, queue: .main) { [weak self] _ in
+            if let self { let o = viewport.contentView.bounds.origin; onScrolled?(nil, Double(o.x), Double(o.y)) }
+            self?.stickies.scrolled(nil); self?.scrolled(); self?.transformGeometry.changed(); self?.videoVisibility?.changed() }
     }
 
     deinit {
         if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
         pumpLink?.invalidate()
+        hoverLink?.invalidate()
+        followLink?.invalidate()
     }
 
     /// How far past its visible part a paragraph's text is painted, and how
@@ -336,6 +357,9 @@ final class Presenter {
         let now = CACurrentMediaTime()
         for (id, list) in listViews where only == nil || only == id {
             guard let scroll = list.scroll else { continue }
+            // Animating to a smooth correction: no travel, and none read
+            // across the animation once it lands.
+            if collections.animating.contains(id) { listTravel[id] = nil; continue }
             let port = scroll.contentView.bounds
             // Along the list's own axis (LLP 1070 H3): a row list travels on x.
             let horizontal = collections.entries[id]?.snapshot.horizontal == true
@@ -385,6 +409,7 @@ final class Presenter {
     /// its scroll synchronizer, and the scrolling thread is waiting on it.
     func scrolled() {
         AnimatedRasters.shared.poke()
+        followPointer()
         guard !applying, !inScrollCallback else { return }
         menus.layout()
         inScrollCallback = true
@@ -535,7 +560,10 @@ final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        pointerHeld = nil
+        pointerSource = nil
         elements.reset()
+        resetFlights()
         viewport.invalidateDocumentFit()
         session?.regions.reset()
         session?.rasters.reset()
@@ -545,6 +573,7 @@ final class Presenter {
         mouseTransformDrag.cancel()
         mouseReorder.cancel()
         reorder?.abandon()
+        reorderGroup?.abandon()
         collections.reset()
         leaves.reset()
         autofocusProcessed.removeAll()
@@ -556,6 +585,7 @@ final class Presenter {
         navigation.reset()
         segments.reset()
         controls.reset()
+        fieldSelections.reset()
         edited = nil
         session?.canvases.reset()
         for id in Array(leaving.keys) { _ = endExit(id) }
@@ -571,7 +601,7 @@ final class Presenter {
         transformBindings.removeAll()
         transformGeometry.reset()
         videoVisibility?.reset()
-        selection.structureChanged()
+        selection.structureChanged(); selection.clear() // a selection of the retired tree, unreported
         visibleText.removeAll()
         textViewportIndex = nil
         stopPump()
@@ -601,12 +631,19 @@ final class Presenter {
     var onIntrinsic: (([(UInt32, CGSize?)]) -> Void)?
     /// A capability an action called (LLP 1005 §3), after its commit.
     var onCommand: ((String, [Any], UInt32?) -> Void)?
+    /// A `key` handler called `preventDefault()` (`keyDown(at:_:)`, KeyEvents.swift).
+    var defaultPrevented = false
+    /// The last wheel or magnify event and whether a `wheel` handler
+    /// prevented it: every view it passes up asks once (MouseEventsMac.swift).
+    var lastWheel: (NSEvent, Bool)?
+    /// A `key` handler called `stopPropagation()` (`keyDown(at:_:)`, KeyEvents.swift).
+    var propagationStopped = false
 
     /// The action's focus(html-id), delivered only after the batch is mounted.
     func focusElement(_ args: [Any], selectText: Bool = false) {
         guard args.count == 1, let name = args.first as? String,
               let target = views.values.sorted(by: { $0.id < $1.id }).first(where: { $0.props["id"] == name }),
-              let window = target.window, !target.disabled,
+              let window = target.window, !target.formDisabled,
               target.bounds.width > 0, target.bounds.height > 0 else { return }
         var ancestor: NSView? = target
         while let view = ancestor {
@@ -616,15 +653,12 @@ final class Presenter {
         if target.kind == "native", !selectText { _ = session?.natives.focus(target); return }
         if selectText, target.textArea == nil, target.field == nil { return }
         if let field = target.field, window.firstResponder === field.currentEditor() {
-            if selectText { field.currentEditor()?.selectAll(nil) }
+            if selectText { fieldSelections.selectAll(target) }
             return
         }
         let responder: NSView = target.textArea ?? target.field ?? target
         if responder.acceptsFirstResponder { window.makeFirstResponder(responder) }
-        if selectText {
-            if let editor = target.textArea, window.firstResponder === editor { editor.selectAll(nil) }
-            else { target.field?.currentEditor()?.selectAll(nil) }
-        }
+        if selectText, window.firstResponder === target.textArea || target.field?.currentEditor() != nil { fieldSelections.selectAll(target) }
     }
 
     /// The action's blur(): drop the first responder; blur(html-id) only when
@@ -649,8 +683,37 @@ final class Presenter {
     var onFocus: ((UInt32) -> Void)?
     var onBlur: ((UInt32) -> Void)?
     var onKey: ((UInt32, String) -> Void)?
+    var onClipboard: ((UInt32, UInt32, String) -> Void)?
+    /// A `text`'s part of the selection changed: its text and source offsets.
+    var onSelectionChange: ((UInt32, String, Int, Int) -> Void)?
     var onContextmenu: ((UInt32) -> Void)?
     var onDblclick: ((UInt32) -> Void)?
+    /// The primary button went down on a node (`true`) or came up (LLP 1005 §3).
+    var onPointer: ((UInt32, PointerKind, PointerSample) -> Void)?
+    /// The node the primary button went down on, until it comes up.
+    var pointerHeld: UInt32?
+    /// The last input was a pointer's press, not a key: a focus it, or a
+    /// handler it ran, moves shows no ring (`:focus-visible`, `FocusMac.swift`).
+    var focusByPointer = false
+    /// The view AppKit sends the held button's drags and up to: the one it
+    /// went down on, perhaps a child of the held node, kept in the window
+    /// until the button comes up even if a batch removes it (`MouseChainMac`).
+    var pointerSource: NodeView?
+    /// The drag last delivered as a `pointermove` (LLP 1056 §3 stage 3).
+    weak var pointerDrag: NSEvent?
+    /// Each node's latest free move, in the order the pointer reached them,
+    /// sent at the next display frame or before a button goes down or up
+    /// (`hoverMoved`).
+    var hoverMoves: [(UInt32, PointerSample)] = []
+    var hoverLink: CADisplayLink?
+    let hoverTarget = PumpTarget()
+    /// The next display frame's hit-test of a resting pointer the layout or
+    /// a scroll moved content under (`followPointer`); one a frame.
+    var followLink: CADisplayLink?
+    let followTarget = PumpTarget()
+    /// Where the agent's pointer rests, in window points (its last `tap …
+    /// hover`); under the agent it stands for the system cursor.
+    var agentPointer: NSPoint?
     var onSwiperight: ((UInt32) -> Void)?
     /// Pull-to-refresh is UIKit's; AppKit has no such control, so this never fires.
     var onRefresh: ((UInt32) -> Void)?
@@ -660,7 +723,12 @@ final class Presenter {
     var onPanRelease: ((UInt32, Double, Double) -> Void)?
     var onPanSample: ((Bool, Double, Double, Double) -> Void)?
     var panVelocity: ((Double) -> (Double, Double))?
-    var onScroll: ((UInt32, Double, Double) -> Void)?
+    /// A scroller with a `scroll` handler moved: left, top, then its
+    /// `scrollWidth`, `scrollHeight`, `clientWidth`, `clientHeight`.
+    var onScroll: ((UInt32, [Double]) -> Void)?
+    /// A scroller (nil: the page) moved, handler or not: `frame()` reads
+    /// boxes where the viewer sees them (LLP 1051.000 D1).
+    var onScrolled: ((UInt32?, Double, Double) -> Void)?
     var onListIndex: ((UInt32, String) -> Int?)?
     var onListText: ((UInt32, (String, Int, Int)?, (String, Int, Int)?) -> String)?
     var interacting: UInt32 = 0
@@ -671,6 +739,8 @@ final class Presenter {
     /// view (LLP 1063) does not until its exit ends.
     @discardableResult
     func release(_ id: UInt32, forget: Bool) -> NodeView? {
+        // A held node that goes has no handler left to hear its up.
+        if pointerHeld == id { pointerHeld = nil }
         mouseSwipe.retire(id)
         mouseLayoutPan.retire(id)
         mouseHeightDrag.retire(id)
@@ -703,11 +773,15 @@ final class Presenter {
     weak var hovered: NodeView?
     var hoveredInline: UInt32?
 
-    func press(_ id: UInt32, fromNativeMenu: Bool = false) {
+    /// The modifiers held for the press being sent (its `MouseEvent`'s; gallery F20).
+    var pressHeld = ""
+    func press(_ id: UInt32, fromNativeMenu: Bool = false, held: String = "") {
+        pressHeld = held; defer { pressHeld = "" }
         guard let node = textHost(id), !node.inert, !node.disabled,
               fromNativeMenu || (segments.shown(node) ?? !node.isHiddenOrHasHiddenAncestor) || toolbar.contains(node) else { return }
         let command = dialogs.command(node, fromNativeMenu: fromNativeMenu)
         let popover = menus.command(node, fromNativeMenu: fromNativeMenu)
+        if command == nil && popover == nil, node.id == id, let url = node.defaultLink, node.activateLink(url) { return }
         if (command == nil && popover == nil) || node.handlers.contains("press") { onPress?(id) }
         command?()
         popover?()
@@ -765,23 +839,33 @@ final class Presenter {
         guard !resetting, textHost(id) != nil else { return }
         if applying { waiting.append((id, f)) } else { f() }
     }
+    /// One enter and one leave per hover, as the web's `mouseenter` and
+    /// `mouseleave`: a tracking area's every move, and its exit after the
+    /// resting pointer's hit-test already moved the hover (`followPointer`),
+    /// send nothing more.
     func hover(_ view: NodeView, _ over: Bool) {
         if over { hoverInline(nil) }
-        guard views[view.id] === view else { return }
+        guard views[view.id] === view, (hovered === view) != over else { return }
         if over {
-            if let h = hovered, h !== view { send(h.id) { [self] in onHover?(h.id, false) } }
+            if let h = hovered { send(h.id) { [self] in onHover?(h.id, false) } }
             hovered = view
             send(view.id) { [self] in onHover?(view.id, true) }
         } else {
-            if hovered === view { hovered = nil }
+            hovered = nil
             send(view.id) { [self] in onHover?(view.id, false) }
         }
     }
     func focus(_ id: UInt32) { send(id) { [self] in onFocus?(id) } }
     func blur(_ id: UInt32) { send(id) { [self] in onBlur?(id) } }
     func key(_ id: UInt32, _ name: String) { send(id) { [self] in onKey?(id, name) } }
+    func clipboard(_ id: UInt32, _ kind: UInt32, _ text: String) { send(id) { [self] in onClipboard?(id, kind, text) } }
+    func selectionChange(_ id: UInt32, _ text: String, _ start: Int, _ end: Int) { send(id) { [self] in onSelectionChange?(id, text, start, end) } }
     func contextmenu(_ id: UInt32) { send(id) { [self] in onContextmenu?(id) } }
+    /// A `contextmenu` with its point (10), a `wheel` (37) or a `drop` (38)
+    /// with its line (studio diary R22, R3, R19; MouseEventsMac.swift).
+    func mouseEvent(_ id: UInt32, _ kind: UInt32, _ line: String) { send(id) { [self] in onClipboard?(id, kind, line) } }
     func dblclick(_ id: UInt32) { send(id) { [self] in onDblclick?(id) } }
+    func pointer(_ id: UInt32, _ kind: PointerKind, _ sample: PointerSample) { send(id) { [self] in onPointer?(id, kind, sample) } }
     func swiperight(_ id: UInt32) { send(id) { [self] in onSwiperight?(id) } }
     func pan(_ id: UInt32, _ dx: Double, _ dy: Double) { send(id) { [self] in onPan?(id, dx, dy) } }
     /// Once per pan that began, after its last delta; only to a node that hears it.
@@ -789,7 +873,7 @@ final class Presenter {
         guard views[id]?.handlers.contains("panrelease") == true else { return }
         send(id) { [self] in onPanRelease?(id, vx, vy) }
     }
-    func scroll(_ id: UInt32, _ left: Double, _ top: Double) { send(id) { [self] in onScroll?(id, left, top) } }
+    func scroll(_ id: UInt32, _ metrics: [Double]) { send(id) { [self] in onScroll?(id, metrics) } }
     func submit(_ id: UInt32) { send(id) { [self] in onSubmit?(id) } }
     func load(_ id: UInt32) { send(id) { [self] in onLoad?(id) } }
     func message(_ id: UInt32, _ value: String) {
@@ -803,6 +887,7 @@ final class Presenter {
 
     func apply(_ batch: Batch) {
         defer { applyLanguage(batch) }
+        PaintOrder.begin()
         let post = Self.signposts.beginInterval("apply", "\(batch.ops.count) ops")
         defer { Self.signposts.endInterval("apply", post) }
         viewport.invalidateDocumentFit()
@@ -824,10 +909,13 @@ final class Presenter {
         elements.begin(batch)
         // Create, frame or content ops: rows may have come or moved (`HeavyLeaves.batchApplied`).
         let moved = batch.ops.contains { [.create, .frame, .content].contains($0.op) }
+        // What may now lie under a resting pointer: boxes made, moved, gone or transformed.
+        let relaid = batch.ops.contains { [.create, .frame, .children, .roots, .destroy, .present, .style, .props, .rank, .sticky, .fragments, .exit].contains($0.op) }
         defer {
             collections.endBatch()
             collections.observeKnobDrags()
             collections.limitPrepared()
+            PaintOrder.end()
             if outermost {
                 applying = false
                 videoVisibility?.changed()
@@ -844,6 +932,8 @@ final class Presenter {
                 if !boxFilters.isEmpty { boxFilters.render() }
                 leaves.batchApplied(moved: moved)
             }
+            // Only scheduled: the hit-test is the next display frame's.
+            if relaid { followPointer() }
         }
         if !batch.ops.isEmpty { textViewportIndex = nil }
         var reparented = Set<UInt32>()
@@ -913,10 +1003,11 @@ final class Presenter {
                     if let node = child as? NodeView { reparented.insert(node.id) }
                     child.removeFromSuperview()
                 }
-                let mounted = want.filter { !dialogs.owns($0) && !menus.owns($0) }
+                let mounted = NodeView.keepingGhosts(want.filter { !dialogs.owns($0) && !menus.owns($0) && !isFlying($0) }, in: container)
                 for (i, child) in mounted.enumerated() {
                     if child.superview !== container {
                         reparented.insert(child.id)
+                        child.rejoinUnderHold()
                         child.prepareToMount()
                         // Appending then moving the first child above nil puts
                         // it last and needlessly remounts every retained sibling.
@@ -928,6 +1019,7 @@ final class Presenter {
                     let siblings = container.subviews
                     if !collections.owns(id), i >= siblings.count || siblings[i] !== child {
                         child.removeFromSuperview()
+                        child.rejoinUnderHold()
                         container.addSubview(child, positioned: .above, relativeTo: i > 0 ? mounted[i - 1] : nil)
                     }
                 }
@@ -935,13 +1027,24 @@ final class Presenter {
             case .surface:
                 if let v = views[id] { session?.canvases.surface(view: v, name: op.payload["name"] as? String ?? "", values: op.payload["values"] ?? []) }
             case .canvas2d: if let v = views[id] { canvas2d.apply(id, op.payload, layer: v.layer) }
-            case .svg: if let v = views[id] { svg.scene(id, op.payload, layer: v.layer, dark: v.drawsDark, clock: session?.clock) }
+            case .svg: if let v = views[id] { svg.scene(id, op.payload, layer: v.layer, dark: v.drawsDark, clock: session?.clock, limit: v.style["dynamic_range_limit"]?.string) }
             case .animations: svg.animations(id, op.payload, layer: views[id]?.layer, clock: session?.clock)
             case .command:
-                onCommand?(op.payload["name"] as? String ?? "", op.payload["args"] as? [Any] ?? [], (op.payload["source"] as? NSNumber)?.uint32Value)
+                let name = op.payload["name"] as? String ?? ""
+                if name == "preventDefault" { defaultPrevented = true; break }
+                if name == "stopPropagation" { propagationStopped = true; break }
+                onCommand?(name, op.payload["args"] as? [Any] ?? [], (op.payload["source"] as? NSNumber)?.uint32Value)
             case .exit: beginExit(id)
+            case .flight: beginFlight(op)
+            case .land: if let f = flights[id] { landFlight(f) }
+            case .rank:
+                if let rank = op.payload["rank"] as? NSNumber { views[id]?.setRank(rank.int64Value) }
+            case .sticky: stickies.apply(id, op.payload)
+            case .fragments: views[id]?.applyColumns(op.payload)
             case .destroy:
                 elements.destroyed(id)
+                stickies.forget(id)
+                forgetFlight(id)
                 if endExit(id) { continue }
                 release(id, forget: true)?.removeFromSuperview()
             case .roots:
@@ -956,6 +1059,7 @@ final class Presenter {
             case .frame:
                 guard let v = views[id] else { continue }
                 let frame = NSRect(x: op.x, y: op.y, width: op.w, height: op.h)
+                if flightFrame(id, frame) { continue }
                 if !dialogs.frame(v, frame) && !menus.frame(v, frame) { v.frame = frame }
                 v.arrangeShift = .zero
                 v.textRasterGeometryChanged()
@@ -977,16 +1081,18 @@ final class Presenter {
                 guard let v = views[id] ?? leaving[id]?.view else { continue }
                 let x = CGFloat(op.x)
                 switch op.property {
-                case "translate": v.translate = CGPoint(x: x, y: CGFloat(op.y)); v.applyTransform()
+                case "translate": v.translatePx = CGPoint(x: x, y: CGFloat(op.y)); v.translatePercent = CGPoint(x: CGFloat(op.w), y: CGFloat(op.h)); v.applyTransform()
                 case "layout": v.layoutOffset = CGPoint(x: x, y: CGFloat(op.y)); v.layoutScale = CGPoint(x: CGFloat(op.w), y: CGFloat(op.h)); v.applyTransform(); v.applySurface()
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()
                 case "opacity": v.alphaValue = x
+                case "flight": presentFlight(id, x)
                 default: break
                 }
             default: break
             }
         }
+        if !flights.isEmpty { flightsBatchApplied() }
         navigation.sync(batch, reparented: reparented)
         fitDocument()
         // The page's canvas colour is the first root's background — what
@@ -998,6 +1104,7 @@ final class Presenter {
         let fit = first?.props["viewportFit"]
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
         session?.canvases.cancelMovedControls()
+        PaintOrder.flush()
         session?.canvases.captureIfNeeded()
         for id in scrollers.union(pendingScrolls) {
             guard let node = views[id] else { continue }
@@ -1047,6 +1154,10 @@ final class Presenter {
 
     /// Align an enclosing context panel's preview with its source, while
     /// keeping the panel inside the visible viewport.
+    /// A scroll whose batch skipped the pass (`ExactSession.applyUnlessEmpty`):
+    /// a context preview follows its source out of the scrolled box.
+    func scrolledWithoutPass() { positionContexts() }
+
     private func positionContexts() {
         for preview in carrying("contextTarget") {
             guard let target = preview.props["contextTarget"],
@@ -1113,7 +1224,7 @@ final class Presenter {
         if let dialog = dialogs.active { walk(dialog) }
         else { for r in root.subviews.compactMap({ $0 as? NodeView }) { walk(r) } }
         let tabbable = listed.enumerated().sorted { a, b in
-            let ia = Self.tabIndex(a.element), ib = Self.tabIndex(b.element)
+            let ia = a.element.tabOrder, ib = b.element.tabOrder
             let pa = ia > 0 ? ia : Int.max, pb = ib > 0 ? ib : Int.max
             if pa != pb { return pa < pb }
             return a.offset < b.offset
@@ -1132,17 +1243,15 @@ final class Presenter {
         viewport.nextKeyView = keyView(of: tabbable[0])
     }
 
-    private static func tabIndex(_ v: NodeView) -> Int { Int(v.props["tabIndex"] ?? "0") ?? 0 }
-
+    /// A Tab stop (LLP 1088 D7.3): an explicit `tabindex` ≥ 0 or what is
+    /// one by kind; an explicit negative never, though it still takes a click.
     static func tabbable(_ v: NodeView) -> Bool {
-        if v.props["disabled"] == "true" { return false }
-        let index = tabIndex(v)
-        if index < 0 { return false }
+        if v.formDisabled || v.cssVisibilityHidden { return false }
+        if let index = v.explicitTabIndex, index < 0 { return false }
         if v.field != nil || v.textArea != nil { return true }
         if v.kind == "native", v.presenter?.session?.natives.focusTarget(v) != nil { return true }
         if v.isButton || v.kind == "toggle" || v.pressable { return true }
-        if v.canBecomeKeyView { return true }
-        return index > 0
+        return v.canBecomeKeyView
     }
 
     /// An op touched a node (LLP 1014 D4 a): every canvas it is painted
@@ -1172,20 +1281,13 @@ enum Capture {
     /// The subtree painted at `scale`: premultiplied RGBA, rows top-down,
     /// `pixelsWide * 4` bytes per row, transparent where nothing painted.
     static func bitmap(of view: NSView, scale: CGFloat) -> NSBitmapImageRep? {
-        let w = Int((view.bounds.width * scale).rounded()), h = Int((view.bounds.height * scale).rounded())
-        guard w > 0, h > 0,
-              let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: w * 4, bitsPerPixel: 32)
-        else { return nil }
-        rep.size = view.bounds.size
-        if let p = rep.bitmapData { memset(p, 0, h * w * 4) }
         // A subtree painted through its canvas composites at alpha 0; paint
         // it opaque into the bitmap regardless.
         let alpha = view.alphaValue
         view.alphaValue = 1
         // A canvas nested under this one that is painted through its own
         // surface: its picture comes by readback (its draw), not from its
-        // overlay's views, which cacheDisplay would paint regardless of their
-        // alpha — so those are hidden for the duration.
+        // overlay's views, so those are hidden for the duration.
         var hidden: [NSView] = []
         func hide(_ v: NSView) {
             for s in v.subviews {
@@ -1195,11 +1297,7 @@ enum Capture {
             }
         }
         hide(view)
-        let fills = hideBoxFills(in: view)
-        capturing = true
-        view.cacheDisplay(in: view.bounds, to: rep)
-        capturing = false
-        restore(fills)
+        let rep = paintOrderBitmap(of: view, scale: scale)
         for o in hidden { o.isHidden = false }
         view.alphaValue = alpha
         return rep

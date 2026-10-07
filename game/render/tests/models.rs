@@ -52,8 +52,7 @@ impl Game for ModelGame {
     fn tick(_: &mut World, _: &Input, _: &()) {}
 }
 fn draw(gpu: &exact_gpu::Gpu, model: &Model, name: &str) -> fixture::Pixels {
-    let mut surface =
-        WorldSurface::<ModelGame, exact_game_render::ModelPresentation, true>::default();
+    let mut surface = WorldSurface::<ModelGame, exact_game_render::ModelExecutor, true>::default();
     surface.device_ready(exact_gpu::wgpu::Features::empty());
     surface.bind(&[], None).unwrap();
     assert_eq!(surface.assets().requests, ["sample.model"]);
@@ -84,6 +83,7 @@ fn draw(gpu: &exact_gpu::Gpu, model: &Model, name: &str) -> fixture::Pixels {
         period_ms: 0.0,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let (pixels, _) = fixture::render(gpu, &mut surface, &frame).unwrap();
     assert!(surface.error().is_none(), "{:?}", surface.error());

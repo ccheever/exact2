@@ -66,7 +66,7 @@ extension Agent {
     /// viewport, and on macOS a sheet attached to its window.
     private func axRoots(_ view: ExactView) -> [AnyObject] {
         var roots: [AnyObject] = [view]
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         // A modal layer moves the viewport into a presented controller (ModalIOS).
         var v: UIView? = presenter.viewport
         while let s = v?.superview, !(s is UIWindow) { v = s }
@@ -90,6 +90,7 @@ extension Presenter {
         let modalRoot: AnyObject?
         var modal: [String: Any] = ["present": false]
         var modalView: AnyObject?
+        var modalDepth = -1
         var limits: [[String: Any]] = []
         var remaining: Int { budget - visited }
     }
@@ -132,7 +133,7 @@ extension Presenter {
         // A scroll view's indicators and other unexposed views cost visits too.
         var w = AxWalk(limit: limit, budget: 5 * limit + 64, excluded: excluded, foreign: foreign, modalRoot: modalRoot, limits: limits)
         for root in roots where !w.stopped { visit(root, parent: nil, depth: 0, exclusion: [], into: &w) }
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         markModalLeaks(&w)
         let platform = "iOS \(UIDevice.current.systemVersion)", source = "uikit", order = "containment"
         var known = ["alpha", "reading-order"]
@@ -144,7 +145,7 @@ extension Presenter {
         if w.segments { known.append("segments") }
         var coverage: [String: Any] = ["roots": roots.map { String(describing: type(of: $0)) }, "complete": !w.stopped && w.more == 0 && w.limits.isEmpty,
                                        "visited": w.visited, "limits": known]
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         if !Self.axRuntimeLoaded {
             coverage["complete"] = false
             w.limits.append(["root": "process", "reason": "UIKit's accessibility runtime is not loaded (no assistive technology or automation is on), so it derives no labels, frames or field elements; on a simulator: xcrun simctl spawn <udid> defaults write com.apple.Accessibility ApplicationAccessibilityEnabled -bool true, then relaunch"])
@@ -163,7 +164,7 @@ extension Presenter {
         }
         // The states this runtime can observe (D6): UIKit's expanded status needs iOS 18.
         var observes = ["checked", "disabled"]
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         if #available(iOS 18, *) { observes.append("expanded") }
         #else
         observes += ["level", "expanded"]
@@ -185,7 +186,7 @@ extension Presenter {
         w.visited += 1
         if w.visited > w.budget || depth > 64 { w.stopped = true; return }
         if w.foreign(obj) { return } // another session's surface
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         var exclusion = exclusion
         if let v = obj as? UIView {
             if v.isHidden { exclusion.append("hidden") }
@@ -194,8 +195,11 @@ extension Presenter {
         if !exclusion.isEmpty && !w.excluded { return }
         let o = obj as! NSObject
         var here = parent
-        if Self.isModal(obj), exclusion.isEmpty, w.modalView == nil {
+        // The deepest modal is the active boundary, the later of equals, as
+        // the presenter's `syncModal` chooses (LLP 1080.003 D2).
+        if Self.isModal(obj), exclusion.isEmpty, depth >= w.modalDepth {
             w.modalView = obj
+            w.modalDepth = depth
             let i = emit(obj, role: "group", parent: parent, exclusion: exclusion, into: &w)
             let owned = i.map { !(w.elements[$0]["id"] is NSNull) } ?? false
             w.modal = ["present": true, "by": "accessibilityViewIsModal", "element": i as Any, "id": i.flatMap { w.elements[$0]["id"] } ?? NSNull()]
@@ -234,7 +238,7 @@ extension Presenter {
         #endif
     }
 
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     static func isModal(_ obj: AnyObject) -> Bool { (obj as? NSObject)?.accessibilityViewIsModal == true && ((obj as? UIView).map { $0.window != nil && !$0.isHidden } ?? true) }
     /// UIKit loads the code that answers accessibility (a button's derived
     /// label, a view's frame, a field as an element) only for an assistive
@@ -281,13 +285,21 @@ extension Presenter {
         var role: String?, subrole: String?, label: String?, title: String?, help: String?, value: Any?
         var enabled = true, focused = false, selected = false, element = false, expanded = false
         var frame: NSRect = .zero, identifier: String?, children: [Any] = []
+        /// `aria-required`, `aria-invalid` and `aria-haspopup` as browsers serve them.
+        var required = false, invalid: String?, popup: String?
+        mutating func aria(_ a: (String) -> Any?) {
+            invalid = a("AXInvalid").map { "\($0)" }
+            popup = (a("AXHasPopup") as? Bool) == true ? (a("AXPopupValue") as? String ?? "true") : nil
+        }
     }
     static func axFacts(_ obj: AnyObject) -> AxFacts? {
         if let v = obj as? NSView {
-            return AxFacts(role: v.accessibilityRole()?.rawValue, subrole: v.accessibilitySubrole()?.rawValue, label: v.accessibilityLabel(), title: v.accessibilityTitle(),
+            var f = AxFacts(role: v.accessibilityRole()?.rawValue, subrole: v.accessibilitySubrole()?.rawValue, label: v.accessibilityLabel(), title: v.accessibilityTitle(),
                            help: v.accessibilityHelp(), value: v.accessibilityValue(), enabled: v.accessibilityAttributeValue(.enabled) as? Bool ?? true, focused: v.isAccessibilityFocused(),
                            selected: v.isAccessibilitySelected(), element: v.isAccessibilityElement(), expanded: v.isAccessibilityExpanded(), frame: v.accessibilityFrame(), identifier: v.accessibilityIdentifier(),
-                           children: v.accessibilityChildrenInNavigationOrder() ?? v.accessibilityChildren() ?? [])
+                           children: v.accessibilityChildrenInNavigationOrder() ?? v.accessibilityChildren() ?? [], required: v.isAccessibilityRequired())
+            f.aria { v.accessibilityAttributeValue(NSAccessibility.Attribute(rawValue: $0)) }
+            return f
         }
         if let e = obj as? NSAccessibilityElement {
             return AxFacts(role: e.accessibilityRole()?.rawValue, subrole: e.accessibilitySubrole()?.rawValue, label: e.accessibilityLabel(), title: e.accessibilityTitle(),
@@ -304,10 +316,18 @@ extension Presenter {
             let top = NSScreen.screens.first?.frame.maxY ?? 0
             frame = NSRect(x: p.x, y: top - p.y - s.height, width: s.width, height: s.height)
         }
-        return AxFacts(role: a("AXRole") as? String, subrole: a("AXSubrole") as? String, label: a("AXDescription") as? String, title: a("AXTitle") as? String,
-                       help: a("AXHelp") as? String, value: a("AXValue"), enabled: a("AXEnabled") as? Bool ?? true, focused: a("AXFocused") as? Bool ?? false,
-                       selected: a("AXSelected") as? Bool ?? false, element: !o.accessibilityIsIgnored(), expanded: a("AXExpanded") as? Bool ?? false, frame: frame, identifier: a("AXIdentifier") as? String,
-                       children: a("AXChildren") as? [Any] ?? [])
+        // A cell is served its control's typed label, help and required
+        // (AppKit's dispatcher prefers them); the cell's own attributes
+        // answer "" or nothing (onboarding F16: every named pop-up,
+        // checkbox, slider and date read unnamed here).
+        let control = (obj as? NSCell)?.controlView
+        let nonEmpty = { (s: String?) in s.flatMap { $0.isEmpty ? nil : $0 } }
+        var f = AxFacts(role: a("AXRole") as? String, subrole: a("AXSubrole") as? String, label: nonEmpty(control?.accessibilityLabel()) ?? a("AXDescription") as? String, title: a("AXTitle") as? String,
+                        help: nonEmpty(control?.accessibilityHelp()) ?? a("AXHelp") as? String, value: a("AXValue"), enabled: a("AXEnabled") as? Bool ?? true, focused: a("AXFocused") as? Bool ?? false,
+                        selected: a("AXSelected") as? Bool ?? false, element: !o.accessibilityIsIgnored(), expanded: a("AXExpanded") as? Bool ?? false, frame: frame, identifier: a("AXIdentifier") as? String,
+                        children: a("AXChildren") as? [Any] ?? [], required: control?.isAccessibilityRequired() == true || a("AXRequired") as? Bool == true)
+        f.aria(a)
+        return f
     }
     enum AxSheet { case none, owned(NSView), foreign }
     /// A sheet attached to the window is this session's only when its
@@ -345,7 +365,7 @@ extension Presenter {
         var states: [String: Any] = [:]
         var native: [String: Any] = ["class": String(describing: type(of: obj))]
         if Self.underSegments(obj) { w.segments = true }
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         let o = obj as! NSObject
         let traits = o.accessibilityTraits
         let names = Self.traitNames.filter { traits.contains($0.0) }.map(\.1)
@@ -357,7 +377,7 @@ extension Presenter {
         if secure { states["protected"] = true }
         if traits.contains(.notEnabled) { states["disabled"] = true }
         if traits.contains(.selected) { states["selected"] = true }
-        if #available(iOS 18, *) {
+        if #available(iOS 18, tvOS 18, *) {
             switch o.accessibilityExpandedStatus { case .expanded: states["expanded"] = true; case .collapsed: states["expanded"] = false; default: break }
         }
         let editable = obj is UITextField || obj is UITextView
@@ -366,6 +386,9 @@ extension Presenter {
             : names.contains("button") ? "button" : names.contains("image") ? "image" : names.contains("adjustable") ? "adjustable"
             : names.contains("tabBar") ? "tablist" : names.contains("staticText") ? "text" : "unknown")
         if e["role"] as? String == "checkbox" { states["checked"] = value == "checked" }
+        // UIKit has no radio trait: the drawn radio (x2apps survey #2) says
+        // what it is by its class, its state by `selected`.
+        if let radio = obj as? ExactRadio, forced == nil { e["role"] = "radio"; states["checked"] = radio.isOn }
         e["interactive"] = forced == nil && (o.accessibilityRespondsToUserInteraction || editable || names.contains("button") || names.contains("link") || names.contains("adjustable"))
         if let actions = o.accessibilityCustomActions, !actions.isEmpty { e["actions"] = actions.prefix(16).compactMap { cut($0.name) } }
         native["role"] = names
@@ -394,12 +417,16 @@ extension Presenter {
         if f.selected { states["selected"] = true }
         // AppKit's accessor answers false for "not expanded" and "no such state" alike: only true is a fact.
         if f.expanded { states["expanded"] = true }
+        if f.required { states["required"] = true }
+        if let invalid = f.invalid { states["invalid"] = invalid }
+        if let popup = f.popup { states["haspopup"] = popup }
         let r = f.role ?? "AXUnknown"
         let mapped = ["AXButton": "button", "AXLink": "link", "AXHeading": "heading", "AXTextField": "textbox", "AXTextArea": "textbox",
-                      "AXCheckBox": "checkbox", "AXStaticText": "text", "AXGroup": "group", "AXImage": "image", "AXList": "list"][r]
+                      "AXCheckBox": f.subrole == "AXSwitch" ? "switch" : "checkbox", "AXRadioButton": "radio", "AXRadioGroup": "radiogroup",
+                      "AXSlider": "slider", "AXPopUpButton": "combobox", "AXStaticText": "text", "AXGroup": "group", "AXImage": "image", "AXList": "list"][r]
         e["role"] = forced ?? mapped ?? r
         if r == "AXHeading", let level = f.value as? Int { states["level"] = level }
-        if r == "AXCheckBox", let on = f.value as? Int { states["checked"] = on == 1 }
+        if r == "AXCheckBox" || r == "AXRadioButton", let on = f.value as? Int { states["checked"] = on == 1 }
         e["interactive"] = ["AXButton", "AXLink", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton", "AXSlider", "AXPopUpButton", "AXMenuItem", "AXComboBox"].contains(r)
         native["role"] = r
         if let subrole = f.subrole { native["subrole"] = subrole }
@@ -431,7 +458,7 @@ extension Presenter {
     private func axOwner(_ obj: AnyObject) -> (UInt32?, String) {
         if let n = obj as? NodeView { return (n.id, "self") }
         if let owned = obj as? AgentOwned, let id = owned.agentViewId { return (id, "owner") }
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         if let e = obj as? UIAccessibilityElement, let n = e.accessibilityContainer as? NodeView { return (n.id, "owner") }
         var v = (obj as? UIView)?.superview
         let control = obj is UIControl
@@ -451,7 +478,7 @@ extension Presenter {
     /// A segment or tab bar item the host projected from a tablist (D5's
     /// segment join is not built: such an element joins its tablist).
     private static func underSegments(_ obj: AnyObject) -> Bool {
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         var v: UIView? = (obj as? UIView) ?? ((obj as? UIAccessibilityElement)?.accessibilityContainer as? UIView)
         while let s = v { if s is UISegmentedControl || s is UITabBar { return true }; v = s.superview }
         #else
@@ -464,7 +491,7 @@ extension Presenter {
     private func axTestId(_ id: UInt32?) -> String? { id.flatMap { views[$0]?.props["testId"] ?? inlineText($0)?.props["testId"] } }
     private func round2(_ x: CGFloat) -> Double { (Double(x) * 100).rounded() / 100 }
 
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     /// An element outside a session-owned modal view, and outside the
     /// siblings UIKit's rule hides, is reachable around it: `outsideModal`.
     private func markModalLeaks(_ w: inout AxWalk) {

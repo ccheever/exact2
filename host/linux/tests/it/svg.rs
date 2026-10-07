@@ -87,3 +87,137 @@ fn a_zero_length_subpath_paints_its_cap() {
     assert_eq!(red(40), (255, 0, 255), "M p L p, square: a square");
     assert_ne!(red(70), (255, 0, 255), "a butt cap paints nothing");
 }
+
+/// LLP 1084 §4: a portable symbol role is its path, stroked as the web
+/// strokes it, in its tint; an `sf/` name stays an empty box.
+#[test]
+fn a_symbol_role_is_its_path_and_an_sf_name_is_empty() {
+    const SYMBOLS: &str = "component App\n  view\n    row\n      image \"symbol:checkmark\" testId=\"role\" width=48 height=48 object-fit=\"contain\" tint-color=\"#ff0000\"\n      image \"symbol:sf/checkmark\" testId=\"sf\" width=48 height=48 object-fit=\"contain\" tint-color=\"#ff0000\"\n";
+    let plan = contract::compile(SYMBOLS).unwrap_or_else(|e| panic!("{e}"));
+    let (mut p, error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (100., 48.),
+        1.,
+        std::env::temp_dir(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let reds = |p: &mut Presenter<NoData>, id: &str| {
+        let k = p.host().kernel();
+        let node = k.node_by_key(k.find_by_test_id(id)[0]).unwrap().id;
+        let b = *p.boxes().iter().find(|b| b.id == node).unwrap();
+        let frame = p.frame();
+        let mut n = 0;
+        for y in 0..48 {
+            for x in 0..48 {
+                let c = frame
+                    .pixel(b.rect.0 as u32 + x, b.rect.1 as u32 + y)
+                    .unwrap()
+                    .demultiply();
+                n += usize::from(c.red() > 200 && c.green() < 80 && c.alpha() > 200);
+            }
+        }
+        n
+    };
+    assert!(
+        reds(&mut p, "role") > 40,
+        "the checkmark's stroke, in its tint"
+    );
+    assert_eq!(
+        reds(&mut p, "sf"),
+        0,
+        "an SF Symbol name draws nothing on Linux"
+    );
+}
+
+/// Every portable role draws on Linux from its path alone: a role added to
+/// the schema with a path this parser cannot read would be an empty box here
+/// while Apple shows its SF Symbol (podcast F3's media roles among them).
+#[test]
+fn every_symbol_role_draws_its_path() {
+    let roles = exact_kernel::generated::SYMBOL_ROLES;
+    let mut source = String::from("component App\n  view\n    column\n");
+    for role in roles {
+        source.push_str(&format!(
+            "      image \"symbol:{role}\" testId=\"{role}\" width=24 height=24 font-size=24 tint-color=\"#ff0000\"\n"
+        ));
+    }
+    let plan = contract::compile(&source).unwrap_or_else(|e| panic!("{e}"));
+    let height = 24. * roles.len() as f32;
+    let (mut p, error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (24., height),
+        1.,
+        std::env::temp_dir(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let frame = p.frame();
+    let empty: Vec<_> = roles
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| {
+            let ink = (0..24u32)
+                .flat_map(|y| (0..24u32).map(move |x| (x, y)))
+                .filter_map(|(x, y)| frame.pixel(x, *i as u32 * 24 + y))
+                .filter(|c| c.alpha() > 40 && c.red() > c.green())
+                .count();
+            // `ellipsis`, three round dots, is the least ink of any role.
+            ink < 3
+        })
+        .map(|(_, role)| *role)
+        .collect();
+    assert!(empty.is_empty(), "roles that draw nothing: {empty:?}");
+}
+
+/// LLP 1055.000 D15 (issue #123): a path's `d` under `transition` morphs
+/// on the agent's clock, as Chrome does: the chevron is flat half way, and
+/// stands the other way when it settles.
+#[test]
+fn a_transitioning_d_morphs_the_path() {
+    const MORPH: &str = "component App\n  state open = false\n  action flip\n    open = not open\n  view\n    column\n      button press=flip testId=\"flip\"\n        text \"Flip\"\n      svg testId=\"icon\" width=96 height=96 viewBox=\"0 0 24 24\"\n        path fill=\"none\" stroke=\"#000000\" stroke-width=2 d=(open ? \"M6 15 L12 9 L18 15\" : \"M6 9 L12 15 L18 9\") transition=\"d 400ms linear\"\n";
+    let plan = contract::compile(MORPH).unwrap_or_else(|e| panic!("{e}"));
+    let (mut p, error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (200., 200.),
+        1.,
+        std::env::temp_dir(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let id = |p: &Presenter<NoData>, name: &str| {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id(name)[0]).unwrap().id
+    };
+    let icon = id(&p, "icon");
+    // The rows of the icon with ink in them: its height in points.
+    let ink = |p: &mut Presenter<NoData>| {
+        let b = *p.boxes().iter().find(|b| b.id == icon).unwrap();
+        let frame = p.frame();
+        (0..96u32)
+            .filter(|y| {
+                (0..96u32).any(|x| {
+                    let c = frame
+                        .pixel(b.rect.0 as u32 + x, b.rect.1 as u32 + y)
+                        .unwrap()
+                        .demultiply();
+                    c.alpha() > 200 && c.red() < 100
+                })
+            })
+            .count()
+    };
+    let rest = ink(&mut p);
+    assert!((28..=34).contains(&rest), "a chevron: {rest}");
+    p.tap(id(&p, "flip")).unwrap();
+    p.tick(200.);
+    let flat = ink(&mut p);
+    assert!(flat <= 10, "flat half way: {flat}");
+    p.tick(500.);
+    assert_eq!(ink(&mut p), rest, "settled the other way");
+}

@@ -23,6 +23,9 @@ pub const MAX_STRING_BYTES: u32 = 1 << 24;
 /// every property's (grammar: `schema.json` `_transitions`).
 const BORDER_COLOR: u8 = Property::COUNT as u8 + 1;
 
+/// A path's `d` (LLP 1055.000 D15): its property's code, past the wire's.
+const PATH_D: u8 = Property::D as u8 + 1;
+
 /// Round `n` up to a multiple of 8.
 pub const fn align8(n: usize) -> usize {
     (n + 7) & !7
@@ -182,6 +185,9 @@ impl<'a> Reader<'a> {
                 crate::style::env::decode(kind, value, x, y)
                     .ok_or(DecodeError::UnknownDimensionKind(kind))?
             }
+            14..=23 => {
+                Dimension::Viewport(crate::style::ViewportUnit::ALL[(kind - 14) as usize], value)
+            }
             other => return Err(DecodeError::UnknownDimensionKind(other)),
         };
         if kind != 0 && !dim.is_finite() {
@@ -211,12 +217,25 @@ impl<'a> Reader<'a> {
         match self.u8()? {
             0 => Ok(ColorValue::Fixed(self.color()?)),
             1 => Ok(ColorValue::LightDark(self.color()?, self.color()?)),
+            // @ref LLP 1095 D1 — a role by id, a `platform-color()` as written.
             2 => match self.u8()? {
-                i if (i as usize) < crate::style::symbols::SYSTEM_COLORS.len() => {
-                    Ok(ColorValue::System(i))
-                }
+                i if (i as usize) < crate::generated::COLOR_ROLES.len() => Ok(ColorValue::Role(i)),
                 _ => Err(DecodeError::BadColorValue(2)),
             },
+            3 => crate::style::roles::parse_platform(self.string()?)
+                .ok_or(DecodeError::BadColorValue(3)),
+            4 => {
+                crate::style::wide::parse_wide(self.string()?).ok_or(DecodeError::BadColorValue(4))
+            }
+            6 => crate::style::profiled::parse_profiled(self.string()?)
+                .ok_or(DecodeError::BadColorValue(6)),
+            5 => {
+                let mut c = [0i16; 3];
+                for v in &mut c {
+                    *v = self.u16()? as i16;
+                }
+                Ok(ColorValue::Moving(c, self.u8()?))
+            }
             other => Err(DecodeError::BadColorValue(other)),
         }
     }
@@ -318,6 +337,7 @@ impl<'a> Reader<'a> {
             let property = match self.u8()? {
                 0 => TransitionProperty::All,
                 BORDER_COLOR => TransitionProperty::BorderColor,
+                PATH_D => TransitionProperty::Property(Property::D),
                 p => TransitionProperty::Property(
                     Property::from_wire(p - 1)
                         .filter(|p| *p != Property::ShadowColor)
@@ -482,6 +502,10 @@ impl Writer {
                 self.u8(0);
                 self.f32(0.0);
             }
+            Dimension::Viewport(unit, v) => {
+                self.u8(14 + unit as u8);
+                self.f32(v);
+            }
             Dimension::Points(v) => {
                 self.u8(1);
                 self.f32(v);
@@ -531,9 +555,37 @@ impl Writer {
                 self.color(light);
                 self.color(night);
             }
-            ColorValue::System(i) => {
+            ColorValue::Role(id) => {
                 self.u8(2);
-                self.u8(i);
+                self.u8(id);
+            }
+            ColorValue::Platform(id) => match crate::style::roles::platform(id) {
+                Some(p) => {
+                    self.u8(3);
+                    self.string(&p.text);
+                }
+                None => self.color_value(ColorValue::Fixed(crate::style::Color::TRANSPARENT)),
+            },
+            ColorValue::Wide(id) => match crate::style::wide::wide(id) {
+                Some(w) => {
+                    self.u8(4);
+                    self.string(&w.text);
+                }
+                None => self.color_value(ColorValue::Fixed(crate::style::Color::TRANSPARENT)),
+            },
+            ColorValue::Profiled(id) => match crate::style::profiled::profiled(id) {
+                Some(p) => {
+                    self.u8(6);
+                    self.string(&p.text);
+                }
+                None => self.color_value(ColorValue::Fixed(crate::style::Color::TRANSPARENT)),
+            },
+            ColorValue::Moving(c, a) => {
+                self.u8(5);
+                for v in c {
+                    self.u16(v as u16);
+                }
+                self.u8(a);
             }
         }
     }
@@ -646,7 +698,8 @@ mod tests {
         // build.rs hashes the production codec sources beside the canonical
         // schema. The literal makes an accidental removal of that coupling a
         // test failure whenever the byte snapshot above is intentionally moved.
-        assert_eq!(SCHEMA_DIGEST, 0xbc97_ffa8_e519_faec);
+        // Recomputed when the schema changes; the digest test prints the value.
+        assert_eq!(SCHEMA_DIGEST, 0x4430_c91f_3ec2_e2f8);
     }
 
     #[test]
@@ -702,10 +755,10 @@ mod tests {
                 Ok(Dimension::Env(*edge, i as f32 * 1.5))
             );
         }
-        let mut r = Reader::new(&[14u8, 0, 0, 0, 0]);
+        let mut r = Reader::new(&[24u8, 0, 0, 0, 0]);
         assert_eq!(
             r.dimension(StyleId::Width, true),
-            Err(DecodeError::UnknownDimensionKind(14))
+            Err(DecodeError::UnknownDimensionKind(24))
         );
     }
 
@@ -822,5 +875,23 @@ mod tests {
         w.bytes(&[0xff, 0xfe]);
         let bytes = w.into_vec();
         assert_eq!(Reader::new(&bytes).string(), Err(DecodeError::InvalidUtf8));
+    }
+}
+
+#[cfg(test)]
+mod viewport_tests {
+    use super::*;
+    #[test]
+    fn viewport_dimensions_round_trip() {
+        for unit in crate::ViewportUnit::ALL {
+            let value = Dimension::Viewport(unit, 10.0);
+            let mut writer = Writer::new();
+            writer.dimension(value);
+            let bytes = writer.into_vec();
+            assert_eq!(
+                Reader::new(&bytes).dimension(StyleId::Width, true).unwrap(),
+                value
+            );
+        }
     }
 }

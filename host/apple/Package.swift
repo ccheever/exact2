@@ -10,7 +10,7 @@
 import PackageDescription
 import Foundation
 
-let libDir = ProcessInfo.processInfo.environment["EXACT_LIB_DIR"] ?? (Context.packageDirectory + "/../../target/release")
+let libDir = ProcessInfo.processInfo.environment["EXACT_LIB_DIR"] ?? (Context.packageDirectory + "/../../target/host-dev")
 let libName = ProcessInfo.processInfo.environment["EXACT_LIB"] ?? "caltrain_apple"
 
 let composition = ProcessInfo.processInfo.environment["EXACT_APP_COMPOSITION"] ?? "embedded"
@@ -47,12 +47,18 @@ let executables: [Target] = [
 // as a decision rather than a drawn frame, so it needs no window, no run
 // loop, and no clock (LLP 1033 D4a).
 let tests: [Target] = [
-    .testTarget(name: "ExactKitTests", dependencies: ["ExactKit"], path: "Tests/ExactKitTests"),
+    // The sound arm's C mixer (LLP 1096 D8), rendered offline by the tests;
+    // the arm itself is a dylib build.mjs makes, never a package product.
+    .target(name: "ExactSoundRender", path: "soundarm", exclude: ["SoundArm.swift"], sources: ["sound_render.c"], publicHeadersPath: "."),
+    // The video arm's media session coordinator (LLP 1098 D7), driven by the
+    // tests over stand-in players; the arm itself is build.mjs's dylib.
+    .target(name: "ExactNowPlaying", path: "videoarm", exclude: ["VideoArm.swift"], sources: ["NowPlaying.swift"]),
+    .testTarget(name: "ExactKitTests", dependencies: ["ExactKit", "ExactSoundRender", "ExactNowPlaying"], path: "Tests/ExactKitTests"),
 ]
 
 let package = Package(
     name: "Exact",
-    platforms: [.macOS(.v14), .iOS(.v17)],
+    platforms: [.macOS(.v14), .iOS(.v17), .tvOS(.v17)],
     products: testing ? [.library(name: "ExactKit", targets: ["ExactKit"])] : [
         .library(name: "ExactKit", targets: ["ExactKit"]),
         .library(name: "ExactUpdates", targets: ["ExactUpdates"]),

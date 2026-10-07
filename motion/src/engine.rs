@@ -21,7 +21,11 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{BuildHasherDefault, Hasher};
 
 mod animate;
+mod clock;
 mod hold;
+mod path;
+mod played;
+pub use played::{PlayedCurve, PlayedTransition};
 mod timeline;
 pub use animate::AnimationPlay;
 pub use hold::{HoldEnd, HoldStart, HoldToken, TransformHold};
@@ -241,14 +245,17 @@ pub struct Engine {
     // Observed targets provide CSS's before-change style, but only live curves
     // need a clock. Holds and settled slots never enter this index.
     running: BTreeSet<(u64, Property)>,
+    // Transitions a host plays itself (`play_transition`): kept for a
+    // reversal's arithmetic, never sampled, dropped once ended.
+    played: BTreeSet<(u64, Property)>,
     dirty: HashSet<(u64, Property), BuildHasherDefault<SlotHasher>>,
     // CSS animations per node (LLP 1055 D5), and the nodes a sampling host
     // must still advance: some animation running and not yet ended.
     animations: BTreeMap<u64, Vec<AnimationPlay>>,
     animating: BTreeSet<u64>,
-    // Indexed by property; one past the wire's for `Property::Layout`,
+    // Indexed by property; past the wire's for `Property::Layout` and `d`,
     // which no animation names and nothing lowers.
-    lowered: [bool; Property::COUNT + 1],
+    lowered: [bool; Property::SLOTS],
     // Nodes whose animations are sampled whatever `lowered` says: a host
     // decides per node what its compositor plays faithfully (LLP 1055.000
     // D15: eligibility is per effect, not per property name).
@@ -265,6 +272,11 @@ pub struct Engine {
     node_dark: BTreeMap<u64, bool>,
     // Drag timelines (LLP 1057.003): sources and bound consumers.
     timelines: timeline::Timelines,
+    // Clock timelines (LLP 1055.002): each node's, and each one's origin.
+    clocks: clock::Clocks,
+    // Each path's `d`, and the two ends of its transition (LLP 1055.000
+    // D15); the progress is the node's `Property::D` slot.
+    paths: BTreeMap<u64, path::PathTrack>,
 }
 
 impl Engine {
@@ -333,6 +345,8 @@ impl Engine {
         self.animating.remove(&node);
         self.forced.remove(&node);
         self.forget_timelines(node);
+        self.forget_clock(node);
+        self.paths.remove(&node);
         // Removing a list must not scan every other node once per row, nor
         // probe every table once per property: a list row's retirement
         // removes a node per box. Its running curves are one range of the
@@ -352,6 +366,7 @@ impl Engine {
             self.slots.remove(&(node, property));
         }
         self.slots.remove(&(node, Property::Layout));
+        self.slots.remove(&(node, Property::D));
     }
 
     /// Forget only this property's target, curve, hold and pending frame.
@@ -359,6 +374,9 @@ impl Engine {
     /// declaration survive; readoption takes a new value without transitioning.
     /// No clock change occurs, and old hold tokens immediately become stale.
     pub fn remove_property(&mut self, node: u64, property: Property) -> bool {
+        if property == Property::D {
+            self.paths.remove(&node);
+        }
         self.dirty.remove(&(node, property));
         self.running.remove(&(node, property));
         self.slots.remove(&(node, property)).is_some()
@@ -405,6 +423,9 @@ impl Engine {
         };
 
         let after = change.value;
+        // A played transition comes back to be sampled (or played again):
+        // a retarget measures from its curve, as for a running one.
+        self.played.remove(&key);
         if matches!(slot.owner(), Some(Owner::Held(_))) {
             slot.set_target(after);
             return Ok(());
@@ -487,6 +508,25 @@ impl Engine {
         Ok(())
     }
 
+    /// A change no author made — a list's rows moved because rows above them
+    /// were built or measured — taken with no transition: an idle property's
+    /// target and presentation both become the value, so nothing moves on
+    /// screen and nothing is left to present. A property that is running or
+    /// held is observed as an ordinary change.
+    pub fn observe_settled(&mut self, change: Change) -> Result<(), EngineError> {
+        validate_value(change.property, change.value)?;
+        let key = (change.node, change.property);
+        match self.slots.get_mut(&key) {
+            Some(slot) if slot.running().is_none() && slot.owner().is_none() => {
+                slot.set_target(change.value);
+                slot.set_presented(change.value);
+                self.played.remove(&key);
+                Ok(())
+            }
+            _ => self.observe(change),
+        }
+    }
+
     /// Move the clock to `now` and sample every running transition there.
     /// Seeking is the only operation: the result depends on `now`, never on
     /// how many calls it took to get there.
@@ -496,7 +536,13 @@ impl Engine {
         self.running.retain(|key| {
             let slot = self.slots.get_mut(key).expect("running slot");
             let sample = slot.running().expect("indexed curve").sample(now);
-            slot.set_presented(sample.value);
+            // Done presents the target in its own encoding: the curve may
+            // have run in Oklab (LLP 1100 D2).
+            slot.set_presented(if sample.done {
+                slot.target
+            } else {
+                sample.value
+            });
             if sample.done {
                 slot.set_running(None);
                 slot.set_owner(None);
@@ -504,6 +550,7 @@ impl Engine {
             self.dirty.insert(*key);
             !sample.done
         });
+        self.retire_played(now);
         self.advance_animations();
         Ok(())
     }
@@ -685,7 +732,7 @@ mod tests {
         assert_eq!(engine.settle_time(), None);
         // A settled slot is its target alone.
         assert!(engine.slots.values().all(|slot| slot.live.is_none()));
-        assert_eq!(std::mem::size_of::<Slot>(), 40);
+        assert_eq!(std::mem::size_of::<Slot>(), 48);
 
         engine
             .set_transitions(

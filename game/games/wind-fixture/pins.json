@@ -1,0 +1,16 @@
+{
+  "ticks": {
+    "300": "0x0a708c80135e921b"
+  },
+  "saves": {
+    "continuation": "585350599dae183d72e80ebe1d46a33b7b4ab808653c2392d93dda12b2ae16cf"
+  },
+  "hosts": [
+    "linux",
+    "web"
+  ],
+  "inputs": "7026f92b3dc5d2180602290693341df1c26be2c90a6827e020256a5881a9a07f",
+  "game": "wind-fixture",
+  "generated": "bun game/prove.mjs wind-fixture --hosts 'linux,web'",
+  "at": "f1c177036e370b462285f69337b23119d6eb7628"
+}

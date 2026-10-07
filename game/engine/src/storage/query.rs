@@ -79,6 +79,7 @@ pub struct ComponentBorrow<'w, C, const MUT: bool, const OPTIONAL: bool> {
 }
 impl<'w, C: Component, const M: bool, const O: bool> ComponentBorrow<'w, C, M, O> {
     fn new(world: &'w World, seen: &mut [Option<TypeId>; 8]) -> Self {
+        world.sim_reads::<C>();
         let id = TypeId::of::<C>();
         assert!(
             !seen.contains(&Some(id)),
@@ -91,6 +92,9 @@ impl<'w, C: Component, const M: bool, const O: bool> ComponentBorrow<'w, C, M, O
             .unwrap_or_else(|| panic!("query exceeds 8 terms at {}", C::NAME));
         *slot = Some(id);
         let storage = world.storage::<C>();
+        if M && !C::PRESENTATION {
+            world.sim_writes(format_args!("queried `{}` mutably", C::NAME));
+        }
         if M {
             // A mutable query is a write generation from construction, as before.
             storage.inspect(|s| s.edited());
@@ -125,6 +129,14 @@ impl<'w, C: Component, const M: bool, const O: bool> ComponentBorrow<'w, C, M, O
     fn has(&self, index: usize) -> bool {
         self.storage.is_some_and(|s| s.has(index))
     }
+    // A mutable term records each row it hands out for `World::changed`.
+    fn touch(&self, index: usize) {
+        if M {
+            if let Some(s) = self.storage {
+                s.mark_row(index);
+            }
+        }
+    }
 }
 macro_rules! owned_row {
     (true, $s:ident, $i:ident, $make:ident) => {
@@ -151,6 +163,7 @@ macro_rules! reference {
                 index: usize,
                 lease: &QueryLease<'w>,
             ) -> Self::Owned<'w> {
+                state.touch(index);
                 let make = || $guard {
                     ptr: state.ptr(index),
                     _lease: lease.split(),
@@ -168,6 +181,9 @@ macro_rules! reference {
             fn mark_page(&self, page: usize) {
                 if let Some(s) = self.storage {
                     if $m {
+                        // A fresh revision per visited page: rows handed out now
+                        // compare newer than any revision read before iteration.
+                        s.edited();
                         s.mark_page(page);
                     }
                     self.page.set(
@@ -196,6 +212,7 @@ macro_rules! reference {
             }
             unsafe fn fetch<'a>(&self, $i: usize) -> $item {
                 let $s = self;
+                $s.touch($i);
                 // SAFETY: the caller holds the exclusive query borrow, selects each
                 // present slot once, and bounds returned references by that borrow.
                 unsafe { $fetch }
@@ -326,6 +343,7 @@ pub struct QueryBorrow<'w, Q: Query> {
     registered: Option<Registration<'w>>,
 }
 fn raw<C: Component>(world: &World) -> (&[u64], *const RawStorage) {
+    world.sim_reads::<C>();
     world.storage::<C>().map_or((&[], std::ptr::null()), |s| {
         (&s.mask, &s.raw as *const RawStorage)
     })

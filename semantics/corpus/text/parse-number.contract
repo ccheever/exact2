@@ -1,0 +1,40 @@
+// parseNumber (LLP 1102 §3.1): `trim`'s whitespace around an optional sign,
+// digits with an optional fraction or a fraction alone, an optional
+// exponent; the nearest double, or none for any other text, past the
+// largest finite, or a nonzero numeral that rounds to zero. `-0` is -0.
+// The spaces line has a no-break space, a BOM and a NEL (not JS whitespace).
+fn shown(s: string): string = match parseNumber(s) { case some(n) => toString(n), case none => "none" }
+
+component App
+  state input = " 12.5 "
+  derive value = shown(input)
+  derive forms = `${shown("-3")} ${shown("+.5")} ${shown("5.")} ${shown("1e3")} ${shown("1E-2")} ${shown("00012")} ${shown("5.e3")}`
+  derive misses = `${shown("")} ${shown(".")} ${shown("12px")} ${shown("0x1F")} ${shown("1_000")} ${shown("Infinity")} ${shown("1e")} ${shown("1 2")}`
+  derive edges = `${shown("1.7976931348623157e308")} ${shown("1.7976931348623159e308")} ${shown("2.4703282292062328e-324")} ${shown("1e-400")} ${shown("0e999999")} ${shown("9007199254740993")}`
+  derive spaces = `${shown(" \t7\n")} ${shown("﻿8")} ${shown("9")}`
+  action set(v: string)
+    input = v
+  view
+    column
+      text value testId="value"
+      text forms testId="forms"
+      text misses testId="misses"
+      text edges testId="edges"
+      text spaces testId="spaces"
+      text toString(match parseNumber("-0") { case some(n) => 1 / n, case none => 0 }) testId="negZero"
+      button "bad" press=set("12,5") testId="bad"
+      button "neg" press=set("-0.25e1") testId="neg"
+
+test "values"
+  expect text "value" == "12.5"
+  expect text "forms" == "-3 0.5 5 1000 0.01 12 5000"
+  expect text "misses" == "none none none none none none none none"
+  expect text "edges" == "1.7976931348623157e+308 none 5e-324 none 0 9007199254740992"
+  expect text "negZero" == "-Infinity"
+  expect text "spaces" == "7 8 none"
+
+test "typed"
+  tap "bad"
+  expect text "value" == "none"
+  tap "neg"
+  expect text "value" == "-2.5"

@@ -56,12 +56,13 @@ inline run, `ScrollView`→`div[data-scroll]`, `TextInput`→`input`,
 by `semanticTag` (`main`, `header`, `nav`, `section`, `footer`, `article`,
 `aside`, `dialog`). A text block with `aria-level` 1–6 and no other role is
 `h1`–`h6` (deeper: a `div` with `role="heading"`); a `Pressable` is a
-`<button type="button">` (an `a` with an `href`). Contract's `button` is a
-flex column (LLP 1006 §3; Charlie, 2026-09-23: "One native button, flex
-column"): a block `<button>` centers its content in an anonymous box whatever
-`all: unset`, `display: flow-root` or `align-content` say (Chrome 153 puts a
-20 px child at 40 in a 100 px button), and a flex one lays out as the kernel
-does (`kernel/tests/it/browser_cases.rs`). A button holds only phrasing
+`<button type="button">` (an `a` with an `href`). Contract's `button` is
+Chrome's `<button>` (LLP 1001 §1; Charlie, 2026-10-04, reversing 2026-09-23's
+flex column): `index.html` resets it to a block (`all: unset; display:
+block`), the browser centres a block button's content in its anonymous box,
+the kernel does the same for native hosts, and the compiler's fixed
+`text-align: center` row restores the UA sheet's centred text that `all:
+unset` removes. A button holds only phrasing
 content, so there a container — a box, a paragraph, a heading, a landmark —
 is a `<span>` with the same style, a block unless a row says otherwise; a
 button inside a button stays a document refusal. `index.html` resets the
@@ -103,7 +104,9 @@ slot; outside cancellation preserves selection, first Escape closes confirmation
 and second Escape cancels selection (`/tmp/messages-modal-confirmation/`).
 
 **Symbols** (LLP 1035.004, 2026-09-10) remain `img` leaves. The Rust host
-supplies the schema-generated `data-symbol-path` and decorative `alt=""`.
+supplies the schema-generated `data-symbol-path` and decorative `alt=""`, unless the
+author named the image (`alt`, `aria-label`; 2026-10-04), whose name it keeps; the JS
+target's symbol hook keeps it too.
 The glue intercepts `symbol:` sources without a network request, supplies a
 transparent SVG sized from computed `font-size`, and paints the generated path
 as a CSS mask. Font weight changes its stroke; `tint-color` supplies its colour
@@ -125,7 +128,8 @@ values are already CSS spellings), with the exceptions a table names
 `backdrop_blur`→`backdrop-filter: blur()`). Units by rule: dimensions and
 lengths in `px`, percentages, `auto`; unitless where CSS is (`flex-grow`,
 `opacity`, `z-index`, `font-weight`, `scale`); `rotate` in `deg`;
-`translate` as two lengths. Rows the host does not lower are returned as
+`translate` as two lengths or percentages (a `calc()` of the two where an
+axis has both). Rows the host does not lower are returned as
 `Skipped { row, reason }`: gradients and grid rows in v1. `line_clamp`
 uses the browser's legacy box only for
 non-scrolling blocks. On flex, grid, `display:none`, or either scrolling axis,

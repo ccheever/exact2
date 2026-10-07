@@ -2,7 +2,7 @@
 //! §15.10, §15.14, §15.20, §15.22): neighbourhoods over the input.
 
 use super::{to_linear, Img, Space};
-use exact_kernel::svg::filter::{Convolve, Light, Lighting};
+use exact_svg_filter::{Convolve, Light, Lighting};
 
 /// `feConvolveMatrix`: the kernel, turned by 180° as the spec writes it,
 /// over premultiplied colour (or unpremultiplied colour with alpha kept).

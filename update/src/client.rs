@@ -415,6 +415,10 @@ mod tests {
     const ORIGIN: &str = "https://o.example";
 
     #[test]
+    #[cfg_attr(
+        windows,
+        ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+    )]
     fn a_client_opens_under_the_app_id_and_names_its_head() {
         let base = temp("open");
         let assets = temp("open-assets");
@@ -468,6 +472,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        windows,
+        ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+    )]
     fn a_download_cannot_overwrite_a_newer_check_or_concurrent_activation() {
         let base = temp("check-race");
         let mut client = Client::open_at(&base, &base, COMPAT, b"embedded", Some(ORIGIN)).unwrap();
@@ -523,6 +531,10 @@ mod tests {
     }
 
     #[test]
+    #[cfg_attr(
+        windows,
+        ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+    )]
     fn entry_refused_keeps_first_pixel_from_blessing_it() {
         let base = temp("refused");
         let mut c = Client::open_at(&base, &base, COMPAT, b"plan", Some(ORIGIN)).unwrap();

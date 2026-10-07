@@ -1,7 +1,8 @@
 //! The resident dev driver: source change observed → plan ready, in one
 //! long-lived process (LLP 1004 D5; LLP 1006 §8's owed piece).
 //!
-//! A [`Session`] watches one `.contract` file. When its bytes change it
+//! A [`Session`] watches one `.contract` file and every source it uses
+//! (LLP 1091 D10). When their bytes change it
 //! compiles, bakes against the app's data source, and writes the plan
 //! atomically where the page fetches it. A reload is a restart: the page
 //! boots the new plan from initial state (`exact_boot_plan`), with no state
@@ -37,8 +38,55 @@ pub struct Session {
     last: Option<String>,
     stamp: Option<(SystemTime, u64)>,
     surfaces_stamp: Option<(SystemTime, u64)>,
+    /// The files the last build read besides the root, and how they looked.
+    uses: Vec<(PathBuf, Option<(SystemTime, u64)>)>,
     failed: bool,
     source_map: bool,
+}
+
+/// A used file as it reads: its time and a fingerprint of its bytes, so a
+/// link retargeted at a twin, a copy that kept its times, or a junction
+/// moved on any platform is a change. Used files are small Contract sources
+/// and manifests.
+fn stamp_of(path: &Path) -> Option<(SystemTime, u64)> {
+    use std::hash::{Hash, Hasher};
+    let meta = std::fs::metadata(path).ok()?;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    std::fs::read(path).ok()?.hash(&mut hasher);
+    // Which file it really is, on every platform: a link or junction
+    // retargeted at a byte-identical twin leads to another path.
+    std::fs::canonicalize(path).ok().hash(&mut hasher);
+    // And, where the platform has one, which file it is: a link retargeted
+    // at a byte-identical twin whose relative uses differ.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        (meta.dev(), meta.ino()).hash(&mut hasher);
+    }
+    Some((meta.modified().ok()?, hasher.finish()))
+}
+
+/// The files compiling `root` reads besides itself: used files, packages'
+/// files and their `package.json`s, as they are now.
+fn uses(root: &Path) -> Vec<(PathBuf, Option<(SystemTime, u64)>)> {
+    let graph = contract::source_graph(root);
+    let mut out = graph.consulted;
+    // The root by the path it is opened at: retargeting it at a twin whose
+    // relative uses differ is a change its bytes do not show.
+    out.push(root.to_path_buf());
+    for source in graph.sources.into_iter().skip(1) {
+        if source.path.is_absolute() {
+            out.push(source.path);
+        }
+    }
+    out.sort();
+    out.dedup();
+    out.into_iter()
+        .map(|path| {
+            let stamp = stamp_of(&path);
+            (path, stamp)
+        })
+        .collect()
 }
 
 fn unix_ms(t: SystemTime) -> f64 {
@@ -55,6 +103,7 @@ impl Session {
             last: None,
             stamp: None,
             surfaces_stamp: None,
+            uses: Vec::new(),
             failed: false,
             source_map: true,
         }
@@ -81,7 +130,14 @@ impl Session {
         let surfaces_stamp = std::fs::metadata(self.source.with_file_name(".shells/surfaces.json"))
             .ok()
             .and_then(|m| Some((m.modified().ok()?, m.len())));
-        let surfaces_changed = self.surfaces_stamp != surfaces_stamp;
+        // By fingerprint (bytes and which file it is), not time: a used file
+        // re-saved with identical bytes is no change, as the root is not.
+        let print = |s: Option<(SystemTime, u64)>| s.map(|s| s.1);
+        let uses_changed = self
+            .uses
+            .iter()
+            .any(|(path, seen)| print(stamp_of(path)) != print(*seen));
+        let surfaces_changed = self.surfaces_stamp != surfaces_stamp || uses_changed;
         // A failed compile may have observed a file while an editor was
         // replacing its bytes. Until a good plan lands, re-read even when
         // the coarse metadata stamp is unchanged; identical bad bytes are
@@ -105,6 +161,7 @@ impl Session {
         let saved = surfaces_stamp.map_or(stamp.0, |s| s.0.max(stamp.0));
         let built = self.build::<D>(&src, unix_ms(saved));
         self.failed = built.is_err();
+        self.uses = uses(&self.source);
         Some(built)
     }
 

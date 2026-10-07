@@ -32,6 +32,8 @@ fn timing_200k() {
             &[Batch {
                 mesh: cube,
                 casts_shadows: true,
+                viewmodel: false,
+                level: 0,
                 slots: 0..N as u32,
             }],
             &(0..N as u32).collect::<Vec<_>>(),
@@ -283,13 +285,14 @@ fn timing_effects_300() {
         illuminance: 3.0,
         shadows: None,
     });
-    let points = [PointLightInput {
+    let points = [LightInput {
         position: Vec3::new(0.0, 1.4, 4.0),
         color: Vec3::new(1.0, 0.65, 0.07),
         intensity: 20.0,
         range: 6.0,
+        ..Default::default()
     }];
-    f.points = &points;
+    f.lights = &points;
     let mut cpu = [0.0; 3];
     let mut pass_ms = [[0.0; TIMED_PASSES + 1]; 3];
     for mode in 0..3 {

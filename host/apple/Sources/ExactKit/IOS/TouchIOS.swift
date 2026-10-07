@@ -5,7 +5,7 @@
 // log records each touch the window dispatched, after UIKit dispatched it
 // (D5): window dispatch only — never a recognizer's outcome, a cancellation
 // or a handled press, which `state` and `tree` answer.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 /// The app's window: an ordinary `UIWindow` that, under the agent only,
@@ -56,6 +56,9 @@ enum TouchLog {
         var at = view
         while let v = at, !(v is NodeView) { at = v.superview }
         out["node"] = (at as? NodeView).map { Int($0.id) } ?? NSNull()
+        // In a grouped list's cell, which row and which part of it: the
+        // node alone is the list's for every row (LLP 1084).
+        if let projected = GroupedListHost.part(view) { out["projected"] = projected }
         if let v = view {
             for (label, session) in Agent.routes where v.isDescendant(of: session.presenter.viewport) || session.view.map({ v.isDescendant(of: $0) }) == true {
                 out["session"] = label
@@ -85,13 +88,16 @@ extension Agent {
         if presenter.swipeActions.ownsAction(v.id) { return "is a native swipe action" }
         if presenter.menus.agentPainted(v) { return "goes through the agent's painted popovers" }
         let nav = presenter.navigation
+        // Under `--chrome platform` UIKit's bars draw these: a finger aims
+        // at a node, and the node is not where the bar item is.
+        let shown = ExactEnv.authoredChrome ? "the agent shows in place of" : "drawn by (--chrome platform; tap it without --touch platform)"
         if nav.tabController != nil, let list = nav.adoptedTablist.flatMap({ presenter.views[$0] }), v === list || v.isDescendant(of: list) {
-            return "is in the authored tablist the agent shows in place of UIKit's tab bar"
+            return "is in the authored tablist \(shown) UIKit's tab bar"
         }
         for controller in nav.allNavigations where nav.stacks[ObjectIdentifier(controller)]?.showsBar == true {
             for case let route as RouteController in controller.viewControllers {
                 if let header = HeaderShape(route: route.node, back: nil)?.header, v === header || v.isDescendant(of: header) {
-                    return "is in the authored header the agent shows in place of UIKit's navigation bar"
+                    return "is in the authored header \(shown) UIKit's navigation bar"
                 }
             }
         }
@@ -107,6 +113,10 @@ extension Agent {
 
     /// The scene's interface orientation, by UIKit's name for it.
     static func orientation(_ scene: UIWindowScene?) -> String {
+        #if os(tvOS)
+        // tvOS has no interface orientation.
+        return "unknown"
+        #else
         switch scene?.effectiveGeometry.interfaceOrientation {
         case .portrait: return "portrait"
         case .portraitUpsideDown: return "portraitUpsideDown"
@@ -114,6 +124,7 @@ extension Agent {
         case .landscapeRight: return "landscapeRight"
         default: return "unknown"
         }
+        #endif
     }
 
     /// The private touch forms of `tap` (LLP 1080.000 D4/D5), or nil.
@@ -129,6 +140,11 @@ extension Agent {
     func aim(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         if v.placedAncestor?.placementHidden == true { return ["error": "tap #\(v.id): placed child is hidden"] }
+        // Said before where it sits: until a swipe reveals it, its node is
+        // past the row's edge (splitter rough 12).
+        if presenter.swipeActions.ownsAction(v.id) {
+            return ["error": "unsupported: tap #\(v.id) is a native swipe action: a finger swipes its row (`tap <row> drag -<width> 0`; a full swipe performs the first trailing action), and without --touch platform `tap` performs it"]
+        }
         let scene = win.windowScene
         guard UIApplication.shared.applicationState == .active, scene?.activationState == .foregroundActive, win.isKeyWindow else {
             return ["error": "tap #\(v.id): the app is not the foreground, key window"]
@@ -136,15 +152,43 @@ extension Agent {
         // The point: the request's, else the middle of the target — of a
         // visible shaped fragment for an inline id, as `tap` aims.
         var at = req
-        if let offset = req["aim"] as? [String: Any] { at["x"] = offset["x"]; at["y"] = offset["y"] }
-        guard let local = tapPoint(at, node: v) else { return ["error": "tap #\(req["id"] ?? v.id): no visible text fragment; scroll it into view first"] }
+        if let offset = req["aim"] as? [String: Any] {
+            // A point that is present must be one: never the middle in its place.
+            for k in ["x", "y"] where offset[k] != nil {
+                guard let n = offset[k] as? Double, n.isFinite else { return ["error": "tap #\(v.id): the aim's \(k) must be a finite number"] }
+            }
+            at["x"] = offset["x"]; at["y"] = offset["y"]
+        }
+        // A row a grouped list draws, or its toggle's or detail button's
+        // control (LLP 1084 D5): the finger aims at UIKit's cell or
+        // accessory, never the hidden authored node beneath it.
+        var target: UIView = v, port: UIScrollView?
+        switch presenter.groupedLists.shown(v) {
+        case .refused(let why): return ["error": "tap #\(v.id): \(why)"]
+        case .view(let drawn, let list): target = drawn; port = list
+        case nil: break
+        }
+        let drawnBox = target === v ? nil : box(target)
+        guard let local = drawnBox.map({ CGPoint(x: at["x"] as? Double ?? $0.midX, y: at["y"] as? Double ?? $0.midY) }) ?? tapPoint(at, node: v) else {
+            return ["error": "tap #\(req["id"] ?? v.id): no visible text fragment; scroll it into view first"]
+        }
         let vp = presenter.viewport
         let p = vp.convert(CGPoint(x: local.x + vp.contentOffset.x, y: local.y + vp.contentOffset.y), to: nil)
         let seen = win.hitTest(p, with: nil)
         if !CGRect(origin: .zero, size: vp.bounds.size).contains(local) || seen == nil {
             return ["error": "tap #\(v.id): the point is outside the viewport; scroll it into view first"]
         }
-        if let why = obscured(v, at: p, hit: seen!) { return ["error": "tap #\(v.id): \(why)"] }
+        if let why = obscured(target, at: p, hit: seen!) { return ["error": "tap #\(v.id): \(why)"] }
+        // What a list draws is hit itself, in the list's port: never an
+        // ancestor beside a clipped cell, which the landing check would pass.
+        if let port {
+            guard port.convert(port.bounds, to: nil).contains(p) else {
+                return ["error": "tap #\(v.id): the point is outside the list's port; scroll it into view first"]
+            }
+            guard seen === target || seen!.isDescendant(of: target) else {
+                return ["error": "tap #\(v.id): \((seen as? NodeView).map { "node #\($0.id)" } ?? String(describing: Swift.type(of: seen!))) covers its middle"]
+            }
+        }
         // Stage 3's boundary, over the target, every node enclosing it (an
         // invoker around a label) and every node enclosing what the finger
         // would hit.
@@ -162,8 +206,12 @@ extension Agent {
             "screen": ["w": Agent.r2(space.bounds.width), "h": Agent.r2(space.bounds.height), "x": Agent.r2(origin.x), "y": Agent.r2(origin.y)],
             "point": [Agent.r2(s.x), Agent.r2(s.y)], "node": Int(v.id),
             "at": [Agent.r2(local.x), Agent.r2(local.y)], // the viewport point, as `tap` replies it
+            "window": [Agent.r2(p.x), Agent.r2(p.y)], // the window point, as the dispatch log records touches
+            "viewport": [Agent.r2(vp.bounds.width), Agent.r2(vp.bounds.height)], // where a drag must end
             // The Exact node the window's hit test finds there: where the dispatch log must see the touch land.
             "hit": TouchLog.landing(seen)["node"] ?? NSNull(),
+            // In a grouped list, the row and part it must land on too.
+            "projected": TouchLog.landing(seen)["projected"] ?? NSNull(),
         ] as [String: Any]]
     }
 }

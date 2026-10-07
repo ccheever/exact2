@@ -24,13 +24,22 @@ private func still<L: CALayer>(_ layer: L) -> L { layer.delegate = StillDelegate
 private func num(_ v: Any?) -> Double { (v as? NSNumber)?.doubleValue ?? 0 }
 private func nums(_ v: Any?) -> [Double] { (v as? [Any])?.map(num) ?? [] }
 
-/// A colour the host sent: `[r,g,b,a]` (0–255), or a `light-dark()` pair.
+/// A colour the host sent: `[r,g,b,a]` (0–255), a `light-dark()` pair, or a
+/// colour in its own space, `{"cs": [{"s", "v"}…]}` (LLP 1100 D2).
 private func color(_ v: Any?, dark: Bool) -> CGColor? {
-    guard let a = v as? [Any] else { return nil }
-    let c: [Double]
-    if a.count == 2, let pair = a[dark ? 1 : 0] as? [Any] { c = pair.map(num) } else { c = a.map(num) }
-    guard c.count == 4 else { return nil }
-    return CGColor(srgbRed: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
+    // Restore the typed color, including the ICC handle kept by the payload
+    // adapter, and use the same conversion/intent as every other paint path.
+    func value(_ v: Any?) -> BatchValue {
+        switch v {
+        case let p as ProfileSpaces.Handle: return .profile(p)
+        case let n as NSNumber: return .number(n.doubleValue)
+        case let s as String: return .string(s)
+        case let a as [Any]: return .array(a.map { value($0) })
+        case let o as [String: Any]: return .object(o.mapValues { value($0) })
+        default: return .null
+        }
+    }
+    return value(v).cgColor(dark: dark)
 }
 
 /// `[0,x,y, 1,x,y, 2,x1,y1,x2,y2,x,y, 3]`: move, line, cubic, close.
@@ -113,6 +122,7 @@ enum CssAnimations {
         case let n as NSNumber: h.combine(n.doubleValue.bitPattern)
         case let n as Double: h.combine(n.bitPattern)
         case let s as String: h.combine(s)
+        case let p as ProfileSpaces.Handle: h.combine(p.key)
         case let a as [Any]: h.combine(a.count); for x in a { digest(x, into: &h) }
         // A prepared path hashes as the numbers it was built from.
         case let p as PreparedPath: h.combine(p.digest)
@@ -161,7 +171,7 @@ enum CssAnimations {
         a.duration = duration
         a.repeatCount = repeatCount < 0 ? .infinity : Float(repeatCount)
         let fill = Int(num(spec["fill"]))
-        let backwards = fill == 2 || fill == 3
+        let backwards = fill == 2 || fill == 3, forwards = fill == 1 || fill == 3
         a.fillMode = [CAMediaTimingFillMode.removed, .forwards, .backwards, .both][min(max(fill, 0), 3)]
         a.isRemovedOnCompletion = false
         let start = num(spec["s"]), delay = num(spec["dl"])
@@ -172,6 +182,9 @@ enum CssAnimations {
             // At or past a finite end CA wraps to the next cycle's start; CSS
             // holds the last frame (with a forwards fill), so stay a hair inside.
             let total = repeatCount < 0 ? Double.infinity : duration * repeatCount
+            // Ended without a forwards fill: no effect, as CSS (the property
+            // shows its own value; a held last frame hid every later change).
+            if active >= total && !forwards { return nil }
             let at = min(max(0, active), total - 1e-6)
             if offscreen {
                 a.beginTime = layer.convertTime(CACurrentMediaTime(), from: nil) - at
@@ -235,7 +248,7 @@ final class SvgScene {
 
     init() { root.masksToBounds = false; root.anchorPoint = .zero }
 
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     /// Filtered pictures that follow a changing input on the GPU, by element.
     private var live: [Int: SvgFilterLive] = [:]
     #endif
@@ -244,7 +257,7 @@ final class SvgScene {
     /// redrawn on the GPU after this commit (`SvgFilterLive`); `nil` for a
     /// first picture, or a chain or host the GPU path does not take.
     private func follow(_ id: Int, _ fl: [String: Any], k: CGFloat, dark: Bool, clock: Double?) -> CALayer? {
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         // A picture whose content animates follows it from its first frame:
         // its animations play in its sub-scene (`svg_lower::in_picture`).
         let animated = SvgFilterLive.animated(fl["c"] as Any)
@@ -267,7 +280,7 @@ final class SvgScene {
     }
 
     private func forget(_ id: Int) {
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         live.removeValue(forKey: id)?.stop()
         #endif
     }
@@ -404,7 +417,7 @@ final class SvgScene {
         if force { installed = [:]; wrapInstalled = [:] }
         for (id, list) in specs { if let layer = layers[id] { CssAnimations.apply(list, to: layer, clock: clock, installed: &installed[id, default: [:]], offscreen: offscreen) } }
         for (id, list) in wrapSpecs { if let outer = wrappers[id]?.outer { CssAnimations.apply(list, to: outer, clock: clock, installed: &wrapInstalled[id, default: [:]], offscreen: offscreen) } }
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         for l in live.values { l.seek(clock) }
         #endif
     }
@@ -415,7 +428,7 @@ final class SvgScene {
         root.sublayers?.forEach { $0.removeFromSuperlayer() }
         for pair in wrappers.values { pair.outer.removeAllAnimations() }
         layers = [:]; installed = [:]; specs = [:]; wrappers = [:]; wrapSpecs = [:]; wrapInstalled = [:]; islands = [:]; pictures = [:]; drawn = [:]; shadows = [:]
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         for l in live.values { l.stop() }
         live = [:]
         #endif
@@ -584,19 +597,38 @@ final class SvgScene {
 /// `animations` ops, the agent clock's re-seek, and cleanup when a view goes.
 final class SvgHost {
     private var scenes: [UInt32: SvgScene] = [:]
+    /// Each view's last scene: a `light-dark()` paint is resolved when a
+    /// scene is applied, so an appearance change applies it again
+    /// (minesweeper F11, paint F10).
+    private var payloads: [UInt32: [String: Any]] = [:]
     /// The session's fonts, for SVG text: set by the presenter.
     var fonts: SvgText.Fonts?
     private var boxSpecs: [UInt32: (layer: CALayer, specs: [[String: Any]])] = [:]
     private var boxInstalled: [UInt32: [String: String]] = [:]
     private var seeked: Double?
 
-    func scene(_ id: UInt32, _ payload: [String: Any], layer: CALayer?, dark: Bool, clock: Double?) {
+    /// A scene's root layer's name, by which its node re-asks its range (LLP 1100 D8).
+    static let rootName = "exact-svg"
+
+    func scene(_ id: UInt32, _ payload: [String: Any], layer: CALayer?, dark: Bool, clock: Double?, limit: String? = nil) {
         guard let layer else { return }
         let scene = scenes[id] ?? { let s = SvgScene(); scenes[id] = s; return s }()
+        scene.root.name = Self.rootName
         if scene.root.superlayer !== layer { layer.addSublayer(scene.root) }
         scene.scale = max(1, layer.contentsScale)
         scene.fonts = fonts
-        scene.apply(payload["scene"] as? [String: Any] ?? [:], dark: dark, clock: clock)
+        let spec = payload["scene"] as? [String: Any] ?? [:]
+        payloads[id] = spec
+        scene.apply(spec, dark: dark, clock: clock)
+        scene.root.applyColorRange(limit: limit, deep: true)
+    }
+
+    /// `id`'s view changed appearance: its scene is applied again in the
+    /// new one. Only what the appearance reaches redraws (`drew`, and the
+    /// islands' and pictures' keys, hash it); animations keep running.
+    func reappear(_ id: UInt32, dark: Bool, clock: Double?) {
+        guard let scene = scenes[id], let spec = payloads[id] else { return }
+        scene.apply(spec, dark: dark, clock: clock)
     }
 
     func animations(_ id: UInt32, _ payload: [String: Any], layer: CALayer?, clock: Double?) {
@@ -620,6 +652,7 @@ final class SvgHost {
 
     func forget(_ id: UInt32) {
         if let scene = scenes.removeValue(forKey: id) { scene.reset(); scene.root.removeFromSuperlayer() }
+        payloads.removeValue(forKey: id)
         if let entry = boxSpecs.removeValue(forKey: id) { CssAnimations.apply([], to: entry.layer, clock: nil, installed: &boxInstalled[id, default: [:]]) }
         boxInstalled.removeValue(forKey: id)
     }

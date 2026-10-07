@@ -120,6 +120,7 @@ pub(super) struct Layout {
     pub(super) index: ink::Index,
     lines: Arc<Vec<Vec<cosmic_text::LayoutLine>>>,
     baselines: Arc<Vec<f32>>,
+    bottoms: Arc<Vec<f32>>,
     metrics: TextMetrics,
     capacity: usize,
     #[cfg(test)]
@@ -375,6 +376,7 @@ impl FontWorker {
                 metrics,
                 lines: p.layouts,
                 baselines: p.baselines,
+                bottoms: p.bottoms,
                 capacity: p.resident_capacity_bytes,
                 #[cfg(test)]
                 lifetime: p.layout_lifetime,
@@ -441,6 +443,7 @@ pub(crate) fn adopt(
             )),
             layouts: l.lines.clone(),
             baselines: l.baselines.clone(),
+            bottoms: l.bottoms.clone(),
             flow: None,
             #[cfg(test)]
             layout_lifetime: l.lifetime.clone(),

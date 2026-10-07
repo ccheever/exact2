@@ -1,0 +1,45 @@
+// linux: layout
+// A `button` is Chrome's `<button>` (LLP 1001 §1): the browser's DOM boxes
+// are compared with the Linux host's kernel boxes by conform.mjs. A block
+// button centres its content, safely, in its height; a flex or grid button
+// is an ordinary container. Each step changes a bound row.
+component Buttons
+  state tall = false
+  state shown = "block"
+  action grow
+    tall = not tall
+  action show(next: string)
+    shown = next
+  view
+    column testId="root" width=420 box-sizing="border-box" padding=16 gap=12
+      row gap=8
+        button testId="grow" press=grow width=80 height=28 background-color="#dddddd"
+          text "grow" line-height="18px"
+        button testId="as-flex" press=show("flex") width=80 height=28 background-color="#dddddd"
+          text "flex" line-height="18px"
+        button testId="as-grid" press=show("grid") width=80 height=28 background-color="#dddddd"
+          text "grid" line-height="18px"
+      button testId="one" height=(tall ? 140: 100) background-color="#eeeeee"
+        box testId="one-child" width=30 height=20 background-color="#3366cc"
+      button testId="two" height=(tall ? 140: 100) background-color="#eeeeee"
+        box testId="two-a" height=20 background-color="#3366cc"
+        box testId="two-b" width=30 height=20 margin-top=10 background-color="#cc6633"
+      button testId="over" height=40 overflow="hidden" background-color="#eeeeee"
+        box testId="over-child" width=30 height=(tall ? 30: 90) background-color="#3366cc"
+      button testId="label" width=200 height=(tall ? 80: 60) padding=8 background-color="#eeeeee"
+        text "Save" testId="label-text" line-height="18px"
+      button testId="sized"
+        min-height=60
+        padding-left=10
+        padding-right=10
+        border-width=2
+        border-style="solid"
+        box-sizing="border-box"
+        background-color="#eeeeee"
+        box testId="sized-child" width=30 height=20 background-color="#3366cc"
+      button testId="placed" position="relative" width=80 height=100 background-color="#eeeeee"
+        box testId="placed-flow" width=30 height=20 background-color="#3366cc"
+        box testId="placed-abs" position="absolute" width=10 height=10 background-color="#cc6633"
+      button testId="laid" display=shown height=80 gap=6 background-color="#eeeeee"
+        box testId="laid-a" width=30 height=20 background-color="#3366cc"
+        box testId="laid-b" width=30 height=10 background-color="#cc6633"

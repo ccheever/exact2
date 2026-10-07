@@ -1,7 +1,7 @@
 // The fields a node's view rarely sets, apart from the view (LLP 1010 §6:
 // a list's memory is its rows'). Every accessor reads and writes as the
 // stored property it replaces did.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 /// What most nodes never set — gestures and their holds, editors and
@@ -9,13 +9,25 @@ import UIKit
 /// scroller's bookkeeping — held apart and made on the first write that is
 /// not a default (`NodeView.more`). A list's rows set none of it, so each
 /// row's view is about 500 bytes smaller.
+/// A fixed gradient as last aimed: its layer, style, appearance and boxes,
+/// and the gradient and stops made from them.
+struct AimedGradient {
+    weak var layer: CAGradientLayer?
+    let source: BatchValue, dark: Bool, bounds: CGRect, box: CGRect
+    let gradient: Gradient, stops: ([CGFloat], [CGColor])
+}
+
 final class NodeExtras {
     var inlinePressed: UInt32?
+    /// A Markdown link pressed in this text: its target, followed on release over it.
+    var linkPressed: String?
     var svgPressed: UInt32?
     var clipPath: CGPath?
     var clipRule: CGPathFillRule = .winding
     /// A `background-image` gradient Core Animation paints (LLP 1066).
     var boxGradient: CAGradientLayer?
+    /// What a fixed gradient was last aimed with (`reaimFixedGradient`).
+    var aimedGradient: AimedGradient?
     /// `box-shadow` and the clip it casts outside (`BoxShadow.swift`).
     var shadowCaster: ShadowCaster?
     /// Inset `box-shadow`s (LLP 1077 D4).
@@ -23,6 +35,8 @@ final class NodeExtras {
     var clipBox: PlainView?
     /// The box layout moved it from (LLP 1063).
     var layoutOffset: CGPoint = .zero
+    /// How far its scroller's scroll moves a sticky box (LLP 1083, `Sticky.swift`).
+    var stickyOffset: CGPoint = .zero
     var keyboardLift: CGFloat = 0
     var layoutScale = CGPoint(x: 1, y: 1)
     /// Its surface at a layout transition's size (`Surface.swift`).
@@ -31,6 +45,8 @@ final class NodeExtras {
     var layoutPanOrigin: CGPoint = .zero
     var swipeRecognizer: UIPanGestureRecognizer?
     var swipeArmed: Bool = false
+    /// Where a swipe's first finger landed, in the window (its shouldBegin's edge rule).
+    var swipeDownX: CGFloat?
     var swipeHold: SwipeHold?
     var heightRecognizer: UIPanGestureRecognizer?
     var heightHold: HeightDragHold?
@@ -44,7 +60,9 @@ final class NodeExtras {
     var swipeOrigin: Double = 0
     var contextRecognizer: UILongPressGestureRecognizer?
     var doubleRecognizer: UITapGestureRecognizer?
+    #if !os(tvOS)
     var hoverRecognizer: UIHoverGestureRecognizer?
+    #endif
     var textArea: UITextView?
     var field: UITextField?
     var pendingValue: String?
@@ -93,7 +111,9 @@ final class NodeExtras {
     var hookReusable = false
     var readingAnchors: [(node: NodeView, y: CGFloat)] = []
     weak var activeReadingAnchor: NodeView?
+    #if !os(tvOS)
     lazy var swipeFeedback = UISelectionFeedbackGenerator()
+    #endif
 }
 
 extension NodeView {
@@ -103,14 +123,17 @@ extension NodeView {
         return made
     }
     var inlinePressed: UInt32? { get { extras?.inlinePressed } set { if newValue != nil || extras != nil { more.inlinePressed = newValue } } }
+    var linkPressed: String? { get { extras?.linkPressed } set { if newValue != nil || extras != nil { more.linkPressed = newValue } } }
     var svgPressed: UInt32? { get { extras?.svgPressed } set { if newValue != nil || extras != nil { more.svgPressed = newValue } } }
     var clipPath: CGPath? { get { extras?.clipPath } set { if newValue != nil || extras != nil { more.clipPath = newValue } } }
     var clipRule: CGPathFillRule { get { extras?.clipRule ?? .winding } set { if newValue != .winding || extras != nil { more.clipRule = newValue } } }
     var boxGradient: CAGradientLayer? { get { extras?.boxGradient } set { if newValue != nil || extras != nil { more.boxGradient = newValue } } }
+    var aimedGradient: AimedGradient? { get { extras?.aimedGradient } set { if newValue != nil || extras != nil { more.aimedGradient = newValue } } }
     var shadowCaster: ShadowCaster? { get { extras?.shadowCaster } set { if newValue != nil || extras != nil { more.shadowCaster = newValue } } }
     var insetCaster: InsetShadowCaster? { get { extras?.insetCaster } set { if newValue != nil || extras != nil { more.insetCaster = newValue } } }
     var clipBox: PlainView? { get { extras?.clipBox } set { if newValue != nil || extras != nil { more.clipBox = newValue } } }
     var layoutOffset: CGPoint { get { extras?.layoutOffset ?? .zero } set { if newValue != .zero || extras != nil { more.layoutOffset = newValue } } }
+    var stickyOffset: CGPoint { get { extras?.stickyOffset ?? .zero } set { if newValue != .zero || extras != nil { more.stickyOffset = newValue } } }
     /// How far a keyboard toolbar rides up with the keyboard (KeyboardToolbarIOS).
     var keyboardLift: CGFloat { get { extras?.keyboardLift ?? 0 } set { if newValue != 0 || extras != nil { more.keyboardLift = newValue } } }
     var layoutScale: CGPoint { get { extras?.layoutScale ?? CGPoint(x: 1, y: 1) } set { if newValue != CGPoint(x: 1, y: 1) || extras != nil { more.layoutScale = newValue } } }
@@ -118,6 +141,7 @@ extension NodeView {
     var layoutPanRecognizer: UIPanGestureRecognizer? { get { extras?.layoutPanRecognizer } set { if newValue != nil || extras != nil { more.layoutPanRecognizer = newValue } } }
     var layoutPanOrigin: CGPoint { get { extras?.layoutPanOrigin ?? .zero } set { if newValue != .zero || extras != nil { more.layoutPanOrigin = newValue } } }
     var swipeRecognizer: UIPanGestureRecognizer? { get { extras?.swipeRecognizer } set { if newValue != nil || extras != nil { more.swipeRecognizer = newValue } } }
+    var swipeDownX: CGFloat? { get { extras?.swipeDownX } set { if newValue != nil || extras != nil { more.swipeDownX = newValue } } }
     var swipeArmed: Bool { get { extras?.swipeArmed ?? false } set { if newValue || extras != nil { more.swipeArmed = newValue } } }
     var swipeHold: SwipeHold? { get { extras?.swipeHold } set { if newValue != nil || extras != nil { more.swipeHold = newValue } } }
     var heightRecognizer: UIPanGestureRecognizer? { get { extras?.heightRecognizer } set { if newValue != nil || extras != nil { more.heightRecognizer = newValue } } }
@@ -132,7 +156,9 @@ extension NodeView {
     var swipeOrigin: Double { get { extras?.swipeOrigin ?? 0 } set { if newValue != 0 || extras != nil { more.swipeOrigin = newValue } } }
     var contextRecognizer: UILongPressGestureRecognizer? { get { extras?.contextRecognizer } set { if newValue != nil || extras != nil { more.contextRecognizer = newValue } } }
     var doubleRecognizer: UITapGestureRecognizer? { get { extras?.doubleRecognizer } set { if newValue != nil || extras != nil { more.doubleRecognizer = newValue } } }
+    #if !os(tvOS)
     var hoverRecognizer: UIHoverGestureRecognizer? { get { extras?.hoverRecognizer } set { if newValue != nil || extras != nil { more.hoverRecognizer = newValue } } }
+    #endif
     var textArea: UITextView? { get { extras?.textArea } set { if newValue != nil || extras != nil { more.textArea = newValue } } }
     var field: UITextField? { get { extras?.field } set { if newValue != nil || extras != nil { more.field = newValue } } }
     var pendingValue: String? { get { extras?.pendingValue } set { if newValue != nil || extras != nil { more.pendingValue = newValue } } }
@@ -171,7 +197,9 @@ extension NodeView {
         get { extras?.activeReadingAnchor }
         set { if newValue != nil || extras != nil { more.activeReadingAnchor = newValue } }
     }
+    #if !os(tvOS)
     var swipeFeedback: UISelectionFeedbackGenerator { more.swipeFeedback }
+    #endif
 }
 extension NodeView {
     var scrollOrigin: CGFloat { get { extras?.scrollOrigin ?? 0 } set { if newValue != 0 || extras != nil { more.scrollOrigin = newValue } } }
@@ -183,5 +211,18 @@ extension NodeView {
     /// top is the bar's bottom, whatever its height (UIKit keeps the offset
     /// plus that inset fixed while the title collapses) — else 0.
     func scrollTopInset(_ sv: UIScrollView) -> CGFloat { scrollOrigin > 0 ? sv.adjustedContentInset.top : 0 }
+}
+extension NodeView {
+    /// Whether a scroll animation ended at the running animation's target,
+    /// clamped to the content as it is now (`CollectionHost.animationEnded`);
+    /// nil with no target.
+    func endedAtTarget(_ scrollView: UIScrollView) -> Bool? {
+        presenter?.collections.animationTargets[id].map { t -> Bool in
+            let o = scrollView.contentOffset, i = scrollView.adjustedContentInset
+            let x = min(max(t.x, -i.left), max(-i.left, scrollView.contentSize.width + i.right - scrollView.bounds.width))
+            let y = min(max(t.y, -i.top), max(-i.top, scrollView.contentSize.height + i.bottom - scrollView.bounds.height))
+            return abs(o.x - x) + abs(o.y - y) <= 1
+        }
+    }
 }
 #endif

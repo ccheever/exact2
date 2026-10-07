@@ -1,14 +1,17 @@
-// Geometry reads for actions (LLP 1051.000 D1, D4, D5): where layout put an
-// element, and its border box at `height: auto`, answered synchronously to
+// Geometry reads for actions (LLP 1051.000 D1, D4, D5): where the viewer
+// sees an element, and its border box at `height: auto`, answered synchronously to
 // the runner's one import, `exact_geometry.read(op, view, out)`. Loaded after
 // first paint when the app's wasm imports it; until then glue.js answers 0
 // (unavailable).
 //
-// `frame` writes nothing: LLP 1063's layout-box measure, composed up to the
-// root, free of every transform and scroll offset. `measure` writes one inline
-// `height` and restores it within the call, so no rendering step sees it; it
-// never goes through the host's `apply`, which commits.
-import { measure as layoutBoxes, size } from './presence-glue.js';
+// `frame` writes nothing: the border box where the viewer sees it,
+// `getBoundingClientRect`'s, through every transform and with every scroll
+// offset above it applied (LLP 1051.000 D1; the kernel's hosts compose the
+// same from their rows and the offsets their presenters note). `measure`
+// writes one inline `height` and restores it within the call, so no
+// rendering step sees it; it never goes through the host's `apply`, which
+// commits.
+import { size } from './presence-glue.js';
 
 // Reply bits: answered, provisional.
 const ANSWERED = 1, PROVISIONAL = 2;
@@ -34,20 +37,10 @@ function restore(style, [name, value, priority]) {
 }
 
 function createGeometry(root) {
-  // Where layout put `el`: its border box in the root's space. Each step is
-  // LLP 1063's box of an element in its parent (a virtualized row's root in
-  // the list content, since its wrapper only positions it), composed up.
+  // Where the viewer sees `el`'s border box: its client rect.
   const frame = el => {
-    const box = layoutBoxes();
-    let x = 0, y = 0, at = el, own = null;
-    while (at && at !== root) {
-      const b = box(at);
-      if (!b) return null;
-      own ??= b;
-      x += b[0]; y += b[1];
-      at = at.parentElement?.hasAttribute('data-listitemkey') ? at.parentElement.parentElement : at.parentElement;
-    }
-    return at === root && own ? [x, y, own[2], own[3]] : null;
+    const r = el.getBoundingClientRect();
+    return [r.x, r.y, r.width, r.height];
   };
 
   // Its border box at `height: auto`, every other style kept (D4): refused
@@ -97,7 +90,18 @@ function createGeometry(root) {
       || (document.fonts && document.fonts.status !== 'loaded');
   };
 
+  // `elementFromPoint(x, y)` (LLP 1094 D10): the page's own hit test, DOM's
+  // `elementsFromPoint`, front to back — through every transform, as `frame`
+  // reads boxes (LLP 1051.000 D1, changed 2026-10-04), an overflow clip
+  // cutting descendants, `pointer-events: none` and a hidden `visibility`
+  // passed over — less what is not the app's own: a leaving node, the host's
+  // drag ghost and anything else outside the root. The runner's kernel walk
+  // answers the same natively.
+  const point = (x, y) => document.elementsFromPoint(x, y)
+    .find(el => el !== root && root.contains(el) && !el.closest('[data-exiting]')) ?? null;
+
   return {
+    point,
     read(op, el, out) {
       if (!el?.isConnected || !root.contains(el)) return 0;
       const box = frame(el);

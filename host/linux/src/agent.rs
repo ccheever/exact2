@@ -9,7 +9,7 @@
 //!
 //! @ref LLP 1015 §5; LLP 1012 §3–§4
 
-mod contact;
+pub(crate) mod contact;
 
 use crate::presenter::Presenter;
 use exact_runner::agent::{error, field_bool, field_num, field_str, num};
@@ -51,6 +51,7 @@ pub fn serve<D: DataSource + Default>(
         let _ = out.flush();
     }
     let _ = p.pointer_cancel(p.host().now());
+    crate::teardown::finish(p, crate::teardown::EXIT_BOUND);
     0
 }
 
@@ -79,6 +80,8 @@ pub fn handle<D: DataSource + Default>(p: &mut Presenter<D>, line: &str) -> Stri
     // may activate a generation after the initial boot's frame was counted.
     if p.dirty() {
         let _ = p.frame();
+        // What that frame moved under the resting pointer is hovered (#139).
+        p.follow_pointer();
     }
     p.first_pixel();
     tagged(p, line, reply)
@@ -119,7 +122,15 @@ fn tagged<D: DataSource>(p: &Presenter<D>, line: &str, mut reply: String) -> Str
     reply
 }
 
-fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
+pub(crate) fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
+    // An agent's taps and contacts reach a canvas as a finger, as on the web
+    // and iOS. Explicit mouse/contextmenu use device mouse buttons (LLP 1015.000).
+    p.agent_finger(!field_bool(line, "contextmenu") && !field_bool(line, "mouse"));
+    let reply = answer_line(p, line);
+    p.agent_finger(false);
+    reply
+}
+fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     let id = || field_num(line, "id").map(|n| n as u32);
     let q: serde_json::Value = serde_json::from_str(line).unwrap_or_default();
     if let Some(view) = id() {
@@ -162,8 +173,8 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                     .iter()
                     .filter_map(|b| {
                         let node = p.host().kernel().node(b.id)?;
-                        if node.style.layout_transition.0.is_empty()
-                            && node.style.exit_animation.0.is_empty()
+                        if node.style.rare.layout_transition.0.is_empty()
+                            && node.style.rare.exit_animation.0.is_empty()
                         {
                             return None;
                         }
@@ -186,6 +197,30 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                         ",\"paint\":{{\"ms\":{paint},\"readbackMs\":{readback}}}"
                     ));
                 }
+                // A `video` or `audio` (LLP 1042 §5, §8): this host has no
+                // decoder and no audio output, so each is reported as an
+                // element that never plays would read, and says why.
+                let media: Vec<_> = p
+                    .host()
+                    .kernel()
+                    .rows(None)
+                    .unwrap_or_default()
+                    .iter()
+                    .filter(|r| r.node_type == exact_kernel::NodeType::Video)
+                    .map(|r| serde_json::json!({"id": r.id, "state": {"unavailable": "no media decoder or audio output on this host", "paused": true, "currentTime": 0, "duration": null, "readyState": 0}}))
+                    .collect();
+                s.push_str(&format!(",\"media\":{}", serde_json::json!(media)));
+                // The media session's record; nothing is published (LLP 1098 D9).
+                let session = crate::media_session::state(p);
+                s.push_str(&format!(",\"mediaSession\":{session}"));
+                // The drive's app storage (trivia F7): none unless it names a scratch store.
+                let storage = match std::env::var("EXACT_AGENT_STORAGE") {
+                    Ok(store) => serde_json::json!({"available": true, "store": store}),
+                    Err(_) => {
+                        serde_json::json!({"available": false, "code": "agent", "message": "storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)"})
+                    }
+                };
+                s.push_str(&format!(",\"storage\":{storage}"));
                 s.push_str(
                     ",\"keyboard\":{\"unavailable\":true},\"navigation\":{\"unavailable\":true}}",
                 );
@@ -213,25 +248,43 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         }
         Some("layout") => p.layout_json(id(), field_bool(line, "plan")),
         Some("tap") => {
-            // LLP 1041 §8: optional input variant, never a ninth operation.
-            // Parse this bounded pair strictly; the legacy wheel pair reader
-            // intentionally accepts a smaller flat-request vocabulary.
+            // Input variants use the full JSON parser before any delivery.
             let request: serde_json::Value = match serde_json::from_str(line) {
                 Ok(request) => request,
                 Err(_) => return error("unreadable tap request"),
             };
+            // A held contact's phase that says `mouse` (a drag's, review A1)
+            // is a contact with the left button held, as `answer` set it up.
+            let phased = request.get("phase").is_some();
+            if field_bool(line, "contextmenu") || (field_bool(line, "mouse") && !phased) {
+                return p
+                    .mouse_request(id(), &request)
+                    .unwrap_or_else(|e| error(&e));
+            }
             if request.get("resize").is_some() {
                 return resize(p, &request);
+            }
+            // The window's close button (`beforeunload`, studio diary R17):
+            // the Linux presenter closes no window, as the guide says.
+            if request.get("close").is_some() {
+                return error("unsupported: the Linux presenter closes no window (no `beforeunload`); close drives a macOS window or the browser's page");
             }
             if let Some(reply) = p.control_tap(&request) {
                 return reply.to_string();
             }
-            if request.get("phase").is_some() {
+            if phased {
                 return contact::answer(p, &request);
             }
             let Some(id) = id() else {
                 return error("tap needs an id");
             };
+            // @ref LLP 1098 D9, D10 — the platform's media session action,
+            // before anything that would make it a press.
+            if let Some(action) = request.get("mediaSession").and_then(|a| a.as_str()) {
+                let seconds = request.get("seconds").and_then(|s| s.as_f64());
+                return crate::media_session::act(p, id, action, seconds)
+                    .unwrap_or_else(|e| error(&e));
+            }
             if let Some(into) = request.get("into") {
                 let text = |name: &str, default: &str| {
                     into.get(name)
@@ -249,29 +302,101 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                     Err(e) => error(&e),
                 };
             }
-            let r = match field_pair(line, "wheel") {
-                Some((dx, dy)) => p.wheel(id, dx as f32, dy as f32),
+            let wheel = match request.get("wheel") {
+                Some(wheel) => {
+                    let pair = wheel
+                        .as_array()
+                        .filter(|v| v.len() == 2)
+                        .and_then(|v| Some((v[0].as_f64()? as f32, v[1].as_f64()? as f32)));
+                    let Some(pair) = pair else {
+                        return error("wheel needs two finite deltas");
+                    };
+                    Some(pair)
+                }
+                None => None,
+            };
+            // A click with modifiers held (gallery F20: `tap <id> modifiers Shift`).
+            let held = match field_str(line, "modifiers")
+                .map(|m| exact_runner::KeyModifiers::held(&m))
+            {
+                Some(None) => {
+                    return error("tap: modifiers are Shift, Control, Alt and Meta, joined by +")
+                }
+                Some(Some(held)) => held,
+                None => Default::default(),
+            };
+            let codes = [
+                (held.shift, "ShiftLeft"),
+                (held.ctrl, "ControlLeft"),
+                (held.alt, "AltLeft"),
+                (held.meta, "MetaLeft"),
+            ];
+            for (on, code) in codes {
+                if on {
+                    p.hold_modifier(code, true);
+                }
+            }
+            let r = match wheel {
+                Some((dx, dy)) => p.wheel(id, dx, dy),
                 None if field_bool(line, "hover") => p.hover(id),
                 None => p.tap(id),
             };
+            for (on, code) in codes {
+                if on {
+                    p.hold_modifier(code, false);
+                }
+            }
             r.unwrap_or_else(|e| error(&e))
         }
         Some("type") => {
             let Some(id) = id() else {
                 return error("type needs an id");
             };
-            if let Some(key) = field_str(line, "key") {
+            if let Some(edit) = field_str(line, "clipboard") {
+                let text = field_str(line, "text").unwrap_or_default();
+                return p.clipboard(id, &edit, &text).unwrap_or_else(|e| error(&e));
+            }
+            if let Some(chord) = field_str(line, "key") {
+                // A chord's modifiers are held for its key (`Shift+Enter`,
+                // `Meta+s`), as a keyboard's are, then released.
+                let (held, key) = exact_runner::KeyModifiers::split(&chord);
+                let modifiers = [
+                    (held.shift, "ShiftLeft"),
+                    (held.ctrl, "ControlLeft"),
+                    (held.alt, "AltLeft"),
+                    (held.meta, "MetaLeft"),
+                ];
+                for (on, code) in modifiers {
+                    if on {
+                        p.hold_modifier(code, true);
+                    }
+                }
+                let Some((code, logical)) = driver_key(key) else {
+                    return error(&format!("key: unsupported key {key}"));
+                };
                 let phase = field_str(line, "phase");
-                let r = p.type_key(id, &key, &key, phase.as_deref() != Some("up"), false);
+                let r = p.type_key(id, code, logical, phase.as_deref() != Some("up"), false);
                 if phase.is_none() && r.is_ok() {
-                    let _ = p.type_key(id, &key, &key, false, false);
+                    let _ = p.type_key(id, code, logical, false, false);
+                }
+                for (on, code) in modifiers {
+                    if on {
+                        p.hold_modifier(code, false);
+                    }
                 }
                 return r.unwrap_or_else(|e| error(&e));
             }
             let text = field_str(line, "text").unwrap_or_default();
             p.type_text(id, &text).unwrap_or_else(|e| error(&e))
         }
+        // Before a tap or a type: a target out of view, scrolled into it.
+        Some("reveal") => match id() {
+            Some(id) => p.reveal(id).unwrap_or_else(|e| error(&e)),
+            None => error("reveal needs an id"),
+        },
         Some("clock") => clock(p, line),
+        // A fetch fault (LLP 1103) is the runner's; the device facts are this presenter's.
+        Some("prefer") if top_level(line, "faults") => p.host().agent(line),
         Some("prefer") => prefer(p, line),
         Some("screenshot") => match field_str(line, "path") {
             Some(path) => p.screenshot(&path).unwrap_or_else(|e| error(&e)),
@@ -279,6 +404,12 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         },
         _ => p.host().agent(line),
     }
+}
+
+/// Whether a request names `key` at its top level (not a value or a
+/// nested field that happens to spell it).
+fn top_level(line: &str, key: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(line).is_ok_and(|v| v.get(key).is_some())
 }
 
 /// `prefer` (LLP 1061 D5; LLP 1069.000 D6): the device facts by their web
@@ -326,6 +457,13 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 }
             }
             ("prefers-color-scheme", v @ ("light" | "dark")) => dark = v == "dark",
+            // @ref LLP 1100 D10 — this host draws sRGB and SDR only.
+            ("color-gamut", "srgb") | ("dynamic-range", "standard") => {}
+            ("color-gamut" | "dynamic-range", v) => {
+                return error(&format!(
+                    "prefer: {name}: {v}: this host draws sRGB and standard dynamic range only"
+                ))
+            }
             _ => {
                 return error(&format!(
                     "prefer: {name}: {value} is not a preference this host sets"
@@ -342,6 +480,7 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             ("visibility-state", v @ ("visible" | "hidden")) => page.hidden = v == "hidden",
             ("online", v @ ("true" | "false")) => page.on_line = v == "true",
             ("can-share", v @ ("true" | "false")) => page.can_share = v == "true",
+            ("can-open-files", v @ ("true" | "false")) => page.can_open_files = v == "true",
             ("root-font-size", v) if v.parse::<f64>().is_ok_and(|n| n.is_finite() && n > 0.0) => {
                 root_font_size = v.parse::<f64>().ok()
             }
@@ -378,10 +517,13 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         "prefers-reduced-transparency": keyword(preferences.reduced_transparency),
         "prefers-contrast": preferences.contrast.keyword(),
         "prefers-color-scheme": if p.scheme.1 { "dark" } else { "light" },
+        "color-gamut": "srgb",
+        "dynamic-range": "standard",
     }, "page": {
         "visibility-state": page.visibility_state(),
         "online": page.on_line,
         "can-share": page.can_share,
+        "can-open-files": page.can_open_files,
         "root-font-size": p.host().runner().root_font_size(),
     }, "fold": {
         "device-posture": fold.posture.keyword(),
@@ -522,6 +664,14 @@ fn tree<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 continue;
             };
             row["focused"] = (p.focus() == Some(id)).into();
+            // What a field shows: typed text its bound value has not
+            // replaced (LLP 1069.001 D4); a password's masked (#134).
+            if let Some(node) = p.host().kernel().node(id).filter(|n| {
+                p.chosen.contains_key(&id) && n.node_type == exact_kernel::NodeType::TextInput
+            }) {
+                let text = p.field_text(id);
+                row["props"]["value"] = exact_runner::agent::shown_value(node.props, &text).into();
+            }
             if row["type"] == "WebView" || row["type"] == "Video" {
                 row["unavailable"] = true.into();
             }
@@ -539,8 +689,12 @@ fn tree<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
 }
 
 /// The engine's settle time, milliseconds, when a transition is in flight.
+/// A reorder ghost's return counts too (LLP 1094 D8).
 fn settle<D: DataSource>(p: &Presenter<D>) -> Option<f64> {
     field_num(&p.host().agent("{\"op\":\"settle\"}"), "settle")
+        .into_iter()
+        .chain(p.group_settles_at())
+        .reduce(f64::max)
 }
 
 /// Move both clocks to one instant: the runner's (timers, each fired at its
@@ -551,9 +705,68 @@ fn settle<D: DataSource>(p: &Presenter<D>) -> Option<f64> {
 /// more, again — bounded, `settled: false` when the bound is hit (LLP 1012
 /// §2).
 fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
+    // The end of an input (LLP 1012 §2): the `then`s of the answers it
+    // settled land, the clock unmoved and no timer fired (Runner::land_then).
+    if field_bool(line, "land") {
+        let (landed, e) = p.land_then();
+        p.sync_surfaces();
+        return match e {
+            Some(e) => {
+                let mut s = String::from("{\"error\":");
+                exact_runner::agent::quote(&format!("clock: {e}"), &mut s);
+                format!("{s},\"clock\":{}}}", num(landed))
+            }
+            None => format!("{{\"clock\":{}}}", num(landed)),
+        };
+    }
+    if field_bool(line, "data") {
+        return land_data(p, SETTLE_BOUND);
+    }
     let reply = clock_within(p, line, SETTLE_BOUND);
     retell_offset(p);
     reply
+}
+
+/// `clock data`: the app's data lands — its deferred module activated (the
+/// turn after first pixel) and every request in flight answered, each
+/// answer's `then` landed — at the clock as it stands, no timer fired. A
+/// test's first step waits for it (habits, pomodoro, kanban: storage opened
+/// after the first step, which then read the placeholder).
+fn land_data<D: DataSource>(p: &mut Presenter<D>, bound: std::time::Duration) -> String {
+    let deadline = std::time::Instant::now() + bound;
+    let unsettled = |p: &Presenter<D>, reason: &str| {
+        format!(
+            "{{\"clock\":{},\"settled\":false,\"reason\":\"{reason}\"}}",
+            num(p.host().now())
+        )
+    };
+    for _ in 0..16 {
+        while p.data_activating() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            if p.dirty() {
+                let _ = p.frame();
+            }
+            p.first_pixel();
+        }
+        if p.data_activating() {
+            return unsettled(p, "data");
+        }
+        if !wait_for_replies(p, deadline) {
+            return unsettled(p, "requests");
+        }
+        let (landed, e) = p.land_then();
+        p.sync_surfaces();
+        if let Some(e) = e {
+            let mut s = String::from("{\"error\":");
+            exact_runner::agent::quote(&format!("clock: {e}"), &mut s);
+            return format!("{s},\"clock\":{}}}", num(landed));
+        }
+        // A `then` that sent asks again; what it sends lands in the next round.
+        if !p.pending() {
+            return format!("{{\"clock\":{},\"settled\":true}}", num(landed));
+        }
+    }
+    unsettled(p, "requests")
 }
 
 /// The zone's offset at the virtual date the clock now reads: a move across
@@ -633,7 +846,23 @@ fn clock_within<D: DataSource>(
             r
         };
         if !settle_to_end {
-            return response(None, false);
+            // A jump does not wait for what is still in flight on real time
+            // (a store's, a worker's, the network's): the reply names how
+            // much, as the web hosts' do (calendar F10, workout F6).
+            let mut r = response(None, false);
+            let inflight = p.host().runner().in_flight().len();
+            if inflight > 0 {
+                r.pop();
+                r.push_str(&format!(",\"inflight\":{inflight}}}"));
+            }
+            // The module's storage still queued or in flight (LLP 1097 D9),
+            // beside the count of requests.
+            let background = p.host().runner().background_operations();
+            if background > 0 {
+                r.pop();
+                r.push_str(&format!(",\"background\":{background}}}"));
+            }
+            return r;
         }
         if p.pending() {
             rounds += 1;
@@ -715,685 +944,137 @@ fn wait_for_replies<D: DataSource>(p: &mut Presenter<D>, deadline: std::time::In
     true
 }
 
-/// `"key":[a,b]` in a flat request.
-fn field_pair(json: &str, key: &str) -> Option<(f64, f64)> {
-    let needle = format!("\"{key}\"");
-    let at = json.find(&needle)?;
-    let rest = json[at + needle.len()..]
-        .trim_start()
-        .strip_prefix(':')?
-        .trim_start();
-    let rest = rest.strip_prefix('[')?;
-    let end = rest.find(']')?;
-    let mut parts = rest[..end].split(',').map(|s| s.trim().parse::<f64>().ok());
-    let a = parts.next()??;
-    let b = parts.next()??;
-    Some((a, b))
+const LETTERS: [&str; 26] = [
+    "KeyA", "KeyB", "KeyC", "KeyD", "KeyE", "KeyF", "KeyG", "KeyH", "KeyI", "KeyJ", "KeyK", "KeyL",
+    "KeyM", "KeyN", "KeyO", "KeyP", "KeyQ", "KeyR", "KeyS", "KeyT", "KeyU", "KeyV", "KeyW", "KeyX",
+    "KeyY", "KeyZ",
+];
+const LOWER: [&str; 26] = [
+    "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o", "p", "q", "r", "s",
+    "t", "u", "v", "w", "x", "y", "z",
+];
+const UPPER: [&str; 26] = [
+    "A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S",
+    "T", "U", "V", "W", "X", "Y", "Z",
+];
+const DIGITS: [&str; 10] = [
+    "Digit0", "Digit1", "Digit2", "Digit3", "Digit4", "Digit5", "Digit6", "Digit7", "Digit8",
+    "Digit9",
+];
+const DIGIT_KEYS: [&str; 10] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"];
+const FKEYS: [&str; 24] = [
+    "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12", "F13", "F14", "F15",
+    "F16", "F17", "F18", "F19", "F20", "F21", "F22", "F23", "F24",
+];
+
+/// A driver's key as `(KeyboardEvent.code, KeyboardEvent.key)`, the web
+/// `cdpKey` vocabulary: `p` and `KeyP` are one key, `7` and `Digit7` too,
+/// and `End` stays a name. `None` refuses an unknown name instead of
+/// delivering it as text (notes mac-agent-named-keys, platformer canvas-keys).
+pub(crate) fn driver_key(name: &str) -> Option<(&'static str, &'static str)> {
+    if let Some(rest) = name.strip_prefix('F') {
+        if let Ok(n) = rest.parse::<usize>() {
+            if (1..=24).contains(&n) && rest.len() == n.to_string().len() {
+                return Some((FKEYS[n - 1], FKEYS[n - 1]));
+            }
+        }
+    }
+    if let Some(rest) = name.strip_prefix("Key") {
+        if rest.len() == 1 {
+            if let Some(index) = letter_index(rest) {
+                return Some((LETTERS[index], LOWER[index]));
+            }
+        }
+    }
+    if let Some(rest) = name.strip_prefix("Digit") {
+        if rest.len() == 1 {
+            if let Some(index) = digit_index(rest) {
+                return Some((DIGITS[index], DIGIT_KEYS[index]));
+            }
+        }
+    }
+    if name.len() == 1 {
+        let ch = name.chars().next()?;
+        if let Some(index) = (ch.is_ascii_alphabetic())
+            .then(|| letter_index(name))
+            .flatten()
+        {
+            let key = if ch.is_ascii_uppercase() {
+                UPPER[index]
+            } else {
+                LOWER[index]
+            };
+            return Some((LETTERS[index], key));
+        }
+        if let Some(index) = digit_index(name) {
+            return Some((DIGITS[index], DIGIT_KEYS[index]));
+        }
+        return match ch {
+            ' ' => Some(("Space", " ")),
+            '-' | '_' => Some(("Minus", if ch == '-' { "-" } else { "_" })),
+            '=' | '+' => Some(("Equal", if ch == '=' { "=" } else { "+" })),
+            '[' | '{' => Some(("BracketLeft", if ch == '[' { "[" } else { "{" })),
+            ']' | '}' => Some(("BracketRight", if ch == ']' { "]" } else { "}" })),
+            '\\' | '|' => Some(("Backslash", if ch == '\\' { "\\" } else { "|" })),
+            ';' | ':' => Some(("Semicolon", if ch == ';' { ";" } else { ":" })),
+            '\'' | '"' => Some(("Quote", if ch == '\'' { "'" } else { "\"" })),
+            '`' | '~' => Some(("Backquote", if ch == '`' { "`" } else { "~" })),
+            ',' | '<' => Some(("Comma", if ch == ',' { "," } else { "<" })),
+            '.' | '>' => Some(("Period", if ch == '.' { "." } else { ">" })),
+            '/' | '?' => Some(("Slash", if ch == '/' { "/" } else { "?" })),
+            '!' => Some(("Digit1", "!")),
+            '@' => Some(("Digit2", "@")),
+            '#' => Some(("Digit3", "#")),
+            '$' => Some(("Digit4", "$")),
+            '%' => Some(("Digit5", "%")),
+            '^' => Some(("Digit6", "^")),
+            '&' => Some(("Digit7", "&")),
+            '*' => Some(("Digit8", "*")),
+            '(' => Some(("Digit9", "(")),
+            ')' => Some(("Digit0", ")")),
+            _ => None,
+        };
+    }
+    Some(match name {
+        "Space" => ("Space", " "),
+        "Enter" => ("Enter", "Enter"),
+        "NumpadEnter" => ("NumpadEnter", "Enter"),
+        "Escape" => ("Escape", "Escape"),
+        "Tab" => ("Tab", "Tab"),
+        "Backspace" => ("Backspace", "Backspace"),
+        "Delete" => ("Delete", "Delete"),
+        "Insert" => ("Insert", "Insert"),
+        "Home" => ("Home", "Home"),
+        "End" => ("End", "End"),
+        "PageUp" => ("PageUp", "PageUp"),
+        "PageDown" => ("PageDown", "PageDown"),
+        "ArrowUp" => ("ArrowUp", "ArrowUp"),
+        "ArrowDown" => ("ArrowDown", "ArrowDown"),
+        "ArrowLeft" => ("ArrowLeft", "ArrowLeft"),
+        "ArrowRight" => ("ArrowRight", "ArrowRight"),
+        "CapsLock" => ("CapsLock", "CapsLock"),
+        "Shift" | "ShiftLeft" => ("ShiftLeft", "Shift"),
+        "ShiftRight" => ("ShiftRight", "Shift"),
+        "Control" | "ControlLeft" => ("ControlLeft", "Control"),
+        "ControlRight" => ("ControlRight", "Control"),
+        "Alt" | "AltLeft" => ("AltLeft", "Alt"),
+        "AltRight" => ("AltRight", "Alt"),
+        "Meta" | "MetaLeft" => ("MetaLeft", "Meta"),
+        "MetaRight" => ("MetaRight", "Meta"),
+        _ => return None,
+    })
+}
+
+fn letter_index(name: &str) -> Option<usize> {
+    let ch = name.chars().next()?;
+    ch.is_ascii_alphabetic()
+        .then(|| (ch.to_ascii_uppercase() as usize) - ('A' as usize))
+}
+
+fn digit_index(name: &str) -> Option<usize> {
+    let ch = name.chars().next()?;
+    ch.is_ascii_digit().then(|| (ch as usize) - ('0' as usize))
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::presenter::PainterChoice;
-    use exact_runner::{DataError, Value};
-
-    #[derive(Default)]
-    struct NoData;
-    impl DataSource for NoData {
-        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
-            Err(DataError::UnknownSource(source.into()))
-        }
-    }
-
-    /// A source whose one request is handed to work that never replies: the
-    /// reply is leaked, so neither an outcome nor the drop's abort arrives.
-    #[derive(Default)]
-    struct Hung;
-    impl DataSource for Hung {
-        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
-            Err(DataError::UnknownSource(source.into()))
-        }
-        fn answer(
-            &mut self,
-            _: &mut exact_runner::Store,
-            source: &str,
-            _: &[Value],
-        ) -> Result<exact_runner::Answer, DataError> {
-            Ok(match source {
-                "fallback" => exact_runner::Answer::Now(Value::Bool(false)),
-                _ => exact_runner::Answer::Later(exact_runner::Request::continuation(1)),
-            })
-        }
-        fn dispatch(&mut self, _: u64, _: &exact_runner::Store) -> exact_runner::Dispatch {
-            exact_runner::Dispatch::Run(exact_runner::Work::Later(Box::new(std::mem::forget)))
-        }
-    }
-
-    /// Answers `save` later, on the I/O worker, with 1.
-    #[derive(Default)]
-    struct Echo;
-    impl DataSource for Echo {
-        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
-            Err(DataError::UnknownSource(source.into()))
-        }
-        fn answer(
-            &mut self,
-            _: &mut exact_runner::Store,
-            _: &str,
-            _: &[Value],
-        ) -> Result<exact_runner::Answer, DataError> {
-            Ok(exact_runner::Answer::Later(
-                exact_runner::Request::continuation(1),
-            ))
-        }
-        fn dispatch(&mut self, _: u64, _: &exact_runner::Store) -> exact_runner::Dispatch {
-            exact_runner::Dispatch::Run(exact_runner::Work::Now(Box::new(|| {
-                exact_runner::Outcome::Storage(b"1".to_vec())
-            })))
-        }
-        fn parse(
-            &mut self,
-            _: &mut exact_runner::Store,
-            _: &str,
-            _: &[Value],
-            _: exact_runner::Outcome,
-        ) -> Result<exact_runner::Answer, DataError> {
-            Ok(exact_runner::Answer::Now(Value::Number(1.0)))
-        }
-    }
-
-    /// A jump stops at each timer that sends and lands its reply before
-    /// the next fires (LLP 1016 D5); a stop at the target still fires the
-    /// other timers due there.
-    #[test]
-    fn a_jump_lands_every_reply_and_fires_every_timer_due() {
-        let plan = contract::compile(
-            "component App\n  state count = 0\n  mutation result as shape number\n  action ping\n    send result = save()\n  action tock\n    count = count + 1\n  task pings mount\n    every(300, ping)\n  task tocks mount\n    every(300, tock)\n  view\n    text toString(count)\n",
-        )
-        .unwrap();
-        let (mut p, boot_error) = Presenter::boot_with(
-            &plan.encode(),
-            Echo,
-            (300.0, 300.0),
-            1.0,
-            std::path::PathBuf::new(),
-            PainterChoice::Cpu,
-        )
-        .unwrap();
-        assert!(boot_error.is_none(), "{boot_error:?}");
-        let count = |p: &mut Presenter<Echo>| {
-            let state: serde_json::Value =
-                serde_json::from_str(&handle(p, r#"{"op":"state"}"#)).unwrap();
-            state["slots"]["count"].clone()
-        };
-        let reply = handle(&mut p, r#"{"op":"clock","to":300}"#);
-        assert_eq!(count(&mut p), serde_json::json!(1), "{reply}");
-        let reply = handle(&mut p, r#"{"op":"clock","to":1500}"#);
-        assert_eq!(count(&mut p), serde_json::json!(5), "{reply}");
-        let logs = handle(&mut p, r#"{"op":"logs"}"#);
-        assert_eq!(logs.matches("fulfil ").count(), 5, "{logs}");
-        assert!(!logs.contains("dropped"), "{logs}");
-    }
-
-    /// LLP 1012 §1: a targeted `tree` is the target and its descendants, and
-    /// `shallow` the target alone, as the runner answers on every host.
-    #[test]
-    fn tree_answers_its_target() {
-        let plan = contract::compile(
-            "component App\n  view\n    column testId=\"outer\"\n      column testId=\"inner\"\n        text \"a\" testId=\"a\"\n      text \"b\" testId=\"b\"\n",
-        )
-        .unwrap();
-        let bytes = contract::bake(plan, NoData).unwrap().encode();
-        let (mut p, _) = Presenter::boot_with(
-            &bytes,
-            NoData,
-            (300.0, 300.0),
-            1.0,
-            std::path::PathBuf::new(),
-            PainterChoice::Cpu,
-        )
-        .unwrap();
-        let ids = |p: &mut Presenter<NoData>, request: &str| -> Vec<String> {
-            let reply: serde_json::Value = serde_json::from_str(&handle(p, request)).unwrap();
-            reply["nodes"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .filter_map(|n| n["props"]["testId"].as_str().map(str::to_owned))
-                .collect()
-        };
-        assert_eq!(
-            ids(&mut p, r#"{"op":"tree","target":"inner"}"#),
-            ["inner", "a"]
-        );
-        assert_eq!(
-            ids(&mut p, r#"{"op":"tree","target":"inner","shallow":true}"#),
-            ["inner"]
-        );
-        assert_eq!(
-            ids(&mut p, r#"{"op":"tree"}"#),
-            ["outer", "inner", "a", "b"]
-        );
-        for refused in [
-            r#"{"op":"tree","target":"missing"}"#,
-            r#"{"op":"tree","shallow":true}"#,
-            r#"{"op":"tree","target":"inner","shallow":1}"#,
-        ] {
-            assert!(handle(&mut p, refused).contains("\"error\""), "{refused}");
-        }
-    }
-
-    /// LLP 1061 D5: `prefer` sets what `exactViewport()` answers and the
-    /// system appearance; an unknown feature is refused and nothing applies.
-    #[test]
-    fn prefer_sets_the_display_preferences_by_their_media_names() {
-        let plan = contract::compile(
-            "shape M\n  prefersReducedMotion: bool\ncomponent App\n  resource m = exactViewport() as shape M\n  view\n    text (m.prefersReducedMotion ? \"still\" : \"moving\") testId=\"t\"\n",
-        )
-        .unwrap();
-        let bytes = contract::bake(plan, NoData).unwrap().encode();
-        let (mut p, _) = Presenter::boot_with(
-            &bytes,
-            NoData,
-            (300.0, 300.0),
-            1.0,
-            std::path::PathBuf::new(),
-            PainterChoice::Cpu,
-        )
-        .unwrap();
-        let text = |p: &mut Presenter<NoData>| handle(p, r#"{"op":"tree"}"#);
-        assert!(text(&mut p).contains("moving"));
-        let refused = handle(
-            &mut p,
-            r#"{"op":"prefer","media":{"prefers-reduced-motion":"reduce","prefers-contrast":"loud"}}"#,
-        );
-        assert!(refused.contains("\"error\""), "{refused}");
-        assert!(text(&mut p).contains("moving"), "nothing applied");
-        let reply: serde_json::Value = serde_json::from_str(&handle(
-            &mut p,
-            r#"{"op":"prefer","media":{"prefers-reduced-motion":"reduce","prefers-color-scheme":"dark"}}"#,
-        ))
-        .unwrap();
-        assert_eq!(reply["media"]["prefers-reduced-motion"], "reduce");
-        assert_eq!(
-            reply["media"]["prefers-reduced-transparency"],
-            "no-preference"
-        );
-        assert_eq!(reply["media"]["prefers-color-scheme"], "dark");
-        assert!(text(&mut p).contains("still"));
-        assert!(p.dark(), "no app override: the system's dark");
-        p.app_scheme(Some(false));
-        assert!(!p.dark(), "the app's own choice wins");
-    }
-
-    /// LLP 1069.000 D1, D2, D6: `prefer` sets contrast, the system's scheme
-    /// beneath an app's own, and what `exactPage()` answers; `state.device`
-    /// shows them without an app declaring either source.
-    #[test]
-    fn prefer_sets_contrast_scheme_and_the_page_facts() {
-        let plan = contract::compile(
-            "shape M\n  prefersContrast: string\n  prefersColorScheme: string\nshape P\n  visibilityState: string\n  onLine: bool\n  canShare: bool\ncomponent App\n  resource m = exactViewport() as shape M\n  resource g = exactPage() as shape P\n  view\n    text `${m.prefersContrast} ${m.prefersColorScheme} ${g.visibilityState} ${g.onLine ? \"online\" : \"offline\"} ${g.canShare ? \"share\" : \"no-share\"}` testId=\"t\"\n",
-        )
-        .unwrap();
-        let bytes = contract::bake(plan, NoData).unwrap().encode();
-        let (mut p, _) = Presenter::boot_with(
-            &bytes,
-            NoData,
-            (300.0, 300.0),
-            1.0,
-            std::path::PathBuf::new(),
-            PainterChoice::Cpu,
-        )
-        .unwrap();
-        let text = |p: &mut Presenter<NoData>| handle(p, r#"{"op":"tree"}"#);
-        assert!(
-            text(&mut p).contains("no-preference light visible online no-share"),
-            "{}",
-            text(&mut p)
-        );
-        p.app_scheme(Some(false));
-        let reply: serde_json::Value = serde_json::from_str(&handle(
-            &mut p,
-            r#"{"op":"prefer","media":{"prefers-contrast":"more","prefers-color-scheme":"dark"},"page":{"visibility-state":"hidden","online":false,"can-share":"true"}}"#,
-        ))
-        .unwrap();
-        assert_eq!(reply["media"]["prefers-contrast"], "more");
-        assert_eq!(reply["page"]["online"], false);
-        assert!(
-            text(&mut p).contains("more dark hidden offline share"),
-            "{}",
-            text(&mut p)
-        );
-        assert!(!p.dark(), "the app's own scheme still paints");
-        let state: serde_json::Value =
-            serde_json::from_str(&handle(&mut p, r#"{"op":"state"}"#)).unwrap();
-        assert_eq!(state["device"]["prefersColorScheme"], "dark");
-        assert_eq!(state["device"]["visibilityState"], "hidden");
-        let refused = handle(&mut p, r#"{"op":"prefer","page":{"online":"maybe"}}"#);
-        assert!(refused.contains("\"error\""), "{refused}");
-        // LLP 1069.000 D3: the root font size is layout, not a resource.
-        let reply: serde_json::Value = serde_json::from_str(&handle(
-            &mut p,
-            r#"{"op":"prefer","page":{"root-font-size":24}}"#,
-        ))
-        .unwrap();
-        assert_eq!(reply["page"]["root-font-size"], 24.0);
-        let state: serde_json::Value =
-            serde_json::from_str(&handle(&mut p, r#"{"op":"state"}"#)).unwrap();
-        assert_eq!(state["device"]["rootFontSize"], 24);
-        let refused = handle(&mut p, r#"{"op":"prefer","page":{"root-font-size":0}}"#);
-        assert!(refused.contains("\"error\""), "{refused}");
-    }
-
-    /// Answers `item` with 1 a moment later, from another thread: a fetch
-    /// still in flight when the clock is asked to move.
-    #[derive(Default)]
-    struct Slow;
-    impl DataSource for Slow {
-        fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
-            Err(DataError::UnknownSource(source.into()))
-        }
-        fn answer(
-            &mut self,
-            _: &mut exact_runner::Store,
-            source: &str,
-            _: &[Value],
-        ) -> Result<exact_runner::Answer, DataError> {
-            Ok(match source {
-                "fallback" => exact_runner::Answer::Now(Value::Number(0.0)),
-                _ => exact_runner::Answer::Later(exact_runner::Request::continuation(1)),
-            })
-        }
-        fn dispatch(&mut self, _: u64, _: &exact_runner::Store) -> exact_runner::Dispatch {
-            exact_runner::Dispatch::Run(exact_runner::Work::Later(Box::new(|reply| {
-                std::thread::spawn(move || {
-                    std::thread::sleep(std::time::Duration::from_millis(60));
-                    reply.send(exact_runner::Outcome::Storage(b"1".to_vec()));
-                });
-            })))
-        }
-        fn parse(
-            &mut self,
-            _: &mut exact_runner::Store,
-            _: &str,
-            _: &[Value],
-            _: exact_runner::Outcome,
-        ) -> Result<exact_runner::Answer, DataError> {
-            Ok(exact_runner::Answer::Now(Value::Number(1.0)))
-        }
-    }
-
-    /// LLP 1069.007 §5 item 4, with a synthetic capability standing in for
-    /// the first real one: a held device request, a due app timer and an
-    /// unfinished fetch together. `clock +N` fires the timer without waiting
-    /// on the hold; `clock settle` waits for the fetch, never for the hold,
-    /// and says `device` with the tickets; `tap @t` / `type @t` answer it
-    /// once, `substituted`; a hold whose node goes is retired.
-    #[test]
-    fn a_held_device_request_is_answered_by_ticket_and_never_waited_on() {
-        let plan = contract::compile(
-            "component App\n  state count = 0\n  state show = true\n  resource item = item() as shape number else fallback()\n  action tock\n    count = count + 1\n  action hide\n    show = false\n  task tocks mount\n    every(300, tock)\n  view\n    column width=300 height=300\n      box testId=\"picker\" width=100 height=40\n      when show\n        box testId=\"doc\" width=100 height=40\n      button press=hide testId=\"hide\" width=100 height=40\n        text \"Hide\"\n      text `${count} ${item}` testId=\"log\" height=20\n",
-        )
-        .unwrap();
-        let (mut p, boot_error) = Presenter::boot_with(
-            &plan.encode(),
-            Slow,
-            (300.0, 300.0),
-            1.0,
-            std::path::PathBuf::new(),
-            PainterChoice::Cpu,
-        )
-        .unwrap();
-        assert!(boot_error.is_none(), "{boot_error:?}");
-        let id = |p: &Presenter<Slow>, test_id: &str| {
-            let k = p.host().kernel();
-            k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
-        };
-        let json = |s: String| -> serde_json::Value { serde_json::from_str(&s).unwrap() };
-        let (picker, doc, hide) = (id(&p, "picker"), id(&p, "doc"), id(&p, "hide"));
-        let args = r#"{"id":"picker","accept":["image/*"],"multiple":false}"#;
-        let t = p
-            .host_mut()
-            .runner_mut()
-            .hold("sample", Some(picker), args, &[], true);
-        let state = json(handle(&mut p, r#"{"op":"state"}"#));
-        let held = state["pending"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|e| e["ticket"] == t)
-            .cloned()
-            .unwrap_or_default();
-        assert_eq!(held["name"], "picker", "{state}");
-        assert_eq!(held["device"]["capability"], "sample");
-        assert_eq!(held["device"]["args"]["accept"][0], "image/*");
-        assert!(
-            state["pending"].as_array().unwrap().len() >= 2,
-            "the fetch is pending beside the hold: {state}"
-        );
-
-        let bound = std::time::Duration::from_secs(3);
-        let started = std::time::Instant::now();
-        let reply = clock_within(&mut p, r#"{"op":"clock","to":600}"#, bound);
-        assert!(started.elapsed() < bound, "clock +N waited: {reply}");
-        let state = json(handle(&mut p, r#"{"op":"state"}"#));
-        assert_eq!(state["slots"]["count"], 2, "both timers fired: {reply}");
-
-        let started = std::time::Instant::now();
-        let reply = json(clock_within(
-            &mut p,
-            r#"{"op":"clock","settle":true}"#,
-            bound,
-        ));
-        assert!(started.elapsed() < bound, "settle waited on the hold");
-        assert_eq!(reply["settled"], false, "{reply}");
-        assert_eq!(reply["reason"], "device", "{reply}");
-        assert_eq!(reply["tickets"], serde_json::json!([t]), "{reply}");
-        assert_eq!(
-            json(handle(&mut p, r#"{"op":"state"}"#))["resources"]["item"],
-            1,
-            "settle waited for the fetch"
-        );
-
-        let wrong = handle(
-            &mut p,
-            &format!(r#"{{"op":"tap","ticket":{t},"choice":"allow"}}"#),
-        );
-        assert!(wrong.contains("tap takes cancel"), "{wrong}");
-        let answered = json(handle(
-            &mut p,
-            &format!(r#"{{"op":"type","ticket":{t},"text":"fixtures/cat.jpg"}}"#),
-        ));
-        assert_eq!(answered["delivery"], "substituted", "{answered}");
-        assert_eq!(answered["answered"], "value");
-        let again = handle(
-            &mut p,
-            &format!(r#"{{"op":"tap","ticket":{t},"choice":"cancel"}}"#),
-        );
-        assert!(again.contains(&format!("not pending: @{t}")), "{again}");
-        let logs = handle(&mut p, r#"{"op":"logs"}"#);
-        assert!(
-            logs.contains(&format!("device sample {t} held (agent)")),
-            "{logs}"
-        );
-        assert!(logs.contains(&format!("device sample {t} answered: a value")));
-        assert!(
-            !logs.contains("cat.jpg"),
-            "a typed value is never journalled"
-        );
-        let reply = json(clock_within(
-            &mut p,
-            r#"{"op":"clock","settle":true}"#,
-            bound,
-        ));
-        assert_eq!(reply["settled"], true, "{reply}");
-
-        let u = p
-            .host_mut()
-            .runner_mut()
-            .hold("sample", Some(doc), "{}", &[], true);
-        handle(&mut p, &format!(r#"{{"op":"tap","id":{hide}}}"#));
-        let state = json(handle(&mut p, r#"{"op":"state"}"#));
-        assert!(
-            !state["pending"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|e| e["ticket"] == u),
-            "the node went, and its hold with it: {state}"
-        );
-        let logs = handle(&mut p, r#"{"op":"logs"}"#);
-        assert!(
-            logs.contains(&format!("device sample {u} retired")),
-            "{logs}"
-        );
-        let late = handle(
-            &mut p,
-            &format!(r#"{{"op":"tap","ticket":{u},"choice":"cancel"}}"#),
-        );
-        assert!(late.contains(&format!("not pending: @{u}")), "{late}");
-    }
-
-    /// LLP 1069.007 D2: the offset follows the virtual date across a DST
-    /// change — Los Angeles, an hour before 2026's spring-forward, then two
-    /// hours on.
-    #[test]
-    fn a_clock_move_across_a_dst_change_recomputes_the_offset() {
-        let plan = contract::compile("component App\n  view\n    text \"x\" height=20\n").unwrap();
-        let (mut p, _) = Presenter::boot_with(
-            &plan.encode(),
-            NoData,
-            (300.0, 300.0),
-            1.0,
-            std::path::PathBuf::new(),
-            PainterChoice::Cpu,
-        )
-        .unwrap();
-        let place = exact_runner::time::Place {
-            locale: "en-US".into(),
-            time_zone: "America/Los_Angeles".into(),
-            seed: 1.0,
-        };
-        assert!(p.set_place(&place).is_none());
-        assert!(p.set_time(1_772_960_400_000.0, -480.0).is_none());
-        let offset = |p: &mut Presenter<NoData>| {
-            let state: serde_json::Value =
-                serde_json::from_str(&handle(p, r#"{"op":"state"}"#)).unwrap();
-            state["time"]["utcOffset"].clone()
-        };
-        handle(&mut p, r#"{"op":"clock","to":1800000}"#);
-        assert_eq!(offset(&mut p), -480, "still standard time at 09:30Z");
-        handle(&mut p, r#"{"op":"clock","to":7200000}"#);
-        assert_eq!(offset(&mut p), -420, "daylight time from 10:00Z");
-    }
-
-    /// LLP 1069.002 D9 on Linux: `showPicker` under the agent is a held
-    /// `pick` with its input's summary; settle stops at it; `type @t` with
-    /// a file copies it into `app:/tmp/picked/` and fires `change` with the
-    /// record; a refused answer leaves the hold; `tap @t cancel` fires
-    /// `cancel`.
-    #[test]
-    fn a_picker_is_held_and_answered_by_ticket() {
-        let plan = contract::compile(
-            "component App\n  state picked = \"none\"\n  state cancels = 0\n  action choose\n    showPicker(\"attach\")\n  action attach(files: list<Picked>)\n    picked = match first(files) { case some(f) => match f.width { case some(w) => `${length(files)} ${f.name} ${f.type} ${f.size} ${w} ${f.path}`, case none => \"no width\" }, case none => \"empty\" }\n  action cancelled\n    cancels = cancels + 1\n  view\n    column width=300 height=300\n      input type=\"file\" accept=\"image/png\" id=\"attach\" testId=\"attach\" display=\"none\" change=attach cancel=cancelled\n      button press=choose testId=\"choose\" width=100 height=40\n        text \"Add\"\n      text picked testId=\"picked\" height=20\n",
-        )
-        .unwrap();
-        let (mut p, _) = Presenter::boot_with(
-            &plan.encode(),
-            NoData,
-            (300.0, 300.0),
-            1.0,
-            std::path::PathBuf::new(),
-            PainterChoice::Cpu,
-        )
-        .unwrap();
-        let json = |s: String| -> serde_json::Value { serde_json::from_str(&s).unwrap() };
-        let dir = std::env::temp_dir().join(format!("exact-picker-test-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
-        png.extend(64u32.to_be_bytes());
-        png.extend(48u32.to_be_bytes());
-        let fixture = dir.join("cat.png");
-        std::fs::write(&fixture, &png).unwrap();
-        let choose = {
-            let k = p.host().kernel();
-            k.node_by_key(k.find_by_test_id("choose")[0]).unwrap().id
-        };
-        handle(&mut p, &format!(r#"{{"op":"tap","id":{choose}}}"#));
-        let state = json(handle(&mut p, r#"{"op":"state"}"#));
-        let held = state["pending"][0].clone();
-        assert_eq!(held["name"], "attach", "{state}");
-        assert_eq!(held["device"]["capability"], "pick");
-        assert_eq!(held["device"]["args"]["accept"][0], "image/png");
-        assert_eq!(held["device"]["args"]["multiple"], false);
-        let t = held["ticket"].as_u64().unwrap();
-        let settle = json(handle(&mut p, r#"{"op":"clock","settle":true}"#));
-        assert_eq!(settle["reason"], "device", "{settle}");
-        assert_eq!(settle["tickets"], serde_json::json!([t]));
-
-        let wrong = handle(
-            &mut p,
-            &format!(r#"{{"op":"type","ticket":{t},"text":"/x/a.jpg"}}"#),
-        );
-        assert!(wrong.contains("not among accept"), "{wrong}");
-        let text = serde_json::Value::from(fixture.to_string_lossy().into_owned());
-        let answered = json(handle(
-            &mut p,
-            &format!(r#"{{"op":"type","ticket":{t},"text":{text}}}"#),
-        ));
-        assert_eq!(answered["delivery"], "substituted", "{answered}");
-        let state = json(handle(&mut p, r#"{"op":"state"}"#));
-        let picked = state["slots"]["picked"].as_str().unwrap().to_owned();
-        assert!(
-            picked.starts_with(&format!(
-                "1 cat.png image/png {} 64 app:/tmp/picked/",
-                png.len()
-            )),
-            "{picked}"
-        );
-        let copied = crate::picker::resolve(picked.rsplit(' ').next().unwrap()).unwrap();
-        assert_eq!(std::fs::read(copied).unwrap(), png);
-        let logs = handle(&mut p, r#"{"op":"logs"}"#);
-        assert!(
-            logs.contains(&format!("device pick {t} answered: 1 item")),
-            "{logs}"
-        );
-        assert!(!logs.contains("cat.png\""), "the value is never journalled");
-
-        handle(&mut p, &format!(r#"{{"op":"tap","id":{choose}}}"#));
-        let state = json(handle(&mut p, r#"{"op":"state"}"#));
-        let u = state["pending"][0]["ticket"].as_u64().unwrap();
-        handle(
-            &mut p,
-            &format!(r#"{{"op":"tap","ticket":{u},"choice":"cancel"}}"#),
-        );
-        let state = json(handle(&mut p, r#"{"op":"state"}"#));
-        assert_eq!(state["slots"]["cancels"], 1, "{state}");
-        let settle = json(handle(&mut p, r#"{"op":"clock","settle":true}"#));
-        assert_eq!(settle["settled"], true, "{settle}");
-        let _ = std::fs::remove_dir_all(dir);
-    }
-
-    #[test]
-    fn settle_takes_one_bound_for_a_request_that_never_answers() {
-        let plan = contract::compile(
-            "component App\n  resource item = item() as shape bool else fallback()\n  view\n    text \"x\" height=20\n",
-        )
-        .unwrap();
-        let (mut p, boot_error) = Presenter::boot_with(
-            &plan.encode(),
-            Hung,
-            (300.0, 300.0),
-            1.0,
-            std::path::PathBuf::new(),
-            PainterChoice::Cpu,
-        )
-        .unwrap();
-        assert!(boot_error.is_none(), "{boot_error:?}");
-        let bound = std::time::Duration::from_millis(200);
-        let started = std::time::Instant::now();
-        let reply = clock_within(&mut p, r#"{"op":"clock","settle":true}"#, bound);
-        let took = started.elapsed();
-        assert!(p.pending(), "the request is still out: {reply}");
-        assert!(reply.contains("\"settled\":false"), "{reply}");
-        assert!(reply.contains("\"reason\":\"requests\""), "{reply}");
-        assert!(
-            took < bound * 2,
-            "settle took {took:?} for a {bound:?} bound"
-        );
-    }
-
-    #[test]
-    fn resize_input_uses_presenter_and_paints_before_ack() {
-        let plan = contract::compile("component App\n  view\n    view width=\"100%\" height=\"100%\" background-color=\"#f00\"\n").unwrap();
-        let (mut p, boot_error) = Presenter::boot_with(
-            &plan.encode(),
-            NoData,
-            (390.0, 844.0),
-            1.0,
-            std::path::PathBuf::new(),
-            PainterChoice::Cpu,
-        )
-        .unwrap();
-        assert!(boot_error.is_none(), "{boot_error:?}");
-        let reply: serde_json::Value =
-            serde_json::from_str(&handle(&mut p, r#"{"op":"tap","resize":[640,480]}"#)).unwrap();
-        assert_eq!(reply["resized"], serde_json::json!([640.0, 480.0]));
-        assert_eq!(p.viewport(), (640.0, 480.0));
-        assert!(!p.dirty(), "a resize must paint before acknowledgment");
-        assert_eq!(reply["painted"], serde_json::json!([640, 480]));
-        let layout: serde_json::Value =
-            serde_json::from_str(&handle(&mut p, r#"{"op":"layout"}"#)).unwrap();
-        assert_eq!(layout["viewport"]["w"], 640);
-        assert_eq!(layout["viewport"]["h"], 480);
-        for request in [
-            r#"{"op":"tap","resize":[0,480]}"#,
-            r#"{"op":"tap","resize":[-1,480]}"#,
-            r#"{"op":"tap","resize":[true,480]}"#,
-            r#"{"op":"tap","resize":["640",480]}"#,
-            r#"{"op":"tap","resize":[null,480]}"#,
-            r#"{"op":"tap","resize":[NaN,480]}"#,
-            r#"{"op":"tap","resize":[1e300,480]}"#,
-            r#"{"op":"tap","resize":[4096,4096]}"#,
-            r#"{"op":"tap","resize":[640.5,480]}"#,
-            r#"{"op":"tap","resize":[640,480,1]}"#,
-            r#"{"op":"tap","resize":[640,480],"wheel":[0,1]}"#,
-        ] {
-            let reply = handle(&mut p, request);
-            assert!(reply.starts_with("{\"error\""), "{request}: {reply}");
-            assert_eq!(
-                p.viewport(),
-                (640.0, 480.0),
-                "invalid input mutated size: {request}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_hover_never_presses_and_a_key_is_never_text() {
-        let plan = contract::compile("component App\n  state hot = false\n  state presses = 0\n  state text = \"kept\"\n  state lastKey = \"\"\n  action hovered(value)\n    hot = value\n  action pressed\n    presses = presses + 1\n  action edit(value)\n    text = value\n  action keyed(value)\n    lastKey = value\n  view\n    column width=300 height=300\n      box hover=hovered press=pressed testId=\"hot\" width=200 height=60\n      box testId=\"away\" width=200 height=60\n      input value=text change=edit key=keyed testId=\"field\" height=32\n      text `${hot} ${presses} ${text} ${lastKey}` testId=\"log\" height=20\n").unwrap();
-        let (mut p, boot_error) = Presenter::boot_with(
-            &plan.encode(),
-            NoData,
-            (300.0, 300.0),
-            1.0,
-            std::path::PathBuf::new(),
-            PainterChoice::Cpu,
-        )
-        .unwrap();
-        assert!(boot_error.is_none(), "{boot_error:?}");
-        let id = |p: &Presenter<NoData>, test_id: &str| {
-            let k = p.host().kernel();
-            k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
-        };
-        let log = |p: &Presenter<NoData>| {
-            let k = p.host().kernel();
-            let node = k.node_by_key(k.find_by_test_id("log")[0]).unwrap();
-            node.props
-                .str(exact_kernel::PropId::Text)
-                .unwrap()
-                .to_string()
-        };
-        let (hot, away, field) = (id(&p, "hot"), id(&p, "away"), id(&p, "field"));
-        let reply = handle(
-            &mut p,
-            &format!(r#"{{"op":"tap","id":{hot},"hover":true}}"#),
-        );
-        assert!(reply.contains("\"hover\":true"), "{reply}");
-        assert_eq!(log(&p), "true 0 kept ", "a hover enters and never presses");
-        handle(
-            &mut p,
-            &format!(r#"{{"op":"tap","id":{away},"hover":true}}"#),
-        );
-        assert_eq!(log(&p), "false 0 kept ", "the pointer left");
-        handle(
-            &mut p,
-            &format!(r#"{{"op":"type","id":{field},"key":"Escape"}}"#),
-        );
-        assert_eq!(
-            log(&p),
-            "false 0 kept Escape",
-            "a key is heard by name and types nothing"
-        );
-    }
-}
+mod tests;

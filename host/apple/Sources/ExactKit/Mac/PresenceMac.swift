@@ -15,6 +15,7 @@ struct Leaving {
 extension Presenter {
     func beginExit(_ id: UInt32) {
         guard let view = views[id] else { return }
+        landFlights(inside: view) // a flying view leaves with its subtree (LLP 1013.000)
         var members: [NodeView] = []
         var stack: [NSView] = [view]
         while let next = stack.popLast() {
@@ -27,13 +28,14 @@ extension Presenter {
         for member in members { release(member.id, forget: false) }
         view.routeInert = true
         view.setAccessibilityHidden(true)
-        if let parent = view.superview { parent.addSubview(view, positioned: .above, relativeTo: nil) }
+        view.setGhost(true)
         leaving[id] = Leaving(view: view, members: members)
     }
 
     /// The host's `destroy` of a leaving view: its exit ended.
     func endExit(_ id: UInt32) -> Bool {
         guard let ended = leaving.removeValue(forKey: id) else { return false }
+        ended.view.setGhost(false)
         for member in ended.members { member.forget() }
         ended.view.removeFromSuperview()
         return true

@@ -4,7 +4,7 @@ use exact_motion::{HoldEnd, Value};
 
 impl<D: DataSource> Host<D> {
     pub(crate) fn hold_refusal(&self, error: &str) -> String {
-        self.finish(Batch::new(), Some(error.into()))
+        self.refused(Batch::new(), Some(error.into()))
     }
 
     /// Capture the engine's current presentation, retaining only live tokens.

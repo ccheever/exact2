@@ -10,7 +10,9 @@
 //! [`MonospaceMeasurer`] is the deterministic reference measurer used by tests
 //! and headless hosts.
 
-use crate::generated::{Direction, FontStyle, OverflowWrap, StyleProps, TextAlign, TextOverflow};
+use crate::generated::{
+    Direction, FontStyle, OverflowWrap, StyleId, StyleMask, StyleProps, TextAlign, TextOverflow,
+};
 use crate::id::AxisOffer;
 use crate::id::NodeKey;
 use std::borrow::Cow;
@@ -108,6 +110,33 @@ pub struct TextStyle {
 }
 
 impl TextStyle {
+    /// The rows [`TextStyle::from_style`] reads.
+    pub const ROWS: [StyleId; 7] = [
+        StyleId::FontSize,
+        StyleId::FontWeight,
+        StyleId::FontStyle,
+        StyleId::FontFamily,
+        StyleId::LineHeight,
+        StyleId::LetterSpacing,
+        StyleId::FontVariantNumeric,
+    ];
+
+    /// [`TextStyle::from_style`] of a computed style read row by row: the
+    /// node's `own` style, then `inherit(rows, take)` hands `take` each
+    /// ancestor that supplies inherited `rows` the node lacks, nearest first.
+    pub fn from_rows(
+        own: &StyleProps,
+        inherit: impl FnOnce(StyleMask, &mut dyn FnMut(&StyleProps, StyleMask)),
+    ) -> Self {
+        let mut rows = StyleMask::EMPTY;
+        for id in Self::ROWS {
+            rows.set(id);
+        }
+        let mut s = TextRows::of(own);
+        inherit(rows, &mut |from, mask| s.take(from, mask));
+        s.style()
+    }
+
     /// The run style carried by a node's style rows.
     pub fn from_style(s: &StyleProps) -> Self {
         TextStyle {
@@ -164,6 +193,12 @@ pub struct Paragraph {
     pub overflow_wrap: OverflowWrap,
     /// CSS whitespace preservation/collapsing.
     pub white_space: crate::WhiteSpace,
+    /// CSS `text-indent` in points: the first line starts this far in from
+    /// the start edge (right under `rtl`) and has that much less room.
+    pub text_indent: f32,
+    /// CSS `hyphens`. `none` already reached the runs' text
+    /// ([`crate::Hyphens::shown`]); a host hyphenates `auto` where it can.
+    pub hyphens: crate::Hyphens,
 }
 
 impl TextAlign {
@@ -183,6 +218,36 @@ impl TextAlign {
 }
 
 impl Paragraph {
+    /// [`Paragraph::from_style`] of a style read row by row (see
+    /// [`TextStyle::from_rows`]).
+    pub fn from_rows(
+        own: &StyleProps,
+        inherit: impl FnOnce(StyleMask, &mut dyn FnMut(&StyleProps, StyleMask)),
+    ) -> Self {
+        let mut rows = StyleMask::EMPTY;
+        for id in TextStyle::ROWS.into_iter().chain(PARAGRAPH_ROWS) {
+            rows.set(id);
+        }
+        let mut t = TextRows::of(own);
+        let mut p = ParagraphRows::of(own);
+        inherit(rows, &mut |from, mask| {
+            t.take(from, mask);
+            p.take(from, mask);
+        });
+        Paragraph {
+            markup: Markup::None,
+            strut: t.style(),
+            direction: p.direction,
+            text_align: p.text_align.physical(p.direction),
+            line_clamp: p.line_clamp,
+            text_overflow: p.text_overflow,
+            overflow_wrap: p.overflow_wrap,
+            white_space: p.white_space,
+            text_indent: p.text_indent,
+            hyphens: p.hyphens,
+        }
+    }
+
     /// The paragraph style carried by a node's style rows.
     pub fn from_style(s: &StyleProps) -> Self {
         Paragraph {
@@ -194,7 +259,22 @@ impl Paragraph {
             text_overflow: s.text_overflow,
             overflow_wrap: s.overflow_wrap,
             white_space: s.white_space,
+            text_indent: s.text_indent,
+            hyphens: s.hyphens,
         }
+    }
+}
+
+impl crate::Hyphens {
+    /// `text` as this paragraph's runs carry it: under `hyphens: none` a
+    /// soft hyphen is no break, so it becomes U+034F COMBINING GRAPHEME
+    /// JOINER, as invisible, no break opportunity (UAX #14 CM), and the
+    /// same length in UTF-8 and UTF-16, so no offset moves.
+    pub fn shown(self, text: Cow<'_, str>) -> Cow<'_, str> {
+        if self != crate::Hyphens::None || !text.contains('\u{ad}') {
+            return text;
+        }
+        Cow::Owned(text.replace('\u{ad}', "\u{34f}"))
     }
 }
 
@@ -271,6 +351,39 @@ pub trait TextMeasurer {
         request: &TextMeasureRequest<'_>,
     ) -> TextMetrics {
         self.measure(request)
+    }
+
+    /// Whether this measurer's metrics never depend on the height offered
+    /// (only width wraps): the kernel then reuses a leaf's measurement
+    /// across heights instead of asking again.
+    fn height_free(&self) -> bool {
+        false
+    }
+
+    /// The metrics of a kernel-identified paragraph this measurer already
+    /// holds by `stamp`, at an offer, without its runs (no exclusions): the
+    /// kernel builds runs and paragraph style only when this is `None`.
+    /// Measurers that keep no identities answer `None`.
+    fn measure_known(
+        &mut self,
+        _stamp: &ParagraphStamp,
+        _width: AxisOffer,
+        _height: AxisOffer,
+    ) -> Option<TextMetrics> {
+        None
+    }
+
+    /// @ref LLP 1093 D6 — each line box's bottom, in content coordinates, of
+    /// the paragraph the last measure of `request` built: where a column may
+    /// end inside it. The kernel asks only for a paragraph that would cross a
+    /// column's end. A measurer that answers nothing keeps every paragraph
+    /// whole.
+    fn lines(
+        &mut self,
+        _stamp: &ParagraphStamp,
+        _request: &TextMeasureRequest<'_>,
+        _bottoms: &mut Vec<f32>,
+    ) {
     }
 }
 
@@ -506,6 +619,148 @@ impl TextMeasurer for MonospaceMeasurer {
             first_baseline: Some(line_height * self.baseline_frac),
         }
     }
+
+    /// Every line is one line height, so each bottom is a multiple of it.
+    fn lines(
+        &mut self,
+        _stamp: &ParagraphStamp,
+        request: &TextMeasureRequest<'_>,
+        bottoms: &mut Vec<f32>,
+    ) {
+        let height = self.measure(request).height;
+        let line_height = request
+            .runs
+            .iter()
+            .map(|run| self.line_height(&run.style))
+            .fold(self.line_height(&request.paragraph.strut), f32::max);
+        if line_height > 0.0 {
+            let count = (height / line_height).round() as usize;
+            bottoms.extend((1..=count).map(|i| line_height * i as f32));
+        }
+    }
+}
+
+/// What [`TextStyle::from_style`] reads, gathered row by row.
+struct TextRows {
+    font_size: f32,
+    font_weight: u16,
+    font_style: crate::FontStyle,
+    font_family: u16,
+    line_height: crate::LineHeight,
+    letter_spacing: f32,
+    font_variant_numeric: u8,
+}
+
+impl TextRows {
+    fn of(s: &StyleProps) -> Self {
+        TextRows {
+            font_size: s.font_size,
+            font_weight: s.font_weight,
+            font_style: s.font_style,
+            font_family: s.font_family,
+            line_height: s.line_height,
+            letter_spacing: s.letter_spacing,
+            font_variant_numeric: s.font_variant_numeric,
+        }
+    }
+    fn take(&mut self, s: &StyleProps, mask: StyleMask) {
+        if mask.has(StyleId::FontSize) {
+            self.font_size = s.font_size;
+        }
+        if mask.has(StyleId::FontWeight) {
+            self.font_weight = s.font_weight;
+        }
+        if mask.has(StyleId::FontStyle) {
+            self.font_style = s.font_style;
+        }
+        if mask.has(StyleId::FontFamily) {
+            self.font_family = s.font_family;
+        }
+        if mask.has(StyleId::LineHeight) {
+            self.line_height = s.line_height;
+        }
+        if mask.has(StyleId::LetterSpacing) {
+            self.letter_spacing = s.letter_spacing;
+        }
+        if mask.has(StyleId::FontVariantNumeric) {
+            self.font_variant_numeric = s.font_variant_numeric;
+        }
+    }
+    fn style(&self) -> TextStyle {
+        TextStyle {
+            font_size: self.font_size,
+            font_weight: self.font_weight,
+            font_style: self.font_style,
+            font_family: self.font_family,
+            line_height: self.line_height.resolve(self.font_size),
+            letter_spacing: self.letter_spacing,
+            font_variant_numeric: self.font_variant_numeric,
+        }
+    }
+}
+
+/// The paragraph rows [`Paragraph::from_style`] reads besides its strut.
+const PARAGRAPH_ROWS: [StyleId; 8] = [
+    StyleId::Direction,
+    StyleId::TextAlign,
+    StyleId::LineClamp,
+    StyleId::TextOverflow,
+    StyleId::OverflowWrap,
+    StyleId::WhiteSpace,
+    StyleId::TextIndent,
+    StyleId::Hyphens,
+];
+
+struct ParagraphRows {
+    direction: crate::Direction,
+    text_align: crate::TextAlign,
+    line_clamp: u32,
+    text_overflow: crate::TextOverflow,
+    overflow_wrap: crate::OverflowWrap,
+    white_space: crate::WhiteSpace,
+    text_indent: f32,
+    hyphens: crate::Hyphens,
+}
+
+impl ParagraphRows {
+    fn of(s: &StyleProps) -> Self {
+        ParagraphRows {
+            direction: s.direction,
+            text_align: s.text_align,
+            line_clamp: s.line_clamp,
+            text_overflow: s.text_overflow,
+            overflow_wrap: s.overflow_wrap,
+            white_space: s.white_space,
+            text_indent: s.text_indent,
+            hyphens: s.hyphens,
+        }
+    }
+    fn take(&mut self, s: &StyleProps, mask: StyleMask) {
+        if mask.has(StyleId::Direction) {
+            self.direction = s.direction;
+        }
+        if mask.has(StyleId::TextAlign) {
+            self.text_align = s.text_align;
+        }
+        if mask.has(StyleId::LineClamp) {
+            self.line_clamp = s.line_clamp;
+        }
+        if mask.has(StyleId::TextOverflow) {
+            self.text_overflow = s.text_overflow;
+        }
+        if mask.has(StyleId::OverflowWrap) {
+            self.overflow_wrap = s.overflow_wrap;
+        }
+        if mask.has(StyleId::WhiteSpace) {
+            self.white_space = s.white_space;
+        }
+        if mask.has(StyleId::TextIndent) {
+            self.text_indent = s.text_indent;
+        }
+        if mask.has(StyleId::Hyphens) {
+            self.hyphens = s.hyphens;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -558,6 +813,8 @@ mod tests {
             text_overflow: TextOverflow::Clip,
             overflow_wrap: OverflowWrap::Normal,
             white_space: crate::WhiteSpace::Normal,
+            text_indent: 0.0,
+            hyphens: crate::Hyphens::Manual,
         }
     }
 

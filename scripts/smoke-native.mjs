@@ -228,6 +228,8 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     check(await sheetShown(), `${host} native: the sheet is presented over the tabs`);
     await s.tap('close-sheet'); await settle(s);
     check(!(await sheetShown()), `${host} native: Close dismisses the sheet`);
+    // UIKit's dismissal runs in platform time, its snapshot over the tabs until it ends (LLP 1035.003 D5).
+    await s.clock('settle');
     // Retained tabs (LLP 1075.003 §3.7): a tab's scroll survives a switch away and back.
     await s.tap('tab-second'); await settle(s); await s.clock('settle');
     await s.tap('list-second', { wheel: [0, 300] }); await settle(s); await s.clock('settle');
@@ -426,9 +428,11 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
       const roster = await s.carrier.evaluate('exact.nativeArtifact.then((m) => Object.keys(m.roster).length)');
       const defined = await s.carrier.evaluate('exact.nativeDefines?.count');
       if (jsTargetBuild(webDist)) {
-        await s.carrier.evaluate('location.reload()').catch(() => {});
-        for (let i = 0; i < 200 && !(await s.carrier.evaluate("document.readyState === 'complete' && document.getElementById('exact-root')?.dataset.bootMs != null && !!globalThis.exact?.agentSettled").catch(() => false)); i++) await sleep(25);
-        await s.carrier.evaluate('exact.ready');
+        // The carrier waits until the old document has gone, then for the
+        // new page's agent. Polling ready after location.reload can see the
+        // old page and pass just before navigation destroys its context.
+        await s.carrier.reset({ keep: true });
+        s.now = 0; s.logCursor = 0;
       } else await s.carrier.evaluate(`fetch('./app.plan').then((r) => r.arrayBuffer()).then((b) => exact.reload(new Uint8Array(b)))`);
       t = await until(s, 'the reloaded plan attaches again', (t) => module(t, 'box')?.state === 'ready');
       const after = await s.carrier.evaluate('exact.nativeDefines?.count');

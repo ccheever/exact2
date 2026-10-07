@@ -19,6 +19,8 @@ fn with<T>(f: impl FnOnce(&mut Module) -> T) -> Option<T> {
 extern "C" {
     #[wasm_bindgen(js_namespace = ["globalThis", "exact", "gpu"], js_name = deviceLost)]
     fn device_lost();
+    #[wasm_bindgen(js_namespace = console, js_name = error)]
+    pub(crate) fn console_error(message: &str);
 }
 
 pub(crate) fn notify_loss(lost: &std::sync::Arc<std::sync::atomic::AtomicBool>) {
@@ -51,6 +53,7 @@ pub fn asset_failed(id: u32, name: &str, reason: &str) -> bool {
 /// Create the device and the module (asynchronous: WebGPU's adapter and
 /// device requests are).
 pub async fn load(registry: &'static Registry) -> Result<(), JsValue> {
+    crate::report_panics();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::BROWSER_WEBGPU,
         ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -247,6 +250,7 @@ pub fn render(id: u32, width: f32, height: f32, scale: f32, now_ms: f64) -> u32 
         seekable: false,
         period_ms: 0.0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     with(|m| match m.render(id, &frame) {
         Some(true) => 1,
@@ -295,6 +299,16 @@ pub fn placement(id: u32, index: u32, out: &mut [f32]) -> u32 {
 /// Whether a canvas wants raw input.
 pub fn wants_input(id: u32) -> bool {
     with(|m| m.wants_input(id)).unwrap_or(false)
+}
+
+/// Whether a canvas draws above SDR white (LLP 1100 D12b).
+pub fn high_dynamic_range(id: u32) -> bool {
+    with(|m| m.high_dynamic_range(id)).unwrap_or(false)
+}
+
+/// The headroom an HDR canvas draws its next frames to (LLP 1100 D12b).
+pub fn headroom(id: u32, headroom: f32) {
+    with(|m| m.set_headroom(id, headroom));
 }
 
 /// Deliver a JSON device event. True on success.
@@ -491,6 +505,18 @@ macro_rules! module {
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub fn gpu_wants_input(id: u32) -> bool {
             $crate::web::wants_input(id)
+        }
+
+        /// Whether a canvas draws above SDR white (LLP 1100 D12b).
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_high_dynamic_range(id: u32) -> bool {
+            $crate::web::high_dynamic_range(id)
+        }
+
+        /// The headroom an HDR canvas draws its next frames to.
+        #[::wasm_bindgen::prelude::wasm_bindgen]
+        pub fn gpu_headroom(id: u32, headroom: f32) {
+            $crate::web::headroom(id, headroom)
         }
 
         /// Deliver one JSON event; true on success.

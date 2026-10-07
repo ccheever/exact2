@@ -541,7 +541,11 @@ impl DataSource for Continuing {
     fn dispatch(&mut self, _: u64, _: &Store) -> exact_runner::Dispatch {
         exact_runner::Dispatch::Host(7)
     }
-    fn forgotten(&mut self, in_flight: &[exact_runner::InFlight<'_>]) {
+    fn forgotten(
+        &mut self,
+        _store: &exact_runner::Store,
+        in_flight: &[exact_runner::InFlight<'_>],
+    ) {
         self.heard
             .borrow_mut()
             .extend(in_flight.iter().map(|f| f.continuation));
@@ -570,7 +574,7 @@ fn forgotten_hands_a_child_its_own_tokens_and_lets_go_of_the_rest() {
         continuation: Some(continuation),
     };
     // The second replaced the first: the child hears its own token back.
-    host.forgotten(&[in_flight(second)]);
+    host.forgotten(&store, &[in_flight(second)]);
     assert_eq!(heard.borrow().as_slice(), [Some(7)]);
     assert!(matches!(
         host.dispatch(first, &store),
@@ -581,7 +585,7 @@ fn forgotten_hands_a_child_its_own_tokens_and_lets_go_of_the_rest() {
         host.dispatch(second, &store),
         exact_runner::Dispatch::Host(7)
     ));
-    host.forgotten(&[in_flight(second)]);
+    host.forgotten(&store, &[in_flight(second)]);
     assert_eq!(heard.borrow().as_slice(), [Some(7), None]);
 }
 
@@ -622,7 +626,7 @@ fn a_document_path_reads_and_writes_the_chosen_file_under_its_grant() {
         "fs.readFile",
         serde_json::json!({"path": doc}),
     );
-    assert!(refused.unwrap_err().contains("not granted"));
+    assert!(refused.unwrap_err().starts_with("denied: "));
     let write = serde_json::json!({"path": doc, "text": "# B"});
     let refused = run("fs.read doc:/", "fs.atomicWriteFile", write.clone());
     assert!(refused.unwrap_err().contains("fs.write doc:/"));
@@ -643,4 +647,47 @@ fn a_document_path_reads_and_writes_the_chosen_file_under_its_grant() {
     );
     assert!(gone.unwrap_err().contains("no such document"));
     let _ = std::fs::remove_dir_all(dir);
+}
+
+/// A drive that names no scratch store (trivia F7): the request is answered,
+/// with the web's refusal word for word, which the module can handle — where
+/// an unconfigured host refuses the answer itself.
+#[test]
+fn an_agent_drive_without_a_store_answers_with_the_webs_refusal() {
+    let mut host = Storage::new(Fixture::new());
+    host.agent = true;
+    host.activate().unwrap();
+    let refused = run(
+        &mut host,
+        storage::request("fs.writeFile", json!({"path":"app:/data/x","text":"x"})),
+    );
+    assert_eq!(
+        refused,
+        Err("storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)".into())
+    );
+    host.agent = false;
+    host.source.request = storage::request("fs.readFile", json!({"path":"app:/data/x"}));
+    assert!(host
+        .answer(&mut Store::default(), "operation", &[])
+        .is_err());
+}
+
+#[test]
+fn storage_forwards_source_console_lines_once() {
+    struct Logging(Vec<String>);
+    impl DataSource for Logging {
+        fn query(
+            &mut self,
+            _: &str,
+            _: &[exact_plan::Value],
+        ) -> Result<exact_plan::Value, DataError> {
+            Ok(exact_plan::Value::Unit)
+        }
+        fn take_logs(&mut self) -> Vec<String> {
+            std::mem::take(&mut self.0)
+        }
+    }
+    let mut source = Storage::new(Logging(vec!["console error".into()]));
+    assert_eq!(source.take_logs(), ["console error"]);
+    assert!(source.take_logs().is_empty());
 }

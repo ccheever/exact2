@@ -10,11 +10,19 @@ use exact_game::{
     math, Quat, Vec3, World,
 };
 use std::{collections::BTreeMap, sync::Arc};
-#[cfg(any(target_os = "macos", target_os = "ios", test))]
+#[cfg(any(
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "tvos",
+    windows,
+    test
+))]
 #[allow(unsafe_code)]
-mod apple;
-#[cfg(any(target_os = "macos", target_os = "ios"))]
-pub use apple::AppleOutput;
+mod native;
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
+pub use native::AppleOutput;
+#[cfg(windows)]
+pub use native::WindowsOutput;
 #[cfg(target_arch = "wasm32")]
 mod web;
 #[cfg(target_arch = "wasm32")]
@@ -99,6 +107,10 @@ pub trait Output {
     }
     fn ready(&self) -> bool {
         true
+    }
+    /// A fatal asynchronous device error. The owner disposes and retries the output.
+    fn failure(&self) -> Option<String> {
+        None
     }
     fn flush(&mut self) {}
     fn retain_pcm(&mut self, _pcm: &[Pcm]) {}

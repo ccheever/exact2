@@ -285,3 +285,187 @@ fn document_language_replaces_the_shaping_catalog_and_cached_paragraphs() {
     measurer.set_language("en");
     assert_eq!(shared.borrow().catalog.borrow().fonts.locale(), "en");
 }
+
+/// The reader diary: a line broken at a soft hyphen shows one (the face's
+/// own `-`, its advance part of the line), as Chrome does, and breaks there
+/// only if the hyphen fits too; one not chosen stays invisible.
+#[test]
+fn a_line_broken_at_a_soft_hyphen_shows_the_faces_hyphen() {
+    let mut e = engine(INTER, "Inter");
+    let dash = e.paragraph(&spec("-", WhiteSpace::Normal), None);
+    let dash = dash.layout_runs().next().unwrap().glyphs[0].clone();
+    let fits = e
+        .paragraph(&spec("an incom-", WhiteSpace::Normal), None)
+        .layout_runs()
+        .next()
+        .unwrap()
+        .line_w;
+    let s = spec(
+        "an extra\u{ad}ordinary incom\u{ad}prehensibly",
+        WhiteSpace::Normal,
+    );
+    let shy = |l: &cosmic_text::LayoutRun<'_>, g: &cosmic_text::LayoutGlyph| {
+        &l.text[g.start..g.end] == "\u{ad}"
+    };
+    let wide = |e: &mut TextEngine, width: f32| {
+        let s = spec("an incom\u{ad}prehensibly", WhiteSpace::Normal);
+        let p = e.paragraph(&s, Some(width));
+        let first = p.layout_runs().next().unwrap();
+        (
+            first
+                .glyphs
+                .last()
+                .map(|g| (shy(&first, g), g.glyph_id, g.w)),
+            first.line_w,
+        )
+    };
+    let (last, line_w) = wide(&mut e, fits + 0.5);
+    assert_eq!(
+        last.map(|l| (l.0, l.1)),
+        Some((true, dash.glyph_id)),
+        "breaks at the soft hyphen and shows `-`"
+    );
+    assert!(
+        (last.unwrap().2 - dash.w).abs() < 1e-3 && (line_w - fits).abs() < 0.01,
+        "its advance is the line's"
+    );
+    let (last, _) = wide(&mut e, fits - 0.5);
+    assert_eq!(
+        last.map(|l| l.0),
+        Some(false),
+        "where the hyphen would not fit the word moves whole"
+    );
+    let p = e.paragraph(&s, Some(1000.0));
+    for line in p.layout_runs() {
+        for g in line.glyphs.iter().filter(|g| shy(&line, g)) {
+            assert_eq!(g.w, 0.0, "an unchosen soft hyphen stays invisible");
+        }
+    }
+    // `hyphens: none` reaches the runs as U+034F (the kernel's): no break there.
+    let none = spec("an incom\u{34f}prehensibly", WhiteSpace::Normal);
+    let p = e.paragraph(&none, Some(fits + 0.5));
+    let first = p.layout_runs().next().unwrap();
+    assert!(
+        first
+            .glyphs
+            .iter()
+            .all(|g| &first.text[g.start..g.end] != "p"),
+        "the word moves whole"
+    );
+}
+
+/// CSS `text-indent`: the first line starts that far in and has that much
+/// less room; it counts in max-content and in the first word's min-content.
+#[test]
+fn text_indent_insets_the_first_line_only() {
+    let mut e = engine(INTER, "Inter");
+    let mut s = spec("aaa bbb ccc ddd eee fff", WhiteSpace::Normal);
+    let plain = e.measure(&s, AxisOffer::MaxContent);
+    let word = e.measure(&s, AxisOffer::MinContent);
+    s.text_indent = 24.0;
+    let indented = e.measure(&s, AxisOffer::MaxContent);
+    assert_eq!(indented.width, (plain.width + 24.0).ceil());
+    // The widest piece is now the first word with the indent before it.
+    let first = e.measure(&spec("aaa", WhiteSpace::Normal), AxisOffer::MaxContent);
+    let min = e.measure(&s, AxisOffer::MinContent);
+    assert!(
+        min.width > word.width && min.width >= first.width - 1.0 + 24.0,
+        "{min:?}"
+    );
+    let p = e.paragraph(&s, Some(100.0));
+    let lines: Vec<_> = p.layout_runs().collect();
+    assert!(lines.len() >= 2);
+    assert_eq!(lines[0].glyphs[0].x, 24.0, "the first line is inset");
+    assert_eq!(lines[1].glyphs[0].x, 0.0, "the second is not");
+    assert!(
+        lines[0].line_w <= 100.0,
+        "the indent took room from the line"
+    );
+    // Under `rtl` the start edge is the right.
+    s.direction = exact_kernel::Direction::Rtl;
+    s.align = TextAlign::Right;
+    let p = e.paragraph(&s, Some(100.0));
+    let first = p.layout_runs().next().unwrap();
+    let right = first.glyphs.iter().map(|g| g.x + g.w).fold(0.0, f32::max);
+    assert!(
+        (right - 76.0).abs() < 0.5,
+        "rtl first line ends 24 in from the right: {right}"
+    );
+}
+
+/// LLP 1045 D4: a Markdown list item's lines all start at its level's
+/// indent (the browser's `padding-inline-start: 40px` per `<ul>`/`<ol>`),
+/// its marker hung before the first, ending at the indent, so ordered
+/// numbers right-align as the browser's outside markers do; the measured
+/// width is the painted one.
+#[test]
+fn a_markdown_list_items_lines_start_at_its_indent() {
+    let mut e = engine(DEJAVU, "DejaVu Sans");
+    let source = "Top\n\n- one two three four five six seven eight\n  - nested\n\n9. nine\n10. ten";
+    let s = spec(source, WhiteSpace::PreWrap).markdown();
+    let p = e.paragraph(&s, Some(200.0));
+    // Each visual line: its first glyph's run, where it starts, and where
+    // the marker (a hung run) ends.
+    let lines: Vec<(String, f32, Option<f32>)> = p
+        .layout_runs()
+        .filter(|line| !line.glyphs.is_empty())
+        .map(|line| {
+            let text = |g: &cosmic_text::LayoutGlyph| &s.runs[g.metadata];
+            let marker = line
+                .glyphs
+                .iter()
+                .filter(|g| text(g).hang)
+                .map(|g| g.x + g.w)
+                .reduce(f32::max);
+            let first = line
+                .glyphs
+                .iter()
+                .find(|g| !text(g).hang)
+                .map_or(0.0, |g| g.x);
+            let from = line
+                .glyphs
+                .iter()
+                .find(|g| !text(g).hang)
+                .map_or(0, |g| g.start);
+            (line.text[from..].trim().to_string(), first, marker)
+        })
+        .collect();
+    let at = |prefix: &str| {
+        lines
+            .iter()
+            .find(|l| l.0.starts_with(prefix))
+            .unwrap_or_else(|| panic!("{prefix}: {lines:?}"))
+    };
+    assert_eq!(at("Top").1, 0.0);
+    let (one, wrapped) = (
+        at("one"),
+        lines
+            .iter()
+            .find(|l| l.2.is_none() && l.1 > 0.0 && !l.0.starts_with("one"))
+            .unwrap(),
+    );
+    assert!(
+        (one.1 - 40.0).abs() < 0.01 && (one.2.unwrap() - 40.0).abs() < 0.01,
+        "{lines:?}"
+    );
+    assert!(
+        (wrapped.1 - 40.0).abs() < 0.01,
+        "a wrapped line starts at the indent: {lines:?}"
+    );
+    let nested = at("nested");
+    assert!(
+        (nested.1 - 80.0).abs() < 0.01 && (nested.2.unwrap() - 80.0).abs() < 0.01,
+        "{lines:?}"
+    );
+    for number in ["nine", "ten"] {
+        let l = at(number);
+        assert!(
+            (l.1 - 40.0).abs() < 0.01 && (l.2.unwrap() - 40.0).abs() < 0.01,
+            "{number}: {lines:?}"
+        );
+    }
+    // Measure answers what paint lays out.
+    let measured = e.measure(&s, AxisOffer::Definite(200.0));
+    assert_eq!((measured.height, measured.width), (p.height, p.width));
+    assert!(p.width <= 200.0, "{}", p.width);
+}

@@ -11,50 +11,7 @@
 // followed inside a document, a name in the folder beside this one. They are all a value arriving at
 // `open-file`, which is why there is one code path and not five.
 
-shape Theme
-  page: string
-  chrome: string
-  edge: string
-  ink: string
-  strongInk: string
-  softInk: string
-  faintInk: string
-  accent: string
-  code: string
-  codeBg: string
-  field: string
-  fieldEdge: string
-  pill: string
-  pillInk: string
-  control: string
-  quoteEdge: string
-  quoteInk: string
-  warnBg: string
-  warnEdge: string
-  warnInk: string
-
-shape Run
-  id: string
-  text: string
-  weight: number
-  slant: string
-  mono: bool
-  href: string
-
-shape Cell
-  id: string
-  runs: list<Run>
-
-shape Block
-  id: string
-  kind: string
-  depth: number
-  marker: string
-  text: string
-  href: string
-  header: bool
-  runs: list<Run>
-  cells: list<Cell>
+use Theme, Run, Cell, Block, Runs, SchemeButton from "@exact/reading"
 
 shape Entry
   id: string
@@ -131,7 +88,7 @@ component Markdown
               text "Files" font-size=12 font-weight=600 color=theme.ink
             // The one node every open route ends at. A path typed here and
             // a path delivered by Launch Services are the same event.
-            input id="open-file" value=asked change=openFile placeholder="Path to a Markdown file" aria-label="Path to a Markdown file" testId="open-file" flex=1 padding=8 border-radius=8 border-style="solid" border-width=1 border-color=theme.fieldEdge background-color=theme.field font-size=13 color=theme.ink
+            input appearance="none" id="open-file" value=asked change=openFile placeholder="Path to a Markdown file" aria-label="Path to a Markdown file" testId="open-file" flex=1 padding=8 border-radius=8 border-style="solid" border-width=1 border-color=theme.fieldEdge background-color=theme.field font-size=13 color=theme.ink
             button press=chooseFile aria-label="Open a file" testId="open-document" padding=6 border-radius=6 background-color=theme.control
               text "Open…" font-size=12 font-weight=600 color=theme.ink
             button press=chooseFolder aria-label="Open a folder" testId="open-folder" padding=6 border-radius=6 background-color=theme.control
@@ -253,48 +210,3 @@ component Blocks
                   else
                     // Raw HTML: shown, never interpreted.
                     text block.text testId=`block-${block.id}` width="100%" max-width=740 margin-left="auto" margin-right="auto" padding-left=32 padding-right=32 padding-top=4 padding-bottom=6 box-sizing="border-box" font-family="ui-monospace" font-size=12 color=theme.faintInk
-
-// The styled spans of one paragraph, as the inline `text` children the
-// kernel measures as one paragraph and CoreText paints as one typeset run.
-//
-// Every run carries its own size, weight, height and colour: a style row
-// belongs to the node it is on and does not cascade into the inline nodes
-// below it, so a heading whose runs said nothing would draw at 16 px. The
-// paragraph's type comes in as props and each run departs from it — bolder
-// where the source said `**`, monospaced and warm where it said a backtick.
-// `font-family` is literal-only in Contract v1, so that is the one branch.
-component Runs
-  inject
-    theme: Theme
-  props
-    runs: list<Run>
-    size: number
-    weight: number
-  view
-    each r in runs key=r.id
-      when r.mono
-        text r.text font-family="ui-monospace" font-size=(size * 0.92) font-weight=(r.weight > weight ? r.weight : weight) font-style=r.slant color=theme.code href=r.href
-      else
-        text r.text font-size=size font-weight=(r.weight > weight ? r.weight : weight) font-style=r.slant href=r.href
-
-// One appearance choice. The icon is a fixed grey, so which one is chosen is
-// said with a pill and with opacity rather than by tinting the artwork — a
-// PNG has no `currentColor` to follow.
-component SchemeButton
-  inject
-    theme: Theme
-  props
-    name: string
-    icon: string
-    label: string
-    chosen: string
-    icons: string
-    press: action
-  view
-    button press=press(name) aria-label=label testId=`scheme-${name}` padding=4 border-radius=7
-      when chosen == name
-        view padding=4 border-radius=7 background-color=theme.pill
-          image `${icon}${icons}.png` width=16 height=16 object-fit="contain" aria-label=label
-      else
-        view padding=4 border-radius=7 opacity=0.45
-          image `${icon}${icons}.png` width=16 height=16 object-fit="contain" aria-label=label

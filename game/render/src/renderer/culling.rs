@@ -13,9 +13,20 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         custom: &[crate::hooks::CustomMaterial],
     ) {
         self.cull_groups(frame, cascades.map_or(0, |c| c.count), custom);
-        if self.cull.stale() {
+        self.local_groups();
+        if self.cull.stale() || self.locals_stale() {
             self.write_cull_setup();
+        } else if std::mem::take(&mut self.levels.changed) {
+            let hidden = &self.levels.hidden;
+            self.cull.hide_records(&self.queue, hidden);
+            for local in &mut self.local_culls {
+                if !local.cull.groups.is_empty() {
+                    local.cull.hide_records(&self.queue, hidden);
+                }
+            }
         }
+        self.levels.changed = false;
+        self.local_views();
         if self.cull.direct || self.cull.groups.is_empty() {
             return;
         }
@@ -53,10 +64,16 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         let casters = ((1u32 << cascades) - 1) << 1;
         let mut groups = std::mem::take(&mut self.cull.groups);
         groups.clear();
+        self.viewmodels = false;
         for (index, batch) in self.batches.iter().enumerate() {
             if batch.slots.is_empty() {
                 continue;
             }
+            // Direct draws have no per-instance cull: only the finest level.
+            if self.cull.direct && batch.level != 0 {
+                continue;
+            }
+            self.viewmodels |= batch.viewmodel;
             let material = if ASSETS {
                 self.model_batches[index]
             } else {
@@ -124,7 +141,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         let records = self.cull.words.len() as u32;
         let mut skins = 0;
         if ASSETS {
-            for record in &self.models.records {
+            for (index, record) in self.models.records.iter().enumerate() {
                 let mesh = &self.meshes[record.geometry.0];
                 let (center, radius) = if record.skin.is_some() {
                     skins += 1;
@@ -143,7 +160,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 let words: [u32; RECORD_WORDS] = [
                     record.transform,
                     skin,
-                    0,
+                    // Not this frame's level of detail: drawn in no view.
+                    u32::from(self.levels.hidden.get(index).copied().unwrap_or(false)),
                     0,
                     center.x.to_bits(),
                     center.y.to_bits(),
@@ -164,6 +182,11 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     self.cull.words.extend(words);
                 }
             }
+        }
+        if self.local_culls.iter().any(|l| !l.cull.groups.is_empty()) {
+            let words = self.cull.words.clone();
+            let items = self.slot_list.len() as u32;
+            self.local_setups(&words, items, records, skins_at);
         }
         self.cull.finish_setup(
             &self.device,

@@ -6,13 +6,14 @@ import MachO
 
 enum ControlKinds {
     /// The chrome index's keys for the controls the presenter projects.
-    static let indexed = ["type:checkbox", "type:select", "type:range", "type:date", "type:time", "type:datetime-local", "type:button"]
+    static let indexed = ["type:checkbox", "type:radio", "type:select", "type:range", "type:date", "type:time", "type:datetime-local", "type:button"]
     static let dates: Set<String> = ["date", "time", "datetime-local"]
-    /// `switch`, `checkbox` or the `type` prop's value.
+    /// `switch`, `checkbox`, or the `type` prop's value (`radio`, a select, …).
     static func kind(_ props: [String: String]) -> String {
         switch props["type"] {
         case "button": return "button" // LLP 1069.011 D3: before the checkbox default
         case "select": return "select"
+        case "radio": return "radio" // x2apps survey #2
         case "range": return "range"
         case let t? where dates.contains(t): return t
         default: return props["accessibilityRole"] == "switch" ? "switch" : "checkbox"
@@ -101,11 +102,18 @@ struct SelectMenu: Equatable {
         chosen = (obj["chosen"] as? Int).flatMap { $0 < options.count ? $0 : nil }
     }
 
-    /// The agent's `type <select> <value>` (LLP 1069.001 D9): the refusal
-    /// when no enabled option has `value`.
-    func refusal(_ value: String, id: UInt32) -> String? {
-        if options.contains(where: { $0.value == value && !$0.disabled }) { return nil }
-        return "select \(id) has no enabled option \"\(value)\" (options: \(options.map { "\"\($0.value)\"" }.joined(separator: ", ")))"
+    /// The agent's `type <select> <value>` (LLP 1069.001 D9): the enabled
+    /// option with that value, else the one option with that label, as the
+    /// web host chooses (Playwright's `selectOption`; kanban F17, shop F10);
+    /// else the refusal, naming the options.
+    func choose(_ text: String, id: UInt32) -> (value: String?, refusal: String?) {
+        let enabled = options.filter { !$0.disabled }
+        if enabled.contains(where: { $0.value == text }) { return (text, nil) }
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        let labelled = enabled.filter { $0.label.trimmingCharacters(in: .whitespaces) == trimmed }
+        if labelled.count == 1 { return (labelled[0].value, nil) }
+        let twice = labelled.count > 1 ? " (that label is on more than one option: choose by value)" : ""
+        return (nil, "select \(id) has no enabled option \"\(text)\"\(twice) (options: \(enabled.map { "\"\($0.value)\" \"\($0.label)\"" }.joined(separator: ", ")))")
     }
 }
 

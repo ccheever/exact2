@@ -1,7 +1,7 @@
 //! World advancement and GPU frame ownership.
 use super::*;
 
-impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, P, ASSETS, H> {
+impl<G: Game, P: Executor, const ASSETS: bool, H: crate::Hooks> WorldSurface<G, P, ASSETS, H> {
     pub(super) fn render_frame(
         &mut self,
         frame: &Frame,
@@ -173,12 +173,12 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> WorldSurface
         if !self.perf.armed() {
             self.gpu_timing = None;
         }
+        if feed.mouse_look() {
+            feed.unshown_motion(sim.unshown_motion());
+        }
         let mut input = feed.frame_pixels(sim.world(), sim.alpha(), (frame.width, frame.height));
-        let cascades = input
-            .sun
-            .filter(|s| s.illuminance != 0.)
-            .and_then(|s| s.shadows)
-            .map_or(0, |s| s.cascades.clamp(1, 3));
+        self.perf.lights(input.lights.len(), input.lights_dropped);
+        input.headroom = frame.headroom;
         // Armed perf adds asynchronous pass timings and per-view culling counts.
         if self.perf.armed() {
             renderer.count_culled(true);
@@ -253,14 +253,10 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> WorldSurface
             trace.times = [0.; 3];
         }
         // Timed once submitted (`submitted`): the module submits the frame.
-        let culled = !renderer.cull.groups.is_empty() && !renderer.cull.direct;
-        self.encoded = Some((
-            self.hooks.needs(),
-            self.hooks.drawable(),
-            (cascades, culled),
-        ));
+        self.encoded = Some(renderer.timed.get());
         if self.perf.armed() {
             self.perf.culled = renderer.culled();
+            self.perf.culled_triangles = renderer.culled_triangles();
         }
         let wants = !G::paused(sim.args()) || ticks != 0;
         self.dirty = false;
@@ -272,7 +268,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> WorldSurface
     /// The module submitted the frame `render_frame` encoded: map its
     /// readbacks and start its pass timings.
     pub(super) fn frame_submitted(&mut self) {
-        let Some((needs, drawable, passes)) = self.encoded.take() else {
+        let Some(timed) = self.encoded.take() else {
             return;
         };
         let Some((renderer, _)) = &mut self.render else {
@@ -280,7 +276,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> WorldSurface
         };
         renderer.submitted();
         if let Some(timing) = &mut self.gpu_timing {
-            timing.submitted(&renderer.queue, needs, drawable, passes);
+            timing.submitted(&renderer.queue, timed);
         }
     }
 }

@@ -43,7 +43,7 @@ impl AnimationPlay {
     }
 
     /// Whether it animates a property the engine samples.
-    fn sampled(&self, lowered: &[bool; Property::COUNT + 1], forced: bool) -> bool {
+    fn sampled(&self, lowered: &[bool; Property::SLOTS], forced: bool) -> bool {
         forced
             || self
                 .animation
@@ -52,6 +52,13 @@ impl AnimationPlay {
                 .iter()
                 .any(|p| !lowered[*p as usize])
     }
+}
+
+/// How a play joins its clock timeline (LLP 1055.002).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Join {
+    Started,
+    Resumed,
 }
 
 impl Engine {
@@ -78,6 +85,10 @@ impl Engine {
         // entries of one name are two animations and a reorder restarts none.
         let mut used = vec![false; old.len()];
         let mut plays = Vec::with_capacity(animations.0.len());
+        // On a clock timeline a play that starts or resumes joins its phase
+        // (LLP 1055.002 D4, D6), from now until the clock picks its start.
+        let on_clock = self.animation_clock(node).is_some();
+        let mut joins = Vec::with_capacity(animations.0.len());
         for a in animations.0.iter().rev() {
             let matched = old
                 .iter()
@@ -92,9 +103,13 @@ impl Engine {
                     let (start, hold) = match (prior.hold, a.paused) {
                         (hold, _) if bound => (prior.start, hold),
                         (None, true) => (prior.start, Some(now - prior.start)),
-                        (Some(held), false) => (now - held, None),
+                        // A play on a clock timeline rejoins its phase
+                        // (LLP 1055.002 D6); any other continues.
+                        (Some(held), false) => (now - if on_clock { 0.0 } else { held }, None),
                         (hold, _) => (prior.start, hold),
                     };
+                    let resumed = on_clock && !bound && prior.hold.is_some() && !a.paused;
+                    joins.push(resumed.then_some(Join::Resumed));
                     AnimationPlay {
                         animation: a.clone(),
                         start,
@@ -102,16 +117,20 @@ impl Engine {
                         dark: prior.dark,
                     }
                 }
-                None => AnimationPlay {
-                    animation: a.clone(),
-                    start: now,
-                    hold: a.paused.then_some(0.0),
-                    dark: self.dark_of(node),
-                },
+                None => {
+                    joins.push(on_clock.then_some(Join::Started));
+                    AnimationPlay {
+                        animation: a.clone(),
+                        start: now,
+                        hold: a.paused.then_some(0.0),
+                        dark: self.dark_of(node),
+                    }
+                }
             };
             plays.push(play);
         }
         plays.reverse();
+        joins.reverse();
         for play in old.iter().chain(&plays) {
             for p in play.animation.keyframes.properties() {
                 self.dirty.insert((node, p));
@@ -120,19 +139,31 @@ impl Engine {
         if plays.is_empty() {
             self.animating.remove(&node);
         } else {
-            let (lowered, forced) = (self.lowered, self.forced.contains(&node));
-            if plays
-                .iter()
-                .any(|p| p.live(now) && p.sampled(&lowered, forced))
-            {
-                self.animating.insert(node);
-            } else {
-                self.animating.remove(&node);
-            }
             self.animations.insert(node, plays);
+            self.schedule_animations(node);
             self.seek_bound(node);
+            let of = |join| {
+                let at = joins.iter().enumerate().filter(|(_, j)| **j == Some(join));
+                at.map(|(i, _)| i).collect::<Vec<_>>()
+            };
+            self.join_clock(node, &of(Join::Started), &of(Join::Resumed));
         }
         Ok(())
+    }
+
+    /// Keep the clock running for `node` while a play of it is live and
+    /// sampled, after its plays or their starts change.
+    pub(super) fn schedule_animations(&mut self, node: u64) {
+        let (now, lowered, forced) = (self.now, self.lowered, self.forced.contains(&node));
+        let plays = self.animations.get(&node).map_or(&[][..], Vec::as_slice);
+        if plays
+            .iter()
+            .any(|p| p.live(now) && p.sampled(&lowered, forced))
+        {
+            self.animating.insert(node);
+        } else {
+            self.animating.remove(&node);
+        }
     }
 
     /// The animations playing on a node, in row order.
@@ -149,13 +180,13 @@ impl Engine {
     /// tracks their starts and pauses but never samples them into frames or
     /// keeps the clock busy for them. The web lowers every property.
     pub fn set_lowered(&mut self, lowered: bool) {
-        self.lowered = [lowered; Property::COUNT + 1];
+        self.lowered = [lowered; Property::SLOTS];
     }
 
     /// Lower only these properties' animations (Apple: the ones Core
     /// Animation plays faithfully); the engine samples the rest per frame.
     pub fn set_lowered_properties(&mut self, properties: &[Property]) {
-        self.lowered = [false; Property::COUNT + 1];
+        self.lowered = [false; Property::SLOTS];
         for p in properties {
             self.lowered[*p as usize] = true;
         }

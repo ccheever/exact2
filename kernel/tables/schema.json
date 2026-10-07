@@ -53,7 +53,8 @@
     },
     {
       "id": 12,
-      "name": "Video"
+      "name": "Video",
+      "_comment": "@ref LLP 1042: HTML's `video`, and its `audio` (`semanticTag` audio, LLP 1042 §8): one media node, one player per host."
     },
     {
       "id": 13,
@@ -332,7 +333,8 @@
     {
       "id": 32,
       "name": "accessibilityModal",
-      "kind": "bool"
+      "kind": "bool",
+      "_comment": "@ref LLP 1080.003: ARIA `aria-modal`: while true, assistive technology reaches only this element's subtree among its siblings (iOS `accessibilityViewIsModal` while exposed; the web's `aria-modal`, which ARIA honours on a `dialog` or `alertdialog` role; macOS deferred)."
     },
     {
       "id": 33,
@@ -609,6 +611,12 @@
       "name": "scrollStart",
       "kind": "str",
       "_comment": "@ref LLP 1010 §6.5: `scroll-start` on a virtualized list, `start` (the default) or `end` — where it opens."
+    },
+    {
+      "id": 224,
+      "name": "accessibilityPressed",
+      "kind": "str",
+      "_comment": "ARIA `aria-pressed` on a button: a toggle button's state, `true`, `false` or `mixed`; absent (or any other word), the button is no toggle. A bool expression is written as `true`/`false`."
     },
     {
       "id": 81,
@@ -1127,7 +1135,7 @@
     },
     {
       "id": 186,
-      "name": "order",
+      "name": "feOrder",
       "kind": "str"
     },
     {
@@ -1283,10 +1291,231 @@
       "name": "symbolEffectValue",
       "kind": "str",
       "_comment": "@ref LLP 1077 D12: a symbol's discrete effect (bounce, wiggle) plays each time this value changes, as SwiftUI's `.symbolEffect(_:value:)`."
+    },
+    {
+      "id": 225,
+      "name": "listStyle",
+      "kind": "str",
+      "_comment": "@ref LLP 1084 D2: a grouped list's style, `inset-grouped`, `grouped` or `plain`; set by Contract on every `list` whose appearance is `auto` (UICollectionLayoutListConfiguration.Appearance on iOS)."
+    },
+    {
+      "id": 226,
+      "name": "sharedElement",
+      "kind": "str",
+      "_comment": "@ref LLP 1013.000 D1: the node's shared-element name. A name that leaves one node and arrives at another in one commit is a handoff (CommitReceipt::handoffs); the arriver flies from the leaver's box."
+    },
+    {
+      "id": 227,
+      "name": "rows",
+      "kind": "int",
+      "measure": true,
+      "_comment": "HTML textarea preferred line count; absent or invalid, two. CSS height and field-sizing override intrinsic size."
+    },
+    {
+      "id": 228,
+      "name": "maxlength",
+      "kind": "int",
+      "_comment": "HTML maximum user-entered UTF-16 length; absent or negative, unlimited. Programmatic value changes are not truncated."
+    },
+    {
+      "id": 229,
+      "name": "target",
+      "kind": "str",
+      "_comment": "HTML's link `target`, `_blank` or `_self`: where the web opens a link's URL. Unset, a link to an absolute URL opens in a new browsing context, as the native hosts open it in the system browser (x2apps chat F11, hn-reader F3); natively a path navigates in the app and any other URL leaves it, whatever the target."
+    },
+    {
+      "id": 230,
+      "name": "enterKeyHint",
+      "kind": "str",
+      "_comment": "HTML's `enterkeyhint` (feed F25): what a software keyboard's enter key says — enter, done, go, next, previous, search or send. The web writes the attribute; iOS sets the field's return key; a host with no software keyboard (macOS, Linux, a desktop browser) has nothing to label."
+    },
+    {
+      "id": 231,
+      "name": "accessibilityInvalid",
+      "kind": "str",
+      "_comment": "ARIA `aria-invalid` (x2apps onboarding F22): `true`, `false`, `grammar` or `spelling`; a bool expression is written as `true`/`false`. AppKit serves WebKit's `AXInvalid`; UIKit has no such property, so iOS exposes none."
+    },
+    {
+      "id": 232,
+      "name": "accessibilityDescribedBy",
+      "kind": "str",
+      "_comment": "ARIA `aria-describedby`: the HTML ids, space-separated, of the elements whose text describes this one (accname's description), after `aria-description`'s words. AppKit's `AXHelp`, UIKit's `accessibilityHint`."
+    },
+    {
+      "id": 233,
+      "name": "accessibilityRequired",
+      "kind": "bool",
+      "_comment": "ARIA `aria-required` (x2apps onboarding F22): a field the form needs filled. AppKit's `AXRequired`; UIKit has no such property, so iOS exposes none."
+    },
+    {
+      "id": 234,
+      "name": "accessibilityHasPopup",
+      "kind": "str",
+      "_comment": "ARIA `aria-haspopup` (x2apps spreadsheet F20): `false`, `true`, `menu`, `listbox`, `tree`, `grid` or `dialog`; a bool expression is written as `true`/`false`. AppKit serves Chromium's `AXHasPopup` and `AXPopupValue`; UIKit has no such property, so iOS exposes none."
+    },
+    {
+      "id": 235,
+      "name": "accessibilityLabelledBy",
+      "kind": "str",
+      "_comment": "ARIA `aria-labelledby` (x2apps ledger2 Rough 3): the HTML ids, space-separated, of the elements whose text names this one; accname takes it before `aria-label`. AppKit's `AXTitle`/`accessibilityLabel`, UIKit's `accessibilityLabel`."
+    },
+    {
+      "id": 236,
+      "name": "headEdited",
+      "kind": "bool",
+      "_comment": "`head edited` (LLP 1069.010 D6; studio diary R17): the document has unsaved changes. A declared deviation, the web having no unsaved mark: macOS sets the window's `isDocumentEdited` (the dot in its close button); other hosts show nothing."
+    },
+    {
+      "id": 237,
+      "name": "title",
+      "kind": "str",
+      "_comment": "HTML's global `title` attribute on any element but `head` (whose `title` is `headTitle`): advisory text, the platform's tooltip (studio diary R24). The browser's own on the web, `NSView.toolTip` on macOS; touch hosts show none."
+    },
+    {
+      "id": 238,
+      "name": "contextPopover",
+      "kind": "str",
+      "_comment": "LLP 1021 §5.1: the HTML `id` of the popover a node's context menu shows (a long press, a secondary click). iOS presents it as `UIContextMenuInteraction` (its menu rows the `UIMenu`, its `contextPreview` row the preview); macOS as an `NSMenu` at the click; the web opens the popover anchored to the node; Linux shows nothing. A declared deviation: HTML retired its `contextmenu` attribute."
+    },
+    {
+      "id": 239,
+      "name": "contextPreview",
+      "kind": "bool",
+      "_comment": "LLP 1021 §5.1: this row of a context popover is the menu's preview (on iOS the preview controller's view, sized by its layout), not a menu item; its `press` is what tapping the preview does (UIKit's commit). Elsewhere it is an ordinary row."
+    },
+    {
+      "id": 240,
+      "name": "accessibilityCurrent",
+      "kind": "str",
+      "_comment": "ARIA `aria-current` (Depot feedback, 2026-10-05): `page`, `step`, `location`, `date`, `time`, `true` or `false`, the current item of a set (a navigation link, a wizard's step); a bool expression is written as `true`/`false`. AppKit serves WebKit's `AXARIACurrent`; UIKit has no such property, so iOS exposes none."
+    },
+    {
+      "id": 241,
+      "name": "reorderGroup",
+      "kind": "str",
+      "_comment": "@ref LLP 1094 D1: SortableJS's `group` name on a vertical `list virtualized=true` with a `reorderdrop` and an `id`: the mounted lists of one session sharing a non-empty value exchange rows, the drop firing once on the target list's `reorderdrop`."
+    },
+    {
+      "id": 242,
+      "name": "focusGuide",
+      "kind": "str",
+      "_comment": "`focusGuide=\"auto\"` on a container: on tvOS a focus guide over its box sends a remote move that enters it from outside to the descendant that last held the focus, else its first focusable one (react-native-tvos TVFocusGuideView `autoFocus`). Other hosts ignore it; their Tab order is sequential."
+    },
+    {
+      "id": 243,
+      "name": "name",
+      "kind": "str",
+      "_comment": "HTML's `name` on `input type=radio` (x2apps survey #2): its radio button group. The radios of one non-empty name in one window are exclusive, and the arrow keys move the check among them in tree order; a radio with none is a group of its own."
+    },
+    {
+      "id": 244,
+      "name": "mediaTitle",
+      "kind": "str",
+      "_comment": "@ref LLP 1098 D1: `metadata=MediaMetadata(…)`'s `title` on an `audio` or `video`, which makes the element a media session claimant. The web's `navigator.mediaSession.metadata`, Apple's `MPNowPlayingInfoCenter`; Linux and Windows keep the record."
+    },
+    {
+      "id": 245,
+      "name": "mediaArtist",
+      "kind": "str",
+      "_comment": "@ref LLP 1098 D1: `MediaMetadata`'s `artist`."
+    },
+    {
+      "id": 246,
+      "name": "mediaAlbum",
+      "kind": "str",
+      "_comment": "@ref LLP 1098 D1: `MediaMetadata`'s `album`."
+    },
+    {
+      "id": 247,
+      "name": "mediaArtwork",
+      "kind": "str",
+      "_comment": "@ref LLP 1098 D1: `MediaMetadata`'s `artwork`, one image's source as authored (an `https:` URL or an app asset path); a host resolves it only where it publishes."
+    },
+    {
+      "id": 248,
+      "name": "seekbackwardOffset",
+      "kind": "float",
+      "_comment": "@ref LLP 1098 D2: the seconds a `seekbackward` moves when the platform gives no `seekOffset` (default 10), and what Apple's lock screen shows (`skipBackwardCommand.preferredIntervals`)."
+    },
+    {
+      "id": 249,
+      "name": "seekforwardOffset",
+      "kind": "float",
+      "_comment": "@ref LLP 1098 D2: `seekbackwardOffset`'s twin for `seekforward`."
+    },
+    {
+      "id": 250,
+      "name": "colorSpace",
+      "kind": "str",
+      "_comment": "LLP 1100 D12a: getContext's `colorSpace`, `srgb` (default) or `display-p3`."
+    },
+    {
+      "id": 251,
+      "name": "colorType",
+      "kind": "str",
+      "_comment": "LLP 1100 D12a: getContext's `colorType`, `unorm8` (default) or `float16`."
+    },
+    {
+      "id": 252,
+      "name": "autocomplete",
+      "kind": "str",
+      "_comment": "HTML's `autocomplete` on an input or textarea (LLP 1102 §3.6): the web writes the attribute; iOS and macOS set the field's text content type from its last field token (`email`, `username`, `current-password`, `new-password`, `one-time-code`, `name`, `tel`, `postal-code`, ...), over the one `type` implies; `off` clears it; a token the platform has no type for leaves `type`'s."
+    },
+    {
+      "id": 253,
+      "name": "fieldStyle",
+      "kind": "str",
+      "_comment": "@ref LLP 1104 D4: set by Contract, never authored: `default` on a text field that wears the default field rows (not `appearance=\"none\"`). The web shows such a field's `:focus-visible` ring; a host may mark its focus."
+    },
+    {
+      "id": 254,
+      "name": "statusBarStyle",
+      "kind": "str",
+      "_comment": "@ref LLP 1105 D1: the status bar's text, `light-content`, `dark-content` or `auto`, bound to state. iOS resolves one from what covers the bar (D2, D3); other hosts ignore it."
+    },
+    {
+      "id": 255,
+      "name": "statusBarAnimation",
+      "kind": "str",
+      "_comment": "@ref LLP 1105 D1: `none` (default) or `fade`, the change to this node's `statusBarStyle`."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
   "enums": {
+    "Resize": {
+      "values": [
+        "none",
+        "both",
+        "horizontal",
+        "vertical",
+        "block",
+        "inline"
+      ],
+      "default": "none"
+    },
+    "PositionArea": {
+      "values": [
+        "none",
+        "bottom span-right",
+        "bottom",
+        "bottom span-all",
+        "top span-right",
+        "top",
+        "top span-all",
+        "center"
+      ],
+      "default": "none"
+    },
+    "UserSelect": {
+      "values": [
+        "auto",
+        "none",
+        "text",
+        "all",
+        "contain"
+      ],
+      "default": "auto"
+    },
     "FlexDirection": {
       "values": [
         "row",
@@ -1367,15 +1596,21 @@
       "values": [
         "relative",
         "absolute",
-        "static"
+        "static",
+        "sticky"
       ],
       "default": "static"
+    },
+    "Cursor": {
+      "values": ["auto", "default", "none", "context-menu", "help", "pointer", "progress", "wait", "cell", "crosshair", "text", "vertical-text", "alias", "copy", "move", "no-drop", "not-allowed", "grab", "grabbing", "e-resize", "n-resize", "ne-resize", "nw-resize", "s-resize", "se-resize", "sw-resize", "w-resize", "ew-resize", "ns-resize", "nesw-resize", "nwse-resize", "col-resize", "row-resize", "all-scroll", "zoom-in", "zoom-out"],
+      "default": "auto"
     },
     "Overflow": {
       "values": [
         "visible",
         "hidden",
-        "scroll"
+        "scroll",
+        "auto"
       ],
       "default": "visible"
     },
@@ -1611,12 +1846,37 @@
       ],
       "default": "auto"
     },
+    "AnimationTrigger": {
+      "_comment": "@ref LLP 1055 D13: when a node's `animation`s start. view (the default): inside a row a virtualized list mounted out of its port, when that row first shows in the port (held until then as `animation-play-state: paused` holds them); anywhere else, as none. none: when the node is inserted (CSS Animations 1 \u00a73).",
+      "values": [
+        "view",
+        "none"
+      ],
+      "default": "view"
+    },
     "BackgroundAttachment": {
       "values": [
         "scroll",
         "fixed"
       ],
       "default": "scroll"
+    },
+    "ColorScheme": {
+      "_comment": "@ref LLP 1034 \u00a78: `normal` is the initial value (the surrounding scheme); an author writes `light` or `dark`.",
+      "values": [
+        "normal",
+        "light",
+        "dark"
+      ],
+      "default": "normal"
+    },
+    "DynamicRangeLimit": {
+      "values": [
+        "standard",
+        "constrained",
+        "no-limit"
+      ],
+      "default": "no-limit"
     },
     "FieldSizing": {
       "values": [
@@ -1635,7 +1895,8 @@
     "ScrollSnapAlign": {
       "values": [
         "none",
-        "start"
+        "start",
+        "end"
       ],
       "default": "none"
     },
@@ -1698,7 +1959,8 @@
       "values": [
         "none",
         "hidden",
-        "solid"
+        "solid",
+        "inset"
       ],
       "default": "none"
     },
@@ -1875,13 +2137,50 @@
         "capitalize"
       ],
       "default": "none"
+    },
+    "ColumnFill": {
+      "_comment": "@ref LLP 1093 D5: CSS `column-fill`. balance: the columns are as short as the content allows (within a definite height or under `max-height`); auto: each column is filled to the column height in turn. `balance-all` is refused by the compiler.",
+      "values": [
+        "balance",
+        "auto"
+      ],
+      "default": "balance"
+    },
+    "BreakBetween": {
+      "_comment": "@ref LLP 1093 D3/D4: CSS `break-before`/`break-after` in a multi-column flow (Fragmentation 3 \u00a73.1). column forces a break; avoid and avoid-column make a break there a last choice. The page and region values are refused by the compiler.",
+      "values": [
+        "auto",
+        "avoid",
+        "column",
+        "avoid-column"
+      ],
+      "default": "auto"
+    },
+    "BreakInside": {
+      "_comment": "@ref LLP 1093 D4: CSS `break-inside` (Fragmentation 3 \u00a73.2): avoid and avoid-column make every break inside the box a last choice. avoid-page and avoid-region are refused by the compiler.",
+      "values": [
+        "auto",
+        "avoid",
+        "avoid-column"
+      ],
+      "default": "auto"
+    },
+    "Hyphens": {
+      "_comment": "CSS `hyphens` (Text 3 \u00a75.4, the reader diary). manual: a soft hyphen (U+00AD) is a break that shows a hyphen; none: it is not a break, so the kernel's runs carry U+034F in its place (as invisible, the same length in UTF-8 and UTF-16, no break opportunity); auto: also the hyphenation points of the document's language, where the host has a dictionary (the web, Apple; Linux has none and declares it, LLP 1001).",
+      "values": [
+        "none",
+        "manual",
+        "auto"
+      ],
+      "default": "manual"
     }
   },
-  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points, 3-6 an env(safe-area-inset-top/right/bottom/left) length with the f32 the points added, 7 calc(<percent> \u00b1 <px>) with a second f32 the points, 8-13 an env(viewport-segment-width/height/top/left/bottom/right x y) length with the f32 the points added and then two u8 indices x then y \u2014 LLP 1078 D3) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (CSS grid-template grammar Taffy can lay out: none, named lines, px, %, fr, auto, min/max-content, fit-content(), minmax(), and fixed/auto-fill/auto-fit repeat(); canonical CSS text on the wire) | placement (CSS grid placement: auto, nonzero numeric or named lines and positive numeric or named spans; canonical CSS text on the wire) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or one gradient, LLP 1066) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | marker (CSS text: none or url(#id)) | transform-origin (CSS text: one to three lengths, percentages or keywords) | animations (`_animations`) | drag-timeline, animation-timeline, animation-range, timeline-scope (CSS text: the four timeline rows, LLP 1057.003) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. Every length row (each dimension, line-height, font-size, letter-spacing, the gaps, border widths and radii, shape-margin) also takes CSS `rem` and `em` through `set_dynamic`; the row holds the pixels the kernel resolves at the end of each commit against the host's root font size (LLP 1069.000 D3), so every reader and the wire see pixels. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard).",
+  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points, 3-6 an env(safe-area-inset-top/right/bottom/left) length with the f32 the points added, 7 calc(<percent> \u00b1 <px>) with a second f32 the points, 8-13 an env(viewport-segment-width/height/top/left/bottom/right x y) length with the f32 the points added and then two u8 indices x then y \u2014 LLP 1078 D3; 14-23 viewport vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh with f32 the percentage) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (CSS grid-template grammar Taffy can lay out: none, named lines, px, %, fr, auto, min/max-content, fit-content(), minmax(), and fixed/auto-fill/auto-fit repeat(); canonical CSS text on the wire) | placement (CSS grid placement: auto, nonzero numeric or named lines and positive numeric or named spans; canonical CSS text on the wire) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or one gradient, LLP 1066) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | marker (CSS text: none or url(#id)) | transform-origin (CSS text: one to three lengths, percentages or keywords) | animations (`_animations`) | drag-timeline, animation-timeline, animation-range, timeline-scope (CSS text: the four timeline rows, LLP 1057.003) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. Every length row (each dimension, line-height, font-size, letter-spacing, the gaps, border widths and radii, shape-margin) also takes CSS `rem` and `em` through `set_dynamic`; the row holds the pixels the kernel resolves at the end of each commit against the host's root font size (LLP 1069.000 D3), so every reader and the wire see pixels. Every length row also takes CSS `ch` and `lh` at a fixed 8\u00d716 px cell (LLP 1101 D3). terminal: how a terminal entry admits the row (LLP 1101 \u00a74) \u2014 cell (lengths only in `ch`/`lh`, a percentage, `auto` or 0), admit, or quantize (the host approximates it); a row without one is refused in a terminal entry. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard). A colour row's default may name a role from `colors` (`\"CanvasText\"`), as CSS's initial `color` is a system colour; a host with the platform's colour shows that, never a snapshot (LLP 1095 stage 2).",
   "styles": [
     {
       "bit": 0,
       "field": "width",
+      "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
       "layout": true,
@@ -1890,6 +2189,7 @@
     {
       "bit": 1,
       "field": "height",
+      "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
       "layout": true,
@@ -1898,6 +2198,7 @@
     {
       "bit": 2,
       "field": "min_width",
+      "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
       "layout": true,
@@ -1906,6 +2207,7 @@
     {
       "bit": 3,
       "field": "min_height",
+      "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
       "layout": true,
@@ -1914,6 +2216,7 @@
     {
       "bit": 4,
       "field": "max_width",
+      "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
       "layout": true,
@@ -1922,6 +2225,7 @@
     {
       "bit": 5,
       "field": "max_height",
+      "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
       "layout": true,
@@ -1930,6 +2234,7 @@
     {
       "bit": 6,
       "field": "padding_top",
+      "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": false,
       "layout": true,
@@ -1938,6 +2243,7 @@
     {
       "bit": 7,
       "field": "padding_right",
+      "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": false,
       "layout": true,
@@ -1946,6 +2252,7 @@
     {
       "bit": 8,
       "field": "padding_bottom",
+      "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": false,
       "layout": true,
@@ -1954,6 +2261,7 @@
     {
       "bit": 9,
       "field": "padding_left",
+      "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": false,
       "layout": true,
@@ -1962,6 +2270,7 @@
     {
       "bit": 10,
       "field": "margin_top",
+      "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
       "layout": true,
@@ -1970,6 +2279,7 @@
     {
       "bit": 11,
       "field": "margin_right",
+      "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
       "layout": true,
@@ -1978,6 +2288,7 @@
     {
       "bit": 12,
       "field": "margin_bottom",
+      "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
       "layout": true,
@@ -1986,6 +2297,7 @@
     {
       "bit": 13,
       "field": "margin_left",
+      "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
       "layout": true,
@@ -1994,42 +2306,49 @@
     {
       "bit": 14,
       "field": "flex_direction",
+      "terminal": "admit",
       "codec": "enum:FlexDirection",
       "layout": true
     },
     {
       "bit": 15,
       "field": "flex_wrap",
+      "terminal": "admit",
       "codec": "enum:FlexWrap",
       "layout": true
     },
     {
       "bit": 16,
       "field": "justify_content",
+      "terminal": "admit",
       "codec": "enum:JustifyContent",
       "layout": true
     },
     {
       "bit": 17,
       "field": "align_items",
+      "terminal": "admit",
       "codec": "enum:AlignItems",
       "layout": true
     },
     {
       "bit": 18,
       "field": "align_self",
+      "terminal": "admit",
       "codec": "enum:AlignSelf",
       "layout": true
     },
     {
       "bit": 19,
       "field": "align_content",
+      "terminal": "admit",
       "codec": "enum:AlignContent",
       "layout": true
     },
     {
       "bit": 20,
       "field": "flex_grow",
+      "terminal": "admit",
       "codec": "f32",
       "layout": true,
       "default": 0
@@ -2037,6 +2356,7 @@
     {
       "bit": 21,
       "field": "flex_shrink",
+      "terminal": "admit",
       "codec": "f32",
       "layout": true,
       "default": 1
@@ -2044,6 +2364,7 @@
     {
       "bit": 22,
       "field": "flex_basis",
+      "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
       "layout": true,
@@ -2052,12 +2373,14 @@
     {
       "bit": 23,
       "field": "position_type",
+      "terminal": "admit",
       "codec": "enum:PositionType",
       "layout": true
     },
     {
       "bit": 24,
       "field": "top",
+      "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
       "layout": true,
@@ -2066,6 +2389,7 @@
     {
       "bit": 25,
       "field": "right",
+      "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
       "layout": true,
@@ -2074,6 +2398,7 @@
     {
       "bit": 26,
       "field": "bottom",
+      "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
       "layout": true,
@@ -2082,6 +2407,7 @@
     {
       "bit": 27,
       "field": "left",
+      "terminal": "cell",
       "codec": "dimension",
       "admitsAuto": true,
       "layout": true,
@@ -2090,6 +2416,7 @@
     {
       "bit": 28,
       "field": "row_gap",
+      "terminal": "cell",
       "codec": "f32",
       "layout": true,
       "default": 0
@@ -2097,6 +2424,7 @@
     {
       "bit": 29,
       "field": "column_gap",
+      "terminal": "cell",
       "codec": "f32",
       "layout": true,
       "default": 0
@@ -2104,6 +2432,7 @@
     {
       "bit": 30,
       "field": "aspect_ratio",
+      "terminal": "admit",
       "codec": "aspect-ratio",
       "layout": true,
       "_comment": "@ref LLP 1053 G1: CSS `auto || <ratio>`, kept as authored (the auto flag and both numbers)."
@@ -2111,66 +2440,81 @@
     {
       "bit": 31,
       "field": "display",
+      "terminal": "admit",
       "codec": "enum:Display",
       "layout": true
     },
     {
       "bit": 32,
       "field": "box_sizing",
+      "terminal": "admit",
       "codec": "enum:BoxSizing",
       "layout": true
     },
     {
       "bit": 33,
       "field": "overflow_x",
+      "terminal": "admit",
       "codec": "enum:Overflow",
       "layout": true
     },
     {
       "bit": 34,
       "field": "overflow_y",
+      "terminal": "admit",
       "codec": "enum:Overflow",
       "layout": true
     },
     {
       "bit": 35,
       "field": "z_index",
+      "terminal": "admit",
       "codec": "i32",
       "default": 0
     },
     {
       "bit": 36,
       "field": "grid_auto_flow",
+      "terminal": "admit",
       "codec": "enum:GridAutoFlow",
       "layout": true
     },
     {
       "bit": 37,
       "field": "grid_template_columns",
+      "rare": true,
+      "terminal": "admit",
       "codec": "tracks",
       "layout": true
     },
     {
       "bit": 38,
       "field": "grid_template_rows",
+      "rare": true,
+      "terminal": "admit",
       "codec": "tracks",
       "layout": true
     },
     {
       "bit": 39,
       "field": "grid_column",
+      "rare": true,
+      "terminal": "admit",
       "codec": "placement",
       "layout": true
     },
     {
       "bit": 40,
       "field": "grid_row",
+      "rare": true,
+      "terminal": "admit",
       "codec": "placement",
       "layout": true
     },
     {
       "bit": 41,
       "field": "justify_items",
+      "terminal": "admit",
       "codec": "enum:JustifyItems",
       "layout": true
     },
@@ -2185,6 +2529,7 @@
     {
       "bit": 43,
       "field": "border_width_top",
+      "terminal": "quantize",
       "codec": "f32",
       "layout": true,
       "default": 3
@@ -2192,6 +2537,7 @@
     {
       "bit": 44,
       "field": "border_width_right",
+      "terminal": "quantize",
       "codec": "f32",
       "layout": true,
       "default": 3
@@ -2199,6 +2545,7 @@
     {
       "bit": 45,
       "field": "border_width_bottom",
+      "terminal": "quantize",
       "codec": "f32",
       "layout": true,
       "default": 3
@@ -2206,6 +2553,7 @@
     {
       "bit": 46,
       "field": "border_width_left",
+      "terminal": "quantize",
       "codec": "f32",
       "layout": true,
       "default": 3
@@ -2213,7 +2561,8 @@
     {
       "bit": 47,
       "field": "background_color",
-      "codec": "color",
+      "terminal": "quantize",
+      "codec": "current-color",
       "default": 0
     },
     {
@@ -2225,48 +2574,56 @@
     {
       "bit": 49,
       "field": "border_radius_top_left",
+      "terminal": "quantize",
       "codec": "dimension",
       "default": 0
     },
     {
       "bit": 50,
       "field": "border_radius_top_right",
+      "terminal": "quantize",
       "codec": "dimension",
       "default": 0
     },
     {
       "bit": 51,
       "field": "border_radius_bottom_right",
+      "terminal": "quantize",
       "codec": "dimension",
       "default": 0
     },
     {
       "bit": 52,
       "field": "border_radius_bottom_left",
+      "terminal": "quantize",
       "codec": "dimension",
       "default": 0
     },
     {
       "bit": 53,
       "field": "border_color_top",
+      "terminal": "quantize",
       "codec": "current-color",
       "default": "currentcolor"
     },
     {
       "bit": 54,
       "field": "border_color_right",
+      "terminal": "quantize",
       "codec": "current-color",
       "default": "currentcolor"
     },
     {
       "bit": 55,
       "field": "border_color_bottom",
+      "terminal": "quantize",
       "codec": "current-color",
       "default": "currentcolor"
     },
     {
       "bit": 56,
       "field": "border_color_left",
+      "terminal": "quantize",
       "codec": "current-color",
       "default": "currentcolor"
     },
@@ -2327,6 +2684,7 @@
     {
       "bit": 65,
       "field": "font_weight",
+      "terminal": "quantize",
       "codec": "u16",
       "inherited": true,
       "text": true,
@@ -2336,6 +2694,7 @@
     {
       "bit": 66,
       "field": "font_style",
+      "terminal": "admit",
       "codec": "enum:FontStyle",
       "inherited": true,
       "text": true,
@@ -2353,6 +2712,7 @@
     {
       "bit": 68,
       "field": "text_align",
+      "terminal": "admit",
       "codec": "enum:TextAlign",
       "inherited": true,
       "text": true
@@ -2378,6 +2738,7 @@
     {
       "bit": 71,
       "field": "text_decoration_line",
+      "terminal": "admit",
       "codec": "enum:TextDecorationLine"
     },
     {
@@ -2393,6 +2754,7 @@
     {
       "bit": 73,
       "field": "line_clamp",
+      "terminal": "admit",
       "codec": "u32",
       "text": true,
       "layout": true,
@@ -2401,15 +2763,18 @@
     {
       "bit": 74,
       "field": "text_overflow",
+      "terminal": "admit",
       "codec": "enum:TextOverflow",
       "text": true
     },
     {
       "bit": 75,
       "field": "text_color",
+      "terminal": "quantize",
       "codec": "color",
       "inherited": true,
-      "default": 255
+      "default": "CanvasText",
+      "_comment": "@ref LLP 1095 stage 2: CSS `color`, initially CSS's `CanvasText` (a browser's own initial): `labelColor` on iOS, `textColor` on macOS, resolved by the platform for appearance and contrast; its fallback pair everywhere else."
     },
     {
       "bit": 76,
@@ -2419,6 +2784,7 @@
     {
       "bit": 77,
       "field": "white_space",
+      "terminal": "admit",
       "codec": "enum:WhiteSpace",
       "inherited": true,
       "text": true,
@@ -2459,22 +2825,26 @@
     {
       "bit": 84,
       "field": "clip_path",
+      "rare": true,
       "codec": "clip-path"
     },
     {
       "bit": 85,
       "field": "scrollbar_width",
+      "terminal": "admit",
       "codec": "enum:ScrollbarWidth"
     },
     {
       "bit": 86,
       "field": "tint_color",
-      "codec": "color",
-      "default": 255
+      "codec": "current-color",
+      "default": "AccentColor",
+      "_comment": "@ref LLP 1095 stage 2: a symbol's (and a tinted raster's) colour, initially the platform's tint, `AccentColor`, kept dynamic by the platform (iOS inherits the view hierarchy's `tintColor`; macOS `controlAccentColor`; the web CSS's `AccentColor`), not a snapshot; `currentcolor` paints the node's presented `color`. Without the row a raster paints its own pixels (LLP 1011)."
     },
     {
       "bit": 87,
       "field": "overflow_wrap",
+      "terminal": "admit",
       "codec": "enum:OverflowWrap",
       "inherited": true,
       "text": true,
@@ -2483,24 +2853,28 @@
     {
       "bit": 88,
       "field": "border_style_top",
+      "terminal": "admit",
       "codec": "enum:BorderStyle",
       "layout": true
     },
     {
       "bit": 89,
       "field": "border_style_right",
+      "terminal": "admit",
       "codec": "enum:BorderStyle",
       "layout": true
     },
     {
       "bit": 90,
       "field": "border_style_bottom",
+      "terminal": "admit",
       "codec": "enum:BorderStyle",
       "layout": true
     },
     {
       "bit": 91,
       "field": "border_style_left",
+      "terminal": "admit",
       "codec": "enum:BorderStyle",
       "layout": true
     },
@@ -2514,6 +2888,7 @@
     {
       "bit": 93,
       "field": "shape_outside",
+      "rare": true,
       "codec": "shape-outside",
       "default": "none",
       "layout": true
@@ -2690,6 +3065,7 @@
     {
       "bit": 120,
       "field": "visibility",
+      "terminal": "admit",
       "codec": "enum:Visibility",
       "inherited": true,
       "_comment": "CSS `visibility`, honoured by SVG elements (LLP 1055.000 D19)."
@@ -2697,6 +3073,7 @@
     {
       "bit": 121,
       "field": "stop_color",
+      "rare": true,
       "codec": "paint",
       "default": "black",
       "_comment": "@ref LLP 1055.000 D7: SVG 2 stop-color (a colour or currentcolor; `none` is refused) and stop-opacity, not inherited."
@@ -2704,6 +3081,7 @@
     {
       "bit": 122,
       "field": "stop_opacity",
+      "rare": true,
       "codec": "f32",
       "default": 1
     },
@@ -2737,6 +3115,7 @@
     {
       "bit": 127,
       "field": "pointer_events",
+      "terminal": "admit",
       "codec": "enum:PointerEvents",
       "inherited": true,
       "_comment": "@ref LLP 1055.000 D17: SVG 2 pointer-events on SVG elements (auto is visiblePainted)."
@@ -2763,6 +3142,7 @@
     {
       "bit": 131,
       "field": "svg_mask",
+      "rare": true,
       "codec": "marker",
       "_comment": "@ref LLP 1055.000 D10: CSS `mask` on SVG elements: none or url(#id) naming a `mask` (the CSS property is `mask`; `mask` is the row mask's own name here)."
     },
@@ -2781,6 +3161,7 @@
     {
       "bit": 134,
       "field": "flood_color",
+      "rare": true,
       "codec": "paint",
       "default": "black",
       "_comment": "@ref LLP 1055.000 D14: flood-color and flood-opacity (feFlood, feDropShadow), lighting-color, not inherited; color-interpolation-filters, inherited."
@@ -2788,12 +3169,14 @@
     {
       "bit": 135,
       "field": "flood_opacity",
+      "rare": true,
       "codec": "f32",
       "default": 1
     },
     {
       "bit": 136,
       "field": "lighting_color",
+      "rare": true,
       "codec": "paint",
       "default": "white"
     },
@@ -2817,6 +3200,7 @@
     {
       "bit": 140,
       "field": "text_transform",
+      "terminal": "admit",
       "codec": "enum:TextTransform",
       "inherited": true,
       "text": true,
@@ -2831,6 +3215,7 @@
     {
       "bit": 142,
       "field": "exit_animation",
+      "rare": true,
       "codec": "animations",
       "ends": true,
       "_comment": "@ref LLP 1063: an `animation` the node plays as it leaves; the outermost removed node stays as a ghost until it ends, so every one must end. Grammar: `_animations`."
@@ -2838,6 +3223,7 @@
     {
       "bit": 143,
       "field": "layout_transition",
+      "rare": true,
       "codec": "transitions",
       "_comment": "@ref LLP 1063: how the node's laid-out origin in its parent moves when layout moves it; the last declaration naming no property governs. Grammar: `_transitions`."
     },
@@ -2859,6 +3245,7 @@
     {
       "bit": 146,
       "field": "appearance",
+      "terminal": "admit",
       "codec": "enum:Appearance",
       "layout": true,
       "_comment": "@ref LLP 1069.001 D6: CSS `appearance`; auto draws the platform's control, none hands the look to the author's box. Not inherited, as in CSS."
@@ -2866,14 +3253,16 @@
     {
       "bit": 147,
       "field": "drag_timeline",
+      "rare": true,
       "codec": "drag-timeline",
       "_comment": "@ref LLP 1057.003 D1: `none | <dashed-ident> [x | y]?`, a timeline the node's presented translate drives (a drag's held value, then its release spring); CSS scroll-timeline's shape with a drag as its source, a deviation LLP 1001 declares."
     },
     {
       "bit": 148,
       "field": "animation_timeline",
+      "rare": true,
       "codec": "animation-timeline",
-      "_comment": "@ref LLP 1057.003 D1: CSS `animation-timeline`, `auto | <dashed-ident>`: the node's animations are held at the named drag timeline's progress, never played on the clock."
+      "_comment": "@ref LLP 1057.003 D1: CSS `animation-timeline`, `auto | <dashed-ident>`: the node's animations are held at the named drag timeline's progress, never played on the clock. @ref LLP 1055.002 D2: a third value, `clock(<ident>)`, keeps them on the clock from a start every animation on that clock timeline shares, a deviation LLP 1001 declares."
     },
     {
       "bit": 149,
@@ -2884,6 +3273,7 @@
     {
       "bit": 150,
       "field": "timeline_scope",
+      "rare": true,
       "codec": "timeline-scope",
       "_comment": "@ref LLP 1057.003 D4: CSS `timeline-scope`, `none | all | <dashed-ident>#`: names a timeline declared below the node (its single declaring descendant, else an inactive timeline) in scope for the node's subtree. Not inherited, as in CSS."
     },
@@ -2897,12 +3287,14 @@
     {
       "bit": 152,
       "field": "mask_image",
+      "rare": true,
       "codec": "mask-image",
       "_comment": "@ref LLP 1077 D2: CSS `mask-image`, `none` or one gradient in background-image's grammar (LLP 1066), its alpha over the border box. Not inherited."
     },
     {
       "bit": 153,
       "field": "corner_shape",
+      "rare": true,
       "codec": "corner-shape",
       "_comment": "@ref LLP 1077 D1: CSS `corner-shape`, one to four of round | squircle | square | bevel | scoop | notch | superellipse(K), plus -apple-continuous (Apple's continuous curve on every host; declared in LLP 1001). Shapes the corners `border-radius` sizes."
     },
@@ -2951,6 +3343,7 @@
     {
       "bit": 160,
       "field": "perspective_origin",
+      "rare": true,
       "codec": "transform-origin",
       "_comment": "@ref LLP 1077 D8: CSS `perspective-origin`, the vanishing point in the parent's box; initial 50% 50%."
     },
@@ -3022,10 +3415,171 @@
       "field": "background_attachment",
       "codec": "enum:BackgroundAttachment",
       "_comment": "@ref LLP 1066 D7: CSS `background-attachment`. `fixed` sizes and places the gradient box on the viewport, not the node's padding box: one gradient across every node that has it, staying still as they scroll (a messenger's outgoing bubbles). `local` is not admitted."
+    },
+    {
+      "bit": 172,
+      "field": "cursor",
+      "codec": "enum:Cursor",
+      "inherited": true,
+      "_comment": "CSS cursor (inherited), every keyword but image cursors: the web writes it, Windows (LLP 1015.000) and macOS map it to a system cursor."
+    },
+    {
+      "bit": 173,
+      "field": "resize",
+      "codec": "enum:Resize"
+    },
+    {
+      "bit": 174,
+      "field": "user_select",
+      "codec": "enum:UserSelect"
+    },
+    {
+      "bit": 175,
+      "field": "order",
+      "terminal": "admit",
+      "codec": "i32",
+      "layout": true,
+      "default": 0,
+      "_comment": "CSS `order` (feed F19): a flex or grid item's place in its container's order-modified document order, which the kernel gives the layout engine as its child order. Painting and focus stay in document order; LLP 1001 declares the paint half."
+    },
+    {
+      "bit": 176,
+      "field": "position_area",
+      "codec": "enum:PositionArea",
+      "_comment": "@ref LLP 1021 D2, \u00a75: CSS `position-area` on an invoker-anchored popover (its implicit anchor is the invoker; no anchor-name, position-anchor or position-try). A subset: none (D2's rule, top-left at the invoker's bottom-left), the top and bottom rows spanning right or all, and center; `top` is `top span-all`, as in CSS. Clamped to the viewport; never flipped."
+    },
+    {
+      "bit": 177,
+      "field": "text_indent",
+      "terminal": "cell",
+      "codec": "f32",
+      "inherited": true,
+      "text": true,
+      "layout": true,
+      "default": 0,
+      "_comment": "CSS `text-indent` as a length in points (the reader diary): the first line of a paragraph starts this far in from its start edge, and has that much less room; negative hangs it out. A percentage and the `hanging`/`each-line` keywords are refused by the compiler."
+    },
+    {
+      "bit": 178,
+      "field": "hyphens",
+      "codec": "enum:Hyphens",
+      "inherited": true,
+      "text": true,
+      "layout": true
+    },
+    {
+      "bit": 179,
+      "field": "translate_percent",
+      "codec": "vec2",
+      "default": [
+        0,
+        0
+      ],
+      "_comment": "CSS `translate`'s percentages, of the node's own border box (chess diary #4: `-50% -50%` centres a box), set with the lengths by the one `translate` attribute: the used x is `translate.x + translate_percent.x / 100 \u00d7 width`, y likewise, resolved where the box's size is known (the presenter, at paint). The engine animates both rows as one `translate` value, its percentages componentwise as CSS interpolates a `calc()`."
+    },
+    {
+      "bit": 180,
+      "field": "column_count",
+      "codec": "u16",
+      "layout": true,
+      "default": 0,
+      "_comment": "@ref LLP 1093 D1: CSS `column-count`; 0 is `auto`. A block container whose `column-count` or `column-width` is not auto is a multi-column container."
+    },
+    {
+      "bit": 181,
+      "field": "column_width",
+      "codec": "dimension",
+      "admitsAuto": true,
+      "layout": true,
+      "default": "auto",
+      "_comment": "@ref LLP 1093 D1: CSS `column-width`, a length or auto (no percentage, as CSS). The used count and width are Multi-column Layout 1 §3.4's, over the content-box width and the gap. The gap is `column-gap` when set, else the element's own font size (CSS's `normal`, 1em)."
+    },
+    {
+      "bit": 182,
+      "field": "column_fill",
+      "codec": "enum:ColumnFill",
+      "layout": true
+    },
+    {
+      "bit": 183,
+      "field": "column_rule_width",
+      "codec": "f32",
+      "default": 3,
+      "_comment": "@ref LLP 1093 §1, D7: CSS `column-rule-width`; `thin`, `medium` (the initial value) and `thick` are 1, 3 and 5 points."
+    },
+    {
+      "bit": 184,
+      "field": "column_rule_style",
+      "codec": "enum:BorderStyle",
+      "_comment": "@ref LLP 1093 §1, D7: CSS `column-rule-style`, the styles the hosts paint for borders; the others are refused by the compiler."
+    },
+    {
+      "bit": 185,
+      "field": "column_rule_color",
+      "codec": "current-color",
+      "default": "currentcolor"
+    },
+    {
+      "bit": 186,
+      "field": "widows",
+      "codec": "u16",
+      "inherited": true,
+      "layout": true,
+      "default": 2,
+      "_comment": "@ref LLP 1093 D4: CSS `widows`, a positive integer: the fewest lines of a paragraph a break may leave for the next column. Chrome applies the initial 2 to every paragraph in a multi-column flow, so the kernel does too."
+    },
+    {
+      "bit": 187,
+      "field": "orphans",
+      "codec": "u16",
+      "inherited": true,
+      "layout": true,
+      "default": 2,
+      "_comment": "@ref LLP 1093 D4: CSS `orphans`, a positive integer: the fewest lines of a paragraph a break may leave in its column."
+    },
+    {
+      "bit": 188,
+      "field": "break_before",
+      "codec": "enum:BreakBetween",
+      "layout": true
+    },
+    {
+      "bit": 189,
+      "field": "break_after",
+      "codec": "enum:BreakBetween",
+      "layout": true
+    },
+    {
+      "bit": 190,
+      "field": "break_inside",
+      "codec": "enum:BreakInside",
+      "layout": true
+    },
+    {
+      "bit": 191,
+      "field": "dynamic_range_limit",
+      "codec": "enum:DynamicRangeLimit",
+      "inherited": true,
+      "_comment": "CSS Color HDR's `dynamic-range-limit` (LLP 1100 D8): how bright HDR images and video may draw."
+    },
+    {
+      "bit": 192,
+      "field": "color_scheme",
+      "terminal": "admit",
+      "codec": "enum:ColorScheme",
+      "inherited": true,
+      "_comment": "@ref LLP 1034 \u00a78: CSS `color-scheme` on a subtree, `light` or `dark`: `light-dark()`, platform colours and native materials below resolve in that scheme. Initial `normal`, the surrounding scheme (the app's, or an ancestor's)."
+    },
+    {
+      "bit": 193,
+      "field": "animation_trigger",
+      "rare": true,
+      "codec": "enum:AnimationTrigger",
+      "_comment": "@ref LLP 1055 D13: `animation-trigger`, the name of CSS's scroll-triggered animations with two values of our own, `view | none`: whether the node's animations start when its list row first shows or at insertion."
     }
   ],
-  "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 tint-color, 23 box-shadow \u2014 LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
-  "_animations": "The `animation` row is CSS `animation` (LLP 1055 D5): count u8 (\u22648), then per animation name (str), duration f32 s, delay f32 s, easing (as `_transitions`, never a spring), iteration count f32 (+inf is `infinite`), direction u8 (0 normal, 1 reverse, 2 alternate, 3 alternate-reverse), fill u8 (0 none, 1 forwards, 2 backwards, 3 both), paused u8, then its keyframes: count u8 (\u226432), per keyframe offset f32 in [0,1], easing flag u8 (0 the animation's, 1 followed by an easing), count u8, per value property u8 (as `Property`), then its components as f32: one, two for `translate`, three for `box-shadow` (offset x, y and blur, in points; its colour is the next value, `box-shadow`'s colour half), four for a colour (premultiplied sRGB red, green, blue, alpha; LLP 1055.000 D6), a colour then u8 1 and four more for the dark half of a `light-dark()` pair, else u8 0 (LLP 1062 D9). Its Rust type lives in exact-motion; the kernel owns the bytes.",
+  "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 tint-color, 23 box-shadow \u2014 LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand; 26 is a path's `d`, LLP 1055.000 D15), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
+  "_animations": "The `animation` row is CSS `animation` (LLP 1055 D5): count u8 (\u22648), then per animation name (str), duration f32 s, delay f32 s, easing (as `_transitions`, never a spring), iteration count f32 (+inf is `infinite`), direction u8 (0 normal, 1 reverse, 2 alternate, 3 alternate-reverse), fill u8 (0 none, 1 forwards, 2 backwards, 3 both), paused u8, then its keyframes: count u8 (\u226432), per keyframe offset f32 in [0,1], easing flag u8 (0 the animation's, 1 followed by an easing), count u8, per value property u8 (as `Property`), then its components as f32: one, four for `translate` (x and y lengths in points, then x and y percentages of the box), three for `box-shadow` (offset x, y and blur, in points; its colour is the next value, `box-shadow`'s colour half), four for a colour (premultiplied sRGB red, green, blue, alpha; LLP 1055.000 D6), a colour then u8 1 and four more for the dark half of a `light-dark()` pair, else u8 0 (LLP 1062 D9). Its Rust type lives in exact-motion; the kernel owns the bytes.",
   "_opcodes": "The closed wire-visible op list for EXWF frame revision 1. There is no op count on the wire; consumers iterate by validated lengths.",
   "opcodes": [
     {
@@ -3254,6 +3808,51 @@
       "M6 3.5v17a1 1 0 0 0 1.5.9l13.2-8.5a1 1 0 0 0 0-1.8L7.5 2.6A1 1 0 0 0 6 3.5Z"
     ],
     [
+      "pause",
+      "pause",
+      "M9 5v14M15 5v14"
+    ],
+    [
+      "pause-fill",
+      "pause.fill",
+      "M6 4h4v16H6ZM14 4h4v16h-4Z"
+    ],
+    [
+      "skip-back-15",
+      "gobackward.15",
+      "M12 3a9 9 0 1 1-7.8 4.5M12 3l2-2M12 3l2 2M8.8 10l1.4-1v6M15.6 9h-2.8v2.4H14a1.8 1.8 0 0 1 0 3.6h-1.3"
+    ],
+    [
+      "skip-forward-15",
+      "goforward.15",
+      "M12 3a9 9 0 1 0 7.8 4.5M12 3l-2-2M12 3l-2 2M8.8 10l1.4-1v6M15.6 9h-2.8v2.4H14a1.8 1.8 0 0 1 0 3.6h-1.3"
+    ],
+    [
+      "skip-back-30",
+      "gobackward.30",
+      "M12 3a9 9 0 1 1-7.8 4.5M12 3l2-2M12 3l2 2M7.6 9.6a1.6 1.6 0 1 1 1.6 2.4 1.7 1.7 0 1 1-1.6 2.6M14.4 9c-1.1 0-1.7 1.3-1.7 3s.6 3 1.7 3 1.7-1.3 1.7-3-.6-3-1.7-3Z"
+    ],
+    [
+      "skip-forward-30",
+      "goforward.30",
+      "M12 3a9 9 0 1 0 7.8 4.5M12 3l-2-2M12 3l-2 2M7.6 9.6a1.6 1.6 0 1 1 1.6 2.4 1.7 1.7 0 1 1-1.6 2.6M14.4 9c-1.1 0-1.7 1.3-1.7 3s.6 3 1.7 3 1.7-1.3 1.7-3-.6-3-1.7-3Z"
+    ],
+    [
+      "speaker",
+      "speaker.wave.2",
+      "M4 9h4l5-4v14l-5-4H4ZM16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"
+    ],
+    [
+      "speaker-mute",
+      "speaker.slash",
+      "M4 9h4l5-4v14l-5-4H4ZM3 3l18 18"
+    ],
+    [
+      "moon",
+      "moon",
+      "M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"
+    ],
+    [
       "pin",
       "pin",
       "M9 3h6M10 3l-.5 6L6 13h12l-3.5-4L14 3M12 13v8"
@@ -3362,6 +3961,11 @@
       "waveform",
       "waveform",
       "M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"
+    ],
+    [
+      "info",
+      "info.circle",
+      "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM12 11v6M12 7.5v.5"
     ]
   ],
   "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. The path is stroked; a filled state is its own role, `<role>-fill` for Apple's `<name>.fill`, whose path is a filled silhouette (even-odd, so a cutout is a subpath). Portable roles only; symbol:sf/<name> passes an opaque name directly to Apple (LLP 1035.004.000), without a table entry. The sf namespace is reserved.",
@@ -3418,5 +4022,50 @@
     ["content-background", "~systemThickMaterial", "contentBackground", "30", "180", "#ffffffe6", "#1e1e1ee6"],
     ["under-window-background", "~systemMaterial", "underWindowBackground", "30", "180", "#ececec99", "#1e1e1e99"],
     ["under-page-background", "~systemMaterial", "underPageBackground", "30", "180", "#e3e3e3b3", "#282828b3"]
+  ],
+  "colors": [
+    ["Canvas", "", "systemBackgroundColor", "textBackgroundColor", "#ffffff", "#000000"],
+    ["CanvasText", "", "labelColor", "textColor", "#000000", "#ffffff"],
+    ["LinkText", "", "linkColor", "linkColor", "#007aff", "#0984ff"],
+    ["GrayText", "", "tertiaryLabelColor", "disabledControlTextColor", "#3c3c434d", "#ebebf54d"],
+    ["Highlight", "", "@tint/0.2", "selectedTextBackgroundColor", "#007aff33", "#0a84ff33"],
+    ["HighlightText", "", "labelColor", "selectedTextColor", "#000000", "#ffffff"],
+    ["AccentColor", "", "@tint", "controlAccentColor", "#007aff", "#0a84ff"],
+    ["AccentColorText", "", "whiteColor", "alternateSelectedControlTextColor", "#ffffff", "#ffffff"],
+    ["Field", "", "secondarySystemBackgroundColor", "textBackgroundColor", "#f2f2f7", "#1c1c1e"],
+    ["FieldText", "", "labelColor", "textColor", "#000000", "#ffffff"],
+    ["ButtonFace", "", "secondarySystemFillColor", "controlColor", "#78788029", "#78788052"],
+    ["ButtonText", "", "linkColor", "controlTextColor", "#007aff", "#0a84ff"],
+    ["label", "-apple-system-label", "labelColor", "labelColor", "#000000", "#ffffff"],
+    ["secondary-label", "-apple-system-secondary-label", "secondaryLabelColor", "secondaryLabelColor", "#3c3c4399", "#ebebf599"],
+    ["tertiary-label", "-apple-system-tertiary-label", "tertiaryLabelColor", "tertiaryLabelColor", "#3c3c434d", "#ebebf54d"],
+    ["quaternary-label", "-apple-system-quaternary-label", "quaternaryLabelColor", "quaternaryLabelColor", "#3c3c432e", "#ebebf529"],
+    ["placeholder", "-apple-system-placeholder-text", "placeholderTextColor", "placeholderTextColor", "#3c3c434d", "#ebebf54d"],
+    ["separator", "-apple-system-separator", "separatorColor", "separatorColor", "#3c3c434a", "#54545899"],
+    ["opaque-separator", "-apple-system-opaque-separator", "opaqueSeparatorColor", "gridColor", "#c6c6c8", "#38383a"],
+    ["link", "", "linkColor", "linkColor", "#007aff", "#0984ff"],
+    ["background", "-apple-system-background", "systemBackgroundColor", "windowBackgroundColor", "#ffffff", "#000000"],
+    ["secondary-background", "-apple-system-secondary-background", "secondarySystemBackgroundColor", "controlBackgroundColor", "#f2f2f7", "#1c1c1e"],
+    ["tertiary-background", "-apple-system-tertiary-background", "tertiarySystemBackgroundColor", "controlBackgroundColor", "#ffffff", "#2c2c2e"],
+    ["grouped-background", "-apple-system-grouped-background", "systemGroupedBackgroundColor", "windowBackgroundColor", "#f2f2f7", "#000000"],
+    ["secondary-grouped-background", "-apple-system-secondary-grouped-background", "secondarySystemGroupedBackgroundColor", "controlBackgroundColor", "#ffffff", "#1c1c1e"],
+    ["tertiary-grouped-background", "-apple-system-tertiary-grouped-background", "tertiarySystemGroupedBackgroundColor", "controlBackgroundColor", "#f2f2f7", "#2c2c2e"],
+    ["fill", "-apple-system-fill", "systemFillColor", "systemFillColor", "#78788033", "#7878805c"],
+    ["secondary-fill", "", "secondarySystemFillColor", "secondarySystemFillColor", "#78788029", "#78788052"],
+    ["tertiary-fill", "-apple-system-tertiary-fill", "tertiarySystemFillColor", "tertiarySystemFillColor", "#7676801f", "#7676803d"],
+    ["quaternary-fill", "-apple-system-quaternary-fill", "quaternarySystemFillColor", "quaternarySystemFillColor", "#74748014", "#7676802e"],
+    ["system-red", "-apple-system-red", "systemRedColor", "systemRedColor", "#ff3b30", "#ff453a"],
+    ["system-orange", "-apple-system-orange", "systemOrangeColor", "systemOrangeColor", "#ff9500", "#ff9f0a"],
+    ["system-yellow", "-apple-system-yellow", "systemYellowColor", "systemYellowColor", "#ffcc00", "#ffd60a"],
+    ["system-green", "-apple-system-green", "systemGreenColor", "systemGreenColor", "#34c759", "#30d158"],
+    ["system-mint", "", "systemMintColor", "systemMintColor", "#00c7be", "#63e6e2"],
+    ["system-teal", "-apple-system-teal", "systemTealColor", "systemTealColor", "#30b0c7", "#40c8e0"],
+    ["system-cyan", "", "systemCyanColor", "systemCyanColor", "#32ade6", "#64d2ff"],
+    ["system-blue", "-apple-system-blue", "systemBlueColor", "systemBlueColor", "#007aff", "#0a84ff"],
+    ["system-indigo", "-apple-system-indigo", "systemIndigoColor", "systemIndigoColor", "#5856d6", "#5e5ce6"],
+    ["system-purple", "-apple-system-purple", "systemPurpleColor", "systemPurpleColor", "#af52de", "#bf5af2"],
+    ["system-pink", "-apple-system-pink", "systemPinkColor", "systemPinkColor", "#ff2d55", "#ff375f"],
+    ["system-brown", "-apple-system-brown", "systemBrownColor", "systemBrownColor", "#a2845e", "#ac8e68"],
+    ["system-gray", "-apple-system-gray", "systemGrayColor", "systemGrayColor", "#8e8e93", "#8e8e93"]
   ]
 }

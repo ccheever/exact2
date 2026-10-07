@@ -2,15 +2,18 @@
 
 mod animation;
 mod cadence;
+mod clock;
 mod descriptor;
 mod easing;
 mod engine;
 mod height;
 mod hold;
 mod paint;
+mod path;
 mod presence;
 mod spring;
 mod transform_hold;
+mod uikit;
 
 use exact_motion::{Animations, Keyframes};
 

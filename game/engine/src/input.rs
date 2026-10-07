@@ -152,6 +152,8 @@ pub enum PointerPhase {
     /// Abandon contact.
     Cancel,
 }
+/// Most posted message accepted by `InputEvent::Message`, in bytes.
+pub(crate) const MAX_MESSAGE: usize = 64 * 1024;
 /// Raw device input stamped in the host clock's milliseconds.
 #[derive(Clone, Debug, Data)]
 pub enum InputEvent {
@@ -174,6 +176,14 @@ pub enum InputEvent {
         x: f32,
         /// Vertical canvas coordinate.
         y: f32,
+        /// Horizontal device motion since this pointer's previous event, in
+        /// points: unbounded by the canvas or screen edge (a locked pointer).
+        dx: f32,
+        /// Vertical device motion since this pointer's previous event.
+        dy: f32,
+        /// Held mouse buttons as the web's `PointerEvent.buttons` bits: 1
+        /// primary, 2 secondary, 4 middle. Touch contacts report 0.
+        buttons: u32,
         /// Host clock milliseconds.
         at_ms: f64,
     },
@@ -208,6 +218,14 @@ pub enum InputEvent {
         /// Host clock milliseconds.
         at_ms: f64,
     },
+    /// Text the app posted into the world (Contract's `postMessage(text, surface)`).
+    /// Each message reaches exactly one tick, in arrival order, never coalesced.
+    Message {
+        /// The posted text, at most 64 KiB.
+        text: String,
+        /// Host clock milliseconds.
+        at_ms: f64,
+    },
 }
 impl Default for InputEvent {
     fn default() -> Self {
@@ -232,7 +250,14 @@ impl InputEvent {
             return false;
         }
         match (self, other) {
-            (Self::Pointer { id: a, .. }, Self::Pointer { id: b, .. }) => a == b,
+            (
+                Self::Pointer {
+                    id: a, buttons: ab, ..
+                },
+                Self::Pointer {
+                    id: b, buttons: bb, ..
+                },
+            ) => a == b && ab == bb,
             (
                 Self::Control {
                     name: a, id: ai, ..
@@ -244,12 +269,22 @@ impl InputEvent {
             _ => false,
         }
     }
+    /// A coalesced move keeps the latest position and the motion of both.
+    pub(crate) fn add_motion(&mut self, earlier: &Self) {
+        if let (Self::Pointer { dx, dy, .. }, Self::Pointer { dx: ex, dy: ey, .. }) =
+            (self, earlier)
+        {
+            *dx += ex;
+            *dy += ey;
+        }
+    }
     pub(crate) fn set_at_ms(&mut self, value: f64) {
         match self {
             Self::Key { at_ms, .. }
             | Self::Pointer { at_ms, .. }
             | Self::Control { at_ms, .. }
             | Self::Wheel { at_ms, .. }
+            | Self::Message { at_ms, .. }
             | Self::Blur { at_ms } => *at_ms = value,
         }
     }
@@ -259,6 +294,7 @@ impl InputEvent {
             | Self::Pointer { at_ms, .. }
             | Self::Control { at_ms, .. }
             | Self::Wheel { at_ms, .. }
+            | Self::Message { at_ms, .. }
             | Self::Blur { at_ms } => *at_ms,
         }
     }
@@ -270,11 +306,19 @@ pub struct PointerState {
     pub id: u64,
     /// Latest canvas position in points.
     pub position: Vec2,
+    /// Most recent primary (MouseLeft or touch) Down on this pointer, in points.
+    /// Retained through normal Up and saves; cleared on Cancel/Blur/replacement.
+    /// This is a snapshot, not an edge: gate commands on pressed/released actions.
+    pub press_origin: Option<Vec2>,
     /// Whether contact remains down.
     pub down: bool,
-    /// Movement accumulated since the last tick.
+    /// Device motion accumulated since the last tick, in points. A locked
+    /// pointer's motion is unbounded while its position stays put.
     pub delta: Vec2,
 }
+/// Mouse buttons bind as keys of these names, by `PointerEvent.buttons` bit.
+pub const MOUSE_BUTTONS: [(&str, u32); 3] =
+    [("MouseLeft", 1), ("MouseRight", 2), ("MouseMiddle", 4)];
 #[derive(Clone, Default, Data)]
 struct Contact {
     id: u64,
@@ -302,6 +346,7 @@ pub struct Input {
     contacts: Vec<Contact>,
     wheel: Vec2,
     pub(crate) viewport: Vec2,
+    messages: Vec<String>,
 }
 impl Input {
     pub(crate) fn new(actions: Actions) -> Self {
@@ -316,6 +361,14 @@ impl Input {
     pub(crate) fn validate(&self, event: &InputEvent) -> Result<(), String> {
         if !event.at_ms().is_finite() {
             return Err("input stamp must be finite".into());
+        }
+        if let InputEvent::Message { text, .. } = event {
+            if text.len() > MAX_MESSAGE {
+                return Err(format!(
+                    "posted message of {} bytes exceeds {MAX_MESSAGE}; post a short command and keep its data in the world",
+                    text.len()
+                ));
+            }
         }
         if let InputEvent::Control { name, x, y, .. } = event {
             if !self.actions().entries.iter().any(|a| &a.name == name) {
@@ -334,7 +387,9 @@ impl Input {
             }
         }
         match event {
-            InputEvent::Pointer { x, y, .. } if !x.is_finite() || !y.is_finite() => {
+            InputEvent::Pointer { x, y, dx, dy, .. }
+                if !x.is_finite() || !y.is_finite() || !dx.is_finite() || !dy.is_finite() =>
+            {
                 return Err("input needs finite points".into())
             }
             InputEvent::Wheel { dx, dy, .. } if !dx.is_finite() || !dy.is_finite() => {
@@ -349,9 +404,11 @@ impl Input {
             return Err("saved keys must be sorted and unique".into());
         }
         if !saved.viewport.is_finite()
-            || saved
-                .pointer
-                .is_some_and(|p| !p.position.is_finite() || !p.delta.is_finite())
+            || saved.pointer.is_some_and(|p| {
+                !p.position.is_finite()
+                    || !p.delta.is_finite()
+                    || p.press_origin.is_some_and(|origin| !origin.is_finite())
+            })
         {
             return Err("saved input needs finite points".into());
         }
@@ -478,7 +535,20 @@ impl Input {
     pub fn wheel(&self) -> Vec2 {
         self.wheel
     }
+    /// Messages posted into the world that this tick receives, in arrival order.
+    /// A message waits in the input queue (and in a save taken meanwhile) until
+    /// its tick; once that tick has read it, it is gone from later saves.
+    pub fn messages(&self) -> &[String] {
+        &self.messages
+    }
+    /// The canvas size in points that pointer coordinates are relative to; zero
+    /// before the host reports one. With `Camera::matrix` it turns a pointer
+    /// position into a world ray.
+    pub fn viewport(&self) -> Vec2 {
+        self.viewport
+    }
     pub(crate) fn clear_edges(&mut self) {
+        self.messages.clear();
         self.pressed.clear();
         self.released.clear();
         self.wheel = Vec2::ZERO;
@@ -499,14 +569,21 @@ impl Input {
         }
         self.clear_edges();
     }
+    fn mouse_buttons(&self) -> u32 {
+        MOUSE_BUTTONS
+            .iter()
+            .filter(|(code, _)| self.keys.binary_search_by(|k| k.as_str().cmp(code)).is_ok())
+            .fold(0, |mask, (_, bit)| mask | bit)
+    }
     pub(crate) fn apply(&mut self, event: InputEvent) {
-        if matches!(event, InputEvent::Wheel { .. })
+        if matches!(event, InputEvent::Wheel { .. } | InputEvent::Message { .. })
             || (matches!(
                 event,
                 InputEvent::Pointer {
                     phase: PointerPhase::Move,
+                    buttons,
                     ..
-                }
+                } if buttons & 7 == self.mouse_buttons()
             ) && self.contacts.is_empty())
             || self.actions.is_none()
             || matches!(&event, InputEvent::Key { code, down, .. } if self.keys.contains(code) == *down)
@@ -544,6 +621,7 @@ impl Input {
                 _ => {}
             },
             InputEvent::Wheel { dx, dy, .. } => self.wheel += Vec2::new(dx, dy),
+            InputEvent::Message { text, .. } => self.messages.push(text),
             InputEvent::Control {
                 name,
                 id,
@@ -584,15 +662,44 @@ impl Input {
                 self.pointer = None;
             }
             InputEvent::Pointer {
-                id, phase, x, y, ..
+                id,
+                phase,
+                x,
+                y,
+                dx,
+                dy,
+                buttons,
+                ..
             } => {
+                let previous_buttons = self.mouse_buttons();
+                let primary_down = phase == PointerPhase::Down
+                    && (buttons == 0 || (buttons & 1 != 0 && previous_buttons & 1 == 0));
+                for (code, bit) in MOUSE_BUTTONS {
+                    match (
+                        self.keys.binary_search_by(|k| k.as_str().cmp(code)),
+                        buttons & bit != 0,
+                    ) {
+                        (Err(i), true) => self.keys.insert(i, code.into()),
+                        (Ok(i), false) => {
+                            self.keys.remove(i);
+                        }
+                        _ => {}
+                    }
+                }
                 let position = Vec2::new(x, y);
+                let motion = Vec2::new(dx, dy);
                 if let Some(p) = &mut self.pointer {
                     if p.id == id {
-                        p.delta += position - p.position;
+                        p.delta += motion;
                         p.position = position;
-                        p.down = matches!(phase, PointerPhase::Down)
-                            || (p.down && phase == PointerPhase::Move);
+                        p.down = phase == PointerPhase::Down
+                            || (p.down && phase == PointerPhase::Move)
+                            || (phase == PointerPhase::Up && buttons != 0);
+                        if primary_down {
+                            p.press_origin = Some(position);
+                        } else if phase == PointerPhase::Cancel {
+                            p.press_origin = None;
+                        }
                     } else if !p.down && phase == PointerPhase::Down {
                         self.pointer = None;
                     }
@@ -601,22 +708,36 @@ impl Input {
                     self.pointer = Some(PointerState {
                         id,
                         position,
-                        down: phase == PointerPhase::Down,
-                        delta: Vec2::ZERO,
+                        press_origin: primary_down.then_some(position),
+                        down: phase != PointerPhase::Cancel
+                            && (buttons != 0 || phase == PointerPhase::Down),
+                        delta: motion,
                     });
                 }
                 match phase {
                     PointerPhase::Down => {
-                        self.contacts.retain(|p| p.id != id || !p.action.is_empty());
-                        self.contacts.push(Contact {
-                            id,
-                            action: String::new(),
-                            origin: position,
-                            position,
-                        });
-                    }
-                    PointerPhase::Move => {
                         if let Some(p) = self
+                            .contacts
+                            .iter_mut()
+                            .find(|p| p.id == id && p.action.is_empty())
+                        {
+                            p.position = position;
+                            if primary_down {
+                                p.origin = position;
+                            }
+                        } else {
+                            self.contacts.push(Contact {
+                                id,
+                                action: String::new(),
+                                origin: position,
+                                position,
+                            });
+                        }
+                    }
+                    PointerPhase::Move | PointerPhase::Up => {
+                        if phase == PointerPhase::Up && buttons == 0 {
+                            self.contacts.retain(|p| p.id != id || !p.action.is_empty());
+                        } else if let Some(p) = self
                             .contacts
                             .iter_mut()
                             .find(|p| p.id == id && p.action.is_empty())
@@ -624,7 +745,7 @@ impl Input {
                             p.position = position;
                         }
                     }
-                    PointerPhase::Up | PointerPhase::Cancel => {
+                    PointerPhase::Cancel => {
                         self.contacts.retain(|p| p.id != id || !p.action.is_empty())
                     }
                 }
@@ -636,6 +757,127 @@ impl Input {
 #[cfg(test)]
 mod control_tests {
     use super::*;
+
+    fn pointer_event(id: u64, phase: PointerPhase, x: f32, buttons: u32) -> InputEvent {
+        InputEvent::Pointer {
+            id,
+            phase,
+            x,
+            y: 10.,
+            dx: 0.,
+            dy: 0.,
+            buttons,
+            at_ms: 0.,
+        }
+    }
+    #[test]
+    fn primary_origin_survives_both_button_chords_and_secondary_release() {
+        for right_first in [false, true] {
+            let mut input = Input::new(Actions::new().button("fire", &["MouseLeft"]));
+            input.apply(pointer_event(1, PointerPhase::Move, 90., 0));
+            assert!(input.pointer().unwrap().press_origin.is_none());
+            if right_first {
+                input.apply(pointer_event(1, PointerPhase::Down, 80., 2));
+            }
+            input.apply(pointer_event(
+                1,
+                PointerPhase::Down,
+                20.,
+                if right_first { 3 } else { 1 },
+            ));
+            input.clear_edges();
+            if !right_first {
+                input.apply(pointer_event(1, PointerPhase::Down, 50., 3));
+            }
+            assert_eq!(
+                input.pointer().unwrap().press_origin,
+                Some(Vec2::new(20., 10.))
+            );
+            assert_eq!(input.contacts[0].origin, Vec2::new(20., 10.));
+            input.apply(pointer_event(1, PointerPhase::Up, 60., 1));
+            assert!(input.pointer().unwrap().down && input.held("fire"));
+            assert!(!input.released("fire"));
+            assert_eq!(input.contacts.len(), 1);
+            assert_eq!(input.contacts[0].origin, Vec2::new(20., 10.));
+            input.apply(pointer_event(1, PointerPhase::Up, 70., 0));
+            assert!(!input.pointer().unwrap().down && input.released("fire"));
+            assert_eq!(
+                input.pointer().unwrap().press_origin,
+                Some(Vec2::new(20., 10.))
+            );
+            assert!(input.contacts.is_empty());
+            input.apply(pointer_event(1, PointerPhase::Down, 30., 1));
+            assert_eq!(
+                input.pointer().unwrap().press_origin,
+                Some(Vec2::new(30., 10.))
+            );
+            input.clear_edges();
+            input.apply(pointer_event(1, PointerPhase::Down, 50., 3));
+            input.apply(pointer_event(1, PointerPhase::Up, 60., 2));
+            assert!(input.pointer().unwrap().down && input.released("fire"));
+            assert!(!input.held("fire"));
+            assert_eq!(input.contacts.len(), 1);
+            assert_eq!(
+                input.pointer().unwrap().press_origin,
+                Some(Vec2::new(30., 10.))
+            );
+            input.apply(pointer_event(1, PointerPhase::Up, 70., 0));
+            assert!(!input.pointer().unwrap().down && input.contacts.is_empty());
+        }
+    }
+    #[test]
+    fn touch_origin_survives_up_but_cancel_blur_and_replacement_clear_it() {
+        let mut input = Input::default();
+        input.apply(pointer_event(7, PointerPhase::Down, 20., 0));
+        input.apply(pointer_event(7, PointerPhase::Move, 60., 0));
+        input.apply(pointer_event(7, PointerPhase::Up, 70., 0));
+        assert_eq!(
+            input.pointer().unwrap().press_origin,
+            Some(Vec2::new(20., 10.))
+        );
+        input.clear_edges();
+        assert_eq!(
+            input.pointer().unwrap().press_origin,
+            Some(Vec2::new(20., 10.))
+        );
+        input.apply(pointer_event(9, PointerPhase::Down, 80., 2));
+        assert_eq!(input.pointer().unwrap().id, 9);
+        assert!(input.pointer().unwrap().press_origin.is_none());
+        input.apply(pointer_event(9, PointerPhase::Cancel, 80., 0));
+        input.apply(pointer_event(12, PointerPhase::Down, 30., 0));
+        input.apply(pointer_event(12, PointerPhase::Cancel, 80., 0));
+        assert!(input.pointer().unwrap().press_origin.is_none());
+        input.apply(pointer_event(12, PointerPhase::Down, 40., 0));
+        input.apply(InputEvent::Blur { at_ms: 0. });
+        assert!(input.pointer().is_none());
+    }
+    #[test]
+    fn malformed_saved_press_origins_are_refused_before_live_state_changes() {
+        use crate::{Game, Sim, World};
+        struct Empty;
+        impl Game for Empty {
+            const ID: &'static str = "origin-preflight";
+            type Args = ();
+            fn setup(_: &mut World, _: &()) {}
+            fn tick(_: &mut World, _: &Input, _: &()) {}
+        }
+        let mut live = Sim::<Empty>::new(()).unwrap();
+        let before = live.save().unwrap();
+        for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let mut source = Sim::<Empty>::new(()).unwrap();
+            source
+                .input
+                .apply(pointer_event(1, PointerPhase::Down, 20., 1));
+            source.input.pointer.as_mut().unwrap().press_origin = Some(Vec2::new(value, 10.));
+            let malformed = source.save().unwrap();
+            assert!(live
+                .restore(&malformed)
+                .unwrap_err()
+                .to_string()
+                .contains("finite"));
+            assert_eq!(live.save().unwrap(), before);
+        }
+    }
 
     #[test]
     fn restore_rejects_unknown_saved_control_atomically() {
@@ -767,6 +1009,19 @@ mod control_tests {
                 phase: PointerPhase::Down,
                 x: f32::INFINITY,
                 y: 0.,
+                dx: 0.,
+                dy: 0.,
+                buttons: 1,
+                at_ms: 0.,
+            },
+            InputEvent::Pointer {
+                id: 1,
+                phase: PointerPhase::Move,
+                x: 0.,
+                y: 0.,
+                dx: f32::NAN,
+                dy: 0.,
+                buttons: 0,
                 at_ms: 0.,
             },
         ] {
@@ -820,12 +1075,23 @@ mod control_tests {
                 at_ms: 0.,
             });
         }
-        let pointer = |phase, x, y| InputEvent::Pointer {
-            id: 1,
-            phase,
-            x,
-            y,
-            at_ms: 0.,
+        let last = std::cell::Cell::new(Vec2::new(20., 40.));
+        let pointer = |phase, x, y| {
+            let to = Vec2::new(x, y);
+            let by = to - last.get();
+            if to.is_finite() {
+                last.set(to);
+            }
+            InputEvent::Pointer {
+                id: 1,
+                phase,
+                x,
+                y,
+                dx: by.x,
+                dy: by.y,
+                buttons: u32::from(phase == PointerPhase::Down),
+                at_ms: 0.,
+            }
         };
         for (x, y) in [(20., 40.), (50., 70.), (f32::NAN, 70.), (80., 90.)] {
             input.apply(pointer(PointerPhase::Move, x, y));
@@ -852,6 +1118,57 @@ mod control_tests {
         assert!(!input.pointer().unwrap().down);
         assert_eq!(input.pointer().unwrap().delta, Vec2::new(10., 10.));
         assert!(input.pressed("move") && input.released("move") && input.held("move"));
+    }
+    #[test]
+    fn mouse_buttons_bind_as_keys_and_motion_is_the_devices() {
+        let mut input = Input::new(
+            Actions::new()
+                .button("fire", &["MouseLeft"])
+                .button("aim", &["MouseRight"])
+                .button("ping", &["MouseMiddle"]),
+        );
+        let mouse = |phase, dx, buttons| InputEvent::Pointer {
+            id: 1,
+            phase,
+            x: 10.,
+            y: 10.,
+            dx,
+            dy: -1.,
+            buttons,
+            at_ms: 0.,
+        };
+        // A locked pointer: the position stays, the motion is unbounded.
+        for _ in 0..3 {
+            input.apply(mouse(PointerPhase::Move, 500., 0));
+        }
+        let p = input.pointer().unwrap();
+        assert_eq!(
+            (p.position, p.delta),
+            (Vec2::new(10., 10.), Vec2::new(1500., -3.))
+        );
+        input.clear_edges();
+        // The secondary button alone begins the contact, as the web's pointerdown.
+        input.apply(mouse(PointerPhase::Down, 0., 2));
+        assert!(input.pressed("aim") && input.held("aim") && !input.held("fire"));
+        input.clear_edges();
+        // Chorded buttons change on moves.
+        input.apply(mouse(PointerPhase::Move, 2., 3));
+        input.apply(mouse(PointerPhase::Move, 2., 7));
+        assert!(input.pressed("fire") && input.pressed("ping") && !input.pressed("aim"));
+        assert!(input.held("aim") && input.held("fire") && input.held("ping"));
+        input.clear_edges();
+        input.apply(mouse(PointerPhase::Move, 2., 6));
+        assert!(input.released("fire") && input.held("aim"));
+        input.apply(mouse(PointerPhase::Up, 0., 0));
+        assert!(input.released("aim") && input.released("ping"));
+        assert!(!input.held("aim") && !input.held("fire") && !input.held("ping"));
+        input.clear_edges();
+        // A hover move with a button held (pressed off the canvas) holds it;
+        // blur releases every device.
+        input.apply(mouse(PointerPhase::Move, 1., 2));
+        assert!(input.pressed("aim") && input.held("aim"));
+        input.apply(InputEvent::Blur { at_ms: 0. });
+        assert!(!input.held("aim"));
     }
     #[test]
     fn repeated_keys_preserve_edges_and_independent_control_ownership() {

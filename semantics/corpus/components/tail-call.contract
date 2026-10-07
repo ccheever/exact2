@@ -1,0 +1,24 @@
+// A tail call (LLP 1017 §11), one case of a call (LLP 1089): the child's
+// action ends by calling its action prop.
+component App
+  state log = ""
+  action record(x: string)
+    log = `${log}${x};`
+  view
+    column
+      text log testId="log"
+      Child(onDone=record)
+
+component Child
+  props
+    onDone: action
+  state n = 0
+  action go
+    n = n + 1
+    onDone("hi")
+  view
+    button "go" press=go testId="go"
+
+test "tail"
+  tap "go"
+  expect state log == "hi;"

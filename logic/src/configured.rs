@@ -67,8 +67,12 @@ macro_rules! configured {
             fn native(&self) -> Option<$crate::exact_runner::Native> {
                 $crate::exact_runner::DataSource::native(&self.0)
             }
-            fn forgotten(&mut self, in_flight: &[$crate::exact_runner::InFlight<'_>]) {
-                $crate::exact_runner::DataSource::forgotten(&mut self.0, in_flight)
+            fn forgotten(
+                &mut self,
+                store: &$crate::exact_runner::Store,
+                in_flight: &[$crate::exact_runner::InFlight<'_>],
+            ) {
+                $crate::exact_runner::DataSource::forgotten(&mut self.0, store, in_flight)
             }
             fn dispatch(
                 &mut self,
@@ -85,6 +89,26 @@ macro_rules! configured {
             }
             fn discard(&mut self, token: u64) {
                 $crate::exact_runner::DataSource::discard(&mut self.0, token)
+            }
+            fn background(
+                &mut self,
+                store: &$crate::exact_runner::Store,
+            ) -> Option<$crate::exact_runner::Request> {
+                $crate::exact_runner::DataSource::background(&mut self.0, store)
+            }
+            fn background_landed(
+                &mut self,
+                store: &$crate::exact_runner::Store,
+                outcome: $crate::exact_runner::Outcome,
+            ) -> Result<Option<$crate::exact_runner::Request>, $crate::exact_runner::DataError>
+            {
+                $crate::exact_runner::DataSource::background_landed(&mut self.0, store, outcome)
+            }
+            fn background_state(&self) -> Option<$crate::exact_runner::BackgroundState> {
+                $crate::exact_runner::DataSource::background_state(&self.0)
+            }
+            fn take_logs(&mut self) -> Vec<String> {
+                $crate::exact_runner::DataSource::take_logs(&mut self.0)
             }
             fn bind(&mut self, plan: &$crate::exact_plan::Plan) {
                 $crate::exact_runner::DataSource::bind(&mut self.0, plan)

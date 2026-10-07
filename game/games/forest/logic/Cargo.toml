@@ -1,0 +1,11 @@
+# The forest adds Rapier colliders (exact-game-physics); it resolves against the SDK lock.
+[package]
+name = "forest-logic"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+workspace = "../.shells"
+
+[dependencies]
+exact-game.workspace = true
+exact-game-physics.workspace = true

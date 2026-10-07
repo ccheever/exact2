@@ -67,7 +67,7 @@ macro_rules! leaves {
         }
     )* };
 }
-leaves!(String, bool, f64, u16, u32, usize, BinOp, UnOp, TaskKind);
+leaves!(String, bool, f64, u16, u32, usize, BinOp, UnOp, TaskKind, TapForm);
 
 macro_rules! structs {
     ($($ty:ident { $($field:ident),* $(,)? })*) => { $(
@@ -81,16 +81,20 @@ macro_rules! structs {
 }
 structs! {
     NameSpans { names, sources }
-    File { names, routes, uses, fonts, shapes, styles, keyframes, fns, tests, components }
+    File { names, routes, uses, fonts, sounds, shapes, styles, keyframes, timelines, color_profiles, fns, tests, launch, components }
     KeyframesDecl { name, frames, span }
+    TimelineDecl { name, span }
+    ColorProfileDecl { name, attrs, span }
     KeyframeDecl { selectors, attrs, span }
     RoutesDecl { slot, rows, span }
     RouteDecl { name, pattern, parent, tab, notfound, fields, span }
     FontDecl { name, faces, span }
+    SoundDecl { source, span }
     FontFaceDecl { weight, italic, source, span }
     TestDecl { name, steps, span }
     FnDecl { name, params, ret, body, span }
-    UseDecl { name, path, span }
+    UseDecl { names, path, span }
+    UseName { name, alias, span }
     StyleDecl { name, attrs, span }
     ShapeDecl { name, fields, span }
     Field { name, ty, span }
@@ -99,10 +103,10 @@ structs! {
     Binding { name, expr, span }
     ResourceDecl { name, source, args, identity, shape, placeholder, span }
     Placeholder { source, args, span }
-    MutationDecl { name, shape, refreshes, then, span }
+    MutationDecl { name, shape, queue, refreshes, then, span }
     Param { name, ty, span }
     Action { name, params, body, span }
-    Task { name, kind, timer, span }
+    Task { name, kind, gate, key, timer, span }
     Attr { name, value, span }
 }
 
@@ -119,9 +123,14 @@ macro_rules! record_variants {
 }
 record_variants! {
     Step {
-        Tap { target, hover, span }, Type { target, text, span }, Key { target, key, span },
-        Clock { arg, span }, Screenshot { path, span }, ExpectTree { target, present, span },
+        Tap { target, form, modifiers, span }, Drag { target, dx, dy, to, from, mouse, press, over, hold, during, span },
+        Size { width, height, span }, Epoch { value, span }, TimeZone { zone, span },
+        Locale { tag, span }, Seed { seed, span }, BeforeData { span }, FailFetch { prefix, times, span }, PassFetch { prefix, span }, Type { target, text, append, span }, Key { target, key, phase, duration, span },
+        Pick { target, paths, span }, Clipboard { target, edit, text, span },
+        Clock { arg, span }, Reload { span }, Close { span }, Resize { width, height, span }, Screenshot { path, span }, ExpectTree { target, present, span },
         ExpectText { target, value, span }, ExpectState { name, value, span },
+        ExpectSound { src, present, at, gain, ends, by, span },
+        ExpectMediaSession { field, value, span }, ExpectMediaSessionAction { action, present, span },
     }
 }
 record_variants! {
@@ -129,14 +138,15 @@ record_variants! {
         Let { name, expr, span }, Assign { target, expr, span }, Command { name, args, span },
         Send { target, source, args, span }, Refresh { target, span },
         If { cond, then, otherwise, span }, Match { subject, some, none, span },
+        Call { action, args, body, authored, curried, binding, span },
     }
 }
 record_variants! {
     Node {
         Element { tag, positional, attrs, children, span, instance }, Use { name, args, children, span },
         Children { span },
-        When { cond, then, otherwise, span }, Each { tag, var, index, list, key, body, span },
-        Match { subject, some, none, span },
+        When { tag, cond, then, otherwise, span }, Each { tag, var, index, list, key, body, span },
+        Match { tag, subject, some, none, span },
     }
 }
 impl VisitSpans for TypeExpr {
@@ -165,20 +175,20 @@ impl VisitSpans for Expr {
             | Self::Str(_, span)
             | Self::Bool(_, span)
             | Self::None(span)
-            | Self::EmptyList(span)
             | Self::Ident(_, span) => visit(span),
             Self::Template(parts, span) => {
                 parts.visit_spans(visit);
                 visit(span);
             }
             Self::NamedArg(_, inner, span)
+            | Self::Typed(inner, _, span)
             | Self::Some(inner, span)
             | Self::Member(inner, _, span)
             | Self::Unary(_, inner, span) => {
                 inner.visit_spans(visit);
                 visit(span);
             }
-            Self::Call(_, args, span) => {
+            Self::Call(_, args, span) | Self::List(args, span) => {
                 args.visit_spans(visit);
                 visit(span);
             }

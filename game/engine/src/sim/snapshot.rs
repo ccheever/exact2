@@ -1,8 +1,8 @@
 use super::*;
 
 impl<G: Game> Sim<G> {
-    /// Save world time and relative pending input, independent of the host epoch.
-    pub fn save(&self) -> Result<Vec<u8>, DataError> {
+    /// Why no save can be taken now: a shown asset still in flight.
+    pub(crate) fn assets_unready(&self) -> Option<String> {
         {
             let assets = &self.world.assets;
             let mut meshes = self.world.query::<&crate::Mesh>();
@@ -36,13 +36,17 @@ impl<G: Game> Sim<G> {
                     )
                 })
                 .collect();
-            if self.is_loading() || !pending.is_empty() {
-                return Err(DataError::new(format!(
-                    "save refused: assets are not ready: {:?}; {}; inspect untargeted `state`: world[0].loading and world[0].assets before saving again",
-                    pending,
-                    assets.state_json()
-                )));
-            }
+            (self.is_loading() || !pending.is_empty()).then(|| format!(
+                "save refused: assets are not ready: {:?}; {}; inspect untargeted `state`: world[0].loading and world[0].assets before saving again",
+                pending,
+                assets.state_json()
+            ))
+        }
+    }
+    /// Save world time and relative pending input, independent of the host epoch.
+    pub fn save(&self) -> Result<Vec<u8>, DataError> {
+        if let Some(reason) = self.assets_unready() {
+            return Err(DataError::new(reason));
         }
         let world_us = self.exact_world_us();
         let mut queue: Vec<_> = self.queue.iter().cloned().collect();
@@ -70,7 +74,7 @@ impl<G: Game> Sim<G> {
             journal_next: self.world.journal_next(),
             overflow_logged: self.overflow_logged,
         };
-        let mut w = bin::Encoder::prefixed(b"EXSIM\0\x05");
+        let mut w = bin::Encoder::prefixed(b"EXSIM\0\x07");
         saved.write(&mut w);
         Ok(w.finish())
     }
@@ -88,25 +92,28 @@ impl<G: Game> Sim<G> {
         bytes: &[u8],
         retain_args: bool,
     ) -> Result<(), DataError> {
-        let payload = bytes.strip_prefix(b"EXSIM\0\x05").ok_or_else(|| {
+        if bytes.starts_with(b"EXSIM\0\x06") {
+            return Err(DataError::new("restore refused: an EXSIM v6 save predates v7's primary pointer press origin (`PointerState::press_origin`); no cross-version migration before 1.0: recreate with `screenshot checkpoint.world world save`; inspect `state`"));
+        }
+        let payload = bytes.strip_prefix(b"EXSIM\0\x07").ok_or_else(|| {
             DataError::new(format!(
-                "restore refused: unsupported simulation save format (expected EXSIM v5; saw {:02x?}); no cross-version migration before 1.0: recreate with `screenshot checkpoint.world world save`; inspect `state`",
+                "restore refused: unsupported simulation save format (expected EXSIM v7; saw {:02x?}); no cross-version migration before 1.0: recreate with `screenshot checkpoint.world world save`; inspect `state`",
                 &bytes[..bytes.len().min(8)]
             ))
         })?;
         let mut s: Saved = bin::from_slice(payload)?;
         if s.game != G::ID {
             return Err(DataError::new(format!(
-                "restore refused: EXSIM v5 save belongs to `{}`, expected `{}`; game IDs must match, no cross-game migration; inspect `state`",
+                "restore refused: EXSIM v7 save belongs to `{}`, expected `{}`; game IDs must match, no cross-game migration; inspect `state`",
                 s.game,
                 G::ID
             )));
         }
         if s.world_us < 0 || s.queue.len() > QUEUE_LIMIT {
-            return Err(DataError::new("restore refused: EXSIM v5 has invalid saved clock or input queue; no repair migration; inspect `state` and create a fresh save"));
+            return Err(DataError::new("restore refused: EXSIM v7 has invalid saved clock or input queue; no repair migration; inspect `state` and create a fresh save"));
         }
         if self.setup_pending {
-            return Err(DataError::new("restore refused: EXSIM v5 awaits declared assets; inspect untargeted `state`: world[0].loading and world[0].assets; retry after delivery"));
+            return Err(DataError::new("restore refused: EXSIM v7 awaits declared assets; inspect untargeted `state`: world[0].loading and world[0].assets; retry after delivery"));
         }
         let args = if retain_args {
             &self.args_json
@@ -122,7 +129,7 @@ impl<G: Game> Sim<G> {
             input.validate(&event.event).map_err(DataError::new)?;
             if let Some(us) = &mut event.world_us {
                 *us = us.checked_add(s.world_us).ok_or_else(|| DataError::new(
-                    "restore refused: EXSIM v5 saved input stamp overflow; inspect state and create a fresh save"))?;
+                    "restore refused: EXSIM v7 saved input stamp overflow; inspect state and create a fresh save"))?;
             }
         }
         let mut registry = self.world.registered_scratch();
@@ -130,7 +137,7 @@ impl<G: Game> Sim<G> {
         let validated = registry.validate_saved(&s.world)?;
         let due = s.world_us as u128 * G::HZ as u128 / 1_000_000;
         if validated.hz() != G::HZ || validated.tick() as u128 != due {
-            return Err(DataError::new("restore refused: EXSIM v5 saved world and clock disagree; no clock migration; inspect `state` and create a fresh save"));
+            return Err(DataError::new("restore refused: EXSIM v7 saved world and clock disagree; no clock migration; inspect `state` and create a fresh save"));
         }
         input.restore_dynamic(s.input);
         let mut next =
@@ -139,9 +146,26 @@ impl<G: Game> Sim<G> {
         next.defer_assets = self.defer_assets;
         crate::scene::place_followers(&next.world);
         next.world.propagate();
+        // Every input present may read is installed first: a present reading a
+        // publication sees the restored one.
         next.world.restore_journal(s.journal, s.journal_next);
         next.world.restore_publications(s.published);
         next.world.published_pending.set(true);
+        // The restored world is untrusted input: a present that fails on it is
+        // a refused restore, not a crashed host (where unwinding is available).
+        let presented = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            Self::present(&mut next.world, &next.args)
+        }));
+        if let Err(panic) = presented {
+            let reason = panic
+                .downcast_ref::<String>()
+                .map(String::as_str)
+                .or_else(|| panic.downcast_ref::<&str>().copied())
+                .unwrap_or("panicked");
+            return Err(DataError::new(format!(
+                "restore refused: Game::present failed on the restored world: {reason}"
+            )));
+        }
         next.world_us = s.world_us;
         next.world.unobserve();
         next.restored_from = Some(s.args);

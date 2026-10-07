@@ -16,7 +16,7 @@ extension BatchReader {
     }
 
     mutating func batch() throws -> Batch {
-        var ops: [BatchOp] = [], timers = false, motion = false, pending = false, spatial = false, canvas = false, frames = false, canvasOwed = false
+        var ops: [BatchOp] = [], timers = false, motion = false, pending = false, spatial = false, canvas = false, frames = false, canvasOwed = false, controls = false
         var clock: Double?, due: Double?, error: String?
         var images: [String] = []
         var seq: (UInt64, UInt64)?
@@ -31,6 +31,7 @@ extension BatchReader {
             case "canvas": canvas = try r.bool()
             case "frames": frames = try r.bool()
             case "canvasOwed": canvasOwed = try r.bool()
+            case "controls": controls = try r.bool()
             case "canvasImages": images = try r.array { try $0.string() }
             case "pending": pending = try r.bool()
             case "spatial": spatial = try r.bool()
@@ -48,6 +49,7 @@ extension BatchReader {
         batch.canvas = canvas
         batch.frames = frames
         batch.canvasOwed = canvasOwed
+        batch.controls = controls
         batch.canvasImages = images
         batch.seq = seq
         return batch
@@ -136,7 +138,7 @@ extension BatchReader {
         try object { r, key in
             switch key {
             case "font_size", "font_weight", "font_family", "font_style", "letter_spacing", "text_color", "text_decoration_line", "background_color", "font_variant_numeric",
-                 "text_shadow", "text_stroke_width", "text_stroke_color":
+                 "text_shadow", "text_stroke_width", "text_stroke_color", "visibility":
                 try style.set(key, r.value())
             case "line_height": height = try r.value()
             default: try r.skip()
@@ -236,7 +238,20 @@ extension InlineStyle {
         case "font_style": run.italic = try BatchFields.string(value) == "italic"
         case "letter_spacing": run.letterSpacing = CGFloat(Float(try BatchFields.number(value)))
         case "font_variant_numeric": run.numeric = Int(try BatchFields.number(value)) & 0xff
+        case "visibility": run.hidden = try BatchFields.string(value) == "hidden"
         case "text_decoration_line": run.decoration = try BatchFields.string(value)
+        case "text_color" where value.isWideColor, "background_color" where value.isWideColor:
+            // @ref LLP 1100 D2
+            guard let light = value.textChannels(dark: false), let dark = value.textChannels(dark: true) else { throw BatchReader.Invalid.wire }
+            paired = value.isSchemeColor
+            if key == "text_color" { run.color = light; darkColor = dark } else { run.background = light; darkBackground = dark }
+        case "text_color" where value.isSystemColor, "background_color" where value.isSystemColor:
+            // @ref LLP 1095 D5 — a platform colour, kept by name and resolved
+            // as the run is read, in its paragraph owner's traits (an inline
+            // run has no view), so a contrast or level change reaches it.
+            guard value.channels(dark: false) != nil, value.channels(dark: true) != nil else { throw BatchReader.Invalid.wire }
+            paired = true
+            if key == "text_color" { colorRef = value } else { backgroundRef = value }
         case "text_color":
             guard case .array(let a) = value else { throw BatchReader.Invalid.wire }
             if a.count == 2 {

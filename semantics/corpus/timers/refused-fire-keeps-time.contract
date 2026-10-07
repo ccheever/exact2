@@ -1,0 +1,25 @@
+// A timer whose action is refused commits nothing, its time included: a
+// view and a derive that read now() show the last committed time, and a
+// derive that the new time would take outside its type does not poison
+// the tree. The web JS target once showed the refused fire's time, and
+// poisoned on the derive.
+component App
+  state n = 1
+  derive late = now() > 50
+  derive odd = late ? n / 0 : n
+  action blow
+    n = n / 0
+  action bump
+    n = n + 1
+  task t mount
+    every(100, blow)
+  view
+    column
+      text `${now() + n}` testId="shown"
+      button "bump" press=bump testId="bump"
+
+test "the clock's readers keep the committed time"
+  clock +100
+  expect text "shown" == "1"
+  expect state n == 1
+  tap "bump"

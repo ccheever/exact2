@@ -19,13 +19,72 @@ extension NodeView {
         // A native button's children are its face, not views (LLP 1069.011 D5),
         // read from the kernel, current on its first batch (LLP 1069.011.000 D1).
         if isNativeButton { return face?.title ?? "" }
-        if isParagraph { return inlineText.filter(\.paints).map(\.text).joined() }
-        let children = container.subviews.compactMap { $0 as? NodeView }
+        if isParagraph { return visibleParagraphText }
+        // accname: an `aria-hidden` child names nothing (habits F16: a tab's icon glyph).
+        let children = container.subviews.compactMap { $0 as? NodeView }.filter { $0.props["accessibilityElementsHidden"] != "true" }
         return children.map(\.accessibleText).filter { !$0.isEmpty }.joined(separator: " ")
     }
-    var accessibleName: String { props["accessibilityLabel"] ?? accessibleText }
+    /// Its `aria-labelledby` text, else its `aria-label`, unless empty
+    /// (accname: an empty label names nothing).
+    var authoredLabel: String? { labelledBy ?? props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 } }
+    /// accname's first step (ledger2 Rough 3): the text of the elements
+    /// `aria-labelledby` names, in order — each by its own label or content,
+    /// never its own `aria-labelledby`, as accname does not recurse.
+    var labelledBy: String? {
+        guard let refs = props["accessibilityLabelledBy"], let presenter else { return nil }
+        let text = refs.split(separator: " ").compactMap { presenter.chrome.named[String($0)]?.min().flatMap { presenter.views[$0] } }
+            .map { $0.props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 } ?? $0.accessibleText }
+            .filter { !$0.isEmpty }.joined(separator: " ")
+        return text.isEmpty ? nil : text
+    }
+    var accessibleName: String { authoredLabel ?? accessibleText }
+    /// A button to assistive technology: a `button`, or a box whose ARIA
+    /// role is `button` or `link`, as the web's tree has a `div` with one
+    /// (chat F14: a message bubble with `role="button"` was no button natively).
+    /// A box with a checkable role is one too: the web's tree has a `div`
+    /// with `role="checkbox"` as a checkbox (habits F16).
+    var actsAsButton: Bool { kind == "button" || kind == "view" && ["button", "link", "checkbox", "radio", "switch"].contains(props["accessibilityRole"] ?? "") }
+    /// ARIA's checkable roles (Core-AAM): `checkbox`, `radio` and `switch`,
+    /// their state `aria-checked`; nil for any other role (onboarding F16:
+    /// a `button role="radio"` read as a plain button on macOS).
+    var checkedRole: (role: String, checked: Bool)? {
+        guard let role = props["accessibilityRole"], ["checkbox", "radio", "switch"].contains(role) else { return nil }
+        return (role, props["accessibilityChecked"] == "true")
+    }
+    /// ARIA `aria-pressed` on a button: its toggle state, `true`, `false` or
+    /// `mixed`; nil when it is no toggle (absent, another word, another role).
+    var pressedState: String? {
+        guard [nil, "button"].contains(props["accessibilityRole"]),
+              let pressed = props["accessibilityPressed"], ["true", "false", "mixed"].contains(pressed) else { return nil }
+        return pressed
+    }
+    /// accname's description (onboarding F22): the text of the elements
+    /// `aria-describedby` names, in order, else `aria-description`'s words.
+    var accessibleDescription: String? {
+        if let refs = props["accessibilityDescribedBy"], let presenter {
+            let text = refs.split(separator: " ").compactMap { presenter.chrome.named[String($0)]?.min().flatMap { presenter.views[$0] } }
+                .map(\.accessibleName).filter { !$0.isEmpty }.joined(separator: " ")
+            if !text.isEmpty { return text }
+        }
+        return props["accessibilityHint"].flatMap { $0.isEmpty ? nil : $0 }
+    }
+    /// The ARIA states AppKit has no property for, under the attribute
+    /// names browsers serve them by: WebKit's `AXInvalid` (onboarding F22),
+    /// Chromium's `AXHasPopup` and `AXPopupValue` (spreadsheet F20), WebKit's
+    /// `AXARIACurrent` (Depot: a navigation link's `aria-current`). A
+    /// `false` (or absent) state serves none.
+    func ariaAttribute(_ name: String) -> Any? {
+        switch name {
+        case "AXInvalid": return props["accessibilityInvalid"].flatMap { ["", "false"].contains($0) ? nil : $0 }
+        case "AXHasPopup": return props["accessibilityHasPopup"].flatMap { ["", "false"].contains($0) ? nil : true }
+        case "AXPopupValue": return props["accessibilityHasPopup"].flatMap { ["", "false"].contains($0) ? nil : $0 == "true" ? "menu" : $0 }
+        case "AXARIACurrent": return props["accessibilityCurrent"].flatMap { ["", "false"].contains($0) ? nil : $0 }
+        default: return nil
+        }
+    }
+    static let ariaAttributes = ["AXInvalid", "AXHasPopup", "AXPopupValue", "AXARIACurrent"]
     var accessibilityVisible: Bool {
-        guard paragraphOwner.window != nil, !inert else { return false }
+        guard paragraphOwner.window != nil, !inert, accessibilityExposed else { return false }
         #if os(macOS)
         var ancestor: NSView? = paragraphOwner
         #else
@@ -38,6 +97,93 @@ extension NodeView {
         return true
     }
 }
+
+extension NodeView {
+    /// The object the platform serves for this node — its field, native
+    /// control or text area, else itself — given its description (AXHelp,
+    /// UIKit's hint) and, on AppKit, `aria-required` (AXRequired) and a
+    /// field's name. Each AppKit write posts a notification, so only a
+    /// change is written.
+    func applyFormAccessibility() {
+        let description = accessibleDescription
+        #if os(macOS)
+        // A control's typed values are what AppKit serves its cell.
+        let target: NSView = field ?? presenter?.controls.controls[id] ?? textArea as NSView? ?? self
+        let required = props["accessibilityRequired"] == "true"
+        if target.accessibilityHelp() != description { target.setAccessibilityHelp(description) }
+        if target.isAccessibilityRequired() != required { target.setAccessibilityRequired(required) }
+        // An `input`'s `aria-label` names its field, as a text area's names it.
+        if let field, field.accessibilityLabel() != authoredLabel { field.setAccessibilityLabel(authoredLabel) }
+        #else
+        // UIKit has no property for `aria-required`, `aria-invalid`, `aria-haspopup` or `aria-current`.
+        let target: UIView = field ?? presenter?.controls.controls[id] ?? textArea as UIView? ?? self
+        if target.accessibilityHint != description { target.accessibilityHint = description }
+        #endif
+    }
+}
+
+#if os(macOS)
+/// A text field's cell, the object AppKit serves for an `input`: it adds
+/// the ARIA states AppKit has no property for (`NodeView.ariaAttribute`),
+/// read from the node that holds the field.
+final class FieldCell: NSTextFieldCell {
+    override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+        super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { (controlView?.superview as? NodeView)?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
+    }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        (controlView?.superview as? NodeView)?.ariaAttribute(attribute.rawValue) ?? super.accessibilityAttributeValue(attribute)
+    }
+}
+/// A password field's, as `FieldCell`.
+final class SecureFieldCell: NSSecureTextFieldCell {
+    override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
+        super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { (controlView?.superview as? NodeView)?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
+    }
+    override func accessibilityAttributeValue(_ attribute: NSAccessibility.Attribute) -> Any? {
+        (controlView?.superview as? NodeView)?.ariaAttribute(attribute.rawValue) ?? super.accessibilityAttributeValue(attribute)
+    }
+}
+
+extension NSView {
+    /// Core-AAM's toggle button: `AXCheckBox`, subrole `AXToggle`, value 0, 1
+    /// or 2 (mixed); `role` when `pressed` is nil.
+    func setAccessibilityToggle(_ pressed: String?, else role: NSAccessibility.Role) {
+        setAccessibilityRole(pressed == nil ? role : .checkBox)
+        setAccessibilitySubrole(pressed == nil ? nil : .toggle)
+        setAccessibilityValue(pressed.map { $0 == "mixed" ? 2 : $0 == "true" ? 1 : 0 })
+    }
+    /// Core-AAM's checkable roles: `checkbox` is `AXCheckBox`, `switch` an
+    /// `AXCheckBox` whose subrole is `AXSwitch`, `radio` an `AXRadioButton`;
+    /// the value 1 when checked, else 0.
+    func setAccessibilityChecked(_ role: String, _ checked: Bool) {
+        setAccessibilityRole(role == "radio" ? .radioButton : .checkBox)
+        setAccessibilitySubrole(role == "switch" ? .switch : nil)
+        setAccessibilityValue(checked ? 1 : 0)
+    }
+}
+#else
+extension UIView {
+    /// A toggle button as UIKit has one: the `toggleButton` trait, and the
+    /// value VoiceOver reads as its state ("1" on, "0" off, "2" mixed).
+    func setAccessibilityToggle(_ pressed: String?) {
+        if pressed != nil { accessibilityTraits.insert(.toggleButton) } else { accessibilityTraits.remove(.toggleButton) }
+        accessibilityValue = pressed.map { $0 == "mixed" ? "2" : $0 == "true" ? "1" : "0" }
+    }
+    /// A checkable role as Safari's VoiceOver reads one: a checkbox or
+    /// switch is a button whose value is `checked` or `unchecked` (as the
+    /// native checkbox, `ControlsIOS`); a radio is a button, selected while
+    /// checked. Called after `setAccessibilityToggle`, which it overrides.
+    func setAccessibilityChecked(_ role: String, _ checked: Bool) {
+        accessibilityTraits.remove(.toggleButton)
+        if role == "radio" {
+            accessibilityValue = nil
+            if checked { accessibilityTraits.insert(.selected) }
+        } else {
+            accessibilityValue = checked ? "checked" : "unchecked"
+        }
+    }
+}
+#endif
 
 /// What an authored tab shows as one segment of the system's segmented
 /// control (LLP 1035.001 D10): its one image, or its words.
@@ -59,6 +205,9 @@ extension NodeView {
             return nil
         }
         let children = container.subviews.compactMap { $0 as? NodeView }
+        // An `aria-hidden` child (an icon glyph) is drawn but not named: no
+        // segment shows one thing and is named another (habits F16).
+        if children.contains(where: { $0.props["accessibilityElementsHidden"] == "true" }) { return nil }
         if children.count == 1, children[0].kind == "image" { return .image(children[0]) }
         let text = accessibleText
         guard !children.isEmpty, !text.isEmpty, children.allSatisfy(\.isParagraph),
@@ -85,9 +234,21 @@ extension Presenter {
             autofocusProcessed.formIntersection(Set(views.values.map { ObjectIdentifier($0) }))
             nodes = views.values.sorted(by: { $0.id < $1.id })
         }
+        // A description reads the text of the elements it names, wherever they changed.
+        let described = changed == nil ? [] : chrome.ids("accessibilityDescribedBy").subtracting(nodes.map(\.id)).compactMap { views[$0] }
+        for node in described { node.applyFormAccessibility() }
+        // A name read from other elements follows their text (ledger2 Rough 3).
+        for node in chrome.ids("accessibilityLabelledBy").compactMap({ views[$0] }) where !node.isNativeButton {
+            #if os(macOS)
+            if node.accessibilityLabel() != node.accessibleName { node.setAccessibilityLabel(node.accessibleName) }
+            #else
+            if node.accessibilityLabel != node.accessibleName { node.accessibilityLabel = node.accessibleName }
+            #endif
+        }
         for node in nodes {
+            node.applyFormAccessibility()
             // A native button's control is its accessibility element (LLP 1069.011 D4).
-            if (node.kind == "button" || node.props["accessibilityRole"] == "button") && !node.isNativeButton {
+            if (node.actsAsButton || node.props["accessibilityRole"] == "button") && !node.isNativeButton {
                 #if os(macOS)
                 node.setAccessibilityLabel(node.accessibleName)
                 #else
@@ -120,7 +281,8 @@ extension Presenter {
             let target: NSView = node.textArea ?? node.field ?? node
             if target.acceptsFirstResponder { _ = window.makeFirstResponder(target) }
             #else
-            func hasFocus(_ view: UIView) -> Bool { (view.isFirstResponder && (view as? NodeView)?.canvasInput == nil) || view.subviews.contains(where: hasFocus) }
+            // The session's own view holding the focus for its shortcuts (ShortcutsIOS) is no focus a node took.
+            func hasFocus(_ view: UIView) -> Bool { (view.isFirstResponder && (view as? NodeView)?.canvasInput == nil && !(view is ExactView)) || view.subviews.contains(where: hasFocus) }
             if !views.values.contains(where: { $0.isFirstResponder && $0.returnsPointerFocusToCanvas }) { autofocusProcessed.insert(ObjectIdentifier(node)) }
             guard let window = node.window, !hasFocus(window) else { continue }
             autofocusProcessed.insert(ObjectIdentifier(node))
@@ -128,7 +290,72 @@ extension Presenter {
             _ = target.becomeFirstResponder()
             #endif
         }
+        #if os(iOS) || os(tvOS)
+        syncModal()
+        #endif
     }
+    #if os(iOS) || os(tvOS)
+    /// `aria-modal` (LLP 1080.003), after a batch and after a native
+    /// transition settles. A view is modal while its prop is true and it is
+    /// exposed: attached, displayed, not hidden, inert or leaving, with no
+    /// accessibility-hidden ancestor and no visible sibling painted over it (a
+    /// sheet's stack, say). UIKit hides a modal view's siblings
+    /// (`accessibilityViewIsModal`), other modal views among them, so of
+    /// siblings only the frontmost is modal, and one inside a branch another
+    /// modal hides is not. VoiceOver moves into the innermost modal when that
+    /// changes, or back to the screen, once no transition is running.
+    func syncModal() {
+        let candidates = chrome.ids("accessibilityModal").sorted().compactMap { views[$0] }
+        func ancestors(_ view: UIView) -> [UIView] { sequence(first: view, next: \.superview).map { $0 } }
+        func inFront(_ a: UIView, of b: UIView) -> Bool {
+            if a.layer.zPosition != b.layer.zPosition { return a.layer.zPosition > b.layer.zPosition }
+            let order = a.superview?.subviews ?? []
+            return (order.firstIndex(of: a) ?? 0) > (order.firstIndex(of: b) ?? 0)
+        }
+        // A leaving view (hidden from accessibility as its exit starts) covers nothing.
+        func painted(_ view: UIView) -> Bool {
+            !view.isHidden && view.alpha > 0 && !view.accessibilityElementsHidden && (view as? NodeView)?.style["display"]?.string != "none"
+        }
+        // A cover is content: a node, or a controller's view (a sheet's
+        // stack), not the host's own helper layers.
+        func covered(_ view: UIView) -> Bool {
+            view.superview?.subviews.contains { $0 !== view && ($0 is NodeView || $0.next is UIViewController) && painted($0)
+                && inFront($0, of: view) && $0.frame.intersects(view.frame) } == true
+        }
+        func exposed(_ view: NodeView) -> Bool {
+            guard view.props["accessibilityModal"] == "true", view.accessibilityVisible else { return false }
+            // Hidden, undisplayed or painted over, it or any ancestor (a sheet's stack beside a root overlay).
+            var below = true // covers are judged inside the session's viewport
+            for at in ancestors(view) {
+                if at === viewport { below = false }
+                if at.accessibilityElementsHidden || (at as? NodeView)?.style["display"]?.string == "none" || (below && covered(at)) { return false }
+            }
+            return true
+        }
+        // Shallowest first: a winner's siblings, and every branch they hold, are hidden.
+        var winners: [NodeView] = []
+        for view in candidates.filter(exposed).sorted(by: { ancestors($0).count < ancestors($1).count }) {
+            let above = ancestors(view).dropFirst()
+            if above.contains(where: { a in winners.contains { $0 !== a && $0.superview === a.superview } }) { continue }
+            if let i = winners.firstIndex(where: { $0.superview === view.superview }) {
+                if inFront(view, of: winners[i]) { winners[i] = view }
+            } else { winners.append(view) }
+        }
+        for view in candidates + modalViews.allObjects {
+            let modal = winners.contains { $0 === view }
+            if view.accessibilityViewIsModal != modal { view.accessibilityViewIsModal = modal }
+        }
+        modalViews.removeAllObjects()
+        for view in winners { modalViews.add(view) }
+        guard !navigation.inTransition, !modals.inTransition else { return }
+        let innermost = winners.max { (ancestors($0).count, $0.id) < (ancestors($1).count, $1.id) }
+        let key = innermost.map { (id: $0.id, incarnation: $0.incarnation) }
+        guard key?.id != announcedModal?.id || key?.incarnation != announcedModal?.incarnation else { return }
+        announcedModal = key
+        // nil: VoiceOver picks the first element it can reach, inside the modal while there is one.
+        Self.postScreenChanged(nil)
+    }
+    #endif
 }
 
 /// A restart with carried state (a dev reload, a delivered update) replaces

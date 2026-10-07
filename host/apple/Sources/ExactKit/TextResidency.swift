@@ -15,6 +15,9 @@ enum TextMetricKey {
     }
     private static func fields(_ r: Run, _ h: inout Hasher) {
         fields(r.size, r.weight, r.family, r.italic, r.lineHeight, r.letterSpacing, r.numeric, &h)
+        // Only an expanded Markdown run has these; a plain run hashes as
+        // its request's does (LLP 1045 D4).
+        if r.indent != 0 || r.hang { h.combine(r.indent); h.combine(r.hang) }
     }
     private static func fields(_ r: ExactTextRun, _ h: inout Hasher) {
         fields(CGFloat(r.font_size), Int(r.font_weight), Int(r.font_family), r.italic != 0,
@@ -33,6 +36,8 @@ enum TextMetricKey {
         if let strut = spec.strut { fields(strut, &h) }
         h.combine(spec.align); h.combine(spec.lineClamp); h.combine(spec.overflowWrap)
         h.combine(spec.direction); h.combine(spec.whiteSpace)
+        h.combine(spec.textIndent); h.combine(spec.hyphens)
+        if spec.hyphens == 2 { h.combine(spec.language) }
         return h.finalize()
     }
     static func hash(_ request: ExactMeasureRequest) -> Int {
@@ -46,6 +51,10 @@ enum TextMetricKey {
         fields(request.strut, &h)
         h.combine(Int(request.align)); h.combine(Int(request.line_clamp)); h.combine(Int(request.overflow_wrap))
         h.combine(Int(request.direction)); h.combine(Int(request.white_space))
+        h.combine(CGFloat(request.text_indent)); h.combine(Int(request.hyphens))
+        if request.hyphens == 2 {
+            h.combine(String(decoding: UnsafeBufferPointer(start: request.lang, count: request.lang_len), as: UTF8.self))
+        }
         // A Markdown request hashes apart from the plain request of its one
         // source run; a plain request hashes as its Spec does.
         if request.markup != 0 { h.combine(Int(request.markup)) }
@@ -61,10 +70,12 @@ enum TextMetricKey {
     static func matches(_ request: ExactMeasureRequest, _ geometry: Spec) -> Bool {
         // An expanded Markdown request has more runs than its one source run;
         // its geometry is keyed by the request hash and never borrowed by runs.
-        guard request.markup == 0 else { return false }
+        // Auto hyphenation's soft hyphens are in the geometry, not the request.
+        guard request.markup == 0, request.hyphens != 2 else { return false }
         guard request.count == geometry.runs.count, Int(request.align) == geometry.align,
               Int(request.line_clamp) == geometry.lineClamp, Int(request.overflow_wrap) == geometry.overflowWrap,
               Int(request.direction) == geometry.direction, Int(request.white_space) == geometry.whiteSpace,
+              CGFloat(request.text_indent) == geometry.textIndent, Int(request.hyphens) == geometry.hyphens,
               let strut = geometry.strut, equalFields(request.strut, strut) else { return false }
         let runs = UnsafeBufferPointer(start: request.runs, count: request.count)
         for i in runs.indices {
@@ -115,6 +126,7 @@ final class TextIdentity: Hashable {
 /// pointer. Width and paint keys then share that owned identity and its Strings.
 struct TextPaint: Hashable {
     struct Inline: Hashable {
+        let hidden: Bool
         let color: [Double]?
         let decoration: String
         let href: String
@@ -128,7 +140,7 @@ struct TextPaint: Hashable {
     init(_ spec: Spec) {
         color = spec.color
         ellipsis = spec.ellipsis
-        runs = spec.runs.map { Inline(color: $0.color, decoration: $0.decoration, href: $0.href, background: $0.background,
+        runs = spec.runs.map { Inline(hidden: $0.hidden, color: $0.color, decoration: $0.decoration, href: $0.href, background: $0.background,
                                       shadow: $0.shadow, stroke: $0.stroke) }
     }
     func applying(to identity: TextIdentity) -> Spec {
@@ -136,6 +148,7 @@ struct TextPaint: Hashable {
         spec.color = color
         spec.ellipsis = ellipsis
         for i in spec.runs.indices {
+            spec.runs[i].hidden = runs[i].hidden
             spec.runs[i].color = runs[i].color
             spec.runs[i].decoration = runs[i].decoration
             spec.runs[i].href = runs[i].href
@@ -196,6 +209,8 @@ final class TextShape {
     // Unicode opportunities belong to this immutable source, never a width.
     // Filled lazily by the session's TextEngine; raster workers do not use it.
     var lineBreakBoundaries: [Int]?
+    /// Where each line starts (`lineInsets`), made once from this source.
+    var insets: LineInsets?
     private(set) var flow: TextFlowSource?
     private(set) var prepareCount = 0
     func preparedFlow() -> TextFlowSource {

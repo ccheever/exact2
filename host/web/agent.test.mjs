@@ -1,18 +1,19 @@
 // @ref LLP 1043.000 §3 D7/D8 — flow settlement must not change LLP 1012's API.
 import { test, expect } from 'bun:test';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 import vm from 'node:vm';
-import { render, sourceMapReader, identifyInspectedNode } from '../../scripts/agent.mjs';
+import { render, sourceMapReader, identifyInspectedNode, heldTicket, holdOf, pickedPaths } from '../../scripts/agent.mjs';
 import { retainDevGeneration, readDevGeneration, readDevGenerationAsync, serveBuildTree } from './serve.mjs';
-import { focusController, placeReporter, timeReporter, pageReporter, viewBox, grantOrigins } from './navigation.js';
+import { focusController, placeReporter, timeReporter, pageReporter, appRootFontSize, viewBox, grantOrigins, launchLocation } from './navigation.js';
 import { storageKey } from './storage-environment.js';
 import { open } from '../../scripts/agent.mjs';
 import { launchFacts, launchEnvironment, parseFlags } from '../../scripts/agent-launch.mjs';
+import { nodeNamed } from '../../scripts/agent-test.mjs';
 
 const mapAt = (digest, line = 12) => ({digest, nodes: [{file: '/app/ui/bubble.contract', line, col: 3, end_col: 9, component: 'Bubble',
   chain: [{file: '/app/app.contract', line: 45, col: 5, end_col: 11, component: 'App'}],
@@ -57,8 +58,9 @@ catch(e) { console.error(e.message); process.exitCode=1; }
       expect(bad.status).toBe(1);
       expect(bad.stderr).toContain('fixture.contract:7:3: invalid test step');
     }
+    // No cargo on PATH and none where rustup puts it, which the driver adds back (scripts/app.mjs cargoOnPath).
     const missing = spawnSync(process.execPath, [runner], {
-      cwd:dir, env:{...process.env,PATH:join(dir,'absent')}, encoding:'utf8',
+      cwd:dir, env:{...process.env,PATH:join(dir,'absent'),CARGO_HOME:join(dir,'absent')}, encoding:'utf8',
     });
     expect(missing.status).toBe(1);
     expect(missing.stderr).toContain('cargo');
@@ -238,12 +240,15 @@ function fixture(agentMode = true) {
   const logs = { next: 1, from: 0, lines: ['boot'] };
   const box = { x: 0, y: 0, width: 100, height: 50, left: 0, top: 0, right: 100, bottom: 50 };
   const el = { isConnected: true, localName: 'p', dataset: {}, clientWidth: 100, clientHeight: 50,
-    getBoundingClientRect: () => box, hasAttribute: () => false };
+    // A real element's client rects: one box, as an unfragmented node has (glue.js reads them for column_fragments, LLP 1093 D12).
+    getBoundingClientRect: () => box, getClientRects: () => [box], hasAttribute: () => false };
   const root = { dataset: {}, replaceChildren() { events.push('replace'); } };
-  const context = vm.createContext({ events, agentMode, root, views: new Map([[1, el]]),
+  // glue.js: `agentKeepsStore = !agentMode || ?storage`; the fixture's drive names no store.
+  const context = vm.createContext({ events, agentMode, agentKeepsStore: !agentMode, root, views: new Map([[1, el]]),
     state, outline, logs, textflow: null, flowLoading: null, flowContexts: [], flowDue: null, flowFrames: false, present() {}, lists: new Map(),
-    Date: { now: () => 123 }, performance: { now: () => 10 }, TextEncoder, Uint8Array,
-    HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLIFrameElement: class {}, HTMLVideoElement: class {},
+    Date: class extends Date { static now() { return 123; } }, performance: { now: () => 10 }, TextEncoder, Uint8Array,
+    HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLIFrameElement: class {}, HTMLVideoElement: class {}, HTMLMediaElement: class {},
+    foldBits: () => 0 /* no fold posture (LLP 1078 D6) */,
     document: { activeElement: null, body: {}, querySelector: () => null },
     innerWidth: 300, innerHeight: 200, devicePixelRatio: 1, scrollX: 0, scrollY: 0,
     INHERITED_CSS: {}, getComputedStyle: () => ({}), inertAncestor: () => false,
@@ -260,9 +265,9 @@ function fixture(agentMode = true) {
     wasm: { exact_in: () => 0, exact_plan: () => 1, exact_out: () => 0,
       exact_plan_fonts: () => '[]', exact_boot: () => '{"ops":[],"timers":true}',
       exact_boot_plan: () => '{"ops":[],"timers":true}', exact_advance: () => '{"ops":[],"clock":16}' },
-    devAssets: null, bootAttempt: 0, encoder: new TextEncoder(), location: { pathname: '/', search: '' },
+    devAssets: null, bootAttempt: 0, encoder: new TextEncoder(), location: { pathname: '/', search: '', href: 'https://fixture.invalid/' }, URL,
     focus: focusController({ ready: () => true, elements: () => [], inert: () => false }), loadGpuIfNeeded() {}, writeIn: value => value, send() {}, messageViews: new Set(), markupModule: null,
-    prepareFonts: async () => [], commitFonts() {}, releaseAssets() {}, incarnation: 0,
+    prepareFonts: async () => [], commitFonts() {}, releaseAssets() {}, appRootFontSize() {} /* no app root rule to drop (LLP 1069.000 D3) */, incarnation: 0,
     // Ordinary boot tests model an already-loaded post-paint scheduler.
     timerFactory: () => ({ update() { events.push('ticker'); }, dispose() {} }),
     ticker: null, motion: { reset() {} }, arrange: { reset() {} }, pieces: { pending: () => null }, retiredViews: new WeakSet(), followedScrolls: new Map(),
@@ -277,8 +282,9 @@ function fixture(agentMode = true) {
     page: null, // a built document's boot (LLP 1048.000 D6); these pages have none
     loadStage: () => Promise.resolve(), stageLoaded: () => true, // every stage linked (LLP 1047.000 §9)
     preferences: () => '{}', localAssetURL: source => source,
+    launchLocation: () => launchLocation(context), // the launch path less the drive's facts (feed F16)
   });
-  vm.runInContext(`const viewBox = ${viewBox};\n` + source.match(/^let gpuLoading = .*$/m)[0] + '\n' + ['nodeDetail', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'gpuPendingReply', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
+  vm.runInContext(`let toldOffset = null; const folded = () => false; /* no folded text here (LLP 1007.001) */ const viewBox = ${viewBox};\n` + ['let gpuLoading', 'const POST_BOUND', 'let frameSampler', 'const followOffset', 'const shownValue'].map(head => source.match(new RegExp(`^${head} = .*$`, 'm'))[0]).join('\n') + '\n' + ['nodeDetail', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'gpuPendingReply', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
   context.reportPlace = placeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
   context.reportTime = timeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
   return context;
@@ -445,13 +451,13 @@ test('a clock jump lands what is in flight before each timer fires', async () =>
   timedRequests(f);
   const boot = new Promise(resolve => setTimeout(() => { f.events.push('reply boot'); resolve(); }, 0));
   f.inflight.add(boot); boot.finally(() => f.inflight.delete(boot));
-  expect(await f.exact.agent({ op: 'clock', to: 700 })).toEqual({ clock: 700, epoch: 2, incarnation: 1 });
-  // The last advance fires no timer, so the request it left in flight is not waited for.
+  // The last advance fires no timer, so the request it left in flight is not waited for; the reply names it (calendar F10).
+  expect(await f.exact.agent({ op: 'clock', to: 700 })).toEqual({ clock: 700, epoch: 2, incarnation: 1, inflight: 1 });
   expect(f.events).toEqual(['reply boot', 'advance 700 until a request → 300', 'reply 300', 'advance 700 until a request → 600', 'advance 700 → 700']);
   expect(f.inflight.size).toBe(1);
   // A due time at the target itself is the last stop: what is in flight lands first, nothing follows.
   f.events.length = 0;
-  expect(await f.exact.agent({ op: 'clock', to: 900 })).toEqual({ clock: 900, epoch: 2, incarnation: 1 });
+  expect(await f.exact.agent({ op: 'clock', to: 900 })).toEqual({ clock: 900, epoch: 2, incarnation: 1, inflight: 1 });
   expect(f.events).toEqual(['reply 600', 'advance 900 until a request → 900', 'advance 900 → 900']);
 });
 test('a jump that stops at its target still fires the other timers due there', async () => {
@@ -478,7 +484,7 @@ test('a jump that stops at its target still fires the other timers due there', a
 test('a timer whose request never lands cannot hold the clock: past the deadline the rest is one advance', async () => {
   const f = fixture();
   timedRequests(f, { stuck: true });
-  expect(await f.exact.agent({ op: 'clock', to: 1000 })).toEqual({ clock: 1000, epoch: 2, incarnation: 1 });
+  expect(await f.exact.agent({ op: 'clock', to: 1000 })).toEqual({ clock: 1000, epoch: 2, incarnation: 1, inflight: 3 });
   expect(f.events).toEqual(['advance 1000 until a request → 300', 'advance 1000 → 1000']);
 });
 
@@ -540,6 +546,12 @@ test('programmatic web opens stay on Chrome and Firefox drives a small Exact pla
     process.env.EXACT_WEB_BROWSER = 'firefox';
     chrome = await open({ host:'web', url });
     expect(chrome.carrier.browser).toBe('chrome');
+    // evaluate takes a function of no arguments as Playwright's carriers do (r23 t2).
+    expect(await chrome.carrier.evaluate(() => 1 + 1)).toBe(2);
+    expect(await chrome.carrier.evaluate('1 + 2')).toBe(3);
+    expect(await chrome.carrier.evaluate(async () => 4)).toBe(4);
+    expect(await chrome.carrier.evaluate(({ probe() { return 5; } }).probe)).toBe(5);
+    expect(await chrome.carrier.evaluate(({ async probe() { return 6; } }).probe)).toBe(6);
     await chrome.close(); chrome = null;
     const { firefox } = await import('playwright-core');
     if (!existsSync(firefox.executablePath())) {
@@ -558,17 +570,27 @@ test('programmatic web opens stay on Chrome and Firefox drives a small Exact pla
     await session.type('field', {key:'a'});
     await session.type('press', {key:'Enter',phase:'down'});
     await session.type('press', {key:'Enter',phase:'up'});
-    await expect(session.type('press', {key:'a'})).rejects.toThrow('key: unsupported code a');
+    await session.type('press', {key:'a'}); // a key by its name, on a button too (pomodoro F5)
+    await expect(session.type('press', {key:'Hyper'})).rejects.toThrow('key: unsupported key Hyper');
     const beforeRefusals = JSON.stringify((await session.state()).slots);
     await expect(session.tap('touch', {down:true})).rejects.toThrow('firefox down unsupported:');
     await expect(session.pointer('move', {dx:20,dy:10,ms:32})).rejects.toThrow('firefox move unsupported:');
     await expect(session.pointer('up')).rejects.toThrow('firefox up unsupported:');
     await expect(session.tap('touch', {pinch:1.2})).rejects.toThrow('firefox pinch unsupported:');
     expect(JSON.stringify((await session.state()).slots)).toBe(beforeRefusals);
+    // A mouse drag is a real button, twice, so the first lift cleared the contact (drums R13).
+    const dragged = await session.tap('touch', { drag: { dx: 20, dy: 0, mouse: true, over: 16 } });
+    expect(dragged.delivery).toBe('platform');
+    expect(dragged.drag.mouse).toBe(true);
+    await session.tap('touch', { drag: { dx: -20, dy: 0, mouse: true, over: 16 } });
+    await session.carrier.evaluate(`(() => { window.__exactShift = null; addEventListener('pointerdown', (e) => { window.__exactShift = e.shiftKey; }, { capture: true, once: true }); })()`);
+    await session.tap('press', { modifiers: 'Shift' });
+    expect(await session.carrier.evaluate('window.__exactShift')).toBe(true);
     await session.tap('scroll', {wheel:[0,120]});
     const state = (await session.state()).slots;
     expect(state.presses).toBeGreaterThan(0);
     expect(state.words).toBe('hia');
+    await session.type('root', { key: ' ' }); // the column takes no focus; the key is still pressed (drums R13)
     expect((await session.layout()).nodes.find(node => node.testId === 'scroll').sy).toBeGreaterThan(0);
     expect((await session.clock('+25')).clock).toBe(25);
     expect((await session.prefer({'prefers-color-scheme':'dark'})).media['prefers-color-scheme']).toBe('dark');
@@ -599,17 +621,23 @@ test('page facts: the platform off the agent, the drive\'s values under it (LLP 
   expect(real.bits()).toBe(1 | 2 | 4);
   platform.document.visibilityState = 'visible'; platform.navigator = { onLine: true };
   expect(real.bits()).toBe(0);
+  // The document pickers (studio diary R31): bit 3 where the browser has them.
+  platform.showOpenFilePicker = () => {};
+  expect(real.bits()).toBe(8);
+  delete platform.showOpenFilePicker;
   real.onChange(() => {});
   expect(listened).toEqual(['visibilitychange', 'online', 'offline']);
   const agent = pageReporter(true, new Proxy({}, {get() { throw new Error('agent read the platform'); }}));
-  expect(agent.bits()).toBe(4);
-  agent.prefer({ 'visibility-state': 'hidden', online: false });
+  expect(agent.bits()).toBe(4 | 8);
+  agent.prefer({ 'visibility-state': 'hidden', online: false, 'can-open-files': false });
   expect(agent.bits()).toBe(1 | 2 | 4);
   expect(() => agent.prefer({ online: 'maybe', 'can-share': false })).toThrow('prefer: online');
   expect(agent.read()['can-share']).toBe(true);
   agent.onChange(() => { throw new Error('agent listened to the platform'); });
 });
 
+test('the app\'s root font size: a rule over the root, read past by the host (LLP 1069.000 D3)', () => { const rules = new Map(), said = [], say = line => said.push(line), document = { documentElement: {}, head: { append: el => rules.set(el.id, el) }, getElementById: id => rules.get(id) ?? null, createElement: () => ({ remove() { rules.delete(this.id); } }) }; const platform = { document, getComputedStyle: () => { const r = [...rules.values()].find(r => !r.disabled); return { fontSize: r ? r.textContent.match(/font-size:([\d.]+)px/)[1] + 'px' : '18px' }; } }, host = pageReporter(false, platform); // the browser's own 18; an enabled rule's `!important` wins
+  appRootFontSize(20, say, platform); expect(rules.get('exact-root-font-size').textContent).toBe(':root{font-size:20px!important}'); expect(platform.getComputedStyle().fontSize).toBe('20px'); expect(host.rootFontSize()).toBe(18); for (const bad of [0, -4, NaN, '20px', 1e300]) appRootFontSize(bad, say, platform); expect(said).toHaveLength(5); expect(said[0]).toBe('setRootFontSize(0) refused: the root font size is a number of px above 0, or "medium"'); expect(rules.get('exact-root-font-size').textContent).toBe(':root{font-size:20px!important}'); appRootFontSize('medium', null, platform); expect(rules.size).toBe(0); expect(host.rootFontSize()).toBe(18); });
 test('agent launch facts never read the platform locale, zone or entropy', async () => {
   const f = fixture(), reported = [];
   f.navigator = { language: 'fr-FR' };
@@ -680,7 +708,7 @@ test('non-flow operation transcripts remain byte-for-byte equal to the existing 
 // Exercise the moved module through the real attach() adapter, with browser
 // scheduling under the test's control. Geometry remains a browser concern.
 function inputFixture() {
-  const listeners = new Map(), frames = new Map(), sent = [], captured = [];
+  const listeners = new Map(), windowListeners = new Map(), frames = new Map(), sent = [], captured = [];
   let serial = 0;
   const el = { dataset: {}, inert: false, disabled: false, isConnected: true,
     addEventListener(kind, fn) { const list = listeners.get(kind) ?? []; list.push(fn); listeners.set(kind, list); },
@@ -689,14 +717,18 @@ function inputFixture() {
   // `page` is a built document being adopted (LLP 1048.000 D6); this page was not built.
   const f = vm.createContext({ inputReady: false, inputHandlers: null, page: null,
     views: new Map([[7, el]]), retiredViews: new WeakSet(), frames, sent, captured, el,
-    root: { querySelectorAll: () => buttons, addEventListener() {} }, // press feedback's listener: press.test.mjs drives it
-    document: { addEventListener(kind, fn) { if (kind === 'keydown') f.keydown = fn; }, activeElement: { closest: () => null } },
+    root: { querySelectorAll: s => s.includes('aria-modal') ? [] : buttons, addEventListener() {}, contains: () => true }, // press feedback's listener: press.test.mjs drives it
+    // The shortcuts' keydown listens in the capture phase, a pressable's activation in the bubble phase.
+    document: { addEventListener(kind, fn, capture) { if (kind === 'keydown') f[capture ? 'keydown' : 'keyActivate'] = fn; }, activeElement: { closest: () => null } },
     HTMLIFrameElement: class {}, HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLButtonElement: class {},
     inertAncestor: node => node.inert, getComputedStyle: () => ({ visibility: 'visible' }),
     requestAnimationFrame(fn) { frames.set(++serial, fn); return serial; },
     cancelAnimationFrame(id) { frames.delete(id); },
     wasm: { exact_dispatch: (...args) => args }, writeIn: value => value, now: () => 0,
     send: value => sent.push(value),
+    // The window's capture listeners: they hear a contact's events wherever they land.
+    addEventListener(kind, fn) { const list = windowListeners.get(kind) ?? []; list.push(fn); windowListeners.set(kind, list); },
+    removeEventListener(kind, fn) { windowListeners.set(kind, (windowListeners.get(kind) ?? []).filter(g => g !== fn)); },
   });
   const module = readFileSync(new URL('./input-glue.js', import.meta.url), 'utf8');
   vm.runInContext(module.replace('export function', 'function') + '\n' + declaration('attach'), f);
@@ -707,14 +739,16 @@ function inputFixture() {
       preventDefault() { this.prevented = true; }, stopPropagation() { this.stopped = true; },
       stopImmediatePropagation() { this.stopped = true; }, ...extra };
   }
-  return { f, el, buttons, frames, sent, captured,
+  return { f, el, buttons, frames, sent, captured, windowListeners,
+    // An event at this node reaches the window's capture listeners first; one outside it, only them.
+    outside(kind, extra) { const e = event(extra); for (const fn of [...windowListeners.get(kind) ?? []]) fn(e); return e; },
     load() {
       vm.runInContext(`inputHandlers = createInputHandlers({ root, views, retiredViews,
         ready: () => inputReady, inertAncestor,
         dispatch: (id, payload) => send(wasm.exact_dispatch(id, 20, writeIn(payload), now())),
       }); inputReady = true;`, f);
     },
-    pointer(kind, extra) { const e = event(extra); for (const fn of listeners.get(kind) ?? []) fn(e); return e; },
+    pointer(kind, extra) { const e = event(extra); for (const fn of [...windowListeners.get(kind) ?? [], ...listeners.get(kind) ?? []]) fn(e); return e; },
     key(extra) { const e = event({ key: 'k', metaKey: true, ctrlKey: false, altKey: false, shiftKey: false, ...extra }); f.keydown(e); return e; },
     tick() { const pending = [...frames.values()]; frames.clear(); pending.forEach(fn => fn()); },
   };
@@ -761,6 +795,40 @@ test('pan rejects foreign and editable contacts and drops cancelled or stale que
   }
 });
 
+test('a pan under a nested button hears its contact on the window until it begins, and a release anywhere ends it (kanban F6)', () => {
+  const nested = { target: { closest: s => s.startsWith('button') ? {} : null }, pointerType: 'mouse', buttons: 1 };
+  const watching = h => ['pointermove', 'pointerup', 'pointercancel'].map(k => h.windowListeners.get(k)?.length ?? 0);
+  // Released outside the node inside the slop: the contact ends, and a later
+  // buttonless move back over the node pans nothing (it did, stale, before).
+  let h = inputFixture(); h.load();
+  const down = h.pointer('pointerdown', nested);
+  expect([down.prevented, down.stopped, h.captured]).toEqual([false, false, []]); // a tap stays the button's
+  expect(watching(h)).toEqual([1, 1, 1]);
+  h.outside('pointerup', { ...nested, clientX: 2, buttons: 0 });
+  expect(watching(h)).toEqual([0, 0, 0]);
+  h.pointer('pointermove', { ...nested, clientX: 30, buttons: 0 }); h.tick();
+  expect(h.sent).toEqual([]);
+  // Dragged out past the slop and released there: the pan begins and ends once.
+  h = inputFixture(); h.load(); h.pointer('pointerdown', nested);
+  h.outside('pointermove', { ...nested, clientX: 60 });
+  h.outside('pointerup', { ...nested, clientX: 60, buttons: 0 });
+  expect(h.sent).toEqual([[7, 20, '60,0', 0]]);
+  h.pointer('pointermove', { ...nested, clientX: 90, buttons: 0 }); h.tick();
+  expect(h.sent.length).toBe(1);
+  // An up no one heard (outside the window): the next move without the button ends it.
+  h = inputFixture(); h.load(); h.pointer('pointerdown', nested);
+  h.pointer('pointermove', { ...nested, clientX: 30, buttons: 0 }); h.tick();
+  expect([h.sent, watching(h)]).toEqual([[], [0, 0, 0]]);
+  // Dragged inside: once the pan begins it captures, the window stops
+  // watching, and each later event is handled once.
+  h = inputFixture(); h.load(); h.pointer('pointerdown', nested);
+  h.pointer('pointermove', { ...nested, clientX: 10 }); h.tick();
+  expect([h.sent, h.captured, watching(h)]).toEqual([[[7, 20, '10,0', 0]], [1], [0, 0, 0]]);
+  h.pointer('pointermove', { ...nested, clientX: 15 }); h.tick();
+  h.pointer('pointerup', { ...nested, clientX: 15, buttons: 0 });
+  expect(h.sent).toEqual([[7, 20, '10,0', 0], [7, 20, '5,0', 0]]);
+});
+
 test('moved keyboard shortcuts preserve modifiers, readiness, repeat and modal gating', () => {
   const h = inputFixture(); h.load(); let clicks = 0;
   const button = { isConnected: true, disabled: false, inert: false,
@@ -784,6 +852,22 @@ test('moved keyboard shortcuts preserve modifiers, readiness, repeat and modal g
   expect(clicks).toBe(2);
 });
 
+// chat F14: a pressable that is no button takes Enter, or Space unless it is
+// a link, as a click, after the key's handlers and unless one prevented it.
+test('a pressable that is no button activates by Enter or Space', () => {
+  const h = inputFixture(); h.load(); let clicks = 0;
+  const pressable = (tag, role = null) => ({ dataset: { exactOn: 'press' }, matches: s => s.split(', ').includes(tag), getAttribute: () => role, click() { clicks++; } });
+  const key = (target, extra) => { const e = { key: 'Enter', target, preventDefault() { this.prevented = true; }, ...extra }; h.f.keyActivate(e); return e; };
+  expect(key(pressable('div')).prevented).toBe(true);
+  expect(key(pressable('div'), { key: ' ' }).prevented).toBe(true);
+  expect(clicks).toBe(2);
+  for (const [target, extra] of [[pressable('div'), { defaultPrevented: true }], [pressable('div'), { repeat: true }], [pressable('div'), { metaKey: true }],
+    [pressable('div', 'link'), { key: ' ' }], [pressable('button'), {}], [pressable('div'), { key: 'a' }]]) expect(key(target, extra).prevented).toBeUndefined();
+  expect(clicks).toBe(2);
+  expect(key(pressable('div', 'link')).prevented).toBe(true);
+  expect(clicks).toBe(3);
+});
+
 // @ref LLP 1043.000 §3 D7/D8 — optional host code cannot gate data readiness.
 const checkpoint = () => new Promise(resolve => setImmediate(resolve));
 async function startupFixture(rustOnly = false) {
@@ -797,7 +881,7 @@ async function startupFixture(rustOnly = false) {
     root: { dataset: {}, setAttribute(key, value) { this[key] = value; } },
     views: new Map(), retiredViews: new WeakSet(), authoredDisabled: new WeakMap(),
     inputReady: false, inputHandlers: null, wasm: null, memory: null, logicInfo: null,
-    moduleLoader: null, activeModule: null, timerFactory: null, agentMode: false,
+    moduleLoader: null, activeModule: null, timerFactory: null, agentMode: false, agentKeepsStore: true, // glue.js: !agentMode || ?storage
     performance: { now: () => 1 }, t0: 0, URL, localStorage: { length: 0 }, AbortController,
     document: { querySelectorAll: () => [] }, // no preload: the glue fetches ./app.wasm
     fetch: async () => ({}), WebAssembly: { instantiateStreaming: async () => ({ instance: { exports } }), Module: { customSections: () => [], imports: () => [] } },
@@ -806,17 +890,18 @@ async function startupFixture(rustOnly = false) {
     requestAnimationFrame: fn => frames.push(fn), console: { error: error => errors.push(String(error)) },
     motion: { commit() {} }, collections: { dataReady: () => events.push('collections') },
     applyBatch: () => events.push('batch'), inertAncestor: () => false, focusAutofocus() {},
-    resolveModuleReady: () => events.push('ready'), page: null, pageNative: undefined,
+    resolveModuleReady: () => events.push('ready'), page: null, pageNative: undefined, log() {}, // the input piece's journal (a cancelled pan's line)
     loadAfterPaint(file) {
       loads.push(file);
       if (file === './input-glue.js') return input.promise;
       if (file === './timer-glue.js') return timer.promise;
       if (file === './module-glue.js') return Promise.resolve({ baked: () => data.promise, prepare: async () => ({ id: 0 }) });
+      if (file === './frames.js') return new Promise(() => {}); // a development page's frame sampler (LLP 1079 D3) is not what these tests start
       throw new Error('unexpected startup module: ' + file);
     },
   });
   f.exact = {};
-  vm.runInContext(['setInputReady', 'activateData', 'main'].map(declaration).join('\n')
+  vm.runInContext([source.match(/^const AGENT_ADMITTED = .*$/m)[0], ...['setInputReady', 'activateData', 'main'].map(declaration)].join('\n')
     .replaceAll('import.meta.url', '"https://fixture.invalid/glue.js"'), f);
   await f.main();
   expect(loads).toEqual([]); // Neither optional nor app modules run before paint.
@@ -946,7 +1031,7 @@ test('tree forwards its target and preserves host annotations and runner errors'
   const f = fixture(), requests = [];
   vm.runInContext(declaration('tree'), f);
   const iframe = new f.HTMLIFrameElement();
-  iframe.getAttribute = () => '/guest'; iframe.matches = () => false;
+  iframe.getAttribute = name => name === 'src' ? '/guest' : null; iframe.matches = () => false;
   f.views.set(7, iframe); f.iframeLoading = new Map([[iframe,false]]);
   f.guestOutline = () => [{tag:'button',depth:0,text:'guest'}];
   f.ask = request => {
@@ -957,6 +1042,26 @@ test('tree forwards its target and preserves host annotations and runner errors'
   expect(requests[0]).toEqual({op:'tree',target:'panel',shallow:true});
   expect(reply.nodes[0]).toEqual({id:7,type:'WebView',focused:false,url:'/guest',loading:false,guest:[{tag:'button',depth:0,text:'guest'}]});
   expect(f.exact.agent({op:'tree',target:'missing'})).toEqual({error:'no view matches missing'});
+});
+
+// Uncontrolled fields live in the presenter; inspection must read what the
+// person typed without writing it into Contract state.
+test('wasm tree and node detail report live text field values without mutating runner props', () => {
+  const f = fixture();
+  vm.runInContext(declaration('tree'), f);
+  for (const C of [f.HTMLInputElement, f.HTMLTextAreaElement]) {
+    const field = Object.assign(new C(), f.views.get(1), { localName: C === f.HTMLInputElement ? 'input' : 'textarea', value: 'typed text' });
+    f.views.set(1, field);
+    const props = { testId: 'field', value: 'initial' };
+    f.ask = req => req.op === 'tree'
+      ? { nodes: [{ id: 1, type: 'TextInput', props: { ...props } }] }
+      : { id: 1, type: 'TextInput', props: { ...props } };
+    expect(f.exact.agent({ op: 'tree' }).nodes[0].props.value).toBe('typed text');
+    expect(f.exact.agent({ op: 'layout', id: 1 }).node.props.value).toBe('typed text');
+    expect(props.value).toBe('initial');
+    field.value = '';
+    expect(f.exact.agent({ op: 'tree' }).nodes[0].props.value).toBe('');
+  }
 });
 
 function listFixture() {
@@ -992,6 +1097,12 @@ test("a drive's storage is only a scratch store it names, apart from the app's o
   expect(storageKey('com.example.app', 'http://127.0.0.1:1/?storage=x')).toBe('com.example.app'); // only a drive's is scratch
   for (const name of ['', '.', '..', 'a/b', '%2e%2e']) expect(() => storageKey('com.example.app', `http://127.0.0.1:1/?agent=1&storage=${name}`)).toThrow('storage: one name');
   for (const host of ['web', 'linux']) await expect(open({ host, storage: '../x' })).rejects.toThrow('--storage: one name');
+  // The page's launch URL names the store, not where the app's router has
+  // since moved `location` (recipes F9: a pick after a navigation went to
+  // another store than the data module's).
+  const entries = performance.getEntriesByType;
+  performance.getEntriesByType = type => type === 'navigation' ? [{ name: 'http://127.0.0.1:1/?agent=1&storage=s1' }] : [];
+  try { expect(storageKey('com.example.app')).toBe('com.example.app/agent/s1'); } finally { performance.getEntriesByType = entries; }
 });
 
 // @ref LLP 1080.002 D7–D9 — the findings, parity and transcript over hand-written replies.
@@ -1052,6 +1163,10 @@ test('tree --ax: parity joins by unique testId, normalizes the fixture controls,
   expect(findings.map(f => f.detail)).toEqual(['name "Add" (web) vs "Plus" (uikit)']);
   expect(unjoined).toEqual([]);
   expect(() => axParity({ ...web, spanned: true }, ios)).toThrow(/spanned/);
+  // A drawn radio is a radio, its checked state the UIKit reply's own (x2apps survey #2).
+  const radioWeb = axReply([el(0, 'radio', 'Red', { testId: 'red', states: { checked: true } })]);
+  const radioIos = axReply([el(0, 'button', 'Red', { testId: 'red', states: { checked: true, selected: true }, native: { role: ['button', 'selected'], class: 'ExactRadio' } })], { source: 'uikit' });
+  expect(axParity(radioWeb, radioIos).findings).toEqual([]);
 });
 
 test('tree --ax: no findings means clean only with complete coverage and the expected views joined', () => {
@@ -1064,11 +1179,13 @@ test('tree --ax: no findings means clean only with complete coverage and the exp
 });
 
 test('tree --ax renders each element with its join and frame, then its findings', () => {
-  const r = axFinish(axReply([el(0, 'button', '', { frame: { x: 1, y: 2, w: 3, h: 4, source: 'layout' } }), el(2, 'button', 'Hidden', { via: 'owner' })]), axPlain, null);
+  const r = axFinish(axReply([el(0, 'button', '', { frame: { x: 1, y: 2, w: 3, h: 4, source: 'layout' } }), el(2, 'button', 'Hidden', { via: 'owner' }), el(5, 'textbox', 'Your name', { description: 'Required', states: { required: true } })]), axPlain, null);
   const text = renderAx(r);
-  expect(text).toMatch(/^ax {7}chrome-cdp · Chrome 1 · order tree · epoch 3 · incarnation 1 · clock 0 ms · 2 elements/);
+  expect(text).toMatch(/^ax {7}chrome-cdp · Chrome 1 · order tree · epoch 3 · incarnation 1 · clock 0 ms · 3 elements/);
   expect(text).toContain('button "" #10 [play] 1,2 3×4');
   expect(text).toContain('button "Hidden" #12^ [inside]');
+  // The accessible description (aria-describedby) is printed: the survey diary could not see it.
+  expect(text).toContain('textbox "Your name" description="Required" [required] #15 [behind]');
   expect(text).toContain('! unnamed button #10 [play]');
   expect(text).toContain('! exposed while hidden: button "Hidden" under #11 (inert) #12 [inside]');
   expect(renderAx({ ax: { unavailable: true, reason: 'no AT-SPI tree (LLP 1015 §7)' } })).toBe('ax       unavailable: no AT-SPI tree (LLP 1015 §7)');
@@ -1128,6 +1245,14 @@ test('tree --ax: parity reports a state one side can observe and does not, befor
   expect(axParity(web, mac).findings.map(f => f.detail)).toEqual(['level missing on appkit (2 vs —)', 'checked missing on appkit (false vs —)']);
   // disabled is reported only when true: its absence on both sides agrees.
   expect(axParity(web, axReply([el(0, 'heading', 'Section', { testId: 'h', states: { level: 2 } }), el(1, 'checkbox', 'C', { testId: 'c', states: { checked: false } })])).findings).toEqual([]);
+});
+
+test('tree --ax: an aria-pressed toggle is a button on every source', () => {
+  const web = axReply([el(0, 'button', 'Shown', { testId: 'pressed', states: {} })]);
+  const mac = axReply([el(0, 'checkbox', 'Shown', { testId: 'pressed', native: { role: 'AXCheckBox', subrole: 'AXToggle' } })], { source: 'appkit' });
+  const ios = axReply([el(0, 'toggleButton', 'Shown', { testId: 'pressed', value: '1', native: { role: ['toggleButton'] } })], { source: 'uikit' });
+  expect(axParity(web, mac).findings).toEqual([]);
+  expect(axParity(web, ios).findings).toEqual([]);
 });
 
 // Astra's round 2 (llp/reviews/code-2026-10-03-1080.002-ax-tree-r2.astra.md): 3 and 4.
@@ -1195,3 +1320,180 @@ test('tree --ax: parity skips a state the runtime cannot observe (UIKit expanded
   const ios18 = axReply([el(0, 'button', 'Toggle', { testId: 'toggle', native: { role: ['button'] } })], { source: 'uikit', observes: ['checked', 'disabled', 'expanded'] });
   expect(axParity(web, ios18).findings.map(f => f.detail)).toEqual(['expanded missing on uikit (true vs —)']);
 });
+
+// files F11: a held device request is named by the node its answer arrives at
+// or by its capability, whatever ticket the host's counter gave it.
+test('a hold is addressed by its node or capability, and an unclear name is refused', () => {
+  const pending = [{ name: 'notes', ticket: 4 }, { name: 'folder-input', ticket: 7, device: { capability: 'open-directory', args: { id: 'folder-input' } } },
+    { name: 'share', ticket: 9, device: { capability: 'share', args: {} } }, { name: 'export-input', ticket: 11, device: { capability: 'export', args: { id: 'export-input' } } }];
+  expect([holdOf('@7'), holdOf('@folder-input'), holdOf('folder-input'), holdOf('@')]).toEqual([true, true, false, false]);
+  expect([heldTicket(pending, '@folder-input'), heldTicket(pending, '@open-directory'), heldTicket(pending, '@share'), heldTicket(pending, '@export')]).toEqual([7, 7, 9, 11]);
+  expect(() => heldTicket(pending, '@notes')).toThrow(/no held device request .*held: @7 open-directory at "folder-input"/);
+  expect(() => heldTicket([...pending, { name: 'other', ticket: 12, device: { capability: 'open-directory', args: { id: 'other' } } }], '@open-directory')).toThrow(/2 holds match/);
+});
+
+// Review A2: an authored test's `pick "photo" "my photo.png"` reaches the driver as one path per line, so a space
+// stays in its path; the CLI's `type @photo a.png b.png` still names two.
+test('a pick answer keeps a path with a space when it comes one per line', () => {
+  expect(pickedPaths('/tmp/my photo.png\n')).toEqual(['/tmp/my photo.png']);
+  expect(pickedPaths('/tmp/a b.png\n/tmp/c.png\n')).toEqual(['/tmp/a b.png', '/tmp/c.png']);
+  expect(pickedPaths('a.png b.png')).toEqual(['a.png', 'b.png']);
+});
+
+// Review A1: `tap … drag … mouse` (an authored test's `drag … from x y mouse`) holds the left button on the web: the
+// page hears a mouse's pointerdown and pointerup, where `tap` itself refuses `mouse` beside `down` (its click form).
+test('a mouse drag presses and releases the left button on the web', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-mouse-drag-')), contract = join(dir, 'app.contract'), plan = join(dir, 'app.plan'), dist = join(dir, 'dist');
+  writeFileSync(contract, `component MouseDrag
+  state log = ""
+  action at(kind: string, e: PointerEvent)
+    log = \`\${log}\${kind}:\${e.pointerType};\`
+  view
+    column testId="root"
+      column testId="pad" width=300 height=100 touch-action="none" pointerdown=at("down") pointerup=at("up") background-color="#dddddd"
+      text log testId="log"
+`);
+  const compile = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', contract, '-o', plan], { encoding:'utf8' });
+  expect(compile.status, compile.stderr).toBe(0);
+  const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', dist, '--render', 'none'], { cwd:new URL('../../', import.meta.url).pathname, encoding:'utf8' });
+  expect(build.status, build.stderr).toBe(0);
+  const server = createServer((request, response) => serveBuildTree(dist, request, response));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  let s;
+  try {
+    s = await open({ host:'web', url:`http://127.0.0.1:${server.address().port}/` });
+    await expect(s.tap('pad', { down: true, mouse: true })).rejects.toThrow('mouse cannot be combined');
+    const r = await s.tap('pad', { drag: { dx: 40, dy: 20, from: [12, 8], mouse: true, over: 64 } });
+    expect(r.drag.mouse).toBe(true);
+    expect(s.contact).toBeNull();
+    await s.clock('+16');
+    expect((await s.state()).slots.log).toBe('down:mouse;up:mouse;');
+  } finally {
+    await s?.close();
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 120000);
+
+// Review A1 delta: a native contact's held left button ends with its lift, its cancel, or a down that failed — an
+// error reply or a request that threw — so a later finger is not sent as a mouse.
+test('a native mouse contact holds the button until it lifts or its down fails', async () => {
+  const { mouseContact } = await import('../../scripts/agent.mjs');
+  const sent = [], c = mouseContact(), send = (reply) => (button) => { sent.push(button.mouse === true); if (reply instanceof Error) throw reply; return reply; };
+  await c.ask('down', { mouse: true }, send({}));
+  await c.ask('move', {}, send({}));
+  await c.ask('up', {}, send({}));
+  await c.ask('down', {}, send({}));
+  expect(sent).toEqual([true, true, true, false]);
+  await expect(c.ask('down', { mouse: true }, send(new Error('the app stopped answering')))).rejects.toThrow('stopped answering');
+  expect(c.held).toBe(false);
+  await c.ask('down', { mouse: true }, send({ error: 'no input under it' }));
+  expect(c.held).toBe(false);
+});
+
+test('perf frames live lends the clock to the wall for its window and measures what it presented (LLP 1079 D4; platformer R11)', async () => {
+  const saved = Object.fromEntries(['document', 'addEventListener', 'requestAnimationFrame', 'cancelAnimationFrame', 'performance'].map(k => [k, Object.getOwnPropertyDescriptor(globalThis, k)]));
+  let wall = 1000, next = 0; const queued = new Map();
+  const set = (k, value) => Object.defineProperty(globalThis, k, { value, configurable: true, writable: true });
+  set('document', { visibilityState: 'visible', addEventListener() {}, getAnimations: () => [] });
+  set('addEventListener', () => {});
+  set('requestAnimationFrame', fn => (queued.set(++next, fn), next));
+  set('cancelAnimationFrame', id => queued.delete(id));
+  set('performance', { now: () => wall });
+  try {
+    await import('./frames.js');
+    let clock = 500;
+    const advanced = [], gpu = [];
+    const window = globalThis.exact.liveFrames({ ms: 200, origin: () => 0, log() {}, clock: () => clock,
+      advance: to => { advanced.push(to); clock = to; },
+      gpu: { live: on => (gpu.push(on), on ? [] : [{ canvas: 7, perf: { frameMs: { p50: 16.7 } } }]) } });
+    let done = false; window.then(() => { done = true; });
+    for (let i = 0; i < 40 && !done; i++) {
+      wall += 1000 / 60;
+      const due = [...queued.values()]; queued.clear();
+      for (const fn of due) fn(wall);
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    const reply = await window;
+    expect(gpu).toEqual([true, false]); // the world left the seek for its own frames, and came back
+    expect(reply.live).toEqual({ ms: 200, from: 500, to: 700 });
+    expect(advanced.at(-1)).toBe(700); // the runner followed the wall to the window's end, and no further
+    expect(reply.window.samples).toBeGreaterThan(8);
+    expect(reply.window.p50).toBeCloseTo(16.67, 1);
+    expect(reply.world).toEqual([{ canvas: 7, perf: { frameMs: { p50: 16.7 } } }]);
+    expect(globalThis.exact.frames).toBeUndefined(); // the window's sampler does not outlive it
+  } finally {
+    for (const [k, d] of Object.entries(saved)) d ? Object.defineProperty(globalThis, k, d) : delete globalThis[k];
+  }
+});
+// A target no testId carries, by the label or text a person reads (Exact-new iOS feedback, 2026-10-04).
+const N = (id, depth, type, props = {}, handlers = [], inactive = false) => ({ id, depth, type, props, handlers, inactive });
+test('a scroller with a scroll handler does not steal a button name', () => {
+  const nodes = [N(1, 0, 'View', {}, ['scroll']), N(2, 1, 'Pressable', { accessibilityLabel: 'Save' }, ['press']), N(3, 2, 'Text', { text: 'Save' })];
+  expect(nodeNamed(nodes, 'Save').id).toBe(2);
+  const t = [N(1, 0, 'View', {}, ['scroll']), N(2, 1, 'Pressable', {}, ['press']), N(3, 2, 'Text', { text: 'Save' })];
+  expect(nodeNamed(t, 'Save').id).toBe(2);
+});
+test('an active screen heading beats a covered button', () => {
+  const nodes = [N(1, 0, 'View'), N(2, 1, 'Pressable', {}, ['press'], true), N(3, 2, 'Text', { text: 'Settings' }, [], true), N(4, 1, 'Text', { text: 'Settings' })];
+  expect(nodeNamed(nodes, 'Settings').id).toBe(4);
+});
+test('ambiguity refuses, fast on a flat list', () => {
+  const nodes = [N(0, 0, 'View')];
+  for (let i = 1; i <= 5000; i++) nodes.push(N(i, 1, 'Pressable', { accessibilityLabel: 'Delete' }, ['press']));
+  const t0 = performance.now();
+  expect(() => nodeNamed(nodes, 'Delete')).toThrow(/names 5000 views/);
+  expect(performance.now() - t0).toBeLessThan(200);
+});
+test('a press beats an ancestor taking only focus, a pan or a context menu', () => {
+  for (const h of ['focus', 'pan', 'contextmenu']) {
+    const nodes = [N(1, 0, 'View', {}, [h]), N(2, 1, 'Pressable', {}, ['press']), N(3, 2, 'Text', { text: 'Save' })];
+    expect(nodeNamed(nodes, 'Save').id).toBe(2);
+  }
+});
+test('active text beats a covered label, and a covered descendant names no active ancestor', () => {
+  const covered = [N(1, 0, 'View'), N(2, 1, 'Pressable', { accessibilityLabel: 'Settings' }, ['press'], true), N(4, 1, 'Text', { text: 'Settings' })];
+  expect(nodeNamed(covered, 'Settings').id).toBe(4);
+  const only = [N(1, 0, 'View'), N(2, 1, 'Pressable', {}, ['press'], true), N(3, 2, 'Text', { text: 'Save' }, [], true)];
+  expect(nodeNamed(only, 'Save').id).toBe(2);
+});
+test('innermost non-interactive text; none is null', () => {
+  const nodes = [N(1, 0, 'View'), N(2, 1, 'View'), N(3, 2, 'Text', { text: 'Hi' })];
+  expect(nodeNamed(nodes, 'Hi').id).toBe(3);
+  expect(nodeNamed(nodes, 'Nope')).toBe(null);
+});
+test('iOS drives serialize the same device and bundle and release on launch or close failure', async () => {
+  const { exclusiveIOS } = await import('../../scripts/agent-launch.mjs');
+  const directory = mkdtempSync(join(tmpdir(), 'exact-drive-lock-')), events = [];
+  const options = { directory, timeout: 1000 };
+  const launch = label => async () => { events.push(label); return { close: async () => events.push('close ' + label) }; };
+  let first, second, other;
+  try {
+    first = await exclusiveIOS('sim', 'app', launch('first'), options);
+    const waiting = exclusiveIOS('sim', 'app', launch('second'), options);
+    other = await exclusiveIOS('sim', 'other', launch('other'), options);
+    expect(events).toEqual(['first', 'other']);
+    await first.close(); second = await waiting;
+    expect(events).toEqual(['first', 'other', 'close first', 'second']);
+    await expect(exclusiveIOS('sim', 'app', launch('blocked'), {...options, timeout:0})).rejects.toThrow('iOS drive busy');
+    await second.close(); await other.close();
+    await expect(exclusiveIOS('sim', 'app', async () => { throw Error('launch failed'); }, options)).rejects.toThrow('launch failed');
+    first = await exclusiveIOS('sim', 'app', async () => ({ close: async () => { throw Error('close failed'); } }), options);
+    await expect(first.close()).rejects.toThrow('close failed'); first = null;
+    second = await exclusiveIOS('sim', 'app', launch('released'), options); await second.close();
+    // Kill the recorded driver PID while it holds the lock: EOF must release
+    // the helper's OS lock without a stale-file cleanup or a wall-clock lease.
+    const script = join(directory, 'holder.mjs');
+    writeFileSync(script, `import {exclusiveIOS} from ${JSON.stringify(new URL('../../scripts/agent-launch.mjs', import.meta.url).href)};
+await exclusiveIOS('sim','app',async()=>({close:async()=>{}}),${JSON.stringify(options)});console.log('held');`);
+    const child = spawn(process.execPath, [script], {stdio:['ignore','pipe','pipe']});
+    const exited = new Promise(resolve => child.once('exit', resolve));
+    try {
+      await new Promise((resolve,reject)=>{child.stdout.once('data',resolve);child.once('error',reject);child.once('exit',()=>reject(Error('holder exited before locking')));});
+      child.kill('SIGKILL'); await exited;
+      second = await exclusiveIOS('sim', 'app', launch('after death'), options); await second.close();
+    } finally { child.kill('SIGKILL'); await exited; }
+  } finally { await first?.close(); await second?.close(); await other?.close(); rmSync(directory,{recursive:true,force:true}); }
+}, 60000);
+test('tap parses every mouse form, refuses a word it does not use, and a carrier that cannot deliver one says unsupported (#107)', async () => {
+  const { tapWords: t, pointerGap: gap } = await import('../../scripts/agent.mjs'); expect(t(['p', 'auxclick', 'at', '30', '40', 'modifiers', 'Meta'])).toEqual(['p', { auxclick: true, at: [30, 40], modifiers: 'Meta' }]); expect(t(['p', 'clicks', '3'])).toEqual(['p', { clicks: 3 }]); expect(t(['p', 'wheel', '0', '20', 'at', '10', '10'])).toEqual(['p', { wheel: [0, 20], at: [10, 10] }]); expect(t(['p', 'down', 'at', '10', '20', 'modifiers', 'Shift'])).toEqual(['p', { down: true, at: [10, 20], modifiers: 'Shift' }]); expect(t(['up', 'modifiers', 'Shift'], true)).toEqual([null, { phase: 'up', modifiers: 'Shift' }]); for (const words of [['p', 'mouse', 'foo'], ['p', 'auxclick', 'at', '1'], ['p', 'hover', 'x'], ['p', 'clicks'], ['p', 'frob']]) expect(() => t(words)).toThrow(/unknown word|takes a number/); expect(gap('macos', undefined, { auxclick: true })).toBeNull(); expect(gap('web', 'chrome', { clicks: 3, modifiers: 'Shift', down: true })).toBeNull(); for (const host of ['linux', 'windows', 'ios']) expect(gap(host, undefined, { wheel: [0, 1], at: [1, 1] })).toContain('a wheel at a point'); expect(gap('web', 'firefox', { drag: { modifiers: 'Shift' } })).toContain('modifiers'); });

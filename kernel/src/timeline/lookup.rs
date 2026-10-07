@@ -71,9 +71,9 @@ pub(crate) fn refresh(arena: &mut NodeArena, receipt: &CommitReceipt) -> Vec<Nod
 }
 
 fn bears(s: &StyleProps) -> bool {
-    s.drag_timeline.name.is_some()
-        || s.animation_timeline.0.is_some()
-        || s.timeline_scope != TimelineScope::None
+    s.rare.drag_timeline.name.is_some()
+        || s.rare.animation_timeline.name().is_some()
+        || s.rare.timeline_scope != TimelineScope::None
 }
 
 /// [`refresh`], linked: keep the registry, then re-resolve every consumer.
@@ -104,7 +104,7 @@ pub(super) fn resolve(arena: &mut NodeArena, receipt: &CommitReceipt) -> Vec<Nod
         .slots
         .iter()
         .filter_map(|slot| {
-            let name = at.style(slot).animation_timeline.0.as_deref()?;
+            let name = at.style(slot).rare.animation_timeline.name()?;
             Some((at.key(slot), lookup(at, slot, name)))
         })
         .collect();
@@ -126,14 +126,14 @@ pub(super) fn resolve(arena: &mut NodeArena, receipt: &CommitReceipt) -> Vec<Nod
 /// or scopes it (`timeline-scope`) decides.
 fn lookup(arena: &NodeArena, consumer: u32, name: &str) -> NamedTimeline {
     let slots = &arena.timelines.slots;
-    let declares = |slot: u32| arena.style(slot).drag_timeline.name.as_deref() == Some(name);
+    let declares = |slot: u32| arena.style(slot).rare.drag_timeline.name.as_deref() == Some(name);
     let mut at = Some(consumer);
     while let Some(slot) = at {
         if slots.contains(slot) {
             if declares(slot) {
                 return NamedTimeline::Source(motion_node(arena.key(slot)));
             }
-            let scope = &arena.style(slot).timeline_scope;
+            let scope = &arena.style(slot).rare.timeline_scope;
             if scope.scopes(name) {
                 // What this scope captures: the declarations whose nearest
                 // scope of the name, themselves included, is this one. One
@@ -160,7 +160,7 @@ fn lookup(arena: &NodeArena, consumer: u32, name: &str) -> NamedTimeline {
 fn scope_of(arena: &NodeArena, slot: u32, name: &str) -> Option<u32> {
     let mut at = Some(slot);
     while let Some(s) = at {
-        if arena.timelines.slots.contains(s) && arena.style(s).timeline_scope.scopes(name) {
+        if arena.timelines.slots.contains(s) && arena.style(s).rare.timeline_scope.scopes(name) {
             return Some(s);
         }
         at = arena.parent(s);
@@ -174,12 +174,13 @@ pub(crate) fn rows(arena: &NodeArena, slot: u32) -> TimelineRows {
     let key = arena.key(slot);
     let style = arena.style(slot);
     let source = style
+        .rare
         .drag_timeline
         .name
         .as_ref()
-        .map(|_| style.drag_timeline.axis == Axis::X);
+        .map(|_| style.rare.drag_timeline.axis == Axis::X);
     // `normal` has no length range to map a drag onto: unbound.
-    let binding = style.animation_timeline.0.as_ref().and_then(|_| {
+    let binding = style.rare.animation_timeline.name().and_then(|_| {
         let [a, b] = style.animation_range.0?;
         let timeline = arena
             .timelines

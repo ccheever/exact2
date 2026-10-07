@@ -197,6 +197,8 @@ fn a_child_may_not_own_a_resource() {
     let src = "shape S\n  id: string\ncomponent A\n  view\n    Row()\ncomponent Row\n  resource s = s() as shape S\n  view\n    text s.id\n";
     let e = contract::compile(src).unwrap_err();
     assert_eq!(e.id, "type-child-resource");
+    // It states the rule and names the root (chess #3).
+    assert_eq!(e.message, "only the root, the root file's first component (`A`), may declare a `resource`, `mutation`, or `task`; `Row` is a child, which may own state, derives, and actions. Move this declaration into `A` and pass what `Row` needs as props; or, if `Row` is the app, move it above `A`");
 }
 
 #[test]
@@ -698,5 +700,42 @@ fn a_row_owned_state_reaches_the_rows_of_the_uses_own_each() {
         assert_eq!(text_of(&r, "row-mv-mv"), "on", "{list}");
         assert_eq!(text_of(&r, "row-mv-pa"), "on", "{list}");
         assert_eq!(text_of(&r, "row-pa-pa"), "off", "{list}");
+    }
+}
+
+/// LLP 1088 D6's two compiler repros, by one ordered pass and not its
+/// (deferred) fixed point: a row's state is typed from its initializer
+/// before the derives that read it (shop F3), and an `each` over a list a
+/// later write types (`state items = []`) no longer stops the row scopes
+/// the other rows' state is typed in.
+#[test]
+fn a_rows_state_types_before_its_derives_and_an_untyped_list_waits() {
+    let shop = "shape Item\n  name: string\n  images: list<string>\nshape Product\n  id: string\n  items: list<Item>\ncomponent App\n  resource products = loadProducts() as shape list<Product>\n  view\n    column\n      each p in products key=p.id\n        Child(b=p)\ncomponent Child\n  props\n    b: Product\n  state pick = 0\n  derive chosen = at(b.items, pick)\n  derive images = match chosen { case some(i) => i.images, case none => [] }\n  view\n    column\n      each img, i in images key=img\n        text `${i} of ${length(images)}`\n";
+    let nested = "shape Item\n  id: string\n  images: list<string>\ncomponent App\n  state items = []\n  action load(v: list<Item>)\n    items = v\n  view\n    column\n      each i in items key=i.id\n        each image in i.images key=image\n          text image\n";
+    let replace = "shape Item\n  id: string\n  images: list<string>\ncomponent App\n  resource sourceItems = loadItems() as shape list<Item>\n  state items = []\n  action replaceItems(v)\n    items = v\n  view\n    column\n      button \"go\" press=replaceItems(sourceItems)\n      each i in items key=i.id\n        Row(item=i)\ncomponent Row\n  props\n    item: Item\n  state open = false\n  view\n    each image in item.images key=image\n      text image\n";
+    for src in [shop, nested, replace] {
+        let plan = contract::compile(src);
+        assert!(plan.is_ok(), "{src}\n{plan:?}");
+    }
+    // What that pass cannot grow: a derive of itself and an action handed
+    // itself are still refused, once, as before (Astra's r3 review). A
+    // derive that wraps itself in `some` is refused at its second option
+    // (LLP 1090 D2) before it can grow.
+    for (src, id) in [
+        (
+            "component App\n  derive d = d\n  view\n    text \"a\"\n",
+            "type-derive-cycle",
+        ),
+        (
+            "component App\n  derive d = some(d)\n  view\n    text \"a\"\n",
+            "type-option-option",
+        ),
+        (
+            "component App\n  state n = 0\n  action a(p, q)\n    n = 1\n  view\n    button \"x\" press=a(a, a)\n",
+            "type-cannot-infer",
+        ),
+    ] {
+        let e = contract::compile(src).unwrap_err();
+        assert_eq!(e.id, id, "{e}");
     }
 }

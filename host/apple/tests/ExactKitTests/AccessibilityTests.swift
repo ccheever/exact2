@@ -157,6 +157,48 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertTrue(text.canBecomeKeyView, "a key handler makes text focusable, as tabindex=0 does")
         XCTAssertTrue(first.nextKeyView === text)
     }
+    /// HTML's `tabindex` (LLP 1088 D7.3): an explicit value makes a plain box
+    /// focusable and, ≥ 0, a Tab stop, positive values first; a negative one
+    /// takes a click but leaves Tab, a key handler's node included; absent is
+    /// never `0`; a disabled button, inert and hidden boxes stay out, while a
+    /// disabled box is a stop (`disabled` means nothing on a div, as in
+    /// Chrome); a change while mounted moves it in or out.
+    func testTabindexMakesABoxFocusableAndOrdersTab() {
+        let (p, w, first, other) = fixture()
+        func box(_ id: UInt32, _ props: [String: String], kind: String = "view") -> NodeView {
+            let n = NodeView(id: id, kind: kind, presenter: p)
+            n.applyProps(set: props, clear: [])
+            n.frame = NSRect(x: 0, y: CGFloat(id) * 10, width: 100, height: 10)
+            p.root.addSubview(n); p.views[id] = n
+            return n
+        }
+        let stop = box(10, ["tabIndex": "0"]), plain = box(11, [:]), early = box(12, ["tabIndex": "2"])
+        let skipped = box(13, ["tabIndex": "-1"]), keyed = box(14, ["tabIndex": "-1"])
+        keyed.handlers = ["key"]
+        let disabled = box(15, ["tabIndex": "0", "disabled": "true"]), inert = box(16, ["tabIndex": "0", "inert": "true"])
+        let hidden = box(17, ["tabIndex": "0"]); hidden.isHidden = true
+        let off = box(18, ["tabIndex": "0", "disabled": "true"], kind: "button")
+        p.syncKeyViewLoop()
+        XCTAssertFalse(plain.acceptsFirstResponder, "absent is not tabindex=0")
+        XCTAssertTrue(stop.canBecomeKeyView, "tabindex=0 makes a box with no handler a stop")
+        XCTAssertTrue(skipped.acceptsFirstResponder && !skipped.canBecomeKeyView, "-1: focusable, not a stop")
+        XCTAssertTrue(keyed.acceptsFirstResponder && !keyed.canBecomeKeyView, "-1 takes a key handler's node out of Tab")
+        XCTAssertTrue(disabled.canBecomeKeyView, "a disabled box is a stop, as Chrome's <div disabled>")
+        for n in [off, inert, hidden] { XCTAssertFalse(n.acceptsFirstResponder || Presenter.tabbable(n) && !n.inert && !n.isHidden, "\(n.id) stays out") }
+        XCTAssertTrue(early.nextKeyView === first, "a positive tabindex goes first, then tree order")
+        XCTAssertTrue(first.nextKeyView === other && other.nextKeyView === stop)
+        XCTAssertTrue(stop.nextKeyView === disabled && disabled.nextKeyView === early, "the loop wraps to the positive one")
+        XCTAssertTrue(w.makeFirstResponder(other))
+        w.selectNextKeyView(nil)
+        XCTAssertTrue(w.firstResponder === stop, "Tab lands on the box itself")
+        // A click makes the node first responder when it accepts (`mouseDown`;
+        // the window's `makeFirstResponder` itself does not ask).
+        XCTAssertTrue(skipped.acceptsFirstResponder && w.makeFirstResponder(skipped) && w.firstResponder === skipped, "a click focuses tabindex=-1")
+        skipped.applyProps(set: ["tabIndex": "0"], clear: [])
+        stop.applyProps(set: [:], clear: ["tabIndex"])
+        p.syncKeyViewLoop()
+        XCTAssertTrue(skipped.canBecomeKeyView && !stop.acceptsFirstResponder, "a change while mounted moves eligibility")
+    }
     /// A batch marks the loop stale; the next key event rebuilds it before
     /// AppKit reads `nextKeyView`, so scrolling a list walks no nodes for it.
     func testTheKeyViewLoopIsRebuiltWhenAKeyNeedsIt() {
@@ -173,6 +215,38 @@ final class AccessibilityTests: XCTestCase {
         p.flushKeyViewLoop()
         XCTAssertNil(first.nextKeyView, "a fresh loop is not rebuilt")
     }
+    /// `aria-pressed` as Core-AAM maps it: a toggle button is AXCheckBox,
+    /// subrole AXToggle, value 0, 1 or 2 (mixed); without it, a button again.
+    func testAriaPressedMakesAToggleButton() {
+        let (_, w, button, _) = fixture()
+        button.applyProps(set: ["accessibilityRole": "button", "accessibilityPressed": "true"], clear: [])
+        XCTAssertEqual(button.accessibilityRole(), .checkBox)
+        XCTAssertEqual(button.accessibilitySubrole(), .toggle)
+        XCTAssertEqual(button.accessibilityValue() as? Int, 1)
+        button.applyProps(set: ["accessibilityPressed": "mixed"], clear: [])
+        XCTAssertEqual(button.accessibilityValue() as? Int, 2)
+        button.applyProps(set: ["accessibilityPressed": "false"], clear: [])
+        XCTAssertEqual(button.accessibilityValue() as? Int, 0)
+        button.applyProps(set: [:], clear: ["accessibilityPressed"])
+        XCTAssertEqual(button.accessibilityRole(), .button)
+        XCTAssertNil(button.accessibilitySubrole())
+        XCTAssertNil(button.accessibilityValue())
+        withExtendedLifetime(w) {}
+    }
+    /// The agent's name follows the web's accname: a non-empty label names
+    /// any node (a status text); an empty one names nothing, so a button
+    /// falls back to its content.
+    func testALabelNamesATextAndAnEmptyLabelNamesNothing() {
+        let (p, w, button, _) = fixture()
+        let purse = NodeView(id: 30, kind: "text", presenter: p)
+        purse.applyProps(set: ["text": "20¢", "accessibilityRole": "status", "accessibilityLabel": "20 sheckles"], clear: [])
+        XCTAssertEqual(purse.authoredLabel, "20 sheckles")
+        XCTAssertEqual(purse.accessibleName, "20 sheckles")
+        button.applyProps(set: ["text": "Play", "accessibilityLabel": ""], clear: [])
+        XCTAssertNil(button.authoredLabel)
+        XCTAssertEqual(button.accessibleName, "Play")
+        withExtendedLifetime(w) {}
+    }
     func testOffDoesNotTrackALiveRegion() {
         let (p, w, first, _) = fixture()
         first.props["accessibilityLive"] = "off"
@@ -182,6 +256,39 @@ final class AccessibilityTests: XCTestCase {
         first.props["accessibilityLive"] = "polite"
         p.syncAccessibility()
         XCTAssertEqual(first.liveText, "Quiet")
+        withExtendedLifetime(w) {}
+    }
+    /// Spreadsheet F4, F14: ⌘V, ⌘C and ⌘X at a focused node are its
+    /// `paste`, `copy` and `cut` — the nearest handler's — and with none the
+    /// Edit menu's action is not this node's, so the chain goes on.
+    func testEditActionsAreClipboardEventsAtTheNearestHandler() {
+        let (p, w, grid, other) = fixture()
+        grid.handlers = ["paste", "copy"]
+        let cell = NodeView(id: 3, kind: "view", presenter: p)
+        cell.handlers = ["focus"]
+        grid.addSubview(cell); p.views[cell.id] = cell
+        var heard: [String] = []
+        p.onClipboard = { id, kind, text in heard.append("\(id):\(kind):\(text)") }
+        XCTAssertTrue(cell.acceptsFirstResponder)
+        XCTAssertTrue(cell.responds(to: #selector(NodeView.paste(_:))))
+        XCTAssertFalse(cell.responds(to: #selector(NodeView.cut(_:))), "no cut handler: the chain goes on")
+        XCTAssertFalse(other.responds(to: #selector(NodeView.paste(_:))))
+        XCTAssertTrue(cell.clipboard(#selector(NodeView.paste(_:)), text: "a\tb"))
+        XCTAssertTrue(cell.clipboard(#selector(NodeView.copy(_:))))
+        XCTAssertEqual(heard, ["1:34:a\tb", "1:32:"])
+        withExtendedLifetime(w) {}
+    }
+    /// Gallery F20: a click's modifiers ride with its press, as the
+    /// `MouseEvent` a press action may take; any other press holds none.
+    func testAPressCarriesTheModifiersHeld() {
+        let (p, w, button, _) = fixture()
+        button.handlers = ["press"]
+        var held: [String] = []
+        p.onPress = { _ in held.append(p.pressHeld) }
+        p.press(button.id, held: KeyCodes.held([.shift, .command]))
+        p.press(button.id)
+        XCTAssertEqual(held, ["Shift+Meta+", ""])
+        XCTAssertEqual(p.pressHeld, "")
         withExtendedLifetime(w) {}
     }
 }

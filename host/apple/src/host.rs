@@ -22,15 +22,24 @@ use exact_motion::{Change, Engine, HoldToken, Property};
 
 #[path = "arrange.rs"]
 mod arrange;
+#[path = "arrange_group.rs"]
+mod arrange_group;
+#[cfg(test)]
+#[path = "arrange_group_tests.rs"]
+mod arrange_group_tests;
 #[cfg(test)]
 #[path = "arrange_tests.rs"]
 mod arrange_tests;
 #[path = "canvas2d.rs"]
 pub(crate) mod canvas2d;
+#[path = "colors.rs"]
+mod colors;
 #[path = "content_region/host.rs"]
 mod content_region_host;
 #[path = "covers.rs"]
 mod covers;
+#[path = "flights.rs"]
+mod flights;
 #[path = "fold.rs"]
 mod fold;
 #[path = "height.rs"]
@@ -60,6 +69,8 @@ use height_drag::{HeightDrag, HeightHandle};
 mod box_motion_tests;
 #[path = "layout.rs"]
 mod layout;
+#[path = "resize.rs"]
+mod resize;
 #[cfg(test)]
 #[path = "storage_tests.rs"]
 mod storage_tests;
@@ -113,6 +124,8 @@ pub struct Host<D: DataSource> {
     /// last told (LLP 1048.003 D1): the window or scene title.
     has_heads: bool,
     head_title: Option<String>,
+    /// The active head's `edited` (LLP 1069.010 D6), sent with the title.
+    head_edited: bool,
     language: Option<String>,
     mirror: IdMap<ViewId, Mirror>,
     keys: IdMap<NodeKey, ViewId>,
@@ -130,6 +143,11 @@ pub struct Host<D: DataSource> {
     canvas_deferred: bool,
     dirty_paragraphs: BTreeSet<ViewId>,
     pending_layout: IdSet<NodeKey>,
+    /// Each sticky node's constraint as the presenter last heard it (LLP 1083).
+    stickies: IdMap<ViewId, exact_kernel::StickyConstraint>,
+    /// Each multi-column record as the presenter last heard it (LLP 1093 D7).
+    fragments: IdMap<ViewId, String>,
+    ranks: IdMap<ViewId, i64>,
     roots: Vec<ViewId>,
     /// Last published common collection snapshot; refreshed only after layout.
     collections_json: String,
@@ -143,7 +161,10 @@ pub struct Host<D: DataSource> {
     transform_drags: TransformDrags,
     /// The one Arrange contact, from its catch until its source settles.
     arrange: Option<arrange::Arrange>,
+    /// A grouped session (LLP 1094), from its lift until its ghost lands.
+    group: Option<arrange_group::GroupArrange>,
     presence: presence::Presence,
+    flights: flights::Flights,
     content_region: Option<crate::content_region::RegionState>,
     height_projection: Vec<(NodeKey, f32)>,
     height_sampling: Vec<(NodeKey, f32)>,
@@ -166,6 +187,9 @@ pub struct Host<D: DataSource> {
     /// a check writes it once.
     update_line: Option<String>,
     delivery: Option<&'static crate::delivery::Hooks>,
+    /// The reported colours' generation this session last presented; `None`
+    /// before its first report, which corrects without motion (LLP 1095 D9).
+    colors_seen: Option<u64>,
 }
 
 /// A plan's bytes at boot: copied from while decoding, or linked into the
@@ -234,7 +258,8 @@ impl<D: DataSource> Host<D> {
     /// Boot with the app's kept secrets (LLP 1018 D6): `snapshot` is what
     /// the platform's store holds under the granted names, read before this
     /// call (a carried boot takes the carried store instead); `secrets` is
-    /// where the commits' writes go, after each commit, on this thread.
+    /// where the commits' writes go after each commit: secrets on this
+    /// thread, kept answers on their writer's (`store::flush_kept`).
     #[allow(clippy::too_many_arguments)]
     pub fn boot_stored(
         plan_bytes: &[u8],
@@ -250,8 +275,7 @@ impl<D: DataSource> Host<D> {
             PlanBytes::Copied(plan_bytes),
             data,
             measurer,
-            width,
-            height,
+            exact_runner::Viewport::sized(width as f64, height as f64),
             carried,
             snapshot,
             secrets,
@@ -274,8 +298,7 @@ impl<D: DataSource> Host<D> {
         plan_bytes: PlanBytes<'_>,
         data: D,
         measurer: Box<dyn TextMeasurer>,
-        width: f32,
-        height: f32,
+        viewport: exact_runner::Viewport,
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
         secrets: Option<Platform>,
@@ -290,8 +313,7 @@ impl<D: DataSource> Host<D> {
             plan_bytes,
             data,
             measurer,
-            width,
-            height,
+            viewport,
             carried,
             snapshot,
             secrets,
@@ -310,8 +332,7 @@ impl<D: DataSource> Host<D> {
         plan_bytes: PlanBytes<'_>,
         data: D,
         measurer: Box<dyn TextMeasurer>,
-        width: f32,
-        height: f32,
+        viewport: exact_runner::Viewport,
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
         secrets: Option<Platform>,
@@ -335,6 +356,7 @@ impl<D: DataSource> Host<D> {
         // Native hosts link every row's grammar (LLP 1053.000 §2).
         exact_kernel::style::link_backdrop_filter();
         exact_kernel::style::link_segments();
+        exact_kernel::style::link_wide_colors();
         exact_kernel::timeline::link();
         let kernel = Kernel::new(measurer);
         let facts = candidate_delivery.unwrap_or_else(|| {
@@ -347,15 +369,11 @@ impl<D: DataSource> Host<D> {
             }
             facts
         });
+        // An `app:/data` image shows from the first frame, before storage
+        // is configured and whether or not anything was picked (D7).
+        crate::picker::know_roots(data.app_id());
         let mut runner = Runner::boot_with_delivery(
-            plan,
-            data,
-            kernel,
-            carried,
-            snapshot,
-            facts,
-            exact_runner::Viewport::sized(width as f64, height as f64),
-            launch,
+            plan, data, kernel, carried, snapshot, facts, viewport, launch,
         )
         .map_err(HostError::Runner)?;
         // @ref LLP 1079 D1 — a development build measures its work.
@@ -386,23 +404,30 @@ impl<D: DataSource> Host<D> {
         let mut host = Host {
             has_heads,
             head_title: None,
+            head_edited: false,
             language: None,
             runner,
             mirror: IdMap::default(),
             keys: IdMap::default(),
             inline_runs: IdMap::default(),
             viewless_hooks: Default::default(),
-            svg: svg::SvgState::new(cfg!(target_os = "ios")),
+            svg: svg::SvgState::new(cfg!(any(target_os = "ios", target_os = "tvos"))),
             canvas_held: IdSet::default(),
             canvas_kept: Default::default(),
             canvas_deferred: false,
             dirty_paragraphs: BTreeSet::new(),
             pending_layout: IdSet::default(),
+            stickies: IdMap::default(),
+            fragments: IdMap::default(),
+            ranks: IdMap::default(),
             roots: Vec::new(),
             collections_json: "[]".into(),
             engine: {
                 let mut engine = Engine::new();
-                engine.set_lowered_properties(&svg::lowered(cfg!(target_os = "ios")));
+                engine.set_lowered_properties(&svg::lowered(cfg!(any(
+                    target_os = "ios",
+                    target_os = "tvos"
+                ))));
                 engine
             },
             paint: paint::Paint::default(),
@@ -413,7 +438,9 @@ impl<D: DataSource> Host<D> {
             height_drag: None,
             transform_drags: TransformDrags::new()?,
             arrange: None,
+            group: None,
             presence: presence::Presence::default(),
+            flights: flights::Flights::default(),
             content_region,
             height_projection: Vec::new(),
             height_sampling: Vec::new(),
@@ -425,12 +452,13 @@ impl<D: DataSource> Host<D> {
             height_target_passes: 0,
             #[cfg(test)]
             layout_calls: 0,
-            viewport: (width, height),
+            viewport: (viewport.width as f32, viewport.height as f32),
             now_ms: 0.0,
             data_activated: false,
             secrets,
             update_line: None,
             delivery,
+            colors_seen: None,
         };
         let mut batch = Batch::new();
         host.native_prepare_candidate().map_err(HostError::Layout)?;
@@ -457,6 +485,7 @@ impl<D: DataSource> Host<D> {
         for c in host.runner.take_commands() {
             batch.command(&c.name, &c.args, c.source);
         }
+        batch.sound(host.runner.take_sounds(), Some(host.runner.plan()));
         // The engine hears the whole tree once: values, no transitions; an
         // `animation` starts now, as a browser starts one on a new element.
         let mut sync = MotionSync::default();
@@ -488,6 +517,7 @@ impl<D: DataSource> Host<D> {
         // point on a dev reload.
         host.emit_transform_drags(&mut batch);
         host.present(&mut batch, true);
+        let (mut batch, _) = host.resize_rounds(batch, None);
         let timers = host.runner.timer_due_ms();
         let motion = !host.engine.quiescent();
         batch.spatial = host.engine.spatial();
@@ -521,12 +551,17 @@ impl<D: DataSource> Host<D> {
     /// `pickedPath`, whose reply adds the file to copy into. A `share` hold
     /// delivers nothing but the journal line the runner writes (LLP 1069.003
     /// D6). `appFile` names the file behind an `app:/` path, what an export
-    /// copies from (LLP 1069.010 D3). `None` for an ordinary `tap` or `type`.
+    /// copies from (LLP 1069.010 D3); `appRoots` the three roots, which the
+    /// Swift host resolves an image's `app:/` source against (LLP 1069.002
+    /// D7). `None` for an ordinary `tap` or `type`.
     pub fn answer_hold(&mut self, request: &str) -> Option<String> {
         let op = exact_runner::agent::field_str(request, "op");
         if op.as_deref() == Some("appFile") {
             let path = exact_runner::agent::field_str(request, "path").unwrap_or_default();
             return Some(crate::picker::app_file(&path));
+        }
+        if op.as_deref() == Some("appRoots") {
+            return Some(crate::picker::roots_reply());
         }
         // The documents a person chose (LLP 1069.010 D1), minted for the
         // session that asks: `openDocument` for a host route, `mintDocument`
@@ -588,45 +623,12 @@ impl<D: DataSource> Host<D> {
     }
 
     fn configure_storage(source: &mut D) -> Result<(), exact_runner::DataError> {
-        use exact_runner::DataError;
-        use std::path::PathBuf;
-        // Scripted drives must not read or write the developer's app files;
-        // one that names a scratch tree gets storage there instead.
-        let scratch = match std::env::var_os("EXACT_AGENT") {
-            Some(_) => match agent_scratch()? {
-                Some(name) => Some(name),
-                None => return Ok(()),
-            },
-            None => None,
-        };
-        let app_id = source.app_id().to_string();
-        if app_id.is_empty() {
+        let Some(([data, cache, temporary], _)) = crate::picker::app_dirs(source.app_id())? else {
             return Ok(());
-        }
-        if matches!(app_id.as_str(), "." | "..")
-            || !app_id
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b".-_".contains(&b))
-        {
-            return Err(DataError::Unavailable("unsafe app storage identity".into()));
-        }
-        let home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .filter(|p| p.is_absolute())
-            .ok_or_else(|| DataError::Unavailable("app storage needs an absolute HOME".into()))?;
-        let mut data = home
-            .join("Library/Application Support/exact")
-            .join(&app_id)
-            .join("data");
-        let mut cache = home.join("Library/Caches/exact").join(&app_id);
-        if let Some(name) = scratch {
-            cache = cache.join("agent").join(name);
-            data = cache.join("data");
-        }
-        // Sibling roots keep app:/cache grants from implicitly reaching tmp.
-        // The user's cache base avoids a predictable shared /tmp directory.
-        let temporary = cache.join("temporary");
-        let cache = cache.join("cache");
+        };
+        // An authored test's store starts empty every run (`agent --test`):
+        // emptied at the boot that read it, so this is a no-op unless that failed.
+        crate::picker::empty_fresh_tree(source.app_id())?;
         // What `app:/` names for the picker and an image's source (LLP
         // 1069.002 D4, D7); the last launch's picks go.
         crate::picker::set_roots(data.clone(), cache.clone(), temporary.clone());
@@ -698,10 +700,15 @@ impl<D: DataSource> Host<D> {
     }
 
     /// What the last commit kept or forgot, into the platform's store (LLP
-    /// 1018 D6) — synchronous, on this thread, milliseconds once per login.
-    /// A write that fails is journaled; the app is otherwise unaffected, as
-    /// a web app is when `setItem` throws: the next launch will not remember.
+    /// 1018 D6): secrets synchronously, on this thread, milliseconds once per
+    /// login; kept answers queued for their writer thread (`store.rs`). A
+    /// write that fails is journaled (a kept answer's at a later commit);
+    /// the app is otherwise unaffected, as a web app is when `setItem`
+    /// throws: the next launch will not remember.
     fn persist(&mut self) {
+        for line in self.kept_failures() {
+            self.runner.log(line);
+        }
         for w in self.runner.take_store_writes() {
             let Some(secrets) = &self.secrets else {
                 continue;
@@ -710,6 +717,14 @@ impl<D: DataSource> Host<D> {
                 self.runner.log(format!("store {} failed: {e}", w.name));
             }
         }
+    }
+
+    /// The kept answers the writer failed to write since the last call.
+    pub fn kept_failures(&self) -> Vec<String> {
+        self.secrets
+            .as_ref()
+            .map(Platform::kept_failures)
+            .unwrap_or_default()
     }
 
     /// The requests the runner handed out since the last take (LLP 1016 D2):
@@ -850,13 +865,9 @@ impl<D: DataSource> Host<D> {
     /// `error`, and the presenter is untouched (as the kernel was).
     pub fn dispatch_at(&mut self, view: ViewId, event: Event, now_ms: f64) -> String {
         self.now_ms = now_ms.max(self.now_ms);
-        match self.runner.dispatch(view, event) {
-            Ok(receipt) => {
-                let at_ms = self.now_ms;
-                self.commit(&[Timed { at_ms, receipt }], None)
-            }
-            Err(e) => self.commit(&[], Some(format!("{e:?}"))),
-        }
+        // At the event's time: an action's `now()` is the host's (LLP 1096 D3).
+        let a = self.runner.dispatch_at(view, event, self.now_ms);
+        self.commit(&a.receipts, a.error.map(|e| format!("{e:?}")))
     }
 
     /// [`Host::dispatch_at`] at the clock's last value.
@@ -878,6 +889,13 @@ impl<D: DataSource> Host<D> {
     /// agent's jump ([`exact_runner::Runner::advance_until_request`]).
     pub fn advance_until_request(&mut self, now_ms: f64) -> String {
         let a = self.runner.advance_until_request(now_ms);
+        self.advanced(a)
+    }
+
+    /// The `then`s an agent's input settled, the clock unmoved
+    /// ([`exact_runner::Runner::land_then`]).
+    pub fn land_then(&mut self) -> String {
+        let a = self.runner.land_then();
         self.advanced(a)
     }
 
@@ -1108,16 +1126,18 @@ impl<D: DataSource> Host<D> {
         self.finish(batch, error)
     }
 
-    /// The active head's title, when a plan with a head may have moved it
-    /// (LLP 1048.003 D1). The app owning the window or scene shows it.
+    /// The active head's title and edited mark, when a plan with a head may
+    /// have moved them (LLP 1048.003 D1, LLP 1069.010 D6). The app owning
+    /// the window or scene shows them.
     fn emit_title(&mut self, batch: &mut Batch) {
         if !self.has_heads {
             return;
         }
-        let title = self.runner.head().title;
-        if title != self.head_title {
-            batch.title(title.as_deref());
-            self.head_title = title;
+        let head = self.runner.head();
+        if head.title != self.head_title || head.edited != self.head_edited {
+            batch.title(head.title.as_deref(), head.edited);
+            self.head_title = head.title;
+            self.head_edited = head.edited;
         }
     }
 
@@ -1129,7 +1149,13 @@ impl<D: DataSource> Host<D> {
         }
     }
 
-    fn finish(&self, mut batch: Batch, error: Option<String>) -> String {
+    fn finish(&mut self, batch: Batch, error: Option<String>) -> String {
+        let (batch, error) = self.resize_rounds(batch, error);
+        self.refused(batch, error)
+    }
+
+    /// [`Host::finish`] for a batch that commits nothing, a refusal's.
+    fn refused(&self, mut batch: Batch, error: Option<String>) -> String {
         batch.spatial = self.engine.spatial();
         batch.frames = self.runner.wants_frames();
         batch.seq = self.runner.seq_range();
@@ -1150,6 +1176,7 @@ impl<D: DataSource> Host<D> {
         let (mut batch, error) = self.commit_tree(receipts, error, batch);
         // A receipt can end an Arrange contact; its terminal runs at receipt time.
         let arrange = self.arrange_after_commit(&mut batch);
+        self.group_after_commit(&mut batch);
         self.commit_finish(batch, error.or(arrange))
     }
 
@@ -1170,9 +1197,13 @@ impl<D: DataSource> Host<D> {
         .then(|| self.runner.handlers());
         for t in receipts {
             let r = &t.receipt;
+            // Flights capture their leavers before an exit takes them
+            // out of the presenter's maps (LLP 1013.000 D4.1).
+            self.begin_flights(r, &mut batch);
             self.begin_exits(r, &mut batch);
             for key in &r.destroyed {
                 if let Some(id) = self.keys.remove(key) {
+                    self.ranks.remove(&id);
                     self.paint.runs.remove(&id);
                     if let Some((owner, _)) = self.inline_runs.remove(&id) {
                         self.dirty_paragraphs.insert(owner);
@@ -1180,6 +1211,7 @@ impl<D: DataSource> Host<D> {
                         self.mirror.remove(&id);
                     } else if !self.native_selected_id(id) {
                         self.mirror.remove(&id);
+                        self.end_flight_of(id);
                         if !self.exit_holds(id, &mut batch) {
                             batch.destroy(id);
                         }
@@ -1249,6 +1281,7 @@ impl<D: DataSource> Host<D> {
                 self.svg.element(self.runner.kernel(), view);
             }
             self.play_exits(&mut batch);
+            self.start_flights(&t.receipt);
             self.seed_layout(&t.receipt, &mut batch);
             self.sync_paint(&t.receipt, &mut batch);
             self.reconcile_height_handles(&mut batch, true);
@@ -1271,6 +1304,9 @@ impl<D: DataSource> Host<D> {
         } else {
             self.layout(&mut batch).err()
         };
+        if layout_error.is_some() && !receipts.is_empty() {
+            self.emit_ranks(&mut batch);
+        }
         self.canvas_turn(&mut batch);
         for s in self.runner.take_surface_updates() {
             batch.surface(&s);
@@ -1283,6 +1319,7 @@ impl<D: DataSource> Host<D> {
         for c in self.runner.take_commands() {
             batch.command(&c.name, &c.args, c.source);
         }
+        batch.sound(self.runner.take_sounds(), None);
         (batch, error.or(layout_error))
     }
 
@@ -1333,7 +1370,8 @@ fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
         exact_kernel::Dimension::Calc(p, x) => against * p / 100.0 + x,
         exact_kernel::Dimension::Auto
         | exact_kernel::Dimension::Env(..)
-        | exact_kernel::Dimension::Segment(..) => 0.0,
+        | exact_kernel::Dimension::Segment(..)
+        | exact_kernel::Dimension::Viewport(..) => 0.0,
     };
     let pad_right = pad(node.style.padding_right, node.frame.width);
     let pad_bottom = pad(node.style.padding_bottom, node.frame.width);
@@ -1449,29 +1487,9 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
 
 fn handler_name(e: EventKind) -> Option<&'static str> {
     match e {
-        EventKind::Reachstart | EventKind::Reachend => None,
+        // The runner raises these itself, after collection feedback and
+        // after layout: nothing for the presenter to listen for.
+        EventKind::Reachstart | EventKind::Reachend | EventKind::Resize => None,
         _ => Some(e.name()),
-    }
-}
-
-/// A scripted drive's scratch storage (`EXACT_AGENT_STORAGE=<name>`): a tree
-/// of its own under the cache base, so a drive can exercise storage without
-/// touching the app's real files. Absent, a drive has no storage.
-fn agent_scratch() -> Result<Option<String>, exact_runner::DataError> {
-    let Some(name) = std::env::var_os("EXACT_AGENT_STORAGE") else {
-        return Ok(None);
-    };
-    match name.to_str() {
-        Some(name)
-            if !matches!(name, "" | "." | "..")
-                && name
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b".-_".contains(&b)) =>
-        {
-            Ok(Some(name.to_owned()))
-        }
-        _ => Err(exact_runner::DataError::Unavailable(
-            "EXACT_AGENT_STORAGE: one name of letters, digits, '.', '-' or '_'".into(),
-        )),
     }
 }

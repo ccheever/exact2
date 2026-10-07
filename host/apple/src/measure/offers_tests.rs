@@ -53,7 +53,7 @@ extern "C" fn foreign(ctx: *mut c_void, req: *const CRequest) -> CMetrics {
 }
 
 fn callback(state: &RefCell<Foreign>) -> CallbackMeasurer {
-    CallbackMeasurer::new(foreign, std::ptr::from_ref(state).cast_mut().cast())
+    CallbackMeasurer::new(foreign, std::ptr::from_ref(state).cast_mut().cast(), None)
 }
 
 fn measure(m: &mut CallbackMeasurer, k: &Kernel, w: AxisOffer, h: AxisOffer) -> TextMetrics {
@@ -420,6 +420,8 @@ mod storage {
             && actual.align == expected.align
             && actual.line_clamp == expected.line_clamp
             && actual.overflow_wrap == expected.overflow_wrap
+            && actual.text_indent.to_bits() == expected.text_indent.to_bits()
+            && actual.hyphens == expected.hyphens
             && same_run(&actual.strut, &expected.strut)
             && !actual.runs.is_null();
         if probe.exact {
@@ -530,6 +532,8 @@ mod storage {
         ][variant];
         paragraph.line_clamp = 3;
         paragraph.overflow_wrap = OverflowWrap::Anywhere;
+        paragraph.text_indent = [0.0, 24.5, -12.0, 2.0][variant];
+        paragraph.hyphens = exact_kernel::Hyphens::ALL[variant % 3];
         let request = TextMeasureRequest {
             exclusions: &[],
             runs: &runs[..count],
@@ -556,11 +560,16 @@ mod storage {
                 exclusions: std::ptr::null(),
                 exclusion_count: 0,
                 markup: 0,
+                text_indent: [0.0, 24.5, -12.0, 2.0][variant],
+                hyphens: [1, 0, 2, 1][variant],
+                lang: std::ptr::null(),
+                lang_len: 0,
             },
             calls: 0,
             exact: true,
         };
-        let mut m = CallbackMeasurer::new(inspect_request, std::ptr::from_mut(&mut probe).cast());
+        let mut m =
+            CallbackMeasurer::new(inspect_request, std::ptr::from_mut(&mut probe).cast(), None);
         TRACK.with(|s| {
             s.set(Counts {
                 active: true,

@@ -1,4 +1,5 @@
-import {parseFlags} from '../scripts/agent-launch.mjs';
+import {parseFlags, chromium} from '../scripts/agent-launch.mjs';
+import {layoutArgs} from '../scripts/agent-inspect.mjs';
 import {runFocusCommands} from '../host/web/navigation.js';
 import {captureWorld, diffWorlds, formatWorldDiff} from './proof.mjs';
 import {createHash} from 'node:crypto';
@@ -8,10 +9,10 @@ import {test, expect} from 'bun:test';
 import {mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, symlinkSync} from 'node:fs';
 import {resolve, dirname} from 'node:path';
 import {tmpdir} from 'node:os';
-import {agreePins, webUnavailable, pinRecorder, proofStatus, facilityReport, artifactDigest, closeSessions, equal, paranoidRuns, buildInputHash, ensureBuildReceipt, proofInputFiles} from './proof.mjs';
+import {agreePins, nativeProofHost, webUnavailable, pinRecorder, proofStatus, facilityReport, artifactDigest, closeSessions, equal, paranoidRuns, buildInputHash, ensureBuildReceipt, proofInputFiles} from './proof.mjs';
 import {proofCommand, worldObservations, pinRevision} from './proof.mjs';
 import {comparePlacement} from './games/placement-fixture/proof.mjs';
-import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, tapRefusal, assertWebDistApp} from '../scripts/agent.mjs';
+import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, tapRefusal, assertWebDistApp, clockSpan} from '../scripts/agent.mjs';
 
 test('external app sources and assets include every extension while outputs stay excluded', () => {
   const directory = mkdtempSync(resolve(tmpdir(), 'external-proof-inputs-'));
@@ -108,6 +109,22 @@ test('inventory failure clears the timer before unconditional session cleanup', 
   ],(...args)=>calls.push(args[0]));
   expect(polls).toBe(0);
   expect(calls).toEqual(['first','session cleanup','second']);
+});
+
+test('Windows receipts bind the executable, GPU DLL, packaged assets and build profile', () => {
+  const dir=mkdtempSync(resolve(tmpdir(),'game-windows-receipt-'));
+  const artifacts={binary:resolve(dir,'game.exe'),module:resolve(dir,'game_gpu.dll')};
+  try {
+    expect(artifactDigest('windows',dir,artifacts)).toBe(null);
+    writeFileSync(artifacts.binary,'exe'); writeFileSync(artifacts.module,'gpu');
+    const first=artifactDigest('windows',dir,artifacts);
+    mkdirSync(resolve(dir,'assets')); writeFileSync(resolve(dir,'assets/terrain.tex'),'terrain');
+    expect(artifactDigest('windows',dir,artifacts)).not.toBe(first);
+    rmSync(artifacts.module);
+    expect(artifactDigest('windows',dir,artifacts)).toBe(null);
+    expect(buildInputHash('windows','target','0','release').digest('hex'))
+      .not.toBe(buildInputHash('windows','target','0','gpu-dev').digest('hex'));
+  } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
 for (const fails of [false, true]) test(`browser held key release survives canvas removal (clock failure=${fails})`, async () => {
@@ -280,6 +297,32 @@ test('world convenience keeps simulation fields only and dispatches the existing
   expect(calls[2].reply).toMatchObject({clock:0,epoch:2,incarnation:2});
 });
 
+test('a complete world snapshot reads every page at one tick and hash', async () => {
+  const all = Array.from({length:12}, (_, id) => ({id, name:null, components:{}}));
+  const pages = [];
+  let hash = '0x1';
+  const session = {
+    async state(target, under, pose, busy, page = {}) {
+      pages.push(page);
+      const from = page.from ?? 0, to = Math.min(all.length, from + 5);
+      return {tick:7, hash, entities:all.slice(from, to), truncated:to < all.length, total:all.length, ...(to < all.length ? {next:to} : {})};
+    },
+  };
+  const w = worldView(session, 'world');
+  // The 5-entity pages stand in for the driver's limit of 5,000.
+  const {entities, truncated} = await w.snapshot({all:true});
+  expect(entities.map(e => e.id)).toEqual(all.map(e => e.id));
+  expect(truncated).toBe(false);
+  expect(pages.map(p => p.from ?? 0)).toEqual([0, 5, 10]);
+  pages.length = 0;
+  session.state = async (target, under, pose, busy, page = {}) => {
+    pages.push(page);
+    if (page.from) hash = '0x2';
+    return {tick:7, hash, entities:all.slice(0, 5), truncated:true, next:5};
+  };
+  await expect(w.snapshot({all:true})).rejects.toThrow(/world changed while paging/);
+});
+
 
  test('world get translates only the named missing-entity refusal', async () => {
    for (const error of ['no view matches arena', 'no entity named `other`', 'device lost']) {
@@ -396,7 +439,18 @@ const syntheticHash = '0x' + '12345678' + '9abcdef0';
 const repeatedHash = digit => '0x' + digit.repeat(16);
 const candidates = (hosts = ['linux','web']) => [...hosts.flatMap(host => ['0','1','fresh-game'].map(mode => ({
   name:'fixture', host, mode, failures:[], pins:{ticks:{60:syntheticHash}, saves:{continuation:'a'.repeat(64)}},
-}))), {name:'fixture',host:'linux',mode:'0',profile:'release',failures:[],pins:{ticks:{60:syntheticHash},saves:{continuation:'a'.repeat(64)}}}];
+}))), {name:'fixture',host:nativeProofHost(hosts),mode:'0',profile:'release',failures:[],pins:{ticks:{60:syntheticHash},saves:{continuation:'a'.repeat(64)}}}];
+
+test('Windows baselines require all native and web modes plus matching release evidence', () => {
+  const hosts=['windows','web'], rows=candidates(hosts), old=rows[0].pins;
+  expect(agreePins(rows,old,hosts,'.')).toEqual({...old,hosts});
+  expect(()=>agreePins(rows.slice(0,-1),old,hosts,'.')).toThrow('windows release');
+  expect(()=>agreePins(rows.filter(row=>!(row.host==='windows'&&row.mode==='fresh-game')),old,hosts,'.')).toThrow('windows fresh-game missing');
+  const bad=structuredClone(rows); bad[4].pins.saves.continuation='b'.repeat(64);
+  expect(()=>agreePins(bad,old,hosts,'.')).toThrow('web 1 saves');
+  expect(()=>agreePins(rows,old,['web'],'.')).toThrow('linux or windows');
+  expect(nativeProofHost(['windows','linux','web'])).toBe('linux');
+});
 test('repin requires all modes and hosts to agree on every tick and save', () => {
   const rows=candidates(), old=structuredClone(rows[0].pins);
   expect(agreePins(rows, old, ['linux','web'], '.')).toEqual({...old,hosts:['linux','web']});
@@ -518,6 +572,7 @@ test('direct placement comparison rejects two hosts passing a two-pixel oracle',
 
 for (const scenario of ['report','repin','external-repin', ...['ordinary','repeat','cwd','failure','UNVERIFIED','PASS'].map(command => `external-report-${command}`)]) test(`prove retains refused summaries and refuses missing requested repin hosts (${scenario})`, async () => {
   const name=`r8b-tooling-${process.pid}-${scenario.toLowerCase()}`;
+  const native=process.platform==='win32'?'windows':'linux';
   // A sibling checkout is external without Bun's expensive /tmp ancestor search.
   const directory = scenario.startsWith('external-') ? mkdtempSync(resolve(import.meta.dir, '../../prove external-')) : null;
   const app=resolve(directory ?? resolve(import.meta.dir,'games'),name);
@@ -554,19 +609,19 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
     if (selected('ordinary')) {
     const ordinary=await run(['--report']);
     expect(ordinary.code).toBe(0);
-    expect(ordinary.calls).toEqual([{host:'linux',build:false,mode:'0'}]);
-    expect(ordinary.text).toContain('REPORT linux 0: no recorded stalls or refusals');
-    expect(JSON.parse(readFileSync(resolve(ordinary.root,'summary.json'),'utf8')).rows.map(row=>row.host)).toEqual(['linux']);
+    expect(ordinary.calls).toEqual([{host:native,build:false,mode:'0'}]);
+    expect(ordinary.text).toContain(`REPORT ${native} 0: no recorded stalls or refusals`);
+    expect(JSON.parse(readFileSync(resolve(ordinary.root,'summary.json'),'utf8')).rows.map(row=>row.host)).toEqual([native]);
     }
     if (selected('repeat')) {
     const repeated=await run(['--repeat','2']);
     expect(repeated.code).toBe(0);
-    expect(repeated.calls).toEqual(Array(2).fill({host:'linux',build:false,mode:'0'}));
+    expect(repeated.calls).toEqual(Array(2).fill({host:native,build:false,mode:'0'}));
     }
     if (directory && selected('cwd')) {
       const here=await run(['--report'],{},true);
       expect(here.code).toBe(0);
-      expect(here.calls).toEqual([{host:'linux',build:false,mode:'0'}]);
+      expect(here.calls).toEqual([{host:native,build:false,mode:'0'}]);
     }
     if (selected('failure')) {
     const started = performance.now();
@@ -595,7 +650,7 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
       expect(compared.code).toBe(0);
       expect(compared.text).toContain('COMPARE generic authored proof');
       expect(compared.calls.length).toBe(4);
-      expect(compared.calls.filter(call=>!call.build).map(call=>call.host).sort()).toEqual(['linux','web']);
+      expect(compared.calls.filter(call=>!call.build).map(call=>call.host).sort()).toEqual([native,'web'].sort());
       const mixed=await run(['--hosts','linux,web','--compare-saves'],{R8B_PASS_WEB:'1',R8B_UNVERIFIED_HOST:'web'});
       expect(mixed.calls.slice(0,2)).toEqual([{host:'linux',build:true,mode:'0'},{host:'web',build:true,mode:'0'}]);
       expect(mixed.calls.slice(2).map(call=>call.host).sort()).toEqual(['linux','web']);
@@ -609,7 +664,7 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
     } else {
     const refused=await run(['--repin']);
     expect(refused.code).toBe(1); expect(refused.text).toContain('repin refused');
-    expect(refused.calls.map(call=>call.host)).toEqual(['linux','linux','linux','web','linux']);
+    expect(refused.calls.map(call=>call.host)).toEqual([native,native,native,'web',native]);
     expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'))).toEqual(pins);
     const allowed=await run(['--repin','--hosts','linux','--reason','Saved glow is a Tween sampled by the renderer']);
     expect(allowed.code).toBe(0);
@@ -623,21 +678,21 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
     for (const args of [['--repin'], ['--hosts','linux']]) {
       const refused = await run(args);
       expect(refused.code).toBe(1);
-      expect(refused.text).toContain(args[0] === '--repin' ? 'omit `--repin` for the first baseline' : 'first baseline requires linux and web');
+      expect(refused.text).toContain(args[0] === '--repin' ? 'omit `--repin` for the first baseline' : 'first baseline requires a native host (linux or windows) and web');
       expect(refused.calls).toEqual([]);
     }
     const firstRefused=await run([]);
     expect(firstRefused.code).toBe(1);
-    expect(firstRefused.calls.map(call=>call.host)).toEqual(['linux','linux','linux','web','linux']);
+    expect(firstRefused.calls.map(call=>call.host)).toEqual([native,native,native,'web',native]);
     expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8'))).toEqual(empty);
     const first=await run([],{R8B_PASS_WEB:'1'});
     expect(first.code).toBe(0);
     expect(first.calls).toEqual([
-      ...['linux','web'].flatMap(host=>['0','1','fresh-game'].map(mode=>({host,mode,build:false}))),
+      ...[native,'web'].flatMap(host=>['0','1','fresh-game'].map(mode=>({host,mode,build:false}))),
       {host:'web',mode:'0',build:true},
-      {host:'linux',mode:'0',build:false},
+      {host:native,mode:'0',build:false},
     ]);
-    expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8')).hosts).toEqual(['linux','web']);
+    expect(JSON.parse(readFileSync(resolve(app,'pins.json'),'utf8')).hosts).toEqual([native,'web']);
     }
   } finally { rmSync(directory ?? app,{recursive:true,force:true}); }
 });
@@ -647,7 +702,8 @@ test('clock settle diagnostic names busy, held input, and logs on a real unsettl
   const source=readFileSync(resolve(import.meta.dir,'../scripts/agent.mjs'),'utf8');
   const a=source.indexOf("    async clock(spec = 'settle') {"), b=source.indexOf('\n    /** Pixels as PNG',a);
   const s={now:0,op:async req=>{expect(req).toEqual({op:'clock',settle:true});return {clock:100,settled:false,world:{changing:['player']}};}};
-  const clock=new Function('s',`return ({${source.slice(a,b)}}).clock;`)(s);
+  // The method reads the module's step constant and growth rule; pass them in as the module would.
+  const clock=new Function('s','CLOCK_STEP_MS','clockSpan',`return ({${source.slice(a,b)}}).clock;`)(s,1000,clockSpan);
   const reply=await clock();
   expect(reply.diagnostic).toContain('clock settle did not reach quiescence');
   expect(reply.diagnostic).toContain('state world:* busy');
@@ -753,7 +809,8 @@ test('refusal advice executes as real driver CLI operations with a global JSON f
   const source=readFileSync(new URL('../scripts/agent.mjs',import.meta.url),'utf8');
   const body=source.slice(source.indexOf('async function main(argv)'),source.lastIndexOf('\nif (process.argv[1]'));
   const calls=[], output=[];
-  const cli=new Function('parseFlags','open','resolve','render','console',`${body}; return main;`)(parseFlags,async()=>({layout:async target=>{calls.push(['layout',target]);return {visible:true};},state:async()=>{calls.push(['state']);return {world:[{loading:['crate.model'],assets:[]}]};},close:async()=>{}}),x=>x,()=>{throw Error('global --json was ignored');},{log:x=>output.push(JSON.parse(x)),error:()=>{}});
+  // main's free names: what agent.mjs imports and this test stands in for.
+  const cli=new Function('parseFlags','layoutArgs','open','resolve','render','console',`${body}; return main;`)(parseFlags,layoutArgs,async()=>({layout:async target=>{calls.push(['layout',target]);return {visible:true};},state:async()=>{calls.push(['state']);return {world:[{loading:['crate.model'],assets:[]}]};},close:async()=>{}}),x=>x,()=>{throw Error('global --json was ignored');},{log:x=>output.push(JSON.parse(x)),error:()=>{}});
   for(const op of [...advised,'state']) expect(await cli(['web','--json',op])).toBe(0);
   expect(calls).toEqual([['layout','world:sign'],['state']]);
   expect(output[1].world[0].loading).toEqual(['crate.model']);
@@ -805,6 +862,7 @@ test('reused Chrome reads current-page GPU timing and clears storage, history an
       const database = () => new Promise((resolve,reject) => { const r=indexedDB.open('stage',1); r.onupgradeneeded=()=>r.result.createObjectStore('data'); r.onsuccess=()=>resolve(r.result); r.onerror=()=>reject(r.error); });
       // glue.js's agent-mode surface: the driver asks through agentSettled.
       const agent=async request=>{
+        if(request.op==='tags') return {clock:0};
         if(request.op==='layout') return {nodes:[{id:1,x:0,y:0,w:100,h:40}]};
         if(request.op==='timing') { document.getElementById('exact-root').dataset.gpuMs=request.ms; return {}; }
         const db=await database();
@@ -869,6 +927,17 @@ test('R13 output names nested in logic remain proof inputs and change the hash',
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 
+test('a game\'s helper scripts are not proof inputs; its build inputs are', async () => {
+  const {proofInputExcluded}=await import('./proof.mjs');
+  for(const file of ['bench.mjs','live.mjs','jev-proxy.mjs','tools/probe.js','tools/levels.ops','proof.mjs','pins.json','README.md','drive.sh','shots/exported.json','repros/bug.contract','app.test.contract','logic/src/foo.test.rs'])
+    expect(proofInputExcluded(`game/games/forest/${file}`,'forest')).toBe(true);
+  for(const file of ['logic/src/lib.rs','logic/build.mjs','data/src/lib.rs','gpu/shaders/sky.wgsl','assets/x.js','presentation/view.mjs','app.contract','app.json','island.level.json','Cargo.toml','Cargo.lock'])
+    expect(proofInputExcluded(`game/games/forest/${file}`,'forest')).toBe(false);
+  // Shared SDK scripts stay inputs: the web glue is JavaScript.
+  expect(proofInputExcluded('host/web/gpu-glue.js','forest')).toBe(false);
+  expect(proofInputExcluded('../forest/bench.mjs','forest','../forest/')).toBe(true);
+});
+
 test('R13 Fox screenshot reply scales logical bounds at DPR 2 and 3', async () => {
   const {foxScreenshotPixels}=await import('./games/skinned-fixture/proof.mjs');
   for(const scale of [2,3]) {
@@ -931,7 +1000,8 @@ test('E10 browser buttons retain UA keyboard focus and hover feedback', async ()
     if(path.endsWith('.js')) return new Response(Bun.file(resolve(root,path.slice(1))),{headers:{'content-type':'text/javascript'}});
     return new Response('',{status:404});
   }});
-  const child=spawn(process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',['--headless=new','--remote-debugging-pipe','--no-sandbox','--no-first-run','--disable-background-networking',`--user-data-dir=${profile}`,'about:blank'],{stdio:['ignore','ignore','ignore','pipe','pipe']});
+  const child=spawn(chromium().executable,['--headless=new','--remote-debugging-pipe','--no-sandbox','--no-first-run','--disable-background-networking',`--user-data-dir=${profile}`,'about:blank'],{stdio:['ignore','ignore','ignore','pipe','pipe'],windowsHide:true});
+  if (!child.pid) await new Promise((ok,fail)=>{child.once('spawn',ok);child.once('error',fail);});
   const exited=new Promise(resolve=>child.once('exit',resolve));
   const cdp=new Cdp(child.stdio[3],child.stdio[4]);
   const deadline=setTimeout(()=>cdp.fail('button browser timed out'),30000);
@@ -965,7 +1035,16 @@ test('E10 browser buttons retain UA keyboard focus and hover feedback', async ()
     await evaluate('globalThis.pressFocus=outside');
     for(const type of ['mousePressed','mouseReleased']) await call('Input.dispatchMouseEvent',{type,x:15,y:15,button:'left',clickCount:1});
     expect(await evaluate('document.activeElement === outside')).toBe(true);
-  } finally {clearTimeout(deadline);child.kill('SIGKILL');await exited;server.stop(true);rmSync(profile,{recursive:true,force:true});}
+  } finally {
+    clearTimeout(deadline);
+    await cdp.send('Browser.close',{},undefined,2000).catch(()=>{});
+    await Promise.race([exited,Bun.sleep(2000)]);
+    if (child.exitCode === null && child.signalCode === null) {
+      if (process.platform === 'win32') spawnSync('taskkill',['/PID',String(child.pid),'/T','/F'],{stdio:'ignore',windowsHide:true,timeout:2000});
+      else child.kill('SIGKILL');
+    }
+    await exited; server.stop(true); rmSync(profile,{recursive:true,force:true,maxRetries:5,retryDelay:100});
+  }
 },60000);
 
 test('E10 Beacons and skinned Linux proof hashes match release under the fast profile', async () => {
@@ -1215,13 +1294,18 @@ test('phone carrier copies before launch, saves over the socket and owns its pro
     writeFileSync(resolve(bundle, 'ExactIOS'), JSON.stringify({id:'0'.repeat(32),inputs:{app:app.id}}));
     const apps = await import(resolve(root, 'scripts/app.mjs'));
     const apple = await import(resolve(root, 'host/apple/build.mjs'));
+    const devices = await import(resolve(root, 'host/apple/devices.mjs'));
     mock.module(resolve(root, 'scripts/app.mjs'), () => ({...apps, resolveApp:() => app, bakeOutput:() => dir}));
-    mock.module(resolve(root, 'host/apple/build.mjs'), () => ({...apple, appleArtifacts:() => ({bundle}), phone:pick => {
+    mock.module(resolve(root, 'host/apple/build.mjs'), () => ({...apple, appleArtifacts:() => ({bundle})}));
+    // The phone is chosen in devices.mjs since 28a2ee81d.
+    mock.module(resolve(root, 'host/apple/devices.mjs'), () => ({...devices, phone:pick => {
       assert.equal(pick, 'fixture-phone'); return {udid:pick};
     }}));
     let refuseCopy = false, truncated = false;
     mock.module('node:child_process', () => ({...cp,
-      spawnSync(command, args) {
+      spawnSync(command, args, options) {
+        // useXcode (6c03c1dec) asks which developer directory is selected before any xcrun.
+        if (command === 'xcode-select') return cp.spawnSync(command, args, options);
         assert.equal(command, 'xcrun'); calls.push(args);
         if (args.includes('copy')) {
           assert.equal(args[args.indexOf('--source') + 1], input);
@@ -1392,4 +1476,24 @@ test('repin provenance distinguishes commit-less games from broken Git repositor
     writeFileSync(resolve(dir, '.git/HEAD'), 'corrupt head\n');
     expect(() => pinRevision(dir, 'digest')).toThrow('git provenance failed');
   } finally { rmSync(dir,{recursive:true,force:true}); }
+});
+
+test('a split clock grows at most 4x a step and never past ten world minutes', async () => {
+  const {clockSpan} = await import('../scripts/agent.mjs');
+  expect(clockSpan(1000, 1)).toBe(4000);
+  expect(clockSpan(400_000, 1)).toBe(600_000);
+  expect(clockSpan(8000, 6000)).toBe(4000);
+  expect(clockSpan(1000, 60_000)).toBe(1000);
+  // A step lasts about the 3 s budget times how much heavier the world got
+  // since the step before: 1.5x heavier each step stays near 4.5 s, far inside
+  // Chrome's 15 s, through an hour.
+  // Cost is wall ms per world ms, measured on the step before.
+  let span = 1000, worst = 0;
+  for (let now = 0, cost = 1e-5; now < 3_600_000; now += span) {
+    const measured = span * cost;
+    cost = Math.min(cost * 1.5, 2e-3); // the world gets heavier as it plays
+    worst = Math.max(worst, span * cost);
+    span = clockSpan(span, measured);
+  }
+  expect(worst).toBeLessThanOrEqual(4500 + 1e-6);
 });

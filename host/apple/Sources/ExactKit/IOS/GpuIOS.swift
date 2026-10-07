@@ -5,7 +5,7 @@
 // CAMetalLayer, inputs bound as they arrive, frames rendered while a
 // surface is dirty or wants more, from the same display link motion uses.
 // The AppKit presenter's `Canvases` (host/apple/macos/…/Gpu.swift) on UIKit.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import QuartzCore
 import UIKit
 
@@ -110,11 +110,25 @@ enum MetalLayerPool {
     static func drain() { spare.removeAll() }
 }
 
+
+/// Whether a canvas's overlay composites itself, or shows only through the
+/// canvas's surface.
+private func composite(_ overlay: UIView, _ shown: Bool) {
+    #if os(tvOS)
+    // tvOS never focuses a view at alpha 0: the overlay stays opaque, behind the canvas's picture.
+    overlay.alpha = 1
+    overlay.layer.zPosition = shown ? 0 : -1
+    #else
+    overlay.alpha = shown ? 1 : 0
+    #endif
+}
 /// Every canvas on one session's page and its surface in the module — the
 /// module itself loaded once per process (LLP 1031 D12).
 final class Canvases {
     lazy var lifecycle = CanvasLifecycle(self)
     weak var session: ExactSession?
+    /// postMessage events waiting for a live canvas of their surface name.
+    var pendingPosts: [(name: String, text: String, at: Double)] = []
     final class Entry {
         let view: NodeView
         let name: String
@@ -271,6 +285,11 @@ final class Canvases {
                 guard let self, deferred.remove(key) != nil else { return }
                 load(key)
                 session?.frames.requestCanvas()
+                // Work queued while this wave loaded settles when the wave's
+                // last module has loaded or failed: no later batch is owed to
+                // drain it (an idle tick is skipped). Not before, or a module
+                // still loading would answer its tickets "unavailable".
+                if deferred.isEmpty { session?.drainSurfaceWorkNow() }
             }
         }
     }
@@ -324,6 +343,7 @@ final class Canvases {
         e.each = m.wantsChildrenEach(e.id) != 0
         e.through = e.each || m.wantsChildren(e.id) != 0
         e.wantsInput = m.wantsInput?(e.id) == 1 && m.input != nil
+        deliverPosts() // a post held for this surface, if the canvas is live already
         if e.wantsInput { e.view.canvasInput = CanvasInput(view: e.view) }
         if e.through { capture(m, e) }
     }
@@ -342,7 +362,7 @@ final class Canvases {
                 if r != 0 { return false }
                 continue
             }
-            let hidden = child.isHidden
+            let hidden = child.hiddenByHost
             if child.placementHidden { child.isHidden = false }
             defer { child.isHidden = hidden }
             guard let bitmap = Capture.bitmap(of: child, scale: scale), let data = bitmap.bytes else { continue }
@@ -414,7 +434,7 @@ final class Canvases {
         guard !overlay.subviews.isEmpty || e.uploaded else { return }
         let scale = captureScale(of: metal)
         if e.each {
-            if captureEach(m, e, overlay: overlay, scale: scale) { e.uploaded = true; captures += 1; overlay.alpha = 1; e.view.paintedThisTurn = true; DispatchQueue.main.async { e.view.paintedThisTurn = false } }
+            if captureEach(m, e, overlay: overlay, scale: scale) { e.uploaded = true; captures += 1; composite(overlay, true); e.view.paintedThisTurn = true; DispatchQueue.main.async { e.view.paintedThisTurn = false } }
             return
         }
         let t0 = CACurrentMediaTime()
@@ -445,7 +465,7 @@ final class Canvases {
         // Painted through the surface from here on: the overlay stays laid
         // out — hit-testable, in the accessibility hierarchy — and is no
         // longer composited itself (D5: pixels may distort, boxes may not).
-        overlay.alpha = 0
+        composite(overlay, false)
         e.view.paintedThisTurn = true
         DispatchQueue.main.async { e.view.paintedThisTurn = false }
         if ExactEnv.agentMode {
@@ -465,7 +485,7 @@ final class Canvases {
                     child.placement = nil; child.placementHidden = false; child.alpha = 1
                 }
                 overlay.accessibilityElements = nil
-                overlay.alpha = e.through ? 0 : 1
+                composite(overlay, !e.through)
             }
         }
     }
@@ -607,6 +627,7 @@ final class Canvases {
             // D4 (d): every frame while editing under the overlay — but not
             // twice on the turn a batch already captured.
             if e.through, !e.view.paintedThisTurn, let overlay = e.view.overlay, editing(under: overlay) { capture(m, e) }
+            m.syncDynamicRange(e.id, view: e.view, layer: e.view.metal?.metalLayer)
             guard live(e.view.id) === e, e.wants || m.dirty(e.id) != 0, let metal = e.view.metal else { continue }
             // D4: a canvas renders when the host judges it on screen. A
             // virtualized list keeps rows mounted past the viewport; their

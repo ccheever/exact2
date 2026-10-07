@@ -9,6 +9,7 @@ use exact_plan::{ResourcesRow, TypeKind, Value};
 
 /// What the published derives were computed against: an input equal to
 /// its value here has not changed since the last successful settlement.
+#[derive(Clone)]
 pub(super) struct Settled {
     slots: Vec<Value>,
     now_ms: f64,
@@ -72,9 +73,12 @@ impl<D: DataSource> Runner<D> {
         let result = if self.poisoned {
             Err(RunnerError::Poisoned)
         } else {
-            self.settle(false).and_then(|_| self.update())
+            self.settle(false)
+                .and_then(|_| self.gate_step())
+                .and_then(|_| self.update())
         };
         self.conclude(checkpoint, &result, was_poisoned);
+        self.arm_next(result.is_ok());
         self.log_outcome(&what, &result, was_poisoned);
         result
     }
@@ -99,16 +103,28 @@ impl<D: DataSource> Runner<D> {
             }
             // A declared `else source()` row must answer now: no zero hides
             // one that answers later (its owner is refused, by name).
-            None if self
-                .plan
-                .resources
-                .iter()
-                .any(|r| r.placeholder.is_some_and(|p| p.0 as usize == i)) =>
-            {
-                None
-            }
+            None if self.is_placeholder_row(i) => None,
             None => zero(&self.plan, row.ty),
         }
+    }
+
+    /// The journal's word when an answer lands on a build-time one shown
+    /// until its source was ready (LLP 1048.003 D6).
+    pub(super) fn revalidated(&mut self, i: usize, shown: Option<&ResourceState>, answer: &Value) {
+        let Some(shown) = shown.filter(|s| self.stale[i] && s.value.is_compiled()) else {
+            return;
+        };
+        let same = crate::compare::equivalent(shown.value.get(&self.plan), answer);
+        let line = super::lines::revalidated(self.plan.str(self.plan.resources[i].name), same);
+        self.log(line);
+    }
+
+    /// Whether resource `i` is another's `else` row (LLP 1048.003 D6).
+    fn is_placeholder_row(&self, i: usize) -> bool {
+        self.plan
+            .resources
+            .iter()
+            .any(|r| r.placeholder.is_some_and(|p| p.0 as usize == i))
     }
 
     /// A resource whose source answers later with nothing to show: no
@@ -143,9 +159,7 @@ impl<D: DataSource> Runner<D> {
         if self.conforms(value, row.ty) {
             Ok(())
         } else {
-            Err(RunnerError::Shape {
-                resource: self.plan.str(row.name).to_string(),
-            })
+            Err(self.shape(self.plan.str(row.name).to_string(), value, row.ty))
         }
     }
 
@@ -496,17 +510,15 @@ impl<D: DataSource> Runner<D> {
                         {
                             // Keep deferred placeholders until activation, even
                             // when timers or a deep launch change arguments after
-                            // boot (LLP 1038 D5, LLP 1027 D4). data_ready asks the
-                            // current arguments once the executor can answer —
-                            // unless they are the ones the bake answered, from
-                            // no store: that answer stands (LLP 1048.003 D6), as
-                            // it does when the source is ready at boot.
+                            // boot (LLP 1038 D5, LLP 1027 D4). The bake's answer
+                            // is the first frame, not the answer: data_ready asks
+                            // the current arguments once the executor can answer,
+                            // as the web asks its module at launch (LLP 1048.003
+                            // D6, 2026-10-04; feed F24). An `else` row is the
+                            // bake's for every launch and is never asked again
+                            // (each was a worker turn, c318ed04), unless forced.
                             if !self.data.ready()
-                                && (forced
-                                    || self.store_readers[i]
-                                    || Value::from_bytes(self.plan.bytes(row.initial_args))
-                                        .map_err(RunnerError::Plan)?
-                                        != Value::list(args.clone()))
+                                && (forced || self.store_readers[i] || !self.is_placeholder_row(i))
                             {
                                 self.stale[i] = true;
                             }
@@ -573,7 +585,7 @@ impl<D: DataSource> Runner<D> {
                                     progress = true;
                                     continue;
                                 }
-                                answer => answer?,
+                                answer => answer,
                             };
                             force.retain(|forced| *forced != i);
                             if self.store.reads() > reads_before {
@@ -586,7 +598,23 @@ impl<D: DataSource> Runner<D> {
                             // last one did; its reply's parse may add more.
                             self.watching[i] = self.store.take_topics();
                             match answer {
-                                Answer::Now(v) => {
+                                Err(RunnerError::Data {
+                                    error: DataError::DeferredAtBake(_),
+                                    ..
+                                }) => {
+                                    // Storage belongs to the launched app. A bake has no
+                                    // request to dispatch: activation asks this source again.
+                                    let Some(value) = self.placeholder(i, &row, &resources) else {
+                                        return Err(self.unanswerable(i));
+                                    };
+                                    self.stale[i] = true;
+                                    pending_res[i] = true;
+                                    awaiting[i] = true;
+                                    placeholder = true;
+                                    Held::new(value)
+                                }
+                                Err(error) => return Err(error),
+                                Ok(Answer::Now(v)) => {
                                     // A re-read shows the source's answer and
                                     // leaves a request in flight to land.
                                     if (pending_res[i] || self.streaming(i)) && !reread {
@@ -595,11 +623,12 @@ impl<D: DataSource> Runner<D> {
                                         effects[i] = RequestEffect::Answered;
                                         pending_res[i] = false;
                                     }
+                                    self.revalidated(i, states[i].as_ref(), &v);
                                     self.stale[i] = false;
                                     self.keep_answer(i, &args, &v);
                                     Held::new(v)
                                 }
-                                Answer::Later(request) if reread => {
+                                Ok(Answer::Later(request)) if reread => {
                                     // Nothing newer to show before the write
                                     // lands; the reply's refresh asks the host.
                                     // A source that parks calls hears what is
@@ -611,7 +640,7 @@ impl<D: DataSource> Runner<D> {
                                     value_args = state.args.clone();
                                     state.value.clone()
                                 }
-                                Answer::Later(request) => {
+                                Ok(Answer::Later(request)) => {
                                     // The host will run it. Meanwhile the resource
                                     // keeps the value it had — its last answer, or
                                     // its compiled boot value (LLP 1016 D3).

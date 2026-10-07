@@ -6,7 +6,7 @@ use super::{
     checks::{check_view, infer_owned_state_initializers},
     err, infer, record_source, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError, Types,
 };
-use contract_syntax::{Component, Expr, Node, Span, TemplatePart};
+use contract_syntax::{Component, Expr, Node, Owner, Span, TemplatePart};
 use std::{collections::BTreeMap, sync::Arc};
 
 /// Check one component, recording each refusal in `sink` and carrying on
@@ -16,7 +16,7 @@ use std::{collections::BTreeMap, sync::Arc};
 pub(crate) fn check_component(
     c: &Component,
     types: &Types,
-    owners: Option<&[Option<u32>]>,
+    owners: Option<&[Owner]>,
     sink: &mut Sink,
 ) -> ComponentTypes {
     let shapes = &types.shapes;
@@ -37,10 +37,15 @@ pub(crate) fn check_component(
         .chain(c.mutations.iter().map(|m| (&m.name, m.span)))
         .chain(c.actions.iter().map(|a| (&a.name, a.span)))
     {
-        if seen.insert(name.clone(), span).is_some() {
+        if let Some(first) = seen.insert(name.clone(), span) {
+            // The survey diary's `mutation exported` and `action exported`:
+            // say that the kinds share one set of names.
             sink.push(TypeError {
                 id: "type-duplicate-name",
-                message: format!("`{name}` declared twice"),
+                message: format!(
+                    "`{name}` is declared twice in `{}` (first on line {}): its props, injects, states, derives, resources, mutations and actions share one set of names; rename one",
+                    c.name, first.line
+                ),
                 span,
             });
         }
@@ -71,7 +76,10 @@ pub(crate) fn check_component(
         ct.resources.push(sink.keep(shapes.resolve(&r.shape)));
     }
     for m in &c.mutations {
-        ct.mutations.push(sink.keep(shapes.resolve(&m.shape)));
+        let t = sink.keep(shapes.resolve(&m.shape));
+        // A mutation holds `option<T>` of its answer (LLP 1090 D2).
+        sink.keep_unit(shapes.bounded(&Ty::Option(Box::new(t.clone())), m.shape.span()));
+        ct.mutations.push(t);
         // @ref LLP 1054.000.000 D1 — what a send to this mutation refreshes.
         for (i, (name, span)) in m.refreshes.iter().enumerate() {
             if !c.resources.iter().any(|r| &r.name == name) {
@@ -110,8 +118,14 @@ pub(crate) fn check_component(
                 Ty::Record("Router".into())
             } else if owners
                 .and_then(|owners| owners.get(i))
-                .is_some_and(Option::is_some)
+                .is_some_and(|o| *o != Owner::Root)
             {
+                // A child's state, typed in its use site's scope once the
+                // derives and resources it may read are
+                // (`infer_owned_state_initializers`).
+                Ty::Unknown
+            } else if let Some(e) = initializer_scope(c, i, &scope, shapes) {
+                sink.push(e);
                 Ty::Unknown
             } else {
                 sink.keep(infer(&s.expr, &scope, shapes))
@@ -133,30 +147,21 @@ pub(crate) fn check_component(
         }
         ct.actions.push(params);
     }
-    // Derives: iterate to a fixpoint so order does not matter and `?` fills.
-    // Each is inferred after the derives it reads, and its type enters the
-    // scope at once, so a set without a cycle settles in one round (and one
-    // to confirm) rather than one round per link of a chain.
+    // Derives, then the slots action writes type, until neither changes: a
+    // state `none` or `[]` declares is typed by its first write, and what
+    // reads it (a derive, a view head, a handler's or a resource's
+    // argument) must see that type, whatever the declaration order.
     ct.derives = vec![Ty::Unknown; c.derives.len()];
-    // Every declaration now has a type entry before constructing a full scope.
-    let first_derive = c.props.len() + c.injects.len() + c.states.len();
-    let mut scope = types.component_scope(c, &ct);
+    // One ordered pass first, not a fixed point (LLP 1088 D6 is deferred): a
+    // row's state is typed from its initializer before the derives that read
+    // it (shop F3's `derive chosen = at(…, pick)` over a row's `state pick =
+    // 0`). Its refusals are made where the same pass runs again below, once
+    // the derives and resources a child's state may read have types.
+    let _ = infer_owned_state_initializers(c, &mut ct, types, owners);
     let order = derive_order(c);
-    for _round in 0..(c.derives.len() + 2) {
-        let mut changed = false;
-        for &i in &order {
-            // An expression over a derive not yet typed (`current.ok` while
-            // `current` is still `?`) waits for a later round; the strict
-            // pass below reports what never types.
-            if let Ok(t) = infer(&c.derives[i].expr, &scope, shapes) {
-                if t != ct.derives[i] {
-                    scope.retype(first_derive + i, t.clone());
-                    ct.derives[i] = t;
-                    changed = true;
-                }
-            }
-        }
-        if !changed {
+    for _round in 0..(c.states.len() + 2) {
+        settle_derives(c, &mut ct, types, &order);
+        if ct.slots.iter().all(Ty::is_complete) || !probe_writes(c, &mut ct, types) {
             break;
         }
     }
@@ -205,6 +210,8 @@ pub(crate) fn check_component(
     // action-prop arguments must see those types too, not the earlier scope.
     let scope = types.component_scope(c, &ct);
     sink.keep_unit(refine_params_from_view(&c.view, &scope, c, &mut ct, shapes));
+    // Then the calls in action bodies (LLP 1089 D8), before any body is checked.
+    crate::calls::refine(c, &mut ct, types);
     // Action bodies: writes refine slots; assignments must unify. Two
     // rounds, so a `send` whose argument is a state a later action writes
     // (`state q = none`, typed by `q = some(s)`) records the written type
@@ -342,17 +349,7 @@ pub(crate) fn check_component(
         }
     }
     check_view(&c.view, &scope, shapes, sink);
-    for t in &c.tasks {
-        match infer(&t.timer.0, &scope, shapes) {
-            Ok(Ty::Number) => {}
-            Ok(_) => sink.push(TypeError {
-                id: "type-timer",
-                message: "a task needs a number of milliseconds".into(),
-                span: t.timer.2,
-            }),
-            Err(e) => sink.push(e),
-        }
-    }
+    super::tasks::check_tasks(c, &scope, shapes, sink);
     ct
 }
 
@@ -367,11 +364,71 @@ impl Scope {
     pub(crate) fn retype(&mut self, index: usize, ty: Ty) {
         Arc::make_mut(&mut self.frames[0]).names[index].2 = ty;
     }
+}
 
-    pub(crate) fn frames_reset(&mut self, names: &[(String, Ref, Ty)]) {
-        self.frames.clear();
-        self.push(names.to_vec());
+/// Derives to a fixpoint, so order does not matter and `?` fills. Each is
+/// inferred after the derives it reads, and its type enters the scope at
+/// once, so a set without a cycle settles in one round (and one to confirm)
+/// rather than one round per link of a chain.
+fn settle_derives(c: &Component, ct: &mut ComponentTypes, types: &Types, order: &[usize]) {
+    let first_derive = c.props.len() + c.injects.len() + c.states.len();
+    let mut scope = types.component_scope(c, ct);
+    for _round in 0..(c.derives.len() + 2) {
+        let mut changed = false;
+        for &i in order {
+            // An expression over a derive not yet typed (`current.ok` while
+            // `current` is still `?`) waits for a later round; the strict
+            // pass reports what never types.
+            if let Ok(t) = infer(&c.derives[i].expr, &scope, &types.shapes) {
+                if t != ct.derives[i] {
+                    scope.retype(first_derive + i, t.clone());
+                    ct.derives[i] = t;
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
     }
+}
+
+/// Check every action body against a copy of the types, its findings
+/// dropped, and keep only what its writes say about the slots; whether a
+/// slot changed. The bodies are checked for real once everything is typed.
+fn probe_writes(c: &Component, ct: &mut ComponentTypes, types: &Types) -> bool {
+    let mut probe = ct.clone();
+    let mut scratch = Sink::default();
+    for (ai, a) in c.actions.iter().enumerate() {
+        let mut scope = types.component_scope(c, &probe);
+        scope.push(
+            a.params
+                .iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    (
+                        p.name.clone(),
+                        Ref::Param(i as u32),
+                        probe.actions[ai][i].clone(),
+                    )
+                })
+                .collect(),
+        );
+        scope.enter_action();
+        let lifted = a.name.contains('#');
+        crate::actions::check_body(
+            &a.body,
+            &scope,
+            lifted,
+            c,
+            &mut probe,
+            &types.shapes,
+            &mut scratch,
+        );
+    }
+    let changed = probe.slots != ct.slots;
+    ct.slots = probe.slots;
+    changed
 }
 
 fn refine_params_from_view(
@@ -394,6 +451,10 @@ fn refine_params_from_view(
                 // checked (LLP 1069.001 D4); a text field's, its text.
                 let control = contract_syntax::input_control(tag, attrs);
                 let checkbox = control == Some("checkbox");
+                // A text field's `select` is HTML's, its selection the
+                // `InputEvent` (x2apps codeedit #2); the Markdown editor's
+                // carries its formats.
+                let field = contract_syntax::payload_control(tag, attrs) == Some("field");
                 // A file input's `change` carries the picked files (LLP
                 // 1069.002 D3); its `cancel`, nothing.
                 let file = control == Some("file");
@@ -424,6 +485,16 @@ fn refine_params_from_view(
                             | "message"
                             | "contextmenu"
                             | "dblclick"
+                            | "pointerdown"
+                            | "pointerup"
+                            | "pointermove"
+                            | "copy"
+                            | "cut"
+                            | "paste"
+                            | "selectionchange"
+                            | "beforeunload"
+                            | "wheel"
+                            | "drop"
                             | "swiperight"
                             | "refresh"
                             | "reachstart"
@@ -432,6 +503,7 @@ fn refine_params_from_view(
                             | "panrelease"
                             | "loadedmetadata"
                             | "durationchange"
+                            | "fullscreenchange"
                             | "timeupdate"
                             | "play"
                             | "playing"
@@ -444,8 +516,15 @@ fn refine_params_from_view(
                             | "volumechange"
                             | "error"
                             | "canplay"
+                            | "seekbackward"
+                            | "seekforward"
+                            | "seekto"
+                            | "previoustrack"
+                            | "nexttrack"
+                            | "stop"
                             | "navigate"
                             | "cancel"
+                            | "resize"
                     ) {
                         let (name, args): (&str, &[Expr]) = match &a.value {
                             Expr::Ident(n, _) => (n, &[]),
@@ -484,7 +563,7 @@ fn refine_params_from_view(
                             // Event payloads: change/input/key/message are
                             // strings (a checkbox's are bools); hover is
                             // whether the pointer is over.
-                            let payload = match a.name.as_str() {
+                            let mut payload = match a.name.as_str() {
                                 "change" | "input" if bound_type => vec![],
                                 "change" | "input" if checkbox => vec![Ty::Bool],
                                 "change" | "input" if range => vec![Ty::Number],
@@ -495,11 +574,31 @@ fn refine_params_from_view(
                                     vec![Ty::String]
                                 }
                                 "timeupdate" | "durationchange" => vec![Ty::Number],
-                                "hover" => vec![Ty::Bool],
+                                "hover" | "fullscreenchange" => vec![Ty::Bool],
+                                "select" if field => vec![Ty::Record("InputEvent".into())],
                                 "select" => vec![Ty::Record("MarkdownSelection".into())],
-                                "scroll" | "panrelease" => vec![Ty::Number, Ty::Number],
+                                "scroll" | "panrelease" | "resize" => {
+                                    vec![Ty::Number, Ty::Number]
+                                }
                                 _ => vec![],
                             };
+                            // Then the event's record, when the action
+                            // declares one more parameter (`event_record`)
+                            // of its type or none: another type there is an
+                            // argument left unbound, analysis's arity
+                            // refusal (`handler_accepts`).
+                            if let Some(record) = crate::event_record(&a.name) {
+                                let n = args.len() + payload.len() + 1;
+                                let fits = ct.actions[ai].len() == n
+                                    && match &ct.actions[ai][n - 1] {
+                                        Ty::Unknown => true,
+                                        Ty::Record(r) => r == record,
+                                        _ => false,
+                                    };
+                                if fits {
+                                    payload.push(Ty::Record(record.into()));
+                                }
+                            }
                             let start = ct.actions[ai].len().saturating_sub(payload.len());
                             for (offset, ty) in payload.into_iter().enumerate() {
                                 let last = start + offset;
@@ -583,7 +682,8 @@ fn derive_order(c: &Component) -> Vec<usize> {
             Expr::Some(x, _)
             | Expr::Unary(_, x, _)
             | Expr::Member(x, _, _)
-            | Expr::NamedArg(_, x, _) => names(x, out),
+            | Expr::NamedArg(_, x, _)
+            | Expr::Typed(x, _, _) => names(x, out),
             Expr::Binary(_, a, b, _) => {
                 names(a, out);
                 names(b, out);
@@ -613,11 +713,8 @@ fn derive_order(c: &Component) -> Vec<usize> {
                     names(x, out)
                 }
             }),
-            Expr::Number(..)
-            | Expr::Str(..)
-            | Expr::Bool(..)
-            | Expr::None(_)
-            | Expr::EmptyList(_) => {}
+            Expr::List(items, _) => items.iter().for_each(|x| names(x, out)),
+            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(_) => {}
         }
     }
     fn visit(i: usize, reads: &[Vec<usize>], seen: &mut [bool], order: &mut Vec<usize>) {
@@ -655,7 +752,8 @@ fn derive_order(c: &Component) -> Vec<usize> {
 /// as a `list<?>`.
 fn empty_list_in(e: &Expr) -> Option<Span> {
     match e {
-        Expr::EmptyList(span) => Some(*span),
+        Expr::List(items, span) if items.is_empty() => Some(*span),
+        Expr::List(items, _) => items.iter().find_map(empty_list_in),
         Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(..) | Expr::Ident(..) => {
             None
         }
@@ -666,6 +764,7 @@ fn empty_list_in(e: &Expr) -> Option<Span> {
         Expr::Some(x, _)
         | Expr::Member(x, _, _)
         | Expr::NamedArg(_, x, _)
+        | Expr::Typed(x, _, _)
         | Expr::Unary(_, x, _) => empty_list_in(x),
         Expr::Call(_, args, _) => args.iter().find_map(empty_list_in),
         Expr::Binary(_, a, b, _) => empty_list_in(a).or_else(|| empty_list_in(b)),
@@ -688,53 +787,208 @@ fn empty_list_in(e: &Expr) -> Option<Span> {
 /// The first name in `e` the component declares: state a placeholder's
 /// arguments may not read (LLP 1048.003 D6).
 fn reads_state(e: &Expr, scope: &Scope) -> Option<(String, Span)> {
-    fn walk(e: &Expr, scope: &Scope, bound: &mut Vec<String>) -> Option<(String, Span)> {
+    first_free(e, &|_| false, &|name| scope.lookup(name).is_some())
+}
+
+/// @ref LLP 1088 D4 — a state's initializer runs before any resource
+/// answers and before any derive, so it reads only props, injects and the
+/// states declared above it. A name it reads that the component declares
+/// otherwise is refused as what it is; an unknown name keeps its
+/// near-name suggestion.
+pub(crate) fn initializer_scope(
+    c: &Component,
+    i: usize,
+    scope: &Scope,
+    shapes: &Shapes,
+) -> Option<TypeError> {
+    let state = c.states[i].name.split('#').next().unwrap_or_default();
+    let declared = |name: &str| {
+        c.states[i..].iter().any(|s| s.name == name)
+            || c.derives.iter().any(|d| d.name == name)
+            || c.resources.iter().any(|r| r.name == name)
+            || c.mutations.iter().any(|m| m.name == name)
+            || c.actions.iter().any(|a| a.name == name)
+    };
+    // A call's name resolves as `infer` resolves it: `failed`/`pending`, a
+    // record's constructor and a file `fn` come before the component's
+    // names, and of those only an action is callable; any other name a
+    // call makes is the roster's (`state length = length("abc")`).
+    let calls = |name: &str| {
+        !matches!(name, "failed" | "pending")
+            && !crate::records::is_record_call(name, shapes)
+            && !shapes.fns.contains_key(name)
+            && c.actions.iter().any(|a| a.name == name)
+            && scope.lookup(name).is_none()
+    };
+    let (name, span) = first_free(&c.states[i].expr, &calls, &|name| {
+        scope.lookup(name).is_none() && declared(name)
+    })?;
+    let shown = name.split('#').next().unwrap_or_default();
+    let reads = "a state's initializer runs before any resource answers, and reads only props, injects and earlier states";
+    let message = if c.resources.iter().any(|r| r.name == name) {
+        let path = member_path(&c.states[i].expr, &name).unwrap_or_else(|| shown.to_string());
+        format!(
+            "`{shown}` is a resource; {reads}. Derive it from `{shown}`, or keep per-row state in a component used inside `each … in {path}`"
+        )
+    } else if c.derives.iter().any(|d| d.name == name) {
+        format!(
+            "`{shown}` is a derive; {reads}. Make `{state}` a derive too, or start it from a value and write it in an action"
+        )
+    } else if c.mutations.iter().any(|m| m.name == name) {
+        format!("`{shown}` is a mutation; {reads}. Write its answer into `{state}` from the mutation's `then` action")
+    } else if c.actions.iter().any(|a| a.name == name) {
+        format!("`{shown}` is an action; {reads}")
+    } else if c.states[i].name == name {
+        format!("`{shown}` is the state this initializer starts; {reads}")
+    } else {
+        format!("`{shown}` is declared after `{state}`; {reads}: declare `{shown}` above `{state}`")
+    };
+    Some(TypeError {
+        id: "type-initializer-scope",
+        message,
+        span,
+    })
+}
+
+/// The longest member chain in `e` rooted at `name`, as written (`board.cols`).
+fn member_path(e: &Expr, name: &str) -> Option<String> {
+    fn chain(e: &Expr) -> Option<String> {
+        match e {
+            Expr::Ident(n, _) => Some(n.split('#').next().unwrap_or_default().to_string()),
+            Expr::Member(inner, field, _) => chain(inner).map(|c| format!("{c}.{field}")),
+            _ => None,
+        }
+    }
+    fn root(e: &Expr) -> Option<&str> {
+        match e {
+            Expr::Ident(n, _) => Some(n),
+            Expr::Member(inner, _, _) => root(inner),
+            _ => None,
+        }
+    }
+    let mut best: Option<String> = None;
+    let mut visit = |x: &Expr| {
+        if let Some(c) = chain(x).filter(|_| matches!(x, Expr::Member(..)) && root(x) == Some(name))
+        {
+            if best.as_ref().is_none_or(|b| c.len() > b.len()) {
+                best = Some(c);
+            }
+        }
+    };
+    walk_exprs(e, &mut visit);
+    best
+}
+
+/// Visit `e` and every expression inside it.
+fn walk_exprs(e: &Expr, f: &mut dyn FnMut(&Expr)) {
+    f(e);
+    match e {
+        Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(..) | Expr::Ident(..) => {}
+        Expr::Template(parts, _) => parts.iter().for_each(|p| {
+            if let TemplatePart::Expr(x) = p {
+                walk_exprs(x, f)
+            }
+        }),
+        Expr::List(items, _) => items.iter().for_each(|a| walk_exprs(a, f)),
+        Expr::Some(x, _)
+        | Expr::Member(x, _, _)
+        | Expr::NamedArg(_, x, _)
+        | Expr::Typed(x, _, _)
+        | Expr::Unary(_, x, _) => walk_exprs(x, f),
+        Expr::Call(_, args, _) => args.iter().for_each(|a| walk_exprs(a, f)),
+        Expr::Binary(_, a, b, _) => {
+            walk_exprs(a, f);
+            walk_exprs(b, f);
+        }
+        Expr::Ternary(a, b, c, _) => {
+            walk_exprs(a, f);
+            walk_exprs(b, f);
+            walk_exprs(c, f);
+        }
+        Expr::Match {
+            subject,
+            some,
+            none,
+            ..
+        } => {
+            walk_exprs(subject, f);
+            walk_exprs(some, f);
+            walk_exprs(none, f);
+        }
+        Expr::Let { value, body, .. } => {
+            walk_exprs(value, f);
+            walk_exprs(body, f);
+        }
+        Expr::Arrow { body, .. } => walk_exprs(body, f),
+    }
+}
+
+/// The first free name in `e` (not bound by a `let`, a `match` or an arrow
+/// inside it) that `hit` accepts, or the first name a call is made by that
+/// `calls` accepts, with where.
+fn first_free(
+    e: &Expr,
+    calls: &dyn Fn(&str) -> bool,
+    hit: &dyn Fn(&str) -> bool,
+) -> Option<(String, Span)> {
+    fn walk(
+        e: &Expr,
+        calls: &dyn Fn(&str) -> bool,
+        hit: &dyn Fn(&str) -> bool,
+        bound: &mut Vec<String>,
+    ) -> Option<(String, Span)> {
         let within = |name: &str, x: &Expr, bound: &mut Vec<String>| {
             bound.push(name.to_string());
-            let found = walk(x, scope, bound);
+            let found = walk(x, calls, hit, bound);
             bound.pop();
             found
         };
         match e {
-            Expr::Ident(name, span) => (!bound.contains(name) && scope.lookup(name).is_some())
-                .then(|| (name.clone(), *span)),
-            Expr::Number(..)
-            | Expr::Str(..)
-            | Expr::Bool(..)
-            | Expr::None(..)
-            | Expr::EmptyList(..) => None,
+            Expr::Ident(name, span) => {
+                (!bound.contains(name) && hit(name)).then(|| (name.clone(), *span))
+            }
+            Expr::Number(..) | Expr::Str(..) | Expr::Bool(..) | Expr::None(..) => None,
+            Expr::List(items, _) => items.iter().find_map(|a| walk(a, calls, hit, bound)),
             Expr::Template(parts, _) => parts.iter().find_map(|p| match p {
-                TemplatePart::Expr(x) => walk(x, scope, bound),
+                TemplatePart::Expr(x) => walk(x, calls, hit, bound),
                 _ => None,
             }),
             Expr::Some(x, _)
             | Expr::Member(x, _, _)
             | Expr::NamedArg(_, x, _)
-            | Expr::Unary(_, x, _) => walk(x, scope, bound),
-            Expr::Call(_, args, _) => args.iter().find_map(|a| walk(a, scope, bound)),
-            Expr::Binary(_, a, b, _) => walk(a, scope, bound).or_else(|| walk(b, scope, bound)),
-            Expr::Ternary(a, b, c, _) => walk(a, scope, bound)
-                .or_else(|| walk(b, scope, bound))
-                .or_else(|| walk(c, scope, bound)),
+            | Expr::Typed(x, _, _)
+            | Expr::Unary(_, x, _) => walk(x, calls, hit, bound),
+            Expr::Call(name, args, span) => {
+                if !bound.contains(name) && calls(name) {
+                    return Some((name.clone(), *span));
+                }
+                args.iter().find_map(|a| walk(a, calls, hit, bound))
+            }
+            Expr::Binary(_, a, b, _) => {
+                walk(a, calls, hit, bound).or_else(|| walk(b, calls, hit, bound))
+            }
+            Expr::Ternary(a, b, c, _) => walk(a, calls, hit, bound)
+                .or_else(|| walk(b, calls, hit, bound))
+                .or_else(|| walk(c, calls, hit, bound)),
             Expr::Match {
                 subject,
                 var,
                 some,
                 none,
                 ..
-            } => walk(subject, scope, bound)
+            } => walk(subject, calls, hit, bound)
                 .or_else(|| within(var, some, bound))
-                .or_else(|| walk(none, scope, bound)),
+                .or_else(|| walk(none, calls, hit, bound)),
             Expr::Let {
                 name, value, body, ..
-            } => walk(value, scope, bound).or_else(|| within(name, body, bound)),
+            } => walk(value, calls, hit, bound).or_else(|| within(name, body, bound)),
             Expr::Arrow { params, body, .. } => {
                 bound.extend(params.iter().cloned());
-                let found = walk(body, scope, bound);
+                let found = walk(body, calls, hit, bound);
                 bound.truncate(bound.len() - params.len());
                 found
             }
         }
     }
-    walk(e, scope, &mut Vec::new())
+    walk(e, calls, hit, &mut Vec::new())
 }

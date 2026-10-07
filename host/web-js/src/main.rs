@@ -9,10 +9,16 @@
 //! reuses the host's element and CSS rules (`exact_web::host::template`),
 //! and `exact-web` already depends on `contract`.
 
+#[cfg(test)]
+mod budget_tests;
 mod code;
 mod emit;
+mod events;
 mod faces;
 mod facts;
+mod paint;
+#[cfg(test)]
+mod paint_tests;
 mod reads;
 mod style;
 
@@ -58,6 +64,91 @@ fn main() -> ExitCode {
     // linked, as the render host links them (LLP 1047 D7).
     exact_web::link(exact_web_capabilities::ALL);
     let path = std::path::Path::new(input);
+    // The dev loop watches every package the Contract reads (LLP 1091 D10),
+    // even when this compile fails: the fix may be in the library.
+    if dev_reload && !input.ends_with(".plan") {
+        let graph = contract::source_graph(path);
+        let mut roots: Vec<String> = graph
+            .packages
+            .iter()
+            .map(|package| package.root.display().to_string())
+            // The nearest directory that exists, for a file looked for and
+            // not found — but only inside a package or a `node_modules`: never
+            // the app (already watched) or a directory above it.
+            .chain(graph.consulted.iter().filter_map(|consulted| {
+                let dir = consulted.ancestors().skip(1).find(|dir| dir.is_dir())?;
+                // A consulted manifest's directory is a package even when
+                // resolution then refused it.
+                let manifest =
+                    consulted.ends_with("package.json") && consulted.parent() == Some(dir);
+                let inside = manifest
+                    || graph.packages.iter().any(|p| dir.starts_with(&p.root))
+                    || dir.components().any(|c| c.as_os_str() == "node_modules");
+                inside.then(|| dir.display().to_string())
+            }))
+            .collect();
+        roots.sort();
+        roots.dedup();
+        // Where a `node_modules` that is not there yet would be made: the
+        // loop watches these directories (not their trees) for its creation.
+        // Entries to watch in a directory without its tree: a `node_modules`
+        // not made yet (an install makes it), and an install that is a link
+        // (retargeting it is an edit no file inside sees).
+        let mut shallow: Vec<(String, String)> = Vec::new();
+        for consulted in &graph.consulted {
+            if let Some(modules) = consulted
+                .ancestors()
+                .find(|a| a.file_name().is_some_and(|n| n == "node_modules"))
+            {
+                if let Some(parent) = modules.parent().filter(|p| !modules.exists() && p.is_dir()) {
+                    shallow.push((parent.display().to_string(), "node_modules".into()));
+                }
+            }
+            // Every link on the way to it — the install, a linked
+            // node_modules, a linked scope — is one entry of its directory.
+            for dir in consulted.ancestors().skip(1) {
+                let link = std::fs::symlink_metadata(dir).is_ok_and(|m| m.file_type().is_symlink());
+                if let (true, Some(parent), Some(name)) = (link, dir.parent(), dir.file_name()) {
+                    shallow.push((
+                        parent.display().to_string(),
+                        name.to_string_lossy().into_owned(),
+                    ));
+                }
+            }
+        }
+        shallow.sort();
+        shallow.dedup();
+        let list = |dirs: &[String]| {
+            dirs.iter()
+                .map(|r| format!("{r:?}"))
+                .collect::<Vec<_>>()
+                .join(",")
+        };
+        let pairs = shallow
+            .iter()
+            .map(|(dir, name)| format!("[{dir:?},{name:?}]"))
+            .collect::<Vec<_>>()
+            .join(",");
+        // Every source by path: one in a dot directory the app's watcher
+        // would otherwise skip is still an input.
+        // And every path resolution looked at, as written: a link in a dot
+        // directory is watched by its own path.
+        let sources: Vec<String> = graph
+            .sources
+            .iter()
+            .filter(|s| s.path.is_absolute())
+            .map(|s| s.path.display().to_string())
+            .chain(graph.consulted.iter().map(|c| c.display().to_string()))
+            .collect();
+        let json = format!(
+            "{{\"packages\":[{}],\"shallow\":[{}],\"sources\":[{}]}}\n",
+            list(&roots),
+            pairs,
+            list(&sources)
+        );
+        let _ = std::fs::create_dir_all(out);
+        let _ = std::fs::write(std::path::Path::new(out).join("dev-sources.json"), json);
+    }
     let mut map = None;
     let plan = if input.ends_with(".plan") {
         let bytes = match std::fs::read(path) {
@@ -78,6 +169,16 @@ fn main() -> ExitCode {
         // Every refusal, each naming its own file (LLP 1054 L9), as `contract build` prints them.
         match contract::compile_path_all(path, sites) {
             Ok((p, m)) => {
+                // The native bake's refusals, here too: this build bakes
+                // nothing, and a plan every native build refuses must not
+                // pass the web loop (files diary F13).
+                if let Err(e) = contract::check(&p) {
+                    match &m {
+                        Some(m) => eprintln!("{}", m.bake_error(&e)),
+                        None => eprintln!("{input}: {e}"),
+                    }
+                    return ExitCode::from(1);
+                }
                 map = m;
                 p
             }
@@ -90,7 +191,7 @@ fn main() -> ExitCode {
         }
     };
     if dump {
-        emit::dump(&plan);
+        dump_plan(&plan);
     }
     match emit::emit(&plan, sites, dev_reload) {
         Ok(out_files) => {
@@ -101,6 +202,7 @@ fn main() -> ExitCode {
             }
             for (name, text) in [
                 ("app.js", &out_files.js),
+                ("paint.js", &out_files.paint),
                 ("app.css", &out_files.css),
                 ("names.js", &out_files.names),
                 ("pages.json", &out_files.pages),
@@ -109,6 +211,24 @@ fn main() -> ExitCode {
                     eprintln!("{name}: {e}");
                     return ExitCode::from(1);
                 }
+            }
+            // What a Rust data module binds with (rust-data.js): the plan
+            // without the bake's answers, which the page already has in
+            // `app.js` and which can be most of a baked plan's bytes.
+            if let Err(e) = std::fs::write(
+                dir.join("app.bind.plan"),
+                plan.without_compiled_values().encode(),
+            ) {
+                eprintln!("app.bind.plan: {e}");
+                return ExitCode::from(1);
+            }
+            // What `app.ts` is type-checked against, as the native bake
+            // checks it (host/web-js/build.mjs; calendar F9).
+            if let Err(e) = contract::typescript(&plan).and_then(|d| {
+                std::fs::write(dir.join("app.contract.d.ts"), d).map_err(|e| e.to_string())
+            }) {
+                eprintln!("app.contract.d.ts: {e}");
+                return ExitCode::from(1);
             }
             // A Contract compiled here is also the plan beside the pages
             // (the build's `app.plan`), so the build runs no second compile.
@@ -139,6 +259,44 @@ fn main() -> ExitCode {
                 {
                     let _ = std::fs::write(dir.join("files.flag"), "");
                 }
+                // `showNotification`/`closeNotification` (notify.js).
+                let _ = std::fs::remove_file(dir.join("notify.flag"));
+                if u.has(Capability::Notifications) {
+                    let _ = std::fs::write(dir.join("notify.flag"), "");
+                }
+                // A declared sound or a sound command (sounds.js, LLP 1096
+                // D5): the flag holds the table, `[src, frames, rate]` each.
+                let _ = std::fs::remove_file(dir.join("sounds.flag"));
+                if exact_runner::uses::runs_sounds(&plan) {
+                    let table: Vec<_> = plan
+                        .sounds
+                        .iter()
+                        .map(|r| serde_json::json!([plan.str(r.src), r.frames, r.rate]))
+                        .collect();
+                    let _ = std::fs::write(
+                        dir.join("sounds.flag"),
+                        serde_json::json!(table).to_string(),
+                    );
+                }
+            }
+            // Every portable symbol role, which symbols.js loads when a bound
+            // source names one the plan's strings don't (ledger diary F10).
+            let roles: Vec<String> = exact_kernel::generated::SYMBOL_ROLES
+                .iter()
+                .filter_map(|r| exact_kernel::generated::symbol(r).map(|s| (r, s)))
+                .map(|(r, (_, path, filled))| {
+                    format!(
+                        "{}:[{},{}]",
+                        serde_json::to_string(r).unwrap(),
+                        serde_json::to_string(path).unwrap(),
+                        filled as u8
+                    )
+                })
+                .collect();
+            let roles = format!("export default {{{}}};", roles.join(","));
+            if let Err(e) = std::fs::write(dir.join("symbol-roles.js"), roles) {
+                eprintln!("symbol-roles.js: {e}");
+                return ExitCode::from(1);
             }
             if out_files.markdown {
                 let _ = std::fs::write(dir.join("markdown.flag"), "");
@@ -176,5 +334,67 @@ fn main() -> ExitCode {
             eprintln!("{input}: {e}");
             ExitCode::from(1)
         }
+    }
+}
+
+fn dump_plan(plan: &exact_plan::Plan) {
+    use crate::code::{Scope, Uses};
+    use exact_kernel::NodeType;
+    let mut uses = Uses::default();
+    let s = Scope::default();
+    let f = |code: exact_plan::Code, uses: &mut Uses, scope: &Scope, params: usize| {
+        code::function(plan, plan.code(code), scope, params, uses)
+            .unwrap_or_else(|e| format!("<{e}>"))
+    };
+    eprintln!("router: {:?}", plan.router);
+    for (i, r) in plan.slots.iter().enumerate() {
+        eprintln!(
+            "slot {i} {} = {}",
+            plan.str(r.name),
+            f(r.init, &mut uses, &s, 0)
+        );
+    }
+    for (i, r) in plan.derives.iter().enumerate() {
+        eprintln!(
+            "derive {i} {} = {}",
+            plan.str(r.name),
+            f(r.body, &mut uses, &s, 0)
+        );
+    }
+    for (i, r) in plan.resources.iter().enumerate() {
+        eprintln!(
+            "resource {i} {} = {}(..{})",
+            plan.str(r.name),
+            plan.str(r.source),
+            r.args.len
+        );
+    }
+    let a = Scope {
+        action: true,
+        ..Scope::default()
+    };
+    for (i, r) in plan.actions.iter().enumerate() {
+        eprintln!(
+            "action {i} {} = {}",
+            plan.str(r.name),
+            f(r.body, &mut uses, &a, r.params.len as usize)
+        );
+    }
+    for (i, r) in plan.regions.iter().enumerate() {
+        eprintln!(
+            "region {i} {:?} parent {:?} arm {:?} order {} arms {:?}",
+            r.kind, r.parent, r.arm, r.order, r.arms
+        );
+    }
+    for (i, n) in plan.nodes.iter().enumerate() {
+        eprintln!(
+            "node {i} type {:?} parent {:?} arm {:?} order {} bindings {} handlers {}",
+            NodeType::from_wire(n.node_type),
+            n.parent,
+            n.arm,
+            n.order,
+            n.bindings.len,
+            n.handlers.len
+        );
     }
 }

@@ -1,0 +1,35 @@
+// Taps on missing testIds, on elements with no press handler, and type
+// events on non-inputs are refused; state does not change.
+component App
+  state n = 0
+  action inc
+    n = n + 1
+  view
+    column
+      text `${n}` testId="label"
+      button "inc" press=inc testId="inc"
+      when n > 1
+        button "extra" press=inc testId="extra"
+
+test "missing testId"
+  tap "nope"
+  expect state n == 0
+  tap "inc"
+  tap "nope"
+  expect state n == 1
+
+test "element without handler"
+  tap "label"
+  expect state n == 0
+
+test "type into a button"
+  type "inc" "hello"
+  expect state n == 0
+
+test "conditional element"
+  tap "extra"
+  expect state n == 0
+  tap "inc"
+  tap "inc"
+  tap "extra"
+  expect state n == 3

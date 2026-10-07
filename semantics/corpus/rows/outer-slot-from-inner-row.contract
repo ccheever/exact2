@@ -1,0 +1,37 @@
+// A component in an outer row whose own view has inner rows: a press in an
+// inner row runs the outer component's action, which writes the outer
+// row's slot.
+shape Group
+  name: string
+  members: list<string>
+
+component App
+  resource g1 = groups(1) as shape list<Group>
+  resource g2 = groups(2) as shape list<Group>
+  derive groups = length(g1) >= length(g2) ? g1 : g2
+  view
+    column
+      each g, gi in groups key=gi
+        GroupView(group=g, gi=gi)
+
+component GroupView
+  props
+    group: Group
+    gi: number
+  state picks = 0
+  state last = ""
+  action pick(m: string)
+    picks = picks + 1
+    last = m
+  view
+    column
+      text `${gi}: ${picks} ${last}` testId=`g-${gi}`
+      each m, mi in group.members key=mi
+        button m press=pick(m) testId=`p-${gi}-${mi}`
+
+test "inner presses write the outer row"
+  tap "p-0-0"
+  tap "p-0-1"
+  tap "p-1-0"
+  tap "p-0-0"
+  tap "p-1-1"

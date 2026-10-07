@@ -1,0 +1,50 @@
+// One send per mutation per path (`analyze-send-twice`): sends to one
+// mutation in exclusive branches, and sends to two mutations in one
+// action, each answered in the commit. A send and a read of the mutation
+// in the same action: the read sees the pre-state.
+shape Ack
+  n: number
+  s: string
+
+component App
+  mutation ack as shape Ack
+  mutation other as shape Ack
+  state seenBefore = "none"
+  state k = 0
+  derive label = match ack { case some(a) => a.s, case none => "-" }
+  derive otherLabel = match other { case some(a) => a.s, case none => "-" }
+  action branch
+    if k % 2 == 0
+      send ack = ping("even", k)
+    else
+      send ack = ping("odd", k)
+    k = k + 1
+  action both
+    send ack = ping("first", k)
+    send other = ping("second", k)
+    k = k + 1
+  action readBack
+    send ack = ping("third", k)
+    seenBefore = match ack { case some(a) => `had ${a.s}`, case none => "none" }
+  view
+    column
+      text label testId="label"
+      text otherLabel testId="other"
+      text seenBefore testId="before"
+      button "branch" press=branch testId="branch"
+      button "both" press=both testId="both"
+      button "read" press=readBack testId="read"
+
+test "exclusive branches"
+  tap "branch"
+  tap "branch"
+  tap "branch"
+
+test "two mutations"
+  tap "both"
+  tap "both"
+
+test "read sees pre-state"
+  tap "read"
+  expect state seenBefore == "none"
+  tap "read"

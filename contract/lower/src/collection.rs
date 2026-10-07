@@ -3,6 +3,7 @@
 //! carousel (LLP 1070 H2).
 use super::{err, values::numeric_literal, LowerError, Lowerer};
 use contract_syntax::{Attr, Expr, Node, Span};
+use contract_types::{Scope, Ty};
 
 fn literal<'a>(attrs: &'a [Attr], name: &str) -> Option<&'a Attr> {
     attrs.iter().find(|a| a.name == name)
@@ -28,7 +29,22 @@ impl Lowerer<'_> {
         attrs: &[Attr],
         children: &[Node],
         span: Span,
+        scope: &Scope,
     ) -> Result<(), LowerError> {
+        // Reorder is a collection's (LLP 1010 §6, LLP 1043.000): every host
+        // drags only a virtualized list's measured rows, so anywhere else
+        // `reorderdrop` would never fire, on any host (the weather diary's
+        // F1 met it as the web build's refusal).
+        let virtualized = tag == "list"
+            && attrs
+                .iter()
+                .any(|a| a.name == "virtualized" && matches!(a.value, Expr::Bool(true, _)));
+        if let Some(reorder) = attrs.iter().find(|a| a.name == "reorderdrop") {
+            if !virtualized {
+                return err("lower-reorder-collection", format!("`reorderdrop` reorders a virtualized list's rows, and every host drags only those: write `list virtualized=true` with one `each`, and give each row a handle with `reorderFor` naming the list's `id`; on {} it would never fire", if tag == "list" { "a list that is not virtualized".to_string() } else { format!("`{tag}`") }), reorder.span);
+            }
+        }
+        self.check_group(virtualized, attrs, children, scope)?;
         let Some(opt) = attrs.iter().find(|a| a.name == "virtualized") else {
             return Ok(());
         };
@@ -49,7 +65,7 @@ impl Lowerer<'_> {
         if !row
             && !attrs.iter().any(|a| match a.name.as_str() {
                 "height" | "max-height" => !matches!(&a.value, Expr::Str(s, _) if s == "auto"),
-                "flex" => numeric_literal(&a.value).is_none_or(|n| n > 0.0),
+                "flex" => super::values::flex_bounds(&a.value),
                 _ => false,
             })
         {
@@ -80,6 +96,48 @@ impl Lowerer<'_> {
             expanded.extend(rows);
         }
         self.collection_flow(&expanded, None)
+    }
+
+    /// `reorderGroup` (@ref LLP 1094 D1): lists that share one exchange rows,
+    /// so each takes the drop (`reorderdrop`), is named by its `id` in the
+    /// drop's `ReorderEvent`, and keys its rows by strings, the keys a row
+    /// carries from one list to another. A row list and a nested list are
+    /// refused by their own reorder rules (LLP 1094 §7).
+    fn check_group(
+        &self,
+        virtualized: bool,
+        attrs: &[Attr],
+        children: &[Node],
+        scope: &Scope,
+    ) -> Result<(), LowerError> {
+        let Some(group) = attrs.iter().find(|a| a.name == "reorderGroup") else {
+            return Ok(());
+        };
+        let has = |name: &str| attrs.iter().any(|a| a.name == name);
+        if !virtualized || !has("reorderdrop") || !has("id") {
+            return err("lower-reorder-group", "`reorderGroup` joins lists that take a drop: give this `list virtualized=true` a `reorderdrop` and an `id`", group.span);
+        }
+        let [Node::Each {
+            var,
+            index,
+            list,
+            key,
+            ..
+        }] = children
+        else {
+            return Ok(());
+        };
+        let shapes = &self.types.shapes;
+        let item = match contract_types::infer(list, scope, shapes) {
+            Ok(Ty::List(item)) => *item,
+            _ => Ty::Unknown,
+        };
+        let mut inner = scope.clone();
+        inner.push_each(var, index.as_deref(), item);
+        match contract_types::infer(key, &inner, shapes) {
+            Ok(t) if t != Ty::String && t.is_complete() => err("lower-reorder-group", format!("a grouped list's rows move between lists by their keys, so its `each` is keyed by a string, not a {t}: key it by the item's string id"), key.span()),
+            _ => Ok(()),
+        }
     }
 
     /// The rules that make a list's axis CSS's and keep its index's starts
@@ -226,10 +284,6 @@ impl Lowerer<'_> {
                 "position" => {
                     matches!(&a.value, Expr::Str(s, _) if s == "relative" || s == "static")
                 }
-                "top" | "bottom" | "left" | "right" | "rotate" => {
-                    numeric_literal(&a.value) == Some(0.0)
-                }
-                "scale" => numeric_literal(&a.value) == Some(1.0),
                 "margin" | "margin-top" | "margin-bottom" => {
                     numeric_literal(&a.value).is_some_and(|v| v >= 0.0)
                 }
@@ -261,6 +315,13 @@ impl Lowerer<'_> {
                 }
                 _ => true,
             };
+            if !allowed
+                && a.name == "position"
+                && matches!(&a.value, Expr::Str(s, _) if s == "sticky")
+            {
+                // @ref LLP 1083 D5 — each row is laid out in a wrapper of its own.
+                return err("lower-collection-flow", "a windowed row's root would stick only inside its own row: make a section one row, and its header `position: sticky` inside it", a.span);
+            }
             if !allowed {
                 return err("lower-collection-flow", format!("`{}` is not supported on this virtual collection flow root; absolute/overlapping rows and alternate container layouts are not windowed", a.name), a.span);
             }

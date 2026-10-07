@@ -169,6 +169,14 @@ pub struct Env {
     pub rows: u8,
     /// The segments, row-major, `cols × rows` of them — empty for one segment.
     pub segments: Vec<Rect>,
+    /// Layout viewport width in points.
+    pub viewport_width: f32,
+    /// Layout viewport height in points.
+    pub viewport_height: f32,
+    /// A terminal's border rule (LLP 1101 §4, LLP 1101.001 P13): a drawn
+    /// side occupies one cell. Set by the terminal host on its own kernel;
+    /// no other host sees it.
+    pub cell_borders: bool,
 }
 
 impl Default for Env {
@@ -188,6 +196,9 @@ impl Env {
             cols: 1,
             rows: 1,
             segments: Vec::new(),
+            viewport_width: 0.0,
+            viewport_height: 0.0,
+            cell_borders: false,
         }
     }
 
@@ -237,6 +248,14 @@ impl Env {
             cols,
             rows,
             segments,
+            ..self.clone()
+        }
+    }
+
+    /// This environment with the terminal's border rule on or off.
+    pub fn with_cell_borders(&self, on: bool) -> Env {
+        Env {
+            cell_borders: on,
             ..self.clone()
         }
     }
@@ -425,7 +444,8 @@ fn term(inner: &str) -> Result<Dimension, EnvRefusal> {
 
 /// An `env()` length by CSS's grammar: `env(safe-area-inset-<edge>)`,
 /// `env(viewport-segment-<var> <x> <y>)`, or either inside
-/// `calc(env(…) ± <n>px)`. `Ok(None)` when the text is not an `env()` form
+/// `calc(env(…) ± <n>px)` or `calc(<n>px + env(…))` (addition commutes;
+/// `<n>px - env(…)` negates the variable, which no row can hold). `Ok(None)` when the text is not an `env()` form
 /// at all (a `calc()` of percent and points, a plain length); `Err` when it
 /// names one of the kernel's variables wrongly (LLP 1078 D10).
 pub fn parse(text: &str) -> Result<Option<Dimension>, EnvRefusal> {
@@ -438,7 +458,7 @@ pub fn parse(text: &str) -> Result<Option<Dimension>, EnvRefusal> {
     };
     let body = body.trim();
     if !body.starts_with("env(") {
-        return Ok(None);
+        return leading_length(body);
     }
     // `env(...) ± <n>px`: the operator is the first `+`/`-` after the
     // closing paren of the `env(...)` term.
@@ -467,4 +487,72 @@ pub fn parse(text: &str) -> Result<Option<Dimension>, EnvRefusal> {
         Dimension::Segment(var, x, y, _) => Dimension::Segment(var, x, y, sign * plus),
         other => other,
     }))
+}
+
+/// `<n>px + env(…)`, a calc body whose length comes first: the same
+/// dimension as `env(…) + <n>px`. By CSS's grammar: whitespace on both
+/// sides of the `+`, none between the number and `px`. `Ok(None)` for
+/// anything else.
+fn leading_length(body: &str) -> Result<Option<Dimension>, EnvRefusal> {
+    let Some(at) = body.find("env(") else {
+        return Ok(None);
+    };
+    let (head, env) = body.split_at(at);
+    let Some(head) = head
+        .strip_suffix(|c: char| c.is_ascii_whitespace())
+        .map(str::trim_end)
+        .and_then(|h| h.strip_suffix('+'))
+        .and_then(|h| h.strip_suffix(|c: char| c.is_ascii_whitespace()))
+    else {
+        return Ok(None);
+    };
+    let Some(number) = head.trim_end().strip_suffix("px") else {
+        return Ok(None);
+    };
+    let Ok(plus) = exact_num::parse_f32(number) else {
+        return Ok(None);
+    };
+    if !plus.is_finite() || env.find(')') != Some(env.len() - 1) {
+        return Ok(None);
+    }
+    Ok(Some(match term(env)? {
+        Dimension::Env(edge, _) => Dimension::Env(edge, plus),
+        Dimension::Segment(var, x, y, _) => Dimension::Segment(var, x, y, plus),
+        other => other,
+    }))
+}
+
+/// Whether a style reads a viewport or environment length.
+pub fn uses_env(style: &crate::StyleProps) -> bool {
+    style.mask.iter().any(|id| {
+        matches!(
+            style.get(id),
+            crate::RowValue::Dimension(
+                Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..)
+            )
+        )
+    })
+}
+
+impl Env {
+    pub(crate) fn with_viewport(&self, offer: crate::Offer) -> Self {
+        use crate::AxisOffer::Definite;
+        if !matches!((offer.width, offer.height), (Definite(w), Definite(h)) if w >= 0.0 && h >= 0.0)
+        {
+            return self.clone();
+        }
+        Self {
+            viewport_width: if let Definite(v) = offer.width {
+                v
+            } else {
+                self.viewport_width
+            },
+            viewport_height: if let Definite(v) = offer.height {
+                v
+            } else {
+                self.viewport_height
+            },
+            ..self.clone()
+        }
+    }
 }

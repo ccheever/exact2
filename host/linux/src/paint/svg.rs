@@ -67,7 +67,82 @@ pub struct SvgPaint<'a> {
     pub phase: f32,
 }
 
+thread_local! {
+    /// Each role's path, parsed once: the schema's `d` strings are static,
+    /// so the address names the path (a row of icons painted again parsed
+    /// every one, 4% of the easy list's thread).
+    static SYMBOL_PATHS: std::cell::RefCell<std::collections::HashMap<usize, std::rc::Rc<Path>>> =
+        std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+/// The parsed path of a schema `d` string.
+fn parsed_symbol(d: &'static str) -> std::rc::Rc<Path> {
+    SYMBOL_PATHS.with(|paths| {
+        paths
+            .borrow_mut()
+            .entry(d.as_ptr() as usize)
+            .or_insert_with(|| std::rc::Rc::new(exact_kernel::svg::parse_d(d)))
+            .clone()
+    })
+}
+
 impl Painter {
+    /// A portable symbol role (LLP 1035.004 D1) as the web draws it: the
+    /// role's path in a 24-unit box at the image's font size, placed by
+    /// `object-fit`, stroked `1.1 + (weight − 100) / 400` units with round
+    /// caps and joins (a `-fill` role filled even-odd), in its tint, which
+    /// starts as `AccentColor`. An `sf/` name stays an empty box (LLP 1035.004.000 D4).
+    pub(super) fn symbol(
+        &mut self,
+        node: &NodeRef<'_>,
+        content: Rect4,
+        tint: Option<[u8; 4]>,
+        ts: Transform,
+    ) {
+        let Some(role) = node
+            .props
+            .str(exact_kernel::PropId::ImageSource)
+            .and_then(|s| s.strip_prefix("symbol:"))
+        else {
+            return;
+        };
+        let Some((_, d, filled)) = exact_kernel::generated::symbol(role) else {
+            return;
+        };
+        let style = node.style;
+        let size = style.font_size.max(1.0);
+        let natural = (size.round().max(1.0) as u32, size.round().max(1.0) as u32);
+        let Some((x, y, w, h)) = super::object_fit(natural, style.object_fit, content) else {
+            return;
+        };
+        let path = parsed_symbol(d);
+        // An untinted symbol is the row's initial, `AccentColor` (LLP 1095 D8).
+        let colour = tint.unwrap_or_else(|| {
+            rgba(
+                style
+                    .tint_color
+                    .unwrap_or_else(|| node.text_color())
+                    .resolve(self.dark),
+            )
+        });
+        let weight = f32::from(style.font_weight).clamp(100.0, 900.0);
+        let paint = SvgPaint {
+            path: &path,
+            fill: filled.then_some(Ink::Solid(colour)),
+            even_odd: true,
+            stroke: (!filled).then_some(Ink::Solid(colour)),
+            order: [0, 1, 2],
+            width: 1.1 + (weight - 100.0) / 400.0,
+            cap: 1,
+            join: 1,
+            miter: 4.0,
+            dash: Vec::new(),
+            phase: 0.0,
+        };
+        self.backend
+            .svg_path(&paint, ts.pre_translate(x, y).pre_scale(w / 24.0, h / 24.0));
+    }
+
     /// SVG text (LLP 1055.000 D11): each run shaped as a one-line paragraph
     /// by the text engine, its chunk anchored by the runs' total advance and
     /// set on the baseline `dominant-baseline` names. The fill is painted;
@@ -164,7 +239,7 @@ fn ink(p: Option<&ShapePaint>, dark: bool, to_path: [f32; 6]) -> Option<Ink<'_>>
     })
 }
 
-fn affine(t: [f32; 6]) -> Transform {
+pub(super) fn affine(t: [f32; 6]) -> Transform {
     Transform::from_row(t[0], t[1], t[2], t[3], t[4], t[5])
 }
 
@@ -187,7 +262,20 @@ impl Painter {
         }
         let (ox, oy) = effective_overflow(node);
         let clips = ox != Overflow::Visible || oy != Overflow::Visible;
+        // The elements the reader animates (`crate::host::lower`).
+        self.svg_layers.clear();
+        let mut stack: Vec<&Item> = scene.items.iter().collect();
+        while let Some(item) = stack.pop() {
+            let p = (walk.scene.presented)(item.id);
+            if p.lowered != 0 {
+                self.svg_layers.push((item.id, p));
+            }
+            if let Kind::Group(children) | Kind::Viewport { children, .. } = &item.kind {
+                stack.extend(children);
+            }
+        }
         self.paint_svg(&scene, clips, rect, content, ts);
+        self.svg_layers.clear();
     }
 
     /// A resolved `svg` scene inside its box: clipped to the border box
@@ -227,16 +315,31 @@ pub(super) fn resolve_svg(
     node: &NodeRef<'_>,
     content: Rect4,
 ) -> exact_kernel::svg::Scene {
-    resolve_with(walk.kernel, node, content, walk.presented)
+    resolve_with(walk.kernel, node, content, walk.presented, walk.paths)
 }
 
-/// [`resolve_svg`] with the host's presented values by view.
+/// [`resolve_svg`] with the host's presented values and paths by view.
 pub fn resolve_with(
     kernel: &exact_kernel::Kernel,
     node: &NodeRef<'_>,
     content: Rect4,
     presented: &dyn Fn(exact_kernel::ViewId) -> super::Presented,
+    paths: &dyn Fn(exact_kernel::ViewId) -> Option<exact_motion::PathValue>,
 ) -> exact_kernel::svg::Scene {
+    /// The host's values by node, as the scene asks for them.
+    struct ByNode<'a, V> {
+        kernel: &'a exact_kernel::Kernel,
+        value: V,
+        paths: &'a dyn Fn(exact_kernel::ViewId) -> Option<exact_motion::PathValue>,
+    }
+    impl<V: Fn(NodeKey, Property) -> Option<Value>> scene::Present for ByNode<'_, V> {
+        fn value(&self, key: NodeKey, p: Property) -> Option<Value> {
+            (self.value)(key, p)
+        }
+        fn path(&self, key: NodeKey) -> Option<exact_motion::PathValue> {
+            (self.paths)(self.kernel.node_by_key(key)?.id)
+        }
+    }
     {
         let value = |key: NodeKey, p: Property| -> Option<Value> {
             let id = kernel.node_by_key(key)?.id;
@@ -258,7 +361,16 @@ pub fn resolve_with(
                 _ => return None,
             })
         };
-        scene::resolve(kernel, node, content, &value)
+        scene::resolve(
+            kernel,
+            node,
+            content,
+            &ByNode {
+                kernel,
+                value,
+                paths,
+            },
+        )
     }
 }
 
@@ -314,7 +426,17 @@ impl Painter {
     /// One item in its parent's space `ts`; `origin` is the content box's
     /// space, where a non-scaling stroke is drawn.
     pub(super) fn svg_item(&mut self, item: &Item, ts: Transform, origin: Transform) {
-        if item.opacity <= 0.0 {
+        let own = match &item.transform {
+            Some(t) => ts.pre_concat(affine(t.affine())),
+            None => ts,
+        };
+        let (layer, own) = match self.svg_layers.is_empty() {
+            true => (super::layer::Opened { lowered: 0 }, own),
+            false => self.svg_layer(item, ts, own),
+        };
+        let opacity = if layer.opacity() { 1.0 } else { item.opacity };
+        if opacity <= 0.0 {
+            self.layer_close(layer);
             return;
         }
         // @ref LLP 1055.000 D19 — a blended element is drawn alone into an
@@ -336,17 +458,13 @@ impl Painter {
             }
             return;
         }
-        let isolate = item.isolate && item.opacity >= 1.0;
+        let isolate = item.isolate && opacity >= 1.0;
         if isolate {
             self.backend.push_opacity(1.0);
         }
-        if item.opacity < 1.0 {
-            self.backend.push_opacity(item.opacity);
+        if opacity < 1.0 {
+            self.backend.push_opacity(opacity);
         }
-        let own = match &item.transform {
-            Some(t) => ts.pre_concat(affine(t.affine())),
-            None => ts,
-        };
         let clips = item
             .clip
             .as_ref()
@@ -359,12 +477,13 @@ impl Painter {
         for _ in 0..clips {
             self.backend.pop_clip();
         }
-        if item.opacity < 1.0 {
+        if opacity < 1.0 {
             self.backend.pop_opacity();
         }
         if isolate {
             self.backend.pop_opacity();
         }
+        self.layer_close(layer);
     }
 
     /// What an item draws, in its own space `own`.

@@ -4,9 +4,10 @@ use PrimaryIcon from "./palette.contract"
 use PrimaryFill from "./palette.contract"
 use PageSurface from "./palette.contract"
 use PageCanvas from "./palette.contract"
-use Inbox from "./models.contract"
+use Inbox, DeletedInbox, Recipients, ComposerDraft, Conversation from "./models.contract"
+use Change from "./models.contract"
 use NewMessageSheet from "./new-message-sheet.contract"
-use MessageBubble from "./message-parts.contract"
+use MessageBubble, TypingIndicator, ReactionArtwork from "./message-parts.contract"
 use NewContactSheet from "./new-contact-sheet.contract"
 use ContactDetails from "./contact-details.contract"
 
@@ -86,6 +87,9 @@ component Messages
   state newDraft = ""
   state showContacts = false
   mutation change as shape Change
+  // A draft saved on the way to a new message: its own mutation, so the
+  // message's send does not forget its reply (LLP 1088 D8).
+  mutation draftSaved as shape Change
   derive revision = match change { case some(c) => c.revision, case none => 0 }
   derive pendingReplies = match change { case some(c) => c.pending, case none => false }
   derive typingPhase = ticks % 4
@@ -456,7 +460,7 @@ component Messages
     timestampOffset = 0
     if contacts.canSend and trim(newDraft) != ""
       if chatThread != "" and chatThread != contacts.target and (draftThread == chatThread or replyThread == chatThread or savedComposer.thread == chatThread)
-        send change = saveDraft(chatThread, draft, replying)
+        send draftSaved = saveDraft(chatThread, draft, replying)
       send change = sendMessage(contacts.target, newDraft, "", ticks, now())
       nav = open(nav, path("thread", contacts.target))
       draftThread = contacts.target
@@ -525,7 +529,7 @@ component Messages
                                 when not person.unread
                                   box position="absolute" right=-1 top=0 width=9 height=9 border-radius=5 background-color="#0088ff" display="flex" align-items="center" justify-content="center"
                                     box width=4 height=4 border-radius=3 border-style="solid" border-width=1.5 border-color="#ffffff"
-                          button background-color=(swipedThread == person.id ? "light-dark(#e5e5ea, #2c2c2e)" : "light-dark(#ffffff, #000000)") border-radius=(swipedThread == person.id ? 28 : 0) press=open(person.id, person.draft, person.reply) id=`conversation-${person.id}` testId=`conversation-${person.id}` aria-label=`${person.name}, ${person.preview}` display="flex" flex-direction="row" align-items="center" width="100%" flex-shrink=0 scroll-snap-align="start" box-sizing="border-box" padding-left=11 padding-right=16 height=86.6667 gap=8
+                          button background-color=(swipedThread == person.id ? "light-dark(#e5e5ea, #2c2c2e)" : "light-dark(#ffffff, #000000)") border-radius=(swipedThread == person.id ? 28 : 0) press=open(person.id, person.draft, person.reply) id=`conversation-${person.id}` testId=`conversation-${person.id}` aria-label=`${person.name}, ${person.preview}` display="flex" flex-direction="row" align-items="center" width="100%" flex-shrink=0 scroll-snap-align="start" box-sizing="border-box" padding-left=11 padding-right=16 height=86.6667 gap=8 text-align="start"
                             box testId=`unread-dot-${person.id}` width=7 height=7 border-radius=4 background-color=(person.unread ? "light-dark(#007aff, #0a84ff)" : "#00000000") flex-shrink=0
                             column width=45 height=45 border-radius=22.5 background-color=person.color justify-content="center" align-items="center" flex-shrink=0
                               when person.initials != ""
@@ -560,7 +564,7 @@ component Messages
                 row testId="inbox-bar" margin-left=28 margin-right=16 margin-bottom=16 gap=8 align-items="center" flex-shrink=0 glassGroup=8
                   row testId="search-bar" padding-left=18 padding-right=14 height=48 flex=1 min-width=0 border-radius=24 backgroundMaterial="glass" align-items="center" gap=12 flex-shrink=0
                     image "symbol:search" font-size=20 font-weight=400 flex-shrink=0 class=PrimaryIcon
-                    input id="search" testId="search" value=query input=search placeholder="Search" aria-label="Search conversations" class=PrimaryText font-size=17 flex=1 min-width=0 height=44 border-width=0
+                    input appearance="none" id="search" testId="search" value=query input=search placeholder="Search" aria-label="Search conversations" class=PrimaryText font-size=17 flex=1 min-width=0 height=44 border-width=0
                     button disabled=true testId="search-dictation" aria-label="Dictate search" width=28 height=40 display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
                       image "symbol:microphone" font-size=17 font-weight=400 class=PrimaryIcon
                   button press=newMessage testId="new-message" aria-label="New message" width=48 height=48 border-radius=24 backgroundMaterial="glass" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
@@ -577,7 +581,7 @@ component Messages
                       button press=pageDeleted(deletedInbox.earlier) testId="previous-deleted-conversations" padding=16
                         text "Previous conversations" class=AccentText
                     each person in deletedInbox.people key=person.id
-                      button press=chooseDeleted(person.selection) testId=`deleted-${person.id}` aria-label=`${person.name}, ${person.count} messages, ${person.days} days remaining` aria-checked=person.chosen height=86.6667 width="100%" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" padding-left=16 padding-right=16 gap=16 background-color=(person.chosen ? "light-dark(#d1d1d6, #3a3a3c)" : "#00000000")
+                      button press=chooseDeleted(person.selection) testId=`deleted-${person.id}` aria-label=`${person.name}, ${person.count} messages, ${person.days} days remaining` aria-checked=person.chosen height=86.6667 width="100%" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" padding-left=16 padding-right=16 gap=16 background-color=(person.chosen ? "light-dark(#d1d1d6, #3a3a3c)" : "#00000000") text-align="start"
                         column width=22 height=22 box-sizing="border-box" border-radius=11 border-style="solid" border-width=(person.chosen ? 0 : 1.5) border-color="light-dark(#c7c7cc, #636366)" background-color=(person.chosen ? "#0088ff" : "#00000000") align-items="center" justify-content="center" flex-shrink=0
                           when person.chosen
                             box width=12 height=12 clip-path="path('M 1 6 L 4 9 L 11 1 L 12 2 L 4 12 L 0 7 Z')" background-color="#ffffff"
@@ -603,21 +607,21 @@ component Messages
                 box width=16 height=1.5 border-radius=1 class=PrimaryFill
                 box width=10 height=1.5 border-radius=1 class=PrimaryFill
             column id="inbox-filters" popover="auto" position="absolute" role="menu" aria-label="Filter messages" width=250 padding=8 border-width=0 border-radius=28 background-color="light-dark(#f2f2f7, #2c2c2e)"
-              button press=filterInbox("messages") popovertarget="inbox-filters" popovertargetaction="hide" role="menuitemradio" aria-checked=(inboxMode == "messages") testId="filter-messages" height=44 justify-content="center" padding-left=16 padding-right=16
+              button press=filterInbox("messages") popovertarget="inbox-filters" popovertargetaction="hide" role="menuitemradio" aria-checked=(inboxMode == "messages") testId="filter-messages" height=44 padding-left=16 padding-right=16 text-align="start"
                 text "Messages" font-size=17
-              button press=filterInbox("deleted") popovertarget="inbox-filters" popovertargetaction="hide" role="menuitemradio" aria-checked=(inboxMode == "deleted") testId="filter-deleted" height=44 justify-content="center" padding-left=16 padding-right=16
+              button press=filterInbox("deleted") popovertarget="inbox-filters" popovertargetaction="hide" role="menuitemradio" aria-checked=(inboxMode == "deleted") testId="filter-deleted" height=44 padding-left=16 padding-right=16 text-align="start"
                 text "Recently Deleted" font-size=17
             column id="recover-confirmation" popover="auto" position="absolute" role="alertdialog" aria-label="Recover messages" width=240 box-sizing="border-box" padding=16 gap=16 border-width=0 border-radius=28 background-color="light-dark(#f2f2f7, #2c2c2e)"
               text "These messages will be recovered." font-size=17
-              button press=recoverDeleted popovertarget="recover-confirmation" popovertargetaction="hide" testId="confirm-recover" class=AccentText background-color="#0088ff" height=48 justify-content="center" border-radius=24
+              button press=recoverDeleted popovertarget="recover-confirmation" popovertargetaction="hide" testId="confirm-recover" class=AccentText background-color="#0088ff" height=48 border-radius=24
                 text (recoveryCount == 1 ? "Recover Message" : `Recover ${recoveryCount} Messages`) font-size=17 font-weight=600 color="#ffffff"
-              button popovertarget="recover-confirmation" popovertargetaction="hide" testId="cancel-recover" height=44 justify-content="center"
+              button popovertarget="recover-confirmation" popovertargetaction="hide" testId="cancel-recover" height=44
                 text "Cancel" font-size=17
             column id="purge-confirmation" popover="auto" position="absolute" role="alertdialog" aria-label="Permanently delete messages" width=240 box-sizing="border-box" padding=16 gap=16 border-width=0 border-radius=28 background-color="light-dark(#f2f2f7, #2c2c2e)"
               text "These messages will be permanently deleted. This action cannot be undone." font-size=17
-              button destructive=true press=permanentlyDelete popovertarget="purge-confirmation" popovertargetaction="hide" testId="confirm-purge" color="light-dark(#ff383c, #ff4245)" height=48 justify-content="center" border-radius=24
+              button destructive=true press=permanentlyDelete popovertarget="purge-confirmation" popovertargetaction="hide" testId="confirm-purge" color="light-dark(#ff383c, #ff4245)" height=48 border-radius=24
                 text (recoveryCount == 1 ? "Delete Message" : `Delete ${recoveryCount} Messages`) font-size=17 font-weight=600
-              button popovertarget="purge-confirmation" popovertargetaction="hide" testId="cancel-purge" height=44 justify-content="center"
+              button popovertarget="purge-confirmation" popovertargetaction="hide" testId="cancel-purge" height=44
                 text "Cancel" font-size=17
         when e.name == "thread"
           column navigationKey=`${e.id}` testId="conversation-screen" position="absolute" top=0 right=0 bottom=0 left=0 box-sizing="border-box" class=PageSurface padding-top="env(safe-area-inset-top)" padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)"
@@ -697,7 +701,7 @@ component Messages
                             button press=openReplies(message.replyRoot) testId=`replies-${message.id}` margin-top=5 margin-left=6 margin-right=6 padding=3
                               text (message.replyCount == 1 ? "1 Reply" : `${message.replyCount} Replies`) font-size=12 class=AccentText
                           when selecting
-                            button press=chooseMessage(message.selection) retainFocus=true testId=`select-message-${message.id}` aria-label=`Select message: ${message.body}` aria-checked=message.chosen position="absolute" top=0 right=0 bottom=0 left=0 width="100%" height="100%" justify-content="center" z-index=3
+                            button press=chooseMessage(message.selection) retainFocus=true testId=`select-message-${message.id}` aria-label=`Select message: ${message.body}` aria-checked=message.chosen position="absolute" top=0 right=0 bottom=0 left=0 width="100%" height="100%" z-index=3
                       when chat.hasLater
                         button position="relative" press=shiftWindow(chat.later) testId="show-later-messages" left=timestampOffset padding=12
                           text "Show later messages" font-size=14 class=AccentText
@@ -710,7 +714,7 @@ component Messages
                     box width="50%"
               when replying != "" and not selecting
                 column testId="reply-thread" z-index=2 position="absolute" top=0 right=0 bottom=0 left=0 backgroundMaterial="ultra-thin" justify-content="center"
-                  button press=cancelReply testId="dismiss-reply-thread" aria-label="Return to conversation" position="absolute" top=0 right=0 bottom=0 left=0 width="100%" height="100%" justify-content="center"
+                  button press=cancelReply testId="dismiss-reply-thread" aria-label="Return to conversation" position="absolute" top=0 right=0 bottom=0 left=0 width="100%" height="100%"
                   scroll testId="reply-messages" max-height="100%" width="100%" scrollFollowEnd=true scrollTop=(1000000 + chat.scrollRevision) keyboardDismissMode="interactive" overflow-x="hidden"
                     column padding=16 gap=12
                       each message in chat.replies key=message.id
@@ -761,7 +765,7 @@ component Messages
                   button press=showAttachments retainFocus=true testId="add" aria-label="Add attachment" width=40 height=40 display="flex" flex-direction="row" justify-content="center" align-items="center" border-radius=20 backgroundMaterial="glass"
                     image "symbol:add" font-size=22 font-weight=400 rotate=(attachments ? 45 : 0) class=PrimaryIcon
                   row testId="composer-surface" flex=1 min-width=0 min-height=40.333333 max-height="100%" align-self="stretch" box-sizing="border-box" backgroundMaterial="glass" border-radius=20 align-items="flex-end" padding-left=16 padding-right=6.333333 padding-top=6 padding-bottom=6 gap=5
-                    textarea id="composer" testId="composer" value=draft input=write focus=composerFocus blur=composerBlur placeholder="iMessage" aria-label="Message" class=PrimaryText font-family="system-ui" font-size=17 line-height="20px" flex=1 min-width=0 field-sizing="content" min-height=28.333333 max-height="100%" align-self="stretch" padding-top=4.166667 padding-bottom=4.166667 box-sizing="border-box" border-width=0
+                    textarea appearance="none" id="composer" testId="composer" value=draft input=write focus=composerFocus blur=composerBlur placeholder="iMessage" aria-label="Message" class=PrimaryText font-family="system-ui" font-size=17 line-height="20px" flex=1 min-width=0 field-sizing="content" min-height=28.333333 max-height="100%" align-self="stretch" padding-top=4.166667 padding-bottom=4.166667 box-sizing="border-box" border-width=0
                     button press=sendDraft retainFocus=true disabled=(draft == "") testId="send" aria-label=(draft == "" ? "Dictate message" : "Send message") width=38 height=28 box-sizing="border-box" padding-left=(draft == "" ? 10 : 0) border-radius=14 background-color=(draft == "" ? "#00000000" : "light-dark(#007aff, #0a84ff)") display="flex" flex-direction="row" align-items="center" justify-content="center"
                       when draft == ""
                         image "symbol:microphone" font-size=17 font-weight=400 tint-color="light-dark(#b4b4b7, #8e8e93)"
@@ -780,11 +784,11 @@ component Messages
               dialog id="delete-confirmation" testId="delete-confirmation" role="alertdialog" aria-label="Delete selected messages" closedby="any" backgroundMaterial="glass" position="absolute" left=10 right="auto" top="auto" bottom="calc(env(safe-area-inset-bottom) + 10px)" margin=0 width=240 padding=16 box-sizing="border-box" border-width=0 border-radius=36
                 button destructive=true press=deleteSelected commandfor="delete-confirmation" command="close" testId="confirm-delete-messages" aria-label=(chat.selectionCount == 1 ? "Delete Message" : `Delete ${chat.selectionCount} Messages`) height=48 border-radius=24 background-color="light-dark(#d9d9dc, #555559)" display="flex" flex-direction="row" align-items="center" justify-content="center" color="light-dark(#ff383c, #ff4245)"
                   text (chat.selectionCount == 1 ? "Delete Message" : `Delete ${chat.selectionCount} Messages`) font-size=17 font-weight=600
-                button commandfor="delete-confirmation" command="close" testId="dismiss-delete-confirmation" aria-label="Cancel deletion" height=44 justify-content="center"
+                button commandfor="delete-confirmation" command="close" testId="dismiss-delete-confirmation" aria-label="Cancel deletion" height=44
                   text "Cancel" font-size=17
             when selected != ""
               column testId="tapback-layer" z-index=10 position="absolute" top=0 right=0 bottom=0 left=0
-                button press=dismiss retainFocus=true testId="dismiss-tapback" aria-label="Dismiss Tapbacks" width="100%" height="100%" justify-content="center" position="absolute" top=0 right=0 bottom=0 left=0 background-color=(selectedActions ? "#16152a" : "light-dark(#0000001a, #00000080)") opacity=(selectedActions ? 0.21 : 1)
+                button press=dismiss retainFocus=true testId="dismiss-tapback" aria-label="Dismiss Tapbacks" width="100%" height="100%" position="absolute" top=0 right=0 bottom=0 left=0 background-color=(selectedActions ? "#16152a" : "light-dark(#0000001a, #00000080)") opacity=(selectedActions ? 0.21 : 1)
                 each message in chat.messages key=message.id
                   when message.id == selected
                     when message.reactionCount > 0
@@ -819,7 +823,7 @@ component Messages
                               box position="relative" width=50 height=0 flex-shrink=0 z-index=2
                                 when selectedPicker
                                   column press=showEmojiPicker position="absolute" left=22 top=-80 width=74 height=74 border-radius=37 backgroundMaterial="glass" align-items="center" justify-content="center"
-                                    input id="emoji-input" testId="emoji-input" emojiPicker=true input=reaction value="" aria-label="Choose an emoji" position="absolute" top=0 left=0 width=74 height=74 font-size=1 color="#00000000" border-width=0
+                                    input appearance="none" id="emoji-input" testId="emoji-input" emojiPicker=true input=reaction value="" aria-label="Choose an emoji" position="absolute" top=0 left=0 width=74 height=74 font-size=1 color="#00000000" border-width=0
                                     box width=24 height=24 clip-path=emojiFacePath scale=1.666667 background-color="light-dark(#99999e, #b4b4b9)"
                                   button press=closeEmojiPicker retainFocus=true testId="close-emoji-picker" aria-label="Close emoji picker" position="absolute" left=80 top=-84 width=26 height=26 border-radius=13 backgroundMaterial="glass" display="flex" flex-direction="row" align-items="center" justify-content="center"
                                     box position="relative" width=14 height=14
@@ -839,7 +843,7 @@ component Messages
                               box position="relative" width=50 height=0 flex-shrink=0 z-index=2
                                 when selectedPicker
                                   column press=showEmojiPicker position="absolute" left=-46 top=-80 width=74 height=74 border-radius=37 backgroundMaterial="glass" align-items="center" justify-content="center"
-                                    input id="emoji-input" testId="emoji-input" emojiPicker=true input=reaction value="" aria-label="Choose an emoji" position="absolute" top=0 left=0 width=74 height=74 font-size=1 color="#00000000" border-width=0
+                                    input appearance="none" id="emoji-input" testId="emoji-input" emojiPicker=true input=reaction value="" aria-label="Choose an emoji" position="absolute" top=0 left=0 width=74 height=74 font-size=1 color="#00000000" border-width=0
                                     box width=24 height=24 clip-path=emojiFacePath scale=1.666667 background-color="light-dark(#99999e, #b4b4b9)"
                                   button press=closeEmojiPicker retainFocus=true testId="close-emoji-picker" aria-label="Close emoji picker" position="absolute" left=-56 top=-84 width=26 height=26 border-radius=13 backgroundMaterial="glass" display="flex" flex-direction="row" align-items="center" justify-content="center"
                                     box position="relative" width=14 height=14

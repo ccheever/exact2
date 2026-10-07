@@ -1,0 +1,233 @@
+// Shared Elements — the LLP 1013.000 example: one screen per form of a
+// shared-element flight, to try on every host.
+//
+// A node's `sharedElement` names it. When a commit destroys the node holding
+// a name and creates another holding it, the new one flies from where the
+// old one was shown, on either one's `layout-transition` (here `Fly`).
+// Natively the arriver flies live; on the web the browser runs a CSS View
+// Transition. Linux shows the arriver in place.
+//
+// - Grid: a photo opens into a viewer and closes back into its card. Close
+//   mid-flight to reverse. Step to another photo before closing: the grid
+//   scrolls to its card first, then the photo lands there.
+// - List: the same from a virtualized list of 200; step 25 ahead (a row
+//   never built) and close: `scrollIntoView` builds and shows it first.
+// - Cards: a card (a box with children) opens into a detail.
+// - Tasks: a task moves between two lists.
+// - Zoom: a route presented fullscreen zooms from its photo (iOS 18's zoom
+//   transition, `navigationSource`; LLP 1035.001).
+routes nav
+  tab home "/"
+  photo "/photo/:photo"
+
+shape Photo
+  id: string
+  n: number
+  asset: string
+  title: string
+  tone: string
+
+shape Card
+  id: string
+  title: string
+  body: string
+  color: string
+
+shape Task
+  id: string
+  bit: number
+  label: string
+
+style Fly
+  layout-transition="spring(240, 26, 1)"
+
+style Tab
+  padding-left=12
+  padding-right=12
+  padding-top=7
+  padding-bottom=7
+  border-radius=16
+  border-width=0
+  font-size=14
+
+style Bar
+  padding-left=14
+  padding-right=14
+  padding-top=8
+  padding-bottom=8
+  border-radius=18
+  border-width=0
+  background-color="#ffffff22"
+
+component App
+  state tab = "grid"
+  state open = 0
+  state openRow = 0
+  state card = ""
+  state done = 0
+  resource photos = photos() as shape list<Photo>
+  resource rows = rows() as shape list<Photo>
+  resource cards = cards() as shape list<Card>
+  resource tasks = tasks() as shape list<Task>
+  derive current = top(nav)
+
+  action choose(name: string)
+    tab = name
+    open = 0
+    openRow = 0
+    card = ""
+  action openPhoto(n: number)
+    open = n
+  action step(by: number)
+    open = max(1, min(length(photos), open + by))
+  action closePhoto
+    open = 0
+  action openListRow(n: number)
+    openRow = n
+  action stepRow(by: number)
+    openRow = max(1, min(length(rows), openRow + by))
+  action closeRow
+    scrollIntoView("long", `p${openRow}`, block="nearest")
+    openRow = 0
+  action openCard(id: string)
+    card = id
+  action closeCard
+    card = ""
+  action toggleTask(bit: number)
+    done = floor(done / bit) % 2 == 1 ? done - bit : done + bit
+  action zoom(id: string)
+    nav = push(nav, path("photo", id))
+  action back
+    nav = back(nav)
+
+  view
+    main testId="app" navigationKey=`${current.id}` navigationBack="back" width="100%" height="100%" font-family="system-ui" color="#15181c"
+      each e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` navigationPresentation=(e.name == "photo" ? "fullscreen" : "") navigationSource=(e.name == "photo" ? `zoom-${join(params(nav, "photo"), "")}` : "") position="absolute" top=0 bottom=0 left=0 right=0 display="flex" flex-direction="column" background-color=(e.name == "photo" ? "#0b0c0e" : "#f6f4ef")
+          when e.name == "photo"
+            ZoomViewer(id=join(params(nav, "photo"), ""), photos=photos, back=back)
+          else
+            column flex=1 min-height=0 position="relative" padding-top="env(safe-area-inset-top)"
+              row gap=6 padding=12 overflow-x="scroll" scrollbar-width="none" flex-shrink=0 role="tablist"
+                TabButton(name="grid", label="Grid", tab=tab, choose=choose)
+                TabButton(name="list", label="List", tab=tab, choose=choose)
+                TabButton(name="cards", label="Cards", tab=tab, choose=choose)
+                TabButton(name="tasks", label="Tasks", tab=tab, choose=choose)
+                TabButton(name="zoom", label="Zoom", tab=tab, choose=choose)
+              when tab == "grid"
+                match first(filter(photos, p => p.n == open))
+                  case some(p)
+                    Viewer(photo=p, name=`grid-${p.id}`, step=step, close=closePhoto, jump=3)
+                  case none
+                    scroll testId="grid" flex=1 min-height=0 overflow-x="hidden"
+                      column padding=12 gap=10
+                        text "Tap a photo. Close it mid-flight to reverse; step ahead before closing to land in a card that has scrolled away." font-size=13 color="#6b6f76"
+                        row flex-wrap="wrap" gap=10
+                          each p in photos key=p.id
+                            button press=openPhoto(p.n) testId=`open-${p.id}` aria-label=`Open ${p.title}` padding=0 border-width=0 background-color="#00000000" flex-basis="45%" flex-grow=1 min-width=0 display="flex" flex-direction="column" gap=4
+                              image p.asset sharedElement=`grid-${p.id}` class=Fly testId=`thumb-${p.id}` width="100%" height=140 min-height=0 object-fit="cover" border-radius=12 background-color=p.tone
+                              text p.title font-size=13 color="#3b3f45"
+              when tab == "list"
+                match first(filter(rows, p => p.n == openRow))
+                  case some(p)
+                    Viewer(photo=p, name=`row-${p.id}`, step=stepRow, close=closeRow, jump=25)
+                  case none
+                    list id="long" virtualized=true testId="long" flex=1 min-height=0 overflow-x="hidden" estimated-item-height=76
+                      each p in rows key=p.id
+                        button press=openListRow(p.n) testId=`row-${p.id}` aria-label=`Open ${p.title}` width="100%" padding-left=12 padding-right=12 padding-top=6 padding-bottom=6 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap=12 box-sizing="border-box"
+                          image p.asset sharedElement=`row-${p.id}` class=Fly testId=`rowthumb-${p.id}` width=64 height=64 object-fit="cover" border-radius=8 background-color=p.tone flex-shrink=0
+                          text p.title font-size=15
+              when tab == "cards"
+                match first(filter(cards, c => c.id == card))
+                  case some(c)
+                    column sharedElement=`card-${c.id}` class=Fly testId="card-detail" position="absolute" top=0 left=0 right=0 bottom=0 padding=24 gap=14 background-color=c.color
+                      row justify-content="space-between" align-items="center"
+                        text c.title font-size=30 font-weight=700
+                        button press=closeCard testId="close-card" aria-label="Close" class=Tab background-color="#00000014"
+                          text "Close"
+                      text c.body font-size=17 line-height=1.5
+                      text "The card is a box with children: its surface flies, and its children keep their laid-out places." font-size=14 color="#00000099"
+                  case none
+                    column padding=12 gap=12
+                      each c in cards key=c.id
+                        button press=openCard(c.id) testId=`card-${c.id}` aria-label=`Open ${c.title}` sharedElement=`card-${c.id}` class=Fly padding=16 border-width=0 border-radius=16 background-color=c.color display="flex" flex-direction="column" align-items="flex-start" gap=6
+                          text c.title font-size=20 font-weight=600
+                          text c.body font-size=14 color="#00000099" line-clamp=1
+              when tab == "tasks"
+                row padding=12 gap=12 align-items="flex-start"
+                  column flex=1 gap=8 min-width=0
+                    text "To do" font-size=13 font-weight=600 color="#6b6f76"
+                    each t in filter(tasks, t => floor(done / t.bit) % 2 == 0) key=t.id
+                      TaskChip(task=t, toggle=toggleTask, finished=false)
+                  column flex=1 gap=8 min-width=0
+                    text "Done" font-size=13 font-weight=600 color="#6b6f76"
+                    each t in filter(tasks, t => floor(done / t.bit) % 2 == 1) key=t.id
+                      TaskChip(task=t, toggle=toggleTask, finished=true)
+              when tab == "zoom"
+                scroll flex=1 min-height=0 overflow-x="hidden"
+                  column padding=12 gap=10
+                    text "A route presented fullscreen zooms out of its photo on iOS 18 (UIKit's zoom transition). Elsewhere it opens with the platform's ordinary transition." font-size=13 color="#6b6f76"
+                    row flex-wrap="wrap" gap=10
+                      each p in filter(photos, p => p.n <= 6) key=p.id
+                        button press=zoom(p.id) testId=`zoom-open-${p.id}` aria-label=`Zoom into ${p.title}` padding=0 border-width=0 background-color="#00000000" flex-basis="30%" flex-grow=1 min-width=0
+                          image p.asset id=`zoom-${p.id}` width="100%" height=110 object-fit="cover" border-radius=10 background-color=p.tone
+
+component TabButton
+  props
+    name: string
+    label: string
+    tab: string
+    choose: action
+  view
+    button press=choose(name) role="tab" aria-selected=(tab == name) testId=`tab-${name}` class=Tab background-color=(tab == name ? "#15181c" : "#e7e4dc") color=(tab == name ? "#ffffff" : "#15181c")
+      text label
+
+component Viewer
+  props
+    photo: Photo
+    name: string
+    step: action
+    close: action
+    jump: number
+  view
+    column testId="viewer" position="absolute" top=0 left=0 right=0 bottom=0 background-color="#0b0c0e" color="#ffffff" display="flex" flex-direction="column"
+      row padding=12 margin-top="env(safe-area-inset-top)" justify-content="space-between" align-items="center" flex-shrink=0
+        text photo.title font-size=16 font-weight=600
+        button press=close testId="close" aria-label="Close" class=Bar color="#ffffff"
+          text "Close"
+      image photo.asset sharedElement=name class=Fly testId="large" flex=1 min-height=0 width="100%" object-fit="contain"
+      row padding=12 margin-bottom="env(safe-area-inset-bottom)" gap=10 justify-content="center" flex-shrink=0
+        button press=step(0 - jump) testId="back-n" aria-label=`Back ${jump}` class=Bar color="#ffffff"
+          text `−${jump}`
+        button press=step(-1) testId="prev" aria-label="Previous" class=Bar color="#ffffff"
+          text "Previous"
+        button press=step(1) testId="next" aria-label="Next" class=Bar color="#ffffff"
+          text "Next"
+        button press=step(jump) testId="ahead-n" aria-label=`Ahead ${jump}` class=Bar color="#ffffff"
+          text `+${jump}`
+
+component TaskChip
+  props
+    task: Task
+    toggle: action
+    finished: bool
+  view
+    button press=toggle(task.bit) sharedElement=`task-${task.id}` class=Fly testId=`task-${task.id}` aria-label=(finished ? `Undo ${task.label}` : `Finish ${task.label}`) padding=12 border-width=0 border-radius=12 background-color=(finished ? "#d9ead7" : "#ffffff") display="flex" flex-direction="row" align-items="center" gap=8 text-align="left"
+      text (finished ? "✓" : "○") font-size=15
+      text task.label font-size=15 flex=1 min-width=0
+
+component ZoomViewer
+  props
+    id: string
+    photos: list<Photo>
+    back: action
+  view
+    column flex=1 min-height=0 color="#ffffff"
+      row padding=12 margin-top="env(safe-area-inset-top)" justify-content="flex-end" flex-shrink=0
+        button press=back testId="zoom-close" aria-label="Close" class=Bar color="#ffffff"
+          text "Close"
+      match first(filter(photos, p => p.id == id))
+        case some(p)
+          image p.asset testId="zoom-large" flex=1 min-height=0 width="100%" object-fit="contain"
+        case none
+          text "No photo" padding=24

@@ -16,9 +16,13 @@
 
 use crate::instance::InstanceStep;
 use crate::runner::{DataSource, Runner};
-use exact_kernel::{Color, ColorValue, Dimension, Edge, NodeRef, PropValue, RowValue, StyleId};
+use exact_kernel::{NodeRef, PropValue, RowValue, StyleId};
 use exact_plan::{BindingKind, Plan, TypeKind, TypesId, Value};
 use std::fmt::Write as _;
+
+mod row;
+mod schedule;
+mod sound;
 
 /// Answer one request: `{"op":"tree"}`, `{"op":"state"}`,
 /// `{"op":"logs","since":N}`, `{"op":"node","id":V}` — the runner's half
@@ -28,10 +32,16 @@ use std::fmt::Write as _;
 pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     match field_str(request, "op").as_deref() {
         Some("tree") => tree_request(runner, request),
-        Some("state") => state(runner),
+        Some("state") => state_with(runner, request),
         Some("tags") => tags(runner),
         Some("frames") => frames(runner, request, &|_| false),
         Some("holds") => holds(runner),
+        // @ref LLP 1103 D3 — the driver's fetch faults, a form of `prefer`:
+        // the network is the environment, as `online` is (LLP 1012 §1).
+        Some("prefer") if after_key(request, "faults").is_some() => faults(runner, request),
+        // The module's storage still to land (LLP 1097 D10): what a host's
+        // quit or suspension waits for, cheaper than `state`.
+        Some("background") => format!("{{\"operations\":{}}}", runner.background_operations()),
         Some("perf") => crate::perf::reply(runner, request),
         // What `showPicker(id)` names (LLP 1069.002 D2): the file input's
         // view, `accept` and `multiple`, for the host that presents it.
@@ -465,7 +475,29 @@ fn tree_rows<D: DataSource>(
     s
 }
 
-/// A node's own props by their schema names, as JSON object members.
+/// What agent output shows for a non-empty password field's value (#134):
+/// a fixed mark, whatever its length, as no reply, log or transcript should
+/// carry a secret. The app's own state still holds the value.
+pub const MASKED: &str = "•••";
+
+/// A field's value as agent output shows it: an `input type="password"`'s,
+/// when not empty, is [`MASKED`]; any other is itself (a `textarea` has no
+/// password type in HTML, and shows its text). Every host's tree and `type`
+/// reply passes its value through this.
+pub fn shown_value<'a>(props: &exact_kernel::PropList, value: &'a str) -> &'a str {
+    use exact_kernel::PropId;
+    if !value.is_empty()
+        && props.str(PropId::Type) == Some("password")
+        && props.str(PropId::SemanticTag) != Some("textarea")
+    {
+        MASKED
+    } else {
+        value
+    }
+}
+
+/// A node's own props by their schema names, as JSON object members; a
+/// password field's value is [`shown_value`]'s.
 fn props_json(node: &NodeRef<'_>, s: &mut String) {
     for (i, (id, value)) in node.props.iter().enumerate() {
         if i > 0 {
@@ -474,6 +506,9 @@ fn props_json(node: &NodeRef<'_>, s: &mut String) {
         quote(id.name(), s);
         s.push(':');
         match value {
+            PropValue::Str(t) if id == exact_kernel::PropId::Value => {
+                quote(shown_value(node.props, t), s)
+            }
             PropValue::Str(t) => quote(t, s),
             PropValue::Bool(b) => s.push_str(if *b { "true" } else { "false" }),
             PropValue::Int(i) => {
@@ -573,7 +608,7 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
         first = false;
         quote(row.name(), &mut s);
         s.push_str(":{\"value\":");
-        row_json(node.computed(row), &mut s);
+        row::row_json(row, node.computed(row), &mut s);
         if own && dynamic(row) {
             s.push_str(",\"source\":\"dynamic\"}");
         } else if own {
@@ -621,6 +656,43 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
         s.push_str(",\"flow_skipped\":");
         quote(refusal.message(), &mut s);
     }
+    // @ref LLP 1093 D12 — a box's fragments and a container's columns, in
+    // the root's space as `absolute` is.
+    let rect = |s: &mut String, x: f32, y: f32, w: f32, h: f32| {
+        let _ = write!(
+            s,
+            "\"x\":{},\"y\":{},\"w\":{},\"h\":{}",
+            num(x as f64),
+            num(y as f64),
+            num(w as f64),
+            num(h as f64)
+        );
+    };
+    if let Some(frags) = kernel.fragments(node.key) {
+        s.push_str(",\"column_fragments\":[");
+        for (i, g) in frags.iter().enumerate() {
+            s.push_str(if i > 0 { ",{" } else { "{" });
+            rect(&mut s, f.x + g.x, f.y + g.y, g.width, g.height);
+            if g.lines.1 > g.lines.0 {
+                let _ = write!(s, ",\"lines\":[{},{}]", g.lines.0, g.lines.1);
+            }
+            s.push('}');
+        }
+        s.push(']');
+    }
+    if let Some(columns) = kernel.columns(node.key) {
+        s.push_str(",\"columns\":[");
+        for (i, c) in columns.columns.iter().enumerate() {
+            s.push_str(if i > 0 { ",{" } else { "{" });
+            rect(&mut s, f.x + c.x, f.y + c.y, c.width, c.height);
+            let _ = write!(s, ",\"holds\":{}}}", c.holds);
+        }
+        s.push(']');
+    }
+    if let Some(refusal) = kernel.fragment_refusal(node.key) {
+        s.push_str(",\"fragment_skipped\":");
+        quote(refusal.message(), &mut s);
+    }
     if node.content != (0.0, 0.0) {
         let _ = write!(
             s,
@@ -647,117 +719,16 @@ pub fn node<D: DataSource>(runner: &Runner<D>, id: u32) -> String {
     s
 }
 
-/// A row's value as JSON, in CSS's spellings where CSS has one: a length as
-/// a number of CSS pixels, `"auto"`, `"50%"`, `"env(safe-area-inset-top)"`;
-/// a colour as `"#rrggbb"` (`"#rrggbbaa"` when translucent) or
-/// `"light-dark(#…, #…)"`; an enum by its CSS name; a vector as `[x, y]`; a
-/// clip path as its canonical text. The engine's and the grid's rows are
-/// named, not spelled — nothing reads them here.
-fn row_json(v: RowValue<'_>, out: &mut String) {
-    let hex = |c: Color| -> String {
-        if c.a() == 255 {
-            format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b())
-        } else {
-            format!("#{:02x}{:02x}{:02x}{:02x}", c.r(), c.g(), c.b(), c.a())
-        }
-    };
-    match v {
-        RowValue::Dimension(Dimension::Auto) => out.push_str("\"auto\""),
-        RowValue::Dimension(Dimension::Points(p)) => {
-            let _ = write!(out, "{}", num(p as f64));
-        }
-        RowValue::Dimension(Dimension::Percent(p)) => quote(&format!("{}%", num(p as f64)), out),
-        RowValue::Dimension(Dimension::Calc(p, plus)) => quote(
-            &format!(
-                "calc({}% {} {}px)",
-                num(p as f64),
-                if plus < 0.0 { "-" } else { "+" },
-                num(plus.abs() as f64)
-            ),
-            out,
-        ),
-        RowValue::Dimension(Dimension::Env(edge, offset)) => {
-            let edge = match edge {
-                Edge::Top => "top",
-                Edge::Right => "right",
-                Edge::Bottom => "bottom",
-                Edge::Left => "left",
-            };
-            let text = if offset == 0.0 {
-                format!("env(safe-area-inset-{edge})")
-            } else {
-                format!(
-                    "calc(env(safe-area-inset-{edge}) + {}px)",
-                    num(offset as f64)
-                )
-            };
-            quote(&text, out)
-        }
-        RowValue::Dimension(Dimension::Segment(var, x, y, offset)) => {
-            let var = var.name();
-            let text = if offset == 0.0 {
-                format!("env(viewport-segment-{var} {x} {y})")
-            } else {
-                format!(
-                    "calc(env(viewport-segment-{var} {x} {y}) {} {}px)",
-                    if offset < 0.0 { "-" } else { "+" },
-                    num(offset.abs() as f64)
-                )
-            };
-            quote(&text, out)
-        }
-        RowValue::LineHeight(v) => match v {
-            exact_kernel::LineHeight::Number(n) => {
-                let _ = write!(out, "{}", num(n as f64));
-            }
-            _ => quote(&v.css(), out),
-        },
-        RowValue::Number(n) => {
-            let _ = write!(out, "{}", num(n));
-        }
-        RowValue::Color(c) | RowValue::ColorValue(ColorValue::Fixed(c)) => quote(&hex(c), out),
-        RowValue::ColorValue(ColorValue::LightDark(l, d)) => {
-            quote(&format!("light-dark({}, {})", hex(l), hex(d)), out)
-        }
-        // A system colour by its name (LLP 1077 D13).
-        RowValue::ColorValue(c @ ColorValue::System(_)) => {
-            quote(c.system_name().unwrap_or("#000"), out)
-        }
-        RowValue::Enum(name) => quote(name, out),
-        RowValue::Vec2(v) => {
-            let _ = write!(out, "[{},{}]", num(v.x as f64), num(v.y as f64));
-        }
-        RowValue::ClipPath(p) => quote(&p.css(), out),
-        RowValue::AspectRatio(r) => quote(&r.css(), out),
-        RowValue::DragTimeline(d) => quote(&d.css(), out),
-        RowValue::AnimationTimeline(t) => quote(&t.css(), out),
-        RowValue::AnimationRange(r) => quote(&r.css(), out),
-        RowValue::TimelineScope(s) => quote(&s.css(), out),
-        RowValue::BackgroundImage(g) | RowValue::MaskImage(g) => quote(&g.css(), out),
-        RowValue::TextShadow(s) => quote(&s.css(), out),
-        RowValue::BoxShadow(s) => quote(&s.css(), out),
-        RowValue::CornerShape(c) => quote(&c.css(), out),
-        RowValue::RotateAxis(a) => quote(&a.css(), out),
-        RowValue::SymbolPalette(p) => quote(&p.css(), out),
-        RowValue::ShapeOutside(p) => quote(&p.css(), out),
-        RowValue::Transitions(_) => quote("(transition)", out),
-        RowValue::Paint(p) => quote(&p.css(), out),
-        RowValue::DashArray(d) => quote(&d.css(), out),
-        RowValue::Transform(t) => quote(&t.css(), out),
-        RowValue::TransformOrigin(t) => quote(&t.css(), out),
-        RowValue::PaintOrder(p) => quote(&p.css(), out),
-        RowValue::Marker(m) => quote(&m.css(), out),
-        RowValue::Filter(f) => quote(&f.css(), out),
-        RowValue::Animations(a) => quote(&a.css(), out),
-        RowValue::Color2(_) | RowValue::Tracks(_) | RowValue::Placement(_) => quote("(grid)", out),
-    }
-}
-
 /// The state: the clock and every slot, derive, and resource by the name the
 /// plan declares, as typed JSON (records carry their field names); the
 /// requests in flight; the names the store holds (LLP 1018); the active
 /// head's fields (LLP 1048.003 D1).
 pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
+    state_with(runner, "{}")
+}
+
+/// [`state`] for a request, which may ask `"sounds":"all"` (LLP 1096 D10).
+fn state_with<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
     let plan = runner.plan();
     let mut s = String::new();
     let _ = write!(
@@ -811,7 +782,7 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
     );
     let _ = write!(
         s,
-        "}},\"device\":{{\"prefersReducedMotion\":{},\"prefersReducedTransparency\":{},\"prefersContrast\":\"{}\",\"prefersColorScheme\":\"{}\",\"visibilityState\":\"{}\",\"onLine\":{},\"canShare\":{},\"rootFontSize\":{},\"devicePosture\":\"{}\",\"horizontalViewportSegments\":{},\"verticalViewportSegments\":{}",
+        "}},\"device\":{{\"prefersReducedMotion\":{},\"prefersReducedTransparency\":{},\"prefersContrast\":\"{}\",\"prefersColorScheme\":\"{}\",\"visibilityState\":\"{}\",\"onLine\":{},\"canShare\":{},\"canOpenFiles\":{},\"rootFontSize\":{},\"devicePosture\":\"{}\",\"horizontalViewportSegments\":{},\"verticalViewportSegments\":{},\"colorGamut\":\"{}\",\"dynamicRange\":\"{}\"",
         media.reduced_motion,
         media.reduced_transparency,
         media.contrast.keyword(),
@@ -819,12 +790,21 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
         page.visibility_state(),
         page.on_line,
         page.can_share,
+        page.can_open_files,
         num(runner.root_font_size()),
         fold.posture.keyword(),
         fold.cols,
-        fold.rows
+        fold.rows,
+        media.gamut.keyword(),
+        if media.high_dynamic_range { "high" } else { "standard" }
     );
-    s.push_str("},\"derives\":{");
+    s.push('}');
+    // The driver's fetch faults (LLP 1103 D3), when any are armed or spent.
+    if !runner.faults().is_empty() {
+        s.push_str(",\"faults\":");
+        s.push_str(&runner.faults().json());
+    }
+    s.push_str(",\"derives\":{");
     for (i, row) in plan.derives.iter().enumerate() {
         let name = plan.str(row.name);
         if i > 0 {
@@ -898,8 +878,34 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
             count.messages, count.coalesced
         );
     }
+    s.push(']');
+    // The module's background storage (LLP 1097 D8), where it has any.
+    if let Some(b) = runner.background_state() {
+        let _ = write!(
+            s,
+            ",\"background\":{{\"queued\":{},\"inFlight\":{},\"done\":{},\"failed\":{},\"last\":",
+            b.queued, b.in_flight, b.done, b.failed
+        );
+        match &b.last {
+            Some(line) => quote(line, &mut s),
+            None => s.push_str("null"),
+        }
+        s.push('}');
+    }
+    schedule::tasks(runner, &mut s);
+    schedule::queued(runner, &mut s);
+    // Notifications posted under the agent, where none reaches the system.
+    s.push_str(",\"notifications\":[");
+    for (i, n) in runner.notifications().iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        n.summary(&mut s);
+    }
+    s.push(']');
+    sound::state(runner, request, &mut s);
     // The store's names, never its values (LLP 1018 D5).
-    s.push_str("],\"store\":[");
+    s.push_str(",\"store\":[");
     for (i, name) in runner.store_names().iter().enumerate() {
         if i > 0 {
             s.push(',');
@@ -907,7 +913,8 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
         quote(name, &mut s);
     }
     s.push_str("],\"head\":{");
-    for (i, (name, value)) in runner.head().fields().into_iter().enumerate() {
+    let head = runner.head();
+    for (i, (name, value)) in head.fields().into_iter().enumerate() {
         if i > 0 {
             s.push(',');
         }
@@ -918,12 +925,13 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
             None => s.push_str("null"),
         }
     }
-    match runner.head().status {
+    match head.status {
         Some(code) => {
             let _ = write!(s, ",\"status\":{code}");
         }
         None => s.push_str(",\"status\":null"),
     }
+    let _ = write!(s, ",\"edited\":{}", head.edited);
     s.push_str("},\"delivery\":");
     delivery(runner, &mut s);
     s.push_str(",\"logic\":");
@@ -932,6 +940,9 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
     // count, its offset's extent and its mounted rows (LLP 1070 G3).
     s.push_str(",\"collections\":");
     s.push_str(&runner.collections_json());
+    // The reorder session, if one is under way (LLP 1094 D12).
+    s.push_str(",\"reorder\":");
+    s.push_str(&runner.reorder_json());
     // Each list's latest scrollIntoView and how it stands (LLP 1070.000).
     s.push_str(",\"scrollIntoView\":");
     s.push_str(&runner.into_view_json());
@@ -940,7 +951,18 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
     s.push_str(&runner.kept_positions_json());
     s.push_str(",\"canvas\":");
     runner.canvas_state(&mut s);
-    s.push('}');
+    // Each surface whose latest record was refused, and why: its readers
+    // keep the last record accepted (`set_surface_record`).
+    s.push_str(",\"surfaceRefusals\":{");
+    for (i, (name, why)) in runner.surface_refusals().iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        quote(name, &mut s);
+        s.push(':');
+        quote(why, &mut s);
+    }
+    s.push_str("}}");
     s
 }
 
@@ -1206,6 +1228,33 @@ fn ids(ids: &[u32], out: &mut String) {
         let _ = write!(out, "{id}");
     }
     out.push(']');
+}
+
+/// `prefer` with `faults` (LLP 1103 D3): `{"fail": prefix, "times"?: n}`
+/// arms a prefix, `{"pass": prefix}` stops it failing; either way, and with
+/// neither, the reply is the session's table as `state.faults` shows it.
+fn faults<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
+    let table = runner.faults();
+    let request = after_key(request, "faults").unwrap_or("{}");
+    if let Some(prefix) = field_str(request, "fail") {
+        let times = match after_key(request, "times") {
+            None => None,
+            Some(_) => match field_num(request, "times") {
+                Some(n) if n >= 1.0 && n == n.trunc() && n <= u32::MAX as f64 => Some(n as u32),
+                _ => return error("fail fetch: `times` is a positive integer"),
+            },
+        };
+        if let Err(e) = table.arm(&prefix, times) {
+            return error(&e);
+        }
+    } else if let Some(prefix) = field_str(request, "pass") {
+        if !table.pass(&prefix) {
+            return error(&format!(
+                "pass fetch \"{prefix}\": no fault was armed for it"
+            ));
+        }
+    }
+    format!("{{\"faults\":{}}}", table.json())
 }
 
 /// The string value of a top-level `"key":"…"` field in a JSON object, with

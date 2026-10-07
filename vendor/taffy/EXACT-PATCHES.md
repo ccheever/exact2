@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 and 21 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 26, 27 and 28 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -788,10 +788,9 @@ table-marked root. This matches Chrome's 13 px checkbox for
 `#exact-root > input` in a 400 px wrapper rather than treating the projected
 element as an ordinary block root.
 
-The kernel uses this existing internal marker for HTML form controls. It lets
-Exact's reset `<button>` keep its authored flex-column contents while retaining
-HTML's shrink-to-fit block width; text fields and leaf controls follow the same
-path. `kernel/tests/it/browser_controls.rs` holds the Chrome 154 matrix across
+The kernel uses this existing internal marker for HTML form controls. It gives
+Exact's reset `<button>`, block, flex or grid, HTML's shrink-to-fit block
+width; text fields and leaf controls follow the same path. `kernel/tests/it/browser_controls.rs` holds the Chrome 154 matrix across
 block, flex row, flex column, grid and absolute placement.
 
 ## Patch 25: available space excludes the child's margins
@@ -817,3 +816,93 @@ flex children treated block/grid and leaf/flex widths differently.
 Both incremental/rehydrated/replayed layout differentials also pass 500 seeds
 each, 40 mutations per seed (2026-10-02); the larger loop was a temporary run,
 with the ordinary checked-in smoke counts restored afterward.
+
+## Patch 26: block `align-content` moves absolute children's static positions — to upstream
+
+**Implementer:** Claude (Opus 5.5), 2026-10-04, for the button reversal (LLP 1001 §1).
+
+Upstream shifts only in-flow children by the group offset, and none when
+nothing is in flow. CSS Box Alignment aligns the block container's content,
+and Chrome 154 places an absolutely positioned child at its static position
+within that aligned content: after a centred 20px child in a 100px box at 60
+(Taffy: 20), and a lone one at 50 (Taffy: 0). The offset is now computed
+whenever `align-content` is set and added to every absolute item's static
+position; in-flow items and the first baseline move as before.
+
+The kernel lays out a block `button`'s content with `align-content: safe
+center`, HTML's anonymous button box. **Held by**
+`browser_cases::a_button_lays_out_its_content_as_chrome_does`.
+
+## Patch 27: a multi-column container's flow thread — Exact's
+
+**Implementer:** Claude (Opus 5.5), 2026-10-04, for LLP 1093 D2 (CSS
+multi-column layout). Upstream has no multicol.
+
+A block container's style may carry `multicol: Some(Multicol { count, width,
+gap, used_height, overflow })` (`style::block`). Such a container:
+
+- **is its own formatting context**: it joins both of `block.rs`'s
+  conditions, the one that chooses a new `BlockFormattingContext` in
+  `compute_block_layout` (so it shares no floats with its parent) and the one
+  in `compute_inner` that keeps its first child's top margin inside (Chrome
+  154: 30px below the container's top);
+- **lays its in-flow children out as one column of the used column width W**,
+  CSS Multi-column Layout 1 §3.4 over its content-box width U
+  (`Multicol::columns`): W is their available width and their basis for
+  percentage widths (Chrome: `width: 50%` is 100px in a 400px two-column
+  box). A content-sized U is the content's width as one column, which the
+  columns then divide (LLP 1093 D10.5 declares it);
+- **takes `used_height` only at `container_outer_height`**, after its
+  children: the columns' content-box height the caller cut, plus the box's
+  vertical padding and border, then the existing `min-height`/`max-height`
+  clamp. It never reaches `style.size`, `known_dimensions` or the percentage
+  basis, so children keep their inputs and their cache entries. While it is
+  set the box gives its children no percentage-height basis at all, even
+  where a parent hands its height back as known (an absolute box's solver, a
+  stretched flex item): that height was not definite before the flow thread
+  was laid out, and resolving against it fed back into the cut;
+- **reports `overflow` as its scrollable overflow** once the caller has cut
+  the columns, in place of the flow thread's, so ancestors see the columns.
+
+Every container without the field is unchanged. **Held by**
+`kernel/tests/it/browser_columns.rs` (Chrome 154, 73 cases) and
+`layout_equality::multicol_relayout_is_result_equal_to_full_relayout`
+(incremental equals rehydrated equals replayed; 3,000 seeds once, 16 checked
+in), beside the 512-tree comparison Patch 7 left behind.
+
+## Patch 28: a column item's main size is measured at its fit-content cross size — to upstream
+
+**Implementer:** Claude (Opus 5.5), 2026-10-05, for the Signal Clone's bubbles.
+
+CSS Flexbox §9.2 3E: when a flex item's main size is in its block axis and its
+cross size is auto and not definite, the flex base size is measured with
+fit-content as the cross size, max(min-content, min(max-content, available)).
+Taffy measured it under the available cross space alone. A leaf wraps to that
+space, so text was right, but a flex container sized itself to its items'
+summed bases: in a column that does not stretch it (`align-items: flex-start`
+or `center`), a single-line row holding text 300 wide in a 200-wide column took
+the text's one-line height as its base size, then was laid out 200 wide with
+the text in two lines spilling out. Patch 25's fit-content clamp held only for
+the final layout. The base-size and minimum-content probes now pass a
+fit-content cross size measured from the item's own max- and min-content
+contributions, clamped to its min and max and floored at its padding and
+border, through the helper and condition determine_hypothetical_cross_size already
+uses for the final width (`common::fit_content_width`; a column, an auto
+cross size, no ratio, not a compressible replaced element), so the two agree.
+That helper's clamp is corrected to CSS's order, max(min-content,
+min(max-content, available)): it let max-content win when a negative margin
+inverts the two, where Chrome takes the min-content (patch 25's grid, column
+flex and absolute widths alike). The measure runs only
+when a probe needs it. Stretched items, sizing keywords, items with a ratio and
+leaves are as before; a wrapping column in a row (an item whose own main axis is
+the parent's cross axis) is not covered.
+
+**Held by** `browser_flex::a_fit_content_flex_item_in_a_column_is_as_tall_as_its_wrapped_lines`
+(six Chrome 154 cases through the web host: the row holding a wrapping row
+and the negative-margin inversion fail before; the `max-width: 0` padding
+floor failed patch 28's first draft) and
+`browser_flex::a_fit_content_row_is_as_tall_as_its_wrapped_text` (CSS's rule
+with the monospace measurer, failing before). On iOS and macOS a 200-wide
+`column align-items=flex-start > row > text` of three lines was 20 tall, its
+text clipped; it is 60, as in Chrome.
+

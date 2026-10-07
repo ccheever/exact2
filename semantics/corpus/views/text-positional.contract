@@ -1,0 +1,40 @@
+// The text an element shows: a `text`'s positional (a string; numbers and
+// bools go through toString),
+// an SVG `tspan`'s, a `select`'s `option`s'; other tags show none.
+component App
+  state n = 3
+  state on = true
+  state choice = "b"
+  action inc
+    n = n + 0.5
+  action setChoice(v: string)
+    choice = v
+  view
+    column
+      text toString(n) testId="num"
+      text toString(on) testId="bool"
+      text toString(n / 3) testId="expr"
+      text (on ? "yes" : "no") testId="tern"
+      text "" testId="empty"
+      text "  spaced  " testId="spaced"
+      button "Label" press=inc testId="btn"
+      select value=choice change=setChoice testId="sel"
+        option "Alpha" value="a" testId="opt-a"
+        option `Beta ${n}` value="b" testId="opt-b"
+      svg width=100 height=20 viewBox="0 0 100 20"
+        text testId="svgtext"
+          tspan `n=${n}` testId="span"
+
+test "positional texts"
+  expect text "num" == "3"
+  expect text "bool" == "true"
+  expect text "expr" == "1"
+  expect text "tern" == "yes"
+  expect text "empty" == ""
+  expect text "spaced" == "  spaced  "
+  expect text "opt-b" == "Beta 3"
+  expect text "span" == "n=3"
+  tap "btn"
+  expect text "num" == "3.5"
+  expect text "expr" == "1.1666666666666667"
+  expect text "span" == "n=3.5"

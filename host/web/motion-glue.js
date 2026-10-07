@@ -5,15 +5,16 @@
 // validity and authored targets; this controller owns actual browser sampling.
 export function motionBytes(facts) {
   const {op,view=0,property='translate',token=0,x=0,y=0,now=0}=facts;
-  const reorder=['reorder-begin','reorder-preview','reorder-terminal','reorder-cancel','reorder-rebase','reorder-finish'].indexOf(op);
+  // 21 and 22 are a grouped list's `reorder-preview-into` and `reorder-step` (LLP 1094 D5).
+  const reorder=['reorder-begin','reorder-preview','reorder-terminal','reorder-cancel','reorder-rebase','reorder-finish','reorder-preview-into','reorder-step'].indexOf(op);
   if(reorder>=0) {
-    const rows=facts.rows??[];if(rows.length>4096)throw Error('too many reorder samples');
+    const rows=facts.rows??(facts.targetView!=null?[{key:facts.targetView,hold:0,value:[0,0]}]:[]);if(rows.length>4096)throw Error('too many reorder samples');
     const bytes=new Uint8Array(176+32*rows.length),d=new DataView(bytes.buffer);
     const u64=(at,value=0)=>{if(typeof value==='number'&&!Number.isSafeInteger(value))throw Error('unsafe reorder identity');
       const n=BigInt(value);if(n<0n||n>0xffffffffffffffffn)throw Error('invalid reorder identity');d.setBigUint64(at,n,true);};
     d.setUint32(0,3,true);d.setUint32(4,15+reorder,true);
     ['runtime','handleKey','listKey','wrapperKey','rootKey','rowEpoch','token','revision','scrollSequence'].forEach((k,i)=>u64(8+i*8,facts[k]));
-    d.setUint32(80,rows.length,true);
+    d.setUint32(80,rows.length,true);d.setUint32(84,facts.flags??0,true);
     ['scrollTop','portWidth','portHeight','rowWidth','totalExtent','contentY','x','y','vx','vy','now'].forEach((k,i)=>d.setFloat64(88+i*8,facts[k]??0,true));
     rows.forEach((r,i)=>{u64(176+i*32,r.key);u64(184+i*32,r.hold);d.setFloat64(192+i*32,r.value[0],true);d.setFloat64(200+i*32,r.value[1],true);});
     return bytes;
@@ -95,7 +96,10 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   const cssProperty=(el,property)=>property==='scale'&&el?.style.getPropertyValue('--exact-press')?'--exact-scale':property;
   // CSS height clamps negative interpolated lengths. Keep every spring sample
   // and its timing; only its displayed length changes, not the engine curve.
-  const css=(property,value)=>property==='translate'?`${value[0]}px ${value[1]}px`:property==='rotate'?`${value[0]}deg`:property==='height'?`${Math.max(0,value[0])}px`:String(value[0]);
+  // A translate frame is `[x,y]` lengths, or `[x,y,px,py]` with percentages
+  // of the box, which the browser resolves (chess diary #4).
+  const axis=(l,p)=>p?(l?`calc(${l}px + ${p}%)`:`${p}%`):`${l}px`;
+  const css=(property,value)=>property==='translate'?`${axis(value[0],value[2])} ${axis(value[1],value[3])}`:property==='rotate'?`${value[0]}deg`:property==='height'?`${Math.max(0,value[0])}px`:String(value[0]);
   const call=(op,h,value=[0,0],t=now())=>request({op,view:h.view,property:h.property,token:h.token??0,x:value[0],y:value[1],now:t});
   const local=h=>h && h.generation===generation() && views.get(h.view)===h.el && h.el.isConnected && held.get(key(h.view,h.property))===h;
   const eligible=el=>el?.isConnected&&!el.closest('[disabled]')&&!el.matches(':disabled')&&!inert(el)&&el.getClientRects().length>0&&getComputedStyle(el).visibility==='visible';
@@ -151,19 +155,43 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   let timelineFrame=0;
   const kickTimelines=()=>{if(!timelineFrame&&typeof requestAnimationFrame==='function'&&typeof document!=='undefined'&&document.querySelector(timelineSources))
     timelineFrame=requestAnimationFrame(()=>{timelineFrame=0;if(followTimelines())kickTimelines();});};
+  const snapshotAnimation=(animation,index)=>{const t=animation.effect.getTiming();return {index,
+    timing:JSON.stringify([t.duration,t.delay,t.iterations,t.direction,t.easing,t.fill]),
+    keyframes:JSON.stringify(animation.effect.getKeyframes())};};
+  const sameSnapshot=(animation,snapshot,index)=>{const current=snapshotAnimation(animation,index);return current.index===snapshot.index
+    &&current.timing===snapshot.timing&&current.keyframes===snapshot.keyframes;};
   // Seek every bound consumer; whether a source is still moving on its own.
   function followTimelines() {
-    const sources=new Map();let moving=false;
+    // A commit may make a consumer resolve its name to another source, an
+    // inactive timeline or no timeline while the old source's release still
+    // plays. Stop that follower before seeking the current resolution.
+    for(const [id,record] of followers) {
+      const [sourceName,sourceAxis='y']=timelineName(record.source);
+      record.animations=record.animations.filter(({animation,consumer,basis,range,snapshot})=>{
+        const name=consumer.style.getPropertyValue('--exact-animation-timeline').trim();
+        const currentRange=consumer.style.getPropertyValue('--exact-animation-range').trim().split(/\s+/).map(parseFloat);
+        const list=consumer.getAnimations(),index=list.indexOf(basis);
+        if(consumer.isConnected&&sourceName===record.name&&sourceAxis===record.axis&&name===record.name
+          &&currentRange.length===2&&currentRange.every((v,i)=>v===range[i])
+          &&timelineSource(consumer,name)===record.source&&index>=0&&sameSnapshot(basis,snapshot,index))return true;
+        animation.cancel();return false;
+      });
+      if(!record.animations.length)followers.delete(id);
+    }
+    const covered=new Set([...followers.values()].flatMap(record=>record.animations.map(f=>f.basis)));
+    const sources=new Map();
     for(const el of document.querySelectorAll(timelineSources)) {
       const [name,axis='y']=el.style.getPropertyValue('--exact-drag-timeline').trim().split(/\s+/);
       let v=[...held.values()].find(h=>h.el===el&&h.property==='translate'&&local(h))?.value;
+      let moving=false;
       if(!v) {
         const t=getComputedStyle(el).translate.trim().split(/\s+/);
         v=t[0]==='none'?[0,0]:[parseFloat(t[0]),parseFloat(t[1]??'0')];
-        moving||=el.getAnimations().some(a=>a.playState==='running');
+        moving=el.getAnimations().some(a=>a.playState==='running');
       }
-      sources.set(el,axis==='x'?v[0]:v[1]);
+      sources.set(el,{value:axis==='x'?v[0]:v[1],moving});
     }
+    let moving=false;
     for(const el of document.querySelectorAll('[style*="--exact-animation-timeline"]')) {
       const name=el.style.getPropertyValue('--exact-animation-timeline').trim();
       const range=el.style.getPropertyValue('--exact-animation-range').trim().split(/\s+/).map(parseFloat);
@@ -175,7 +203,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       // Unclamped, and over the delay and active interval together, as a CSS
       // scroll timeline maps them; an endless animation holds its start
       // (motion's `seek_timeline`).
-      const p=(sources.get(source)-range[0])/(range[1]-range[0]);
+      const resolved=sources.get(source),p=(resolved?.value-range[0])/(range[1]-range[0]);
       // An inactive timeline: not in effect, whatever the fill (Chrome's
       // unresolved time). Cancelled, and revived when the name resolves
       // again, unless its CSS has since dropped or replaced it.
@@ -183,7 +211,9 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       if(!source){for(const a of live)a.cancel();inactive.set(el,[...parked,...live]);continue;}
       inactive.delete(el);
       const names=parked.length?getComputedStyle(el).animationName.split(/,\s*/):[];
-      for(const a of [...live,...parked.filter(a=>names.includes(a.animationName)&&!live.some(b=>b.animationName===a.animationName))]) {
+      const basis=[...live,...parked.filter(a=>names.includes(a.animationName)&&!live.some(b=>b.animationName===a.animationName))];
+      if(resolved?.moving&&basis.some(a=>!covered.has(a)))moving=true;
+      for(const a of basis) {
         const t=a.effect?.getComputedTiming();
         if(!t)continue;
         if(a.playState!=='paused')a.pause();
@@ -200,6 +230,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   // (`cancelProperty`), and when they end the paused animations take over
   // where the source rests.
   const followers=new Map();
+  const cancelFollowers=record=>{for(const f of record.animations)f.animation.cancel();};
   // A source a CSS transition moves (an eased release, not a spring) is
   // sought in each frame while it runs: its easing is the browser's, not
   // frames this glue holds.
@@ -212,7 +243,8 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       if(c.style.getPropertyValue('--exact-animation-timeline').trim()!==name||timelineSource(c,name)!==el)continue;
       const [a,b]=c.style.getPropertyValue('--exact-animation-range').trim().split(/\s+/).map(parseFloat);
       if(!Number.isFinite(a)||!Number.isFinite(b)||a===b)continue;
-      for(const animation of c.getAnimations()) {
+      const list=c.getAnimations();
+      for(const [index,animation] of list.entries()) {
         if(animation.animationName===undefined||animation.effect?.target!==c)continue;
         const easing=timelineEasing(animation.effect.getComputedTiming(),at.map(v=>(v-a)/(b-a)));
         if(easing===undefined)continue;
@@ -221,19 +253,19 @@ export function motionController({views,now,generation,request,applyBatch,inert,
         if(easing===null||animation.effect.composite!=='replace'||keyframes.some(k=>k.composite==='add'||k.composite==='accumulate')){seek=true;continue;}
         const f=c.animate(keyframes,{delay:op.delay,duration:op.duration,easing,fill:'both'});
         if(source.startTime!==null)f.startTime=source.startTime;
-        made.push(f);
+        made.push({animation:f,consumer:c,basis:animation,range:[a,b],snapshot:snapshotAnimation(animation,index)});
       }
     }
     if(made.length) {
-      followers.set(id,made);
-      made[0].finished.then(()=>{if(followers.get(id)!==made)return;followers.delete(id);followTimelines();for(const f of made)f.cancel();},()=>{});
+      const record={source:el,name,axis,animations:made};followers.set(id,record);
+      Promise.allSettled(made.map(f=>f.animation.finished)).then(()=>{if(followers.get(id)!==record)return;followers.delete(id);followTimelines();cancelFollowers(record);});
     }
     if(seek)kickTimelines();
   }
   function cancelProperty(id,property,el=views.get(id)) {
     const k=key(id,property); animations.get(k)?.cancel(); animations.delete(k);
     if(property==='translate'&&followers.has(id)) {
-      for(const f of followers.get(id))f.cancel();
+      cancelFollowers(followers.get(id));
       followers.delete(id);
       // A grab holds the source where it was caught: its consumers too.
       if(el)followTimelines();
@@ -404,7 +436,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
     try {
       const reply=request(transformFacts(b,next?'transform-geometry':'transform-invalidate',next?[...next.dimensions,0,0]:[0,0,0,0,0,0]));
       if(reply.batch)applyBatch(reply.batch);
-      if(transformLocal(b))b.admitted=reply.accepted===true&&!reply.batch?.error&&!!next&&next.dimensions.every(v=>v>0);
+      if(transformLocal(b))b.admitted=reply.accepted===true&&(reply.committed??!reply.batch?.error)&&!!next&&next.dimensions.every(v=>v>0);
     } finally {
       geometryDelivering=false;
       for(const h of ends??[])api.end(h,[0,0],true);
@@ -422,7 +454,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   }
   const api={
     // The agent's seek presents sources without a frame; follow at once.
-    followTimelines() { if(typeof document!=='undefined'&&document.querySelector(`${timelineSources},[style*="--exact-animation-timeline"]`))followTimelines(); },
+    followTimelines() { if(typeof document!=='undefined'&&followTimelines())kickTimelines(); },
     presentReorder(view,token,value) {
       const h=held.get(key(view,'translate'));if(!local(h)||h.token!==token)return false;
       h.value=value;h.el.style.translate=css('translate',value);return true;
@@ -591,7 +623,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       for(const b of [...transformBindings.values()])detachTransform(b);
       geometryDirty.clear();if(geometryFrame!==null)cancelAnimationFrame(geometryFrame);geometryFrame=null;
       for(const animation of animations.values()) animation.cancel(); animations.clear();
-      for(const made of followers.values())for(const f of made)f.cancel(); followers.clear();
+      for(const record of followers.values())cancelFollowers(record); followers.clear();
       const ids=[...authored.keys()]; held.clear();raised.clear(); for(const id of ids) restore(id); authored.clear();
     },
     // Pan and pinch on the photo pair (LLP 1057.001 §4): up to two pointers,
@@ -926,8 +958,11 @@ export function motionController({views,now,generation,request,applyBatch,inert,
 }
 
 // One physical Arrange contact and its settling source; Common owns logical keys.
-export function arrangeController({views,collections,motion,request,applyBatch,now,generation,inert,ready=()=>true}) {
-  const bindings=new Map();let current=null,edge=null,edgeTime=null,busy=false,pending=null;
+// A grip whose list has a `reorderGroup` is `group-glue.js`'s (LLP 1094): the
+// ghost, the target lists, the hold and the keys; `grouped` is its controller.
+export function arrangeController({views,collections,motion,request,applyBatch,now,generation,inert,ready=()=>true,grouped=null,root=null,viewOf}) {
+  const bindings=new Map(),groups=new Map();let current=null,edge=null,edgeTime=null,busy=false,pending=null;
+  const group=grouped?.({views,collections,request,applyBatch,now,ready,inert,root,viewOf,gripOf:view=>[...bindings.values()].find(b=>b.wrapper===view)?.el});
   const live=b=>b&&b.generation===generation()&&views.get(b.id)===b.el&&views.get(b.wrapper)===b.row&&b.el.isConnected;
   function mapping(b,y) {
     if(!live(b)||b.el.closest('[disabled]')||inert(b.el)||!b.el.getClientRects().length)return null;
@@ -1017,6 +1052,7 @@ export function arrangeController({views,collections,motion,request,applyBatch,n
   }
   function down(b,e) {
     if(!ready()||!e.isPrimary||e.button!==0||e.target.closest('input,textarea,select,[contenteditable]'))return;
+    if(group&&groups.get(b.id)?.group){group.down(b,e,groups.get(b.id));return;}
     let reservation=null,returning=current?.phase==='settling'&&current.binding.wrapper===b.wrapper?current:null;
     // A tap or horizontal refusal is not a takeover. Keep the old Terminal
     // and its return/pin owner until replacement recognition actually succeeds.
@@ -1069,13 +1105,16 @@ export function arrangeController({views,collections,motion,request,applyBatch,n
       }
       if(sampleMove(drag,v.clientX,v.clientY)){v.preventDefault();v.stopPropagation();edges(drag);}
     });
-    const up=v=>{if(v.pointerId!==e.pointerId)return;cleanup();if(!drag)return;
+    // A touch is implicitly captured by the element it lands on, often the
+    // grip's text child; taking capture to the grip bubbles that child's
+    // capture loss here, which is not the contact ending (habits F10).
+    const up=v=>{if(v.pointerId!==e.pointerId||v.type==='lostpointercapture'&&v.target!==b.el)return;cleanup();if(!drag)return;
       const cancel=v.type!=='pointerup';if(!cancel&&!sampleMove(drag,v.clientX,v.clientY)){terminal(drag,true);return;}
       terminal(drag,cancel);};
     for(const name of ['pointerup','pointercancel','lostpointercapture'])on(b.el.ownerDocument,name,up);
   }
   function destroy(id) {
-    const b=bindings.get(id);if(!b)return;
+    const b=bindings.get(id);if(!b)return;group?.release(b);
     b.el.removeEventListener('pointerdown',b.down);b.el.style.touchAction=b.touch;bindings.delete(id);
     if(pending?.handle===id)pending();
     // The completed batch supplies the terminal frame and surviving source
@@ -1090,10 +1129,15 @@ export function arrangeController({views,collections,motion,request,applyBatch,n
       const b={...op,el:views.get(op.id),row:views.get(op.wrapper),generation:generation()};
       b.touch=b.el.style.touchAction;b.el.style.touchAction='none';b.down=e=>down(b,e);
       bindings.set(op.id,b);b.el.addEventListener('pointerdown',b.down);
+      if(groups.has(op.id))group?.bind(b,groups.get(op.id));
     },
+    // A grip's group and whether the keys may drive it (LLP 1094 D1, D9).
+    group(op) {groups.set(op.id,op);const b=bindings.get(op.id);if(b)group?.bind(b,op);},
     destroy,
-    state(op) {if(current&&op.runtime===current.binding.runtime&&op.token===current.token){current.frame=op.frame;current.terminal=op.terminal;}},
+    state(op) {if(op.grouped){group?.state(op);return;}
+      if(current&&op.runtime===current.binding.runtime&&op.token===current.token){current.frame=op.frame;current.terminal=op.terminal;}},
     commit() {
+      group?.commit();
       if(busy||collections.reporting()||!current)return;const d=current;busy=true;let invalid=false;
       try{if(d.phase==='active'){
         const m=d.terminal?null:mapping(d.binding,d.y);invalid=m===null;
@@ -1104,6 +1148,7 @@ export function arrangeController({views,collections,motion,request,applyBatch,n
       if(d.phase==='settling'&&motion.reorderSettled(d.binding.wrapper))finish(d);
     },
     reset() {
+      group?.reset();
       if(current){if(current.phase==='active')terminal(current,true);if(current?.phase==='settling')finish(current);}
       if(current){clearContact(current);collections.releaseRetainedInteraction(current.lease);motion.raiseReorder(current.binding.wrapper,false);current=null;}
       for(const b of bindings.values()){b.el.removeEventListener('pointerdown',b.down);b.el.style.touchAction=b.touch;}
