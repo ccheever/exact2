@@ -1,0 +1,20 @@
+// @ref llp/1106-t3-code-ios.rfc.md#architecture
+// M0 launch and shared-import probe. Screen parity begins after oracle capture.
+shape PairingFields
+  source: string
+  host: string
+  code: string
+
+component App
+  state pairing = ""
+  resource parsed = pairingFields(pairing) as shape PairingFields else empty(source="", host="", code="")
+  action editPairing(value: string)
+    pairing = value
+  view
+    column height="100%" box-sizing="border-box" padding=24 gap=16
+      background-color="light-dark(#ffffff, #151718)" color="light-dark(#111111, #eeeeee)"
+      interactive-widget="resizes-content" testId="mobile-root"
+      text "T3 Code" font-size=28 font-weight=700 testId="mobile-title"
+      input type="url" value=pairing input=editPairing aria-label="Pairing URL"
+        placeholder="Pairing URL" autocorrect="off" testId="pairing-url"
+      text parsed.host testId="pairing-host"

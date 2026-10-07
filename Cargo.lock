@@ -4695,6 +4695,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "t3-code-ios"
+version = "0.1.0"
+dependencies = [
+ "exact-apple",
+ "exact-js",
+ "exact-js-bake",
+ "exact-logic",
+]
+
+[[package]]
 name = "t3-code-macos"
 version = "0.1.0"
 dependencies = [
