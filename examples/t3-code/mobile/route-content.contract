@@ -447,6 +447,8 @@ component MobileRouteContent
       Archive(data=archiveData, colors=archiveLook, pending=archivedPending, loading=archiveDataPending, width=viewport.width, reduced=viewport.prefersReducedMotion, refresh=refreshArchive, action=archiveAction)
     else when routeName == "threadAgents"
       AgentActivity(data=agents, colors=agentLook, dark=appearance.scheme == "dark", bottomInset=layout.safeBottom, open=openAgent)
+    else when routeName == "newTaskDraft" and newTaskData.draft and (newTaskFlow.ready or (not focused and newTaskFlow.draftOwner != "" and newTaskFlow.draftOwner == newTaskData.composer.contentOwner))
+      NewTaskDraft(routeId=routeId, editorId=`thread-composer-${routeId}`, data=newTaskData, colors=composerLook, threadColors=threadLook, attachments=composerAttachments, safeBottom=layout.safeBottom, keyboardDocked=layout.keyboardDocked, underHeader=layout.liquidGlass, dark=(appearance.scheme == "dark"), enterBehavior=appearance.enterBehavior, voice=voiceData, voiceOwner=(focused ? voiceFocus.owner : ""), voiceColors=voiceLook, voiceDisabled=(data.busy or changedPending or taskChangedPending), voiceAction=voiceAction, chooseProject=chooseNewProject, chooseEnvironment=chooseNewEnvironment, chooseBranch=chooseNewBranch, editDraft=editNewDraft, focusChanged=composerFocus, action=taskAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, openAttachment=openDraftMedia, removeAttachment=removeAttachment)
     else when startsWith(routeName, "newTask") and routeName != "newTask" and not newTaskFlow.ready
       column flex=1 align-items="center" justify-content="center" padding=28 gap=14
         text (newTaskFlow.message != "" ? newTaskFlow.message : newTaskFlow.title) color=composerLook.muted text-align="center"
@@ -477,8 +479,6 @@ component MobileRouteContent
       ComposerChoices(rows=modelData.runtimes, choose=chooseRuntime, colors=composerLook)
     else when routeName == "threadModelFilter" or routeName == "newTaskModelFilter"
       ComposerChoices(rows=modelData.filters, choose=chooseModelFilter, colors=composerLook)
-    else when routeName == "newTaskDraft" and newTaskFlow.ready and newTaskData.draft
-      NewTaskDraft(routeId=routeId, editorId=`thread-composer-${routeId}`, data=newTaskData, colors=composerLook, threadColors=threadLook, attachments=composerAttachments, safeBottom=layout.safeBottom, keyboardDocked=layout.keyboardDocked, underHeader=layout.liquidGlass, dark=(appearance.scheme == "dark"), enterBehavior=appearance.enterBehavior, voice=voiceData, voiceOwner=(focused ? voiceFocus.owner : ""), voiceColors=voiceLook, voiceDisabled=(data.busy or changedPending or taskChangedPending), voiceAction=voiceAction, chooseProject=chooseNewProject, chooseEnvironment=chooseNewEnvironment, chooseBranch=chooseNewBranch, editDraft=editNewDraft, focusChanged=composerFocus, action=taskAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, openAttachment=openDraftMedia, removeAttachment=removeAttachment)
     else when routeName == "newTask"
       input value=newTaskQuery input=editNewQuery placeholder="Search projects" margin=16 aria-label="Search projects"
       NewTaskProjects(data=newTaskData, action=taskAction, colors=composerLook)

@@ -5,6 +5,7 @@ import { mobileHomeSources } from './home';
 import { mobileNewTask, mobileNewTaskAction } from './new-task';
 import { mobileSessionGrants } from './environment-detail';
 import { mobileComposerSettings, mobileComposerSettingsAction } from './composer-settings';
+import { mobileComposerTarget } from './composer-target';
 import { patchDraftContext } from './shared/composer-controls-branch';
 import { ClientError, nativeFiles, type Native, type Files } from './shared/protocol';
 import { letGo, letGoAware } from './shared/let-go';
@@ -14,7 +15,7 @@ import type { T3Client } from './shared/client';
 
 export interface NewTaskFlowSnapshot {
   owner: string; requestRoute: string; status: string; title: string; message: string;
-  ready: boolean; chooser: boolean; needsPrepare: boolean; busy: boolean; nextLocation: string;
+  draftOwner: string; ready: boolean; chooser: boolean; needsPrepare: boolean; busy: boolean; nextLocation: string;
 }
 export interface NewTaskFlowResult {
   revision: number; requestRoute: string; nextLocation: string; message: string;
@@ -74,6 +75,7 @@ export function mobileNewTaskFlowView(session: string, visit: string, location: 
   flow.readyVisit = '';
   const selected = sameSelection(flow.selected, client) && projectExists(client.environmentId, client.projectId, client, background);
   const base: NewTaskFlowSnapshot = { owner: flow.owner, requestRoute: visit, status: 'inactive', title: 'New task', message: flow.error,
+    draftOwner: active && client.preferencesLoaded && selected ? mobileComposerTarget(client).owner : '',
     ready: false, chooser: route.chooser, needsPrepare: false, busy: flow.busy || checkouts.has(client), nextLocation: '' };
   if (!active) return base;
   if (route.chooser) return { ...base, status: 'choose', title: 'Choose project' };
