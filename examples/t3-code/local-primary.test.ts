@@ -199,9 +199,32 @@ describe('the Local environment switch (applyLocalSetting, the U4 stopgap)', () 
     const client = switchClient(false);
     (client.local as { localEnvironmentEnabled?: boolean }).localEnvironmentEnabled = false;
     const native = new Fake([], { localBackendSetEnabled: () => new Error('The local server stopped before it was ready (code=1).') });
-    await expect(applyLocalSetting(client, native, { localEnvironmentEnabled: true })).rejects.toThrow('The local server stopped before it was ready (code=1).');
+    expect(await applyLocalSetting(client, native, { localEnvironmentEnabled: true })).toEqual({ status: null, generation: -1 });
     expect((client.local as { localEnvironmentEnabled?: boolean }).localEnvironmentEnabled).toBe(false);
     expect(primary.disabled).toBe(true);
+    // The dialog's inline error (the view's), not the command's; the next change clears it.
+    expect(thisMachine(undefined, null)).toMatchObject({ enabled: false, error: 'The local server stopped before it was ready (code=1).' });
+  });
+
+  test('the section holds still while a change runs ("Restarting…"), then shows the new value', async () => {
+    primaryAt('http://127.0.0.1:16437', 'env-local', 'Lane Mac');
+    const host = { connection: 'connected', origin: 'http://127.0.0.1:16437', environmentId: 'env-local', statusMessage: '', scopes: [], config: { environment: { label: 'Lane Mac' } } };
+    expect(connectionsProjection(host, []).thisMachine).toMatchObject({ title: 'Lane Mac', enabled: true });
+    let release: () => void = () => {};
+    const stopped = new Promise<void>(resolve => { release = resolve; });
+    const native = new Fake([], { disconnect: () => ({ state: 'disconnected', origin: '', environmentId: '', message: '' }) });
+    const later = native.later.bind(native);
+    native.later = async (input: unknown) => {
+      if (obj(input).op === 'localBackendSetEnabled') { await stopped; return { ok: true, generation: 1, value: { state: 'stopped', enabled: false } }; }
+      return later(input);
+    };
+    const client = switchClient(true);
+    const change = applyLocalSetting(client, native, { localEnvironmentEnabled: false });
+    await new Promise(resolve => setTimeout(resolve, 5));
+    primary.update(parseLocalBackendStatus({ state: 'stopped', enabled: false }), false); // a refresh while the server stops
+    expect(connectionsProjection({ ...host, connection: 'disconnected', environmentId: '' }, []).thisMachine).toMatchObject({ title: 'Lane Mac', enabled: true });
+    release(); await change;
+    expect(connectionsProjection({ ...host, connection: 'disconnected', environmentId: '' }, []).thisMachine).toMatchObject({ title: 'This machine', enabled: false });
   });
 
   test('the section: title, the switch row, the dialog copy and the Version row', () => {

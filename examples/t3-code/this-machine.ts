@@ -23,6 +23,7 @@ import { desktopManagedOnly, DESKTOP_MANAGED_NOTE } from './server-installation'
 import { serverUpdateStageLabel, serverUpdateStateFor } from './server-update';
 import { placeholderRow, type SavedRowView, type Source } from './connections';
 import type { T3Client } from './client';
+import { letGo } from './let-go';
 
 export const LOCAL_ON_DESCRIPTION = 'Run agents on this computer. Turn off to use T3 Code only with remote environments.';
 export const LOCAL_OFF_DESCRIPTION = 'Turned off. Agents only run in remote environments.';
@@ -32,9 +33,19 @@ export const TURN_ON = { title: 'Turn on local environment?', confirm: 'Restart 
 
 /** The switch as applied: while a change runs, the value it started from (the reference's switch shows the value this process started with). */
 let applyingAny: boolean | null = null;
+/** The section as it stood when a change began: it holds still until the change is done (the reference relaunches then). */
+let held: ReturnType<typeof project> | null = null;
+/** The last change's failure, shown under the dialog's description (LocalEnvironmentSetting `error`); a new change clears it. */
+let failure = '';
 
 /** The section's projection: the primary's source and its row shape (for the icon menu), when there is a primary. */
 export function thisMachine(source: Source | undefined, row: SavedRowView | null, local: LocalPrimary = primary) {
+  const view = project(source, row, local);
+  if (applyingAny === null) { last = view; return view; }
+  return held ?? view;
+}
+let last: ReturnType<typeof project> | null = null;
+function project(source: Source | undefined, row: SavedRowView | null, local: LocalPrimary) {
   const enabled = applyingAny ?? !local.disabled;
   const config = source?.config ?? {};
   const environment = obj(config.environment);
@@ -66,9 +77,10 @@ export function thisMachine(source: Source | undefined, row: SavedRowView | null
     dialogTitle: enabled ? TURN_OFF.title : TURN_ON.title,
     dialogBody: enabled ? TURN_OFF.body : TURN_ON.body,
     dialogConfirm: enabled ? TURN_OFF.confirm : TURN_ON.confirm,
+    error: failure,
   };
 }
-export type ThisMachineView = ReturnType<typeof thisMachine>;
+export type ThisMachineView = ReturnType<typeof project>;
 
 type Result = { status: Obj | null; generation: number };
 async function call(native: Native, request: Obj) {
@@ -81,12 +93,13 @@ async function call(native: Native, request: Obj) {
  * applyLocalSetting (U4 stopgap, see the header): one local setting change. Turning off hands the
  * focus away from the primary first (to the first switched-on saved environment, else none), then
  * stops the server; turning on starts it and, with nothing else focused, connects to it. Returns
- * the focused connection's new status for T3Client to adopt.
+ * the focused connection's new status for T3Client to adopt; a failure puts the setting back and is the
+ * view's `error` (the dialog's inline text), not the command's.
  */
 export async function applyLocalSetting(client: T3Client, native: Native, change: { localEnvironmentEnabled: boolean }): Promise<Result> {
   const enabled = change.localEnvironmentEnabled, before = localEnvironmentEnabled(client);
   if (enabled === before && primary.status.enabled === enabled) return { status: null, generation: -1 };
-  applyingAny = before;
+  applyingAny = before; held = last; failure = '';
   setLocalEnvironmentEnabled(client, enabled); // T3Client saves the preference file after the command
   let result: Result = { status: null, generation: -1 };
   const local = primaryEntry();
@@ -119,6 +132,9 @@ export async function applyLocalSetting(client: T3Client, native: Native, change
   } catch (error) {
     setLocalEnvironmentEnabled(client, before);
     primary.update(primary.status, before);
-    throw error;
-  } finally { applyingAny = null; }
+    if (letGo(error)) throw error;
+    // The dialog shows the reason and stays open; nothing else on the page names it.
+    failure = error instanceof Error && error.message ? error.message : "Couldn't change this setting.";
+    return { status: null, generation: -1 };
+  } finally { applyingAny = null; held = null; }
 }

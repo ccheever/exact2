@@ -303,7 +303,7 @@ component SettingsModals
           HubRemoveDialog(hub=hub, busy=commandPending, cancel=providerUi("close", ""), confirm=providerOp("provider-hub-remove", "", hub.id, "", true))
     // "Turn off/on local environment?" (this-machine.contract): open until the switch reads the new value.
     when (connectionRemove == "local-environment:off" and connectionsPage.thisMachine.enabled) or (connectionRemove == "local-environment:on" and not connectionsPage.thisMachine.enabled)
-      LocalEnvironmentDialog(title=connectionsPage.thisMachine.dialogTitle, body=connectionsPage.thisMachine.dialogBody, confirmLabel=connectionsPage.thisMachine.dialogConfirm, destructive=connectionsPage.thisMachine.enabled, busy=commandPending, error=modalError, still=viewport.prefersReducedMotion, cancel=connectionAskRemove(""), confirm=localCommand("local-environment", "", connectionsPage.thisMachine.enabled ? "off" : "on"))
+      LocalEnvironmentDialog(title=connectionsPage.thisMachine.dialogTitle, body=connectionsPage.thisMachine.dialogBody, confirmLabel=connectionsPage.thisMachine.dialogConfirm, destructive=connectionsPage.thisMachine.enabled, busy=commandPending, error=connectionsPage.thisMachine.error, still=viewport.prefersReducedMotion, cancel=connectionAskRemove(""), confirm=localCommand("local-environment", "", connectionsPage.thisMachine.enabled ? "off" : "on"))
     when connectionRemove != ""
       each environment in connectionsPage.environments key=environment.key
         when environment.key == connectionRemove

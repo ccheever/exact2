@@ -111,6 +111,7 @@ shape ThisMachine
   dialogTitle: string
   dialogBody: string
   dialogConfirm: string
+  error: string
 shape ConnectionsPage
   connected: bool
   state: string
