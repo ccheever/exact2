@@ -283,7 +283,8 @@ apparatus: `exact.mjs hook <word>`, `EXACT_HOOKS=off` and the template's
 Still refused: claiming input on a painting host (a gesture arena), a tap that
 runs hook code by name, a hook that writes Contract state or dispatches, a
 node-scoped frame ticket, diagnostics collected in production, and JavaScript
-above the data seam on native. Android stays below, named but not built.
+above the data seam on native. Android's hooks are named but not built
+(Android itself is admitted, 2026-10-07, §Surfaces).
 
 ## Surfaces
 
@@ -335,7 +336,18 @@ waiver until Charlie names one.
   using Contract and an app-local Win32 control presenter. General Windows
   control parity remains behind these two consumers; no additional showcase
   or framework is admitted by this example.
-- **Android.** Same.
+- **Android.** Same, until 2026-10-07. **Admitted (Charlie, 2026-10-07,
+  waiver):** "admit android. we are working on android now -- it's becoming
+  real. amend that." Unblocks Android as a supported host instead of work
+  below the line:
+  - **Its host work:** the Canvas host (LLP 1076 §3.3) and the GPU painter.
+    Most of it is already merged into main from `android/explore`; the
+    branch keeps landing.
+  - **Parley's Android arm** (`text/parley-android`, LLP 1085.000).
+  - **A place in the sweep.**
+
+  No take was named; the ruling stands as its own waiver until Charlie names
+  one.
 
 Every surface multiplies the sweep, the presenter count, and the number of ways one
 change can break.
