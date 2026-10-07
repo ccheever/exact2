@@ -1,0 +1,282 @@
+# Drive A, run 4 (2026-10-08 03:42–03:45 KST; 18:42–18:45 UTC): agent mode, branch build f34f010b6, lane home and port 16101
+# The Mac's screen was locked, so this drive reads the view tree, the focus and the server; no pixels.
+# Tailnet address redacted to 100.x.x.x; pairing tokens never printed (#token=[redacted]).
+
+## Embedded server transitions (t3.local status: state, pid, bind host, Tailscale Serve, port)
+18:42:15.823Z state=starting pid=None host=127.0.0.1 serve=False port=443
+18:42:15.829Z state=starting pid=73949 host=127.0.0.1 serve=False port=443
+18:42:17.685Z state=ready pid=73949 host=127.0.0.1 serve=False port=443
+18:42:40.089Z state=stopped pid=73949 host=0.0.0.0 serve=False port=443
+18:42:40.143Z state=stopped pid=None host=0.0.0.0 serve=False port=443
+18:42:40.144Z state=starting pid=77112 host=0.0.0.0 serve=False port=443
+18:42:41.779Z state=ready pid=77112 host=0.0.0.0 serve=False port=443
+18:42:56.310Z state=stopped pid=77112 host=0.0.0.0 serve=True port=8443
+18:42:56.345Z state=stopped pid=None host=0.0.0.0 serve=True port=8443
+18:42:56.347Z state=starting pid=78817 host=0.0.0.0 serve=True port=8443
+18:42:57.976Z state=ready pid=78817 host=0.0.0.0 serve=True port=8443
+18:44:31.665Z state=stopped pid=78817 host=127.0.0.1 serve=True port=8443
+18:44:33.678Z state=stopped pid=None host=127.0.0.1 serve=True port=8443
+18:44:33.680Z state=starting pid=93841 host=127.0.0.1 serve=True port=8443
+18:44:35.403Z state=ready pid=93841 host=127.0.0.1 serve=True port=8443
+
+## Focus in the Enable network access dialog (state op): open → Tab → Tab → Escape
+"logical":1863 "logical":1865 "logical":1863 "logical":1850
+(1863 = network-access-cancel, 1865 = network-access-confirm, 1850 = network-access-switch; ids from the trees below)
+
+## Watcher during the drive (pasteboard, listener, stub serve status)
+2026-10-07T18:43:15.3NZ round 1: pasteboard holds a pairing URL for http://192.168.1.225:16101 (path /pair, token in the fragment)
+2026-10-07T18:43:16.3NZ listener: t3 78817 *:16101;
+2026-10-07T18:43:16.3NZ tailscale serve status (stub): https://lane-mac.example-tailnet.ts.net:8443 (tailnet only) |-- / proxy http://127.0.0.1:16101 
+2026-10-07T18:43:16.3NZ round 1: second client pid 81481
+2026-10-07T18:43:42.3NZ round 2: pasteboard holds a pairing URL for http://192.168.1.225:16101 (path /pair, token in the fragment)
+2026-10-07T18:43:42.3NZ listener: t3 78817 *:16101;
+2026-10-07T18:43:42.3NZ tailscale serve status (stub): https://lane-mac.example-tailnet.ts.net:8443 (tailnet only) |-- / proxy http://127.0.0.1:16101 
+2026-10-07T18:43:42.3NZ round 2: second client pid 85314
+
+## Second client (Lane client 1, then revoked with Revoke)
+2026-10-07T18:43:16.077Z exchange http://192.168.1.225:16101 HTTP 200
+2026-10-07T18:43:16.077Z scope orchestration:read orchestration:operate terminal:operate review:write relay:read
+2026-10-07T18:43:16.078Z ticket HTTP 200
+2026-10-07T18:43:16.081Z socket open
+2026-10-07T18:43:37.107Z session check: authenticated=false (HTTP 200)
+2026-10-07T18:43:37.108Z new websocket ticket after revoke: HTTP 401
+2026-10-07T18:43:37.108Z socket closed code=1000
+
+## Third client (Lane client 2, then revoked with Revoke others)
+2026-10-07T18:43:42.735Z exchange http://192.168.1.225:16101 HTTP 200
+2026-10-07T18:43:42.739Z scope orchestration:read orchestration:operate terminal:operate review:write relay:read
+2026-10-07T18:43:42.739Z ticket HTTP 200
+2026-10-07T18:43:42.744Z socket open
+2026-10-07T18:44:03.783Z session check: authenticated=false (HTTP 200)
+2026-10-07T18:44:03.784Z new websocket ticket after revoke: HTTP 401
+2026-10-07T18:44:03.784Z socket closed code=1000
+
+## Stub Tailscale CLI calls (caller: the app or the server)
+2026-10-07T18:42:41Z [caller: T3 Code (Exact)] tailscale status --json
+2026-10-07T18:42:57Z [caller: t3] tailscale serve --bg --https=8443 http://127.0.0.1:16101
+2026-10-07T18:42:57Z [caller: t3] tailscale status --json
+2026-10-07T18:42:58Z [caller: T3 Code (Exact)] tailscale status --json
+2026-10-07T18:42:58Z [caller: t3] tailscale status --json
+2026-10-07T18:42:58Z [caller: t3] tailscale status --json
+2026-10-07T18:43:16Z [caller: zsh] tailscale serve status
+2026-10-07T18:43:42Z [caller: zsh] tailscale serve status
+2026-10-07T18:43:58Z [caller: T3 Code (Exact)] tailscale status --json
+2026-10-07T18:44:31Z [caller: t3] tailscale serve --https=8443 off
+2026-10-07T18:44:31Z [caller: T3 Code (Exact)] tailscale status --json
+2026-10-07T18:44:34Z [caller: t3] tailscale serve --bg --https=8443 http://127.0.0.1:16101
+2026-10-07T18:44:35Z [caller: t3] tailscale status --json
+2026-10-07T18:44:35Z [caller: t3] tailscale status --json
+2026-10-07T18:44:43Z [caller: t3] tailscale serve --https=8443 off
+
+## The section in the view tree at each step (text and controls only)
+1:===== tree 17 (epoch 18 · incarnation 1 · clock 31000 ms · 519 nodes)
+28:                        Text#1848 [network-access-description] "Limited to this machine."
+31:                        Text#1856 [tailscale-https-description] "Start Tailscale to set up HTTPS access through MagicDNS."
+39:===== tree 22 (epoch 19 · incarnation 1 · clock 31200 ms · 529 nodes)
+66:                        Text#1848 [network-access-description] "Limited to this machine."
+69:                        Text#1856 [tailscale-https-description] "Start Tailscale to set up HTTPS access through MagicDNS."
+70:          Text#1860 [network-access-title] "Enable network access?"
+83:===== tree 32 (epoch 20 · incarnation 1 · clock 31400 ms · 519 nodes)
+110:                        Text#1848 [network-access-description] "Limited to this machine."
+113:                        Text#1856 [tailscale-https-description] "Start Tailscale to set up HTTPS access through MagicDNS."
+121:===== tree 37 (epoch 22 · incarnation 1 · clock 31599.999999999996 ms · 532)
+148:                        Text#1848 [network-access-description] "Limited to this machine."
+151:                        Text#1856 [tailscale-https-description] "Start Tailscale to set up HTTPS access through MagicDNS."
+152:          Text#1870 [network-access-title] "Enable network access?"
+157:            Text#1880 "Restarting…"
+165:===== tree 40 (epoch 32 · incarnation 1 · clock 43600 ms · 541 nodes)
+194:                            Text#1903 [network-access-url] "http://192.168.1.225:16101/"
+198:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+202:                    Text#1915 [authorized-clients-summary] "1 client"
+214:===== tree 43 (epoch 33 · incarnation 1 · clock 43600 ms · 568 nodes)
+243:                            Text#1903 [network-access-url] "http://192.168.1.225:16101/"
+258:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+262:                    Text#1915 [authorized-clients-summary] "1 client"
+274:===== tree 47 (epoch 36 · incarnation 1 · clock 45600 ms · 568 nodes)
+303:                            Text#1903 [network-access-url] "http://100.x.x.x:16101/"
+318:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+322:                    Text#1915 [authorized-clients-summary] "1 client"
+334:===== tree 53 (epoch 40 · incarnation 1 · clock 47800.00000000001 ms · 589 )
+363:                            Text#1903 [network-access-url] "http://192.168.1.225:16101/"
+378:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+382:                    Text#1915 [authorized-clients-summary] "1 client"
+390:            TextInput#1978 [tailscale-port] value="443" label="HTTPS port" [focused] (input, key)
+392:              Text#1982 [tailscale-endpoint-preview] "https://lane-mac.example-tailnet.ts.net/"
+405:===== tree 58 (epoch 41 · incarnation 1 · clock 47800.00000000001 ms · 590 )
+434:                            Text#1903 [network-access-url] "http://192.168.1.225:16101/"
+449:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+453:                    Text#1915 [authorized-clients-summary] "1 client"
+461:            TextInput#1978 [tailscale-port] value="abc" label="HTTPS port" [focused] (input, key)
+462:            Text#1991 [tailscale-port-error] "Enter a port from 1 to 65535."
+464:              Text#1982 [tailscale-endpoint-preview] "https://lane-mac.example-tailnet.ts.net/"
+477:===== tree 62 (epoch 42 · incarnation 1 · clock 47800.00000000001 ms · 590 )
+506:                            Text#1903 [network-access-url] "http://192.168.1.225:16101/"
+521:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+525:                    Text#1915 [authorized-clients-summary] "1 client"
+533:            TextInput#1978 [tailscale-port] value="0" label="HTTPS port" [focused] (input, key)
+534:            Text#1991 [tailscale-port-error] "Enter a port from 1 to 65535."
+536:              Text#1982 [tailscale-endpoint-preview] "https://lane-mac.example-tailnet.ts.net/"
+549:===== tree 66 (epoch 43 · incarnation 1 · clock 47800.00000000001 ms · 590 )
+578:                            Text#1903 [network-access-url] "http://192.168.1.225:16101/"
+593:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+597:                    Text#1915 [authorized-clients-summary] "1 client"
+605:            TextInput#1978 [tailscale-port] value="70000" label="HTTPS port" [focused] (input, key)
+606:            Text#1991 [tailscale-port-error] "Enter a port from 1 to 65535."
+608:              Text#1982 [tailscale-endpoint-preview] "https://lane-mac.example-tailnet.ts.net/"
+621:===== tree 70 (epoch 44 · incarnation 1 · clock 47800.00000000001 ms · 589 )
+650:                            Text#1903 [network-access-url] "http://192.168.1.225:16101/"
+665:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+669:                    Text#1915 [authorized-clients-summary] "1 client"
+677:            TextInput#1978 [tailscale-port] value="8443" label="HTTPS port" [focused] (input, key)
+679:              Text#1982 [tailscale-endpoint-preview] "https://lane-mac.example-tailnet.ts.net:8443"
+692:===== tree 72 (epoch 45 · incarnation 1 · clock 47800.00000000001 ms · 592 )
+721:                            Text#1903 [network-access-url] "http://192.168.1.225:16101/"
+736:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+740:                    Text#1915 [authorized-clients-summary] "1 client"
+748:            TextInput#1978 [tailscale-port] value="8443" label="HTTPS port" (input, key)
+750:              Text#1982 [tailscale-endpoint-preview] "https://lane-mac.example-tailnet.ts.net:8443"
+754:            Text#1995 "Restarting…"
+763:===== tree 75 (epoch 55 · incarnation 1 · clock 59800.00000000001 ms · 568 )
+792:                            Text#2016 [network-access-url] "http://192.168.1.225:16101/"
+807:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+811:                    Text#2055 [authorized-clients-summary] "1 client"
+823:===== tree 79 (epoch 56 · incarnation 1 · clock 61800.00000000001 ms · 584 )
+852:                            Text#2016 [network-access-url] "http://192.168.1.225:16101/"
+867:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+871:                    Text#2055 [authorized-clients-summary] "1 client"
+876:                            Text#2084 [client-session-label-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "T3 Code Desktop"
+877:                            Text#2085 [client-session-current-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "This device"
+888:===== tree 83 (epoch 56 · incarnation 1 · clock 64800.00000000001 ms · 584 )
+917:                            Text#2016 [network-access-url] "http://192.168.1.225:16101/"
+932:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+936:                    Text#2055 [authorized-clients-summary] "1 client"
+941:                            Text#2084 [client-session-label-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "T3 Code Desktop"
+942:                            Text#2085 [client-session-current-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "This device"
+953:===== tree 86 (epoch 57 · incarnation 1 · clock 65000.000000000015 ms · 662)
+982:                            Text#2016 [network-access-url] "http://192.168.1.225:16101/"
+997:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+1001:                    Text#2055 [authorized-clients-summary] "1 client"
+1006:                            Text#2084 [client-session-label-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "T3 Code Desktop"
+1007:                            Text#2085 [client-session-current-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "This device"
+1047:          Pressable#2164 [pairing-create-confirm] (press, key)
+1057:===== tree 90 (epoch 58 · incarnation 1 · clock 65000.000000000015 ms · 654)
+1086:                            Text#2016 [network-access-url] "http://192.168.1.225:16101/"
+1101:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+1105:                    Text#2055 [authorized-clients-summary] "1 client"
+1110:                            Text#2084 [client-session-label-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "T3 Code Desktop"
+1111:                            Text#2085 [client-session-current-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "This device"
+1151:          Pressable#2164 [pairing-create-confirm] (press, key)
+1161:===== tree 93 (epoch 59 · incarnation 1 · clock 65000.000000000015 ms · 653)
+1190:                            Text#2016 [network-access-url] "http://192.168.1.225:16101/"
+1205:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+1209:                    Text#2055 [authorized-clients-summary] "1 client"
+1214:                            Text#2084 [client-session-label-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "T3 Code Desktop"
+1215:                            Text#2085 [client-session-current-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "This device"
+1253:            Text#2169 [pairing-scopes-error] "Select at least one permission."
+1256:          Pressable#2164 [pairing-create-confirm] (press, key)
+1266:===== tree 97 (epoch 61 · incarnation 1 · clock 65000.000000000015 ms · 665)
+1295:                            Text#2016 [network-access-url] "http://192.168.1.225:16101/"
+1310:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+1314:                    Text#2055 [authorized-clients-summary] "1 client"
+1319:                            Text#2084 [client-session-label-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "T3 Code Desktop"
+1320:                            Text#2085 [client-session-current-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "This device"
+1358:            Text#2182 [pairing-scopes-warning] "This client can create or revoke access for other devices."
+1361:          Pressable#2164 [pairing-create-confirm] (press, key)
+1371:===== tree 103 (epoch 68 · incarnation 1 · clock 67000.00000000001 ms · 605 )
+1400:                            Text#2016 [network-access-url] "http://192.168.1.225:16101/"
+1415:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+1419:                    Text#2055 [authorized-clients-summary] "1 client · 1 pairing link"
+1424:                            Text#2189 [pairing-link-label-76b6ae51-69e6-4358-a8b2-058011a3491d] "Lane phone"
+1425:                              Text#2192 [pairing-link-expires-76b6ae51-69e6-4358-a8b2-058011a3491d] "Expires in 4m 52s"
+1427:                              Pressable#2195 [pairing-link-scopes-76b6ae51-69e6-4358-a8b2-058011a3491d] label="Pairing link scopes: show 5 scopes" (focus, blur)
+1433:                            Text#2084 [client-session-label-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "T3 Code Desktop"
+1434:                            Text#2085 [client-session-current-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "This device"
+1445:===== tree 106 (epoch 69 · incarnation 1 · clock 68000.00000000001 ms · 605 )
+1474:                            Text#2016 [network-access-url] "http://192.168.1.225:16101/"
+1489:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+1493:                    Text#2055 [authorized-clients-summary] "1 client · 1 pairing link"
+1498:                            Text#2189 [pairing-link-label-76b6ae51-69e6-4358-a8b2-058011a3491d] "Lane phone"
+1499:                              Text#2192 [pairing-link-expires-76b6ae51-69e6-4358-a8b2-058011a3491d] "Expires in 4m 51s"
+1501:                              Pressable#2195 [pairing-link-scopes-76b6ae51-69e6-4358-a8b2-058011a3491d] label="Pairing link scopes: show 5 scopes" (focus, blur)
+1507:                            Text#2084 [client-session-label-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "T3 Code Desktop"
+1508:                            Text#2085 [client-session-current-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "This device"
+1519:===== tree 109 (epoch 70 · incarnation 1 · clock 68300.00000000001 ms · 612 )
+1548:                            Text#2016 [network-access-url] "http://192.168.1.225:16101/"
+1563:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+1567:                    Text#2055 [authorized-clients-summary] "1 client · 1 pairing link"
+1572:                            Text#2189 [pairing-link-label-76b6ae51-69e6-4358-a8b2-058011a3491d] "Lane phone"
+1573:                              Text#2192 [pairing-link-expires-76b6ae51-69e6-4358-a8b2-058011a3491d] "Expires in 4m 51s"
+1575:                              Pressable#2195 [pairing-link-scopes-76b6ae51-69e6-4358-a8b2-058011a3491d] label="Pairing link scopes: show 5 scopes" (focus, blur)
+1577:                                Text#2205 "Granted scopes"
+1587:                            Text#2084 [client-session-label-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "T3 Code Desktop"
+1588:                            Text#2085 [client-session-current-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "This device"
+1599:===== tree 112 (epoch 71 · incarnation 1 · clock 68300.00000000001 ms · 929 )
+1628:                            Text#2016 [network-access-url] "http://192.168.1.225:16101/"
+1643:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+1647:                    Text#2055 [authorized-clients-summary] "1 client · 1 pairing link"
+1652:                            Text#2189 [pairing-link-label-76b6ae51-69e6-4358-a8b2-058011a3491d] "Lane phone"
+1653:                              Text#2192 [pairing-link-expires-76b6ae51-69e6-4358-a8b2-058011a3491d] "Expires in 4m 51s"
+1655:                              Pressable#2195 [pairing-link-scopes-76b6ae51-69e6-4358-a8b2-058011a3491d] label="Pairing link scopes: show 5 scopes" (focus, blur)
+1657:                                Text#2205 "Granted scopes"
+1682:                            Text#2084 [client-session-label-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "T3 Code Desktop"
+1683:                            Text#2085 [client-session-current-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "This device"
+1694:===== tree 116 (epoch 76 · incarnation 1 · clock 69300.00000000001 ms · 592 )
+1723:                            Text#2016 [network-access-url] "http://192.168.1.225:16101/"
+1738:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+1742:                    Text#2055 [authorized-clients-summary] "2 clients"
+1747:                            Text#2084 [client-session-label-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "T3 Code Desktop"
+1748:                            Text#2085 [client-session-current-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "This device"
+1752:                            Text#2549 [client-session-label-e2feabc3-b4a5-4b61-a65f-bd623463d015] "Lane phone"
+1758:                  Text#2537 [toast-title-3] "Pairing URL copied"
+1761:===== tree 119 (epoch 77 · incarnation 1 · clock 89300.00000000001 ms · 600 )
+1790:                            Text#2016 [network-access-url] "http://192.168.1.225:16101/"
+1805:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+1809:                    Text#2055 [authorized-clients-summary] "2 clients"
+1814:                            Text#2084 [client-session-label-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "T3 Code Desktop"
+1815:                            Text#2085 [client-session-current-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "This device"
+1819:                            Text#2549 [client-session-label-e2feabc3-b4a5-4b61-a65f-bd623463d015] "Lane phone"
+1832:===== tree 123 (epoch 80 · incarnation 1 · clock 92300.00000000001 ms · 584 )
+1861:                            Text#2016 [network-access-url] "http://192.168.1.225:16101/"
+1876:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+1880:                    Text#2055 [authorized-clients-summary] "1 client"
+1885:                            Text#2084 [client-session-label-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "T3 Code Desktop"
+1886:                            Text#2085 [client-session-current-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "This device"
+1897:===== tree 136 (epoch 95 · incarnation 1 · clock 115500.00000000001 ms · 600)
+1926:                            Text#2016 [network-access-url] "http://192.168.1.225:16101/"
+1941:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+1945:                    Text#2055 [authorized-clients-summary] "2 clients"
+1950:                            Text#2084 [client-session-label-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "T3 Code Desktop"
+1951:                            Text#2085 [client-session-current-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "This device"
+1955:                            Text#3020 [client-session-label-96b9c924-60aa-4171-95cb-3d35d9d82d10] "Lane tablet"
+1968:===== tree 140 (epoch 99 · incarnation 1 · clock 118500.00000000001 ms · 576)
+1997:                            Text#2016 [network-access-url] "http://192.168.1.225:16101/"
+2012:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+2016:                    Text#2055 [authorized-clients-summary] "1 client"
+2021:                            Text#2084 [client-session-label-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "T3 Code Desktop"
+2022:                            Text#2085 [client-session-current-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "This device"
+2026:                  Text#3060 [toast-title-5] "Revoked 1 other client"
+2029:===== tree 147 (epoch 107 · incarnation 1 · clock 120700.00000000001 ms · 60)
+2058:                            Text#2016 [network-access-url] "http://192.168.1.225:16101/"
+2073:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+2077:                    Text#2055 [authorized-clients-summary] "1 client · 1 pairing link"
+2082:                            Text#3149 [pairing-link-label-0b86d31c-1d74-43ef-86c6-776b57176b53] "Pairing link"
+2083:                              Text#3152 [pairing-link-expires-0b86d31c-1d74-43ef-86c6-776b57176b53] "Expires in 4m 52s"
+2085:                              Pressable#3155 [pairing-link-scopes-0b86d31c-1d74-43ef-86c6-776b57176b53] label="Pairing link scopes: show 1 scope" (focus, blur)
+2091:                            Text#2084 [client-session-label-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "T3 Code Desktop"
+2092:                            Text#2085 [client-session-current-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "This device"
+2103:===== tree 150 (epoch 396 · incarnation 1 · clock 421700 ms · 584 nodes)
+2132:                            Text#2016 [network-access-url] "http://192.168.1.225:16101/"
+2147:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+2151:                    Text#2055 [authorized-clients-summary] "1 client"
+2156:                            Text#2084 [client-session-label-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "T3 Code Desktop"
+2157:                            Text#2085 [client-session-current-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "This device"
+2168:===== tree 153 (epoch 397 · incarnation 1 · clock 421900 ms · 594 nodes)
+2197:                            Text#2016 [network-access-url] "http://192.168.1.225:16101/"
+2212:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
+2216:                    Text#2055 [authorized-clients-summary] "1 client"
+2221:                            Text#2084 [client-session-label-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "T3 Code Desktop"
+2222:                            Text#2085 [client-session-current-0e9f4e6c-6e77-46c7-85c8-b22928bf8abf] "This device"
+2226:          Text#3189 [network-access-title] "Disable network access?"
+2239:===== tree 157 (epoch 407 · incarnation 1 · clock 433900 ms · 522 nodes)
+2266:                        Text#3216 [network-access-description] "Limited to this machine."
+2269:                        Text#1856 [tailscale-https-description] "Use Tailscale Serve to expose this backend through a MagicDNS HTTPS URL."
