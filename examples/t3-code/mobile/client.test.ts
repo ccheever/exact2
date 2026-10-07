@@ -21,11 +21,13 @@ describe('pinned shared sources', () => {
       }
     }
     visit(directory);
-    expect(names.length).toBe(296);
+    expect(names.length).toBe(297);
     for (const name of names) {
       const local = readFileSync(join(directory, name), 'utf8').split('\n');
       expect(local[0]).toContain('GAP 001');
-      expect(local[1]).toBe(`// Unchanged body from examples/t3-code/${name} at 887b2491b182f851b11253655f6aa84fe2a26708.`);
+      const pin = ['client.ts', 'local-backend.ts', 'timestamp-format.ts'].includes(name)
+        ? '38352ceaf4cd35a40b7b24ce992db87c2357a99b' : '887b2491b182f851b11253655f6aa84fe2a26708';
+      expect(local[1]).toBe(`// Unchanged body from examples/t3-code/${name} at ${pin}.`);
       expect(local.slice(2).join('\n')).toBe(readFileSync(new URL(`../${name}`, import.meta.url), 'utf8'));
     }
   });
