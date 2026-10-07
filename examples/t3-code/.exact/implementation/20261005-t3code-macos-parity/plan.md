@@ -55,9 +55,9 @@ The user's decision (2026-10-06, model A): one feature branch, no stacked PRs.
 - Verification evidence logs are not committed. The pre-cleanup history, including the
   `evidence/` trees, stays on `daehyeon/t3code-parallel-features`.
 
-## Status, 2026-10-07
+## Status, 2026-10-08
 
-The task records match GitHub as of 2026-10-07: every task PR from #142 to #222 has merged into
+The task records match GitHub as of 2026-10-08: every task PR from #142 to #238 has merged into
 `feat(example)/t3-code`, and each record's `delivery` says so. Since the table below was written,
 these user decisions have changed the tickets:
 
@@ -85,9 +85,14 @@ these user decisions have changed the tickets:
 - These are blocked on an issue decision: `browser-surface` (X1), `app-developer-tools` (X2),
   `t3-connect-sign-in` (X38), `telemetry` (X39), `app-update-feed` (X40) and
   `wsl-environments` (X41).
-- In progress: `adopt-main-fixes-r5` (main's #219, #220, #221, #223 and #226),
-  `local-primary-environment` and `real-github-lane`. After `local-primary-environment` come
-  `app-activation`, `this-machine-network-access` and `portable-app-download`.
+- Merged on 2026-10-08: `adopt-main-fixes-r5` (#236; main `1f19b2400`, including #240 for #234),
+  `real-github-lane` (#233), `local-primary-environment` (#237) and `provider-sign-in-and-install` (#238).
+  Every PR so far was squash-merged, so the branch holds main `1f19b2400`'s framework content without its
+  ancestry: the next main adoption first records it with `git merge -s ours 1f19b2400`.
+- In progress (2026-10-08, one task PR each): `this-machine-network-access`, `app-activation`,
+  `managed-codex-chatgpt`, `usage-reset-and-feedback` and `pr-conversation-and-refresh`. Next, as these
+  merge: `provider-settings-upkeep`, `usage-pooled-view`, the other pull request tasks,
+  `portable-app-download`, and the tasks the desktop audit (#241) and #238 recorded.
 
 ## Parallel implementation, 2026-10-06
 
@@ -147,7 +152,7 @@ Common prerequisites, not repeated per row: every feature ticket (group 2 and la
 | 2 | [20261005-diff-review-engine](tasks/closed/20261005-diff-review-engine.md) | Diff tree, large diffs, line comments, Cite | exact2 | common | No gh needed; the PR Code tab reuses it | ported tests, oracle pairs |
 | 2 | [20261005-embedded-server-runtime](tasks/closed/20261005-embedded-server-runtime.md) | Official server runtime fetched at build, bundled, launched and supervised | exact2 | common; U3 decided (CLI archive); issues X4, X6 | Highest technical risk; desktop work and the portable build depend on it | process/port/readiness/restart/quit checks |
 | 2 | [20261005-environment-routes](tasks/closed/20261005-environment-routes.md) | Multi-route environments, learned routes, no duplicate saved rows | exact2 | common | Changes the saved-environment model; PR routing and server update build on it | ported routes tests, trace, relaunch |
-| 2 | [20261007-real-github-lane](tasks/20261007-real-github-lane.md) (replaces [20261005-fake-github-fixture](tasks/20261005-fake-github-fixture.md), blocked: superseded 2026-10-07) | Real-GitHub lane: isolated servers on the real `gh` and shared lane logins (two accounts), sandbox and idempotent seed, RPC probe with GitHub read-back; the built pull request rows re-verified live | exact2 (`examples/t3-code/tools/github-lane/`, U23) | common; the user's sign-in and sandbox approval | All PR tickets verify against it; the user chose real GitHub over the fake `gh` (2026-10-07) | probe table (gh log + read-back), unit fallback for injection and profiles, one live drive |
+| 2 | [20261007-real-github-lane](tasks/closed/20261007-real-github-lane.md) (replaces [20261005-fake-github-fixture](tasks/20261005-fake-github-fixture.md), blocked: superseded 2026-10-07) | Real-GitHub lane: isolated servers on the real `gh` and shared lane logins (two accounts), sandbox and idempotent seed, RPC probe with GitHub read-back; the built pull request rows re-verified live | exact2 (`examples/t3-code/tools/github-lane/`, U23) | common; the user's sign-in and sandbox approval | All PR tickets verify against it; the user chose real GitHub over the fake `gh` (2026-10-07) | probe table (gh log + read-back), unit fallback for injection and profiles, one live drive |
 | 2 | [20261005-floating-device-player](tasks/closed/20261005-floating-device-player.md) | Floating player drag, resize, avoidance | exact2 | common | Independent surface | ported layout tests, attended drag |
 | 2 | [20261005-legacy-sidebar](tasks/closed/20261005-legacy-sidebar.md) | "Sidebar (legacy)" switch works as the reference | exact2 | common | Large, separate surface | oracle pairs |
 | 2 | [20261005-live-automations-and-clones](tasks/closed/20261005-live-automations-and-clones.md) | Live automations and tracked project clones | exact2 | common | Two streams; independent | trace, effect checks |
@@ -158,7 +163,7 @@ Common prerequisites, not repeated per row: every feature ticket (group 2 and la
 | fix (wave 4) | [20261007-let-go-banner](tasks/closed/20261007-let-go-banner.md) | A request Exact let go (main `a19523a57`, FetchError `Aborted`) shows no banner, toast or failure field; real failures still do | exact2 | main merged into the feature branch (`4cdb8aa63`) | Regression: every #182 drive showed the banner | clone tests, one before/after drive |
 | fix (wave 4) | [20261007-fix-minor-ui-issues](tasks/closed/20261007-fix-minor-ui-issues.md) (#191) | Side-by-side pass against T3 Code (Nightly): settings traits picker, composer menu side, filter popup, discovery retry, compaction row, settled badge, surface chooser, Diff outside git, title menu rules | exact2 | feature branch tip `0a7ca50ad` | Small differences found by using both apps; missing features become their own tasks | before/after drives, unit tests |
 | 2 | [20261007-context-menu-gaps](tasks/closed/20261007-context-menu-gaps.md) (#203) | Files tree, pull request link and chat file-link context menus as the reference | exact2 | common | Found by fix-minor-ui-issues; the other reference menus match | unit tests of the items, drive record |
-| 2 | [20261005-provider-sign-in-and-install](tasks/20261005-provider-sign-in-and-install.md) | Provider sign-in and runtime install flows, redacted account text | exact2 | common | Base for managed Codex, settings upkeep, usage extras and sign-in terminals | fixture streams, attended real sign-in |
+| 2 | [20261005-provider-sign-in-and-install](tasks/closed/20261005-provider-sign-in-and-install.md) | Provider sign-in and runtime install flows, redacted account text | exact2 | common | Base for managed Codex, settings upkeep, usage extras and sign-in terminals | fixture streams, attended real sign-in |
 | 2 | [20261005-reference-logic-tests-done-areas](tasks/20261005-reference-logic-tests-done-areas.md) | Map of every reference test file to clone modules, with done-equivalent proof (port tickets follow) | exact2 | common | Proves "same logic as T3 Code" for work that has no feature ticket | ported tests pass; mapping table |
 | 2 | [20261005-remote-scopes-and-update-commands](tasks/closed/20261005-remote-scopes-and-update-commands.md) | Standard remote scopes incl. `terminal:operate`, re-pair decision, install-aware update commands | exact2 | common | Small; terminal and server-update tickets need it | trace, ported tests |
 | 2 | [20261005-right-panel-tab-menu](tasks/closed/20261005-right-panel-tab-menu.md) | Right-panel tab context menu (rename, copy path, close variants) | exact2 | common | General right-panel feature; must not wait for the terminal verdict | oracle pairs, attended right-click |
@@ -168,7 +173,7 @@ Common prerequisites, not repeated per row: every feature ticket (group 2 and la
 | 2 | [20261005-terminal-surface](tasks/closed/20261005-terminal-surface.md) | Go/no-go: vendored Ghostty terminal in a WKWebView with keys, IME, clipboard | exact2 | common | Highest-risk terminal step first | spike report, AppKit, attended IME |
 | 2 | [20261005-upstream-timeline-and-markdown](tasks/closed/20261005-upstream-timeline-and-markdown.md) | Tool rows, file links and skill chips match `1e2ecbd975` | exact2 | common | Upstream sync for one surface (timeline + Markdown) | trace (`getTurnItem`), oracle pairs |
 | 2 | [20261005-upstream-ui-sync](tasks/closed/20261005-upstream-ui-sync.md) | Small upstream UI changes (Working order, unpin icon, Azure mark, device step 0, popover z-order) | exact2 | common | Small changes grouped as one upstream sync | oracle pairs, ported tests |
-| 3 | [20261005-local-primary-environment](tasks/20261005-local-primary-environment.md) | Embedded server is the primary "This machine" environment | exact2 | embedded-server-runtime | Needs the running server | relaunch, trace, oracle pairs |
+| 3 | [20261005-local-primary-environment](tasks/closed/20261005-local-primary-environment.md) | Embedded server is the primary "This machine" environment | exact2 | embedded-server-runtime | Needs the running server | relaunch, trace, oracle pairs |
 | 3 | [20261005-managed-codex-chatgpt](tasks/20261005-managed-codex-chatgpt.md) | Managed Codex with ChatGPT sign-in and plan notices | exact2 | provider-sign-in-and-install | Reuses the auth flow | loopback XCTest, attended real account |
 | 3 | [20261005-media-actions](tasks/closed/20261005-media-actions.md) | Media context menus, copy/save, failure fallbacks, HTML preview assets | exact2 | main-fix-adoption; issue X7 for external hosts | One surface (media) | attended right-click, effect checks |
 | 3 | [20261005-pr-conversation-and-refresh](tasks/20261005-pr-conversation-and-refresh.md) | PR activity, skeletons, live refresh | exact2 | real-github-lane | Base model for all PR tickets | lane gh log, GitHub read-back, trace, oracle pairs |
