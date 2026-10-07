@@ -100,9 +100,10 @@ export function groupController({ views, collections, request, applyBatch, now, 
     const c = centre(d);
     for (const [el, axis] of scrollers(d)) {
       const r = el.getBoundingClientRect(), size = axis === 'x' ? el.clientWidth : el.clientHeight;
-      // A centre past the edge is in that edge's band (clamped into the box).
-      const at = Math.min(size, Math.max(0, axis === 'x' ? c[0] - r.left : c[1] - r.top));
-      const direction = at < BAND ? -1 : at > size - BAND ? 1 : 0;
+      const at = axis === 'x' ? c[0] - r.left : c[1] - r.top;
+      // A centre past an edge is that edge's, before the bands, which overlap
+      // in a port shorter than two of them.
+      const direction = at < 0 ? -1 : at > size ? 1 : at < BAND ? -1 : at > size - BAND ? 1 : 0;
       const pos = axis === 'x' ? el.scrollLeft : el.scrollTop, max = axis === 'x' ? el.scrollWidth - el.clientWidth : el.scrollHeight - el.clientHeight;
       if (direction && (direction < 0 ? pos > 0 : pos < max)) return { el, axis, direction };
     }
