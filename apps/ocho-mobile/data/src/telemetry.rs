@@ -125,7 +125,11 @@ impl Telemetry {
         }
         self.last_flush = now;
         self.sending = std::mem::take(&mut self.queue);
-        let records: Vec<Json> = self.sending.iter().map(record).collect();
+        // `now` is the app's clock, milliseconds since it started, not the
+        // date: an event stamped with it is from 1970, which Axiom takes and
+        // quietly drops. Each goes out as the wall clock's time for it.
+        let offset = wall_ms().map(|wall| wall - now);
+        let records: Vec<Json> = self.sending.iter().map(|e| record(e, offset)).collect();
         Some(
             json!({ "resourceLogs": [{
                 "resource": { "attributes": [
@@ -185,9 +189,27 @@ fn kv(key: &str, value: &Attr) -> Json {
     json!({ "key": key, "value": value })
 }
 
-fn record(e: &Event) -> Json {
+/// Milliseconds since the epoch, where the platform has a wall clock.
+fn wall_ms() -> Option<f64> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()
+            .map(|d| d.as_secs_f64() * 1000.0)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        None
+    }
+}
+
+/// An event as an OTLP log record; `offset` turns the app's clock into the
+/// wall clock (without one, 0: the sink stamps it on arrival).
+fn record(e: &Event, offset: Option<f64>) -> Json {
+    let at = offset.map_or(0.0, |offset| (e.at_ms + offset).max(0.0));
     json!({
-        "timeUnixNano": format!("{}", (e.at_ms.max(0.0) as u64).saturating_mul(1_000_000)),
+        "timeUnixNano": format!("{}", (at as u64).saturating_mul(1_000_000)),
         "severityText": if e.warn { "WARN" } else { "INFO" },
         "body": { "stringValue": e.name },
         "attributes": e.attrs.iter().map(|(k, v)| kv(k, v)).collect::<Vec<_>>(),
@@ -196,6 +218,30 @@ fn record(e: &Event) -> Json {
 
 #[cfg(test)]
 mod tests {
+    /// Events are stamped with the date, not the app's clock: Axiom drops
+    /// records from 1970 (it did, for every event but the launch's).
+    #[test]
+    fn events_carry_the_wall_clock() {
+        let mut t = super::Telemetry {
+            install: "i".repeat(32),
+            ..super::Telemetry::default()
+        };
+        t.track(0.0, "app.launch", false, vec![]);
+        t.track(3_000.0, "connect.first", false, vec![]);
+        let body: serde_json::Value = serde_json::from_str(&t.take(5_000.0, "1").unwrap()).unwrap();
+        let records = &body["resourceLogs"][0]["scopeLogs"][0]["logRecords"];
+        let ns = |i: usize| {
+            records[i]["timeUnixNano"]
+                .as_str()
+                .unwrap()
+                .parse::<u64>()
+                .unwrap()
+        };
+        let year_2025 = 1_735_689_600_000_000_000u64;
+        assert!(ns(0) > year_2025 && ns(1) > year_2025);
+        assert_eq!(ns(1) - ns(0), 3_000_000_000, "and keep their spacing");
+    }
+
     /// The relay's `MachineTag` gives the same (fleet's telemetry_test.go).
     #[test]
     fn machine_tags_match_the_relays() {
@@ -229,7 +275,9 @@ mod tests {
         let rec = &r["scopeLogs"][0]["logRecords"][0];
         assert_eq!(rec["body"]["stringValue"], "poll.failure");
         assert_eq!(rec["severityText"], "WARN");
-        assert_eq!(rec["timeUnixNano"], "1000000000");
+        // The wall clock's time, 39 s before the batch went (not 1970's).
+        let ns: u64 = rec["timeUnixNano"].as_str().unwrap().parse().unwrap();
+        assert!(ns > 1_735_689_600_000_000_000);
         assert_eq!(rec["attributes"][1]["value"]["intValue"], "0");
         // Sending fails: the event waits for the next batch, before newer ones.
         t.track(41_000.0, "app.launch", false, vec![]);

@@ -792,3 +792,22 @@ fn a_claude_message_with_files_still_pastes_them_as_images() {
     assert!(url.ends_with("/sessions/k1/input"));
     assert_eq!(body, format!(r#"{{"enter":false,"text":"{path} "}}"#));
 }
+
+#[test]
+fn telemetry_keeps_sending_after_the_first_batch() {
+    let mut m = paired();
+    let t0 = 1_790_000_000_000.0;
+    m.tick(t0);
+    let turn = m.report.turn;
+    assert!(turn > 0, "the launch batch is due");
+    let first = m.report_request().expect("launch batch");
+    assert!(first.contains("app.launch"));
+    m.report_done(true);
+    m.poll_request();
+    m.poll_done(Ok(answer(1, true)));
+    m.tick(t0 + 1_000.0);
+    m.tick(t0 + 31_000.0);
+    assert!(m.report.turn > turn, "a second batch is due");
+    let second = m.report_request().expect("second batch");
+    assert!(second.contains("connect.first"), "{second}");
+}
