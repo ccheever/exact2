@@ -33,6 +33,7 @@ final class T3MobileModule: ExactModule {
         "t3-media-presenter": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
             try module.media.makeView(props: props, events: events)
         },
+        "t3-thread-days": T3MobileThreadPreferences.factory,
         "t3-settings-slider": T3SettingsSlider.factory,
         "t3-settings-header": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
             try module.settingsNavigation.makeView(props: props, events: events)
@@ -247,6 +248,7 @@ final class T3MobileModule: ExactModule {
          "t3-document-html": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-mobile-terminal": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-media-presenter": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
+         "t3-thread-days": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-settings-slider": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-settings-header": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-archive-spinner": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },

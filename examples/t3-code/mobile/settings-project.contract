@@ -1,0 +1,88 @@
+// @ref llp/1106.009-mobile-settings.decision.md#scoped-server-settings
+// GAP005: workspace-path selection still requires a reusable native selectable text owner.
+use SettingsColors, SettingsTextRoles, SettingsSectionLabel from "./settings.contract"
+shape SettingsProjectIcon
+  kind: string
+  text: string
+  color: string
+  background: string
+  src: string
+  fontSize: number
+shape SettingsProjectCheckout
+  separated: bool
+  id: string
+  label: string
+  displayURL: string
+  workspaceRoot: string
+shape SettingsProjectData
+  title: string
+  scopeJSON: string
+  identity: string
+  error: string
+  name: string
+  empty: bool
+  emptyMessage: string
+  checkoutsLabel: string
+  writable: bool
+  icon: SettingsProjectIcon
+  checkouts: list<SettingsProjectCheckout>
+component SettingsProjectOverview
+  props
+    data: SettingsProjectData
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    bottom: number
+    busy: bool
+    savedRevision: number
+    save: action
+  state draft = ""
+  state draftOwner = ""
+  state edited = false
+  state editedRevision = 0
+  derive name = (edited and draftOwner == data.identity and editedRevision == savedRevision ? draft : data.name)
+  derive canSave = (not busy and data.writable and length(trim(name)) > 0 and trim(name) != data.name)
+  action edit(value: string)
+    draft = value
+    draftOwner = data.identity
+    editedRevision = savedRevision
+    edited = true
+  action commit
+    if canSave
+      save(data.scopeJSON, data.identity, name)
+  view
+    scroll id="settings-project-scroll" flex=1 min-height=0 background-color=colors.sheet
+      column gap=21 padding-left=17.5 padding-right=17.5 padding-top=14 padding-bottom=bottom font-family="DM Sans"
+        when data.error != ""
+          text data.error role="alert" font-size=roles.footnote.size color=colors.foreground
+        when data.empty
+          text data.emptyMessage padding-left=7 padding-right=7 font-size=roles.body.size line-height=`${roles.body.line}px` color=colors.muted
+        else
+          row gap=14 padding-left=7 padding-right=7 align-items="center"
+            column width=48 height=48 align-items="center" justify-content="center" position="relative" background-color=(data.icon.kind == "monogram" ? data.icon.background : "transparent") border-radius=12 flex-shrink=0
+              when data.icon.kind == "emoji" or data.icon.kind == "monogram"
+                text data.icon.text font-size=data.icon.fontSize line-height="48px" font-weight=700 font-family=(data.icon.kind == "monogram" ? "monospace" : "DM Sans") color=data.icon.color
+              else
+                t3-symbol symbol-name="folder" point-size=48 symbol-tint=colors.muted width=48 height=48
+                when data.icon.src != ""
+                  image data.icon.src width=48 height=48 position="absolute" inset=0 border-radius=7.68 object-fit="contain" aria-label=`${data.name} favicon`
+            column flex=1 min-width=0
+              text data.name line-clamp=2 font-size=roles.title.size line-height=`${roles.title.line}px` font-weight=600 color=colors.foreground
+              text data.checkoutsLabel font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted
+          column gap=7
+            SettingsSectionLabel(title="Project", colors=colors, roles=roles)
+            column gap=10.5 padding=14 background-color=colors.grouped border-radius=24
+              text "Name" font-size=roles.footnote.size font-weight=500 color=colors.muted
+              row gap=10.5 align-items="center"
+                input value=name input=edit submit=commit disabled=(busy or not data.writable) aria-label="Project name" min-height=38.5 min-width=0 flex=1 border-radius=10.5 background-color=colors.card padding-left=10.5 padding-right=10.5 font-family="DM Sans" font-size=roles.body.size color=colors.foreground
+                when canSave
+                  button press=commit aria-label="Save project name" border-radius=99 background-color=colors.subtle padding-left=14 padding-right=14 padding-top=7 padding-bottom=7
+                    text "Save" font-size=roles.footnote.size font-weight=500 color=colors.foreground
+          column gap=7
+            SettingsSectionLabel(title="Checkouts", colors=colors, roles=roles)
+            column background-color=colors.grouped border-radius=24 overflow="hidden"
+              each checkout in data.checkouts key=checkout.id
+                column gap=3.5 padding=14 border-top-width=(checkout.separated ? 1 : 0) border-top-style="solid" border-top-color=colors.borderSubtle
+                  text checkout.label font-size=roles.headline.size line-height=`${roles.headline.line}px` color=colors.foreground
+                  when checkout.displayURL != ""
+                    text checkout.displayURL font-size=roles.footnote.size line-height=`${roles.footnote.size * 1.5}px` color=colors.muted
+                  text checkout.workspaceRoot font-size=roles.footnote.size line-height=`${roles.footnote.size * 1.5}px` color=colors.muted

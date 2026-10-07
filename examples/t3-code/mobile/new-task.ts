@@ -1,7 +1,7 @@
 // Pinned mobile NewTask{Route,Draft,ContextPicker} screens at365aa87982; shared draft and launch ownership.
 // @ref llp/1106.005-composer-and-transcript.decision.md#new-task-ownership
 import { mobileClient, mobileCommand, mobileNative } from './client';
-import { mobileHomeSources } from './home';
+import { mobileHomeProjects, mobileHomeSources } from './home';
 import { mobileSessionGrants } from './environment-detail';
 import { mobileThreadComposer, type ThreadComposerState } from './thread';
 import type { T3Client } from './shared/client';
@@ -15,6 +15,7 @@ import { branchState, cardBranchView, startFromOrigin } from './shared/r4-git-br
 import { mobileSend } from './composer-behavior';
 import { mobileDraftChanged } from './draft';
 import { isScratch, scratchRootOf } from './shared/r12-threads-scratch';
+import { threadOps } from './shared/client-ops-threads';
 
 export interface NewTaskProject { id: string; environmentId: string; projectId: string; title: string; subtitle: string; path: string; selected: boolean; disabled: boolean; last: boolean }
 export interface NewTaskEnvironment { id: string; label: string; machine: string; selected: boolean; disabled: boolean; last: boolean }
@@ -45,7 +46,7 @@ export function mobileNewTask(query = '', client: T3Client = mobileClient, backg
   const projects = sources.flatMap(source => source.shell.projects.filter(project => project.archivedAt == null && !isScratch(project, scratchRootOf(true, source.config)))
     .filter(project => !needle || [str(project.title), str(project.workspaceRoot)].some(value => value.toLocaleLowerCase().includes(needle)))
     .map(project => ({ id: projectKey(source.environmentId, str(project.id)), environmentId: source.environmentId, projectId: str(project.id), title: str(project.title),
-      subtitle: source.label, path: str(project.workspaceRoot), selected: source.environmentId === client.environmentId && project.id === client.projectId,
+      subtitle: str(project.workspaceRoot), path: str(project.workspaceRoot), selected: source.environmentId === client.environmentId && project.id === client.projectId,
       disabled: !canSelect || source.focused && !client.ready, last: false })));
   projects.forEach((row, index) => { row.last = index === projects.length - 1; });
   const environments = environmentOptions(client, background).map((environment, index, all) => ({ id: environment.id, label: environment.label,
@@ -65,6 +66,28 @@ export function mobileNewTask(query = '', client: T3Client = mobileClient, backg
     draft: !client.threadId && !!project, scratch, workspaceMode: context.envMode,
     workspaceLabel: context.envMode === 'worktree' ? 'New worktree' : context.worktreePath ? 'Current worktree' : 'Current checkout',
     branchLabel: context.branch || 'Select branch', originOn: startFromOrigin(client), composer };
+}
+
+/** Choose-project scopes reuse the same repository grouping and updated-at order
+ * as Home. Selection still carries one actual environment/project pair. */
+export function mobileNewTaskChooser(query = '', groupingMode = 'repository', client: T3Client = mobileClient, background: EnvironmentFleet = fleet): NewTaskSnapshot {
+  const data = mobileNewTask('', client, background), needle = query.trim().toLowerCase();
+  const sources = mobileHomeSources(client, background).map(source => ({ ...source, shell: { ...source.shell,
+    projects: source.shell.projects.filter(project => project.archivedAt == null && !isScratch(project, scratchRootOf(true, source.config))) } }));
+  const scopes = mobileHomeProjects(sources, { groupingMode, projectSortOrder: 'updated_at' });
+  const projects = scopes.flatMap(scope => {
+    const members = sources.flatMap(source => source.shell.projects.filter(project => scope.projectKeys.includes(`${source.environmentId}:${str(project.id)}`))
+      .map(project => ({ source, project })));
+    if (needle && ![scope.title, ...members.flatMap(({ project }) => [str(project.title), str(project.workspaceRoot)])].some(text => text.toLowerCase().includes(needle))) return [];
+    const target = members.find(member => member.source.environmentId === client.environmentId) ?? members[0];
+    if (!target) return [];
+    const row = data.projects.find(project => project.environmentId === target.source.environmentId && project.projectId === target.project.id);
+    return row ? [{ ...row, title: scope.title, subtitle: members.length > 1 ? `${members.length} workspaces` : str(target.project.workspaceRoot), last: false }] : [];
+  });
+  projects.forEach((row, index) => { row.last = index === projects.length - 1; });
+  return { ...data, projects, query,
+    emptyTitle: needle && scopes.length ? 'No matching projects' : data.emptyTitle,
+    emptyDetail: needle && scopes.length ? 'Try a different project name or workspace path.' : data.emptyDetail };
 }
 
 /** Awaited root resource, real repository reads; only projected rows/permission booleans survive the answer. */
@@ -99,22 +122,29 @@ export async function mobileNewTaskPrepare(branchQuery: string, nativeInput: Nat
 
 /** Mobile route adapter; all server writes and draft dispatch remain the shared client's. */
 export async function mobileNewTaskAction(kind: string, id: string, value: string, nativeInput: Native | null | undefined, suppliedStorage: Files,
-  client: T3Client = mobileClient, background: EnvironmentFleet = fleet): Promise<NewTaskResult> {
+  client: T3Client = mobileClient, background: EnvironmentFleet = fleet, current: () => boolean = () => true): Promise<NewTaskResult> {
   const state = stateFor(client), result = (message = '', submitted = false) => ({ revision: client.revision, message, submitted,
     environmentId: client.environmentId, projectId: client.projectId, threadId: client.threadId });
   if (!nativeInput?.available) return result('Open T3 Code on your iPhone or iPad to create a task.');
-  const native = letGoAware(mobileNative(nativeInput)), storage = client === mobileClient ? nativeFiles(native) : suppliedStorage;
+  const assertCurrent = () => { if (!current()) throw new ClientError('The new task route changed.', 'superseded'); };
+  const base = letGoAware(mobileNative(nativeInput));
+  const native: Native = { available: base.available, watch: topic => base.watch(topic), later: async request => {
+    assertCurrent(); const reply = await base.later(request); assertCurrent(); return reply;
+  } };
+  const storage = client === mobileClient ? nativeFiles(native) : suppliedStorage;
   // Keystrokes have their own owner-safe shared reducer path, outside task transitions.
   if (kind === 'draft') {
+    assertCurrent();
     const saved = await mobileDraftChanged(client, value, native, storage);
     return { ...result(saved.message), revision: saved.revision };
   }
   if (state.busy) return result('Wait for the current task change to finish.');
-  const command = (op: string, id = '', value = '') => client === mobileClient ? mobileCommand([op, id, value], nativeInput, suppliedStorage)
+  const command = (op: string, id = '', value = '') => client === mobileClient ? mobileCommand([op, id, value], native, suppliedStorage)
     : op === 'send-alternate' ? mobileSend(client, true, native, storage) : client.command(op, id, value, 0, native, storage);
   const run = async (op: string, id = '', value = '') => { const response = await command(op, id, value); if (response.message) throw new ClientError(response.message); };
   state.busy = true; state.error = '';
   try {
+    assertCurrent();
     if (client.busy || client.pending) throw new ClientError('Wait for the current submission to finish before changing tasks.');
     if (kind === 'project') {
       const target = mobileNewTask('', client, background).projects.find(project => project.id === id);
@@ -127,7 +157,19 @@ export async function mobileNewTaskAction(kind: string, id: string, value: strin
         if (client.environmentId !== target.environmentId) throw new ClientError('The connected environment did not match the selected project.');
       }
       if (!client.shell.projects.some(project => project.id === target.projectId)) throw new ClientError('That project is no longer available.');
-      await run('new-thread', target.projectId);
+      assertCurrent();
+      // The shared command preamble awaits preferences before reducing selection.
+      // Apply its actual selection reducer now so a later project switch cannot
+      // be overwritten when an earlier preamble resumes. This does not create a
+      // thread or alter either project's existing draft contents.
+      const out = { message: '', id: target.projectId, value: '' };
+      const reducing = threadOps.call(client, 'new-thread', target.projectId, '', 0, native, storage, out);
+      const selected = JSON.stringify([client.origin, client.generation, client.environmentId, client.projectId, client.threadId, client.threadEpoch]);
+      const assertSelected = () => { if (selected !== JSON.stringify([client.origin, client.generation, client.environmentId, client.projectId, client.threadId, client.threadEpoch]))
+        throw new ClientError('The selected workspace changed.', 'superseded'); };
+      await reducing; assertSelected();
+      assertCurrent();
+      await client.persist(storage); assertSelected();
     } else if (kind === 'environment') {
       if (client.threadId) throw new ClientError('A started thread keeps its environment.');
       await run('environment-run-on', '', id);

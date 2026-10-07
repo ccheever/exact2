@@ -85,7 +85,7 @@ export function mobileThreadColors(scheme: string, palette = 't3-code') {
     muted: token('foreground-muted'), iconSubtle: token('icon-subtle'), border: token('border'),
     borderSubtle: token('border-subtle'), subtle: token('subtle'), userBubble: token('user-bubble'),
     userForeground: token('user-bubble-foreground'), primary: token('primary'), primaryForeground: token('primary-foreground'),
-    danger: token('danger'), dangerForeground: token('danger-foreground'), composerSurface: token('composer-surface'),
+    danger: token('danger'), dangerForeground: token('danger-foreground'), warningForeground: token('warning-foreground'), composerSurface: token('composer-surface'),
     composerBorder: token('composer-border'), placeholder: token('placeholder'),
     codeBackground: token('md-code-bg'), codeForeground: token('md-code-text'),
     userCodeBackground: token('md-user-code-bg'), userCodeForeground: token('md-user-code-text'),

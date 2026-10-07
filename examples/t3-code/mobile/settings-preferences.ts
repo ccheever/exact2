@@ -15,12 +15,12 @@ export interface MobilePreferences {
   baseFontSize: number; terminalFontSize: number | null; codeFontSize: number | null; codeWordBreak: boolean;
   composerEnterBehavior: 'send' | 'newline'; followUpBehavior: 'queue' | 'steer';
   projectGroupingMode: 'repository' | 'repository_path' | 'separate';
-  workingEnabled: boolean; workingExpanded: boolean; snoozedExpanded: boolean; settledExpanded: boolean;
+  planModeEnabled: boolean; workingEnabled: boolean; workingExpanded: boolean; snoozedExpanded: boolean; settledExpanded: boolean;
 }
 export const MOBILE_PREFERENCE_DEFAULTS: MobilePreferences = {
   themeMode: 'system', lightThemeId: 't3-code', darkThemeId: 't3-code', baseFontSize: 16,
   terminalFontSize: null, codeFontSize: null, codeWordBreak: false, composerEnterBehavior: 'send',
-  followUpBehavior: 'queue', projectGroupingMode: 'repository', workingEnabled: false,
+  followUpBehavior: 'queue', projectGroupingMode: 'repository', planModeEnabled: false, workingEnabled: false,
   workingExpanded: false, snoozedExpanded: false, settledExpanded: false,
 };
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
@@ -40,7 +40,7 @@ export function normalizeMobilePreferences(input: unknown): MobilePreferences {
     composerEnterBehavior: value.composerEnterBehavior === 'newline' ? 'newline' : 'send',
     followUpBehavior: value.followUpBehavior === 'steer' ? 'steer' : 'queue',
     projectGroupingMode: value.projectGroupingMode === 'repository_path' || value.projectGroupingMode === 'separate' ? value.projectGroupingMode : 'repository',
-    workingEnabled: value.workingEnabled === true, workingExpanded: value.workingExpanded === true,
+    planModeEnabled: value.planModeEnabled === true, workingEnabled: value.workingEnabled === true, workingExpanded: value.workingExpanded === true,
     snoozedExpanded: value.snoozedExpanded === true, settledExpanded: value.settledExpanded === true,
   };
 }
@@ -78,7 +78,7 @@ export async function mobileSavePreference(key: string, value: string, native?: 
     if (value === 'auto' && key !== 'baseFontSize') patch = { [key]: null };
     else if (value.trim() !== '' && Number.isFinite(Number(value))) patch = { [key]: Number(value) };
     else return { revision: 0, message: 'Choose a valid font size.' };
-  } else if (['codeWordBreak', 'workingEnabled', 'workingExpanded', 'snoozedExpanded', 'settledExpanded'].includes(key)) {
+  } else if (['codeWordBreak', 'planModeEnabled', 'workingEnabled', 'workingExpanded', 'snoozedExpanded', 'settledExpanded'].includes(key)) {
     if (value !== 'true' && value !== 'false') return { revision: 0, message: 'Choose on or off.' };
     patch = { [key]: value === 'true' };
   } else patch = { [key]: value };

@@ -1,0 +1,21 @@
+// @ref llp/1106.005-composer-and-transcript.decision.md#new-task-ownership
+shape NewTaskFlowSnapshot
+  owner: string
+  requestRoute: string
+  status: string
+  title: string
+  message: string
+  ready: bool
+  chooser: bool
+  needsPrepare: bool
+  busy: bool
+  nextLocation: string
+shape NewTaskFlowResult
+  revision: number
+  requestRoute: string
+  nextLocation: string
+  message: string
+  submitted: bool
+  environmentId: string
+  projectId: string
+  threadId: string

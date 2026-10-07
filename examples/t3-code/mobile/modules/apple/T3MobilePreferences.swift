@@ -18,13 +18,13 @@ final class T3MobilePreferences {
         "themeMode": "system", "lightThemeId": "t3-code", "darkThemeId": "t3-code", "baseFontSize": 16,
         "terminalFontSize": NSNull(), "codeFontSize": NSNull(), "codeWordBreak": false,
         "composerEnterBehavior": "send", "followUpBehavior": "queue", "projectGroupingMode": "repository",
-        "workingEnabled": false, "workingExpanded": false, "snoozedExpanded": false, "settledExpanded": false,
+        "planModeEnabled": false, "workingEnabled": false, "workingExpanded": false, "snoozedExpanded": false, "settledExpanded": false,
     ]
     private static let themes = ["t3-code", "t3-chat", "grove", "ocean", "ember", "iris"]
     private static let choices = ["themeMode": ["system", "light", "dark"], "lightThemeId": themes, "darkThemeId": themes,
         "composerEnterBehavior": ["send", "newline"], "followUpBehavior": ["queue", "steer"],
         "projectGroupingMode": ["repository", "repository_path", "separate"]]
-    private static let booleans = ["codeWordBreak", "workingEnabled", "workingExpanded", "snoozedExpanded", "settledExpanded"]
+    private static let booleans = ["codeWordBreak", "planModeEnabled", "workingEnabled", "workingExpanded", "snoozedExpanded", "settledExpanded"]
     private func fail(_ message: String) -> NSError { NSError(domain: "T3MobilePreferences", code: 1, userInfo: [NSLocalizedDescriptionKey: message]) }
     private func normalize(_ key: String, _ value: Any) throws -> Any {
         if let choices = Self.choices[key] {

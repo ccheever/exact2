@@ -1,3 +1,7 @@
+import { mobileStreamingDescriptor } from './haptics';
+import { mobileNewTaskFlowView, mobileNewTaskFlowAction, mobileNewTaskFlowOwns, mobileNewTaskFlowCurrent } from './new-task-flow';
+import { mobileThreadPreferences, mobileThreadPreferencesCommand } from './settings-thread-preferences';
+import { mobileProjectOverview, mobileProjectRename } from './settings-project';
 import { mobileAccountRouteEntry } from './settings-account';
 import { mobileNotificationsSettings } from './settings-notifications';
 import { mobileAppLink } from './navigation-links';
@@ -21,7 +25,8 @@ import { mobileComposerAttachmentAction, mobileComposerAttachments, mobileCompos
 // @ref llp/1106.003-pairing-and-transport.decision.md#decision
 import { mobileClient, mobileNative, mobileSnapshot, mobileCommand, mobilePairingFields } from './client';
 import { mobileEnvironmentDetail, mobileEnvironmentDetailCommand } from './environment-detail';
-import { obj } from './shared/domain';
+import { arr, obj, str } from './shared/domain';
+import { fleet } from './shared/settings-b-fleet';
 import { mobileShelves, mobileToggleShelf, mobileHomeView } from './home-state';
 import { mobileTheme, mobileHomeColors, mobileThreadColors, mobileComposerColors, mobileArchiveColors, mobileAgentColors } from './design';
 import { mobilePreferencesResource, mobileSavePreference, mobileApplyAppearance, normalizeMobilePreferences, resolveMobileAppearance } from './settings-preferences';
@@ -29,17 +34,40 @@ import { settingsAppearanceView, settingsChoices } from './settings-appearance';
 import { mobileArchive, mobileArchiveCommand } from './archive';
 import { mobileAgentActivity } from './agent-activity';
 import { mobileComposerSettings, mobileComposerSettingsAction } from './composer-settings';
-import { mobileNewTask, mobileNewTaskPrepare, mobileNewTaskAction } from './new-task';
+import { mobileNewTask, mobileNewTaskChooser, mobileNewTaskPrepare } from './new-task';
 import { mobileThread, mobileThreadPrepare } from './thread';
 import { mobileLayoutFacts, mobileScheduledHeader, homeChromeEvent, homeChromeView, settingsRoot, settingsScopeEvent } from './root-presentation';
 import { connectionView } from './presentation';
-import { bridgeReply, nativeFiles, type Files, type Native } from './shared/protocol';
+import { bridgeReply, ClientError, nativeFiles, type Files, type Native } from './shared/protocol';
 
 export const appId = 'com.exact.t3code.ios';
 export const grants = 'device.camera purpose.camera device.microphone purpose.microphone';
 
 export function answer(source: string, args: unknown[], _store?: unknown, storage?: Files, native?: Native | null) {
+  if (source === 'newTaskFlow') return newTaskFlow(args, native);
   if (native) native = settingsProviderNative(native);
+  const guarded = newTaskGuard(source, args);
+  if (guarded && !guarded()) return unavailableTaskSource(source, args);
+  if (guarded && native) {
+    const base = native;
+    native = { available: base.available, watch: topic => base.watch(topic), later: async input => {
+      if (!guarded()) throw new ClientError('The new task route changed.', 'superseded');
+      const result = await base.later(input);
+      if (!guarded()) throw new ClientError('The new task route changed.', 'superseded'); return result;
+    } };
+  }
+  if (source === 'newTaskAction') return mobileNewTaskFlowAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), String(args[4]), native, storage!);
+  if (source === 'threadPreferences') return mobileThreadPreferences(String(args[1]), args[2], args[3] === true, args[0] === true ? native : null);
+  if (source === 'threadPreferencesChange') {
+    const requestRoute = String(args[3]);
+    return mobileThreadPreferencesCommand(String(args[0]), String(args[1]), String(args[2]), native).then(result => ({ ...result, requestRoute, saved: false }));
+  }
+  if (source === 'projectOverview') return mobileProjectOverview(String(args[1]), args[0] === true ? native : null);
+  if (source === 'projectRename') {
+    const requestRoute = String(args[3]);
+    return mobileProjectRename(String(args[0]), String(args[1]), String(args[2]), native).then(result => ({ ...result, requestRoute }));
+  }
+  if (source === 'streamingAssistant') return mobileStreamingDescriptor(String(args[1]), String(args[2]), String(args[3]), mobileClient);
   if (source === 'notificationSettings') return mobileNotificationsSettings();
   if (source === 'accountEntry') {
     const entry = mobileAccountRouteEntry(String(args[0]), args[1] === true);
@@ -159,10 +187,12 @@ export function answer(source: string, args: unknown[], _store?: unknown, storag
   if (source === 'agentActivity') return mobileAgentActivity(String(args[0] ?? ''), String(args[1] ?? ''), Number(args[2]));
   if (source === 'composerColors') return mobileComposerColors(String(args[0] ?? 'light'), String(args[1] ?? 't3-code'));
   if (source === 'composerSettings') return mobileComposerSettings(String(args[0] ?? ''), String(args[1] ?? ''), args[2] === true);
-  if (source === 'composerAction') return mobileComposerSettingsAction(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), native, storage!);
-  if (source === 'newTaskView') return mobileNewTask(String(args[0] ?? ''));
+  if (source === 'composerAction') {
+    const requestRoute = String(args[5] ?? '');
+    return mobileComposerSettingsAction(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), native, storage!).then(result => ({ ...result, requestRoute }));
+  }
+  if (source === 'newTaskView') return args[4] === true ? mobileNewTaskChooser(String(args[0] ?? ''), String(args[5] ?? 'repository')) : mobileNewTask(String(args[0] ?? ''));
   if (source === 'newTaskPrepare') return args[1] === true ? mobileNewTaskPrepare(String(args[0] ?? ''), native) : {revision: mobileClient.revision, loaded: false};
-  if (source === 'newTaskAction') return mobileNewTaskAction(String(args[0] ?? ''), String(args[1] ?? ''), String(args[2] ?? ''), native, storage!);
   if (source === 'threadColors') return mobileThreadColors(String(args[0] ?? 'light'), String(args[1] ?? 't3-code'));
   if (source === 'selectThread') return mobileCommand(['select-thread', String(args[0] ?? ''), '', 0], native, storage!).then(change =>
     ({ ...change, environmentId: mobileClient.environmentId, threadId: mobileClient.threadId, requestRoute: String(args[1] ?? '') }));
@@ -194,6 +224,47 @@ export function answer(source: string, args: unknown[], _store?: unknown, storag
     return mobileCommand(args, native, storage!);
   }
   throw new Error(`Unknown mobile source: ${source}`);
+}
+
+const taskGuardIndices: Record<string, number> = { command: 4, composerAction: 3, composerSettings: 4,
+  attachmentAction: 2, composerAttachments: 1, voiceFocus: 3, voiceAction: 3,
+  mediaPreview: 9, attachmentDocument: 8, attachmentDocumentAction: 5, shareMedia: 3, newTaskPrepare: 8 };
+function newTaskGuard(source: string, args: unknown[]): (() => boolean) | null {
+  // Existing recordings retain their captured draft and cleanup owner offscreen.
+  if (source === 'voiceAction' && args[0] !== 'start') return null;
+  const index = taskGuardIndices[source];
+  if (index === undefined || !args[index]) return null;
+  const owner = String(args[index]), route = String(args[index + 1] ?? '');
+  return () => mobileNewTaskFlowOwns(owner, route);
+}
+function unavailableTaskSource(source: string, args: unknown[]) {
+  if (source === 'voiceFocus') return { owner: '', label: String(args[1] || 'Draft') };
+  if (source === 'composerAttachments') return { items: [], canPick: false, supportsFiles: false, remaining: 0, error: '' };
+  if (source === 'newTaskPrepare') return { revision: mobileClient.revision, loaded: false };
+  if (source === 'mediaPreview') return { identifier: '', name: '', kind: '', sourceJSON: '', ready: false, error: '' };
+  if (source === 'attachmentDocument') return EMPTY_ATTACHMENT_DOCUMENT;
+  if (source === 'composerSettings') return { ...mobileComposerSettings('', '', false), open: false, canEdit: false, canSave: false,
+    models: [], filters: [], options: [], runtimes: [], error: '' };
+  throw new ClientError('Choose a project in the current new task before continuing.', 'superseded');
+}
+
+async function newTaskFlow(args: unknown[], native?: Native | null) {
+  const session = String(args[0]), visit = String(args[1]), location = String(args[2]), active = args[3] === true;
+  // Invalidate departing actions synchronously, before the catalog read or any
+  // dependent resource can use the previous flow's composer owner.
+  const initial = mobileNewTaskFlowView(session, visit, location, active, false);
+  if (!active || !native?.available) return initial;
+  const catalog = await bridgeReply(native, { op: 'environments' });
+  if (!mobileNewTaskFlowCurrent(initial.owner, visit, location)) return initial;
+  const saved = catalog.ok ? arr(obj(catalog.value).saved).filter(entry => entry.enabled !== false) : [];
+  const pending = saved.some(entry => {
+    const id = str(entry.environmentId);
+    if (id === mobileClient.environmentId) return !mobileClient.shellLoaded && ['connected', 'connecting', 'reconnecting'].includes(mobileClient.connection);
+    const entryState = [...fleet.entries.values()].find(entry => entry.environmentId === id);
+    return !entryState || ['connecting', 'reconnecting'].includes(entryState.phase)
+      || entryState.phase === 'connected' && entryState.synchronized !== entryState.generation;
+  });
+  return mobileNewTaskFlowView(session, visit, location, active, catalog.ok && mobileClient.preferencesLoaded && !pending);
 }
 
 async function threadView(args: unknown[], native?: Native | null) {

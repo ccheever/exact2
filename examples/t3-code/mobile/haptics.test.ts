@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { mobileStreamingAssistant, mobileStreamingHaptic, type MobileStreamingHapticState } from './haptics';
+import { mobileStreamingAssistant, mobileStreamingDescriptor, mobileStreamingHaptic, type MobileStreamingHapticState } from './haptics';
 
 const message = (id: string, textLength: number) => ({ id, textLength });
 const row = (id: string, text: string, streaming = true, type = 'assistant_message') => ({
@@ -68,4 +68,16 @@ describe('mobile streaming haptics', () => {
     expect(mobileStreamingHaptic(state, 'thread', message('a', 2), 500).haptic).toBe('');
     expect(mobileStreamingHaptic(state, 'thread', message('b', 0), 500).haptic).toBe('selection');
   });
+});
+
+test('stream descriptor cannot initialize a different or unloaded screen from the shared projection', () => {
+  const client = { ready: true, environmentId: 'env', threadId: 'thread', thread: {}, projection: { visibleTurnItems: [row('answer', '')] } };
+  const current = mobileStreamingDescriptor('visit', 'env', 'thread', client);
+  expect(current.owner).toBe(JSON.stringify(['visit', 'env', 'thread']));
+  expect(current.id).toBe('answer');
+  expect(current.textLength).toBe(0);
+  expect(mobileStreamingDescriptor('visit', 'other', 'thread', client).owner).toBe('');
+  expect(mobileStreamingDescriptor('visit', 'env', 'thread', { ...client, thread: null }).owner).toBe('');
+  expect(mobileStreamingDescriptor('', 'env', 'thread', client).owner).toBe('');
+  expect(mobileStreamingDescriptor('visit', 'env', 'thread', client)).toEqual(current);
 });
