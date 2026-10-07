@@ -36,11 +36,12 @@ component MobileRootHeader
     toggleSidebar: action
   view
     header height=44 flex-shrink=0 align-items="center" justify-content="space-between"
-      when sidebarAvailable and routeName != "home"
+      when sidebarAvailable and routeName != "home" and routeName != "threadQueue"
         button id="workspace-sidebar-toggle" press=toggleSidebar aria-label=(sidebarVisible ? "Hide sidebar" : "Show sidebar") aria-pressed=sidebarVisible
           t3-symbol symbol-name="sidebar.left" point-size=20 symbol-tint=iconColor width=20 height=20
-      button id="back" press=back aria-label="Back" testId=`back-${routeName}`
-        image "symbol:back" width=20 height=20
+      when routeName != "threadQueue"
+        button id="back" press=back aria-label="Back" testId=`back-${routeName}`
+          image "symbol:back" width=20 height=20
       text title
         role="heading"
         aria-level=2
