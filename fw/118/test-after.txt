@@ -1,0 +1,9 @@
+   Compiling exact-js v0.1.0 (/Users/daehyeonmun/orca/workspaces/exact2/fix-118-apple-intl-locale-weekinfo/js)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 5.36s
+     Running tests/it/main.rs (target/debug/deps/it-7a34bafe2166d4a5)
+
+running 1 test
+test pure::pure_utilities_match_the_web_executor ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 86 filtered out; finished in 0.80s
+
