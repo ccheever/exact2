@@ -1,0 +1,18 @@
+/private/tmp/claude-501/-Users-daehyeonmun-Documents-work-0-projects-exact2/757dc7ec-2ea0-42a2-9546-f333365cf393/scratchpad/probe126/target/web-dist/.gen: app.js 1418 B, app.css 215 B, 0 warnings
+/private/tmp/claude-501/-Users-daehyeonmun-Documents-work-0-projects-exact2/757dc7ec-2ea0-42a2-9546-f333365cf393/scratchpad/probe126/target/web-dist: built
+{"clock":0,"settled":true}
+{"clock":500,"real":509}
+epoch 4 · incarnation 1 · clock 500 ms · 7 nodes
+View#1 [root]
+  Text#2 "feed: fetch exactStream, granted ws://127.0.0.1:8791"
+  Text#3 [feed] "message: hello from server"
+  Text#4 "direct: new WebSocket + send, granted ws://127.0.0.1:8791"
+  Text#5 [direct] "threw: Error: WebSocket is unavailable in data sources"
+  Text#6 "other: new WebSocket + send, NOT granted ws://127.0.0.1:8792"
+  Text#7 [other] "threw: Error: WebSocket is unavailable in data sources"
+t=0 boot: 7 nodes, epoch 1
+t=0 reply 2; wall 1 ms
+t=0 reply 3; wall 1 ms
+t=0 message 1; wall 35 ms
+  chrome: Trying to load the allocator multiple times. This is *not* supported.
+{"clock":500,"epoch":4,"incarnation":1,"screenshot":"/private/tmp/claude-501/-Users-daehyeonmun-Documents-work-0-projects-exact2/757dc7ec-2ea0-42a2-9546-f333365cf393/scratchpad/probe126/.exact/after.png","w":420,"h":900}
