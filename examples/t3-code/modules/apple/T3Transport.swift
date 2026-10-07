@@ -565,7 +565,8 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         let id = nextID(), wire = T3Wire.request(id: id, method: method, payload: request["payload"] ?? [:])
         let text = try T3Wire.encode(wire)
         // auto-balance: a request may ask for a shorter deadline (server.getHostResources waits 5 s).
-        let wait = min(30, max(1, (request["timeout"] as? NSNumber)?.doubleValue ?? 30))
+        // A delivered request may wait longer (up to five minutes): an upload has no deadline in the reference.
+        let wait = min(request["deliver"] is String ? 300 : 30, max(1, (request["timeout"] as? NSNumber)?.doubleValue ?? 30))
         // usage-reset-and-feedback (composer-replies.ts): a request whose reply joins the inbox under
         // `deliver`, so no data-source answer waits on a long write (a /feedback upload, a redeem).
         if let deliver = request["deliver"] as? String, !deliver.isEmpty, shareKey == nil {

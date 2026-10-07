@@ -27,7 +27,8 @@ const table = (client: object) => { let map = waiters.get(client); if (!map) wai
 export async function startDetached(client: T3Client, native: Native, method: string, payload: Obj): Promise<{ reply: Promise<DetachedReply> }> {
   const key = `${KEY}${++serial}`, generation = client.generation;
   const reply = new Promise<DetachedReply>(resolve => table(client).set(key, { generation, resolve }));
-  try { await client.call(native, { op: 'request', method, payload, deliver: key }, generation, true); }
+  // The reference's command has no deadline; the transport keeps a delivered request up to five minutes.
+  try { await client.call(native, { op: 'request', method, payload, deliver: key, timeout: 300 }, generation, true); }
   catch (error) {
     const waiter = table(client).get(key);
     table(client).delete(key);
