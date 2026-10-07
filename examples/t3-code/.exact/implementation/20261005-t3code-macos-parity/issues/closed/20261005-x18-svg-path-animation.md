@@ -115,6 +115,23 @@ property: `transition="d …"` compiles, `contract vocab transition` lists `d`, 
 iOS and Linux morph a path the web morphs (PR #188's films and Linux ink test). As in Chrome, a pair with
 different commands changes at once rather than flipping at the midpoint. Still missing upstream: keyframed
 `d` (LLP 1055.000 stage 10b). Not verified here: the issue's reproduction was not rerun.
-**Not adopted**: `feat(example)/t3-code` does not yet contain `74affc099`. Next: merge main into the feature
-branch, then the adoption above (`MorphPair` → one `path` with a `d` transition where the shapes share
-structure; the Send icon first) under `20261005-composer-fidelity`'s row or `20261005-adopt-x18-svg-morph`.
+**Partly adopted** by task [20261007-adopt-main-fixes-r3](../../tasks/20261007-adopt-main-fixes-r3.md); see below.
+
+## Resolved upstream and adopted (2026-10-07)
+
+Filed as [#123](https://github.com/ccheever/exact2/issues/123); fixed by main PR #188 (`74affc099`: a path's `d` transitions on macOS, iOS and Linux when both ends have the same command list), merged into the feature branch with main `cff90b364` by task [20261007-adopt-main-fixes-r3](../../tasks/20261007-adopt-main-fixes-r3.md).
+
+How the reference morphs: `MorphIcon` (`apps/web/src/components/MorphIcon.tsx`) is morphicons 1.7.1 `MorphIcon` with `reducedMotion="user"`, the default "snappy" spring (k 420, c 30, m 1), over lucide-react 0.564.0 icon nodes. morphicons resamples both icons to 64 points per subpath, pairs the subpaths (`buildPlan`) and interpolates each pair in polar form (`interpPolar`): the centroid drifts, the subpath turns by θ about its pivot and scales by σ^t, while its centred shape moves linearly to the target's. At rest it snaps to the target's real curves.
+
+What the clone draws now (`shell-morph.contract`, generated from morphicons' own plan for each pair): one box per plan item that drifts (`translate`) and turns (`rotate`, about the item's pivot as `transform-origin`) on `spring(420, 30, 1)`, holding a `path` whose `d` moves on the same spring from the source polyline to the target's σ-scaled, unturned polyline (64 points, same `M L…` list at both ends, so #188 interpolates it). The end shape equals morphicons' t = 1 output (checked to 0.0001 units in the generator). Differences: the scale moves linearly in `d` where morphicons scales by σ^t (largest mid-flight for copy → check, σ 0.53); at rest the glyph stays the 64-point polyline where morphicons snaps to the real curves (sub-pixel at 12–16 pt).
+
+| Site | Before | After |
+| --- | --- | --- |
+| Toast copy (`shell-toast.contract` CopyErrorButton, reference `ui/toast.tsx` Copy → Check, `text-success`) | `MorphPair`: two glyphs crossing over (opacity + scale) | `MorphCopyCheck` (2 subpaths); colour switches at once, as the reference's class does |
+| Right panel maximize (`r4-surfaces.contract`, `shell-panels.contract`; reference `PanelLayoutControls.tsx` Maximize2 ↔ Minimize2) | `MorphPair` cross-over | `MorphMaximize` (4 subpaths; two arrowheads turn 180°) |
+| Provider env variable lock (`providers.contract`; reference `ProviderInstanceCard.tsx` LockOpen ↔ Lock) | 180 ms opacity cross-fade | `MorphLock` (shackle closes, 27° turn) |
+| Composer steer ↔ queue (`composer-controls.contract`; reference `ComposerPrimaryActions.tsx` CornerUpRight ↔ ListPlus) | 220 ms opacity + scale cross-fade | `MorphQueueSteer` (5 subpaths) |
+| Markdown table expand (`markdown.contract` TableIconButton; reference `ChatMarkdown.tsx` Maximize2 ↔ Minimize2) | instant icon swap | `MorphMaximize` at 12 pt |
+| Chevrons (`MorphChevron`: toast details, appearance editor, telemetry) | rotation on the spring | unchanged: for a chevron pair morphicons' plan is a pure turn (θ 180° or 90°, σ 1), which the rotation already draws |
+
+Not converted: the code block copy (`markdown.contract` mdCheck/mdCopy keyframes) and the welcome command copy (`pages-welcome.contract`), whose Check → Copy return after 1.2 s / 1.5 s runs as a keyframed animation (data sources have no timers, X19), and keyframed `d` is still refused on main (#188 builds `d` under `transition` only). The provider lock and the composer steer/queue morph run under Reduce Motion too (the component has no `viewport`; the old cross-fades did the same); the toast, panel and chevron morphs honour it.

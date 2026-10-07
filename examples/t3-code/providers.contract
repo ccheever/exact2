@@ -1,3 +1,4 @@
+use MorphLock from "./shell-morph.contract"
 use PvSectionTitle from "./providers-kit.contract"
 use PvGroup from "./providers-kit.contract"
 use PvRow from "./providers-kit.contract"
@@ -483,12 +484,8 @@ component ProviderVariableRow
       text "=" font-size="0.75rem" color="light-dark(#71717b, #818181)" aria-hidden=true
       input value=value input=editValue blur=op("provider-env-value", instance, `${variable.index}`, value, valueEdited) submit=op("provider-env-value", instance, `${variable.index}`, value, valueEdited) placeholder=(variable.redacted ? "Stored secret, enter a new value to replace" : "value") type=(variable.sensitive ? "password" : "text") aria-label=`Environment variable value ${variable.index + 1}` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 font-family="ui-monospace" font-size="0.8125rem" disabled=(not writable) testId=`provider-variable-value-${variable.index}`
       button press=op("provider-env-sensitive", instance, `${variable.index}`, (variable.sensitive ? "false" : "true"), true) class=PvMicro aria-selected=variable.sensitive aria-label=`Mark environment variable ${variable.label} as sensitive` disabled=(not writable) testId=`provider-variable-sensitive-${variable.index}`
-        // f2cc80a7 MorphIcon LockOpen↔Lock: the shackle closes; drawn as a quick cross-fade of the two glyphs.
-        box width="0.75rem" height="0.75rem" position="relative" flex-shrink=0
-          box position="absolute" left=0 top=0 opacity=(variable.sensitive ? 1 : 0) transition="opacity 180ms ease"
-            PvIcon(name="lock", size=12, color="light-dark(#71717b, #818181)")
-          box position="absolute" left=0 top=0 opacity=(variable.sensitive ? 0 : 1) transition="opacity 180ms ease"
-            PvIcon(name="lock-open", size=12, color="light-dark(#71717b, #818181)")
+        // f2cc80a7 MorphIcon LockOpen↔Lock: the shackle closes (morphicons' morph, shell-morph.contract).
+        MorphLock(on=variable.sensitive, size=12, color="light-dark(#71717b, #818181)", weight=2, still=false)
       button press=op("provider-env-remove", instance, `${variable.index}`, "", true) class=PvMicro aria-label=`Remove environment variable ${variable.label}` disabled=(not writable) testId=`provider-variable-remove-${variable.index}`
         PvIcon(name="x", size=12, color="light-dark(#e7000b, #ff6467)")
 

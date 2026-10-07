@@ -5,6 +5,7 @@ use Tip from "./shell-tip.contract"
 use AttachmentUrl from "./timeline-attachments.contract"
 use CodeTip from "./r4-timeline-tips.contract"
 use Icon from "./icons.contract"
+use MorphMaximize from "./shell-morph.contract"
 use CiteButton, CitePart from "./diff-cite.contract"
 use MarkdownMedia from "./media-markdown.contract"
 shape ChatRun
@@ -891,7 +892,8 @@ component TableIconButton
     hovered = over
   view
     button press=press hover=hover aria-label=label testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(pressed ? "light-dark(#fafafa, #ffffff08)" : hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
-      TimelineIcon(name=icon, size=12, color=(pressed or hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
+      // ChatMarkdown's table toggle: MorphIcon Maximize2↔Minimize2 (morphicons' morph, shell-morph.contract).
+      MorphMaximize(on=(icon == "minimize"), size=12, color=(pressed or hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"), weight=2, still=false)
 
 component TableCopyButton
   props

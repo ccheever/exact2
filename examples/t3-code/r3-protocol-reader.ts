@@ -1,12 +1,10 @@
 // Abandon-safe plumbing for answers Exact may let go mid-flight (lane r3-protocol).
 //
-// Exact asks an answer again when a watched topic changes; an answer it lets go
-// never receives its pending native replies ("a reply for an answer not in
-// flight"), so its awaits never resume and its `finally` blocks never run.
-// Two consequences are handled here:
-//  - The snapshot read tags its requests with a reader id and ends with
-//    `readEnd`; the native read gate (T3ReadGate.swift) holds the read's topics
-//    until then, so a topic change no longer drops the read it would re-ask.
+// Since exact2 #183 (#109) a watched topic that changes while an answer awaits a
+// native reply lets that reply land and then asks once more, so the snapshot
+// read no longer tags its requests and no native gate holds its topics. An
+// answer Exact replaces for another reason (new arguments, a refresh) still
+// never receives its pending native replies (LLP 1016 D5), so:
 //  - Each WebSocket RPC carries a trace id the transport remembers while the
 //    request is pending. A status read lists the pending traces, and any traced
 //    call the transport already answered is acknowledged even though its reply
@@ -19,25 +17,6 @@ import { bridgeReply, type Native } from './protocol';
 import { obj, str, type Obj } from './domain';
 import { trackRpc, isTracked } from './shell-slow';
 import type { T3Client } from './client';
-
-let session = '';
-/** One id per loaded module, so the gate tells a reloaded module's reads from stale ones. */
-export function readerSession(): string {
-  if (!session) {
-    try { session = Array.from(crypto.getRandomValues(new Uint8Array(8)), byte => byte.toString(16).padStart(2, '0')).join(''); }
-    catch { session = 'module'; }
-  }
-  return session;
-}
-
-/** A read's native: every request names the read; `end` releases the gate. */
-export function beginRead(native: Native, reader: number): { native: Native; end: () => Promise<void> } {
-  const tag = (request: unknown) => ({ ...obj(request), reader, readerSession: readerSession() });
-  return {
-    native: { available: native.available, watch: topic => native.watch(topic), later: request => native.later(tag(request)) },
-    end: async () => { try { await native.later({ op: 'readEnd', reader, readerSession: readerSession() }); } catch { /* the gate's idle release covers it */ } },
-  };
-}
 
 type Live = { acknowledge: () => void; requestId: string; environmentId: string; issuedAt: number };
 type Traces = { serial: number; statusReads: number; live: Map<number, Live> };

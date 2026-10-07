@@ -53,6 +53,11 @@ final class T3TerminalView: ExactNativeInstance {
         override func keyUp(with event: NSEvent) {
             if routeKey?(event) != true { super.keyUp(with: event) }
         }
+        /// The first click into an inactive window reaches the terminal, as in T3 Code's Electron
+        /// window (Chromium's view accepts the first mouse): it places the selection or follows a
+        /// link at once. WKWebView declines it, so the click only activated the window, and an
+        /// agent's click (exact2 #186), which never activates the app, never reached the page.
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     }
 
     /// The script message handler holds the view weakly: WKUserContentController retains it.
@@ -115,7 +120,11 @@ final class T3TerminalView: ExactNativeInstance {
     private var cursor = T3TerminalOutput.Cursor.initial
     private var synchronizedStatus = "closed", handledExit = false, shownVersion = -1, shownError: String? = nil
 
+    /// Under the agent: the selection popup and context menu are reported, not tracked (T3TerminalActions).
+    let agent: Bool
+
     init(props: [String: String], events: ExactNativeEvents, agent: Bool = false, sessions: T3TerminalSessions? = nil) {
+        self.agent = agent
         self.sessions = sessions
         self.props = props
         self.bindings = T3TerminalKeys.bindings(props["keybindings"])

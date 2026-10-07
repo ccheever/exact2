@@ -1,3 +1,4 @@
+use MorphQueueSteer from "./shell-morph.contract"
 use R4Glyph from "./r4-git.contract"
 use CnMachineIcon from "./settings-b-kit.contract"
 use Snapshot, Control from "./shapes.contract"
@@ -340,13 +341,9 @@ component SendGlyph
           path d="M7 11.5V2.5M7 2.5L3 6.5M7 2.5L11 6.5" stroke="#ffffff" stroke-width=1.8 stroke-linecap="round" stroke-linejoin="round"
       else
         // While a turn runs, steer (CornerUpRight) and queue (ListPlus) morph into each
-        // other (MorphIcon, f2cc80a7a4): both stay mounted and cross-fade.
+        // other (MorphIcon, f2cc80a7a4; morphicons' morph, shell-morph.contract).
         when icon == "list-plus" or icon == "corner-up-right"
-          box position="relative" width="1rem" height="1rem"
-            box position="absolute" left=0 top=0 display="flex" opacity=(icon == "list-plus" ? 1 : 0) scale=(icon == "list-plus" ? 1 : 0.6) transition="opacity 220ms ease, scale 220ms ease"
-              CcIcon(name="list-plus", size=16, color="#ffffff", weight=2)
-            box position="absolute" left=0 top=0 display="flex" opacity=(icon == "corner-up-right" ? 1 : 0) scale=(icon == "corner-up-right" ? 1 : 0.6) transition="opacity 220ms ease, scale 220ms ease"
-              CcIcon(name="corner-up-right", size=16, color="#ffffff", weight=2)
+          MorphQueueSteer(on=(icon == "list-plus"), size=16, color="#ffffff", weight=2, still=false)
         else
           box position="relative" display="flex"
             CcIcon(name=icon, size=16, color="#ffffff", weight=2)
