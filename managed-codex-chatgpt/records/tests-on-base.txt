@@ -1,0 +1,8 @@
+Run on a copy of the base tree (git archive da4f4512f examples/t3-code) with the branch test files added:
+error: Cannot find module './codex-setup' from 'examples/t3-code/codex-setup.test.ts'
+error: Cannot find module './codex-auth-request' from 'examples/t3-code/codex-auth-request.test.ts'
+error: Cannot find module './chatgpt-plan' from 'examples/t3-code/chatgpt-plan.test.ts'
+(fail) a ChatGPT account becomes one managed Codex instance with a uuid id (AddCodexAccountDialog.tsx:50-53) [0.34ms]
+ 12 pass
+ 4 fail
+Ran 16 tests across 4 files. [11.00ms]
