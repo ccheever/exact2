@@ -1,3 +1,4 @@
+import { mobileGrantRequest } from './mobile-grants';
 import { mobileComposerTargetRequire } from './composer-target';
 import { mobileQueuedEditSave, mobileQueuedEditCancel, mobileQueuedEditRetry, mobileQueuedEditRefresh } from './queued-edit';
 import { mobileOpenAnswerFile } from './thread-answer-files';
@@ -64,8 +65,8 @@ export function mobilePairingTarget(host: string, code: string): { origin: strin
 }
 
 /**
- * Shared commands identify newly authored work as web. Mobile changes only those wire payloads,
- * preserving the reducer, command IDs, replay ownership and every other native operation.
+ * Mobile adapts standard pairing scopes and the creation source of newly authored work,
+ * preserving the shared reducer, command IDs, replay ownership and other native operations.
  */
 export function mobileNative(native: Native): Native {
   return { available: native.available, watch: topic => native.watch(topic), later: request => {
@@ -83,7 +84,7 @@ export function mobileNative(native: Native): Native {
       && (operation.method === 'orchestration.launchThread'
         || (operation.method === 'orchestration.dispatchCommand'
           && ['message.dispatch', 'thread.fork', 'thread.merge_back'].includes(str(payload.type))));
-    return native.later(mobileWrite ? { ...operation, payload: { ...payload, creationSource: 'mobile' } } : request);
+    return native.later(mobileGrantRequest(mobileWrite ? { ...operation, payload: { ...payload, creationSource: 'mobile' } } : request));
   } };
 }
 

@@ -19,15 +19,8 @@ const states = new Map<string, DetailState>();
 const emptyState = (): DetailState => ({ error: '', notice: '', fromVersion: '', targetVersion: null, checked: false });
 const stateFor = (key: string) => states.get(key) ?? emptyState();
 
-/** Pinned sessionGrantsScope semantics. Explicit permissions, including [], override legacy scopes. */
-export function mobileSessionGrants(session: Obj | null, permission: string): boolean {
-  if (!session || session.authenticated !== true) return false;
-  if (session.permissions !== undefined) return Array.isArray(session.permissions) && session.permissions.includes(permission);
-  const scopes = Array.isArray(session.scopes) ? session.scopes : [];
-  if (scopes.includes(permission)) return true;
-  if (obj(session.auth).serverUpdateScope !== undefined) return false;
-  return ['environment:maintain', 'providers:manage'].includes(permission) && scopes.includes('orchestration:operate');
-}
+import { mobileSessionGrants } from './mobile-grants';
+export { mobileSessionGrants } from './mobile-grants';
 
 /** The mobile update button has narrower eligibility than desktop's install/repair action. */
 export function mobileCanUpdateProvider(provider: Obj): boolean {
