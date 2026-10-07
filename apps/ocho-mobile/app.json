@@ -30,6 +30,7 @@
   "host": {
     "ios": {
       "minimumOS": "17.0",
+      "icon": "assets/Ocho.icon",
       "deviceFamily": [
         "iphone",
         "ipad"

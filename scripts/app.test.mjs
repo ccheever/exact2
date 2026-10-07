@@ -920,6 +920,26 @@ test.skipIf(process.platform !== 'darwin')('iOS distribution assets retain the i
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }, 60000);
 
+// Real actool: an Icon Composer package is the iOS icon as it is, its layers in Assets.car.
+test.skipIf(process.platform !== 'darwin')('an Icon Composer package is compiled as the iOS app icon', () => {
+  useXcode();
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-ios-icon-'));
+  try {
+    const pkg = resolve(dir, 'Fixture.icon');
+    mkdirSync(resolve(pkg, 'Assets'), { recursive: true });
+    writeFileSync(resolve(pkg, 'Assets', 'layer.png'), Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64'));
+    writeFileSync(resolve(pkg, 'icon.json'), JSON.stringify({ groups: [{ name: 'Mark', layers: [{ 'image-name': 'layer.png', name: 'Mark' }] }], 'supported-platforms': { squares: 'shared' } }));
+    const bundle = resolve(dir, 'Fixture.app');
+    mkdirSync(bundle);
+    const app = { dir, name: 'fixture', manifest: { host: { ios: { icon: 'Fixture.icon' } }, background_color: '#fff' } };
+    const keys = iosAssets(app, bundle, true, { catalog: true });
+    assert.equal(keys.CFBundleIcons.CFBundlePrimaryIcon.CFBundleIconName, 'AppIcon');
+    const assets = JSON.parse(spawnSync('xcrun', ['assetutil', '--info', resolve(bundle, 'Assets.car')], { encoding: 'utf8' }).stdout);
+    assert.ok(assets.some(asset => asset.Name === 'AppIcon/Mark'), 'the package\'s layers are in Assets.car');
+    assert.throws(() => iosAssets({ ...app, manifest: { host: { ios: { icon: 'missing.icon' } } } }, bundle, true), /not an Icon Composer package/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 60000);
+
 test('manifest colours follow the web and retired launch and alias keys are refused', async () => {
   const { readManifest } = await import('./app.mjs');
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-manifest-'));

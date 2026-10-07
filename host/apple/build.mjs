@@ -645,6 +645,8 @@ export function launchMode(app) {
  * `CFBundleIcons` on iOS, an `.icns` built by `iconutil` on macOS. Returns
  * the plist keys to merge; nothing when the app declares no such icon. */
 export function appIcon(app, dir, platform, { catalog = false } = {}) {
+  // An Icon Composer package goes to actool as it is (`iosAssets`).
+  if (platform === 'ios' && app.manifest.host?.ios?.icon) return {};
   const icon = (app.manifest.icons ?? []).find((i) => { const m = /^(\d+)x(\d+)$/.exec(i.sizes ?? ''); return m && m[1] === m[2] && Number(m[1]) >= 512; });
   if (!icon) return {};
   const source = resolve(app.dir, icon.src);
@@ -674,18 +676,34 @@ export function appIcon(app, dir, platform, { catalog = false } = {}) {
   return { CFBundleIconFile: 'AppIcon' };
 }
 
+/** The manifest's `host.ios.icon` copied into `work` as AppIcon.icon, or
+ *  null when the app declares none. */
+function composedIcon(app, work) {
+  const declared = app.manifest.host?.ios?.icon;
+  if (!declared) return null;
+  const source = resolve(app.dir, declared);
+  if (!existsSync(resolve(source, 'icon.json'))) throw new Error(`host/apple: ${app.name}'s host.ios.icon ${declared} is not an Icon Composer package (no icon.json)`);
+  const target = resolve(work, 'AppIcon.icon');
+  cpSync(source, target, { recursive: true });
+  return target;
+}
+
 /** All iOS asset sets share one actool pass: each pass replaces Assets.car. */
 export function iosAssets(app, dir, device, { catalog = false } = {}) {
   const work = mkdtempSync(resolve(tmpdir(), 'exact-ios-assets-'));
   try {
     const assets = resolve(work, 'Assets.xcassets');
     const keys = { ...appIcon(app, dir, 'ios', { catalog: catalog ? assets : false }), ...launchScreen(app, assets) };
-    const hasIcon = existsSync(resolve(assets, 'AppIcon.appiconset'));
+    // `host.ios.icon`, an Icon Composer package: actool takes it beside the
+    // catalog and names the icon after the package, so it goes in as
+    // AppIcon.icon. It writes the fallback PNGs and the plist keys itself.
+    const composed = composedIcon(app, work);
+    const hasIcon = Boolean(composed) || existsSync(resolve(assets, 'AppIcon.appiconset'));
     if (catalog && !hasIcon) throw new Error(`host/apple: ${app.name}'s distribution bundle requires an AppIcon; declare a square icon of at least 512 px`);
     if (hasIcon || keys.UILaunchScreen) {
       writeFileSync(resolve(assets, 'Contents.json'), JSON.stringify({ info: { author: 'exact', version: 1 } }));
       const partial = resolve(work, 'partial.plist');
-      run('xcrun', ['actool', assets, '--compile', dir, '--platform', device ? 'iphoneos' : 'iphonesimulator',
+      run('xcrun', ['actool', assets, ...(composed ? [composed] : []), '--compile', dir, '--platform', device ? 'iphoneos' : 'iphonesimulator',
         '--minimum-deployment-target', app.manifest.host?.ios?.minimumOS ?? '17.0',
         ...(hasIcon ? ['--app-icon', 'AppIcon', '--target-device', 'iphone', '--target-device', 'ipad'] : []),
         '--output-partial-info-plist', partial, '--output-format', 'human-readable-text'], { stdio: 'ignore' });

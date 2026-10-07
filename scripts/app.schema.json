@@ -55,23 +55,45 @@
     "game": {
       "type": "object",
       "description": "Generate the game's GPU, web and Apple shells from the logic package and Game type.",
-      "required": ["crate", "type"],
+      "required": [
+        "crate",
+        "type"
+      ],
       "additionalProperties": false,
       "properties": {
-        "audio": { "type": "boolean" },
-        "assets": { "type": "boolean" },
-        "crate": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-logic$" },
+        "audio": {
+          "type": "boolean"
+        },
+        "assets": {
+          "type": "boolean"
+        },
+        "crate": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-logic$"
+        },
         "data": {
           "type": "object",
           "description": "An optional linked Rust DataSource in the app's data/ crate, constructed with Default and wrapped by host storage.",
-          "required": ["crate", "type"],
+          "required": [
+            "crate",
+            "type"
+          ],
           "additionalProperties": false,
           "properties": {
-            "crate": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-data$" },
-            "type": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$" }
+            "crate": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-data$"
+            },
+            "type": {
+              "type": "string",
+              "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$"
+            }
           }
         },
-        "type": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$" }
+        "type": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$"
+        }
       }
     },
     "$schema": {
@@ -173,8 +195,25 @@
       "properties": {
         "client_mode": {
           "oneOf": [
-            { "enum": ["auto", "navigate-new", "navigate-existing", "focus-existing"] },
-            { "type": "array", "items": { "enum": ["auto", "navigate-new", "navigate-existing", "focus-existing"] } }
+            {
+              "enum": [
+                "auto",
+                "navigate-new",
+                "navigate-existing",
+                "focus-existing"
+              ]
+            },
+            {
+              "type": "array",
+              "items": {
+                "enum": [
+                  "auto",
+                  "navigate-new",
+                  "navigate-existing",
+                  "focus-existing"
+                ]
+              }
+            }
           ]
         }
       },
@@ -216,13 +255,17 @@
             "minimumOS": {
               "type": "string"
             },
-        "link": {
-          "type": "array",
-          "description": "Linker arguments for the app's native-module artifact (LLP 1024), one argument each, for what an archive in modules/apple/*.xcframework needs but cannot declare, such as -lc++.",
-          "items": {
-            "type": "string"
-          }
-        },
+            "icon": {
+              "type": "string",
+              "description": "An Icon Composer package (a `.icon` directory: icon.json and its layers), compiled by actool as the iOS app icon as it is, layers and Liquid Glass included. On iOS it takes the place of `icons`, which other platforms keep using."
+            },
+            "link": {
+              "type": "array",
+              "description": "Linker arguments for the app's native-module artifact (LLP 1024), one argument each, for what an archive in modules/apple/*.xcframework needs but cannot declare, such as -lc++.",
+              "items": {
+                "type": "string"
+              }
+            },
             "deviceFamily": {
               "type": "array",
               "items": {
@@ -247,8 +290,15 @@
             },
             "associatedDomains": {
               "oneOf": [
-                { "type": "boolean" },
-                { "type": "array", "items": { "type": "string" } }
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
               ]
             },
             "urlSchemes": {
@@ -269,13 +319,13 @@
             "minimumOS": {
               "type": "string"
             },
-        "link": {
-          "type": "array",
-          "description": "Linker arguments for the app's native-module artifact (LLP 1024), one argument each, for what an archive in modules/apple/*.xcframework needs but cannot declare, such as -lc++.",
-          "items": {
-            "type": "string"
-          }
-        },
+            "link": {
+              "type": "array",
+              "description": "Linker arguments for the app's native-module artifact (LLP 1024), one argument each, for what an archive in modules/apple/*.xcframework needs but cannot declare, such as -lc++.",
+              "items": {
+                "type": "string"
+              }
+            },
             "team": {
               "type": "string"
             },
@@ -588,7 +638,11 @@
     "auth": {
       "description": "Signing in through the system browser (LLP 1069.006): the scope the client-metadata documents name.",
       "type": "object",
-      "properties": { "scope": { "type": "string" } },
+      "properties": {
+        "scope": {
+          "type": "string"
+        }
+      },
       "additionalProperties": false
     },
     "typescript": {
@@ -599,18 +653,32 @@
         },
         "sources": {
           "type": "object",
-          "additionalProperties": { "type": "string" },
+          "additionalProperties": {
+            "type": "string"
+          },
           "description": "Directories outside the app its TypeScript imports, by the name they take beside app.ts: {\"core\": \"../../src/core\"} makes ./core/model resolve to ../../src/core/model.ts. Captured with the app; a link of that name, for an editor, is allowed."
         },
         "platforms": {
           "type": "object",
           "properties": {
-            "web": { "$ref": "#/$defs/placementPolicy" },
-            "ios": { "$ref": "#/$defs/placementPolicy" },
-            "macos": { "$ref": "#/$defs/placementPolicy" },
-            "linux": { "$ref": "#/$defs/placementPolicy" },
-            "android": { "$ref": "#/$defs/placementPolicy" },
-            "windows": { "$ref": "#/$defs/placementPolicy" }
+            "web": {
+              "$ref": "#/$defs/placementPolicy"
+            },
+            "ios": {
+              "$ref": "#/$defs/placementPolicy"
+            },
+            "macos": {
+              "$ref": "#/$defs/placementPolicy"
+            },
+            "linux": {
+              "$ref": "#/$defs/placementPolicy"
+            },
+            "android": {
+              "$ref": "#/$defs/placementPolicy"
+            },
+            "windows": {
+              "$ref": "#/$defs/placementPolicy"
+            }
           },
           "additionalProperties": false
         }
