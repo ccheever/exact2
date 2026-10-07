@@ -42,6 +42,7 @@ final class T3MobileModule: ExactModule {
         },
         "t3-layout-facts": T3LayoutFacts.factory,
         "t3-archive-spinner": T3ArchiveSpinner.factory,
+        "t3-composer-material": T3MobileComposerMaterial.factory,
         "t3-media-presenter": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
             try module.media.makeView(props: props, events: events)
         },

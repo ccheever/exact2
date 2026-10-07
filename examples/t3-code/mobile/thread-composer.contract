@@ -60,9 +60,12 @@ component ThreadComposer
         when data.modelUnavailable
           button press=openModelSettings padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 text-align="left"
             text "Model unavailable. Open model settings." font-size=13 line-height="17px" color=colors.foreground
-        column border-radius=(expanded ? 26 : 27) min-height=(expanded ? 140 : 48)
+        column position="relative" border-radius=(expanded ? 26 : 27) min-height=(expanded ? 140 : 48)
           overflow="hidden" box-sizing="border-box" padding-top=(expanded ? 14 : 2) padding-bottom=(expanded ? 6 : 2)
-          background-color=colors.composerSurface border-width=1 border-style="solid" border-color=colors.composerBorder
+          box-shadow=(dark ? "0px 6px 28px 0px rgba(0,0,0,0.35)" : "0px 6px 28px 0px rgba(0,0,0,0.15)")
+          t3-composer-material position="absolute" inset=0 pointer-events="none" aria-hidden=true
+            material-appearance=(dark ? "dark" : "light") material-radius=(expanded ? 26 : 27)
+            material-surface=colors.composerSurface material-border=colors.composerBorder
           row position="relative" min-height=44 flex-direction=(expanded ? "column" : "row") align-items=(expanded ? "stretch" : "center")
             when not expanded and not voicePresented
               button press=pickAttachments(data.contentOwner) disabled=(data.editing and not data.canCancel) width=44 height=44 padding=0 aria-label="Add attachment"

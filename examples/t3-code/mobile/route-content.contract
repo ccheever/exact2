@@ -304,9 +304,10 @@ component MobileRouteContent
       Home(listId="home-list", items=home.items, emptyTitle=home.emptyTitle, emptyDetail=home.emptyDetail, loading=home.loading, addEnvironment=home.addEnvironment, bottomClearance=chrome.bottomClearance, emptyClearance=chrome.emptyClearance, selectThread=chooseThread, toggleShelf=toggleHomeShelf, showMore=showMore, addConnection=addEnvironment, colors=homeLook)
       HomeChrome(configuration=chrome.configuration, event=homeEvent, height=(layout.liquidGlass ? chrome.toolbarContentInset + layout.safeBottom : 0))
     else when routeName == "thread" or (routeName == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")
-      column flex=1 min-height=0 width="100%" max-width=workspace.chatContentMaxWidth align-self="center"
-        ThreadFeed(data=threadData, horizontalPadding=16, userBubbleMaxWidth=max(0, (min(workspace.contentSettledWidth, workspace.chatContentMaxWidth) - 32) * 0.85), bottomClearance=(workingControl.visible ? 62 : 14), action=threadAction, openMedia=openMedia, colors=threadLook)
-        ThreadApprovals(data=threadData, action=threadAction, colors=threadLook)
+      column flex=1 min-height=0 width="100%"
+        ThreadFeed(data=threadData, horizontalPadding=workspace.chatHorizontalPadding, userBubbleMaxWidth=workspace.userBubbleMaxWidth, bottomClearance=(workingControl.visible ? 62 : 14), action=threadAction, openMedia=openMedia, colors=threadLook)
+        column width="100%" max-width=workspace.chatContentMaxWidth align-self="center"
+          ThreadApprovals(data=threadData, action=threadAction, colors=threadLook)
         ComposerAttachmentStrip(data=composerAttachments, open=openDraftMedia, remove=removeAttachment, colors=threadLook)
         MobileWorkingControl(data=workingControl, colors=threadLook, maxWidth=min(workspace.contentSettledWidth, workspace.chatContentMaxWidth), openAgents=workingAgents, openBrowser=workingBrowser, openDevices=workingDevices, openQueue=workingQueue, reconnect=workingReconnect)
         ThreadComposer(showQueue=false, voiceDisabled=(data.busy or changedPending or taskChangedPending or (threadData.composer.editing and not threadData.composer.canCancel)), voice=voiceData, voiceOwner=(focused ? voiceFocus.owner : ""), voiceColors=voiceLook, voiceAction=voiceAction, enterBehavior=appearance.enterBehavior, data=threadData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=(composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)), contentMaxWidth=min(workspace.contentSettledWidth, workspace.chatContentMaxWidth), focusChanged=composerFocus, editDraft=editDraft, action=threadAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)

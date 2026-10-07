@@ -22,3 +22,5 @@ shape AdaptiveWorkspace
   inspectorVisible: bool
   inspectorTargetWidth: number
   chatContentMaxWidth: number
+  chatHorizontalPadding: number
+  userBubbleMaxWidth: number
