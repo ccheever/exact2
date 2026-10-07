@@ -1,7 +1,7 @@
 // @ref llp/1106.011-responsive-workspace.decision.md#navigation-and-data-ownership
 // Pinned mobile365aa87982 Stack.workspaceLocationFromState / AdaptiveWorkspaceLayout.
 // Exact route entries cross this seam; React Navigation state never does.
-import { adaptiveWorkspace, type AdaptiveWorkspaceInput } from './adaptive-workspace';
+import { adaptiveWorkspace, adaptiveInspectorResize, type AdaptiveWorkspaceInput } from './adaptive-workspace';
 import { resolveThreadSelectionNavigationAction, resolveFileSelectionNavigationAction } from './adaptive-navigation';
 import type { WorkspaceAuxiliaryPaneRole } from './layout-mobile';
 
@@ -24,6 +24,8 @@ export interface MobileWorkspaceOptions {
   inspector?: MobileWorkspaceInspector | null;
   /** Focus-scoped role owner is separate from retained content ownership. */
   role?: { token: string; routeId: string; value: WorkspaceAuxiliaryPaneRole } | null;
+  inspectorExitToken?: string; inspectorResizing?: boolean;
+  dividerColor?: string; dividerActiveColor?: string;
   reducedMotion: boolean; appearance: string; background: string;
 }
 const object = (value: unknown): Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -101,7 +103,12 @@ export function mobileWorkspace(input: unknown, options: MobileWorkspaceOptions)
     fileInspectorPreferredWidth: preferredWidth(options.fileInspectorPreferredWidth),
     inspectorRegistered: registered, inspectorActive: active };
   const geometry = adaptiveWorkspace(geometryInput);
-  const configuration = JSON.stringify({ sidebarRouteKey: MOBILE_SIDEBAR_ROUTE_KEY,
+  const inspectorContentWidth = geometry.inspectorMounted ? geometry.auxiliaryPaneWidth : 0;
+  const configuration = JSON.stringify({ inspectorRouteKey: 't3-workspace-inspector',
+    inspectorOwner: geometry.inspectorMounted ? registration!.token : '', inspectorExitToken: options.inspectorExitToken ?? '',
+    inspectorContentWidth, inspectorVisible: geometry.inspectorVisible, inspectorResizing: options.inspectorResizing === true,
+    dividerColor: options.dividerColor ?? '#808080', dividerActiveColor: options.dividerActiveColor ?? '#808080',
+    sidebarRouteKey: MOBILE_SIDEBAR_ROUTE_KEY,
     viewportWidth: geometryInput.width, viewportHeight: geometryInput.height,
     usesSplitView: geometry.usesSplitView, sidebarVisible: geometry.sidebarVisible,
     sidebarContentWidth: geometry.sidebarContentWidth, sidebarTargetWidth: geometry.sidebarTargetWidth,
@@ -110,7 +117,7 @@ export function mobileWorkspace(input: unknown, options: MobileWorkspaceOptions)
   return { ...geometry, ready: !!workspace, topRouteId: top?.id ?? '', workspaceRouteId: workspace?.id ?? '',
     workspaceName: workspace?.name ?? '', workspaceURL: workspace?.url ?? '', workspacePath: geometryInput.pathname,
     environmentId: workspace?.params.threadEnvironment ?? '', threadId: workspace?.params.threadId ?? '',
-    overlayCount, sidebarRouteKey: MOBILE_SIDEBAR_ROUTE_KEY, configuration,
+    overlayCount, sidebarRouteKey: MOBILE_SIDEBAR_ROUTE_KEY, inspectorRouteKey: 't3-workspace-inspector', inspectorContentWidth, configuration,
     inspectorToken: registered ? registration!.token : '', inspectorRouteId: registered ? registration!.routeId : '',
     inspectorKind: registered ? registration!.kind : 'none', inspectorSelectedPath: registered ? registration!.selectedPath : '',
     threadOwner, inspectorCandidate: candidateKind, inspectorMain: focusedCandidate.main, inspectorAutomatic: candidateKind !== 'none' && focusedCandidate.automatic,
@@ -156,4 +163,22 @@ export function mobileWorkspaceFileSelection(input: unknown, hasPersistentFileIn
   const action = workspace.name === 'thread' ? 'push' : workspace.name === 'threadFile' ? 'replace'
     : resolveFileSelectionNavigationAction({ hasPersistentFileInspector });
   return { ...result, operation: action === 'replace' ? 'replace' : 'push', sourceAction: action };
+}
+
+
+/** Native controls propose changes; only the current root registration owns them. */
+export function mobileWorkspaceEvent(raw: string, owner: string, exitToken: string, visible: boolean, contentPaneWidth: number) {
+  const empty = { kind: '', owner: '', token: '', phase: '', value: '', width: 0 };
+  let event: Record<string, unknown>; try { event = object(JSON.parse(raw)); } catch { return empty; }
+  if (!owner || event.owner !== owner) return empty;
+  if (event.kind === 'inspector-closed') return exitToken && event.exitToken === exitToken && !visible
+    ? { ...empty, kind: 'end-exit', owner, token: exitToken } : empty;
+  if (!visible && !(event.kind === 'resize' && event.phase === 'end')) return empty;
+  if (event.kind === 'search' && typeof event.value === 'string') return { ...empty, kind: 'search', owner, value: event.value };
+  if (event.kind === 'close') return { ...empty, kind: 'close', owner };
+  if (event.kind !== 'resize' || !['start', 'update', 'end', 'step'].includes(text(event.phase))) return empty;
+  const width = event.startWidth, delta = event.translationX;
+  if (typeof width !== 'number' || typeof delta !== 'number' || !Number.isFinite(width) || !Number.isFinite(delta) || width <= 0) return empty;
+  return { ...empty, kind: 'resize', owner, phase: text(event.phase),
+    width: adaptiveInspectorResize(width, delta, finite(contentPaneWidth)) };
 }

@@ -28,6 +28,9 @@ final class T3MobileModule: ExactModule {
             let instance = T3MobileDocumentHTML(dataRoot: module.documentRoot, audioSession: module.audioSession, events: events)
             try instance.setProps(props); return instance
         },
+        "t3-inspector-chrome": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
+            try module.inspectorChrome.makeView(props: props, events: events)
+        },
         "t3-workspace-layout": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
             try module.workspace.makeView(props: props, events: events)
         },
@@ -51,7 +54,8 @@ final class T3MobileModule: ExactModule {
     private let activity: T3ActivityReporter
     private var alive = true
     let homeChrome = T3HomeChrome()
-    private lazy var workspace = T3MobileWorkspace(homeChrome: homeChrome)
+    private let inspectorChrome = T3MobileInspector()
+    lazy var workspace = T3MobileWorkspace(homeChrome: homeChrome, inspector: inspectorChrome)
     let settingsNavigation = T3SettingsNavigation()
     private let alerts = T3MobileAlerts()
     private let releases = T3ReleasePages()
@@ -105,6 +109,7 @@ final class T3MobileModule: ExactModule {
         T3MobileNavigation.configure(route, formSheet: route.data[.mobileFormSheet] == "true",
             scanActionID: route.data[.mobileScanAction], scannerOpen: route.data[.mobileScannerOpen] == "true",
             tint: route.controller.traitCollection.userInterfaceStyle == .dark ? .white : .black)
+        inspectorChrome.configure(route)
         homeChrome.configure(route)
         settingsNavigation.configure(route)
         scheduledNavigation.configure(route, editor: route.data[.mobileScheduledEditor] == "true", backActionID: "back")
@@ -119,7 +124,7 @@ final class T3MobileModule: ExactModule {
     override func elementEnded(_ element: ExactElement) {
         if element.hook == .mobileVoiceEditor { voice.editor.end(element) }
     }
-    override func routeEnded(_ route: ExactRoute) { homeChrome.end(route); settingsNavigation.end(route); scheduledNavigation.end(route); informationLegal.end(route) }
+    override func routeEnded(_ route: ExactRoute) { inspectorChrome.end(route); homeChrome.end(route); settingsNavigation.end(route); scheduledNavigation.end(route); informationLegal.end(route) }
 
     override func later(_ request: [String: Any], reply: ExactReply) {
         guard alive else { reply.fail("The mobile session was closed."); return }
@@ -223,7 +228,7 @@ final class T3MobileModule: ExactModule {
 
     override func destroy() {
         alive = false
-        workspace.destroy()
+        workspace.destroy(); inspectorChrome.destroy()
         scheduledControls.destroy()
         voice.destroy()
         terminal.destroy()
@@ -261,6 +266,7 @@ final class T3MobileModule: ExactModule {
          "t3-archive-spinner": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-symbol": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-qr-scanner": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
+         "t3-inspector-chrome": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-workspace-layout": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-layout-facts": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-home-chrome": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") }]

@@ -1,3 +1,4 @@
+import { mobileGitEvents } from './git-overview';
 import { mobileDevicesEvents } from './devices-mobile-data';
 import { mobileBrowserEvents } from './browser-mobile-data';
 import { mobileVoiceObserveDraft } from './voice-data';
@@ -71,6 +72,7 @@ export function mobileNative(native: Native): Native {
       if (response.ok) {
         mobileBrowserEvents(obj(response.value).events, mobileClient);
         mobileDevicesEvents(obj(response.value).events, mobileClient);
+        mobileGitEvents(obj(response.value).events, mobileClient);
       }
       return response;
     });

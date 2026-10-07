@@ -127,3 +127,13 @@ test('older grant cannot restore either pane after a concurrent permission denia
   expect(mobileFileSnapshot('src/a.ts', false, 0, f.client).rows).toEqual([]);
   expect(mobileFilesSnapshot('', f.client).rows).toEqual([]);
 });
+
+
+test('a file deep link loads its selected ancestry in the inspector tree', async () => {
+  const f = fixture();
+  const view = await mobileFilesRead('', 'src/a.ts', f.native, f.client);
+  expect(view.rows.map(row => row.path)).toEqual(['src', 'src/a.ts', 'README.md']);
+  expect(view.rows.find(row => row.path === 'src')).toMatchObject({ expanded: true, loaded: true });
+  expect(view.rows.find(row => row.path === 'src/a.ts')).toMatchObject({ selected: true });
+  expect(f.calls.filter(call => call.method === 'projects.listEntries').map(call => obj(call.payload).directoryPath)).toEqual(['', 'src']);
+});
