@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
-import { signingOrder } from './exact.mjs';
+import { signingOrder } from '../host/apple/assets.mjs';
 
 const plist = (executable) => `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict><key>CFBundleExecutable</key><string>${executable}</string></dict></plist>\n`;
@@ -93,3 +93,70 @@ test.skipIf(!tools)('signing in that order seals a bundle with an unsigned helpe
   const helper = spawnSync('codesign', ['-dv', resolve(app, 'Contents/Resources/assets/helper')], { encoding: 'utf8' });
   assert.match(helper.stderr, /flags=0x10002\(adhoc,runtime\)/);
 }), 60000);
+
+test('native resource trees keep scoped names, executable modes, links and files above the bake cap', () => inDir(dir => {
+  const { chmodSync, ftruncateSync, closeSync, openSync, readFileSync, readlinkSync, statSync } = require('node:fs');
+  const { copyMacResources, macResourceInventory } = require('../host/apple/assets.mjs');
+  const { readManifest, pendingBuildInputs } = require('./app.mjs');
+  const manifest = { name: 'Resources', app: { id: 'test.resources', name: 'Resources' }, host: { macos: { resources: [{ from: 'server', to: 'Resources/server' }] } } };
+  writeFileSync(resolve(dir, 'app.json'), JSON.stringify(manifest));
+  mkdirSync(resolve(dir, 'server/node_modules/@scope/a package'), { recursive: true });
+  writeFileSync(resolve(dir, 'server/node_modules/@scope/a package/index.js'), 'module.exports = 42;\n');
+  writeFileSync(resolve(dir, 'server/helper'), '#!/bin/sh\necho helper ran\n');
+  chmodSync(resolve(dir, 'server/helper'), 0o755);
+  symlinkSync('helper', resolve(dir, 'server/helper-link'));
+  const fd = openSync(resolve(dir, 'server/large.bin'), 'w'); ftruncateSync(fd, 65 * 1024 * 1024); closeSync(fd);
+  const app = { dir, manifest: readManifest(dir, 'resources') };
+  const contents = resolve(dir, 'Fixture.app/Contents'); mkdirSync(contents, { recursive: true });
+  const before = macResourceInventory(app);
+  copyMacResources(app, contents);
+  assert.equal(statSync(resolve(contents, 'Resources/server/helper')).mode & 0o777, 0o755);
+  assert.equal(readlinkSync(resolve(contents, 'Resources/server/helper-link')), 'helper');
+  assert.equal(spawnSync(resolve(contents, 'Resources/server/helper-link'), [], { encoding: 'utf8' }).stdout, 'helper ran\n');
+  assert.equal(readFileSync(resolve(contents, 'Resources/server/node_modules/@scope/a package/index.js'), 'utf8'), 'module.exports = 42;\n');
+  const copied = macResourceInventory({ dir: resolve(contents, 'Resources'), manifest: { host: { macos: { resources: [{ from: 'server', to: 'Resources/server' }] } } } });
+  assert.deepEqual(copied, before);
+  const build = { binary: { nativeResourceApp: app, metadata: { nativeResources: before }, inputs: [], directories: [], missing: [] } };
+  assert.deepEqual(pendingBuildInputs(build), []);
+  chmodSync(resolve(dir, 'server/helper'), 0o744);
+  assert.throws(() => copyMacResources(app, resolve(dir, 'changed'), before), /changed after the binary receipt/);
+  assert.deepEqual(pendingBuildInputs(build), ['host.macos.resources']);
+}));
+
+test('native resource mappings refuse traversal, overlapping assets and escaping links', () => inDir(dir => {
+  const { macResourceMappings, macResourceInventory, copyMacResources } = require('../host/apple/assets.mjs');
+  const manifest = resources => ({ host: { macos: { resources } } });
+  for (const from of ['../server', '/server', 'assets', 'target/server', 'server/../other'])
+    assert.throws(() => macResourceMappings(manifest([{ from, to: 'Resources/server' }])));
+  for (const to of ['../escape', 'MacOS/ExactMac', 'Resources/assets/anything', 'Resources/receipt.json'])
+    assert.throws(() => macResourceMappings(manifest([{ from: 'server', to }])));
+  assert.throws(() => macResourceMappings(manifest([{ from: 'server', to: 'Resources/server' }, { from: 'server/child', to: 'Helpers/child' }])));
+  mkdirSync(resolve(dir, 'server'));
+  writeFileSync(resolve(dir, 'outside'), 'outside');
+  symlinkSync('../outside', resolve(dir, 'server/link'));
+  const app = { dir, manifest: manifest([{ from: 'server', to: 'Resources/server' }]) };
+  assert.throws(() => macResourceInventory(app), /escapes/);
+  rmSync(resolve(dir, 'server/link'));
+  mkdirSync(resolve(dir, 'bundle/Resources'), { recursive: true });
+  symlinkSync(resolve(dir, 'server'), resolve(dir, 'bundle/Resources/server'));
+  assert.throws(() => copyMacResources(app, resolve(dir, 'bundle')), /already exists/);
+}));
+
+test.skipIf(process.platform !== 'darwin')('native resources sign and execute a Mach-O helper with its dylib in the assembled bundle', () => inDir(dir => {
+  const { copyMacResources } = require('../host/apple/assets.mjs');
+  mkdirSync(resolve(dir, 'server'), { recursive: true });
+  writeFileSync(resolve(dir, 'lib.c'), 'int answer(void) { return 42; }\n');
+  writeFileSync(resolve(dir, 'main.c'), '#include <stdio.h>\nextern int answer(void); int main(void) { if(answer()!=42) return 1; puts("helper ran"); return 0; }\n');
+  const command = (cmd, args) => { const r = spawnSync(cmd, args, { encoding: 'utf8' }); assert.equal(r.status, 0, `${cmd}: ${r.stderr}`); return r; };
+  command('cc', ['-dynamiclib', resolve(dir, 'lib.c'), '-Wl,-install_name,@loader_path/addon.node', '-Wl,-no_adhoc_codesign', '-o', resolve(dir, 'server/addon.node')]);
+  command('cc', [resolve(dir, 'main.c'), resolve(dir, 'server/addon.node'), '-Wl,-no_adhoc_codesign', '-o', resolve(dir, 'server/helper')]);
+  const app = resolve(dir, 'Fixture.app'), contents = resolve(app, 'Contents');
+  mkdirSync(resolve(contents, 'MacOS'), { recursive: true });
+  writeFileSync(resolve(contents, 'Info.plist'), plist('ExactMac'));
+  writeFileSync(resolve(dir, 'host.c'), 'int main(void) { return 0; }\n');
+  command('cc', [resolve(dir, 'host.c'), '-o', resolve(contents, 'MacOS/ExactMac')]);
+  copyMacResources({ dir, manifest: { host: { macos: { resources: [{ from: 'server', to: 'Resources/server' }] } } } }, contents);
+  for (const path of signingOrder(app)) command('codesign', ['--force', '--sign', '-', '--timestamp=none', path]);
+  command('codesign', ['--verify', '--deep', '--strict', app]);
+  assert.equal(command(resolve(contents, 'Resources/server/helper'), []).stdout, 'helper ran\n');
+}));

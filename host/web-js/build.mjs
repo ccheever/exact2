@@ -167,6 +167,7 @@ async function typecheck() {
   const capture = (from, to, top) => {
     for (const entry of readdirSync(from, { withFileTypes: true })) {
       const name = entry.name, path = resolve(from, name);
+      if ((manifest.host?.macos?.resources ?? []).some(resource => path === resolve(appDir, resource.from))) continue;
       if (['.git', 'node_modules', 'target', 'dist'].includes(name) || name.startsWith('.exact-js-bake-') || (top && name === 'app.contract.d.ts')) continue;
       // The app's dot directories (`.exact/`: an agent's evidence, logs, runtime files) are no source, as in js/bake's capture.
       if (top && name.startsWith('.') && entry.isDirectory()) continue;

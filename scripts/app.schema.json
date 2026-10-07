@@ -326,6 +326,17 @@
           "description": "macOS: `minimumOS` (default 14.0), the first window's size, and the keys below.",
           "type": "object",
           "properties": {
+            "resources": {
+              "description": "Native-only resource trees, copied under Contents with modes and internal relative symlinks preserved. Excluded from plan assets and TypeScript capture; changing them requires a new binary. Mach-O code is signed with the bundle.",
+              "type": "array",
+              "items": {
+                "type": "object", "required": ["from", "to"], "additionalProperties": false,
+                "properties": {
+                  "from": {"type": "string", "description": "Separate directory relative to app.json, for example server. Not assets, source or output roots."},
+                  "to": {"type": "string", "description": "Private destination under Contents, for example Resources/server or Helpers/server."}
+                }
+              }
+            },
             "minimumOS": {
               "description": "The oldest macOS the app runs on, as \"14.0\"; never below 14.0.",
               "type": "string"
