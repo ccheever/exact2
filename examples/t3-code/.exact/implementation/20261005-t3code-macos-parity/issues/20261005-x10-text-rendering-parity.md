@@ -148,6 +148,8 @@ Adoption: the clone had no workaround for any item, so nothing is removed. Its `
 `overflow-wrap="anywhere"` rows (code blocks, tool output, the user message fallback) and its Markdown
 paragraphs take #208's breaks with no clone change. Agent drive at 1280×840 (lane message with three long
 paths): every path fits the bubble or breaks at a space, and Before (`887b2491b`) and After draw the same
-lines. A narrower pair (840×620, where the bubble is narrower than a path) is still to be taken: the After
-capture was covered by the lane's provider toasts, and the live re-run was stopped because the screen was
-locked (task record). The stored font-smoothing setting stays unapplied (item 5). The issue stays open.
+lines. At 840×620, where the bubble is narrower than a path, Before and After are pixel-identical too, and the
+two long paths do not break at all: they run past the bubble's right edge and the window
+([image](https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/adopt-main-fixes-r4/03-x10-wrap-840-before-after.png)). #208 does not change that line. The clone's `UserMarkdown` paragraphs
+(`markdown.contract`) set no `overflow-wrap`; whether T3 Code breaks these paths inside the word needs a
+reference capture of the same message (follow-up finding, task record). The stored font-smoothing setting stays unapplied (item 5). The issue stays open.

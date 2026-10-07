@@ -82,18 +82,18 @@ checked for the parts not merged: `kernel/tables/schema.json` has no `text-wrap`
 | Week start on macOS | — | `cargo test -p exact-js --test it pure_utilities_match` (Hermes against Chrome); `desktop-shell-details.test.ts` | pass | macOS | 1/1; 32/32 |
 | PR search debounce | lane server 16641, agent clock in 10 ms steps | type in `pull-requests-search`, step until `slots.prApplied` equals the query | 250 ms after the keystroke at any phase | macOS 1280×840 | records below |
 | Terminal close confirm | thread "Wrap demo", right panel, Terminal surface | `tap close-tab-terminal:term-1`, step 10 ms until `app-confirm` | at once | macOS 1280×840 | records below, After image |
-| Long paths in a user message (X10) | lane message with three long paths | screenshot at 1280×840 | Chrome's breaks | macOS | image below (no change at this width) |
+| Long paths in a user message (X10) | lane message with three long paths; provider banner and toasts dismissed | screenshots at 1280×840 and 840×620 | Chrome's breaks | macOS | images below (no change in either) |
 
 ## Progress
 
-Implemented 2026-10-07. Verification: unverified (task PR review pending). The live SSH row ran in attempt 2; the X10 pair at 840×620 is still open (below).
+Implemented 2026-10-07. Verification: unverified (task PR review pending). The live SSH row and the X10 pair at 840×620 ran in attempt 2.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
 | 1 (2026-10-07) | merge of `463acda68` + this task's commit | merged base before changes: `bun test examples/t3-code` 2297 pass / 1 skip / 0 fail, strict tsc clean, contract build 2543 slots / 45 resources, `cargo test -p t3-code-macos --lib` 11/0 (main's commits broke nothing in the clone). After: `bun test examples/t3-code` 2300 pass / 1 skip / 0 fail (3 week-start cases added); strict tsc clean; contract build 2542 slots (`prTypedAt` gone), 45 resources; `cargo test -p t3-code-macos --lib` 11/0; AppKit `ssh` 15 tests, 1 live skip, 0 failures; `cargo test -p exact-js --test it pure_utilities_match` 1/0; caps within budget (`app.contract` at 1,500 lines); macOS bundles of base and branch build | records and image below | live SSH row (screen locked) |
-| 2 (2026-10-07) | merge of `origin/feat(example)/t3-code` `20980ae10` (#217; `QUEUE.md` only: #217 removed the terminal-drag line, both sides otherwise kept) | `bun test examples/t3-code` 2300 pass / 1 skip / 0 fail; strict tsc clean; contract build 2542 slots; caps within budget; live SSH-at-quit drive on both builds (below) | records below | X10 pair at 840×620 |
+| 2 (2026-10-07) | merge of `origin/feat(example)/t3-code` `20980ae10` (#217; `QUEUE.md` only: #217 removed the terminal-drag line, both sides otherwise kept) | `bun test examples/t3-code` 2300 pass / 1 skip / 0 fail; strict tsc clean; contract build 2542 slots; caps within budget; live SSH-at-quit drive on both builds (below) | records below | none |
 
 Lane (not committed, `target/lane-r4`): reference server `1e2ecbd975` (`apps/server/dist/bin.mjs serve`) on
 127.0.0.1:16641 with isolated HOME, CODEX_HOME, CLAUDE_CONFIG_DIR, XDG_*, T3CODE_HOME, telemetry off, and
@@ -176,6 +176,7 @@ written (no environment was paired).
 | PR search debounce (agent clock) | 250 ms when typed on the poll's grid; the poll gives 250–460 ms off it (probe) | 250 ms at every phase |
 | Terminal close confirm | probe: 140–500 ms after the request (500 ms poll) | 10 ms in the clone (agent step), 1 ms in the probe |
 | User message with long paths at 1280×840 (X10) | paths fit or break at a space | identical (no visible change at this width) |
+| User message with long paths at 840×620 (X10) | the two long paths do not break; they run past the bubble and the window | pixel-identical |
 | SSH tunnels at ⌘W / Apple Event quit / ⌘Q ⌘Q (X6) | both tunnels gone with the app (348 / 103 / 557 ms), through the observer | both tunnels gone with the app (359 / 224 / 588 ms), through `destroy()`; SIGKILL control: orphaned |
 | Week start in the macOS data runtime (X36) | `undefined` (`Intl.Locale` throws there; #204's before column) | Chrome's (Hermes test against Chrome) |
 
@@ -184,8 +185,16 @@ Record: `https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/adop
 Image: `https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/adopt-main-fixes-r4/01-x10-wrap-1280-before-after.png`
 (the user message at 1280×840; Before and After draw the same lines).
 
+X10 pair at 840×620 (16:21:40–16:22:27, under `.realinput-lock`; one agent session per build, both builds
+checked fresh by the driver's own receipt check, the branch rebuilt at `fabb7b19b` first): `dismiss-provider-warning`,
+`toast-dismiss-2`, then `toast-dismiss-1` closed the banner and both toasts in each build. The two screenshots are
+pixel-identical. Image: `https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/adopt-main-fixes-r4/03-x10-wrap-840-before-after.png`.
+
+Finding for a follow-up (not this task): at 840×620 the two long paths run past the bubble's right edge and off the
+window in both builds. The clone's `UserMarkdown` paragraphs set no `overflow-wrap`; compare with a reference
+capture of the same message before changing it.
+
 ## Next action
 
-Review the PR ([#218](https://github.com/ccheever/exact2/pull/218)). Still open: the X10 pair at 840×620 (where
-the bubble is narrower than the paths), Before and After, with `dismiss-provider-warning` and the toasts dismissed
-first; it was not taken because other agents were queued on `.realinput-lock` when the SSH drive finished.
+Review the PR ([#218](https://github.com/ccheever/exact2/pull/218)); nothing of this task is left open. The overflow
+finding above needs its own task.
