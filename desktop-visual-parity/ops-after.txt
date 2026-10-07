@@ -1,0 +1,284 @@
+0 > clock +30000 real
+   {"inflight":1,"incarnation":1,"clock":30000,"epoch":14,"real":30018}
+1 > logs
+   (tree/logs dump:     4108 lines)
+2 > clock settle
+   {"settled":true,"incarnation":1,"clock":30000,"epoch":14}
+3 > screenshot after/00-start.png
+   {"screenshot":"after/00-start.png","h":840,"incarnation":1,"epoch":14,"clock":30000,"w":1280}
+4 > tree
+   (tree/logs dump:      588 lines)
+5 > clock +2000
+   {"incarnation":1,"clock":32000,"inflight":1,"epoch":14,"diagnostic":"1 request still in flight on real time (a store's, a worker's, the network's): `clock +N` moved the clock without waiting for it; `
+6 > screenshot after/01-start.png
+   {"incarnation":1,"clock":32000,"screenshot":"after/01-start.png","w":1280,"h":840,"epoch":14}
+7 > screenshot after/02-window.png window
+   {"window":true,"scale":2,"w":1280,"clock":32000,"epoch":14,"screenshot":"after/02-window.png","h":840,"incarnation":
+8 > tap connection-settings
+   {"delivery":"platform","at":[24,820],"tapped":97,"target":"connection-settings","carrier":"macos","mode":"agent","epoch":15,"incarnation":1,"clock":32000}
+9 > clock settle
+   {"incarnation":1,"clock":32000,"settled":true,"epoch":15}
+10 > tap Appearance
+   {"delivery":"platform","at":[128,152],"tapped":685,"target":"Appearance","carrier":"macos","mode":"agent","epoch":16,"incarnation":1,"clock":32000}
+11 > clock settle
+   {"epoch":16,"settled":true,"incarnation":1,"clock":32000}
+12 > tap settings-content-scroll wheel 0 1400
+   {"gesture":false,"delivery":"platform","tapped":742,"wheel":[0,1400],"at":[768.5,446],"target":"settings-content-scroll","carrier":"macos","mode":"agent","epoch":16,"incarnation":1,"clock":32000}
+13 > clock +500
+   {"inflight":1,"epoch":16,"incarnation":1,"clock":32500,"diagnostic":"1 request still in flight on real time (a store's, a worker's, the network's): `clock +N` moved the clock without waiting for it; `
+14 > screenshot after/03-appearance.png window
+   {"window":true,"w":1280,"scale":2,"clock":32500,"epoch":16,"screenshot":"after/03-appearance.png","h":840,"incarnati
+15 > tree
+   (tree/logs dump:     1588 lines)
+16 > tap toast-dismiss-2
+   {"at":[1241,91],"tapped":552,"delivery":"platform","target":"toast-dismiss-2","carrier":"macos","mode":"agent","epoch":16,"incarnation":1,"clock":32500}
+17 > clock +1000
+   {"inflight":1,"clock":33500,"epoch":17,"incarnation":1,"diagnostic":"1 request still in flight on real time (a store's, a worker's, the network's): `clock +N` moved the clock without waiting for it; `
+18 > screenshot after/10-typo-light.png window
+   {"screenshot":"after/10-typo-light.png","clock":33500,"epoch":17,"window":true,"scale":2,"h":840,"incarnation":1,"w"
+19 > prefer prefers-color-scheme dark
+   {"page":{"online":true,"root-font-size":16,"has-focus":true,"can-open-files":true,"visibility-state":"visible","can-share":true},"fold":{"device-posture":"continuous","horizontal-viewport-segments":1,
+20 > clock +500
+   {"incarnation":1,"clock":34000,"epoch":17,"inflight":1,"diagnostic":"1 request still in flight on real time (a store's, a worker's, the network's): `clock +N` moved the clock without waiting for it; `
+21 > screenshot after/11-typo-dark.png window
+   {"w":1280,"epoch":17,"h":840,"window":true,"clock":34000,"scale":2,"screenshot":"after/11-typo-dark.png","incarnatio
+22 > prefer prefers-color-scheme light
+   {"incarnation":1,"epoch":18,"page":{"visibility-state":"visible","online":true,"can-open-files":true,"has-focus":true,"can-share":true,"root-font-size":16},"clock":34000,"fold":{"vertical-viewport-seg
+23 > tap setting-typography-advanced
+   {"tapped":2457,"delivery":"platform","at":[1161.5,108],"target":"setting-typography-advanced","carrier":"macos","mode":"agent","epoch":19,"incarnation":1,"clock":34000}
+24 > clock settle
+   {"incarnation":1,"settled":true,"epoch":21,"clock":34000}
+25 > tap settings-content-scroll wheel 0 300
+   {"gesture":false,"delivery":"platform","tapped":742,"wheel":[0,300],"at":[768.5,446],"target":"settings-content-scroll","carrier":"macos","mode":"agent","epoch":21,"incarnation":1,"clock":34000}
+26 > clock +500
+   {"inflight":1,"epoch":21,"incarnation":1,"clock":34500,"diagnostic":"1 request still in flight on real time (a store's, a worker's, the network's): `clock +N` moved the clock without waiting for it; `
+27 > screenshot after/12-typo-advanced-light.png window
+   {"window":true,"scale":2,"clock":34500,"w":1280,"epoch":21,"screenshot":"after/12-typo-advanced-light.png","h":840,"
+28 > prefer prefers-color-scheme dark
+   {"page":{"can-share":true,"online":true,"has-focus":true,"visibility-state":"visible","root-font-size":16,"can-open-files":true},"fold":{"vertical-viewport-segments":1,"viewport-segments":[],"device-p
+29 > clock +500
+   {"incarnation":1,"epoch":22,"clock":35000,"inflight":1,"diagnostic":"1 request still in flight on real time (a store's, a worker's, the network's): `clock +N` moved the clock without waiting for it; `
+30 > screenshot after/13-typo-advanced-dark.png window
+   {"screenshot":"after/13-typo-advanced-dark.png","clock":35000,"epoch":22,"window":true,"scale":2,"h":840,"incarnatio
+31 > prefer prefers-color-scheme light
+   {"epoch":23,"page":{"online":true,"can-share":true,"has-focus":true,"visibility-state":"visible","root-font-size":16,"can-open-files":true},"fold":{"device-posture":"continuous","viewport-segments":[]
+32 > tree
+   (tree/logs dump:     1765 lines)
+33 > tap toast-dismiss-1
+   {"at":[1241,91],"delivery":"platform","tapped":4230,"target":"toast-dismiss-1","carrier":"macos","mode":"agent","epoch":23,"incarnation":1,"clock":35000}
+34 > tap setting-prompt-font-size
+   {"at":[1103.5,446],"delivery":"platform","tapped":3234,"target":"setting-prompt-font-size","scrolled":{"from":[1103.5,40],"to":[1103.5,446]},"carrier":"macos","mode":"agent","epoch":24,"incarnation":1
+35 > clock settle
+   {"epoch":24,"clock":35000,"incarnation":1,"settled":true}
+36 > tap setting-prompt-font-size-menu-18
+   {"delivery":"platform","at":[1103.5,647],"tapped":3267,"target":"setting-prompt-font-size-menu-18","carrier":"macos","mode":"agent","epoch":25,"incarnation":1,"clock":35000}
+37 > clock settle
+   {"clock":35000,"settled":true,"incarnation":1,"epoch":27}
+38 > tap setting-code-font-size
+   {"delivery":"platform","at":[1103.5,593.5],"tapped":2605,"target":"setting-code-font-size","carrier":"macos","mode":"agent","epoch":27,"incarnation":1,"clock":35000}
+39 > clock settle
+   {"clock":35000,"settled":true,"epoch":27,"incarnation":1}
+40 > tap setting-code-font-size-menu-16
+   {"delivery":"platform","at":[1103.5,765],"tapped":2638,"target":"setting-code-font-size-menu-16","carrier":"macos","mode":"agent","epoch":28,"incarnation":1,"clock":35000}
+41 > clock settle
+   {"settled":true,"clock":35000,"incarnation":1,"epoch":30}
+42 > tap prompt-font-preview
+   {"delivery":"platform","at":[768.5,517.25],"tapped":3279,"target":"prompt-font-preview","carrier":"macos","mode":"agent","epoch":30,"incarnation":1,"clock":35000}
+43 > clock +500
+   {"epoch":30,"clock":35500,"incarnation":1}
+44 > screenshot after/14-typo-advanced-sizes.png window
+   {"clock":35500,"w":1280,"h":840,"screenshot":"after/14-typo-advanced-sizes.png","scale":2,"window":true,"epoch":30,"
+45 > tap setting-prompt-font-size
+   {"delivery":"platform","tapped":3234,"at":[1103.5,446],"target":"setting-prompt-font-size","carrier":"macos","mode":"agent","epoch":30,"incarnation":1,"clock":35500}
+46 > clock settle
+   {"epoch":30,"settled":true,"clock":35500,"incarnation":1}
+47 > tap setting-prompt-font-size-menu-14
+   {"at":[1103.5,535],"delivery":"platform","tapped":3251,"target":"setting-prompt-font-size-menu-14","carrier":"macos","mode":"agent","epoch":31,"incarnation":1,"clock":35500}
+48 > clock settle
+   {"epoch":33,"clock":35500,"incarnation":1,"settled":true}
+49 > tap setting-code-font-size
+   {"delivery":"platform","tapped":2605,"at":[1103.5,591],"target":"setting-code-font-size","carrier":"macos","mode":"agent","epoch":33,"incarnation":1,"clock":35500}
+50 > clock settle
+   {"clock":35500,"incarnation":1,"settled":true,"epoch":33}
+51 > tap setting-code-font-size-menu-13
+   {"delivery":"platform","at":[1103.5,681],"tapped":2626,"target":"setting-code-font-size-menu-13","carrier":"macos","mode":"agent","epoch":34,"incarnation":1,"clock":35500}
+52 > clock settle
+   {"settled":true,"epoch":36,"clock":35500,"incarnation":1}
+53 > tap setting-typography-advanced
+   {"at":[1161.5,321],"delivery":"platform","tapped":2457,"target":"setting-typography-advanced","carrier":"macos","mode":"agent","epoch":37,"incarnation":1,"clock":35500}
+54 > clock settle
+   {"settled":true,"clock":35500,"epoch":39,"incarnation":1}
+55 > screenshot after/15-typo-restored.png window
+   {"window":true,"scale":2,"w":1280,"clock":35500,"epoch":39,"screenshot":"after/15-typo-restored.png","h":840,"incarn
+56 > tap Keybindings
+   {"delivery":"platform","tapped":689,"at":[128,188],"target":"Keybindings","carrier":"macos","mode":"agent","epoch":40,"incarnation":1,"clock":35500}
+57 > clock settle
+   {"incarnation":1,"epoch":41,"clock":35500,"settled":true}
+58 > tree
+   (tree/logs dump:     1942 lines)
+59 > tap add-keybinding
+   {"delivery":"platform","at":[1134.5,146],"tapped":4400,"target":"add-keybinding","carrier":"macos","mode":"agent","epoch":43,"incarnation":1,"clock":35500}
+60 > clock settle
+   {"epoch":46,"clock":35500,"settled":true,"incarnation":1}
+61 > screenshot after/20-kb-new.png window
+   {"epoch":46,"w":1280,"window":true,"incarnation":1,"screenshot":"after/20-kb-new.png","scale":2,"clock":35500,"h":84
+62 > tap new-keybinding-command
+   {"tapped":5652,"at":[785.75,207],"delivery":"platform","target":"new-keybinding-command","carrier":"macos","mode":"agent","epoch":46,"incarnation":1,"clock":35500}
+63 > clock settle
+   {"incarnation":1,"settled":true,"clock":35500,"epoch":46}
+64 > screenshot after/21-kb-command-menu.png window
+   {"window":true,"screenshot":"after/21-kb-command-menu.png","clock":35500,"incarnation":1,"epoch":46,"w":1280,"scale"
+65 > tree new-keybinding-command-menu
+   (tree/logs dump:      241 lines)
+66 > tap new-keybinding-command-option-composer.sendAlternate
+   {"tapped":5689,"at":[842.26,520],"delivery":"platform","target":"new-keybinding-command-option-composer.sendAlternate","carrier":"macos","mode":"agent","epoch":47,"incarnation":1,"clock":35500}
+67 > clock settle
+   {"incarnation":1,"settled":true,"clock":35500,"epoch":48}
+68 > screenshot after/22-kb-command-selected.png window
+   {"window":true,"screenshot":"after/22-kb-command-selected.png","clock":35500,"incarnation":1,"epoch":48,"w":1280,"sc
+69 > tap edit-when-%5B%22appearance.cycle%22%2C%22mod%2Balt%2Bshift%2Ba%22%2C%22!terminalFocus%22%5D
+   {"delivery":"platform","tapped":4445,"at":[461.63,291],"target":"edit-when-%5B%22appearance.cycle%22%2C%22mod%2Balt%2Bshift%2Ba%22%2C%22!terminalFocus%22%5D","carrier":"macos","mode":"agent","epoch":4
+70 > clock settle
+   {"incarnation":1,"clock":35500,"epoch":51,"settled":true}
+71 > screenshot after/23-kb-when-editor.png window
+   {"window":true,"w":1280,"incarnation":1,"scale":2,"screenshot":"after/23-kb-when-editor.png","epoch":51,"h":840,"clo
+72 > tree
+   (tree/logs dump:     2251 lines)
+73 > tap when-variable-root
+   {"at":[614.03,421],"tapped":5911,"delivery":"platform","target":"when-variable-root","carrier":"macos","mode":"agent","epoch":51,"incarnation":1,"clock":35500}
+74 > clock settle
+   {"incarnation":1,"clock":35500,"epoch":51,"settled":true}
+75 > screenshot after/24-kb-condition-menu.png window
+   {"screenshot":"after/24-kb-condition-menu.png","epoch":51,"w":1280,"window":true,"scale":2,"h":840,"clock":35500,"in
+76 > tap when-variable-root
+   {"at":[614.03,421],"delivery":"platform","tapped":5911,"target":"when-variable-root","carrier":"macos","mode":"agent","epoch":51,"incarnation":1,"clock":35500}
+77 > tap cancel-new-keybinding
+   {"tapped":5900,"at":[1161.5,207],"delivery":"platform","target":"cancel-new-keybinding","carrier":"macos","mode":"agent","epoch":52,"incarnation":1,"clock":35500}
+78 > clock settle
+   {"settled":true,"clock":35500,"incarnation":1,"epoch":53}
+79 > tap "Scheduled Tasks"
+   {"delivery":"platform","tapped":705,"at":[128,332],"target":"Scheduled Tasks","carrier":"macos","mode":"agent","epoch":54,"incarnation":1,"clock":35500}
+80 > clock settle
+   {"settled":true,"epoch":54,"clock":35500,"incarnation":1}
+81 > tree
+   (tree/logs dump:      706 lines)
+82 > tap new-scheduled-task
+   {"tapped":5966,"delivery":"platform","at":[1134.83,146],"target":"new-scheduled-task","carrier":"macos","mode":"agent","epoch":54,"incarnation":1,"clock":35500}
+83 > clock settle
+   {"clock":35500,"settled":true,"epoch":55,"incarnation":1}
+84 > clock +1000
+   {"incarnation":1,"epoch":55,"clock":36500}
+85 > screenshot after/30-sched-new.png window
+   {"w":1280,"incarnation":1,"window":true,"clock":36500,"h":840,"screenshot":"after/30-sched-new.png","epoch":55,"scal
+86 > tap task-workspace
+   {"at":[774.5,303.5],"tapped":6024,"delivery":"platform","target":"task-workspace","carrier":"macos","mode":"agent","epoch":55,"incarnation":1,"clock":36500}
+87 > clock settle
+   {"clock":36500,"settled":true,"epoch":55,"incarnation":1}
+88 > screenshot after/31-sched-workspace-menu.png window
+   {"screenshot":"after/31-sched-workspace-menu.png","w":1280,"scale":2,"h":840,"epoch":55,"window":true,"incarnation":
+89 > tap task-workspace
+   {"tapped":6024,"delivery":"platform","at":[774.5,303.5],"target":"task-workspace","carrier":"macos","mode":"agent","epoch":55,"incarnation":1,"clock":36500}
+90 > clock settle
+   {"incarnation":1,"settled":true,"epoch":55,"clock":36500}
+91 > tap Cancel
+   {"tapped":6129,"at":[768.59,778.5],"delivery":"platform","target":"Cancel","carrier":"macos","mode":"agent","epoch":56,"incarnation":1,"clock":36500}
+92 > clock settle
+   {"clock":36500,"incarnation":1,"settled":true,"epoch":56}
+93 > tap Back
+   ERROR: "Back" names 2 views: 726 (close-settings) Pressable, 1872 (shortcut-navigation.back) Pressable; target one by its view id
+94 > clock settle
+   {"settled":true,"clock":36500,"incarnation":1,"epoch":56}
+95 > tap thread-90ed2216-04da-48cd-a3ef-289e509d8ec0
+   ERROR: view 3944 is hidden or inert
+96 > clock settle
+   {"settled":true,"clock":36500,"incarnation":1,"epoch":56}
+97 > clock +2000
+   {"clock":38500,"epoch":56,"incarnation":1}
+98 > screenshot after/40-thread-light.png window
+   {"window":true,"epoch":56,"w":1280,"screenshot":"after/40-thread-light.png","clock":38500,"scale":2,"incarnation":1,
+99 > tap close-settings
+   {"at":[128,820],"tapped":726,"delivery":"platform","target":"close-settings","carrier":"macos","mode":"agent","epoch":57,"incarnation":1,"clock":38500}
+100 > clock settle
+   {"incarnation":1,"clock":38500,"epoch":57,"settled":true}
+101 > tap thread-90ed2216-04da-48cd-a3ef-289e509d8ec0
+   {"at":[127.5,141],"tapped":3944,"delivery":"platform","target":"thread-90ed2216-04da-48cd-a3ef-289e509d8ec0","carrier":"macos","mode":"agent","epoch":58,"incarnation":1,"clock":38500}
+102 > clock settle
+   {"clock":38500,"incarnation":1,"epoch":64,"settled":true}
+103 > clock +2000
+   {"epoch":64,"incarnation":1,"clock":40500}
+104 > screenshot after/40-thread-light.png window
+   {"epoch":64,"clock":40500,"scale":2,"incarnation":1,"window":true,"h":840,"w":1280,"screenshot":"after/40-thread-lig
+105 > tree
+   (tree/logs dump:      739 lines)
+106 > tap dismiss-provider-warning
+   {"at":[1074.09,89],"tapped":4107,"delivery":"platform","target":"dismiss-provider-warning","carrier":"macos","mode":"agent","epoch":64,"incarnation":1,"clock":40500}
+107 > clock settle
+   {"clock":40500,"incarnation":1,"epoch":64,"settled":true}
+108 > screenshot after/41-thread-light-expanded.png window
+   {"clock":40500,"epoch":64,"scale":2,"incarnation":1,"window":true,"h":840,"w":1280,"screenshot":"after/41-thread-lig
+109 > tap table-expand-1
+   {"tapped":6354,"at":[292,316.45],"delivery":"platform","target":"table-expand-1","carrier":"macos","mode":"agent","epoch":65,"incarnation":1,"clock":40500}
+110 > tap table-expand-5
+   {"delivery":"platform","at":[292,532.9],"tapped":6424,"target":"table-expand-5","carrier":"macos","mode":"agent","epoch":66,"incarnation":1,"clock":40500}
+111 > clock settle
+   {"incarnation":1,"clock":41391.666666666664,"epoch":66,"settled":true}
+112 > screenshot after/42-thread-light-collapsed.png window
+   {"clock":41391.666666666664,"epoch":66,"scale":2,"window":true,"incarnation":1,"h":840,"w":1280,"screenshot":"after/
+113 > prefer prefers-color-scheme dark
+   {"fold":{"vertical-viewport-segments":1,"viewport-segments":[],"device-posture":"continuous","horizontal-viewport-segments":1},"clock":41391.666666666664,"media":{"prefers-reduced-transparency":"no-pr
+114 > clock +500
+   {"incarnation":1,"clock":41891.666666666664,"epoch":67}
+115 > screenshot after/43-thread-dark-collapsed.png window
+   {"w":1280,"h":840,"incarnation":1,"window":true,"screenshot":"after/43-thread-dark-collapsed.png","scale":2,"epoch":
+116 > tap table-expand-1
+   {"tapped":6354,"at":[292,316.45],"delivery":"platform","target":"table-expand-1","carrier":"macos","mode":"agent","epoch":68,"incarnation":1,"clock":41891.666666666664}
+117 > tap table-expand-5
+   {"tapped":6424,"delivery":"platform","at":[292,493.9],"target":"table-expand-5","carrier":"macos","mode":"agent","epoch":69,"incarnation":1,"clock":41891.666666666664}
+118 > clock settle
+   {"clock":42783.33333333333,"incarnation":1,"epoch":69,"settled":true}
+119 > screenshot after/44-thread-dark-expanded.png window
+   {"w":1280,"h":840,"incarnation":1,"window":true,"screenshot":"after/44-thread-dark-expanded.png","scale":2,"epoch":6
+120 > prefer prefers-color-scheme light
+   {"clock":42783.33333333333,"fold":{"vertical-viewport-segments":1,"horizontal-viewport-segments":1,"viewport-segments":[],"device-posture":"continuous"},"media":{"prefers-color-scheme":"light","color-
+121 > tap connection-settings
+   {"delivery":"platform","at":[24,820],"tapped":6984,"target":"connection-settings","carrier":"macos","mode":"agent","epoch":71,"incarnation":1,"clock":42783.33333333333}
+122 > clock settle
+   {"clock":42783.33333333333,"epoch":72,"settled":true,"incarnation":1}
+123 > tap Appearance
+   {"tapped":7266,"delivery":"platform","at":[128,152],"target":"Appearance","carrier":"macos","mode":"agent","epoch":73,"incarnation":1,"clock":42783.33333333333}
+124 > clock settle
+   {"incarnation":1,"epoch":73,"clock":42783.33333333333,"settled":true}
+125 > tap setting-interface-font-size
+   {"at":[1103.5,446],"tapped":9079,"delivery":"platform","target":"setting-interface-font-size","scrolled":{"from":[1103.5,1319],"to":[1103.5,446]},"carrier":"macos","mode":"agent","epoch":73,"incarnati
+126 > clock settle
+   {"incarnation":1,"epoch":73,"clock":42783.33333333333,"settled":true}
+127 > tap setting-interface-font-size-menu-18
+   {"at":[1103.5,647],"tapped":9112,"delivery":"platform","target":"setting-interface-font-size-menu-18","carrier":"macos","mode":"agent","epoch":74,"incarnation":1,"clock":42783.33333333333}
+128 > clock settle
+   {"incarnation":1,"epoch":77,"clock":42783.33333333333,"settled":true}
+129 > tap close-settings
+   {"tapped":7307,"delivery":"platform","at":[128,820],"target":"close-settings","carrier":"macos","mode":"agent","epoch":78,"incarnation":1,"clock":42783.33333333333}
+130 > clock settle
+   {"incarnation":1,"epoch":79,"clock":42783.33333333333,"settled":true}
+131 > clock +1000
+   {"incarnation":1,"epoch":80,"clock":43783.33333333333}
+132 > screenshot after/45-thread-font18.png window
+   {"incarnation":1,"window":true,"epoch":81,"clock":43783.33333333333,"h":840,"screenshot":"after/45-thread-font18.png
+133 > tap connection-settings
+   {"delivery":"platform","at":[27,817.5],"tapped":6984,"target":"connection-settings","carrier":"macos","mode":"agent","epoch":82,"incarnation":1,"clock":43783.33333333333}
+134 > clock settle
+   {"settled":true,"incarnation":1,"clock":43783.33333333333,"epoch":83}
+135 > tap Appearance
+   {"tapped":9534,"at":[128,164.5],"delivery":"platform","target":"Appearance","carrier":"macos","mode":"agent","epoch":84,"incarnation":1,"clock":43783.33333333333}
+136 > clock settle
+   {"clock":43783.33333333333,"settled":true,"incarnation":1,"epoch":84}
+137 > tap setting-interface-font-size
+   {"at":[1145.5,446],"delivery":"platform","tapped":11350,"target":"setting-interface-font-size","scrolled":{"from":[1145.5,1475.38],"to":[1145.5,446]},"carrier":"macos","mode":"agent","epoch":84,"incar
+138 > clock settle
+   {"settled":true,"clock":43783.33333333333,"epoch":84,"incarnation":1}
+139 > tap setting-interface-font-size-menu-16
+   {"delivery":"platform","tapped":11375,"at":[1145.5,609],"target":"setting-interface-font-size-menu-16","carrier":"macos","mode":"agent","epoch":85,"incarnation":1,"clock":43783.33333333333}
+140 > clock settle
+   {"settled":true,"clock":43783.33333333333,"epoch":88,"incarnation":1}
+141 > state
+   (tree/logs dump:    18729 lines)
