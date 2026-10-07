@@ -1502,7 +1502,8 @@
         "top span-right",
         "top",
         "top span-all",
-        "center"
+        "center",
+        "right span-bottom"
       ],
       "default": "none"
     },
@@ -3446,7 +3447,7 @@
       "bit": 176,
       "field": "position_area",
       "codec": "enum:PositionArea",
-      "_comment": "@ref LLP 1021 D2, \u00a75: CSS `position-area` on an invoker-anchored popover (its implicit anchor is the invoker; no anchor-name, position-anchor or position-try). A subset: none (D2's rule, top-left at the invoker's bottom-left), the top and bottom rows spanning right or all, and center; `top` is `top span-all`, as in CSS. Clamped to the viewport; never flipped."
+      "_comment": "@ref LLP 1021 D2, \u00a75: CSS `position-area` on an invoker-anchored popover (its implicit anchor is the invoker; no anchor-name, position-anchor or position-try). A subset: none (D2's rule, top-left at the invoker's bottom-left), the top and bottom rows spanning right or all, center, and `right span-bottom` (a submenu: top-left at the invoker's top-right); `top` is `top span-all`, as in CSS. Clamped to the viewport; never flipped."
     },
     {
       "bit": 177,

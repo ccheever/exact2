@@ -755,7 +755,7 @@ drawn title bar) is a bug. On iOS:
 | `input type="range"` | `UISlider` |
 | `input type="date"`, `"time"`, `"datetime-local"` | `UIDatePicker` |
 | `select` of `option`s | a pop-up button with its menu |
-| `popover="auto" role="menu"` of `button`s, opened by `popovertarget` | `UIMenu` (LLP 1021) |
+| `popover="auto" role="menu"` of `button`s, opened by `popovertarget` (a row whose `popovertarget` names another menu: its submenu) | `UIMenu`, nested (LLP 1021) |
 | `role="tablist"`: each tab a symbol over a label / one text or image | `UITabBar` / `UISegmentedControl`, the tablist at least its native height unless `min-height` says otherwise (LLP 1059) |
 | a route whose first child is a `header` holding one heading and its buttons | the navigation bar; a level-1 heading (`aria-level=1`) is a large title |
 | a route with `navigationPresentation="modal"` | a sheet |
@@ -1169,6 +1169,15 @@ lifting and the preview popping into the screen its press pushes; macOS an
 the node. The node's own `contextmenu` action runs first, so one popover can
 serve every row of a list. The agent opens it with `tap <node> contextmenu`
 ([LLP 1021](../llp/1021-menus.rfc.md) §5.1).
+
+A submenu is a row whose `popovertarget` names another menu popover (`Copy ▸
+path / link`): a submenu `NSMenuItem` on macOS, a nested `UIMenu` on iOS, and
+on the web and under the agent the nested popover, opened by `tap <row>`. Place
+it beside its row with `position-area="right span-bottom"`; give its items
+`popovertarget="<outer menu id>" popovertargetaction="hide"` so a choice closes
+the whole menu; write no `press` on the row that opens it (a native menu never
+runs it); and draw the web's `›` as an `aria-hidden` text, since the native
+menus draw their own arrow ([LLP 1021](../llp/1021-menus.rfc.md) §5.2).
 
 `frame(id)` and `measure("literal-id")` are action-only geometry reads returning
 `Geometry` (`x`, `y`, `width`, `height`, `provisional`, `unavailable`). Handle `unavailable` and `provisional`. `frame` reads the last layout's border box

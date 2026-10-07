@@ -427,7 +427,7 @@ fn builds_platform_color(e: &Expr) -> bool {
 
 /// The `position-area` values every host places (LLP 1021 §5), as CSS
 /// spells them; the row's enum, by name.
-const POSITION_AREAS: [&str; 8] = [
+const POSITION_AREAS: [&str; 9] = [
     "none",
     "bottom span-right",
     "bottom",
@@ -436,6 +436,7 @@ const POSITION_AREAS: [&str; 8] = [
     "top",
     "top span-all",
     "center",
+    "right span-bottom",
 ];
 
 /// `position-area` places a popover against the invoker that opens it (its
@@ -554,7 +555,7 @@ pub(crate) fn check_style_value(
                 return err("lower-css-user-select", "CSS user-select text/all/contain require selectable text and selection ownership on iOS and Linux; those presenters do not implement it. Supported portable values are auto and none", span);
             }
             if rows.contains(&StyleId::PositionArea) && !POSITION_AREAS.contains(&v.trim()) {
-                return err("lower-css-position-area", format!("`position-area=\"{v}\"`: exact2 places an invoker's popover in a subset of CSS `position-area`: {}. Other areas (left, right, a corner, span-left, logical keywords) are not implemented by the native top layers; a flip is `position-try`, also not implemented", POSITION_AREAS.join(", ")), span);
+                return err("lower-css-position-area", format!("`position-area=\"{v}\"`: exact2 places an invoker's popover in a subset of CSS `position-area`: {}. Other areas (left, another right, a corner, span-left, logical keywords) are not implemented by the native top layers; a flip is `position-try`, also not implemented", POSITION_AREAS.join(", ")), span);
             }
             if rows.contains(&StyleId::WrapFlow) && !matches!(v.as_str(), "auto" | "both") {
                 return err("lower-attr-value", "unsupported `wrap-flow` value: CSS Exclusions defines it; exact2 v1 implements `both` (or `auto`)", span);
