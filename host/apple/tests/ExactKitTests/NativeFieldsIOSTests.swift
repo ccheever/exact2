@@ -7,6 +7,47 @@ import XCTest
 @testable import ExactKit
 
 final class NativeFieldsIOSTests: XCTestCase {
+    // component Fieldless / view / box testId="fieldless" width=100 height=100
+    // Compiled fixture has no data/module dependencies: preparation must still
+    // supply a valid control environment even when no control is in the plan.
+    private var fieldlessPlan: Data { Data(base64Encoded: "RVhQTAUAAABI1D9QpQTjoBc/Cipah+kJGA1E2ggCJPIAAAAA//////////8BAAAACQAAAGZpZWxkbGVzcxIAAAAEKAIAAAAAKAAAAAAAAABZQCgAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAAAQAAAAEAAAABAAAAAgAAAAEAAAADAAAAAQAAAAQAAAABAAAABQAAAAEAAAAGAAAAAQAAAAcAAAABAAAACAAAAAH/////Av////8D/////wT/////Bf////8G/////wf/////CP////8AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAAAAD//////////wAAAAAAAAAAAwAAAAAAAAAAAAAA/////wMAAAAACwACAAAABgAAAAEAAAgAAAAKAAAAAQEACAAAAAoAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")! }
+
+    func testInitialSelectedPlanLaunchAndReplacementOfARunningFieldlessPlan() throws {
+        let app = ExactApp.shared
+        let previous = app.lastPlan.map { ExactGeneration(plan: $0, assets: app.resolver, token: app.selectedToken, module: app.lastModule) }
+        app.installInitial(ExactGeneration(plan: fieldlessPlan, assets: AssetResolver(root: app.assetRoot)))
+        let session = app.makeSession(label: "selected-fieldless")
+        session.presenter.viewport.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
+        defer {
+            session.destroy()
+            if let previous { app.installInitial(previous) }
+            else {
+                app.installInitial(ExactGeneration(plan: fieldlessPlan, assets: app.resolver, token: 1104))
+                _ = app.fallBackFromInitial(reason: "test cleanup")
+            }
+        }
+        XCTAssertNil(session.boot(size: CGSize(width: 400, height: 800)).error)
+        XCTAssertTrue(session.presenter.views.values.contains { $0.props["testId"] == "fieldless" })
+        XCTAssertTrue(session.apply(fieldlessPlan))
+        XCTAssertTrue(session.presenter.views.values.contains { $0.props["testId"] == "fieldless" })
+        XCTAssertEqual(session.fieldChrome.presentedProvisional, 0)
+    }
+
+    func testProvisionalBatchIsAppliedAndCounted() throws {
+        let session = ExactApp.shared.makeSession(label: "provisional-publication")
+        defer { session.destroy() }
+        let bytes = try JSONSerialization.data(withJSONObject: ["layoutProvisional": true, "ops": [
+            ["op": "create", "id": 1104, "kind": "view", "props": ["testId": "provisional"]],
+            ["op": "frame", "id": 1104, "x": 10, "y": 20, "w": 30, "h": 40],
+            ["op": "roots", "ids": [1104]]
+        ]])
+        let batch = Batch.decode(bytes)
+        XCTAssertTrue(batch.layoutProvisional)
+        session.presenter.apply(batch)
+        XCTAssertEqual(session.fieldChrome.presentedProvisional, 1)
+        XCTAssertEqual(session.presenter.views[1104]?.frame, CGRect(x: 10, y: 20, width: 30, height: 40))
+    }
+
     func testChromeCacheCoversKindsFontsAndTraits() {
         let cache = FieldChromeCache()
         let traits = UITraitCollection(traitsFrom: [.init(preferredContentSizeCategory: .large), .init(displayScale: 3)])

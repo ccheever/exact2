@@ -1,6 +1,5 @@
 //! Layout receipts survive silent list settling until the presenter sees them.
 use super::*;
-use std::fmt::Write;
 
 impl<D: DataSource> Host<D> {
     pub(super) fn record_layout(&mut self, receipt: &exact_kernel::LayoutReceipt) {
@@ -214,14 +213,7 @@ impl<D: DataSource> Host<D> {
             let field_content = node.field_content_rect();
             if m.field_content != field_content {
                 m.field_content = field_content;
-                let mut op = format!("{{\"op\":\"fieldContent\",\"id\":{id},\"rect\":");
-                if let Some(r) = field_content {
-                    let _ = write!(op, "[{},{},{},{}]", r.x, r.y, r.width, r.height);
-                } else {
-                    op.push_str("null");
-                }
-                op.push('}');
-                batch.push_op(op);
+                batch.field_content(id, field_content);
             }
             if m.frame != Some(rel) {
                 m.frame = Some(rel);

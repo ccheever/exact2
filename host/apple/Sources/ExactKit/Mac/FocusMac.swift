@@ -47,9 +47,14 @@ extension NodeView {
     /// draws no mask whose bounds are empty, which keeps it off a box that
     /// is not pressable, a field (its own ring) and a focus that is not
     /// visible.
-    override var focusRingMaskBounds: NSRect { field == nil && pressable && focusVisible ? bounds : .zero }
+    var bareFieldFocused: Bool {
+        !isNativeTextControl && (field?.currentEditor() != nil || (textArea != nil && window?.firstResponder === textArea))
+    }
+    override var focusRingMaskBounds: NSRect {
+        bareFieldFocused || (field == nil && pressable && focusVisible) ? bounds : .zero
+    }
     override func drawFocusRingMask() {
-        guard field == nil, pressable else { return }
+        guard bareFieldFocused || (field == nil && pressable) else { return }
         roundedPath(in: bounds).fill()
     }
 }

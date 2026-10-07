@@ -715,3 +715,97 @@ fn native_bulk_projection_matches_ordinary_through_origin_pending_and_width() {
         assert!(projection_wire(&refused, id, "frame").is_none());
     }
 }
+
+#[test]
+fn native_region_promotes_and_clears_the_fields_editor_rect() {
+    let plan = contract::compile(
+        r#"component App
+  view
+    column width="100%" height="100%"
+      view id="owner" width=300 height=200 overflow-x="hidden" overflow-y="hidden"
+        view id="content" width="100%" height="100%"
+          input testId="field" padding=10 value="Inset"
+        view id="pending"
+"#,
+    )
+    .unwrap()
+    .encode();
+    let (mut host, batch) = Host::boot_native_region(
+        &plan,
+        Data,
+        Box::new(MonospaceMeasurer::default()),
+        400.,
+        300.,
+        registration(),
+        exact_apple::content_region::NativeProjectionLimits::default(),
+    )
+    .unwrap();
+    let mut batches = vec![batch];
+    while let Some((id, request)) = host.pending_region_request() {
+        let metrics = request.with_request(|r| MonospaceMeasurer::default().measure(r));
+        batches.push(host.complete_region_text(id, metrics, Rc::new(())));
+        assert!(batches.len() <= 64);
+    }
+    assert!(host.region_publication_id().is_some());
+    let id = host
+        .runner()
+        .kernel()
+        .node_by_key(host.runner().kernel().find_by_test_id("field")[0])
+        .unwrap()
+        .id;
+    let rect = host
+        .runner()
+        .kernel()
+        .node(id)
+        .unwrap()
+        .field_content_rect()
+        .unwrap();
+    assert_eq!(rect.x, 10.);
+    let ops = |batch: &str| {
+        serde_json::from_str::<serde_json::Value>(batch).unwrap()["ops"]
+            .as_array()
+            .unwrap()
+            .clone()
+    };
+    let editor = batches
+        .iter()
+        .flat_map(|batch| ops(batch))
+        .find(|op| op["op"] == "fieldContent" && op["id"] == id)
+        .expect("promotion must publish the editor rect");
+    let emitted: Vec<f32> = serde_json::from_value(editor["rect"].clone()).unwrap();
+    assert_eq!(emitted, [rect.x, rect.y, rect.width, rect.height]);
+    assert!(!ops(&host.resize(400., 300.))
+        .iter()
+        .any(|op| op["op"] == "fieldContent"));
+    // Producer-level appearance change exercises the clearing protocol without
+    // introducing a bound appearance into Contract (which refuses it).
+    let mut patch = exact_kernel::StyleProps::default();
+    patch
+        .set_dynamic(
+            exact_kernel::StyleId::Appearance,
+            &exact_kernel::StyleValue::Text("none".into()),
+        )
+        .unwrap();
+    host.runner_mut()
+        .kernel_mut()
+        .apply(
+            0,
+            99,
+            &[exact_kernel::Op::SetStyle {
+                id,
+                patch: Box::new(patch),
+            }],
+        )
+        .unwrap();
+    let mut batch = host.resize(401., 300.);
+    while let Some((id, request)) = host.pending_region_request() {
+        let metrics = request.with_request(|r| MonospaceMeasurer::default().measure(r));
+        batch = host.complete_region_text(id, metrics, Rc::new(()));
+    }
+    assert!(
+        ops(&batch)
+            .iter()
+            .any(|op| op["op"] == "fieldContent" && op["id"] == id && op["rect"].is_null()),
+        "{batch}"
+    );
+}

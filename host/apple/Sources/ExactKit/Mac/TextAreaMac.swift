@@ -233,7 +233,8 @@ extension NodeView {
         textAreaScroll?.focusRingType = native ? .default : .none
         textAreaScroll?.drawsBackground = native
         f.drawsBackground = native
-        f.focusRingType = native ? .exterior : .default
+        f.focusRingType = .default
+        f.textContainerInset = native ? FieldChromeCache.textareaInset : .zero
         let paragraph = NSMutableParagraphStyle()
         if let height = usedLineHeight {
             paragraph.minimumLineHeight = height
@@ -331,6 +332,8 @@ extension NSTextView {
 final class Field: NSTextField {
     override class var cellClass: AnyClass? { get { FieldCell.self } set {} }
     override func becomeFirstResponder() -> Bool { focused(delegate) { super.becomeFirstResponder() } }
+    override var focusRingMaskBounds: NSRect { bareFieldMask(self) ?? super.focusRingMaskBounds }
+    override func drawFocusRingMask() { if !drawBareFieldMask(self) { super.drawFocusRingMask() } }
 }
 /// The editor an input's field takes while the node or an ancestor hears
 /// `copy`, `cut` or `paste` (`FieldCell.fieldEditor(for:)`): the window's
@@ -344,6 +347,21 @@ final class FieldEditor: NSTextView {
 final class SecureField: NSSecureTextField {
     override class var cellClass: AnyClass? { get { SecureFieldCell.self } set {} }
     override func becomeFirstResponder() -> Bool { focused(delegate) { super.becomeFirstResponder() } }
+    override var focusRingMaskBounds: NSRect { bareFieldMask(self) ?? super.focusRingMaskBounds }
+    override func drawFocusRingMask() { if !drawBareFieldMask(self) { super.drawFocusRingMask() } }
+}
+private func bareFieldMask(_ field: NSTextField) -> NSRect? {
+    guard let owner = field.delegate as? NodeView, !owner.isNativeTextControl else { return nil }
+    return field.convert(owner.bounds, from: owner)
+}
+private func drawBareFieldMask(_ field: NSTextField) -> Bool {
+    guard let owner = field.delegate as? NodeView, !owner.isNativeTextControl else { return false }
+    let origin = field.convert(NSPoint.zero, from: owner)
+    NSGraphicsContext.saveGraphicsState()
+    (AffineTransform(translationByX: origin.x, byY: origin.y) as NSAffineTransform).concat()
+    owner.roundedPath(in: owner.bounds).fill()
+    NSGraphicsContext.restoreGraphicsState()
+    return true
 }
 /// The field editor selects the whole value as it takes a field, which is
 /// no `select` of the person's; a selection a script set while the field

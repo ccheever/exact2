@@ -6,6 +6,10 @@ import XCTest
 @testable import ExactKit
 
 final class NativeFieldsMacTests: XCTestCase {
+    private var platformTextareaInset: NSSize {
+        let editor = NSTextView(usingTextLayoutManager: true)
+        return NSSize(width: editor.textContainerInset.width + (editor.textContainer?.lineFragmentPadding ?? 0), height: editor.textContainerInset.height)
+    }
     func testChromeKindsFontsScalesAndAppearances() {
         let cache = FieldChromeCache()
         cache.configure(NSAppearance(named: .aqua)!, scale: 2)
@@ -23,8 +27,8 @@ final class NativeFieldsMacTests: XCTestCase {
                     if kind == 3 {
                         let scroller = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 100))
                         scroller.borderType = .bezelBorder
-                        XCTAssertEqual(exact.left, Float(scroller.contentView.frame.minX))
-                        XCTAssertEqual(exact.top, Float(scroller.contentView.frame.minY))
+                        XCTAssertEqual(exact.left, Float(scroller.contentView.frame.minX + platformTextareaInset.width))
+                        XCTAssertEqual(exact.top, Float(scroller.contentView.frame.minY + platformTextareaInset.height))
                         XCTAssertEqual(exact.minimum_height, 0)
                     } else {
                         let control = kind == 1 ? NSSecureTextField() : NSTextField()
@@ -110,7 +114,7 @@ final class NativeFieldsMacTests: XCTestCase {
         node.applyStyle(["appearance": .string("none"), "padding_left": .number(10)])
         XCTAssertFalse(field.isBezeled)
         XCTAssertFalse(field.drawsBackground)
-        XCTAssertEqual(field.focusRingType, .none)
+        XCTAssertEqual(field.focusRingType, .exterior)
         XCTAssertEqual(field.frame, node.contentBox())
     }
     func testTextareaBorderContentRectAndFocusMask() throws {
@@ -123,6 +127,9 @@ final class NativeFieldsMacTests: XCTestCase {
         node.applyFieldContent(["rect": [12.0, 18.0, 212.0, 62.0]])
         let scroll = try XCTUnwrap(node.textAreaScroll as? TextAreaScroll)
         let editor = try XCTUnwrap(node.textArea)
+        XCTAssertEqual(editor.focusRingType, .default)
+        XCTAssertEqual(editor.textContainerInset, platformTextareaInset)
+        XCTAssertGreaterThan(editor.textContainerInset.width, 0)
         XCTAssertEqual(scroll.borderType, .bezelBorder)
         XCTAssertEqual(scroll.frame, node.bounds)
         XCTAssertEqual(editor.textContainerOrigin, NSPoint(x: 11, y: 17))
@@ -141,6 +148,30 @@ final class NativeFieldsMacTests: XCTestCase {
         node.applyProps(set: ["markup": "markdown"], clear: [])
         XCTAssertFalse(node.isNativeTextControl)
     }
+    func testBareFieldsRingFollowsTheWholeAuthoredBoxAndClearsOnBlur() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "bare-field-ring")
+        defer { session.destroy() }
+        for type in ["text", "password"] {
+            let node = NodeView(id: 1, kind: "input", presenter: session.presenter)
+            node.frame = NSRect(x: 0, y: 0, width: 240, height: 60)
+            node.applyProps(set: ["type": type, "value": "Bare"], clear: [])
+            node.applyStyle(["appearance": .string("none"), "padding_left": .number(10), "border_radius": .number(8)])
+            let field = try XCTUnwrap(node.field)
+            let window = NSWindow(contentRect: node.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = node
+            XCTAssertEqual(node.focusRingMaskBounds, .zero)
+            XCTAssertTrue(window.makeFirstResponder(field))
+            XCTAssertEqual(node.focusRingMaskBounds, node.bounds)
+            XCTAssertEqual(field.focusRingType, .exterior)
+            XCTAssertEqual(field.focusRingMaskBounds, field.convert(node.bounds, from: node))
+            window.makeFirstResponder(nil)
+            XCTAssertEqual(node.focusRingMaskBounds, .zero)
+            window.close()
+        }
+    }
+
     func testFontEnvironmentAndNewFontMissNeverPresentProvisionalGeometry() throws {
         let dir = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
             .appendingPathComponent("../../target/a2-control-test-" + UUID().uuidString).standardizedFileURL
