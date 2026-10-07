@@ -558,6 +558,15 @@ public final class Agent {
                 continue
             }
             let next = max(landed, self.settle() ?? landed, world.settleAt ?? landed)
+            // Work the launch queued for a later main-queue turn (module views
+            // after activation's commit, LLP 1024 D3; the launch autofocus,
+            // LLP 1035.000 D9) runs before the fixed point; what it started
+            // (a `load` or focus handler's request) is then checked again.
+            if next <= landed && !world.pending && launchQueued() {
+                rounds += 1
+                if rounds >= 16 || !drainLaunch(until: deadline) { return reply(landed, false, reason: "transition") }
+                continue
+            }
             if next <= landed && !world.pending {
                 // A responder or presentation completion can enqueue a keyboard
                 // resize before its animation exists. Require an idle native turn
@@ -654,6 +663,7 @@ public final class Agent {
         for _ in 0..<16 {
             while !session.dataActivated && Date() < deadline { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
             if !session.dataActivated { return ["clock": from, "settled": false, "reason": "data"] }
+            if !drainLaunch(until: deadline) { return ["clock": from, "settled": false, "reason": "data"] }
             if !waitForReplies(until: deadline) { return ["clock": from, "settled": false, "reason": "requests"] }
             let batch = session.runtime.landThen()
             session.apply(batch)
@@ -672,6 +682,18 @@ public final class Agent {
               let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
               let b = o["background"] as? [String: Any] else { return 0 }
         return (b["queued"] as? Int ?? 0) + (b["inFlight"] as? Int ?? 0)
+    }
+
+    /// Whether the launch left work for a later main-queue turn.
+    func launchQueued() -> Bool { session.natives.activationQueued || session.presenter.launchAutofocusPending }
+
+    /// Turn the run loop until that work has run, or until `deadline`.
+    func drainLaunch(until deadline: Date) -> Bool {
+        while launchQueued() {
+            if Date() >= deadline { return false }
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+        }
+        return true
     }
 
     /// How many requests the runner has in flight (`state.pending`).

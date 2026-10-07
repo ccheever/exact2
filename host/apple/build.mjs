@@ -46,12 +46,11 @@ import { DOCUMENT_UTIS, ownDocumentType, HOST_DEV, checkModuleRoster, copyShader
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
 import { writeDataKeys } from './data-keys.mjs';
-import { appIcon, iosAssets } from './assets.mjs';
+import { appIcon, iosAssets, copyMacResources, signingOrder } from './assets.mjs';
 import { keptModules } from './modules.mjs';
 import { keptCrates } from './crates.mjs';
 export { appIcon, iosAssets };
 import { allows, deviceLaunchArgs, developmentLaunchEnvironment, identity, macIdentity, phone, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
-
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const run = (cmd, args, opts = {}) => {
   const r = spawnSync(cmd, args, { cwd: root, ...opts,
@@ -106,9 +105,7 @@ function startApple(cmd, args, log, opts = {}) {
     return true;
   } };
 }
-
 // ---------------------------------------------------------------- iOS: the bundle and the simulator
-
 /** The app's bundle identifier: the manifest's `app.id` (LLP 1030 D2 — derived once, in `scripts/app.mjs`), which was `com.exact.<crate>` before the manifest existed and still is for an app without one. */
 export const bundleId = (crate = 'caltrain-apple') => resolveApp(crate).id;
 /** The one Swift package (LLP 1031 D6): ExactKit and the four executables. */
@@ -147,12 +144,10 @@ export function svgFilterLibrary(sdkName, minimum, out, required = false) {
   return out;
 }
 export const svgFilterLibraryName = 'ExactSvgFilter.metallib';
-
 /** The Swift triple for an app's iOS build. */
 export const iosTripleFor = (app, device, tv = false) =>
   tv ? `arm64-apple-tvos${deploymentTargets(app).ios}${device ? '' : '-simulator'}` : device ? `arm64-apple-ios${deploymentTargets(app).ios}` : `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-ios${deploymentTargets(app).ios}-simulator`;
 export const macTriple = `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macosx`;
-
 /** App-owned Apple paths, shared by builder and launchers. @ref LLP 1036.000 §2 */
 export function appleArtifacts(app, { destination = 'macos', composition, trust = process.env.EXACT_UPDATE_TRUST ?? 'development', host = false } = {}) {
   if (!['macos', 'ios-simulator', 'ios', 'tvos-simulator', 'tvos'].includes(destination)) throw new Error(`unknown Apple destination ${destination}`);
@@ -381,7 +376,7 @@ export const macReleaseEntitlements = (compat) => {
 
 /** A loose `Frameworks/lib….dylib` as `Frameworks/<name>.framework/<name>`,
  * which is the only form App Store Connect accepts for an embedded library
- * (ITMS-90171). The presenter loads either (`embeddedModule` in ExactKit). */
+ * (ITMS-90171, ITMS-90432). The presenter loads either (`embeddedModule` in ExactKit). */
 function wrapFramework(frameworks, loose, name, app, platform = 'iPhoneOS') {
   const from = resolve(frameworks, loose);
   if (!existsSync(from)) return;
@@ -779,11 +774,11 @@ async function main(args) {
     // case below says why); this later `-platform_version` wins.
     if (designCompatible(app, 'ios')) swiftArgs.push('-Xlinker', '-platform_version', '-Xlinker', destination, '-Xlinker', targets.ios, '-Xlinker', COMPATIBLE_SDK.ios);
   } else {
-    // The same `--sysroot` on macOS: clang reads no SDK version from it, so the
-    // link recorded the deployment target as the SDK (`sdk 14.0`), and AppKit,
-    // which keys its macOS 26 design on the recorded SDK, drew every Exact app
-    // as on macOS 14. `-isysroot` records the SDK the app is built with.
-    swiftArgs.push('-Xswiftc', '-Xclang-linker', '-Xswiftc', '-isysroot', '-Xswiftc', '-Xclang-linker', '-Xswiftc', sdk);
+    // The same `--sysroot` on macOS: clang reads no SDK version from it, so the link recorded
+    // the deployment target as the SDK (`sdk 14.0`), and AppKit, which keys its macOS 26 design
+    // on the recorded SDK, drew every Exact app as on macOS 14; `-isysroot` records the SDK. The
+    // triple carries `minimumOS`, as iOS's does: SwiftPM otherwise links at Package.swift's 14.
+    swiftArgs.push('--triple', `${macTriple}${targets.macos}`, '-Xswiftc', '-Xclang-linker', '-Xswiftc', '-isysroot', '-Xswiftc', '-Xclang-linker', '-Xswiftc', sdk);
     // `designRequiresCompatibility`: the earlier design, by the one lever macOS
     // 27 keeps (it ignores UIDesignRequiresCompatibility) — the link records
     // the macOS 15 SDK, the last before the new design; this later
@@ -1295,6 +1290,9 @@ async function main(args) {
       // GPU artifacts were signed before their digests entered the baked receipt.
       // Preserve those exact bytes, as the iOS bundle assembly does below.
       for (const file of [...loaded, ...(canvasGpuBuilt ? [canvasGpuLoadName] : []), ...(modulesBuilt ? [modulesLoadName] : [])]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
+      copyMacResources(app, contents, buildReceipt.binary.metadata.nativeResources ?? []);
+      const nativeRoots = (app.manifest.host?.macos?.resources ?? []).map(({to}) => resolve(contents, to));
+      for (const file of (nativeRoots.length ? signingOrder(bundle) : []).filter(file => nativeRoots.some(root => file === root || file.startsWith(root + '/')))) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', file], { stdio: 'ignore' });
       run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', bundle], { stdio: 'ignore' });
       const placed = bundleDestination;
       assertAppleIdentity(app, resolve(executables, 'ExactMac'), bakedCompat.id);
@@ -1370,7 +1368,7 @@ async function main(args) {
       entitlements: readFileSync(ent, 'utf8'), gpu: hasGpu ? dylib : null, development: host ? null : development });
     writeFileSync(resolve(assembled, 'receipt.json'), ipa ? shippedReceipt(whole) : whole);
     if (ipa) { mkdirSync(dirname(ipa), { recursive: true }); writeFileSync(`${ipa.replace(/\.ipa$/, '')}.receipt.json`, whole); }
-    if (ipa) for (const [loose, name] of [[webLoadName, 'ExactWeb'], [videoLoadName, 'ExactVideo'], [soundLoadName, 'ExactSound']]) wrapFramework(resolve(assembled, 'Frameworks'), loose, name, app, tv ? 'AppleTVOS' : 'iPhoneOS');
+    if (ipa) for (const [loose, name] of [[webLoadName, 'ExactWeb'], [videoLoadName, 'ExactVideo'], [soundLoadName, 'ExactSound'], [modulesLoadName, 'ExactModules'], [svgLoadName, 'ExactSvg'], [canvasGpuLoadName, 'ExactCanvasGpu']]) wrapFramework(resolve(assembled, 'Frameworks'), loose, name, app, tv ? 'AppleTVOS' : 'iPhoneOS');
     for (const f of readdirSync(resolve(assembled, 'Frameworks')).filter(f => f !== loadName && !moduleDylibs.some(m => m.load === f))) run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', resolve(assembled, 'Frameworks', f)], { stdio: 'ignore' });
     run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', ...(device ? ['--entitlements', ent] : []), assembled], { stdio: 'ignore' });
   }

@@ -140,6 +140,10 @@ final class ReorderGroupHold {
     /// Pin the grip, snapshot its row (before the runner hides it), and lift.
     init?(_ handle: NodeView, point: CGPoint, ghost drawn: Bool) {
         handle.presenter?.reorderGroup?.landNow()
+        // Said, as the web says it (LLP 1102 §3.17): a drive's reply reads like a success otherwise.
+        if handle.presenter?.reorderGroup != nil {
+            handle.presenter?.session?.log("reorder: a drag refused: the last drop is held until its move shows (LLP 1094 D8); a person waits for the card to land; a drive waits with `clock settle` before the next drag")
+        }
         guard let presenter = handle.presenter, SwipeInput.allows(handle),
               presenter.reorderGroup == nil, presenter.reorder == nil,
               presenter.session?.isApplyingPresentation != true,

@@ -225,6 +225,11 @@ fn seed_survives_two_context_changes_and_activation_asks_the_latest_full_argumen
     shows(&r, "fresh");
     assert!(!state(&r).kept_seed);
     assert!(!r.stale[0]);
+    assert!(
+        r.journal()
+            .any(|l| l.contains("answer answered differently from its kept answer")),
+        "a contradicted kept answer is journaled (LLP 1102 §3.17)"
+    );
     assert_eq!(state(&r).args, full("A", "200", 2.));
     assert_eq!(
         r.store.kept(&kept::kept_name("answer")),

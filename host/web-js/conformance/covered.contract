@@ -1,0 +1,45 @@
+// data: carousel
+// Synthetic conformance plan: a list that mounts on a route its stack keeps
+// covered (as a deep link's root does under the screen it opened) asks for
+// nothing while covered; its `reachend` is offered once the route shows.
+routes nav
+  home "/"
+  post "/post/:id"
+
+shape Card
+  id: string
+  n: number
+  label: string
+  width: number
+  color: string
+
+component Covered
+  resource cards = cards(2000) as shape list<Card>
+  derive current = top(nav)
+  state shown = false
+  state hi = 0
+  state asks = 0
+  derive rows = filter(cards, c => c.n < hi or c.n == 1999)
+  action open
+    shown = true
+    nav = push(nav, "/post/1")
+  action back
+    nav = back(nav)
+  action more
+    asks = asks + 1
+    hi = hi + 30
+  view
+    main navigationKey=`${current.id}` navigationBack="back" testId="root" height="100%" position="relative"
+      each e in stack(nav) key=e.id
+        column navigationKey=`${e.id}` testId=`route-${e.name}` position="absolute" top=0 bottom=0 left=0 right=0 display="flex" flex-direction="column" background-color="#ffffff"
+          when e.name == "home"
+            button press=open testId="open" flex-shrink=0
+              text `${asks} asks, ${hi} rows`
+            when shown
+              list virtualized=true reachend=more testId="feed" flex=1 min-height=0 width="100%"
+                each c in rows key=c.id
+                  row testId=`row-${c.n}` height=(c.n == 1999 ? 40 : 150) box-sizing="border-box" padding-left=12 align-items="center"
+                    text (c.n == 1999 ? "Loading…" : c.label) font-size=14
+          when e.name == "post"
+            button id="back" press=back testId="back"
+              text "Back"

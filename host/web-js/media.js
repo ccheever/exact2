@@ -152,3 +152,5 @@ export const requestFullscreen = id => {
   if (!el?.$media) return journal.push(`t=${clock.now} requestFullscreen: refused: no video with id "${id}"`);
   el.requestFullscreen().catch(e => journal.push(`t=${clock.now} requestFullscreen: refused: ${e.name}`));
 };
+// What rt.js reaches through `useMedia`, installed by the generated module only where its plan has media.
+export const mediaUse = () => ({ media, mediaProp, mediaOn, mediaPiece, MEDIA_EVENTS, requestFullscreen });

@@ -21,7 +21,10 @@ exact-web = { path = "../web" }
 exact-web-capabilities = { path = "../web-capabilities" }
 # The executor core's transport (LLP 1016 D2), as the Apple and Linux hosts
 # take it: rustls off Apple.
-ibex2 = { path = "../../vendor/ibex/crates/ibex2", default-features = false }
+# `websocket`: the transport for an app's WebSockets (exactStream sockets); the
+# vendored v4 crate gates it behind a default feature (27275f3d4), which
+# default-features = false had turned off.
+ibex2 = { path = "../../vendor/ibex/crates/ibex2", default-features = false, features = ["websocket"] }
 serde_json = "1.0"
 # The server's ETags and surrogate keys.
 sha2 = "0.10"

@@ -244,7 +244,10 @@ with no navigate handler. `bun scripts/smoke.mjs web` explicitly runs this
 Chrome sweep through `host/web/tests/navigation.mjs`; its Cargo entry is
 `#[ignore]`, never a silent pass without Chrome or a built dist.
 A disabled completed-pop
-control journals `history: Back refused; restoring the entry`, with no press.
+control journals `history: Back refused: <why>; restoring the entry`, with no press;
+a route with no Back control goes back by the root's `navigate`, as any other
+traversal (2026-10-03: browser Back from a screen with no Back button was
+refused, which the web never does).
 Both boot exports receive UTF-8 `location.pathname + location.search` through
 the input buffer (after plan bytes for `exact_boot_plan`); module reboot keeps
 the current host URL, as it keeps the viewport. A fresh page opens the address

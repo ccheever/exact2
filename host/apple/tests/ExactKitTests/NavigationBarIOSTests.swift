@@ -275,6 +275,13 @@ final class NavigationBarIOSTests: XCTestCase {
         let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
         XCTAssertEqual(nav.navigationBar.tintColor, .systemIndigo, "the long tail is the hook's")
         let home = try XCTUnwrap(nav.topViewController)
+        // A route prepared again with nothing changed keeps its projected
+        // items and runs no hook.
+        let items = home.navigationItem.rightBarButtonItems ?? []
+        session.presenter.navigation.prepareRoutes(nav.viewControllers.compactMap { $0 as? RouteController }, in: nav)
+        spin(0.2)
+        XCTAssertFalse(log().contains("hook route 0: changed"), "an unchanged route runs no hook")
+        XCTAssertTrue(items.elementsEqual(home.navigationItem.rightBarButtonItems ?? [], by: ===), "an unchanged route is not projected again")
         let more = home.navigationItem.leftBarButtonItems?.first { $0.accessibilityIdentifier == "hook-more" }
         XCTAssertEqual(home.navigationItem.rightBarButtonItems?.count, 1, "Exact's Compose stays beside the hook's item")
         // The hook-made control clicks the authored one.

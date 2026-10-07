@@ -42,6 +42,7 @@ import { sdkFetch } from '../game/app/shells.mjs';
 import { appleArtifacts, assertAppleIdentity, macReleaseEntitlements, stripForDistribution } from '../host/apple/build.mjs';
 import { closeFilesystemReader } from './filesystem.mjs';
 import { builtAppMatches, jsTargetBuild } from '../host/web/serve.mjs';
+import { signingOrder } from '../host/apple/assets.mjs';
 import { chromium } from './agent-launch.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
@@ -216,22 +217,6 @@ function developerID() {
   return /\b([0-9A-F]{40})\s+"Developer ID Application: /.exec(found)?.[1] ?? null;
 }
 
-/** Everything in a bundle that carries its own signature, innermost first.
- *  A bundle is sealed over its contents, so a nested library re-signed after
- *  its container invalidates the container. */
-function signingOrder(bundle) {
-  const inner = [];
-  const walk = (dir) => {
-    for (const name of readdirSync(dir, { withFileTypes: true })) {
-      const path = resolve(dir, name.name);
-      if (name.isDirectory()) walk(path);
-      else if (name.name.endsWith('.dylib')) inner.push(path);
-    }
-  };
-  walk(resolve(bundle, 'Contents'));
-  return [...inner, bundle];
-}
-
 /** `exact release` — the build a teammate can actually open.
  *
  * Three things separate this from `install`, and all three are required by
@@ -270,7 +255,7 @@ function release(app) {
   // notarisation's requirements, not preferences: a build without them is
   // rejected at submission rather than at launch. The app itself carries the
   // entitlements its `device.*` grants derive (LLP 1069.008 D4), read from the
-  // bake receipt inside the bundle; the libraries inside carry none.
+  // bake receipt inside the bundle; the code nested inside carries none.
   const built = JSON.parse(readFileSync(resolve(bundle, 'Contents/Resources/receipt.json'), 'utf8'));
   const entitled = macReleaseEntitlements(built.build?.compat);
   const entitlements = resolve(out, 'entitlements.plist');
