@@ -64,6 +64,7 @@ package final class TextArea: NSTextView {
         let ok = super.becomeFirstResponder()
         // A selection a script set while it had no focus (x2apps codeedit #2).
         if ok, let owner { owner.presenter?.fieldSelections.focused(owner) }
+        if ok { owner?.showFieldFocus(true) }
         if ok { noteFocusRingMaskChanged(); owner?.textAreaScroll?.noteFocusRingMaskChanged() }
         if ok, let owner, owner.handlers.contains("focus") { owner.presenter?.focus(owner.id) }
         return ok
@@ -300,6 +301,7 @@ extension NodeView {
     }
     package func textDidEndEditing(_ notification: Notification) {
         presenter?.collections.pinsChanged()
+        showFieldFocus(false)
         textAreaScroll?.noteFocusRingMaskChanged()
         presenter?.commitEdit(id, textArea?.string ?? "", change: handlers.contains("change"))
         if handlers.contains("blur") { presenter?.blur(id) }
@@ -377,6 +379,7 @@ private func focused(_ delegate: NSTextFieldDelegate?, _ become: () -> Bool) -> 
     let owner = delegate as? NodeView, selections = owner?.presenter?.fieldSelections
     let ok = selections?.quietly(become) ?? become()
     if ok, let owner { selections?.focused(owner) }
+    if ok { owner?.showFieldFocus(true) }
     // The window's one field editor still has the last field's checking.
     if ok, let owner, let editor = owner.field?.currentEditor() as? NSTextView { owner.styleFieldEditor(editor) }
     if ok, let owner, owner.handlers.contains("focus") { owner.presenter?.focus(owner.id) }

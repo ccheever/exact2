@@ -165,6 +165,52 @@ final class NativeFieldsMacTests: XCTestCase {
         node.applyProps(set: ["markup": "markdown"], clear: [])
         XCTAssertFalse(node.isNativeTextControl)
     }
+    /// LLP 1104 D6: AppKit asks only the first responder for a ring, so a
+    /// bare field (the field editor is first responder) and any textarea
+    /// (its text view sits in a clip view) show Exact's ring; checked by
+    /// screenshot on 2026-10-07, which the masks alone never drew.
+    func testExactDrawsTheRingForBareFieldsAndTextareas() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "exact-field-ring")
+        defer { session.destroy() }
+        func ring(_ node: NodeView) -> CALayer? { node.layer?.sublayers?.first { $0.name == "exact.fieldFocus" } }
+        for bare in [false, true] {
+            let node = NodeView(id: 1, kind: "textarea", presenter: session.presenter)
+            node.frame = NSRect(x: 0, y: 0, width: 240, height: 100)
+            node.wantsLayer = true
+            node.applyStyle(bare ? ["appearance": .string("none")] : [:])
+            let editor = try XCTUnwrap(node.textArea)
+            let window = NSWindow(contentRect: node.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            window.contentView = node
+            XCTAssertTrue(window.makeFirstResponder(editor))
+            let r = try XCTUnwrap(ring(node), "textarea bare=\(bare) shows Exact's ring")
+            XCTAssertEqual(r.borderWidth, 2)
+            XCTAssertGreaterThan(r.zPosition, 0, "above the scroll view that covers the node's own border")
+            node.showFieldFocus(false)
+            XCTAssertNil(ring(node))
+            XCTAssertTrue(window.makeFirstResponder(editor))
+            node.applyProps(set: ["disabled": "true"], clear: [])
+            node.presenter?.propsChanged(node)
+            XCTAssertNil(ring(node), "a disabled textarea shows no ring")
+        }
+        for bare in [false, true] {
+            let node = NodeView(id: 1, kind: "input", presenter: session.presenter)
+            node.frame = NSRect(x: 0, y: 0, width: 240, height: 40)
+            node.applyProps(set: ["value": "Field"], clear: [])
+            node.applyStyle(bare ? ["appearance": .string("none")] : [:])
+            let field = try XCTUnwrap(node.field)
+            let window = NSWindow(contentRect: node.bounds, styleMask: [.titled], backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            defer { window.close() }
+            window.contentView = node
+            XCTAssertTrue(window.makeFirstResponder(field))
+            XCTAssertEqual(node.fieldFocused, bare, "a bare field takes Exact's ring; a native one is AppKit's")
+            window.makeFirstResponder(nil)
+            XCTAssertFalse(node.fieldFocused)
+        }
+    }
     func testBareFieldsRingFollowsTheWholeAuthoredBoxAndClearsOnBlur() throws {
         _ = NSApplication.shared
         let session = ExactApp.shared.makeSession(label: "bare-field-ring")

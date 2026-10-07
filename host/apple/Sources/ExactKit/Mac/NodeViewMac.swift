@@ -208,6 +208,8 @@ package final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var pressable: Bool { handlers.contains("press") || defaultLink != nil || (isButton && (props["commandfor"] != nil || props["popovertarget"] != nil)) }
     /// Whether the focus here matches `:focus-visible`, so its ring shows (`FocusMac.swift`).
     var focusVisible = false { didSet { if focusVisible != oldValue { noteFocusRingMaskChanged() } } }
+    /// A focused field whose ring Exact draws (LLP 1104 D6; `showFieldFocus`).
+    var fieldFocused = false { didSet { if fieldFocused != oldValue { applyBoxLayer(); needsDisplay = true } } }
     /// A key down's default action at a focused node; its `key` handlers
     /// heard it before AppKit delivered it (`Presenter.keyDown`, KeyEvents.swift).
     /// Space and Enter on a pressable fire `press`, as they do on a `<button>`.
