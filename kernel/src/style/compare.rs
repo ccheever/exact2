@@ -1,7 +1,7 @@
 //! CSS's comparison functions, `min()`, `max()` and `clamp()` (CSS Values 4
 //! §10.2), over the lengths the kernel resolves before layout: px (and the
 //! other absolute units), `env(safe-area-inset-*)`, the viewport units, and
-//! `calc()` sums of them — `clamp(env(safe-area-inset-bottom), 15px, 60px)`,
+//! `calc()` sums of them — `clamp(15px, env(safe-area-inset-bottom), 60px)`,
 //! `calc(max(15px, env(safe-area-inset-bottom)) + 44px)`. A row holds one by
 //! handle ([`Comparison`]) so [`Dimension`] stays `Copy`: the expression is
 //! interned here, equal ones share a handle (an unchanged style still
@@ -85,7 +85,7 @@ impl Expr {
         }
     }
 
-    /// The CSS text: `clamp(env(safe-area-inset-bottom), 15px, 60px)`, and
+    /// The CSS text: `clamp(15px, env(safe-area-inset-bottom), 60px)`, and
     /// a term or comparison with points added inside `calc()`.
     pub fn css(&self, out: &mut String) {
         let plus = match self {
@@ -273,6 +273,37 @@ impl Comparison {
     /// The CSS text, for a host whose browser resolves it.
     pub fn css(self, out: &mut String) {
         self.with(|e| e.css(out));
+    }
+
+    /// Whether the tree reads the safe-area inset at `edge`.
+    pub fn reads(self, edge: Edge) -> bool {
+        fn walk(e: &Expr, edge: Edge) -> bool {
+            match e {
+                Expr::Term(Base::Inset(at), _) => *at == edge,
+                Expr::Term(..) => false,
+                Expr::Pick(_, args, _) => args.iter().any(|a| walk(a, edge)),
+            }
+        }
+        self.with(|e| walk(e, edge))
+    }
+
+    /// This, never below zero: `max(0px, …)`, as CSS clamps a math function
+    /// to a property's range (CSS Values 4 §10.12) on a row that refuses a
+    /// negative length. Itself when it is already that.
+    pub(crate) fn at_least_zero(self) -> Comparison {
+        let zero = Expr::Term(Base::Points, 0.0);
+        let expr = self.expr();
+        if let Expr::Pick(Op::Max, args, plus) = &expr {
+            if *plus == 0.0 && args.first() == Some(&zero) {
+                return self;
+            }
+        }
+        let wrapped = Expr::Pick(Op::Max, vec![zero, expr], 0.0);
+        if wrapped.well_formed() {
+            Comparison::intern(wrapped)
+        } else {
+            self
+        }
     }
 
     /// Append the wire form ([`Expr::encode`]).

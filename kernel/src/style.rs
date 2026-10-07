@@ -78,7 +78,7 @@ pub enum Dimension {
     /// A percentage of a viewport dimension, resolved at layout.
     Viewport(ViewportUnit, f32),
     /// CSS's `min()`, `max()` or `clamp()` over points, insets and viewport
-    /// lengths (`clamp(env(safe-area-inset-bottom), 15px, 60px)`), resolved
+    /// lengths (`clamp(15px, env(safe-area-inset-bottom), 60px)`), resolved
     /// at layout as `env()` is; interned, so the row holds a handle.
     Compare(Comparison),
 }
@@ -233,7 +233,7 @@ impl Dimension {
     /// bits: `auto`, or `+0` points or percent — never `-0`.
     fn lp_is_zero(self, env: &Env) -> bool {
         match self.resolve(env) {
-            Dimension::Auto | Dimension::Compare(_) => true,
+            Dimension::Auto => true,
             Dimension::Points(v) => v.to_bits() == 0,
             Dimension::Percent(v) => (v / 100.0).to_bits() == 0,
             // A calc() is a handle the engine resolves, never its zero length.
@@ -508,21 +508,27 @@ impl StyleValue {
                 expected: "number, percent, auto, calc(<percent> ± <px>), env(safe-area-inset-*), env(viewport-segment-* x y), or min()/max()/clamp()",
             }),
         }?;
-        if matches!(
+        let radius = matches!(
             style,
             StyleId::BorderRadiusTopLeft
                 | StyleId::BorderRadiusTopRight
                 | StyleId::BorderRadiusBottomRight
                 | StyleId::BorderRadiusBottomLeft
-        ) && (!value.is_finite()
-            || matches!(value, Dimension::Points(n) | Dimension::Percent(n) if n < 0.0))
+        );
+        if radius
+            && (!value.is_finite()
+                || matches!(value, Dimension::Points(n) | Dimension::Percent(n) if n < 0.0))
         {
             return Err(StyleValueError::WrongKind {
                 style,
                 expected: "nonnegative finite length or percentage",
             });
         }
-        Ok(value)
+        // CSS clamps a math function to the property's range: a radius at 0.
+        Ok(match value {
+            Dimension::Compare(c) if radius => Dimension::Compare(c.at_least_zero()),
+            value => value,
+        })
     }
 
     /// A colour as a row holds it. `light-dark(a, b)` is the one text a

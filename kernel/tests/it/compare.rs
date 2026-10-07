@@ -215,6 +215,34 @@ fn a_comparison_keeps_its_css_and_folds_what_reads_nothing() {
     );
 }
 
+/// CSS clamps a math function to the property's range: a radius that
+/// would resolve below zero is zero.
+#[test]
+fn a_radius_comparison_never_resolves_below_zero() {
+    let r = text(
+        StyleId::BorderRadiusTopLeft,
+        "min(-4px, env(safe-area-inset-top))",
+    )
+    .unwrap();
+    assert_eq!(css(r), "max(0px, min(-4px, env(safe-area-inset-top)))");
+    assert_eq!(
+        r.resolve(&Env::new(62.0, 0.0, 0.0, 0.0)),
+        Dimension::Points(0.0)
+    );
+    let kept = "max(0px, min(-4px, env(safe-area-inset-top)))";
+    assert_eq!(
+        text(StyleId::BorderRadiusTopLeft, kept),
+        Ok(r),
+        "not wrapped twice"
+    );
+    // Another row keeps CSS's negative margin.
+    let m = text(StyleId::MarginTop, "min(-4px, env(safe-area-inset-top))").unwrap();
+    assert_eq!(
+        m.resolve(&Env::new(62.0, 0.0, 0.0, 0.0)),
+        Dimension::Points(-4.0)
+    );
+}
+
 #[test]
 fn forms_outside_the_grammar_are_refused_by_name() {
     let deep = format!(

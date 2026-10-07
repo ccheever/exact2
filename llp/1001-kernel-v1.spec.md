@@ -805,14 +805,21 @@ the frame once more per backdrop node. The measured bounds are LLP 1053.000 §3.
   `Env` exactly where an `env()` length becomes points (`taffy_style`), and
   `uses_env` counts it, so `set_env` and a viewport change re-derive and
   dirty its node; every host that reads a resolved length (Apple's style
-  JSON, the Linux painter, both hosts' content sizes) sees points and needed
-  no change. The web writes CSS's own functions for the browser to resolve
+  JSON, the Linux painter, both hosts' content sizes) sees points (their
+  matches name the variant only as resolved away). On a border radius, which
+  refuses a negative length, the tree is held as `max(0px, …)`, as CSS
+  clamps a math function to the property's range. A replaced header padded
+  by a comparison that reads the top inset hands that inset to the bar, as
+  one padded by `env(safe-area-inset-top)` does (`kernel/cover.rs`). The
+  readers that never resolved `env()` or viewport lengths (SVG geometry, the
+  Apple canvas clip, `svg::scene::content_box`) take an unresolved comparison
+  as 0, as they take those (QUEUE.md). The web writes CSS's own functions for the browser to resolve
   (`host/web/src/css.rs`, the wasm page and the JS target's static rows; a
   JS target binding writes its text as authored), and the agent prints the
   same text. Wire kind 24: a zero `f32`, then the tree (a tag: 0 points, 1 an
   inset and its edge, 2 a viewport length and its unit and number, 3–5
   `min`/`max`/`clamp` with a count and the arguments; then each node's
-  points), decoded to what the parser accepts or refused as
+  points), a nonzero leading `f32` refused, decoded to what the parser accepts or refused as
   `DecodeError::InvalidComparison`. Refused by name at the bake
   (`StyleValueError::BadComparison`, `lower-attr-value`): a percentage (it
   has no basis where the insets resolve; resolving one would put the tree in

@@ -190,7 +190,11 @@ impl<'a> Reader<'a> {
             14..=23 => {
                 Dimension::Viewport(crate::style::ViewportUnit::ALL[(kind - 14) as usize], value)
             }
-            24 => Dimension::Compare(crate::style::Comparison::decode(self)?),
+            // The leading `f32` is zero; the tree follows.
+            24 if value.to_bits() == 0 => {
+                Dimension::Compare(crate::style::Comparison::decode(self)?)
+            }
+            24 => return Err(DecodeError::InvalidComparison),
             other => return Err(DecodeError::UnknownDimensionKind(other)),
         };
         if kind != 0 && !dim.is_finite() {
@@ -707,7 +711,7 @@ mod tests {
         // schema. The literal makes an accidental removal of that coupling a
         // test failure whenever the byte snapshot above is intentionally moved.
         // Recomputed when the schema changes; the digest test prints the value.
-        assert_eq!(SCHEMA_DIGEST, 0x28a5_ec89_d3b1_265d);
+        assert_eq!(SCHEMA_DIGEST, 0x48e0_f00a_b6db_7476);
     }
 
     #[test]
@@ -797,6 +801,13 @@ mod tests {
             bytes.extend_from_slice(tree);
             Reader::new(&bytes).dimension(StyleId::Width, true)
         };
+        // The leading `f32` is zero.
+        let mut prefixed = bytes.clone();
+        prefixed[1..5].copy_from_slice(&1.0f32.to_le_bytes());
+        assert_eq!(
+            Reader::new(&prefixed).dimension(StyleId::Width, true),
+            Err(DecodeError::InvalidComparison)
+        );
         let nan = f32::NAN.to_le_bytes();
         for tree in [
             // A clamp() of two.
