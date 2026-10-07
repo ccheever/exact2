@@ -85,7 +85,7 @@ Declared differences: none. Excluded by scope: "Open in integrated browser" (Bro
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
 | 1 (2026-10-07) | staged tree on `4f523ef5c`, source `c4485a7d…` (attempt 2) | `bun test examples/t3-code` 2289 tests, 0 fail, 1 skip (+34: `context-menus.test.ts` 26, `context-menu-actions.test.ts` 8); strict tsc (`--target ES2023 --lib ES2023,DOM`) clean; contract build 2543 slots, 45 resources; `cargo test -p t3-code-macos --lib` 11/0; `contextmenu` AppKit binary 18/0 (+4 `FileMenuTests`); caps within budget; macOS bundle builds. Verify runner attempt 1 passed, attempt 2 (after review fixes) passed with `source_unchanged: true` | [recipe](../../evidence/20261007-context-menu-gaps/recipe.json), [review](../../evidence/20261007-context-menu-gaps/review.md), drive 1 below | none |
-| 2 (2026-10-07, coordinator follow-up) | `6281fd187` + review fixes, attempt 5 report | Preview media builds the expanded media dialog (signed first, Retry, dropped on thread change); `context-menu-hookup.test.ts` (2) and preview tests (+2); `bun test examples/t3-code` 2293 tests, 0 fail, 1 skip; strict tsc clean; contract build 2543 slots; caps within budget; `contextmenu` AppKit 18/0; bundle builds; verify runner attempt 5 passed with `source_unchanged: true` | [report](../../evidence/20261007-context-menu-gaps/attempt5-report.json), [review](../../evidence/20261007-context-menu-gaps/review.md), drive 2 below | none |
+| 2 (2026-10-07, coordinator follow-ups) | `6281fd187` + review fixes, attempt 5 report | Preview media builds the expanded media dialog (signed first, Retry, dropped on thread change); `context-menu-hookup.test.ts` (2) and preview tests (+2); `bun test examples/t3-code` 2293 tests, 0 fail, 1 skip; strict tsc clean; contract build 2543 slots; caps within budget; `contextmenu` AppKit 18/0; bundle builds; verify runner attempt 5 passed with `source_unchanged: true` | [report](../../evidence/20261007-context-menu-gaps/attempt5-report.json), [review](../../evidence/20261007-context-menu-gaps/review.md), drives 2 and 3 below | none |
 
 Drive (one session, 2026-10-07, under `.t3-live-drive-lock`): lane server `1e2ecbd975` runtime on
 127.0.0.1:16481 with an isolated HOME/CODEX_HOME/XDG/T3CODE_HOME, a fixture repository (`README.md`,
@@ -128,9 +128,33 @@ AFTER   branch copy (pid 79828): media link → Preview media · Open in Cursor 
         PR row #7 → Copy link · Open on GitHub; detail header #7 → Copy link · Open on GitHub
 ```
 
-Drive 2 ran on `6281fd187`. The second review's fixes came after it (sign before opening, Retry, drop on
-thread change); their success path shows the same dialog and the changed paths are unit-tested
-(`context-menu-actions.test.ts`), not re-driven (the drive budget was spent).
+Drive 2 ran on `6281fd187`, before the second review's fixes; drive 3 covers them.
+
+Drive 3 (one session, 2026-10-07 13:19, under `.t3-live-drive-lock`, the screen unlocked; build
+`aae76ee0c`, base `4f523ef5c`). The steps were a script (`drive.sh`, lane-only, not committed) dry-run first
+(`DRY=1` printed every call). Fixture additions in `target/lane-cmg`:
+
+- a second fake-Codex reply in "Menu demo": 35 inline images (`shots/many/img01…35.png`), then links to
+  `shots/preview.png`, `clips/broken.mp4` (not a playable video) and `shots/missing.png` (deleted: the server
+  refuses its signature, `AssetWorkspaceAssetNotFoundError`). The fake now reports the real version string
+  (`codex_cli_rs/0.160.1`), so the "Codex 0.0.0 is known to be broken" banner is gone.
+- project Beta with a GitLab origin (`gitlab.com/t3-fixture/beta-demo`, dead proxy) and a fake `glab` answering
+  `api user` and the merge request list with !12.
+- a logging TCP proxy (127.0.0.1:16482 → 16481): the apps were paired through it, so every asset GET is logged.
+- the same lane-only bundle copies (fresh domains and data roots); the user's preferences hash unchanged
+  (`acc150dd…`); the lane Keychain item deleted.
+
+```
+BEFORE  base copy (pid 47122): preview.png / broken.mp4 / missing.png → Open in Cursor · Reveal in Finder · Copy relative path · Copy full path (no Preview media)
+        GitLab row #12 → no menu
+AFTER   branch copy (pid 70647):
+        many media: 35 inline images signed (32 by the transcript window) + preview.png → Preview media → the dialog with preview.png (33 asset GETs)
+        leave thread: dialog open → ⌘⇧] (New thread, no dialog) → ⌘⇧[ (Menu demo, no dialog)
+        refused: missing.png → Preview media → toast "Media unavailable · The server refused the request (AssetWorkspaceAssetNotFoundError)", no dialog
+        Retry video: broken.mp4 → Preview media → "Video unavailable · broken.mp4" → Retry video → a new signed URL fetched
+          (proxy: expiresAt 1791350542382 at 04:22:22Z → 1791350556063 at 04:22:36Z), failing again as the file is not a video
+        GitLab row #12 → Copy link · Open on GitLab
+```
 
 Evidence (before/after, one image per menu):
 
@@ -142,3 +166,8 @@ Evidence (before/after, one image per menu):
 | Preview media | ![preview](https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/context-menu-gaps/04-preview-media-dialog-before-after.png) |
 | Pull Requests row number | ![row](https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/context-menu-gaps/05-pr-row-number-menu-before-after.png) |
 | Pull request detail header number | ![detail](https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/context-menu-gaps/06-pr-detail-number-menu-before-after.png) |
+| Preview media, 35 inline images | ![many](https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/context-menu-gaps/07-preview-many-media-before-after.png) |
+| Preview media, leaving the thread | ![leave](https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/context-menu-gaps/08-preview-leave-thread-before-after.png) |
+| Preview media, refused signature | ![refused](https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/context-menu-gaps/09-preview-refused-before-after.png) |
+| Preview media, Retry video | ![retry](https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/context-menu-gaps/10-preview-video-retry-before-after.png) |
+| GitLab merge request number | ![gitlab](https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/context-menu-gaps/11-pr-row-gitlab-before-after.png) |
