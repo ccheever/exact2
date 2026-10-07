@@ -193,6 +193,21 @@ function queued(what, run) {
   });
 }
 let toldAgent = false;
+// The databases open now, with their paths and when each opened: an answer that fails with one it
+// opened still open is journaled (LLP 1097 D7). The host does not close a handle an app may keep or
+// share (Charlie, 2026-10-07), and the next open would find it locked. A close counts once issued.
+const openDatabases = new Set();
+let opened = 0;
+// On a failure (an answer's own rejection, or a rejection nothing handled): each database whose
+// open an answer issued that has since settled (its chain runs on in the background), or that
+// opened while a failing answer ran (`since`).
+function leftOpen(since = Infinity) {
+  for (const h of openDatabases) {
+    if (h.told || !(h.call?.settled || h.seq >= since)) continue;
+    h.told = true;
+    journal.push(`t=${clock.now} storage: ${h.path} is still open after a failure in background work that opened it: if that work owns it, close it in a finally (finally { db.close() }), or the next open finds it locked (LLP 1097 D7)`);
+  }
+}
 function storageOf(grants) {
   const admitted = ['fs-read', 'fs-write', 'sqlite-open'].some(kind => hasGrant(grants, kind));
   let fs, sqlite;
@@ -220,7 +235,12 @@ function storageOf(grants) {
   const wrap = (o, convert, path) => Object.freeze(Object.fromEntries(Object.entries(convert).map(([m, then]) =>
     [m, (...args) => queued(`${m} ${path}`, () => o[m](...args)).then(then ? v => then(v, path) : undefined)])));
   const statement = (s, path) => wrap(s, { execute: null, query: null, close: null }, path);
-  const database = (d, path) => wrap(d, { execute: null, query: null, prepare: statement, transaction: null, close: null }, path);
+  const database = (d, path, call) => {
+    const handle = { path, seq: opened++, call, told: false };
+    openDatabases.add(handle);
+    const db = wrap(d, { execute: null, query: null, prepare: statement, transaction: null, close: null }, path);
+    return Object.freeze({ ...db, close: (...args) => { openDatabases.delete(handle); return db.close(...args); } });
+  };
   const methods = ['readFile', 'writeFile', 'atomicWriteFile', 'appendFile', 'readdir', 'mkdir', 'rm', 'stat', 'rename', 'copyFile', 'realpath'];
   return Object.freeze({
     fs: Object.freeze({ directories: Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' }),
@@ -229,7 +249,7 @@ function storageOf(grants) {
         const run = () => (isDocument(captured) ? documents() : files()).then(f => f[m](...captured));
         return (admitted ? queued(`${m}${typeof args[0] === 'string' ? ` ${args[0]}` : ''}`, run) : denied(`fs.${m}`, isDocument(captured))).catch(coded);
       }])) }),
-    sqlite: Object.freeze({ open: path => (admitted ? queued(`open ${path}`, () => databases().then(d => d.open(path))).then(d => database(d, path)) : denied('sqlite.open')).catch(coded) }),
+    sqlite: Object.freeze({ open: path => { const call = answering.call; return (admitted ? queued(`open ${path}`, () => databases().then(d => d.open(path))).then(d => database(d, path, call)) : denied('sqlite.open')).catch(coded); } }),
     work: promise => Promise.resolve(promise),
   });
 }
@@ -247,6 +267,7 @@ export function install(data, mixed = false, modules = null) {
   if (typeof addEventListener === 'function') addEventListener('unhandledrejection', e => {
     const r = e.reason;
     journal.push(`t=${clock.now} data: unhandled rejection: ${r && typeof r === 'object' && r.message !== undefined ? r.message : String(r)}`);
+    leftOpen();
   });
   // `modules` loads native.js (an app with a module artifact), after first
   // paint (rt.js `painted`), whether or not anything asks `later`.
@@ -274,13 +295,14 @@ export function install(data, mixed = false, modules = null) {
     // The store as the module sees it (LLP 1018): a read marks the answer.
     const seen = createSecretFacade(store, tsGrantSet, kept);
     asking = target ?? name; watching = name;
-    const call = answering.call = { stream: null };
+    const call = answering.call = { stream: null }, since = opened;
     let r;
-    try { r = source.answer(name, args.map((a, i) => named(a, params[i])), seen, storage, modules ? native : null); } finally { asking = ''; watching = null; answering.call = null; }
+    try { r = source.answer(name, args.map((a, i) => named(a, params[i])), seen, storage, modules ? native : null); } catch (e) { call.settled = true; throw e; } finally { asking = ''; watching = null; answering.call = null; }
     const target_ = target ?? name;
     const shaped = types ? v => checked(name, v, result) : v => v;
     if (call.stream) return { stream: opener(call.stream, v => conv(shaped(v), result, target_)), store: seen.read };
-    if (r && typeof r.then === 'function') return { promise: r.then(v => conv(shaped(v), result, target_)), store: seen.read };
+    if (r && typeof r.then === 'function') return { promise: r.then(v => (call.settled = true, conv(shaped(v), result, target_)), e => { call.settled = true; leftOpen(since); throw e; }), store: seen.read };
+    call.settled = true;
     return { v: conv(shaped(r), result, target_), store: seen.read };
   };
   // Beside a Rust source (LLP 1027.002): a source this module does not

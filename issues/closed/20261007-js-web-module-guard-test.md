@@ -1,6 +1,7 @@
 # exact-js-web: the module-guard browser test still fails
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** Its stale scaffolding was fixed (87e38b939, aeabf0356) and its abandoned-open step follows Charlie's D7 ruling (the chain closes in a finally; a leak is journaled); what still fails is a separate startup failure, issues/20261007-startup-ready-input-dispatches-no-edit.md.
 **Systems:** js/web/tests/browser.rs, host/web/module-glue.js
 **Author:** Claude (Opus 5.5), triaging the async lane's first run on the mini
 **Date:** 2026-10-07
@@ -22,3 +23,7 @@ Three of its failures were stale test scaffolding, fixed in js/web/tests/browser
 - **The abandoned-stat step hung** (an answer queued behind an abandoned call's storage parks until a background round delivers it, LLP 1097 D7); the probe now runs background rounds as the runner does (`drained`).
 
 **What remains: a decision on LLP 1097 D7.** The abandoned-open step still fails ("abandoned open kept its database locked"). Before D7 the host discarded an abandoned call's open and closed its handle. Under D7 the abandoned call's chain continues in the background: the fixture's `.then(db=>{store.set('session','orphan');return db.close();})` runs with the background's store context, which grants nothing, so the `store.set` throws, `db.close()` never runs, and the database stays locked for the realm's life. Either the host should close a let-go call's open handles when its chain fails (an app that throws while an open is pending would otherwise lock its database), or the probe's expectation is pre-D7 and should change. For the owner of LLP 1097.
+
+## Update (2026-10-07, decided)
+
+Charlie ruled the D7 question (2026-10-07): no host closes a let-go chain's handle (an app may keep or share one); the chain closes its own in a finally, and each executor journals a database still open after a failure in background work that opened it. The probe's abandoned-open step now closes in a finally (its forbidden store write fails, the close runs, the next open is free) and a leaking variant must journal the new line; both pass. The test now stops at a separate failure on main, filed as issues/20261007-startup-ready-input-dispatches-no-edit.md.

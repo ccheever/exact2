@@ -633,6 +633,16 @@ guide's rules don't make obvious.
   writes that must stay together in one `transaction` (SQLite) or one operation.
   (LLP 1097 D4.)
 
+- **A database stays locked after the answer that opened it failed.** An
+  answer that opens a database and fails, or that the runner let go, leaves its
+  chain running in the background; if that chain throws before `db.close()`,
+  the handle stays open and every later open finds the database busy. The host
+  does not close it for you, since an app may keep or share a handle across
+  answers. `logs` says `storage: app:/data/x.db is still open after a failure in
+  background work that opened it`. Fix: close in a finally,
+  `try { … } finally { await db.close(); }`. (LLP 1097 D7, Charlie,
+  2026-10-07.)
+
 ## Working on exact2 itself
 
 - **A bisect that shares another worktree's Cargo target directory builds

@@ -652,20 +652,34 @@ try {
     const next=await drained(abandoned,'work',[],[],['session']);
     if(first.tag!==2||next.value?.text!=='current'||next.writes.length)throw new Error('abandoned completion entered another invocation');
     abandoned.dispose();
-    const abandonedOpenSource=`let invocation=0;globalThis.exact={abi:1,appId:'dev.exact.storage-test',grants:${JSON.stringify(storageIdentity.grants)},answer(source,args,store,storage){
-      if(invocation++===1){void storage.sqlite.open('app:/data/notes.db').then(db=>{store.set('session','orphan');return db.close();});throw new Error('abandoned open');}
+    // LLP 1097 D7 (Charlie, 2026-10-07): a let-go chain keeps running; the host never closes a handle
+    // for it, so the chain closes its own in a finally. Its store write fails there (the background
+    // has no store) while the close still runs, and the next open finds the database free.
+    const openChain=close=>`let invocation=0;globalThis.exact={abi:1,appId:'dev.exact.storage-test',grants:${JSON.stringify(storageIdentity.grants)},answer(source,args,store,storage){
+      if(invocation++===1){void storage.sqlite.open('app:/data/notes.db').then(${close?"async db=>{try{store.set('session','orphan');}finally{await db.close();}}":"db=>{store.set('session','orphan');return db.close();}"});throw new Error('abandoned open');}
       return storage.sqlite.open('app:/data/notes.db').then(db=>db.close()).then(()=>({text:'current'}),()=>({text:'busy'}));}};`;
-    const abandonedOpen=await prepare(await payload(abandonedOpenSource,storageIdentity),storageIdentity);
+    const abandonedOpen=await prepare(await payload(openChain(true),storageIdentity),storageIdentity);
     await invoke(abandonedOpen,'work',[],[],['session']);
     if((await invoke(abandonedOpen,'work',[],[],['session'])).tag!==2)throw new Error('open abandonment fixture');
     let released=false;
     for(let attempt=0;attempt<20&&!released;attempt++){
       const result=await drained(abandonedOpen,'work',[],[],['session']);
-      if(result.writes.length)throw new Error('abandoned open ran app callback');
+      if(result.writes.length)throw new Error("abandoned open's store write landed");
       released=result.value?.text==='current';
     }
-    if(!released)throw new Error('abandoned open kept its database locked');
+    if(!released)throw new Error('abandoned open kept its database locked though it closed it in a finally');
+    const closedLines=abandonedOpen.journal();
+    if(!closedLines.some(l=>/unhandled rejection/.test(l)))throw new Error(`the let-go chain's store write did not fail: ${JSON.stringify(closedLines)}`);
+    if(closedLines.some(l=>/is still open/.test(l)))throw new Error(`a closed database was reported open: ${JSON.stringify(closedLines)}`);
     abandonedOpen.dispose();
+    // Without the finally the database stays open, and the journal says so and how to fix it.
+    const leakingOpen=await prepare(await payload(openChain(false),storageIdentity),storageIdentity);
+    await invoke(leakingOpen,'work',[],[],['session']);
+    await invoke(leakingOpen,'work',[],[],['session']);
+    let leakLines=[];
+    for(let attempt=0;attempt<20&&!leakLines.some(l=>/is still open/.test(l));attempt++){await drained(leakingOpen,'work',[],[],['session']);leakLines=leakLines.concat(leakingOpen.journal());}
+    if(!leakLines.some(l=>l.includes('app:/data/notes.db is still open')&&l.includes('finally { db.close() }')))throw new Error(`a let-go chain's open database was not journaled: ${JSON.stringify(leakLines)}`);
+    leakingOpen.dispose();
     const {createFileSystem}=await import('/storage-fs.js');
     const {createSqlite}=await import('/storage-sqlite.js');
     const fsApp='test.browser.file-operations', fsGrants='fs.read app:/\nfs.write app:/\nsqlite.open app:/data';
