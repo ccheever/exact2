@@ -7,7 +7,7 @@ delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-theme-color-picker
-pr_url: PR_URL_PENDING
+pr_url: https://github.com/ccheever/exact2/pull/252
 verified_commit: null
 ---
 
