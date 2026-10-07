@@ -587,7 +587,7 @@ Several tags share a kernel node type with different fixed properties.
 | --- | --- |
 | Boxes / layout | `view`, `box`, `row`, `column`, `scroll`, `list` |
 | Structure | `main`, `header`, `nav`, `section`, `footer`, `article`, `aside`, `dialog`, `hr` |
-| Text and controls | `text`, `button`, `link`, `input`, `textarea`, `select`, `option` |
+| Text and controls | `text`, `button`, `link`, `input`, `textarea`, `select`, `option`, `progress` |
 | Media / metadata | `image`, `video`, `audio`, `iframe`, `canvas`, `head` |
 | SVG scene | `svg`, `g`, `path`, `polyline`, `polygon`, `circle`, `ellipse`, `line`, `rect` |
 | SVG definitions | `defs`, `symbol`, `use`, `clipPath`, `marker`, `mask`, `pattern` |
@@ -920,6 +920,28 @@ selection on a `text`, so it never fires there.
 action mark(para: string, s: Selection)
   selection = Excerpt(para=para, from=s.start, to=s.end, text=s.text)
 text para.body selectionchange=mark(para.id)
+```
+
+### Activity: `progress`
+
+`progress` with no `value` is HTML's indeterminate progress, shown as the
+platform's activity indicator: `UIActivityIndicatorView` on iOS (`.medium`,
+`.large` where the box's shorter side is 37 points or more), a spinning
+`NSProgressIndicator` on macOS (small, regular from 32 points), and on the web
+and Linux a spinner the host draws, since HTML's own indeterminate progress is
+a bar (the one deliberate divergence, [LLP 1069.001](../llp/1069.001-form-controls.rfc.md)).
+It is a 20 × 20 box until `width` or `height` sizes it, and the indicator is
+centred in it. `color` colours it on iOS, the web and Linux; macOS draws the
+system's colour, as AppKit gives a spinner no tint. Its role is `progressbar`,
+busy (`aria-busy`); name it with `aria-label`. It turns while it shows, and
+stops where it is hidden or gone; under the agent's held clock it shows one
+still frame (on the web, the frame at the agent's time, as every CSS animation;
+Linux paints one still frame always). `value` and `max` (a determinate bar)
+are refused for now, and so are children and `type`.
+
+```text
+progress aria-label="Loading"
+progress width=37 height=37 color="#1083fe" aria-label="Loading posts"
 ```
 
 ### Form controls: radio, `InputEvent`, `setSelectionRange`

@@ -763,6 +763,7 @@ drawn title bar) is a bug. On iOS:
 | `input type="range"` | `UISlider` |
 | `input type="date"`, `"time"`, `"datetime-local"` | `UIDatePicker` |
 | `select` of `option`s | a pop-up button with its menu |
+| `progress` (no `value`) | `UIActivityIndicatorView`, `.large` from a 37-point box (LLP 1069.001) |
 | `popover="auto" role="menu"` of `button`s, opened by `popovertarget` (a row whose `popovertarget` names another menu: its submenu) | `UIMenu`, nested (LLP 1021) |
 | `role="tablist"`: each tab a symbol over a label / one text or image | `UITabBar` / `UISegmentedControl`, the tablist at least its native height unless `min-height` says otherwise (LLP 1059) |
 | a route whose first child is a `header` holding one heading and its buttons | the navigation bar; a level-1 heading (`aria-level=1`) is a large title |

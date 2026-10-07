@@ -84,6 +84,9 @@ final class ControlHost: NSObject {
     var radioGroup: ((UInt32) -> RadioGroup)?
     /// A select's choice the bound value has not caught up with yet.
     var picked: [UInt32: String] = [:]
+    /// Each `progress`'s activity indicator (ProgressIOS.swift): a view,
+    /// not a control, so beside `controls`.
+    var spinners: [UInt32: UIActivityIndicatorView] = [:]
     /// Each native button's face as the runner last gave it. A face is the
     /// control's viewless contents, which change only in a batch that says
     /// so (`Batch.controls`), and its own props, which change only in a
@@ -236,6 +239,7 @@ final class ControlHost: NSObject {
                 if !live.isEmpty { self.presenter.onIntrinsic?(live) }
             }
         }
+        syncProgress()
     }
 
     @objc private func changed(_ sender: UIControl) {
@@ -276,6 +280,7 @@ final class ControlHost: NSObject {
     }
 
     func observation(_ node: NodeView) -> [String: Any]? {
+        if let progress = progressObservation(node) { return progress }
         guard let control = controls[node.id] else { return nil }
         if let b = control as? NativeButtonIOS { return nativeObservation(b) }
         if let value = valueObservation(control) {
@@ -295,6 +300,8 @@ final class ControlHost: NSObject {
     func reset() {
         for control in controls.values { control.removeFromSuperview() }
         controls.removeAll()
+        for spinner in spinners.values { spinner.removeFromSuperview() }
+        spinners.removeAll()
         reported.removeAll()
         kinds.removeAll()
         menus.removeAll()

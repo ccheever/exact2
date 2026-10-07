@@ -1158,6 +1158,9 @@ impl Painter {
             NodeType::Control if node.props.str(PropId::Type) == Some("range") => {
                 self.range_control(node, content, ts, walk.scene.chosen.get(&node.id))
             }
+            NodeType::Control if node.props.str(PropId::Type) == Some("progress") => {
+                control::progress(self.backend.as_mut(), node, content, ts, self.dark)
+            }
             NodeType::Control if node.props.str(PropId::Type) == Some("button") => {
                 let title = walk.scene.kernel.press_face(node.id).and_then(|f| f.title);
                 self.button_control(node, content, ts, title.as_deref().unwrap_or(""));

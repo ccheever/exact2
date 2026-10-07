@@ -78,6 +78,12 @@
   button:is([data-button-style="prominent-glass"], [data-button-style="prominent-clear-glass"]) { background: color-mix(in srgb, var(--exact-accent, AccentColor) 85%, transparent); color: #fff; }
   /* Dimmed by a filter, so an authored opacity (inline, bound or animated) composes with it. */
   button[data-button-style]:not([data-button-style="bordered"], [data-button-style="gray"]):disabled { filter: opacity(.45) !important; }
+  /* An indeterminate progress (LLP 1069.001, amended 2026-10-07): HTML's draws a bar, so the page draws the
+     platform's spinner instead, the one deliberate divergence from the web's own control: an arc fading to `color`
+     in a ring at the box's shorter side, centred, a turn a second (UIActivityIndicatorView's period). Under the
+     agent it follows the agent's clock, as every CSS animation does. The box is the kernel's (element.rs). */
+  [data-exact-progress]::before { content: ""; position: absolute; inset: 0; pointer-events: none; background: conic-gradient(transparent 10%, currentColor); mask: radial-gradient(closest-side, transparent 76%, #000 calc(76% + .5px) calc(100% - .5px), transparent 100%); animation: exact-progress 1s linear infinite; }
+  @keyframes exact-progress { to { rotate: 1turn; } }
   /* Keep the textarea's native long-word wrapping through the control reset. */
   textarea { overflow-wrap: revert; }
   /* Authored flex/grid display must not expose a closed native popover. */

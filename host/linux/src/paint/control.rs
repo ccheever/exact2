@@ -391,6 +391,39 @@ pub(super) fn paint(
     }
 }
 
+/// An indeterminate `progress` (LLP 1069.001, amended 2026-10-07): UIKit's
+/// activity indicator as one still frame, eight spokes round the centre of
+/// the box's shorter side in `color`, the tail fading behind the brightest
+/// one (counterclockwise: the indicator turns clockwise). Linux paints on
+/// change, not per frame, so it does not turn; every frame is the same,
+/// which is what the agent's held clock shows on the other hosts.
+pub(super) fn progress(
+    backend: &mut dyn Backend,
+    node: &NodeRef<'_>,
+    content: Rect4,
+    ts: Transform,
+    dark: bool,
+) {
+    let (x, y, w, h) = content;
+    let s = w.min(h);
+    if s <= 0.0 {
+        return;
+    }
+    let (cx, cy) = (x + w / 2.0, y + h / 2.0);
+    let ink = rgba(node.text_color().resolve(dark));
+    let (thick, long) = (s * 0.1, s * 0.27);
+    let spoke = Shape::new(
+        (cx - thick / 2.0, cy - s / 2.0, thick, long),
+        [thick / 2.0; 4],
+    );
+    for i in 0..8 {
+        let mut c = ink;
+        c[3] = (c[3] as f32 * (1.0 - i as f32 * 0.1)) as u8;
+        let turn = Transform::from_rotate_at(-45.0 * i as f32, cx, cy);
+        backend.fill(&spoke, c, ts.pre_concat(turn));
+    }
+}
+
 /// A native button's look on Linux and its metrics (LLP 1069.011 D2, D6): the
 /// `buttonStyles` row's web/Linux look, as the web's stylesheet draws it.
 /// `ua` is Chrome's own button; the others a pill padded 7/12. Both set the

@@ -984,7 +984,8 @@ keeps it from its ancestors' `key` handlers with `stopPropagation()`
 
 The complete event inventory and payload groups are in the
 [event reference](contract-grammar.md#events). HTML controls include `select` and
-`option`; inspect [the control tests](../contract/cli/tests/it/controls.rs) for
+`option`, and `progress` with no `value`, the platform's activity indicator
+([activity](contract-grammar.md#activity-progress)); inspect [the control tests](../contract/cli/tests/it/controls.rs) for
 the checkbox/switch, radio, range, select and date/time conventions instead of
 assuming a browser Event object. `input type="radio"` is HTML's: the radios of
 one `name` are a group, exclusive, and the arrow keys move the check among them.

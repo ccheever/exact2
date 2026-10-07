@@ -384,6 +384,44 @@ pub(crate) fn check_nesting(tag: &str, parent: Option<&str>, span: Span) -> Resu
     Ok(())
 }
 
+/// `progress` (LLP 1069.001, amended 2026-10-07) is HTML's indeterminate
+/// one only: no `value` or `max`, which would make it a determinate bar
+/// Exact does not draw yet; no `type`, which is the kind it is; and no
+/// children, since every host draws the indicator HTML's fallback content
+/// stands in for.
+pub(crate) fn check_progress(
+    tag: &str,
+    attrs: &[contract_syntax::Attr],
+    children: &[contract_syntax::Node],
+) -> Result<(), LowerError> {
+    if tag != "progress" {
+        return Ok(());
+    }
+    if let Some(a) = attrs
+        .iter()
+        .find(|a| matches!(a.name.as_str(), "value" | "max" | "type"))
+    {
+        let why = if a.name == "type" {
+            "it is always the activity indicator".to_string()
+        } else {
+            format!("a `{}` makes HTML's determinate progress bar, which Exact does not draw yet; without one it is the platform's activity indicator", a.name)
+        };
+        return err(
+            "lower-attr-tag",
+            format!("`progress` takes no `{}`: {why}", a.name),
+            a.span,
+        );
+    }
+    if let Some(child) = children.first() {
+        return err(
+            "lower-void",
+            "`progress` takes no children: it is the platform's activity indicator (name it with `aria-label`)",
+            child.span(),
+        );
+    }
+    Ok(())
+}
+
 impl Lowerer<'_> {
     /// A control's bare word — HTML's boolean `switch` on a checkbox (LLP
     /// 1069.001 D1), `multiple` on a file input (LLP 1069.002 D1) — as its
