@@ -112,6 +112,11 @@ component PrdSummary
     local: action
     refresh: action
     retry: action
+    // Section collapse keeps the pressed heading where it is (pullRequestSummaryScroll.logic.ts
+    // sectionCollapseAnchorScrollTop): the scroll box's id, its offset, and how to move it.
+    scrollId: string
+    scrollTop: number
+    anchor: action
   state descriptionOpen = true
   state checksOpen = false
   state commentsOpen = true
@@ -119,6 +124,14 @@ component PrdSummary
   state shown = 10
   state shownBots = 10
   action toggle(section: string)
+    let closing = section == "description" ? descriptionOpen : (section == "checks" ? checksOpen : commentsOpen)
+    let viewportTop = frame(scrollId).y
+    let sectionTop = frame(`${scrollId}-${section}`).y
+    let headingTop = frame(`${scrollId}-${section}-heading`).y
+    // A pinned heading whose section has scrolled past the top: put the section's natural top
+    // where the heading is now, so the next section's heading does not slide under the pointer.
+    if closing and sectionTop < viewportTop and headingTop <= viewportTop + 1
+      anchor(max(0, scrollTop + sectionTop - viewportTop))
     descriptionOpen = section == "description" ? not descriptionOpen : descriptionOpen
     checksOpen = section == "checks" ? not checksOpen : checksOpen
     commentsOpen = section == "comments" ? not commentsOpen : commentsOpen
@@ -132,8 +145,10 @@ component PrdSummary
     shownBots = bots ? 10 : shownBots
   view
     column width="100%" testId="pull-request-summary"
-      column width="100%" padding-left="1rem" padding-right="1rem" padding-top="0.625rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem"
-        row min-height="1.5rem" align-items="center" gap="0.5rem"
+      // Raised (here and the Reviewers row) so a reviewer's tooltip, which hangs below the face, paints over
+      // the Labels row and the Description heading: z-index orders siblings (docs/agent-pitfalls.md).
+      column position="relative" z-index=1 width="100%" padding-left="1rem" padding-right="1rem" padding-top="0.625rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem"
+        row position="relative" z-index=1 min-height="1.5rem" align-items="center" gap="0.5rem"
           row width="6rem" align-items="center" gap="0.375rem" flex-shrink=0
             PgIcon(name="users", size=14, color=prsMuted())
             text "Reviewers" font-size="0.75rem" line-height="1rem" color=prsMuted()
@@ -155,16 +170,16 @@ component PrdSummary
                 each chip in labels key=chip.key
                   text chip.name max-width="12rem" line-clamp=1 height="1.125rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" background-color=chip.background font-size="0.75rem" line-height="1.125rem" font-weight=500 color=chip.ink
       // Each section is its own box, so its heading sticks only while the section is in view (`section` + `sticky top-0`).
-      column width="100%" role="region" aria-label="Description"
-        PrdSectionHeader(label="Description", open=descriptionOpen, still=still, press=toggle("description"), testId="pull-request-description-toggle")
+      column id=`${scrollId}-description` width="100%" role="region" aria-label="Description"
+        PrdSectionHeader(id=`${scrollId}-description-heading`, label="Description", open=descriptionOpen, still=still, press=toggle("description"), testId="pull-request-description-toggle")
         column width="100%" padding-left="1rem" padding-right="1rem" padding-bottom="1rem" box-sizing="border-box" display=(descriptionOpen ? "flex" : "none") testId="pull-request-description"
           when hasBody
             each document in filter(documents, (doc) => doc.id == bodyId) key=document.id
               ChatMarkdown(document=document, local=local, code=code, env=env)
           else
             text "No description provided." font-size="0.875rem" line-height="1.421875rem" font-style="italic" color=prsMuted()
-      column width="100%" role="region" aria-label="Checks"
-        PrdSectionHeader(label="Checks", open=checksOpen, still=still, press=toggle("checks"), testId="pull-request-checks-toggle")
+      column id=`${scrollId}-checks` width="100%" role="region" aria-label="Checks"
+        PrdSectionHeader(id=`${scrollId}-checks-heading`, label="Checks", open=checksOpen, still=still, press=toggle("checks"), testId="pull-request-checks-toggle")
         when checksOpen
           column width="100%" padding-left="1rem" padding-right="1rem" padding-bottom="1rem" box-sizing="border-box" testId="pull-request-checks"
             when summary.checksStale
@@ -176,8 +191,8 @@ component PrdSummary
             when not summary.checksStale
               each check in summary.checks key=check.key
                 PrdCheckRow(check=check)
-      column width="100%" role="region" aria-label="Comments"
-        PrdSectionHeader(label=summary.commentsTitle, open=commentsOpen, still=still, press=toggle("comments"), testId="pull-request-comments-toggle")
+      column id=`${scrollId}-comments` width="100%" role="region" aria-label="Comments"
+        PrdSectionHeader(id=`${scrollId}-comments-heading`, label=summary.commentsTitle, open=commentsOpen, still=still, press=toggle("comments"), testId="pull-request-comments-toggle")
           PrdGhostButton(label=(order == "newest" ? "Newest first" : "Oldest first"), icon="arrow-down-up", press=flipOrder, ariaLabel=(order == "newest" ? "Show oldest comments first" : "Show newest comments first"), testId="pull-request-comments-order")
         when commentsOpen
           column width="100%" padding-left="1rem" padding-right="1rem" padding-bottom="1rem" box-sizing="border-box" testId="pull-request-comments"
@@ -228,6 +243,7 @@ component PrdReviewerFace
 // controls sit beside the trigger, not inside it.
 component PrdSectionHeader
   props
+    id: string
     label: string
     open: bool
     still: bool
@@ -235,7 +251,7 @@ component PrdSectionHeader
     testId: string
   slot
   view
-    row position="sticky" top=0 z-index=10 width="100%" padding-right="1rem" box-sizing="border-box" align-items="center" background-color="light-dark(#fcfcfc, #0a0a0a)"
+    row id=id position="sticky" top=0 z-index=10 width="100%" padding-right="1rem" box-sizing="border-box" align-items="center" background-color="light-dark(#fcfcfc, #0a0a0a)"
       button press=press aria-expanded=open testId=testId flex=1 min-width=0 height="2.5rem" padding-left="1rem" padding-right="1rem" box-sizing="border-box" gap="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
         text label font-size="0.75rem" line-height="1rem" font-weight=500 color=prsMuted() white-space="nowrap"
         box width="0.875rem" height="0.875rem" flex-shrink=0 rotate=(open ? 90 : 0) transition=(still ? "none" : "rotate 150ms cubic-bezier(0.4, 0, 0.2, 1)") aria-hidden=true

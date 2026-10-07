@@ -166,6 +166,11 @@ section is its own box so its heading sticks only while the section is in view.
   lifecycle rows, plain commit rows (until 20261005-pr-code-tab), "No activity yet."; the tab bar's comment, commit and
   approval counts ("—" when the read failed, "…" while it runs; no approval count from a truncated conversation) and the
   order toggle ("Show oldest activity first"/"Show newest activity first").
+- The reviewer's tooltip paints over the Labels row: the Summary's top column and its Reviewers row are raised
+  (`position="relative" z-index=1`), since z-index orders siblings (found in the agent stand-in shot, image 17).
+- Section collapse keeps the pressed heading in place (sectionCollapseAnchorScrollTop): a heading pinned over a section
+  scrolled past the top moves the body's scroll to the section's natural top (`frame()` reads in the toggle action, the
+  body's `scrollTop` binding; added after the retry while preparing the real-input session).
 - Both tabs stay mounted (hidden with `display`), keyed by the pull request, so the order, the window and the open
   groups survive a visit to the other tab and start fresh for another pull request.
 - Ghosts (`pages-pr-ghost.contract`): PullRequestDetailGhost (seeded or bars, the tab bar inert, the pulse off under
@@ -192,12 +197,12 @@ section is its own box so its heading sticks only while the section is in view.
 | Truncated notice | pass (live + unit) | live #115 (`commentsTruncated`): "This conversation is longer than this page reads in one go. The most recent 17 are here; open it on the host to read the rest." | — |
 | Timeline | pass (live) | [06](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/06-timeline.png), [07](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/07-timeline-oldest-open.png), [08](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/08-stale-verdict.png), [09](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/09-approvals-count.png), [ax](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/ax-excerpts.txt): "Approved, before the latest commits" | — |
 | Server-announced refresh | pass (live) | [10](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/10-live-refresh.png); the second account's comment on #116, then `pullRequests.invalidate {}`: server trace +1 detail, +1 activity, +1 list; `gh` calls: detail GraphQL, `pr view 116` and the review-thread GraphQL (activity), the list GraphQL; one `subscribeRefreshes` per session (79.4 s, ended with the session; the list stayed open after the panel closed). Base: nothing read, no comment | — |
-| Cached detail | pass (unit + replay of the live file); live relaunch not verified | unit "a relaunch shows the kept detail first…"; [replay](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/relaunch-replay.txt): the session's `t3-code.json` held #115, #116, #144; the relaunch answer showed #144's title with no host call | agent mode keeps a native module's data per process (X50), so a relaunched agent app starts empty; a normal-launch relaunch needs another session (coordinator) |
+| Cached detail | pass (unit; agent relaunch with the kept file); normal relaunch deferred to the real-input batch — screen locked (user away) | unit "a relaunch shows the kept detail first…"; agent relaunch given the previous session's `t3-code.json` (X50: agent mode keeps module data per process), the lane gh slowed 8 s for detail reads: 57 ms after the press the panel read back #115's kept title and header with the conversation ghost, and the first `pullRequests.detail` reached the server 43 ms later ([15](https://raw.githubusercontent.com/ccheever/exact2/b9cf470c96bd6bb1769cacc19dab3d0010b6ed97/pr-conversation-and-refresh/15-agent-relaunch-cached.png), [record](https://raw.githubusercontent.com/ccheever/exact2/f09126670abd8e9327a38d384f5c7c58a7dbe3b3/pr-conversation-and-refresh/agent-standins-record.txt)) | the normal-launch relaunch: real-input batch (steps below) |
 | Trace parity | not run | server trace RPC counts per session in the record | user decision 2026-10-06: the trace tools are not built |
 | Ported tests | pass | `pages-pr-logic.test.ts` (52): "pull request activity refresh", "review thread comment pages", "ordering comments", "review verdicts", "pull request timeline", "cached pull request detail", "what to say when an action fails", shouldLiveRefresh/shouldRefreshOnArrival/shouldRefreshOnInterval, "waits five minutes between automatic host reads"; React-hook-only "live refresh cadence" timers and "keeps an idle view paused after %s until input" are n/a-ui (header) | — |
-| Keyboard and a11y | partial | live: `aria-expanded` on section, group and card toggles (driven), Retry and the order toggles named; reviewer faces named "<login>, <outcome>" | Tab traversal and the focus ring need real keys (one more real-input session) |
-| Reduced motion | not verified live | the chevrons' `transition` is `none` and the ghosts' pulse off when `still` | one more session (`prefer prefers-reduced-motion reduce`) |
-| (attended session) | not run | — | one more real-input session (tooltips with a real pointer, collapse mid-scroll) |
+| Keyboard and a11y | partial; real keys deferred to the real-input batch — screen locked (user away) | agent keys: Tab from the Comments heading went to the order toggle, then each comment's time link in turn ([record](https://raw.githubusercontent.com/ccheever/exact2/f09126670abd8e9327a38d384f5c7c58a7dbe3b3/pr-conversation-and-refresh/agent-standins-record.txt)); `aria-expanded` on section, group and card toggles (driven); Retry and the order toggles named; reviewer faces named "<login>, <outcome>" | real Tab, Space/Return and the visible focus ring: real-input batch (steps below) |
+| Reduced motion | pass (agent `prefer`); live deferred to the real-input batch — screen locked (user away) | [16](https://raw.githubusercontent.com/ccheever/exact2/b9cf470c96bd6bb1769cacc19dab3d0010b6ed97/pr-conversation-and-refresh/16-agent-reduced-motion.png): with no preference the Checks chevron is mid-turn at +50 ms; with `reduce` it has turned at +0 ms. The app reads only the system setting (`DisplayPreferences.reducedMotion` = `NSWorkspace.accessibilityDisplayShouldReduceMotion`; T3 Code has no in-app override; Exact's `prefer` is agent-only) | a live check needs System Settings › Reduce motion, which the agent must not change: real-input batch, with the user's permission (steps below) |
+| (attended session) | partial (agent pointer); real pointer deferred to the real-input batch — screen locked (user away) | [13](https://raw.githubusercontent.com/ccheever/exact2/b9cf470c96bd6bb1769cacc19dab3d0010b6ed97/pr-conversation-and-refresh/13-agent-tooltips.png): an agent hover shows "daehyeonmun2021 — Changes requested" on the reviewer face and "Approved earlier changes" on #144's stale verdict, but the Labels row painted over the reviewer's tooltip (z-index orders siblings); fixed by raising the Summary's top column and Reviewers row, [17](https://raw.githubusercontent.com/ccheever/exact2/f09126670abd8e9327a38d384f5c7c58a7dbe3b3/pr-conversation-and-refresh/17-reviewer-tooltip-paint-order.png) before/after; [14](https://raw.githubusercontent.com/ccheever/exact2/b9cf470c96bd6bb1769cacc19dab3d0010b6ed97/pr-conversation-and-refresh/14-agent-collapse-mid-scroll.png): an agent wheel pins the Comments heading at the top of the scroll box (y 52); pressed, it collapses and, the page now shorter than the window, the box returns to the top (the heading at y 433), as the reference does with nothing below | real trackpad hover and wheel: real-input batch (steps below) |
 | Gates | see the PR | numbers in the PR body | — |
 
 **Live drive** (agent mode, 1280×840 then 840×620, the branch's development build paired with the primary lane server on
@@ -211,12 +216,61 @@ The same steps on the base build (`da4f4512f`) give the before images.
 `T3ActivityReporter.lastInteractionAt`); client-activity-reporting has merged, so the rule is kept, and it stands aside where
 the window's time is not an instant (agent mode without an epoch). Provisional, user decision pending: none.
 
+## Real-input batch steps
+
+Deferred rows (screen locked while the user is away, 2026-10-08): the cached details after a normal relaunch, real Tab and
+the focus ring, reduced motion live, real-pointer tooltips, collapse mid-scroll. One session for all of them:
+
+1. Worktree `t3-code-pr-conversation-and-refresh` at the PR head. `export PATH="$HOME/.bun-1.4.2/bin:$PATH"
+   EXACT_APP_DIR="$PWD/examples/t3-code"`; `bun examples/t3-code/stage-runtime.mjs` if `server-runtime/*.tar.gz` is missing;
+   `bun host/apple/build.mjs t3-code-macos --bundle`.
+2. Lane server: `cd examples/t3-code/tools/github-lane`, `export T3_GITHUB_LANE_SHARED=/Users/daehyeonmun/orca/workspaces/exact2/t3-code/target/t3-ui-parity/github-lane`,
+   `bun lane.mjs start primary --port 16720`, `bun lane.mjs project primary`, `bun lane.mjs pair primary` (writes the
+   single-use URL to `target/github-lane/servers/primary/pairing-url`, 0600; never print it).
+3. Lane copy: copy `target/clients/d3bd09d90e4cd670f6dbeb6f/com.exact.t3code.macos/macos/T3 Code (Exact).app` to
+   `target/github-lane/realinput/T3 Code (Lane PRC).app`; with PlistBuddy set `CFBundleIdentifier` to
+   `com.exact.t3code.laneprc` and `CFBundleName`/`CFBundleDisplayName` to `T3 Code (Lane PRC)`; `codesign --force --deep
+   --sign <the Apple Development identity build.mjs signs with>`. Take the shared real-input lock (owner
+   "pr-conversation-and-refresh: real-input batch"). Launch by path:
+   `CFFIXED_USER_HOME=$PWD/target/github-lane/realinput/home "<copy>/Contents/MacOS/T3 Code (Exact)" &`; record the pid;
+   the window id from `orca computer list-windows --app pid:<pid> --json`.
+4. Pair: the welcome wizard's Pairing link field by `set-value --value-stdin` from the `pairing-url` file, click Pair, then
+   Continue through the wizard. Open Pull Requests (sidebar), put `#115` in the search with `set-value`, click the row.
+5. **Collapse mid-scroll** (#115 Summary): `orca computer scroll` down over the panel until the Comments heading is pinned at
+   the panel's top with comments under it; click that heading. Read back: before, the heading at the scroll box's top;
+   after, collapsed. With #115 the collapsed page is shorter than the window, so the box returns to the top (the
+   reference does the same); the anchor case needs a section with content after it at least a window tall.
+6. **Real-pointer tooltips**: click the reviewer face beside Reviewers (not a link): after 1 s, "daehyeonmun2021 — Changes
+   requested". Click a location line (`src/validate.js:11`, not a link): the path's tooltip. Open #144 (search `#144`),
+   Timeline, click the grey "approved" word: "Approved earlier changes". Do not click a comment's time: it is a link to
+   GitHub and opens the browser.
+7. **Tab and the focus ring**: click the Summary tab, then `press-key Tab` repeatedly with a window screenshot after each:
+   a visible ring moves through the Timeline tab, the Description, Checks and Comments headings, "Newest first", "Show 5
+   older comments", the comment time links. Space on a heading flips it (collapses the section); Space on "Newest first"
+   flips the label to "Oldest first". Do not press Return on a time link.
+8. **Reduced motion** (only with the user's permission, since it is a system setting the app reads with no in-app
+   override): turn System Settings › Accessibility › Display › Reduce motion on, click the Checks heading (the chevron
+   turns at once), turn it off again. Without permission the row stays verified by agent `prefer` (image 16).
+9. **Cached details after a normal relaunch**: check that `target/github-lane/realinput/home/Library/Application Support/exact/com.exact.t3code.laneprc/data/t3-code.json`
+   has `prDetailSnapshots` with the `#115` key. Quit the copy (`osascript -e 'tell application id "com.exact.t3code.laneprc"
+   to quit'`), wait 20 s (the server's detail cache), slow the lane gh by adding
+   `case " $* " in *" pr view "*|*" -F number="*) sleep 8;; esac` before the token check in
+   `target/github-lane/bin/primary/gh`, and launch the copy the same way (it reconnects from Keychain). Pull Requests,
+   `#115`, click the row and screenshot within 1 s: the kept title and header with the conversation ghost. Read back the
+   first `ws.rpc.pullRequests.detail` `startTimeUnixNano` after the click in
+   `target/github-lane/servers/primary/t3home/userdata/logs/server.trace.ndjson`, and `target/github-lane/logs/gh-calls.tsv`:
+   both later than the screenshot. After 10 s the live detail. Restore the wrapper with `bun lane.mjs setup`.
+10. Cleanup: quit the copy; `bun lane.mjs stop primary`; delete the copy's Keychain item
+    (`security delete-generic-password -s com.exact.t3code.macos.access-token -a "$(printf 'http://127.0.0.1:16720\n%s' "$(cat target/github-lane/servers/primary/t3home/userdata/environment-id)")"`);
+    remove `target/github-lane/realinput`; release the lock.
+
 ## Progress
 
 2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold. Rows that need a real account are signed in by the user in person on the lane build; every other sign-in row uses lane fixtures.
 
 2026-10-08: implemented on `feat(example)/t3-code-pr-conversation-and-refresh`; unit tests, one live drive and one retry
-on the real-GitHub lane; draft PR #247.
+on the real-GitHub lane; draft PR #247. Later: the coordinator approved one normal-launch real-input session, but the
+screen was locked (user away); the rows ran in agent mode and the real-input versions wait for the batch (steps above).
 
 ## Attempts and evidence
 
@@ -225,7 +279,9 @@ on the real-GitHub lane; draft PR #247.
 | 1 (live drive) | WIP `0d583f1b3` | loading, Summary, Timeline, stale verdict pass; the server-announced refresh read nothing (stream baseline bug); Checks unreachable (stacked sticky headings) | [record](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/live-drive-record.txt) (attempt 1) | fixed in attempt 2 |
 | 2 (retry + relaunch) | `e991c4b84` | every scripted step passes; the refresh read once and showed the comment; the relaunch showed the list-seeded ghost, not the kept detail (agent-mode data per process) | images 01–12, [record](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/live-drive-record.txt), [replay](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/relaunch-replay.txt), [tests](https://raw.githubusercontent.com/ccheever/exact2/79ccaff3bb25bfb4b936b8d1a6f0faa7e9941b5b/pr-conversation-and-refresh/tests-before-after.txt) | X50 for a live relaunch; real-input rows |
 
+| 3 (agent stand-ins, screen locked) | `e991c4b84` + the collapse anchor; the tooltip fix | agent hover tooltips, agent wheel collapse, agent Tab order, `prefer` reduced motion, agent relaunch given the kept file: pass. The hover shot showed the Labels row over the reviewer's tooltip: fixed (Reviewers row raised) and re-driven, image 17. Attempt 1 of this drive stopped at an unsupported key name (`Return`, fixed to `Enter`); a stepped clock replaced the film (empty frames) | images 13–17, [record](https://raw.githubusercontent.com/ccheever/exact2/f09126670abd8e9327a38d384f5c7c58a7dbe3b3/pr-conversation-and-refresh/agent-standins-record.txt) | real-input batch (steps above) |
+
 ## Next action
 
-Review. Owed: a normal-launch relaunch for the cached detail, real keys for Tab and the focus ring, a reduced-motion look,
-and the attended pointer row (one more session, coordinator's call); the oracle and trace rows wait on the user decision.
+Review. Owed: the real-input batch (steps above: normal relaunch, real Tab and focus ring, reduced motion with the user's
+permission, real-pointer tooltips, collapse mid-scroll); the oracle and trace rows wait on the user decision.

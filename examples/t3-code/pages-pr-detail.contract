@@ -140,7 +140,7 @@ component PrPanel
         row height="1.5rem" padding-left="0.375rem" padding-right="0.5rem" box-sizing="border-box" gap="0.125rem" border-radius="0.5rem" background-color="light-dark(#27272a0d, #ffffff0a)" align-items="center" role="tab" aria-selected=true testId="pull-request-tab"
           PrTabClose(detail=detail, close=close)
           text detail.numberLabel font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap"
-      PrdBody(detail=detail, documents=documents, scheme=scheme, tab=tab, setTab=setTab, reload=reload, act=act, copy=copy, local=local, still=still)
+      PrdBody(detail=detail, documents=documents, scheme=scheme, tab=tab, setTab=setTab, reload=reload, act=act, copy=copy, local=local, still=still, scrollId="pr-page-scroll")
 
 // The panel's body, shared with the thread's pull request surface (r5-panels.contract): the
 // ghost while the detail is out, the unavailable state, or the header, the tab bar and both tabs.
@@ -159,16 +159,27 @@ component PrdBody
     copy: action
     local: action
     still: bool
+    scrollId: string
   state timelineOrder = "newest"
+  // The body's scroll offset, and an offset to move it to (a section collapsing under a pinned heading).
+  state bodyTop = 0
+  state anchored = 0
+  state anchorSerial = 0
   action flipTimeline
     timelineOrder = timelineOrder == "newest" ? "oldest" : "newest"
+  action bodyScrolled(x: number, y: number)
+    bodyTop = y
+  action anchorTo(y: number)
+    anchored = y
+    anchorSerial = anchorSerial + 1
   view
     when detail.phase == "ghost"
       PrdGhost(ghost=detail.ghost, number=detail.number, checkout=detail.checkoutCommand, tab=tab, still=still)
     when detail.phase == "error"
       PrUnavailable(detail=detail, reload=reload)
     when detail.phase == "content"
-      scroll flex=1 min-height=0 width="100%" testId="pull-request-scroll"
+      // A repeated anchor to the same offset still moves the box (the serial's sub-pixel nudge).
+      scroll id=scrollId scroll=bodyScrolled scrollTop=(anchored + (anchorSerial % 2) * 0.01) flex=1 min-height=0 width="100%" testId="pull-request-scroll"
         column width="100%" padding-bottom="4rem" box-sizing="border-box"
           PrdHeader(detail=detail, scheme=scheme, reload=reload, act=act, copy=copy, local=local)
           row width="100%" padding-left="1rem" padding-right="1rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-top-width=1 border-bottom-width=1 border-top-style="solid" border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" align-items="center" gap="0.5rem" role="navigation" aria-label="Pull request tabs"
@@ -185,7 +196,7 @@ component PrdBody
               PrdTimelineBar(timeline=detail.timeline, dim=(detail.activityPending or detail.activityError != ""), order=timelineOrder, flip=flipTimeline)
           each prKey in [detail.summary.key] key=prKey
             column width="100%" display=(tab != "timeline" ? "flex" : "none") role="tabpanel" aria-label="Summary"
-              PrdSummary(summary=detail.summary, labels=detail.labels, hasBody=detail.hasBody, bodyId=detail.bodyId, documents=documents, code=detail.code, env=detail.md, still=still, local=local, refresh=reload, retry=act("activity-retry", "summary"))
+              PrdSummary(summary=detail.summary, labels=detail.labels, hasBody=detail.hasBody, bodyId=detail.bodyId, documents=documents, code=detail.code, env=detail.md, still=still, local=local, refresh=reload, retry=act("activity-retry", "summary"), scrollId=scrollId, scrollTop=bodyTop, anchor=anchorTo)
             column width="100%" display=(tab == "timeline" ? "flex" : "none") role="tabpanel" aria-label="Timeline"
               PrdTimeline(timeline=detail.timeline, order=timelineOrder, pending=detail.activityPending, error=detail.activityError, documents=documents, code=detail.code, env=detail.md, still=still, local=local, retry=act("activity-retry", "timeline"))
 
