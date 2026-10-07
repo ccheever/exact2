@@ -140,7 +140,7 @@ pub fn fast_thread(tid: i32, fast: bool) -> bool {
                 libc::CPU_SET(cpu, &mut mask);
             }
         } else {
-            for cpu in 0..libc::CPU_SETSIZE as usize {
+            for cpu in 0..libc::CPU_SETSIZE {
                 libc::CPU_SET(cpu, &mut mask);
             }
         }
