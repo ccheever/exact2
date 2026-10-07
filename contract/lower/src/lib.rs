@@ -42,6 +42,7 @@ mod sites;
 mod sounds;
 mod stmts;
 mod strings;
+pub mod style_names;
 mod svg;
 pub mod tags;
 mod timers;

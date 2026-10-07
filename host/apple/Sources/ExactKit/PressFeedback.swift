@@ -1,6 +1,6 @@
 // Press feedback (LLP 1061 D2): while a finger (a mouse button on macOS)
 // holds a pressable node down inside its box, the node shows its
-// `press-scale`, eased in over 120 ms and eased back on release or cancel.
+// `-exact-press-scale`, eased in over 120 ms and eased back on release or cancel.
 // The host owns it end to end — touch-down to the first scaled frame never
 // waits for the runner — and it composes with the motion engine by folding
 // into the one transform every writer goes through (`applyTransform`): an

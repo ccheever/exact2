@@ -54,7 +54,11 @@ enum Codec {
     Placement,
     Transitions,
     Animations,
-    CssValue { path: &'static str, variant: &'static str, error: &'static str },
+    CssValue {
+        path: &'static str,
+        variant: &'static str,
+        error: &'static str,
+    },
     Enum(String),
 }
 fn parse_codec(s: &str) -> Codec {
@@ -77,32 +81,116 @@ fn parse_codec(s: &str) -> Codec {
         "transitions" => Codec::Transitions,
         "animations" => Codec::Animations,
         // @ref LLP 1055 D2 — SVG paint and dash lists travel as their CSS text.
-        "paint" => Codec::CssValue { path: "crate::svg::Paint", variant: "Paint", error: "BadPaint" },
-        "dasharray" => Codec::CssValue { path: "crate::svg::DashArray", variant: "DashArray", error: "BadDashArray" },
+        "paint" => Codec::CssValue {
+            path: "crate::svg::Paint",
+            variant: "Paint",
+            error: "BadPaint",
+        },
+        "dasharray" => Codec::CssValue {
+            path: "crate::svg::DashArray",
+            variant: "DashArray",
+            error: "BadDashArray",
+        },
         // @ref LLP 1055.000 D5 — CSS transforms on SVG elements, as CSS text.
-        "transform" => Codec::CssValue { path: "crate::svg::TransformList", variant: "Transform", error: "BadTransform" },
-        "transform-origin" => Codec::CssValue { path: "crate::svg::TransformOrigin", variant: "TransformOrigin", error: "BadTransformOrigin" },
-        "paint-order" => Codec::CssValue { path: "crate::svg::PaintOrder", variant: "PaintOrder", error: "BadPaintOrder" },
-        "marker" => Codec::CssValue { path: "crate::svg::MarkerRef", variant: "Marker", error: "BadMarker" },
-        "filter" => Codec::CssValue { path: "crate::svg::filter::FilterList", variant: "Filter", error: "BadFilter" },
+        "transform" => Codec::CssValue {
+            path: "crate::svg::TransformList",
+            variant: "Transform",
+            error: "BadTransform",
+        },
+        "transform-origin" => Codec::CssValue {
+            path: "crate::svg::TransformOrigin",
+            variant: "TransformOrigin",
+            error: "BadTransformOrigin",
+        },
+        "paint-order" => Codec::CssValue {
+            path: "crate::svg::PaintOrder",
+            variant: "PaintOrder",
+            error: "BadPaintOrder",
+        },
+        "marker" => Codec::CssValue {
+            path: "crate::svg::MarkerRef",
+            variant: "Marker",
+            error: "BadMarker",
+        },
+        "filter" => Codec::CssValue {
+            path: "crate::svg::filter::FilterList",
+            variant: "Filter",
+            error: "BadFilter",
+        },
         // @ref LLP 1043.000 §3 D1 — one parse/css/default codec for both shapes.
-        "clip-path" => Codec::CssValue { path: "crate::clip::ClipPath", variant: "ClipPath", error: "BadClipPath" },
-        "aspect-ratio" => Codec::CssValue { path: "crate::ratio::AspectRatio", variant: "AspectRatio", error: "BadAspectRatio" },
-        "shape-outside" => Codec::CssValue { path: "exact_textflow::ShapeOutside", variant: "ShapeOutside", error: "BadShapeOutside" },
+        "clip-path" => Codec::CssValue {
+            path: "crate::clip::ClipPath",
+            variant: "ClipPath",
+            error: "BadClipPath",
+        },
+        "aspect-ratio" => Codec::CssValue {
+            path: "crate::ratio::AspectRatio",
+            variant: "AspectRatio",
+            error: "BadAspectRatio",
+        },
+        "shape-outside" => Codec::CssValue {
+            path: "exact_textflow::ShapeOutside",
+            variant: "ShapeOutside",
+            error: "BadShapeOutside",
+        },
         // @ref LLP 1066 D1
-        "background-image" => Codec::CssValue { path: "crate::gradient::BackgroundImage", variant: "BackgroundImage", error: "BadBackgroundImage" },
+        "background-image" => Codec::CssValue {
+            path: "crate::gradient::BackgroundImage",
+            variant: "BackgroundImage",
+            error: "BadBackgroundImage",
+        },
         // @ref LLP 1077 D1–D4
-        "symbol-palette" => Codec::CssValue { path: "crate::style::symbols::SymbolPalette", variant: "SymbolPalette", error: "BadSymbolPalette" },
-        "rotate-axis" => Codec::CssValue { path: "crate::style::space::RotateAxis", variant: "RotateAxis", error: "BadRotateAxis" },
-        "box-shadow" => Codec::CssValue { path: "crate::style::BoxShadows", variant: "BoxShadow", error: "BadBoxShadow" },
-        "text-shadow" => Codec::CssValue { path: "crate::style::TextShadow", variant: "TextShadow", error: "BadTextShadow" },
-        "mask-image" => Codec::CssValue { path: "crate::gradient::BackgroundImage", variant: "MaskImage", error: "BadMaskImage" },
-        "corner-shape" => Codec::CssValue { path: "crate::corner::CornerShape", variant: "CornerShape", error: "BadCornerShape" },
+        "symbol-palette" => Codec::CssValue {
+            path: "crate::style::symbols::SymbolPalette",
+            variant: "SymbolPalette",
+            error: "BadSymbolPalette",
+        },
+        "rotate-axis" => Codec::CssValue {
+            path: "crate::style::space::RotateAxis",
+            variant: "RotateAxis",
+            error: "BadRotateAxis",
+        },
+        "box-shadow" => Codec::CssValue {
+            path: "crate::style::BoxShadows",
+            variant: "BoxShadow",
+            error: "BadBoxShadow",
+        },
+        "text-shadow" => Codec::CssValue {
+            path: "crate::style::TextShadow",
+            variant: "TextShadow",
+            error: "BadTextShadow",
+        },
+        "mask-image" => Codec::CssValue {
+            path: "crate::gradient::BackgroundImage",
+            variant: "MaskImage",
+            error: "BadMaskImage",
+        },
+        "corner-shape" => Codec::CssValue {
+            path: "crate::corner::CornerShape",
+            variant: "CornerShape",
+            error: "BadCornerShape",
+        },
         // @ref LLP 1057.003 D1 — drag timelines, CSS scroll-timeline's shape.
-        "drag-timeline" => Codec::CssValue { path: "crate::timeline::DragTimeline", variant: "DragTimeline", error: "BadDragTimeline" },
-        "animation-timeline" => Codec::CssValue { path: "crate::timeline::AnimationTimeline", variant: "AnimationTimeline", error: "BadAnimationTimeline" },
-        "animation-range" => Codec::CssValue { path: "crate::timeline::AnimationRange", variant: "AnimationRange", error: "BadAnimationRange" },
-        "timeline-scope" => Codec::CssValue { path: "crate::timeline::TimelineScope", variant: "TimelineScope", error: "BadTimelineScope" },
+        "drag-timeline" => Codec::CssValue {
+            path: "crate::timeline::DragTimeline",
+            variant: "DragTimeline",
+            error: "BadDragTimeline",
+        },
+        "animation-timeline" => Codec::CssValue {
+            path: "crate::timeline::AnimationTimeline",
+            variant: "AnimationTimeline",
+            error: "BadAnimationTimeline",
+        },
+        "animation-range" => Codec::CssValue {
+            path: "crate::timeline::AnimationRange",
+            variant: "AnimationRange",
+            error: "BadAnimationRange",
+        },
+        "timeline-scope" => Codec::CssValue {
+            path: "crate::timeline::TimelineScope",
+            variant: "TimelineScope",
+            error: "BadTimelineScope",
+        },
         other => match other.strip_prefix("enum:") {
             Some(name) => Codec::Enum(name.to_string()),
             None => panic!("schema: unknown codec `{other}`"),
@@ -225,7 +313,9 @@ impl Codec {
                 "GridTracks::default()".into()
             }
             // Paint's initial value differs by row: `fill` black, `stroke` none.
-            Codec::CssValue { variant: "Paint", .. } => match value.as_str() {
+            Codec::CssValue {
+                variant: "Paint", ..
+            } => match value.as_str() {
                 Some("black") => "crate::svg::Paint::BLACK".into(),
                 Some("none") => "crate::svg::Paint::None".into(),
                 Some("white") => "crate::svg::Paint::WHITE".into(),
@@ -305,7 +395,9 @@ impl Codec {
             Codec::Animations => format!("w.animations(&{access});"),
             // @ref LLP 1095 D1 — a colour-carrying value keeps its references.
             Codec::CssValue {
-                variant: "Paint" | "Filter" | "BackgroundImage" | "MaskImage" | "BoxShadow" | "TextShadow" | "SymbolPalette",
+                variant:
+                    "Paint" | "Filter" | "BackgroundImage" | "MaskImage" | "BoxShadow" | "TextShadow"
+                    | "SymbolPalette",
                 ..
             } => format!("w.string(&{access}.wire());"),
             Codec::CssValue { .. } => format!("w.string(&{access}.css());"),
@@ -355,7 +447,12 @@ const KEYWORD_BITS: &str = r#"    /// A space-separated keyword list as a row's 
 /// node follows the system's appearance and contrast.
 /// A row's initial value as Rust. @ref LLP 1095 stage 2 — a colour default
 /// may name a role.
-fn default_of(codec: &Codec, default: &serde_json::Value, field: &str, colors: &[[String; 6]]) -> String {
+fn default_of(
+    codec: &Codec,
+    default: &serde_json::Value,
+    field: &str,
+    colors: &[[String; 6]],
+) -> String {
     match (codec, default.as_str()) {
         (Codec::ColorValue, Some(name)) => role_default(colors, name, field),
         (Codec::KeywordColor(keyword), Some(name)) if name != *keyword => {
@@ -382,7 +479,7 @@ pub fn write_color_roles(w: &mut String, colors: &[[String; 6]], rgba: impl Fn(&
         "/// and the light and dark fallback every host without one shows.\n",
         "#[derive(Debug, Clone, Copy, PartialEq, Eq)]\n",
         "pub struct ColorRole {\n",
-        "    /// The keyword: CSS's spelling for a system colour, else Exact's.\n    pub name: &'static str,\n",
+        "    /// The role's name: CSS's spelling for a system colour, which is how\n    /// it is written; else Exact's role, written `-exact-<name>` (LLP 1081\n    /// D2) and carried as `var(--exact-<name>, …)` on the web.\n    pub name: &'static str,\n",
         "    /// WebKit's `-apple-system-*` name this role answers to, or empty.\n    pub alias: &'static str,\n",
         "    /// `UIColor`'s class property.\n    pub ios: &'static str,\n",
         "    /// `NSColor`'s class property.\n    pub macos: &'static str,\n",

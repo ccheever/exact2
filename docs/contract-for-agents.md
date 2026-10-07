@@ -1142,8 +1142,8 @@ in the viewer's zone, format it in TypeScript with
 `new Intl.DateTimeFormat(time.locale, { timeZone: time.timeZone })`.
 
 Use admitted CSS transitions and keyframes. Check which properties animate and
-which require optional capabilities. `spring(…)` (a `transition` timing
-function), `exit-animation`, `layout-transition`, and presentation timelines have
+which require optional capabilities. `-exact-spring(…)` (a `transition` timing
+function), `-exact-exit-animation`, `-exact-layout-transition`, and presentation timelines have
 specific documented behavior;
 they do not admit arbitrary frame callbacks or a second app-state graph.
 
@@ -1205,9 +1205,9 @@ and `inert`; any other known name (`color`, `value`, `command`, `href`) is refus
 so give the module prop another name. Do not
 turn a missing widget or canvas operation into invented Contract syntax.
 
-Haptics are already there (LLP 1077 D14). `press-haptic` (`selection`,
+Haptics are already there (LLP 1077 D14). `-exact-press-haptic` (`selection`,
 `impact-light|medium|heavy|soft|rigid`) plays at touch-down without a round
-trip, as `press-scale` does. `haptic("selection" | "impact-…" | "success" |
+trip, as `-exact-press-scale` does. `haptic("selection" | "impact-…" | "success" |
 "warning" | "error")` is a host command an action runs, for example when a
 drag crosses a threshold. iOS uses the feedback generators; the web vibrates
 where it can; Linux does nothing.
@@ -1561,10 +1561,10 @@ keyframes interpolate the two parts as CSS does a `calc()`. `calc()` itself is
 refused.
 
 Transitions animate translate/scale/rotate/opacity, box paint (color,
-background-color, border colors, tint-color, box-shadow), SVG paint/geometry
+background-color, border colors, -exact-tint-color, box-shadow), SVG paint/geometry
 and the admitted numeric height path. `width` and other general layout
 properties cannot interpolate yet: native layout is not run per frame.
-The diagnostic names this engine limit; `layout-transition` animates a
+The diagnostic names this engine limit; `-exact-layout-transition` animates a
 change in the laid-out box using the existing measured projection.
 
 `cursor` takes CSS cursor keywords (`pointer`, `grab`, `grabbing`, etc.) and
@@ -1652,7 +1652,7 @@ status bar: of what the bar sits over, the declaration painted on top wins, and
 a flip shows in its own batch's frame; `status-bar-animation="fade"` fades it
 (LLP 1105). Other hosts ignore both.
 `currentcolor` takes the node's `color` on borders, `background-color`,
-`tint-color`, text stroke and SVG paint. `unset` clears any row, and `inherit`
+`-exact-tint-color`, text stroke and SVG paint. `unset` clears any row, and `inherit`
 an inherited one (`color`, fonts, `fill`…); `inherit` on a row CSS does not
 inherit is refused. `order` places flex and grid items. An image's accessible
 name is `alt` or `aria-label`; `enterkeyhint` labels a soft keyboard's enter

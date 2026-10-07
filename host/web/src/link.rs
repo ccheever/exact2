@@ -106,7 +106,7 @@ pub type Materials = (fn(&mut String, &str), fn(&str) -> Option<String>);
 pub struct AnimationsLink {
     /// Link the grammars.
     pub grammars: fn(),
-    /// A node's `animation` (or `exit-animation`) list as CSS.
+    /// A node's `animation` (or `-exact-exit-animation`) list as CSS.
     pub list: fn(&exact_motion::animation::Animations, bool) -> String,
     /// The name of the rule an entry plays.
     pub name: fn(&exact_motion::animation::Animation, bool) -> String,

@@ -28,7 +28,7 @@ fn motion_is_a_spring_or_a_gesture_that_holds_a_value() {
         used("component A\n  view\n    text \"a\" opacity=0.5 transition=\"opacity 200ms ease\"\n");
     assert_eq!(css, Uses::NONE, "CSS plays an easing transition");
     let spring = used(
-        "component A\n  view\n    text \"a\" scale=1.5 transition=\"scale spring(180, 12, 1)\"\n",
+        "component A\n  view\n    text \"a\" scale=1.5 transition=\"scale -exact-spring(180, 12, 1)\"\n",
     );
     assert!(spring.has(Capability::Motion));
     let swipe = used(
@@ -149,7 +149,7 @@ fn drag_timelines_are_linked_by_use() {
     // @ref LLP 1057.003 — the web core carries their grammar only when a plan sets a row.
     assert!(!used("component A\n  view\n    text \"a\"\n").has(Capability::Timelines));
     for row in [
-        "drag-timeline=\"--dismiss\"",
+        "-exact-drag-timeline=\"--dismiss\"",
         "animation-timeline=\"--dismiss\"",
         "animation-range=\"0px 300px\"",
         "timeline-scope=\"--dismiss\"",
@@ -196,7 +196,8 @@ fn css_animations_are_linked_by_use() {
     )
     .has(Capability::Animations));
     assert!(
-        used("component A\n  view\n    box exit-animation=\"none\"\n").has(Capability::Animations)
+        used("component A\n  view\n    box -exact-exit-animation=\"none\"\n")
+            .has(Capability::Animations)
     );
 }
 

@@ -143,7 +143,7 @@ lacks — the line it has for that file, extended, or a new one — and `contrac
 fmt --uses <root.contract>` writes them (`bun exact.mjs update` does too, for an
 app outside this repo). A name two files declare, or one the compiler gave on a
 collision (`Card__ui`), is left to the author and said. The keyframes an `animation`, `animation-name` or
-`exit-animation` literal names, and a `clock(Name)` literal, resolve in the
+`-exact-exit-animation` literal names, and a `-exact-clock(Name)` literal, resolve in the
 file that writes them; a name computed at run time is matched as written. Beside
 a computed value, a word is renamed when it is the name whatever the value is;
 one that is the name for some values and a keyword for others (`${x} linear

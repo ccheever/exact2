@@ -99,7 +99,10 @@ fn a_box_that_grows_grows_under_its_layout_transition() {
 fn a_spring_layout_rests_in_points_on_every_axis() {
     let mut engine = Engine::new();
     engine
-        .set_layout_transition(NODE, &Transitions::parse("spring(300, 30, 1)").unwrap())
+        .set_layout_transition(
+            NODE,
+            &Transitions::parse("-exact-spring(300, 30, 1)").unwrap(),
+        )
         .unwrap();
     sized(&mut engine, NODE, 0.0, 0.0, 100.0, 40.0);
     sized(&mut engine, NODE, 0.0, 300.0, 100.0, 41.0);

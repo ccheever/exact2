@@ -792,7 +792,7 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
                 n("margin-left", -40.0, at),
                 n("margin-right", 8.0, at),
                 n("flex-shrink", 0.0, at),
-                attr("tint-color", tint(ACCENT), at),
+                attr("-exact-tint-color", tint(ACCENT), at),
             ],
         ),
         ("image", Some(name)) if i == last && accessory(name).is_some() => {
@@ -805,7 +805,11 @@ fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
                     s("object-fit", "contain", at),
                     n("font-weight", 600.0, at),
                     n("flex-shrink", 0.0, at),
-                    s("tint-color", if check { ACCENT } else { TERTIARY }, at),
+                    s(
+                        "-exact-tint-color",
+                        if check { ACCENT } else { TERTIARY },
+                        at,
+                    ),
                 ],
             )
         }
