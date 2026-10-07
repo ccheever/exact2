@@ -31,8 +31,9 @@ enum T3FileEditor {
     /// f870c41 oracle with @pierre/diffs 1.3.0-beta.10: a click below the last line focuses the
     /// contenteditable with the caret at the end of the last line, whatever the click's x; a click on
     /// a line puts the caret under it). A real press's point is kept (`watchPresses`): below the
-    /// text the caret goes to the end, on a line to the character under it; an agent's tap carries
-    /// no AppKit event, so its caret goes to the end.
+    /// text the caret goes to the end, on a line to the character under it; an agent's plain tap
+    /// carries no AppKit event, so its caret goes to the end (`tap … mouse at x y` is a real press
+    /// the monitor sees since exact2 #186).
     static func focusFileEditor(_ element: ExactElement, _ view: NSTextView, attempts: Int = 20) {
         DispatchQueue.main.async { [weak element, weak view] in
             guard let element, element.isLive, let view else { return }
@@ -62,7 +63,7 @@ enum T3FileEditor {
         return min(end, view.characterIndexForInsertion(at: local))
     }
 
-    /// The last real left press (an AppKit event; the agent's taps have none) in a window.
+    /// The last real left press (an AppKit event; an agent's plain tap has none) in a window.
     private static var press: (window: NSWindow, point: NSPoint, at: TimeInterval)?
     private static var pressMonitor: Any?
     static func watchPresses() {

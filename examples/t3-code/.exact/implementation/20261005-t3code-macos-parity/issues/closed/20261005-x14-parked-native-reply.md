@@ -1,10 +1,10 @@
 ---
 name: 20261005-x14-parked-native-reply
 plan: 20261005-t3code-macos-parity
-status: draft
+status: adopted
 kind: framework-gap
 blocks: [20261005-clone-on-exact2-main, 20261005-managed-codex-chatgpt]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/109
 reproduced_on: null
 ---
 
@@ -90,3 +90,20 @@ To confirm on the pinned `main` at `issue-open` (not run by this plan):
 
 Draft; not reproduced on the pinned `main`; not searched upstream; not published.
 Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval; publication only after approval). `20261005-clone-on-exact2-main` records the reproduction here.
+
+## Resolved upstream and adopted (2026-10-07)
+
+Filed as [#109](https://github.com/ccheever/exact2/issues/109) ("A watched topic that changes faster than native.later replies starves the resource") and fixed by main PR #183, merged into the feature branch with main `cff90b364` by task [20261007-adopt-main-fixes-r3](../../tasks/20261007-adopt-main-fixes-r3.md). Main built the issue's option **B**-like rule (LLP 1016.002 D4): when a watched topic changes while the resource has a request in flight, the runner keeps the request, lets its reply land and show, then asks the resource once more. A re-ask for new arguments or a `refresh` still forgets the old request (LLP 1016 D5), which is this issue's own option A rule for different arguments.
+
+Adopted (the "App adoption" list above):
+
+| Item | Result |
+| --- | --- |
+| `modules/apple/T3ReadGate.swift` and its wiring in `T3Module.swift` (`began`/`sent`/`answered`, the gated `changed`) | removed; every component reports topics to `context.changed` |
+| Reader tags and `readEnd` (`r3-protocol-reader.ts` `beginRead`/`readerSession`, `client.ts` `refresh()`) | removed; `r3-protocol.test.ts` checks the snapshot read sends no reader tag or `readEnd` |
+| Gate cases in `macos/tests/transport/r3.swift` | removed (5 tests); the transport binary passes |
+| RPC trace ids (`traceRpc`, `settleTraces`) | kept: an answer replaced for new arguments still loses its replies, and "Some requests are slow" must not count those |
+| `readDetail` sharing promises (`r6-pr-actions.ts`) | not changed: a cache shared between answers with different arguments would still hang on a forgotten request |
+| `managed-codex-chatgpt` start/take | not changed (optional; that task is on hold) |
+
+Live drive (macOS 1280x840, lane server, five threads created at the server while the app is idle): both builds show all five rows by the first sample after the burst with no request left pending and no "Some requests are slow" toast. The runner's journal shows the change: BEFORE `forget request` 17 times (8 of them the snapshot resource `data`) and no "lands first" line; AFTER 14 lines "changed t3.status: request N (data) lands first, then it is asked again" and 8 `forget request` (3 for `data`, from thread and argument changes). Not run: the 15-turn reply-ownership scenario (no authenticated provider in the lane).

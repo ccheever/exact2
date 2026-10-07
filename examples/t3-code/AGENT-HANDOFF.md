@@ -176,7 +176,9 @@ it lacks), `selectionActions.test.ts` 32 (`resolveSelectionActionPosition` and
 **Left / limits.** X46 (new): the bundle build does not run `terminal-host/build.mjs`; run it
 first. `core.test.ts`'s seven session-buffer tests move to the drawer task with
 `state/terminal.ts`. Mouse, wheel, drag selection, links, right-click, scrollbar drag and
-resize need real input (X8); render pair against the Electron oracle not run (no oracle).
+resize were left to real input (X8); since exact2 #186 the agent can send them (`tap … mouse`,
+`clicks 1-3`, `wheel … at`, `drag … modifiers`), not yet re-driven here; render pair against the
+Electron oracle not run (no oracle).
 
 ## Code colours (shiki-residuals)
 

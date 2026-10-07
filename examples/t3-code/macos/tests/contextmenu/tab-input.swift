@@ -59,6 +59,24 @@ final class TabInputTests: XCTestCase {
         XCTAssertNil(input.handle(mouse(.otherMouseDown)))
         XCTAssertEqual(tabActions.map { $0.0 }, [2])
     }
+    func testMiddleClickClosesTheTabUnderThePointerAmongSeveral() {
+        // A second tab beside the first: a middle click closes the one it is on, not the first
+        // the monitor lists (adopt-main-fixes-r3, found by the agent's `auxclick`, exact2 #186).
+        let row = NSView(frame: NSRect(x: 150, y: 0, width: 100, height: 24))
+        window.contentView!.addSubview(row)
+        install("r12-tab:files", node: 5, view: row)
+        let close = NSButton(frame: NSRect(x: 0, y: 0, width: 16, height: 24))
+        row.addSubview(close)
+        install("tab-close:files", node: 6, view: close)
+        XCTAssertNil(input.handle(mouse(.otherMouseDown, x: 200)))
+        XCTAssertEqual(tabActions.map { $0.0 }, [6])
+        tabActions = []
+        XCTAssertNil(input.handle(mouse(.otherMouseDown, x: 60)))
+        XCTAssertEqual(tabActions.map { $0.0 }, [2])
+        tabActions = []
+        XCTAssertNotNil(input.handle(mouse(.otherMouseDown, x: 145)), "Between the tabs nothing closes.")
+        XCTAssertTrue(tabActions.isEmpty)
+    }
     func testDoubleClickIsLeftToTheTitleButtonsOwnDblclick() {
         // r4-surfaces.contract R4TabChip: the title button's `dblclick` starts rename, so the
         // agent's `tap … dblclick` and a person's reach the same path; the monitor passes it on.
