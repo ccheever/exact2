@@ -3,7 +3,7 @@ name: 20261005-settings-scoped-controls-and-theme-editor
 plan: 20261005-t3code-macos-parity
 implementation: implemented
 verification: unverified
-delivery: pr-open
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-settings-scoped-controls-and-theme-editor

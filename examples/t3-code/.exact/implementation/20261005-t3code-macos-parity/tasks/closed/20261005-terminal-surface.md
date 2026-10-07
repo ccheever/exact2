@@ -1,9 +1,9 @@
 ---
 name: 20261005-terminal-surface
 plan: 20261005-t3code-macos-parity
-implementation: in-progress
+implementation: implemented
 verification: unverified
-delivery: open
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-terminal-surface
@@ -205,3 +205,5 @@ remain separate work. Verification stays unverified for those unmet criteria.
 ## Next action
 
 The user reads the spike verdict and accepts or rejects GO and the S2 budget. On GO, the drawer, layout, integrations and sign-in terminal tasks may start; the attended rows run in a person's session.
+
+2026-10-07 (records sync): merged into `feat(example)/t3-code` by #150 (`404abd3fb`); verification stays as recorded above.

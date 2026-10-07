@@ -1,9 +1,9 @@
 ---
 name: 20261005-terminal-integrations
 plan: 20261005-t3code-macos-parity
-implementation: in-progress
+implementation: implemented
 verification: unverified
-delivery: open
+delivery: merged
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-terminal-drawer
@@ -151,6 +151,8 @@ Development checks: 37 focused Bun tests/106 assertions passed before the added 
 ## Next action
 
 Review the integrated evidence below and the remaining matrix subcases. Browser app-target remains a tracked parity blocker.
+
+2026-10-07 (records sync): merged into `feat(example)/t3-code` by #175 (`1a50d0df3`); verification stays as recorded above.
 
 ## Integrated evidence, 2026-10-07
 
