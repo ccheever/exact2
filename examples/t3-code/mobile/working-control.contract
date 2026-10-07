@@ -87,7 +87,7 @@ component WorkingStatus
   view
     row min-width=0 align-items="center" gap=(data.statusKind == "compacting" ? 5.25 : 7)
       when data.statusSpinning
-        t3-archive-spinner spinner-tint=colors.muted width=20 height=20
+        t3-archive-spinner spinner-tint=colors.iconMuted width=20 height=20
       else when data.reconnect
         view width=7 height=7 border-radius=999 background-color="#fb2c36" flex-shrink=0
       else when data.statusSymbol != ""
