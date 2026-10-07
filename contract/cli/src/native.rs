@@ -87,6 +87,39 @@ pub fn hatch_rows(manifest: &Manifest) -> Result<Vec<(String, u16)>, String> {
     Ok(rows)
 }
 
+/// What an app's Linux crate adds to its generated entry for its hatches,
+/// and the host call its `main` makes (LLP 1075.003.000.001 §5): the text of
+/// [`rust_hatches`] and `run_with_hatches`, or nothing and plain `run` when
+/// the app has no hatch files. The platform is the build target's own, so
+/// an Android or Windows build of the crate handles that platform's words.
+pub fn rust_hatch_entry(
+    app_root: &Path,
+    manifest: &Manifest,
+    target: &str,
+) -> Result<(String, &'static str), String> {
+    let platform = if target.contains("android") {
+        "android"
+    } else if target.contains("windows") {
+        "windows"
+    } else {
+        "linux"
+    };
+    Ok(match rust_hatches(app_root, manifest, platform)? {
+        Some(text) => (
+            text,
+            "run_with_hatches::<AppData, hatches::ExactHatches>(PLAN, COMPAT, HatchKey::WORDS)",
+        ),
+        None => {
+            // A first hatch file is a new one under `modules`: build again then.
+            let modules = app_root.join("modules");
+            if modules.is_dir() {
+                println!("cargo:rerun-if-changed={}", modules.display());
+            }
+            (String::new(), "run::<AppData>(PLAN, COMPAT)")
+        }
+    })
+}
+
 /// A painting host's hatches for an app's own crate (LLP 1075.003.000.001
 /// §5): Rust for its generated entry, or `None` when the app has no
 /// `modules/linux/*.rs`. The text is the typed `HatchKey`, with only the

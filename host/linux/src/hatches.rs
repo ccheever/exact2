@@ -114,6 +114,9 @@ pub struct App {
     pub prefers_reduced_motion: bool,
     /// `prefers-reduced-transparency: reduce`.
     pub prefers_reduced_transparency: bool,
+    /// The first root node's `data-*` words, by name without the prefix
+    /// (§2.5): what Contract projects for this scope. A change is a call.
+    pub data: BTreeMap<String, String>,
     /// This session may set process-wide state: the entry's one session does.
     pub process_owner: bool,
     /// This is the built moment.
