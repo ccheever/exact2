@@ -126,6 +126,14 @@ the HEX/RGB labels are text beside the fields, not `<label>`s (a click on "HEX" 
 | 1 | `454daaff3` | Agent drives found: a hue drag highlighted the whole window's text (fixed with `user-select: none`); Escape with the popover open closed Settings instead (fixed with `aria-modal`); a click on the plane also pressed the Dark toggle or focused the name field under the popover (fixed with `press` + `retainFocus` on the popover; X50); the popover cut at the window's bottom (fixed: it flips above) | lane notes (not committed), X50 | — |
 | 2 | `b2074c7a1` | Independent review (a separate agent): two blocking findings (the marker snapping back mid-drag; the editor's Escape removed against D16) and four medium ones (Light/Dark leak, equal stamps, release offsets, shared mutation), all fixed; drives re-run on the rebuilt bundle | [record](https://raw.githubusercontent.com/ccheever/exact2/7ba5e1b01365b57521150b27d7cad76a9b7998f9/theme-color-picker/agent-drives.txt) | real-input rows (screen locked), relaunch, user decision on the editor's Escape |
 
+Re-review of `b2074c7a1` (the same reviewer): nothing blocking. Non-blocking, kept: the landing tracker journals
+"ResizeObserver loop completed with undelivered notifications" during a moving drag and relies on the reply arriving
+after the next resize round (commented in `bed5f2c7e`); an op whose shared prelude fails never echoes, so the gate
+stays shut until a forced send; an op in flight across a Light/Dark switch applies to the appearance active when it
+lands; `pickerOwns`/`pickerStamp` mirror the Contract and the tracker has no unit test; Space/PageUp/PageDown are not
+prevented on the stops and the slider; the HEX/RGB labels do not focus their fields; `themelocal:` is not a
+`formCommand` (a prelude failure would reach the transcript banner, as for every other local op).
+
 Checks on `b2074c7a1`: `bun test examples/t3-code` 2542 pass, 1 skip, 0 fail (205 files); strict `tsc` clean;
 `contract build` 2662 slots, 46 resources, 2712 actions, 59474 nodes; `cargo test -p t3-code-macos --lib` 11 pass;
 `git add -A && bun scripts/caps.mjs` within caps (`app.contract` 1500 lines); the five repository checks exit 0
