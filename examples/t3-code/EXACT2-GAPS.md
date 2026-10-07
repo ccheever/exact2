@@ -46,6 +46,8 @@ REF = `~/Documents/work/3.open-source/t3code`. X2 = exact2 main.
 | X46 | A build step that makes app assets before the Apple bundle copies `assets/` | The terminal page (`terminal-host/build.mjs` output) | build | run `bun terminal-host/build.mjs` (app.json `commands.terminal`) before the bundle build; without it the terminal stays blank and its status names the load error |
 | X47 | A focus ring on a custom pressable box ([#179](https://github.com/ccheever/exact2/issues/179), filed 2026-10-07) | Keyboard focus on the clone's custom buttons, rows and toggles | host | none: fixed by main #189 (in the branch since adopt-main-fixes-r3); the ring was seen under real Tab presses (`20261007-real-input-checks`) |
 | X49 | A progress value for assistive technology: no `progress` element and no `aria-valuenow`/`aria-valuetext` (local draft, not published) | The Antigravity runtime download bar (`<progress aria-label="Antigravity download">`) | contract/host | a drawn track and fill with `role="progressbar"` and the percentage as `aria-description`; the status text carries the byte counts |
+| X50 | On macOS, `input type="date"`, `type="time"` and `select` are no Tab stops (the web's are; local draft, not published) | Custom snooze: Date, Time and Unit are skipped by Tab | host | none; the dialog's other stops follow the reference order |
+| X51 | A modal an app opens from state: `showModal(id)` is carried by the terminal host only (macOS "unknown command", the web refuses it) and `aria-modal` keeps no Tab inside (local draft, not published) | Every T3 dialog (Base UI's focus trap, initial and final focus) | runner/host | per-dialog `key` traps, `autofocus` and `focus()` in AppConfirm, SettingsConfirm, Custom snooze and Add Environment (`20261008-dialog-shortcut-focus`); other dialogs rely on the inert page behind them |
 
 
 ## Current state on the pin (2026-10-06, exact2 `c12832e82`)
@@ -352,7 +354,7 @@ Task `20261005-auto-balance` (`load-balancing.ts`, `auto-balance*.ts`, `auto-bal
 Task `20261005-local-primary-environment` (`local-primary.ts`, `this-machine.ts`, `this-machine.contract`).
 - **The first window before the server is ready (X31, [#117](https://github.com/ccheever/exact2/issues/117)).** The reference shows no window until its embedded server is ready; the clone's window opens at launch and shows the connecting state until the primary connects (decision U5, provisional, user decision pending).
 - **No relaunch after a Local environment change (X45, [#122](https://github.com/ccheever/exact2/issues/122)).** The reference relaunches the app (decision U4); the clone stops or starts the embedded server in place, hands the focus over and reconnects, and the window stays.
-- **Tab inside the dialog (LLP 1080.003 §4, not an ask).** `aria-modal` does not keep Tab inside a modal on macOS; the Local environment dialog keeps it on its two buttons with its own `key` handlers, as the reference's focus trap does, so nothing differs.
+- **Tab inside the dialog (LLP 1080.003 §4; X51).** `aria-modal` does not keep Tab inside a modal on macOS; the Local environment dialog keeps it on its two buttons with its own `key` handlers, as the reference's focus trap does, so nothing differs. The same stopgap now covers AppConfirm, SettingsConfirm, Custom snooze and Add Environment (`20261008-dialog-shortcut-focus`).
 
 ## Not exact2 asks (stay in the app module)
 

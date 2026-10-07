@@ -1,6 +1,10 @@
 // Keyboard dispatch for the reference commands that have a counterpart here
 // (keyboard-dispatch.ts). Each is a zero-size button whose aria-keyshortcuts
 // the host binds, so a chord, its menu item and an agent press run one action.
+// None is a Tab stop (`tabindex=-1`): a 1pt button is one on the web and so on
+// every host, and Tab from a dialog's last control reached them (the reference
+// binds its chords on the window, with no element to focus). The chords, menu
+// items and presses do not depend on the Tab order.
 shape KeyDispatch
   id: string
   command: string
@@ -34,6 +38,11 @@ component ShortcutDispatch
     settings: action
     copy: action
     confirm: action
+  // A terminal's close asks first; the confirm takes the focus, as Base UI's AlertDialog does (its Cancel
+  // gives it back to the terminal: app.contract confirmUi).
+  action closeTerminal(target: string, extra: string, label: string)
+    confirm("ui:confirm", extra, target, label, "This stops the running process and clears its history.", true)
+    focus("app-confirm-cancel")
   view
     box position="absolute" left=0 top=0 width=0 height=0 overflow="hidden" testId="keyboard-dispatch"
       each item in items key=item.id
@@ -76,7 +85,7 @@ component ShortcutDispatch
         when item.kind == "flow"
           ShortcutButton(item=item, press=run("flow", item.target, item.extra))
         when item.kind == "terminal-close"
-          ShortcutButton(item=item, press=confirm("ui:confirm", item.extra, item.target, item.label, "This stops the running process and clears its history.", true))
+          ShortcutButton(item=item, press=closeTerminal(item.target, item.extra, item.label))
         when item.kind == "command"
           ShortcutButton(item=item, press=command(item.target, item.extra, "", 0))
         when item.kind == "settings"
@@ -89,7 +98,7 @@ component ShortcutDispatch
         // thread-commands-and-keys: ⌥↑ (thread.editQueuedMessage) is no menu chord; the native composer presses this
         // button only with the caret at the very start (T3ComposerQueueKey.swift), so elsewhere the key moves the caret.
         when item.kind == "composer-key"
-          button hatch="t3-composer-key" data-anchor=`queued-edit|${item.chord}` press=command(item.target, item.extra, "", 0) aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true
+          button hatch="t3-composer-key" data-anchor=`queued-edit|${item.chord}` press=command(item.target, item.extra, "", 0) tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true
             text item.label font-size=1
 
 component ShortcutButton
@@ -97,5 +106,5 @@ component ShortcutButton
     item: KeyDispatch
     press: action
   view
-    button hatch="t3-terminal-key" data-anchor=item.command press=press aria-keyshortcuts=item.chord aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
+    button hatch="t3-terminal-key" data-anchor=item.command press=press aria-keyshortcuts=item.chord tabindex=-1 aria-label=item.label testId=`shortcut-${item.command}` width=1 height=1 overflow="hidden" padding=0 border-width=0 background-color="#00000000"
       text item.label font-size=1

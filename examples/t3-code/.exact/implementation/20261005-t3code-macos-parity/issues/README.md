@@ -84,6 +84,13 @@ publication was performed during this local audit.
 | --- | --- | --- | --- | --- |
 | [X49](20261007-x49-progress-value-accessibility.md) | A progress value for assistive technology (`progress`, `aria-valuenow`) | framework-gap | [provider-sign-in-and-install](../tasks/closed/20261005-provider-sign-in-and-install.md) (nonblocking: the status text carries the numbers) | reproduced with `contract vocab` on the feature branch's framework (main `7fa3fa5b7`); no upstream match by title; draft, not published |
 
+## Dialog focus addition, 2026-10-08
+
+| Issue | Capability | Kind | Blocks | Status |
+| --- | --- | --- | --- | --- |
+| [X50](20261008-x50-macos-form-controls-tab-order.md) | `input type="date"`/`"time"` and `select` as Tab stops on macOS | framework-gap | [dialog-shortcut-focus](../tasks/20261008-dialog-shortcut-focus.md) (nonblocking: Custom snooze's other stops are in order) | reproduced on a scratch app on the feature branch's framework (main `1f19b2400`; `tabbable` unchanged on main `462308f9c`); draft, not published |
+| [X51](20261008-x51-state-driven-modal-focus.md) | A modal opened from state (`showModal(id)` on macOS and the web): focus in, Tab trapped, focus back | framework-gap | [dialog-shortcut-focus](../tasks/20261008-dialog-shortcut-focus.md) (per-dialog traps meanwhile) | reproduced on a scratch app (macOS "unknown command showModal", web refused); draft, not published |
+
 ## Upstream issues (filed 2026-10-06)
 
 Each was reproduced on exact2 `4c893fef6` before filing. Not filed: X13 (unverified on macOS; the web behavior is designed), X42 (already supported on main), X38–X41 (product scope, not framework gaps).
