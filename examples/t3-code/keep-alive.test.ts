@@ -102,22 +102,38 @@ function fleetEntry(list: { id: string; status: string }[]): FleetEntry {
     lastEvent: 0, subscriptions: {}, config: {}, shell: shellOf(list), scopes: [], error: '', requested: true };
 }
 
-test('a background environment keeps each running thread\'s detail stream and releases it once its detail shows the stop', async () => {
+/** A transport double: the bounded snapshot over HTTP (at `sequence`), subscription ids, and every request it saw. */
+function transport(sequence: number, generation = 3) {
   const calls: Obj[] = [];
-  const call = async (request: Obj) => { calls.push(request); return request.op === 'subscribe' ? { id: `3-${calls.length}` } : {}; };
+  const call = async (request: Obj) => {
+    calls.push(request);
+    if (request.op === 'http') {
+      const threadId = decodeURIComponent(String(request.path).split('/')[4]);
+      return { snapshotSequence: sequence, projection: projection(threadId, 'running'), hasMoreHistory: false };
+    }
+    return request.op === 'subscribe' ? { id: `${generation}-${calls.length}` } : {};
+  };
+  return { calls, call };
+}
+
+test('a background environment keeps each running thread\'s detail (its bounded snapshot, then the stream after it) and releases it once its detail shows the stop', async () => {
+  const { calls, call } = transport(5);
   const entry = fleetEntry([shell('t1', 'running'), shell('t2', 'idle')]);
   await keepAliveFleetPass(call, entry);
+  // As the reference's thread state: the snapshot over HTTP first, then the stream after its sequence.
+  expect(calls.filter(request => request.op === 'http').map(request => request.path)).toEqual(['/api/orchestration/threads/t1/bounded']);
   const subscribe = calls.find(request => request.op === 'subscribe' && request.key === `${KEEP_PREFIX}t1`)!;
-  expect(subscribe).toMatchObject({ method: 'orchestration.subscribeThread', payload: { threadId: 't1', afterSequence: 0, acceptBoundedSnapshot: true } });
+  expect(subscribe).toMatchObject({ method: 'orchestration.subscribeThread', payload: { threadId: 't1', afterSequence: 5, acceptBoundedSnapshot: true } });
   expect(calls.filter(request => String(request.key).startsWith(KEEP_PREFIX))).toHaveLength(1);
-  // Its first item is the bounded snapshot: the detail is live.
-  expect(keepAliveFleetEvent(entry, { key: `${KEEP_PREFIX}t1`, generation: 3, subscriptionId: '3-1', value: snapshotItem('t1', 'running') })).toBe(true);
+  const id = `3-${calls.indexOf(subscribe) + 1}`;
+  // A later event of its own subscription applies.
+  expect(keepAliveFleetEvent(entry, { key: `${KEEP_PREFIX}t1`, generation: 3, subscriptionId: id, value: snapshotItem('t1', 'running', 6) })).toBe(true);
   // The shell reports the stop before the detail: the stream stays.
   entry.shell = shellOf([shell('t1', 'idle'), shell('t2', 'idle')]);
   await keepAliveFleetPass(call, entry);
   expect(calls.filter(request => request.op === 'unsubscribe')).toEqual([]);
   // The detail shows it too: released.
-  keepAliveFleetEvent(entry, { key: `${KEEP_PREFIX}t1`, generation: 3, subscriptionId: '3-1', value: snapshotItem('t1', 'idle', 6) });
+  keepAliveFleetEvent(entry, { key: `${KEEP_PREFIX}t1`, generation: 3, subscriptionId: id, value: snapshotItem('t1', 'idle', 7) });
   await keepAliveFleetPass(call, entry);
   expect(calls.filter(request => request.op === 'unsubscribe')).toEqual([{ op: 'unsubscribe', key: `${KEEP_PREFIX}t1` }]);
   // An old generation's or another subscription's entry is taken but not applied.
@@ -127,28 +143,42 @@ test('a background environment keeps each running thread\'s detail stream and re
 
 test('opening a kept thread of a background environment starts from its kept detail, without a refetch', async () => {
   const entry = fleetEntry([shell('t1', 'running')]);
-  await keepAliveFleetPass(async request => request.op === 'subscribe' ? { id: '3-1' } : {}, entry);
-  keepAliveFleetEvent(entry, { key: `${KEEP_PREFIX}t1`, generation: 3, subscriptionId: '3-1', value: snapshotItem('t1', 'running', 9) });
+  const { calls, call } = transport(9);
+  await keepAliveFleetPass(call, entry);
+  const id = `3-${calls.findIndex(request => request.op === 'subscribe') + 1}`;
+  // Its own stream moves it on after the snapshot.
+  keepAliveFleetEvent(entry, { key: `${KEEP_PREFIX}t1`, generation: 3, subscriptionId: id, value: snapshotItem('t1', 'running', 11) });
   const client = { environmentId: 'previous', threadId: '', thread: null as ThreadState | null };
   handoffKeptThread(client, entry, 't1');
   // focusFleetThread moves the client; adoptStatus resets the thread, then the handoff shows the kept detail.
   Object.assign(client, { environmentId: REMOTE, threadId: 't1', thread: null });
   expect(adoptHandoff(client)).toBe(true);
-  expect(client.thread?.sequence).toBe(9);
+  expect(client.thread?.sequence).toBe(11);
   expect(String((client.thread?.projection.thread as Obj).id)).toBe('t1');
   expect(adoptHandoff(client)).toBe(false); // once
 });
 
+test('a kept thread is live from its bounded snapshot before its stream says anything', async () => {
+  const entry = fleetEntry([shell('t1', 'running')]);
+  await keepAliveFleetPass(transport(4).call, entry);
+  const client = { environmentId: REMOTE, threadId: 't1', thread: null as ThreadState | null };
+  handoffKeptThread(client, entry, 't1');
+  expect(adoptHandoff(client)).toBe(true);
+  expect(client.thread?.sequence).toBe(4);
+});
+
 test('the focused environment keeps the running threads other than the open one, and a kept one opens from its detail', async () => {
-  const calls: Obj[] = [];
+  const { calls, call } = transport(12, 4);
   const client = { environmentId: LOCAL, origin: 'https://box.example.com', generation: 4, ready: true, threadId: 'open', thread: null,
     shell: shellOf([shell('open', 'running'), shell('t2', 'running'), shell('t3', 'idle')]),
-    restAccess: () => ({ call: async (request: Obj) => { calls.push(request); return request.op === 'subscribe' ? { id: `4-${calls.length}` } : {}; } }) };
+    restAccess: () => ({ call }) };
   const native: Native = { available: true, watch() {}, later: async () => ({}) };
   await keepAlivePrepare(client, native);
   expect(calls.filter(request => request.op === 'subscribe').map(request => request.key)).toEqual([`${KEEP_PREFIX}t2`]);
-  expect(keepAliveEvent(client, { key: `${KEEP_PREFIX}t2`, generation: 4, subscriptionId: '4-1', value: snapshotItem('t2', 'running', 12) })).toBe(true);
   expect(keptThread(client, 't2')?.sequence).toBe(12);
+  const id = `4-${calls.findIndex(request => request.op === 'subscribe' && request.key === `${KEEP_PREFIX}t2`) + 1}`;
+  expect(keepAliveEvent(client, { key: `${KEEP_PREFIX}t2`, generation: 4, subscriptionId: id, value: snapshotItem('t2', 'running', 13) })).toBe(true);
+  expect(keptThread(client, 't2')?.sequence).toBe(13);
   expect(keptThread(client, 't3')).toBeNull();
   expect(isDetailDone(undefined)).toBe(false);
 });

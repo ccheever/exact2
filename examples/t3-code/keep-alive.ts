@@ -113,9 +113,14 @@ async function pass(owner: Owner, environmentId: string, shell: Shell, open: str
   for (const threadId of wanted) {
     if (owner.subscriptions.has(threadId)) continue;
     try {
-      const reply = await call({ op: 'subscribe', key: `${KEEP_PREFIX}${threadId}`, method: 'orchestration.subscribeThread', payload: { threadId, afterSequence: 0, acceptBoundedSnapshot: true } });
+      // As the reference's thread state (client-runtime threads.ts): the bounded snapshot over HTTP first, then the
+      // stream after its sequence. A stream from sequence 0 replays events onto no projection, so it never goes live.
+      const kept = owner.details.get(threadId);
+      const thread = kept?.status === 'live' && !kept.error && kept.thread ? kept.thread
+        : threadSnapshot(await call({ op: 'http', path: `/api/orchestration/threads/${encodeURIComponent(threadId)}/bounded` }));
+      owner.details.set(threadId, { status: 'live', thread, error: '' });
+      const reply = await call({ op: 'subscribe', key: `${KEEP_PREFIX}${threadId}`, method: 'orchestration.subscribeThread', payload: { threadId, afterSequence: thread.sequence, acceptBoundedSnapshot: true } });
       owner.subscriptions.set(threadId, str(reply.id));
-      if (!owner.details.has(threadId)) owner.details.set(threadId, { status: 'loading', thread: null, error: '' });
     } catch (error) { if (letGo(error)) throw error; }
   }
   return changed;
