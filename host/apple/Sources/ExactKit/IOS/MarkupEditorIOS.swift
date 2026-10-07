@@ -67,7 +67,7 @@ extension NodeView {
         #endif
     }
 
-    func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
+    package func textView(_ textView: UITextView, editMenuForTextIn range: NSRange, suggestedActions: [UIMenuElement]) -> UIMenu? {
         guard let f = textView as? TextArea, f.markup != nil else { return nil }
         var actions: [UIMenuElement] = []
         #if !os(tvOS)

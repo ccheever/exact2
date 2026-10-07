@@ -1,8 +1,10 @@
 // Thread notifications on macOS (reference: ThreadNotificationCoordinator.tsx,
-// threadNotifications.ts, apps/desktop notificationBadge.ts): the window's
-// focus, notification-center posts tagged per thread (a click focuses the app
-// and asks the window to open that thread), the completion/input sounds and
-// the Dock badge of pending notifications, cleared when the window gains focus.
+// threadNotifications.ts, apps/desktop notificationBadge.ts): notification-center
+// posts tagged per thread (a click focuses the app and asks the window to open
+// that thread), the completion/input sounds and the Dock badge of pending
+// notifications, cleared when the window gains focus. A click's action and the
+// badge stay here (exact2 #224, refused by DEFERRED); whether the window has the
+// focus is the page's `exactPage().hasFocus` (exact2 #219, shell-notify.ts).
 // An agent-launched app never asks for notification permission; it reports
 // what the notification center already says and labels itself as such.
 import AppKit
@@ -29,21 +31,13 @@ final class T3Notifications: NSObject, UNUserNotificationCenterDelegate {
 
     private func install() {
         let notes = NotificationCenter.default
-        // Focus is read whenever the shell asks (notifyStatus), so it announces
-        // nothing: only a clicked notification needs the window to act.
+        // The badge clears when the window gains focus (notificationBadge.ts); the page
+        // reads focus itself (exactPage().hasFocus), so only a click needs the window to act.
         for name in [NSApplication.didBecomeActiveNotification, NSWindow.didBecomeKeyNotification] {
             observers.append(notes.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in self?.clear() })
         }
         center?.delegate = self
         refreshAuthorization()
-    }
-
-    /// document.hasFocus(): the app is active and its window is key. An
-    /// agent-launched app is never made frontmost, so under the agent its
-    /// visible window counts as the one the driver is using.
-    var active: Bool {
-        if agent { return NSApp.windows.contains { $0.isVisible && $0.canBecomeKey } }
-        return NSApp.isActive && (NSApp.keyWindow?.isVisible ?? false)
     }
 
     private func refreshAuthorization(then done: (() -> Void)? = nil) {
@@ -106,8 +100,9 @@ final class T3Notifications: NSObject, UNUserNotificationCenterDelegate {
         changed("t3.notify")
     }
 
+    /// The page posts only while its window has no focus (`exactPage().hasFocus`), as the coordinator does.
     private func post(title: String, body: String, tag: String, threadId: String) -> Bool {
-        guard let center, !active else { return false }
+        guard let center else { return false }
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
@@ -134,7 +129,7 @@ final class T3Notifications: NSObject, UNUserNotificationCenterDelegate {
     }
 
     private func status() -> [String: Any] {
-        ["active": active, "authorization": authorization, "agent": agent, "opened": opened, "openedThread": openedThread, "pending": pending.count]
+        ["authorization": authorization, "agent": agent, "opened": opened, "openedThread": openedThread, "pending": pending.count]
     }
 
     /// Requests: notifyStatus, notifyAuthorize, notifyPost, notifySound, notifyClear. Main thread.

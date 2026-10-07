@@ -18,9 +18,11 @@ import { NO_RUN_ON, stripRunOn } from './r4-git-env'; // lane r4-git: MobileRunC
 import { gitlessStrip } from './r12-threads-strip'; // lane r12-threads: the non-Git strip (BranchToolbar.logic.ts)
 import { autoBalanceState } from './auto-balance'; // auto-balance: the Run on menu's "Auto balance"
 import { letGo } from './let-go';
+import { peekVcsStatus, restartVcsStatus, vcsStreamFollows } from './shell-vcs'; // the workspace status the card's stream holds
 
 export type DraftContext = { envMode: string; branch: string; worktreePath: string };
-type Repo = { isRepo: boolean; refName: string; status?: Obj; checked: boolean; refs: Obj[]; total: number; refsQuery: string | null; error: string; nextCursor?: number | null; ends?: number; loadingMore?: boolean };
+// `switched`: the ref a switch checked out, kept while the stream still reports the status it had then.
+type Repo = { isRepo: boolean; refName: string; status?: Obj; checked: boolean; switched?: { name: string; status: Obj | null }; refs: Obj[]; total: number; refsQuery: string | null; error: string; nextCursor?: number | null; ends?: number; loadingMore?: boolean };
 const repos = new WeakMap<T3Client, Map<string, Repo>>();
 function repo(client: T3Client, cwd: string): Repo {
   let byCwd = repos.get(client);
@@ -46,6 +48,16 @@ function activeWorktree(client: T3Client): string {
   return client.threadId ? str(obj(client.projection.thread).worktreePath) : draftContext(client).worktreePath;
 }
 function cwdFor(client: T3Client): string { return activeWorktree(client) || projectRoot(client); }
+/**
+ * The workspace the strip shows (shouldShowComposerContextStrip), or '' while it is hidden. The
+ * status stream follows it while the details card is closed (shell-details.ts), as the reference's
+ * BranchToolbarBranchSelector subscribes `vcsEnvironment.status` for its own workspace.
+ */
+export function stripWorkspace(client: T3Client): string {
+  if (client.connection !== 'connected' || !client.ready || !client.projectId) return '';
+  const persist = (client.local as { clientSettings?: Obj }).clientSettings?.persistComposerContextStrip === true;
+  return client.threadId && !persist ? '' : cwdFor(client);
+}
 /** resolveEffectiveEnvMode: a draft pointed at an existing worktree is local to it; a thread with a worktree is a worktree. */
 function effectiveEnvMode(client: T3Client): string {
   const path = activeWorktree(client);
@@ -66,20 +78,34 @@ export function previousWorktree(client: T3Client): { branch: string; worktreePa
 }
 
 /** Refreshes repository state the strip shows; the menu's refs load while the branch picker is open. */
-async function load(client: T3Client, native: Native, cwd: string, open: boolean, query: string, card = false): Promise<Repo> {
+async function load(client: T3Client, native: Native, cwd: string, open: boolean, query: string, card: boolean): Promise<Repo> {
   const entry = repo(client, cwd), access = client.restAccess(native);
-  if (!entry.checked) {
+  // BranchToolbarBranchSelector reads `vcsEnvironment.status`, the subscribeVcsStatus stream, and the
+  // reference asks vcs.refreshStatus only on window focus and when a git menu opens (GitActionsControl).
+  // So the strip and the card's branch row read the stream that follows this workspace (shell-vcs.ts).
+  const streamed = peekVcsStatus(client, cwd);
+  if (streamed && entry.switched?.status === streamed) {
+    entry.refName = entry.switched.name; // the stream has not reported since the switch
+  } else if (streamed) {
+    entry.switched = undefined;
+    entry.isRepo = streamed.isRepo === true; entry.refName = str(streamed.refName); entry.status = streamed; entry.error = ''; entry.checked = true; // r7-handoff: its pr feeds the strip's badge
+  } else if (!entry.checked && !vcsStreamFollows(client, cwd)) {
+    // No stream follows this workspace yet: one read, shared with an identical one still pending, so an
+    // answer let go before the reply (the reply can wait on a remote fetch) does not make the next one,
+    // 500 ms later, send another (round 5: four a second).
     try {
-      const status = await access.request('vcs.refreshStatus', { cwd });
-      entry.isRepo = status.isRepo === true; entry.refName = str(status.refName); entry.status = status; entry.error = ''; // r7-handoff: its pr feeds the strip's badge
+      const status = await access.read('vcs.refreshStatus', { cwd });
+      entry.isRepo = status.isRepo === true; entry.refName = str(status.refName); entry.status = status; entry.error = '';
     } catch (error) { if (letGo(error)) throw error; entry.isRepo = false; entry.error = error instanceof Error ? error.message : 'Could not read the repository.'; }
     entry.checked = true;
   }
   const search = sanitizeNewRefName(query).slice(0, 256);
-  const list = (cursor?: number) => access.request('vcs.listRefs', { cwd, limit: REF_PAGE, ...(search ? { query: search } : {}), ...(cursor === undefined ? {} : { cursor }) });
-  if (open && entry.isRepo && entry.refsQuery !== query) {
+  // A shared read: the strip asked again before the reply joins the read still pending.
+  const list = (cursor?: number) => access.read('vcs.listRefs', { cwd, limit: REF_PAGE, ...(search ? { query: search } : {}), ...(cursor === undefined ? {} : { cursor }) });
+  const isRepo = entry.checked ? entry.isRepo : true;
+  if (open && isRepo && entry.refsQuery !== query) {
     Object.assign(entry, firstPage(await list(), scrollEnds(client.presentation, 'strip-refs'))); entry.refsQuery = query;
-  } else if (open && entry.isRepo) {
+  } else if (open && isRepo) {
     // r5-composer: a scroll toward the list's end loads the next page (r5-composer-paging.ts).
     Object.assign(entry, await morePages({ refs: entry.refs, total: entry.total, nextCursor: entry.nextCursor ?? null, ends: entry.ends ?? 0, loadingMore: entry.loadingMore }, client.presentation, 'strip-refs', list));
   }
@@ -115,7 +141,8 @@ async function stripView(client: T3Client, native: Native | null | undefined, op
   let entry: Repo;
   try { entry = await load(client, native, cwd, open, query, card); } catch { return hidden; }
   // shouldShowComposerContextStrip without Git controls: only the machine selector, when it shows (lanes r12/r13-threads).
-  if (!entry.isRepo) return card ? hidden : gitlessStrip(client, hidden, persist);
+  // ChatView: before a checkout's status arrives, a never-seen checkout assumes Git.
+  if (!(entry.checked ? entry.isRepo : true)) return card ? hidden : gitlessStrip(client, hidden, persist);
   const thread = obj(client.projection.thread), context = draftContext(client);
   // forceNewWorktree: a multi-model draft starts each model in its own new worktree.
   const forceWorktree = !client.threadId && !!fanoutSelections(client);
@@ -151,7 +178,7 @@ export function stripShortcuts(client: T3Client): { workspace: boolean; branch: 
   if (client.connection !== 'connected' || !client.ready || !client.projectId) return none;
   if (client.threadId && (client.local as { clientSettings?: Obj }).clientSettings?.persistComposerContextStrip !== true) return none;
   const cwd = cwdFor(client), entry = cwd ? repos.get(client)?.get(cwd) : undefined;
-  if (!entry?.isRepo) return none;
+  if (!entry || (entry.checked && !entry.isRepo)) return none; // a checkout whose status has not arrived is assumed Git
   return { workspace: !client.threadId, branch: true, previous: !!previousWorktree(client) };
 }
 
@@ -220,7 +247,13 @@ export async function selectBranch(client: T3Client, native: Native, storage: Fi
       : await access.request('vcs.switchRef', { cwd: checkoutCwd, refName: name }, true);
     const local = ref?.isRemote === true ? name.replace(/^[^/]+\//, '') : name;
     const switched = create ? str(result.refName, sanitizeNewRefName(name)) : ref?.isRemote === true ? str(result.refName, local) : local;
-    for (const path of [checkoutCwd, cwd]) { const cached = repo(client, path); cached.checked = false; cached.refsQuery = null; }
+    // runBranchAction: the refs and the status stream are read again (branchRefState.refresh(), branchStatusQuery.refresh());
+    // the switched name shows until the stream reports again.
+    for (const path of [checkoutCwd, cwd]) {
+      const cached = repo(client, path); cached.checked = false; cached.refsQuery = null;
+      cached.switched = { name: switched, status: peekVcsStatus(client, path) };
+      restartVcsStatus(client, path);
+    }
     entry.refName = switched;
     await setThreadBranch(client, native, storage, switched, nextWorktree);
     return '';

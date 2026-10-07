@@ -5,9 +5,9 @@ style FieldLabel
 style DateField
   box-sizing="border-box" min-width=0 height=26 padding=0 border-width=0 border-radius=6 background-color="#ffffff00" color="#242428" font-size=13
 style ToolButton
-  display="flex" flex-direction="row" align-items="center" justify-content="center" height=28 padding=0 border-width=0 border-radius=7 press-scale=0.96
+  display="flex" flex-direction="row" align-items="center" justify-content="center" height=28 padding=0 border-width=0 border-radius=7 -exact-press-scale=0.96
 style FooterButton
-  display="flex" flex-direction="row" align-items="center" justify-content="center" height=30 padding-top=0 padding-bottom=0 padding-left=14 padding-right=14 border-radius=7 press-scale=0.97
+  display="flex" flex-direction="row" align-items="center" justify-content="center" height=30 padding-top=0 padding-bottom=0 padding-left=14 padding-right=14 border-radius=7 -exact-press-scale=0.97
 
 
 component ColorChoice
@@ -18,7 +18,7 @@ component ColorChoice
     disabled: bool
     pick: action
   view
-    button press=pick(value) disabled=disabled testId=`color-${label}` aria-label=label aria-selected=(selected == value) width=24 height=24 flex-shrink=0 padding=0 border-width=(selected == value ? 2 : 0) border-style="solid" border-color="#ffffff" box-shadow=(selected == value ? `0 0 0 2px ${value}` : "none") border-radius=12 background-color=value display="flex" align-items="center" justify-content="center" press-scale=0.94
+    button press=pick(value) disabled=disabled testId=`color-${label}` aria-label=label aria-selected=(selected == value) width=24 height=24 flex-shrink=0 padding=0 border-width=(selected == value ? 2 : 0) border-style="solid" border-color="#ffffff" box-shadow=(selected == value ? `0 0 0 2px ${value}` : "none") border-radius=12 background-color=value display="flex" align-items="center" justify-content="center" -exact-press-scale=0.94
       when selected == value
         text "✓" font-size=12 font-weight=700 color="#ffffff"
 

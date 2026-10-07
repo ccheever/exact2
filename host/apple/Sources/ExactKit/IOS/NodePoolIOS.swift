@@ -265,7 +265,7 @@ final class NodePool {
         guard let shape = shape(root, &views, &leaves, &lists), list == nil || lists.isEmpty else { return false }
         let destroyed = destroyedIDs()
         guard views.allSatisfy({ $0.map { destroyed.contains($0.id) && recyclable($0) } ?? true }),
-              leaves.allSatisfy({ destroyed.contains($0.id) && idle($0) && unhooked($0) }) else { return false }
+              leaves.allSatisfy({ destroyed.contains($0.id) && idle($0) && unhatched($0) }) else { return false }
         // The cards an inner list shows park under it before the list itself
         // is reset; the rest of its content goes by its own destroy ops.
         var cards: [(NodeView, NodeView)] = []
@@ -333,17 +333,17 @@ final class NodePool {
             && v.interactions.allSatisfy({ contextual($0, of: v) })
             && v.flowShapes.isEmpty && v.contextTransform.isIdentity
             && v.pendingScrollLeft == nil && v.pendingScrollTop == nil
-            // A hooked node's view is the app's to keep (LLP 1075.003.000),
-            // unless its hook undoes what it adds (`reusable`, LLP
+            // A hatched node's view is the app's to keep (LLP 1075.003.000),
+            // unless its hatch undoes what it adds (`reusable`, LLP
             // 1075.003.000.000 §8); the checks above still refuse a view
             // with interactions or gestures left on it. Its props and the mark
             // stay until it is forgotten, after its own destroy op.
-            && unhooked(v)
+            && unhatched(v)
     }
-    /// Not a hooked node, or one whose hook undoes what it adds: a hooked
+    /// Not a hatched node, or one whose hatch undoes what it adds: a hatched
     /// heavy leaf is destroyed as any is, but its row stays out of the pool
     /// as the journal says (LLP 1075.003.000 §3.3).
-    private func unhooked(_ v: NodeView) -> Bool { v.props["hook"] == nil || v.hookReusable }
+    private func unhatched(_ v: NodeView) -> Bool { v.props["hatch"] == nil || v.hatchReusable }
     /// Not placed, focused, editing or about to be: a leaf so held keeps
     /// its row out of the pool, destroyed as before.
     /// A context menu's own (LLP 1021 §5.1): the node's long-press
@@ -497,8 +497,8 @@ extension NodeView {
         if symbolView == nil { image = nil }
         symbolRefusal = nil
         inlinePressed = nil
-        // The next node's hook decides again.
-        hookReusable = false
+        // The next node's hatch decides again.
+        hatchReusable = false
         content = .zero
         needsCapture = false; paintedThisTurn = false
         // A parked view keeps no bitmap: its create ops paint it again.

@@ -7,7 +7,7 @@ import { adoptShellPrefs, inlineOpen, shellPrefs, toggleInline } from './shell-p
 import { nightlyMobileBetaNotice, NIGHTLY_NOTICE } from './shell-nightly';
 import { pushToast, toasts } from './toast';
 import { applyDismissals, toastViews } from './shell';
-import { applyStatusEvent, vcsStatusEvent, VCS_STATUS_KEY } from './shell-vcs';
+import { applyStatusEvent, refreshVcsOnFocus, vcsStatusEvent, VCS_STATUS_KEY } from './shell-vcs';
 import type { T3Client } from './client';
 import type { Obj } from './domain';
 import type { Native } from './protocol';
@@ -61,6 +61,21 @@ describe('lineage (upstream d3071275d5)', () => {
     expect([5, 65, 3725].map(formatElapsed)).toEqual(['5s', '1m 05s', '1h 02m']);
     expect(latestMergeBackRun({ runs: [{ id: 'a', ordinal: 1, status: 'completed' }, { id: 'b', ordinal: 2, status: 'running' }] })).toBeNull();
     expect(latestMergeBackRun({ runs: [{ id: 'a', ordinal: 1, status: 'completed' }, { id: 'b', ordinal: 2, status: 'waiting' }] })).toMatchObject({ id: 'b' });
+  });
+});
+
+describe('Git status on window focus (GitActionsControl, exactPage().hasFocus: exact2 #219)', () => {
+  test('the window regaining the focus asks vcs.refreshStatus for the card\'s workspace once', async () => {
+    const requests: [string, Obj][] = [];
+    const client = { restAccess: () => ({ request: async (method: string, payload: Obj) => { requests.push([method, payload]); return {}; } }) } as unknown as T3Client;
+    const native = {} as Native;
+    expect(await refreshVcsOnFocus(client, native, '/repo', true)).toBe(false); // the first answer only records
+    expect(await refreshVcsOnFocus(client, native, '/repo', false)).toBe(false); // blur asks nothing
+    expect(await refreshVcsOnFocus(client, native, '/repo', true)).toBe(true);
+    expect(await refreshVcsOnFocus(client, native, '/repo', true)).toBe(false); // still focused: no second ask
+    expect(await refreshVcsOnFocus(client, native, '', false)).toBe(false);
+    expect(await refreshVcsOnFocus(client, native, '', true)).toBe(false); // no card: nothing to refresh
+    expect(requests).toEqual([['vcs.refreshStatus', { cwd: '/repo' }]]);
   });
 });
 

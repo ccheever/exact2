@@ -189,7 +189,7 @@ export function playwrightPointer({ name, move, down, up, wait }) {
 
 /** Open Firefox or WebKit through Playwright. The page still owns Exact's
  * deterministic runner/motion clock; Playwright carries only browser IO. */
-export async function openPlaywrightWeb({ browser: name, plan, world, size, url: pageURL, app, webDist, onProcess, reuse, storage, facts: givenFacts }) {
+export async function openPlaywrightWeb({ browser: name, plan, world, size, url: pageURL, app, webDist, onProcess, reuse, storage, facts: givenFacts, parity = '' }) {
   if (!['firefox', 'webkit'].includes(name)) throw new Error(`browser: chrome, firefox or webkit, not ${name}`);
   const facts = givenFacts ?? launchFacts({});
   if (reuse) await reuse.close(); // Chrome reuse is intentionally not crossed with another engine.
@@ -207,7 +207,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
       ...(name === 'firefox' ? { firefoxUserPrefs: FIREFOX_PREFS } : {}) });
     onProcess?.(browserServer.process());
     browser = await playwright[name].connect(browserServer.wsEndpoint());
-    context = await browser.newContext({ viewport: { width: size[0], height: size[1] }, screen: { width: size[0], height: size[1] }, deviceScaleFactor: 1, hasTouch: true, colorScheme: 'light', reducedMotion: 'no-preference', contrast: 'no-preference' });
+    context = await browser.newContext({ viewport: { width: size[0], height: size[1] }, screen: { width: size[0], height: size[1] }, deviceScaleFactor: 1, hasTouch: false /* fine pointer and hover, as Chrome's oracle; input is the mouse's */, colorScheme: 'light', reducedMotion: 'no-preference', contrast: 'no-preference' });
     page = await context.newPage();
   } catch (error) {
     await browser?.close().catch(() => {});
@@ -219,7 +219,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
   try {
     page.on('console', msg => hostLines.push(`console.${msg.type()}: ${msg.text()}`));
     page.on('pageerror', error => hostLines.push(`exception: ${error.stack ?? error.message}`));
-    await page.addInitScript(init);
+    await page.addInitScript(init + parity);
     if (world && !plan) {
       const encoded = worldFile(world).toString('base64');
       await page.addInitScript(value => { globalThis.exactWorldCarry = Uint8Array.from(atob(value), c => c.charCodeAt(0)); }, encoded);
@@ -285,7 +285,8 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
       const release = async () => { await up(); heldKeys.delete(opts.key); await frame(); return reply('up'); };
       try {
         for (const phase of opts.phase == null ? ['down', 'up'] : [opts.phase]) {
-          if (phase === 'down') { for (const key of keys) await page.keyboard.down(key); heldKeys.set(opts.key, keys); }
+          // A repeat presses the held key again, which Playwright reports as `repeat` (#140).
+          if (phase === 'down') { for (const key of opts.repeat ? keys.slice(-1) : keys) await page.keyboard.down(key); heldKeys.set(opts.key, keys); }
           else { await up(); heldKeys.delete(opts.key); }
         }
         await frame();
@@ -333,6 +334,9 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
       },
       async input(id, kind, opts) {
         if (kind === 'history') { const reply = await ask({ op: 'tap', id, history: opts.history }); if (reply.error) throw new Error(reply.error); await frame(); return reply; }
+        // @ref LLP 1098 D10 — the handler the browser would call, through the media glue's `act`, as the
+        // Chrome carrier delivers it: no box is needed (an `audio` without controls has none).
+        if (kind === 'mediasession') { const r = await page.evaluate(([id, action, seconds]) => globalThis.exact?.mediaSession?.act(id, action, seconds) ?? { error: 'mediasession: this page publishes no media session (no media glue)' }, [id, opts.mediaSession, opts.seconds ?? null]); if (r.error) throw new Error(r.error); await frame(); return r; }
         const box = id == null ? null : (await ask({ op: 'layout' })).nodes.find(n => n.id === id);
         if (id != null && (!box || (box.w === 0 && box.h === 0))) throw new Error(`view ${id} has no box on screen`);
         const point = kind === 'contextmenu' ? opts.at : null;
@@ -355,7 +359,35 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
           return reply;
         }
         else if (kind === 'wheel') {
-          await withHeldKeys(page.keyboard, opts.modifiers, async () => { await page.mouse.move(x, y); await page.mouse.wheel(opts.wheel[0], opts.wheel[1]); }); deliveredAt = [x, y];
+          // Firefox's default action scrolls one wheel event at most a page (plain HTML: a 1000 px wheel
+          // moves a 300 px port 270 px); Chrome and WebKit scroll the whole delta. So in Firefox the trusted
+          // wheel still reaches the page's handlers whole, but its default is taken over: unless a handler
+          // cancelled it, the nearest scroller under the pointer that can move that way (scroll chaining, as
+          // Chrome's) scrolls the whole delta in one step.
+          if (name === 'firefox') await page.evaluate(() => {
+            const take = e => {
+              removeEventListener('wheel', take);
+              if (e.defaultPrevented || e.ctrlKey) return;
+              e.preventDefault();
+              const movable = (el, dx, dy) => {
+                const s = getComputedStyle(el), x = /(auto|scroll)/.test(s.overflowX), y = /(auto|scroll)/.test(s.overflowY);
+                const right = el.scrollLeft < el.scrollWidth - el.clientWidth - 0.5, left = el.scrollLeft > 0.5, down = el.scrollTop < el.scrollHeight - el.clientHeight - 0.5, up = el.scrollTop > 0.5;
+                return (dy && y && (dy > 0 ? down : up)) || (dx && x && (dx > 0 ? right : left));
+              };
+              let el = e.target instanceof Element ? e.target : null;
+              while (el && el !== document.documentElement && el !== document.body && !movable(el, e.deltaX, e.deltaY)) el = el.parentElement;
+              if (el && el !== document.documentElement && el !== document.body) el.scrollBy(e.deltaX, e.deltaY);
+              else scrollBy(e.deltaX, e.deltaY);
+            };
+            globalThis.__exactAgentTakeWheel = take;
+            addEventListener('wheel', take, { passive: false });
+          });
+          // A point outside the viewport reaches no element in either engine (no wheel event); Chrome's
+          // compositor still scrolls the page by it, Firefox's nothing: the page is scrolled as Chrome's is.
+          const outside = name === 'firefox' && await page.evaluate(([x, y]) => x < 0 || y < 0 || x >= innerWidth || y >= innerHeight, [x, y]);
+          if (outside) await page.evaluate(([dx, dy]) => { removeEventListener('wheel', globalThis.__exactAgentTakeWheel); scrollBy(dx, dy); }, opts.wheel);
+          else await withHeldKeys(page.keyboard, opts.modifiers, async () => { await page.mouse.move(x, y); await page.mouse.wheel(opts.wheel[0], opts.wheel[1]); });
+          deliveredAt = [x, y];
           let same = 0, previous = '';
           for (let i = 0; i < 30 && same < 2; i++) {
             await page.evaluate(() => new Promise(requestAnimationFrame));

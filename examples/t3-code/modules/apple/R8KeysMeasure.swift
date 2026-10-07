@@ -10,7 +10,7 @@ final class R8KeysMeasure {
     private var entries: [String: Entry] = [:]
 
     func install(_ element: ExactElement) {
-        guard element.hook == .t3Measure, let name = element.data[.frame], !name.isEmpty else { return }
+        guard element.hatch == .t3Measure, let name = element.data[.frame], !name.isEmpty else { return }
         entries = entries.filter { $0.value.element != nil && $0.value.element !== element }
         entries[name] = Entry(element)
     }

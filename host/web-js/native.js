@@ -23,7 +23,7 @@ export function viewHost(say) {
   } });
 }
 
-/** The app's page module itself: its `element` hooks (hooks.js). */
+/** The app's page module itself: its `element` hatches (hatches.js). */
 export const pageTable = () => globalThis.exact.nativeModule();
 
 /** `native.later` and device topics (LLP 1067 D5, 1016.002): the artifact's

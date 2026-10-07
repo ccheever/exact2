@@ -7,12 +7,12 @@ import XCTest
 // in a real window. Compiled with every file in modules/apple (T3Module included).
 
 private var acted: [(node: UInt32, action: UInt32)] = []
-private let r8Resolve: ExactHooks.ResolveFn = { _, _, _, _, _ in 0 }
-private let r8Act: ExactHooks.ActFn = { _, node, action in acted.append((node, action)); return 0 }
-private let r8Log: ExactHooks.LogFn = { _, _, _ in }
-private let r8Delegate: ExactHooks.DelegateFn = { _, _, _ in }
+private let r8Resolve: ExactHatches.ResolveFn = { _, _, _, _, _ in 0 }
+private let r8Act: ExactHatches.ActFn = { _, node, action in acted.append((node, action)); return 0 }
+private let r8Log: ExactHatches.LogFn = { _, _, _ in }
+private let r8Delegate: ExactHatches.DelegateFn = { _, _, _ in }
 
-private func makeHooks() -> ExactHooks {
+private func makeHooks() -> ExactHatches {
     let table = UnsafeMutableRawPointer.allocate(byteCount: 40, alignment: 8)
     table.initializeMemory(as: UInt8.self, repeating: 0, count: 40)
     table.storeBytes(of: UInt32(40), as: UInt32.self)
@@ -20,7 +20,7 @@ private func makeHooks() -> ExactHooks {
     table.storeBytes(of: unsafeBitCast(r8Act, to: UnsafeRawPointer.self), toByteOffset: 16, as: UnsafeRawPointer.self)
     table.storeBytes(of: unsafeBitCast(r8Log, to: UnsafeRawPointer.self), toByteOffset: 24, as: UnsafeRawPointer.self)
     table.storeBytes(of: unsafeBitCast(r8Delegate, to: UnsafeRawPointer.self), toByteOffset: 32, as: UnsafeRawPointer.self)
-    return ExactHooks(host: nil, table: UnsafeRawPointer(table))!
+    return ExactHatches(host: nil, table: UnsafeRawPointer(table))!
 }
 
 /// Stands in for the host's command items (ShortcutsMac.swift ShortcutHost): one
@@ -186,7 +186,7 @@ final class R8KeysTests: XCTestCase {
         window.contentView!.addSubview(launcherView)
         window.makeFirstResponder(editor)
         let launcher = R8KeysLauncher()
-        let element = ExactElement(hook: .t3Launcher, id: "surface-chooser", node: 7, hooks: hooks)
+        let element = ExactElement(hatch: .t3Launcher, id: "surface-chooser", node: 7, hatches: hooks)
         element.view = launcherView
         element.data = ExactData(["surface-launcher-keys": "FLD"])
         launcher.install(element)
@@ -222,7 +222,7 @@ final class R8KeysTests: XCTestCase {
         let button = NSView(frame: NSRect(x: 300, y: 200, width: 24, height: 24))
         scroll.addSubview(button)
         let measure = R8KeysMeasure()
-        let element = ExactElement(hook: .t3Measure, id: "", node: 9, hooks: hooks)
+        let element = ExactElement(hatch: .t3Measure, id: "", node: 9, hatches: hooks)
         element.view = button
         element.data = ExactData(["frame": "table-copy-1"])
         measure.install(element)

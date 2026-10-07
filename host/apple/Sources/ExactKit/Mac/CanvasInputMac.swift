@@ -92,13 +92,7 @@ final class CanvasInput {
     func flags(_ event: NSEvent) -> Bool {
         guard let view, view.window?.firstResponder === view, let code = KeyCodes.mac[Int(event.keyCode)] else { return false }
         // NX_DEVICE* masks distinguish releasing one side while the other is held.
-        let masks: [String: (UInt, UInt, NSEvent.ModifierFlags)] = [
-            "ShiftLeft": (0x2, 0x6, .shift), "ShiftRight": (0x4, 0x6, .shift),
-            "ControlLeft": (0x1, 0x2001, .control), "ControlRight": (0x2000, 0x2001, .control),
-            "AltLeft": (0x20, 0x60, .option), "AltRight": (0x40, 0x60, .option),
-            "MetaLeft": (0x8, 0x18, .command), "MetaRight": (0x10, 0x18, .command),
-        ]
-        guard let (side, pair, flag) = masks[code] else { return false }
+        guard let (side, pair, flag) = KeyCodes.sides[code] else { return false }
         let raw = event.modifierFlags.rawValue
         let down = raw & pair != 0 ? raw & side != 0 : event.modifierFlags.contains(flag) && !modifiers.contains(code)
         if down { modifiers.insert(code) } else { modifiers.remove(code) }

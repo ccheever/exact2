@@ -19,6 +19,7 @@ import { runOnEnvironment } from './r4-git-env';
 import { balanceSources, balanceSubtitle } from './r11-misc-connections';
 import { environmentRows } from './r12-sidebar-connections';
 import { withStandardScope } from './remote-scopes';
+import { resolveRemotePairingTarget } from './remote';
 import { CLIENT_VERSION, versionMismatch } from './version-skew';
 import { nativeUpdateDeps, updateEnvironment, updateTargetFromConfig } from './server-update';
 import { confirms } from './server-update-notices';
@@ -298,11 +299,12 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
   }
   // lane r4-git: "Run on" moves a draft to another connected environment (r4-git-env.ts).
   if (op === 'environment-run-on') { if (!client) throw new ClientError('Open a draft first.'); return runOnEnvironment(client, native, value); }
-  if (op === 'environment-add') {
+  if (op === 'environment-add' || op === 'welcome-pair') {
     const host = id.trim(), code = value.trim();
+    const welcome = op === 'welcome-pair';
     try {
-      if (!host && !/^(https?|wss?):\/\//i.test(code)) throw new ClientError('Enter a backend host.');
-      const target = parsePairing(host || code, code);
+      if (!welcome && !host && !/^(https?|wss?):\/\//i.test(code)) throw new ClientError('Enter a backend host.');
+      const target = welcome ? resolveRemotePairingTarget({ pairingUrl: code }) : parsePairing(host || code, code);
       if (!target.credential && connected) throw new ClientError('Enter a pairing code.');
       if (connected) {
         // 22e9d35613 preparePairingRegistration: an outdated host that can update itself is still saved (switched off).
@@ -318,7 +320,7 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
         // Lane environment-routes: pairing a saved machine at another address adds a route, placed by kind.
         const added = obj(paired?.value);
         if (str(added.environmentId)) await placeRoute(native, str(added.environmentId), str(added.origin)).catch(() => {});
-        if (client) pushToast(client, { kind: 'success', title: 'Backend added', description: 'The environment is saved and will reconnect on app startup.' });
+        if (client && !welcome) pushToast(client, { kind: 'success', title: 'Backend added', description: 'The environment is saved and will reconnect on app startup.' });
         await fleet.sync(native, focusOf(client));
         return { status: null, generation: -1 };
       }
@@ -329,10 +331,10 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
         if (str(opened.environmentId)) await placeRoute(native, str(opened.environmentId), str(opened.origin)).catch(() => {});
         // r10-connect: handleAddSavedBackend's success is the same with or without a connection: the dialog
         // closes over Settings › Connections and the toast says so (app.contract keeps Settings open).
-        if (client) pushToast(client, { kind: 'success', title: 'Backend added', description: 'The environment is saved and will reconnect on app startup.' });
+        if (client && !welcome) pushToast(client, { kind: 'success', title: 'Backend added', description: 'The environment is saved and will reconnect on app startup.' });
         return { status: obj(reply.value), generation: reply.generation };
       } catch (error) { if (!letGo(error)) await abandonPairing(native, before, client); throw error; }
-    } catch (error) { failed(client, 'Could not add backend', error); throw error; }
+    } catch (error) { if (!welcome) failed(client, 'Could not add backend', error); throw error; }
   }
   if (op === 'environment-route-add') {
     // "Add a route to <label>" (ConnectionsSettings.tsx routeTarget): pair the same machine at another address.
@@ -516,6 +518,6 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
   }
   throw new ClientError(`Unknown action: ${op}`);
 }
-export const CONNECTION_OPS = ['environment-add', 'environment-switch', 'environment-enabled', 'environment-forget', 'environment-trace', 'environment-icon',
+export const CONNECTION_OPS = ['environment-add', 'welcome-pair', 'environment-switch', 'environment-enabled', 'environment-forget', 'environment-trace', 'environment-icon',
   'environment-update', 'environment-update-outdated', 'environment-update-all', 'environment-ssh-add', 'environment-ssh-pick', 'load-balancing', 'load-weight', 'github-routing', 'environment-run-on',
   'environment-route-add', 'environment-route-move', 'environment-route-remove', 'local-environment'];

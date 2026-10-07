@@ -24,15 +24,22 @@ final class MenuHost {
     /// (LLP 1021 D4), by `id`: each in the top layer while open, as macOS's
     /// and the web's are, out of its parent and back at its index after.
     private var agentOpen: [String: Lifted] = [:]
+    /// How many popovers the agent has opened: each one's place in the stack.
+    private var opened = 0
     private final class Lifted {
         let source: UInt32
         weak var popover: NodeView?
         weak var parent: UIView?
         var index: Int
         let center: CGPoint
+        /// Its place in HTML's popover stack: when it opened, and the open
+        /// popover it is nested in (its opener or its parent inside that
+        /// one), which hiding hides it with (LLP 1021 §5, "Submenus").
+        let order: Int
+        let ancestor: String?
         let layer = TopLayer(frame: .zero)
-        init(source: UInt32, popover: NodeView) {
-            self.source = source; self.popover = popover
+        init(source: UInt32, popover: NodeView, order: Int, ancestor: String?) {
+            self.source = source; self.popover = popover; self.order = order; self.ancestor = ancestor
             parent = popover.superview
             index = parent?.subviews.firstIndex(of: popover) ?? 0
             center = popover.center
@@ -130,13 +137,14 @@ final class MenuHost {
             guard let pop = entry.popover, presenter.views[pop.id] === pop, pop.props["id"] == name,
                   pop.props["popover"] != nil else { drop(name); continue }
         }
+        var lifting: [Lifted] = []
         for v in presenter.carrying("popover") + presenter.carrying("tag:dialog").filter({ $0.props["popover"] == nil }) {
             // The agent's painted presentation: in the top layer while open,
             // hidden while closed, as on the web and macOS, so a closed
             // popover covers nothing (`agentTap`).
             if ExactEnv.agentMode && !isConfirmation(v) {
                 if v.props["popover"] != nil {
-                    if let name = v.props["id"], let entry = agentOpen[name], entry.popover === v { lift(entry) }
+                    if let name = v.props["id"], let entry = agentOpen[name], entry.popover === v { lifting.append(entry) }
                     else if !v.isHidden { v.isHidden = true }
                 }
                 continue
@@ -145,6 +153,8 @@ final class MenuHost {
             if !v.isHidden { v.isHidden = true }
             if let name = v.props["id"] { popovers[name] = v }
         }
+        // In the order they opened, so a submenu stays above its menu.
+        for entry in lifting.sorted(by: { $0.order < $1.order }) { lift(entry) }
         var live = Set<UInt32>()
         for v in presenter.carrying("popovertarget") + presenter.carrying("commandfor").filter({ $0.props["popovertarget"] == nil }) {
             guard let target = target(of: v), let pop = popovers[target],
@@ -360,8 +370,10 @@ final class MenuHost {
         let center = CGPoint(x: at.x + size.width / 2, y: at.y + size.height / 2)
         if pop.center != center { pop.center = center }
     }
-    /// Out of the top layer, hidden, back where it was.
+    /// Out of the top layer, hidden, back where it was; the popovers nested
+    /// in it first, as hiding a popover hides those above it in the stack.
     private func drop(_ name: String) {
+        for (nested, entry) in agentOpen where entry.ancestor == name { drop(nested) }
         guard let entry = agentOpen.removeValue(forKey: name) else { return }
         entry.popover?.endEditing(true)
         entry.layer.removeFromSuperview()
@@ -396,9 +408,15 @@ final class MenuHost {
         for pop in presenter.carrying("popover") where !isConfirmation(pop) {
             if let name = pop.props["id"] { byName[name] = pop }
         }
-        for (name, entry) in agentOpen {
-            guard let pop = byName[name] else { continue }
-            if node === pop || node.isDescendant(of: pop) || node.id == entry.source || target(of: node) == name { continue }
+        // A tap inside an open popover keeps it and the popovers it is
+        // nested in (its submenu's tap keeps the menu); one outside, the
+        // spec's light dismiss, closes it.
+        var kept = Set<String>()
+        var inside = agentOpen.first { node === $0.value.popover || ($0.value.popover.map { node.isDescendant(of: $0) } ?? false) }?.key
+        while let name = inside, !kept.contains(name) { kept.insert(name); inside = agentOpen[name]?.ancestor }
+        for (name, entry) in agentOpen.sorted(by: { $0.value.order > $1.value.order }) {
+            guard byName[name] != nil, agentOpen[name] != nil else { continue }
+            if kept.contains(name) || node.id == entry.source || target(of: node) == name { continue }
             drop(name)
         }
         guard let name = target(of: node), let pop = byName[name], closes(node, pop) || opens(node, pop) else { return }
@@ -411,7 +429,14 @@ final class MenuHost {
         }
     }
     private func agentShow(_ pop: NodeView, named name: String, from source: UInt32) {
-        let entry = Lifted(source: source, popover: pop)
+        // Nested in the latest open popover holding its opener or itself.
+        let opener = presenter?.views[source]
+        let ancestor = agentOpen.filter { _, open in
+            guard let outer = open.popover else { return false }
+            return opener.map { $0.isDescendant(of: outer) } == true || pop.isDescendant(of: outer)
+        }.max { $0.value.order < $1.value.order }?.key
+        opened += 1
+        let entry = Lifted(source: source, popover: pop, order: opened, ancestor: ancestor)
         agentOpen[name] = entry
         lift(entry)
         if let field = Self.autofocus(in: pop) { presenter?.focusNode(field) }
@@ -460,7 +485,7 @@ final class MenuHost {
         #if os(iOS)
         if let open = context.observation() { return open }
         #endif
-        if confirmation == nil, ExactEnv.agentMode, let open = agentOpen.values.first, let pop = open.popover {
+        if confirmation == nil, ExactEnv.agentMode, let open = agentOpen.values.max(by: { $0.order < $1.order }), let pop = open.popover {
             return ["kind": "popover", "source": Int(open.source), "popover": Int(pop.id), "phase": "open"]
         }
         guard let owner = confirmation else { return nil }
@@ -600,7 +625,8 @@ final class MenuHost {
     /// `position-area`. `none` keeps the arrowless placement above (D2's
     /// below-left, native Messages' prompts). UIKit places a popover by the
     /// arrow directions it permits — `.down` puts it above its source,
-    /// `.up` below — centred on the source rect where it fits, so a centred
+    /// `.up` below, `.left` to its right (`right span-bottom`) — centred on
+    /// the source rect where it fits, so a centred
     /// area anchors at the whole invoker. `center` (the invoker's own cell)
     /// anchors there with no arrow and may cover it, `none`'s presentation:
     /// UIKit centres it across the invoker and picks its vertical position.
@@ -611,20 +637,30 @@ final class MenuHost {
             presentation.permittedArrowDirections = []
             presentation.canOverlapSourceViewRect = true
         } else {
-            presentation.permittedArrowDirections = area.hasPrefix("top") ? .down : .up
+            presentation.permittedArrowDirections = area.hasPrefix("top") ? .down : area.hasPrefix("right") ? .left : .up
             presentation.canOverlapSourceViewRect = false
         }
     }
     #endif
 
     /// The menu grammar, extracted (LLP 1021 D3): button rows become
-    /// actions; any other row is a section boundary.
-    func items(of pop: NodeView) -> [UIMenuElement] {
+    /// actions, a row that opens another menu its submenu (§5,
+    /// "Submenus"); any other row is a section boundary. `path` holds the
+    /// popovers above `pop`, whose rows opened it.
+    func items(of pop: NodeView, path: [NodeView] = []) -> [UIMenuElement] {
         var sections: [[UIMenuElement]] = [[]]
         for case let row as NodeView in pop.container.subviews {
             // A context menu's preview (§5.1) is not one of its items.
             if row.props["contextPreview"] == "true" { continue }
-            if row.handlers.contains("press") {
+            // A submenu authored inside its parent is no row of it.
+            if row.props["popover"] != nil { continue }
+            if let children = submenu(of: row, path: path + [pop]) {
+                // UIMenu has no disabled state: a disabled opener is a dimmed action.
+                let element: UIMenuElement = row.props["disabled"] == "true"
+                    ? UIAction(title: title(of: row), image: image(of: row), attributes: .disabled) { _ in }
+                    : UIMenu(title: title(of: row), image: image(of: row), children: children)
+                sections[sections.count - 1].append(element)
+            } else if row.handlers.contains("press") {
                 let id = row.id
                 let image = image(of: row)
                 let action = UIAction(title: title(of: row), image: image) { [weak self] _ in
@@ -641,6 +677,16 @@ final class MenuHost {
         let filled = sections.filter { !$0.isEmpty }
         if filled.count <= 1 { return filled.first ?? [] }
         return filled.map { UIMenu(options: .displayInline, children: $0) }
+    }
+    /// The items of the popover `row` opens as a submenu: one its
+    /// `popovertarget` names to toggle or show, not a confirmation, not on
+    /// `path` (a cycle is no submenu), with at least one item.
+    private func submenu(of row: NodeView, path: [NodeView]) -> [UIMenuElement]? {
+        guard row.isButton, let name = row.props["popovertarget"], row.props["popovertargetaction"] != "hide",
+              let sub = presenter?.carrying("popover").first(where: { $0.props["id"] == name }),
+              !isConfirmation(sub), !path.contains(where: { $0 === sub }) else { return nil }
+        let children = items(of: sub, path: path)
+        return children.isEmpty ? nil : children
     }
 
     /// A row's item image: its symbol, custom or native (LLP 1069.011.000
@@ -679,8 +725,12 @@ final class MenuHost {
         // A custom button whose face fits shows it too: a symbol-only row its
         // label (LLP 1069.011.000 D5); other content keeps its text.
         if v.isButton, let face = v.face, face.fits, let shown = face.shown { return shown }
+        // Its accessible name: an `aria-hidden` child (a submenu row's `›`,
+        // which the platform menu draws itself) is not part of it.
         return v.container.subviews
-            .compactMap { ($0 as? NodeView).map(title(of:)) }
+            .compactMap { $0 as? NodeView }
+            .filter { $0.props["accessibilityElementsHidden"] != "true" }
+            .map(title(of:))
             .filter { !$0.isEmpty }
             .joined(separator: " ")
     }

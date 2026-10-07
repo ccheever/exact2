@@ -3,10 +3,12 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, relative, resolve } from 'node:path';
 import { signingOrder } from '../host/apple/assets.mjs';
+import { stripForDistribution } from '../host/apple/build.mjs';
+import { assertLinkedSdk } from '../host/apple/link.mjs';
 
 const plist = (executable) => `<?xml version="1.0" encoding="UTF-8"?>
 <plist version="1.0"><dict><key>CFBundleExecutable</key><string>${executable}</string></dict></plist>\n`;
@@ -159,4 +161,24 @@ test.skipIf(process.platform !== 'darwin')('native resources sign and execute a 
   for (const path of signingOrder(app)) command('codesign', ['--force', '--sign', '-', '--timestamp=none', path]);
   command('codesign', ['--verify', '--deep', '--strict', app]);
   assert.equal(command(resolve(contents, 'Resources/server/helper'), []).stdout, 'helper ran\n');
+}));
+
+// An executable is named for its app (955b0463d), and an app may be named
+// "T3 Code (Exact)": otool reads a path ending in `name(member)` as an
+// archive's member, so the SDK check read nothing and refused the build (#234).
+test.skipIf(!tools)('an executable whose name ends in parentheses is read as a file, its SDK checked and its release stripped', () => inDir((dir) => {
+  writeFileSync(resolve(dir, 'main.c'), 'int main(void){return 0;}\n');
+  const executable = resolve(dir, 'Demo (Beta)');
+  // The macOS 15 SDK recorded, as a design-compatible build links it.
+  const r = spawnSync('clang', ['-g', '-mmacosx-version-min=14.0', '-Wl,-platform_version,macos,14.0,15.0', '-o', executable, resolve(dir, 'main.c')], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assertLinkedSdk(executable, '15.0');
+  assert.throws(() => assertLinkedSdk(executable, '27.0'), /Demo \(Beta\) records SDK 15\.0, not 27\.0/);
+  // A file the tool cannot read says so, not that it records no SDK.
+  assert.throws(() => assertLinkedSdk(resolve(dir, 'Gone (Beta)'), '15.0'), /vtool -show-build failed .*Gone \(Beta\)/);
+  // `exact release`'s dsymutil and strip take the same path as a file.
+  const { saved } = stripForDistribution(executable, resolve(dir, 'Demo (Beta).dSYM'));
+  assert.ok(existsSync(resolve(dir, 'Demo (Beta).dSYM/Contents/Resources/DWARF/Demo (Beta)')), 'dsymutil wrote the dSYM');
+  assert.ok(saved > 0, 'strip took symbols off');
+  assertLinkedSdk(executable, '15.0');
 }));

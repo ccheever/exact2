@@ -79,6 +79,14 @@ impl Layers {
         self.rows.remove(&id);
     }
 
+    /// The innermost open layer is recorded again by its reader in a colour
+    /// transition's colours.
+    pub(super) fn note_recolored(&mut self) {
+        if let Some(open) = self.open.last_mut() {
+            open.dash.get_or_insert(RECOLORED);
+        }
+    }
+
     /// A dash phase is written at `at` (an index into the recording ops):
     /// the innermost open layer's first is the one its reader moves.
     pub(super) fn note_dash(&mut self, at: usize) {
@@ -87,6 +95,10 @@ impl Layers {
         }
     }
 }
+
+/// In a `LAYER_SET`'s dash word: no dash, and the reader keeps the drawing
+/// to record it again in a transition's colours (`crate::host::lower`).
+pub(super) const RECOLORED: u32 = u32::MAX - 1;
 
 impl Recorder {
     /// Open layer `key` (see [`crate::paint::Backend::layer_begin`]).

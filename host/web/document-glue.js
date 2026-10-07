@@ -11,6 +11,8 @@
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 
 const IDLE_FALLBACK_MS = 200;
+// A keydown or keyup as kind 6's or 43's payload, as glue.js's `keyChord` writes it (#140).
+const keyChord = e => (e.shiftKey ? "Shift+" : "") + (e.ctrlKey ? "Control+" : "") + (e.altKey ? "Alt+" : "") + (e.metaKey ? "Meta+" : "") + e.key + "\n" + (/^[A-Za-z0-9]*$/.test(e.code ?? "") ? e.code ?? "" : "") + "\n" + !!e.repeat;
 
 // The runtime's first loads after it boots, fetched beside its wasm: each
 // would otherwise wait for the one before it, a round trip apiece (0.45 s of
@@ -93,11 +95,14 @@ function documentBoot(options) {
     } else if (event.type === "keydown") {
       for (const el of els) {
         // The chord kind 6 carries, as glue.js's `keyChord` writes it.
-        if (hears(el, "key")) enqueue(el, "key", (event.shiftKey ? "Shift+" : "") + (event.ctrlKey ? "Control+" : "") + (event.altKey ? "Alt+" : "") + (event.metaKey ? "Meta+" : "") + event.key);
+        if (hears(el, "key")) enqueue(el, "key", keyChord(event));
         if (hears(el, "submit") && el.localName !== "textarea" && event.key === "Enter" && !event.isComposing) {
           event.preventDefault(); enqueue(el, "submit");
         }
       }
+    } else if (event.type === "keyup") {
+      // A key's release (#140), kind 43, as glue.js's `keyup` sends it.
+      for (const el of els) if (hears(el, "keyup")) enqueue(el, "keyup", keyChord(event));
     } else if (event.type === "compositionstart") {
       composing.add(event.target); start();
     } else if (event.type === "compositionend") {
@@ -110,7 +115,7 @@ function documentBoot(options) {
     if (!holding || !usable(event.target) || event.target.closest("a[href]")) return;
     if (chain(event.target).some(el => ["press", "input", "change", "focus", "blur", "key", "submit"].some(kind => hears(el, kind)))) start();
   };
-  const kinds = ["click", "input", "change", "focusin", "focusout", "keydown", "compositionstart", "compositionend"];
+  const kinds = ["click", "input", "change", "focusin", "focusout", "keydown", "keyup", "compositionstart", "compositionend"];
   for (const kind of kinds) root.addEventListener(kind, record, true);
   for (const kind of ["pointerdown", "keydown", "focusin"]) root.addEventListener(kind, intent, true);
   for (const event of options.early?.splice(0) ?? []) record(event);
@@ -131,7 +136,7 @@ function documentBoot(options) {
     const el = at && views.get(at.id);
     if (matches(el, at) && el.exactHandlers?.includes(event.kind) && usable(el)) {
       const box = at.type === "checkbox";
-      dispatch(at.id, { press: 0, change: box ? 24 : 1, input: box ? 25 : 23, focus: 4, blur: 5, key: 6, submit: 7 }[event.kind], event.value ?? "");
+      dispatch(at.id, { press: 0, change: box ? 24 : 1, input: box ? 25 : 23, focus: 4, blur: 5, key: 6, keyup: 43, submit: 7 }[event.kind], event.value ?? "");
     } else log(`document: an early ${event.kind} was dropped (view ${at.id} is not what received it)`);
   };
   const page = {

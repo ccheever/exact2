@@ -183,6 +183,25 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
                 }
                 None => false,
             },
+            // `backdrop-filter`: ordered typed operations, never reparsed by Swift.
+            RowValue::BackdropFilter(list) if list.is_none() => false,
+            RowValue::BackdropFilter(list) => {
+                out.push('[');
+                for (i, op) in list.0.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    let (name, n) = match op {
+                        exact_kernel::style::BackdropOp::Blur(n) => ("blur", *n),
+                        exact_kernel::style::BackdropOp::Saturate(n) => ("saturate", *n),
+                    };
+                    out.push_str(&format!("{{\"{name}\":"));
+                    push_num(&mut out, n);
+                    out.push('}');
+                }
+                out.push(']');
+                true
+            }
             // @ref LLP 1077 D4 — `[{"o":[x,y],"b":blur,"s":spread,"i":1,"c":colour}]`,
             // the first painted on top; `i` only on an inset one.
             RowValue::BoxShadow(list) if list.0.is_empty() => false,
@@ -440,7 +459,7 @@ fn push_dimension(out: &mut String, d: Dimension) {
 /// or a reference (LLP 1095 D1) as `{"sys": <name>, "c": <pair>}`: this
 /// platform's class colour property (or `@tint`, `named:<Asset>`), which the
 /// presenter resolves per view against its traits, and the fallback pair.
-/// A `platform-color()` with no name for this platform crosses as its fallback.
+/// A `-exact-platform-color()` with no name for this platform crosses as its fallback.
 pub(crate) fn push_color_value(out: &mut String, c: ColorValue) {
     // LLP 1100 D3: no sRGB clip rides along; nothing here converts it.
     if let ColorValue::Profiled(id) = c {
@@ -1080,6 +1099,37 @@ pub fn num(n: f32) -> String {
 mod flow_tests {
     use super::*;
     #[test]
+    fn backdrop_filters_cross_to_swift_in_order_and_clear_to_none() {
+        exact_kernel::style::link_backdrop_filter();
+        let mut style = StyleProps::default();
+        for (css, expected) in [
+            (
+                "saturate(0) blur(4px)",
+                serde_json::json!({"backdrop_filter": [{"saturate": 0}, {"blur": 4}]}),
+            ),
+            (
+                "blur(4px) saturate(2)",
+                serde_json::json!({"backdrop_filter": [{"blur": 4}, {"saturate": 2}]}),
+            ),
+            (
+                "saturate(1)",
+                serde_json::json!({"backdrop_filter": [{"saturate": 1}]}),
+            ),
+            ("none", serde_json::json!({})),
+        ] {
+            style
+                .set_dynamic(StyleId::BackdropFilter, &StyleValue::Text(css.into()))
+                .unwrap();
+            let (json, skipped) = style_json(&style, &Env::default());
+            assert!(skipped.is_empty());
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(&json).unwrap(),
+                expected
+            );
+        }
+    }
+
+    #[test]
     fn exclusion_rows_wait_for_resolved_shape_batches() {
         let mut s = StyleProps::default();
         for (id, value) in [
@@ -1327,7 +1377,7 @@ mod flow_tests {
     fn a_moving_colour_leaves_system_colours_and_the_rest_stay() {
         // LLP 1077 D13: the row the motion paints is no longer a system
         // colour; an untouched one keeps its name.
-        let last = r#"{"text_color":[[0,0,0,255],[255,255,255,255]],"background_color":[[120,120,128,51],[120,120,128,92]],"system_colors":{"text_color":"-apple-system-label","background_color":"-apple-system-fill"}}"#;
+        let last = r#"{"text_color":[[0,0,0,255],[255,255,255,255]],"background_color":[[120,120,128,51],[120,120,128,92]],"system_colors":{"text_color":"-apple-system-label","background_color":"-exact-fill"}}"#;
         let mut shown = Shown::default();
         shown.set(
             Property::BackgroundColor,

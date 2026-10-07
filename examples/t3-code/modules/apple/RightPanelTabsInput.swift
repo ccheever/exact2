@@ -10,10 +10,10 @@ final class RightPanelTabsInput {
     private var elements: [String: Weak] = [:]
     private var monitor: Any?
     func install(_ element: ExactElement) {
-        if element.hook == .t3SelectOnOpen, element.id.hasPrefix("tab-name-") {
+        if element.hatch == .t3SelectOnOpen, element.id.hasPrefix("tab-name-") {
             elements["tab-editor:" + String(element.id.dropFirst("tab-name-".count))] = Weak(element)
         } else {
-            guard element.hook == .t3Anchor, let name = element.data[.anchor],
+            guard element.hatch == .t3Anchor, let name = element.data[.anchor],
                   ["r12-tab:", "tab-close:", "tab-cancel:", "tab-focus:"].contains(where: name.hasPrefix) else { return }
             elements[name] = Weak(element)
         }

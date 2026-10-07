@@ -139,6 +139,22 @@ enum KeyCodes {
         }
         return (self.held(shift: held.contains("Shift"), control: held.contains("Control"), alt: held.contains("Alt"), meta: held.contains("Meta")), String(rest))
     }
+    /// A chord's modifiers in the order it names them, each with the prefix
+    /// held as it goes down, its own included: `Shift+Control+x` is Shift
+    /// (`Shift+`), then Control (`Shift+Control+`). Each is its own keydown
+    /// before the key, as a keyboard's is (Charlie, 2026-10-07; the web
+    /// driver's `modifierEdges`).
+    static func modifierPresses(_ chord: String) -> [(key: String, held: String)] {
+        var on: Set<Substring> = [], presses: [(key: String, held: String)] = []
+        var rest = Substring(chord)
+        while let plus = rest.firstIndex(of: "+"), rest.index(after: plus) < rest.endIndex,
+              ["Shift", "Control", "Alt", "Meta"].contains(rest[..<plus]) {
+            on.insert(rest[..<plus])
+            presses.append((String(rest[..<plus]), held(shift: on.contains("Shift"), control: on.contains("Control"), alt: on.contains("Alt"), meta: on.contains("Meta"))))
+            rest = rest[rest.index(after: plus)...]
+        }
+        return presses
+    }
     static func device(_ name: String) -> (code: String, key: String)? {
         let code = codeName(name)
         // F13–F24 as the web's driver takes them (CDP has every one).

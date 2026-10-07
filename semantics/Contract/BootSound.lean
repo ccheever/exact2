@@ -9,6 +9,7 @@ settled values and the late slots before it, `lateScope`) and renders. Each
 stage, for a well-typed program, has a value or a `Legitimate` failure.
 -/
 import Contract.StepSound
+import Contract.Observe
 
 namespace Contract
 
@@ -396,6 +397,47 @@ theorem dont_go_wrong {p : Program} (hcheck : check p = true) :
   refine ⟨boot_sound hp, fun c h => ?_⟩
   have hc := reachable_configOK hp h
   exact ⟨hc, fun o ev => step_sound hp hc o ev⟩
+
+/-- An observed event (`Observe.step`, the hosts' `dispatch_at`) is at most
+two of `Reachable`'s steps, an advance to `c.now` then a dispatch, so it lands
+in a reachable, well-typed configuration, and its outcome is one of theirs. -/
+theorem observe_step_sound {p : Program} (hcheck : check p = true) {c : Config}
+    (h : Reachable p c) (o : Oracle) (e : Observe.Event) :
+    Reachable p (Observe.step p o c e).1 ∧ ConfigOK p (Observe.step p o c e).1 ∧
+      OutcomeOK (Observe.step p o c e).2 := by
+  have hp := check_sound hcheck
+  obtain ⟨-, hr⟩ := dont_go_wrong hcheck
+  -- One host event from a reachable configuration.
+  have one : ∀ {c : Config} (ev : Event), Reachable p c →
+      Reachable p (ev.step p o c).1 ∧ OutcomeOK (ev.step p o c).2 :=
+    fun ev hc => ⟨.step o ev hc, ((hr _ hc).2 o ev).2⟩
+  have at_ : ∀ target event payload,
+      Reachable p (Observe.dispatchAt p o c target event payload).1 ∧
+        OutcomeOK (Observe.dispatchAt p o c target event payload).2 := by
+    intro target event payload
+    unfold Observe.dispatchAt
+    split
+    · exact one (.dispatch target event payload) h
+    · split
+      · exact one (.dispatch target event payload) h
+      obtain ⟨h₁, o₁⟩ := one (.advance c.now) h
+      simp only [Event.step] at h₁ o₁
+      split
+      · next c₁ e heq => rw [heq] at h₁ o₁; exact ⟨h₁, o₁⟩
+      · next c₁ out₁ _ heq =>
+        rw [heq] at h₁ o₁
+        obtain ⟨h₂, o₂⟩ := one (.dispatch target event payload) h₁
+        simp only [Event.step] at h₂ o₂
+        split
+        · next c₂ heq₂ => rw [heq₂] at h₂; exact ⟨h₂, o₁⟩
+        · next c₂ out₂ _ heq₂ => rw [heq₂] at h₂ o₂; exact ⟨h₂, o₂⟩
+  have hstep : Reachable p (Observe.step p o c e).1 ∧ OutcomeOK (Observe.step p o c e).2 := by
+    cases e with
+    | tap t => exact at_ t "press" .none
+    | change t s => exact at_ t "change" (.some (.str s))
+    | clock ms => exact one (.advance (c.now + ms)) h
+    | other t ev v => exact at_ t ev v
+  exact ⟨hstep.1, reachable_configOK hp hstep.1, hstep.2⟩
 
 /-- The same, failure by failure: no step of a well-typed program, boot
 included, fails with a type error, an unbound name or a `pending` read. -/

@@ -501,7 +501,7 @@ enum RasterGeometry {
         return CGRect(x: content.midX - size.width / 2, y: content.midY - size.height / 2, width: size.width, height: size.height)
     }
 
-    /// The bitmap into `rect`, or with a `tint-color` as a template: its
+    /// The bitmap into `rect`, or with a `-exact-tint-color` as a template: its
     /// alpha masks the tint (LLP 1011 §4). The same decoded pixels either way.
     /// A layer composited source-in, not `clip(to:mask:)`, which reads an
     /// image with alpha wrongly (a transparent pixel came back half covered).

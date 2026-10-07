@@ -144,7 +144,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     release(); // a press whose release never reached the page
     const el = e.target.closest?.("[data-exact-on~=press],button[data-button-style]");
     if (!el || !root.contains(el) || el.closest(":disabled,[disabled='true']")) return;
-    // @ref LLP 1077 D14 — `press-haptic` plays at the press, as Apple's does:
+    // @ref LLP 1077 D14 — `-exact-press-haptic` plays at the press, as Apple's does:
     // `navigator.vibrate` where the browser has it (not desktop, not iOS
     // Safari), with `haptic()`'s two lengths (workout F4).
     const haptic = el.style.getPropertyValue("--exact-press-haptic").trim();

@@ -6,9 +6,14 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     typealias Completion = ([String: Any]) -> Void
     private struct Pending {
         let completion: Completion
+        /// Shared reads that joined this one. Each is finished on its own, so a reply too large for
+        /// one native reply gets its own transfer: one caller's release never strands another's.
+        var joiners: [Completion] = []
         let deadline: Date
         /// The app's trace id: a status read lists the traces still pending (r3-protocol-reader.ts).
         var trace: Int? = nil
+        /// The traces of shared reads that joined this one: pending as long as it is.
+        var joinedTraces: [Int] = []
     }
     let queue = DispatchQueue(label: "com.exact.t3code.transport")
     private let changed: (String) -> Void
@@ -37,6 +42,8 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     private var socket: URLSessionWebSocketTask?
     private var httpTasks: [Int: URLSessionDataTask] = [:]
     private var pending: [String: Pending] = [:]
+    /// Shared reads still pending, by method and payload (`share`): an identical read joins one.
+    private var sharedReads: [String: (id: String, cwd: String?)] = [:]
     private let activity: T3ActivityReporter?
     private let activityID = UUID()
     private var activityScopes: [String: UUID] = [:]
@@ -247,7 +254,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     func status() -> [String: Any] {
         ["state": state, "origin": origin?.absoluteString ?? "", "environmentId": descriptor["environmentId"] as? String ?? "",
          "message": message, "descriptor": descriptor, "failureKind": failureKind, "traceId": failureTrace,
-         "traces": pending.values.compactMap { $0.trace }, "activeRouteId": primary ? "" : routes.activeId, "homeOrigin": primary ? "" : routes.home,
+         "traces": pending.values.flatMap { call in (call.trace.map { [$0] } ?? []) + call.joinedTraces }, "activeRouteId": primary ? "" : routes.activeId, "homeOrigin": primary ? "" : routes.home,
          "primary": primary, "focus": primary ? "primary" : origin == nil ? restoredFocus : ""]
     }
     func setStatus(_ next: String, _ text: String) {
@@ -287,6 +294,15 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     }
     func finish(_ completion: Completion, failure: T3Failure) {
         completion(["ok": false, "generation": generation, "error": self.failure(failure).json])
+    }
+    /// A pending request and every shared read that joined it, each finished on its own (its own transfer).
+    private func finish(_ call: Pending, value: Any) {
+        finish(call.completion, value: value)
+        for joiner in call.joiners { finish(joiner, value: value) }
+    }
+    private func finish(_ call: Pending, failure: T3Failure) {
+        finish(call.completion, failure: failure)
+        for joiner in call.joiners { finish(joiner, failure: failure) }
     }
 
     private func connect(_ request: [String: Any], completion: @escaping Completion) throws {
@@ -523,15 +539,38 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     }
 
     func nextID() -> String { serial += 1; return "\(generation)-\(serial)" }
+    /// A shared read's identity: the method and its payload, keys sorted.
+    static func shareKey(_ method: String, _ payload: Any?) -> String? {
+        guard let data = try? JSONSerialization.data(withJSONObject: payload ?? [String: Any](), options: [.sortedKeys, .fragmentsAllowed]),
+              let text = String(data: data, encoding: .utf8) else { return nil }
+        return method + "\n" + text
+    }
     func rpc(_ request: [String: Any], completion: @escaping Completion) throws {
         guard state == "connected" else { throw T3Failure(kind: "Disconnected", message: "The server is not connected.") }
         guard let method = request["method"] as? String, !method.isEmpty else { throw arguments("request requires a method.") }
-        guard pending.count < 64 else { throw T3Failure(kind: "Busy", message: "Too many server requests are already pending.") }
+        // No cap on pending requests: the reference's RPC client refuses none (a user's snooze
+        // queued behind other reads still goes out), and each pending request ends at its deadline.
+        // A shared read (`share`, a data source's kept read) joins an identical one still pending, as
+        // the reference's query atoms share one request per input: an answer Exact asked again before
+        // the reply sends nothing new (round 5: vcs.refreshStatus four times a second).
+        let shareKey = request["share"] as? Bool == true ? Self.shareKey(method, request["payload"]) : nil
+        // A request that is not shared may write (a branch switch): no later read of its workspace joins one sent before it.
+        let cwd = (request["payload"] as? [String: Any])?["cwd"] as? String
+        if shareKey == nil, let cwd { sharedReads = sharedReads.filter { $0.value.cwd != cwd } }
+        if let shareKey, let id = sharedReads[shareKey]?.id, pending[id] != nil {
+            pending[id]?.joiners.append(completion)
+            if let trace = request["trace"] as? Int { pending[id]?.joinedTraces.append(trace) }
+            return
+        }
         let id = nextID(), wire = T3Wire.request(id: id, method: method, payload: request["payload"] ?? [:])
         let text = try T3Wire.encode(wire)
         // auto-balance: a request may ask for a shorter deadline (server.getHostResources waits 5 s).
         let wait = min(30, max(1, (request["timeout"] as? NSNumber)?.doubleValue ?? 30))
         pending[id] = Pending(completion: completion, deadline: Date().addingTimeInterval(wait), trace: request["trace"] as? Int)
+        if let shareKey {
+            sharedReads = sharedReads.filter { pending[$0.value.id] != nil } // ended reads leave
+            sharedReads[shareKey] = (id, cwd)
+        }
         send(text, epoch: generation)
     }
     private func subscribe(_ request: [String: Any], completion: @escaping Completion) throws {
@@ -648,8 +687,8 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         let success = exit["_tag"] as? String == "Success"
         if terminalEnded(id: id, failure: success ? nil : failure(T3Wire.failure(exit))) { return } // terminal-drawer
         if let call = pending.removeValue(forKey: id) {
-            if success { finish(call.completion, value: exit["value"] ?? NSNull()) }
-            else { finish(call.completion, failure: T3Wire.failure(exit)) }
+            if success { finish(call, value: exit["value"] ?? NSNull()) }
+            else { finish(call, failure: T3Wire.failure(exit)) }
         } else if let key = streams.removeValue(forKey: id) {
             if let lease = activityScopes.removeValue(forKey: id) { activity?.release(lease) }
             let problem = success ? nil : failure(T3Wire.failure(exit))
@@ -682,7 +721,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
             for (id, call) in self.pending where call.deadline <= now {
                 self.pending.removeValue(forKey: id)
                 self.send(["_tag": "Interrupt", "requestId": id], epoch: self.generation)
-                self.finish(call.completion, failure: T3Failure(kind: "Timeout", message: "The server did not confirm the request. Refresh before trying it again.", uncertain: true))
+                self.finish(call, failure: T3Failure(kind: "Timeout", message: "The server did not confirm the request. Refresh before trying it again.", uncertain: true))
             }
             if let probe = self.probing, now >= probe.deadline {
                 let label = self.descriptor["label"] as? String ?? self.origin?.host ?? "The server"
@@ -709,7 +748,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         old?.cancel(with: .goingAway, reason: nil)
         for task in httpTasks.values { task.cancel() }; httpTasks.removeAll()
         let calls = Array(pending.values); pending.removeAll()
-        for call in calls { finish(call.completion, failure: reason) }
+        for call in calls { finish(call, failure: reason) }
         streams.removeAll(); streamRetries.removeAll(); failedStreams.removeAll()
         terminalRetired() // terminal-drawer: attach streams end with the socket; sessions attach again on the next one
         if let waiting = opening { opening = nil; finish(waiting, failure: reason) }

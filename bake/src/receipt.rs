@@ -480,6 +480,26 @@ fn artifact_graph(
         requires.insert("executors".into(), inputs["executors"].clone());
         requires.insert("grantCeiling".into(), inputs["grantCeiling"].clone());
     }
+    // @ref LLP 1075.003.000.001 §4.3 — the hatch words the plan marks that
+    // this platform's module handles: the installed module must handle each.
+    // A word this platform does not handle is no requirement here: its nodes
+    // are shown and never called.
+    let handled = inputs["hatches"].as_array().cloned().unwrap_or_default();
+    let mut marked: Vec<&str> = plan
+        .bindings
+        .iter()
+        .filter(|b| {
+            b.kind == exact_plan::BindingKind::Prop
+                && exact_kernel::PropId::from_wire(b.id) == Some(exact_kernel::PropId::Hatch)
+        })
+        .filter_map(|b| crate::colors::literal(plan, b))
+        .filter(|word| handled.iter().any(|h| h == word))
+        .collect();
+    marked.sort_unstable();
+    marked.dedup();
+    if !marked.is_empty() {
+        requires.insert("hatches".into(), json!(marked));
+    }
     // A purpose's text is in the installed binary's Info.plist: a bundle
     // whose purposes differ is a binary release (LLP 1069.008 D5).
     if inputs.get("grantPurposes").is_some() {
@@ -561,8 +581,11 @@ fn artifact_graph(
                 && b.id == exact_kernel::PropId::MediaTitle as u16
         })
     });
+    // The linked tier the plan uses (LLP 1047 D2), by name: a native build
+    // whose plan is fixed links these and no other (LLP 1047.001 D2).
+    let uses: Vec<&str> = exact_runner::uses(plan).iter().map(|c| c.name()).collect();
     Ok(
-        json!({"version":1,"sources":sources,"surfaceCalls":calls,"loads":loads,"mediaSession":media_session,"artifacts":artifacts}),
+        json!({"version":1,"sources":sources,"surfaceCalls":calls,"loads":loads,"uses":uses,"mediaSession":media_session,"artifacts":artifacts}),
     )
 }
 
@@ -704,6 +727,43 @@ mod tests {
             let graph = artifact_graph(&plan, &json!({}), &[], "aarch64-apple-darwin").unwrap();
             assert_eq!(graph["loads"], loads);
         }
+    }
+
+    /// LLP 1075.003.000.001 §4.3: the plan requires the hatch words it marks
+    /// that this platform's module handles, and no others.
+    #[test]
+    fn a_plan_requires_the_hatch_words_its_platform_handles() {
+        let mut b = exact_plan::builder::PlanBuilder::new(0, 0);
+        for word in ["dot", "avatar", "avatar", "badge"] {
+            let expr = b.constant(&exact_plan::Value::str(word));
+            let bindings = [exact_plan::BindingsRow {
+                kind: exact_plan::BindingKind::Prop,
+                id: exact_kernel::PropId::Hatch as u16,
+                expr,
+            }];
+            b.node(
+                exact_kernel::NodeType::Video as u8,
+                None,
+                None,
+                0,
+                &bindings,
+                &[],
+                None,
+            );
+        }
+        let plan = b.finish().unwrap();
+        let requires = |inputs: Value| {
+            let graph = artifact_graph(&plan, &inputs, &[], "aarch64-apple-darwin").unwrap();
+            graph["artifacts"][0]["requires"]["hatches"].clone()
+        };
+        // This platform handles `avatar` and `dot`; `badge` is another platform's.
+        assert_eq!(
+            requires(json!({"hatches": ["avatar", "dot", "unused"]})),
+            json!(["avatar", "dot"])
+        );
+        // A platform that handles none of them is asked for nothing.
+        assert_eq!(requires(json!({"hatches": null})), Value::Null);
+        assert_eq!(requires(json!({})), Value::Null);
     }
 
     /// LLP 1098 D8: the receipt says whether a node claims the media session.

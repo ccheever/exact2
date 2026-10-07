@@ -1346,6 +1346,17 @@ impl PhysicalDeviceProperties {
             extensions.push(khr::external_memory_fd::NAME);
         }
 
+        // EXACT (EXACT-PATCHES.md, 8): Optional
+        // `VK_ANDROID_external_memory_android_hardware_buffer`, with the
+        // extension it requires that is not core in 1.1.
+        #[cfg(target_os = "android")]
+        if self.supports_extension(ash::android::external_memory_android_hardware_buffer::NAME)
+            && self.supports_extension(ext::queue_family_foreign::NAME)
+        {
+            extensions.push(ash::android::external_memory_android_hardware_buffer::NAME);
+            extensions.push(ext::queue_family_foreign::NAME);
+        }
+
         // Optional `VK_EXT_external_memory_dma`
         if self.supports_extension(ext::external_memory_dma_buf::NAME) {
             extensions.push(ext::external_memory_dma_buf::NAME);

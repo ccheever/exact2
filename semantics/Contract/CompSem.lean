@@ -743,11 +743,26 @@ def CConfig.toConfig (c : CConfig) : Config :=
     now := c.now, timers := c.timers, poisoned := c.poisoned, commands := c.commands,
     armed := c.armed }
 
+/-- `Contract.Observe.dispatchAt` for the unexpanded file: the work due by
+`c.now` first, then the event. -/
+def cdispatchAt (p : CProgram) (o : Oracle) (c : CConfig) (target event : String)
+    (payload : Option Value) : CConfig × Outcome :=
+  match cfindTestId target c.view with
+  | .none => cdispatch p o c target event payload
+  | .some n =>
+    if (n.handlers.find? (·.event == event)).isNone then cdispatch p o c target event payload else
+    match cadvance p o c c.now with
+    | (c₁, .poisoned e) => (c₁, .poisoned e)
+    | (c₁, o₁) =>
+      match cdispatch p o c₁ target event payload with
+      | (c₂, .ok) => (c₂, o₁)
+      | (c₂, o₂) => (c₂, o₂)
+
 def cstep (p : CProgram) (o : Oracle) (c : CConfig) : Observe.Event → CConfig × Outcome
-  | .tap t => cdispatch p o c t "press" .none
-  | .change t s => cdispatch p o c t "change" (.some (.str s))
+  | .tap t => cdispatchAt p o c t "press" .none
+  | .change t s => cdispatchAt p o c t "change" (.some (.str s))
   | .clock ms => cadvance p o c (c.now + ms)
-  | .other t e v => cdispatch p o c t e v
+  | .other t e v => cdispatchAt p o c t e v
 
 /-- `Contract.Observe.run` for the unexpanded file. -/
 def crun (p : CProgram) (o : Oracle) (events : List Observe.Event) : List String := Id.run do

@@ -768,18 +768,18 @@ component Messages
                     textarea appearance="none" id="composer" testId="composer" value=draft input=write focus=composerFocus blur=composerBlur placeholder="iMessage" aria-label="Message" class=PrimaryText font-family="system-ui" font-size=17 line-height="20px" flex=1 min-width=0 field-sizing="content" min-height=28.333333 max-height="100%" align-self="stretch" padding-top=4.166667 padding-bottom=4.166667 box-sizing="border-box" border-width=0
                     button press=sendDraft retainFocus=true disabled=(draft == "") testId="send" aria-label=(draft == "" ? "Dictate message" : "Send message") width=38 height=28 box-sizing="border-box" padding-left=(draft == "" ? 10 : 0) border-radius=14 background-color=(draft == "" ? "#00000000" : "light-dark(#007aff, #0a84ff)") display="flex" flex-direction="row" align-items="center" justify-content="center"
                       when draft == ""
-                        image "symbol:microphone" font-size=17 font-weight=400 tint-color="light-dark(#b4b4b7, #8e8e93)"
+                        image "symbol:microphone" font-size=17 font-weight=400 -exact-tint-color="light-dark(#b4b4b7, #8e8e93)"
                       else
-                        image "symbol:send" testId="send-symbol" font-size=17 font-weight=700 tint-color="#ffffff"
+                        image "symbol:send" testId="send-symbol" font-size=17 font-weight=700 -exact-tint-color="#ffffff"
                 box width="calc(env(safe-area-inset-bottom) - 22px)" min-width=0 flex-shrink=0
               box height="calc(env(safe-area-inset-bottom) - 22px)" min-height=0 flex-shrink=0
             when selecting
               column id="selection-toolbar" testId="selection-toolbar" key=selectionKey flex-shrink=0 padding-top=10
                 row height=48 padding-left=28 padding-right=28 justify-content="space-between"
                   button commandfor="delete-confirmation" command="show-modal" disabled=(chat.selectionCount == 0) testId="delete-selection" aria-label="Delete selected messages" width=48 height=48 border-radius=24 backgroundMaterial="glass" display="flex" flex-direction="row" align-items="center" justify-content="center"
-                    image "symbol:delete" testId="delete-symbol" position="relative" top=-0.666667 font-size=22 font-weight=400 tint-color=(chat.selectionCount > 0 ? "light-dark(#000000, #ffffff)" : "light-dark(#b4b4b7, #636366)")
+                    image "symbol:delete" testId="delete-symbol" position="relative" top=-0.666667 font-size=22 font-weight=400 -exact-tint-color=(chat.selectionCount > 0 ? "light-dark(#000000, #ffffff)" : "light-dark(#b4b4b7, #636366)")
                   button press=forwardSelected disabled=(chat.selectionCount == 0) testId="forward-selection" aria-label="Forward selected messages" width=48 height=48 border-radius=24 backgroundMaterial="glass" display="flex" flex-direction="row" align-items="center" justify-content="center"
-                    image "symbol:forward" testId="forward-symbol" position="relative" top=0.333333 font-size=22 font-weight=400 tint-color=(chat.selectionCount > 0 ? "light-dark(#000000, #ffffff)" : "light-dark(#b4b4b7, #636366)")
+                    image "symbol:forward" testId="forward-symbol" position="relative" top=0.333333 font-size=22 font-weight=400 -exact-tint-color=(chat.selectionCount > 0 ? "light-dark(#000000, #ffffff)" : "light-dark(#b4b4b7, #636366)")
                 box height="calc(env(safe-area-inset-bottom) - 6px)" min-height=0
               dialog id="delete-confirmation" testId="delete-confirmation" role="alertdialog" aria-label="Delete selected messages" closedby="any" backgroundMaterial="glass" position="absolute" left=10 right="auto" top="auto" bottom="calc(env(safe-area-inset-bottom) + 10px)" margin=0 width=240 padding=16 box-sizing="border-box" border-width=0 border-radius=36
                 button destructive=true press=deleteSelected commandfor="delete-confirmation" command="close" testId="confirm-delete-messages" aria-label=(chat.selectionCount == 1 ? "Delete Message" : `Delete ${chat.selectionCount} Messages`) height=48 border-radius=24 background-color="light-dark(#d9d9dc, #555559)" display="flex" flex-direction="row" align-items="center" justify-content="center" color="light-dark(#ff383c, #ff4245)"

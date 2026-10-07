@@ -391,7 +391,11 @@ page's (LLP 1027.000 D3), so an app that reads the clock fails in the web loop
 as it would on a device. The type check cannot see the difference, but every
 build refuses a direct use in a module `app.ts` reaches, by file and line
 (`logic.ts:2:28: Date.now() is unavailable in data sources; …`), so a test that
-runs the module under Bun, which has no such guard, cannot hide it. Development JS builds name a derive
+runs the module under Bun, which has no such guard, cannot hide it.
+Literal bracket access such as `Date['now']()` and `globalThis['setTimeout']()`
+gets the same diagnostic as dot access, including in the web build's summary.
+Aliases and dynamic property keys still reach the runtime guard.
+Development JS builds name a derive
 whose value fails its type check and report failed resource/source dependencies
 that it read.
 ES2024's resizable `ArrayBuffer`, shared memory and the RegExp `v` flag are not

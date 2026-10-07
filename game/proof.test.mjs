@@ -89,16 +89,16 @@ test('proof receipts bind the web manifest and the actual app executable', () =>
     writeFileSync(resolve(dir,'exact.json'),'two');
     expect(artifactDigest('web',dir)).not.toBe(web);
     writeFileSync(resolve(dir,'built-macos'),'');
-    expect(artifactDigest('macos',dir,{bundle})).toBe(null);
+    expect(artifactDigest('macos',dir,{bundle,executable:'Game'})).toBe(null);
     mkdirSync(resolve(bundle,'Contents/MacOS'),{recursive:true});
-    const exe=resolve(bundle,'Contents/MacOS/ExactMac');
-    writeFileSync(exe,'native one'); const mac=artifactDigest('macos',dir,{bundle});
-    writeFileSync(exe,'native two'); expect(artifactDigest('macos',dir,{bundle})).not.toBe(mac);
+    const exe=resolve(bundle,'Contents/MacOS/Game');
+    writeFileSync(exe,'native one'); const mac=artifactDigest('macos',dir,{bundle,executable:'Game'});
+    writeFileSync(exe,'native two'); expect(artifactDigest('macos',dir,{bundle,executable:'Game'})).not.toBe(mac);
     const binary=resolve(dir,'standalone');
-    writeFileSync(binary,'carrier one'); const carrier=artifactDigest('macos',dir,{bundle,binary});
-    writeFileSync(binary,'carrier two'); expect(artifactDigest('macos',dir,{bundle,binary})).not.toBe(carrier);
-    rmSync(binary); expect(artifactDigest('macos',dir,{bundle,binary})).toBe(null);
-    rmSync(bundle,{recursive:true}); expect(artifactDigest('macos',dir,{bundle})).toBe(null);
+    writeFileSync(binary,'carrier one'); const carrier=artifactDigest('macos',dir,{bundle,executable:'Game',binary});
+    writeFileSync(binary,'carrier two'); expect(artifactDigest('macos',dir,{bundle,executable:'Game',binary})).not.toBe(carrier);
+    rmSync(binary); expect(artifactDigest('macos',dir,{bundle,executable:'Game',binary})).toBe(null);
+    rmSync(bundle,{recursive:true}); expect(artifactDigest('macos',dir,{bundle,executable:'Game'})).toBe(null);
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
 test('inventory failure clears the timer before unconditional session cleanup', async () => {
@@ -148,10 +148,10 @@ test('native receipt changes with game dylibs and embedded plan/assets', () => {
   try {
     mkdirSync(resolve(bundle,'Contents/MacOS'),{recursive:true});
     mkdirSync(resolve(bundle,'Contents/Resources'),{recursive:true});
-    writeFileSync(resolve(bundle,'Contents/MacOS/ExactMac'),'executable');
+    writeFileSync(resolve(bundle,'Contents/MacOS/Game'),'executable');
     for (const file of ['Contents/MacOS/libexact_gpu.dylib','Contents/MacOS/libexact_web.dylib','Contents/Resources/app.plan','Contents/Resources/texture.bin']) {
-      writeFileSync(resolve(bundle,file),'before'); const before=artifactDigest('macos',dir,{bundle});
-      writeFileSync(resolve(bundle,file),'after'); expect(artifactDigest('macos',dir,{bundle})).not.toBe(before);
+      writeFileSync(resolve(bundle,file),'before'); const before=artifactDigest('macos',dir,{bundle,executable:'Game'});
+      writeFileSync(resolve(bundle,file),'after'); expect(artifactDigest('macos',dir,{bundle,executable:'Game'})).not.toBe(before);
     }
   } finally {rmSync(dir,{recursive:true,force:true});}
 });
@@ -229,11 +229,11 @@ test('native receipt cache misses when only the standalone game dylib changes', 
   try {
     mkdirSync(resolve(bundle,'Contents/MacOS'),{recursive:true});
     mkdirSync(products);
-    writeFileSync(resolve(bundle,'Contents/MacOS/ExactMac'),'bundled executable');
-    const binary=resolve(products,'ExactMac'), dylib=resolve(products,'libgreybox_gpu.dylib');
+    writeFileSync(resolve(bundle,'Contents/MacOS/Game'),'bundled executable');
+    const binary=resolve(products,'Game'), dylib=resolve(products,'libgreybox_gpu.dylib');
     writeFileSync(binary,'standalone executable');
     writeFileSync(dylib,'game before');
-    const artifacts={bundle,binary,products};
+    const artifacts={bundle,executable:'Game',binary,products};
     const stamp=() => JSON.stringify({inputs:'unchanged sources',artifact:artifactDigest('macos',dir,artifacts)});
     const cached=stamp();
     expect(stamp()).toBe(cached);
@@ -1291,12 +1291,12 @@ test('phone carrier copies before launch, saves over the socket and owns its pro
     const bytes = Buffer.from([0, 1, 127, 255]), calls = [], children = [];
     const app = {id:'com.exact.phone-fixture',dir,target:dir,crate:kind=>`phone-fixture-${kind}`};
     mkdirSync(bundle); writeFileSync(input, bytes);
-    writeFileSync(resolve(bundle, 'ExactIOS'), JSON.stringify({id:'0'.repeat(32),inputs:{app:app.id}}));
+    writeFileSync(resolve(bundle, 'Phone'), JSON.stringify({id:'0'.repeat(32),inputs:{app:app.id}}));
     const apps = await import(resolve(root, 'scripts/app.mjs'));
     const apple = await import(resolve(root, 'host/apple/build.mjs'));
     const devices = await import(resolve(root, 'host/apple/devices.mjs'));
     mock.module(resolve(root, 'scripts/app.mjs'), () => ({...apps, resolveApp:() => app, bakeOutput:() => dir}));
-    mock.module(resolve(root, 'host/apple/build.mjs'), () => ({...apple, appleArtifacts:() => ({bundle})}));
+    mock.module(resolve(root, 'host/apple/build.mjs'), () => ({...apple, appleArtifacts:() => ({bundle, executable:'Phone'})}));
     // The phone is chosen in devices.mjs since 28a2ee81d.
     mock.module(resolve(root, 'host/apple/devices.mjs'), () => ({...devices, phone:pick => {
       assert.equal(pick, 'fixture-phone'); return {udid:pick};

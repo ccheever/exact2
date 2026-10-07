@@ -37,7 +37,7 @@ fn symbols_admit_roles_and_opaque_sf_names_but_refuse_misspelled_roles() {
         "sort",
         "filter",
     ] {
-        contract::compile(&format!("component App\n  view\n    image \"symbol:{role}\" tint-color=\"light-dark(#123456,#abcdef)\"\n")).unwrap();
+        contract::compile(&format!("component App\n  view\n    image \"symbol:{role}\" -exact-tint-color=\"light-dark(#123456,#abcdef)\"\n")).unwrap();
     }
     contract::compile("component App\n  state selected = true\n  view\n    button role=\"tab\" aria-selected=selected\n      text \"Questions\"\n").unwrap();
     for role in [

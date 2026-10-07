@@ -8,7 +8,7 @@ use exact_kernel::svg::Seg;
 
 /// The outline of `rect` with `radii` (top-left first, horizontal then
 /// vertical, already reduced as CSS reduces them) and `shape` (each corner's
-/// K; NaN is `-apple-continuous`) as points of one closed polygon, `x, y`
+/// K; NaN is `-exact-continuous`) as points of one closed polygon, `x, y`
 /// pairs into `out`. Returns the number of points; a `cap` too small writes
 /// nothing and returns the number needed.
 ///

@@ -23,6 +23,9 @@
 - LLP 1076: Android rendering research.
 - CSS Color 4 §6.2 (system colours); CSS Color 5 `light-dark()`; WebKit's `-apple-system-*` keywords.
 
+
+> **Spelling (2026-10-06):** Exact's roles and `platform-color()` are spelled `-exact-<role>` and `-exact-platform-color()`, as §12 says since [LLP 1081](1081-names-exact-invents.rfc.md). This document keeps the spelling it was written with, as the record.
+
 ## Summary
 
 **The principle (the owner's ruling, 2026-10-03): on native platforms the OS

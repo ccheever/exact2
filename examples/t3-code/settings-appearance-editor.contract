@@ -116,7 +116,7 @@ component ThemeEditorPanel
             text "Select a color below" font-size="0.75rem" line-height="1rem" color=pal.muted line-clamp=1
         button press=toggleMinimized aria-label=(minimized ? "Expand the theme editor" : "Minimize the theme editor") aria-expanded=(not minimized) class=SettingsGhost width="1.5rem" height="1.5rem" border-radius="0.5rem" cursor="default" testId="theme-editor-minimize"
           // f2cc80a7 MorphIcon ChevronDown↔ChevronUp: a half turn on morphicons' snappy spring (none under reduced motion).
-          box rotate=(minimized ? "180deg" : "0deg") transition=(reduced ? "none" : "rotate spring(420, 30, 1)")
+          box rotate=(minimized ? "180deg" : "0deg") transition=(reduced ? "none" : "rotate -exact-spring(420, 30, 1)")
             CoreIcon(name="chevron-down", size=14, color=pal.muted)
         button press=close aria-label="Close the theme editor" aria-keyshortcuts="Escape" class=SettingsGhost width="1.5rem" height="1.5rem" border-radius="0.5rem" cursor="default" testId="theme-editor-close"
           CoreIcon(name="x", size=14, color=pal.muted)

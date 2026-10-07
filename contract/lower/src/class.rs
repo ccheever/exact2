@@ -111,8 +111,12 @@ impl Lowerer<'_> {
                     a.name == "position"
                         && !matches!(&a.value, Expr::Str(v, _) if v == "static" || v == "relative" || v == "sticky")
                 };
-                let moves =
-                    |a: &Attr| matches!(a.name.as_str(), "exit-animation" | "layout-transition");
+                let moves = |a: &Attr| {
+                    matches!(
+                        a.name.as_str(),
+                        "-exact-exit-animation" | "-exact-layout-transition"
+                    )
+                };
                 rows.clone().any(|a| positioned(a) || moves(a))
                     || crate::tags::tag(tag).is_none()
                     || tag == "canvas"

@@ -25,6 +25,8 @@ import { sidebarPrBadge } from './r5-panels-pr'; // r5-panels: the sidebar PR ba
 import { notePlaces, rowHoverKey } from './r9-input-hover'; // lane r9-input
 import { orderItemsByPreferredIds } from './legacy-sidebar-model'; // legacy-sidebar: the persisted project order
 import { WORKTREE_DIALOG_TITLE, worktreeDialogDescription } from './worktree-cleanup'; // thread-commands-and-keys: G5
+import { bulkMenuState, menuRows, threadMenuItems, threadMenuState, type MenuRow } from './sidebar-menu'; // the row's context popover (exact2 #223)
+import { draftMenuRows } from './r11-upstream-drafts';
 
 type Identity = (name: string) => { projectMark: string; projectInk: string; projectSurface: string };
 type Badge = (provider: Obj | undefined, providers: Obj[]) => { providerBadge: string; providerBadgeColor: string };
@@ -51,9 +53,10 @@ export interface SidebarThread {
   idleRecede: boolean; idleTitleColor: string; idleTitleWeight: number; tips: SidebarRowTip[];
   hoverEnvironment: string; hoverMachine: string; hoverModel: string; hoverHandoff: string; hoverError: string; hoverErrorWarning: boolean;
   workingSince: number; remoteMachine: string; // r6-polish: the ticking Working label; a background environment's machine glyph
+  menu: MenuRow[]; // handleThreadContextMenu's items (the bulk menu's on a selected row), for the row's context popover
 }
 export interface SidebarScope { key: string; label: string; mark: string; ink: string; surface: string; selected: boolean; all: boolean; glyph: ProjectGlyph }
-export interface SidebarDraft { id: string; projectName: string; mark: string; ink: string; surface: string; preview: string; glyph: ProjectGlyph }
+export interface SidebarDraft { id: string; projectName: string; mark: string; ink: string; surface: string; preview: string; glyph: ProjectGlyph; menu: MenuRow[] }
 export interface SidebarView {
   drafts: SidebarDraft[];
   searching: boolean; searchPending: boolean; searchIndex: number; searchSelectedId: string;
@@ -161,7 +164,7 @@ function titleInk(card: boolean, section: SidebarSection, recede: boolean, unrea
     : recede ? 'light-dark(#71717bb3, #818181b3)' : active || woke || status === 'input' ? FOREGROUND : unread ? SECONDARY : 'light-dark(#71717bb3, #818181b3)';
 }
 
-function row(client: T3Client, thread: Obj, section: SidebarSection, now: number, helpers: SidebarHelpers, extra: { searchFirst: boolean; jump: string; searching: boolean }): SidebarThread {
+function row(client: T3Client, thread: Obj, section: SidebarSection, now: number, helpers: SidebarHelpers, extra: { searchFirst: boolean; jump: string; searching: boolean; menu: MenuRow[] }): SidebarThread {
   const caps = capabilities(client.config), prefs = sidebarPrefs(client), session = sidebarSession(client);
   const providers = arr(client.config.providers);
   const project = client.shell.projects.find(candidate => candidate.id === thread.projectId);
@@ -206,6 +209,7 @@ function row(client: T3Client, thread: Obj, section: SidebarSection, now: number
     tips: extra.searching ? [] : rowTips({ card, draft: !active && !!(client.local.drafts[draftKey] ?? '').trim(), pinned: thread.pinnedAt != null, canPin: caps.pinning, woke,
       canSnooze: caps.snooze && card && canSnooze(thread, now), canSettle: caps.settlement && card, canWake: caps.snooze && section === 'snoozed', canUnsettle: caps.settlement && section === 'settled' }, textMeasure(client.presentation)),
     ...hoverDetails(client, thread, providers, instance, helpers),
+    menu: extra.menu,
   };
 }
 
@@ -230,8 +234,13 @@ export function sidebarSnapshot(client: T3Client, now: number, helpers: SidebarH
   const searchIndex = rows.length ? Math.min(session.searchIndex, rows.length - 1) : 0;
   const hints = !searching && !terminalFocused(client) && client.presentation.sidebarJumpHints === true;
   const jumps = hints ? jumpLabels(client, rows.length) : [];
+  // A right-click opens the row's own menu; on a row of the selection, the bulk menu over the selected rows painted now.
+  const selected = searching ? [] : session.selection.map(id => rows.find(entry => entry.thread.id === id)?.thread).filter((thread): thread is Obj => !!thread);
+  const bulk = selected.length ? menuRows(bulkMenuState(client, selected, now).items) : [];
+  const menuOf = (thread: Obj): MenuRow[] => searching || !client.shell.threads.some(entry => entry.id === thread.id) ? []
+    : session.selection.includes(str(thread.id)) ? bulk : menuRows(threadMenuItems(threadMenuState(client, thread, false, scopes, now)));
   const threads = rows.map(({ thread, section }, index) => row(client, thread, section, now, helpers,
-    { searchFirst: searching && index === searchIndex, jump: jumps[index] ?? '', searching }));
+    { searchFirst: searching && index === searchIndex, jump: jumps[index] ?? '', searching, menu: menuOf(thread) }));
   const total = parts.pinned.length + parts.active.length + parts.working.length + parts.snoozed.length + parts.settled.length;
   const shownSettled = Math.min(parts.settled.length, session.settledVisible + (parts.settled.slice(session.settledVisible).some(thread => thread.id === client.threadId) ? 1 : 0));
   const hidden = parts.settled.length - shownSettled;
@@ -313,7 +322,7 @@ export function draftRows(client: T3Client, identity: Identity): SidebarDraft[] 
     if (!text && !attachments) continue;
     const name = str(project.title), mark = identity(name);
     rows.push({ id, projectName: name, mark: mark.projectMark, ink: mark.projectInk, surface: mark.projectSurface, glyph: projectGlyph(client, project, identity),
-      preview: text ? text.split('\n', 1)[0]! : `${attachments} attachment${attachments === 1 ? '' : 's'}` });
+      preview: text ? text.split('\n', 1)[0]! : `${attachments} attachment${attachments === 1 ? '' : 's'}`, menu: draftMenuRows(client, id) });
   }
   return rows;
 }

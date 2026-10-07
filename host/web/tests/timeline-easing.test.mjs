@@ -325,9 +325,9 @@ component App
           text "reset"
       box testId="scope" timeline-scope="--drag, --other, --inactive" width=360 height=500 position="relative" overflow="hidden"
         box testId="consumer" position="absolute" left=0 top=0 width=40 height=40 opacity=0.55 background-color="#000000" animation=(mode == 4 ? "none" : (mode == 5 ? "fade 1s linear reverse both" : "fade 1s linear both")) animation-timeline=(mode == 4 ? "auto" : (mode == 3 ? "--other" : (mode == 6 ? "--inactive" : "--drag"))) animation-range=(mode == 2 ? "0px 600px" : "0px 300px")
-        box testId="handle" swiperight=released touch-action="pan-y" position="absolute" left=0 top=50 width=300 height=80 transition="translate spring(300, 30, 1)"
-        box id="other" testId="other" position="absolute" left=0 top=230 width=300 height=200 translate=\`\${otherX}px \${otherY}px\` transition="translate spring(300, 30, 1)" drag-timeline="--other x"
-        box id="source" testId="source" position="absolute" left=0 top=140 width=300 height=80 translate=\`\${x}px \${y}px\` transition="translate spring(300, 30, 1)" drag-timeline=(mode == 1 ? "--drag y" : "--drag x")
+        box testId="handle" swiperight=released touch-action="pan-y" position="absolute" left=0 top=50 width=300 height=80 transition="translate -exact-spring(300, 30, 1)"
+        box id="other" testId="other" position="absolute" left=0 top=230 width=300 height=200 translate=\`\${otherX}px \${otherY}px\` transition="translate -exact-spring(300, 30, 1)" -exact-drag-timeline="--other x"
+        box id="source" testId="source" position="absolute" left=0 top=140 width=300 height=80 translate=\`\${x}px \${y}px\` transition="translate -exact-spring(300, 30, 1)" -exact-drag-timeline=(mode == 1 ? "--drag y" : "--drag x")
 `;
 
 check('a real commit rebinds a spring follower on the wasm and JS runtimes', async () => {

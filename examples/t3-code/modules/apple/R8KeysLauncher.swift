@@ -13,7 +13,7 @@ final class R8KeysLauncher {
     private var focused = false
 
     func install(_ element: ExactElement) {
-        guard element.hook == .t3Launcher else { return }
+        guard element.hatch == .t3Launcher else { return }
         if self.element !== element {
             detach()
             self.element = element
