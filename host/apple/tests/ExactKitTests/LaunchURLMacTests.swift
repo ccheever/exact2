@@ -1,9 +1,10 @@
+#if os(macOS)
 import Foundation
 import XCTest
 @testable import ExactKit
 
 /// A launch URL an app cannot hear is journaled, as a running one is (#104).
-final class LaunchURLTests: XCTestCase {
+final class LaunchURLMacTests: XCTestCase {
     private func plan(_ source: String) throws -> Data {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -58,3 +59,4 @@ final class LaunchURLTests: XCTestCase {
         }
     }
 }
+#endif
