@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1106.004-home-projection.decision.md#decision
+// @ref llp/1107.004-home-projection.decision.md#decision
 // Pinned ArchivedThreadsScreen uses the native small ActivityIndicator, accent-icon.
 import UIKit
 

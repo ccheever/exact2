@@ -1,4 +1,4 @@
-// @ref llp/1106.005-composer-and-transcript.decision.md#work-log-detail-rows
+// @ref llp/1107.005-composer-and-transcript.decision.md#work-log-detail-rows
 // Pinned365aa87982 thread-work-log.tsx ThreadWorkLogRow; shared state/read owners remain unchanged.
 import { mobileAnswerFile } from './thread-answer-files';
 import type { ThreadBlock } from './thread';

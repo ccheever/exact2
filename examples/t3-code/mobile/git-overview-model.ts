@@ -1,6 +1,6 @@
 // Mobile source365aa87982 (MIT, LICENSE-T3). Pure menu/confirmation function bodies
 // from packages/client-runtime/src/state/gitActions.ts; local structural types only.
-// @ref llp/1106.011-responsive-workspace.decision.md#navigation-and-data-ownership
+// @ref llp/1107.011-responsive-workspace.decision.md#navigation-and-data-ownership
 import { arr, num, obj, str, type Obj } from './shared/domain';
 export interface VcsStatusResult { isRepo: boolean; refName: string | null; hasWorkingTreeChanges: boolean;
   hasUpstream: boolean; aheadCount: number; behindCount: number; pr: {state: string; number: number} | null }

@@ -82,7 +82,7 @@
     "mobile-review-route",
     "mobile-review-path"
   ],
-  "hooks": [
+  "hatches": [
     "mobile-voice-editor",
     "mobile-review-list",
     "mobile-review-row"

@@ -1,6 +1,6 @@
 // Pinned T3 Code365aa87982 apps/mobile/src/features/voice-input/voiceInputPresentation.ts; imports adapted only.
 // Original SHA256 48cf3e31ba1e4f204f476c259641ad15ff4bed14a6945dee21e053274d700d14. MIT: voice-LICENSE.
-// @ref llp/1106.008-mobile-voice.decision.md#controller-reuse
+// @ref llp/1107.008-mobile-voice.decision.md#controller-reuse
 import type { VoiceInputState } from "./voice-controller";
 
 export type VoiceComposerPresentation = {

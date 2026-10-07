@@ -1,4 +1,4 @@
-// @ref llp/1106-t3-code-ios.rfc.md#architecture
+// @ref llp/1107-t3-code-ios.rfc.md#architecture
 // Source: T3 Code 365aa87982a4d81cc8e0c085e8d1a40ca7daecdc apps/mobile/src/lib/adaptive-navigation.test.ts
 // Original SHA256: c50635ae2776256498cbb281eb487d7b46e5a1f3a7908456975bc6ebd114cb8a
 // Pinned source assertions; test runner/import adapted only.

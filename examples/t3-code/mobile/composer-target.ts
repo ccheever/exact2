@@ -1,5 +1,5 @@
 // Pinned365aa87982 keeps queued-edit content separate from thread model/runtime settings.
-// @ref llp/1106.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
+// @ref llp/1107.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import type { T3Client } from './shared/client';
 import { arr, str, type Obj } from './shared/domain';
 import type { Files, Native } from './shared/protocol';

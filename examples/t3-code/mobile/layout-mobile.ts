@@ -1,4 +1,4 @@
-// @ref llp/1106.011-responsive-workspace.decision.md#source-helpers
+// @ref llp/1107.011-responsive-workspace.decision.md#source-helpers
 // Source: T3 Code 365aa87982a4d81cc8e0c085e8d1a40ca7daecdc apps/mobile/src/lib/layout.ts
 // Original SHA256: cceeae20b42dca0abff76051937f24451034ca64252b1b53cde49194bbafa6ee
 // Body unchanged except local imports and platform-only type references.

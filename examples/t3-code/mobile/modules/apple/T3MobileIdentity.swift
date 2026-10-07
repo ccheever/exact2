@@ -1,6 +1,6 @@
 #if os(iOS)
 // upstream 365aa87982 authClientMetadata.ts, authorization/remote.ts and mobile-storage.ts.
-// @ref llp/1106.003-pairing-and-transport.decision.md#mobile-adaptations
+// @ref llp/1107.003-pairing-and-transport.decision.md#mobile-adaptations
 import Foundation
 import Security
 import UIKit

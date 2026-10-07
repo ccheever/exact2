@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1106.003-pairing-and-transport.decision.md#mobile-adaptations
+// @ref llp/1107.003-pairing-and-transport.decision.md#mobile-adaptations
 // App-local UIKit choices, spinner and explicit confirmations. No server/client ownership.
 import UIKit
 

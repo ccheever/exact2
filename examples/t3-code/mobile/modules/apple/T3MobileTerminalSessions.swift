@@ -1,5 +1,5 @@
 // App-local inclusion of native terminal ownership at887b249; type names and platform guard adapted.
-// @ref llp/1106.007-mobile-terminal.decision.md#stream-ownership
+// @ref llp/1107.007-mobile-terminal.decision.md#stream-ownership
 #if os(iOS)
 import Foundation
 

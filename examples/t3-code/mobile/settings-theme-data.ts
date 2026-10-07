@@ -1,4 +1,4 @@
-// @ref llp/1106.002-design-system-parity.spec.md#semantic-colors
+// @ref llp/1107.002-design-system-parity.spec.md#semantic-colors
 // Generated from upstream 365aa87982 mobileTheme.ts, themePreview.ts and terminalTheme.ts.
 // Preview base uses the source Oklab mix, not an sRGB approximation.
 export const MOBILE_THEME_ARTWORK = {

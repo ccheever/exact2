@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1106.002-design-system-parity.spec.md#icons-and-imagery
+// @ref llp/1107.002-design-system-parity.spec.md#icons-and-imagery
 // upstream 365aa87982 AppSymbol.ios.tsx: preserve SF name, point size and weight.
 // GAP 002: the portable symbol role roster cannot express these SF names.
 import UIKit

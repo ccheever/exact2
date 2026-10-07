@@ -1,5 +1,5 @@
 // App-owned canonical environment identity for durable queued content.
-// @ref llp/1106.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
+// @ref llp/1107.005-composer-and-transcript.decision.md#scratch-tasks-and-queue-boundaries
 import type { T3Client } from './shared/client';
 import { str } from './shared/domain';
 import { ClientError, type Native } from './shared/protocol';

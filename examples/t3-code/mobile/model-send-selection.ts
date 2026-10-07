@@ -1,4 +1,4 @@
-// @ref llp/1106.005-composer-and-transcript.decision.md#retained-model-availability
+// @ref llp/1107.005-composer-and-transcript.decision.md#retained-model-availability
 // Pinned mobile 365aa87982 thread-outbox-model.ts preserves a retained selection.
 import { arr, type Obj } from './shared/domain';
 import { dispatchSelection } from './shared/composer-ultrathink';

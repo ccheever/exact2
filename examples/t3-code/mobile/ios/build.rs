@@ -1,4 +1,4 @@
-// @ref llp/1106.000-mobile-app-layout.decision.md#decision
+// @ref llp/1107.000-mobile-app-layout.decision.md#decision
 // Viewer sources stay authored/vendor inputs. IIFE assets are generated before capture.
 const VIEWERS: &str = r#"
 import { rolldown } from 'rolldown';

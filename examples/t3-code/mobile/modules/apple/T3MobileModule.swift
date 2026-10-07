@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1106.003-pairing-and-transport.decision.md#mobile-adaptations
+// @ref llp/1107.003-pairing-and-transport.decision.md#mobile-adaptations
 import UIKit
 
 /// The shared transport owns I/O and credentials; mobile supplies UIKit presentation and lifecycle.
@@ -129,15 +129,15 @@ final class T3MobileModule: ExactModule {
         informationLegal.configure(route)
     }
     override func element(_ element: ExactElement) {
-        if element.hook == .mobileReviewList || element.hook == .mobileReviewRow { reviewViewport.configure(element) }
-        if element.hook == .mobileVoiceEditor {
+        if element.hatch == .mobileReviewList || element.hatch == .mobileReviewRow { reviewViewport.configure(element) }
+        if element.hatch == .mobileVoiceEditor {
             voice.editor.configure(element, owner: element.data[.mobileVoiceOwner] ?? "",
                 selectionRevision: Int(element.data[.mobileVoiceSelectionRevision] ?? "0") ?? 0)
         }
     }
     override func elementEnded(_ element: ExactElement) {
-        if element.hook == .mobileReviewList || element.hook == .mobileReviewRow { reviewViewport.end(element) }
-        if element.hook == .mobileVoiceEditor { voice.editor.end(element) }
+        if element.hatch == .mobileReviewList || element.hatch == .mobileReviewRow { reviewViewport.end(element) }
+        if element.hatch == .mobileVoiceEditor { voice.editor.end(element) }
     }
     override func routeEnded(_ route: ExactRoute) { threadHeader.end(route); inspectorChrome.end(route); homeChrome.end(route); settingsNavigation.end(route); scheduledNavigation.end(route); informationLegal.end(route) }
 

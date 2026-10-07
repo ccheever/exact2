@@ -1,6 +1,6 @@
 import { mobileAccountSettings } from './settings-account';
 // Root adapters over mobile presentation and the shared client, upstream365aa87982.
-// @ref llp/1106.004-home-projection.decision.md#decision
+// @ref llp/1107.004-home-projection.decision.md#decision
 import { normalizeMobilePreferences, resolveMobileAppearance } from './settings-preferences';
 import { mobileSettingsScope, settingsRootView, settingsHeaderConfiguration, decodeSettingsHeaderEvent, toggleSettingsEnvironment, type SettingsScopeSelection } from './settings';
 import { arr, obj, str } from './shared/domain';
@@ -38,7 +38,7 @@ export function homeChromeView(args: unknown[]) {
     } });
 }
 
-// @ref llp/1106.002-design-system-parity.spec.md#user-preference-and-accessibility-scaling
+// @ref llp/1107.002-design-system-parity.spec.md#user-preference-and-accessibility-scaling
 export function settingsRoot(args: unknown[]) {
   const [serialized, systemScheme, rows, safeBottom, routeKey, selectionJSON] = args;
   const preferences = normalizeMobilePreferences(serialized);

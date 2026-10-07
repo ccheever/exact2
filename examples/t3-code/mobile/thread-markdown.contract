@@ -1,5 +1,5 @@
 // ThreadFeed MarkdownCodeBlock, upstream365aa87982. Prose uses Exact's portable Markdown reader.
-// @ref llp/1106.002-design-system-parity.spec.md#typography-and-font-assets
+// @ref llp/1107.002-design-system-parity.spec.md#typography-and-font-assets
 use ThreadBlock, ThreadColors from "./thread-shapes.contract"
 component ThreadMarkdown
   props

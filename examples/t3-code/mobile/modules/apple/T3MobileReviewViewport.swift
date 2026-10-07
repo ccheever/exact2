@@ -1,5 +1,5 @@
 #if os(iOS)
-// @ref llp/1106.006-review-and-files.decision.md#navigator-selection-follow-up
+// @ref llp/1107.006-review-and-files.decision.md#navigator-selection-follow-up
 // ReviewSheet/T3ReviewDiffView at365aa87982: manual crossings select a file;
 // programmatic jumps keep the explicit destination selected.
 import UIKit
@@ -130,12 +130,12 @@ final class T3MobileReviewViewport {
         element.reusable = true
         let key = ObjectIdentifier(element)
         guard let identity = T3ReviewViewportIdentity(element) else { end(element); return }
-        if element.hook == .mobileReviewList {
+        if element.hatch == .mobileReviewList {
             guard let scroll = element.scrollView else { lists.removeValue(forKey: key)?.detach(); return }
             if let existing = lists[key], existing.identity == identity, existing.scroll === scroll { return }
             lists.removeValue(forKey: key)?.detach()
             lists[key] = T3ReviewListBinding(owner: self, element: element, scroll: scroll, identity: identity)
-        } else if element.hook == .mobileReviewRow {
+        } else if element.hatch == .mobileReviewRow {
             guard let path = element.data[.mobileReviewPath], !path.isEmpty, element.view != nil else { rows.removeValue(forKey: key); return }
             rows[key] = T3ReviewRowBinding(element: element, identity: identity, path: path)
             for list in lists.values where list.identity == identity { schedule(list) }

@@ -1,4 +1,4 @@
-// @ref llp/1106.002-design-system-parity.spec.md#typography-and-font-assets
+// @ref llp/1107.002-design-system-parity.spec.md#typography-and-font-assets
 // Verbatim pure presentation functions from T3 Code365aa87982 scheduledTaskPresentation.ts (MIT).
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;

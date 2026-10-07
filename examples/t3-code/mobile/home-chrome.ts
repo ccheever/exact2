@@ -1,4 +1,4 @@
-// @ref llp/1106.002-design-system-parity.spec.md#semantic-colors
+// @ref llp/1107.002-design-system-parity.spec.md#semantic-colors
 // Upstream 365aa87982 HomeHeader, home-list-filter-menu, WorkspaceConnectionTitle,
 // ThreadNavigationSidebar and the app-owned react-native-screens patch.
 import { mobileHomeProjects, mobileHomeSources, type HomeOptions, type HomeSource } from './home';

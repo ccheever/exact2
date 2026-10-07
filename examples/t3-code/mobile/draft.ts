@@ -1,4 +1,4 @@
-// @ref llp/1106.005-composer-and-transcript.decision.md#new-task-ownership
+// @ref llp/1107.005-composer-and-transcript.decision.md#new-task-ownership
 import { mobileComposerTargetRequire, mobileComposerTargetWriteText, mobileComposerTargetPersist } from './composer-target';
 import { ClientError } from './shared/protocol';
 import type { T3Client } from './shared/client';

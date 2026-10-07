@@ -1,5 +1,5 @@
 // Pinned365aa87982 Git sheets and SheetActionButton semantic tokens (MIT).
-// @ref llp/1106.002-design-system-parity.spec.md#semantic-colors
+// @ref llp/1107.002-design-system-parity.spec.md#semantic-colors
 import t0 from './themes/light.json';
 import t1 from './themes/dark.json';
 import t2 from './themes/t3-chat-light.json';

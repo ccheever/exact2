@@ -1,4 +1,4 @@
-// @ref llp/1106.005-composer-and-transcript.decision.md#new-task-ownership
+// @ref llp/1107.005-composer-and-transcript.decision.md#new-task-ownership
 shape ComposerAttachment
   id: string
   name: string

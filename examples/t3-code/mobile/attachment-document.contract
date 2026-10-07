@@ -1,5 +1,5 @@
 // AttachmentFileScreen365aa87982. Native HTML; bounded text/table over Contract.
-// @ref llp/1106.005-composer-and-transcript.decision.md#media-presentation
+// @ref llp/1107.005-composer-and-transcript.decision.md#media-presentation
 use ReviewColors, ReviewRow from "./review-shapes.contract"
 shape AttachmentCell
   id: string

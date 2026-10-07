@@ -8,7 +8,7 @@ import { mobileDevicesEvents } from './devices-mobile-data';
 import { mobileBrowserEvents } from './browser-mobile-data';
 import { mobileVoiceObserveDraft } from './voice-data';
 // upstream 365aa87982 mobile pairing.ts and connection/platform.ts; shared reducers remain unchanged.
-// @ref llp/1106.003-pairing-and-transport.decision.md#mobile-adaptations
+// @ref llp/1107.003-pairing-and-transport.decision.md#mobile-adaptations
 import { MobileDraftClient, mobileDraftRecoveryHandles } from './mobile-draft-recovery';
 import { applyMobileComposerBehavior, mobileSend } from './composer-behavior';
 import { mobileDraftChanged } from './draft';

@@ -30,13 +30,13 @@ use SettingsChoicesData, MobilePreferencesResource from "./settings.contract"
 use SettingsAppearance, SettingsAppearanceData from "./settings-appearance.contract"
 use ArchiveData, ArchiveColors from "./archive.contract"
 use AgentActivityData, AgentActivityColors from "./agent-activity.contract"
-// @ref llp/1106.003-pairing-and-transport.decision.md#decision
+// @ref llp/1107.003-pairing-and-transport.decision.md#decision
 use EnvironmentDetailData from "./environment-detail.contract"
 use NewTaskFlowSnapshot, NewTaskFlowResult from "./new-task-flow.contract"
 use ComposerSettingsSnapshot, ComposerActionResult, ComposerColors, NewTaskSnapshot, NewTaskPreparation from "./composer-shapes.contract"
 use ThreadSnapshot, ThreadColors from "./thread-shapes.contract"
 use HomeColors from "./home.contract"
-// @ref llp/1106.002-design-system-parity.spec.md#typography-and-font-assets
+// @ref llp/1107.002-design-system-parity.spec.md#typography-and-font-assets
 font "DM Sans"
   400 = "assets/fonts/DMSans_400Regular.ttf"
   500 = "assets/fonts/DMSans_500Medium.ttf"

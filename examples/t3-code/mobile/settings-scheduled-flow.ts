@@ -1,5 +1,5 @@
-// @ref llp/1106.009-mobile-settings.decision.md#root-and-native-lifetime
-// @ref llp/1106.003-pairing-and-transport.decision.md#mobile-adaptations
+// @ref llp/1107.009-mobile-settings.decision.md#root-and-native-lifetime
+// @ref llp/1107.003-pairing-and-transport.decision.md#mobile-adaptations
 // Compact root integration: one async lifecycle resource, one pure projection, one command.
 import type { Native } from './shared/protocol';
 import { letGo } from './shared/let-go';

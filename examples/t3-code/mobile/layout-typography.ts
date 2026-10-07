@@ -1,4 +1,4 @@
-// @ref llp/1106.011-responsive-workspace.decision.md#source-helpers
+// @ref llp/1107.011-responsive-workspace.decision.md#source-helpers
 // Source: T3 Code 365aa87982a4d81cc8e0c085e8d1a40ca7daecdc apps/mobile/src/lib/typography.ts
 // Original SHA256: abd581c51c343c0132d1ab7a33a431e0dc6e76a8385f579d6aff30d3cc82a6e1
 export const MOBILE_TYPOGRAPHY = {
@@ -23,7 +23,7 @@ export const MOBILE_CODE_SURFACE = {
   lineNumberFontSize: MOBILE_TYPOGRAPHY.micro.fontSize,
 } as const;
 
-// @ref llp/1106-t3-code-ios.rfc.md#architecture
+// @ref llp/1107-t3-code-ios.rfc.md#architecture
 // Source: T3 Code 365aa87982a4d81cc8e0c085e8d1a40ca7daecdc apps/mobile/src/lib/appearancePreferences.ts
 // Original SHA256: 9141d3b999b5122063c13f3eeed41dfebcc2d0104b2f9aa45721b9c08238450c
 // Exact constant/function slices needed by layout; unrelated appearance/terminal helpers omitted.

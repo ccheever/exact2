@@ -1,4 +1,4 @@
-// @ref llp/1106.002-design-system-parity.spec.md#typography-and-font-assets
+// @ref llp/1107.002-design-system-parity.spec.md#typography-and-font-assets
 // T3 Code 365aa87982 SettingsRow, SettingsSection, SettingsChoiceRow and route screens.
 shape MobilePreferencesResource
   ready: bool

@@ -1,4 +1,4 @@
-// @ref llp/1106.007-mobile-terminal.decision.md#root-seam
+// @ref llp/1107.007-mobile-terminal.decision.md#root-seam
 shape MobileTerminalTab
   id: string
   label: string

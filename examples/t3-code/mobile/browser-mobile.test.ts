@@ -1,4 +1,4 @@
-// @ref llp/1106.010-mobile-browser-devices.decision.md#connection-and-command-ownership
+// @ref llp/1107.010-mobile-browser-devices.decision.md#connection-and-command-ownership
 import { expect, test } from 'bun:test';
 import { T3Client } from './shared/client';
 import { obj, type Obj } from './shared/domain';

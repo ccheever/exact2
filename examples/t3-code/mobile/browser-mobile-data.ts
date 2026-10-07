@@ -1,4 +1,4 @@
-// @ref llp/1106.010-mobile-browser-devices.decision.md#connection-and-command-ownership
+// @ref llp/1107.010-mobile-browser-devices.decision.md#connection-and-command-ownership
 // Pinned365aa87982 BrowserPreviewRouteScreen / BrowserTabMenu / state/preview.
 import { mobileClient } from './client';
 import type { T3Client } from './shared/client';

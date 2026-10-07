@@ -1,5 +1,5 @@
 // GitBranchesSheet365aa87982 (MIT). Form values are route-owned root state.
-// @ref llp/1106.011-responsive-workspace.decision.md#navigation-and-data-ownership
+// @ref llp/1107.011-responsive-workspace.decision.md#navigation-and-data-ownership
 use GitColors, MobileGitActionButton from "./git-overview.contract"
 shape MobileGitBranch
   name: string

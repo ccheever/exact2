@@ -1,4 +1,4 @@
-// @ref llp/1106.005-composer-and-transcript.decision.md#settings-ownership
+// @ref llp/1107.005-composer-and-transcript.decision.md#settings-ownership
 // Pinned mobile modelOptions.ts at365aa87982 preserves non-Antigravity selections
 // absent from the current catalog. The server decides whether that model can run.
 import { arr, obj, str, type Obj } from './shared/domain';

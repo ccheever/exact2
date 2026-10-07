@@ -29,7 +29,7 @@ use SettingsRoot, SettingsRootData, SettingsHeader, SettingsChoices, SettingsCho
 use SettingsAppearance, SettingsAppearanceData from "./settings-appearance.contract"
 use Archive, ArchiveData, ArchiveColors from "./archive.contract"
 use AgentActivity, AgentActivityData, AgentActivityColors from "./agent-activity.contract"
-// @ref llp/1106.003-pairing-and-transport.decision.md#decision
+// @ref llp/1107.003-pairing-and-transport.decision.md#decision
 use Connect, ConnectionColors from "./connect.contract"
 use EnvironmentDetail, EnvironmentDetailData from "./environment-detail.contract"
 use HomeChrome from "./home-chrome.contract"
@@ -44,7 +44,7 @@ use Home, HomeItem, HomeColors from "./home.contract"
 use Scanner from "./scanner.contract"
 use Environments, EnvironmentRow, GitHubRoutingSettings, GitHubRoutingRow from "./environments.contract"
 
-// @ref llp/1106.011-responsive-workspace.decision.md#sidebar-integration-checkpoint
+// @ref llp/1107.011-responsive-workspace.decision.md#sidebar-integration-checkpoint
 // Presentation only. The root supplies all state, resource values and actions.
 component MobileRouteContent
   props
