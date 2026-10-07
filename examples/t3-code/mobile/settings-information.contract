@@ -1,0 +1,122 @@
+// GAP 005: full license detail uses a selectable app-owned UIKit view.
+// @ref llp/1106.009-mobile-settings.decision.md#information-sources
+use SettingsColors, SettingsTextRoles, SettingsSectionLabel from "./settings.contract"
+shape InformationLicenseRow
+  id: string
+  name: string
+  metadata: string
+shape InformationLicenseDetail
+  available: bool
+  id: string
+  name: string
+  metadata: string
+  sourceURL: string
+  notice: string
+shape InformationUnavailable
+  available: bool
+  title: string
+  detail: string
+  action: string
+  footer: string
+shape InformationData
+  revision: number
+  version: string
+  build: string
+  identityError: string
+  licensesReady: bool
+  licenseMessage: string
+  coverage: string
+  licenses: list<InformationLicenseRow>
+  detail: InformationLicenseDetail
+  storage: InformationUnavailable
+  diagnostics: InformationUnavailable
+component SettingsInformation
+  props
+    data: InformationData
+    route: string
+    query: string
+    legalConfiguration: string
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    bottom: number
+    navigate: action
+    command: action
+    queryChanged: action
+  action openSource(entry: string)
+    command("license-source", entry)
+  view
+    when route == "settingsLegal"
+      t3-information-legal configuration=legalConfiguration flex=1 min-height=0 testId="settings-legal-document"
+    else when route == "settingsOpenSourceLicense" and data.detail.available
+      t3-information-notice entry-id=data.detail.id notice-name=data.detail.name notice-metadata=data.detail.metadata notice-text=data.detail.notice has-source=(length(data.detail.sourceURL) > 0) notice-point-size=roles.body.size notice-line-height=roles.body.line notice-title-size=roles.title.size notice-foreground=colors.foreground notice-muted=colors.muted notice-sheet=colors.sheet notice-card=colors.grouped notice-link=colors.link notice-bottom=bottom change=openSource flex=1 min-height=0 testId="license-notice"
+    else
+      column flex=1 min-height=0 background-color=colors.sheet font-family="DM Sans"
+        scroll id="settings-information-scroll" flex=1 min-height=0
+          column gap=(route == "settingsOpenSourceLicenses" ? 0 : 21) padding-left=(route == "settingsOpenSourceLicenses" ? 0 : 17.5) padding-right=(route == "settingsOpenSourceLicenses" ? 0 : 17.5) padding-top=(route == "settingsOpenSourceLicenses" ? 0 : 14) padding-bottom=bottom
+            when route == "settingsAbout"
+              column gap=7
+                SettingsSectionLabel(title="App", colors=colors, roles=roles)
+                column border-radius=24 overflow="hidden" background-color=colors.grouped
+                  InformationAboutRow(icon="internaldrive", label="Client Storage", target="settingsClientStorage", colors=colors, roles=roles, navigate=navigate)
+                  InformationAboutRow(icon="stethoscope", label="Diagnostics", target="settingsDiagnostics", colors=colors, roles=roles, navigate=navigate)
+                  InformationAboutRow(icon="doc.on.doc", label="Open source licenses", target="settingsOpenSourceLicenses", colors=colors, roles=roles, navigate=navigate)
+                  InformationAboutRow(icon="doc.text", label="Legal", target="settingsLegal", colors=colors, roles=roles, navigate=navigate)
+                  row gap=14 padding=14 align-items="center" aria-label=`Version ${data.version}`
+                    t3-symbol symbol-name="info.circle" point-size=22 symbol-tint=colors.icon width=22 height=22
+                    text "Version" flex=1 font-size=roles.headline.size color=colors.foreground
+                    text data.version font-size=roles.headline.size color=colors.muted
+              when length(data.identityError) > 0
+                text data.identityError font-size=roles.footnote.size color=colors.muted
+            else when route == "settingsClientStorage"
+              InformationUnavailableState(title="Environment caches", data=data.storage, colors=colors, roles=roles)
+            else when route == "settingsDiagnostics"
+              InformationUnavailableState(title="Startup crashes", data=data.diagnostics, colors=colors, roles=roles)
+            else when route == "settingsOpenSourceLicenses"
+              when length(data.coverage) > 0
+                text data.coverage padding=17.5 font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted
+              when length(data.licenses) == 0
+                text data.licenseMessage padding-top=42 padding-bottom=42 text-align="center" font-size=roles.body.size color=colors.muted
+              each item in data.licenses key=item.id
+                button press=navigate("settingsOpenSourceLicense", item.id) padding=0 aria-label=`${item.name}, ${item.metadata}` testId=`license-${item.id}`
+                  row gap=10.5 padding-left=17.5 padding-right=17.5 padding-top=14 padding-bottom=14 border-bottom-width=1 border-bottom-style="solid" border-bottom-color=colors.border background-color=colors.grouped align-items="flex-start"
+                    column flex=1 min-width=0 gap=3.5
+                      text item.name font-size=roles.body.size font-weight=500 color=colors.foreground line-clamp=2
+                      text item.metadata font-size=roles.footnote.size color=colors.muted line-clamp=2
+                    t3-symbol symbol-name="chevron.right" point-size=16 symbol-weight="semibold" symbol-tint=colors.chevron width=16 height=16
+            else when route == "settingsOpenSourceLicense"
+              text "This license notice is unavailable." padding-top=42 text-align="center" font-size=roles.body.size color=colors.muted
+        when route == "settingsOpenSourceLicenses" and data.licensesReady
+          t3-information-search query=query change=queryChanged height=64 flex-shrink=0 testId="licenses-search"
+component InformationAboutRow
+  props
+    icon: string
+    label: string
+    target: string
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    navigate: action
+  view
+    button press=navigate(target, "") padding=0 aria-label=label testId=`about-${target}`
+      row gap=14 padding=14 align-items="center"
+        t3-symbol symbol-name=icon point-size=22 symbol-tint=colors.icon width=22 height=22
+        text label flex=1 font-size=roles.headline.size color=colors.foreground
+        t3-symbol symbol-name="chevron.right" point-size=16 symbol-weight="semibold" symbol-tint=colors.chevron width=16 height=16
+component InformationUnavailableState
+  props
+    title: string
+    data: InformationUnavailable
+    colors: SettingsColors
+    roles: SettingsTextRoles
+  view
+    column gap=21
+      column gap=7
+        SettingsSectionLabel(title=title, colors=colors, roles=roles)
+        column padding-left=21 padding-right=21 padding-top=28 padding-bottom=28 gap=7 align-items="center" border-radius=24 background-color=colors.grouped
+          t3-symbol symbol-name="exclamationmark.triangle" point-size=28 symbol-tint=colors.icon width=28 height=28
+          text data.title font-size=roles.body.size color=colors.foreground text-align="center"
+          text data.detail font-size=roles.footnote.size color=colors.muted text-align="center"
+      column gap=10.5
+        SettingsSectionLabel(title="Actions", colors=colors, roles=roles)
+        button disabled=true padding=14 border-radius=24 background-color=colors.grouped aria-label=data.action
+          text data.action font-size=roles.body.size color=colors.muted opacity=0.45 text-align="left"
+        text data.footer padding-left=7 padding-right=7 font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted

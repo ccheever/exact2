@@ -1,3 +1,7 @@
+use MobileBrowser, MobileBrowserSnapshot, MobilePreviewColors, MobilePreviewButton from "./browser-mobile.contract"
+use MobileDevices, MobileDevicesSnapshot from "./devices-mobile.contract"
+use SettingsInformation, InformationData from "./settings-information.contract"
+use MobileAttachmentAudio, AttachmentAudioStatus from "./attachment-audio.contract"
 use SettingsAutomation, AutomationPrepared, AutomationData, AutomationResult from "./settings-scheduled-flow.contract"
 use VoiceGlobalPill, VoiceSnapshot, VoiceStatus, VoiceResult, VoiceColors from "./voice-controls.contract"
 use MobileAttachmentDocument, AttachmentDocumentSnapshot, AttachmentDocumentMenu, AttachmentDocumentAction from "./attachment-document.contract"
@@ -38,6 +42,8 @@ font "DM Sans"
 routes nav
   home "/"
   thread "/threads/:threadEnvironment/:threadId"
+  threadBrowser "/threads/:threadEnvironment/:threadId/browser"
+  threadDevices "/threads/:threadEnvironment/:threadId/devices"
   threadTerminal "/threads/:threadEnvironment/:threadId/terminal"
   threadTerminalCapture "/threads/:threadEnvironment/:threadId/terminal/output"
   threadReview "/threads/:threadEnvironment/:threadId/review"
@@ -63,6 +69,12 @@ routes nav
   settingsScheduledEdit "/settings/scheduled/edit"
   settingsScheduledModel "/settings/scheduled/model"
   settingsScheduledBranch "/settings/scheduled/branch"
+  settingsAbout "/settings/about"
+  settingsClientStorage "/settings/client-storage"
+  settingsDiagnostics "/settings/diagnostics"
+  settingsOpenSourceLicenses "/settings/open-source-licenses"
+  settingsOpenSourceLicense "/settings/open-source-licenses/:entryKey"
+  settingsLegal "/settings/legal"
   settingsUsage "/settings/usage"
   settingsUsageAccount "/settings/usage/account/:usageAccount/:usageWindow/:usageKind"
   newTask "/new"
@@ -99,6 +111,7 @@ shape SettingsScopeEvent
   selection: string
   close: bool
 shape MobileLayout
+  safeTop: number
   safeBottom: number
   liquidGlass: bool
 shape HomeChromeView
@@ -183,6 +196,22 @@ shape AutomationChange
 shape VoiceFocus
   owner: string
   label: string
+shape PreviewOwner
+  owner: string
+shape PreviewMenus
+  selection: string
+  options: string
+shape InformationRoute
+  active: bool
+  title: string
+shape InformationRead
+  revision: number
+shape InformationConfiguration
+  configuration: string
+shape InformationChange
+  revision: number
+  message: string
+  requestRoute: string
 shape Change
   revision: number
   message: string
@@ -228,6 +257,37 @@ component App
   resource data = snapshot(appearance.scheme, appearance.themeId) as shape Snapshot
   resource detail = environmentDetail(top(nav).params.environmentKey, data.revision) as shape EnvironmentDetailData
   mutation detailChanged as shape Change refreshes data, detail
+  state informationQuery = ""
+  resource informationRoute = informationRoute(top(nav).name) as shape InformationRoute
+  resource informationRead = informationPrepare(top(nav).name, data.ready) as shape InformationRead
+  resource informationData = informationSnapshot(informationQuery, top(nav).params.entryKey, informationRead) as shape InformationData
+  resource informationLegal = informationLegal(`${top(nav).id}`, "legal-close", settingsData.root.colors) as shape InformationConfiguration
+  mutation informationChanged as shape InformationChange then didInformationChange
+  action informationCommand(op: string, value: string)
+    send informationChanged = informationCommand(op, value, `${top(nav).id}`)
+  action didInformationChange
+    match informationChanged
+      case some(result)
+        if result.requestRoute == `${top(nav).id}` and result.message != ""
+          send notice = alert("info", "Settings", result.message)
+      case none
+        informationQuery = informationQuery
+  action informationSearch(value: string)
+    informationQuery = value
+  action openInformation(target: string, key: string)
+    if target == "settingsAbout"
+      nav = push(nav, path("settingsAbout"))
+    else if target == "settingsClientStorage"
+      nav = push(nav, path("settingsClientStorage"))
+    else if target == "settingsDiagnostics"
+      nav = push(nav, path("settingsDiagnostics"))
+    else if target == "settingsOpenSourceLicenses"
+      informationQuery = ""
+      nav = push(nav, path("settingsOpenSourceLicenses"))
+    else if target == "settingsOpenSourceLicense"
+      nav = push(nav, path("settingsOpenSourceLicense", key))
+    else if target == "settingsLegal"
+      nav = push(nav, path("settingsLegal"))
   state settingsSelection = ""
   derive settingsRouteKey = match first(filter(stack(nav), route => route.name == "settings")) { case some(route) => `${route.id}`, case none => "settings" }
   resource settingsData = settingsRoot(preferences.serialized, viewport.prefersColorScheme, data.environments, layout.safeBottom, settingsRouteKey, settingsSelection, data.revision) as shape SettingsView
@@ -367,7 +427,9 @@ component App
       case none
         settingsSelection = settingsSelection
   action openSetting(target: string)
-    if target == "SettingsEnvironments"
+    if target == "SettingsAbout"
+      openInformation("settingsAbout", "")
+    else if target == "SettingsEnvironments"
       openEnvironments()
     else if target == "SettingsAppearance"
       nav = push(nav, path("settingsAppearance"))
@@ -457,6 +519,45 @@ component App
       lastOperation = "thread-action"
       send changed = command(op, id, value, `${wallTime.epochAtZero + now()}`)
   derive workspaceRouteReady = data.ready and top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
+  resource previewOwner = previewOwner(workspaceRouteReady and startsWith(top(nav).name, "thread"), data.revision) as shape PreviewOwner
+  resource previewPrepared = previewPrepare(previewOwner.owner) as shape InformationRead
+  resource previewLook = previewColors(appearance.scheme, appearance.themeId) as shape MobilePreviewColors
+  resource browserData = previewStatus("browser", previewOwner.owner, top(nav).name == "threadBrowser", previewPrepared, data.revision) as shape MobileBrowserSnapshot
+  resource devicesData = previewStatus("devices", previewOwner.owner, top(nav).name == "threadDevices", previewPrepared, data.revision) as shape MobileDevicesSnapshot
+  resource browserMenus = previewMenus("browser", browserData) as shape PreviewMenus
+  resource devicesMenus = previewMenus("devices", devicesData) as shape PreviewMenus
+  mutation previewChanged as shape InformationChange refreshes browserData, devicesData, data then didPreviewChange
+  action browserAction(op: string, value: string)
+    if not pending(previewChanged)
+      send previewChanged = previewAction("browser", previewOwner.owner, op, value, `${top(nav).id}`)
+  action devicesAction(op: string, value: string)
+    if not pending(previewChanged)
+      send previewChanged = previewAction("devices", previewOwner.owner, op, value, `${top(nav).id}`)
+  action browserMenu(value: string)
+    if not pending(previewChanged)
+      send previewChanged = previewMenuAction("browser", value, previewOwner.owner, `${top(nav).id}`)
+  action devicesMenu(value: string)
+    if not pending(previewChanged)
+      send previewChanged = previewMenuAction("devices", value, previewOwner.owner, `${top(nav).id}`)
+  action didPreviewChange
+    match previewChanged
+      case some(result)
+        if result.requestRoute == `${top(nav).id}` and result.message != ""
+          send notice = alert("info", "Preview", result.message)
+      case none
+        terminalId = terminalId
+  task refreshBrowser when browserData.needsRefresh and previewOwner.owner != "" and not pending(previewChanged) key=previewOwner.owner
+    browserAction("refresh", "")
+  task refreshDevices when devicesData.needsRefresh and previewOwner.owner != "" and not pending(previewChanged) key=previewOwner.owner
+    devicesAction("refresh", "")
+  task closeEmptyPreview when (top(nav).name == "threadBrowser" and browserData.close) or (top(nav).name == "threadDevices" and devicesData.close) key=top(nav).id
+    back
+  action openBrowser
+    if workspaceRouteReady
+      nav = push(nav, path("threadBrowser", data.environmentId, data.threadId))
+  action openDevices
+    if workspaceRouteReady
+      nav = push(nav, path("threadDevices", data.environmentId, data.threadId))
   state terminalId = ""
   state terminalCaptureText = ""
   state terminalCaptureKey = ""
@@ -643,6 +744,20 @@ component App
   state mediaReadVersion = 0
   state mediaRendered = true
   state mediaNativeOpen = false
+  state audioRaw = ""
+  resource audioData = audioStatus(audioRaw, documentData.identifier) as shape AttachmentAudioStatus
+  mutation audioChanged as shape Change then didAudioChange
+  action didAudioChange
+    match audioChanged
+      case some(result)
+        if result.message != ""
+          send notice = alert("info", "Audio", result.message)
+      case none
+        audioRaw = audioRaw
+  action audioStatusChanged(value: string)
+    audioRaw = value
+  action audioControl(value: string)
+    send audioChanged = audioAction(documentData.identifier, value)
   state mediaNativeError = ""
   state mediaNativeSource = ""
   resource mediaViewerData = attachmentNativePreview(mediaNativeSource) as shape MediaPreviewSnapshot
@@ -1039,48 +1154,56 @@ component App
           data-mobile-scan-action=(entry.name == "connect" ? "scan-qr" : "")
           data-mobile-scanner-open=scannerOpen
           navigationScroll=(entry.name == "home" ? (length(home.items) > 0 ? "home-list" : "") : entry.name == "thread" ? (length(threadData.rows) > 0 ? "thread-feed" : "") : entry.name == "threadReview" ? "review-diff" : entry.name == "threadFiles" ? "workspace-files" : entry.name == "threadFile" ? "file-source" : entry.name == "settingsScheduledTasks" ? "scheduled-tasks-scroll" : entry.name == "settingsScheduledNew" or entry.name == "settingsScheduledEdit" ? "scheduled-editor-scroll" : entry.name == "settingsUsage" ? "settings-usage-scroll" : startsWith(entry.name, "settingsScheduled") or entry.name == "settingsUsageAccount" ? "" : entry.name == "settings" ? "settings-scroll" : entry.name == "settingsServer" ? "settings-server-scroll" : entry.name == "settingsProviders" ? "settings-provider-scroll" : entry.name == "settingsAppearance" ? "settings-appearance-scroll" : entry.name == "settingsChoice" ? "settings-choice-scroll" : entry.name == "archive" ? (length(archiveData.items) > 0 ? "archive-list" : "") : `scroll-${entry.id}`)
-          navigationPresentation=(entry.name == "connections" or entry.name == "connect" or entry.name == "threadTerminalCapture" ? "modal" : "")
+          navigationPresentation=(entry.name == "connections" or entry.name == "connect" or entry.name == "threadTerminalCapture" or entry.name == "settingsLegal" or entry.name == "threadBrowser" or entry.name == "threadDevices" ? "modal" : "")
           position="absolute"
           inset=0
           background-color=look.sheet
           display="flex"
           flex-direction="column"
-          header height=44 flex-shrink=0 align-items="center" justify-content="space-between"
-            button id="back" press=back aria-label="Back" testId=`back-${entry.name}`
-              image "symbol:back" width=20 height=20
-            text (entry.name == "threadMedia" or entry.name == "threadDraftMedia" or entry.name == "newTaskMedia" ? mediaData.name : entry.name == "connect" ? "Add environment" : entry.name == "home" ? "T3 Code" : entry.name == "environmentDetail" ? detail.title : entry.name == "threadTerminal" ? "Terminal" : entry.name == "threadTerminalCapture" ? "Visible terminal output" : entry.name == "threadReview" ? "Review changes" : entry.name == "threadReviewComment" ? "Leave a comment" : entry.name == "threadFiles" ? filesData.title : entry.name == "threadFile" ? fileData.title : entry.name == "thread" ? threadData.title : entry.name == "settingsScheduledTasks" ? "Scheduled Tasks" : entry.name == "settingsScheduledNew" ? "New scheduled task" : entry.name == "settingsScheduledEdit" ? "Edit scheduled task" : entry.name == "settingsScheduledModel" ? "Model" : entry.name == "settingsScheduledBranch" ? "Base branch" : entry.name == "settingsUsage" ? "Usage" : entry.name == "settingsUsageAccount" ? automationData.account.label : entry.name == "settings" ? "Settings" : entry.name == "settingsServer" ? serverSettings.title : entry.name == "settingsProviders" ? "Provider accounts" : entry.name == "settingsAppearance" ? "Appearance" : entry.name == "settingsChoice" ? settingsChoice.title : entry.name == "archive" ? "Archived Threads" : entry.name == "threadAgents" ? "Agents" : entry.name == "newTaskProjects" ? "Project" : entry.name == "newTaskEnvironments" ? "Environment" : entry.name == "newTaskBranches" ? "Branch" : entry.name == "threadModel" or entry.name == "newTaskModel" ? "Model" : entry.name == "threadRuntime" or entry.name == "newTaskRuntime" ? "Runtime" : entry.name == "threadModelFilter" or entry.name == "newTaskModelFilter" ? "Providers" : entry.name == "threadModelOption" or entry.name == "newTaskModelOption" ? "Model options" : entry.name == "newTask" ? "New task" : "Environments")
-              role="heading"
-              aria-level=2
-              font-size=18
-              font-weight=800
-            when entry.name == "connect"
-              button id="scan-qr" press=scan aria-label=(scannerOpen ? "Close scanner" : "Scan QR code") testId="scan-qr"
-                text (scannerOpen ? "Close scanner" : "Scan QR code")
-            when entry.name == "connections" or entry.name == "environments"
-              button press=addEnvironment aria-label="Add environment" testId="add-environment"
-                image "symbol:add" width=20 height=20
-            when entry.name == "threadMedia" or entry.name == "threadDraftMedia" or entry.name == "newTaskMedia"
-              t3-document-menu document-menu=documentMenu.configuration change=documentAction width=32 height=32
-            when entry.name == "settingsScheduledTasks"
-              button id="scheduled-new" press=automationAction("new", "", "", "") disabled=(not automationData.scheduled.canCreate or pending(automationChanged)) aria-label="New scheduled task"
-                t3-symbol symbol-name="plus" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
-            when entry.name == "settingsUsage"
-              button press=automationAction("usage-environments", "", "", "") disabled=pending(automationChanged) aria-label="Filter usage environments"
-                t3-symbol symbol-name="line.3.horizontal.decrease" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
-              button press=automationAction("usage-refresh", "", "", "") disabled=pending(automationChanged) aria-label="Refresh usage"
-                t3-symbol symbol-name="arrow.clockwise" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
-            when entry.name == "threadTerminal"
-              button press=terminalMenu aria-label="Terminal options" testId="terminal-options"
-                t3-symbol symbol-name="terminal" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
-            when entry.name == "thread"
-              button press=openTerminal aria-label="Terminal" testId="thread-terminal"
-                t3-symbol symbol-name="terminal" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
-              button press=openReview aria-label="Review changes" testId="thread-review"
-                t3-symbol symbol-name="plus.forwardslash.minus" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
-              button press=openFiles aria-label="Files" testId="thread-files"
-                t3-symbol symbol-name="folder" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
-              button press=openAgents aria-label="Agents" testId="thread-agents"
-                t3-symbol symbol-name="person.2" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
+          when entry.name != "threadDevices"
+            header height=44 flex-shrink=0 align-items="center" justify-content="space-between"
+              button id="back" press=back aria-label="Back" testId=`back-${entry.name}`
+                image "symbol:back" width=20 height=20
+              text (entry.name == "settingsAbout" ? "About T3 Code" : entry.name == "settingsClientStorage" ? "Client Storage" : entry.name == "settingsDiagnostics" ? "Diagnostics" : entry.name == "settingsOpenSourceLicenses" ? "Open source licenses" : entry.name == "settingsOpenSourceLicense" ? "License notice" : entry.name == "settingsLegal" ? "Legal" : entry.name == "threadMedia" or entry.name == "threadDraftMedia" or entry.name == "newTaskMedia" ? mediaData.name : entry.name == "connect" ? "Add environment" : entry.name == "home" ? "T3 Code" : entry.name == "environmentDetail" ? detail.title : entry.name == "threadBrowser" ? browserData.title : entry.name == "threadDevices" ? devicesData.title : entry.name == "threadTerminal" ? "Terminal" : entry.name == "threadTerminalCapture" ? "Visible terminal output" : entry.name == "threadReview" ? "Review changes" : entry.name == "threadReviewComment" ? "Leave a comment" : entry.name == "threadFiles" ? filesData.title : entry.name == "threadFile" ? fileData.title : entry.name == "thread" ? threadData.title : entry.name == "settingsScheduledTasks" ? "Scheduled Tasks" : entry.name == "settingsScheduledNew" ? "New scheduled task" : entry.name == "settingsScheduledEdit" ? "Edit scheduled task" : entry.name == "settingsScheduledModel" ? "Model" : entry.name == "settingsScheduledBranch" ? "Base branch" : entry.name == "settingsUsage" ? "Usage" : entry.name == "settingsUsageAccount" ? automationData.account.label : entry.name == "settings" ? "Settings" : entry.name == "settingsServer" ? serverSettings.title : entry.name == "settingsProviders" ? "Provider accounts" : entry.name == "settingsAppearance" ? "Appearance" : entry.name == "settingsChoice" ? settingsChoice.title : entry.name == "archive" ? "Archived Threads" : entry.name == "threadAgents" ? "Agents" : entry.name == "newTaskProjects" ? "Project" : entry.name == "newTaskEnvironments" ? "Environment" : entry.name == "newTaskBranches" ? "Branch" : entry.name == "threadModel" or entry.name == "newTaskModel" ? "Model" : entry.name == "threadRuntime" or entry.name == "newTaskRuntime" ? "Runtime" : entry.name == "threadModelFilter" or entry.name == "newTaskModelFilter" ? "Providers" : entry.name == "threadModelOption" or entry.name == "newTaskModelOption" ? "Model options" : entry.name == "newTask" ? "New task" : "Environments")
+                role="heading"
+                aria-level=2
+                font-size=18
+                font-weight=800
+              when entry.name == "settingsLegal"
+                button id="legal-close" press=back aria-label="Close legal document"
+                  text "Close"
+              when entry.name == "connect"
+                button id="scan-qr" press=scan aria-label=(scannerOpen ? "Close scanner" : "Scan QR code") testId="scan-qr"
+                  text (scannerOpen ? "Close scanner" : "Scan QR code")
+              when entry.name == "connections" or entry.name == "environments"
+                button press=addEnvironment aria-label="Add environment" testId="add-environment"
+                  image "symbol:add" width=20 height=20
+              when entry.name == "threadMedia" or entry.name == "threadDraftMedia" or entry.name == "newTaskMedia"
+                t3-document-menu document-menu=documentMenu.configuration change=documentAction width=32 height=32
+              when entry.name == "settingsScheduledTasks"
+                button id="scheduled-new" press=automationAction("new", "", "", "") disabled=(not automationData.scheduled.canCreate or pending(automationChanged)) aria-label="New scheduled task"
+                  t3-symbol symbol-name="plus" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
+              when entry.name == "settingsUsage"
+                button press=automationAction("usage-environments", "", "", "") disabled=pending(automationChanged) aria-label="Filter usage environments"
+                  t3-symbol symbol-name="line.3.horizontal.decrease" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
+                button press=automationAction("usage-refresh", "", "", "") disabled=pending(automationChanged) aria-label="Refresh usage"
+                  t3-symbol symbol-name="arrow.clockwise" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
+              when entry.name == "threadBrowser"
+                t3-preview-menu configuration=browserMenus.selection change=browserMenu width=38.5 height=38.5
+              when entry.name == "threadTerminal"
+                button press=terminalMenu aria-label="Terminal options" testId="terminal-options"
+                  t3-symbol symbol-name="terminal" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
+              when entry.name == "thread"
+                MobilePreviewButton(count=browserData.count, devices=false, colors=previewLook, action=openBrowser)
+                MobilePreviewButton(count=devicesData.count, devices=true, colors=previewLook, action=openDevices)
+                button press=openTerminal aria-label="Terminal" testId="thread-terminal"
+                  t3-symbol symbol-name="terminal" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
+                button press=openReview aria-label="Review changes" testId="thread-review"
+                  t3-symbol symbol-name="plus.forwardslash.minus" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
+                button press=openFiles aria-label="Files" testId="thread-files"
+                  t3-symbol symbol-name="folder" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
+                button press=openAgents aria-label="Agents" testId="thread-agents"
+                  t3-symbol symbol-name="person.2" point-size=20 symbol-tint=threadLook.foreground width=20 height=20
           when entry.name == "home"
             Home(items=home.items, emptyTitle=home.emptyTitle, emptyDetail=home.emptyDetail, loading=home.loading, addEnvironment=home.addEnvironment, bottomClearance=chrome.bottomClearance, emptyClearance=chrome.emptyClearance, selectThread=chooseThread, toggleShelf=toggleHomeShelf, showMore=showMore, addConnection=addEnvironment, colors=homeLook)
             HomeChrome(configuration=chrome.configuration, event=homeEvent)
@@ -1089,6 +1212,10 @@ component App
             ThreadApprovals(data=threadData, action=threadAction, colors=threadLook)
             ComposerAttachmentStrip(data=composerAttachments, open=openDraftMedia, remove=removeAttachment, colors=threadLook)
             ThreadComposer(voiceDisabled=(data.busy or pending(changed) or pending(taskChanged)), voice=voiceData, voiceOwner=(entry.id == top(nav).id ? voiceFocus.owner : ""), voiceColors=voiceLook, voiceAction=voiceAction, enterBehavior=appearance.enterBehavior, data=threadData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=(composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)), contentMaxWidth=viewport.width, focusChanged=composerFocus, editDraft=editDraft, action=threadAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
+          else when entry.name == "threadBrowser" and entry.id == top(nav).id
+            MobileBrowser(data=browserData, colors=previewLook, active=true, action=browserAction, menuConfiguration=browserMenus.options, menuEvent=browserMenu)
+          else when entry.name == "threadDevices" and entry.id == top(nav).id
+            MobileDevices(data=devicesData, colors=previewLook, active=true, safeAreaTop=layout.safeTop, action=devicesAction, close=back, menuConfiguration=devicesMenus.options, menuEvent=devicesMenu)
           else when entry.name == "threadTerminal"
             MobileTerminal(data=terminalData, event=terminalEvent, action=terminalAction)
           else when entry.name == "threadTerminalCapture"
@@ -1127,6 +1254,10 @@ component App
                   MobileAttachmentDocument(data=documentData, colors=reviewLook, wrap=settingsAppearance.codeWordBreak, retry=retryDocument, nativeEvent=documentNativeEvent, nativeError=mediaNativeError)
                   when mediaNativeOpen
                     MediaPreview(data=mediaViewerData, completed=mediaComplete)
+                else when documentData.kind == "audio"
+                  MobileAttachmentAudio(data=audioData, source=documentData.sourceJSON, active=(not mediaNativeOpen), colors=reviewLook, command=audioControl, status=audioStatusChanged, retry=retryDocument)
+                  when mediaNativeOpen
+                    MediaPreview(data=mediaViewerData, completed=mediaComplete)
                 else when mediaNativeError != ""
                   column flex=1 align-items="center" justify-content="center" padding=21 gap=7
                     text "No preview for this file" font-size=18 font-weight=700 color=threadLook.foreground
@@ -1141,6 +1272,8 @@ component App
                 text mediaData.error padding=21 color=look.colors.dangerForeground
               else
                 text "Loading preview…" padding=21 color=look.colors.muted
+          else when entry.id == top(nav).id and informationRoute.active
+            SettingsInformation(data=informationData, route=entry.name, query=informationQuery, legalConfiguration=informationLegal.configuration, colors=settingsData.root.colors, roles=settingsData.root.roles, bottom=settingsData.root.bottom, navigate=openInformation, command=informationCommand, queryChanged=informationSearch)
           else when entry.name == "settings"
             SettingsRoot(data=settingsData.root, navigate=openSetting)
             SettingsHeader(configuration=settingsData.header, event=settingsHeaderEvent)

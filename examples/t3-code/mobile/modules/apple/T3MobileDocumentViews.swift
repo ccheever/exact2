@@ -54,18 +54,22 @@ final class T3MobileDocumentHTML: ExactNativeInstance {
     private let root = UIView()
     private var web: WKWebView
     private let files: T3MobileMediaFiles
+    private let audioSession: T3MobileAudioSession
+    private var audioOwner = UUID()
     private var identifier = ""
     private var opening: Task<Void, Never>?
     private var lease: URL?
     private var alive = true
     override var view: UIView { root }
-    init(dataRoot: URL, events: ExactNativeEvents) {
+    init(dataRoot: URL, audioSession: T3MobileAudioSession, events: ExactNativeEvents) {
+        self.audioSession = audioSession
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         web = WKWebView(frame: .zero, configuration: configuration)
         files = T3MobileMediaFiles(dataRoot: dataRoot)
         super.init(events: events)
         attachWeb()
+        audioSession.hold(audioOwner)
     }
     private func attachWeb() {
         navigation.owner = self
@@ -79,7 +83,11 @@ final class T3MobileDocumentHTML: ExactNativeInstance {
     override func setProps(_ props: [String: String]) throws {
         let source = try T3MobileMediaSource(props["media-source"] ?? "")
         guard source.identifier != identifier else { return }
-        opening?.cancel(); web.navigationDelegate = nil; web.stopLoading(); web.removeFromSuperview()
+        opening?.cancel()
+        let retired = web, retiredOwner = audioOwner, session = audioSession
+        audioOwner = UUID(); audioSession.hold(audioOwner)
+        retired.navigationDelegate = nil; retired.stopLoading(); retired.removeFromSuperview()
+        retired.setAllMediaPlaybackSuspended(true) { _ = retired; session.release(retiredOwner) }
         T3MobileMediaFiles.release(lease); lease = nil
         let configuration = WKWebViewConfiguration(); configuration.websiteDataStore = .nonPersistent()
         web = WKWebView(frame: root.bounds, configuration: configuration); attachWeb()
@@ -118,7 +126,10 @@ final class T3MobileDocumentHTML: ExactNativeInstance {
     }
     override func destroy() {
         web.navigationDelegate = nil
-        alive = false; opening?.cancel(); opening = nil; web.stopLoading()
+        guard alive else { return }; alive = false; web.removeFromSuperview()
+        opening?.cancel(); opening = nil; web.stopLoading()
+        let session = audioSession, token = audioOwner, retired = web
+        retired.setAllMediaPlaybackSuspended(true) { _ = retired; session.release(token) }
         T3MobileMediaFiles.release(lease); lease = nil
     }
 }

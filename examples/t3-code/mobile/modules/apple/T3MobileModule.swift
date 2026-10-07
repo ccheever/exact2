@@ -8,9 +8,24 @@ final class T3MobileModule: ExactModule {
         "t3-mobile-terminal": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
             try module.terminal.makeView(props: props, events: events)
         },
+        "t3-document-audio": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
+            try module.audio.makeView(dataRoot: module.documentRoot, props: props, events: events)
+        },
+        "t3-information-legal": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
+            try module.informationLegal.makeView(props: props, events: events)
+        },
+        "t3-information-search": T3MobileInformationSearch.factory,
+        "t3-information-notice": T3MobileInformationNotice.factory,
+        "t3-preview-menu": T3MobilePreviewMenu.factory,
+        "t3-mobile-browser": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
+            try module.browser.makeView(props: props, events: events)
+        },
+        "t3-mobile-devices": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
+            try module.devices.makeView(props: props, events: events)
+        },
         "t3-document-menu": T3MobileDocumentMenu.factory,
         "t3-document-html": ExactNativeFactory(for: T3MobileModule.self) { module, props, events in
-            let instance = T3MobileDocumentHTML(dataRoot: module.documentRoot, events: events)
+            let instance = T3MobileDocumentHTML(dataRoot: module.documentRoot, audioSession: module.audioSession, events: events)
             try instance.setProps(props); return instance
         },
         "t3-layout-facts": T3LayoutFacts.factory,
@@ -26,6 +41,8 @@ final class T3MobileModule: ExactModule {
             try module.homeChrome.makeView(props: props, events: events)
         }] }
     private let transport: T3Transport
+    private let browser: T3MobileBrowser
+    private let devices: T3MobileDevices
     private let fleet: T3Fleet
     private let activity: T3ActivityReporter
     private var alive = true
@@ -38,19 +55,27 @@ final class T3MobileModule: ExactModule {
     private let voice: T3MobileVoice
     let terminal: T3MobileTerminal
     private let documentRoot: URL
+    private let information = T3MobileInformation()
+    private let informationLegal: T3MobileInformationLegal
+    private let audioSession: T3MobileAudioSession
+    private let audio: T3MobileAudio
     private let document: T3MobileDocument
     let media: T3MobileMedia
     private let attachments: T3MobileAttachments
     private let homePreferences: T3MobilePreferences
 
     required init(context: ExactModuleContext) {
+        let audioSession = T3MobileAudioSession()
+        self.audioSession = audioSession
+        informationLegal = T3MobileInformationLegal(agent: context.agent, audioSession: audioSession)
+        audio = T3MobileAudio(session: audioSession)
         scheduledControls = T3MobileScheduledControls(agent: context.agent)
-        voice = T3MobileVoice(agent: context.agent, changed: context.changed)
+        voice = T3MobileVoice(agent: context.agent, audioSession: audioSession, changed: context.changed)
         T3MobileIdentity.configure()
         let directory = T3Storage.dataRoot(agent: context.agent, contextData: context.data)
         documentRoot = directory
         document = T3MobileDocument(dataRoot: directory)
-        media = T3MobileMedia(dataRoot: directory)
+        media = T3MobileMedia(dataRoot: directory, audioSession: audioSession)
         attachments = T3MobileAttachments(dataRoot: directory, agent: context.agent)
         homePreferences = T3MobilePreferences(directory: directory, changed: { context.changed("t3.mobile-preferences") })
         let credentials = T3Credentials(persistent: !context.agent)
@@ -59,6 +84,8 @@ final class T3MobileModule: ExactModule {
         transport = T3Transport(persistent: !context.agent, dataDirectory: directory, credentials: credentials,
                                 savedEnvironments: saved, activity: activity, changed: context.changed)
         terminal = T3MobileTerminal(transport: transport)
+        browser = T3MobileBrowser(transport: transport, changed: context.changed, agent: context.agent, audioSession: audioSession)
+        devices = T3MobileDevices(transport: transport, changed: context.changed, agent: context.agent, audioSession: audioSession)
         fleet = T3Fleet(persistent: !context.agent, credentials: credentials, saved: saved,
                         activity: activity, changed: context.changed)
         super.init(context: context)
@@ -74,6 +101,7 @@ final class T3MobileModule: ExactModule {
         homeChrome.configure(route)
         settingsNavigation.configure(route)
         scheduledNavigation.configure(route, editor: route.data[.mobileScheduledEditor] == "true", backActionID: "back")
+        informationLegal.configure(route)
     }
     override func element(_ element: ExactElement) {
         if element.hook == .mobileVoiceEditor {
@@ -84,7 +112,7 @@ final class T3MobileModule: ExactModule {
     override func elementEnded(_ element: ExactElement) {
         if element.hook == .mobileVoiceEditor { voice.editor.end(element) }
     }
-    override func routeEnded(_ route: ExactRoute) { homeChrome.end(route); settingsNavigation.end(route); scheduledNavigation.end(route) }
+    override func routeEnded(_ route: ExactRoute) { homeChrome.end(route); settingsNavigation.end(route); scheduledNavigation.end(route); informationLegal.end(route) }
 
     override func later(_ request: [String: Any], reply: ExactReply) {
         guard alive else { reply.fail("The mobile session was closed."); return }
@@ -103,8 +131,16 @@ final class T3MobileModule: ExactModule {
             answer(["state": "refused", "refused": "Local T3 servers are not available on iOS."])
         case "mobileHomePreferences", "mobileToggleShelf", "mobilePreferences", "mobilePreferencesPatch":
             homePreferences.perform(request, reply: reply)
+        case "mobileBrowser":
+            browser.perform(request) { reply.send($0) }
+        case "mobileDevices":
+            devices.perform(request) { reply.send($0) }
+        case "mobileInformation":
+            answer(information.read())
         case "mobileDocumentRead":
             document.perform(request) { reply.send($0) }
+        case "mobileAudioControl":
+            audio.perform(request) { reply.send($0) }
         case "mobileMediaShare":
             media.perform(request) { reply.send($0) }
         case "mobileAttachmentSource", "composerAttachPick", "composerAttachRead", "composerAttachRemove", "snapshotDraftRead", "snapshotDraftRemove", "mobileAttachmentPreview":
@@ -183,6 +219,8 @@ final class T3MobileModule: ExactModule {
         scheduledControls.destroy()
         voice.destroy()
         terminal.destroy()
+        browser.destroy(); devices.destroy()
+        audio.destroy()
         document.destroy()
         media.destroy()
         attachments.destroy()
@@ -199,6 +237,13 @@ import Foundation
 final class T3MobileModule: ExactModule {
     override class var views: [String: ExactNativeFactory] {
         ["t3-document-menu": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
+         "t3-information-legal": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
+         "t3-information-search": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
+         "t3-information-notice": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
+         "t3-mobile-browser": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
+         "t3-mobile-devices": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
+         "t3-preview-menu": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
+         "t3-document-audio": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-document-html": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-mobile-terminal": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },
          "t3-media-presenter": ExactNativeFactory { _, _ in throw ExactNativeRefusal("T3 Code mobile requires iOS") },

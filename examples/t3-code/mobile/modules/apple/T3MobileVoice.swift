@@ -7,6 +7,8 @@ import Speech
 /// Lazy, local-only recorder. No audio is opened by status queries or agent fixtures.
 final class T3MobileVoice: NSObject, AVAudioRecorderDelegate {
     let editor = T3MobileVoiceEditor()
+    private let audioSession: T3MobileAudioSession
+    private let audioOwner = UUID()
     private let agent: Bool
     private let changed: (String) -> Void
     private var alive = true
@@ -29,7 +31,8 @@ final class T3MobileVoice: NSObject, AVAudioRecorderDelegate {
     private var completion: (([String: Any]) -> Void)?
     private var workGeneration = 0
 
-    init(agent: Bool, changed: @escaping (String) -> Void) {
+    init(agent: Bool, audioSession: T3MobileAudioSession, changed: @escaping (String) -> Void) {
+        self.audioSession = audioSession
         self.agent = agent; self.changed = changed; super.init()
         observers.append(NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self, self.phase == "preparing" || self.phase == "recording" else { return }
@@ -125,7 +128,7 @@ final class T3MobileVoice: NSObject, AVAudioRecorderDelegate {
             case "configure":
                 guard !agent, available else { throw VoiceFailure("unavailable", "Voice recording is unavailable.") }
                 let audio = AVAudioSession.sharedInstance()
-                do { try audio.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker]); try audio.setActive(true); configured = true }
+                do { try audio.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker]); try audioSession.acquire(audioOwner); configured = true }
                 catch { releaseAudio(force: true); throw error }
                 answer()
             case "recorder-prepare":
@@ -195,7 +198,7 @@ final class T3MobileVoice: NSObject, AVAudioRecorderDelegate {
         guard configured || force else { return true }
         let audio = AVAudioSession.sharedInstance()
         try? audio.setCategory(.playback, mode: .default)
-        do { try audio.setActive(false, options: .notifyOthersOnDeactivation); configured = false; return true } catch { return false }
+        if audioSession.release(audioOwner) { configured = false; return true }; return false
     }
     private func removeFile() { if let file { try? FileManager.default.removeItem(at: file) }; file = nil; recorder = nil }
     private func emit(_ kind: String, _ message: String = "") { event += 1; eventKind = kind; error = message; changed("t3.mobile-voice") }

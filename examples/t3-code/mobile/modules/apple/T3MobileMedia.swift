@@ -5,6 +5,8 @@ import UIKit
 /// One module owns native presentations. Source URLs are signed by the shared client; local paths never cross JS.
 final class T3MobileMedia {
     private let files: T3MobileMediaFiles
+    private let audioSession: T3MobileAudioSession
+    private let audioOwner = UUID()
     private var file: T3MobileMediaFilePresentation?
     private var video: T3MobileMediaVideoPresentation?
     private var videoLease: URL?
@@ -18,7 +20,7 @@ final class T3MobileMedia {
     private var shareGeneration = 0
     private var alive = true
 
-    init(dataRoot: URL) { files = T3MobileMediaFiles(dataRoot: dataRoot) }
+    init(dataRoot: URL, audioSession: T3MobileAudioSession) { self.audioSession = audioSession; files = T3MobileMediaFiles(dataRoot: dataRoot) }
     func makeView(props: [String: String], events: ExactNativeEvents) throws -> ExactNativeInstance {
         let instance = T3MobileMediaPresenter(owner: self, events: events)
         try instance.setProps(props); return instance
@@ -26,6 +28,7 @@ final class T3MobileMedia {
     private func finish(_ identifier: String, message: String = "") {
         guard identifier == activeID else { return }
         file = nil; video = nil; opening = nil; activeID = ""
+        audioSession.release(audioOwner)
         T3MobileMediaFiles.release(videoLease); videoLease = nil
         let completion = activeCompletion; activeCompletion = nil; completion?(message)
     }
@@ -35,6 +38,7 @@ final class T3MobileMedia {
         }
         presenter.view.endEditing(true)
         activeID = source.identifier; activeCompletion = completion
+        audioSession.hold(audioOwner)
         if source.kind != "video" {
             let preview = T3MobileMediaFilePresentation(identifier: source.identifier) { [weak self] error in
                 self?.finish(source.identifier, message: error?.localizedDescription ?? "")

@@ -1,0 +1,129 @@
+shape MobilePreviewMenu
+  id: string
+  title: string
+  subtitle: string
+  symbol: string
+  selected: bool
+  disabled: bool
+  destructive: bool
+  group: string
+shape MobilePreviewColors
+  background: string
+  foreground: string
+  muted: string
+  icon: string
+  secondary: string
+  secondaryForeground: string
+  border: string
+  input: string
+  inputBorder: string
+  primary: string
+  primaryForeground: string
+  subtle: string
+  stream: string
+shape MobileBrowserSnapshot
+  owner: string
+  revision: number
+  title: string
+  url: string
+  tabs: list<MobilePreviewMenu>
+  menu: list<MobilePreviewMenu>
+  count: number
+  loaded: bool
+  loading: bool
+  error: string
+  close: bool
+  source: string
+  status: string
+  detail: string
+  canBack: bool
+  canForward: bool
+  canNavigate: bool
+  canAdjust: bool
+  controlLabel: string
+  controlAction: string
+  canControl: bool
+  pipSupported: bool
+  pipActive: bool
+  hostSetupCommand: string
+  canReconnect: bool
+  retryLabel: string
+  needsRefresh: bool
+
+component MobileBrowser
+  props
+    data: MobileBrowserSnapshot
+    colors: MobilePreviewColors
+    active: bool
+    action: action
+    menuConfiguration: string
+    menuEvent: action
+  state address = ""
+  state editing = false
+  action edit(value: string)
+    address = value
+    editing = true
+  action blurred
+    editing = false
+  action pressedKey(value: string)
+    if value == "Enter"
+      preventDefault()
+      action("navigate", editing ? address : data.url)
+      editing = false
+  view
+    column flex=1 min-height=0 background-color=colors.background font-family="DM Sans"
+      when data.source != ""
+        row gap=7 padding=10.5 align-items="center"
+          button width=38.5 height=38.5 padding=0 disabled=(not data.canBack) press=action("back", "") aria-label="Go back"
+            t3-symbol symbol-name="chevron.left" point-size=18 symbol-weight="regular" symbol-tint=colors.icon width=18 height=18
+          button width=38.5 height=38.5 padding=0 disabled=(not data.canForward) press=action("forward", "") aria-label="Go forward"
+            t3-symbol symbol-name="chevron.right" point-size=18 symbol-weight="regular" symbol-tint=colors.icon width=18 height=18
+          input flex=1 min-width=0 height=35 box-sizing="border-box" border-radius=18 padding-left=10.5 padding-right=10.5
+            background-color=colors.input color=colors.foreground border-width=1 border-style="solid" border-color=colors.inputBorder font-size=12.25
+            value=(editing ? address : data.url) readonly=(not data.canNavigate) aria-label="Browser address"
+            input=edit key=pressedKey blur=blurred
+          button width=38.5 height=38.5 padding=0 disabled=(not data.canNavigate) press=action("reload", "") aria-label="Reload"
+            t3-symbol symbol-name="arrow.clockwise" point-size=18 symbol-weight="regular" symbol-tint=colors.icon width=18 height=18
+          t3-preview-menu configuration=menuConfiguration change=menuEvent width=38.5 height=38.5
+        row gap=7 padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 align-items="center" border-bottom-width=1 border-style="solid" border-color=colors.border
+          text data.controlLabel flex=1 font-size=10.5 color=colors.muted
+          when data.canControl
+            button padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 border-radius=20 border-width=1 border-style="solid" border-color=colors.border background-color=colors.secondary press=action("control", "")
+              text data.controlAction font-size=10.5 color=colors.secondaryForeground
+        view flex=1 min-height=0 position="relative"
+          t3-mobile-browser stream-source=data.source stream-background=colors.background stream-colors=colors.stream stream-active=active width="100%" height="100%"
+          when data.status != "streaming"
+            column position="absolute" top=0 right=0 bottom=0 left=0 align-items="center" justify-content="center" gap=14 padding-left=21 padding-right=21 background-color=colors.background
+              when data.status == "connecting"
+                t3-archive-spinner spinner-tint=colors.icon width=20 height=20
+              text (data.status == "error" ? data.detail : "Connecting to browser...") text-align="center" font-size=12.25 color=colors.muted
+              when data.hostSetupCommand != ""
+                button width="100%" press=action("copy-setup", "") padding=10.5 border-radius=10.5 border-width=1 border-style="solid" border-color=colors.border background-color=colors.secondary
+                  row gap=7
+                    text data.hostSetupCommand flex=1 font-family="monospace" font-size=12.25 color=colors.secondaryForeground
+                    text "Copy" font-size=10.5 color=colors.muted
+              when data.status == "error" and data.canReconnect
+                button press=action("reconnect", "") padding-left=21 padding-right=21 padding-top=10.5 padding-bottom=10.5 background-color=colors.secondary border-radius=24 border-width=1 border-style="solid" border-color=colors.border
+                  text data.retryLabel color=colors.secondaryForeground
+      else
+        column flex=1 align-items="center" justify-content="center" gap=14 padding=21
+          when data.error != ""
+            text data.error text-align="center" font-size=12.25 color=colors.muted
+            button press=action("refresh", "")
+              text "Retry" color=colors.foreground
+          else
+            t3-archive-spinner spinner-tint=colors.icon width=20 height=20
+
+component MobilePreviewButton
+  props
+    count: number
+    devices: bool
+    colors: MobilePreviewColors
+    action: action
+  view
+    when count > 0
+      button width=38.5 height=38.5 padding=0 position="relative" press=action() aria-label=(devices ? `View ${count} devices` : `View ${count} browser tabs`)
+        column width=38.5 height=38.5 align-items="center" justify-content="center"
+          t3-symbol symbol-name=(devices ? "iphone" : "globe") point-size=20 symbol-weight="regular" symbol-tint=colors.icon width=20 height=20
+        when count > 1
+          text `${count}` position="absolute" right=1.75 top=1.75 min-width=14 padding-left=3.5 padding-right=3.5 border-radius=8 background-color=colors.primary color=colors.primaryForeground font-size=8.75 font-weight=700 text-align="center"
