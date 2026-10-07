@@ -1,0 +1,92 @@
+2026-10-07T18:36:54.545Z == pair Mac Studio and the launch prompt
+2026-10-07T18:37:10.620Z toasts after connect: ["toast-title-2: Updates Available: 2 providers","toast-description-2: Install the update now or review provider settings."]
+2026-10-07T18:37:11.138Z shot launch-prompt
+2026-10-07T18:37:11.142Z no Update action on the prompt
+2026-10-07T18:37:11.143Z fixture reset
+2026-10-07T18:37:12.658Z == add Laptop
+2026-10-07T18:37:25.193Z connections: ["Mac Studio","Mac Studio","Mac Studio","Mac Studio","http://127.0.0.1:16020/ · Connected","Laptop","Laptop","http://127.0.0.1:16021/ · Connected","Laptop"]
+2026-10-07T18:37:25.193Z == providers list and Update all
+2026-10-07T18:37:29.435Z header: ["providers-update-all="]
+2026-10-07T18:37:29.441Z advisory triggers: ["provider-advisory-list-codex","provider-advisory-list-codex-popover","provider-advisory-list-codex-title","provider-advisory-list-codex-detail","provider-advisory-list-codex-action","provider-advisory-list-codex-command","provider-advisory-list-codex-copy","provider-advisory-list-claudeAgent","provider-advisory-list-claudeAgent-popover","provider-advisory-list-claudeAgent-title","provider-advisory-list-claudeAgent-detail","provider-advisory-list-claudeAgent-action","provider-advisory-editor-codex","provider-advisory-editor-codex-popover","provider-advisory-editor-codex-title","provider-advisory-editor-codex-detail","provider-advisory-editor-codex-action","provider-advisory-editor-codex-command","provider-advisory-editor-codex-copy"]
+2026-10-07T18:37:29.953Z shot providers-list
+2026-10-07T18:37:30.597Z tooltip: []
+2026-10-07T18:37:31.101Z shot update-all-tooltip
+2026-10-07T18:37:31.101Z == popover from the list row (Codex)
+2026-10-07T18:37:31.755Z popover: ["provider-advisory-list-codex=","provider-advisory-list-codex-popover=","provider-advisory-list-codex-title=Update available","provider-advisory-list-codex-detail=Update available: install v0.151.0.","provider-advisory-list-codex-action=","provider-advisory-list-codex-command=npm install -g @openai/codex@latest","provider-advisory-list-codex-copy="]
+2026-10-07T18:37:31.779Z focus after open: provider-advisory-list-codex
+2026-10-07T18:37:32.290Z shot popover-list-codex
+2026-10-07T18:37:32.698Z after Escape: popover=false focus=null
+2026-10-07T18:37:32.698Z == popover from the editor (Claude, compatibility warning)
+2026-10-07T18:37:32.702Z   (no settings-provider-claudeAgent)
+2026-10-07T18:37:33.752Z   (no provider-advisory-editor-claudeAgent)
+2026-10-07T18:37:33.761Z   (no provider-advisory)
+2026-10-07T18:37:33.769Z editor popover: []
+2026-10-07T18:37:34.273Z shot popover-editor-claude
+2026-10-07T18:37:34.284Z ERROR in popover from the editor (Claude, compatibility warning): Error: no view matches providers-settings by testId, label or text; targets here: toggle-sidebar, sidebar-brand, search-threads, filter-project, add-project, new-thread, connection-settings, open-pull-requests, open-usage, chat-header, header-project, toggle-thread-details, …; tree lists live targets, and a virtualized list's row outside its window comes in by key: `tap <list> into <key>` (feed F10)
+    at find (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/scripts/agent.mjs:1012:40)
+    at async type (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-sett
+2026-10-07T18:37:34.284Z == copy command and Update now (Codex, editor)
+2026-10-07T18:37:34.287Z   (no settings-provider-codex)
+2026-10-07T18:37:35.305Z   (no provider-advisory-editor-codex)
+2026-10-07T18:37:35.308Z   (no provider-advisory)
+2026-10-07T18:37:35.311Z   (no provider-advisory-editor-codex-copy)
+2026-10-07T18:37:35.314Z   (no provider-copy-command)
+2026-10-07T18:37:36.131Z toasts: ["toast-title-2: Updates Available: 2 providers","toast-description-2: Install the update now or review provider settings.","toast-title-1: Nightly needs the beta mobile app","toast-description-1: Nightly uses the new orchestrator. The App Store and Google Play versions of T3 Code cannot connect to it."]
+2026-10-07T18:37:36.634Z shot copy-command-toast
+2026-10-07T18:37:36.644Z   (no provider-advisory-editor-codex)
+2026-10-07T18:37:36.648Z   (no provider-advisory)
+2026-10-07T18:37:36.651Z   (no provider-advisory-editor-codex-action)
+2026-10-07T18:37:36.654Z   (no provider-update-now)
+2026-10-07T18:37:39.176Z while updating: [] []
+2026-10-07T18:37:39.703Z shot update-now-running
+2026-10-07T18:37:45.751Z after update: version=[] toasts=["toast-title-2: Updates Available: 2 providers","toast-description-2: Install the update now or review provider settings.","toast-title-1: Nightly needs the beta mobile app","toast-description-1: Nightly uses the new orchestrator. The App Store and Google Play versions of T3 Code cannot connect to it."]
+2026-10-07T18:37:46.245Z shot update-now-after
+2026-10-07T18:37:46.246Z fixture reset
+2026-10-07T18:37:48.261Z == Update all on both machines
+2026-10-07T18:37:56.182Z pending: ["providers-update-all="]
+2026-10-07T18:37:56.685Z shot update-all-running
+2026-10-07T18:38:08.706Z toasts: ["toast-title-2: Updates Available: 2 providers","toast-description-2: Install the update now or review provider settings.","toast-title-1: Nightly needs the beta mobile app","toast-description-1: Nightly uses the new orchestrator. The App Store and Google Play versions of T3 Code cannot connect to it."]
+2026-10-07T18:38:09.217Z shot update-all-result
+2026-10-07T18:38:09.217Z fixture reset
+2026-10-07T18:38:10.733Z == ACP agent: icon, URL auth
+2026-10-07T18:38:15.066Z icons: ["acp-icon-failed","acp-icon-failed"]
+2026-10-07T18:38:15.074Z url auth: ["provider-url-auth-acpRegistry_gemini=","provider-url-auth-url-acpRegistry_gemini=https://accounts.google.com/o/oauth2/v2/auth?client_id=lane-fixture","provider-url-auth-continue-acpRegistry_gemini="]
+2026-10-07T18:38:15.578Z shot acp-editor-top
+2026-10-07T18:38:17.850Z toasts after continue: ["toast-title-2: Updates Available: 2 providers","toast-description-2: Install the update now or review provider settings.","toast-title-1: Nightly needs the beta mobile app","toast-description-1: Nightly uses the new orchestrator. The App Store and Google Play versions of T3 Code cannot connect to it."]
+2026-10-07T18:38:17.853Z open recorded: []
+2026-10-07T18:38:20.162Z toasts after second continue: ["toast-title-4: Authentication request expired","toast-description-4: Refresh the provider and start the authentication flow again.","toast-title-2: Updates Available: 2 providers","toast-description-2: Install the update now or review provider settings.","toast-title-1: Nightly needs the beta mobile app","toast-description-1: Nightly uses the new orchestrator. The App Store and Google Play versions of T3 Code cannot connect to it."]
+2026-10-07T18:38:20.671Z shot acp-url-auth-expired
+2026-10-07T18:38:20.671Z == ACP native sessions
+2026-10-07T18:38:23.010Z sessions: ["acp-session-gemini-session-7f2a","acp-session-gemini-session-3c91"]
+2026-10-07T18:38:23.520Z shot acp-sessions
+2026-10-07T18:38:25.895Z after more: ["acp-session-gemini-session-7f2a","acp-session-gemini-session-3c91","acp-session-gemini-session-a044"]
+2026-10-07T18:38:28.259Z import: ["acp-import-gemini-session-7f2a="] toasts=["toast-title-5: ACP session imported","toast-title-4: Authentication request expired","toast-description-4: Refresh the provider and start the authentication flow again.","toast-title-2: Updates Available: 2 providers","toast-description-2: Install the update now or review provider settings."]
+2026-10-07T18:38:29.767Z confirm: ["app-confirm-overlay=","app-confirm=","app-confirm-cancel=","app-confirm-confirm="]
+2026-10-07T18:38:30.396Z shot acp-delete-confirm
+2026-10-07T18:38:30.411Z ERROR in ACP native sessions: Error: view 4167 is hidden or inert
+    at nativeKey (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/scripts/agent-keys.mjs:216:28)
+    at processTicksAndRejections (native:7:39)
+2026-10-07T18:38:30.411Z == ACP agent providers
+2026-10-07T18:38:30.444Z   (tap acp-list-providers-acpRegistry_gemini refused: view 4658 is hidden or inert)
+2026-10-07T18:38:30.444Z == custom model options editor
+2026-10-07T18:38:30.475Z   (tap settings-provider-codex refused: view 4189 is hidden or inert)
+2026-10-07T18:38:31.707Z   (no provider-model-edit-gpt-5.5-lane)
+2026-10-07T18:38:31.716Z   (no provider-model-edit-gpt-5.5-lane)
+2026-10-07T18:38:32.323Z shot cm-editor-open
+2026-10-07T18:38:32.323Z == narrow 840x620 and dark
+2026-10-07T18:38:33.974Z   (tap settings-providers refused: view 2914 is hidden or inert)
+2026-10-07T18:38:36.060Z shot providers-narrow
+2026-10-07T18:38:36.086Z   (tap provider-advisory-list-codex refused: view 4199 is hidden or inert)
+2026-10-07T18:38:38.684Z   (tap provider-advisory-list-claudeAgent refused: view 4238 is hidden or inert)
+2026-10-07T18:38:39.607Z == keyboard and reduced motion
+2026-10-07T18:38:39.644Z   (tap settings-providers refused: view 2914 is hidden or inert)
+2026-10-07T18:38:42.004Z ERROR in keyboard and reduced motion: Error: view 4189 is hidden or inert
+    at input (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/scripts/agent.mjs:679:32)
+    at async tap (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/scripts/agent.mjs:1119:31)
+    at async <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/drive.mjs:195:13)
+    at async <anonymous> (/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/drive.mjs:32:73)
+    at processTicksAndRejections (native:7:39)
+2026-10-07T18:38:42.004Z == wizard registry icons
+2026-10-07T18:38:42.034Z   (tap add-provider refused: view 4180 is hidden or inert)
+2026-10-07T18:38:48.065Z wizard icons: ["acp-icon-failed","acp-icon-failed"]
+2026-10-07T18:38:48.631Z shot wizard-acp
