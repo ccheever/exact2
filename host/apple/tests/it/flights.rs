@@ -120,10 +120,10 @@ fn a_spring_flight_lands_as_uikits_spring_finishes() {
     ))
     .unwrap()
     .replace(
-        "layout-transition=\"300ms ease\"",
-        "layout-transition=\"spring(631.655, 50.265, 1)\"",
+        "-exact-layout-transition=\"300ms ease\"",
+        "-exact-layout-transition=\"-exact-spring(631.655, 50.265, 1)\"",
     );
-    assert!(src.contains("spring(631.655"));
+    assert!(src.contains("-exact-spring(631.655"));
     let plan = contract::compile(&src).unwrap();
     let (mut host, _) = Host::boot(
         &plan.encode(),
@@ -156,8 +156,8 @@ fn a_flight_on_a_bouncy_spring_lands_only_once_it_stays_settled() {
     ))
     .unwrap()
     .replace(
-        "layout-transition=\"300ms ease\"",
-        "layout-transition=\"spring(1, 1, 1)\"",
+        "-exact-layout-transition=\"300ms ease\"",
+        "-exact-layout-transition=\"-exact-spring(1, 1, 1)\"",
     );
     let plan = contract::compile(&src).unwrap();
     let (mut host, _) = Host::boot(

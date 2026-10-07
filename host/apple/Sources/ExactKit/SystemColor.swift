@@ -1,5 +1,5 @@
 // @ref LLP 1095 D3, D5 — a colour row that names a platform colour: a role's
-// class colour property (`secondaryLabelColor`), a `platform-color()`'s, an
+// class colour property (`secondaryLabelColor`), a `-exact-platform-color()`'s, an
 // asset catalogue colour (`named:Brand`), or the view's inherited tint
 // (`@tint`, `@tint/0.2` with an alpha). Resolved by name at runtime, so a
 // colour an OS adds works with no Exact change, against the appearance the

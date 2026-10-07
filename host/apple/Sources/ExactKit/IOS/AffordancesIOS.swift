@@ -71,7 +71,7 @@ final class HoverEffect: NSObject, UIPointerInteractionDelegate {
 }
 #endif
 
-/// D15: a paragraph whose text changed under `content-transition: numeric`
+/// D15: a paragraph whose text changed under `-exact-content-transition: numeric`
 /// rolls in from below (from above for `numeric-countdown`), as SwiftUI's
 /// numeric text does. The whole line rolls: the raster is one picture.
 enum NumeralRoll {

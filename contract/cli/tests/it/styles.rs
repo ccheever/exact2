@@ -780,7 +780,7 @@ fn a_box_that_clips_transforms_or_animates_is_lowered_relative() {
     column testId="plain"
       box testId="clips" overflow="hidden"
       box testId="moves" translate="4px 0px"
-      box testId="presses" press-scale=0.96
+      box testId="presses" -exact-press-scale=0.96
       box testId="fades" transition="opacity 100ms"
       box testId="glass" backgroundMaterial="glass"
       box testId="dim" opacity=0.5

@@ -1211,17 +1211,17 @@ component Motion
 Keyframe values are literals or calls to the app's own `fn`s with constant
 arguments (standard functions are refused), and keyframes animate paint and
 transform properties, not layout ones such as `width`. Styles remain
-literal-only. CSS easing and the admitted `spring(…)` timing function, which
+literal-only. CSS easing and the admitted `-exact-spring(…)` timing function, which
 belongs only inside `transition`, are not interchangeable guesses: copy the
 appropriate [motion fixture](../contract/corpus/spring.contract).
 In a `list virtualized=true` row, an animation waits until its row first
-shows in the list (`animation-trigger="view"`, the default), because the list
-builds rows before they scroll in; `animation-trigger="none"` starts it when
+shows in the list (`-exact-animation-trigger="view"`, the default), because the list
+builds rows before they scroll in; `-exact-animation-trigger="none"` starts it when
 the row is built, so the row arrives settled. The web build does not hold it
 yet.
 
-`exit-animation`, `layout-transition`, and presentation timelines
-(`drag-timeline`, `animation-timeline`, `animation-range`, `timeline-scope`) are
+`-exact-exit-animation`, `-exact-layout-transition`, and presentation timelines
+(`-exact-drag-timeline`, `animation-timeline`, `animation-range`, `timeline-scope`) are
 declared extensions with bounded behavior, not arbitrary layout animation.
 
 For direct manipulation, `pan`, `panrelease`, `heightrelease`,

@@ -298,7 +298,7 @@ fn what_a_rebind_cannot_make_fresh_refuses_it() {
             "a layout transition",
             SOURCE.replace(
                 "height=64 press=toggle",
-                "height=64 press=toggle layout-transition=\"all 200ms\"",
+                "height=64 press=toggle -exact-layout-transition=\"all 200ms\"",
             ),
         ),
         (

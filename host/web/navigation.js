@@ -342,7 +342,7 @@ export function afterPaintPieces(load, o) {
   } };
 }
 
-// @ref LLP 1063 — exit-animation and layout-transition play in
+// @ref LLP 1063 — -exact-exit-animation and -exact-layout-transition play in
 // `presence-glue.js`, fetched when a batch first carries either row. A batch
 // with an exit that arrives before the module does waits for it, and every
 // batch after it waits behind it, so no exit is lost and order holds; the

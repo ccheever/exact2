@@ -780,7 +780,7 @@ impl Lowerer<'_> {
         Ok(())
     }
 
-    /// A native button's `animation` or `exit-animation`: keyframes, looked
+    /// A native button's `animation` or `-exact-exit-animation`: keyframes, looked
     /// up by name, that touch only its opacity and transforms.
     fn check_native_animation(&self, a: &contract_syntax::Attr) -> Result<(), LowerError> {
         let Some(texts) = literals(&a.value) else {

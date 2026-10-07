@@ -748,7 +748,7 @@ impl Batch {
     }
 
     /// `{"op":"exit","id":…,"css":…}` — the view leaves with `css`, the CSS
-    /// `animation` list of its `exit-animation` (LLP 1063): the page keeps
+    /// `animation` list of its `-exact-exit-animation` (LLP 1063): the page keeps
     /// it, inert, where it was until the exit ends. Its `destroy` ops follow
     /// as usual.
     pub fn exit(&mut self, id: u32, css: &str) {

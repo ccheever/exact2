@@ -393,7 +393,7 @@ fn bound_transition_stacking_matches_kernel() {
         "opacity",
         "all",
         "ease",
-        "spring()",
+        "-exact-spring()",
         "linear(0, 1)",
         "opacity scale 1s",
         "opacity 1s ease linear",
@@ -416,7 +416,7 @@ fn bound_transition_stacking_matches_kernel() {
         "opacity 1s)",
         "opacity 1s cubic-bezier(0, 0, 1, 1))",
         "layout 1s",
-        "tint-color 1s",
+        "-exact-tint-color 1s",
         "--exact-tint 1s",
         "--exact-shadow-color 1s",
     ]
@@ -464,13 +464,13 @@ fn bound_transition_stacking_matches_kernel() {
         "linear(0 -1%, 1)",
         "linear(0, 1 101%)",
         "linear(0, NaN)",
-        "spring()",
-        "spring(300, 30, 1)",
-        "spring(0, 30, 1)",
-        "spring(300, -1, 1)",
-        "spring(300, 30, 0)",
-        "spring(300, 30)",
-        "spring(300, 30, 1e309)",
+        "-exact-spring()",
+        "-exact-spring(300, 30, 1)",
+        "-exact-spring(0, 30, 1)",
+        "-exact-spring(300, -1, 1)",
+        "-exact-spring(300, 30, 0)",
+        "-exact-spring(300, 30)",
+        "-exact-spring(300, 30, 1e309)",
     ];
     for property in properties {
         for easing in easings {

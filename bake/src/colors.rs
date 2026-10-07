@@ -59,13 +59,13 @@ fn profiled_colors(text: &str) -> Vec<(&str, String, usize)> {
     out
 }
 
-/// Remove non-selected `platform-color()` branches before inspecting nested colors.
+/// Remove non-selected `-exact-platform-color()` branches before inspecting nested colors.
 /// The compiler checks the function's syntax; native names need no CSS validation.
 fn target_colors(text: &str, platform: &str) -> String {
-    let Some(start) = text.find("platform-color(") else {
+    let Some(start) = text.find("-exact-platform-color(") else {
         return text.into();
     };
-    let inner = start + "platform-color(".len();
+    let inner = start + "-exact-platform-color(".len();
     let (mut depth, mut part, mut parts) = (0, inner, Vec::new());
     for (offset, c) in text[inner..].char_indices() {
         let i = inner + offset;
@@ -305,13 +305,13 @@ mod tests {
 
     #[test]
     fn platform_color_validates_only_the_selected_branch() {
-        let fallback = app("box width=4 height=4 background-color=\"platform-color(web color(display-p3 1 0 0), #ff0000)\"");
+        let fallback = app("box width=4 height=4 background-color=\"-exact-platform-color(web color(display-p3 1 0 0), #ff0000)\"");
         assert_eq!(check(&fallback, "linux"), Ok(()));
         assert_eq!(check(&fallback, "web"), Ok(()));
-        let hdr = app("box width=4 height=4 background-image=\"linear-gradient(platform-color(web color(rec2100-linear 4 4 4), #ff0000), blue)\"");
+        let hdr = app("box width=4 height=4 background-image=\"linear-gradient(-exact-platform-color(web color(rec2100-linear 4 4 4), #ff0000), blue)\"");
         assert_eq!(check(&hdr, "linux"), Ok(()));
         assert!(check(&hdr, "web").is_err());
-        let profile = app("box width=4 height=4 box-shadow=\"0 0 4px platform-color(web color(--dci-p3 1 0 0), #ff0000)\"");
+        let profile = app("box width=4 height=4 box-shadow=\"0 0 4px -exact-platform-color(web color(--dci-p3 1 0 0), #ff0000)\"");
         assert_eq!(check(&profile, "linux"), Ok(()));
         assert!(check(&profile, "web").is_err());
     }

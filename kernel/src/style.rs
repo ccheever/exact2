@@ -716,7 +716,7 @@ pub enum ColorValue {
     /// A colour role (LLP 1095 D2), by id into `COLOR_ROLES`: the platform's
     /// own colour where a host has it, the role's pair everywhere else.
     Role(u8),
-    /// A `platform-color()` (LLP 1095 D3), by id into the interned table.
+    /// A `-exact-platform-color()` (LLP 1095 D3), by id into the interned table.
     Platform(u16),
     /// A colour in its own space, or a `light-dark()` with one (LLP 1100
     /// D2), by id into `style::wide`.
@@ -787,14 +787,14 @@ impl ColorValue {
         }
     }
 
-    /// A role (LLP 1095 D2), a `platform-color()` (D3), a colour in a
+    /// A role (LLP 1095 D2), a `-exact-platform-color()` (D3), a colour in a
     /// profile's or its own space (LLP 1100), or `light-dark(<color>,
     /// <color>)`. Anything else falls through to the plain colour parse.
     pub fn parse_light_dark(text: &str) -> Option<ColorValue> {
         if let Some(role) = roles::role(text) {
             return Some(ColorValue::Role(role));
         }
-        if text.trim_start().starts_with("platform-color(") {
+        if text.trim_start().starts_with("-exact-platform-color(") {
             return roles::parse_platform(text);
         }
         if text
@@ -851,7 +851,7 @@ pub enum RowValue<'a> {
     ShapeOutside(&'a exact_textflow::ShapeOutside),
     /// CSS `aspect-ratio` as authored (LLP 1053 G1).
     AspectRatio(&'a crate::ratio::AspectRatio),
-    /// `drag-timeline` (LLP 1057.003).
+    /// `-exact-drag-timeline` (LLP 1057.003).
     DragTimeline(&'a crate::timeline::DragTimeline),
     /// CSS `animation-timeline` (LLP 1057.003).
     AnimationTimeline(&'a crate::timeline::AnimationTimeline),

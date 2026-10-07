@@ -143,7 +143,7 @@ lacks — the line it has for that file, extended, or a new one — and `contrac
 fmt --uses <root.contract>` writes them (`bun exact.mjs update` does too, for an
 app outside this repo). A name two files declare, or one the compiler gave on a
 collision (`Card__ui`), is left to the author and said. The keyframes an `animation`, `animation-name` or
-`exit-animation` literal names, and a `clock(Name)` literal, resolve in the
+`-exact-exit-animation` literal names, and a `-exact-clock(Name)` literal, resolve in the
 file that writes them; a name computed at run time is matched as written. Beside
 a computed value, a word is renamed when it is the name whatever the value is;
 one that is the name for some values and a keyword for others (`${x} linear
@@ -1112,13 +1112,17 @@ the virtual clock).
 - **The Mac's menu bar.** Every button whose chord holds ⌘ is also a menu
   item, titled by its `aria-label` (or its text), placed by its chord as
   Apple's HIG places one: ⌘, is Settings…; ⌘[ ⌘] and a `tablist`'s tabs are
-  Go; ⌘Z ⇧⌘Z ⌘X ⌘C ⌘V ⌘A ⌘D ⌘F ⌘G ⇧⌘G are Edit; ⌘= ⌘+ ⌘- ⌘0 and any ⌃⌘
-  chord are View; the rest are File. One whose chord is the host's own Edit
-  item's (Undo, Redo, Cut, Copy, Paste, Select All) takes that item's place,
-  so Edit ▸ Undo is the app's "Undo Move"; any other host item whose chord a
-  button declares keeps its place without the chord (File ▸ Close Window
-  beside the app's ⌘W). Drop the chord while a field is being edited and the
-  host's text Undo, Cut, Copy and Paste come back (studio diary R16).
+  Go; ⌘Z ⇧⌘Z ⌘X ⌘C ⌘V ⇧⌘V ⌥⇧⌘V ⌘A ⌘D ⌘F ⌘G ⇧⌘G are Edit; ⌘= ⌘+ ⌘- ⌘0 and
+  any ⌃⌘ chord are View; the rest are File. One whose chord is the host's own
+  Edit item's (Undo, Redo, Cut, Copy, Paste, Select All) takes that item's
+  place, so Edit ▸ Undo is the app's "Undo Move"; a paste variant (⇧⌘V,
+  ⌥⇧⌘V) follows Paste, as Paste and Match Style does in TextEdit, Safari and
+  Chrome ("Paste as Text"); the rest follow Select All. Any other host item
+  whose chord a button declares keeps its place without the chord (File ▸
+  Close Window beside the app's ⌘W). Drop the chord while a field is being
+  edited and the host's text Undo, Cut, Copy and Paste come back (studio
+  diary R16). Edit also holds Speech ▸ Start Speaking and Stop Speaking, which
+  read the selected text aloud, in a field or out of one (#141).
 
 ### Focus order: `tabindex`
 

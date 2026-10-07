@@ -53,7 +53,7 @@ v => {
     const n = args.map(number);
     if (!n.every(Number.isFinite)) return 0;
     if (name === "cubic-bezier") return +(n.length === 4 && n[0] >= 0 && n[0] <= 1 && n[2] >= 0 && n[2] <= 1);
-    if (name === "spring") return n.length === 0 || (n.length === 3 && n[0] > 0 && n[1] >= 0 && n[2] > 0) ? 2 : 0;
+    if (name === "-exact-spring") return n.length === 0 || (n.length === 3 && n[0] > 0 && n[1] >= 0 && n[2] > 0) ? 2 : 0;
     return 0;
   };
   const text = trim(String(v ?? ""));

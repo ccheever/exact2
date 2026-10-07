@@ -6,13 +6,13 @@
 //! stretch of it (`animation-range`). A drag has no CSS timeline; this is
 //! the same shape with a drag as the source, a deviation LLP 1001 declares:
 //!
-//! - `drag-timeline: none | <dashed-ident> [x | y]?` on the node whose held
+//! - `-exact-drag-timeline: none | <dashed-ident> [x | y]?` on the node whose held
 //!   translate a drag moves: the timeline's position is that translate on
 //!   the axis (`y` if unsaid), as presented, so a release's spring moves it
 //!   too.
 //! - `animation-timeline: auto | <dashed-ident>` on a consumer: its
 //!   `animation`s follow the named timeline instead of the clock. Its third
-//!   value, `clock(<ident>)`, keeps them on the clock and only syncs their
+//!   value, `-exact-clock(<ident>)`, keeps them on the clock and only syncs their
 //!   starts (LLP 1055.002); the lookup never sees it.
 //! - `animation-range: normal | <length> <length>` on the consumer: the
 //!   positions where its animations are at 0% and 100%; outside them the
@@ -71,7 +71,7 @@ pub enum Axis {
     Y,
 }
 
-/// `drag-timeline`: the timeline a node's held translate drives.
+/// `-exact-drag-timeline`: the timeline a node's held translate drives.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct DragTimeline {
     /// The timeline's name, a `<dashed-ident>`; `None` is `none`.
@@ -80,9 +80,16 @@ pub struct DragTimeline {
     pub axis: Axis,
 }
 
-/// `clock(<ident>)`'s ident: a Contract name, `[A-Za-z_][A-Za-z0-9_-]*`.
+/// The clock timeline function, with its kind (LLP 1081 D8): Exact's, as
+/// CSS has no clock timeline.
+pub const CLOCK_FUNCTION: (&str, &str) = ("-exact-clock(", "exact LLP 1055.002");
+
+/// `-exact-clock(<ident>)`'s ident: a Contract name, `[A-Za-z_][A-Za-z0-9_-]*`.
 fn clock_name(token: &str) -> Option<&str> {
-    let name = token.strip_prefix("clock(")?.strip_suffix(')')?.trim();
+    let name = token
+        .strip_prefix(CLOCK_FUNCTION.0)?
+        .strip_suffix(')')?
+        .trim();
     let mut chars = name.chars();
     (chars
         .next()
@@ -136,13 +143,13 @@ impl DragTimeline {
 }
 
 /// `animation-timeline`: `auto` (the clock), a named timeline, or a clock
-/// timeline, `clock(<ident>)`: the clock, from a start every animation on
+/// timeline, `-exact-clock(<ident>)`: the clock, from a start every animation on
 /// the same one shares (LLP 1055.002 D2, a deviation LLP 1001 declares).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AnimationTimeline(pub Option<String>);
 
 impl AnimationTimeline {
-    /// `auto`, a `<dashed-ident>` or `clock(<ident>)`; `None` also while
+    /// `auto`, a `<dashed-ident>` or `-exact-clock(<ident>)`; `None` also while
     /// unlinked.
     pub fn parse(css: &str) -> Option<Self> {
         (LINKED.get()?.timeline)(css)
@@ -154,7 +161,7 @@ impl AnimationTimeline {
             return Some(Self(None));
         }
         if let Some(name) = clock_name(t) {
-            return Some(Self(Some(format!("clock({name})"))));
+            return Some(Self(Some(format!("-exact-clock({name})"))));
         }
         dashed(t).map(|n| Self(Some(n)))
     }
@@ -308,16 +315,23 @@ mod tests {
             AnimationTimeline::parse("auto"),
             Some(AnimationTimeline(None))
         );
-        let c = AnimationTimeline::parse(" clock( Pending ) ").unwrap();
+        let c = AnimationTimeline::parse(" -exact-clock( Pending ) ").unwrap();
         assert_eq!(
             (c.css().as_str(), c.clock(), c.name()),
-            ("clock(Pending)", Some("Pending"), None)
+            ("-exact-clock(Pending)", Some("Pending"), None)
         );
         assert_eq!(AnimationTimeline::parse("--a").unwrap().clock(), None);
         // Contract names may hyphenate.
-        let c = AnimationTimeline::parse("clock(Pending-Work)").unwrap();
+        let c = AnimationTimeline::parse("-exact-clock(Pending-Work)").unwrap();
         assert_eq!(c.clock(), Some("Pending-Work"));
-        for bad in ["clock()", "clock(--a)", "clock(1a)", "clock(a b)", "clock"] {
+        for bad in [
+            "-exact-clock()",
+            "-exact-clock(--a)",
+            "-exact-clock(1a)",
+            "-exact-clock(a b)",
+            "clock",
+            "clock(Pending)",
+        ] {
             assert_eq!(AnimationTimeline::parse(bad), None, "{bad:?}");
         }
         let r = AnimationRange::parse("0px 300px").unwrap();

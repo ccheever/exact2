@@ -939,7 +939,7 @@ export const onClipboard = (e, kind, f, l) => { return l(kind, ev => { ev.stopPr
 export const onSelectionChange = (e, kind, f, l) => { return onSelection(e, (text, a, b) => f([text, a, b])); };
 
 // ---------------------------------------------------------------- presence (LLP 1063)
-// `exit-animation` and `layout-transition`: the web host's own
+// `-exact-exit-animation` and `-exact-layout-transition`: the web host's own
 // presence-glue.js, fetched after the first painted frame by a plan with
 // either row (its node calls `pr`), plays both. Each commit it measures the
 // views that declare a layout transition before the tree changes and plays
