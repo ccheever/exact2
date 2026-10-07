@@ -54,6 +54,11 @@ impl<D: DataSource> Presenter<D> {
         self.brush
             .canvases
             .extend(self.surfaces.pixels(&mut self.host, self.brush.scale));
+        // The hatches' overlays as published (LLP 1075.003.000.001 §2.2.1):
+        // read here, at the start of the paint; the walk calls no hatch.
+        self.brush.overlays = (self.hatches.overlays.iter())
+            .map(|(id, shown)| (*id, shown.pixels.clone()))
+            .collect();
         // The display carrier stages the paint's owners/boxes and publishes
         // them only on the matching flip. Headless/agent frames stay immediate.
         let deferred = self.display.submitting();

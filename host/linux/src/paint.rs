@@ -500,6 +500,8 @@ pub struct Painter {
     pub(crate) placements: BTreeMap<ViewId, crate::placement::Placement>,
     /// Each 2D canvas's latest bitmap (LLP 1056).
     pub(crate) canvases: BTreeMap<ViewId, crate::canvas2d::CanvasPaint>,
+    /// Each hatched node's overlay as last published (LLP 1075.003.000.001 §2.2.1).
+    pub(crate) overlays: BTreeMap<ViewId, Arc<Pixmap>>,
     viewport: (f32, f32),
     cpu_ms: Option<f64>,
     /// What a reorder lifts: a row in its list, or a ghost over everything.
@@ -609,6 +611,7 @@ impl Painter {
             decoration_warning: false,
             placements: BTreeMap::new(),
             canvases: BTreeMap::new(),
+            overlays: BTreeMap::new(),
             viewport: (0., 0.),
             cpu_ms: None,
             flatten: None,
@@ -1197,6 +1200,14 @@ impl Painter {
         self.children(walk, node, ts, child_offset, child_rect);
         if clips {
             self.backend.pop_clip();
+        }
+        // @ref LLP 1075.003.000.001 §2.2.1 — a hatch's overlay: over the
+        // node's own paint and its descendants, clipped to its border box.
+        if let Some(pixels) = self.overlays.get(&node.id).cloned() {
+            self.row_refuse();
+            self.damage.unsupported = true;
+            let clips = [Shape::rect(rect), surface.outer];
+            self.backend.canvas(&pixels, rect, &clips, ts);
         }
     }
 }

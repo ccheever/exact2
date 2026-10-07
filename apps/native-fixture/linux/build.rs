@@ -33,16 +33,37 @@ fn main() {
     } else {
         "exact_linux_update"
     };
+    // The app's hatches (LLP 1075.003.000.001 §5): `modules/linux/*.rs`,
+    // included here with the typed key of the words this platform handles.
+    // The entry names only their type; the host makes the value.
+    // The words are the target's own: an Android build of this crate (LLP
+    // 1107) handles what app.json gives `android`.
+    let hatch_platform = if target.contains("android") {
+        "android"
+    } else if target.contains("windows") {
+        "windows"
+    } else {
+        platform
+    };
+    let hatches = contract::native::rust_hatches(&app_dir, &manifest, hatch_platform)
+        .unwrap_or_else(|e| panic!("hatches: {e}"));
+    let run = match hatches {
+        Some(_) => {
+            "run_with_hatches::<AppData, hatches::ExactHatches>(PLAN, COMPAT, HatchKey::WORDS)"
+        }
+        None => "run::<AppData>(PLAN, COMPAT)",
+    };
     std::fs::write(
         out_dir.join("entry.rs"),
         format!(
-            "{}\nfn main() {{ std::process::exit({host}::run::<AppData>(PLAN, COMPAT)); }}\n",
+            "{}\n{}fn main() {{ std::process::exit({host}::{run}); }}\n",
             contract::rust_entry(
                 "native_fixture_data::Fixture",
                 "native_fixture_data::Fixture",
                 compat.inputs["rustMode"].as_str().unwrap()
             )
-            .unwrap()
+            .unwrap(),
+            hatches.as_deref().unwrap_or("")
         ),
     )
     .unwrap();

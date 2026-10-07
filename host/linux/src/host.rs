@@ -25,6 +25,8 @@ mod activation;
 mod arrange;
 #[path = "content_region/host.rs"]
 mod content;
+#[path = "hatches/host.rs"]
+mod hatch;
 #[path = "height.rs"]
 mod height;
 #[path = "height_binding.rs"]
@@ -134,6 +136,8 @@ pub struct Host<D: DataSource> {
     media_mounts: crate::media_session::Mounts,
     /// The `value`s the presenter keeps typed text against (LLP 1069.001 D4).
     pub(crate) values: value_watch::ValueWatch,
+    /// The plan marks nodes `hatch` (`presenter/hatches.rs` says what follows).
+    pub(crate) hatched: bool,
 }
 
 impl<D: DataSource> Host<D> {
@@ -215,8 +219,7 @@ impl<D: DataSource> Host<D> {
         launch: &str,
         region: Option<crate::content_region::ContentRegionRegistration>,
     ) -> Result<(Host<D>, Option<String>), HostError> {
-        // @ref LLP 1075.003.000 §3.3 — this host has no native objects for a
-        // hatch to reach: a plan that marks nodes is told so once, at boot.
+        // @ref LLP 1075.003.000 §3.3 — whether the plan marks nodes for a hatch.
         let hatched = plan.bindings.iter().any(|b| {
             b.kind == exact_plan::BindingKind::Prop
                 && exact_kernel::PropId::from_wire(b.id) == Some(exact_kernel::PropId::Hatch)
@@ -290,6 +293,7 @@ impl<D: DataSource> Host<D> {
             renewed: Vec::new(),
             media_mounts: Default::default(),
             values: Default::default(),
+            hatched,
         };
         host.runner
             .set_canvas_limits(exact_runner::Limits::native(physical_memory(), false));
@@ -331,11 +335,6 @@ impl<D: DataSource> Host<D> {
         let error = host.layout().err();
         host.observe_layout();
         host.present();
-        if hatched {
-            host.runner.log(
-                "hatch: this host has no native objects; hatched nodes are shown and never called",
-            );
-        }
         Ok((host, error))
     }
 
@@ -502,6 +501,11 @@ impl<D: DataSource> Host<D> {
     /// The kernel.
     pub fn kernel(&self) -> &Kernel {
         self.runner.kernel()
+    }
+
+    /// Whether the plan gives `platform` the hatch `word` (LLP 1075.003.000.001 §4.3).
+    pub(crate) fn plan_gives_hatch(&self, word: &str, platform: &str) -> bool {
+        self.runner.plan().handles_hatch(word, platform)
     }
 
     /// The commit each media session claimant mounted in (LLP 1098 D9).

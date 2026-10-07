@@ -290,8 +290,6 @@ export async function perfOp(s, args, line, step) {
   }
   // `perf hatches` (LLP 1075.003.000.001 §3.3): the hatches' calls and what their code counted.
   if (args[0] === 'hatches') {
-    // The Linux host calls no hatch until its stage (§8 stage 4).
-    if (s.host === 'linux') throw Error('perf hatches: the linux host calls no hatches yet (LLP 1075.003.000.001 §8 stage 4)');
     const read = () => s.op({ op: 'perf', hatches: true });
     const at = line.search(/\sduring\s/);
     if (at < 0) return read();

@@ -577,11 +577,13 @@ function scopesOf(m) {
     calls[moment] = (calls[moment] ?? 0) + 1;
     try { timed(scope, null, moment, () => m[name](arg)); } catch (error) { say(`${name} threw ${error?.message ?? error}`); }
   };
-  const app = { ...facts(), processOwner: true, isNew: true, isLive: true, owns: (sentence, options) => owns("app", null, null, sentence, options) };
+  // The root node's `data-*` words are the app's (§2.5): its `dataset`, and a change is a `changed` moment.
+  const rootNode = document.getElementById("exact-root")?.firstElementChild ?? null;
+  const app = { ...facts(), data: rootNode?.dataset ?? {}, processOwner: true, isNew: true, isLive: true, owns: (sentence, options) => owns("app", null, null, sentence, options) };
   const win = { window: globalThis, document, exclusive: true, frame: frame(), isNew: true, isLive: true, owns: (target, sentence, options) => owns("window", null, target, sentence, options) };
   call("app", "app", "built", app);
   call("window", "window", "built", win);
-  let due = false, ended = false;
+  let due = false, ended = false, told = JSON.stringify(rootNode?.dataset ?? {});
   const changed = () => {
     if (due || ended) return;
     due = true;
@@ -589,10 +591,13 @@ function scopesOf(m) {
       due = false;
       if (ended) return;
       const now = facts(), size = frame();
-      if (Object.keys(now).some(k => now[k] !== app[k])) { Object.assign(app, now, { isNew: false }); call("app", "app", "changed", app); }
+      const words = JSON.stringify(rootNode?.dataset ?? {});
+      if (Object.keys(now).some(k => now[k] !== app[k]) || words !== told) { told = words; Object.assign(app, now, { isNew: false }); call("app", "app", "changed", app); }
       if (String(size) !== String(win.frame)) { win.frame = size; win.isNew = false; call("window", "window", "changed", win); }
     });
   };
+  // dataset.js tells a node whose words changed; a root that is itself hatched keeps its own telling too.
+  if (rootNode) { const own = rootNode.$ht; rootNode.$ht = () => { own?.(); changed(); }; }
   document.addEventListener("visibilitychange", changed);
   for (const type of ["online", "offline", "resize"]) globalThis.addEventListener?.(type, changed);
   if (typeof matchMedia === "function") for (const q of QUERIES) matchMedia(q).addEventListener?.("change", changed);

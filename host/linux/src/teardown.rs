@@ -12,6 +12,8 @@ pub const EXIT_BOUND: Duration = Duration::from_secs(5);
 
 /// Pump until the module has no storage queued or in flight, or `bound`.
 pub fn finish<D: DataSource>(p: &mut Presenter<D>, bound: Duration) {
+    // Every hatch scope ends before the module goes (LLP 1075.003.000.001 §2.1).
+    p.end_hatches();
     let deadline = Instant::now() + bound;
     while p.host().runner().background_operations() > 0 {
         if Instant::now() >= deadline {

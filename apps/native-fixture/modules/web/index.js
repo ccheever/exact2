@@ -151,7 +151,7 @@ const publishScopes = (moment) => {
 };
 export function app(a) {
   scheme = a.prefersColorScheme;
-  globalThis.exact.diagnostics.publish('app', { processOwner: a.processOwner, hasApplication: true, visibilityState: a.visibilityState, onLine: a.onLine });
+  globalThis.exact.diagnostics.publish('app', { processOwner: a.processOwner, hasApplication: true, visibilityState: a.visibilityState, onLine: a.onLine, mood: a.data.mood ?? '' });
   publishScopes(a.isNew ? 'app-built' : 'app-changed');
 }
 export function appEnded() { publishScopes('app-ended'); }

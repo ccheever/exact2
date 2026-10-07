@@ -769,3 +769,31 @@ guide's rules don't make obvious.
   With `appearance="auto"`, those rows are refused; remove them to keep the
   platform's background, border and corners. `background-clip` and
   `background-attachment` alone keep the field native. (LLP 1104 r8 D2.)
+
+## Access hatches
+
+- **A view a hatch adds on macOS hears no click while its window is not key.**
+  The click reaches the view by hit test and nothing happens: AppKit spends a
+  first click on activating the window unless the view says otherwise, and an
+  ancestor's click recognizer holds a plain `mouseDown` back. Give the view
+  its own `NSClickGestureRecognizer` (declared with `element.owns(recognizer:)`)
+  and override `acceptsFirstMouse(for:)` to return true, as Exact's own
+  controls do. Found building the fixture's badge seal (LLP 1075.003.000.001
+  §13.10): `tap <node>/<part>` answered `landed: "part"` and the press was
+  never counted.
+- **An absolutely positioned element a web hatch appends is not where its
+  node is.** `position: absolute` resolves against the nearest positioned
+  ancestor, which is rarely the hatched node, and a hatch must not restyle the
+  node to make it one. Put what you add in the node's own flow (a block with a
+  margin). Found the same way: `tree` showed the part's size right and its
+  place elsewhere, and the aimed click was refused as outside the node's box.
+- **A page module that exports `window` loses the global of that name.**
+  `export function window(w)` is the window hatch, and inside that file
+  `window.innerWidth` is then the function's property. Reach the global as
+  `globalThis` (the hatch's `w.window` is it too).
+- **On Linux, Windows and Android `changed` also means the node's size
+  changed.** A hatch that acts whenever `element` is called again (a click, an
+  input) loops when its act changes the node's own size, a label's width, say.
+  Keep the words the node was last told with and act only when they differ.
+  Found building the fixture's Linux hatches (§13.13): the pressing hatch
+  pressed itself forever once its label grew a digit.
