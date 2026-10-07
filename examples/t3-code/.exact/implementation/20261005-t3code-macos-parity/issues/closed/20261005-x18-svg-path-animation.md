@@ -109,13 +109,17 @@ found by the call-site check go into a follow-up ticket `20261005-adopt-x18-svg-
 `issue-close` creates when the fix lands (planned plan revision).
 
 ## Status and next action
-Draft; not reproduced on the pinned `main`; not searched upstream; not published.
-Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval;
-publication only after approval).
+
+Filed as #123; closed 2026-10-07 by main #188 (`74affc099`, merged in `c46c96bda`). `d` is a transition
+property: `transition="d …"` compiles, `contract vocab transition` lists `d`, `all` covers `d`, and macOS,
+iOS and Linux morph a path the web morphs (PR #188's films and Linux ink test). As in Chrome, a pair with
+different commands changes at once rather than flipping at the midpoint. Still missing upstream: keyframed
+`d` (LLP 1055.000 stage 10b). Not verified here: the issue's reproduction was not rerun.
+**Partly adopted** by task [20261007-adopt-main-fixes-r3](../../tasks/20261007-adopt-main-fixes-r3.md); see below.
 
 ## Resolved upstream and adopted (2026-10-07)
 
-Filed as [#123](https://github.com/ccheever/exact2/issues/123); fixed by main PR #188 (`74affc099`: a path's `d` transitions on macOS, iOS and Linux when both ends have the same command list), merged into the feature branch with main `cff90b364` by task [20261007-adopt-main-fixes-r3](../tasks/20261007-adopt-main-fixes-r3.md).
+Filed as [#123](https://github.com/ccheever/exact2/issues/123); fixed by main PR #188 (`74affc099`: a path's `d` transitions on macOS, iOS and Linux when both ends have the same command list), merged into the feature branch with main `cff90b364` by task [20261007-adopt-main-fixes-r3](../../tasks/20261007-adopt-main-fixes-r3.md).
 
 How the reference morphs: `MorphIcon` (`apps/web/src/components/MorphIcon.tsx`) is morphicons 1.7.1 `MorphIcon` with `reducedMotion="user"`, the default "snappy" spring (k 420, c 30, m 1), over lucide-react 0.564.0 icon nodes. morphicons resamples both icons to 64 points per subpath, pairs the subpaths (`buildPlan`) and interpolates each pair in polar form (`interpPolar`): the centroid drifts, the subpath turns by θ about its pivot and scales by σ^t, while its centred shape moves linearly to the target's. At rest it snaps to the target's real curves.
 
