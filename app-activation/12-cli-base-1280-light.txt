@@ -1,0 +1,47 @@
+===== base-1280-light/cli.txt
+--- socket (03:51:56):
+drwx------ $TMPDIR/t3code-501
+stat: $TMPDIR/t3code-501/28d59a850e7fdaa7f1bb4302.sock: stat: No such file or directory
+### 10-new-project  (03:51:57)  t3 app <lane>/projects/gamma --base-dir <lane>/t3-home-base
+DesktopAppUnreachableError: Could not reach the T3 Code desktop app. Start or update the desktop app on this machine, then run `t3 app` again. A running T3 Code server is not enough.
+exit 1  (1.27 s)
+--- projects in t3-home-base (after gamma):
+alpha|<lane>/projects/alpha
+### 11-existing  (03:52:00)  t3 app <lane>/projects/gamma --base-dir <lane>/t3-home-base
+DesktopAppUnreachableError: Could not reach the T3 Code desktop app. Start or update the desktop app on this machine, then run `t3 app` again. A running T3 Code server is not enough.
+exit 1  (1.48 s)
+--- projects in t3-home-base (after gamma again):
+alpha|<lane>/projects/alpha
+### 12a-concurrent  (03:52:07)  t3 app <lane>/projects/beta space --base-dir <lane>/t3-home-base
+### 12b-concurrent  (03:52:07)  t3 app <lane>/projects/delta --base-dir <lane>/t3-home-base
+DesktopAppUnreachableError: Could not reach the T3 Code desktop app. Start or update the desktop app on this machine, then run `t3 app` again. A running T3 Code server is not enough.
+DesktopAppUnreachableError: Could not reach the T3 Code desktop app. Start or update the desktop app on this machine, then run `t3 app` again. A running T3 Code server is not enough.
+exit 1  (0.82 s)
+exit 1  (0.83 s)
+--- projects in t3-home-base (after two at once):
+alpha|<lane>/projects/alpha
+### 13-missing  (03:52:13)  t3 app <lane>/projects/missing --base-dir <lane>/t3-home-base
+DesktopAppUnreachableError: Could not reach the T3 Code desktop app. Start or update the desktop app on this machine, then run `t3 app` again. A running T3 Code server is not enough.
+exit 1  (1.6 s)
+### 14-tilde  (03:52:15)  t3 app ~/tilde proj --base-dir <lane>/t3-home-base
+DesktopAppUnreachableError: Could not reach the T3 Code desktop app. Start or update the desktop app on this machine, then run `t3 app` again. A running T3 Code server is not enough.
+exit 1  (1.06 s)
+### 15-symlink  (03:52:16)  t3 app <lane>/projects/alpha-link --base-dir <lane>/t3-home-base
+DesktopAppUnreachableError: Could not reach the T3 Code desktop app. Start or update the desktop app on this machine, then run `t3 app` again. A running T3 Code server is not enough.
+exit 1  (1.12 s)
+### 16-other-tmpdir  (03:52:17)  t3 app <lane>/projects/alpha --base-dir <lane>/t3-home-base
+DesktopAppUnreachableError: Could not reach the T3 Code desktop app. Start or update the desktop app on this machine, then run `t3 app` again. A running T3 Code server is not enough.
+exit 1  (1.35 s)
+--- socket removed while running, 1 s later (03:52:20):
+stat: $TMPDIR/t3code-501/28d59a850e7fdaa7f1bb4302.sock: stat: No such file or directory
+### 17-after-rebind  (03:52:20)  t3 app <lane>/projects/epsilon --base-dir <lane>/t3-home-base
+DesktopAppUnreachableError: Could not reach the T3 Code desktop app. Start or update the desktop app on this machine, then run `t3 app` again. A running T3 Code server is not enough.
+exit 1  (1.88 s)
+--- projects in t3-home-base (after errors):
+alpha|<lane>/projects/alpha
+--- socket after the drive ended (03:52:31):
+ls: $TMPDIR/t3code-501/28d59a850e7fdaa7f1bb4302.sock: No such file or directory
+### 18-app-not-running  (03:52:31)  t3 app <lane>/projects/alpha --base-dir <lane>/t3-home-base
+DesktopAppUnreachableError: Could not reach the T3 Code desktop app. Start or update the desktop app on this machine, then run `t3 app` again. A running T3 Code server is not enough.
+exit 1  (0.91 s)
+
