@@ -76,6 +76,7 @@ export function createGame(destination, directory = import.meta.dir, options = {
     writeFileSync(resolve(destination, 'exact.mjs'), commandsFor(destination, name, {game:true}));
     writeFileSync(resolve(destination, 'AGENTS.md'), agentNotes(destination, name, {game:true}));
     linkClaude(destination);
+    editorTasks(destination, {game:true});
     writeFileSync(resolve(destination, '.gitignore'), `${readFileSync(resolve(destination, '.gitignore'), 'utf8')}/.exact/\n`);
     return `Created ${destination}
   cd ${quote(destination)}
@@ -341,6 +342,7 @@ exact_web::host!(
     writeFileSync(resolve(dir, path), text);
   }
   linkClaude(dir);
+  editorTasks(dir);
   writeFileSync(resolve(dir, 'Cargo.lock'), readFileSync(resolve(ROOT, 'Cargo.lock')));
   const deferred = resolveOffline(dir, true);
   const run = 'bun exact.mjs';
@@ -522,6 +524,29 @@ function linkClaude(dir) {
   catch { writeFileSync(resolve(dir, 'CLAUDE.md'), readFileSync(resolve(dir, 'AGENTS.md'))); }
 }
 
+/** VS Code's tasks for the app's exact.mjs verbs. `$exact-contract` is the
+ * problem matcher of exact2's editors/vscode extension, `$rustc` is
+ * rust-analyzer's. Written once and the author's after that: `update` writes
+ * it only when it is missing. */
+function editorTasks(dir, {game = false} = {}) {
+  const path = resolve(dir, '.vscode/tasks.json');
+  if (existsSync(path)) return false;
+  const builds = ['$exact-contract', '$rustc'];
+  const task = (label, command, problemMatcher, extra = {}) => ({label, type: 'shell', command: `bun exact.mjs ${command}`, problemMatcher, ...extra});
+  const tasks = [
+    task('contract: build this file', 'contract build "${file}"', '$exact-contract', {presentation: {reveal: 'silent', clear: true}}),
+    task('contract: format this file', 'contract fmt "${file}"', '$exact-contract', {presentation: {reveal: 'silent', clear: true}}),
+    task('app: web dev loop', 'web', '$exact-contract'),
+    task('app: test on web', 'test web', builds, {group: {kind: 'test', isDefault: true}}),
+    task('app: run on macOS', 'mac --run', builds),
+    task('app: run on an iOS simulator', 'ios --run', builds),
+    ...(game ? [task('game: Rust tests', 'test-rust', '$rustc', {group: 'test'})] : []),
+  ];
+  mkdirSync(dirname(path), {recursive: true});
+  writeFileSync(path, JSON.stringify({version: '2.0.0', tasks}, null, 2) + '\n');
+  return true;
+}
+
 /** The diary's own block, from before it joined the generated one. */
 const OLD_DIARY = /\n*<!-- exact diary[^>]*-->[\s\S]*?<!-- \/exact diary -->\n?/;
 
@@ -665,6 +690,7 @@ function updateApp(dir, name) {
   if (existsSync(resolve(dir, 'app.contract')) && !existsSync(resolve(dir, 'Cargo.toml')) && gameDefaults(dir)) {
     writeFileSync(resolve(dir, 'exact.mjs'), commandsFor(dir, name, {game:true}));
     const notes = updateNotes(dir, name, {game:true});
+    if (editorTasks(dir, {game:true})) notes.push('.vscode/tasks.json');
     return `Updated ${dir}: exact.mjs${notes.length ? `, ${notes.join(', ')}` : ''}`;
   }
   if (!existsSync(resolve(dir, 'app.contract')) || !existsSync(resolve(dir, 'Cargo.toml'))) throw new Error(`${dir}: no app workspace here to update (no app.contract or Cargo.toml)`);
@@ -696,6 +722,7 @@ function updateApp(dir, name) {
       /"linux"/.test(list) ? line : `members = [${[...list.split(',').map(m => m.trim()).filter(Boolean), '"linux"'].sort().join(', ')}]`));
   }
   const notes = updateNotes(dir, name);
+  if (editorTasks(dir)) notes.push('.vscode/tasks.json');
   const manifestPath = resolve(dir, 'app.json');
   if (existsSync(manifestPath)) {
     const text = readFileSync(manifestPath, 'utf8');
