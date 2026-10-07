@@ -257,6 +257,23 @@ component MobileRouteContent
     reconnect: action
     remove: action
     save: action
+  // LLP 1107.005: route-local layout facts; a new content owner starts from source estimates.
+  state threadGeometryOwner = ""
+  state threadMeasuredBottom = 0
+  state threadMeasuredDock = 0
+  derive threadGeometryKey = `${routeId}:${threadData.environmentId}:${threadData.threadId}:${threadData.composer.contentOwner}`
+  derive threadBottomInset = composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)
+  derive threadCoveredBottom = threadGeometryOwner == threadGeometryKey ? threadMeasuredBottom : 0
+  derive threadDockClearance = (threadGeometryOwner == threadGeometryKey and threadMeasuredDock > 0 ? threadMeasuredDock : (composerExpanded ? 156 : 60) + threadBottomInset) + (workingControl.visible ? 48.5 : 0)
+  action threadGeometryChanged(owner: string, width: number, height: number)
+    if owner == threadGeometryKey
+      let routeFrame = frame(`thread-route-bounds-${routeId}`)
+      let flowFrame = frame(`thread-flow-bounds-${routeId}`)
+      let dockFrame = frame(`thread-dock-bounds-${routeId}`)
+      if not routeFrame.unavailable and not routeFrame.provisional and not flowFrame.unavailable and not flowFrame.provisional and not dockFrame.unavailable and not dockFrame.provisional
+        threadGeometryOwner = owner
+        threadMeasuredBottom = max(0, routeFrame.y + routeFrame.height - flowFrame.y - flowFrame.height)
+        threadMeasuredDock = dockFrame.height
   action workingAgents(owner: string)
     if focused and owner == workingControl.owner
       blur()
@@ -304,13 +321,21 @@ component MobileRouteContent
       Home(listId="home-list", items=home.items, emptyTitle=home.emptyTitle, emptyDetail=home.emptyDetail, loading=home.loading, addEnvironment=home.addEnvironment, bottomClearance=chrome.bottomClearance, emptyClearance=chrome.emptyClearance, selectThread=chooseThread, toggleShelf=toggleHomeShelf, showMore=showMore, addConnection=addEnvironment, colors=homeLook)
       HomeChrome(configuration=chrome.configuration, event=homeEvent, height=(layout.liquidGlass ? chrome.toolbarContentInset + layout.safeBottom : 0))
     else when routeName == "thread" or (routeName == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")
-      column flex=1 min-height=0 width="100%"
-        ThreadFeed(data=threadData, horizontalPadding=workspace.chatHorizontalPadding, userBubbleMaxWidth=workspace.userBubbleMaxWidth, bottomClearance=(workingControl.visible ? 62 : 14), action=threadAction, openMedia=openMedia, colors=threadLook)
-        column width="100%" max-width=workspace.chatContentMaxWidth align-self="center"
-          ThreadApprovals(data=threadData, action=threadAction, colors=threadLook)
-        ComposerAttachmentStrip(data=composerAttachments, open=openDraftMedia, remove=removeAttachment, colors=threadLook)
+      // Childless bounds stay settled while unrelated images load; the route probe also hears equal-flow viewport changes.
+      each geometryOwner in [threadGeometryKey] key=geometryOwner
+        view id=`thread-route-bounds-${routeId}` position="absolute" inset=0 pointer-events="none" aria-hidden=true resize=threadGeometryChanged(geometryOwner)
+      column id=`thread-flow-${routeId}` flex=1 min-height=0 width="100%" position="relative" pointer-events="none"
+        view id=`thread-flow-bounds-${routeId}` position="absolute" inset=0 pointer-events="none" aria-hidden=true resize=threadGeometryChanged(threadGeometryKey)
+        column position="absolute" top=0 left=0 right=0 bottom=(-threadCoveredBottom) pointer-events="auto"
+          ThreadFeed(data=threadData, horizontalPadding=workspace.chatHorizontalPadding, userBubbleMaxWidth=workspace.userBubbleMaxWidth, bottomClearance=threadDockClearance, action=threadAction, openMedia=openMedia, colors=threadLook)
+      column id=`thread-dock-${routeId}` position="absolute" left=0 right=0 bottom=0 pointer-events="none"
+        view id=`thread-dock-bounds-${routeId}` position="absolute" inset=0 pointer-events="none" aria-hidden=true resize=threadGeometryChanged(threadGeometryKey)
         MobileWorkingControl(data=workingControl, colors=threadLook, maxWidth=min(workspace.contentSettledWidth, workspace.chatContentMaxWidth), openAgents=workingAgents, openBrowser=workingBrowser, openDevices=workingDevices, openQueue=workingQueue, reconnect=workingReconnect)
-        ThreadComposer(showQueue=false, voiceDisabled=(data.busy or changedPending or taskChangedPending or (threadData.composer.editing and not threadData.composer.canCancel)), voice=voiceData, voiceOwner=(focused ? voiceFocus.owner : ""), voiceColors=voiceLook, voiceAction=voiceAction, enterBehavior=appearance.enterBehavior, data=threadData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=(composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)), contentMaxWidth=min(workspace.contentSettledWidth, workspace.chatContentMaxWidth), focusChanged=composerFocus, editDraft=editDraft, action=threadAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
+        column pointer-events="auto"
+          column width="100%" max-width=workspace.chatContentMaxWidth align-self="center"
+            ThreadApprovals(data=threadData, action=threadAction, colors=threadLook)
+          ComposerAttachmentStrip(data=composerAttachments, open=openDraftMedia, remove=removeAttachment, colors=threadLook)
+          ThreadComposer(showQueue=false, showBackdrop=true, voiceDisabled=(data.busy or changedPending or taskChangedPending or (threadData.composer.editing and not threadData.composer.canCancel)), voice=voiceData, voiceOwner=(focused ? voiceFocus.owner : ""), voiceColors=voiceLook, voiceAction=voiceAction, enterBehavior=appearance.enterBehavior, data=threadData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=threadBottomInset, contentMaxWidth=min(workspace.contentSettledWidth, workspace.chatContentMaxWidth), focusChanged=composerFocus, editDraft=editDraft, action=threadAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
     else when routeName == "threadQueue"
       MobileQueueView(data=queueData, colors=gitLook, bottomInset=(max(layout.safeBottom, 16) + 8), action=threadAction)
     else when routeName == "gitOverview"
@@ -454,7 +479,7 @@ component MobileRouteContent
       NewTaskHero(data=newTaskData, chooseProject=chooseNewProject, chooseEnvironment=chooseNewEnvironment, colors=composerLook)
       NewTaskWorkspace(data=newTaskData, action=taskAction, chooseBranch=chooseNewBranch, colors=composerLook)
       ComposerAttachmentStrip(data=composerAttachments, open=openDraftMedia, remove=removeAttachment, colors=threadLook)
-      ThreadComposer(showQueue=true, voiceDisabled=(data.busy or changedPending or taskChangedPending), voice=voiceData, voiceOwner=(focused ? voiceFocus.owner : ""), voiceColors=voiceLook, voiceAction=voiceAction, enterBehavior=appearance.enterBehavior, data=newTaskData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=(composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)), contentMaxWidth=min(workspace.contentSettledWidth, workspace.chatContentMaxWidth), focusChanged=composerFocus, editDraft=editNewDraft, action=taskAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
+      ThreadComposer(showQueue=true, showBackdrop=false, voiceDisabled=(data.busy or changedPending or taskChangedPending), voice=voiceData, voiceOwner=(focused ? voiceFocus.owner : ""), voiceColors=voiceLook, voiceAction=voiceAction, enterBehavior=appearance.enterBehavior, data=newTaskData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=(composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)), contentMaxWidth=min(workspace.contentSettledWidth, workspace.chatContentMaxWidth), focusChanged=composerFocus, editDraft=editNewDraft, action=taskAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
     else when routeName == "newTask"
       input value=newTaskQuery input=editNewQuery placeholder="Search projects" margin=16 aria-label="Search projects"
       NewTaskProjects(data=newTaskData, action=taskAction, colors=composerLook)

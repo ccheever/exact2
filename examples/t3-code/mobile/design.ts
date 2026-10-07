@@ -89,6 +89,7 @@ export function mobileThreadColors(scheme: string, palette = 't3-code') {
     composerBorder: token('composer-border'), placeholder: token('placeholder'),
     codeBackground: token('md-code-bg'), codeForeground: token('md-code-text'),
     userCodeBackground: token('md-user-code-bg'), userCodeForeground: token('md-user-code-text'),
+    composerBackdrop: `linear-gradient(to bottom, ${withAlpha(token('screen'), 0)} 0%, ${withAlpha(token('screen'), 0.6)} 50%, ${withAlpha(token('screen'), 0.9)} 100%)`,
   };
 }
 

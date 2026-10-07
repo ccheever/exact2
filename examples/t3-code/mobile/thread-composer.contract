@@ -8,6 +8,7 @@ use VoiceSnapshot, VoiceColors, VoiceStartAction, VoiceDictationToolbar, VoiceEr
 component ThreadComposer
   props
     showQueue: bool
+    showBackdrop: bool
     data: ThreadComposerState
     expanded: bool
     enterBehavior: string
@@ -41,7 +42,9 @@ component ThreadComposer
       if data.canSend and not dictating
         action("send-alternate", data.contentOwner, "")
   view
-    column padding-left=12 padding-right=12 padding-top=(expanded ? 8 : 6) padding-bottom=(bottomInset + (expanded ? 8 : 6)) font-family="DM Sans"
+    column position="relative" padding-left=12 padding-right=12 padding-top=(expanded ? 8 : 6) padding-bottom=(bottomInset + (expanded ? 8 : 6)) font-family="DM Sans"
+      when showBackdrop
+        view position="absolute" inset=0 background-image=colors.composerBackdrop pointer-events="none" aria-hidden=true
       column width="100%" max-width=contentMaxWidth align-self="center"
         when showQueue and data.queueCount > 0
           MobileQueueTrigger(count=data.queueCount, maxWidth=(contentMaxWidth * 0.45), foreground=colors.foreground, muted=colors.muted, border=colors.border, background=colors.glassFallback, action=action)
