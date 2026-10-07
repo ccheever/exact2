@@ -447,6 +447,7 @@ var suite = XCTestSuite(name: "terminal")
 suite.addTest(XCTestSuite(forTestCaseClass: TerminalSurfaceTests.self))
 suite.addTest(XCTestSuite(forTestCaseClass: TerminalDrawerTests.self)) // terminal-drawer (drawer.swift)
 suite.addTest(XCTestSuite(forTestCaseClass: TerminalAuthTests.self))
+suite.addTest(XCTestSuite(forTestCaseClass: TerminalPointerTests.self)) // X8: the agent's pointer (pointer.swift)
 if let only = ProcessInfo.processInfo.environment["T3_TERMINAL_ONLY"] {
     let picked = XCTestSuite(name: only)
     for case let group as XCTestSuite in suite.tests { for test in group.tests where test.name.contains(only) { picked.addTest(test) } }

@@ -108,3 +108,13 @@ The fix landed as main PR #186 (#107 closed) and reached the feature branch with
 - Comments in `T3Sidebar.swift`, `T3Timeline.swift` and `T3PanelsNative.swift` say which agent forms their monitors now see (`tap … mouse modifiers`, `tap … wheel`, `tap … mouse at x y`).
 
 Still to convert (attended until their tasks re-drive them, now possible with `tap … mouse`, `clicks 1-3`, `wheel … at`, `drag … modifiers`): terminal selection, links and scrollbar (terminal-surface, terminal-integrations), device drag (floating-device-player), panel resize (settings-scoped-controls-and-theme-editor), diff drag-to-comment and Cite selection (diff-review-engine), sign-in terminal links. A mouse-up an AppKit tracking loop takes still does not reach monitors (as with a real mouse).
+
+## Attended rows converted (2026-10-07, adopt-main-fixes-r3 follow-up)
+
+Each pointer row is now an agent row, proved first in AppKit with the agent's event shapes (window never key):
+- Terminal (`macos/tests/terminal/pointer.swift`): drag select, double and triple click, right-click menu, a file link and a ⌘-click URL (link messages), scrollbar thumb drag and wheel. Two clone bugs found and fixed: the terminal's web view swallowed the first click in a window that is not key (`acceptsFirstMouse`), and its selection popup / right-click menu ran a modal `NSMenu.popUp` that blocks an agent (now reported as `selectionMenu` under the agent, as `T3ContextMenu` does).
+- Device stream (`macos/tests/r7-device`): an agent mouse drag sends begin/move/end touches.
+- Theme editor panel drag and grip, diff Shift-range and drag over line numbers, pinned headers under the wheel, Cite: agent recipes written into their task rows.
+- Live drive: not yet run successfully for these rows (see the task record); the tab middle click was driven live.
+
+Still not agent rows, with reasons: Korean 2-Set and IME (input method, not pointer), ⌘C/⌘V (shared real pasteboard), following a link (opens the user's browser or editor), a drag outside the window and back (`agent-drag.mjs` refuses points outside the viewport), cursor shapes (no cursor readback), sign-in terminal links (user hold on sign-in tasks).

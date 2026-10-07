@@ -154,6 +154,41 @@ final class R7DeviceTests: XCTestCase {
         window.orderOut(nil)
     }
 
+    /// X8 (exact2 #186): the agent's mouse drag — real events through `NSApplication.sendEvent`, in a
+    /// window that is never key — reaches the stream as touches, begin, moves and end, in order.
+    func testAgentMouseDragOverTheStreamSendsTouches() throws {
+        let hub = try Hub()
+        let encoded = Encoded.make(width: 360, height: 800, colors: [.systemGreen, .systemGreen, .systemGreen])
+        let view = R6DeviceScreenView(key: "local\u{0}emulator-5554", platform: "android", deviceId: "emulator-5554", hostId: "local",
+                                      access: { done in done(hub.origin, "ticket-a") }) {}
+        view.presentation = "flat"
+        let window = window(view)
+        hub.onSocket = { path, _ in
+            guard path.contains("/vendor/serve-emu/ws?") else { return }
+            hub.push("/ws?", R7H264.semu(encoded.annexB(0, parameterSets: true), key: true, pts: 0))
+        }
+        view.start()
+        spin(until: { view.inputConnected })
+        hub.push("/ws?", R7H264.semu(encoded.annexB(0, parameterSets: true), key: true, pts: 16_667))
+        hub.push("/ws?", R7H264.semu(encoded.annexB(1, parameterSets: false), key: false, pts: 33_334))
+        spin(until: { view.status == "streaming" })
+        XCTAssertFalse(window.isKeyWindow, "as under the agent, the window is not key")
+        let frame = view.frameRect
+        let points = [0.8, 0.65, 0.5, 0.35, 0.2].map { NSPoint(x: frame.minX + frame.width * $0, y: frame.midY) }
+        for (index, point) in points.enumerated() {
+            let type: NSEvent.EventType = index == 0 ? .leftMouseDown : index == points.count - 1 ? .leftMouseUp : .leftMouseDragged
+            NSApp.sendEvent(mouseEvent(type, at: point, in: view))
+        }
+        spin(until: { hub.texts("/ws?").filter { $0.contains("touch") }.count >= 5 })
+        let touches = hub.texts("/ws?").map { json(Data($0.utf8)) }.filter { $0["type"] as? String == "touch" }
+        print("r7 X8 agent drag touches \(touches.map { "\($0["action"] ?? "") \(String(format: "%.2f", $0["x"] as? Double ?? -1))" })")
+        XCTAssertEqual(touches.map { $0["action"] as? String ?? "" }, ["down", "move", "move", "move", "up"])
+        XCTAssertEqual(touches.first?["x"] as? Double ?? 0, 0.8, accuracy: 0.01)
+        XCTAssertEqual(touches.last?["x"] as? Double ?? 0, 0.2, accuracy: 0.01)
+        view.stop()
+        window.orderOut(nil)
+    }
+
     func testAndroidSocketDropReconnects() throws {
         let hub = try Hub()
         var tickets = 0

@@ -27,6 +27,10 @@ final class T3TerminalActions: NSObject {
     private var openRequest: Int?
     private var chosen: String?
     private(set) var items: [[String: Any]] = []
+    /// Under the agent the menu is not tracked: AppKit's popUp would hold the main thread until a
+    /// real click or Escape (as T3ContextMenu explains). It is reported open at this view point
+    /// (top-left origin) with its items until the page dismisses it; the actions are `perform`'s.
+    private(set) var agentShown: [Double]?
 
     init(view: T3TerminalView) { self.view = view }
 
@@ -57,6 +61,7 @@ final class T3TerminalActions: NSObject {
         let ownsMenu = openRequest == request
         if supersede || ownsMenu { request += 1 }
         if ownsMenu { menu?.cancelTrackingWithoutAnimation() }
+        if ownsMenu, agentShown != nil { agentShown = nil; openRequest = nil }
     }
 
     func makeMenu(_ rows: [[String: Any]]) -> NSMenu {
@@ -86,9 +91,10 @@ final class T3TerminalActions: NSObject {
         DispatchQueue.main.async { [weak self, weak view] in
             guard let self, let view, self.request == token, view.web.window != nil else { return }
             self.items = rows; self.chosen = nil
+            let x = body["x"] as? Double ?? 8, top = body["y"] as? Double ?? 8
+            if view.agent { self.agentShown = [x, top]; self.openRequest = token; return }
             let menu = self.makeMenu(rows)
             self.menu = menu; self.openRequest = token
-            let x = body["x"] as? Double ?? 8, top = body["y"] as? Double ?? 8
             let point = NSPoint(x: x, y: view.web.isFlipped ? top : view.web.bounds.height - top)
             menu.popUp(positioning: nil, at: point, in: view.web)
             let action = self.chosen
@@ -121,7 +127,7 @@ final class T3TerminalActions: NSObject {
         if token == request { view.focusTerminal() }
     }
 
-    var status: [String: Any] { ["open": menu != nil, "request": request, "items": items] }
+    var status: [String: Any] { ["open": menu != nil || agentShown != nil, "request": request, "items": items, "at": agentShown ?? []] }
 
     /// TS owns the URL-vs-path decision and editor preference. This boundary performs only
     /// the system-browser branch and reports a terminal-local failure without opening files.

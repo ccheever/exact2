@@ -66,7 +66,7 @@ Each open item was reproduced for its upstream issue on exact2 `4c893fef6`, whic
 | X15 | [#110](https://github.com/ccheever/exact2/issues/110) | Closed by main #168 (2026-10-07 merge): `aria-keyshortcuts` and the host's command menu items match the physical key. Not covered: menu items without the host's shortcut target (Copy, Paste, Undo, Quit, Close Window, Reload, Paste as Text), the terminal's web view, the module's own key monitors. | `R10Connect.swift` re-issues chords (kept; adopt-main-fixes-input) |
 | X16 | [#111](https://github.com/ccheever/exact2/issues/111) | Fixed by main #160. | none: the hook's switch-off is removed; every textarea has `autocorrect="off"` (adopt-main-fixes-input) |
 | X17 | [#112](https://github.com/ccheever/exact2/issues/112) | Partly fixed: `position-area` top, bottom and center work (`2c6b551ba`); no `position-try` flip, no `span-left` or side areas. | end-aligned and flipping menus keep fixed placement |
-| X18 | [#123](https://github.com/ccheever/exact2/issues/123) | Fixed by main #188 (SVG `d` transitions on macOS), in this branch since the `cff90b364` merge; not adopted yet. | cross-fade |
+| X18 | [#123](https://github.com/ccheever/exact2/issues/123) | Fixed by main #188 (SVG `d` transitions on macOS). Partly adopted (adopt-main-fixes-r3): five icons morph as T3 Code's morphicons does (per-subpath turn and drift on the snappy spring, `d` between same-structure polylines). | the code-block and welcome copy buttons still cross-fade: their return runs as keyframes (X19) and keyframed `d` is refused |
 | X19 | [#124](https://github.com/ccheever/exact2/issues/124) | Open on main; fix built. | time as arguments, Contract tasks |
 | X20 | [#125](https://github.com/ccheever/exact2/issues/125) | Open on main; fix built. | native NSTextView composer |
 | X21 | [#126](https://github.com/ccheever/exact2/issues/126) | Open on main; fix built. | Swift transport |
@@ -83,7 +83,7 @@ Each open item was reproduced for its upstream issue on exact2 `4c893fef6`, whic
 | X34 | [#133](https://github.com/ccheever/exact2/issues/133) | Closed; main #178 fixed the macOS agent's hover on inline runs. `frame()` of an inline run and inline runs in agent `layout` are still missing (re-checked on `cff90b364`). | none (no inline-link hover card is built) |
 | X35 | [#134](https://github.com/ccheever/exact2/issues/134) | Closed by main #167: a password field's value is masked in `tree`, `layout` and the `type` reply; `autocomplete` sets the AutoFill content type. The app's state slots and data module stay outside that (main's docs: "the app's own"). | native `t3-ssh-password` field (kept) |
 | X43 | [#120](https://github.com/ccheever/exact2/issues/120) | Closed, not planned. | the app's mixed thumb; the switch reports unchecked |
-| X47 | [#179](https://github.com/ccheever/exact2/issues/179) | Fixed by main #189, which is in this branch since the `cff90b364` merge (adopt-main-fixes-r3); its adoption check is not part of that task. | none |
+| X47 | [#179](https://github.com/ccheever/exact2/issues/179) | Fixed by main #189, which is in this branch since the `cff90b364` merge (adopt-main-fixes-r3); no clone workaround to remove; keyboard focus moves to custom buttons under the agent, but the ring itself was not seen live (the agent window is never key, and `orca computer` real input is blocked: AX reads fail for every app). | none |
 
 X1 ([#100](https://github.com/ccheever/exact2/issues/100)) and X2 ([#101](https://github.com/ccheever/exact2/issues/101)) are policy decisions; both features stay unbuilt.
 
