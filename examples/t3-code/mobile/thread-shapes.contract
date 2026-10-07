@@ -31,6 +31,12 @@ shape ThreadActivity
   loading: bool
   symbol: string
   timestamp: string
+  prominentError: bool
+  warning: bool
+  call: bool
+  retryRunId: string
+  retryDisabled: bool
+  iconURL: string
 shape ThreadRow
   id: string
   kind: string
@@ -118,6 +124,7 @@ shape ThreadColors
   primaryForeground: string
   danger: string
   dangerForeground: string
+  warningForeground: string
   composerSurface: string
   composerBorder: string
   placeholder: string

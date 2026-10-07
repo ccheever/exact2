@@ -133,3 +133,24 @@ shape InformationChange
 shape Change
   revision: number
   message: string
+
+shape StreamingAssistant
+  routeId: string
+  environmentId: string
+  threadId: string
+  owner: string
+  id: string
+  textLength: number
+  key: string
+shape StreamingHapticState
+  routeId: string
+  owner: string
+  id: string
+  textLength: number
+  lastAt: number
+
+shape SettingsWrite
+  revision: number
+  requestRoute: string
+  message: string
+  saved: bool

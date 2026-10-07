@@ -17,11 +17,12 @@ import { followUpBehavior } from './shared/composer-controls';
 import { queueState, queuedEdit } from './shared/composer-controls-queue';
 import { requestPresentation } from './shared/requests';
 import { mobileCodeTokens, type ThreadCodeToken } from './thread-highlight';
+import { mobileThreadActivity } from './thread-work';
+import type { ThreadActivity } from './thread-work';
+export type { ThreadActivity } from './thread-work';
 
 export interface ThreadBlock { id: string; kind: string; text: string; language: string; tokens: ThreadCodeToken[] }
 export interface ThreadMedia { id: string; name: string; kind: string; url: string }
-export interface ThreadActivity { id: string; label: string; body: string; output: string; result: string; detail: string;
-  failed: boolean; expandable: boolean; expanded: boolean; reasoning: boolean; loading: boolean; symbol: string; timestamp: string }
 export interface ThreadRow { id: string; kind: string; title: string; body: string; blocks: ThreadBlock[]; user: boolean;
   timestamp: string; showMeta: boolean; streaming: boolean; attribution: string; intent: string; copied: boolean;
   expanded: boolean; toggleOp: string; toggleId: string; failed: boolean; live: boolean; activities: ThreadActivity[];
@@ -52,12 +53,10 @@ export function mobileThreadBlocks(body: string, dark: boolean): ThreadBlock[] {
   }
   prose(body.slice(position)); return blocks;
 }
-const toolSymbols: Record<string, string> = { terminal: 'terminal', 'file-text': 'doc.text', 'file-code': 'doc.text', search: 'magnifyingglass',
-  brain: 'brain', 'circle-alert': 'exclamationmark.circle', 'file-pen': 'pencil', 'folder-open': 'folder', globe: 'globe', 'git-branch': 'arrow.triangle.branch' };
-
 /** Adapts shared derived row types, preserving their ids and disclosure ownership. */
 export function mobileThreadRows(client: T3Client, now: number, dark = false): ThreadRow[] {
-  const source = transcriptRows(client), raw = new Map(arr(client.projection.visibleTurnItems).map(row => [JSON.stringify([row.sourceThreadId, row.sourceItemId]), obj(row.item)]));
+  const source = transcriptRows(client), projected = new Map(arr(client.projection.visibleTurnItems).map(row => [JSON.stringify([row.sourceThreadId, row.sourceItemId]), row]));
+  const raw = new Map([...projected].map(([key, row]) => [key, obj(row.item)]));
   const view = timelineView(client), rows: ThreadRow[] = [];
   for (const message of source) {
     const item = raw.get(message.id), user = message.kind === 'user';
@@ -77,10 +76,7 @@ export function mobileThreadRows(client: T3Client, now: number, dark = false): T
       intent: message.intent ?? '', copied: (view.copies.get(message.id)?.nonce ?? 0) > 0 && view.copies.get(message.id)?.ok !== false,
       expanded: message.expanded === true, toggleOp, toggleId: message.groupId ?? message.runId ?? '', failed: message.failed === true,
       live: message.live === true, media, first: false, last: false,
-      activities: (['group', 'live'].includes(message.kind) ? [] : message.activities ?? []).map(activity => ({ id: activity.id, label: activity.label, body: activity.body,
-        output: activity.output, result: activity.result, detail: activity.detail ?? '', failed: activity.failed,
-        expandable: activity.expandable === true, expanded: activity.detailOpen === true, reasoning: activity.reasoning === true,
-        loading: activity.outputState === 'loading', symbol: toolSymbols[activity.icon] ?? 'wrench.and.screwdriver', timestamp: mobileMessageTime(activity.timestamp) })) });
+      activities: (['group', 'live'].includes(message.kind) ? [] : message.activities ?? []).map(activity => mobileThreadActivity(activity, projected.get(activity.id), client, now, dark, mobileMessageTime(activity.timestamp))) });
   }
   rows.forEach((row, index) => { row.first = index === 0; row.last = index === rows.length - 1; }); return rows;
 }

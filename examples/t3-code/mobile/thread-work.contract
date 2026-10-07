@@ -1,0 +1,57 @@
+// @ref llp/1106.005-composer-and-transcript.decision.md#work-log-detail-rows
+// Pinned thread-work-log.tsx and work-log-layout.tsx; mobile rem is 14px.
+use ThreadActivity, ThreadColors from "./thread-shapes.contract"
+component ThreadToolRow
+  props
+    activity: ThreadActivity
+    action: action
+    colors: ThreadColors
+  action toggleDetail
+    if activity.expandable
+      haptic("selection")
+      action("chatlocal:item-detail", activity.id, (activity.expanded ? "closed" : "open"))
+  action retryPreparation
+    if not activity.retryDisabled
+      haptic("selection")
+      action("chat:retry-preparation", "", activity.retryRunId)
+  view
+    column
+      when activity.prominentError
+        column padding-top=3.5 padding-bottom=3.5
+          row align-items="center" gap=5.25
+            column width=21 height=21 flex-shrink=0 align-items="center" justify-content="center"
+              t3-symbol symbol-name="exclamationmark.circle" point-size=14 symbol-weight="medium" symbol-tint=(activity.warning ? colors.warningForeground : colors.dangerForeground) width=14 height=14
+            text activity.label flex=1 min-width=0 font-family="DM Sans" font-size=14 line-height="19px" font-weight=500 color=(activity.warning ? colors.warningForeground : colors.dangerForeground)
+            text activity.timestamp flex-shrink=0 font-family="DM Sans" font-size=12 line-height="16px" color=colors.iconSubtle
+          when not activity.warning and length(activity.detail) > 0
+            text activity.detail margin-left=24.5 font-family="DM Sans" font-size=14 line-height="19px" color=colors.foreground
+          when length(activity.retryRunId) > 0
+            button press=retryPreparation disabled=activity.retryDisabled
+              margin-left=24.5 margin-top=7 align-self="flex-start" min-height=38.5 padding-left=14 padding-right=14 border-radius=9999 border-width=1 border-style="solid" border-color=colors.border
+              row align-items="center" gap=5.25
+                t3-symbol symbol-name="arrow.clockwise" point-size=13 symbol-weight="regular" symbol-tint=colors.iconSubtle width=13 height=13
+                text "Retry" font-family="DM Sans" font-size=14 line-height="19px" font-weight=500 color=colors.foreground
+      else
+        button press=toggleDetail
+          disabled=(not activity.expandable) padding-left=1.75 padding-right=1.75 padding-top=0 padding-bottom=0 text-align="left" border-radius=7
+          aria-expanded=activity.expanded aria-label=activity.label
+          row align-items="center" gap=5.25 min-height=28
+            column width=21 height=21 flex-shrink=0 align-items="center" justify-content="center"
+              when length(activity.iconURL) > 0
+                image activity.iconURL width=14 height=14 object-fit="contain"
+              else
+                t3-symbol symbol-name=activity.symbol point-size=14 symbol-weight="medium" symbol-tint=colors.iconSubtle width=14 height=14
+            text activity.label flex=1 min-width=0 font-family="DM Sans" font-size=14 line-height="19px" color=colors.muted line-clamp=1 text-overflow="ellipsis"
+            column width=14 height=14 align-items="center" justify-content="center"
+              when activity.expandable
+                t3-symbol symbol-name=(activity.expanded ? "chevron.up" : "chevron.down") point-size=11 symbol-weight="regular" symbol-tint=colors.iconSubtle width=11 height=11
+        when activity.expanded
+          column padding-top=(activity.reasoning ? 3.5 : 1.75) padding-bottom=3.5 margin-left=(activity.reasoning ? 24.5 : 0)
+            scroll max-height=210 overflow-y="auto"
+              column padding-right=8
+                when length(activity.body) > 0
+                  text activity.body font-family="Menlo" font-size=12 line-height="18px" white-space="pre-wrap" color=(activity.call ? colors.foreground : colors.muted)
+                when length(activity.output) > 0
+                  text activity.output margin-top=5.25 font-family="Menlo" font-size=12 line-height="18px" white-space="pre-wrap" color=colors.muted
+                when length(activity.result) > 0
+                  text activity.result margin-top=5.25 font-family="Menlo" font-size=12 line-height="18px" color=(activity.failed ? colors.dangerForeground : colors.muted)

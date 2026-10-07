@@ -46,3 +46,14 @@ export function mobileStreamingHaptic(
   if (!isNewStream && (!textGrew || now - state.lastAt < 320)) return { state, haptic: '' };
   return { state: { ...state, lastAt: now }, haptic: 'selection' };
 }
+
+/** A source projection only. An unloaded or different thread cannot hydrate the UI tracker. */
+export function mobileStreamingDescriptor(routeId: string, environmentId: string, threadId: string,
+  client: { ready: boolean; environmentId: string; threadId: string; thread: unknown; projection: { visibleTurnItems?: unknown } }) {
+  const valid = !!routeId && !!environmentId && !!threadId && client.ready && !!client.thread
+    && client.environmentId === environmentId && client.threadId === threadId;
+  const latest = valid ? mobileStreamingAssistant(client.projection.visibleTurnItems) : null;
+  const owner = valid ? JSON.stringify([routeId, environmentId, threadId]) : '';
+  return { routeId, environmentId, threadId, owner, id: latest?.id ?? '', textLength: latest?.textLength ?? 0,
+    key: JSON.stringify([owner, latest?.id ?? '', latest?.textLength ?? 0]) };
+}

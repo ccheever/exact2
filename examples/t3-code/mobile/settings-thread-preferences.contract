@@ -1,0 +1,141 @@
+// @ref llp/1106.009-mobile-settings.decision.md#scoped-server-settings
+use SettingsColors, SettingsTextRoles, SettingsSectionLabel from "./settings.contract"
+shape ThreadPreferencesData
+  scopeJSON: string
+  nativePicker: bool
+  pickerAppearance: string
+  title: string
+  error: string
+  pending: bool
+  serverVisible: bool
+  project: bool
+  projectLabel: string
+  supportsOverrides: bool
+  hasOverrides: bool
+  disabled: bool
+  autoResume: bool
+  autoResumeMixed: bool
+  snooze: bool
+  snoozeMixed: bool
+  settleMerged: bool
+  settleInactive: bool
+  afterDays: number
+  mismatchLabels: string
+  autoSettlePatch: string
+  preferencesReady: bool
+  workingEnabled: bool
+  planModeEnabled: bool
+component SettingsThreadPreferences
+  props
+    data: ThreadPreferencesData
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    bottom: number
+    busy: bool
+    change: action
+    preference: action
+  action changeServer(key: string, raw: string)
+    change(data.scopeJSON, key, raw)
+  view
+    scroll id="settings-thread-preferences-scroll" flex=1 min-height=0 background-color=colors.sheet
+      column gap=21 padding-left=17.5 padding-right=17.5 padding-top=14 padding-bottom=bottom font-family="DM Sans"
+        when data.error != ""
+          text data.error color=colors.foreground font-size=roles.footnote.size role="alert"
+        when data.serverVisible
+          when data.project
+            column gap=7
+              SettingsSectionLabel(title="Project", colors=colors, roles=roles)
+              column background-color=colors.grouped border-radius=24 overflow="hidden"
+                row min-height=56 box-sizing="border-box" gap=10.5 padding-left=14 padding-right=14 padding-top=10.5 padding-bottom=10.5 align-items="center"
+                  text data.projectLabel flex=1 min-width=0 line-clamp=2 font-size=roles.body.size color=colors.foreground
+                  when not busy and not data.pending and data.supportsOverrides and data.hasOverrides
+                    button press=changeServer("clear", "") disabled=data.disabled padding=7 aria-label="Use environment defaults"
+                      text "Use defaults" color=colors.link font-size=roles.footnote.size font-weight=500
+                when not data.supportsOverrides
+                  text "Update the selected environments to edit project overrides." padding-left=14 padding-right=14 padding-bottom=10.5 font-size=roles.footnote.size color=colors.muted
+          else
+            column gap=7
+              SettingsSectionLabel(title="Usage limits", colors=colors, roles=roles)
+              column border-radius=24 background-color=colors.grouped overflow="hidden"
+                ThreadPreferenceSwitch(id="autoResumeLimitedThreads", label="Auto-resume limited threads", icon="clock", checked=data.autoResume, mixed=data.autoResumeMixed, disabled=(busy or data.disabled), colors=colors, roles=roles, change=changeServer)
+                ThreadPreferenceSwitch(id="snoozeLimitedThreads", label="Snooze limited threads", icon="clock", checked=data.snooze, mixed=data.snoozeMixed, disabled=(busy or data.disabled), colors=colors, roles=roles, change=changeServer)
+          column gap=7
+            SettingsSectionLabel(title="Auto-settle", colors=colors, roles=roles)
+            column border-radius=24 background-color=colors.grouped overflow="hidden"
+              ThreadPreferenceSwitch(id="sidebarAutoSettleOnMerge", label="Auto-settle merged threads", icon="arrow.triangle.branch", checked=data.settleMerged, mixed=false, disabled=(busy or data.disabled), colors=colors, roles=roles, change=changeServer)
+              ThreadPreferenceSwitch(id="inactive", label="Auto-settle inactive threads", icon="clock", checked=data.settleInactive, mixed=false, disabled=(busy or data.disabled), colors=colors, roles=roles, change=changeServer)
+              when data.settleInactive
+                ThreadPreferenceDays(nativePicker=data.nativePicker, appearance=data.pickerAppearance, scope=data.scopeJSON, value=data.afterDays, disabled=(busy or data.disabled), colors=colors, roles=roles, change=changeServer)
+          when not busy and not data.pending and data.mismatchLabels != ""
+            column gap=7
+              SettingsSectionLabel(title="Across environments", colors=colors, roles=roles)
+              column gap=10.5 padding=14 background-color=colors.grouped border-radius=24
+                text "Auto-settle defaults differ" font-size=roles.body.size color=colors.foreground
+                text data.mismatchLabels font-size=roles.footnote.size color=colors.muted
+                button press=changeServer("apply", data.autoSettlePatch) disabled=data.disabled align-self="flex-start" background-color=colors.subtle border-radius=99 padding-left=14 padding-right=14 padding-top=7 padding-bottom=7
+                  text "Apply auto-settle defaults" font-size=roles.footnote.size font-weight=500 color=colors.foreground
+        column gap=10.5
+          column gap=7
+            SettingsSectionLabel(title="Beta", colors=colors, roles=roles)
+            column background-color=colors.grouped border-radius=24 overflow="hidden"
+              ThreadPreferenceSwitch(id="workingEnabled", label="Working section", icon="bolt.circle", checked=data.workingEnabled, mixed=false, disabled=(not data.preferencesReady), colors=colors, roles=roles, change=preference)
+          text "Fold working and monitoring threads into a Working section. They return to the top of the list when they need you. While this is on, active threads are ordered by time and cannot be moved." padding-left=7 padding-right=7 font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted
+        column gap=10.5
+          column gap=7
+            SettingsSectionLabel(title="Legacy", colors=colors, roles=roles)
+            column background-color=colors.grouped border-radius=24 overflow="hidden"
+              ThreadPreferenceSwitch(id="planModeEnabled", label="Plan Mode", icon="hammer", checked=data.planModeEnabled, mixed=false, disabled=(not data.preferencesReady), colors=colors, roles=roles, change=preference)
+          text "Opt into retired interfaces kept for compatibility. Plan Mode restores the Build/Plan control; otherwise every task runs in Build mode." padding-left=7 padding-right=7 font-size=roles.footnote.size line-height=`${roles.footnote.line}px` color=colors.muted
+component ThreadPreferenceSwitch
+  props
+    id: string
+    label: string
+    icon: string
+    checked: bool
+    mixed: bool
+    disabled: bool
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    change: action
+  action toggle(value: bool)
+    change(id, value ? "true" : "false")
+  view
+    row gap=14 padding=14 align-items="center" opacity=(disabled ? 0.45 : 1)
+      t3-symbol symbol-name=icon point-size=22 symbol-tint=colors.icon width=22 height=22 flex-shrink=0
+      text label flex=1 min-width=0 font-size=roles.headline.size line-height=`${roles.headline.line}px` color=colors.foreground
+      when mixed
+        button press=change(id, "true") disabled=disabled padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 background-color=colors.subtle border-radius=99 aria-label=`Set ${label} on for selected environments`
+          text "Mixed · Set on" font-size=roles.footnote.size font-weight=500 color=colors.foreground
+      else
+        input type="checkbox" switch checked=checked disabled=disabled change=toggle aria-label=label accent-color=colors.switchOn background-color=colors.switchOff margin=0
+component ThreadPreferenceDays
+  props
+    nativePicker: bool
+    appearance: string
+    scope: string
+    value: number
+    disabled: bool
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    change: action
+  state draft = ""
+  state draftScope = ""
+  state edited = false
+  action edit(value: string)
+    draft = value
+    draftScope = scope
+    edited = true
+  action picked(value: string)
+    change("days-native", value)
+  action commit
+    if edited and draftScope == scope and not disabled
+      change("days", draft)
+    edited = false
+  view
+    row gap=14 padding=14 align-items="center"
+      view width=22
+      text "Inactive days" flex=1 font-size=roles.headline.size color=colors.foreground
+      when nativePicker
+        t3-thread-days days-scope=scope days-value=`${value}` days-enabled=(not disabled ? "true" : "false") days-appearance=appearance change=picked width=64 height=44
+      else
+        input value=(edited and draftScope == scope ? draft : `${value}`) input=edit blur=commit submit=commit disabled=disabled inputmode="numeric" aria-label="Days before auto-settle" min-height=35 width=70 border-radius=10.5 padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 text-align="center" font-family="DM Sans" font-size=roles.body.size color=colors.foreground background-color=colors.card

@@ -1,7 +1,8 @@
 // Pinned365aa87982 ComposerTextView key commands and followUpBehavior.ts.
 // @ref llp/1106.005-composer-and-transcript.decision.md#settings-ownership
 import type { T3Client } from './shared/client';
-import { obj } from './shared/domain';
+import { arr, obj } from './shared/domain';
+import { stage } from './shared/composer-controls';
 import { bridgeReply, ClientError, type Native, type Files } from './shared/protocol';
 import { queueState } from './shared/composer-controls-queue';
 import { threadPhase } from './shared/composer-presentation';
@@ -12,6 +13,7 @@ import { normalizeMobilePreferences } from './settings-preferences';
 export function applyMobileComposerBehavior(client: T3Client, input: unknown) {
   const preferences = normalizeMobilePreferences(input);
   client.local.clientSettings.followUpBehavior = preferences.followUpBehavior;
+  client.local.deviceSettings.planModeEnabled = preferences.planModeEnabled;
 }
 
 /** The authored mobile key/button action already resolved its chord. Do not apply
@@ -44,6 +46,16 @@ export async function mobileSend(client: T3Client, alternate: boolean, native: N
     const reply = await bridgeReply(native, { op: 'mobilePreferences' });
     if (!reply.ok) throw new ClientError(reply.error!.message, reply.error!.kind);
     assertOwner();
+    // Admit effective Build only after the captured author/draft survived the preference read.
+    // Hydration itself never changes server mode. The shared sender applies this staged choice.
+    const preferences = normalizeMobilePreferences(reply.value);
+    const provider = arr(client.config.providers).find(value => value.instanceId === client.providerId);
+    if (!preferences.planModeEnabled || provider?.showInteractionModeToggle === false) {
+      if (client.threadId) stage(client, { interactionMode: 'default' });
+      else client.interactionMode = 'default';
+    }
+    const admittedOwner = identity();
+    const assertAdmittedOwner = () => { if (admittedOwner !== identity()) throw new ClientError('The draft or model changed before the message could be sent.', 'superseded'); };
     const canSteer = queueState(client.projection).canSteer;
     const apply = () => {
       applyMobileComposerBehavior(client, reply.value);
@@ -51,7 +63,7 @@ export async function mobileSend(client: T3Client, alternate: boolean, native: N
       if (threadPhase(client.projection) === 'running' && !canSteer) client.local.clientSettings.followUpBehavior = 'queue';
     };
     apply();
-    return await client.command('send', '', '', 0, mobileSubmissionNative(native, alternate && canSteer, apply, assertOwner), storage);
+    return await client.command('send', '', '', 0, mobileSubmissionNative(native, alternate && canSteer, apply, assertAdmittedOwner), storage);
   } catch (error) {
     if (letGo(error)) throw error;
     return { revision: client.revision, message: error instanceof Error ? error.message : 'Could not send the message.' };

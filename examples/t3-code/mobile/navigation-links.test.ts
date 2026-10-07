@@ -30,3 +30,12 @@ test('public links tolerate a trailing slash and reject malformed encoded segmen
   expect(mobileAppLink('/settings/keyboard/', '1').location).toBe('/settings/preferences/SettingsKeyboard');
   expect(mobileAppLink('/threads/%ZZ/b', '1').location).toBe('/unmatched-link');
 });
+
+test('new-task public routes preserve explicit project and branch context', () => {
+  const location = '/new/draft?environmentId=env%2Fone&projectId=project&branch=fix%2Fissue';
+  expect(mobileAppLink(location, 'visit').location).toBe(location);
+  expect(mobileAppLink('/new/draft/environment', 'visit').location).toBe('/new/draft/environment');
+  expect(mobileAppLink('/new/draft/branch', 'visit').location).toBe('/new/draft/branch');
+  expect(mobileAppLink('/new/draft/settings', 'visit').location).toBe('/new/draft/settings');
+  expect(mobileAppLink('/new/projects', 'visit').location).toBe('/unmatched-link');
+});

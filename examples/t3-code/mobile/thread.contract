@@ -1,7 +1,8 @@
 // ThreadFeed and pending approvals at upstream365aa87982; actions delegate to the shared command seam.
 // @ref llp/1106.002-design-system-parity.spec.md#typography-and-font-assets
-use ThreadSnapshot, ThreadRow, ThreadActivity, ThreadMedia, ThreadColors from "./thread-shapes.contract"
+use ThreadSnapshot, ThreadRow, ThreadMedia, ThreadColors from "./thread-shapes.contract"
 use ThreadMarkdown from "./thread-markdown.contract"
+use ThreadToolRow from "./thread-work.contract"
 component ThreadFeed
   props
     data: ThreadSnapshot
@@ -85,32 +86,6 @@ component ThreadMessage
             ThreadMarkdown(blocks=row.blocks, user=false, action=action, colors=colors)
           each activity in row.activities key=activity.id
             ThreadToolRow(activity=activity, action=action, colors=colors)
-
-component ThreadToolRow
-  props
-    activity: ThreadActivity
-    action: action
-    colors: ThreadColors
-  view
-    column padding-left=7 padding-right=7
-      button press=action("chatlocal:item-detail", activity.id, (activity.expanded ? "closed" : "open"))
-        disabled=(not activity.expandable) padding=0 text-align="left" min-height=28
-        aria-expanded=activity.expanded aria-label=activity.label
-        row align-items="center" gap=7
-          t3-symbol symbol-name=activity.symbol point-size=14 symbol-weight="regular" symbol-tint=colors.iconSubtle width=14 height=14 flex-shrink=0
-          text activity.label flex=1 min-width=0 font-size=14 line-height="19px" color=(activity.failed ? colors.dangerForeground : colors.muted) line-clamp=1 text-overflow="ellipsis"
-          when activity.expandable
-            t3-symbol symbol-name=(activity.expanded ? "chevron.down" : "chevron.right") point-size=10 symbol-weight="regular" symbol-tint=colors.iconSubtle width=10 height=10
-      when activity.expanded
-        column margin-left=21 padding=7 border-radius=7 background-color=colors.subtle gap=7
-          when length(activity.body) > 0
-            text activity.body font-family="Menlo" font-size=12 line-height="18px" white-space="pre-wrap" color=colors.foreground
-          when length(activity.output) > 0
-            text activity.output font-family="Menlo" font-size=12 line-height="18px" white-space="pre-wrap" color=colors.foreground
-          when length(activity.result) > 0
-            text activity.result font-size=13 line-height="17px" color=colors.muted
-          when length(activity.detail) > 0
-            text activity.detail font-size=13 line-height="17px" color=colors.dangerForeground
 
 component ThreadCopy
   props
