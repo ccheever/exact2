@@ -1127,9 +1127,7 @@ impl Em<'_> {
                 );
             }
         }
-        if element == "video" || element == "audio" {
-            self.media = true;
-        }
+        self.media |= element == "video" || element == "audio";
         if (element == "video" || element == "audio")
             && parts.props.get("muted").map(String::as_str) == Some("true")
         {
@@ -1342,16 +1340,9 @@ impl Em<'_> {
                 continue;
             }
             // The event family's binder (rt.js), imported only where a plan binds it.
-            let binder = crate::events::binder(h.event);
-            match binder {
-                Some(b) => {
-                    let b = self.uses.rt(b);
-                    let _ = write!(self.out, "{on}({e},\"{}\",{handler},{b});", h.event.name());
-                }
-                None => {
-                    let _ = write!(self.out, "{on}({e},\"{}\",{handler});", h.event.name());
-                }
-            }
+            let bind = crate::events::binder(h.event).map(|b| format!(",{}", self.uses.rt(b)));
+            let (bind, name) = (bind.unwrap_or_default(), h.event.name());
+            let _ = write!(self.out, "{on}({e},\"{name}\",{handler}{bind});");
         }
         if virtualized {
             let opts = self.list_options(i, scope, &edges)?;
