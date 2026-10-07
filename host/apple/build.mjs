@@ -779,11 +779,11 @@ async function main(args) {
     // case below says why); this later `-platform_version` wins.
     if (designCompatible(app, 'ios')) swiftArgs.push('-Xlinker', '-platform_version', '-Xlinker', destination, '-Xlinker', targets.ios, '-Xlinker', COMPATIBLE_SDK.ios);
   } else {
-    // The same `--sysroot` on macOS: clang reads no SDK version from it, so the
-    // link recorded the deployment target as the SDK (`sdk 14.0`), and AppKit,
-    // which keys its macOS 26 design on the recorded SDK, drew every Exact app
-    // as on macOS 14. `-isysroot` records the SDK the app is built with.
-    swiftArgs.push('-Xswiftc', '-Xclang-linker', '-Xswiftc', '-isysroot', '-Xswiftc', '-Xclang-linker', '-Xswiftc', sdk);
+    // The same `--sysroot` on macOS: clang reads no SDK version from it, so the link recorded
+    // the deployment target as the SDK (`sdk 14.0`), and AppKit, which keys its macOS 26 design
+    // on the recorded SDK, drew every Exact app as on macOS 14; `-isysroot` records the SDK. The
+    // triple carries `minimumOS`, as iOS's does: SwiftPM otherwise links at Package.swift's 14.
+    swiftArgs.push('--triple', `${macTriple}${targets.macos}`, '-Xswiftc', '-Xclang-linker', '-Xswiftc', '-isysroot', '-Xswiftc', '-Xclang-linker', '-Xswiftc', sdk);
     // `designRequiresCompatibility`: the earlier design, by the one lever macOS
     // 27 keeps (it ignores UIDesignRequiresCompatibility) — the link records
     // the macOS 15 SDK, the last before the new design; this later

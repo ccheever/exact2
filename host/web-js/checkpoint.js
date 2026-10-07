@@ -1,4 +1,5 @@
 import { carryRouter, clock, launchLocation, res, sig } from './rt.js';
+import { offerAll } from './focus.js';
 
 // A render's checkpoint answers (LLP 1048.000 D4), as
 // `exact_web::document::checkpoint` writes them: JSON text, one
@@ -63,6 +64,7 @@ export function prepareDev() {
   HTMLElement.prototype.focus = function () {};
   return () => {
     HTMLElement.prototype.focus = focus;
+    offerAll(); // nothing it rebuilt takes the focus later (focus.js)
     if (!cp.focus) return;
     // A virtualized row wrapper is a logical View in the wasm tree even
     // though it is host-created and has no plan-node carry attribute.

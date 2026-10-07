@@ -132,7 +132,7 @@ function differences(served, live, where = 'root', out = []) {
 
 /** Serve the rendered page for `location` beside dist/, launch Chrome, and
  * hand `drive` a way to open tabs on it; everything is torn down after. */
-async function withDocument(location, drive, { wasmAfter = null, glueAfter = null, tamper = (page) => page, origin = null, html = null, files = {}, answers = {}, requested = () => {} } = {}) {
+async function withDocument(location, drive, { wasmAfter = null, glueAfter = null, tamper = (page) => page, origin = null, html = null, files = {}, answers = {}, requested = () => {}, hints = false } = {}) {
   let server = null, url = `${origin}${location}`;
   if (!origin) {
     const page = tamper(html ?? renderedPage(location));
@@ -168,6 +168,13 @@ async function withDocument(location, drive, { wasmAfter = null, glueAfter = nul
       await call('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
       await call('Emulation.setScriptExecutionDisabled', { value: !scripts });
       if (onNew) await call('Page.addScriptToEvaluateOnNewDocument', { source: onNew });
+      // A returning reader's browser sends the viewport hints the server asked for (LLP 1048.006):
+      // a first visit gets its user agent's class, a desktop's 1280 px, which a page that breaks
+      // between the tab's width and 1280 renders differently and the runtime does not adopt.
+      if (hints) {
+        await call('Network.enable');
+        await call('Network.setExtraHTTPHeaders', { headers: { 'Sec-CH-Viewport-Width': String(width), 'Sec-CH-Viewport-Height': String(height) } });
+      }
       const evaluate = async (expression) => {
         const r = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
         if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text);
@@ -405,7 +412,8 @@ weatherlightCheck(`a TypeScript app's served document is adopted, with its modul
         expect(served).toBe(views);
         const { emptyFrames, swaps } = JSON.parse(await live('JSON.stringify(globalThis.__watch)'));
         expect({ emptyFrames, swaps }).toEqual({ emptyFrames: 0, swaps: 0 });
-      }, { origin: server.origin });
+        // Weatherlight breaks at 1100 px (its wide layout): the tab's hints decide its page.
+      }, { origin: server.origin, hints: true });
       expect(server.lines.some((l) => /^render \/\?agent=1 200 /.test(l))).toBe(true);
     } finally {
       server.stop();

@@ -127,6 +127,15 @@ extension NodeView {
 /// the ARIA states AppKit has no property for (`NodeView.ariaAttribute`),
 /// read from the node that holds the field.
 final class FieldCell: NSTextFieldCell {
+    private lazy var clipboardEditor: FieldEditor = {
+        let editor = FieldEditor(frame: .zero)
+        editor.isFieldEditor = true
+        return editor
+    }()
+    /// Its own editor while a clipboard event would be heard (`FieldEditor`, #125).
+    override func fieldEditor(for controlView: NSView) -> NSTextView? {
+        (controlView.superview as? NodeView)?.hearsFieldClipboard() == true ? clipboardEditor : super.fieldEditor(for: controlView)
+    }
     override func accessibilityAttributeNames() -> [NSAccessibility.Attribute] {
         super.accessibilityAttributeNames() + NodeView.ariaAttributes.filter { (controlView?.superview as? NodeView)?.ariaAttribute($0) != nil }.map { .init(rawValue: $0) }
     }
