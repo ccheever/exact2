@@ -1188,7 +1188,7 @@ public final class ExactSession {
                 app.firstPixel(token)
             }
             canvases.loadIfNeeded()
-            natives.loadIfNeeded() // @ref LLP 1024 D3 — the turn after first draw
+            natives.activateAfterCommit { [weak self] in self.map { $0.state != .destroyed && $0.generation == drawnGeneration } ?? false } // @ref LLP 1024 D3
             drainSurfaceWork(); presenter.releaseLaunchAutofocus()
             frames.run(frames.motion || canvases.wantsFrames)
             frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
