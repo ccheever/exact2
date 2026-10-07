@@ -189,12 +189,12 @@ component T3Code
   action welcomeEditLink(value: string)
     welcomeLink = value
   action welcomePair
-    if not commandPending and welcomeLink != ""
+    if not commandPending and trim(welcomeLink) != ""
       draftOwner = "__unset__"
       commandPending = true
       pendingModal = "welcome-pair"
       modalError = ""
-      send changed = command(data.connected ? "environment-add" : "connect", "", welcomeLink, 0)
+      send changed = command("welcome-pair", "", welcomeLink, 0)
   action welcomeTogglePair
     welcomePairOpen = not welcomePairOpen
   action welcomeToggleHelp

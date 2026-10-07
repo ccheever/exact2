@@ -187,7 +187,7 @@ do not impose new prerequisites on them:
 
 | Task | Outcome | Dependency | Verification |
 | --- | --- | --- | --- |
-| [20261007-invalid-pairing-url-validation](tasks/20261007-invalid-pairing-url-validation.md) | Validate malformed Welcome links and keep pairing errors in their form | none identified | focused connection tests and paired Welcome drive |
+| [20261007-invalid-pairing-url-validation](tasks/closed/20261007-invalid-pairing-url-validation.md) | Validate malformed Welcome links and keep pairing errors in their form | none identified | focused connection tests and paired Welcome drive |
 | [20261007-installed-font-picker](tasks/20261007-installed-font-picker.md) | Discover, validate and apply installed font families | X48 for runtime family application | native face readback, preference readback and paired pickers |
 | [20261007-settings-model-picker](tasks/20261007-settings-model-picker.md) | Search, browse providers, favorite and expand legacy models from General | reuse existing model catalog/picker | scoped writes and paired settings drive |
 | [20261007-theme-color-picker](tasks/20261007-theme-color-picker.md) | Select theme colors through hue, saturation/brightness, HEX and RGB | reuse existing app color controls | paired input drive and theme readback |
