@@ -1594,18 +1594,21 @@ says so once per box. Refused, each saying what to write: `column-span`, page
 and region breaks, `balance-all`, dashed or dotted rules, and multi-column rows
 on `row` or `column` (CSS ignores them on flex and grid; write `view`).
 
-A bare text field (`input` of type `text`, `email`, `password`, `search`, `tel`,
-`url`, `number` or none, and `textarea`) is visible, as the browser's is: a 1px
-`light-dark(#c6c6c8, #48484a)` border, radius 6, padding 6/8, a
-`light-dark(#ffffff, #1c1c1e)` fill and its own `light-dark(#000000, #ffffff)`
-ink (it does not inherit `color`). These are rows under yours: any row or class
-you write replaces that one row and keeps the rest; `padding` and `width` stay
-content-box, so the field is 18px wider and 14px taller than its content.
-`appearance="none"` (a literal) leaves them all out for a field you draw
-yourself, such as a composer inside a pill (LLP 1104). A field in this look
-shows a focus ring while focused (the web's `:focus-visible`, an accent ring on
-macOS and Linux; iOS shows its caret) and dims to `opacity` 0.5 while
-`disabled`; a bare field draws its own focus and disabled states.
+A text field (`input` of type `text`, `email`, `password`, `search`, `tel`,
+`url`, `number` or no type, and `textarea` outside the Markdown editor) is the
+platform's own field by default (LLP 1104). On the web it inherits the page's
+font and colour, as a CSS reset does; other platforms use their control's own
+text style. Disabled and placeholder appearances are the platform's.
+
+A background, border or radius makes it your own box, as in a browser;
+`appearance="none"` says so explicitly. This is decided once after classes
+and shorthands: a row on any conditional arm counts, even if its value is
+`none` on another arm. `background-clip` and `background-attachment` do not
+make it bare. `appearance="auto"` explicitly asks for the native field and
+refuses background, border and radius rows, naming each longhand. Appearance
+is a literal, resolved from the class then the field's own attribute; to
+switch it, write `when` with two fields. Excluded input types and the Markdown
+editor keep the bare text-input box or their existing specialised control.
 
 `textarea rows=3` sets its preferred height in lines (default 2); explicit CSS
 height and `field-sizing="content"` override it. `maxlength=80` on text inputs

@@ -454,7 +454,7 @@ fn native_button(attrs: &[contract_syntax::Attr]) -> Result<bool, LowerError> {
         Some(a) => match &a.value {
             Expr::Str(v, _) => Ok(v == "auto"),
             _ => err(
-                "lower-button-appearance",
+                "lower-appearance",
                 "a `button`'s `appearance` is a literal: `\"auto\"` makes it the platform's own button, `\"none\"` (the default) the author's box. To switch between them, write `when` with two buttons",
                 a.span,
             ),

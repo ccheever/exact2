@@ -122,9 +122,9 @@ fn the_switch_is_a_literal_after_classes() {
         NodeType::Pressable
     );
     for (src, id) in [
-        (app("button appearance=(busy ? \"auto\" : \"none\") press=go\n  text \"Go\""), "lower-button-appearance"),
+        (app("button appearance=(busy ? \"auto\" : \"none\") press=go\n  text \"Go\""), "lower-appearance"),
         // One arm sets it: a bound value.
-        (format!("style A\n  appearance=\"auto\"\nstyle B\n  opacity=1\n{}", app("button class=(busy ? A : B) press=go\n  text \"Go\"")), "lower-button-appearance"),
+        (format!("style A\n  appearance=\"auto\"\nstyle B\n  opacity=1\n{}", app("button class=(busy ? A : B) press=go\n  text \"Go\"")), "lower-appearance"),
         // A styleable prop is set by both arms or neither.
         (format!("style A\n  appearance=\"auto\"\n  buttonStyle=\"glass\"\nstyle B\n  appearance=\"auto\"\n{}", app("button class=(busy ? A : B) press=go\n  text \"Go\"")), "lower-style-prop"),
     ] {

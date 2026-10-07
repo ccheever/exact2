@@ -943,10 +943,16 @@ input value=query input=search placeholder="Search" aria-label="Search"
 textarea value=body input=editBody
 ```
 
-A bare text field is visible, as the browser's is: a thin border, rounded
-corners, padding and a fill that follow light and dark mode. Any row you write
-replaces only that row; `appearance="none"` gives the bare box for a field you
-draw yourself (LLP 1104).
+A text field is the platform's own by default (LLP 1104): `input` with no type
+or `text`, `email`, `password`, `search`, `tel`, `url`, `number`, and `textarea`
+outside the Markdown editor. On the web it inherits the page's font and
+colour, as a CSS reset does. Disabled and placeholder appearances are the
+platform's. A background, border or radius makes it your own box, as in a
+browser; `appearance="none"` says so explicitly. A row on any conditional
+class or value arm counts. `appearance="auto"` asks for the native field and
+refuses those rows; `background-clip` and `background-attachment` are allowed.
+Appearance is a literal, from the class then your own attribute; use `when`
+with two fields to switch it.
 
 `input` and `change` carry the control's new value as the final action argument:
 a string for a text field, textarea or `select`, a boolean for a checkbox or

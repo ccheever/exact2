@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "_about": "The single declaration authority for the kernel's node types, props, style rows, enum vocabularies, and opcodes. build.rs generates the Rust types, the wire codec, the style mask, and the schema digest from this file. Nothing here is hand-mirrored anywhere else; a second copy of any table is a defect.",
+  "_about": "The single declaration authority for the kernel's node types, props, style rows, enum vocabularies, and opcodes. build.rs generates the Rust types, the wire codec, the style mask, and the schema digest from this file. Nothing here is hand-mirrored anywhere else; a second copy of any table is a defect. Prop 253 (fieldStyle) was retired by LLP 1104 r8; never reuse its number.",
   "nodeTypes": [
     {
       "id": 0,
@@ -1460,12 +1460,6 @@
       "name": "autocomplete",
       "kind": "str",
       "_comment": "HTML's `autocomplete` on an input or textarea (LLP 1102 §3.6): the web writes the attribute; iOS and macOS set the field's text content type from its last field token (`email`, `username`, `current-password`, `new-password`, `one-time-code`, `name`, `tel`, `postal-code`, ...), over the one `type` implies; `off` clears it; a token the platform has no type for leaves `type`'s."
-    },
-    {
-      "id": 253,
-      "name": "fieldStyle",
-      "kind": "str",
-      "_comment": "@ref LLP 1104 D4: set by Contract, never authored: `default` on a text field that wears the default field rows (not `appearance=\"none\"`). The web shows such a field's `:focus-visible` ring; a host may mark its focus."
     },
     {
       "id": 254,

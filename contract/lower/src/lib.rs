@@ -84,8 +84,6 @@ pub fn compiler_identity() -> u64 {
 pub(crate) struct Lowerer<'a> {
     pub b: PlanBuilder,
     sites: Option<Sites>,
-    /// The surface the plan is for: a text field's sheet differs.
-    profile: Profile,
     pub types: &'a Types,
     pub root: &'a contract_syntax::Component,
     pub ty_ids: BTreeMap<String, TypesId>,
@@ -197,7 +195,7 @@ fn lower_with_sites(
     _analysis: &Analysis,
     asset_root: Option<&Path>,
     capture_sites: bool,
-    profile: Profile,
+    _profile: Profile,
 ) -> Result<(Plan, Option<Sites>), Vec<LowerError>> {
     // Keep the exact expansion whose root and row slots inference checked.
     let Checked {
@@ -216,7 +214,6 @@ fn lower_with_sites(
     let mut l = Lowerer {
         b: PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, compiler_identity()),
         sites: capture_sites.then(|| Sites::declared(ex)),
-        profile,
         types,
         root,
         ty_ids: BTreeMap::new(),
@@ -660,18 +657,9 @@ impl<'a> Lowerer<'a> {
                 {
                     grouped::native_rows(&mut sheet);
                 }
-                // @ref LLP 1104 D2, D3 — a text field's sheet, under its classes.
-                let dressed = fields::sheet(
-                    tag,
-                    expanded.iter().flatten().chain(attrs),
-                    *span,
-                    &mut sheet,
-                    self.profile,
-                )?;
                 let class_len = expanded.as_ref().map_or(0, Vec::len) + sheet.len();
                 let expanded = match &mut expanded {
                     Some(rows) => {
-                        fields::over_sheet(rows, &sheet);
                         rows.splice(0..0, sheet.iter().cloned());
                         rows.extend(attrs.iter().filter(|a| a.name != "class").cloned());
                         rows.as_slice()
@@ -721,7 +709,6 @@ impl<'a> Lowerer<'a> {
                 let expanded = canonical_type.as_deref().unwrap_or(expanded);
                 let control = controls::control(tag, expanded)?;
                 let t = control.map_or(t.clone(), |kind| controls::tag(kind, t.clone()));
-                let t = if dressed { fields::tag(t) } else { t };
                 let face = (control == Some("button"))
                     .then(|| grouped::unsheet(children))
                     .flatten();
@@ -936,6 +923,12 @@ impl<'a> Lowerer<'a> {
                             Origin::Own
                         };
                         origins.resize(bindings.len(), origin);
+                    }
+                }
+                if t.node_type == NodeType::TextInput {
+                    self.field_appearance(tag, expanded, *span, &mut bindings)?;
+                    if let Some(origins) = &mut origins {
+                        origins.resize(bindings.len(), Origin::Tag);
                     }
                 }
                 // @ref LLP 1057.003 C6 — a transform drag needs both halves:
