@@ -74,6 +74,9 @@ fn an_empty_route_measures_its_padding_and_a_scrolling_one_its_scroll_extent() {
   view
     column position="relative" width="100%" height="100%"
       column testId="empty" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 padding-top=12 padding-bottom=20
+      column testId="clips" navigationDetent="fit-content" overflow="hidden" position="absolute" top=0 right=0 bottom=0 left=0 padding=16
+        row height=44
+          text "Row"
       column testId="scrolls" navigationDetent="fit-content large" overflow-y="auto" position="absolute" top=0 right=0 bottom=0 left=0 padding=16
         row height=500 flex-shrink=0
           text "Long"
@@ -100,4 +103,9 @@ fn an_empty_route_measures_its_padding_and_a_scrolling_one_its_scroll_extent() {
     // Its scroller needs the bottom cover in that extent; the sheet takes it
     // off again (`ModalIOS.swift`), UIKit adding the band itself.
     assert_eq!(heights(&covered, scrolls), [16.0 + 500.0 + 16.0 + 34.0]);
+    // One that only clips is measured as one that does not: no cover.
+    let clips = view(&host, "clips");
+    assert_eq!(heights(&first, clips), [16.0 + 44.0 + 16.0]);
+    let covered = host.set_covers(&[(clips, Some(HostCover::Edges([0.0, 0.0, 34.0, 0.0])))]);
+    assert!(heights(&covered, clips).is_empty(), "{covered}");
 }

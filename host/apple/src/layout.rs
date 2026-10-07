@@ -208,17 +208,21 @@ impl<D: DataSource> Host<D> {
             let rel = relative(node.frame, parent);
             // A sheet sized to its route's content reads that extent too
             // (LLP 1075.003 §9.11). A route that scrolls itself keeps its
-            // scroll extent, which the sheet then reads.
-            let scrolls =
-                style::effective_overflow(&node) != (Overflow::Visible, Overflow::Visible);
+            // scroll extent; one that only clips (`hidden`) is measured as
+            // one that does not, its extent counting no bottom cover.
+            let overflow = style::effective_overflow(&node);
             let fits = node
                 .props
                 .str(PropId::NavigationDetent)
                 .is_some_and(|d| d.split(' ').any(|w| w == "fit-content"));
-            let content = if scrolls {
-                Some(content_size(&node, kernel))
+            let scrolls = [overflow.0, overflow.1]
+                .iter()
+                .any(|o| matches!(o, Overflow::Scroll | Overflow::Auto));
+            let content = if fits && !scrolls {
+                Some(fitted_size(&node, kernel))
             } else {
-                fits.then(|| fitted_size(&node, kernel))
+                (overflow != (Overflow::Visible, Overflow::Visible))
+                    .then(|| content_size(&node, kernel))
             };
             // An ancestor hint may change without touching the editor. Pass
             // its effective value through native containment, or clear it to
