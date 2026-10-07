@@ -8,7 +8,7 @@ import UniformTypeIdentifiers
 final class T3ContextMenu: NSObject {
     private var chosen: String?
 
-    /// Items: [{ id, label, destructive?, disabled?, separatorBefore? }]. Main thread only.
+    /// Items: [{ id, label, destructive?, disabled?, separatorBefore?, children? }]. Main thread only.
     func show(_ items: [[String: Any]], in window: NSWindow?, keyboard: Bool = false) -> String? {
         let menu = self.menu(for: items)
         chosen = nil
@@ -27,7 +27,8 @@ final class T3ContextMenu: NSObject {
     }
 
     /// The menu `show` pops up: Electron's showContextMenu layout (a separator before the
-    /// first destructive item unless the items already declared their sections).
+    /// first destructive item unless the items already declared their sections; an item with
+    /// children is a submenu whose choice reports the child's id, as buildTemplate does).
     func menu(for items: [[String: Any]]) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = false
@@ -40,6 +41,14 @@ final class T3ContextMenu: NSObject {
             }
             if destructive, !destructiveSeparated, !explicitSection, !menu.items.isEmpty {
                 menu.addItem(.separator()); destructiveSeparated = true
+            }
+            let children = item["children"] as? [[String: Any]] ?? []
+            if !children.isEmpty {
+                let parent = NSMenuItem(title: label, action: nil, keyEquivalent: "")
+                parent.isEnabled = !(item["disabled"] as? Bool ?? false)
+                parent.submenu = self.menu(for: children)
+                menu.addItem(parent)
+                continue
             }
             let entry = NSMenuItem(title: label, action: #selector(pick(_:)), keyEquivalent: "")
             entry.target = self

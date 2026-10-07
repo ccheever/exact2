@@ -85,6 +85,7 @@ shape PrDetailView
   title: string
   repository: string
   url: string
+  linkMenu: string
   state: string
   stateLabel: string
   conflict: string
@@ -160,7 +161,7 @@ component PrPanel
       when detail.number > 0 and detail.error == ""
         scroll flex=1 min-height=0 width="100%" testId="pull-request-scroll"
           column width="100%" padding-bottom=64 box-sizing="border-box"
-            PrdHeader(detail=detail, scheme=scheme, reload=reload, act=act, copy=copy)
+            PrdHeader(detail=detail, scheme=scheme, reload=reload, act=act, copy=copy, local=local)
             row width="100%" padding-left=16 padding-right=16 padding-top=8 padding-bottom=8 box-sizing="border-box" border-top-width=1 border-bottom-width=1 border-top-style="solid" border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" align-items="center" gap=8 role="navigation" aria-label="Pull request tabs"
               row height=28 padding=2 gap=2 box-sizing="border-box" border-radius=10 background-color="light-dark(#d4d4d766, #ffffff08)" align-items="center" role="tablist"
                 PrdTab(label="Summary", active=(tab == "summary"), press=setTab("summary"), testId="pull-request-tab-summary")
@@ -267,12 +268,14 @@ component PrdHeader
     reload: action
     act: action
     copy: action
+    local: action
   view
     column width="100%" padding-left=16 padding-right=16 padding-bottom=16 box-sizing="border-box"
       row height=28 width="100%" align-items="center" gap=4
         row min-width=0 flex=1 align-items="center" gap=4
           text detail.repository font-size=12 line-height="16px" font-weight=500 color="light-dark(#71717b, #818181)" line-clamp=1 min-width=0
-          link cursor="pointer" href=detail.url aria-label=`Open pull request ${detail.numberLabel} on host` testId="pull-request-open-host" display="flex" flex-direction="row" align-items="center" gap=2 flex-shrink=0
+          // PullRequestDetailPanel openNumberContextMenu: Copy link, Open on <host>.
+          link cursor="pointer" href=detail.url contextmenu=local("pr-link-menu", "", detail.linkMenu) aria-label=`Open pull request ${detail.numberLabel} on host` testId="pull-request-open-host" display="flex" flex-direction="row" align-items="center" gap=2 flex-shrink=0
             text detail.numberLabel font-size=12 line-height="16px" font-weight=500 color=prdTone(detail.state)
             PgIcon(name="external-link", size=10, color=prdTone(detail.state))
         PrdMore(detail=detail, scheme=scheme, reload=reload, act=act, copy=copy)
