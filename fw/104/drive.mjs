@@ -1,0 +1,12 @@
+import { open } from '/Users/daehyeonmun/orca/workspaces/exact2/fix-104-cold-url-no-root-log/scripts/agent.mjs';
+import { spawnSync } from 'node:child_process';
+const url = process.argv[2];
+let pid;
+const s = await open({ host: 'macos', app: 'x05-url-scheme', onProcess: (c) => { pid = c.pid; } });
+await s.clock('+0');
+const sent = spawnSync('/private/tmp/claude-501/-Users-daehyeonmun-Documents-work-0-projects-exact2/757dc7ec-2ea0-42a2-9546-f333365cf393/scratchpad/evidence-104/tools/sendurl', [String(pid), url], { encoding: 'utf8' });
+console.log(sent.stdout.trim(), sent.stderr.trim());
+await new Promise((r) => setTimeout(r, 1500));
+await s.clock('+0');
+console.log('logs', JSON.stringify((await s.logs()).lines));
+await s.close();
