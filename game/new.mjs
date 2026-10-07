@@ -228,7 +228,8 @@ fn embedded_data() -> ExactEmbeddedData {
         .placed(TYPESCRIPT_PLACEMENT)
 }
 include!(concat!(env!("OUT_DIR"), "/logic.rs"));
-exact_apple::host!(AppData, PLAN, COMPAT, None, std::ptr::null(), app_data);
+include!(concat!(env!("OUT_DIR"), "/linked.rs"));
+exact_apple::host!(AppData, PLAN, COMPAT, None, std::ptr::null(), app_data; linked = EXACT_LINKED);
 `,
     'web/Cargo.toml': `[package]
 name = "${name}-web"

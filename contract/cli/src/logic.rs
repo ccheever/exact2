@@ -186,21 +186,10 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
 /// The Apple entry's `EXACT_LINKED` (LLP 1047.001 D2, D3), which the entry
 /// passes as `host!(…; linked = EXACT_LINKED)`, and the export groups of what
 /// it names. `host` is the crate whose `host!` the entry calls
-/// (`exact_apple`, or `exact_apple_update` above it).
-///
-/// A build whose plan is fixed (production, store level 0) links the
-/// capabilities `plan` uses, which `host/apple/build.mjs` says with
-/// `EXACT_APPLE_LINK=plan`; every other build links them all (LLP 1047.001
-/// D6), and so does a build it doesn't drive.
-pub fn apple_linked(plan: &exact_plan::Plan, host: &str) -> String {
-    use exact_runner::{Capability, Uses};
-    println!("cargo:rerun-if-env-changed=EXACT_APPLE_LINK");
-    let all = std::env::var("EXACT_APPLE_LINK").map_or(true, |v| v != "plan");
-    let uses = if all {
-        Capability::ALL.into_iter().fold(Uses::NONE, Uses::with)
-    } else {
-        exact_runner::uses(plan)
-    };
+/// (`exact_apple`, or `exact_apple_update` above it). Which capabilities an
+/// archive links is `exact_bake::apple_link`'s to say.
+pub fn apple_linked(uses: exact_runner::Uses, host: &str) -> String {
+    use exact_runner::Capability;
     let link = if host == "exact_apple" {
         "::exact_apple::link".to_owned()
     } else {
@@ -227,16 +216,13 @@ pub fn apple_linked(plan: &exact_plan::Plan, host: &str) -> String {
 mod tests {
     use super::web_rust_mode;
 
-    /// LLP 1047.001 D3: a build `build.mjs` doesn't drive links everything,
-    /// each export group included, through whichever host crate the entry
-    /// calls.
+    /// LLP 1047.001 D3: the entry names its set and invokes the export
+    /// groups of what it names, through whichever host crate it calls.
     #[test]
-    fn an_undriven_apple_entry_links_every_capability() {
-        if std::env::var_os("EXACT_APPLE_LINK").is_some() {
-            return;
-        }
-        let plan = crate::compile("component A\n  view\n    text \"a\"\n").unwrap();
-        let entry = super::apple_linked(&plan, "exact_apple");
+    fn an_apple_entry_names_its_set_and_its_groups() {
+        use exact_runner::{Capability, Uses};
+        let grouped = Uses::NONE.with(Capability::GroupedLists);
+        let entry = super::apple_linked(grouped, "exact_apple");
         assert!(
             entry.contains("::exact_apple::link::Capability::GroupedLists"),
             "{entry}"
@@ -245,11 +231,12 @@ mod tests {
             entry.contains("::exact_apple::grouped_list_exports!();"),
             "{entry}"
         );
-        let update = super::apple_linked(&plan, "exact_apple_update");
+        let update = super::apple_linked(grouped, "exact_apple_update");
         assert!(
             update.contains("::exact_apple_update::exact_apple::grouped_list_exports!();"),
             "{update}"
         );
+        assert!(!super::apple_linked(Uses::NONE, "exact_apple").contains("exports!"));
     }
 
     #[test]

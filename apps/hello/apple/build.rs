@@ -13,9 +13,7 @@ fn main() {
         Ok(p) => p,
         Err(e) => panic!("app.contract:{e}"),
     };
-    // Bake the default 100 records, projecting only the first 12.
-    let baked = contract::bake(plan, interaction_gallery_data::Gallery::default())
-        .unwrap_or_else(|e| panic!("bake: {e:?}"));
+    let baked = contract::bake(plan, hello_data::Hello).unwrap_or_else(|e| panic!("bake: {e:?}"));
     let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
     std::fs::write(out_dir.join("app.plan"), baked.encode()).unwrap();
     let app_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
@@ -26,8 +24,7 @@ fn main() {
         _ => "macos",
     };
     let manifest = contract::Manifest::read(&app_dir).unwrap_or_else(|e| panic!("app.json: {e}"));
-    let source = interaction_gallery_data::Gallery::default();
-    let grants = source.grants();
+    let grants = hello_data::Hello.grants();
     let mut compat =
         exact_bake::compatibility_id(&app_dir, platform, &target, &manifest, Some(grants))
             .unwrap_or_else(|e| panic!("compatibility id: {e}"));
@@ -45,8 +42,8 @@ fn main() {
         format!(
             "{}\n{}{host}::host!(AppData, PLAN, COMPAT; linked = EXACT_LINKED);\n",
             contract::rust_entry(
-                "interaction_gallery_data::Gallery",
-                "interaction_gallery_data::Gallery::default()",
+                "hello_data::Hello",
+                "hello_data::Hello",
                 compat.inputs["rustMode"].as_str().unwrap()
             )
             .unwrap(),

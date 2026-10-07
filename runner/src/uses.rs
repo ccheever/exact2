@@ -154,6 +154,12 @@ impl Capability {
         }
     }
 
+    /// The capability `name` names ([`Capability::name`]), as a manifest's
+    /// `link` list does (LLP 1047 D8).
+    pub fn from_name(name: &str) -> Option<Capability> {
+        Capability::ALL.into_iter().find(|c| c.name() == name)
+    }
+
     const fn bit(self) -> u32 {
         1 << self as u32
     }

@@ -12,7 +12,8 @@ fn embedded_data() -> ExactEmbeddedData {
     native::module(BYTECODE, APP, GRANTS)
 }
 include!(concat!(env!("OUT_DIR"), "/logic.rs"));
-exact_apple::host!(AppData, PLAN, COMPAT, None, std::ptr::null(), app_data);
+include!(concat!(env!("OUT_DIR"), "/linked.rs"));
+exact_apple::host!(AppData, PLAN, COMPAT, None, std::ptr::null(), app_data; linked = EXACT_LINKED);
 
 #[cfg(test)]
 mod snapback_tests;

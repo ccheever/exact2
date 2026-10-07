@@ -26,14 +26,18 @@ fn main() {
     };
     let manifest = contract::Manifest::read(&app_dir).unwrap_or_else(|e| panic!("app.json: {e}"));
     let grants = spark_data::Profiles.grants();
-    let compat = exact_bake::compatibility_id(&app_dir, platform, &target, &manifest, Some(grants))
-        .unwrap_or_else(|e| panic!("compatibility id: {e}"));
-    std::fs::write(out_dir.join("compat.json"), compat.to_json()).unwrap();
+    let mut compat =
+        exact_bake::compatibility_id(&app_dir, platform, &target, &manifest, Some(grants))
+            .unwrap_or_else(|e| panic!("compatibility id: {e}"));
     let host = if compat.inputs["store"]["L"] == "0" {
         "exact_apple"
     } else {
         "exact_apple_update"
     };
+    // What the archive links, into its compatibility id too (LLP 1047.001 D2).
+    let linked = exact_bake::apple_link(&mut compat, &baked, &manifest, host)
+        .unwrap_or_else(|e| panic!("{e}"));
+    std::fs::write(out_dir.join("compat.json"), compat.to_json()).unwrap();
     std::fs::write(
         out_dir.join("entry.rs"),
         format!(
@@ -44,7 +48,7 @@ fn main() {
                 compat.inputs["rustMode"].as_str().unwrap()
             )
             .unwrap(),
-            contract::apple_linked(&baked, host)
+            linked
         ),
     )
     .unwrap();
