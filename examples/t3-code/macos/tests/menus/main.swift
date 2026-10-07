@@ -474,6 +474,35 @@ final class MenuTests: XCTestCase {
         XCTAssertEqual(view.items.map { $0.isSeparatorItem ? "—" : "\($0.title)\($0.isHidden ? " (hidden)" : "") \($0.keyEquivalent)" },
                        ["Actual Size 0", "Zoom In =", "Zoom In (hidden) +", "Zoom Out -", "—", "Enter Full Screen f"])
     }
+    func testEditKeepsOnlyTheReferenceItemsAndAppCommandsStayKeyEquivalents() {
+        _ = NSApplication.shared
+        // The host's Edit since exact2 #226: an app's ⇧⌘G button after Select All, behind its own separator.
+        let bar = NSMenu(), edit = NSMenu(title: "Edit"), command = ShortcutHost()
+        for title in ["Undo", "Redo"] { edit.addItem(withTitle: title, action: nil, keyEquivalent: "") }
+        edit.addItem(.separator())
+        for title in ["Cut", "Copy", "Paste", "Delete", "Select All"] { edit.addItem(withTitle: title, action: nil, keyEquivalent: "") }
+        let undo = NSMenuItem(title: "Undo", action: #selector(ShortcutHost.fire(_:)), keyEquivalent: "z"); undo.target = command
+        edit.removeItem(at: 0); edit.insertItem(undo, at: 0) // the app's Undo stands in for the host's
+        edit.addItem(.separator())
+        let branch = NSMenuItem(title: "Branch", action: #selector(ShortcutHost.fire(_:)), keyEquivalent: "G"); branch.target = command
+        branch.keyEquivalentModifierMask = [.command, .shift]
+        edit.addItem(branch)
+        edit.addItem(.separator())
+        edit.addItem(withTitle: "Speech", action: nil, keyEquivalent: "")
+        bar.addItem(withTitle: "Edit", action: nil, keyEquivalent: "").submenu = edit
+        let keys = R8KeysMenus()
+        keys.arrange(bar)
+        let shown = { edit.items.filter { !$0.isHidden }.map { $0.isSeparatorItem ? "—" : $0.title } }
+        XCTAssertEqual(shown(), ["Undo", "Redo", "—", "Cut", "Copy", "Paste", "Delete", "Select All", "—", "Speech"])
+        XCTAssertTrue(branch.isHidden)
+        XCTAssertTrue(branch.allowsKeyEquivalentWhenHidden, "⇧⌘G still reaches the branch picker")
+        XCTAssertFalse(edit.items[0].isHidden, "the app's Undo keeps Edit ▸ Undo's place")
+        // A command the host files later is hidden when Edit opens.
+        let find = NSMenuItem(title: "Find", action: #selector(ShortcutHost.fire(_:)), keyEquivalent: "f"); find.target = command
+        edit.insertItem(find, at: edit.index(of: branch))
+        keys.menuNeedsUpdate(edit)
+        XCTAssertEqual(shown(), ["Undo", "Redo", "—", "Cut", "Copy", "Paste", "Delete", "Select All", "—", "Speech"])
+    }
     func testCheckForUpdatesJoinsTheAppAndHelpMenus() {
         _ = NSApplication.shared
         let bar = NSMenu()
@@ -607,6 +636,9 @@ let suite = XCTestSuite(name: "Menus")
 suite.addTest(QuitHoldTests.defaultTestSuite)
 suite.addTest(MenuTests.defaultTestSuite)
 suite.run()
-guard let run = suite.testRun, run.executionCount == 44 else { print("Menus: unexpected test count \(suite.testRun?.executionCount ?? 0)"); exit(1) }
+guard let run = suite.testRun, run.executionCount == 45 else { print("Menus: unexpected test count \(suite.testRun?.executionCount ?? 0)"); exit(1) }
 print("Menus: \(run.executionCount) tests, \(run.totalFailureCount) failures")
 exit(run.hasSucceeded ? 0 : 1)
+
+/// The host's command target (ExactKit's ShortcutHost), named as R8KeysMenus finds it.
+final class ShortcutHost: NSObject { @objc func fire(_ sender: Any?) {} }
