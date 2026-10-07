@@ -26,7 +26,7 @@ impl<D: DataSource> Host<D> {
             None,
             "/",
             Some(registration),
-            |_| {},
+            |_| Ok(()),
         )?;
         host.commit_boot();
         Ok((host, batch))
@@ -195,7 +195,7 @@ impl<D: DataSource> Host<D> {
             "/",
             Some(registration),
             Some(limits),
-            |_| {},
+            |_| Ok(()),
         )?;
         host.commit_boot();
         Ok((host, batch))

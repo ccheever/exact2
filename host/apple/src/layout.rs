@@ -1,5 +1,6 @@
 //! Layout receipts survive silent list settling until the presenter sees them.
 use super::*;
+use std::fmt::Write;
 
 impl<D: DataSource> Host<D> {
     pub(super) fn record_layout(&mut self, receipt: &exact_kernel::LayoutReceipt) {
@@ -52,20 +53,36 @@ impl<D: DataSource> Host<D> {
             );
         let (w, h) = self.viewport;
         for root in self.runner.roots() {
-            if self.content_region.is_some() {
-                self.region_layout(root, Offer::definite(w, h), batch)?;
-            } else {
-                let receipt = self
-                    .runner
-                    .kernel_mut()
-                    .compute_layout_presented(root, Offer::definite(w, h), &self.height_presented)
-                    .map_err(|e| format!("layout: {e:?}"))?;
-                // @ref LLP 1043.000 §3 D4 — geometry can move without a frame change.
-                self.runner.report_flow_skipped(&receipt.flow_skipped);
-                self.runner
-                    .report_fragment_skipped(&receipt.fragment_skipped);
-                self.runner.moved(&receipt.changed);
-                self.record_layout(&receipt);
+            // A miss has filled its cache on main before returning. Re-run
+            // silently, collecting both receipts so a final unchanged frame
+            // still replaces the provisional geometry the presenter never saw.
+            for attempt in 0..3 {
+                let before = self.runner.kernel().provisional_layouts();
+                if self.content_region.is_some() {
+                    self.region_layout(root, Offer::definite(w, h), batch)?;
+                } else {
+                    let receipt = self
+                        .runner
+                        .kernel_mut()
+                        .compute_layout_presented(
+                            root,
+                            Offer::definite(w, h),
+                            &self.height_presented,
+                        )
+                        .map_err(|e| format!("layout: {e:?}"))?;
+                    self.runner.report_flow_skipped(&receipt.flow_skipped);
+                    self.runner
+                        .report_fragment_skipped(&receipt.fragment_skipped);
+                    self.runner.moved(&receipt.changed);
+                    self.record_layout(&receipt);
+                }
+                batch.layout_provisional = self.runner.kernel().provisional_layouts() != before;
+                if !batch.layout_provisional {
+                    break;
+                }
+                if attempt == 2 {
+                    return Err("layout: field chrome remained provisional after three passes; batch refused before presentation".into());
+                }
             }
         }
         self.height_projection.clear();
@@ -193,6 +210,18 @@ impl<D: DataSource> Host<D> {
                         m.props.remove("spellcheck");
                     }
                 }
+            }
+            let field_content = node.field_content_rect();
+            if m.field_content != field_content {
+                m.field_content = field_content;
+                let mut op = format!("{{\"op\":\"fieldContent\",\"id\":{id},\"rect\":");
+                if let Some(r) = field_content {
+                    let _ = write!(op, "[{},{},{},{}]", r.x, r.y, r.width, r.height);
+                } else {
+                    op.push_str("null");
+                }
+                op.push('}');
+                batch.push_op(op);
             }
             if m.frame != Some(rel) {
                 m.frame = Some(rel);

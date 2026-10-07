@@ -31,6 +31,7 @@ public struct Batch {
     /// A canvas draw is owed to a turn of its own (LLP 1072 §8.5).
     public var canvasOwed = false
     /// A control's viewless contents changed (LLP 1069.011 §9).
+    public var layoutProvisional = false
     public var controls = false
     /// Image handles a 2D canvas asked for, to decode (LLP 1056 D9).
     public var canvasImages: [String] = []

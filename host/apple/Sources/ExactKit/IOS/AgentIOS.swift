@@ -194,7 +194,10 @@ extension Agent {
         // The list pool and the leaves it holds mid-fling (LLP 1068 §6, §5.1).
         var pool = presenter.pool.observation.merging(presenter.leaves.observation) { a, _ in a }.merging(presenter.flats.observation) { a, _ in a }
         pool["native"] = session.natives.observation
-        return ["focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window, "pool": pool, "hooks": presenter.elements.observation]
+        let kernelState = (try? JSONSerialization.jsonObject(with: Data(session.agent("{\"op\":\"state\"}").utf8))) as? [String: Any]
+        let kernelLayout = kernelState?["kernelLayout"] as? [String: Any] ?? [:]
+        let layout = kernelLayout.merging(["provisional": session.fieldChrome.presentedProvisional]) { _, host in host }
+        return ["layout": layout, "focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window, "pool": pool, "hooks": presenter.elements.observation]
     }
 
     /// A view's box in the viewport: the viewport's content space less its

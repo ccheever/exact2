@@ -494,7 +494,13 @@ final class TextEngine {
     /// A screen shows about `visibleParagraphs` paragraphs: cold shaped
     /// text is held to two screens of them (`TextResidency.fitShaped`).
     func fitShaped(visibleParagraphs: Int) { residency.fitShaped(visibleParagraphs: visibleParagraphs) }
-    private var catalog: [Int: [RegisteredFace]] = [:]
+    var catalog: [Int: [RegisteredFace]] = [:]
+    #if canImport(UIKit)
+    var fieldChrome: FieldChromeCache?
+    var platformControlID: UInt16?
+    var platformControlFont: UIFont?
+    var platformControlName = NSData()
+    #endif
     /// Declared family names to their plan stacks, for Canvas 2D's `font`
     /// (LLP 1056 D8).
     private var familyStacks: [String: Int] = [:]
@@ -562,11 +568,19 @@ final class TextEngine {
         private let residency: TextResidency
         private let catalog: [Int: [RegisteredFace]]
         private let familyStacks: [String: Int]
+        #if canImport(UIKit)
+        private let controlID: UInt16?
+        private let controlFont: UIFont?
+        private let controlName: NSData
+        #endif
         private let measurer: Checkpoint?
 
         fileprivate init(_ engine: TextEngine) {
             // The measurer's state is the owner's (LLP 1072 §8.1).
             measurer = engine.measurer.map { m in Owner.shared.sync { Checkpoint(m) } }
+            #if canImport(UIKit)
+            controlID = engine.platformControlID; controlFont = engine.platformControlFont; controlName = engine.platformControlName
+            #endif
             pendingFonts = engine.pendingFonts
             fonts = engine.fonts
             residency = engine.residency
@@ -575,6 +589,9 @@ final class TextEngine {
         }
 
         fileprivate func restore(into engine: TextEngine) {
+            #if canImport(UIKit)
+            engine.platformControlID = controlID; engine.platformControlFont = controlFont; engine.platformControlName = controlName
+            #endif
             engine.pendingFonts = pendingFonts
             engine.fonts = fonts
             engine.residency = residency
@@ -601,6 +618,9 @@ final class TextEngine {
         residency = TextResidency(softTargetBytes: residency.softTargetBytes)
         residency.keepsAnswers = !publishes
         dropMeasuredBreaks()
+        #if canImport(UIKit)
+        platformControlID = nil
+        #endif
         catalog.removeAll(keepingCapacity: true)
         familyStacks.removeAll()
         canvasText = CanvasText(engine: self)
@@ -682,6 +702,9 @@ final class TextEngine {
     }
 
     func font(size: CGFloat, weight: Int, family: Int, italic: Bool) -> PlatformFont {
+        #if canImport(UIKit)
+        if let f = controlFont(size: size, weight: weight, family: family, italic: italic) { return f }
+        #endif
         let key = "\(family)/\(size)/\(weight)/\(italic)"
         if let f = fonts[key] { return f }
         if let faces = catalog[family], !faces.isEmpty {

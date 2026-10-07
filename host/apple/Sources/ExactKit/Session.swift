@@ -14,7 +14,6 @@ import AppKit
 import CExact
 import Foundation
 import QuartzCore
-
 /// Supplied once per session launch and reused by every replacement runner.
 struct LaunchPlace: Equatable {
     let locale: String
@@ -23,7 +22,6 @@ struct LaunchPlace: Equatable {
     /// Under the agent, the Unix milliseconds at the clock's zero (LLP
     /// 1027.000.000 D3; default 2026-01-01T00:00:00Z); nil reads the machine.
     let epoch: Double?
-
     init(environment: [String: String] = ExactEnv.environment) {
         if environment["EXACT_AGENT"] == "1" {
             locale = environment["EXACT_AGENT_LOCALE"] ?? "en-US"
@@ -38,7 +36,6 @@ struct LaunchPlace: Equatable {
         }
     }
 }
-
 /// The process facts every session reads: the agent drives the app
 /// (LLP 1012 — the driver owns the clock), a smoke run prints and exits.
 public enum ExactEnv {
@@ -89,19 +86,16 @@ public enum ExactEnv {
     nonisolated(unsafe) public static var stamps: [(String, Double)] = []
     public static func stamp(_ label: String) { stamps.append((label, wall())) }
 }
-
 /// What a session tells its host: a capability an action called (LLP 1005
 /// §3), after the batch that carried it was applied; and its state.
 public protocol ExactSessionDelegate: AnyObject {
     func exactSession(_ session: ExactSession, command name: String, args: [Any])
     func exactSession(_ session: ExactSession, didChange state: ExactSession.State)
 }
-
 public extension ExactSessionDelegate {
     func exactSession(_ session: ExactSession, command name: String, args: [Any]) {}
     func exactSession(_ session: ExactSession, didChange state: ExactSession.State) {}
 }
-
 /// Optional app behavior supplied by a higher composition. Every callback
 /// identifies the generation that caused it; the core owns no store policy.
 public protocol ExactAppLifecycle: AnyObject {
@@ -112,7 +106,6 @@ public protocol ExactAppLifecycle: AnyObject {
     func initialGenerationRefused(_ app: ExactApp, token: UInt64, reason: String)
     func handleCommand(_ name: String, app: ExactApp) -> Bool
 }
-
 /// A plan and its complete asset namespace prepared by an app composition.
 /// The opaque token is meaningful only to that composition; zero is an
 /// ordinary core/dev plan, with no delivery selection to count or bless.
@@ -123,7 +116,6 @@ public struct ExactModule {
     public let bytecode: Data
     public init(receipt: Data, bytecode: Data) { self.receipt = receipt; self.bytecode = bytecode }
 }
-
 public struct ExactGeneration {
     public let plan: Data
     public let assets: AssetResolver
@@ -134,11 +126,9 @@ public struct ExactGeneration {
         self.module = module
     }
 }
-
 /// The one Exact app this process links (LLP 1031 D1, D11).
 public final class ExactApp {
     public static let shared = ExactApp()
-
     /// Where an image source, a declared font, or a deck page resolves:
     /// `EXACT_ASSETS`, else the bundle (iOS) or the working directory
     /// (macOS) — the way a page resolves against its URL.
@@ -159,22 +149,18 @@ public final class ExactApp {
     /// A retryable image preparation; the current sessions remain live.
     public private(set) var generationPending = false
     private var notifications: [() -> Void] = []
-
     func deliver(_ body: @escaping () -> Void) {
         if transaction { notifications.append(body) } else { body() }
     }
     /// Retained for the app lifetime; embedded-only apps supply none.
     public var lifecycle: ExactAppLifecycle?
     private(set) var selectedToken: UInt64 = 0
-
     private var sessionRefs: [WeakSession] = []
     /// Every live session, in creation order.
     public var sessions: [ExactSession] { sessionRefs.compactMap(\.session) }
-
     /// The one dev connection (D11): the app URL `dev.mjs` prints, resolved
     /// and subscribed once; every `{seq}` applies to every session.
     private(set) var connection: PlanURL?
-
     private init() {
         #if canImport(UIKit)
         let fallback = Bundle.main.bundlePath
@@ -185,7 +171,6 @@ public final class ExactApp {
         assetRoot = URL(fileURLWithPath: ExactEnv.environment["EXACT_ASSETS"] ?? fallback, isDirectory: true)
         resolver = AssetResolver(root: assetRoot)
     }
-
     /// The immutable Rust executor policy carried by this binary's bake.
     public var rustPolicy: (mode: String, target: String) {
         let bytes = Runtime.bakedCompat()
@@ -376,6 +361,9 @@ public final class ExactSession {
     lazy var regions = RegionController(self)
     #endif
     var text: TextEngine
+    #if canImport(UIKit)
+    let fieldChrome = FieldChromeCache()
+    #endif
     let presenter: Presenter
     var launchLocation: String? // a pre-boot `openURL`'s location, until the first frame (LaunchURL.swift)
     private var textPressure: DispatchSourceMemoryPressure?
@@ -488,6 +476,9 @@ public final class ExactSession {
         sampler = FrameSampler.measured ? FrameSampler(session: self) : nil
         runtime.setMeasure(TextEngine.measureText, ctx: text.measuring.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: text.measuring.opaque)
+        #if canImport(UIKit)
+        installControlText()
+        #endif
         // LLP 1056 D8, D9: Canvas 2D measures with this engine and draws the
         // handles this session decodes.
         runtime.setCanvasText(CanvasText.measureRun)
@@ -869,6 +860,9 @@ public final class ExactSession {
         else { batch = runtime.preparePlan(bytes, width: viewport.width, height: viewport.height, token: token) }
         runtime.setMeasure(TextEngine.measureText, ctx: text.measuring.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: text.measuring.opaque)
+        #if canImport(UIKit)
+        installControlText()
+        #endif
         if batch.pending { modulePending = true; return nil }
         // Resolve initially used local payloads before first pixel, without
         // applying a presenter batch or starting an image/web/GPU operation.
@@ -894,6 +888,9 @@ public final class ExactSession {
         updateToken = candidate.token
         runtime.setMeasure(TextEngine.measureText, ctx: text.measuring.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: text.measuring.opaque)
+        #if canImport(UIKit)
+        installControlText()
+        #endif
         text.commitFonts()
         let batch = runtime.commitPlan()
         precondition(batch.error == nil, "an accepted session candidate must remain commit-ready")
@@ -1272,6 +1269,9 @@ public final class ExactSession {
     /// (`pointer: none` on tvOS sets a different layout).
     private func primePreferences() {
         guard !booted, state != .destroyed else { return }
+        #if canImport(UIKit)
+        primeControlText()
+        #endif
         _ = runtime.setPreferences(preferenceBits())
     }
     private func preferenceBits() -> UInt32 {
