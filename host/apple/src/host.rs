@@ -19,6 +19,7 @@ use exact_kernel::{
     ViewId,
 };
 use exact_motion::{Change, Engine, HoldToken, Property};
+use std::fmt::Write;
 
 #[path = "arrange.rs"]
 mod arrange;
@@ -120,6 +121,7 @@ pub(crate) struct Mirror {
     frame: Option<(f32, f32, f32, f32)>,
     content: Option<(f32, f32)>,
     flow: Vec<exact_kernel::FlowShape>,
+    field_content: Option<exact_kernel::Frame>,
 }
 
 /// One runner, one presenter.
@@ -292,7 +294,7 @@ impl<D: DataSource> Host<D> {
             None,
             "/",
             None,
-            |_| {},
+            |_| Ok(()),
         )?;
         host.commit_boot();
         Ok((host, batch))
@@ -315,7 +317,7 @@ impl<D: DataSource> Host<D> {
         candidate_delivery: Option<exact_runner::Delivery>,
         launch: &str,
         region: Option<crate::content_region::ContentRegionRegistration>,
-        prepare: impl FnOnce(&Plan),
+        prepare: impl FnOnce(&mut Runner<D>) -> Result<(), HostError>,
     ) -> Result<(Host<D>, String), HostError> {
         Self::boot_stored_after_decode_mode(
             plan_bytes,
@@ -350,7 +352,7 @@ impl<D: DataSource> Host<D> {
         launch: &str,
         region: Option<crate::content_region::ContentRegionRegistration>,
         native: Option<crate::content_region::NativeProjectionLimits>,
-        prepare: impl FnOnce(&Plan),
+        prepare: impl FnOnce(&mut Runner<D>) -> Result<(), HostError>,
     ) -> Result<(Host<D>, String), HostError> {
         if let Some(json) = compat {
             exact_runner::delivery::refuse_analysis(json)
@@ -403,7 +405,8 @@ impl<D: DataSource> Host<D> {
         }
         // The candidate catalog is installed before first text measurement.
         // Platform registration is deferred until the app accepts it.
-        prepare(runner.plan());
+        prepare(&mut runner)?;
+
         let has_heads = runner
             .plan()
             .nodes
@@ -839,7 +842,18 @@ impl<D: DataSource> Host<D> {
                 self.native_protected_id(id)
             });
         }
-        exact_runner::agent::handle(&self.runner, request)
+        let mut reply = exact_runner::agent::handle(&self.runner, request);
+        if exact_runner::agent::field_str(request, "op").as_deref() == Some("state")
+            && reply.ends_with('}')
+        {
+            reply.pop();
+            let _ = write!(
+                reply,
+                ",\"kernelLayout\":{{\"provisionalLayouts\":{}}}}}",
+                self.runner.kernel().provisional_layouts()
+            );
+        }
+        reply
     }
 
     /// Deliver an event at the app's clock (milliseconds); the batch makes

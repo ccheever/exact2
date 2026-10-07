@@ -13,7 +13,7 @@
 //! owner thread (LLP 1072 T1). Re-entrant calls return a `busy`
 //! batch instead of trapping. [`host!`] exports one app's source and baked plan;
 //! each process links one app archive because the C names are fixed.
-
+mod control_text;
 use crate::host::{Host, PlanBytes};
 use crate::measure::{install_fonts, CallbackMeasurer, FontsFn, MeasureFn};
 use crate::store::{endow_bound, snapshot_of, Platform};
@@ -67,6 +67,8 @@ pub struct Bridge<D: DataSource> {
     executor: Option<crate::executor::Executor>,
     refusal_turn: bool,
     fonts: Option<FontsFn>,
+    control_text: Option<crate::control_text::ControlTextFn>,
+    field_chrome: Option<crate::control_text::FieldChromeFn>,
     fonts_ctx: *mut c_void,
     /// The archive's `compat.json` (LLP 1030 D3a), from the `host!`
     /// invocation: what the runner's `delivery` resource says about this
@@ -116,6 +118,8 @@ impl<D: DataSource> Bridge<D> {
             executor: None,
             refusal_turn: false,
             fonts: None,
+            control_text: None,
+            field_chrome: None,
             fonts_ctx: std::ptr::null_mut(),
             compat: None,
             delivery: None,
@@ -184,13 +188,6 @@ impl<D: DataSource> Bridge<D> {
         self.output.clear();
         self.output.extend_from_slice(compat.as_bytes());
         self.output.len() as u32
-    }
-
-    /// Register the synchronous plan-font hook used by subsequent boots,
-    /// with the context it is handed back.
-    pub fn set_fonts(&mut self, fonts: Option<FontsFn>, ctx: *mut c_void) {
-        self.fonts = fonts;
-        self.fonts_ctx = ctx;
     }
 
     /// This binary's `compat.json` (LLP 1030 D3a), for the delivery facts
@@ -456,7 +453,10 @@ impl<D: DataSource> Bridge<D> {
             exact_runner::delivery::refuse_analysis(compat).map_err(str::to_string)?;
         }
         let measurer: Box<dyn TextMeasurer> = match hooks.measure {
-            Some(f) => Box::new(CallbackMeasurer::new(f, hooks.ctx, hooks.lines)),
+            Some(f) => Box::new(
+                CallbackMeasurer::new(f, hooks.ctx, hooks.lines)
+                    .with_field_chrome(self.field_chrome),
+            ),
             None => Box::new(MonospaceMeasurer::default()),
         };
         // The app's bindings, once (LLP 1016 D6; LLP 1018 D6): the secrets it
@@ -470,6 +470,8 @@ impl<D: DataSource> Bridge<D> {
         let secrets = bindings.as_ref().map(Platform::of);
         let fonts = self.fonts;
         let fonts_ctx = self.fonts_ctx;
+        let control_text = self.control_text;
+        let ctx = hooks.ctx;
         match Host::boot_stored_after_decode(
             plan,
             data,
@@ -483,10 +485,11 @@ impl<D: DataSource> Bridge<D> {
             None,
             self.launch.as_deref().unwrap_or("/"),
             self.region,
-            move |decoded| {
+            move |runner| {
                 if let Some(callback) = fonts {
-                    install_fonts(decoded, callback, fonts_ctx);
+                    install_fonts(runner.plan(), callback, fonts_ctx);
                 }
+                control_text::prepare(runner, control_text, ctx)
             },
         ) {
             Ok((mut host, batch)) => {
@@ -725,7 +728,10 @@ impl<D: DataSource> Bridge<D> {
         // or runner refusal must not turn a reload into an empty window.
         let carried = carried.or_else(|| self.host.as_ref().map(Host::carry));
         let measurer: Box<dyn TextMeasurer> = match hooks.measure {
-            Some(f) => Box::new(CallbackMeasurer::new(f, hooks.ctx, hooks.lines)),
+            Some(f) => Box::new(
+                CallbackMeasurer::new(f, hooks.ctx, hooks.lines)
+                    .with_field_chrome(self.field_chrome),
+            ),
             None => Box::new(MonospaceMeasurer::default()),
         };
         // A reload carries the running store (`Carried::store`). A fresh
@@ -740,6 +746,8 @@ impl<D: DataSource> Bridge<D> {
         let secrets = bindings.as_ref().map(Platform::of);
         let fonts = self.fonts;
         let fonts_ctx = self.fonts_ctx;
+        let control_text = self.control_text;
+        let ctx = hooks.ctx;
         match Host::boot_stored_after_decode(
             PlanBytes::Copied(&plan),
             data,
@@ -753,10 +761,11 @@ impl<D: DataSource> Bridge<D> {
             delivery,
             self.launch.as_deref().unwrap_or("/"),
             self.region,
-            move |decoded| {
+            move |runner| {
                 if let Some(callback) = fonts {
-                    install_fonts(decoded, callback, fonts_ctx);
+                    install_fonts(runner.plan(), callback, fonts_ctx);
                 }
+                control_text::prepare(runner, control_text, ctx)
             },
         ) {
             Ok((mut host, batch)) => {
@@ -1186,15 +1195,6 @@ impl<D: DataSource> Bridge<D> {
             .host
             .as_mut()
             .map_or_else(not_booted, |h| h.set_place(&locale, &zone, seed));
-        self.emit(out)
-    }
-
-    /// The safe-area insets changed.
-    pub fn insets(&mut self, top: f32, right: f32, bottom: f32, left: f32) -> u32 {
-        let out = self
-            .host
-            .as_mut()
-            .map_or_else(not_booted, |h| h.set_insets(top, right, bottom, left));
         self.emit(out)
     }
 

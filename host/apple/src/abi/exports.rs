@@ -49,6 +49,17 @@ macro_rules! host {
             $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| { e.hooks.measure = measure; e.hooks.ctx = ctx; });
         }
 
+        /// UIKit control hooks, using the registered text engine context.
+        #[no_mangle]
+        pub extern "C" fn exact_set_control_text(rt: u32, text: Option<$crate::control_text::ControlTextFn>, chrome: Option<$crate::control_text::FieldChromeFn>) {
+            $crate::abi::with_entry(&EXACT_RUNTIMES, rt, |e| e.bridge.set_control_text(text, chrome));
+        }
+        /// Remeasure the controls after a trait change, through set_env.
+        #[no_mangle]
+        pub extern "C" fn exact_control_text_changed(rt: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, hooks| b.control_text_changed(hooks), |n| n)
+        }
+
         /// A paragraph's line boxes (LLP 1093 D6), called with the context
         /// `exact_set_measure` was given; `None` keeps paragraphs whole in a
         /// multi-column flow.

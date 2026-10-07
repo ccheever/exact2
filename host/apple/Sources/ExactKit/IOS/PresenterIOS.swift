@@ -719,6 +719,9 @@ final class Presenter {
     }
 
     func apply(_ batch: Batch) {
+        // A failed cache cannot put stand-in geometry on screen.
+        guard !batch.layoutProvisional else { return }
+        session?.fieldChrome.presented(batch.layoutProvisional)
         defer { applyLanguage(batch) }
         if applySnapshots(batch) { return }
         PaintOrder.begin()
@@ -892,6 +895,8 @@ final class Presenter {
             case .sticky:
                 if flats.isFlat(id) { flats.promote(id) }
                 stickies.apply(id, op.payload)
+            case .fieldContent:
+                views[id]?.applyFieldContent(op.payload)
             case .fragments:
                 if flats.isFlat(id) { flats.promote(id) }
                 views[id]?.applyColumns(op.payload)
@@ -1063,7 +1068,7 @@ final class Presenter {
             v.frame = CGRect(x: op.x, y: op.y, width: op.w, height: op.h)
             v.textRasterGeometryChanged()
             v.scroll?.frame = v.bounds
-            v.field?.frame = v.contentBox()
+            v.layoutField()
             v.layoutTextArea()
             v.metal?.frame = v.bounds
             v.overlay?.frame = v.bounds

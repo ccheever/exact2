@@ -31,6 +31,8 @@ pub struct Batch {
     /// select's options), which put no op on any view: the presenter
     /// configures its controls (LLP 1069.011 §9).
     pub controls: bool,
+    /// The last layout still used provisional field chrome; UIKit refuses to present it.
+    pub layout_provisional: bool,
     /// Image handles a 2D canvas asked for (LLP 1056 D9): the presenter
     /// decodes each and answers `exact_canvas_image`.
     images: Vec<String>,
@@ -690,6 +692,9 @@ impl Batch {
         }
         if self.canvas_owed {
             s.push_str(",\"canvasOwed\":true");
+        }
+        if self.layout_provisional {
+            s.push_str(",\"layoutProvisional\":true");
         }
         if self.controls {
             s.push_str(",\"controls\":true");

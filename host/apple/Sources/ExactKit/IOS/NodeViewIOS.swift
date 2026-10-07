@@ -332,7 +332,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// and AppKit's focus ring do: drawn when Tab moved the focus here, never
     /// for a touch, and inside the box so no clip hides it.
     func showFocusRing(_ shown: Bool) {
-        guard shown else { focusRing?.removeFromSuperlayer(); focusRing = nil; return }
+        guard shown, !isNativeTextControl else { focusRing?.removeFromSuperlayer(); focusRing = nil; return }
         let ring = focusRing ?? CAShapeLayer()
         #if os(tvOS)
         // Across a room the ring stands clear of the content: outside the box, padded and rounded.
@@ -864,11 +864,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             f.placeholder = nil
             return
         }
-        // Not `placeholderText`: that tracks the window's appearance, so a
-        // white field in a dark app (the night) paints a light placeholder
-        // and it vanishes. Mute this field's text color — the web's
-        // `input::placeholder`.
-        let ink = (f.textColor ?? SystemColor.canvasText).withAlphaComponent(0.30)
+        // D3: UIKit's semantic placeholder colour on a native field. The
+        // explicitly bare editor preserves its existing authored ink rule.
+        let ink = isNativeTextControl ? UIColor.placeholderText : (f.textColor ?? SystemColor.canvasText).withAlphaComponent(0.30)
         f.attributedPlaceholder = NSAttributedString(string: text, attributes: [
             .font: font,
             .foregroundColor: ink,
@@ -1059,6 +1057,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
         if style["mask_image"] != nil { applyBoxMask() }
     }
+    var nativeFieldContent: CGRect?
     var pendingScrollLeft: Double? {
         get { extras?.pendingScrollLeft }
         set { if newValue != nil || extras != nil { more.pendingScrollLeft = newValue }; presenter?.pendingScrolls.insert(id) }
@@ -1129,6 +1128,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             default: f.returnKeyType = handlers.contains("submit") ? .go : .default
             }
             f.isEnabled = !disabled
+            if isNativeTextControl { styleNativeField() }
         }
         if disabled { accessibilityTraits.insert(.notEnabled) } else { accessibilityTraits.remove(.notEnabled) }
         accessibilityIdentifier = props["testId"]
@@ -1227,7 +1227,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             f.font = t.font(size: number("font_size", 16), weight: Int(number("font_weight", 400)), family: Int(number("font_family")), italic: (style["font_style"]?.string) == "italic", numeric: Int(number("font_variant_numeric")))
             f.textColor = color("text_color", SystemColor.canvasText)
             applyPlaceholder(f)
-            f.frame = contentBox()
+            styleNativeField()
         }
         if s["transform_origin"] != origin { applyTransform() }
         applySpace(changedFrom: old)
@@ -1347,7 +1347,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         presenter?.collections.changed(id)
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
-        if field != nil { field?.frame = contentBox() }
+        layoutField()
         video?.layout()
         if kind == "native" { presenter?.session?.natives.laidOut(self) }
         layoutTextArea()

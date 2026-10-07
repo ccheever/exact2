@@ -84,6 +84,7 @@ public final class ExactView: UIView {
         }
         #endif
         session.presenter.observeKeyboard()
+        registerForTraitChanges([UITraitPreferredContentSizeCategory.self, UITraitLegibilityWeight.self, UITraitDisplayScale.self]) { (view: ExactView, _: UITraitCollection) in view.session.controlTextChanged() }
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self, UITraitAccessibilityContrast.self]) { (view: ExactView, _: UITraitCollection) in view.reportScheme(); view.setNeedsLayout() }
         // The tvOS SDK has no Swift UITraitDefinition for this trait. OS
         // suppression still applies to its layers without a re-decode (D9).

@@ -41,6 +41,7 @@ pub mod batch;
 pub mod canvas_text;
 pub mod collapse;
 pub mod content_region;
+pub mod control_text;
 pub mod corner;
 pub mod delivery;
 pub mod executor;
