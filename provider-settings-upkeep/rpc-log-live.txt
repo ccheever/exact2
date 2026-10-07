@@ -1,0 +1,84 @@
+2026-10-07T18:36:00.034Z a fixture reset
+2026-10-07T18:36:26.535Z a proxy 16020 -> 16010
+2026-10-07T18:36:26.537Z b proxy 16021 -> 16011
+2026-10-07T18:36:55.160Z a http POST /oauth/token
+2026-10-07T18:36:55.162Z a http GET /api/auth/session
+2026-10-07T18:36:55.164Z a http POST /api/auth/websocket-ticket
+2026-10-07T18:36:55.175Z a http GET /api/auth/session
+2026-10-07T18:36:55.286Z a request assets.createUrl {"resource":{"_tag":"project-favicon","cwd":"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/servers/a/repos/upkeep-demo"}}
+2026-10-07T18:36:55.301Z a exit assets.createUrl Success
+2026-10-07T18:36:55.366Z a request vcs.refreshStatus {"cwd":"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/servers/a/repos/upkeep-demo"}
+2026-10-07T18:36:55.368Z a request subscribeVcsStatus {"cwd":"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/servers/a/repos/upkeep-demo"}
+2026-10-07T18:36:55.371Z a request scheduledTasks.subscribe {}
+2026-10-07T18:36:55.392Z a request subscribeProjectClones {}
+2026-10-07T18:36:55.401Z a request subscribeDeviceState {}
+2026-10-07T18:36:55.637Z a exit server.reportClientActivity Success
+2026-10-07T18:36:55.705Z a request server.refreshProviders {"cwd":"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/servers/a/repos/upkeep-demo","instanceId":"codex"}
+2026-10-07T18:36:55.762Z a exit vcs.refreshStatus Success
+2026-10-07T18:36:55.783Z a request vcs.listRefs {"cwd":"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/servers/a/repos/upkeep-demo","limit":100}
+2026-10-07T18:36:55.796Z a exit server.refreshProviders Success
+2026-10-07T18:36:55.818Z a exit vcs.listRefs Success
+2026-10-07T18:37:02.346Z a request agentSessions.scan {}
+2026-10-07T18:37:02.349Z a exit agentSessions.scan Success
+2026-10-07T18:37:11.143Z a fixture reset
+2026-10-07T18:37:11.993Z a request server.refreshProviders {"cwd":"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/servers/a/repos/upkeep-demo","instanceId":"codex"}
+2026-10-07T18:37:12.066Z a exit server.refreshProviders Success
+2026-10-07T18:37:18.563Z b http POST /oauth/token
+2026-10-07T18:37:18.574Z b http GET /api/auth/session
+2026-10-07T18:37:18.575Z b http POST /api/auth/websocket-ticket
+2026-10-07T18:37:18.611Z b http GET /api/auth/session
+2026-10-07T18:37:18.695Z b request scheduledTasks.subscribe {}
+2026-10-07T18:37:18.697Z b request subscribeProjectClones {}
+2026-10-07T18:37:18.833Z a exit server.reportClientActivity Success
+2026-10-07T18:37:18.834Z b exit server.reportClientActivity Success
+2026-10-07T18:37:20.416Z a exit server.reportClientActivity Success
+2026-10-07T18:37:20.416Z b exit server.reportClientActivity Success
+2026-10-07T18:37:45.418Z a exit server.reportClientActivity Success
+2026-10-07T18:37:45.418Z b exit server.reportClientActivity Success
+2026-10-07T18:37:46.245Z a fixture reset
+2026-10-07T18:37:46.363Z a request server.refreshProviders {"cwd":"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/servers/a/repos/upkeep-demo","instanceId":"codex"}
+2026-10-07T18:37:46.423Z a exit server.refreshProviders Success
+2026-10-07T18:38:09.217Z a fixture reset
+2026-10-07T18:38:10.065Z a request server.refreshProviders {"cwd":"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/servers/a/repos/upkeep-demo","instanceId":"codex"}
+2026-10-07T18:38:10.138Z a exit server.refreshProviders Success
+2026-10-07T18:38:10.415Z a exit server.reportClientActivity Success
+2026-10-07T18:38:10.416Z b exit server.reportClientActivity Success
+2026-10-07T18:38:12.895Z a request provider.auth.subscribe {"instanceId":"acpRegistry_gemini"}
+2026-10-07T18:38:15.596Z a request server.acceptAcpRegistryUrlAuth {"elicitationId":"gemini-login-1","instanceId":"acpRegistry_gemini"}
+2026-10-07T18:38:15.596Z a answer server.acceptAcpRegistryUrlAuth {"accepted":true}
+2026-10-07T18:38:17.871Z a request server.acceptAcpRegistryUrlAuth {"elicitationId":"gemini-login-1","instanceId":"acpRegistry_gemini"}
+2026-10-07T18:38:17.871Z a answer server.acceptAcpRegistryUrlAuth {"accepted":false}
+2026-10-07T18:38:20.693Z a request server.listAcpRegistrySessions {"projectId":"c47a1a2e-2c2a-47d9-89ea-0ddbe6be86df","instanceId":"acpRegistry_gemini"}
+2026-10-07T18:38:20.693Z a answer server.listAcpRegistrySessions {"sessions":[{"sessionId":"gemini-session-7f2a","cwd":"/lane/upkeep-demo","additionalDirectories":[],"title":"Refactor the release script","updatedAt":"2026-10-07T21:14:00Z","importedThreadId":null},{"sessionId":"gemini-session-3c91","cwd":"/lane/upkeep-demo","additionalDirectories":[],"title":"Inve
+2026-10-07T18:38:23.546Z a request server.listAcpRegistrySessions {"projectId":"c47a1a2e-2c2a-47d9-89ea-0ddbe6be86df","cursor":"page-2","instanceId":"acpRegistry_gemini"}
+2026-10-07T18:38:23.546Z a answer server.listAcpRegistrySessions {"sessions":[{"sessionId":"gemini-session-a044","cwd":"/lane/upkeep-demo","additionalDirectories":[],"title":null,"updatedAt":"2026-10-06T09:41:00Z","importedThreadId":null}],"nextCursor":null,"canLoad":true,"canResume":true,"canDelete":true}
+2026-10-07T18:38:25.932Z a request server.importAcpRegistrySession {"instanceId":"acpRegistry_gemini","projectId":"c47a1a2e-2c2a-47d9-89ea-0ddbe6be86df","sessionId":"gemini-session-7f2a","title":"Refactor the release script","updatedAt":"2026-10-07T21:14:00Z"}
+2026-10-07T18:38:25.932Z a answer server.importAcpRegistrySession {"threadId":"thread-gemini-session-7f2a","imported":true}
+2026-10-07T18:38:35.415Z b exit server.reportClientActivity Success
+2026-10-07T18:38:35.415Z a exit server.reportClientActivity Success
+2026-10-07T18:42:49.498Z a http POST /oauth/token
+2026-10-07T18:42:49.500Z a http GET /api/auth/session
+2026-10-07T18:42:49.502Z a http POST /api/auth/websocket-ticket
+2026-10-07T18:42:49.512Z a http GET /api/auth/session
+2026-10-07T18:42:49.540Z a request assets.createUrl {"resource":{"_tag":"project-favicon","cwd":"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/servers/a/repos/upkeep-demo"}}
+2026-10-07T18:42:49.548Z a exit assets.createUrl Success
+2026-10-07T18:42:49.611Z a request vcs.refreshStatus {"cwd":"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/servers/a/repos/upkeep-demo"}
+2026-10-07T18:42:49.613Z a request subscribeVcsStatus {"cwd":"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/servers/a/repos/upkeep-demo"}
+2026-10-07T18:42:49.616Z a request scheduledTasks.subscribe {}
+2026-10-07T18:42:49.640Z a request subscribeProjectClones {}
+2026-10-07T18:42:49.649Z a request subscribeDeviceState {}
+2026-10-07T18:42:49.673Z a request vcs.listRefs {"cwd":"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/servers/a/repos/upkeep-demo","limit":100}
+2026-10-07T18:42:49.703Z a exit vcs.listRefs Success
+2026-10-07T18:42:49.880Z a exit server.reportClientActivity Success
+2026-10-07T18:42:49.995Z a request server.refreshProviders {"cwd":"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/servers/a/repos/upkeep-demo","instanceId":"codex"}
+2026-10-07T18:42:50.065Z a exit server.refreshProviders Success
+2026-10-07T18:42:50.070Z a exit vcs.refreshStatus Success
+2026-10-07T18:42:56.690Z a request agentSessions.scan {}
+2026-10-07T18:42:56.692Z a exit agentSessions.scan Success
+2026-10-07T18:43:05.481Z a fixture reset
+2026-10-07T18:43:06.330Z a request server.refreshProviders {"cwd":"/Users/daehyeonmun/orca/workspaces/exact2/t3-code-provider-settings-upkeep/target/upkeep-lane/servers/a/repos/upkeep-demo","instanceId":"codex"}
+2026-10-07T18:43:06.400Z a exit server.refreshProviders Success
+2026-10-07T18:43:14.770Z a exit server.reportClientActivity Success
+2026-10-07T18:43:16.249Z a request provider.auth.subscribe {"instanceId":"acpRegistry_gemini"}
+2026-10-07T18:43:20.345Z a request server.searchAcpRegistry {"query":""}
+2026-10-07T18:43:20.906Z a exit server.searchAcpRegistry Success
