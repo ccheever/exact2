@@ -32,10 +32,10 @@ component SettingsCoreBody
       when core.message != "" and core.showScope
         text core.message role="status" font-size="0.875rem" line-height="1.25rem" color=core.palette.muted padding-left="1rem" padding-right="1rem" testId="settings-unavailable"
       when route == "general" and core.message == "" and core.notice == ""
-        CoreSections(reduced=reduced, sections=core.sections, pal=core.palette, busy=busy, menu=menu, legacyOpen=legacyOpen, toggleLegacy=toggleLegacy, openMenu=openMenu, closeMenu=closeMenu, change=change, slide=slide, navigate=navigate)
+        CoreSections(reduced=reduced, sections=core.sections, pal=core.palette, codePreview=core.codePreview, busy=busy, menu=menu, legacyOpen=legacyOpen, toggleLegacy=toggleLegacy, openMenu=openMenu, closeMenu=closeMenu, change=change, slide=slide, navigate=navigate)
       when route == "appearance" and core.notice == ""
         AppearanceLibrary(tiles=core.tiles, themes=core.themes, pal=core.palette, busy=busy, change=change, dialog=dialog)
-        CoreSections(reduced=reduced, sections=core.sections, pal=core.palette, busy=busy, menu=menu, legacyOpen=legacyOpen, toggleLegacy=toggleLegacy, openMenu=openMenu, closeMenu=closeMenu, change=change, slide=slide, navigate=navigate)
+        CoreSections(reduced=reduced, sections=core.sections, pal=core.palette, codePreview=core.codePreview, busy=busy, menu=menu, legacyOpen=legacyOpen, toggleLegacy=toggleLegacy, openMenu=openMenu, closeMenu=closeMenu, change=change, slide=slide, navigate=navigate)
 
 // useSettingsRestore's confirmation: names every value it resets before restoring.
 component SettingsRestoreDialog
