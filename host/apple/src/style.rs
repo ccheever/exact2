@@ -446,7 +446,10 @@ fn push_dimension(out: &mut String, d: Dimension) {
             push_num(out, x);
             out.push('}');
         }
-        Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..) => {
+        Dimension::Env(..)
+        | Dimension::Segment(..)
+        | Dimension::Viewport(..)
+        | Dimension::Compare(..) => {
             unreachable!("resolved")
         }
     }

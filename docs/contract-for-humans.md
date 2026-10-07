@@ -869,7 +869,11 @@ parenthood, and do not assume border-box sizing. Set it when it matters.
 
 Numeric dimensions normally mean pixels. Unit-bearing values and keywords are
 strings: `width="50%"`, `height="auto"`, `padding-top="env(safe-area-inset-top)"`,
-`width="calc(100% - 24px)"`. Supported values are property-specific; this is not
+`width="calc(100% - 24px)"`, and CSS's `min()`, `max()` and `clamp()` over px,
+the safe-area insets and viewport lengths: `padding-bottom="clamp(15px,
+env(safe-area-inset-bottom), 60px)"`, `bottom="calc(max(15px,
+env(safe-area-inset-bottom)) + 44px)"` (no percentage inside one: the kernel
+resolves them before layout). Supported values are property-specific; this is not
 an unrestricted browser stylesheet. The compiler and kernel reject unsupported
 names or values. `line-height=1.5` is a ratio; `line-height="24px"` is fixed.
 

@@ -124,6 +124,9 @@ pub enum DecodeError {
     AutoNotAdmitted { style: StyleId },
     /// A dimension kind byte is not auto/points/percent.
     UnknownDimensionKind(u8),
+    /// A `min()`/`max()`/`clamp()` length's tree is malformed: an unknown
+    /// tag, a wrong count, too deep or too large.
+    InvalidComparison,
     /// A grid track kind byte is outside the closed grammar.
     UnknownTrackKind(u8),
     /// More grid tracks than the closed grammar allows.
@@ -467,6 +470,12 @@ pub enum StyleValueError {
     BadEnv {
         style: StyleId,
         refusal: crate::style::EnvRefusal,
+    },
+    /// A `min()`, `max()` or `clamp()` length the kernel does not hold
+    /// (LLP 1001 §2, 2026-10-07); `reason` names what.
+    BadComparison {
+        style: StyleId,
+        reason: &'static str,
     },
     /// A `transition` text was not CSS shorthand the evaluator accepts.
     BadTransition {

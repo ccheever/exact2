@@ -118,6 +118,13 @@ are animatable and constant-call values can be evaluated at compilation.
 Styles accept literal style attributes and explicitly styleable props (currently
 `buttonStyle`), not arbitrary expressions or event props.
 
+A length attribute's string is CSS's own text, read by the kernel: a px or
+other absolute length, a percentage, a viewport length, `auto`,
+`calc(<percent> ± <px>)`, `env(safe-area-inset-*)` and `calc(env(…) ± <px>)`,
+or `min()`, `max()` and `clamp()` over px, insets and viewport lengths
+(`clamp(15px, env(safe-area-inset-bottom), 60px)`; LLP 1001 §2). Anything else
+is `lower-attr-value`, with the kernel's reason.
+
 A `sound` names a WAV under the app's `assets/` (LLP 1096 D1): 16-bit integer
 or 32-bit float PCM (or `WAVE_FORMAT_EXTENSIBLE` naming one), one or two
 channels, 8–96 kHz, at most 10 s. The compiler reads its header and refuses

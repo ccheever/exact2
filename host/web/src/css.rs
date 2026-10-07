@@ -804,6 +804,9 @@ pub(crate) fn dimension(out: &mut String, d: Dimension) {
         // The browser resolves the segment itself too (LLP 1078 D6): the
         // text is CSS-ENV-1's, untouched.
         Dimension::Segment(var, x, y, plus) => exact_kernel::style::env::css(var, x, y, plus, out),
+        // CSS's own `min()`, `max()` and `clamp()`: the browser resolves
+        // them, the insets with the rest (LLP 1001 §2, 2026-10-07).
+        Dimension::Compare(c) => c.css(out),
     }
 }
 

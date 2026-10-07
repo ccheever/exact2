@@ -125,6 +125,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
     match e {
         StyleValueError::WrongKind { expected, .. } => format!("expected {expected}"),
         StyleValueError::BadEnv { refusal, .. } => refusal.reason().into(),
+        StyleValueError::BadComparison { reason, .. } => (*reason).into(),
         StyleValueError::UnknownEnumValue { style } => format!(
             "expected one of {}",
             style.enum_names().iter().map(|name| format!("{name:?}")).collect::<Vec<_>>().join(", ")
