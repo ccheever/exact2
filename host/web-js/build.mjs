@@ -16,7 +16,7 @@ import { hatchWords, moduleDirectory } from '../../scripts/app.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, isAbsolute, posix, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, normalize, posix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { transformSync } from 'rolldown/utils';
 import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants, webCompiler } from './module.mjs';
@@ -80,6 +80,45 @@ const rust = !!manifest.rust?.module || bakes;
 const ts = existsSync(resolve(appDir, 'app.ts')) && !(rust && opt('--data'));
 const mixed = rust && ts;
 const appTs = resolve(appDir, 'app.ts');
+// The manifest's `typescript.sources` mounts (js/bake/src/lib.rs `mounts`):
+// `./<name>/…` from the app's own modules resolves into that directory in
+// every load this build makes (the module read below, the server and page
+// bundles), as the type check's capture lays it out.
+const tsMounts = Object.entries(manifest.typescript?.sources ?? {}).map(([name, path]) => [name, realpathSync(resolve(appDir, path))]);
+// As the bake refuses them (js/bake/src/lib.rs `mounts`): a file reachable
+// through two mounts would have two places in the layout.
+for (const [i, [a, aDir]] of tsMounts.entries()) for (const [b, bDir] of tsMounts.slice(i + 1)) {
+  if (aDir === bDir || aDir.startsWith(bDir + sep) || bDir.startsWith(aDir + sep)) {
+    console.error(`error: typescript.sources.${a} and typescript.sources.${b} overlap; mount directories that do not contain each other`);
+    process.exit(1);
+  }
+}
+const appRoots = [...new Set([resolve(appDir), realpathSync(appDir)])];
+const within = (path, dir) => path === dir || path.startsWith(dir + sep);
+// Where a file sits in the captured layout (the app at the root, each mount
+// under its name), and back: an import resolves there, from any importer.
+const logical = path => {
+  const mount = tsMounts.find(([, dir]) => within(path, dir));
+  if (mount) return join(mount[0], relative(mount[1], path));
+  const root = appRoots.find(dir => within(path, dir));
+  return root === undefined ? null : relative(root, path);
+};
+const physical = path => {
+  const [first, ...rest] = path.split(sep);
+  const mount = tsMounts.find(([name]) => name === first);
+  return mount ? resolve(mount[1], ...rest) : resolve(appRoots[0], path);
+};
+function mounted(spec, importer) {
+  if (!tsMounts.length || !importer || !/^\.\.?\//.test(spec)) return null;
+  const from = logical(dirname(importer));
+  if (from === null) return null;
+  const target = normalize(join(from, spec));
+  if (target === '..' || target.startsWith('..' + sep) || isAbsolute(target)) return null;
+  const base = physical(target);
+  return [base, `${base}.ts`, `${base}.js`, resolve(base, 'index.ts')].find(path => statSync(path, { throwIfNoEntry: false })?.isFile()) ?? null;
+}
+const mountResolver = build => build.onResolve({ filter: /^\.\.?\// }, args => { const path = mounted(args.path, args.importer); return path ? { path } : undefined; });
+if (tsMounts.length) Bun.plugin({ name: 'exact-mounts', setup: mountResolver });
 const devLogic = [];
 // Native modules (LLP 1024): the app's module artifact, `modules/web/` beside
 // the page as `modules/`, with the web host's adapter (native.js).
@@ -388,7 +427,7 @@ const scopedModule = (code, id) => {
   return result.code;
 };
 const bundle = async (options) => {
-  const r = await Bun.build({ ...options, plugins: [{ name: 'source-grants', setup(build) {
+  const r = await Bun.build({ ...options, plugins: [{ name: 'exact-mounts', setup: mountResolver }, { name: 'source-grants', setup(build) {
     build.onLoad({ filter: /\.[cm]?[jt]sx?$/ }, ({ path }) => { const contents = scopedModule(readFileSync(path, 'utf8'), path); return contents == null ? undefined : { contents, loader: 'js' }; });
   } }] });
   for (const m of r.logs) console.error(String(m));
@@ -401,7 +440,7 @@ if (how !== 'none') await bundle({ entrypoints: [resolve(gen, 'main-server.js')]
 // bytes a page downloads before its runtime is up.
 {
   const { rolldown } = await import('rolldown');
-  const b = await rolldown({ input: resolve(gen, 'main.js'), plugins: [{ name: 'source-grants', transform: scopedModule }], logLevel: 'warn', onLog: (level, log) => console.error(log.message) });
+  const b = await rolldown({ input: resolve(gen, 'main.js'), plugins: [{ name: 'exact-mounts', resolveId: (source, importer) => mounted(source, importer) }, { name: 'source-grants', transform: scopedModule }], logLevel: 'warn', onLog: (level, log) => console.error(log.message) });
   // In a development reload build, put the TypeScript data module and every
   // helper it imports in one chunk the page really loads. Its emitted bytes,
   // rather than watcher filenames or source mtimes, are the logic revision.

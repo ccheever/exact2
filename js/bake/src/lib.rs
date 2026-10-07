@@ -514,6 +514,18 @@ fn mounts(root: &Path) -> Result<Vec<(String, PathBuf)>, String> {
         }
         out.push((name.clone(), dir));
     }
+    // A file reachable through two mounts would have two places in the
+    // capture, and the web build could resolve its imports from the other:
+    // mounts may not overlap.
+    for (i, (a, a_dir)) in out.iter().enumerate() {
+        for (b, b_dir) in &out[i + 1..] {
+            if a_dir.starts_with(b_dir) || b_dir.starts_with(a_dir) {
+                return Err(format!(
+                    "typescript.sources.{a} and typescript.sources.{b} overlap; mount directories that do not contain each other"
+                ));
+            }
+        }
+    }
     Ok(out)
 }
 

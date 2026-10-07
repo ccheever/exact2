@@ -55,17 +55,15 @@ not require `HOME`. App and scratch
 identities and `app:/` path components must be safe Windows leaves; drive, UNC,
 backslash traversal, alternate-stream and reserved-device forms are refused.
 
-Snapback4 consumers use release **0.2.30**: the CLI and browser device are pinned
-in `bun.lock`; Cargo pins native devices and schema compilers to the matching
-release source commit `a397218e2332964ebe29aa1d30918c436713cc8a`.
-Run `bun install --frozen-lockfile` before baking Messages Legacy, and use the pinned CLI
-with `bun run --bun snapback4` from an app directory.
-Messages Legacy and the optional `exact-snapback4` adapter belong to the separate
-`snapback4/` Cargo workspace. Its lock carries the private source; root Cargo
-commands need no Snapback access. The `messages-legacy` build commands select
-that workspace automatically; direct Cargo commands use
-`--manifest-path snapback4/Cargo.toml`. External consumers keep their path
-dependency on `snapback4/`.
+Snapback4 consumers use release **0.4.13**: the CLI is pinned in `bun.lock`;
+Cargo pins the device and its client to the matching release source commit
+`67b2ce28a3823f3dd1728dc4a2421995e1b12ac8`. `snapback4/` is one client for an
+app's Rust and TypeScript on every host ([its README](../snapback4/README.md)):
+the protocol in Rust without I/O, the native device, the web's wasm, and the
+TypeScript driver an app mounts with `typescript.sources`. The client is its
+own Cargo workspace, `snapback4/`; its lock carries the private source, so
+root Cargo commands need no Snapback access. Direct Cargo commands use
+`--manifest-path snapback4/Cargo.toml`; apps depend on `snapback4/` by path.
 
 The canonical [Messages](../apps/messages/README.md) app is the Exact port of Expo's
 chat demo, with model conversations through a local OpenRouter service. It belongs
