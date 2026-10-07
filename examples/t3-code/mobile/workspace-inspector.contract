@@ -44,7 +44,15 @@ shape WorkspaceEvent
   phase: string
   value: string
   width: number
+shape ReviewNavigatorAppearance
+  addition: string
+  deletion: string
+  labelSize: number
+  labelLine: number
+  countSize: number
+  countLine: number
 shape InspectorPresentation
+  navigator: ReviewNavigatorAppearance
   title: string
   files: FileTreeSnapshot
   reviewFiles: list<ReviewFile>
@@ -77,11 +85,13 @@ component MobileInspectorContent
         column position="absolute" inset=0 visibility=(data.showGit ? "visible" : "hidden") pointer-events=(data.showGit and visible ? "auto" : "none") aria-hidden=(not data.showGit or not visible)
           MobileGitOverview(data=data.git, inspector=true, bottomInset=gitBottomInset, action=gitAction, refresh=refreshGit, colors=gitColors)
       when state.mountedRoute and state.kind == "changed-files"
-        scroll id="inspector-changes" flex=1 min-height=0 aria-hidden=(not visible) pointer-events=(visible ? "auto" : "none")
-          column padding=7 gap=2
-            each file in data.reviewFiles key=file.id
-              button press=reviewFile(file.path) min-height=44 border-radius=10 padding=10 aria-label=file.path background-color=(file.path == data.reviewSelected ? colors.subtleStrong : "transparent")
-                row gap=7 align-items="center"
-                  text file.path flex=1 min-width=0 line-clamp=2 color=colors.foreground font-size=12.25
-                  text `+${file.additions}` color=colors.addition font-family="Menlo" font-size=11
-                  text `-${file.deletions}` color=colors.deletion font-family="Menlo" font-size=11
+        list id="inspector-changes" flex=1 min-height=0 virtualized=true estimated-item-height=54 font-family="DM Sans"
+          padding-left=8 padding-right=8 padding-top=8 padding-bottom=8 aria-hidden=(not visible) pointer-events=(visible ? "auto" : "none")
+          each file in data.reviewFiles key=file.id
+            button press=reviewFile(file.path == data.reviewSelected ? "" : file.path) min-height=42 box-sizing="border-box" margin-top=3.5 border-radius=10.5 padding-left=10.5 padding-right=10.5 padding-top=7 padding-bottom=7 justify-content="center"
+              aria-label=file.path aria-selected=(file.path == data.reviewSelected) background-color=(file.path == data.reviewSelected ? colors.subtleStrong : "transparent")
+              text file.path line-clamp=2 font-size=data.navigator.labelSize line-height=`${data.navigator.labelLine}px`
+                font-weight=(file.path == data.reviewSelected ? 700 : 500) color=(file.path == data.reviewSelected ? colors.foreground : colors.secondary)
+              row margin-top=3.5 gap=7
+                text `+${file.additions}` color=data.navigator.addition font-size=data.navigator.countSize line-height=`${data.navigator.countLine}px` font-weight=700
+                text `-${file.deletions}` color=data.navigator.deletion font-size=data.navigator.countSize line-height=`${data.navigator.countLine}px` font-weight=700

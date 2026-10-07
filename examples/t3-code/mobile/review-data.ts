@@ -7,7 +7,7 @@ import { ClientError, nativeFiles, type Native, type Files } from './shared/prot
 import { letGo, letGoAware } from './shared/let-go';
 import { workspaceOf } from './shared/r4-surfaces-panel';
 import type { DiffFileModel } from './shared/diff';
-import { diffSource, lazyPatches, loadFilePatches, requestFiles, retryFile, type LazyPatches, type DiffSource } from './shared/diff-lazy';
+import { diffSource, lazyPatches, loadFilePatches, requestFiles, retryFile, unanswered, type LazyPatches, type DiffSource } from './shared/diff-lazy';
 import { buildDiffReviewComment, diffReviewLines, reviewCommentContextRecord, type ReviewCommentContext } from './shared/diff-comments';
 import { addReviewCommentChip, removeReviewCommentChip, localId } from './shared/composer-editor';
 import { assertReviewOwner, reviewComposerNative, reviewFileAccess, reviewNative, reviewOwner } from './review-owner';
@@ -15,7 +15,7 @@ import { reviewFileRows, reviewPatch, reviewRow, reviewSuppression, type ReviewF
 
 export interface ReviewSection { id: string; title: string; subtitle: string; selected: boolean }
 export interface ReviewSnapshot {
-  owner: string; revision: number; sectionId: string; title: string; subtitle: string; sections: ReviewSection[];
+  owner: string; revision: number; sectionId: string; patchRequest: string; title: string; subtitle: string; sections: ReviewSection[];
   files: ReviewFile[]; rows: ReviewRow[]; loading: boolean; error: string; notice: string; raw: string;
   emptyTitle: string; emptyDetail: string; additions: number; deletions: number; selectedPath: string;
   selectionTitle: string; canComment: boolean; commentOpen: boolean; commentPath: string; commentRange: string;
@@ -25,7 +25,7 @@ interface Section extends ReviewSection { diff: string | null; source: DiffSourc
 interface Pick { sectionId: string; path: string; anchor: number; start: number; end: number }
 interface State {
   owner: string; serial: number; version: number; sections: Section[]; selected: string; selectedPath: string;
-  loading: boolean; error: string; canReadFiles: boolean; checked: boolean;
+  navigationSerial: number; loading: boolean; error: string; canReadFiles: boolean; checked: boolean;
   collapsed: Set<string>; revealed: Set<string>; viewed: Set<string>; pick: Pick | null; ranging: boolean; commentOpen: boolean;
   comments: { contextId: string; comment: ReviewCommentContext }[];
 }
@@ -33,16 +33,20 @@ const states = new WeakMap<T3Client, State>();
 function stateOf(client: T3Client): State {
   const owner = reviewOwner(client); let state = states.get(client);
   if (!state || state.owner !== owner) {
-    state = { owner, serial: 0, version: 0, sections: [], selected: '', selectedPath: '', loading: false, error: '', canReadFiles: false, checked: false,
+    state = { owner, serial: 0, version: 0, sections: [], selected: '', selectedPath: '', navigationSerial: 0, loading: false, error: '', canReadFiles: false, checked: false,
       collapsed: new Set(), revealed: new Set(), viewed: new Set(), pick: null, ranging: false, commentOpen: false, comments: [] };
     states.set(client, state);
   }
   return state;
 }
-export const EMPTY_MOBILE_REVIEW: ReviewSnapshot = { owner: '', revision: 0, sectionId: '', title: 'Review changes', subtitle: '', sections: [], files: [], rows: [],
+export const EMPTY_MOBILE_REVIEW: ReviewSnapshot = { owner: '', revision: 0, sectionId: '', patchRequest: '', title: 'Review changes', subtitle: '', sections: [], files: [], rows: [],
   loading: false, error: '', notice: '', raw: '', emptyTitle: 'No review diffs', emptyDetail: '', additions: 0, deletions: 0, selectedPath: '',
   selectionTitle: '', canComment: false, commentOpen: false, commentPath: '', commentRange: '', commentPreview: '', commentCount: 0 };
 const snapshots = new WeakMap<State, { version: number; dark: boolean; draft: string; blocked: boolean; data: ReviewSnapshot }>();
+function patchRequest(section: Section | undefined): string {
+  const files = section?.lazy ? unanswered(section.lazy) : [];
+  return files.length ? JSON.stringify(files.map(file => file.path)) : '';
+}
 const errorText = (error: unknown) => error instanceof Error ? error.message : 'Review unavailable';
 const fileKey = (state: State, path: string) => `${state.selected}\n${path}`;
 function readySections(client: T3Client, previous: Section[]): Section[] {
@@ -60,7 +64,7 @@ function readySections(client: T3Client, previous: Section[]): Section[] {
 }
 function select(state: State, id: string) {
   const next = state.sections.find(row => row.id === id) ?? state.sections.find(row => row.id === 'git:branch-range') ?? state.sections[0];
-  if (next?.id !== state.selected) { state.selectedPath = ''; state.pick = null; state.ranging = false; state.commentOpen = false; }
+  if (next?.id !== state.selected) { state.navigationSerial++; state.selectedPath = ''; state.pick = null; state.ranging = false; state.commentOpen = false; }
   state.selected = next?.id ?? '';
 }
 function sectionFiles(section: Section | undefined): { file: DiffFileModel; notice: string; pending: boolean; error: boolean }[] {
@@ -123,11 +127,11 @@ export function mobileReviewSnapshot(dark = false, client: T3Client = mobileClie
   }
   const comment = commentFromPick(state, '', 'preview');
   const totals = section?.source?.files ?? files;
-  const data: ReviewSnapshot = { owner: state.owner, revision: client.revision, sectionId: state.selected, title: section?.title ?? 'Review changes', subtitle: section?.subtitle ?? '',
+  const data: ReviewSnapshot = { owner: state.owner, revision: client.revision, sectionId: state.selected, patchRequest: patchRequest(section), title: section?.title ?? 'Review changes', subtitle: section?.subtitle ?? '',
     sections: state.sections.map(({ id, title, subtitle }) => ({ id, title, subtitle, selected: id === state.selected })), files, rows,
     loading: state.loading, error: state.error, notice: parsed.notice, raw: !files.length && parsed.text ? parsed.text : '',
     emptyTitle: section ? 'No changes' : 'No review diffs', emptyDetail: section ? parsed.text ? parsed.rawReason : section.subtitle || 'This diff is empty.' : 'This thread has no ready turn diffs and the worktree diff is empty.',
-    additions: totals.reduce((sum, file) => sum + file.additions, 0), deletions: totals.reduce((sum, file) => sum + file.deletions, 0), selectedPath: state.selectedPath,
+    additions: totals.reduce((sum, file) => sum + file.additions, 0), deletions: totals.reduce((sum, file) => sum + file.deletions, 0), selectedPath: files.some(file => file.path === state.selectedPath) ? state.selectedPath : '',
     selectionTitle: state.ranging ? 'Select range end' : comment ? `Comment on ${comment.rangeLabel}` : '',
     canComment: !!comment && !state.ranging && !!client.threadId && !client.pending && !client.busy, commentOpen: state.commentOpen && !!comment,
     commentPath: comment?.filePath ?? '', commentRange: comment?.rangeLabel ?? '', commentPreview: comment?.diff ?? '', commentCount: comments.length };
@@ -187,15 +191,26 @@ export async function mobileReviewRead(nativeInput: Native | null | undefined, s
 /** The caller sends the snapshot owner with every action, including delayed modal Save. */
 export async function mobileReviewAction(owner: string, op: string, id: string, value: string, n: number,
   nativeInput: Native | null | undefined, suppliedStorage: Files, dark = false, client: T3Client = mobileClient) {
-  let message = ''; const actionState = stateOf(client);
+  let message = '', navigation = ''; const actionState = stateOf(client);
+  let navigationSerial = actionState.navigationSerial, navigationSection = actionState.selected;
   try {
     assertReviewOwner(client, owner);
     if (!nativeInput?.available) throw new ClientError('Review is available in the native app.');
     const native = reviewNative(client, letGoAware(mobileNative(nativeInput)), owner);
     const storage = client === mobileClient ? nativeFiles(native) : suppliedStorage;
     const state = stateOf(client), section = state.sections.find(row => row.id === state.selected), key = fileKey(state, id);
-    if (op === 'section' || op === 'refresh') return { message: '', data: await mobileReviewRead(nativeInput, op === 'section' ? id : state.selected, dark, op === 'refresh', client) };
-    if (op === 'clear' || op === 'cancel') { state.pick = null; state.ranging = false; state.commentOpen = false; }
+    if (op === 'section' || op === 'refresh') return { message: '', navigation: '', data: await mobileReviewRead(nativeInput, op === 'section' ? id : state.selected, dark, op === 'refresh', client) };
+    if (op === 'file') {
+      navigationSerial = ++state.navigationSerial; navigationSection = state.selected;
+      state.pick = null; state.ranging = false; state.commentOpen = false;
+    }
+    if (op === 'patches') {
+      if (section?.id === id && section.lazy && section.source && value === patchRequest(section)) {
+        await loadFilePatches(section.lazy, section.source, false, (method, payload) => client.rpc(native, method, payload));
+      }
+    }
+    else if (op === 'file' && !id) { state.selectedPath = ''; navigation = 'top'; }
+    else if (op === 'clear' || op === 'cancel') { state.pick = null; state.ranging = false; state.commentOpen = false; }
     else if (op === 'comment') state.commentOpen = !!commentFromPick(state, '', 'preview');
     else if (op === 'delete-comment') {
       const entry = state.comments.find(row => row.contextId === id);
@@ -213,7 +228,7 @@ export async function mobileReviewAction(owner: string, op: string, id: string, 
       const file = sectionFiles(section).find(row => row.file.path === id);
       if (!file) throw new ClientError('That file is no longer in this diff.');
       if (op === 'toggle') { if (state.collapsed.has(key)) state.collapsed.delete(key); else state.collapsed.add(key); }
-      else if (op === 'viewed') { if (state.viewed.has(key)) state.viewed.delete(key); else state.viewed.add(key); }
+      else if (op === 'viewed') { if (state.viewed.has(key)) state.viewed.delete(key); else { state.viewed.add(key); state.collapsed.add(key); } }
       else if (op === 'reveal') state.revealed.add(key);
       else if (op === 'line' || op === 'extend' || op === 'range-start') {
         if (state.commentOpen || !Number.isInteger(n) || !diffReviewLines(file.file)[n]) throw new ClientError('That line is unavailable.');
@@ -225,16 +240,17 @@ export async function mobileReviewAction(owner: string, op: string, id: string, 
         state.commentOpen = op === 'line' && !extending;
       } else if (op !== 'file' && op !== 'retry' && op !== 'visible') throw new ClientError('Unsupported review action.');
       if (['file', 'retry', 'visible', 'toggle'].includes(op)) {
-        if (op === 'file') { state.selectedPath = id; state.collapsed.delete(key); }
+        if (op === 'file') { state.selectedPath = id; state.collapsed.delete(key); navigation = `file:${id}`; }
         if (section?.lazy && section.source && (op !== 'toggle' || !state.collapsed.has(key))) {
           const at = section.lazy.files.findIndex(file => file.path === id);
           if (op === 'retry' || file.error) retryFile(section.lazy, id);
           requestFiles(section.lazy, [at, at + 1, at + 2]);
-          await loadFilePatches(section.lazy, section.source, false, (method, payload) => client.rpc(native, method, payload));
+          if (op !== 'file') await loadFilePatches(section.lazy, section.source, false, (method, payload) => client.rpc(native, method, payload));
         }
       }
     }
   } catch (error) { if (letGo(error)) throw error; message = errorText(error); }
   finally { actionState.version++; client.revision++; }
-  return { message, data: mobileReviewSnapshot(dark, client) };
+  return { message, navigation: !message && stateOf(client) === actionState && actionState.navigationSerial === navigationSerial
+    && actionState.selected === navigationSection ? navigation : '', data: mobileReviewSnapshot(dark, client) };
 }

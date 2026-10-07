@@ -57,6 +57,7 @@ final class T3MobileModule: ExactModule {
     private let inspectorChrome = T3MobileInspector()
     lazy var workspace = T3MobileWorkspace(homeChrome: homeChrome, inspector: inspectorChrome)
     let settingsNavigation = T3SettingsNavigation()
+    private let scratchClock = T3MobileScratchClock()
     private let alerts = T3MobileAlerts()
     private let releases = T3ReleasePages()
     private let scheduledControls: T3MobileScheduledControls
@@ -132,6 +133,14 @@ final class T3MobileModule: ExactModule {
         let generation = request["generation"] as? Int ?? 0
         func answer(_ value: [String: Any] = [:]) { reply.send(["ok": true, "generation": generation, "value": value]) }
         switch request["op"] as? String {
+        case "timelineSleep":
+            guard let milliseconds = request["ms"] as? Double,
+                  scratchClock.sleep(milliseconds: milliseconds, reply: { finished in
+                      if finished { answer() } else { reply.fail("The mobile session was closed.") }
+                  }) else { reply.fail("The scratch wait is invalid."); return }
+        case "r10Wake":
+            guard request["topic"] as? String == "t3.notify" else { reply.fail("The scratch wake topic is invalid."); return }
+            context.changed("t3.notify"); answer()
         case "mobileScheduledMenu", "mobileScheduledTime", "mobileScheduledConfirm":
             scheduledControls.perform(request) { reply.send($0) }
         case "mobileVoice":
@@ -228,6 +237,7 @@ final class T3MobileModule: ExactModule {
 
     override func destroy() {
         alive = false
+        scratchClock.destroy()
         workspace.destroy(); inspectorChrome.destroy()
         scheduledControls.destroy()
         voice.destroy()

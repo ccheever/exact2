@@ -1,3 +1,4 @@
+import { mobileThreadAnswerFilesPrepare } from './thread';
 import { mobileGitColors } from './git-colors';
 import { mobileGitSnapshot, mobileGitRead, mobileGitAction } from './git-overview';
 import { mobileGitBranchesSnapshot, mobileGitBranchesRead, mobileGitBranchAction } from './git-branches';
@@ -54,7 +55,7 @@ export function answer(source: string, args: unknown[], _store?: unknown, storag
   if (source === 'inspectorState') return workspaceInspectorSnapshot(str(args[0]));
   if (source === 'inspectorContext') return mobileInspectorContext(args[0], args[1] === true, args[2] === true, Number(args[3]), args[4] === true, args[5] === true, args[6] === 'dark');
   if (source === 'inspectorTransition') return mobileInspectorTransition(str(args[0]), str(args[1]), str(args[2]), str(args[3]), Number(args[4]), str(args[5]), args[6] === 'dark');
-  if (source === 'inspectorPresentation') return mobileInspectorPresentation(str(args[0]), str(args[1]), args[2] === true, str(args[3]), str(args[4]), str(args[5]));
+  if (source === 'inspectorPresentation') return mobileInspectorPresentation(str(args[0]), str(args[1]), args[2] === true, str(args[3]), str(args[4]), str(args[5]), mobileClient, Number(args[6]));
   if (source === 'workspaceEvent') return mobileWorkspaceEvent(str(args[0]), str(args[1]), str(args[2]), args[3] === true, Number(args[4]));
   if (source === 'gitColors') return mobileGitColors(str(args[0]), str(args[1]));
   if (source === 'gitSnapshot') return mobileGitSnapshot(Number(args[0]));
@@ -138,7 +139,7 @@ export function answer(source: string, args: unknown[], _store?: unknown, storag
   if (source === 'reviewColors') return mobileReviewColors(String(args[0]), String(args[1]));
   if (source === 'reviewSnapshot') return mobileReviewSnapshot(args[0] === 'dark', mobileClient, args[1] === true);
   if (source === 'reviewPrepare') return mobileReviewRead(native, String(args[0] ?? ''), args[1] === 'dark');
-  if (source === 'reviewAction') return mobileReviewAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), Number(args[4]), native, storage!, args[5] === 'dark');
+  if (source === 'reviewAction') return mobileReviewAction(String(args[0]), String(args[1]), String(args[2]), String(args[3]), Number(args[4]), native, storage!, args[5] === 'dark').then(result => ({ ...result, requestRoute: str(args[6]) }));
   if (source === 'filesSnapshot') return mobileFilesSnapshot(String(args[0] ?? ''));
   if (source === 'filesPrepare') return mobileFilesRead(String(args[0] ?? ''), String(args[1] ?? ''), native);
   if (source === 'filesAction') return mobileFilesAction(String(args[0]), String(args[1]), String(args[2]), String(args[3] ?? ''), native);
@@ -219,6 +220,7 @@ export function answer(source: string, args: unknown[], _store?: unknown, storag
   if (source === 'selectThread') return mobileCommand(['select-thread', String(args[0] ?? ''), '', 0], native, storage!).then(change =>
     ({ ...change, environmentId: mobileClient.environmentId, threadId: mobileClient.threadId, requestRoute: String(args[1] ?? '') }));
   if (source === 'threadView') return threadView(args, native);
+  if (source === 'answerFilesPrepare') return mobileThreadAnswerFilesPrepare(str(args[0]), str(args[1]), Number(args[2]), native);
   if (source === 'homeColors') return mobileHomeColors(String(args[0] ?? 'light'), String(args[1] ?? 't3-code'));
   if (source === 'homePreferences') return mobileShelves(native);
   if (source === 'toggleShelf') return mobileToggleShelf(String(args[0] ?? ''), native);

@@ -106,6 +106,9 @@ shape NewTaskSnapshot
   branchLoaded: bool
   branchHasMore: bool
   canSelect: bool
+  canStartScratch: bool
+  scratchTarget: string
+  hasProjects: bool
   draft: bool
   scratch: bool
   workspaceMode: string

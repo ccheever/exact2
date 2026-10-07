@@ -1,3 +1,4 @@
+import { mobileOpenAnswerFile } from './thread-answer-files';
 import { mobileGitEvents } from './git-overview';
 import { mobileDevicesEvents } from './devices-mobile-data';
 import { mobileBrowserEvents } from './browser-mobile-data';
@@ -156,6 +157,7 @@ async function runMobileCommand(args: unknown[], nativeInput: Native | null | un
   const { native, storage } = answerHandles(nativeInput, suppliedStorage);
   if (!native?.available) return { revision: mobileClient.revision, message: 'Open T3 Code on your iPhone or iPad to connect.' };
   let op = str(args[0]), id = str(args[1]), value = str(args[2]);
+  if (op === 'thread-answer-file') return mobileOpenAnswerFile(mobileClient, id, native, Number(args[3]));
   if (op === 'send' || op === 'send-alternate') return mobileSend(mobileClient, op === 'send-alternate', native, storage);
   if (op === 'draft') return mobileDraftChanged(mobileClient, value, native, storage);
   if (op === 'environment-reconnect') {

@@ -1,6 +1,7 @@
 // @ref llp/1106.005-composer-and-transcript.decision.md#work-log-detail-rows
 // Pinned thread-work-log.tsx and work-log-layout.tsx; mobile rem is 14px.
 use ThreadActivity, ThreadColors from "./thread-shapes.contract"
+use ThreadMarkdown from "./thread-markdown.contract"
 component ThreadToolRow
   props
     activity: ThreadActivity
@@ -34,24 +35,43 @@ component ThreadToolRow
       else
         button press=toggleDetail
           disabled=(not activity.expandable) padding-left=1.75 padding-right=1.75 padding-top=0 padding-bottom=0 text-align="left" border-radius=7
-          aria-expanded=activity.expanded aria-label=activity.label
+          aria-expanded=activity.expanded aria-label=(activity.answerPreview != "" ? `${activity.label}: ${activity.answerPreview}` : activity.label)
           row align-items="center" gap=5.25 min-height=28
             column width=21 height=21 flex-shrink=0 align-items="center" justify-content="center"
               when length(activity.iconURL) > 0
                 image activity.iconURL width=14 height=14 object-fit="contain"
               else
                 t3-symbol symbol-name=activity.symbol point-size=14 symbol-weight="medium" symbol-tint=colors.iconSubtle width=14 height=14
-            text activity.label flex=1 min-width=0 font-family="DM Sans" font-size=14 line-height="19px" color=colors.muted line-clamp=1 text-overflow="ellipsis"
+            text flex=1 min-width=0 font-family="DM Sans" font-size=14 line-height="19px" color=colors.muted line-clamp=1 text-overflow="ellipsis"
+              text activity.label
+              when activity.answerPreview != ""
+                text `  ${activity.answerPreview}` color=(not activity.expanded and activity.hasAnswer ? colors.foreground : colors.iconSubtle)
             column width=14 height=14 align-items="center" justify-content="center"
               when activity.expandable
                 t3-symbol symbol-name=(activity.expanded ? "chevron.up" : "chevron.down") point-size=11 symbol-weight="regular" symbol-tint=colors.iconSubtle width=11 height=11
         when activity.expanded
           column padding-top=(activity.reasoning ? 3.5 : 1.75) padding-bottom=3.5 margin-left=(activity.reasoning ? 24.5 : 0)
+            when length(activity.answerHistory) > 0
+              column gap=7
+                each entry in activity.answerHistory key=entry.id
+                  column gap=3.5
+                    when entry.question != ""
+                      text entry.question font-family="DM Sans" font-size=14 line-height="19px" color=colors.muted
+                    when entry.answer != ""
+                      text entry.answer margin-left=10.5 font-family="DM Sans" font-size=14 line-height="19px" color=colors.muted
+                    each file in entry.files key=file.id
+                      button role="link" press=action("thread-answer-file", file.id, "") disabled=(file.url == "") padding=0 text-align="left" aria-label=file.name
+                        column gap=3.5
+                          when file.image and file.url != ""
+                            image file.url width=160 height=96 object-fit="contain" aria-label=file.name
+                          text file.name font-family="DM Sans" font-size=14 line-height="19px" color=colors.foreground text-decoration-line="underline"
             scroll max-height=210 overflow-y="auto"
               column padding-right=8
-                when length(activity.body) > 0
+                when activity.reasoning
+                  ThreadMarkdown(blocks=activity.reasoningBlocks, user=false, action=action, colors=colors)
+                else when length(activity.body) > 0
                   text activity.body font-family="Menlo" font-size=12 line-height="18px" white-space="pre-wrap" color=(activity.call ? colors.foreground : colors.muted)
-                when length(activity.output) > 0
+                when not activity.reasoning and length(activity.output) > 0
                   text activity.output margin-top=5.25 font-family="Menlo" font-size=12 line-height="18px" white-space="pre-wrap" color=colors.muted
                 when length(activity.result) > 0
                   text activity.result margin-top=5.25 font-family="Menlo" font-size=12 line-height="18px" color=(activity.failed ? colors.dangerForeground : colors.muted)

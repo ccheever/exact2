@@ -104,3 +104,51 @@ describe('mobile review source rules and real shared RPC ownership', () => {
     expect(mobileReviewSnapshot(false, f.client)).toMatchObject({ commentOpen: false, canComment: true });
   });
 });
+
+
+describe('Review navigator selection and viewed state', () => {
+  test('select reveals a collapsed file, clears a comment range, and repeat selection can return to top', async () => {
+    const f = fixture(); await read(f);
+    await act(f, 'range-start', 'src/a.ts', '', 1);
+    await act(f, 'toggle', 'src/a.ts');
+    const selected = await act(f, 'file', 'src/a.ts');
+    expect(selected.navigation).toBe('file:src/a.ts');
+    expect(selected.data).toMatchObject({ selectedPath: 'src/a.ts', canComment: false, commentOpen: false, selectionTitle: '' });
+    expect(selected.data.files[0]?.expanded).toBe(true);
+    const cleared = await act(f, 'file');
+    expect(cleared.navigation).toBe('top'); expect(cleared.data.selectedPath).toBe('');
+    expect((await act(f, 'file', 'missing.ts')).navigation).toBe('');
+  });
+  test('marking viewed collapses; marking unviewed preserves collapse; selection reopens without clearing viewed', async () => {
+    const f = fixture(); await read(f);
+    expect((await act(f, 'viewed', 'src/a.ts')).data.files[0]).toMatchObject({ viewed: true, expanded: false });
+    expect((await act(f, 'viewed', 'src/a.ts')).data.files[0]).toMatchObject({ viewed: false, expanded: false });
+    await act(f, 'viewed', 'src/a.ts');
+    expect((await act(f, 'file', 'src/a.ts')).data.files[0]).toMatchObject({ viewed: true, expanded: true });
+    expect((await act(f, 'section', 'turn:1')).data.selectedPath).toBe('');
+  });
+  test('lazy navigation returns immediately and later patches cannot override return-to-top selection', async () => {
+    const f = fixture(), paths = ['a.ts', 'b.ts', 'c.ts', 'd.ts'];
+    let release!: (value: unknown) => void, entered!: () => void;
+    const gate = new Promise(resolve => { release = resolve; });
+    const began = new Promise<void>(resolve => { entered = resolve; });
+    const reply = (file: string) => ({ ok: true, generation: 3, value: { cwd: '/repo', sources: [{ kind: 'branch-range', title: 'Changes', diffHash: 'navigation',
+      truncated: !file, files: paths.map(path => ({ path, previousPath: null, additions: 1, deletions: 1 })), diff: patch(file || 'a.ts') }] } });
+    f.hook(request => {
+      if (request.method !== 'review.getDiffPreview') return;
+      const file = String(obj(obj(request.payload).file).path || '');
+      if (file === 'd.ts') { entered(); return gate; }
+      return reply(file);
+    });
+    await read(f);
+    const selected = await act(f, 'file', 'd.ts');
+    expect(selected.navigation).toBe('file:d.ts');
+    expect(selected.data.patchRequest).toBe(JSON.stringify(['d.ts']));
+    expect(f.calls.some(call => obj(obj(call.payload).file).path === 'd.ts')).toBe(false);
+    const pending = act(f, 'patches', selected.data.sectionId, selected.data.patchRequest); await began;
+    expect((await act(f, 'file')).navigation).toBe('top');
+    release(reply('d.ts'));
+    const stale = await pending;
+    expect(stale.navigation).toBe(''); expect(stale.data.selectedPath).toBe('');
+  });
+});

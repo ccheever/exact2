@@ -138,7 +138,7 @@ component App
   state inspectorContentSerialized = ""
   resource inspectorState = inspectorState(inspectorSerialized) as shape InspectorState
   resource inspectorContext = inspectorContext(workspaceEntries, workspace.fileInspectorSupported, workspace.auxiliaryPaneSupported, workspace.auxiliaryPaneWidth, inspectorResizing, viewport.prefersReducedMotion, appearance.scheme, data.revision, filesData.revision, reviewData.revision) as shape InspectorContext
-  resource inspectorPresentation = inspectorPresentation(inspectorContentSerialized, inspectorSerialized, workspace.inspectorVisible, filesQuery, appearance.scheme, appearance.themeId) as shape InspectorPresentation
+  resource inspectorPresentation = inspectorPresentation(inspectorContentSerialized, inspectorSerialized, workspace.inspectorVisible, filesQuery, appearance.scheme, appearance.themeId, appearance.baseFontSize) as shape InspectorPresentation
   mutation inspectorChanged as shape InspectorChange then didInspectorChange
   mutation workspaceEvent as shape WorkspaceEvent then didWorkspaceEvent
   task reconcileInspector key=`${inspectorContext.key}:${data.revision}:${filesData.revision}:${reviewData.revision}:${gitData.revision}:${inspectorSerialized}`
@@ -620,6 +620,11 @@ component App
       lastOperation = "thread-action"
       send changed = command(op, id, value, `${wallTime.epochAtZero + now()}`, taskGuardOwner, taskGuardRoute)
   derive workspaceRouteReady = data.ready and top(nav).params.threadEnvironment == data.environmentId and top(nav).params.threadId == data.threadId
+  mutation answerFilesPrepared as shape InformationRead refreshes threadData, data
+  task prepareAnswerFiles when workspaceRouteReady and (top(nav).name == "thread" or (top(nav).name == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")) and threadData.environmentId == data.environmentId and threadData.threadId == data.threadId and threadData.answerFilesRequest != "" and not pending(answerFilesPrepared) key=`${threadData.answerFilesOwner}:${threadData.answerFilesRequest}`
+    after(1, loadAnswerFiles)
+  action loadAnswerFiles
+    send answerFilesPrepared = answerFilesPrepare(threadData.answerFilesOwner, threadData.answerFilesRequest, wallTime.epochAtZero + now())
   resource previewOwner = previewOwner(workspaceRouteReady and startsWith(top(nav).name, "thread"), data.revision) as shape PreviewOwner
   resource previewPrepared = previewPrepare(previewOwner.owner) as shape InformationRead
   resource previewLook = previewColors(appearance.scheme, appearance.themeId) as shape MobilePreviewColors
@@ -828,6 +833,11 @@ component App
   resource reviewLook = reviewColors(appearance.scheme, appearance.themeId) as shape ReviewColors
   resource reviewData = reviewSnapshot(appearance.scheme, top(nav).name == "threadReview" or top(nav).name == "threadReviewComment", data.revision) as shape ReviewSnapshot
   mutation reviewPrepared as shape ReviewSnapshot refreshes reviewData
+  mutation reviewPatches as shape ReviewResult refreshes reviewData, data
+  task loadReviewPatchQueue when workspaceRouteReady and top(nav).name == "threadReview" and reviewData.patchRequest != "" and not pending(reviewPatches) key=`${reviewData.owner}:${reviewData.sectionId}:${reviewData.patchRequest}`
+    after(1, loadRequestedReviewPatches)
+  action loadRequestedReviewPatches
+    send reviewPatches = reviewAction(reviewData.owner, "patches", reviewData.sectionId, reviewData.patchRequest, 0, appearance.scheme, `${top(nav).id}`)
   mutation reviewChanged as shape ReviewResult refreshes reviewData, data then didReviewChange
   state reviewWrap = false
   state reviewComment = ""
@@ -836,7 +846,7 @@ component App
   task dismissReviewComment when reviewCommentOwner != "" and top(nav).name != "threadReviewComment" key=reviewCommentOwner
     after(1, dismissReviewComment)
   action dismissReviewComment
-    send reviewDismissed = reviewAction(reviewCommentOwner, "cancel", "", "", 0, appearance.scheme)
+    send reviewDismissed = reviewAction(reviewCommentOwner, "cancel", "", "", 0, appearance.scheme, `${top(nav).id}`)
     reviewCommentOwner = ""
   task prepareReview when top(nav).name == "threadReview" and workspaceRouteReady key=`${top(nav).id}:${reviewData.owner}`
     after(1, prepareReview)
@@ -846,13 +856,11 @@ component App
     nav = push(nav, path("threadReview", data.environmentId, data.threadId))
   action reviewAction(op: string, path: string, n: number)
     if workspaceRouteReady
-      send reviewChanged = reviewAction(reviewData.owner, op, path, "", n, appearance.scheme)
+      send reviewChanged = reviewAction(reviewData.owner, op, path, "", n, appearance.scheme, `${top(nav).id}`)
   action reviewSection(value: string)
     reviewAction("section", value, 0)
   action reviewFile(value: string)
-    if value != ""
-      reviewAction("file", value, 0)
-      scrollIntoView("review-diff", `file:${value}`, block="start")
+    reviewAction("file", value, 0)
   action refreshReview
     reviewAction("refresh", "", 0)
   action loadReviewFiles
@@ -864,10 +872,19 @@ component App
   action didReviewChange
     match reviewChanged
       case some(result)
-        if result.message != ""
-          send notice = alert("info", "Review changes", result.message)
-        else if workspaceRouteReady and result.data.owner == reviewData.owner
-          if result.data.commentOpen and top(nav).name == "threadReview"
+        if workspaceRouteReady and result.data.owner == reviewData.owner and result.requestRoute == `${top(nav).id}`
+          if result.message != ""
+            send notice = alert("info", "Review changes", result.message)
+          else if result.navigation != "" and top(nav).name == "threadReview"
+            if result.navigation == "top"
+              match first(reviewData.rows)
+                case some(row)
+                  scrollIntoView("review-diff", row.id, block="start")
+                case none
+                  reviewWrap = reviewWrap
+            else
+              scrollIntoView("review-diff", result.navigation, block="start")
+          else if result.data.commentOpen and top(nav).name == "threadReview"
             reviewComment = ""
             reviewCommentOwner = result.data.owner
             nav = push(nav, path("threadReviewComment", data.environmentId, data.threadId))
@@ -879,7 +896,7 @@ component App
     reviewComment = value
   action submitReviewComment
     if workspaceRouteReady
-      send reviewChanged = reviewAction(reviewCommentOwner, "save", "", reviewComment, 0, appearance.scheme)
+      send reviewChanged = reviewAction(reviewCommentOwner, "save", "", reviewComment, 0, appearance.scheme, `${top(nav).id}`)
   action toggleReviewWrap
     reviewWrap = not reviewWrap
   state filesQuery = ""
@@ -1122,7 +1139,7 @@ component App
           if newTaskOperation != "draft" and newTaskOperation != "send" and newTaskOperation != "send-alternate"
             newTaskContextRevision = newTaskContextRevision + 1
           if result.message != ""
-            send notice = alert("info", "Could not update task", result.message)
+            send notice = alert("info", (newTaskOperation == "scratch" ? "Could not start without a project" : "Could not update task"), result.message)
           else if result.submitted
             nav = open(nav, path("thread", result.environmentId, result.threadId))
           else if result.nextLocation != ""
@@ -1227,7 +1244,7 @@ component App
   mutation removal as shape Notice then didConfirmRemove
   mutation scanned as shape PairingFields then didScan
   resource parsed = pairingFields(host) as shape PairingFields
-  mutation changed as shape Change refreshes data then didChange
+  mutation changed as shape Change refreshes data, threadData then didChange
   task rem mount
     after(1, rootFont)
   action rootFont
