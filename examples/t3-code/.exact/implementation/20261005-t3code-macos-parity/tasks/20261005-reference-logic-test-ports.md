@@ -1,8 +1,8 @@
 ---
 name: 20261005-reference-logic-test-ports
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
+implementation: blocked
+verification: blocked
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: daehyeon/t3-code
@@ -87,6 +87,8 @@ Task-owned source paths: the ported `*.test.ts` files, the clone modules they fi
 
 ## Progress
 
+2026-10-06: dropped together with the map (user decision; #151 closed as unnecessary).
+
 Planned.
 
 ## Attempts and evidence
@@ -97,5 +99,4 @@ Planned.
 
 ## Next action
 
-After the map merges: `prepare` splits this ticket per area (plan revision), then
-`implement` the first area.
+None unless the user reverses the 2026-10-06 decision.

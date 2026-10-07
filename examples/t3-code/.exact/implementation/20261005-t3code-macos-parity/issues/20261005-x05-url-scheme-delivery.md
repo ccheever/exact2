@@ -92,7 +92,7 @@ Next: `issue-open` (reproduce, search for duplicates, prepare the report for the
 ## Merged upstream; not fixed for this ask (2026-10-07, adopt-main-fixes-r4)
 
 [#104](https://github.com/ccheever/exact2/issues/104) was closed by main #201 (`20017b7fc`), in the feature
-branch since main `463acda68` ([20261007-adopt-main-fixes-r4](../tasks/20261007-adopt-main-fixes-r4.md)):
+branch since main `463acda68` ([20261007-adopt-main-fixes-r4](../tasks/closed/20261007-adopt-main-fixes-r4.md)):
 a launch URL that an app with no navigation root cannot hear is now journaled, as a running app's already
 was. A scheme URL is still delivered only to a navigation root's `navigate`; nothing reaches a data source
 or module (this issue's request). Adoption: none. The clone has no scheme workaround, and

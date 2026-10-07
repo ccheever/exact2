@@ -1,7 +1,7 @@
 ---
 name: 20261005-usage-reset-and-feedback
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: blocked
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
@@ -87,6 +87,8 @@ Required environment: Xcode 27.0, pinned Bun and Hermes, oracle build, isolated 
 
 ## Progress
 
+2026-10-06: on hold (user decision). Tasks that need a sign-in (GitHub, provider accounts, T3 Connect) do not start until the user lifts the hold.
+
 Planned. No branch.
 
 ## Attempts and evidence
@@ -97,4 +99,4 @@ Planned. No branch.
 
 ## Next action
 
-`prepare` after the prerequisites merge; `20261005-usage-pooled-view` follows this ticket.
+Starts when the user lifts the sign-in hold: `prepare` from `feat(example)/t3-code`, covering sign-in rows with lane fixtures (fake provider, seeded data).

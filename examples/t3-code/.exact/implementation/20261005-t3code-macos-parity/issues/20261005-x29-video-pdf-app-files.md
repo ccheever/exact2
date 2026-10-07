@@ -68,7 +68,7 @@ Next: `issue-open` (reproduce, search for duplicates, prepare the report for the
 ## Merged upstream; partly fixed (2026-10-07, adopt-main-fixes-r4)
 
 [#115](https://github.com/ccheever/exact2/issues/115) was closed by main #205 (`e3b0be7ba`), in the feature
-branch since main `463acda68` ([20261007-adopt-main-fixes-r4](../tasks/20261007-adopt-main-fixes-r4.md)):
+branch since main `463acda68` ([20261007-adopt-main-fixes-r4](../tasks/closed/20261007-adopt-main-fixes-r4.md)):
 a bundled (`assets/`) PDF in an `iframe` is shown by WebKit's PDF view on macOS and iOS instead of its bytes
 as HTML text, and the web serves `.pdf` as `application/pdf`. #205's own open points are not on main: an
 `iframe` of an `app:/` file, and a PDF element with a fit-to-width mode and `load`/`error` (proposal B).

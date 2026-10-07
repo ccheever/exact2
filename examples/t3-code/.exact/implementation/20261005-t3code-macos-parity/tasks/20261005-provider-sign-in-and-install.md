@@ -1,12 +1,12 @@
 ---
 name: 20261005-provider-sign-in-and-install
 plan: 20261005-t3code-macos-parity
-implementation: planned
+implementation: blocked
 verification: unverified
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: daehyeon/t3-code
-branch: null
+branch: feat(example)/t3-code-provider-sign-in-and-install
 pr_url: null
 verified_commit: null
 ---
@@ -102,6 +102,8 @@ Required environment: Xcode 27.0, pinned Bun and Hermes, reference oracle build,
 
 ## Progress
 
+2026-10-06: on hold (user decision). Tasks that need a sign-in (GitHub, provider accounts, T3 Connect) do not start until the user lifts the hold. Work in progress is kept unpushed on the local branch `feat(example)/t3-code-provider-sign-in-and-install` (`d58ebcb39`, "wip … on hold").
+
 Planned. No branch.
 
 ## Attempts and evidence
@@ -112,4 +114,4 @@ Planned. No branch.
 
 ## Next action
 
-`prepare` after the two prerequisites merge and the fixture apparatus is approved; then `implement`.
+Starts when the user lifts the sign-in hold: `prepare` from `feat(example)/t3-code`, covering sign-in rows with lane fixtures (fake provider, seeded data). Resume from the unpushed WIP branch.

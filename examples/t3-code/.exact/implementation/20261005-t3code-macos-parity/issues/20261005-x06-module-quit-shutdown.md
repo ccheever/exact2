@@ -85,7 +85,7 @@ Next: `issue-open` (reproduce, search for duplicates, prepare the report for the
 ## Merged upstream; partly fixed (2026-10-07, adopt-main-fixes-r4)
 
 [#105](https://github.com/ccheever/exact2/issues/105) was closed by main #200 (`6cd178efc`), in the feature
-branch since main `463acda68` ([20261007-adopt-main-fixes-r4](../tasks/20261007-adopt-main-fixes-r4.md)):
+branch since main `463acda68` ([20261007-adopt-main-fixes-r4](../tasks/closed/20261007-adopt-main-fixes-r4.md)):
 `applicationWillTerminate` destroys every session synchronously, so a native module's `destroy()` runs at
 ⌘Q, at an Apple Event quit and when the last window closes (before, it ran in 3 of 8 last-window closes and
 never at ⌘Q). Not on main: a hook that holds termination for a bounded time (`.terminateLater`; LLP

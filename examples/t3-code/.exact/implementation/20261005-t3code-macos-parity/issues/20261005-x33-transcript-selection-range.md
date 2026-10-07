@@ -125,4 +125,4 @@ Implement G3 in `20261005-diff-review-engine`: port `createAssistantTextSelector
 
 Filed as #132 and closed. Main #171 fixed part 1 only (a press on a `button` keeps the selection). task `20261007-adopt-main-fixes-input`: nothing to remove; Cite's `retainFocus=true` is the reference's `onPointerDown` `preventDefault()`, not a workaround. Still missing on main: part 2 (the selection's end rectangle, so the Cite button sits under the block, not under the selection's end) and part 3 (`clearSelection()`: the reference clears the selection after citing; the clone leaves it).
 
-Re-checked 2026-10-07 on main `cff90b364` (task [20261007-adopt-main-fixes-r3](../tasks/20261007-adopt-main-fixes-r3.md)): parts 2 and 3 still missing (no selection end rectangle, no `clearSelection()`); nothing to adopt.
+Re-checked 2026-10-07 on main `cff90b364` (task [20261007-adopt-main-fixes-r3](../tasks/closed/20261007-adopt-main-fixes-r3.md)): parts 2 and 3 still missing (no selection end rectangle, no `clearSelection()`); nothing to adopt.
