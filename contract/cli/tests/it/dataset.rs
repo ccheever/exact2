@@ -274,6 +274,12 @@ fn a_hatch_word_may_name_the_platforms_that_handle_it() {
         3,
         "a word no platform handles is still a word the Contract may mark"
     );
+    // The plan carries the same rows, under its signature (§4.3).
+    let (plan, _) = contract::compile_path_all(&app.0.join("app.contract"), false).unwrap();
+    let plan = exact_plan::Plan::decode(&plan.encode()).unwrap();
+    assert!(plan.handles_hatch("dot", "ios") && plan.handles_hatch("dot", "web"));
+    assert!(!plan.handles_hatch("dot", "macos") && !plan.handles_hatch("nowhere", "ios"));
+    assert!(plan.handles_hatch("avatar", "macos") && !plan.handles_hatch("avatar", "web"));
     // A plain list is every platform's.
     let plain = App::new(
         "hatchplain",
@@ -284,6 +290,8 @@ fn a_hatch_word_may_name_the_platforms_that_handle_it() {
         contract::native::hatches_on(&plain.manifest(), "linux").unwrap(),
         ["dot"]
     );
+    let (plan, _) = contract::compile_path_all(&plain.0.join("app.contract"), false).unwrap();
+    assert!(plan.handles_hatch("dot", "linux") && plan.handles_hatch("dot", "android"));
     for (bad, said) in [
         (r#","hatches":{"dot":["visionos"]}"#, "is not a platform"),
         (

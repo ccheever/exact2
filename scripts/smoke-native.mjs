@@ -209,7 +209,7 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
         const here = host === 'ios' ? ['badge', 'clock', 'detail-list', 'dot', 'feed', 'presser'] : ['badge', 'clock', 'dot', 'feed', 'presser'];
         check(JSON.stringify(st?.platform) === JSON.stringify(here), `${host} native: state.hatches names the words this platform handles: ${JSON.stringify(st?.platform)}`);
         if (host === 'ios') check(st?.unhandled?.length === 0 && st.words?.['detail-list']?.calls?.built === 1, `${host} native: iOS handles detail-list: ${JSON.stringify(st?.unhandled)}`);
-        else check(st?.unhandled?.length === 1 && st.unhandled[0].word === 'detail-list' && !st.words?.['detail-list'] && /hatch element detail-list: not handled/.test(all) && byTestId(await s.tree(), 'list-detail')?.props.hatch === 'detail-list',
+        else check(st?.unhandled?.length === 1 && st.unhandled[0].word === 'detail-list' && !st.words?.['detail-list'] && /hatch element detail-list: (not handled|the plan does not give it to this platform)/.test(all) && byTestId(await s.tree(), 'list-detail')?.props.hatch === 'detail-list',
           `${host} native: a word this platform does not handle is shown, never called, and listed: ${JSON.stringify(st?.unhandled)}`);
       }
       if (host === 'ios') {
