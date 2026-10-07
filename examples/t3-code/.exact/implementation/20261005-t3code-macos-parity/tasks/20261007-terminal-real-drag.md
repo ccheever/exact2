@@ -7,8 +7,8 @@ delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-terminal-real-drag
-pr_url: null
-verified_commit: null
+pr_url: https://github.com/ccheever/exact2/pull/217
+verified_commit: f2f16c9e9
 ---
 
 # The two findings left open by real-input-checks, run to ground
