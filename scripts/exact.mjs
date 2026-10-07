@@ -30,7 +30,7 @@
 // second executable path for the same binary, and macOS gives it the bundle
 // identity of whatever the *symlink* is beside — which is not the app.
 import { spawn, spawnSync } from 'node:child_process';
-import { accessSync, chmodSync, closeSync, constants, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, readSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { accessSync, chmodSync, closeSync, constants, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, readlinkSync, readSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { BINARYEN } from '../host/web/stages.mjs';
@@ -238,13 +238,26 @@ function machO(path) {
   return false;
 }
 
-/** A bundle's main executable, which codesign signs when it signs the bundle. */
+/** A bundle's main executable, which codesign signs when it signs the bundle
+ *  (and signing that path alone seals the bundle, before what it holds): an
+ *  app's `Contents/MacOS/<name>`, a versioned framework's `Versions/<current>/<name>`
+ *  as the walk reaches it (not through the `Current` link), a shallow bundle's
+ *  `<name>`. The plist is XML or, through `plutil`, binary. */
 function bundleExecutable(bundle) {
-  try {
-    const plist = readFileSync(resolve(bundle, 'Contents/Info.plist'), 'utf8');
-    const name = /<key>CFBundleExecutable<\/key>\s*<string>([^<]+)<\/string>/.exec(plist)?.[1];
-    return name ? resolve(bundle, 'Contents/MacOS', name) : null;
-  } catch { return null; }
+  const executable = (plist) => {
+    if (!existsSync(plist)) return null;
+    const xml = /<key>CFBundleExecutable<\/key>\s*<string>([^<]+)<\/string>/.exec(readFileSync(plist, 'latin1'))?.[1];
+    if (xml) return xml;
+    const read = spawnSync('plutil', ['-extract', 'CFBundleExecutable', 'raw', '-o', '-', plist], { encoding: 'utf8' });
+    return read.status === 0 ? read.stdout.trim() || null : null;
+  };
+  let version = null;
+  try { version = readlinkSync(resolve(bundle, 'Versions/Current')); } catch {}
+  for (const [plist, dir] of [['Contents/Info.plist', 'Contents/MacOS'], ...(version ? [[`Versions/${version}/Resources/Info.plist`, `Versions/${version}`]] : []), ['Info.plist', '.']]) {
+    const name = executable(resolve(bundle, plist));
+    if (name) return resolve(bundle, dir, name);
+  }
+  return null;
 }
 
 /** Everything in a bundle that carries its own signature, innermost first:

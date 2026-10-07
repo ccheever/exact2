@@ -31,7 +31,10 @@ test('the signing order holds every Mach-O by its magic and each nested bundle a
   put('Contents/Resources/assets/short', Buffer.from([0xcf, 0xfa]));
   put('Contents/Helpers/Inner.app/Contents/Info.plist', plist('Inner'));
   put('Contents/Helpers/Inner.app/Contents/MacOS/Inner', word(0xfeedfacf, 0x0100000c));
-  put('Contents/Helpers/Inner.app/Contents/Frameworks/Kit.framework/Versions/A/Kit', word(0xcffaedfe, 1));
+  put('Contents/Helpers/Inner.app/Contents/Frameworks/Kit.framework/Versions/A/Kit', word(0xcffaedfe, 1)); // the framework's own
+  put('Contents/Helpers/Inner.app/Contents/Frameworks/Kit.framework/Versions/A/Resources/Info.plist', plist('Kit'));
+  put('Contents/Helpers/Inner.app/Contents/Frameworks/Kit.framework/Versions/A/XPCServices/Svc.xpc/Contents/Info.plist', plist('Svc'));
+  put('Contents/Helpers/Inner.app/Contents/Frameworks/Kit.framework/Versions/A/XPCServices/Svc.xpc/Contents/MacOS/Svc', word(0xcffaedfe, 2));
   symlinkSync('A', resolve(app, 'Contents/Helpers/Inner.app/Contents/Frameworks/Kit.framework/Versions/Current'));
   symlinkSync('Versions/Current/Kit', resolve(app, 'Contents/Helpers/Inner.app/Contents/Frameworks/Kit.framework/Kit'));
 
@@ -40,7 +43,7 @@ test('the signing order holds every Mach-O by its magic and each nested bundle a
     'Fixture.app',
     'Fixture.app/Contents/Helpers/Inner.app',
     'Fixture.app/Contents/Helpers/Inner.app/Contents/Frameworks/Kit.framework',
-    'Fixture.app/Contents/Helpers/Inner.app/Contents/Frameworks/Kit.framework/Versions/A/Kit',
+    'Fixture.app/Contents/Helpers/Inner.app/Contents/Frameworks/Kit.framework/Versions/A/XPCServices/Svc.xpc',
     'Fixture.app/Contents/MacOS/libexact_web.dylib',
     'Fixture.app/Contents/MacOS/spawn-helper',
     'Fixture.app/Contents/Resources/assets/addon.node',
@@ -68,6 +71,18 @@ test.skipIf(!tools)('signing in that order seals a bundle with an unsigned helpe
   cc('Contents/Resources/assets/helper', '-Wl,-no_adhoc_codesign');
   cc('Contents/Helpers/Inner.app/Contents/MacOS/Inner', '-Wl,-no_adhoc_codesign');
   writeFileSync(resolve(app, 'Contents/Helpers/Inner.app/Contents/Info.plist'), plist('Inner'));
+  // A binary plist, as Xcode writes one: its executable is still the bundle's own.
+  assert.equal(spawnSync('plutil', ['-convert', 'binary1', resolve(app, 'Contents/Helpers/Inner.app/Contents/Info.plist')]).status, 0);
+  // A versioned framework holding an unsigned XPC service: signing the
+  // framework's executable on its own would seal it before the service.
+  const kit = 'Contents/Frameworks/Kit.framework';
+  cc(`${kit}/Versions/A/Kit`, '-dynamiclib', '-Wl,-no_adhoc_codesign');
+  mkdirSync(resolve(app, kit, 'Versions/A/Resources'), { recursive: true });
+  writeFileSync(resolve(app, kit, 'Versions/A/Resources/Info.plist'), plist('Kit').replace('</dict>', '<key>CFBundleIdentifier</key><string>dev.exact.kit</string><key>CFBundlePackageType</key><string>FMWK</string></dict>'));
+  cc(`${kit}/Versions/A/XPCServices/Svc.xpc/Contents/MacOS/Svc`, '-Wl,-no_adhoc_codesign');
+  writeFileSync(resolve(app, kit, 'Versions/A/XPCServices/Svc.xpc/Contents/Info.plist'), plist('Svc'));
+  symlinkSync('A', resolve(app, kit, 'Versions/Current'));
+  for (const link of ['Kit', 'Resources', 'XPCServices']) symlinkSync(`Versions/Current/${link}`, resolve(app, kit, link));
 
   for (const path of signingOrder(app)) {
     const r = spawnSync('codesign', ['--force', '--sign', '-', '--options', 'runtime', path], { encoding: 'utf8' });
