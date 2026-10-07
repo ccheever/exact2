@@ -8,7 +8,7 @@ repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-provider-settings-upkeep
 pr_url: https://github.com/ccheever/exact2/pull/251
-verified_commit: null
+verified_commit: d5e052389
 ---
 
 # Provider settings upkeep: updates, ACP management, custom model options, icons
@@ -133,11 +133,25 @@ Required environment: Xcode 27.0, pinned Bun and Hermes, oracle build, isolated 
   allow-listed, at every `DriverMark` (9 sites) and in the wizard's results; the ACP glyph while
   loading and after an error. On Apple an SVG is a load error (X44 residual, [#121](https://github.com/ccheever/exact2/issues/121)),
   so registry icons (all `.svg`) show the glyph there.
-- Found on the live drive and fixed after it (not re-driven): Escape in a Settings popover also
-  pressed Settings' Back (the lower node id wins among `aria-keyshortcuts`): the popover and the
-  select popups are `aria-modal` with their own Escape, which returns focus to the trigger; the
-  popover opened left-aligned (`top/right` ignored for a top-layer popover): it is offset by the
-  widths (X17); the popup's 84% glass let text show through: 95% plus `backdrop-filter`.
+- Found on the live drives and fixed: Escape in a Settings popover also pressed Settings' Back
+  (the lower node id wins among `aria-keyshortcuts`): the popover and the select popups are
+  `aria-modal` with their own Escape, which returns focus to the trigger (re-driven: Settings
+  stays, focus on the icon); the popup's 84% glass let text show through: 95% plus
+  `backdrop-filter`. The end alignment by margins did not apply on the approved session's first
+  drive (the Apple host passes a popover's margins to its placement only when it names a
+  `position-area`), so the popover says `position-area="bottom span-right"` (D2's own placement)
+  and the margins now put its right edge at the trigger's (`{code_sha[:9]}`, re-driven at 1280×840,
+  840×620 and dark; the independent review measured the right edges equal within a point on the
+  screenshots: the drive's frame reads printed no coordinates). The hover tooltip closes when its
+  trigger is pressed (Base UI's closeOnClick).
+- Known after review (not changed: no live session left to verify a change): nothing pulls the
+  list-row popover back from the left window edge (the Apple host clamps the margin box, which is the
+  trigger's width), so with the Settings nav collapsed below about 1,240 points its left part is cut
+  off (declared, X17); a candidate fix for the list mode only is `position-area="bottom"` with
+  `margin-right="18.75rem"` (a 620-point margin box centred on the trigger keeps the right edges
+  together and lets the clamp work), to check on both hosts. The press also clears the trigger's own
+  hover highlight until the pointer leaves (one `over` state drives both); a separate tooltip-closed
+  state would match Base UI. The web target was not driven for this popover.
 
 Provisional, user decision pending: (1) the launch prompt follows the primary environment and,
 with no primary known (a lane or remote-only launch), the focused one; (2) the toast flow follows
@@ -152,29 +166,71 @@ not saved), the clone's existing rule, because the server's ACP schema is a stri
 | 1 (2026-10-08) | `321dc8189` on `d82fb6a47` | `bun test examples/t3-code` 2575 pass / 0 fail (base 2512); strict `tsc` clean; contract build 2691 slots, 46 resources (`app.contract` 1,500 lines); `cargo test -p t3-code-macos --lib` 11 pass; caps within; five checks: build, test (3383 pass / 0 fail / 33 ignored, 94 binaries), clippy, fmt, boot green | [evidence](https://github.com/ccheever/exact2/tree/t3-code-evidence/provider-settings-upkeep): 7 images, drive records, RPC log | rows below |
 | live drive, try 1 | branch bundle, lane fixture | Pairing failed ("cannot decode raw data"): the fixture proxy forwarded `content-encoding: gzip` on a body Bun had decoded. Screenshots deleted (they showed a pairing token); record kept | `after-drive-attempt1-record.txt` | fixture fixed |
 | live drive, try 2 (the retry) | branch bundle (before the Escape/alignment fixes) | Paired Mac Studio and Laptop; the launch prompt; providers list; list popover (title, detail, Update now, divider, command); URL auth (accept, then "Authentication request expired"); ACP List, Load more, Import ("Imported", toast), Delete confirm. Then Escape in the popover closed Settings (bug, fixed) and Escape aimed at the inert Delete button left the confirm open, so the later scenarios found nothing; the Update all press landed on the toasts covering the header (no RPC) | `after-drive-record.txt`, `rpc-log-live.txt`, images | one more session |
+| approved session (2026-10-08), branch drive | `3a47f48f5` bundle with the Escape fixes; agent mode, 1280×840, fixture `target/upkeep-lane` (`drive2.mjs`) | Every row on the list: launch prompt → Update (codex succeeded, claude unchanged; the next Claude prompt comes to the front); Update all tooltip and press on both machines → one toast "2 of 3 provider updates failed" with a line each; list and editor popovers; Escape keeps Settings and returns focus; Copy (clipboard read back); Update now; ACP URL auth, sessions (List, Load more, Import, Delete: Escape keeps, Confirm deletes; Log out), providers (invalid headers, Save, Disable confirm); custom model editor (validation, Copy from, Save, reopen, Escape cancels) and the composer's options; 840×620; dark; wizard icons. Found: the popover was not end-aligned (fixed, below); Return is `Enter` to the driver | [record](https://raw.githubusercontent.com/ccheever/exact2/401c1dd7ded2d23c471fca8f6c42c8743aad69e4/provider-settings-upkeep/final/after-drive-record.txt), [RPC log](https://raw.githubusercontent.com/ccheever/exact2/401c1dd7ded2d23c471fca8f6c42c8743aad69e4/provider-settings-upkeep/final/rpc-log-session.txt) | — |
+| same session, base drive | evidence base `da4f4512f` (no build) | Same steps on the base for the before images | [record](https://raw.githubusercontent.com/ccheever/exact2/401c1dd7ded2d23c471fca8f6c42c8743aad69e4/provider-settings-upkeep/final/before-drive-record.txt) | — |
+| same session, part 2 | `d5e052389` bundle (`drive3.mjs`) | Popovers end-aligned (list, editor, 840×620, dark); tooltip closed on press; keyboard, read from `state`: Enter on the focused icon opened the popover, Tab moved the focus to Update now, Escape returned it to the icon (the screenshot after Tab is byte-identical to the click's: no ring drawn). The step that pairs server c for a tapped real update stopped on the driver: `clock: the clock cannot go backwards (59100.0 → 59099.99999999999)` (framework, below); not retried (no retry approved) | [record](https://raw.githubusercontent.com/ccheever/exact2/401c1dd7ded2d23c471fca8f6c42c8743aad69e4/provider-settings-upkeep/final/after-drive-part2-record.txt) | real-input batch |
+| same session, real update | server c (`t3` 0.0.46-nightly, isolated HOME/CODEX_HOME/XDG/T3CODE_HOME on 16012), Codex 0.160.1 in `target/upkeep-lane/servers/c/npm` | The RPC the app's Update now sends (`server.updateProvider {instanceId, provider}`, per the RPC log) on the real server: it ran `npm install -g --prefix <lane prefix> --allow-scripts=@openai/codex @openai/codex@latest`, `updateState` succeeded "Provider updated." in 3 s, Codex 0.161.0, advisory cleared. `/opt/homebrew/bin/codex` stays 0.151.0 | [record](https://raw.githubusercontent.com/ccheever/exact2/401c1dd7ded2d23c471fca8f6c42c8743aad69e4/provider-settings-upkeep/final/real-update-rpc.txt) | — |
+| checks and review of the fix | `d5e052389` (a Contract-only change) | Recipe runner (source fingerprint of the task-owned files, matched on the commit): `bun test examples/t3-code` 2576 pass / 0 fail, `bun scripts/caps.mjs` within, the macOS bundle builds, `cargo test -p t3-code-macos --lib` 11 pass; overall `blocked` only by the deferred real-input row. Independent review: no blocking finding; non-blocking ones recorded in Progress (left-edge clipping, the hover highlight, the web not driven) and in the wording of STATUS and this record | local runner reports (not published) | real-input batch |
 
 
 ## Next action
 
-Acceptance rows (2026-10-08):
-- **Pass:** Ported tests (provider update launch notification logic, 17 cases plus multi-backend
-  5, `isTerminalProviderUpdatePhase` 2, the incompatible-latest case and
-  `getProviderUpdateRunToastView` 2; customModelEditor.logic, all 9 cases (16 tests with each `it.each` row);
-  ProviderInstanceCard :20, :50; AcpSessionManagementSection 5; AcpRegistryIcon :105;
-  ProviderSettingsPanel.environment :285 and :584), Gates, URL auth (live and :584), ACP icons
-  (live fallback in the list row and editor; allow-list tests).
-- **Partly live:** Popover (list popover live; the editor popover, 840×620 and dark not reached),
-  ACP sessions and providers (List, Load more, Import, Delete confirm live; Cancel/Confirm,
-  Log out, providers by tests), Toast progress (prompt live; Update and the outcome by tests).
-- **Tests only, live not reached:** Copy command, Update all (the press hit the toasts over the
-  header), Custom options editor, Keyboard/Escape/reduced motion (Escape closed Settings on the
-  drive: fixed after it, not re-driven).
-- **Not run:** Trace and pixels (user decision 2026-10-06: no oracle or trace tools); Real hover
-  and real update (attended): the session budget (one drive and one retry) was spent; a real
-  session import also needs a signed-in ACP agent (the user chose not to sign in to Gemini CLI,
-  20261005-provider-sign-in-and-install).
+Acceptance rows (2026-10-08, after the approved session):
+- **Pass, live (agent mode, macOS) and tests:** Popover from both places (list and editor, 1280×840,
+  840×620, dark; read-only and the "Updating" state by tests: the driver's tap returns after the
+  update's answer, so a running state is not visible to it), Copy command, Update all (two machines,
+  a failure line each), Toast progress (the reference flow: prompt → Update → outcome from
+  `updateState`), ACP sessions and providers, URL auth, Custom options editor (and the composer
+  offering the options), ACP icons (declared SVG fallback), Keyboard/Escape/reduced motion by the
+  driver's keys read from `state` (Enter, Tab, Escape; the spinner stills under reduced motion), Ported tests, Gates.
+- **Real update:** pass on the server path: the real `server.updateProvider` on a lane-local Codex
+  install (above). The tap that sends it is live on the fixture; the two in one drive are in the
+  batch below (the drive step stopped on a driver error and was not retried).
+- **Deferred to the real-input batch — screen locked (user away):** real hover (tooltip text and
+  delay on the list icon, the editor icon and Update all), real keys and a visible focus ring
+  (the driver's screenshots show no ring on the popover's buttons; check with real Tab), and the
+  tapped real update on server c.
+- **Blocked:** a real ACP session import (the user chose not to sign in to Gemini CLI or Antigravity).
+- **Not run:** Trace and pixels (user decision 2026-10-06: no oracle or trace tools).
 
-Next: one more live macOS session on the current bundle (the fixture is `target/upkeep-lane`
-in this worktree: `bun fixture.mjs serve`, `seed`, then `drive.mjs` with the toasts dismissed
-first) for the rows above, then the attended hover/update row with a lane-local CLI. Review
-and merge the PR.
+Framework problem (not filed): `scripts/agent.mjs` `clock "+N real"` (around line 1240) sent a
+`to` a hair below the macOS host's clock and the host refused it (`host/apple/Sources/ExactKit/Agent.swift:521`:
+`the clock cannot go backwards (59100.0 → 59099.99999999999)`). Seen once, 19:19:18Z in
+`after-drive-part2-record.txt`, in a `settle` (`clock "+600 real"` then `clock settle`) after a
+refused tap; floating-point drift between `s.now + N` and the host's clock.
+
+Next: the real-input batch below, then review and merge the PR. Merge the feature branch when
+`20261005-managed-codex-chatgpt` merges (it also edits `providers.ts`).
+
+### Real-input batch steps
+
+Local apparatus (uncommitted) in this worktree's `target/upkeep-lane`: `fixture.mjs`, `probe-c.mjs`,
+`update-c.mjs`, the lane app `app/T3 Code (Lane PSU).app` (bundle id
+`com.exact.t3code.macos.lanepsu`, ad-hoc signed copy of the `d5e052389` bundle). Steps:
+
+1. `export PATH="$HOME/.bun-1.4.2/bin:$PATH"; cd target/upkeep-lane; bun fixture.mjs serve` in the
+   background (record its PIDs; servers 16010–16012, proxies 16020 "Mac Studio" and 16021), then
+   `bun fixture.mjs seed` and `curl -X POST http://127.0.0.1:16020/__fixture/reset`.
+2. For a tapped real update, put server c's Codex back one version first:
+   `PATH=$PWD/servers/c/bin:/usr/bin:/bin HOME=$PWD/servers/c/home npm install -g --prefix $PWD/servers/c/npm @openai/codex@0.160.1`,
+   then `bun probe-c.mjs refresh` must show `behind_latest`.
+3. Take the lock `…/t3-code/target/t3-ui-parity/lanes/.realinput-lock` (owner note
+   "provider-settings-upkeep: real input"). Launch the lane app by path with
+   `HOME` and `CFFIXED_USER_HOME` set to `$PWD/apphome-real`; record its PID.
+4. Pair: `bun fixture.mjs pair a` writes `pair-a`; put its URL in the welcome's pairing field with
+   `orca computer set-value` (the input source is Korean 2-Set: never type it), press Pair, continue
+   through the welcome, close the toasts. Open Settings › Providers.
+5. Real hover: move the pointer onto the Codex row's update icon (`orca computer` move/scroll at
+   its center), wait 1 s, screenshot: tooltip "Update available"; the same on the editor's icon and
+   on "Update all" ("Mac Studio: Codex, Claude").
+6. Click the icon: the popover opens end-aligned under it and the tooltip closes. `press-key
+   Escape`: the popover closes, Settings stays, the icon shows a focus ring. `press-key Tab` until the
+   icon has the ring, `press-key Return`: the popover opens; `press-key Tab`: the ring is on "Update
+   now"; `press-key Escape`: back on the icon. Read each back by screenshot.
+7. Tapped real update: Settings › Connections › Add, `bun fixture.mjs pair c`, set-value the
+   `pair-c` URL, Connect; choose server c in "Applying settings … on"; Codex's editor icon →
+   Update now: "Updating" with the spinner, then the new version and no icon. Read back with
+   `bun probe-c.mjs` (version, `updateState.status: succeeded`).
+8. Release the lock (only with your owner note). Kill the recorded PIDs (the app, the fixture).
+   Delete the lane app's Keychain item (service `com.exact.t3code.macos.access-token`, account
+   naming `127.0.0.1:1602x` or `:16012`) if one was written, and its preferences under `apphome-real`.
