@@ -2643,9 +2643,8 @@
     },
     {
       "bit": 59,
-      "field": "backdrop_blur",
-      "codec": "f32",
-      "default": 0
+      "field": "backdrop_filter",
+      "codec": "backdrop-filter"
     },
     {
       "bit": 60,

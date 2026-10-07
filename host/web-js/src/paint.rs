@@ -244,12 +244,13 @@ pub fn binding(plan: &Plan, kind: NodeType, b: &BindingsRow) -> Option<(String, 
         }
         StyleId::Opacity => "v!=null&&Number(v)<1",
         StyleId::PressScale => "v!=null&&Number(v)!==1",
-        StyleId::BackdropBlur | StyleId::Perspective => "v!=null&&parseFloat(v)>0",
+        StyleId::Perspective => "v!=null&&parseFloat(v)>0",
         StyleId::Translate
         | StyleId::Scale
         | StyleId::Rotate
         | StyleId::Transform
         | StyleId::Filter
+        | StyleId::BackdropFilter
         | StyleId::ClipPath
         | StyleId::MaskImage => "v!=null&&String(v).trim()!==\"none\"",
         StyleId::MixBlendMode => "v!=null&&v!==\"normal\"",

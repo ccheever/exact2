@@ -719,8 +719,9 @@ already carries `clip-path` (LLP 1054.000 R7). Web flowed text with
 initial value; no row sets another). Declared: under `system-ui` Apple's stops
 are up to 2% narrower than Chrome's, which sizes them from San Francisco's
 untracked space where CoreText's space is tracked (LLP 1053 §0.1).
-`backdrop-filter` is `none` or one `blur()` (LLP 1053.000). Declared: iOS draws
-it as `UIBlurEffect.Style.light`, whose blur and tint are its own (no public
+`backdrop-filter` is `none`, or one `blur()` and/or one `saturate()` in authored
+order (LLP 1053.000). Declared: iOS/tvOS draw it as `UIBlurEffect.Style.light`,
+whose blur, saturation and tint are its own (no public
 arbitrary-radius backdrop blur exists; Charlie's ruling, 2026-09-27); macOS's Core Image blur
 matches Chrome's σ but clips the node's children to its border box and sees
 only its parent's subtree as the backdrop; the GPU painter on Linux renders
