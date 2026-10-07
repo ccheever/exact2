@@ -851,7 +851,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
   if (world && host !== 'web' && !device) env = {...env, EXACT_WORLD:resolve(world)};
   if (device && host !== 'ios') throw new Error('--device is supported for the standalone ios client');
   if (host !== 'web' && browser !== 'chrome') throw new Error(`--browser is only supported by the web carrier, not ${host}`);
-  if ((mediaClock !== 'wall' || lineHeight != null) && host !== 'web') throw new Error('mediaClock and lineHeight are the web\'s (conformance)'); parityScript({ mediaClock, lineHeight });
+  if ((mediaClock !== 'wall' || lineHeight != null) && host !== 'web') throw new Error('mediaClock and lineHeight are the web\'s (conformance)');
   // `timing: 'platform'` (LLP 1035.003 D5, opt-in): the carrier stays and the driver still owns the runner's clock,
   // but UIKit's own transitions, sheet presentations and keyboard animations run at their natural timing — the
   // ordinary app with a socket, for observing an interactive gesture's native motion. The frozen clock is the

@@ -23,10 +23,13 @@
 //   plan whose first lines say `// data: <app>` runs on that app's dist
 //   instead, for its sources and the capabilities it links; one that says
 //   `// agent: timeZone=<zone> epoch=<ms>` is driven with those facts.
-//   Chrome's pages freeze media time (`mediaClock: 'frozen'`: rate 0 from a
+//   Every page freezes media time (`mediaClock: 'frozen'`: rate 0 from a
 //   media element's first load): a playing video would otherwise follow the
-//   wall clock, so the wasm and JS pages read different positions; play,
-//   pause and seeks still happen as the app drives them.
+//   wall clock, so two pages read different positions; play, pause and seeks
+//   still happen as the app drives them. In --browser mode both engines also
+//   take a fixed body line height (scripts/agent-launch.mjs `parityScript`),
+//   since `line-height: normal` is each engine's own font metric; authored
+//   line heights still compare.
 //   --linux adds a second reference beside the wasm page: the Rust runner
 //   headless on the Linux host (`agent.mjs linux`, the data app's release
 //   binary, built by --build), driven by the same steps on the same plan,

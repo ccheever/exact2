@@ -159,14 +159,17 @@ export const AGENT_EPOCH = '2026-01-01T00:00:00Z';
 
 /** A page script that holds what a comparison of two pages must hold equal, on every carrier:
  * `mediaClock: 'frozen'` plays media at rate 0 from its first load, so both pages read one
- * position, not the wall clock's; `lineHeight` (cross-browser conformance's) gives the body a
- * fixed line height in place of `normal`, whose value each engine takes from its own font
- * metrics (plain HTML, 16px system-ui: Chrome and WebKit 18 px, Firefox 20 px). '' for neither. */
+ * position, not the wall clock's (play, pause and seeks still happen; an authored rate still
+ * applies; time does not advance, so ending and looping are not exercised); `lineHeight`
+ * (cross-browser conformance's) gives the body a fixed line height in place of `normal`, whose
+ * value each engine takes from its own font metrics (plain HTML, 16px system-ui: Chrome and
+ * WebKit 18 px, Firefox 20 px). It is an adopted sheet, in place before any page script, after
+ * the shell's own `body { font }` in the cascade; authored line heights still apply. '' for neither. */
 export function parityScript({ mediaClock = 'wall', lineHeight = null } = {}) {
   if (!['wall', 'frozen'].includes(mediaClock)) throw new Error(`mediaClock: ${mediaClock} (wall or frozen)`);
   if (lineHeight != null && !/^\d+(\.\d+)?$/.test(String(lineHeight))) throw new Error(`lineHeight: ${lineHeight} is a unitless number`);
   const media = mediaClock === 'frozen' ? `addEventListener('loadstart', e => { if (e.target instanceof HTMLMediaElement) { e.target.defaultPlaybackRate = 0; e.target.playbackRate = 0; } }, true);` : '';
-  const line = lineHeight != null ? `addEventListener('DOMContentLoaded', () => { const s = document.createElement('style'); s.textContent = 'body{line-height:${lineHeight}!important}'; document.head.append(s); });` : '';
+  const line = lineHeight != null ? `{ const s = new CSSStyleSheet(); s.replaceSync('body{line-height:${lineHeight}}'); document.adoptedStyleSheets = [...document.adoptedStyleSheets, s]; }` : '';
   return media + line;
 }
 
