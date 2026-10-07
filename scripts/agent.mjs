@@ -233,12 +233,8 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
       // the page 1-10 px low in some runs. Off, on every target.
       addEventListener('DOMContentLoaded', () => { document.documentElement.style.overscrollBehavior = 'none'; });
     ` });
-    // \`mediaClock: 'frozen'\` (conformance's): a media element plays at rate 0 from its first load, so a playing
-    // video holds its position instead of following the wall clock, and two pages read the same one; play,
-    // pause and a seek still happen as the app drives them (host/web-js/conform.mjs).
-    if (mediaClock === 'frozen') await call('Page.addScriptToEvaluateOnNewDocument', { source: `
-      addEventListener('loadstart', event => { const m = event.target; if (m instanceof HTMLMediaElement) { m.defaultPlaybackRate = 0; m.playbackRate = 0; } }, true);
-    ` });
+    // `mediaClock: 'frozen'` (conformance's): media plays at rate 0 from its first load, so two pages read one position, not the wall clock's.
+    if (mediaClock === 'frozen') await call('Page.addScriptToEvaluateOnNewDocument', { source: `addEventListener('loadstart', e => { if (e.target instanceof HTMLMediaElement) { e.target.defaultPlaybackRate = 0; e.target.playbackRate = 0; } }, true);` });
     // The page has the focus, as a person's page does and as Playwright makes it: an unfocused page's `focus()`
     // (the document's autofocus at boot) moved the focus and fired no `focus` event, which iOS fires (splitter rough 13).
     await call('Emulation.setFocusEmulationEnabled', { enabled: true });
