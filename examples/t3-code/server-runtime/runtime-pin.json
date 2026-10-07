@@ -1,0 +1,14 @@
+{
+  "comment": "The embedded T3 server: the official T3 Code CLI release archive (Node single executable), the release built from the reference pin 1e2ecbd975 or later whose version is not older than CLIENT_VERSION (version-skew.ts). stage-runtime.mjs downloads it, checks it against SHA256SUMS and this hash, and puts it beside this file; the app unpacks it into <T3 home>/runtime/versions/<version> at first launch. T3 Code is MIT (LICENSE-T3).",
+  "version": "0.0.46-nightly.20261005.2667",
+  "tag": "v0.0.46-nightly.20261005.2667",
+  "commit": "37de6cbde65c7cf9ba90a2557c232e63b7e16988",
+  "referencePin": "1e2ecbd975",
+  "commitsAfterReferencePin": 4,
+  "repository": "pingdotgg/t3code",
+  "asset": "t3-0.0.46-nightly.20261005.2667-darwin-arm64.tar.gz",
+  "size": 77117663,
+  "sha256": "3f39833cbb28835a9b38e3806b1985ed2c6c8b8a43839586c22ee4492b6e552c",
+  "url": "https://github.com/pingdotgg/t3code/releases/download/v0.0.46-nightly.20261005.2667/t3-0.0.46-nightly.20261005.2667-darwin-arm64.tar.gz",
+  "checksumsUrl": "https://github.com/pingdotgg/t3code/releases/download/v0.0.46-nightly.20261005.2667/SHA256SUMS"
+}
