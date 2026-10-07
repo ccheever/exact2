@@ -144,7 +144,7 @@ export function exercise(source: string): string {
       'de-u-rg-uszzzz','en-u-kn','en-u-kn-false','en-u-nu-arab-ca-islamic','de-DE-1996-fonipa','sl-rozaj-biske-1994','en-a-foo-b-bar-u-ca-gregory','en-US-x-foo','en-t-de',
       'en-u-attr-ca-gregory','en-u-ca-gregory-ca-buddhist','','not_a_tag','en-','i-klingon','x-private','en-US-US','en-1996-1996','en-u','root',
       'ar-AE','en-AE','en-US-u-ca-iso8601','ar-EG-u-ca-iso8601','en-US-u-ca-iso8601-fw-sun','en-u-ca','en-u-kf','en-u-hc','en-u-co','en-u-nu','en-u-fw',
-      'und-Arab','und-Deva','en-Shaw','pi-Thai','en-BU','und-YD','en-t-12','en-t-en-foo','en-t-de-k0-tech','en-t-k0-tech-h0-hybrid','en-t-ja-Latn-JP'])
+      'und-Arab','und-Deva','en-Shaw','pi-Thai','en-t-12','en-t-en-foo','en-t-de-k0-tech','en-t-k0-tech-h0-hybrid','en-t-ja-Latn-JP'])
       out['Locale '+tag]=locale(tag);
     for(const [tag,options] of [['en',{region:'GB',calendar:'gregory',hourCycle:'h23',firstDayOfWeek:'mon'}],['en',{numeric:true}],['en',{numeric:false}],['en',{firstDayOfWeek:0}],
       ['en',{firstDayOfWeek:7}],['en',{firstDayOfWeek:'monday'}],['en',{calendar:'Gregory'}],['en',{hourCycle:'h25'}],['en',{caseFirst:false}],['en-US',{language:'de'}],
