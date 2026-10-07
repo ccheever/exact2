@@ -1,0 +1,58 @@
+0 > clock +20000 real
+   {"epoch":14,"inflight":1,"incarnation":1,"clock":20000,"real":20012}
+1 > clock settle
+   {"epoch":14,"settled":true,"incarnation":1,"clock":20000}
+2 > type composer Unrelated thread draft
+   {"value":"Unrelated thread draft","typed":153,"target":"composer","delivery":"platform","carrier":"macos","mode":"agent","epoch":16,"incarnation":1,"clock":20000}
+3 > tap connection-settings
+   {"at":[24,820],"delivery":"platform","tapped":97,"target":"connection-settings","carrier":"macos","mode":"agent","epoch":18,"incarnation":1,"clock":20000}
+4 > clock settle
+   {"incarnation":1,"epoch":18,"clock":20000,"settled":true}
+5 > tap Appearance
+   {"at":[128,152],"tapped":615,"delivery":"platform","target":"Appearance","carrier":"macos","mode":"agent","epoch":19,"incarnation":1,"clock":20000}
+6 > clock settle
+   {"settled":true,"epoch":19,"incarnation":1,"clock":20000}
+7 > tap settings-content-scroll wheel 0 1400
+   {"at":[768.5,446],"gesture":false,"wheel":[0,1400],"tapped":672,"delivery":"platform","target":"settings-content-scroll","carrier":"macos","mode":"agent","epoch":19,"incarnation":1,"clock":20000}
+8 > clock +500
+   {"clock":20500,"incarnation":1,"epoch":19,"inflight":1,"diagnostic":"1 request still in flight on real time (a store's, a worker's, the network's): `clock +N` moved the clock without waiting for it; `clock settle` lands 
+9 > tree
+   (tree/logs dump:     1427 lines)
+10 > tap toast-dismiss-2
+   {"delivery":"platform","tapped":482,"at":[1241,91],"target":"toast-dismiss-2","carrier":"macos","mode":"agent","epoch":19,"incarnation":1,"clock":20500}
+11 > clock +500
+   {"clock":21000,"inflight":1,"epoch":20,"incarnation":1,"diagnostic":"1 request still in flight on real time (a store's, a worker's, the network's): `clock +N` moved the clock without waiting for it; `clock settle` lands 
+12 > tree
+   (tree/logs dump:     1422 lines)
+13 > tap toast-dismiss-1
+   {"at":[1241,91],"delivery":"platform","tapped":2619,"target":"toast-dismiss-1","carrier":"macos","mode":"agent","epoch":20,"incarnation":1,"clock":21000}
+14 > clock +300
+   {"epoch":21,"clock":21300,"incarnation":1}
+15 > screenshot before/10-preview-initial.png window
+   {"epoch":21,"window":true,"screenshot":"before/10-preview-initial.png","w":1280,"incarnation":1,"clock":21300,"h":840,"scale":2}
+16 > tree prompt-font-preview
+     Text#2436 "before shipping."
+17 > tap prompt-font-preview
+   {"tapped":2423,"at":[768.5,252.42],"delivery":"platform","target":"prompt-font-preview","carrier":"macos","mode":"agent","epoch":21,"incarnation":1,"clock":21300}
+18 > type prompt-font-preview key a
+   {"typed":2423,"value":"","key":"a","target":"prompt-font-preview","delivery":"platform","carrier":"macos","mode":"agent","epoch":21,"incarnation":1,"clock":21300}
+19 > type prompt-font-preview  AUDIT_FONT_PROBE
+   ERROR: view 2423 is not an input
+20 > screenshot before/11-typed.png window
+   {"scale":2,"w":1280,"screenshot":"before/11-typed.png","window":true,"incarnation":1,"clock":21300,"h":840,"epoch":21}
+21 > tap setting-typography-advanced
+   {"at":[1161.5,124.92],"delivery":"platform","tapped":2337,"target":"setting-typography-advanced","carrier":"macos","mode":"agent","epoch":22,"incarnation":1,"clock":21300}
+22 > clock settle
+   {"epoch":24,"clock":21300,"settled":true,"incarnation":1}
+23 > screenshot before/16-advanced.png window
+   {"clock":21300,"window":true,"h":840,"epoch":24,"screenshot":"before/16-advanced.png","w":1280,"incarnation":1,"scale":2}
+24 > tap setting-typography-advanced
+   {"at":[1161.5,124.92],"delivery":"platform","tapped":2337,"target":"setting-typography-advanced","carrier":"macos","mode":"agent","epoch":25,"incarnation":1,"clock":21300}
+25 > clock settle
+   {"incarnation":1,"epoch":27,"settled":true,"clock":21300}
+26 > tap close-settings
+   {"delivery":"platform","tapped":656,"at":[128,820],"target":"close-settings","carrier":"macos","mode":"agent","epoch":28,"incarnation":1,"clock":21300}
+27 > clock settle
+   {"clock":21300,"epoch":28,"settled":true,"incarnation":1}
+28 > tree composer
+   TextInput#153 [composer] hatch="t3-composer" value="Unrelated thread draft" label="Message" (input, focus, blur)
