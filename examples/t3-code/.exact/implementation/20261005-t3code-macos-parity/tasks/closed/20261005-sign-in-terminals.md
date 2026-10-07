@@ -75,7 +75,7 @@ Checked sources and time: plan issue drafts in [issues](../../issues/README.md),
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X8](../../issues/20261005-x08-agent-pointer-native-views.md) | Pointer input for native views | `EXACT2-GAPS.md` X8 | nonblocking (workaround: `(attended session)`) | Link click is attended |
+| [X8](../../issues/closed/20261005-x08-agent-pointer-native-views.md) | Pointer input for native views | `EXACT2-GAPS.md` X8 | nonblocking (workaround: `(attended session)`) | Link click is attended |
 | [X25](../../issues/20261005-x25-keyboard-keyup-code-capture.md) | Key facts for the web view | `EXACT2-GAPS.md` X25 | nonblocking | Reuse the key path from `20261005-terminal-surface` |
 | [X21](../../issues/20261005-x21-two-way-websocket.md) | Two-way WebSocket | LLP 1016.000 | nonblocking (workaround: Swift transport) | Reuse the drawer's session client for TN1 |
 | PTY in the embedded runtime | `AcpRegistryAuth.ts:67,120` offers a terminal method only with a PTY | Unknown for the embedded runtime | unknown | Check after `20261005-embedded-server-runtime`; the fixture runtime has a PTY |
