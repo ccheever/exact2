@@ -21,6 +21,17 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     /// Where the focused origin is remembered (`originKey`). The app's own domain; a test passes a suite of its own.
     private let defaults: UserDefaults
     private static let originKey = "t3.server.origin"
+    /// The focus token beside the origin (20261005-local-primary-environment): `primary` while the focused
+    /// connection is this machine's embedded server, whose port can change every launch, so its origin is
+    /// never remembered; the next launch reconnects to the primary by this token.
+    static let focusKey = "t3.server.focus"
+    /// This connection is the primary environment (the embedded server): its bearer is the one
+    /// T3LocalBackend holds in memory, it walks no routes, and it is never saved or forgotten here.
+    private(set) var primary = false
+    /// The primary's bearer (memory only; a test supplies its own).
+    var primaryBearer: () -> String? = { T3LocalBackend.shared.bearerToken() }
+    /// The focus a launch restores: `primary` from the token, else "" (the remembered origin, if any).
+    private var restoredFocus = ""
     private let preferencesURL: URL?
     var session: URLSession!
     private var socket: URLSessionWebSocketTask?
@@ -132,13 +143,13 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
                     wantsConnection = false; reconnect?.cancel(); reconnect = nil; routes.stop()
                     retire(T3Failure(kind: "Disconnected", message: "Disconnected from the server.", uncertain: true))
                     generation += 1; inbox.reset(); token = ""
-                    if request["forget"] as? Bool == true, let origin, let environment = descriptor["environmentId"] as? String {
+                    if request["forget"] as? Bool == true, !primary, let origin, let environment = descriptor["environmentId"] as? String {
                         let gone = savedEnvironments.forget(origin: origin.absoluteString, environment: environment)
                         for owner in T3SavedEnvironments.credentialOrigins(gone) + [origin.absoluteString] { try credentials.forget(origin: owner, environment: environment) }
                         forgotten((try? T3Endpoint.origin(gone?["origin"] as? String ?? "")) ?? origin, wasFocused: true)
                     }
                     // r10-connect: a pairing that failed with nothing to go back to leaves no origin behind.
-                    if request["abandon"] as? Bool == true { origin = nil; descriptor = [:] }
+                    if request["abandon"] as? Bool == true { origin = nil; descriptor = [:]; primary = false }
                     setStatus("disconnected", "Disconnected.")
                     finish(completion, value: status())
                 case "http": try readHTTP(request, completion: completion)
@@ -206,7 +217,9 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         } catch { throw T3Failure(kind: "Persistence", message: "Could not save drafts and preferences: \(error.localizedDescription)") }
     }
     private func restoreOrigin() {
-        guard origin == nil, persistent, remembersOrigin, let saved = defaults.string(forKey: Self.originKey) else { return }
+        guard origin == nil, persistent, remembersOrigin else { return }
+        restoredFocus = defaults.string(forKey: Self.focusKey) == "primary" ? "primary" : ""
+        guard restoredFocus.isEmpty, let saved = defaults.string(forKey: Self.originKey) else { return }
         // The key only ever names a saved environment (it is written once a socket to a saved one opens). One that no
         // saved environment has — written by a build that left it behind a removal — is dropped, not restored.
         guard let url = try? T3Endpoint.origin(saved), isSaved(url) else { defaults.removeObject(forKey: Self.originKey); return }
@@ -234,7 +247,8 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     func status() -> [String: Any] {
         ["state": state, "origin": origin?.absoluteString ?? "", "environmentId": descriptor["environmentId"] as? String ?? "",
          "message": message, "descriptor": descriptor, "failureKind": failureKind, "traceId": failureTrace,
-         "traces": pending.values.compactMap { $0.trace }, "activeRouteId": routes.activeId, "homeOrigin": routes.home]
+         "traces": pending.values.compactMap { $0.trace }, "activeRouteId": primary ? "" : routes.activeId, "homeOrigin": primary ? "" : routes.home,
+         "primary": primary, "focus": primary ? "primary" : origin == nil ? restoredFocus : ""]
     }
     func setStatus(_ next: String, _ text: String) {
         let cleaned = clean(text)
@@ -277,13 +291,15 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
 
     private func connect(_ request: [String: Any], completion: @escaping Completion) throws {
         let newOrigin = try T3Endpoint.origin(request["origin"] as? String ?? "")
-        let credential = try T3Endpoint.credential(request["credential"] as? String ?? "", at: newOrigin)
+        let toPrimary = request["primary"] as? Bool == true
+        let credential = toPrimary ? "" : try T3Endpoint.credential(request["credential"] as? String ?? "", at: newOrigin)
         wantsConnection = false; reconnect?.cancel(); reconnect = nil
         retire(T3Failure(kind: "Replaced", message: "The connection was replaced.", uncertain: true))
-        origin = newOrigin; descriptor = [:]; token = ""
+        origin = newOrigin; descriptor = [:]; token = ""; primary = toPrimary
         failureKind = ""; failureTrace = ""; lastHTTPTrace = ""
         privateValues = credential.isEmpty ? [] : [credential]; exchangeScope = request["scope"] as? String ?? ""
-        routes.load(origin: newOrigin.absoluteString, saved: savedEnvironments)
+        // The primary walks no saved routes: one loopback address, its bearer from the embedded server.
+        if primary { routes.stop() } else { routes.load(origin: newOrigin.absoluteString, saved: savedEnvironments) }
         wantsConnection = true; failures = 0; everConnected = false; opening = completion
         // r9-connect: the origin is remembered once its socket opens; a failed pairing leaves nothing behind.
         start(credential: credential)
@@ -294,8 +310,8 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         generation += 1; inbox.reset()
         let epoch = generation
         setStatus(failures == 0 && !everConnected ? "connecting" : "reconnecting", "Connecting to \(origin.host ?? "the server")…")
-        // A pairing tries its one address; a saved environment walks its routes (connectOverRoutes).
-        guard credential.isEmpty else { return startRoute(credential: credential, epoch: epoch) }
+        // A pairing tries its one address, and so does the primary; a saved environment walks its routes (connectOverRoutes).
+        guard credential.isEmpty, !primary else { return startRoute(credential: credential, epoch: epoch) }
         if routes.routes.isEmpty { routes.load(origin: origin.absoluteString, saved: savedEnvironments) }
         routes.beginWalk(saved: savedEnvironments)
         nextRoute(epoch: epoch)
@@ -325,7 +341,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
                     return connectionFailed(T3Failure(kind: "Protocol", message: "The server did not identify its environment."), epoch: epoch)
                 }
                 // Never send a credential to a route before its descriptor matched the saved environment.
-                if credential.isEmpty, !routes.environmentId.isEmpty, object["environmentId"] as? String != routes.environmentId {
+                if credential.isEmpty, !primary, !routes.environmentId.isEmpty, object["environmentId"] as? String != routes.environmentId {
                     return connectionFailed(T3Failure(kind: "Network", message: "\(origin.host ?? "That address") answered as a different environment."), epoch: epoch)
                 }
                 if let problem = T3Compatibility.problem(object) {
@@ -335,7 +351,12 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
                 }
                 let previousEnvironment = descriptor["environmentId"] as? String
                 descriptor = object
-                if credential.isEmpty {
+                if primary {
+                    // The embedded server's bearer (T3LocalBackend, memory only); none yet while it starts.
+                    token = primaryBearer() ?? ""
+                    guard !token.isEmpty else { return connectionFailed(T3Failure(kind: "Starting", message: "The local server is starting."), epoch: epoch) }
+                    validateSession(epoch: epoch)
+                } else if credential.isEmpty {
                     do {
                         let environment = object["environmentId"] as! String
                         // Each route reads the token it owns or borrows (a learned route uses its source route's).
@@ -716,10 +737,11 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
         let waiters = probing?.waiters ?? []; probing = nil
         retire(T3Failure(kind: problem.kind, message: problem.message, uncertain: true))
         // A walk that ended reports a transient error over a blocked one, and only a blocked one stops the ladder.
-        let terminal = exhausted ? T3RouteState.blocks(problem) : ["Authentication", "Credential", "Protocol", "Keychain", "Address", "Limit"].contains(problem.kind) || token.isEmpty
+        // The primary keeps its ladder through its own server's restarts; only an incompatible server stops it.
+        let terminal = primary ? problem.kind == "Protocol" : exhausted ? T3RouteState.blocks(problem) : ["Authentication", "Credential", "Protocol", "Keychain", "Address", "Limit"].contains(problem.kind) || token.isEmpty
         if terminal {
             wantsConnection = false; routes.stop()
-            if problem.kind == "Authentication", let origin, let environment = descriptor["environmentId"] as? String {
+            if problem.kind == "Authentication", !primary, let origin, let environment = descriptor["environmentId"] as? String {
                 try? credentials.forget(origin: routes.current?.credential ?? origin.absoluteString, environment: environment); token = ""
             }
             setStatus("error", problem.message)
@@ -850,7 +872,11 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
             guard let self, self.alive, self.socket === webSocketTask else { return }
             self.connectedAt = Date(); self.everConnected = true; self.failureKind = ""; self.failureTrace = ""
             self.setStatus("connected", "Connected to \(self.descriptor["label"] as? String ?? self.origin?.host ?? "T3").")
-            if let origin = self.origin {
+            if self.primary {
+                // Never saved, never a remembered origin: the focus token names it (its port can change).
+                if self.persistent && self.remembersOrigin { self.defaults.set("primary", forKey: Self.focusKey) }
+            } else if let origin = self.origin {
+                if self.persistent && self.remembersOrigin { self.defaults.removeObject(forKey: Self.focusKey) }
                 self.savedEnvironments.remember(origin: origin.absoluteString, descriptor: self.descriptor)
                 self.routes.landed(origin: origin.absoluteString, environment: self.descriptor["environmentId"] as? String ?? "", saved: self.savedEnvironments)
                 // The remembered origin names the saved environment (its home), whichever route is in use.

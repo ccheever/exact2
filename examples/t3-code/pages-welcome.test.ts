@@ -1,4 +1,8 @@
-import { expect, test } from 'bun:test';
+import { afterEach, beforeEach, expect, test } from 'bun:test';
+import { noPrimary, resetPrimary } from './local-primary-fixture';
+// These cases are the hosted rules (resolveHostedFirstRunDecision): no embedded server runs on this Mac.
+beforeEach(noPrimary);
+afterEach(resetPrimary);
 import { hostedDecision, transition, agentRows, providerState, decodeCandidates, recentCandidates, welcomeView, welcomeLocal, importProjects, welcomeShowing } from './pages-welcome';
 import { pagesPrefs } from './pages-prefs';
 import type { T3Client } from './client';

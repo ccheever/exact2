@@ -13,6 +13,7 @@ import type { T3Client } from './client';
 import { welcomeShowing } from './pages-welcome';
 import { cachedDisplayNames, heroGroups } from './r6-polish-groups';
 import { openScratchProject } from './r11-upstream-scratch';
+import { primary, withoutPrimaryDuplicates } from './local-primary'; // "This machine": the primary counts as an environment
 
 const timestamp = (value: unknown): number | null => {
   const parsed = typeof value === 'string' ? Date.parse(value) : NaN;
@@ -67,7 +68,13 @@ export type PagesHome = {
   landing: string; headline: string; projectName: string; projectNames: { id: string }[]; projects: HeroProject[];
   noProjectItem: boolean; scratchLine: boolean; scratchDraft: boolean; noProjectsDescription: string;
   scratchStart: boolean; savedEnvironments: number; firstRunPending: boolean; pullRequests: boolean;
+  /** HostedStaticOnboardingState's description: the Local environment is switched off (local-primary.ts). */
+  noEnvironmentDescription: string;
 };
+/** HostedStaticOnboardingState: the second paragraph, the switched-off wording first (T3 Connect is not offered). */
+export const noEnvironmentDescription = (localEnvironmentOff: boolean) => localEnvironmentOff
+  ? 'The local environment is turned off. Connect a remote environment, or turn the local environment back on in Connections.'
+  : 'Open Connections and add that machine using its pairing link. This app must be able to reach it.';
 
 /** The hero menu rows: the current project first, then the rest by activity; the Scratch project is "No project". */
 export function heroProjects(client: Pick<T3Client, 'shell' | 'projectId' | 'config'>): HeroProject[] {
@@ -109,13 +116,16 @@ export async function savedEnvironmentCount(native: Native | null | undefined): 
   if (!native?.available) return 0;
   try {
     const reply = await bridgeReply(native, { op: 'environments' });
-    return reply.ok ? arr(obj(reply.value).saved).filter(entry => str(entry.origin) && str(entry.environmentId)).length : 0;
+    return reply.ok ? withoutPrimaryDuplicates(arr(obj(reply.value).saved)).filter(entry => str(entry.origin) && str(entry.environmentId)).length : 0;
   } catch { return 0; }
 }
 
 /** The resource behind the hero and the index landings. */
 export async function pagesHome(client: T3Client, native: Native | null | undefined, firstRunPending = welcomeShowing(client)): Promise<PagesHome> {
-  const saved = await savedEnvironmentCount(native);
+  // The primary (local-primary.ts) counts as an environment while one is or will be running here; while its server
+  // starts, the window shows the connecting state (decision U5, exact2 #117).
+  const local = !primary.disabled && !primary.unavailable;
+  const saved = await savedEnvironmentCount(native) + (local ? 1 : 0);
   const root = client.ready ? scratchRoot(client.config) : '';
   const project = client.shell.projects.find(candidate => candidate.id === client.projectId);
   const scratchDraft = isScratchProject(project, root);
@@ -127,7 +137,7 @@ export async function pagesHome(client: T3Client, native: Native | null | undefi
   const projectName = scratchDraft ? 'No project' : (project && cachedDisplayNames(client).get(client.projectId)) || str(project?.title, 'Choose a project');
   return {
     // /welcome renders NoProjectsHero beneath the wizard.
-    landing: firstRunPending ? 'no-projects' : landingKind({ connected, ready: client.ready, savedEnvironments: saved, connecting: ['connecting', 'reconnecting'].includes(client.connection),
+    landing: firstRunPending ? 'no-projects' : landingKind({ connected, ready: client.ready, savedEnvironments: saved, connecting: ['connecting', 'reconnecting'].includes(client.connection) || (local && !connected),
       projects: client.shell.projects.length, projectId: client.projectId, threadId: client.threadId,
       missingThread: !client.thread && !client.shell.threads.some(thread => thread.id === client.threadId) }),
     headline, projectName, projectNames: [{ id: projectName }], projects,
@@ -138,6 +148,7 @@ export async function pagesHome(client: T3Client, native: Native | null | undefi
     noProjectsDescription: root ? 'Add a project, or start without one.' : 'Add a project to start your first thread.',
     savedEnvironments: saved, firstRunPending,
     pullRequests: obj(obj(client.config.environment).capabilities).pullRequests === true,
+    noEnvironmentDescription: noEnvironmentDescription(primary.disabled),
   };
 }
 

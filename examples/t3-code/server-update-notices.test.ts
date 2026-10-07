@@ -2,7 +2,9 @@
 // (task server-update-banner). "environment reconnect warning grace" ports the cases of
 // T3 Code's apps/web/src/components/ChatView.logic.test.ts (1e2ecbd975, MIT, see
 // LICENSE-T3) with their names; the timer itself is the root task app.contract runs.
-import { beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { primaryAt, resetPrimary } from './local-primary-fixture';
+afterEach(resetPrimary);
 import { obj, type Obj } from './domain';
 import type { Files, Native } from './protocol';
 import { T3Client } from './client';
@@ -83,6 +85,7 @@ describe('offline banner', () => {
     noteServerUpdateClock(client, '', serverClock(client).unavailable);
     expect(systemComposerNotices(client)[0]).toMatchObject({ action2: 'su:disconnect', action2Label: 'Disconnect server',
       action2Tip: "Hide this server's threads. Switch it on again in Connections." });
+    primaryAt('http://127.0.0.1:3773', environmentId); // this Mac's embedded server cannot be disconnected from here
     const local = harness({}, 'http://127.0.0.1:3773').client;
     local.connection = 'disconnected';
     noteServerUpdateClock(local, '', serverClock(local).unavailable);

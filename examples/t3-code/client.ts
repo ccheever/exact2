@@ -21,6 +21,8 @@ import { groupingModes, message, projectPath } from './client-shared';
 import { letGo } from './let-go';
 import { fleet } from './settings-b-fleet';
 import { readLocalBackend, unknownLocalBackend, type LocalBackendStatus } from './local-backend';
+import { adoptLocalPrefs, localEnvironmentEnabled, primary } from './local-primary';
+import { adoptHandoff, keepAliveEvent, keptThread } from './keep-alive';
 import { groupLabel } from './r6-polish-groups';
 import { adoptModelPrefs } from './settings-b-models';
 import { type RequestDraft } from './requests';
@@ -191,6 +193,7 @@ export class T3Client {
       adoptShellPrefs(next, saved); // shell: notice dismissals and closed workspace cards (shell-prefs.ts)
       adoptFilesPrefs(next, saved); // r5-panels: Files explorer and render preferences (r5-panels-prefs.ts)
       adoptTerminalPrefs(next, saved); // terminal-drawer: each thread's drawer (terminal-ui-state.ts)
+      adoptLocalPrefs(next, saved); // local-primary: the Local environment switch (local-primary.ts)
       if (groupingModes.includes(str(saved.lastGroupingMode))) next.lastGroupingMode = str(saved.lastGroupingMode);
       const device = obj(saved.deviceSettings);
       next.deviceSettings.composerCollapseOnScroll = device.composerCollapseOnScroll !== false;
@@ -274,6 +277,7 @@ export class T3Client {
       this.shell = initialShell(); this.shellLoaded = false; this.thread = null;
       this.config = {}; this.providerId = ''; this.modelId = ''; this.answers = {};
       this.diffOpen = false; this.diffText = ''; this.threadEpoch++;
+      adoptHandoff(this); // keep-alive.ts: a kept thread opened from a background environment shows at once
     }
     if (replaced) {
       this.generation = generation;
@@ -308,9 +312,11 @@ export class T3Client {
       native = this.ownedNative(native, () => epoch === this.refreshEpoch);
       if (!status.ok) throw new ClientError(status.error!.message);
       this.adoptStatus(obj(status.value), status.generation);
-      await reconnectOnLaunch(this, native, obj(status.value)); // r8-pointer D14: a relaunch reconnects (r8-pointer-reconnect.ts)
-      await fleet.sync(native, launchFocus(this)); // settings-b: background environments (settings-b-fleet.ts)
-      this.localBackend = await readLocalBackend(native); // the embedded server (local-backend.ts)
+      const local = await readLocalBackend(native); // the embedded server (local-backend.ts); a change redraws "This machine"
+      if (JSON.stringify(local) !== JSON.stringify(this.localBackend)) { this.localBackend = local; this.changed(); }
+      primary.update(this.localBackend, localEnvironmentEnabled(this)); // "This machine" (local-primary.ts)
+      await reconnectOnLaunch(this, native, obj(status.value)); // r8-pointer D14 and the primary: a launch reconnects (r8-pointer-reconnect.ts)
+      await fleet.sync(native, launchFocus(this)); // settings-b: background environments, the primary among them (settings-b-fleet.ts)
       await this.flushSnapshotReleases(native, storage);
       if (this.connection !== 'connected') { if (this.local.deviceSettings.snapShotEnabled) await this.adoptSnapshots(native, storage); return; }
       if (this.synchronizedGeneration !== this.generation) await this.synchronize(native);
@@ -358,7 +364,7 @@ export class T3Client {
       this.shell = applyShell(this.shell, await this.http(native, '/api/orchestration/shell', generation));
       this.shellLoaded = true;
     }
-    this.ensureSelection();
+    this.ensureSelection(); adoptHandoff(this);
     const marker = config.shellResumeCompletionMarker === true;
     const shellSub = await this.call(native, { op: 'subscribe', key: 'shell', method: 'orchestration.subscribeShell', payload: {
       afterSequence: this.shell.sequence, ...(marker ? { requestCompletionMarker: true } : {}),
@@ -481,6 +487,7 @@ export class T3Client {
         if (providerAuthEvent(this, entry)) continue;
         if (LIVE_KEYS.includes(key)) { liveEvent(this, entry); continue; } // live-streams.ts: scheduled tasks and project clones
         if (key === TERMINAL_METADATA_KEY) { terminalMetadataEvent(this, entry); continue; } // terminal-drawer-view.ts: terminal labels and sessions
+        if (keepAliveEvent(this, entry)) continue; // keep-alive.ts: running threads' detail streams, the primary's lifecycle
         if (!this.subscriptions[key] || str(entry.subscriptionId) !== this.subscriptions[key]) continue;
         // T3Transport resubscribes a failed stream on this session after a backoff (250 ms
         // doubling to 30 s); an authorization failure waits for the next session (c5a929e).
@@ -708,8 +715,8 @@ export class T3Client {
   /** Opens a thread as the selection: the row press, keyboard jumps and the sidebar's forward navigation. */
   async openSelected(native: Native, id: string): Promise<void> {
     if (!this.shell.threads.some(thread => thread.id === id)) { await this.openDraft(native, this.projectId); this.threadId = id; return; } // composer-fidelity G15: a missing thread shows NoActiveThreadState
-    this.threadId = id; this.thread = null; this.diffOpen = false; this.answers = {};
-    this.ensureSelection(); await this.openThread(native, id);
+    this.threadId = id; this.thread = keptThread(this, id); this.diffOpen = false; this.answers = {}; // keep-alive.ts: a running thread's kept detail
+    this.ensureSelection(); await this.openThread(native, id, this.thread !== null);
     sidebarOpened(this, native);
   }
   /** A fresh draft in a project: where archiving or parking the open thread lands. */

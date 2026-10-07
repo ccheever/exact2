@@ -4,6 +4,7 @@
 // availability and owning scope match this client.
 import { CATALOG } from './settings-catalog';
 import { arr, obj, str, type Obj } from './domain';
+import { canManageLocalBackend, primary } from './local-primary';
 
 export const SECTION_LABELS: readonly (readonly [string, string, string])[] = [
   ['projects', 'Project', 'panels-top-left'], ['general', 'General', 'settings-2'], ['appearance', 'Appearance', 'palette'], ['keybindings', 'Keybindings', 'keyboard'],
@@ -42,7 +43,8 @@ export function commandLabel(command: string) {
   return command.split('.').map(segment).join(': ');
 }
 
-export type SearchContext = { connected: boolean; autoSettle: boolean; scopeKind: string; keybindings?: Obj[] };
+/** `localBackend`: canManageLocalBackend; `localEnvironment`: the Local environment switch is on (20261005-local-primary-environment). */
+export type SearchContext = { connected: boolean; autoSettle: boolean; scopeKind: string; keybindings?: Obj[]; localBackend?: boolean; localEnvironment?: boolean };
 type Item = { id: string; title: string; route: string; target: string; terms: string[]; scope: string; flags: string[]; secondary: boolean };
 function catalog(context: SearchContext): Item[] {
   const items: Item[] = CATALOG.map(([id, title, route, targetId, terms, scope, flags]) => ({ id, title, route, target: targetId || id, terms: terms ? [terms] : [], scope, flags: flags ? flags.split(',') : [], secondary: false }));
@@ -51,8 +53,10 @@ function catalog(context: SearchContext): Item[] {
   for (const binding of arr(context.keybindings)) { const command = str(binding.command); if (command) commands.set(command, [...(commands.get(command) || []), str(binding.key)].filter(Boolean)); }
   const keybindings = [...commands].map(([command, keys]) => ({ id: `keybinding-${command}`, title: commandLabel(command), route: 'keybindings', target: 'keybindings', terms: [command, ...keys], scope: '', flags: [], secondary: true }))
     .sort((a, b) => a.title.localeCompare(b.title));
-  return [...items, ...keybindings].filter(item => item.flags.every(flag => flag === 'mac' || (flag === 'environment' || flag === 'providerSettings' || flag === 'macProviderSettings' ? context.connected
-    : flag === 'autoSettle' ? context.autoSettle : flag === 'localEnvironment')));
+  // filterAvailableSettingsSearchItems on the macOS desktop: desktop and mac rows always, Windows, WSL and T3 Connect
+  // (cloud) rows never; local-backend rows while this machine can be managed, local-environment rows while it is on.
+  return [...items, ...keybindings].filter(item => item.flags.every(flag => flag === 'mac' || flag === 'desktop' || (flag === 'environment' || flag === 'providerSettings' || flag === 'macProviderSettings' ? context.connected
+    : flag === 'autoSettle' ? context.autoSettle : flag === 'localBackend' ? context.localBackend === true : flag === 'localEnvironment' ? context.localEnvironment !== false : false)));
 }
 /** searchSettings: every token in some field, ranked exact > prefix > substring > all tokens in title > phrase. */
 export function searchSettings(query: string, context: SearchContext) {
@@ -86,4 +90,5 @@ export function settingsNavigation(query: string, context: SearchContext, active
   return { items, searching, count: items.length, firstRoute: chosen?.route || '', firstTarget: chosen?.target || '', firstId: chosen ? chosen.id : '' };
 }
 export const searchContext = (config: Obj, connected: boolean, scopeKind: string): SearchContext =>
-  ({ connected, scopeKind, autoSettle: obj(obj(config.environment).capabilities).threadAutoSettlement === true, keybindings: arr(config.keybindings) });
+  ({ connected, scopeKind, autoSettle: obj(obj(config.environment).capabilities).threadAutoSettlement === true, keybindings: arr(config.keybindings),
+    localBackend: canManageLocalBackend(), localEnvironment: !primary.disabled });

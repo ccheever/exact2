@@ -1,4 +1,7 @@
-import { test, expect } from 'bun:test';
+import { beforeEach, test, expect } from 'bun:test';
+import { resetPrimary } from './local-primary-fixture';
+// No embedded server here: the fleet's environments are the saved ones only.
+beforeEach(resetPrimary);
 import { decodeModelPrefs, groupModels, bulkHidden, applyPickerPrefs, runModelPrefOp, sortModels, instancePrefs, adoptModelPrefs } from './settings-b-models';
 import { normalizeScriptId, nextScriptId, commandForScript, keybindingFor, buildScript, resolveScripts, parseProjectScripts, decodeInput, validateInput, runActionOp, projectActions } from './settings-b-actions';
 import { scopeMachine, environmentScopeChoices, environmentScopeIcon } from './settings-b-scope';

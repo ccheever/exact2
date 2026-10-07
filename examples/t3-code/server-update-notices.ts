@@ -10,12 +10,13 @@
 // the current reconnecting and unavailable episodes (`serverUpdate.reconnecting` /
 // `.unavailable`, an environment id and a serial) and root tasks in app.contract wait
 // 2 s and 20 s on them with `after`, handing the elapsed episode back as the
-// snapshot's arguments. "Primary" is the loopback stand-in (isLoopback) until
-// local-primary-environment replaces it: canDisconnectEnvironment is the one helper.
+// snapshot's arguments. "Primary" is the embedded server (local-primary.ts):
+// canDisconnectEnvironment is the one helper.
 // Auto balance (the `automaticEnvironment` gate): composer-controls-view.ts passes it; auto-balance-banner.ts replaces the notice.
 import { obj, str } from './domain';
 import type { T3Client } from './client';
-import { fleet, environmentKey, isLoopback } from './settings-b-fleet';
+import { fleet, environmentKey } from './settings-b-fleet';
+import { isPrimaryOrigin } from './local-primary';
 import { shellPrefs } from './shell-prefs';
 import { buildVersionMismatchDismissalKey, isServerUpdateFailureDismissed, isVersionMismatchDismissed,
   resolveServerConfigVersionMismatch, serverUpdateGuidance, type DismissalStore } from './version-skew';
@@ -57,8 +58,8 @@ export function serverClock(client: T3Client): { reconnecting: string; unavailab
 
 /** A saved environment the user switched off is hidden, not offline. */
 const switchedOff = (client: T3Client) => fleet.saved.some(entry => str(entry.environmentId) === client.environmentId && entry.enabled === false);
-/** Non-primary, non-local: the loopback stand-in decides "primary" (local-primary-environment replaces it). */
-export const canDisconnectEnvironment = (origin: string) => !isLoopback(origin);
+/** Non-primary: the primary environment (the embedded server) cannot be disconnected from here. */
+export const canDisconnectEnvironment = (origin: string) => !isPrimaryOrigin(origin);
 
 /** "server" with one environment, else "<label> server" (versionMismatchServerLabel). */
 export function serverUpdateLabel(client: T3Client): string {

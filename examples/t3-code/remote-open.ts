@@ -8,13 +8,14 @@
 // `remoteOpenTargets` (tailnet name first, then mDNS). The editors offered are the
 // remote-capable ones this Mac has (T3RemoteEditors.swift probes them), else VS Code.
 //
-// The clone has no bundled server: a loopback environment stands in for the reference's
-// primary (README), and an SSH environment is a loopback tunnel named in the saved SSH
-// targets (T3Ssh.swift), so the target is read from those targets before the origin.
+// The primary is the embedded server on this Mac (local-primary.ts), and an SSH environment is a
+// loopback tunnel named in the saved SSH targets (T3Ssh.swift), so the target is read from those
+// targets before the origin.
 import { arr, obj, str } from './domain';
 import { bridgeReply, type Native } from './protocol';
 import { buildRemoteOpenUrl, REMOTE_CAPABLE_EDITOR_IDS, remoteSchemeForEditor } from './editors';
-import { fleet, isLoopback, trimOrigin } from './settings-b-fleet';
+import { fleet, trimOrigin } from './settings-b-fleet';
+import { focusedOnPrimary } from './local-primary';
 import { savedRoutes } from './connection-routes';
 import { sshTargets } from './settings-b-ssh';
 import type { T3Client } from './client';
@@ -137,7 +138,7 @@ export function remoteOpenFor(client: T3Client): RemoteOpen {
   const saved = fleet.saved.find(entry => str(entry.environmentId) === client.environmentId);
   const sshRoute = saved ? savedRoutes(saved).find(route => route.kind === 'ssh') : undefined;
   const alias = sshRoute?.ssh?.alias || (sshRoute ? aliases.values[trimOrigin(sshRoute.origin)] : null) || aliases.values[origin] || null;
-  const target: RemoteTarget | null = !client.environmentId || !origin ? null : alias ? { kind: 'ssh' } : isLoopback(origin) ? { kind: 'primary', httpBaseUrl: origin } : { kind: 'bearer' };
+  const target: RemoteTarget | null = !client.environmentId || !origin ? null : alias ? { kind: 'ssh' } : focusedOnPrimary(client) ? { kind: 'primary', httpBaseUrl: origin } : { kind: 'bearer' };
   const advertised = Array.isArray(obj(client.config).remoteOpenTargets)
     ? arr(obj(client.config).remoteOpenTargets).map(entry => ({ kind: str(entry.kind), host: str(entry.host).trim() })).filter(entry => entry.host) : undefined;
   const state = resolveRemoteOpenState({ target, sshAlias: alias, remoteOpenTargets: advertised, isDesktopRenderer: true });

@@ -89,6 +89,28 @@ shape SbSshHosts
   noMatch: string
   error: string
   hasContent: bool
+// "This machine" (this-machine.ts): the primary environment's section.
+shape ThisMachine
+  title: string
+  kind: string
+  menu: bool
+  environment: SavedEnvironment
+  enabled: bool
+  description: string
+  canManage: bool
+  version: string
+  progress: string
+  progressFailed: string
+  update: string
+  updateNote: string
+  updateKey: string
+  updateVersion: string
+  upToDate: bool
+  status: string
+  statusError: bool
+  dialogTitle: string
+  dialogBody: string
+  dialogConfirm: string
 shape ConnectionsPage
   connected: bool
   state: string
@@ -100,12 +122,13 @@ shape ConnectionsPage
   loadBalancing: bool
   loadSummary: string
   githubSummary: string
+  thisMachine: ThisMachine
 
-// Settings → Connections (ConnectionsSettings.tsx) for a session without
-// access:write: the Administrative access note, every paired environment as a
-// saved row under Environments with its own switch and menu (this client has no
-// bundled server, lane r9-connect), then Load balancing and GitHub sharing once
-// two or more machines are on.
+// Settings → Connections (ConnectionsSettings.tsx): "This machine" (the embedded
+// server, the primary environment: ThisMachineSection), every paired environment
+// as a saved row under Environments with its own switch and menu (lane
+// r9-connect), then Load balancing and GitHub sharing once two or more machines
+// are on (this machine first).
 component ConnectionsPanel
   props
     page: ConnectionsPage
@@ -128,10 +151,7 @@ component ConnectionsPanel
   derive rowWide = width - 34 >= 512
   view
     column width="100%" gap="2rem" testId="connections-settings"
-      column width="100%" gap="0.625rem"
-        PvSectionTitle(title="This machine")
-        PvGroup()
-          PvRow(title="Administrative access", description="Pairing links and client-session management require the access:write scope for this backend.", status="", wide=rowWide, divided=false)
+      ThisMachineSection(machine=page.thisMachine, wide=rowWide, busy=busy, op=op, ask=remove)
       column width="100%" gap="0.625rem"
         PvSectionTitle(title="Environments")
           row gap="0.25rem" align-items="center"
@@ -176,6 +196,63 @@ component ConnectionsPanel
 // SavedBackendListRow: the switch is the main action; the update icon appears
 // only when that machine can take an update; the row menu holds the icon
 // override, the trace ID and removal.
+// ConnectionsSettings primarySettings (20261005-local-primary-environment): the
+// machine icon and the primary's label (else "This machine"), "More actions for
+// this machine" (its icon menu), the Local environment row (LocalEnvironmentSetting:
+// the switch asks first, LocalEnvironmentDialog in this-machine.contract), and while
+// this machine can be managed the Version row (`version · url`, "Loading…", "Up to
+// date", the update's progress or its action). Network access, endpoints and
+// clients are 20261005-this-machine-network-access. A development build without
+// its lane variables shows why no server runs.
+component ThisMachineSection
+  props
+    machine: ThisMachine
+    wide: bool
+    busy: bool
+    op: action
+    ask: action
+  view
+    column width="100%" gap="0.625rem" testId="connections-environment"
+      row min-height="1.75rem" padding-left="1rem" padding-right="1rem" gap="1rem" align-items="flex-start" justify-content="space-between" box-sizing="border-box" width="100%"
+        row min-height="1.75rem" gap="0.5rem" align-items="center" min-width=0
+          CnMachineIcon(kind=machine.kind, size=16, color="light-dark(#27272ab3, #f5f5f5b3)")
+          text machine.title font-size="0.875rem" line-height="1.25rem" font-weight=400 line-clamp=1 color="light-dark(#27272ab3, #f5f5f5b3)" role="heading" aria-level=2 testId="this-machine-title"
+        row min-height="1.75rem" min-width="1.75rem" gap="0.5rem" align-items="center" justify-content="flex-end"
+          when machine.menu
+            box position="relative"
+              button popovertarget="this-machine-menu-popup" class=PvIconButton aria-label="More actions for this machine" disabled=busy testId="this-machine-menu"
+                PvIcon(name="ellipsis", size=14, color="light-dark(#71717b, #818181)")
+              CnMenu(menuId="this-machine-menu-popup", label="More actions for this machine", width=196, endAlign=24, offsetX=0, offsetY=0)
+                EnvironmentIconMenu(environment=machine.environment, op=op)
+      PvGroupOpen()
+        PvRow(title="Local environment", description=machine.description, status="", wide=wide, divided=false)
+          button id="local-environment-switch" press=ask(machine.enabled ? "local-environment:off" : "local-environment:on") role="switch" aria-checked=machine.enabled aria-label="Local environment" disabled=busy testId="local-environment-switch" width="1.875rem" height="1.125rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(machine.enabled ? "flex-end" : "flex-start") flex-shrink=0 opacity=(busy ? 0.64 : 1) background-color=(machine.enabled ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)")
+            box width="0.875rem" height="0.875rem" border-radius="624.9375rem" background-color="light-dark(#fcfcfc, #0a0a0a)"
+        when machine.canManage
+          column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" gap="0.75rem" border-top-style="solid" border-top-width=1 border-color="light-dark(#e3e3e780, #ffffff08)" testId="this-machine-version"
+            row width="100%" gap="2rem" align-items="center" flex-wrap=(wide ? "nowrap" : "wrap")
+              column flex=1 min-width=0 gap="0.25rem"
+                text "Version" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+                when machine.version != ""
+                  text machine.version font-size="0.75rem" line-height="1.125rem" max-width="36rem" color="light-dark(#70707acc, #818181cc)" testId="this-machine-version-text"
+                // ServerUpdateProgress: a pulsing dot and the stage, or the failure in red.
+                when machine.progress != ""
+                  row gap="0.5rem" align-items="center" testId="this-machine-update-progress"
+                    box width="0.375rem" height="0.375rem" border-radius="0.1875rem" flex-shrink=0 background-color="light-dark(#27272a, #f5f5f5)" animation="cnStatusPulse 2s infinite"
+                    text machine.progress font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+                when machine.progressFailed != ""
+                  text machine.progressFailed font-size="0.75rem" line-height="1rem" color="light-dark(#e7000b, #ff6467)" role="alert" testId="this-machine-update-failure"
+              row flex-shrink=0 gap="0.5rem" align-items="center" justify-content="flex-end"
+                when machine.update != ""
+                  button press=op("environment-update", machine.updateKey, machine.updateVersion) class=PvOutline disabled=busy testId="this-machine-update"
+                    text machine.update font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+                when machine.updateNote != ""
+                  text machine.updateNote font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="this-machine-update-note"
+                when machine.upToDate
+                  text "Up to date" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="this-machine-up-to-date"
+        when machine.status != ""
+          PvRow(title="Local server", description=machine.status, status="", wide=wide, divided=true)
+
 component EnvironmentRow
   props
     environment: SavedEnvironment

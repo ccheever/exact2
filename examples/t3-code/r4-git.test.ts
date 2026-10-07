@@ -1,4 +1,6 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
+import { primaryAt, resetPrimary } from './local-primary-fixture';
+afterEach(resetPrimary);
 import { defaultBranchCopy, formatElapsed, menuItems, menuNotes, menuReason, progressPresentation, publishReadiness, quickAction, quickActionIcon,
   requiresDefaultBranchConfirmation, sortedPublishProviders, terminology } from './r4-git-logic';
 import { GIT_ACTION_KEY, gitActionEvent, gitCardView, gitCommand, gitLocal, gitState, transportActionId } from './r4-git-actions';
@@ -171,6 +173,7 @@ describe('Run on (BranchToolbarEnvironmentSelector, logicalProjectEnvironments)'
     expect(logicalProjectKey({ workspaceRoot: '/repos/solo' }, 'a', 'repository')).toBe('a:/repos/solo');
   });
   const make = () => {
+    primaryAt('http://127.0.0.1:1', 'a'); // this Mac's embedded server is environment a
     const source = new EnvironmentFleet();
     source.entries.set('https://box.example.invalid\nb', { key: 'https://box.example.invalid\nb', origin: 'https://box.example.invalid', environmentId: 'b', phase: 'connected', message: '', traceId: '',
       generation: 1, synchronized: 1, lastEvent: 0, subscriptions: {}, config: { environment: { label: 'Build box', platform: { machine: 'cloud' } } },

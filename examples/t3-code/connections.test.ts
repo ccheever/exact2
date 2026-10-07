@@ -1,7 +1,10 @@
-import { test, expect } from 'bun:test';
+import { afterEach, test, expect } from 'bun:test';
+
+afterEach(resetPrimary);
 import { connectionsProjection, connectionsPage, environmentStatus, runConnectionOp, savedStatus, statusText, versionMismatch, compareSemver,
   machineKind, decodePrefs, loadPreference, summarizeLoad, summarizeRouting, routingKey, type ConnectionHost } from './connections';
-import { fleet, phaseOf, isLoopback, environmentKey, type FleetEntry } from './settings-b-fleet';
+import { fleet, phaseOf, environmentKey, type FleetEntry } from './settings-b-fleet';
+import { primaryAt, resetPrimary } from './local-primary-fixture';
 import { initialShell } from './domain';
 import { obj, type Obj } from './domain';
 import type { Native } from './protocol';
@@ -78,14 +81,11 @@ test('version skew follows versionSkew.ts: only an older server needs an update'
 });
 
 test('every paired environment, a loopback one included, is a saved row under Environments in catalog order', () => {
-  expect(isLoopback('http://127.0.0.1:3773')).toBe(true);
-  expect(isLoopback('http://localhost:3773/')).toBe(true);
-  expect(isLoopback('https://devbox.example.com')).toBe(false);
-  // r9-connect: this client bundles no server, so a paired loopback server is not "This machine".
+  // A paired loopback server is a saved environment: only the embedded server is "This machine" (local-primary.ts).
   const one = connectionsProjection(host(), [{ origin: 'http://127.0.0.1:14796', environmentId: 'env-a', label: 'Fixture A', enabled: true }]);
   expect(one.environments.map(row => [row.label, row.subtitle, row.active, row.first])).toEqual([['Fixture A', 'http://127.0.0.1:14796/ · Connected', true, true]]);
   expect(one.machines).toEqual([]);
-  expect('thisMachine' in one).toBe(false);
+  expect(one.thisMachine).toMatchObject({ title: 'This machine', menu: false, kind: 'desktop' });
   const saved = [{ origin: 'http://127.0.0.1:14796', environmentId: 'env-a', label: 'Fixture A', enabled: true },
     { origin: 'https://remote.example.com', environmentId: 'env-b', label: 'Remote', machine: 'desktop', enabled: true },
     { origin: 'https://off.example.com', environmentId: 'env-c', label: 'Off box', machine: 'cloud', enabled: false }];
@@ -101,7 +101,13 @@ test('every paired environment, a loopback one included, is a saved row under En
   expect(page.environments[1]!.icons.map(icon => [icon.kind, icon.selected, icon.note])).toEqual([['server', false, ''], ['cloud', false, ''], ['linux', false, ''],
     ['desktop', true, 'detected'], ['laptop', false, ''], ['mac-mini', false, ''], ['mac-studio', false, '']]);
   expect(page.machines.map(machine => [machine.label, machine.subtitle, machine.weightLabel, machine.routingLabel])).toEqual([
-    ['Fixture A', 'This machine', 'Normal', 'Off'], ['Remote', 'https://remote.example.com/', 'Normal', 'Off']]);
+    ['Fixture A', 'http://127.0.0.1:14796/', 'Normal', 'Off'], ['Remote', 'https://remote.example.com/', 'Normal', 'Off']]);
+  // With this Mac's embedded server, it leads as "This machine" and has no row of its own.
+  primaryAt('http://127.0.0.1:16437', 'env-local', 'Daehyeon’s Mac');
+  const withPrimary = connectionsProjection(host(), saved, entries);
+  expect(withPrimary.machines.map(machine => [machine.label, machine.subtitle])).toEqual([['Daehyeon’s Mac', 'This machine'], ['Fixture A', 'http://127.0.0.1:14796/'], ['Remote', 'https://remote.example.com/']]);
+  expect(withPrimary.environments.map(row => row.label)).toEqual(['Fixture A', 'Remote', 'Off box']);
+  expect(withPrimary.thisMachine).toMatchObject({ title: 'Daehyeon’s Mac', menu: true, enabled: true, canManage: true });
   expect(page).toMatchObject({ loadBalancing: false, loadSummary: 'Off', githubSummary: 'Off', updateCount: 0 });
   expect(JSON.stringify(page)).not.toContain('token');
 });
