@@ -20,12 +20,12 @@ final class Presenter {
     /// Set the turn after the session's first activation. A booted session's autofocus waits for it.
     var launchAutofocusReleased = false
     /// The session this presenter shows (LLP 1031 D1).
-    weak var session: ExactSession?
+    weak package var session: ExactSession?
     /// The document: the roots live here, content-sized like a page.
     let root = FlippedView(frame: .zero)
     /// The viewport over it: the window's content view, scrolling like a browser's.
-    let viewport = PageScrollView(frame: .zero)
-    var views: [UInt32: NodeView] = [:]
+    package let viewport = PageScrollView(frame: .zero)
+    package var views: [UInt32: NodeView] = [:]
     var inlineOwners: [UInt32: (owner: UInt32, index: Int)] = [:]
     private(set) var chrome = ChromeIndex()
     /// Views leaving with their exit, by id (LLP 1063, `PresenceMac.swift`).
@@ -41,7 +41,7 @@ final class Presenter {
     }
     /// Views carrying an indexed prop, in id order (the passes' old order was
     /// a dictionary's, which is none).
-    func carrying(_ key: String) -> [NodeView] {
+    package func carrying(_ key: String) -> [NodeView] {
         chrome.ids(key).sorted().compactMap { views[$0] }
     }
     /// Reparenting into/out of the top layer changes text's paint/selection walk.
@@ -95,8 +95,8 @@ final class Presenter {
     lazy var segments = SegmentHost(self)
     lazy var controls = ControlHost(self)
     lazy var fieldSelections = FieldSelections(self)
-    /// Nodes marked `hook="word"` (LLP 1075.003.000).
-    lazy var elements = ElementHooks(self)
+    /// Nodes marked `hatch="word"` (LLP 1075.003.000).
+    lazy var elements = ElementHatches(self)
     lazy var shortcuts = ShortcutHost(presenter: self)
     lazy var toolbar = WindowToolbarHost(self)
     /// The head's title goes to the window the app attached, through the
@@ -642,6 +642,8 @@ final class Presenter {
     var lastWheel: (NSEvent, Bool)?
     /// A `key` handler called `stopPropagation()` (`keyDown(at:_:)`, KeyEvents.swift).
     var propagationStopped = false
+    /// The ⌘ chord that last ended a composition (`endComposition`, KeyEvents.swift).
+    var composedChord: NSEvent?
 
     /// The action's focus(html-id), delivered only after the batch is mounted.
     func focusElement(_ args: [Any], selectText: Bool = false) {
@@ -780,7 +782,7 @@ final class Presenter {
 
     /// The modifiers held for the press being sent (its `MouseEvent`'s; gallery F20).
     var pressHeld = ""
-    func press(_ id: UInt32, fromNativeMenu: Bool = false, held: String = "") {
+    package func press(_ id: UInt32, fromNativeMenu: Bool = false, held: String = "") {
         pressHeld = held; defer { pressHeld = "" }
         guard let node = textHost(id), !node.inert, !node.disabled,
               fromNativeMenu || (segments.shown(node) ?? !node.isHiddenOrHasHiddenAncestor) || toolbar.contains(node) else { return }
@@ -808,7 +810,7 @@ final class Presenter {
         edited = nil
         if change { onChange?(id, value) }
     }
-    func checked(_ id: UInt32, _ on: Bool) { onChecked?(id, on) }
+    package func checked(_ id: UInt32, _ on: Bool) { onChecked?(id, on) }
     /// A select's, range's or date's new value (LLP 1069.001 D4): HTML's
     /// `input` as it moves, `change` as it is committed.
     var onControlValue: ((UInt32, String, Bool, Bool) -> Void)?
@@ -837,7 +839,7 @@ final class Presenter {
     }
     private var waiting: [(UInt32, () -> Void)] = []
     private var afterBatchWork: [() -> Void] = []
-    /// Work for after the batch being applied, or now: a hook's act on an
+    /// Work for after the batch being applied, or now: a hatch's act on an
     /// element never lands inside a batch (LLP 1075.003 §3.4).
     func afterBatch(_ work: @escaping () -> Void) { if applying { afterBatchWork.append(work) } else { work() } }
     private func send(_ id: UInt32, _ f: @escaping () -> Void) {
@@ -910,7 +912,7 @@ final class Presenter {
         svg.seek(clock: session?.clock)
         let outermost = !applying
         applying = true
-        // Hooked nodes this batch destroys end first, while their views are
+        // Hatched nodes this batch destroys end first, while their views are
         // still in the window (a row's root is destroyed before its children).
         elements.begin(batch)
         // Create, frame or content ops: rows may have come or moved (`HeavyLeaves.batchApplied`).

@@ -151,6 +151,9 @@ public final class ExactView: NSView {
             session.rasters.displayChanged()
         }
         if !session.booted {
+            // A refused boot is terminal (LLP 1031 D8): the session says why
+            // in `bootError`, and a layout does not ask again.
+            if case .failed = session.state { return }
             // An embedder's view boots the session at its first real size;
             // the standalone adapter booted it before the window showed.
             lastSize = size
@@ -161,6 +164,7 @@ public final class ExactView: NSView {
         if size != lastSize {
             lastSize = size
             session.resize(size)
+            session.natives.scopesChanged()
         }
         syncInsets()
     }
@@ -170,8 +174,14 @@ public final class ExactView: NSView {
         fit()
     }
 
+    public override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow !== window { session.natives.windowLeaving(window) }   // its window hatch ends while the window is there
+        super.viewWillMove(toWindow: newWindow)
+    }
+
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        session.natives.scopesChanged()
         if window == nil { session.presenter.menus.reset(); session.presenter.dialogs.reset() }
         session.tellPage() // `hasFocus` is this window's (#114)
         session.rasters.setPaused(window == nil)

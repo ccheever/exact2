@@ -228,7 +228,7 @@ platform widget without a host change or a new node type. Take: LLP 1024 §7's
 (§Components loses no line; `terminal` and friends stay out as built-in tags).
 
 **Expanded (Charlie Cheever, 2026-10-01: asked for LLP 1075.003 implemented,
-its recommended rulings):** native platform control on Apple: hooks on an
+its recommended rulings):** native platform control on Apple: hatches on an
 app's module that receive Exact's own UIKit objects, `data-*` attributes
 declared in `app.json`, a public route-content seam, and Exact's own navigation
 bar and retained tab container built on it. James's app is the consumer, and
@@ -262,28 +262,33 @@ VoiceOver rows in a settings screen without a module. Take: none offered;
 waived by Charlie's approval. No sidebar styles, no virtualized grouped list,
 no grouped swipe actions.
 **Expanded (Charlie, 2026-10-06, via the lead: "Recs seem good. Approve and
-push"):** hooks on every platform and what the agent sees of them (LLP
+push"):** hatches on every platform and what the agent sees of them (LLP
 1075.003.000.001). The changes:
 - app and window scopes;
 - a frame clock and timers on the session clock;
 - `input(text)` on an authored field;
-- Linux and Windows hooks: an overlay the hook replaces whole, and input it
+- Linux and Windows hatches: an overlay the hatch replaces whole, and input it
   only observes;
 - development-only diagnostics (`log`, `count`, `measure`, spans, `publish`)
   and Exact's own timing of each call;
 - owned regions and parts in `tree`;
 - a crash breadcrumb;
-- per-platform hook words checked by the delivery classifier.
+- per-platform hatch words checked by the delivery classifier.
 
-`perf hooks` is a form of `perf`. Tapping a part is a form of `tap`, by real
+`perf hatches` is a form of `perf`. Tapping a part is a form of `tap`, by real
 platform input only. Neither is a new operation. The consumers are the Signal
 Clone and `apps/native-fixture`. The ruling admits three pieces of
-apparatus: `exact.mjs hook <word>`, `EXACT_HOOKS=off` and the template's
-`AGENTS.md` hooks section. Take: none offered; waived by Charlie's approval.
+apparatus: `exact.mjs hatch <word>`, `EXACT_HATCHES=off` and the template's
+`AGENTS.md` hatches section. Take: none offered; waived by Charlie's approval.
 Still refused: claiming input on a painting host (a gesture arena), a tap that
-runs hook code by name, a hook that writes Contract state or dispatches, a
+runs hatch code by name, a hatch that writes Contract state or dispatches, a
 node-scoped frame ticket, diagnostics collected in production, and JavaScript
-above the data seam on native. Android stays below, named but not built.
+above the data seam on native. Android's hatches are named but not built
+(Android itself is admitted, 2026-10-07, §Surfaces).
+**Renamed (Charlie, 2026-10-06: "ok access hatches it is"):** hooks are
+access hatches, and the code word is `hatch` (`hatch="word"`, `app.json`
+`hatches`; LLP 1075.003.000.001 §Rulings). The entries above use the new
+word; nothing is admitted or taken by the rename.
 
 ## Surfaces
 
@@ -335,7 +340,18 @@ waiver until Charlie names one.
   using Contract and an app-local Win32 control presenter. General Windows
   control parity remains behind these two consumers; no additional showcase
   or framework is admitted by this example.
-- **Android.** Same.
+- **Android.** Same, until 2026-10-07. **Admitted (Charlie, 2026-10-07,
+  waiver):** "admit android. we are working on android now -- it's becoming
+  real. amend that." Unblocks Android as a supported host instead of work
+  below the line:
+  - **Its host work:** the Canvas host (LLP 1076 §3.3) and the GPU painter.
+    Most of it is already merged into main from `android/explore`; the
+    branch keeps landing.
+  - **Parley's Android arm** (`text/parley-android`, LLP 1085.000).
+  - **A place in the sweep.**
+
+  No take was named; the ruling stands as its own waiver until Charlie names
+  one.
 
 Every surface multiplies the sweep, the presenter count, and the number of ways one
 change can break.
@@ -779,7 +795,7 @@ This half matters more than the feature half.
 ## Deliberately worse
 
 - No backwards compatibility, at all, before 1.0.
-- No public API stability. Names change. (One exception, LLP 1075.003's hook
+- No public API stability. Names change. (One exception, LLP 1075.003's hatch
   surface: its breaks are deliberate, below.)
 - No migration guides.
 - Generated files are built, never committed.

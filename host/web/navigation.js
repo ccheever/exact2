@@ -250,7 +250,7 @@ export const navigation = {
         }
       }
     }
-    // The page module's container hooks, when it has them (LLP 1075.003.000 §3.7).
+    // The page module's container hatches, when it has them (LLP 1075.003.000 §3.7).
     globalThis.exact?.onProject?.(root);
   },
   observation(root) {

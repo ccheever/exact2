@@ -163,6 +163,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
         ExactEnv.stamp("didFinishLaunching")
         session = exact.makeSession(delegate: adapter, label: "main")
+        // The one session owns its window and the process (LLP 1075.003.000.001 §2.1.1).
+        session.hatchesOwnWindow = true
+        session.hatchesOwnProcess = true
         if ExactEnv.agentFreezes { session.clock = 0 }
         return true
     }

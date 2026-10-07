@@ -238,7 +238,7 @@ extension NodeView {
     }
     #if os(iOS) || os(tvOS)
     /// A window or ancestor tint changed: the rows naming it apply again.
-    override func tintColorDidChange() {
+    package override func tintColorDidChange() {
         super.tintColorDidChange()
         // A symbol counts: hierarchical and palette glyphs bake the tint in.
         guard style.values.contains(where: \.namesTint) || inlineText.contains(where: \.namesTint) || symbolView != nil else { return }

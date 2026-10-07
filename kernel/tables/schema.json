@@ -581,7 +581,7 @@
       "id": 219,
       "name": "dataset",
       "kind": "str",
-      "_comment": "@ref LLP 1075.003 §3.3: a node's data-* words as one JSON object of strings, keys sorted (the NativeProps opcode); data-<word> attributes on the web, read by a native hook."
+      "_comment": "@ref LLP 1075.003 §3.3: a node's data-* words as one JSON object of strings, keys sorted (the NativeProps opcode); data-<word> attributes on the web, read by a native hatch."
     },
     {
       "id": 220,
@@ -597,9 +597,9 @@
     },
     {
       "id": 222,
-      "name": "hook",
+      "name": "hatch",
       "kind": "str",
-      "_comment": "@ref LLP 1075.003.000: the word naming a node the app's native code receives (its view and platform object); a hooked node leaves the host's fast path. data-hook on the web."
+      "_comment": "@ref LLP 1075.003.000: the word naming a node the app's native code receives (its view and platform object); a hatched node leaves the host's fast path. data-hatch on the web."
     },
     {
       "id": 214,

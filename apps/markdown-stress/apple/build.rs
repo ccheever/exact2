@@ -44,13 +44,14 @@ fn main() {
     if cfg!(target_os = \"ios\") {{ panic!(\"content-region AppKit trial is unavailable on iOS\"); }}
     let activate = match value.as_str() {{ \"1048576\" => \"launchParagraph1MiB\", \"4194304\" => \"launchParagraph4MiB\", _ => panic!(\"EXACT_CONTENT_REGION requires 1048576 or 4194304\") }};
     Some(exact_apple::content_region::ContentRegionRegistration {{ activate: Some(activate), owner: \"markdown-region-owner\", content: \"markdown-region-content\", pending: \"markdown-region-pending\" }})
-}}\n{host}::host!(AppData, PLAN, COMPAT, None, ::std::ptr::null(), AppData::default, region_launch());\n",
+}}\n{}{host}::host!(AppData, PLAN, COMPAT, None, ::std::ptr::null(), AppData::default, region_launch(); linked = EXACT_LINKED);\n",
             contract::rust_entry(
                 "markdown_stress_data::NativeMarkdownStress",
                 "markdown_stress_data::NativeMarkdownStress::default()",
                 compat.inputs["rustMode"].as_str().unwrap()
             )
-            .unwrap()
+            .unwrap(),
+            contract::apple_linked(&baked, host)
         ),
     )
     .unwrap();

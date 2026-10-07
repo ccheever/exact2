@@ -102,8 +102,8 @@ pub(crate) fn refused(tag: &str, a: &Attr) -> Option<LowerError> {
             }
         }
         tags::AttrTarget::Handler(_) | tags::AttrTarget::Flex => return None,
-        // A hook names its own refusal on a module (`lower-hook-module`).
-        _ if a.name == "hook" => return None,
+        // A hatch names its own refusal on a module (`lower-hatch-module`).
+        _ if a.name == "hatch" => return None,
         _ if BOX_PROPS.contains(&a.name.as_str()) || a.name.starts_with("aria-") => return None,
         _ if CONTROL_PROPS.contains(&a.name.as_str()) => "a form control's prop",
         _ => "another element's attribute",

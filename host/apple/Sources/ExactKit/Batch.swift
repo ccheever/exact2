@@ -6,11 +6,11 @@ import CoreGraphics
 
 /// JSON values for style rows and the heterogeneous capability payloads. No
 /// Objective-C containers or conditional bridges enter ordinary presentation.
-enum BatchValue: Equatable {
+package enum BatchValue: Equatable {
     case number(Double), string(String), profile(ProfileSpaces.Handle), bool(Bool), array([BatchValue]), object([String: BatchValue]), null
 
-    var number: Double? { if case .number(let n) = self { return n }; return nil }
-    var string: String? {
+    package var number: Double? { if case .number(let n) = self { return n }; return nil }
+    package var string: String? {
         if case .string(let s) = self { return s }
         if case .profile(let p) = self { return p.key }
         return nil
@@ -41,7 +41,7 @@ enum BatchValue: Equatable {
         if case .object(let o) = self { return o["sys"] != nil || o["cs"]?.array?.count == 2 }
         return array?.count == 2 && array?.first?.numbers?.count == 4 && array?.last?.numbers?.count == 4
     }
-    func channels(dark: Bool, contrast: Bool? = nil, elevated: Bool = false, tint: PlatformColor? = nil) -> [Double]? {
+    package func channels(dark: Bool, contrast: Bool? = nil, elevated: Bool = false, tint: PlatformColor? = nil) -> [Double]? {
         if let c = numbers, c.count == 4 { return c }
         // @ref LLP 1095 D5 — a platform colour by name, its pair the fallback.
         if case .object(let o) = self, let name = o["sys"]?.string {
@@ -121,15 +121,15 @@ enum BatchValue: Equatable {
 
 // Typed literals also make hand-authored style values usable by host embedders.
 extension BatchValue: ExpressibleByIntegerLiteral, ExpressibleByFloatLiteral, ExpressibleByStringLiteral, ExpressibleByBooleanLiteral, ExpressibleByArrayLiteral, ExpressibleByDictionaryLiteral {
-    init(integerLiteral value: Int) { self = .number(Double(value)) }
-    init(floatLiteral value: Double) { self = .number(value) }
-    init(stringLiteral value: String) { self = .string(value) }
-    init(booleanLiteral value: Bool) { self = .bool(value) }
-    init(arrayLiteral elements: BatchValue...) { self = .array(elements) }
-    init(dictionaryLiteral elements: (String, BatchValue)...) { self = .object(Dictionary(uniqueKeysWithValues: elements)) }
+    package init(integerLiteral value: Int) { self = .number(Double(value)) }
+    package init(floatLiteral value: Double) { self = .number(value) }
+    package init(stringLiteral value: String) { self = .string(value) }
+    package init(booleanLiteral value: Bool) { self = .bool(value) }
+    package init(arrayLiteral elements: BatchValue...) { self = .array(elements) }
+    package init(dictionaryLiteral elements: (String, BatchValue)...) { self = .object(Dictionary(uniqueKeysWithValues: elements)) }
 }
 
-typealias NodeStyle = [String: BatchValue]
+package typealias NodeStyle = [String: BatchValue]
 
 public struct BatchOp {
     enum Kind: String {

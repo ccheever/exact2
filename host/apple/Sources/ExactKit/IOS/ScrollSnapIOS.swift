@@ -7,7 +7,7 @@ import UIKit
 extension NodeView {
     /// CSS's admitted `x mandatory` / `start` and `end` scroll snap. UIKit supplies
     /// the projected resting offset and owns the resulting deceleration.
-    func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
+    package func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
         guard (style["scroll_snap_type"]?.string) == "x mandatory" else { return }
         let maximum = max(0, scrollView.contentSize.width - scrollView.bounds.width)
         var positions: [CGFloat] = []

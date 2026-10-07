@@ -276,7 +276,8 @@ guide's rules don't make obvious.
 
 - **`Date.now()` in a data module passes its Bun tests and fails on the
   device.** Since 2026-10-05 the build refuses a direct use by file and line
-  (`Date.now()`, `new Date()`, `Math.random()`, timers); an alias still gets
+  (`Date.now()`, `new Date()`, `Math.random()`, timers), including literal
+  bracket access such as `Date['now']()`. An alias or dynamic key still gets
   past the build and throws on first use on every host but Bun. Take the time
   from the call's arguments (the Contract's `wallTime.epochAtZero + now()`), as
   every source already receives it. (Signal clone build 34, 2026-10-05.)
@@ -359,6 +360,14 @@ guide's rules don't make obvious.
   `box-sizing`.) **Candidate diagnostic:** the compiler or a development log
   could name the failed condition.
 
+- **A field normalized while the person types fights the typing.** A `task … when
+  people != "${count}"` (or a timer, or an `input` action) that rewrites an
+  emptied field to `"1"` lands between keystrokes: clearing the field and typing
+  `3` reads `13`, for a person as for a test. Fix: keep the raw text while
+  editing and normalize in `change` (Enter or blur), as the guide's "Editing a
+  value: the field's contract" shows. (Authoring bench, LLP 1087, t1-tip,
+  codex, 2026-10-07: per-person share 8.85 for 3 people, because the field read
+  13.)
 - **A text field shows an edit its action refused or normalized.** A field bound with
   `value=text input=edit`, where `edit` ignores a blank value, shows the blank while
   `text` keeps the old value, and the next keystroke builds on what is shown; so does

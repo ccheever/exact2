@@ -49,6 +49,7 @@ import { writeDataKeys } from './data-keys.mjs';
 import { appIcon, iosAssets, copyMacResources, signingOrder } from './assets.mjs';
 import { keptModules } from './modules.mjs';
 import { keptCrates } from './crates.mjs';
+import { appleComposition, assertLinkedSdk } from './link.mjs';
 export { appIcon, iosAssets };
 import { allows, deviceLaunchArgs, developmentLaunchEnvironment, identity, macIdentity, phone, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
 const root = resolve(new URL('../..', import.meta.url).pathname);
@@ -566,19 +567,6 @@ export function designCompatible(app, platform) {
   return true;
 }
 
-/** The SDK the linker recorded in an executable (`LC_BUILD_VERSION`) is the
- * one asked for: AppKit draws its design by that number, so a link that
- * records another (as SwiftPM's did, LLP 1069.011 §7) changes every app's
- * look without a word. Compared to major.minor. */
-function assertLinkedSdk(executable, expected) {
-  const loads = read('otool', ['-l', executable]).stdout ?? '';
-  const recorded = /cmd LC_BUILD_VERSION[\s\S]*?\n\s*sdk (\S+)/.exec(loads)?.[1];
-  const majorMinor = (v) => String(v).split('.').slice(0, 2).map(Number).join('.');
-  if (!recorded || majorMinor(recorded) !== majorMinor(expected)) {
-    throw new Error(`host/apple: ${basename(executable)} records SDK ${recorded ?? '(none)'}, not ${expected}: AppKit would draw it in another design`);
-  }
-}
-
 /** A distributed executable without its local symbols — 3.6 of Caltrain's
  * 13.1 MB on the Mac — which are first written beside it as a dSYM, so a
  * crash report from the field is still symbolicated. `strip` keeps the
@@ -790,8 +778,9 @@ async function main(args) {
   // SwiftPM compiles Package.swift itself for macOS before applying the iOS
   // product triple; an iPhone SDKROOT in its environment breaks that host
   // manifest compile. The target SDK stays in the explicit Swift arguments.
-  const swiftEnv = (libDir, composition) => ({
+  const swiftEnv = (libDir, composition, link = 'all') => ({
     ...process.env,
+    EXACT_APPLE_LINK: link, // LLP 1047.001 D4 (link.mjs)
     ...(tv ? { TVOS_DEPLOYMENT_TARGET: targets.ios } : ios ? { IPHONEOS_DEPLOYMENT_TARGET: targets.ios } : { MACOSX_DEPLOYMENT_TARGET: targets.macos }),
     EXACT_LIB_DIR: libDir,
     EXACT_LIB: crate.replace(/-/g, '_'),
@@ -873,6 +862,7 @@ async function main(args) {
   // reach neither module, and then compiles neither: its build waits for the
   // bake to say (below). Every other build starts both now.
   const fixedPlan = cargoProfile === 'release' && expected.composition === 'embedded';
+  cargoEnv.EXACT_APPLE_LINK = fixedPlan ? 'plan' : 'all'; // what the archive links (link.mjs)
   const hostModules = embedOnly || fixedPlan ? null : buildModules(['exact-svg-raster', ...(metal ? ['exact-canvas-vello'] : [])], 'host-modules.log');
   const buildReceipt = contractLast(() => buildBake(app, ios ? 'ios' : 'macos', target, { env: cargoEnv, profile: cargoProfile, prepareGpu(product) {
     // Cargo puts its own unsigned file back on every build, and a signature
@@ -939,6 +929,7 @@ async function main(args) {
   // the resolver's app-owned `embed` directory, with `ExactKit` at
   // `host/apple`. No Swift is built for it; the sample hosts are the proof
   // that the same pieces link.
+  const { link: appleLink, products: swiftCapabilities } = appleComposition(buildReceipt.graph, fixedPlan);
   if (args.includes('--embed')) {
     const platform = ios ? (device ? 'ios' : 'ios-simulator') : 'macos';
     const embed = mkdtempSync(resolve(paths.namespace, '.embed-'));
@@ -954,6 +945,8 @@ async function main(args) {
     copyAppleStaticTrees(paths.capture, embed);
     verifyBakeFiles(bakedCompat, bakedPlan, listAssets(embed, true));
     writeFileSync(resolve(embed, 'compat.json'), JSON.stringify(bakedCompat, null, 2) + '\n');
+    // What the consumer links beside the archive and installs before its first session (LLP 1047.001 D4).
+    writeFileSync(resolve(embed, 'capabilities.json'), JSON.stringify({ products: ['ExactKit', ...swiftCapabilities], install: swiftCapabilities.map((product) => `${product}.install()`) }, null, 2) + '\n');
     writeFileSync(resolve(embed, 'receipt.json'), receipt(app, { platform, target: ios ? target : (process.arch === 'arm64' ? 'aarch64-apple-darwin' : 'x86_64-apple-darwin'), sdk, archive, gpu: hasGpu ? loadName : null, package: pkg, composition, compatibilityId:bakedCompat.id, build:buildReceipt }));
     const bytes = statSync(resolve(embed, archive)).size;
     placeAppleArtifact(embed, paths.embed);
@@ -981,7 +974,7 @@ async function main(args) {
   const canvasGpu = metal && carries('canvas');
   const lateCrates = fixedPlan && !embedOnly ? [...(carries('svg') ? ['exact-svg-raster'] : []), ...(canvasGpu ? ['exact-canvas-vello'] : [])] : [];
   const lateModules = lateCrates.length ? buildModules(lateCrates, 'late-modules.log') : null;
-  const env = swiftEnv(libDir, composition);
+  const env = swiftEnv(libDir, composition, appleLink);
   // The products: the standalone app, and with --host the sample host too
   // (LLP 1031 D10 — the fixture the smoke drives).
   const products = [ios ? 'ExactIOS' : 'ExactMac', ...(args.includes('--host') ? [ios ? 'ExactHostIOS' : 'ExactHostMac'] : [])];
@@ -1064,7 +1057,7 @@ async function main(args) {
   // @ref LLP 1075.003 Q2 — the app's `data-*` words as typed keys, written
   // from app.json `data` beside the glue (built, never committed).
   const dataKeys = resolve(linkRoot, `ExactDataKeys-${app.id}.swift`);
-  if (modules.apple.length) writeDataKeys(app, dataKeys);
+  if (modules.apple.length) writeDataKeys(app, dataKeys, ios ? 'ios' : 'macos');
   const moduleSources = modules.apple.length ? [resolve(root, 'host/apple/modules/ExactNativeModule.swift'), dataKeys, ...modules.apple] : [];
   const modulesBuilt = moduleSources.length ? resolve(webBuildDir, modulesLoadName) : null;
   // The slice of each `modules/apple/*.xcframework` for this build, read
@@ -1455,11 +1448,11 @@ function test(args) {
       });
       return;
     }
-    // The fixture's plan and hook module (LLP 1075.003 §3.9), built for the
-    // tests' simulator so they run its hooks over its routes: the glue, its
+    // The fixture's plan and hatch module (LLP 1075.003 §3.9), built for the
+    // tests' simulator so they run its hatches over its routes: the glue, its
     // typed keys, its Swift.
     const fixture = resolveApp('native-fixture'), fixtureDir = resolve(paths.namespace, 'fixture-module');
-    writeDataKeys(fixture, resolve(fixtureDir, 'ExactDataKeys.swift'));
+    writeDataKeys(fixture, resolve(fixtureDir, 'ExactDataKeys.swift'), 'ios');
     // Its Contract under the identity of the app the tests link, which the
     // runner requires of a plan (an app's plan boots in no other app).
     const source = resolve(fixtureDir, 'app');

@@ -311,10 +311,10 @@ extension NodeView {
         (f as? TextArea)?.markup?.bookmark = f.selectedRange
         restyleMarkup()
     }
-    func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+    package func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
         TextInputLimit.allows(textView.text ?? "", range: range, replacement: text, props: props)
     }
-    func textViewDidChange(_ textView: UITextView) {
+    package func textViewDidChange(_ textView: UITextView) {
         if let editor = (textView as? TextArea)?.markup, editor.applying || editor.styling { return }
         textView.setNeedsDisplay()
         if !disabled { presenter?.typed(id, textView.text ?? "", input: handlers.contains("input")) }
@@ -323,14 +323,14 @@ extension NodeView {
         restyleMarkup()
         publishMarkupSelection()
     }
-    func textViewDidChangeSelection(_ textView: UITextView) {
+    package func textViewDidChangeSelection(_ textView: UITextView) {
         presenter?.fieldSelections.changed(self) // a plain textarea's `select` (x2apps codeedit #2)
         guard let f = textView as? TextArea, let editor = f.markup, !editor.applying, !editor.styling, f.markedTextRange == nil else { return }
         if f.isFirstResponder { editor.bookmark = f.selectedRange }
         restyleMarkup()
         publishMarkupSelection()
     }
-    func textViewDidBeginEditing(_ textView: UITextView) {
+    package func textViewDidBeginEditing(_ textView: UITextView) {
         presenter?.collections.pinsChanged()
         presenter?.editing = self
         presenter?.fieldSelections.focused(self)
@@ -338,7 +338,7 @@ extension NodeView {
         presenter?.reveal(self)
         publishMarkupSelection(force: true)
     }
-    func textViewDidEndEditing(_ textView: UITextView) { presenter?.collections.pinsChanged();
+    package func textViewDidEndEditing(_ textView: UITextView) { presenter?.collections.pinsChanged();
         if presenter?.editing === self { presenter?.editing = nil }
         presenter?.commitEdit(id, textView.text ?? "", change: handlers.contains("change"))
         if handlers.contains("blur") { presenter?.blur(id) }

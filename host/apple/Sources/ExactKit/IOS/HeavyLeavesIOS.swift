@@ -197,7 +197,7 @@ final class HeavyLeaves: NSObject, UIGestureRecognizerDelegate {
         case "video": make(node); node.video?.update(); node.video?.layout(); presenter.videoVisibility?.changed()
         default: make(node); node.updateEmbedded()
         }
-        // A hooked leaf heard `built` before its platform object existed.
+        // A hatched leaf heard `built` before its platform object existed.
         presenter.elements.realized(node)
     }
     /// The agent's settle, and a reset: every waiting leaf is made (or dropped).

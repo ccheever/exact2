@@ -27,9 +27,13 @@ final class FrameSampler: NSObject {
         /// How long past the frame's target the main thread's turn ended,
         /// milliseconds (0: within it): a commit that landed after it.
         var overrun = 0.0
+        /// A late frame's hatch calls (LLP 1075.003.000.001 §3.1): those that
+        /// overlapped its interval, each charged its overlap, with `coverage`.
+        var hatches: [String: Any]?
         var json: [String: Any] {
             var o: [String: Any] = ["t": t, "interval": interval, "missed": missed, "batches": batches, "apply": apply, "overrun": overrun]
             o["seq"] = seq.map { [$0.0, $0.1] } ?? NSNull()
+            if let hatches { o.merge(hatches) { a, _ in a } }
             return o
         }
     }
@@ -186,6 +190,9 @@ final class FrameSampler: NSObject {
         guard missedHere > 0 || record.overrun > 0 else { return }
         lateCount += 1
         missed += missedHere
+        // The hatches that ran in it: the sample's own interval, `(now − interval, now]`.
+        record.hatches = session?.hatchDiagnostics.window(from: now - interval / 1000, to: now)
+        if record.hatches != nil { records[records.count - 1] = record }
         late.append(record)
         if late.count > Self.lateKept { late.removeFirst() }
         let range = seq.map { " seq \($0.0)..\($0.1)" } ?? ""
@@ -213,8 +220,8 @@ final class FrameSampler: NSObject {
 }
 
 extension ExactSession {
-    /// Save Trace (LLP 1079 D5): this session's journal, its presented frames
-    /// and `perf` over every root, with who made them and each timing's
+    /// Save Trace (LLP 1079 D5): this session's journal, its presented frames,
+    /// `perf` over every root and its hatches, with who made them and each timing's
     /// proxy, as `trace-<wallclock>.json` in the app's temporary directory;
     /// `agent.mjs trace <file>` reads it back. The path, or why not.
     public func saveTrace() -> Result<URL, Error> {
@@ -239,6 +246,8 @@ extension ExactSession {
             "journal": raw(agent("{\"op\":\"logs\",\"since\":0}")),
             "frames": sampler.reply(late: FrameSampler.lateKept, all: true),
             "perf": perf,
+            // The hatches (LLP 1075.003.000.001 §3.3), read in this same turn, so the sections agree.
+            "hatches": ["state": presenter.elements.observation(hatchDiagnostics), "perf": hatchPerf()],
         ]
         do {
             let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")

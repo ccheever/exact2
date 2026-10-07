@@ -113,6 +113,7 @@ fn model_lod_cost_on_twenty_thousand_trees() {
             period_ms: 16.,
             children_generation: 0,
             shader_generation: 0,
+            headroom: 1.0,
         };
         let mut ms = Vec::new();
         for i in 0..100 {

@@ -29,12 +29,12 @@ final class KeyUpMacTests: XCTestCase {
         window.makeFirstResponder(try XCTUnwrap(p.views[2]?.field))
         return p
     }
-    private func event(_ type: NSEvent.EventType, _ code: UInt16, _ flags: NSEvent.ModifierFlags = [], _ character: String = "", repeats: Bool = false) -> NSEvent {
+    private func event(_ type: NSEvent.EventType, _ code: UInt16, _ flags: NSEvent.ModifierFlags = [], _ character: String = "", repeats: Bool = false, at time: TimeInterval = 0) -> NSEvent {
         if type == .flagsChanged {
-            return NSEvent.keyEvent(with: .flagsChanged, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: window.windowNumber,
+            return NSEvent.keyEvent(with: .flagsChanged, location: .zero, modifierFlags: flags, timestamp: time, windowNumber: window.windowNumber,
                                     context: nil, characters: "", charactersIgnoringModifiers: "", isARepeat: false, keyCode: code)!
         }
-        return NSEvent.keyEvent(with: type, location: .zero, modifierFlags: flags, timestamp: 0, windowNumber: window.windowNumber,
+        return NSEvent.keyEvent(with: type, location: .zero, modifierFlags: flags, timestamp: time, windowNumber: window.windowNumber,
                                 context: nil, characters: character, charactersIgnoringModifiers: character, isARepeat: repeats, keyCode: code)!
     }
 
@@ -79,7 +79,98 @@ final class KeyUpMacTests: XCTestCase {
         let editor = try XCTUnwrap(window.firstResponder as? NSTextView)
         editor.setMarkedText("ㅎ", selectedRange: NSRange(location: 1, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
         p.keyUp(event(.keyUp, 4, [], "h"))
-        XCTAssertEqual(heard, 0)
+        XCTAssertFalse(p.routeKey(event(.keyDown, 4, [], "h"), focused: true))
+        XCTAssertEqual(heard, 0, "a plain key is the composition's")
+    }
+
+    /// What the field (2) hears, keys and inputs, in order; a flags change
+    /// goes through both halves, as the session's monitor sends it.
+    private final class Heard { var lines: [String] = [] }
+    private func record(_ p: Presenter) -> Heard {
+        let heard = Heard()
+        p.views[2]!.handlers.insert("input")
+        p.onInput = { _, value in heard.lines.append("input \(value)") }
+        p.onKey = { id, press in if id == 2 { heard.lines.append("\(press.up ? "keyup" : "keydown") \(press.chord) \(press.code)") } }
+        return heard
+    }
+    private func flags(_ p: Presenter, _ e: NSEvent) { _ = p.keyDown(e); p.keyUp(e) }
+    private func compose(_ text: String) throws -> NSTextView {
+        let editor = try XCTUnwrap(window.firstResponder as? NSTextView)
+        editor.setMarkedText(text, selectedRange: NSRange(location: (text as NSString).length, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+        XCTAssertTrue(editor.hasMarkedText())
+        return editor
+    }
+    private let leftCommand = NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.command.rawValue | 0x8)
+
+    /// A ⌘ chord during a composition (#140). Chrome hands the page the
+    /// chord's keydown before the input method's result, with the composed
+    /// text already in the field and reported to `input` (CDP's
+    /// `Input.imeSetComposition`, then ⌘B: `input 한`, then the keys).
+    /// AppKit reports composed text only once committed, so the chord
+    /// commits it first: its handlers hear the same value, ⌘'s own keys
+    /// pass through the composition, and the keyups follow.
+    func testACommandChordCommitsTheCompositionThenReachesTheHandlers() throws {
+        let p = try fixture()
+        let heard = record(p)
+        let editor = try compose("한")
+        flags(p, event(.flagsChanged, 55, leftCommand))
+        let chord = event(.keyDown, 11, leftCommand, "b")
+        XCTAssertFalse(p.routeKey(chord, focused: true), "unprevented, AppKit gets it")
+        XCTAssertFalse(editor.hasMarkedText())
+        XCTAssertTrue(p.endedComposition(chord), "its menu item, too, is refused")
+        XCTAssertFalse(p.routeKey(event(.keyUp, 11, leftCommand, "b"), focused: true))
+        flags(p, event(.flagsChanged, 55, []))
+        XCTAssertEqual(heard.lines, ["keydown Meta+Meta MetaLeft", "input 한", "keydown Meta+b KeyB", "keyup Meta+b KeyB", "keyup Meta MetaLeft"])
+        XCTAssertEqual(editor.string, "한")
+        XCTAssertFalse(p.endedComposition(event(.keyDown, 11, leftCommand, "b", at: 1)), "a later ⌘B is a chord like any")
+    }
+
+    /// A composer's ⌘Enter during a composition sends what was typed: its
+    /// handler reads the committed text, clears the field and prevents the
+    /// default, and the cleared value lands. The Send button that declares
+    /// ⌘Enter is not pressed: the web's shortcut listener skips a keydown
+    /// that arrived composing.
+    func testACommandEnterDuringACompositionSendsTheComposedText() throws {
+        let p = try fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 3, "kind": "button", "props": ["accessibilityKeyShortcuts": "Meta+Enter", "accessibilityLabel": "Send"]],
+            ["op": "children", "id": 1, "ids": [2, 3]],
+            ["op": "frame", "id": 3, "x": 10, "y": 50, "w": 80, "h": 30],
+        ]))
+        p.views[3]!.handlers.insert("press")
+        var presses = 0
+        p.onPress = { _ in presses += 1 }
+        let heard = record(p)
+        let editor = try compose("한")
+        let keyed = p.onKey
+        p.onKey = { id, press in
+            keyed?(id, press)
+            guard id == 2, !press.up, press.chord == "Meta+Enter" else { return }
+            heard.lines.append("sent \(editor.string)")
+            p.apply(wireBatch([["op": "props", "id": 2, "set": ["value": ""]]]))
+            p.defaultPrevented = true
+        }
+        // kVK_Return is 36.
+        XCTAssertTrue(p.routeKey(event(.keyDown, 36, leftCommand, "\r"), focused: true))
+        XCTAssertEqual(heard.lines, ["input 한", "keydown Meta+Enter Enter", "sent 한"])
+        XCTAssertFalse(editor.hasMarkedText())
+        XCTAssertEqual(editor.string, "")
+        XCTAssertEqual(presses, 0)
+        XCTAssertTrue(p.routeKey(event(.keyDown, 36, leftCommand, "\r", at: 1), focused: true), "without a composition, the button's chord")
+        XCTAssertEqual(presses, 1)
+    }
+
+    /// Shift held as a composition begins (Korean's doubled consonants) and
+    /// released inside it: its keyup still comes, as Chrome forwards every
+    /// flags change, so no app's held-Shift state sticks.
+    func testAModifierReleasedDuringACompositionIsAKeyUp() throws {
+        let p = try fixture()
+        let heard = record(p)
+        // kVK_Shift is 56; 0x2 is the left Shift's device bit.
+        flags(p, event(.flagsChanged, 56, NSEvent.ModifierFlags(rawValue: NSEvent.ModifierFlags.shift.rawValue | 0x2)))
+        _ = try compose("ㅆ")
+        flags(p, event(.flagsChanged, 56, []))
+        XCTAssertEqual(heard.lines.filter { $0.hasPrefix("key") }, ["keydown Shift+Shift ShiftLeft", "keyup Shift ShiftLeft"])
     }
 }
 #endif

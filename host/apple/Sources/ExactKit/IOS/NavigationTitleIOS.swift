@@ -268,7 +268,7 @@ extension NavigationHost {
     /// The heading's group as the item's title (§9.10). A subtitle alone is
     /// UIKit's own (`navigationItem.subtitle`, iOS 26); an avatar or a press,
     /// or a subtitle before iOS 26, is a drawn title view. A tablist's
-    /// segments take the title view first (§9.8). What a hook set instead —
+    /// segments take the title view first (§9.8). What a hatch set instead —
     /// another title view, its own subtitle — is left alone.
     func richTitle(_ shape: HeaderShape?, in c: RouteController) {
         let item = c.navigationItem
@@ -304,7 +304,7 @@ extension NavigationHost {
     /// UIKit reads it at the push and keeps the bar hidden for the routes
     /// above. The route the root names follows the tablist; routes pushed
     /// with it in one batch (a cold launch's) take the same. Written on
-    /// change, so a hook's own value stands till then. The root itself
+    /// change, so a hatch's own value stands till then. The root itself
     /// follows too (LLP 1075.003 §3.7, amended 2026-10-05): its tablist
     /// hidden hides the bar, shown shows it, both with UIKit's own animated
     /// `setTabBarHidden` (iOS 18), as Signal hides its tab bar for the chat
@@ -353,9 +353,9 @@ extension NavigationHost {
     /// just arrived on top: a transition settled on it (`settleTablist`, from
     /// `didShow`, after a pop UIKit may have brought the bar back for) or
     /// another tab's root was selected. A hidden tablist hides the bar; a
-    /// shown one shows it only if Exact hid it (`tablistHidBar`), so a hook's
+    /// shown one shows it only if Exact hid it (`tablistHidBar`), so a hatch's
     /// own hide stands, and between those moments nothing is written, so a
-    /// hook's own show stands too. Never mid-transition. A root first seen
+    /// hatch's own show stands too. Never mid-transition. A root first seen
     /// with its tablist shown writes nothing. iOS 17 has no
     /// `setTabBarHidden`: there the bar stays.
     func followTablistAtRoot(_ root: RouteController, hidden: Bool, in nav: UINavigationController) {
@@ -371,7 +371,7 @@ extension NavigationHost {
         guard changed || arrived else { return }
         let animated = nav.view.window != nil
         if hidden {
-            // Exact owns the hide only if it made it: a hook's own stands.
+            // Exact owns the hide only if it made it: a hatch's own stands.
             if !tabs.isTabBarHidden { tabs.setTabBarHidden(true, animated: animated); tablistHidBar = true }
         } else if tablistHidBar {
             if tabs.isTabBarHidden { tabs.setTabBarHidden(false, animated: animated) }

@@ -494,8 +494,8 @@ impl Em<'_> {
     }
 
     /// What an element needs once made: a canvas's surface, a native
-    /// module's mount (LLP 1024 D3), a hooked node's page-module hook (LLP
-    /// 1075.003.000, `data-hook` among its static attributes), and the
+    /// module's mount (LLP 1024 D3), a hatched node's page-module hatch (LLP
+    /// 1075.003.000, `data-hatch` among its static attributes), and the
     /// constant values settled once its tree is in place, as bound ones are
     /// (rt.js `drain`): a select's, which its options carry (calendar diary
     /// F6), and a scroller's offsets (F8).
@@ -523,8 +523,8 @@ impl Em<'_> {
         if tag.contains('-') {
             let _ = write!(self.out, "{}({e});", self.uses.rt("nm"));
         }
-        if attrs.iter().any(|(k, _)| k == "data-hook") {
-            let _ = write!(self.out, "{}({e});", self.uses.rt("hk"));
+        if attrs.iter().any(|(k, _)| k == "data-hatch") {
+            let _ = write!(self.out, "{}({e});", self.uses.rt("ht"));
         }
         // A context menu's popover (LLP 1021 §5.1), named by a literal.
         if attrs.iter().any(|(k, _)| k == "contextpopover") {

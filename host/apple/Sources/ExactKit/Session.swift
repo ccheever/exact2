@@ -48,7 +48,7 @@ public enum ExactEnv {
     /// or its library reads one.
     public static let environment: [String: String] = {
         var environment = ProcessInfo.processInfo.environment
-        let agent = environment.keys.filter { $0 == "EXACT_AGENT" || $0.hasPrefix("EXACT_AGENT_") }.sorted()
+        let agent = environment.keys.filter { $0 == "EXACT_AGENT" || $0 == "EXACT_HATCHES" || $0.hasPrefix("EXACT_AGENT_") }.sorted()
         guard !agent.isEmpty, productionBake else { return environment }
         FileHandle.standardError.write(Data("exact: a production build ignores \(agent.joined(separator: ", ")) (LLP 1069.007 D2)\n".utf8))
         for key in agent { environment[key] = nil; unsetenv(key) }
@@ -370,7 +370,7 @@ public final class ExactSession {
     private var pendingActivation: (generation: Int, token: UInt64)? // retried on the session's wake
     private var updateToken: UInt64 = 0
 
-    let runtime: Runtime
+    package let runtime: Runtime
     let rasters = RasterLoader()
     #if os(macOS)
     lazy var regions = RegionController(self)
@@ -398,7 +398,7 @@ public final class ExactSession {
     /// The runner's soonest timer, from the last batch (absent without timers).
     var timerDue: Double?
     /// The view presenting this session, while one is mounted (D1).
-    weak var view: ExactView?
+    weak package var view: ExactView?
     #if os(iOS) || os(tvOS)
     private var systemDark = false
     #endif
@@ -722,21 +722,18 @@ public final class ExactSession {
         presenter.controls.radioGroup = { [unowned self] id in runtime.radioGroup(id) }
         presenter.buttonFace = { [unowned self] id in runtime.buttonFace(id) }
         presenter.onIntrinsic = { [unowned self] sizes in whenIdle { [unowned self] in apply(runtime.intrinsics(sizes)) } }
-        #if os(iOS)
-        presenter.groupedList = { [unowned self] id in runtime.groupedList(id) }
-        #endif
         #if os(iOS) || os(tvOS)
         // @ref LLP 1075.003 §3.5, Q3 (c) — what a bar covers reaches layout
-        // as an intrinsic size does; the hooks replay once the module connects.
+        // as an intrinsic size does; the hatches replay once the module connects.
         presenter.onCovers = { [unowned self] covers in whenIdle { [unowned self] in apply(runtime.covers(covers)) } }
-        natives.onHooksConnected = { [weak self] in
-            self?.presenter.navigation.replayHooks()
+        natives.onHatchesConnected = { [weak self] in
+            self?.presenter.navigation.replayHatches()
             self?.presenter.elements.replay()
         }
         #else
-        natives.onHooksConnected = { [weak self] in
+        natives.onHatchesConnected = { [weak self] in
             self?.presenter.elements.replay()
-            self?.presenter.toolbar.hookToolbar()
+            self?.presenter.toolbar.hatchToolbar()
         }
         #endif
         presenter.onHover = { [unowned self] id, over in apply(runtime.hover(id, over: over, now: now())) }
