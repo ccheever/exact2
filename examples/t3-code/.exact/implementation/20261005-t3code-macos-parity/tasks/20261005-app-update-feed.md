@@ -59,7 +59,7 @@ Port changes for headers: `Effect` services and the Electron updater become a Sw
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
 | recorded decision | [X40](../issues/20261005-x40-app-update-feed.md) | pending | The user decides to build on a clone-owned feed (with the feed source and the framework support), or closes it | pending |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
+| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | scheduling preference | After `20261005-embedded-server-runtime`, `20261005-desktop-shell-details` and `20261005-server-update-banner` | none | Server stop, menu seams, banner texts and the control pipe exist | pending |

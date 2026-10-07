@@ -44,12 +44,12 @@ Scheduling preference (not a prerequisite): after `20261005-main-fix-adoption` (
 | --- | --- | --- | --- | --- |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged (area files and registration points exist) | pending |
+| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged (area files and registration points exist) | pending |
 | merged task PR | [20261005-provider-sign-in-and-install](20261005-provider-sign-in-and-install.md) | pending | Merged (editor mounting, fixture, open-URL op) | pending |
 
 ## Issue assessment at preparation
 
-Checked sources and time: plan `issues/` drafts read 2026-10-05; no upstream search (no network). Records: [X17](../issues/20261005-x17-popover-position-try.md), [X9](../issues/20261005-x09-root-component-across-files.md), [X21](../issues/20261005-x21-two-way-websocket.md), [X10](../issues/20261005-x10-text-rendering-parity.md), [X13](../issues/20261005-x13-hover-keys-during-pan.md), [X35](../issues/20261005-x35-secure-text-entry.md), [X44](../issues/20261005-x44-remote-image-policy.md).
+Checked sources and time: plan `issues/` drafts read 2026-10-05; no upstream search (no network). Records: [X17](../issues/20261005-x17-popover-position-try.md), [X9](../issues/20261005-x09-root-component-across-files.md), [X21](../issues/20261005-x21-two-way-websocket.md), [X10](../issues/20261005-x10-text-rendering-parity.md), [X13](../issues/20261005-x13-hover-keys-during-pan.md), [X35](../issues/closed/20261005-x35-secure-text-entry.md), [X44](../issues/20261005-x44-remote-image-policy.md).
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |

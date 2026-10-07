@@ -64,7 +64,7 @@ Port changes for headers: `Effect` services become plain functions; React atoms 
 | --- | --- | --- | --- | --- |
 | recorded decision | [X38](../issues/20261005-x38-t3-connect-clerk-sign-in.md) | pending | The user decides to build (with the key source, sign-in surface and scheme name), or closes it | pending |
 | resolved framework issue | [X5](../issues/20261005-x05-url-scheme-delivery.md) | pending | Resolved upstream on the pinned `main`, or the user drops the handoff and any scheme callback (then this row is marked not needed) | pending |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
+| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | scheduling preference | After `20261005-environment-routes`, `20261005-local-primary-environment`, `20261005-this-machine-network-access` and `20261005-app-activation` | none | The relay route kind, the primary, the relay permissions and the scheme registration are in place | pending |

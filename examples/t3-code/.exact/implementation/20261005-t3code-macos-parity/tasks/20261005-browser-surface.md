@@ -91,7 +91,7 @@ Rules for lane runs: attended rows build the lane app with `T3_LOCAL_HOME=<lane>
 | --- | --- | --- | --- | --- |
 | resolved framework issue | [X1 embedded browser engine](../issues/20261005-x01-chromium-cdp-browser-surface.md) | none yet (local draft) | Charlie\'s decision on the DEFERRED browser-shell rule and a chosen path; for path A also the support merged upstream (path B needs no exact2 change) | pending |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
+| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged (oracle and trace tools for the Browser surface) | pending |
 | scheduling preference | After `20261005-right-panel-tab-menu` (Mute slot), `20261005-floating-device-player` (player layout), `20261005-terminal-integrations` (link routing hook) | none | Not prerequisites | — |
 

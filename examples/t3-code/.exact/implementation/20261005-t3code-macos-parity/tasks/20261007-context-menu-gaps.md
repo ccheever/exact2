@@ -34,7 +34,7 @@ native menus draw only the destructive trash icon, as today).
 ## Context and guidance
 
 Parent specification: [spec](../spec.md). Reference: T3 Code `1e2ecbd975`. The comparison
-pass is [20261007-fix-minor-ui-issues](20261007-fix-minor-ui-issues.md). Follow the
+pass is [20261007-fix-minor-ui-issues](closed/20261007-fix-minor-ui-issues.md). Follow the
 clone's existing menus: `sidebar-menu.ts` builds items, the host shows them natively.
 
 ## Dependencies

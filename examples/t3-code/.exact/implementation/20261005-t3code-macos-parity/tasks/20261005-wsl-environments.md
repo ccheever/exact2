@@ -51,7 +51,7 @@ Every launch runs a lane build with `T3_LOCAL_HOME=<lane>/t3-home` and `T3_LOCAL
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
 | recorded decision | [X41](../issues/20261005-x41-wsl-environments.md) | pending | The user closes it as not applicable (then this ticket closes), or keeps it for a Windows build (then a Windows host and oracle are named) | pending |
-| merged task PR | [20261005-hot-file-split](20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
+| merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged into `daehyeon/t3-code` (common prerequisite: room and per-area seams in the shared files) | pending |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 | merged task PR | [20261005-desktop-oracle-and-trace](20261005-desktop-oracle-and-trace.md) | pending | Merged | pending |
 | scheduling preference | After `20261005-local-primary-environment` | none | The `desktop` and `localBackend` catalog flags are on, so the hidden state is the real one | pending |
