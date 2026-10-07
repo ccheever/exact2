@@ -16,6 +16,8 @@
 // runs. The browser calls the update asynchronously: until it has run, later
 // commits' updates wait behind it, in order.
 
+import { hold } from './focus.js';
+
 const NAME = '[data-shared-element]';
 let pending = null; // the tails waiting for a transition's update
 let running = null; // the transition animating, if any
@@ -87,7 +89,10 @@ function ident() { return `exact-se-${++serial}`; }
  * flush may hand a name on. Returns what `tail` returns, or true when it
  * waits for the browser. */
 export function commit(tail, queue, inflight, after) {
-  if (pending) { pending.push(tail); return true; }
+  // A deferred tree update keeps the press that caused it (focus.js), so a field it mounts may still
+  // take the focus from the pressed control.
+  const deferred = () => { const let_go = hold(); return () => { try { return tail(); } finally { let_go(); } }; };
+  if (pending) { pending.push(deferred()); return true; }
   if (typeof document.startViewTransition !== 'function' || matchMedia('(prefers-reduced-motion: reduce)').matches) return tail();
   const old = leavers(queue);
   if (!old.size) return tail();
@@ -105,7 +110,7 @@ export function commit(tail, queue, inflight, after) {
   // Only the pairs move: the root and unpaired leavers are not shown.
   style ??= document.head.appendChild(document.createElement('style'));
   style.textContent = ':root{view-transition-name:none}';
-  pending = [tail];
+  pending = [deferred()];
   inflight.n++;
   let paired = false, result = true;
   const rules = [], named = [...old.keys()];

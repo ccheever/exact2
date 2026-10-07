@@ -15,7 +15,9 @@ const body = { name: 'body' };
 let mounted = [];
 const root = { querySelectorAll: () => mounted };
 const had = { document: Object.getOwnPropertyDescriptor(globalThis, 'document'), style: Object.getOwnPropertyDescriptor(globalThis, 'getComputedStyle') };
-globalThis.document = { body, activeElement: body };
+const listeners = {};
+globalThis.document = { body, activeElement: body, addEventListener: (kind, f) => { (listeners[kind] ??= []).push(f); } };
+const fire = (type, target) => { for (const f of listeners[type] ?? []) f({ type, target }); };
 globalThis.getComputedStyle = () => ({ visibility: 'visible' });
 // Test files share one process: the stand-ins go when this file is done.
 afterAll(() => {
@@ -24,22 +26,81 @@ afterAll(() => {
   }
 });
 globalThis.queueMicrotask ??= (f) => Promise.resolve().then(f);
-const { autofocus, press, offerAll } = await import('../../web-js/focus.js');
+const { autofocus, press, hold, offerAll } = await import('../../web-js/focus.js');
 
-test('a field mounted after a press takes the focus from the pressed button, once', async () => {
+test('a field mounted by the press takes the focus from the pressed button, once', () => {
   const start = field('start');
   mounted = [];
   autofocus(root); // boot: nothing to focus
   start.focus(); // the tap focused its button
-  press(start);
+  const done = press(start);
   const name = field('name');
   mounted = [name];
-  autofocus(root); // the commit that mounted it
+  autofocus(root); // the commit the press ran
+  done();
   expect(name.focused).toBe(1);
   expect(document.activeElement).toBe(name);
   autofocus(root); // a later commit: offered once
   expect(name.focused).toBe(1);
-  await Promise.resolve(); // the press ends with its microtasks
+});
+
+test('a field a view transition mounts after the press returns still takes the focus', () => {
+  const start = field('start2');
+  start.focus();
+  const done = press(start);
+  const letGo = hold(); // shared.js deferred the tree update to startViewTransition's callback
+  done(); // the click handler returned
+  const name = field('deferred');
+  mounted = [name];
+  autofocus(root); // the transition's callback runs the update
+  letGo();
+  expect(document.activeElement).toBe(name);
+});
+
+test('a commit after the press has run does not take the focus from the pressed button', () => {
+  const start = field('start3');
+  start.focus();
+  press(start)(); // the press and its own commits are done
+  const late = field('late-answer'); // say a mutation's answer mounts it later
+  mounted = [late];
+  autofocus(root);
+  expect(late.focused).toBe(0);
+  expect(document.activeElement).toBe(start);
+});
+
+test('a key pressed while a press is held supersedes it', () => {
+  const start = field('start4');
+  start.focus();
+  const done = press(start);
+  const letGo = hold();
+  done();
+  fire('keydown', start); // the person tabs or types before the transition's update runs
+  const name = field('after-key');
+  mounted = [name];
+  autofocus(root);
+  letGo();
+  expect(name.focused).toBe(0);
+  expect(document.activeElement).toBe(start);
+});
+
+test('another pointer press supersedes a held press; pressing the same control does not', () => {
+  const start = field('start5'), other = field('other');
+  start.focus();
+  const done = press(start);
+  const letGo = hold();
+  done();
+  fire('pointerdown', start); // the same control again: still its press
+  const a = field('kept');
+  mounted = [a];
+  autofocus(root);
+  expect(document.activeElement).toBe(a);
+  start.focus();
+  fire('pointerdown', other);
+  const b = field('dropped');
+  mounted = [b];
+  autofocus(root);
+  letGo();
+  expect(b.focused).toBe(0);
 });
 
 test('a mounted field never takes the focus from another field', () => {
