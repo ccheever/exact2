@@ -84,7 +84,7 @@ component ThreadComposer
             when expanded
               view height=3.5
               when not voicePresented
-                row align-items="center" gap=0
+                row align-items="center" gap=0 retainFocus=true
                   button press=pickAttachments(data.contentOwner) disabled=(data.editing and not data.canCancel) width=44 height=44 padding=0 aria-label="Add attachment"
                     column width=44 height=44 align-items="center" justify-content="center"
                       t3-symbol symbol-name="plus" point-size=20 symbol-weight="regular" symbol-tint=colors.iconSubtle width=20 height=20
