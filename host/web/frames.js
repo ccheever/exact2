@@ -100,6 +100,8 @@ export function createFrameSampler({ origin, log, gather, covers, target }) {
   };
   addEventListener('keydown', e => { if (e.altKey && e.shiftKey && e.code === 'KeyT') { e.preventDefault(); save(); } }, true);
   const sampler = {
+    /** Save Trace, as ⌥⇧T asks for it (a hatch's `diagnostics.saveTrace()`, LLP 1075.003.000.001 §3.3). */
+    save,
     /** A commit or batch the page applied: `seq` its transactions' range (or one number), `ms` the time applying it. */
     batch(seq, ms) {
       const [a, b] = Array.isArray(seq) ? seq : seq == null ? [null, null] : [seq, seq];

@@ -85,8 +85,13 @@ public final class ExactModuleContext: @unchecked Sendable {
     let host: UnsafeMutableRawPointer?
     private let changedFn: ExactModuleChangedFn
     private let nowFn: ExactModuleNowFn
+    /// What the module's code says of itself (LLP 1075.003.000.001 §3.2),
+    /// scoped `module`. It records once the hatches have connected, in a
+    /// development build; before that, and in production, each call returns.
+    public let diagnostics: ExactDiagnostics
 
     init(json: [String: Any], host: UnsafeMutableRawPointer?, changed: @escaping ExactModuleChangedFn, now: @escaping ExactModuleNowFn) {
+        diagnostics = ExactDiagnostics(host: host, scope: "module", node: 0)
         let url = { (key: String) in URL(fileURLWithPath: json[key] as? String ?? NSTemporaryDirectory(), isDirectory: true) }
         agent = json["agent"] as? Bool ?? false
         data = url("data"); cache = url("cache"); temporary = url("temporary")
@@ -213,6 +218,63 @@ public struct ExactData: Sendable {
     public subscript(_ key: ExactDataKey) -> String? { words[key.name] }
 }
 
+/// What hatch code says of itself, for the agent (LLP 1075.003.000.001 §3.2):
+/// `logs` shows `log`'s lines, `state.hatches` the counters and snapshots,
+/// `perf hatches` the timings. Development only, as `perf` is: in production
+/// each call returns at once and keeps nothing. Every call is bounded (64
+/// counters and 64 timings a module, 32 open spans, 16 snapshots of 4 KB, a
+/// 256-byte line and 20 lines a second of session clock a scope); past a
+/// bound it is refused and counted. Names are lowercase letters, digits, `-`
+/// and `.`, at most 64 bytes. Any thread may call.
+public final class ExactDiagnostics: @unchecked Sendable {
+    typealias RecordFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32, Double, UnsafePointer<UInt8>?, UInt32) -> UInt64
+    let host: UnsafeMutableRawPointer?, scope: [UInt8], node: UInt32
+    /// The host's entry: nil in a production build, on a host without it, and
+    /// before the hatches connect.
+    var recordFn: RecordFn?
+
+    init(host: UnsafeMutableRawPointer?, scope: String, node: UInt32, recordFn: RecordFn? = nil) {
+        self.host = host; self.scope = Array(scope.utf8); self.node = node; self.recordFn = recordFn
+    }
+
+    @discardableResult
+    func record(_ kind: UInt32, _ name: String = "", _ value: Double = 0, _ text: [UInt8] = []) -> UInt64 {
+        guard let recordFn else { return 0 }
+        let name = Array(name.utf8)
+        return scope.withUnsafeBufferPointer { s in
+            name.withUnsafeBufferPointer { n in
+                text.withUnsafeBufferPointer { t in
+                    recordFn(host, kind, node, s.baseAddress, UInt32(s.count), n.baseAddress, UInt32(n.count), value, t.baseAddress, UInt32(t.count))
+                }
+            }
+        }
+    }
+
+    /// A line in the journal, under this scope.
+    public func log(_ text: @autoclosure () -> String) { if recordFn != nil { record(0, "", 0, Array(text().utf8)) } }
+    /// A cumulative counter.
+    public func count(_ name: String, by: Int = 1) { record(1, name, Double(by)) }
+    /// One sample of a timing this code measured itself (wall time, perhaps).
+    public func measure(_ name: String, ms: Double) { record(2, name, ms) }
+    /// A span on the session clock, so two identical drives time it alike.
+    public func begin(_ name: String) -> ExactSpan { ExactSpan(diagnostics: self, id: record(3, name)) }
+    /// A snapshot, as JSON, the latest kept. One over 4 KB is refused whole.
+    public func publish(_ name: String, _ value: Any) {
+        guard recordFn != nil else { return }
+        let json = JSONSerialization.isValidJSONObject([value]) ? (try? JSONSerialization.data(withJSONObject: value, options: .fragmentsAllowed)) : nil
+        record(5, name, 0, json.map(Array.init) ?? [])
+    }
+    /// Ask for Save Trace (LLP 1079 D5): at most one a second.
+    public func saveTrace() { record(6) }
+}
+
+/// A span `begin` opened; `end()` once closes it. One still open when its
+/// node ends is counted as abandoned, not timed.
+public struct ExactSpan: Sendable {
+    let diagnostics: ExactDiagnostics, id: UInt64
+    public func end() { if id != 0 { diagnostics.record(4, "", Double(id)) } }
+}
+
 /// The host's callbacks for the hatches (LLP 1075.003 §3.2), one table per
 /// session: `resolve(host, routeKey, keyLen, id, idLen)` → the node a route
 /// holds under an HTML id (0: none); `act(host, node, action)` — 0 click,
@@ -229,6 +291,8 @@ final class ExactHatches {
     let resolveFn: ResolveFn, actFn: ActFn, logFn: LogFn, delegateFn: DelegateFn
     /// A host table of 48 bytes or more: an item added to the window toolbar.
     let toolbarItemFn: ToolbarItemFn?
+    /// One of 56 or more, in a development build: the diagnostics' entry.
+    let recordFn: ExactDiagnostics.RecordFn?
     #if os(iOS) || os(tvOS)
     var navigations: [ObjectIdentifier: ExactNavigation] = [:]
     var routes: [String: ExactRoute] = [:]
@@ -250,6 +314,9 @@ final class ExactHatches {
         delegateFn = unsafeBitCast(delegate, to: DelegateFn.self)
         toolbarItemFn = table.load(as: UInt32.self) >= 48
             ? table.load(fromByteOffset: 40, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: ToolbarItemFn.self) } : nil
+        let calls = table.load(as: UInt32.self) >= 56 ? table.load(fromByteOffset: 48, as: UnsafeRawPointer?.self) : nil
+        recordFn = calls.flatMap { $0.load(as: UInt32.self) >= 16 ? $0.load(fromByteOffset: 8, as: UnsafeRawPointer?.self) : nil }
+            .map { unsafeBitCast($0, to: ExactDiagnostics.RecordFn.self) }
     }
 
     func log(_ line: String) {
@@ -395,6 +462,9 @@ public final class ExactElement {
     weak var route: ExactRoute?
     #endif
     weak var hatches: ExactHatches?
+    /// What this node's hatch says of itself (LLP 1075.003.000.001 §3.2),
+    /// scoped to its word: `element <word>`.
+    public private(set) lazy var diagnostics = ExactDiagnostics(host: hatches?.host, scope: hatch == nil ? "route \(key)" : "element \(key)", node: node, recordFn: hatches?.recordFn)
     /// A hatched node's word, or nil for a route's element.
     public internal(set) var hatch: ExactHatchKey?
     /// A hatched node's `data-*` words.
@@ -761,6 +831,7 @@ private let prepareForReuse: @convention(c) (UnsafeMutableRawPointer?) -> Int32 
 private let moduleConnect: @convention(c) (UnsafeMutableRawPointer?, UnsafeRawPointer?) -> Void = { raw, table in
     guard let m = module(raw), let table else { return }
     m.hatches = ExactHatches(host: m.context.host, table: table)
+    m.context.diagnostics.recordFn = m.hatches?.recordFn
 }
 
 /// `navigation(module, event, controller, flags) → flags`: event 0 built (the

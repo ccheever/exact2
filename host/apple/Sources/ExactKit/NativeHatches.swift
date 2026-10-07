@@ -11,7 +11,7 @@
 //
 // The host's table, handed to the module once (`module_connect`):
 //
-//    0  u32 size                40
+//    0  u32 size                56
 //    8  resolve(host, routeKey, keyLen, id, idLen) → node (0: none)
 //   16  act(host, node, action) → 0 done   action 0 click, 1 focus, 2 blur
 //   24  log(host, text, len)
@@ -19,6 +19,9 @@
 //        controller whose own slot Exact keeps (nil clears it)
 //   40  toolbar_item(host, toolbar, item)    an item the app adds after
 //        Exact's to the window toolbar (macOS, LLP 1075.003.000 §3.7)
+//   48  diagnostics → { u32 size 16; 8 record(…) }, or nil in a production
+//        bake: what hatch code says of itself (LLP 1075.003.000.001 §3.2,
+//        HatchDiagnostics.swift). `record` may be called on any thread.
 //
 // `host` is the session's runtime handle, as for `changed` and `now`: a
 // destroyed session's is answered with nothing.
@@ -98,10 +101,27 @@ private let hatchToolbarItem: HatchToolbarFn = { host, toolbar, item in
     #endif
 }
 
+private typealias HatchRecordFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UInt32, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UInt8>?, UInt32, Double, UnsafePointer<UInt8>?, UInt32) -> UInt64
+
+private let hatchRecord: HatchRecordFn = { host, kind, node, scope, scopeLength, name, nameLength, value, text, textLength in
+    guard let store = HatchDiagnostics.store(for: ExactRuntime(UInt(bitPattern: host))) else { return 0 }
+    return store.record(kind: kind, node: node, scope: hatchText(scope, scopeLength), name: hatchText(name, nameLength), value: value,
+                        text: text.map { Data(bytes: $0, count: Int(textLength)) } ?? Data())
+}
+
+/// The diagnostics' call table, which a development build's host table names.
+private let hatchDiagnosticsTable: UnsafeRawPointer = {
+    let t = UnsafeMutableRawPointer.allocate(byteCount: 16, alignment: 8)
+    t.initializeMemory(as: UInt8.self, repeating: 0, count: 16)
+    t.storeBytes(of: UInt32(16), as: UInt32.self)
+    t.storeBytes(of: unsafeBitCast(hatchRecord, to: UnsafeRawPointer.self), toByteOffset: 8, as: UnsafeRawPointer.self)
+    return UnsafeRawPointer(t)
+}()
+
 /// The host's callbacks, one table for the process: each finds its session
 /// by the handle it is called with.
 private let hatchHostTable: UnsafeRawPointer = {
-    let size = 48
+    let size = 56
     let t = UnsafeMutableRawPointer.allocate(byteCount: size, alignment: 8)
     t.initializeMemory(as: UInt8.self, repeating: 0, count: size)
     t.storeBytes(of: UInt32(size), as: UInt32.self)
@@ -110,6 +130,7 @@ private let hatchHostTable: UnsafeRawPointer = {
     t.storeBytes(of: unsafeBitCast(hatchLog, to: UnsafeRawPointer.self), toByteOffset: 24, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchDelegate, to: UnsafeRawPointer.self), toByteOffset: 32, as: UnsafeRawPointer.self)
     t.storeBytes(of: unsafeBitCast(hatchToolbarItem, to: UnsafeRawPointer.self), toByteOffset: 40, as: UnsafeRawPointer.self)
+    if HatchDiagnostics.measuring { t.storeBytes(of: hatchDiagnosticsTable, toByteOffset: 48, as: UnsafeRawPointer.self) }
     return UnsafeRawPointer(t)
 }()
 
@@ -124,7 +145,15 @@ extension NativeViews {
     func tabsHatch(_ controller: AnyObject?, event: UInt32, index: Int = 0) {
         guard hatchesConnected, let instance, let (tabs, _) = tabCalls else { return }
         session?.log("hatch tabs: \(["built", "retired", "the router selected tab \(index) in the app's container", "the app's container retired"][Int(min(event, 3))])")
-        tabs(instance, event, controller.map { Unmanaged.passUnretained($0).toOpaque() }, UInt32(index))
+        timed("tabs", event == 0 ? "built" : event == 2 ? "changed" : "ended") {
+            tabs(instance, event, controller.map { Unmanaged.passUnretained($0).toOpaque() }, UInt32(index))
+        }
+    }
+
+    /// One hatch call, timed by the session's store (LLP 1075.003.000.001 §3.1).
+    private func timed<T>(_ scope: String, _ moment: String, counts: Bool = true, _ body: () -> T) -> T {
+        guard let store = session?.hatchDiagnostics else { return body() }
+        return store.timed(scope, moment, counts: counts, body)
     }
 
     /// `tabContainer`: a container the app owns for these stacks, or nil.
@@ -132,9 +161,11 @@ extension NativeViews {
         guard hatchesConnected, let instance, let (_, container) = tabCalls else { return nil }
         let json = (try? JSONSerialization.data(withJSONObject: ["names": names, "nodes": nodes, "selected": selected])) ?? Data()
         var pointers: [UnsafeMutableRawPointer?] = controllers.map { Unmanaged.passUnretained($0).toOpaque() }
-        let made = json.withUnsafeBytes { j in
-            pointers.withUnsafeMutableBufferPointer { c in
-                container(instance, j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count), UnsafePointer(c.baseAddress), UInt32(c.count))
+        let made = timed("tabContainer", "built") {
+            json.withUnsafeBytes { j in
+                pointers.withUnsafeMutableBufferPointer { c in
+                    container(instance, j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count), UnsafePointer(c.baseAddress), UInt32(c.count))
+                }
             }
         }
         let owned = made.map { Unmanaged<AnyObject>.fromOpaque($0).takeRetainedValue() }
@@ -156,10 +187,15 @@ extension NativeViews {
         json.append(Data(",\"data\":\(node.props["dataset"] ?? "{}")}".utf8))
         let word = node.props["hatch"] ?? ""
         if !quiet { session?.log("hatch element \(word) #\(node.id): \(["built", "changed", "ended"][Int(min(event, 2))])") }
-        let flags = json.withUnsafeBytes { j in
-            call(instance, event, Unmanaged.passUnretained(node).toOpaque(), platform.map { Unmanaged.passUnretained($0).toOpaque() },
-                 j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count))
+        // ElementHatches counts a node's calls; the store times them.
+        let flags = timed("element \(word)", ["built", "changed", "ended"][Int(min(event, 2))], counts: false) {
+            json.withUnsafeBytes { j in
+                call(instance, event, Unmanaged.passUnretained(node).toOpaque(), platform.map { Unmanaged.passUnretained($0).toOpaque() },
+                     j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count))
+            }
         }
+        // A span its hatch left open ends with the node, abandoned.
+        if event == 2 { session?.hatchDiagnostics.ended(node: node.id) }
         return flags & 1 != 0
     }
 
@@ -168,7 +204,7 @@ extension NativeViews {
     func toolbarHatch(_ toolbar: AnyObject, window: AnyObject) {
         guard hatchesConnected, let instance, let call = toolbarCall else { return }
         session?.log("hatch toolbar: built")
-        call(instance, Unmanaged.passUnretained(toolbar).toOpaque(), Unmanaged.passUnretained(window).toOpaque())
+        timed("toolbar", "built") { call(instance, Unmanaged.passUnretained(toolbar).toOpaque(), Unmanaged.passUnretained(window).toOpaque()) }
     }
 
     /// After the session's module is made: hand it the host's callbacks
@@ -177,6 +213,8 @@ extension NativeViews {
     func connectHatches(_ connect: HatchConnectFn, _ navigation: HatchNavigationFn, _ route: HatchRouteFn,
                       _ tabs: (HatchTabsFn, HatchTabContainerFn)?, _ element: HatchElementFn?, _ toolbar: HatchToolbarFn?,
                       _ module: UnsafeMutableRawPointer) {
+        // A new module is a new incarnation: its counts start at nothing.
+        session?.hatchDiagnostics.reset()
         connect(module, hatchHostTable)
         hatchCalls = (navigation, route)
         tabCalls = tabs
@@ -198,7 +236,7 @@ extension NativeViews {
     func navigationHatch(_ controller: AnyObject, built: Bool, showsBar: Bool, label: String) -> Bool {
         guard let (calls, module) = hatchTarget else { return showsBar }
         let hatch = calls.navigation
-        let flags = hatch(module, built ? 0 : 1, Unmanaged.passUnretained(controller).toOpaque(), showsBar ? 1 : 0)
+        let flags = timed("navigation", built ? "built" : "ended") { hatch(module, built ? 0 : 1, Unmanaged.passUnretained(controller).toOpaque(), showsBar ? 1 : 0) }
         guard built else { return showsBar }
         let shows = flags & 1 != 0
         session?.log("hatch navigation \(label): built, showsBar \(shows)\(shows != showsBar ? " (the hatch's)" : "")")
@@ -215,9 +253,11 @@ extension NativeViews {
         let json = Data("{\"key\":\(keyJSON),\"data\":\(dataset ?? "{}")}".utf8)
         let raw = { (o: AnyObject?) in o.map { Unmanaged.passUnretained($0).toOpaque() } }
         session?.log("hatch route \(key): \(event.name)")
-        json.withUnsafeBytes { j in
-            hatch(module, event.rawValue, raw(controller), raw(navigation), raw(scroll),
-                 j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count))
+        timed("route", event.name) {
+            json.withUnsafeBytes { j in
+                hatch(module, event.rawValue, raw(controller), raw(navigation), raw(scroll),
+                      j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count))
+            }
         }
     }
 }

@@ -130,6 +130,15 @@ function diagnostics(scope, spans) {
       spans?.add(span);
       return span;
     },
+    /** Ask for Save Trace (LLP 1079 D5): at most one a second of wall time; a
+     * sooner ask joins the pending one. Under the agent's clock no frame is
+     * sampled, so there is no trace to save. */
+    saveTrace() {
+      if (!dev() || D.trace) return;
+      const save = () => { D.trace = null; D.traced = performance.now(); globalThis.exact?.frames?.save?.(); };
+      const wait = D.traced == null ? 0 : 1000 - (performance.now() - D.traced);
+      if (wait > 0) D.trace = setTimeout(save, wait); else save();
+    },
     /** A snapshot, JSON, the latest kept. One that does not fit is refused whole. */
     publish(name, value) {
       if (!dev() || !named(scope, name)) return;

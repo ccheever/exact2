@@ -142,7 +142,9 @@ export async function develop(exact) {
   const sampler = createFrameSampler({
     origin: () => clock.start ?? 0, target: 'js', covers: ['input', 'scroll', 'commits', 'animations', 'canvas'],
     log: line => journal.push(`t=${clock.now} ${line}`),
-    gather: async () => ({ journal: { from: journal.start, next: journal.start + journal.length, lines: journal.slice() }, perf: reply(root, tags()) }),
+    // With the hatches (LLP 1075.003.000.001 §3.3), read in this same turn, so the sections agree.
+    gather: async () => ({ journal: { from: journal.start, next: journal.start + journal.length, lines: journal.slice() }, perf: reply(root, tags()),
+      ...(exact.hatchState ? { hatches: { state: exact.hatchState(), perf: exact.hatchPerf.reply(tags()) } } : {}) }),
   });
   // A commit's transactions are known once it returns: the epoch moves after its `After`.
   let mark = clock.epoch;

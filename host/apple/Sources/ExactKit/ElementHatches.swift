@@ -165,7 +165,7 @@ final class ElementHatches {
     /// `state.hatches`: under `words`, per word, how many are live, what they
     /// gave up, and the calls so far (LLP 1075.003.000.001 §3.3: words are
     /// apart from the reply's other fields, so no word can be taken for one).
-    var observation: [String: Any] {
+    func observation(_ diagnostics: HatchDiagnostics?) -> [String: Any] {
         var live: [String: Int] = [:], reused: [String: Int] = [:]
         for entry in nodes.values {
             let word = entry.node.props["hatch"] ?? ""
@@ -181,7 +181,8 @@ final class ElementHatches {
             out[word] = ["live": live[word] ?? 0, "reusable": reused[word] ?? 0, "lost": Self.lost(reusable: reusable),
                          "calls": calls[word] ?? [:]] as [String: Any]
         }
-        return ["words": out]
+        // What each hatch counted and published, and the other scopes (HatchDiagnostics.swift).
+        return diagnostics?.state(words: out) ?? ["words": out]
     }
 
     #if os(iOS) || os(tvOS)

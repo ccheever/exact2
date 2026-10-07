@@ -141,7 +141,7 @@ extension Agent {
         // The window's title as AppKit shows it (LLP 1048.003 D1).
         let window: [String: Any] = ["title": presenter.root.window?.title ?? NSNull(), "toolbar": presenter.toolbar.summary]
         return ["focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window,
-                "dialog": presenter.dialogs.observation ?? NSNull(), "hatches": presenter.elements.observation]
+                "dialog": presenter.dialogs.observation ?? NSNull(), "hatches": presenter.elements.observation(presenter.session?.hatchDiagnostics)]
     }
 
     /// A view's box in the viewport: the clip view's space, less its scroll

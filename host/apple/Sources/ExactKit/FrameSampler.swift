@@ -213,8 +213,8 @@ final class FrameSampler: NSObject {
 }
 
 extension ExactSession {
-    /// Save Trace (LLP 1079 D5): this session's journal, its presented frames
-    /// and `perf` over every root, with who made them and each timing's
+    /// Save Trace (LLP 1079 D5): this session's journal, its presented frames,
+    /// `perf` over every root and its hatches, with who made them and each timing's
     /// proxy, as `trace-<wallclock>.json` in the app's temporary directory;
     /// `agent.mjs trace <file>` reads it back. The path, or why not.
     public func saveTrace() -> Result<URL, Error> {
@@ -239,6 +239,8 @@ extension ExactSession {
             "journal": raw(agent("{\"op\":\"logs\",\"since\":0}")),
             "frames": sampler.reply(late: FrameSampler.lateKept, all: true),
             "perf": perf,
+            // The hatches (LLP 1075.003.000.001 §3.3), read in this same turn, so the sections agree.
+            "hatches": ["state": presenter.elements.observation(hatchDiagnostics), "perf": hatchPerf()],
         ]
         do {
             let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")

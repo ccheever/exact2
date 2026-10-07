@@ -86,10 +86,16 @@ final class FrameSamplerTests: XCTestCase {
         XCTAssertEqual((reply["period"] as? [String: Any])?["source"] as? String, "target")
         XCTAssertTrue(session.agent(#"{"op":"logs","since":0}"#).contains("frame late at "), "a late frame is one journal line")
 
+        // What a hatch recorded is in the trace's `hatches`, as `state` and `perf hatches` give it (LLP 1075.003.000.001 §3.3).
+        _ = session.hatchDiagnostics.record(kind: 1, node: 0, scope: "module", name: "swipes", value: 3, text: Data())
         let url = try session.saveTrace().get()
         defer { try? FileManager.default.removeItem(at: url) }
         let trace = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
-        for key in ["identity", "proxies", "plan", "journal", "frames", "perf"] { XCTAssertNotNil(trace[key], key) }
+        for key in ["identity", "proxies", "plan", "journal", "frames", "perf", "hatches"] { XCTAssertNotNil(trace[key], key) }
+        let hatches = try XCTUnwrap(trace["hatches"] as? [String: [String: Any]])
+        XCTAssertEqual(((hatches["perf"]?["counters"] as? [String: Any])?["module"] as? [String: Int])?["swipes"], 3)
+        XCTAssertEqual((((hatches["state"]?["scopes"] as? [String: Any])?["module"] as? [String: Any])?["counters"] as? [String: Int])?["swipes"], 3)
+        XCTAssertEqual(hatches["perf"]?["plan"] as? String, (trace["perf"] as? [String: Any])?["plan"] as? String, "the hatches' read names the plan `perf` does")
         XCTAssertEqual((trace["frames"] as? [String: Any])?["records"].map { ($0 as? [Any])?.count }, 2)
         XCTAssertNotNil((trace["perf"] as? [String: Any])?["sites"], "the runner measures in a development build")
         // The last one also under the name a phone's is copied off by

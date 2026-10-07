@@ -63,7 +63,7 @@ final class ElementHatchesIOSTests: XCTestCase {
         let compose = try XCTUnwrap(node(session, "compose-home"))
         session.presenter.press(compose.id)
         until("the badge's hatch heard its data change") { log().contains("hatch element badge #\(badge.id): changed") }
-        let hatches = try XCTUnwrap(session.presenter.elements.observation["badge"] as? [String: Any])
+        let hatches = try XCTUnwrap((session.presenter.elements.observation(session.hatchDiagnostics)["words"] as? [String: Any])?["badge"] as? [String: Any])
         XCTAssertEqual((hatches["calls"] as? [String: Int])?["changed"], 1)
         XCTAssertEqual(hatches["live"] as? Int, 1)
         // The plan boots again in this session: the node ends, a new one is built.

@@ -286,6 +286,9 @@ public final class Agent {
                 reply += "," + tail.dropFirst()
             }
             Agent.raw(reply)
+        // `perf hatches` (LLP 1075.003.000.001 §3.3): the hatches' calls, timed, and what their code recorded.
+        case "perf" where req["hatches"] as? Bool == true:
+            Agent.reply(session.hatchPerf())
         // `perf frames` is this host's (LLP 1079 D4); `perf <target>` is the runner's, below.
         case "perf" where req["frames"] as? Bool == true:
             Agent.reply(session.clock != nil ? ["virtual": true] : session.sampler?.reply(late: req["late"] as? Int ?? 20) ?? ["unavailable": true])

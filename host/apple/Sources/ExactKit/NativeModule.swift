@@ -340,7 +340,9 @@ private let nativeNowCallback: NativeTable.NowFn = { host in
 }
 
 final class NativeViews {
-    weak var session: ExactSession?
+    weak var session: ExactSession? { didSet { hatchDiagnostics.attach(session) } }
+    /// What Exact times of each hatch call and what hatch code records (LLP 1075.003.000.001 §3.1–3.2).
+    let hatchDiagnostics = HatchDiagnostics()
     private var entries: [UInt32: NativeEntry] = [:]
     private var gateOpen = false
     private var waits: [UInt32: NativeWait] = [:]

@@ -36,7 +36,21 @@ final class FixtureModule: ExactModule {
          "exact-screen": ExactNativeFactory { _, events in Screen(events: events) }]
     }
 
+    /// Each badge's span, from its mount to its end.
+    private var shown: [ObjectIdentifier: ExactSpan] = [:]
+
     override func element(_ element: ExactElement) {
+        // What each hatch says of itself (LLP 1075.003.000.001 §3.2): a
+        // counter a moment, and for the badge a line, a span from its mount
+        // to its end and a snapshot of its last tone.
+        let moment = element.isNew ? "built" : "changed"
+        element.diagnostics.count(moment)
+        if element.hatch == .badge {
+            let tone = element.data[.tone] ?? ""
+            element.diagnostics.log("\(moment), tone \(tone)")
+            element.diagnostics.publish("tone", ["tone": tone, "moment": moment])
+            if element.isNew { shown[ObjectIdentifier(element)] = element.diagnostics.begin("shown") }
+        }
         #if os(iOS)
         // Owned by Exact (LLP 1075.003.000 §3.6): the development check says so.
         if element.hatch == .detailList, element.data[.violate] == "true" { element.scrollView?.contentInset.bottom = 1 }
@@ -57,6 +71,15 @@ final class FixtureModule: ExactModule {
         #endif
     }
 
+    override func elementEnded(_ element: ExactElement) {
+        element.diagnostics.count("ended")
+        shown.removeValue(forKey: ObjectIdentifier(element))?.end()
+        #if os(iOS)
+        guard element.hatch == .dot, let view = element.view else { return }
+        for case let press as DotPress in view.gestureRecognizers ?? [] { view.removeGestureRecognizer(press) }
+        #endif
+    }
+
     #if os(macOS)
     private let toolbarPress = ToolbarPress()
 
@@ -65,6 +88,7 @@ final class FixtureModule: ExactModule {
     /// (AppKit shows icons only under the compact style a window toolbar
     /// gets, so labels need the window's style too.)
     override func toolbar(_ toolbar: ExactToolbar) {
+        context.diagnostics.count("toolbars")
         toolbar.window?.toolbarStyle = .unified
         toolbar.toolbar.displayMode = .iconAndLabel
         let item = NSToolbarItem(itemIdentifier: .init("fixture.hatched"))
@@ -83,6 +107,7 @@ final class FixtureModule: ExactModule {
 
     override func navigation(_ navigation: ExactNavigation) {
         navigation.controller.navigationBar.tintColor = .systemIndigo
+        context.diagnostics.count("navigations")
     }
 
     override func route(_ route: ExactRoute) {
@@ -102,10 +127,6 @@ final class FixtureModule: ExactModule {
         }
     }
 
-    override func elementEnded(_ element: ExactElement) {
-        guard element.hatch == .dot, let view = element.view else { return }
-        for case let press as DotPress in view.gestureRecognizers ?? [] { view.removeGestureRecognizer(press) }
-    }
 
     override func routeEnded(_ route: ExactRoute) {
         targets.removeValue(forKey: route.key)

@@ -164,10 +164,10 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
       const counted = (await s.state()).hatches?.words?.badge;
       check(counted?.calls?.built === 1 && counted.calls.changed === 1 && counted.live === 1, `${host} native: state.hatches counts the hatch's calls: ${JSON.stringify(counted)}`);
       // What the hatch said of itself, and what Exact timed (LLP
-      // 1075.003.000.001 §3.1–3.3; the web first, §8 stage 1): its counters
-      // and snapshot in `state`, its line in `logs`, its calls in `perf
-      // hatches`. Reads are cumulative: a second read is the same.
-      if (host === 'web') {
+      // 1075.003.000.001 §3.1–3.3, §8 stage 1): its counters and snapshot in
+      // `state`, its line in `logs`, its calls in `perf hatches`. Reads are
+      // cumulative: a second read is the same.
+      {
         check(counted?.counters?.built === 1 && counted.counters.changed === 1 && counted.published?.tone?.tone === 'busy',
           `${host} native: state.hatches carries the hatch's counters and its snapshot: ${JSON.stringify(counted)}`);
         const said = (await s.op({ op: 'logs', since: 0 })).lines.filter((l) => /hatch element badge: /.test(l)); // the whole journal: an earlier read took `built`
@@ -178,7 +178,9 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
         check(perf.measuring && timed?.calls === 2 && timed.ms >= 0 && timed.worst <= timed.ms && built?.calls === 1 && perf.counters?.['element badge']?.built === 1 && perf.plan,
           `${host} native: perf hatches times each call and carries the counters: ${JSON.stringify(perf)}`);
         const again = await s.op({ op: 'perf', hatches: true });
-        check(JSON.stringify(again.calls) === JSON.stringify(perf.calls) && JSON.stringify(again.counters) === JSON.stringify(perf.counters), `${host} native: a perf hatches read changes nothing`);
+        // By value: a native host's JSON orders an object's keys as it likes.
+        const canon = (v) => JSON.stringify(v, (_, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x));
+        check(canon(again.calls) === canon(perf.calls) && canon(again.counters) === canon(perf.counters), `${host} native: a perf hatches read changes nothing: ${canon(perf.calls)} then ${canon(again.calls)}`);
       }
       if (host === 'ios') {
         await s.tap('violate'); await settle(s);
