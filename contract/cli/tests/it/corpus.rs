@@ -837,9 +837,8 @@ fn content_sized_composer_grows_wraps_and_stops_at_its_maximum() {
         ),
     )
     .unwrap();
-    // `max-height` bounds the content box; the field's sheet adds its
-    // padding and border outside it (LLP 1104 D2).
-    assert_eq!(height(&mut r), 88.0 + 14.0);
+    // No compiled field sheet adds padding or border (LLP 1104 r8 D1).
+    assert_eq!(height(&mut r), 88.0);
     assert_eq!(
         r.kernel().node_by_key(fixed).unwrap().frame.height,
         fixed_height

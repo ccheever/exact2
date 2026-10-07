@@ -729,3 +729,11 @@ guide's rules don't make obvious.
   the bundle, which changes their signature bytes; other files stay identical.
   `exact release` signs these files with the release identity before sealing
   the outer bundle. This field is macOS-only. (Issue #103, 2026-10-07.)
+
+- **A background, border or radius makes a text field your own box.** A text
+  field is the platform's own by default. Any such row, including a shorthand,
+  a class row or a row on just one conditional arm, makes it bare for its whole
+  lifetime. Write `appearance="none"` explicitly when drawing the field yourself.
+  With `appearance="auto"`, those rows are refused; remove them to keep the
+  platform's background, border and corners. `background-clip` and
+  `background-attachment` alone keep the field native. (LLP 1104 r8 D2.)
