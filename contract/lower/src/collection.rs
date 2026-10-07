@@ -45,6 +45,14 @@ impl Lowerer<'_> {
             }
         }
         self.check_group(virtualized, attrs, children, scope)?;
+        // @ref LLP 1010 §6.9 — `scroll-padding` is read by a virtualized
+        // list's `scrollIntoView` alone; a native host aligns nothing else by
+        // it, where the browser would.
+        if let Some(a) = attrs.iter().find(|a| a.name.starts_with("scroll-padding")) {
+            if !virtualized {
+                return err("lower-scroll-padding", format!("`{}` insets where a virtualized list's `scrollIntoView` aligns a row; native hosts read it nowhere else, so on {} the web alone would follow it: put it on a `list virtualized=true`, or leave it out", a.name, if tag == "list" { "a list that is not virtualized".to_string() } else { format!("`{tag}`") }), a.span);
+            }
+        }
         let Some(opt) = attrs.iter().find(|a| a.name == "virtualized") else {
             return Ok(());
         };
@@ -273,15 +281,25 @@ impl Lowerer<'_> {
     /// runner reads the list's resolved padding from layout at every report.
     /// A percentage is refused: Apple's hosts place rows from the authored
     /// padding, which has no containing block to resolve one against.
+    /// `scroll-padding` along the axis takes the same forms: the inset a
+    /// `scrollIntoView` aligns within, which the runner reads from the
+    /// list's style when the request is made.
     fn collection_inset(&self, attrs: &[Attr], row: bool, scope: &Scope) -> Result<(), LowerError> {
-        let (names, sides): (&[&str], [usize; 2]) = if row {
-            (&["padding", "padding-left", "padding-right"], [3, 1])
+        let (ends, sides) = if row {
+            (["left", "right"], [3, 1])
         } else {
-            (&["padding", "padding-top", "padding-bottom"], [0, 2])
+            (["top", "bottom"], [0, 2])
         };
-        for a in attrs.iter().filter(|a| names.contains(&a.name.as_str())) {
+        let main_axis = |name: &str| {
+            ["padding", "scroll-padding"].into_iter().any(|family| {
+                name == family || ends.iter().any(|end| name == format!("{family}-{end}"))
+            })
+        };
+        for a in attrs.iter().filter(|a| main_axis(&a.name)) {
             let main = match super::values::sides(&a.name, &a.value)? {
-                Some(four) if a.name == "padding" => sides.map(|i| four[i].clone()).to_vec(),
+                Some(four) if !a.name.ends_with(ends[0]) && !a.name.ends_with(ends[1]) => {
+                    sides.map(|i| four[i].clone()).to_vec()
+                }
                 _ => vec![a.value.clone()],
             };
             for value in &main {

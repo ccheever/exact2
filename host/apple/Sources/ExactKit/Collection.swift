@@ -144,7 +144,7 @@ struct CollectionSnapshot {
         var correction: Correction?
         if let raw = value["correction"], !(raw is NSNull) {
             guard let raw = raw as? [String: Any], let seq = Self.uint(raw["scrollSequence"]),
-                  let offset = Self.number(raw["offset"]) else { return nil }
+                  let offset = Self.signed(raw["offset"]) else { return nil }
             correction = Correction(sequence: seq, offset: offset, from: Self.number(raw["from"]), smooth: raw["smooth"] as? Bool == true)
         }
         self.view = view; self.revision = revision; self.sequence = sequence
@@ -172,6 +172,12 @@ struct CollectionSnapshot {
     private static func viewID(_ value: Any?) -> UInt32? {
         guard let n = uint(value), n > 0 else { return nil }
         return UInt32(exactly: n)
+    }
+    /// A correction's offset: negative only for a `scrollIntoView` into the
+    /// padding before the first row (LLP 1010 §6.9).
+    private static func signed(_ value: Any?) -> Double? {
+        guard let n = value as? NSNumber, n.doubleValue.isFinite else { return nil }
+        return abs(n.doubleValue) <= Double(Float.greatestFiniteMagnitude) ? n.doubleValue : nil
     }
     private static func number(_ value: Any?) -> Double? {
         guard let n = value as? NSNumber else { return nil }

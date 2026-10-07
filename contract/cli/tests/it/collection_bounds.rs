@@ -240,3 +240,41 @@ fn the_flex_shorthand_text_bounds_as_its_longhands_do() {
         contract::compile(&scroll("column height=200", "flex=\"none\" min-height=0")).unwrap_err();
     assert_eq!(e.id, "lower-scroll-unbounded", "{e}");
 }
+
+/// `scroll-padding` (LLP 1010 §6.9) takes padding's forms on a virtualized
+/// list, where `scrollIntoView` aligns by it, and is refused elsewhere: a
+/// native host reads it nowhere else.
+#[test]
+fn scroll_padding_is_a_virtualized_lists_and_takes_lengths() {
+    for attrs in [
+        "scroll-padding-top=92",
+        "scroll-padding-bottom=\"calc(env(safe-area-inset-bottom) + 49px)\"",
+        "scroll-padding=\"92 0 49\"",
+        "scroll-padding-top=grow",
+        "scroll-padding-left=\"5%\"",
+    ] {
+        contract::compile(&source(&format!("virtualized=true height=200 {attrs}")))
+            .unwrap_or_else(|e| panic!("{attrs}: {e}"));
+    }
+    for attrs in [
+        "scroll-padding-top=\"10%\"",
+        "scroll-padding=\"0 0 10%\"",
+        "scroll-padding-bottom=bound",
+    ] {
+        let e = contract::compile(&source(&format!("virtualized=true height=200 {attrs}")))
+            .unwrap_err();
+        assert_eq!(e.id, "lower-collection-flow", "{attrs}: {e}");
+    }
+    for attrs in [
+        "virtualized=false height=200 scroll-padding-top=92",
+        "height=200 scroll-padding=8",
+    ] {
+        let e = contract::compile(&source(attrs)).unwrap_err();
+        assert_eq!(e.id, "lower-scroll-padding", "{attrs}: {e}");
+    }
+    let e = contract::compile(
+        "component App\n  view\n    scroll height=200 scroll-padding-top=92\n      box height=1000\n",
+    )
+    .unwrap_err();
+    assert_eq!(e.id, "lower-scroll-padding", "{e}");
+}

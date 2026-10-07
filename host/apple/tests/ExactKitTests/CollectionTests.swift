@@ -52,6 +52,12 @@ final class CollectionTests: XCTestCase {
         XCTAssertNil(CollectionSnapshot(broken))
         broken = value; broken["rows"] = [row, row]
         XCTAssertNil(CollectionSnapshot(broken))
+        // A `scrollIntoView` into the padding before the first row is a
+        // negative correction (LLP 1010 §6.9); a non-finite one is not.
+        var padded = value; padded["correction"] = ["scrollSequence": 1, "offset": -92]
+        XCTAssertEqual(CollectionSnapshot(padded)?.correction?.offset, -92)
+        padded["correction"] = ["scrollSequence": 1, "offset": -Double.infinity]
+        XCTAssertNil(CollectionSnapshot(padded))
     }
 
 

@@ -186,6 +186,7 @@ const Held = new Set(); // collections whose edge waits for their covered route 
 class Collection {
   constructor(el, o, own) {
     this.el = el; this.view = viewId(el); this.axis = o.x ? "x" : "y"; this.own = own; this.o = o;
+    this.leading = 0; this.scrollPadding = [0, 0];
     this.est = o.est ?? ESTIMATED;
     if (!(isFinite(this.est) && this.est > 0)) throw new Refusal("estimated item height must be positive and finite");
     this.index = new SizeIndex(this.est);
@@ -608,12 +609,14 @@ class Collection {
     const cs = getComputedStyle(root), n = v => parseFloat(v) || 0;
     return this.axis === "y" ? [n(cs.marginTop), n(cs.marginBottom)] : [n(cs.marginLeft), n(cs.marginRight)];
   }
+  // Within the port less its scroll-padding (into_view.rs `aligned`), down to the padding before the first row.
   aligned(p, align, current) {
     const [before, after] = this.margins(p);
     const start = this.index.prefix(p) + before, size = Math.max(0, this.index.h[p] - before - after), port = this.geometry?.port_main ?? 0;
-    const at = align === "start" ? start : align === "center" ? start + size / 2 - port / 2 : align === "end" ? start + size - port
-      : start < current ? start : start + size > current + port ? (size > port ? start : start + size - port) : current;
-    return Math.min(Math.max(at, 0), this.index.maxOffset(port));
+    const [i0, i1] = this.scrollPadding, low = i0, high = Math.max(i0, port - i1), view = high - low;
+    const at = align === "start" ? start - low : align === "center" ? start + size / 2 - (low + high) / 2 : align === "end" ? start + size - high
+      : start < current + low ? start - low : start + size > current + high ? (size > view ? start - low : start + size - high) : current;
+    return Math.min(Math.max(at, -this.leading), this.index.maxOffset(port));
   }
   /** Start a request: its window is built at the destination now, and the
    * host told to move there before it paints (the correction). */
@@ -623,8 +626,8 @@ class Collection {
     this.restoredAt = null; this.atEnd = false;
     this.target = { key, align, reports: 0, travelling: 0, aligned: 0 };
     this.status = [key, "pending"];
-    if (g) { g.offset = offset; this.correction = { scrollSequence: g.scroll_sequence, offset }; }
-    else { this.startOffset = offset; this.correction = { scrollSequence: 0, offset }; }
+    if (g) { g.offset = Math.max(0, offset); this.correction = { scrollSequence: g.scroll_sequence, offset }; }
+    else { this.startOffset = Math.max(0, offset); this.correction = { scrollSequence: 0, offset }; }
     this.realize(false, {});
     this.revision++;
   }
@@ -647,14 +650,15 @@ class Collection {
     if (!g) return;
     const desired = this.aligned(p, t.align, reported);
     const first = Math.min(this.mounted[0]?.position ?? p, p);
-    if (Math.abs(desired - reported) <= 0.5) {
+    // A host reports an offset short of the first row as 0.
+    if (Math.abs(Math.max(0, desired) - reported) <= 0.5) {
       t.aligned = this.index.rangeMeasured(first, p + 1) && !this.pending ? t.aligned + 1 : 0;
       if (t.aligned >= 2) this.end("done");
       return;
     }
     t.aligned = 0;
     if (t.reports >= 6) return this.end("unconverged");
-    g.offset = desired;
+    g.offset = Math.max(0, desired);
     this.correction = { scrollSequence: g.scroll_sequence, offset: desired };
     t.reports++;
   }
@@ -786,6 +790,9 @@ function report(bytes, f, fill) {
   const c = Lists.get(f.view);
   // The list's resolved padding after its rows, which the browser half reads.
   if (c && Number.isFinite(f.trailing)) c.trailingNext = Math.max(0, f.trailing);
+  // The padding before the first row and the scroll padding (inset.rs `set_insets`).
+  if (c && Number.isFinite(f.leading)) c.leading = Math.max(0, f.leading);
+  if (c && Array.isArray(f.scrollPadding)) c.scrollPadding = f.scrollPadding.map(n => Number.isFinite(n) ? Math.max(0, n) : 0);
   const byView = c?.prepare(f);
   if (!byView) return true;
   const cats = [f.focus_view != null, f.interaction_view != null];

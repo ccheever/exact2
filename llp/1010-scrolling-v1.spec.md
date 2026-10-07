@@ -1084,9 +1084,9 @@ end stopped short of it, and a clamped `scrollIntoView` with it. Now:
   paddings, as before. Linux: nothing changed (`geometry` already read both
   paddings).
 
-**Deviations.** A `block="center"` or `block="end"` `scrollIntoView` of a
-row near the top clamps at the first row's start, not at `scrollTop` 0: an
-offset never counts back into the padding before the first row. `reachstart`
+**Deviations.** (Until the `scroll-padding` addendum below, a `block="center"`
+or `"end"` `scrollIntoView` near the top clamped at the first row's start;
+it now reaches `scrollTop` 0.) `reachstart`
 fires for a port anywhere in that padding, which is before the first row.
 Before the first report the runner knows no padding, so `scroll-start="end"`'s
 opening correction is the rows' extent; a host clamps it to the true end
@@ -1103,3 +1103,51 @@ start), `collection_bounds.rs` and `collection_axis.rs` (the forms taken and
 refused), `trailing_padding_extends_the_range_past_the_rows` (index), the
 web conformance plan `listinset`, and `RefreshInsetIOSTests` (written and
 type-checked; the iOS simulator was down, so it has not run).
+
+**Addendum, `scroll-padding` (2026-10-07).** Approved via the lead
+2026-10-07 (Charlie's standing rule on standard CSS gaps). Consumer: the
+Bluesky clone's soft reset (the butterfly), `scrollIntoView(feed, firstKey,
+block="start")` under a 92-point header, which should land at `scrollTop` 0
+with the padding showing, as Bluesky's does.
+
+*Surface.* A virtualized list takes CSS's `scroll-padding-top` and
+`-bottom` (`-left` and `-right` on a row list), and the `scroll-padding`
+shorthand, in padding's forms; its main-axis sides refuse a percentage and a
+computed string (`lower-collection-flow`), as padding's do. The cross-axis
+sides are taken and read by nothing. Anywhere but a virtualized list,
+`scroll-padding*` is refused (`lower-scroll-padding`): the element form of
+`scrollIntoView` on an ordinary scroller is the host's own (UIKit's,
+AppKit's, the Linux presenter's), which reads no scroll padding, so only the
+browser would follow it. Nothing else reads it: no snapping, and only
+`scrollIntoView` and the corrections that settle it align by it.
+
+*Meaning, as CSS's.* `scrollIntoView` aligns the row in the port less its
+scroll padding (the optimal viewing region; CSS Scroll Snap 1 §4.1):
+`start` puts the row's start at the scroll padding's edge, `end` its end at
+the far edge's, `center` its centre in the middle of the two, and `nearest`
+leaves it where it is when it is inside them. The result clamps to the
+scroll range, `scrollTop` 0 to the true end.
+
+*How.* Kernel style rows `scroll_padding_top`…`_left` (rare, dimension, not
+layout); the web hosts write them as CSS on the scroller (the browser's own
+scroll padding, which the collection's `scrollTo` does not apply twice).
+The runner reads the list's `padding-top`/`-left` and its scroll padding from
+its style with the end padding before each report (`collection/inset.rs`
+`Insets`, `Runner::collection_feedback_filled`); the JS target's `list.js`
+gets the same from the browser half (`leading`, `scrollPadding`). `aligned`
+(`collection/into_view.rs`, `list.js`) aligns within the scroll padding and
+clamps at minus the padding before the first row, so a correction's offset
+may now be negative, down to that padding: `scrollTop` 0. Hosts already
+added the padding to a correction; Apple's snapshot parser refused a
+negative offset and the web browser half ignored one, and both now take it.
+A host still reports offsets from the first row, never below 0, so a request
+whose destination is in the padding before the first row is at it when the
+host reports 0 (a reader who scrolls cancels it first).
+
+Tests: `collection_inset.rs` `scroll_into_view_aligns_within_the_scroll_padding`
+(start, end, centre and nearest within the scroll padding, the clamp at the
+true end, the first row's start and end at `scrollTop` 0) and
+`without_scroll_padding_start_is_the_ports_top_edge`; `collection_bounds.rs`
+`scroll_padding_is_a_virtualized_lists_and_takes_lengths`; the web host's
+`style_rows_lower_to_css_by_their_names` (the CSS); `CollectionTests`
+(Apple's parser takes a negative correction; type-checked, not run here).

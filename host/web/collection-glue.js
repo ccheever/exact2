@@ -38,9 +38,9 @@ const INPUT = ['wheel', 'touchstart', 'keydown', 'pointerdown'];
 // Every main-axis read and write goes through one of these.
 const AXES = {
   y: { offset: 'scrollTop', client: 'clientHeight', crossClient: 'clientWidth', scrollSize: 'scrollHeight', overflow: 'overflowY',
-    start: 'top', end: 'bottom', size: 'height', clientStart: 'clientTop', padStart: 'paddingTop', padEnd: 'paddingBottom', crossPads: ['paddingLeft', 'paddingRight'] },
+    start: 'top', end: 'bottom', size: 'height', clientStart: 'clientTop', padStart: 'paddingTop', padEnd: 'paddingBottom', scrollPads: ['scrollPaddingTop', 'scrollPaddingBottom'], crossPads: ['paddingLeft', 'paddingRight'] },
   x: { offset: 'scrollLeft', client: 'clientWidth', crossClient: 'clientHeight', scrollSize: 'scrollWidth', overflow: 'overflowX',
-    start: 'left', end: 'right', size: 'width', clientStart: 'clientLeft', padStart: 'paddingLeft', padEnd: 'paddingRight', crossPads: ['paddingTop', 'paddingBottom'] },
+    start: 'left', end: 'right', size: 'width', clientStart: 'clientLeft', padStart: 'paddingLeft', padEnd: 'paddingRight', scrollPads: ['scrollPaddingLeft', 'scrollPaddingRight'], crossPads: ['paddingTop', 'paddingBottom'] },
 };
 
 export function applyCollectionFeedback(batch, applyBatch) {
@@ -130,7 +130,8 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     const origin = s.el.getBoundingClientRect()[A.start] + s.el[A.clientStart] + number(css[A.padStart])
       - (s.el === s.port ? s.port[A.offset] : 0);
     return { raw: port.start - origin, portMain: port.main, portCross: port.cross,
-      cross: s.el[A.crossClient] - number(css[A.crossPads[0]]) - number(css[A.crossPads[1]]), trailing: number(css[A.padEnd]) };
+      cross: s.el[A.crossClient] - number(css[A.crossPads[0]]) - number(css[A.crossPads[1]]), trailing: number(css[A.padEnd]),
+      leading: number(css[A.padStart]), scrollPadding: A.scrollPads.map(p => number(css[p])) };
   }
   const dimensionsOf = g => `${g.portCross},${g.portMain},${g.cross}`;
   function liveView(s, element) {
@@ -262,7 +263,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
           return { view: row.view, epoch: row.epoch, size: rect[A.size] };
         });
       } else if (releases.includes(s)) {
-        g = { raw: old.offset, portCross: old.port_cross, portMain: old.port_main, cross: old.cross, trailing: old.trailing };
+        g = { raw: old.offset, portCross: old.port_cross, portMain: old.port_main, cross: old.cross, trailing: old.trailing, leading: old.leading, scrollPadding: old.scrollPadding };
       } else continue;
       scrollChanged(s);
       // The jump's target, clamped as the browser will: reported before it
@@ -276,8 +277,8 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
       s.dimensions = dimensions;
       const facts = { view: s.snapshot.view, revision: s.snapshot.revision, scroll_sequence: s.sequence,
         offset: Math.max(0, g.raw + (s.animating != null ? (s.owed ?? s.animating) - s.port[A.offset] : s.clamp?.at === s.port[A.offset] ? s.clamp.from - s.clamp.at : 0)), port_main: g.portMain, port_cross: g.portCross, cross: g.cross,
-        focus_view: pins[0], interaction_view: pins[1], measurements, trailing: g.trailing };
-      const signature = [facts.offset, facts.scroll_sequence, dimensions, facts.trailing, ...pins,
+        focus_view: pins[0], interaction_view: pins[1], measurements, trailing: g.trailing, leading: g.leading, scrollPadding: g.scrollPadding };
+      const signature = [facts.offset, facts.scroll_sequence, dimensions, facts.trailing, facts.leading, ...(facts.scrollPadding ?? []), ...pins,
         ...measurements.flatMap(r => [r.view, r.epoch, r.size])].join('|');
       for (const [el, value] of measuredSizes) if (s.observed.has(el)) s.observed.set(el, value);
       if (s.signature === signature && jump == null && !s.snapshot.pending) continue;
@@ -537,7 +538,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
         // scroll anchoring since the runner's last report don't void it.
         if (correction && s.corrected !== snapshot.revision
             && (BigInt(correction.scrollSequence) === s.sequence || authored(s))
-            && Number.isFinite(correction.offset) && correction.offset >= 0) {
+            && Number.isFinite(correction.offset)) {
           const g = geometry(s), name = AXES[axis].offset;
           // H4: a row list moving under the user's hand is not corrected;
           // its next report carries the uncorrected offset and the runner

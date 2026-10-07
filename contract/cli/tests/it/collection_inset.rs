@@ -257,3 +257,82 @@ fn a_followed_end_follows_the_padding_as_it_changes() {
     let top = host(&mut r, top);
     assert_eq!(top, max_top_with(&list(&r), 49.0), "and still following it");
 }
+
+/// `scroll-padding` (LLP 1010 §6.9): `scrollIntoView` aligns a row within
+/// the port less its scroll padding, as CSS aligns in the snapport. With
+/// `scroll-padding-top` the header's height, the first row's `start` is
+/// `scrollTop` 0 (Bluesky's soft reset under its header).
+const SNAP: &str = r#"component App
+  state count = 100
+  resource rows = rows(count) as shape list<number>
+  action start(n: number)
+    scrollIntoView("feed", n, block="start")
+  action center(n: number)
+    scrollIntoView("feed", n, block="center")
+  action end(n: number)
+    scrollIntoView("feed", n, block="end")
+  action nearest(n: number)
+    scrollIntoView("feed", n, block="nearest")
+  view
+    column testId="root"
+      list id="feed" virtualized=true height=600 width=400 overflow-x="hidden" estimated-item-height=100 padding-top=92 padding-bottom="calc(env(safe-area-inset-bottom) + 49px)" scroll-padding="92 0 calc(env(safe-area-inset-bottom) + 49px)"
+        each x in rows key=x
+          text `${x}` height=100 width="100%"
+"#;
+fn into(r: &mut Runner<Data>, action: &str, row: f64, from: f64) -> f64 {
+    r.act(action, vec![Value::Number(row)]).unwrap();
+    let top = host(r, from);
+    assert!(
+        exact_runner::agent::state(r).contains("\"status\":\"done\""),
+        "{action} {row} settled: {}",
+        exact_runner::agent::state(r)
+    );
+    top
+}
+
+#[test]
+fn scroll_into_view_aligns_within_the_scroll_padding() {
+    let mut r = boot(SNAP);
+    host(&mut r, 0.0);
+    // The snapport is the port less 92 at the top and 83 at the bottom.
+    let (low, high) = (TOP, PORT - END);
+    let top = into(&mut r, "start", 50.0, 0.0);
+    assert_eq!(top, TOP + 50.0 * ROW - low, "below the header");
+    let top = into(&mut r, "end", 50.0, top);
+    assert_eq!(top, TOP + 51.0 * ROW - high, "above the tab bar");
+    let top = into(&mut r, "center", 50.0, top);
+    assert_eq!(
+        top,
+        TOP + 50.5 * ROW - (low + high) / 2.0,
+        "centred in the snapport"
+    );
+    // The last row's end clamps at the true end.
+    let top = into(&mut r, "end", 99.0, top);
+    assert_eq!(top, max_top(&list(&r)));
+    // Nearest: a row under the header comes down to just below it.
+    let top = into(&mut r, "nearest", 99.0 - 5.0, top);
+    assert_eq!(top, TOP + 94.0 * ROW - low);
+    // The first row's start is `scrollTop` 0, from far away; its end too
+    // clamps there, at the padding before it.
+    let top = into(&mut r, "start", 0.0, top);
+    assert_eq!(top, 0.0, "the soft reset: the very top");
+    let top = into(&mut r, "start", 50.0, top);
+    assert_eq!(top, TOP + 50.0 * ROW - low);
+    let top = into(&mut r, "end", 0.0, top);
+    assert_eq!(top, 0.0);
+}
+
+/// Without scroll padding a row's start is the port's top edge, as before,
+/// and the first row's is the padding's height down.
+#[test]
+fn without_scroll_padding_start_is_the_ports_top_edge() {
+    let mut r = boot(&SNAP.replace(
+        " scroll-padding=\"92 0 calc(env(safe-area-inset-bottom) + 49px)\"",
+        "",
+    ));
+    host(&mut r, 0.0);
+    let top = into(&mut r, "start", 0.0, 4000.0);
+    assert_eq!(top, TOP);
+    let top = into(&mut r, "center", 1.0, top);
+    assert_eq!(top, 0.0, "row 1's centre is above the port's: the very top");
+}

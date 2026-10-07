@@ -436,7 +436,10 @@ a literal positive `height`, takes `estimated-item-width`, and refuses a nonzero
 `gap` and `justify-content` other than `flex-start`. Padding along the list's
 axis is room before the first row and after the last, as in CSS: a length or an
 `env()` inset, not a percentage. On iOS a list's pull-to-refresh spinner draws
-below its `padding-top`, so a header laid over that padding does not hide it.
+below its `padding-top`, so a header laid over that padding does not hide it. A
+virtualized list's `scroll-padding` insets where `scrollIntoView` aligns a row,
+as in CSS: `scroll-padding-top` the height of that header brings a row to just
+below it, and the first row to the very top. Other elements refuse it.
 Virtualized lists nest one level deep (an inner vertical list needs a literal
 `height` or `max-height`); deeper nesting, masonry, wrapping, reversed lists, and
 RTL horizontal collections are not supported.

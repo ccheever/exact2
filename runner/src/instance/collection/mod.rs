@@ -3,6 +3,7 @@
 mod api;
 mod index;
 mod inset;
+pub(crate) use inset::Insets;
 mod into_view;
 mod nest;
 mod rekey;
@@ -194,8 +195,12 @@ pub(crate) struct Collection {
     /// What a retiring row may be rebound to another item under (LLP 1078):
     /// `None` when no row of this list can be.
     reuse: Option<Rc<reuse::Reuse>>,
-    /// The end padding the next report brings ([`Collection::set_end_padding`]).
+    /// The end padding the next report brings ([`Collection::set_insets`]).
     trailing_next: Option<f64>,
+    /// The padding before the first row, and the scroll padding at each
+    /// end, along the axis (@ref LLP 1010 §6.9).
+    leading: f64,
+    scroll_padding: [f64; 2],
 }
 fn index_error(e: index::IndexError) -> InstanceError {
     InstanceError::Collection(e.to_string())
@@ -463,6 +468,8 @@ impl Collection {
             end_sent: f64::NAN,
             reuse,
             trailing_next: None,
+            leading: 0.0,
+            scroll_padding: [0.0; 2],
         });
         this.update_data(u, frames, true)?;
         Ok(Some(this))

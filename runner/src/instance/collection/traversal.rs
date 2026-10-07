@@ -325,9 +325,9 @@ impl Tree {
     /// rows, `[bottom, right]`, which the scroll range runs past the rows'
     /// end (@ref LLP 1010 §6.9). Offsets count from the first row, so the
     /// padding before it is the host's to subtract.
-    pub(crate) fn set_collection_end_padding(&mut self, view: ViewId, padding: [f64; 2]) {
+    pub(crate) fn set_collection_insets(&mut self, view: ViewId, insets: super::inset::Insets) {
         if let Some(collection) = find_collection_mut(&mut self.children, view) {
-            collection.set_end_padding(padding);
+            collection.set_insets(insets);
         }
     }
     /// Publish one fresh set of host measurement identities after a deferred
