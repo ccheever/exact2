@@ -458,7 +458,7 @@ fn a_release_at_fit_dismisses_or_springs_back_and_the_backdrop_follows_only_at_f
             .style;
         (
             style.animation.0.first().map(|a| a.name.clone()),
-            style.animation_timeline.css(),
+            style.rare.animation_timeline.css(),
             style.animation_range.css(),
         )
     };
@@ -475,6 +475,7 @@ fn a_release_at_fit_dismisses_or_springs_back_and_the_backdrop_follows_only_at_f
         .node_by_key(key(&r, "viewer-transform"))
         .unwrap()
         .style
+        .rare
         .drag_timeline
         .css();
     assert_eq!(source, "--dismiss y");

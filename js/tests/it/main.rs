@@ -9,6 +9,7 @@ mod entropy;
 mod forget;
 mod inputs;
 mod interrupt;
+mod pinned_engines;
 mod pure;
 mod render;
 mod storage;

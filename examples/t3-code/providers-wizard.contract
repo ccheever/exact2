@@ -65,18 +65,20 @@ component WizardStep
     current: number
     go: action
   view
-    button press=go("step", `${number}`) flex=1 min-width=0 height=36 box-sizing="border-box" padding-left=10 padding-right=10 padding-top=8 padding-bottom=8 gap=8 border-radius=10 border-width=(current == number ? 1 : 0) border-style="solid" border-color="light-dark(#0000000d, #ffffff0d)" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" background-color=(current == number ? "light-dark(#ffffff, #111111)" : "#00000000") box-shadow=(current == number ? "0 1px 2px #0000000d" : "none") aria-label=(summary == "" ? `${title}, step ${number + 1}` : `${title}, step ${number + 1}, ${summary}`) testId=`wizard-step-${number}`
-      box width=20 height=20 border-radius=9999 flex-shrink=0 display="flex" align-items="center" justify-content="center" box-sizing="border-box" border-style="solid" border-width=1 border-color=(current > number ? "light-dark(#1b4ed8, #346bf1)" : (current == number ? "light-dark(#1b4ed84d, #346bf14d)" : "light-dark(#0000001a, #ffffff1a)")) background-color=(current > number ? "light-dark(#1b4ed8, #346bf1)" : (current == number ? "light-dark(#1d4ed81a, #316cf51a)" : "light-dark(#ffffff, #ffffff0d)"))
+    button press=go("step", `${number}`) flex=1 min-width=0 height="2.25rem" box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.5rem" padding-bottom="0.5rem" gap="0.5rem" border-radius="0.625rem" border-width=(current == number ? 1 : 0) border-style="solid" border-color="light-dark(#0000000d, #ffffff0d)" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" background-color=(current == number ? "light-dark(#ffffff, #111111)" : "#00000000") box-shadow=(current == number ? "0 1px 2px #0000000d" : "none") aria-label=(summary == "" ? `${title}, step ${number + 1}` : `${title}, step ${number + 1}, ${summary}`) testId=`wizard-step-${number}`
+      box width="1.25rem" height="1.25rem" border-radius="624.9375rem" flex-shrink=0 display="flex" align-items="center" justify-content="center" box-sizing="border-box" border-style="solid" border-width=1 border-color=(current > number ? "light-dark(#1b4ed8, #346bf1)" : (current == number ? "light-dark(#1b4ed84d, #346bf14d)" : "light-dark(#0000001a, #ffffff1a)")) background-color=(current > number ? "light-dark(#1b4ed8, #346bf1)" : (current == number ? "light-dark(#1d4ed81a, #316cf51a)" : "light-dark(#ffffff, #ffffff0d)"))
         when current > number
           PvIcon(name="check", size=14, color="#ffffff")
         else
-          text `${number + 1}` font-size=14 line-height="20px" font-weight=500 color=(current == number ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#71717b, #818181)")
-      text title font-size=14 line-height="20px" font-weight=500 color=(current == number ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+          text `${number + 1}` font-size="0.875rem" line-height="1.25rem" font-weight=500 color=(current == number ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#71717b, #818181)")
+      text title font-size="0.875rem" line-height="1.25rem" font-weight=500 color=(current == number ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
 
 // AddProviderInstanceDialog.tsx: Provider → Identity → Config, or the ACP
 // Registry's Provider → Identity → Sign in. Config drafts are row state, so
 // every opening starts empty.
 component AddProviderDialog
+  inject
+    rem: number
   props
     wizard: ProviderWizard
     acp: AcpRegistry
@@ -126,141 +128,141 @@ component AddProviderDialog
   derive lastStep = isAcp ? 1 : 2
   view
     column class=PvOverlay testId="add-provider-overlay"
-      column width="100%" max-width=768 max-height=(viewportHeight - 32) box-sizing="border-box" border-radius=18 border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" position="relative" overflow="hidden" role="dialog" aria-label="Add provider" testId="add-provider-dialog"
-        column width="100%" box-sizing="border-box" padding-left=24 padding-right=24 padding-top=24 padding-bottom=12 gap=8 flex-shrink=0
-          text "Add provider" font-size=20 line-height="20px" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
-          text `Add an account or configure a provider on ${wizard.environment}.` font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
-          row width="100%" height=44 box-sizing="border-box" padding=4 gap=4 border-radius=14 border-style="solid" border-width=1 border-color="light-dark(#0000000d, #ffffff0d)" background-color="light-dark(#fcfcfc, #ffffff0a)" role="list" aria-label="Setup progress"
+      column width="100%" max-width="48rem" max-height=(viewportHeight - 2 * rem) box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" position="relative" overflow="hidden" role="dialog" aria-label="Add provider" testId="add-provider-dialog"
+        column width="100%" box-sizing="border-box" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" gap="0.5rem" flex-shrink=0
+          text "Add provider" font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+          text `Add an account or configure a provider on ${wizard.environment}.` font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+          row width="100%" height="2.75rem" box-sizing="border-box" padding="0.25rem" gap="0.25rem" border-radius="0.875rem" border-style="solid" border-width=1 border-color="light-dark(#0000000d, #ffffff0d)" background-color="light-dark(#fcfcfc, #ffffff0a)" role="list" aria-label="Setup progress"
             WizardStep(number=0, title="Provider", summary=(step > 0 ? (isAcp ? wizard.label : wizard.driverLabel) : ""), current=step, go=ui)
             WizardStep(number=1, title="Identity", summary=(step > 1 ? wizard.preview : ""), current=step, go=ui)
             WizardStep(number=2, title=(isAcp ? "Sign in" : "Config"), summary="", current=step, go=ui)
         scroll width="100%" flex=1 min-height=0 box-sizing="border-box" border-top-style="solid" border-top-width=1 border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#0000000d, #ffffff0d)" background-color="light-dark(#fcfcfccc, #ffffff05)" testId="add-provider-panel"
-          column width="100%" box-sizing="border-box" padding-left=24 padding-right=24 padding-top=20 padding-bottom=20 gap=0
+          column width="100%" box-sizing="border-box" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.25rem" padding-bottom="1.25rem" gap=0
             when step == 0
-              column width="100%" gap=8
-                text "Provider" font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-                row width="100%" gap=12 flex-wrap="wrap" role="radiogroup" aria-label="Provider"
+              column width="100%" gap="0.5rem"
+                text "Provider" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+                row width="100%" gap="0.75rem" flex-wrap="wrap" role="radiogroup" aria-label="Provider"
                   each driver in wizard.drivers key=driver.id
-                    button press=ui("driver", driver.id) role="radio" aria-checked=(driver.selected and not manual) aria-label=driver.label testId=`provider-driver-${driver.id}` width="calc(50% - 6px)" height=44 box-sizing="border-box" padding=12 gap=12 border-radius=10 border-style="solid" border-width=(driver.selected and not manual ? 2 : 1) border-color=(driver.selected and not manual ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#0000000d, #ffffff0d)") display="flex" flex-direction="row" align-items="center" justify-content="flex-start" background-color=(driver.selected and not manual ? "light-dark(#1a4dd914, #366bf226)" : "light-dark(#ffffff, #ffffff08)")
+                    button press=ui("driver", driver.id) role="radio" aria-checked=(driver.selected and not manual) aria-label=driver.label testId=`provider-driver-${driver.id}` width="calc(50% - 6px)" height="2.75rem" box-sizing="border-box" padding="0.75rem" gap="0.75rem" border-radius="0.625rem" border-style="solid" border-width=(driver.selected and not manual ? 2 : 1) border-color=(driver.selected and not manual ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#0000000d, #ffffff0d)") display="flex" flex-direction="row" align-items="center" justify-content="flex-start" background-color=(driver.selected and not manual ? "light-dark(#1a4dd914, #366bf226)" : "light-dark(#ffffff, #ffffff08)")
                       DriverMark(driver=driver.id, size=16, initials=driver.label)
-                      text driver.label flex=1 min-width=0 font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1 text-align="left"
+                      text driver.label flex=1 min-width=0 font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1 text-align="left"
                       when driver.selected and not manual
-                        box width=20 height=20 border-radius=9999 flex-shrink=0 display="flex" align-items="center" justify-content="center" background-color="light-dark(#1b4ed8, #346bf1)"
+                        box width="1.25rem" height="1.25rem" border-radius="624.9375rem" flex-shrink=0 display="flex" align-items="center" justify-content="center" background-color="light-dark(#1b4ed8, #346bf1)"
                           PvIcon(name="check", size=14, color="#ffffff")
-              column width="100%" gap=16 padding-top=16
-                row width="100%" gap=12 align-items="center"
+              column width="100%" gap="1rem" padding-top="1rem"
+                row width="100%" gap="0.75rem" align-items="center"
                   box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff12)"
-                  text "Or choose from ACP Registry" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+                  text "Or choose from ACP Registry" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
                   box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff12)"
                 when manual
-                  column width="100%" gap=16 testId="acp-manual"
-                    row width="100%" gap=12 align-items="flex-start" justify-content="space-between"
-                      column gap=2 flex=1 min-width=0
-                        text "Enter manually" font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
-                        text "Enter an official registry ID and any local executable or auth override." font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
-                      button press=ui("manual", "false") class=PvGhost height=24 testId="acp-search-registry"
-                        text "Search registry" font-size=12 font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+                  column width="100%" gap="1rem" testId="acp-manual"
+                    row width="100%" gap="0.75rem" align-items="flex-start" justify-content="space-between"
+                      column gap="0.125rem" flex=1 min-width=0
+                        text "Enter manually" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+                        text "Enter an official registry ID and any local executable or auth override." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+                      button press=ui("manual", "false") class=PvGhost height="1.5rem" testId="acp-search-registry"
+                        text "Search registry" font-size="0.75rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
                     each session in wizard.sessions key=session.key
-                      column width="100%" gap=4
+                      column width="100%" gap="0.25rem"
                         each field in wizard.fields key=field.key
                           WizardFieldRow(field=field, value=(field.index == 0 ? f0 : (field.index == 1 ? f1 : (field.index == 2 ? f2 : (field.index == 3 ? f3 : f4)))), set=setField)
                     when attempted and f0 == ""
-                      text "Select an ACP or configure one manually." font-size=11 color="light-dark(#e7000b, #ff6467)" role="alert"
+                      text "Select an ACP or configure one manually." font-size="0.6875rem" color="light-dark(#e7000b, #ff6467)" role="alert"
                 else
-                  column width="100%" gap=12 testId="acp-search"
-                    row width="100%" gap=8 align-items="center"
-                      row flex=1 min-width=160 height=28 box-sizing="border-box" padding-left=8 gap=6 border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" align-items="center"
+                  column width="100%" gap="0.75rem" testId="acp-search"
+                    row width="100%" gap="0.5rem" align-items="center"
+                      row flex=1 min-width="10rem" height="1.75rem" box-sizing="border-box" padding-left="0.5rem" gap="0.375rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" align-items="center"
                         PvIcon(name="search", size=16, color="light-dark(#71717b, #818181)")
-                        input value=query input=ui("acp") placeholder="Search agents…" aria-label="Search ACP Registry" disabled=busy flex=1 min-width=0 height=18 padding=0 border-width=0 background-color="#00000000" font-size=14 color="light-dark(#27272a, #f5f5f5)" testId="acp-registry-search"
-                      button press=ui("manual", "true") class=PvGhost height=28 padding-left=9 padding-right=9 disabled=busy testId="acp-enter-manually"
-                        text "Enter manually" font-size=14 line-height="20px" font-weight=500 color="light-dark(#71717b, #818181)"
+                        input value=query input=ui("acp") placeholder="Search agents…" aria-label="Search ACP Registry" disabled=busy flex=1 min-width=0 height="1.125rem" padding=0 border-width=0 background-color="#00000000" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)" testId="acp-registry-search"
+                      button press=ui("manual", "true") class=PvGhost height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" disabled=busy testId="acp-enter-manually"
+                        text "Enter manually" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b, #818181)"
                     text acp.status font-size=1 color="#00000000" role="status" height=1 overflow="hidden"
                     when acp.error != "" or (error != "" and step == 0)
-                      text (error != "" ? error : acp.error) font-size=12 line-height="16px" padding=8 border-radius=8 color="light-dark(#e7000b, #ff6467)" background-color="light-dark(#e7000b0d, #ff64671a)" role="status" testId="acp-error"
+                      text (error != "" ? error : acp.error) font-size="0.75rem" line-height="1rem" padding="0.5rem" border-radius="0.5rem" color="light-dark(#e7000b, #ff6467)" background-color="light-dark(#e7000b0d, #ff64671a)" role="status" testId="acp-error"
                     when not acp.ready
-                      row min-height=80 align-items="center" justify-content="center"
-                        text "Searching the registry..." font-size=14 color="light-dark(#71717b, #818181)"
+                      row min-height="5rem" align-items="center" justify-content="center"
+                        text "Searching the registry..." font-size="0.875rem" color="light-dark(#71717b, #818181)"
                     when acp.ready and acp.error == "" and length(acp.agents) == 0
-                      column min-height=112 align-items="center" justify-content="center" border-radius=16 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" padding-left=16 padding-right=16
-                        text "No compatible agents found" font-size=14 font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-                        text "Try a broader search." font-size=12 margin-top=4 color="light-dark(#71717b, #818181)"
+                      column min-height="7rem" align-items="center" justify-content="center" border-radius="1rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" padding-left="1rem" padding-right="1rem"
+                        text "No compatible agents found" font-size="0.875rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+                        text "Try a broader search." font-size="0.75rem" margin-top="0.25rem" color="light-dark(#71717b, #818181)"
                     when acp.ready and length(acp.agents) > 0
-                      scroll width="100%" max-height=256 testId="acp-agent-list"
-                        column width="100%" padding-right=10 box-sizing="border-box"
+                      scroll width="100%" max-height="16rem" testId="acp-agent-list"
+                        column width="100%" padding-right="0.625rem" box-sizing="border-box"
                           each agent in acp.agents key=agent.id
-                            row width="100%" min-width=0 padding-top=10 padding-bottom=10 gap=12 align-items="center" role="article" testId=`acp-agent-${agent.id}`
-                              row flex=1 min-width=0 gap=12 align-items="center"
-                                box width=24 height=24 border-radius=6 flex-shrink=0 display="flex" align-items="center" justify-content="center" overflow="hidden"
+                            row width="100%" min-width=0 padding-top="0.625rem" padding-bottom="0.625rem" gap="0.75rem" align-items="center" role="article" testId=`acp-agent-${agent.id}`
+                              row flex=1 min-width=0 gap="0.75rem" align-items="center"
+                                box width="1.5rem" height="1.5rem" border-radius="0.375rem" flex-shrink=0 display="flex" align-items="center" justify-content="center" overflow="hidden"
                                   when agent.icon != ""
-                                    image agent.icon width=24 height=24 object-fit="contain" aria-hidden=true tint-color="light-dark(#71717b, #818181)"
+                                    image agent.icon width="1.5rem" height="1.5rem" object-fit="contain" aria-hidden=true tint-color="light-dark(#71717b, #818181)"
                                   else
                                     DriverMark(driver="acpRegistry", size=20, initials=agent.name)
                                 column flex=1 min-width=0
-                                  text agent.name font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1 role="heading" aria-level=4
+                                  text agent.name font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1 role="heading" aria-level=4
                                   when agent.description != ""
-                                    text agent.description font-size=12 line-height="16px" margin-top=2 color="light-dark(#71717b, #818181)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" width="100%"
-                              row gap=6 align-items="center" flex-shrink=0
+                                    text agent.description font-size="0.75rem" line-height="1rem" margin-top="0.125rem" color="light-dark(#71717b, #818181)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" width="100%"
+                              row gap="0.375rem" align-items="center" flex-shrink=0
                                 when agent.link != ""
-                                  link cursor="pointer" href=agent.link aria-label=`About ${agent.name}` width=24 height=24 display="flex" align-items="center" justify-content="center" border-radius=8 testId=`acp-about-${agent.id}`
+                                  link cursor="pointer" href=agent.link aria-label=`About ${agent.name}` width="1.5rem" height="1.5rem" display="flex" align-items="center" justify-content="center" border-radius="0.5rem" testId=`acp-about-${agent.id}`
                                     PvIcon(name="external", size=14, color="light-dark(#71717b, #818181)")
-                                button press=op("acp-prepare", "", agent.id, agent.name, true) class=PvOutline height=24 padding-left=7 padding-right=7 font-size=12 disabled=(agent.added or busy) aria-label=`${agent.added ? "Already added" : (busy ? "Preparing" : "Add")} ${agent.name}` testId=`acp-add-${agent.id}`
-                                  text (agent.added ? "Added" : "Add") font-size=12 line-height="16px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+                                button press=op("acp-prepare", "", agent.id, agent.name, true) class=PvOutline height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" font-size="0.75rem" disabled=(agent.added or busy) aria-label=`${agent.added ? "Already added" : (busy ? "Preparing" : "Add")} ${agent.name}` testId=`acp-add-${agent.id}`
+                                  text (agent.added ? "Added" : "Add") font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
             when step == 1
-              column width="100%" gap=4 min-height=(isAcp ? 288 : 0)
+              column width="100%" gap="0.25rem" min-height=(isAcp ? "18rem" : "0px")
                 each agent in wizard.prepared key=agent.id
-                  row width="100%" gap=12 padding-bottom=12 margin-bottom=16 align-items="flex-start" justify-content="space-between" border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)"
+                  row width="100%" gap="0.75rem" padding-bottom="0.75rem" margin-bottom="1rem" align-items="flex-start" justify-content="space-between" border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)"
                     column flex=1 min-width=0
-                      text agent.name font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1
-                      text `v${agent.version} · ${agent.distribution}` font-size=12 line-height="16px" margin-top=2 color="light-dark(#71717b, #818181)"
+                      text agent.name font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1
+                      text `v${agent.version} · ${agent.distribution}` font-size="0.75rem" line-height="1rem" margin-top="0.125rem" color="light-dark(#71717b, #818181)"
                     when agent.link != ""
-                      text "Docs" href=agent.link font-size=11 color="light-dark(#71717b, #818181)" aria-label=`Open documentation for ${agent.name} (${agent.id})`
+                      text "Docs" href=agent.link font-size="0.6875rem" color="light-dark(#71717b, #818181)" aria-label=`Open documentation for ${agent.name} (${agent.id})`
                 WizardRow(title="Label", description="Shown in the provider list.", status="")
-                  input value=shownLabel input=ui("label") placeholder="e.g. Work" aria-label="Label" class=PvField width=224 testId="new-provider-name"
+                  input value=shownLabel input=ui("label") placeholder="e.g. Work" aria-label="Label" class=PvField width="14rem" testId="new-provider-name"
                 WizardRow(title="Instance ID", description="Letters, digits, '-', or '_'.", status=(attempted ? wizard.idError : ""))
-                  input value=shownId input=ui("id") placeholder=wizard.idPlaceholder aria-label="Instance ID" class=PvField width=224 testId="new-provider-id"
+                  input value=shownId input=ui("id") placeholder=wizard.idPlaceholder aria-label="Instance ID" class=PvField width="14rem" testId="new-provider-id"
                 WizardRow(title="Accent color", description="Optional marker shown in the picker.", status="")
-                  row gap=8 align-items="center"
+                  row gap="0.5rem" align-items="center"
                     when accentOpen
-                      input value=accent input=editAccent aria-label="Custom hex accent color" class=PvField width=104 font-family="ui-monospace" font-size=12 testId="new-provider-accent-hex"
-                      button press=clearAccent class=PvGhost height=28 testId="new-provider-accent-clear"
+                      input value=accent input=editAccent aria-label="Custom hex accent color" class=PvField width="6.5rem" font-family="ui-monospace" font-size="0.75rem" testId="new-provider-accent-hex"
+                      button press=clearAccent class=PvGhost height="1.75rem" testId="new-provider-accent-clear"
                         PvIcon(name="x", size=14, color="light-dark(#71717b, #818181)")
-                        text "Clear color" font-size=12 font-weight=500 color="light-dark(#71717b, #818181)"
-                    button press=toggleAccent class=PvIconButton width=28 height=28 background-color=(accent == "" ? "#00000000" : accent) aria-label=`${accent == "" ? "Add" : "Change"} accent color for ${shownLabel == "" ? wizard.driverLabel : shownLabel}` aria-expanded=accentOpen testId="new-provider-accent"
+                        text "Clear color" font-size="0.75rem" font-weight=500 color="light-dark(#71717b, #818181)"
+                    button press=toggleAccent class=PvIconButton width="1.75rem" height="1.75rem" background-color=(accent == "" ? "#00000000" : accent) aria-label=`${accent == "" ? "Add" : "Change"} accent color for ${shownLabel == "" ? wizard.driverLabel : shownLabel}` aria-expanded=accentOpen testId="new-provider-accent"
                       when accent == ""
                         PvIcon(name="plus", size=16, color="light-dark(#71717b, #818181)")
             when step == 2 and not isAcp
-              column width="100%" gap=4
+              column width="100%" gap="0.25rem"
                 when length(wizard.fields) == 0
-                  text "This driver has no required configuration. You can add the instance now." font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
+                  text "This driver has no required configuration. You can add the instance now." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
                 each session in wizard.sessions key=session.key
-                  column width="100%" gap=4
+                  column width="100%" gap="0.25rem"
                     each field in wizard.fields key=field.key
                       WizardFieldRow(field=field, value=(field.index == 0 ? f0 : (field.index == 1 ? f1 : (field.index == 2 ? f2 : (field.index == 3 ? f3 : f4)))), set=setField)
             when step == 2 and isAcp
-              column width="100%" gap=8 testId="acp-sign-in"
-                text "Sign in" font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-                text "The ACP agent was added. Sign in from its provider settings once the server reports its authentication methods." font-size=12 line-height="18px" color="light-dark(#71717b, #818181)"
+              column width="100%" gap="0.5rem" testId="acp-sign-in"
+                text "Sign in" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+                text "The ACP agent was added. Sign in from its provider settings once the server reports its authentication methods." font-size="0.75rem" line-height="1.125rem" color="light-dark(#71717b, #818181)"
             when error != "" and step > 0
-              text error font-size=12 line-height="16px" padding-top=12 role="alert" color="light-dark(#e7000b, #ff6467)" testId="add-provider-error"
-        row width="100%" box-sizing="border-box" padding-left=24 padding-right=24 padding-top=16 padding-bottom=16 gap=8 justify-content="flex-end" align-items="center" flex-shrink=0
-          button press=ui(step == 0 ? "close" : "step", step == 0 ? "" : "back") class=(step == 0 ? PvGhost : PvOutline) height=28 padding-left=9 padding-right=9 disabled=busy aria-keyshortcuts=(step == 0 ? "Escape" : "") testId=(step == 0 ? "close-add-provider" : "wizard-back")
-            text (step == 0 ? "Cancel" : "Back") font-size=14 line-height="20px" font-weight=500 color=(step == 0 ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
+              text error font-size="0.75rem" line-height="1rem" padding-top="0.75rem" role="alert" color="light-dark(#e7000b, #ff6467)" testId="add-provider-error"
+        row width="100%" box-sizing="border-box" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" gap="0.5rem" justify-content="flex-end" align-items="center" flex-shrink=0
+          button press=ui(step == 0 ? "close" : "step", step == 0 ? "" : "back") class=(step == 0 ? PvGhost : PvOutline) height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" disabled=busy aria-keyshortcuts=(step == 0 ? "Escape" : "") testId=(step == 0 ? "close-add-provider" : "wizard-back")
+            text (step == 0 ? "Cancel" : "Back") font-size="0.875rem" line-height="1.25rem" font-weight=500 color=(step == 0 ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
           when step == 0 and wizard.driver == "codex" and not manual
             button press=ui("step", "next") class=PvOutline testId="configure-manually"
-              text "Configure manually" font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+              text "Configure manually" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
             button press=ui("open", "chatgpt") class=PvPrimary disabled=busy testId="continue-with-chatgpt"
               ProviderMark(driver="codex", size=16, color="#ffffff")
-              text "Continue with ChatGPT" font-size=14 line-height="20px" font-weight=500 color="#ffffff"
+              text "Continue with ChatGPT" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
           when (step == 0 and (wizard.driver != "codex" or manual)) or (step == 1 and not isAcp)
             button press=ui("step", "next") class=PvPrimary disabled=busy testId="wizard-next"
-              text "Next" font-size=14 line-height="20px" font-weight=500 color="#ffffff"
+              text "Next" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
           when step == lastStep and not (isAcp and step == 2)
             button press=add(wizard.driver, shownLabel, idSet ? id : "", accent, f0, f1, f2, f3, f4) class=PvPrimary disabled=busy testId="create-provider"
-              text (busy ? "Adding..." : (isAcp ? "Continue to sign-in" : "Add instance")) font-size=14 line-height="20px" font-weight=500 color="#ffffff"
+              text (busy ? "Adding..." : (isAcp ? "Continue to sign-in" : "Add instance")) font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
           when isAcp and step == 2
             button press=ui("close", "") class=PvPrimary testId="wizard-finish"
-              text "Done" font-size=14 line-height="20px" font-weight=500 color="#ffffff"
-        button press=ui("close", "") class=PvIconButton width=32 height=32 position="absolute" top=8 right=8 aria-label="Close" aria-keyshortcuts="Escape" disabled=busy testId="close-add-provider-x"
+              text "Done" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
+        button press=ui("close", "") class=PvIconButton width="2rem" height="2rem" position="absolute" top="0.5rem" right="0.5rem" aria-label="Close" aria-keyshortcuts="Escape" disabled=busy testId="close-add-provider-x"
           PvIcon(name="x", size=16, color="light-dark(#71717b, #818181)")
 
 // A plain-group SettingsRow inside the wizard (title left, control right).
@@ -271,12 +273,12 @@ component WizardRow
     status: string
   slot
   view
-    row width="100%" box-sizing="border-box" padding-left=16 padding-right=16 padding-top=12 padding-bottom=12 gap=32 align-items="center"
-      column flex=1 min-width=0 gap=4
-        text title font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
-        text description font-size=12 line-height="18px" color="light-dark(#70707acc, #818181cc)"
+    row width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" gap="2rem" align-items="center"
+      column flex=1 min-width=0 gap="0.25rem"
+        text title font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+        text description font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)"
         when status != ""
-          text status font-size=12 line-height="16px" padding-top=2 role="alert" color="light-dark(#e7000b, #ff6467)" testId="new-provider-id-error"
+          text status font-size="0.75rem" line-height="1rem" padding-top="0.125rem" role="alert" color="light-dark(#e7000b, #ff6467)" testId="new-provider-id-error"
       row flex-shrink=0 justify-content="flex-end" align-items="center"
         children
 
@@ -289,17 +291,17 @@ component WizardFieldRow
   view
     WizardRow(title=field.label, description=field.description, status="")
       when field.control == "select"
-        row gap=4 role="radiogroup" aria-label=field.label flex-wrap="wrap" justify-content="flex-end" max-width=320
+        row gap="0.25rem" role="radiogroup" aria-label=field.label flex-wrap="wrap" justify-content="flex-end" max-width="20rem"
           each option in field.options key=option.value
-            button press=set(field.index, option.value) role="radio" aria-checked=(value == option.value or (value == "" and option.selected)) class=PvOutline height=28 background-color=(value == option.value or (value == "" and option.selected) ? "light-dark(#1b4ed814, #346bf126)" : "light-dark(#ffffff, #ffffff08)") testId=`new-provider-${field.key}-${option.value}`
-              text option.label font-size=13 font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+            button press=set(field.index, option.value) role="radio" aria-checked=(value == option.value or (value == "" and option.selected)) class=PvOutline height="1.75rem" background-color=(value == option.value or (value == "" and option.selected) ? "light-dark(#1b4ed814, #346bf126)" : "light-dark(#ffffff, #ffffff08)") testId=`new-provider-${field.key}-${option.value}`
+              text option.label font-size="0.8125rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
       else
-        input value=value input=set(field.index) placeholder=field.placeholder aria-label=field.label type=(field.control == "password" ? "password" : "text") autocorrect="off" spellcheck="false" class=PvField width=224 testId=`new-provider-${field.key}`
+        input value=value input=set(field.index) placeholder=field.placeholder aria-label=field.label type=(field.control == "password" ? "password" : "text") autocorrect="off" spellcheck="false" class=PvField width="14rem" testId=`new-provider-${field.key}`
 
 style PvOverlay
   position="absolute" left=0 right=0 top=0 bottom=0
   display="flex" align-items="center" justify-content="center"
-  background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" padding=16 box-sizing="border-box" z-index=40
+  background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" padding="1rem" box-sizing="border-box" z-index=40
 
 // AddUsageLimitSourceDialog.tsx: one CLIProxyAPI hub, saved on the environment.
 component UsageHubDialog
@@ -320,27 +322,27 @@ component UsageHubDialog
     label = value
   view
     column class=PvOverlay testId="usage-hub-overlay"
-      column width="100%" max-width=448 box-sizing="border-box" border-radius=18 border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" position="relative" role="dialog" aria-label="Add a CLIProxyAPI hub" testId="usage-hub-dialog"
-        column padding=24 gap=8 padding-bottom=12
-          text "Add a CLIProxyAPI hub" font-size=20 line-height="20px" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
-          text `Show the quota of every account the hub pools, next to the providers on ${environment}. The key stays on that server.` font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
-        column padding-left=24 padding-right=24 padding-top=8 padding-bottom=8 gap=16
-          column gap=6
-            text "Hub URL" font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-            input value=url input=editUrl submit=save(label, url, secret, true) placeholder="https://hub.example.ts.net:8318" aria-label="Hub URL" class=PvField height=32 padding-top=6 padding-bottom=6 width="100%" testId="usage-hub-url"
-          column gap=6
-            text "Management key" font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-            input value=secret input=editSecret submit=save(label, url, secret, true) type="password" aria-label="Management key" class=PvField height=32 padding-top=6 padding-bottom=6 width="100%" testId="usage-hub-key"
-          column gap=6
-            text "Label (optional)" font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-            input value=label input=editLabel submit=save(label, url, secret, true) placeholder="Defaults to the hub's host name" aria-label="Label (optional)" class=PvField height=32 padding-top=6 padding-bottom=6 width="100%" testId="usage-hub-label"
+      column width="100%" max-width="28rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" position="relative" role="dialog" aria-label="Add a CLIProxyAPI hub" testId="usage-hub-dialog"
+        column padding="1.5rem" gap="0.5rem" padding-bottom="0.75rem"
+          text "Add a CLIProxyAPI hub" font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+          text `Show the quota of every account the hub pools, next to the providers on ${environment}. The key stays on that server.` font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+        column padding-left="1.5rem" padding-right="1.5rem" padding-top="0.5rem" padding-bottom="0.5rem" gap="1rem"
+          column gap="0.375rem"
+            text "Hub URL" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+            input value=url input=editUrl submit=save(label, url, secret, true) placeholder="https://hub.example.ts.net:8318" aria-label="Hub URL" class=PvField height="2rem" padding-top="0.375rem" padding-bottom="0.375rem" width="100%" testId="usage-hub-url"
+          column gap="0.375rem"
+            text "Management key" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+            input value=secret input=editSecret submit=save(label, url, secret, true) type="password" aria-label="Management key" class=PvField height="2rem" padding-top="0.375rem" padding-bottom="0.375rem" width="100%" testId="usage-hub-key"
+          column gap="0.375rem"
+            text "Label (optional)" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+            input value=label input=editLabel submit=save(label, url, secret, true) placeholder="Defaults to the hub's host name" aria-label="Label (optional)" class=PvField height="2rem" padding-top="0.375rem" padding-bottom="0.375rem" width="100%" testId="usage-hub-label"
           when error != ""
-            text error font-size=12 line-height="16px" role="alert" color="light-dark(#e7000b, #ff6467)" testId="usage-hub-error"
-        row padding=24 padding-top=12 gap=8 justify-content="flex-end"
+            text error font-size="0.75rem" line-height="1rem" role="alert" color="light-dark(#e7000b, #ff6467)" testId="usage-hub-error"
+        row padding="1.5rem" padding-top="0.75rem" gap="0.5rem" justify-content="flex-end"
           button press=close class=PvOutline disabled=busy aria-keyshortcuts="Escape" testId="usage-hub-cancel"
-            text "Cancel" font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+            text "Cancel" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
           button press=save(label, url, secret, true) class=PvPrimary disabled=(busy or url == "" or secret == "") opacity=(url == "" or secret == "" ? 0.64 : 1) testId="usage-hub-save"
-            text "Add hub" font-size=14 line-height="20px" font-weight=500 color="#ffffff"
+            text "Add hub" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
 
 // RemoveUsageProviderButton's confirmation.
 component HubRemoveDialog
@@ -351,15 +353,15 @@ component HubRemoveDialog
     confirm: action
   view
     column class=PvOverlay testId="usage-hub-remove-overlay"
-      column width="100%" max-width=512 box-sizing="border-box" border-radius=18 border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-label=`Remove ${hub.label}?` testId="usage-hub-remove-dialog"
-        column padding=24 gap=8
-          text `Remove ${hub.label}?` font-size=20 line-height="28px" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
-          text "The hub's management key is deleted from this server. Its accounts leave the Limits view; the hub itself is untouched. Add it again with the URL and key to bring them back." font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
-        row padding-left=24 padding-right=24 padding-top=16 padding-bottom=16 gap=8 justify-content="flex-end" border-top-style="solid" border-top-width=1 border-color="light-dark(#0000000d, #ffffff0d)" background-color="light-dark(#f4f4f580, #ffffff05)"
+      column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-label=`Remove ${hub.label}?` testId="usage-hub-remove-dialog"
+        column padding="1.5rem" gap="0.5rem"
+          text `Remove ${hub.label}?` font-size="1.25rem" line-height="1.75rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+          text "The hub's management key is deleted from this server. Its accounts leave the Limits view; the hub itself is untouched. Add it again with the URL and key to bring them back." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+        row padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" gap="0.5rem" justify-content="flex-end" border-top-style="solid" border-top-width=1 border-color="light-dark(#0000000d, #ffffff0d)" background-color="light-dark(#f4f4f580, #ffffff05)"
           button press=cancel class=PvOutline disabled=busy aria-keyshortcuts="Escape" testId="usage-hub-remove-cancel"
-            text "Cancel" font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+            text "Cancel" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
           button press=confirm class=PvPrimary background-color="#e7000b" disabled=busy testId="usage-hub-remove-confirm"
-            text "Remove" font-size=14 line-height="20px" font-weight=500 color="#ffffff"
+            text "Remove" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"
 
 // AddCodexAccountDialog.tsx, first step: name the account; the server creates a
 // managed Codex instance whose install and ChatGPT sign-in it then owns.
@@ -374,15 +376,15 @@ component ChatGptAccountDialog
     name = value
   view
     column class=PvOverlay testId="chatgpt-account-overlay"
-      column width="100%" max-width=768 box-sizing="border-box" border-radius=18 border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" position="relative" overflow="hidden" role="dialog" aria-label="Add ChatGPT account" testId="chatgpt-account-dialog"
-        column padding-left=24 padding-right=24 padding-top=24 padding-bottom=12 gap=8
-          text "Add ChatGPT account" font-size=20 line-height="20px" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
-          text "Each account has its own Codex instance and sign-in. Choose the other account on the sign-in page." font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
-        column width="100%" box-sizing="border-box" padding-left=24 padding-right=24 padding-top=20 padding-bottom=20 border-top-style="solid" border-top-width=1 border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#0000000d, #ffffff0d)" background-color="light-dark(#fcfcfccc, #ffffff05)"
+      column width="100%" max-width="48rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" position="relative" overflow="hidden" role="dialog" aria-label="Add ChatGPT account" testId="chatgpt-account-dialog"
+        column padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" gap="0.5rem"
+          text "Add ChatGPT account" font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+          text "Each account has its own Codex instance and sign-in. Choose the other account on the sign-in page." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+        column width="100%" box-sizing="border-box" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.25rem" padding-bottom="1.25rem" border-top-style="solid" border-top-width=1 border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#0000000d, #ffffff0d)" background-color="light-dark(#fcfcfccc, #ffffff05)"
           WizardRow(title="Account name", description="Shown in the provider list and model picker.", status=error)
-            input value=name input=editName submit=create(name, "", true) placeholder="e.g. Personal or Work" aria-label="Account name" class=PvField width=224 disabled=busy testId="chatgpt-account-name"
-        row padding-left=24 padding-right=24 padding-top=16 padding-bottom=16 gap=8 justify-content="flex-end"
+            input value=name input=editName submit=create(name, "", true) placeholder="e.g. Personal or Work" aria-label="Account name" class=PvField width="14rem" disabled=busy testId="chatgpt-account-name"
+        row padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" gap="0.5rem" justify-content="flex-end"
           button press=close class=PvOutline disabled=busy aria-keyshortcuts="Escape" testId="chatgpt-account-cancel"
-            text "Cancel" font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+            text "Cancel" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
           button press=create(name, "", true) class=PvPrimary disabled=(busy or name == "") testId="chatgpt-account-continue"
-            text (busy ? "Adding account…" : "Continue") font-size=14 line-height="20px" font-weight=500 color="#ffffff"
+            text (busy ? "Adding account…" : "Continue") font-size="0.875rem" line-height="1.25rem" font-weight=500 color="#ffffff"

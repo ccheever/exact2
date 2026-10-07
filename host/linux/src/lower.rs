@@ -415,8 +415,8 @@ fn playable(n: &exact_kernel::NodeRef<'_>, props: &[Property]) -> bool {
             .iter()
             .any(|p| matches!(p, Property::Cx | Property::Cy));
         if !s.filter.is_none()
-            || s.svg_mask.url().is_some()
-            || s.clip_path.url().is_some()
+            || s.rare.svg_mask.url().is_some()
+            || s.rare.clip_path.url().is_some()
             || served(&s.fill)
             || served(&s.stroke)
             || (turns && s.vector_effect == exact_kernel::VectorEffect::NonScalingStroke)

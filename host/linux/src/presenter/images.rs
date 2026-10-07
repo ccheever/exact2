@@ -54,28 +54,31 @@ impl<D: DataSource> Presenter<D> {
             };
             self.images.order = Some((epoch, order));
         }
-        let live = self
-            .images
-            .order
-            .as_ref()
-            .map(|(_, o)| o.clone())
-            .unwrap_or_default();
-        let host = &self.host;
-        // The pictures' and moved scrollers' own boxes (each one's first),
-        // not every painted box.
-        let mut wanted: std::collections::HashSet<ViewId> = live.iter().copied().collect();
-        if !wanted.is_empty() {
-            wanted.extend(moved.keys().copied());
-        }
-        let mut boxes: std::collections::HashMap<ViewId, (usize, &crate::paint::PaintedBox)> =
-            std::collections::HashMap::with_capacity(live.len());
-        if !wanted.is_empty() {
-            for (i, b) in self.boxes.iter().enumerate() {
-                if wanted.contains(&b.id) {
-                    boxes.entry(b.id).or_insert((i, b));
-                }
+        // Both go back below; nothing in between replaces them.
+        let (order_epoch, live) = self.images.order.take().unwrap_or_default();
+        // The pictures' and the row groups' own boxes (each one's first), not
+        // every painted box: found once for this paint's boxes and this order.
+        let index = match self.images.box_index.take() {
+            Some((serial, epoch, index)) if serial == self.boxes_serial && epoch == order_epoch => {
+                index
             }
-        }
+            _ => {
+                let mut index = std::collections::HashMap::new();
+                if !live.is_empty() {
+                    let mut wanted: std::collections::HashSet<ViewId> =
+                        live.iter().copied().collect();
+                    wanted.extend(self.brush.row_groups().iter().map(|(g, _, _)| *g));
+                    for (i, b) in self.boxes.iter().enumerate() {
+                        if wanted.contains(&b.id) {
+                            index.entry(b.id).or_insert(i);
+                        }
+                    }
+                }
+                index
+            }
+        };
+        let host = &self.host;
+        let boxes = |id: &ViewId| index.get(id).map(|&i| (i, &self.boxes[i]));
         type Shift = (usize, usize, (f32, f32), Option<crate::paint::Rect4>);
         let shifts: Vec<Shift> = self
             .brush
@@ -83,7 +86,7 @@ impl<D: DataSource> Presenter<D> {
             .iter()
             .filter_map(|(g, a, b)| {
                 let d = moved.get(g)?;
-                Some((*a, *b, *d, boxes.get(g).map(|(_, s)| s.rect)))
+                Some((*a, *b, *d, boxes(g).map(|(_, s)| s.rect)))
             })
             .collect();
         let viewport = self.viewport;
@@ -93,13 +96,13 @@ impl<D: DataSource> Presenter<D> {
                 if host.route_visibility(id).0 {
                     return false;
                 }
-                let Some((i, b)) = boxes.get(&id) else {
+                let Some((i, b)) = boxes(&id) else {
                     return true;
                 };
                 let (mut x, mut y, mut w, mut h) = b.rect;
                 let mut clip = b.clip;
                 if let Some((_, _, d, port)) =
-                    shifts.iter().find(|(a, e, _, _)| (*a..*e).contains(i))
+                    shifts.iter().find(|(a, e, _, _)| (*a..*e).contains(&i))
                 {
                     x += d.0;
                     y += d.1;
@@ -119,6 +122,8 @@ impl<D: DataSource> Presenter<D> {
                 }
                 w > 0. && h > 0. && x < viewport.0 && y < viewport.1 && x + w > 0. && y + h > 0.
             });
+        self.images.box_index = Some((self.boxes_serial, order_epoch, index));
+        self.images.order = Some((order_epoch, live));
         self.dirty |= !reports.is_empty();
         if reports.is_empty() {
             return None;

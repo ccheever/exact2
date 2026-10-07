@@ -1,0 +1,26 @@
+  font_size = 14 (inherited from #1)
+  space viewport 16,48 170×34 · frame 16,48 170×34 (kernel, in the parent) · window 16,48 170×34 · screen 602,170 170×34 · scale 2
+{"at":[70.25,26],"delivery":"platform","tapped":7,"target":"s20","carrier":"macos","mode":"agent","epoch":2,"incarnation":1,"clock":0}
+  font_size = 17.5 (inherited from #1)
+  space viewport 20,60 212×42 · frame 20,60 212×42 (kernel, in the parent) · window 20,60 212×42 · screen 606,182 212×42 · scale 2
+  font_size = 17.5 (inherited from #1)
+  space viewport 40,20 40×20 · frame 40,20 40×20 (kernel, in the parent) · window 40,20 40×20 · screen 626,142 40×20 · scale 2
+  font_size = 17.5 (inherited from #1)
+  space viewport 20,112 20×20 · frame 20,112 20×20 (kernel, in the parent) · window 20,112 20×20 · screen 606,234 20×20 · scale 2
+  font_size = 17.5 (inherited from #1)
+  space viewport 20,142 17.5×17.5 · frame 20,142 17.5×17.5 (kernel, in the parent) · window 20,142 17.5×17.5 · screen 606,264 17.5×17.5 · scale 2
+  font_size = 15 (authored, own)
+  space viewport 20,169.5 420×20 · frame 20,169.5 420×20 (kernel, in the parent) · window 20,169.5 420×20 · screen 606,291.5 420×20 · scale 2
+  font_size = 17.5 (inherited from #1)
+  space viewport 37.5,199.5 10×10 · frame 17.5,0 10×10 (kernel, in the parent) · window 37.5,199.5 10×10 · screen 623.5,321.5 10×10 · scale 2
+  font_size = 17.5 (authored, own)
+  space viewport 0,0 460×940 · frame 0,0 460×940 (kernel, in the parent) · window 0,0 460×940 · screen 586,122 460×940 · scale 2
+{"at":[28.9,32.5],"tapped":3,"delivery":"platform","target":"s12","carrier":"macos","mode":"agent","epoch":3,"incarnation":1,"clock":0}
+  font_size = 10.5 (inherited from #1)
+  space viewport 12,36 128×26 · frame 12,36 128×26 (kernel, in the parent) · window 12,36 128×26 · screen 598,158 128×26 · scale 2
+  font_size = 10.5 (inherited from #1)
+  space viewport 12,86 10.5×10.5 · frame 12,86 10.5×10.5 (kernel, in the parent) · window 12,86 10.5×10.5 · screen 598,208 10.5×10.5 · scale 2
+  font_size = 9 (authored, own)
+  space viewport 12,102.5 420×12 · frame 12,102.5 420×12 (kernel, in the parent) · window 12,102.5 420×12 · screen 598,224.5 420×12 · scale 2
+  font_size = 10.5 (inherited from #1)
+  space viewport 26.5,120.5 10×10 · frame 14.5,0 10×10 (kernel, in the parent) · window 26.5,120.5 10×10 · screen 612.5,242.5 10×10 · scale 2

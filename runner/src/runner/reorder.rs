@@ -341,13 +341,14 @@ impl<D: DataSource> Runner<D> {
             let mut u = Update::new(self.env(&[], &[]), &self.sites, &mut ids);
             u.reuse = self.reuse;
             tree.edit_reorder(id, &mut u, edit)
-                .map(|r| (r, u.ops, u.notes, u.renewed))
+                .map(|r| (r, u.ops, u.notes, u.renewed, u.shown))
         };
         self.tree = Some(tree);
         self.ids = ids;
-        let result = result.map(|(r, ops, notes, renewed)| {
+        let result = result.map(|(r, ops, notes, renewed, shown)| {
             self.notes.extend(notes);
             self.renewed.extend(renewed);
+            self.shown.extend(shown);
             (r, ops)
         });
         result.map_err(Into::into)

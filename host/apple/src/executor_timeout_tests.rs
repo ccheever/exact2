@@ -44,6 +44,80 @@ fn a_request_that_answers_in_time_is_unaffected_by_its_deadline() {
     assert!(matches!(&collect(&core, &woke, 1)[0], (1, Outcome::Response(r)) if r.body == b"done"));
 }
 
+struct SlowRedirects {
+    opened: Arc<std::sync::atomic::AtomicUsize>,
+}
+impl Transport for SlowRedirects {
+    fn open(
+        &self,
+        request: &ibex2::stdlib::fetch::Request,
+        signal: &AbortSignal,
+    ) -> Result<StreamingResponse, HostError> {
+        let hop = request
+            .url
+            .rsplit('/')
+            .next()
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap();
+        self.opened.fetch_add(1, Ordering::Relaxed);
+        // Each hop is comfortably below the request's 180 ms timeout. Only
+        // Exact's one AbortSignal deadline can bound the chain as a whole.
+        for _ in 0..10 {
+            std::thread::sleep(Duration::from_millis(5));
+            signal.check()?;
+        }
+        let mut headers = Headers::default();
+        if hop < 5 {
+            headers.set_response("location", &format!("https://example.test/{}", hop + 1));
+        }
+        Ok(ibex2::stdlib::fetch::Response {
+            status: if hop < 5 { 302 } else { 200 },
+            status_text: "OK".into(),
+            headers,
+            body: b"done".to_vec(),
+            url: request.url.clone(),
+            redirected: hop > 0,
+        }
+        .into_stream(request.body_limit(), signal.clone()))
+    }
+}
+
+#[test]
+#[ignore = "async lane: waits on the wall clock (a 180 ms deadline across slow redirect hops, under 3 s), timing-sensitive on a loaded machine; bun scripts/async.mjs runs it"]
+fn the_executor_deadline_bounds_a_slow_redirect_chain_as_one_exchange() {
+    let opened = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let grants = "net.fetch https://example.test";
+    let owners = (0..WORKERS)
+        .map(|_| {
+            Some(
+                ibex2::host::Host::with_transport(Box::new(SlowRedirects {
+                    opened: opened.clone(),
+                }))
+                .endow(ibex2::grant::GrantSet::parse(grants).unwrap()),
+            )
+        })
+        .collect();
+    let (wake, woke) = channel();
+    let core = Core::with_owners(
+        owners,
+        grants,
+        Box::new(move || {
+            let _ = wake.send(());
+        }),
+    );
+    let started = Instant::now();
+    core.run(
+        job(1, Request::get("https://example.test/0").timeout(180)),
+        None,
+    )
+    .unwrap();
+    let outcomes = collect(&core, &woke, 1);
+    assert!(timed_out(&outcomes[0].1, 180), "{outcomes:?}");
+    let count = opened.load(Ordering::Relaxed);
+    assert!((2..6).contains(&count), "opened {count} redirect hops");
+    assert!(started.elapsed() < Duration::from_secs(3));
+}
+
 #[test]
 fn a_deadline_out_of_range_or_on_work_that_is_not_http_is_refused() {
     // Refused at admission, before any path runs it (the host settles the

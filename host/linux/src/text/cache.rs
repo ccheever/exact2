@@ -235,7 +235,19 @@ pub(super) struct Cache {
     // By owner (a measure looks one up per call), each with its recency.
     bindings: HashMap<exact_kernel::NodeKey, Binding>,
     recency: u64,
+    /// What a paint's maintenance ([`Cache::maintain`]) weighs to skip the
+    /// eviction walk: every entry's policy bytes, pinned or not, at the last
+    /// walk; bytes and identities added since; maintenance calls since.
+    walked_bytes: usize,
+    grown_bytes: usize,
+    grown_identities: usize,
+    unwalked: u32,
 }
+/// New identities since the last walk after which a paint's maintenance walks.
+pub(super) const WALK_IDENTITIES: usize = 64;
+/// Paints' maintenance calls after which one walks regardless: rows a paint
+/// stopped showing became cold without anything growing.
+pub(super) const WALK_CALLS: u32 = 32;
 thread_local! {
     /// Inside [`deferring_eviction`]: growth skips the eviction walk.
     static DEFERRED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -260,6 +272,10 @@ impl Default for Cache {
             handoffs: Vec::new(),
             bindings: HashMap::new(),
             recency: 0,
+            walked_bytes: 0,
+            grown_bytes: 0,
+            grown_identities: 0,
+            unwalked: 0,
         }
     }
 }
@@ -422,6 +438,7 @@ impl Cache {
         }
         self.grew(None);
         self.serial += 1;
+        self.grown_identities += 1;
         self.identities.entry(hash).or_default().push(Identity {
             id: self.serial,
             // Moving spare capacity would change key_bytes and cold eviction.
@@ -442,6 +459,8 @@ impl Cache {
             intrinsic: [None; 2],
             used: self.clock,
         });
+        let added = self.entry((hash, self.serial)).key_bytes();
+        self.grown_bytes += added;
         (hash, self.serial)
     }
     fn entry(&mut self, key: (u64, u64)) -> &mut Identity {
@@ -459,6 +478,7 @@ impl Cache {
         let entry = self.entry(key);
         debug_assert!(entry.source.is_none());
         entry.source = Some(source);
+        self.grown_bytes += entry.source_bytes();
     }
     pub fn get(&mut self, key: (u64, u64), width: Width) -> Option<Rc<Paragraph>> {
         self.clock += 1;
@@ -482,6 +502,7 @@ impl Cache {
     pub fn insert(&mut self, key: (u64, u64), width: Width, p: &Rc<Paragraph>) {
         self.clock += 1;
         let used = self.clock;
+        self.grown_bytes += p.layout_capacity_bytes() + p.private_text_bytes_estimate;
         self.entry(key).widths.insert(
             width,
             Snapshot {
@@ -620,8 +641,33 @@ impl Cache {
         });
         self.prune_bindings();
     }
+    /// A paint's maintenance: [`Cache::trim`] when anything could be over a
+    /// budget. Bytes cannot be: every entry weighed at the last walk plus
+    /// everything added since is within the cold target. Identities are let
+    /// past their cap by at most [`WALK_IDENTITIES`] new ones, and by entries
+    /// a paint stopped pinning for at most [`WALK_CALLS`] paints: a walk
+    /// visits every identity, which a paint per frame cannot afford.
+    pub fn maintain(&mut self) {
+        self.unwalked += 1;
+        if self.walked_bytes.saturating_add(self.grown_bytes) <= self.target
+            && self.grown_identities < WALK_IDENTITIES
+            && self.unwalked < WALK_CALLS
+        {
+            return;
+        }
+        self.trim(None);
+    }
     pub fn trim(&mut self, keep: Option<u64>) {
+        self.trim_walk(keep);
+        self.grown_bytes = 0;
+        self.grown_identities = 0;
+        self.unwalked = 0;
+    }
+    fn trim_walk(&mut self, keep: Option<u64>) {
         let mut bytes = 0;
+        // Every entry's policy bytes, pinned ones included: what maintenance
+        // weighs until the next walk (removals below only lower it).
+        let mut all = 0;
         // Keep contributes one even if absent or pinned: preserve the original
         // eviction policy, including that phantom count.
         let mut count = usize::from(keep.is_some());
@@ -629,18 +675,25 @@ impl Cache {
             entry
                 .widths
                 .retain(|_, value| value.weak.strong_count() != 0);
+            let own = entry.key_bytes() + entry.source_bytes();
+            all += own;
             if !entry.pinned() {
-                bytes += entry.key_bytes() + entry.source_bytes();
+                bytes += own;
                 count += usize::from(Some(entry.id) != keep);
             }
             for slot in entry.widths.values() {
                 if !slot.pinned() {
                     if let Some(p) = &slot.cold {
-                        bytes += p.layout_capacity_bytes() + p.private_text_bytes_estimate;
+                        let cost = p.layout_capacity_bytes() + p.private_text_bytes_estimate;
+                        bytes += cost;
+                        all += cost;
                     }
+                } else if let Some(p) = slot.weak.upgrade() {
+                    all += p.layout_capacity_bytes() + p.private_text_bytes_estimate;
                 }
             }
         }
+        self.walked_bytes = all;
         if bytes <= self.target && count <= COLD_IDENTITIES {
             self.prune_bindings();
             return;

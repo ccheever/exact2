@@ -204,8 +204,8 @@ impl Resolver<'_, '_> {
             return Vec::new();
         }
         let ends: Vec<usize> = match node.node_type {
-            NodeType::SvgPath => match node.props.str(PropId::D) {
-                Some(d) => parse_d_commands(d).1,
+            NodeType::SvgPath => match self.d(node) {
+                Some(d) => parse_d_commands(&d).1,
                 None => return Vec::new(),
             },
             NodeType::SvgLine | NodeType::SvgPolyline | NodeType::SvgPolygon => {

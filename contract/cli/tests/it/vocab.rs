@@ -129,3 +129,19 @@ fn a_hyphenated_name_no_built_in_has_says_so_before_the_module_note() {
     assert!(data.starts_with("data-row: `data-<word>`"), "{data}");
     assert!(!data.contains("built-in"), "{data}");
 }
+
+#[test]
+fn the_host_commands_are_listed_and_answer_by_name() {
+    let all = stdout(&vocab(&[]));
+    assert!(all.contains("host commands ("), "{all}");
+    assert!(all.contains("setRootFontSize"), "{all}");
+    let one = stdout(&vocab(&["setRootFontSize"]));
+    assert!(one.contains("setRootFontSize: host command"), "{one}");
+    assert!(one.contains(":root { font-size }"), "{one}");
+    let doc: Value = serde_json::from_str(&stdout(&vocab(&["--json"]))).unwrap();
+    assert!(doc["commands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|c| c == "setScheme"));
+}

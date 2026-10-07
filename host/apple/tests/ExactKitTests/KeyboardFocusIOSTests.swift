@@ -79,6 +79,72 @@ final class KeyboardFocusIOSTests: XCTestCase {
         XCTAssertEqual(delegate.urls.count, 3)
     }
 
+    // These unhosted UIKit tests exercise the responder chain, not the system
+    // keyboard window. Verify keyboard visibility in a launched app.
+    func testNativeSelectMenuPreservesShortcutFocusAndAllowsTextEntry() throws {
+        guard #available(iOS 17.4, *) else { throw XCTSkip("UIKit menu activation requires iOS 17.4") }
+        let session = ExactApp.shared.makeSession(label: "select-keyboard")
+        let view = ExactView(session: session), host = UIViewController()
+        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+        let window = scene.map { UIWindow(windowScene: $0) }
+            ?? UIWindow(frame: CGRect(x: 0, y: 0, width: 402, height: 874))
+        window.frame = CGRect(x: 0, y: 0, width: 402, height: 874)
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        host.view.addSubview(view)
+        view.frame = host.view.bounds
+        view.layoutIfNeeded()
+        defer { window.endEditing(true); session.destroy(); window.isHidden = true }
+        let p = session.presenter
+        let button = try XCTUnwrap(p.controls.makeValueControl("select", 900) as? UIButton)
+        button.frame = CGRect(x: 32, y: 200, width: 250, height: 44)
+        button.menu = UIMenu(children: [UIAction(title: "Chocolate Glaze") { _ in }, UIAction(title: "Blueberry Spread") { _ in }])
+        view.addSubview(button)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        XCTAssertTrue(view.becomeFirstResponder())
+        button.performPrimaryAction()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        func containsOption(_ node: UIView) -> Bool {
+            (node as? UILabel)?.text == "Blueberry Spread" || node.subviews.contains(where: containsOption)
+        }
+        XCTAssertTrue(containsOption(window), "the real UIKit menu opened")
+        XCTAssertTrue(view.isFirstResponder, "shortcut focus survives opening the menu")
+        // nil lets UIKit request its default keyboard for this responder.
+        // A nontext responder must instead supply input with no height.
+        XCTAssertEqual(view.inputView?.bounds.height, 0, "shortcut focus must not request a system keyboard")
+        button.contextMenuInteraction?.dismissMenu()
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        let shortcut = NodeView(id: 901, kind: "button", presenter: p)
+        p.views[shortcut.id] = shortcut
+        p.root.addSubview(shortcut)
+        shortcut.frame = CGRect(x: 32, y: 350, width: 100, height: 44)
+        shortcut.handlers = ["press"]
+        shortcut.applyProps(set: ["accessibilityKeyShortcuts": "Meta+g"], clear: [])
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let command = try XCTUnwrap(view.keyCommands?.first { $0.input == "g" && $0.modifierFlags == .command })
+        let action = try XCTUnwrap(command.action)
+        let target = try XCTUnwrap(view.target(forAction: action, withSender: command) as? NSObject)
+        _ = target.perform(action, with: command)
+        XCTAssertEqual(pressed, [shortcut.id], "hardware shortcuts still reach the app after a menu")
+        view.endEditing(true)
+        let field = UITextField(frame: CGRect(x: 32, y: 300, width: 250, height: 44))
+        view.addSubview(field)
+        XCTAssertTrue(field.becomeFirstResponder())
+        RunLoop.main.run(until: Date().addingTimeInterval(0.5))
+        XCTAssertNil(view.inputView, "text entry must not inherit the shortcut responder’s empty input view")
+        field.insertText("Glaze")
+        XCTAssertEqual(field.text, "Glaze")
+        let editor = UITextView(frame: CGRect(x: 32, y: 300, width: 250, height: 100))
+        view.addSubview(editor)
+        XCTAssertTrue(editor.becomeFirstResponder())
+        XCTAssertNil(view.inputView, "multiline editing must also inherit the system keyboard")
+        editor.insertText("Chocolate\nGlaze")
+        XCTAssertEqual(editor.text, "Chocolate\nGlaze")
+        XCTAssertTrue(view.becomeFirstResponder())
+        XCTAssertEqual(view.inputView?.bounds.height, 0, "shortcut focus requests no keyboard again after editing")
+    }
+
     func testTabWalksControlsInTreeOrderAndSkipsText() throws {
         let (p, first, text, field, last) = fixture()
         defer { withExtendedLifetime(p) {} }

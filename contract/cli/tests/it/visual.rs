@@ -47,15 +47,15 @@ fn the_three_rows_take_css_in_a_literal_a_style_and_a_conditional() {
         "style Card\n  corner-shape=\"-apple-continuous\"\n  mask-image=\"linear-gradient(#000, transparent)\"\n\ncomponent App\n  state on = true\n  view\n    column\n      view class=Card testId=\"a\"\n      view corner-shape=(on ? \"squircle bevel\" : \"round\") testId=\"b\"\n      text \"x\" text-shadow=(on ? \"1px 2px 3px #000\" : \"none\") testId=\"c\"\n",
     );
     let a = style_of(&r, "a");
-    assert!(a.corner_shape.is_apple_continuous());
+    assert!(a.rare.corner_shape.is_apple_continuous());
     assert_eq!(
-        a.mask_image,
+        a.rare.mask_image,
         BackgroundImage::parse("linear-gradient(#000, transparent)").unwrap()
     );
     let b = style_of(&r, "b");
-    assert_eq!(b.corner_shape.0[1], Corner::Superellipse(0.0));
+    assert_eq!(b.rare.corner_shape.0[1], Corner::Superellipse(0.0));
     assert_eq!(
-        b.corner_shape,
+        b.rare.corner_shape,
         CornerShape::check("squircle bevel").unwrap()
     );
     let c = style_of(&r, "c");

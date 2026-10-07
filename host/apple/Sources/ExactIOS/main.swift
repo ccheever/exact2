@@ -130,9 +130,11 @@ final class Controller: UIViewController {
     // The session's view decides where focus returns (`ExactView`).
     override var preferredFocusEnvironments: [any UIFocusEnvironment] { [exactView] }
     #endif
-    // tvOS has no pointer lock.
+    // tvOS has no pointer lock, nor a status bar.
     #if !os(tvOS)
     override var prefersPointerLocked: Bool { ExactPointerLock.preferred }
+    /// The style the app declared (LLP 1105 D6); `onStatusBarStyle` says when.
+    override var preferredStatusBarStyle: UIStatusBarStyle { exactView.statusBarStyle }
     #endif
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -236,6 +238,9 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         }
         let c = Controller()
         w.rootViewController = c
+        #if !os(tvOS)
+        exactView.onStatusBarStyle = { [weak c] _ in c?.setNeedsStatusBarAppearanceUpdate() }
+        #endif
         window = w
         DevMenu.install(on: w, session: ExactIOS.session, controller: c, planPath: devPlanPath ?? environment["EXACT_PLAN"])
         w.makeKeyAndVisible()

@@ -26,7 +26,7 @@ export function throwContractErrors(app, args, result, root) {
   if (!existsSync(source) || !contractMayHaveFailed(args, result)) return;
   const scratch = resolve(tmpdir(), `exact-contract-check-${process.pid}.plan`);
   const checked = spawnSync('cargo', ['run', '-q', '--manifest-path', resolve(root, 'Cargo.toml'), '-p', 'contract', '--', 'build', source, '-o', scratch],
-    { cwd: root, env: process.env, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' });
+    { cwd: root, env: { ...process.env, HERMES_LEAN_SYS_OFFLINE: '1' }, stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' });
   rmSync(scratch, { force: true });
   const found = (checked.stderr ?? '').split('\n').filter((line) => /\.contract:\d+:\d+ \[[a-z0-9-]+\]/.test(line))
     .map((line) => line.replace(/^(\/\S+?\.contract)/, (file) => relative(process.cwd(), file) || file));

@@ -61,7 +61,9 @@ impl Collection {
             handle,
             list: kernel.node(self.view)?.key,
             wrapper: kernel.node(row.wrapper)?.key,
-            root: kernel.node(roots_of(&row.row.roots)[0])?.key,
+            root: kernel
+                .node(first_root(&row.row.roots).expect("a row has a root"))?
+                .key,
             row_epoch: row.epoch,
         })
     }
@@ -256,7 +258,9 @@ impl Collection {
             .filter_map(|r| {
                 Some(ReorderWrapper {
                     wrapper: kernel.node(r.wrapper)?.key,
-                    root: kernel.node(roots_of(&r.row.roots)[0])?.key,
+                    root: kernel
+                        .node(first_root(&r.row.roots).expect("a row has a root"))?
+                        .key,
                     top: self.index.prefix(r.position)?,
                     offset: offsets.as_ref().map_or(0.0, |o| o.at(r.position)),
                 })

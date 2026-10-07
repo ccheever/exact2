@@ -29,6 +29,8 @@ impl<D: DataSource> Presenter<D> {
                 "haptic" => {}
                 // The runner's own (LLP 1096 D9): its table is the record; no output here.
                 "playSound" | "playSounds" | "stopSounds" => {}
+                // The runner's own too: it laid out at the app's root font size (LLP 1069.000 D3).
+                "setRootFontSize" => {}
                 // Outside a `key` event (`key_event` takes a key's), nothing to prevent or stop.
                 "preventDefault" | "stopPropagation" => {}
                 // No share sheet here: refused into the journal, or held for

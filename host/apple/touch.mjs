@@ -65,7 +65,7 @@ run('plutil', ['-insert', 'ExactTouchEarlySession', '-bool', String(earlySession
 if (device) {
   const dev = phone(option('--phone')), prof = profile(dev.udid, app.id);
   const ent = resolve(stage, 'entitlements.plist');
-  writeFileSync(ent, entitlements(app, prof.team));
+  writeFileSync(ent, entitlements(app, prof.team, true, null, { prefix: prof.prefix }));
   copyFileSync(prof.path, resolve(bundle, 'embedded.mobileprovision'));
   run('codesign', ['--force', '--sign', identity(prof.team), '--timestamp=none', '--entitlements', ent, bundle]);
   run('codesign', ['--verify', '--strict', bundle]);

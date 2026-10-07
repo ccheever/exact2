@@ -324,6 +324,7 @@ fn shared(attr: &str) -> bool {
             | "marker-mid"
             | "marker-end"
             | "animation"
+            | "animation-trigger"
             | "transition"
             | "testId"
             | "id"

@@ -157,6 +157,7 @@ impl LayoutMotion {
 fn declares(kernel: &Kernel, key: NodeKey) -> bool {
     kernel.node_by_key(key).is_some_and(|n| {
         n.style
+            .rare
             .layout_transition
             .matching(Property::Layout)
             .is_some()

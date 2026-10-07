@@ -3,6 +3,25 @@
 
 use std::path::{Path, PathBuf};
 
+/// buildBake recomputes this inventory before each Cargo invocation, so its
+/// environment fingerprint detects first creation without scanning app-local
+/// outputs. Direct Cargo has no such inventory and keeps conservative watches.
+pub(super) fn asset_tree(
+    app: &Path,
+    root: &str,
+    outputs: &[PathBuf],
+    declared: Option<&str>,
+) -> Option<PathBuf> {
+    let path = app.join(root);
+    if declared.is_some_and(|roots| !roots.split(',').any(|name| name == root))
+        && std::fs::symlink_metadata(&path)
+            .is_err_and(|error| error.kind() == std::io::ErrorKind::NotFound)
+    {
+        return None;
+    }
+    Some(optional_tree(&path, outputs))
+}
+
 /// A missing Cargo input is perpetually dirty. Watch its nearest existing
 /// ancestor instead, unless Cargo's recursive scan would include build output.
 /// In that layout keep the conservative missing input: first creation must
@@ -149,6 +168,92 @@ mod tests {
 
     // Exercise Cargo itself: a path-selection unit test cannot prove that a
     // second invocation stays warm or that a previously absent root is noticed.
+    #[test]
+    fn inventoried_roots_stay_warm_with_app_local_outputs() {
+        let f = Fixture::new();
+        let app = f.0.join("app");
+        let package = app.join("consumer");
+        fs::write(package.join("Cargo.toml"), "[package]\nname='asset-inventory-fixture'\nversion='0.0.0'\nedition='2024'\n[workspace]\n").unwrap();
+        fs::create_dir(package.join("src")).unwrap();
+        fs::write(package.join("src/lib.rs"), "pub fn value() {}\n").unwrap();
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/receipt/watch.rs");
+        fs::write(package.join("build.rs"), format!(r#"
+#[path = {source:?}] mod watch;
+use std::path::PathBuf;
+fn main() {{
+    println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-env-changed=EXACT_ASSET_ROOTS");
+    let out = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
+    let declared = std::env::var("EXACT_ASSET_ROOTS").ok();
+    for root in ["assets", "deck"] {{
+        if let Some(path) = watch::asset_tree(std::path::Path::new(".."), root, &[out.clone()], declared.as_deref()) {{
+            println!("cargo:rerun-if-changed={{}}", path.display());
+        }}
+    }}
+    let record = PathBuf::from(std::env::var_os("WATCH_RECORD").unwrap());
+    let previous = std::fs::read_to_string(&record).unwrap_or_default();
+    std::fs::write(record, format!("{{previous}}baked\n")).unwrap();
+}}
+"#)).unwrap();
+        let record = app.join("builds");
+        let build = |expected: usize| {
+            let roots = ["assets", "deck"]
+                .into_iter()
+                .filter(|root| app.join(root).exists())
+                .collect::<Vec<_>>()
+                .join(",");
+            let output = std::process::Command::new(env!("CARGO"))
+                .args(["build", "--quiet", "--offline", "--manifest-path"])
+                .arg(package.join("Cargo.toml"))
+                .arg("--target-dir")
+                .arg(app.join("target"))
+                .env("WATCH_RECORD", &record)
+                .env("EXACT_ASSET_ROOTS", roots)
+                .env_remove("CARGO_BUILD_BUILD_DIR")
+                .env_remove("CARGO_ENCODED_RUSTFLAGS")
+                .env_remove("RUSTFLAGS")
+                .env_remove("RUSTC_WRAPPER")
+                .env_remove("RUSTC_WORKSPACE_WRAPPER")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert_eq!(
+                fs::read_to_string(&record).unwrap().lines().count(),
+                expected
+            );
+        };
+        build(1);
+        build(1);
+        fs::create_dir(app.join("deck")).unwrap();
+        fs::write(app.join("deck/card"), "red").unwrap();
+        build(2);
+        build(2);
+        fs::write(app.join("deck/card"), "blue").unwrap();
+        build(3);
+        fs::remove_file(app.join("deck/card")).unwrap();
+        build(4);
+        fs::remove_dir(app.join("deck")).unwrap();
+        build(5);
+        build(5);
+        fs::create_dir(app.join("deck")).unwrap();
+        build(6);
+        build(6);
+        // A direct Cargo invocation still watches absence conservatively.
+        assert_eq!(
+            asset_tree(&app, "assets", &[app.join("target")], None),
+            Some(app.join("assets"))
+        );
+        // Even an incomplete supplied inventory never hides an existing root.
+        assert_eq!(
+            asset_tree(&app, "deck", &[app.join("target")], Some("")),
+            Some(app.join("deck"))
+        );
+    }
+
     #[test]
     fn cargo_rebakes_asset_changes_but_not_unchanged_missing_roots() {
         let f = Fixture::new();

@@ -80,6 +80,20 @@ ops one by one: `local` (device-only ops) and `formCommand` (errors that go to t
 a new op in an existing prefix needs neither. The `composer`, `menus` and `r5-panels`
 XCTests define their own `exactModule` and leave out `T3Module*.swift` (README recipe).
 
+## Interface font size
+
+Tasks `20261005-interface-font-size` and `-conversion` (both closed), 2026-10-07, PR #206. Settings › Appearance ›
+Interface font size is the root font size: `look.fontSize` (`clampInterfaceFontSize`, `appearance-fonts.ts`) feeds
+app.contract's `task rootFont`, which calls `setRootFontSize` (main #185) at launch and on every change, and the root
+`provide`s it as `rem`. Contract lengths are `rem` where T3 Code's are (Tailwind spacing, size, text, radius; `font-mono
+text-xs` too) and `px` where its are (borders, shadows, blur, svg geometry, offsets, 1–2 px hairlines, the 52 px top bars,
+table minimum widths, text on the Prompt or Code font size, @pierre/trees rows). `font-size-map.json` lists every file.
+A new length: write `rem` (N/16) for a reference rem utility; a length computed from a design constant or a TypeScript
+size at 16 does `inject rem: number` and multiplies `rem / 16` in (Contract `calc()` takes `<percent> ± <px>` only); a
+TypeScript size the data module hands over can be scaled there (`atRootFontSize`). Native views read
+`T3RootFont.rem(_:)` (`modules/apple/T3RootFont.swift`; the size arrives with `devicePresentation`). The composer text
+follows the Prompt font size (`look.promptSize`).
+
 ## Terminal drawer
 
 Task `20261005-terminal-drawer`, 2026-10-06. ⌘J or the layout toggle (chat header, right panel

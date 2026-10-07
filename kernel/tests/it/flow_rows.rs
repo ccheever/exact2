@@ -8,7 +8,7 @@ use exact_kernel::{
 fn defaults_masks_and_wire_vocabulary() {
     let defaults = StyleProps::default();
     assert_eq!(defaults.wrap_flow, WrapFlow::Auto);
-    assert_eq!(defaults.shape_outside, ShapeOutside::default());
+    assert_eq!(defaults.rare.shape_outside, ShapeOutside::default());
     assert_eq!(defaults.shape_margin.to_bits(), 0f32.to_bits());
     for (id, bit) in [
         (StyleId::WrapFlow, 92),

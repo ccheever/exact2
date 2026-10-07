@@ -377,6 +377,9 @@ fn trim_scratch_messages_10000_32_setup_and_saturated_revisions() {
                     .collect::<Vec<_>>(),
                 sha2::Sha256::digest(pixels.concat())
             );
+            // A paint's maintenance may leave a walk for later (cache.rs
+            // `maintain`); a trim after a trim changes nothing.
+            f.engine.trim_paragraphs();
             let state = f.engine.paragraphs.trim_test_state();
             f.engine.trim_paragraphs();
             assert_eq!(state, f.engine.paragraphs.trim_test_state());

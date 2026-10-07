@@ -11,7 +11,7 @@ REF = `~/Documents/work/3.open-source/t3code`. X2 = exact2 main.
 |---|---|---|---|---|
 | X1 | Embedded Chromium + CDP | Browser surface (preview browser, agent browser automation) | policy + build | none (not built) |
 | X2 | Developer Tools for the app UI | View › Toggle Developer Tools | policy (DEFERRED) | none |
-| X3 | App-settable root font size (`rem` base) | Interface font size (12–20 px) | framework feature | none |
+| X3 | App-settable root font size (`rem` base) (fixed on main #185, adopted) | Interface font size (12–20 px) | framework feature | none: `setRootFontSize` from app.contract `rootFont`; Contract lengths in `rem` (`font-size-map.json`) |
 | X4 | Helper executables and large resource trees in the bundle | Embedded local T3 server | build | archive in `assets/`, unpack at launch (planned) |
 | X5 | Custom URL scheme delivered to the app | `t3code://` deep links, provider sign-in return | host | none |
 | X6 | Module shutdown time at quit | Stop the embedded server cleanly | host | none |
@@ -51,7 +51,7 @@ Each open item was reproduced for its upstream issue on exact2 `4c893fef6`, whic
 
 | ID | Issue | Current state on the pin | Workaround kept |
 |---|---|---|---|
-| X3 | [#102](https://github.com/ccheever/exact2/issues/102) (+ #136, #137) | Open. #137 is closed: main #159 refuses a string bound to a number-only style row at compile time; `contract build` of the clone still passes (2026-10-07). The macOS host still sends a root font size of 16; Interface font size is saved and not applied. | none |
+| X3 | [#102](https://github.com/ccheever/exact2/issues/102) (+ #136, #137) | Fixed on main (#185 `setRootFontSize`; #176 the web JS target keeps `rem`; #159 refuses a string on a number-only row), adopted 2026-10-07 (interface-font-size): the clone sets the root font size from the setting and sizes its Contract lengths in `rem` where the reference does. Contract `calc()` takes percent ± px only, so a length that adds a layout px value to a rem one multiplies the root size in (the top bars). | none |
 | X4 | [#103](https://github.com/ccheever/exact2/issues/103) | Open. `assets/` is still the only bundle tree, with mode 0644 and the path-segment rule. | archive plan (embedded server not built) |
 | X5 | [#104](https://github.com/ccheever/exact2/issues/104) | Open. A scheme URL reaches only a navigation root's `navigate`. | none |
 | X6 | [#105](https://github.com/ccheever/exact2/issues/105) | Open. No module quit hook; `destroy()` does not run at ⌘Q. | none |
@@ -132,7 +132,7 @@ X1 ([#100](https://github.com/ccheever/exact2/issues/100)) and X2 ([#101](https:
 
 **Reviewed.** The kernel resolves `rem` against a root size that the host sets (`kernel/src/style/relative.rs`, `Kernel::set_root_font_size`). The macOS host always sends 16 (`host/apple/Sources/ExactKit/PageFacts.swift:75-81`).
 
-**Current state.** The clone saves the setting, but nothing reads it (`settings-appearance-look.ts:55`).
+**Current state.** Fixed on main by #185 and adopted (2026-10-07): app.contract's `rootFont` task calls `setRootFontSize(data.look.fontSize)` at launch and on every change; the Contract sizes are `rem` where the reference's are (`font-size-map.json`). The issue record is `.exact/implementation/20261005-t3code-macos-parity/issues/closed/20261005-x03-root-font-size.md`.
 
 **Support needed.** A way for the app to set the root font size, as CSS `:root { font-size }` does. Example: a `setRootFontSize(px)` host command on every host. After that, the clone converts its rem-derived sizes to `rem`.
 

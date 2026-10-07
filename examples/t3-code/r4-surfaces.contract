@@ -112,18 +112,18 @@ component R4HeaderBar
   action tabMenu(id: string)
     menuTab = id
   view
-    row height=52 flex-shrink=0 padding-left=8 padding-right=13 box-sizing="border-box" align-items="center" gap=4 position="relative" z-index=20 testId="panel-tabbar"
+    row height=52 flex-shrink=0 padding-left="0.5rem" padding-right="0.8125rem" box-sizing="border-box" align-items="center" gap="0.25rem" position="relative" z-index=20 testId="panel-tabbar"
       // RightPanelTabs handleTabContextMenu: api.contextMenu.show at the pointer. macOS presents these
       // rows as an NSMenu (plain items, no separators, disabled ones dimmed); the agent and the web paint
       // the popover at the tab. A row presses the same `surface-<id>` op as the menu's choice.
-      column id="r4-tab-menu" popover="auto" position="absolute" role="menu" width=192 padding=4 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" testId="tab-menu"
+      column id="r4-tab-menu" popover="auto" position="absolute" role="menu" width="12rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" testId="tab-menu"
         each menuOf in panel.tabs key=menuOf.id
           when menuOf.id == menuTab
             each item in menuOf.menu key=item.id
-              button press=local(`surface-${item.id}`, menuOf.id, "") disabled=item.disabled popovertarget="r4-tab-menu" popovertargetaction="hide" role="menuitem" testId=`tab-menu-${item.id}` display="flex" flex-direction="row" align-items="center" width="100%" height=28 padding-left=8 padding-right=8 box-sizing="border-box" border-width=0 border-radius=6 opacity=(item.disabled ? 0.64 : 1) background-color="#00000000"
-                text item.label flex=1 min-width=0 white-space="nowrap" text-align="left" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
-      scroll flex=1 min-width=0 height=24 overflow-x="scroll" overflow-y="hidden" scrollLeft=tabsScroll scroll=tabsScrolled mask-image=tabsMask hook="t3-anchor" data-anchor="r12-tabs-view" testId="panel-tab-strip"
-        row flex-shrink=0 width=(panel.tabStrip.content > panel.tabStrip.view ? panel.tabStrip.content : "100%") gap=4 align-items="center" role="tablist" aria-label="Panel surfaces" hook="t3-anchor" data-anchor="r12-tabs-content"
+              button press=local(`surface-${item.id}`, menuOf.id, "") disabled=item.disabled popovertarget="r4-tab-menu" popovertargetaction="hide" role="menuitem" testId=`tab-menu-${item.id}` display="flex" flex-direction="row" align-items="center" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(item.disabled ? 0.64 : 1) background-color="#00000000"
+                text item.label flex=1 min-width=0 white-space="nowrap" text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+      scroll flex=1 min-width=0 height="1.5rem" overflow-x="scroll" overflow-y="hidden" scrollLeft=tabsScroll scroll=tabsScrolled mask-image=tabsMask hook="t3-anchor" data-anchor="r12-tabs-view" testId="panel-tab-strip"
+        row flex-shrink=0 width=(panel.tabStrip.content > panel.tabStrip.view ? panel.tabStrip.content : "100%") gap="0.25rem" align-items="center" role="tablist" aria-label="Panel surfaces" hook="t3-anchor" data-anchor="r12-tabs-content"
           each tab in panel.tabs key=tab.id
             R4TabChip(tab=tab, ui=ui, local=local, menu=tabMenu)
           when panel.count > 0
@@ -132,20 +132,20 @@ component R4HeaderBar
         R12TabScroll(canLeft=(tabsScroll > 1), canRight=(tabsScroll < panel.tabStrip.max - 1), left=scrollTabs(0 - tabsStep), right=scrollTabs(tabsStep))
       when sheet
         box position="relative" flex-shrink=0
-          button press=details("toggle", "", "") hover=hover("details") aria-label="Toggle thread details panel" aria-expanded=detailsOpen testId="panel-toggle-details" width=28 height=28 padding=0 border-radius=10 border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(detailsOpen or hovered == "details" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+          button press=details("toggle", "", "") hover=hover("details") aria-label="Toggle thread details panel" aria-expanded=detailsOpen testId="panel-toggle-details" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(detailsOpen or hovered == "details" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
             ShellIcon(name="square-menu", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
           TipBubble(label=(keyThreadPanel == "" ? "Toggle thread details" : `Toggle thread details (${keyThreadPanel})`), side="bottom", align="center", offset=32, inset=0, shown=(hovered == "details"))
       else
         box position="relative" flex-shrink=0
-          button press=ui("maximize", "") hover=hover("maximize") aria-label=(maximized ? "Restore panel size" : "Maximize panel") testId="maximize-right-panel" width=28 height=28 padding=0 border-radius=10 border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(maximized or hovered == "maximize" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+          button press=ui("maximize", "") hover=hover("maximize") aria-label=(maximized ? "Restore panel size" : "Maximize panel") testId="maximize-right-panel" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(maximized or hovered == "maximize" ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
             MorphPair(first="maximize", second="minimize", on=maximized, size=16, color="light-dark(#27272acc, #f5f5f5cc)", onColor="light-dark(#27272acc, #f5f5f5cc)", still=still)
           TipBubble(label=(maximized ? "Restore panel size" : "Maximize panel"), side="bottom", align="center", offset=32, inset=0, shown=(hovered == "maximize"))
       box position="relative" flex-shrink=0 hover=hover("terminal")
-        button press=ui("terminal", "") disabled=(not terminalAvailable) aria-label="Toggle terminal drawer" aria-pressed=terminalOpen testId="panel-toggle-terminal" width=28 height=28 padding=0 border-radius=10 border-width=0 opacity=(terminalAvailable ? 1 : 0.64) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(terminalAvailable and (terminalOpen or hovered == "terminal") ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+        button press=ui("terminal", "") disabled=(not terminalAvailable) aria-label="Toggle terminal drawer" aria-pressed=terminalOpen testId="panel-toggle-terminal" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 opacity=(terminalAvailable ? 1 : 0.64) display="flex" flex-direction="row" align-items="center" justify-content="center" background-color=(terminalAvailable and (terminalOpen or hovered == "terminal") ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
           ShellIcon(name="panel-bottom", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
         TipBubble(label=(terminalAvailable ? (keyTerminal == "" ? "Toggle terminal drawer" : `Toggle terminal drawer (${keyTerminal})`) : "Terminal drawer is unavailable"), side="bottom", align="end", offset=32, inset=40, shown=(hovered == "terminal"))
       box position="relative" flex-shrink=0
-        button press=ui("toggle", "") hover=hover("toggle") aria-label="Toggle right panel" aria-keyshortcuts=((panel.deviceSetup or panel.files.editorsOpen) ? "" : "Escape") testId="panel-toggle-right" width=28 height=28 padding=0 border-radius=10 border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="light-dark(#f4f4f5, #ffffff0a)"
+        button press=ui("toggle", "") hover=hover("toggle") aria-label="Toggle right panel" aria-keyshortcuts=((panel.deviceSetup or panel.files.editorsOpen) ? "" : "Escape") testId="panel-toggle-right" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="light-dark(#f4f4f5, #ffffff0a)"
           ShellIcon(name="panel-right", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
         TipBubble(label=(keyRightPanel == "" ? "Toggle right panel" : `Toggle right panel (${keyRightPanel})`), side="bottom", align="end", offset=32, inset=8, shown=(hovered == "toggle"))
 
@@ -167,8 +167,8 @@ component R4TabChip
       preventDefault()
       local("surface-menu", tab.id, "key")
   view
-    row contextmenu=menu(tab.id) contextPopover="r4-tab-menu" height=24 max-width=144 padding-left=6 padding-right=8 box-sizing="border-box" gap=2 align-items="center" border-radius=8 flex-shrink=0 hover=hover role="tab" aria-selected=tab.active background-color=(tab.active ? "light-dark(#f4f4f5, #141414)" : over ? "light-dark(#f4f4f599, #14141499)" : "#00000000") hook="t3-anchor" data-anchor=`r12-tab:${tab.id}` testId=`panel-tab-${tab.id}`
-      button hook="t3-anchor" data-anchor=`tab-close:${tab.id}` press=ui("tab-close", tab.id) key=tabKey aria-label=`Close ${tab.title}` testId=`close-tab-${tab.id}` width=16 height=16 padding=0 border-radius=4 border-width=0 position="relative" flex-shrink=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+    row contextmenu=menu(tab.id) contextPopover="r4-tab-menu" height="1.5rem" max-width="9rem" padding-left="0.375rem" padding-right="0.5rem" box-sizing="border-box" gap="0.125rem" align-items="center" border-radius="0.5rem" flex-shrink=0 hover=hover role="tab" aria-selected=tab.active background-color=(tab.active ? "light-dark(#f4f4f5, #141414)" : over ? "light-dark(#f4f4f599, #14141499)" : "#00000000") hook="t3-anchor" data-anchor=`r12-tab:${tab.id}` testId=`panel-tab-${tab.id}`
+      button hook="t3-anchor" data-anchor=`tab-close:${tab.id}` press=ui("tab-close", tab.id) key=tabKey aria-label=`Close ${tab.title}` testId=`close-tab-${tab.id}` width="1rem" height="1rem" padding=0 border-radius="0.25rem" border-width=0 position="relative" flex-shrink=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
         when over
           ShellIcon(name="x", size=12, color=(tab.active or over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
         else
@@ -184,13 +184,13 @@ component R4TabChip
               else
                 ShellIcon(name=tab.icon, size=12, color=(tab.active ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
         when tab.pending
-          box position="absolute" right=-1 bottom=-1 width=6 height=6 border-radius=3 background-color=(tab.active ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+          box position="absolute" right=-1 bottom=-1 width="0.375rem" height="0.375rem" border-radius="0.1875rem" background-color=(tab.active ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
       box hook="t3-anchor" data-anchor=`tab-cancel:${tab.id}` press=local("surface-rename-cancel", tab.id, "") width=0 height=0 padding=0 border-width=0 opacity=0 aria-hidden=true position="absolute"
       when tab.renaming
         R4TabNameField(tab=tab, local=local)
       else
         button hook="t3-anchor" data-anchor=`tab-focus:${tab.id}` press=local("surface-activate", tab.id, "") dblclick=local("surface-rename", tab.id, "") key=tabKey aria-label=tab.title testId=`tab-${tab.id}` min-width=0 padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
-          text tab.title min-width=0 font-size=12 line-height="16px" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color=(tab.active or over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+          text tab.title min-width=0 font-size="0.75rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color=(tab.active or over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
 
 
 // The device tab's inline name editor (RightPanelTabs.tsx rename input, aria-label "Device tab
@@ -207,7 +207,7 @@ component R4TabNameField
   action edit(value: string)
     name = value
   view
-    input hook="t3-select-on-open" id=`tab-name-${tab.id}` value=name input=edit blur=local("surface-rename-commit", tab.id, name) submit=local("surface-rename-commit", tab.id, name) autofocus=true aria-label="Device tab name" testId=`tab-name-${tab.id}` width=96 min-width=0 height=20 padding=0 border-width=0 border-radius=4 box-shadow="0 0 0 1px light-dark(#a1a1aa80, #73737380)" background-color="#00000000" font-size=12 color="light-dark(#27272a, #f5f5f5)"
+    input hook="t3-select-on-open" id=`tab-name-${tab.id}` value=name input=edit blur=local("surface-rename-commit", tab.id, name) submit=local("surface-rename-commit", tab.id, name) autofocus=true aria-label="Device tab name" testId=`tab-name-${tab.id}` width="6rem" min-width=0 height="1.25rem" padding=0 border-width=0 border-radius="0.25rem" box-shadow="0 0 0 1px light-dark(#a1a1aa80, #73737380)" background-color="#00000000" font-size="0.75rem" color="light-dark(#27272a, #f5f5f5)"
 
 // "Add panel surface": a 24pt ghost-muted "+" and the menu of every surface,
 // unavailable ones at 64% with their reason.
@@ -220,10 +220,10 @@ component R4AddSurface
     over = value
   view
     column position="relative" flex-shrink=0
-      button popovertarget="r4-add-surface" hover=hover aria-label="Add panel surface" testId="panel-add-surface" width=24 height=24 padding=0 border-radius=8 border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+      button popovertarget="r4-add-surface" hover=hover aria-label="Add panel surface" testId="panel-add-surface" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
         ShellIcon(name="plus", size=14, color=(over ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
-      column id="r4-add-surface" popover="auto" position="absolute" margin-top=6 width=192
-        column width="100%" padding=4 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Add panel surface"
+      column id="r4-add-surface" popover="auto" position="absolute" margin-top="0.375rem" width="12rem"
+        column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fffffff7, #171717f7)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Add panel surface"
           each surface in surfaces key=surface.id
             R4AddItem(surface=surface, choose=ui("choose", surface.id))
 
@@ -236,11 +236,11 @@ component R4AddItem
     hovered = over
   view
     box position="relative" width="100%" hover=hover
-      button press=choose popovertarget="r4-add-surface" popovertargetaction="hide" disabled=(not surface.available) role="menuitem" aria-label=`${surface.label} ${surface.shortcut}` aria-keyshortcuts=surface.shortcut testId=`add-surface-${surface.id}` display="flex" flex-direction="row" align-items="center" gap=8 width="100%" height=28 padding-left=8 padding-right=8 box-sizing="border-box" border-width=0 border-radius=6 opacity=(surface.available ? 1 : 0.64) background-color=(hovered and surface.available ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
-        box width=16 height=16 flex-shrink=0 opacity=0.8
+      button press=choose popovertarget="r4-add-surface" popovertargetaction="hide" disabled=(not surface.available) role="menuitem" aria-label=`${surface.label} ${surface.shortcut}` aria-keyshortcuts=surface.shortcut testId=`add-surface-${surface.id}` display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(surface.available ? 1 : 0.64) background-color=(hovered and surface.available ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
+        box width="1rem" height="1rem" flex-shrink=0 opacity=0.8
           ShellIcon(name=surface.icon, size=16, color="light-dark(#71717b, #818181)")
-        text surface.label flex=1 min-width=0 white-space="nowrap" text-align="left" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
-        text surface.shortcut flex-shrink=0 font-size=12 font-weight=500 line-height="16px" letter-spacing=1.2 color="light-dark(#71717b, #818181)"
+        text surface.label flex=1 min-width=0 white-space="nowrap" text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+        text surface.shortcut flex-shrink=0 font-size="0.75rem" font-weight=500 line-height="1rem" letter-spacing="0.075rem" color="light-dark(#71717b, #818181)"
       when not surface.available
         TipBubble(label=surface.reason, side="top", align="center", offset=32, inset=0, shown=hovered)
 
@@ -288,37 +288,39 @@ component R4PrsList
     link: action
   view
     when not prs.supported
-      column flex=1 align-items="center" justify-content="center" gap=8 padding=24 box-sizing="border-box" testId="linked-prs-unavailable"
-        text "Linked pull requests unavailable" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
-        text "This environment does not support multiple linked pull requests." max-width=240 text-align="center" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+      column flex=1 align-items="center" justify-content="center" gap="0.5rem" padding="1.5rem" box-sizing="border-box" testId="linked-prs-unavailable"
+        text "Linked pull requests unavailable" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+        text "This environment does not support multiple linked pull requests." max-width="15rem" text-align="center" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
     when prs.supported and length(prs.rows) == 0
-      column flex=1 align-items="center" justify-content="center" gap=8 padding=24 box-sizing="border-box" testId="linked-prs-empty"
+      column flex=1 align-items="center" justify-content="center" gap="0.5rem" padding="1.5rem" box-sizing="border-box" testId="linked-prs-empty"
         R4Icon(name="link-2", size=24, color="light-dark(#71717b99, #81818199)")
-        text "No linked pull requests" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
-        text "Pull requests the agent opens from this thread land here. Link one yourself from a URL or a number." max-width=240 text-align="center" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
-        button press=link testId="linked-prs-link" display="flex" flex-direction="row" align-items="center" gap=6 height=28 padding-left=9 padding-right=9 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)"
+        text "No linked pull requests" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+        text "Pull requests the agent opens from this thread land here. Link one yourself from a URL or a number." max-width="15rem" text-align="center" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+        button press=link testId="linked-prs-link" display="flex" flex-direction="row" align-items="center" gap="0.375rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)"
           R4Icon(name="plus", size=14, color="light-dark(#27272a, #f5f5f5)")
-          text "Link pull request" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
+          text "Link pull request" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
     when prs.supported and length(prs.rows) > 0
       column flex=1 min-height=0 position="relative" testId="linked-prs"
         scroll flex=1 min-height=0
-          column width="100%" padding=6 box-sizing="border-box"
+          column width="100%" padding="0.375rem" box-sizing="border-box"
             each row in prs.rows key=row.key
               R4LinkedRowView(row=row, menuOpen=(prs.menu == row.key), local=local, command=command)
         when prs.menu != ""
           button press=local("surface-pr-menu", "", "") aria-label="Close actions" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" z-index=29 testId="linked-pr-menu-backdrop"
           each row in filter(prs.rows, (entry) => entry.key == prs.menu) key=row.key
             R4LinkedMenu(row=row, local=local, command=command)
-        row flex-shrink=0 align-items="center" justify-content="space-between" padding-left=8 padding-right=8 padding-top=6 padding-bottom=6 box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)"
-          text prs.footer font-size=11 line-height="16px" color="light-dark(#71717b, #818181)" testId="linked-prs-footer"
-          button press=link testId="linked-prs-link-footer" display="flex" flex-direction="row" align-items="center" gap=4 height=24 padding-left=8 padding-right=8 box-sizing="border-box" border-radius=6 border-width=0 background-color="#00000000"
+        row flex-shrink=0 align-items="center" justify-content="space-between" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)"
+          text prs.footer font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="linked-prs-footer"
+          button press=link testId="linked-prs-link-footer" display="flex" flex-direction="row" align-items="center" gap="0.25rem" height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color="#00000000"
             R4Icon(name="plus", size=14, color="light-dark(#27272a, #f5f5f5)")
-            text "Link" font-size=12 font-weight=500 line-height="16px" color="light-dark(#27272a, #f5f5f5)"
+            text "Link" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
 
 // LinkRow: the lifecycle glyph, "#n title" with the watch/checks/review signals
 // and the diff stat, then stack, author, repository and branches over the age.
 // Its actions menu shows over the second line's end while the row is hovered.
 component R4LinkedRowView
+  inject
+    rem: number
   props
     row: R4LinkedRow
     menuOpen: bool
@@ -328,69 +330,71 @@ component R4LinkedRowView
   action hover(value: bool)
     over = value
   view
-    row width="100%" position="relative" align-items="center" gap=8 padding-top=4 padding-bottom=4 padding-right=4 padding-left=(8 + row.depth * 20) box-sizing="border-box" border-radius=6 hover=hover background-color=(over or menuOpen ? "light-dark(#f4f4f599, #ffffff06)" : "#00000000") testId=`linked-pr-${row.number}`
+    row width="100%" position="relative" align-items="center" gap="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-right="0.25rem" padding-left=((0.5 + row.depth * 1.25) * rem) box-sizing="border-box" border-radius="0.375rem" hover=hover background-color=(over or menuOpen ? "light-dark(#f4f4f599, #ffffff06)" : "#00000000") testId=`linked-pr-${row.number}`
       when row.depth > 0
-        box width=1 height=24 margin-left=-8 flex-shrink=0 background-color="light-dark(#e4e4e7b3, #ffffff12)"
-      box width=16 flex-shrink=0 position="relative" aria-label=(row.waiting ? "Waiting for host state" : row.stateLabel)
+        box width=1 height="1.5rem" margin-left="-0.5rem" flex-shrink=0 background-color="light-dark(#e4e4e7b3, #ffffff12)"
+      box width="1rem" flex-shrink=0 position="relative" aria-label=(row.waiting ? "Waiting for host state" : row.stateLabel)
         PgIcon(name=(row.waiting ? "git-pull-request-arrow" : prStateIcon(row.state)), size=16, color=(row.waiting ? "light-dark(#71717b, #818181)" : prStateTone(row.state)))
       link cursor="pointer" href=row.url flex=1 min-width=0 display="flex" flex-direction="column" testId=`linked-pr-open-${row.number}`
-        row min-width=0 align-items="center" gap=6
-          text `#${row.number}` flex-shrink=0 font-family="ui-monospace" font-size=12 line-height="16px" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" aria-label=row.sourceLabel
-          text row.title min-width=0 font-size=14 line-height="20px" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#262626, #f5f5f5)"
+        row min-width=0 align-items="center" gap="0.375rem"
+          text `#${row.number}` flex-shrink=0 font-family="ui-monospace" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" aria-label=row.sourceLabel
+          text row.title min-width=0 font-size="0.875rem" line-height="1.25rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#262626, #f5f5f5)"
           when row.open and (row.watching or row.checks != "" or row.review != "")
-            row flex-shrink=0 align-items="center" gap=4
+            row flex-shrink=0 align-items="center" gap="0.25rem"
               when row.watching
-                box width=14 height=14 aria-label="Watching" testId=`linked-pr-watching-${row.number}`
+                box width="0.875rem" height="0.875rem" aria-label="Watching" testId=`linked-pr-watching-${row.number}`
                   R4Icon(name="eye", size=14, color="light-dark(#27272a, #f5f5f5)")
               when row.checks != ""
-                box width=14 height=14 aria-label=row.checksLabel
+                box width="0.875rem" height="0.875rem" aria-label=row.checksLabel
                   PgIcon(name=prChecksIcon(row.checks), size=14, color=prChecksTone(row.checks))
               when row.review != ""
-                box width=14 height=14 aria-label=row.reviewLabel
+                box width="0.875rem" height="0.875rem" aria-label=row.reviewLabel
                   PgIcon(name=prReviewIcon(row.review), size=14, color=prReviewTone(row.review))
           box flex=1 min-width=0
           when row.additions != ""
-            row flex-shrink=0 align-items="baseline" gap=4
-              text row.additions font-family="ui-monospace" font-size=11 line-height="16px" font-variant-numeric="tabular-nums" color="light-dark(#009966, #00d492)"
-              text row.deletions font-family="ui-monospace" font-size=11 line-height="16px" font-variant-numeric="tabular-nums" color="light-dark(#fb2c36, #fb414a)"
-        row min-width=0 height=16 align-items="center" gap=6 overflow="hidden"
+            row flex-shrink=0 align-items="baseline" gap="0.25rem"
+              text row.additions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#009966, #00d492)"
+              text row.deletions font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#fb2c36, #fb414a)"
+        row min-width=0 height="1rem" align-items="center" gap="0.375rem" overflow="hidden"
           when row.stackSize > 0
-            row flex-shrink=0 align-items="center" gap=2 aria-label=row.stackLabel
+            row flex-shrink=0 align-items="center" gap="0.125rem" aria-label=row.stackLabel
               R4Icon(name="layers", size=12, color="light-dark(#27272ab3, #f5f5f5b3)")
-              text `${row.stackSize}` font-size=11 line-height="16px" color="light-dark(#27272ab3, #f5f5f5b3)"
+              text `${row.stackSize}` font-size="0.6875rem" line-height="1rem" color="light-dark(#27272ab3, #f5f5f5b3)"
           when row.author != ""
-            row flex-shrink=0 align-items="center" gap=4 max-width=128
+            row flex-shrink=0 align-items="center" gap="0.25rem" max-width="8rem"
               PrAvatar(avatar=row.avatar, initial=row.initial, size=14)
-              text row.author min-width=0 font-size=11 line-height="16px" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #818181)"
+              text row.author min-width=0 font-size="0.6875rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #818181)"
           when row.waiting
-            text `${row.host}/${row.repository}` min-width=0 font-family="ui-monospace" font-size=11 letter-spacing=-0.19 line-height="16px" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #818181)"
+            text `${row.host}/${row.repository}` min-width=0 font-family="ui-monospace" font-size="0.6875rem" letter-spacing=-0.19 line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #818181)"
           else
-            text row.repository max-width=128 min-width=0 flex-shrink=1 font-family="ui-monospace" font-size=11 line-height="16px" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #818181)"
-            row min-width=0 align-items="center" gap=4 flex-shrink=1
-              text row.head min-width=0 font-family="ui-monospace" font-size=11 line-height="16px" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #818181)"
-              text "→" flex-shrink=0 font-family="ui-monospace" font-size=11 line-height="16px" color="light-dark(#71717b, #818181)"
-              text row.base min-width=0 flex-shrink=0 font-family="ui-monospace" font-size=11 line-height="16px" white-space="nowrap" color="light-dark(#71717b, #818181)"
+            text row.repository max-width="8rem" min-width=0 flex-shrink=1 font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #818181)"
+            row min-width=0 align-items="center" gap="0.25rem" flex-shrink=1
+              text row.head min-width=0 font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" color="light-dark(#71717b, #818181)"
+              text "→" flex-shrink=0 font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+              text row.base min-width=0 flex-shrink=0 font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" white-space="nowrap" color="light-dark(#71717b, #818181)"
           box flex=1 min-width=0
           when row.age != ""
-            text row.age flex-shrink=0 font-size=11 line-height="16px" white-space="nowrap" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
+            text row.age flex-shrink=0 font-size="0.6875rem" line-height="1rem" white-space="nowrap" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
       when over or menuOpen
-        row position="absolute" right=0 bottom=2 padding-left=20 padding-right=4 align-items="center" border-radius=6 background-color="light-dark(#f7f7f8, #101010)"
-          button press=local("surface-pr-menu", row.key, "") aria-label=`Actions for #${row.number}` aria-expanded=menuOpen testId=`linked-pr-actions-${row.number}` width=20 height=20 padding=0 border-radius=6 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+        row position="absolute" right=0 bottom="0.125rem" padding-left="1.25rem" padding-right="0.25rem" align-items="center" border-radius="0.375rem" background-color="light-dark(#f7f7f8, #101010)"
+          button press=local("surface-pr-menu", row.key, "") aria-label=`Actions for #${row.number}` aria-expanded=menuOpen testId=`linked-pr-actions-${row.number}` width="1.25rem" height="1.25rem" padding=0 border-radius="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
             R4Icon(name="ellipsis", size=14, color="light-dark(#27272a, #f5f5f5)")
 
 // The row's actions (Copy link, Open, Watch for changes / Stop watching, Unlink),
 // drawn at the list's level under its row: a child outside its parent is not hit-testable natively.
 component R4LinkedMenu
+  inject
+    rem: number
   props
     row: R4LinkedRow
     local: action
     command: action
   view
-    column position="absolute" right=10 top=(row.index * 44 + 52) padding=4 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" z-index=30 role="menu" aria-label=`Actions for #${row.number}` testId=`linked-pr-menu-${row.number}`
+    column position="absolute" right="0.625rem" top=((row.index * 44 + 52) * rem / 16) padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#2727291a, #ffffff1a)" background-color="light-dark(#fefefe, #171717)" box-shadow="0 16px 40px -18px #0000008c" z-index=30 role="menu" aria-label=`Actions for #${row.number}` testId=`linked-pr-menu-${row.number}`
       R4MenuItem(icon="link", label="Copy link", test="copy", press=local("surface-pr-copy", row.key, ""))
-      link cursor="pointer" href=row.url role="menuitem" testId="linked-pr-menu-open" width="100%" height=28 padding-left=8 padding-right=8 box-sizing="border-box" gap=8 border-radius=6 display="flex" flex-direction="row" align-items="center"
+      link cursor="pointer" href=row.url role="menuitem" testId="linked-pr-menu-open" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" display="flex" flex-direction="row" align-items="center"
         R4Icon(name="arrow-up-right", size=14, color="light-dark(#71717b, #818181)")
-        text "Open" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
+        text "Open" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
       when row.canWatch
         R4MenuItem(icon=(row.watching ? "eye-off" : "eye"), label=(row.watching ? "Stop watching" : "Watch for changes"), test="watch", press=command("shell:surface-pr-watch", row.key, (row.watching ? "false" : "true"), 0))
       R4MenuItem(icon="unlink-2", label=row.unlinkLabel, test="unlink", press=command("shell:surface-pr-unlink", row.key, "", 0))
@@ -405,9 +409,9 @@ component R4MenuItem
   action hover(over: bool)
     hovered = over
   view
-    button press=press hover=hover role="menuitem" testId=`linked-pr-menu-${test}` width="100%" height=28 padding-left=8 padding-right=8 box-sizing="border-box" gap=8 border-radius=6 border-width=0 display="flex" flex-direction="row" align-items="center" background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+    button press=press hover=hover role="menuitem" testId=`linked-pr-menu-${test}` width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 display="flex" flex-direction="row" align-items="center" background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
       R4Icon(name=icon, size=14, color="light-dark(#71717b, #818181)")
-      text label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
+      text label flex=1 min-width=0 text-align="left" white-space="nowrap" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
 
 // DevicePanel after onboarding: status, the simulators by platform and Refresh devices.
 component R4DeviceBody
@@ -419,9 +423,9 @@ component R4DeviceBody
   view
     column flex=1 min-height=0 testId="device-surface"
       each notice in device.notices key=notice.id
-        column margin=12 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 border-radius=6 border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" role=(notice.failed ? "alert" : "status")
-          text notice.label font-size=12 font-weight=500 line-height="16px" color="light-dark(#27272a, #f5f5f5)"
-          text notice.detail font-size=12 line-height="16px" white-space="pre-wrap" color="light-dark(#71717b, #818181)"
+        column margin="0.75rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" role=(notice.failed ? "alert" : "status")
+          text notice.label font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
+          text notice.detail font-size="0.75rem" line-height="1rem" white-space="pre-wrap" color="light-dark(#71717b, #818181)"
       // lane r6-media: status rows, then the opened device or its loading view (r6-device.contract).
       R6DeviceStatus(view=device.r6, local=local)
       when device.r6.mode == "workspace"
@@ -430,36 +434,36 @@ component R4DeviceBody
         R6DeviceLoading(name=device.r6.openingName, description=device.r6.openingDescription, message=device.r6.openingMessage, stage="opening", error=false, reconnect=local("surface-r6dev-menu", "", ""))
       when device.r6.mode == "list"
         when device.panelStatus != ""
-          column flex=1 align-items="center" justify-content="center" gap=8
+          column flex=1 align-items="center" justify-content="center" gap="0.5rem"
             R4Icon(name="loader", size=20, color="light-dark(#71717b, #818181)")
-            text device.panelStatus font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
+            text device.panelStatus font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
         else
           scroll flex=1 min-height=0
-            column width="100%" max-width=576 padding-left=20 padding-right=20 padding-top=32 padding-bottom=32 gap=24 box-sizing="border-box" align-self="center"
+            column width="100%" max-width="36rem" padding-left="1.25rem" padding-right="1.25rem" padding-top="2rem" padding-bottom="2rem" gap="1.5rem" box-sizing="border-box" align-self="center"
               when device.empty != ""
-                column align-items="center" gap=12
+                column align-items="center" gap="0.75rem"
                   R4Icon(name="smartphone", size=24, color="light-dark(#71717b99, #81818199)")
-                  text device.empty max-width=384 text-align="center" font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
+                  text device.empty max-width="24rem" text-align="center" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
               each group in device.groups key=group.id
-                column gap=12
-                  row gap=8 align-items="center"
+                column gap="0.75rem"
+                  row gap="0.5rem" align-items="center"
                     R4Icon(name="smartphone", size=16, color="light-dark(#71717b, #818181)")
-                    text group.label font-size=14 font-weight=500 line-height="20px" color="light-dark(#71717b, #818181)"
-                  column border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" overflow="hidden"
+                    text group.label font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#71717b, #818181)"
+                  column border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" overflow="hidden"
                     each item in group.devices key=item.id
                       // lane r6-media: the row opens (or starts) the device for this thread (device.open).
-                      button press=command("shell:surface-r6dev-open", item.id, "", 0) disabled=(device.r6.pendingKey != "") testId=`device-row-${item.name}` width="100%" height=52 padding-left=12 padding-right=12 gap=12 box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-width=0 border-radius=0 background-color="#00000000" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e766, #ffffff08)" aria-label=`${item.action} ${item.name}`
-                        box width=32 height=32 border-radius=6 border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" display="flex" align-items="center" justify-content="center"
+                      button press=command("shell:surface-r6dev-open", item.id, "", 0) disabled=(device.r6.pendingKey != "") testId=`device-row-${item.name}` width="100%" height="3.25rem" padding-left="0.75rem" padding-right="0.75rem" gap="0.75rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" border-width=0 border-radius=0 background-color="#00000000" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e766, #ffffff08)" aria-label=`${item.action} ${item.name}`
+                        box width="2rem" height="2rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" display="flex" align-items="center" justify-content="center"
                           R4Icon(name="smartphone", size=16, color="light-dark(#27272a, #f5f5f5)")
                         column flex=1 min-width=0
-                          text item.name font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
-                          text item.description font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
-                        text item.action font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+                          text item.name font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+                          text item.description font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+                        text item.action font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
               when device.hint != ""
-                text device.hint max-width=384 font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+                text device.hint max-width="24rem" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
               when device.refreshable
-                button press=command("shell:surface-device-list", "", "", 0) testId="device-refresh" align-self=(length(device.groups) > 0 ? "flex-start" : "center") height=28 padding-left=9 padding-right=9 box-sizing="border-box" border-radius=8 border-style="solid" border-width=(length(device.groups) > 0 ? 0 : 1) border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(length(device.groups) > 0 ? "#00000000" : "light-dark(#ffffff, #ffffff08)")
-                  text "Refresh devices" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
+                button press=command("shell:surface-device-list", "", "", 0) testId="device-refresh" align-self=(length(device.groups) > 0 ? "flex-start" : "center") height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=(length(device.groups) > 0 ? 0 : 1) border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(length(device.groups) > 0 ? "#00000000" : "light-dark(#ffffff, #ffffff08)")
+                  text "Refresh devices" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
 
 // The "Set up devices" wizard (Dialog + WizardPopup max-w-xl, measured on the
 // served reference): header 24/24/12 with the 20pt title, description and the
@@ -472,7 +476,7 @@ component R4DeviceSetup
     local: action
     command: action
   view
-    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 display="flex" align-items="center" justify-content="center" padding=16 box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId="device-setup-overlay"
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=45 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" testId="device-setup-overlay"
       button press=local("surface-setup-close", "", "") aria-label="Close device setup" aria-keyshortcuts="Escape" position="absolute" left=0 top=0 right=0 bottom=0 padding=0 border-width=0 background-color="#00000000" testId="device-setup-backdrop"
       when scheme == "dark"
         R4DeviceDialog(device=device, viewportHeight=viewportHeight, local=local, command=command)
@@ -480,64 +484,66 @@ component R4DeviceSetup
         R4DeviceDialog(device=device, viewportHeight=viewportHeight, local=local, command=command)
 
 component R4DeviceDialog
+  inject
+    rem: number
   props
     device: R4Device
     viewportHeight: number
     local: action
     command: action
   view
-    column width="100%" max-width=576 max-height=(viewportHeight - 32) position="relative" box-sizing="border-box" border-radius=18 border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label="Set up devices" testId="device-setup"
-      column padding-left=24 padding-right=24 padding-top=24 padding-bottom=12 box-sizing="border-box" gap=8 flex-shrink=0
-        text "Set up devices" font-size=20 font-weight=600 line-height="20px" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
-        text "Review what runs on this environment before using simulators and emulators." font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
-        row height=44 padding=4 gap=4 box-sizing="border-box" border-radius=14 border-style="solid" border-width=1 border-color="light-dark(#0000000d, #ffffff0d)" background-color="light-dark(#fcfcfc, #ffffff0a)" role="list" aria-label="Setup progress"
+    column width="100%" max-width="36rem" max-height=(viewportHeight - 2 * rem) position="relative" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="dialog" aria-label="Set up devices" testId="device-setup"
+      column padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" box-sizing="border-box" gap="0.5rem" flex-shrink=0
+        text "Set up devices" font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+        text "Review what runs on this environment before using simulators and emulators." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+        row height="2.75rem" padding="0.25rem" gap="0.25rem" box-sizing="border-box" border-radius="0.875rem" border-style="solid" border-width=1 border-color="light-dark(#0000000d, #ffffff0d)" background-color="light-dark(#fcfcfc, #ffffff0a)" role="list" aria-label="Setup progress"
           R4WizardStep(number=0, title="Device hub", current=device.step, disabled=(device.busy or device.pending != ""), local=local)
           R4WizardStep(number=1, title="Simulators", current=device.step, disabled=(device.busy or device.pending != "" or device.step < 1), local=local)
           R4WizardStep(number=2, title="Agent access", current=device.step, disabled=(device.busy or device.pending != "" or device.step < 2), local=local)
-      column flex-shrink=1 min-height=0 padding-left=24 padding-right=24 padding-top=20 padding-bottom=20 box-sizing="border-box" gap=12 border-top-width=1 border-bottom-width=1 border-left-width=0 border-right-width=0 border-style="solid" border-color="light-dark(#0000000d, #ffffff0d)" background-color="light-dark(#fcfcfccc, #ffffff05)" testId="device-setup-panel"
+      column flex-shrink=1 min-height=0 padding-left="1.5rem" padding-right="1.5rem" padding-top="1.25rem" padding-bottom="1.25rem" box-sizing="border-box" gap="0.75rem" border-top-width=1 border-bottom-width=1 border-left-width=0 border-right-width=0 border-style="solid" border-color="light-dark(#0000000d, #ffffff0d)" background-color="light-dark(#fcfcfccc, #ffffff05)" testId="device-setup-panel"
         each notice in device.notices key=notice.id
-          column padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 border-radius=6 border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" role=(notice.failed ? "alert" : "status")
-            text notice.label font-size=12 font-weight=500 line-height="16px" color="light-dark(#27272a, #f5f5f5)"
-            text notice.detail font-size=12 line-height="16px" white-space="pre-wrap" color="light-dark(#71717b, #818181)"
+          column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff0a)" role=(notice.failed ? "alert" : "status")
+            text notice.label font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"
+            text notice.detail font-size="0.75rem" line-height="1rem" white-space="pre-wrap" color="light-dark(#71717b, #818181)"
         when device.step == 0
-          text "Enable the device hub" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
-          row gap=16 align-items="flex-start" justify-content="space-between"
-            text "Enable this environment to open simulators and emulators, whether they run here or on a remote device host." flex=1 min-width=0 font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
+          text "Enable the device hub" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+          row gap="1rem" align-items="flex-start" justify-content="space-between"
+            text "Enable this environment to open simulators and emulators, whether they run here or on a remote device host." flex=1 min-width=0 font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
             PvSwitch(checked=device.enabled, small=false, disabled=(device.busy or device.pending != ""), label="Enable device hub", test="device-hub-switch", toggle=command("shell:surface-device-hub", "", (device.enabled ? "false" : "true"), 0))
           when device.hubStatus != ""
-            row gap=8 align-items="center" role="status"
+            row gap="0.5rem" align-items="center" role="status"
               R4Icon(name=(device.hubReady ? "check" : "loader"), size=12, color=(device.hubReady ? "light-dark(#00a63e, #05df72)" : "light-dark(#71717b, #818181)"))
-              text device.hubStatus font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+              text device.hubStatus font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
         // 1e2ecbd975 (5318d054a5): step 0 also checks simulator support when the hub is on
         // and a local host has no available platform (device-support.contract).
         when device.step == 1 or (device.step == 0 and device.enabled and device.localPlatformsUnavailable)
           SimulatorSupportSection(device=device, command=command)
         when device.step == 2
-          text "Allow agent control" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
-          row gap=16 align-items="flex-start" justify-content="space-between"
-            text "Allow new agent sessions in this environment to start and control local and remote devices, with required tools set up automatically." flex=1 min-width=0 font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
+          text "Allow agent control" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+          row gap="1rem" align-items="flex-start" justify-content="space-between"
+            text "Allow new agent sessions in this environment to start and control local and remote devices, with required tools set up automatically." flex=1 min-width=0 font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
             PvSwitch(checked=device.agentEnabled, small=false, disabled=(not device.enabled or device.busy or device.pending != ""), label="Allow agents to control devices", test="device-agent-switch", toggle=command("shell:surface-device-agent", "", (device.agentEnabled ? "false" : "true"), 0))
           when device.agentStatus != ""
-            row gap=8 align-items="center" role="status"
+            row gap="0.5rem" align-items="center" role="status"
               R4Icon(name=(device.agentReady ? "check" : "loader"), size=12, color=(device.agentReady ? "light-dark(#00a63e, #05df72)" : "light-dark(#71717b, #818181)"))
-              text device.agentStatus font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
-          text "Leave this off to keep manual device controls without giving agents access." font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+              text device.agentStatus font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
+          text "Leave this off to keep manual device controls without giving agents access." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
         when device.failure != ""
-          text device.failure margin-top=12 font-size=12 line-height="16px" color="light-dark(#e40014, #ff6467)" role="alert"
-      row height=64 flex-shrink=0 padding-left=24 padding-right=24 gap=8 box-sizing="border-box" align-items="center" justify-content="flex-end"
+          text device.failure margin-top="0.75rem" font-size="0.75rem" line-height="1rem" color="light-dark(#e40014, #ff6467)" role="alert"
+      row height="4rem" flex-shrink=0 padding-left="1.5rem" padding-right="1.5rem" gap="0.5rem" box-sizing="border-box" align-items="center" justify-content="flex-end"
         when device.step == 0
-          button press=local("surface-setup-close", "", "") testId="device-setup-cancel" display="flex" flex-direction="row" align-items="center" justify-content="center" height=32 padding-left=11 padding-right=11 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d"
-            text "Cancel" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
+          button press=local("surface-setup-close", "", "") testId="device-setup-cancel" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d"
+            text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
         else
-          button press=local("surface-device-back", "", "") disabled=(device.busy or device.pending != "") testId="device-setup-back" display="flex" flex-direction="row" align-items="center" justify-content="center" height=32 padding-left=11 padding-right=11 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d"
-            text "Back" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
+          button press=local("surface-device-back", "", "") disabled=(device.busy or device.pending != "") testId="device-setup-back" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d"
+            text "Back" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
         when device.step < 2
-          button press=local("surface-device-continue", "", "") disabled=(not device.canContinue) testId="device-setup-continue" display="flex" flex-direction="row" align-items="center" justify-content="center" height=32 padding-left=11 padding-right=11 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" opacity=(device.canContinue ? 1 : 0.64) box-shadow="0 1px 2px #0000000d"
-            text "Continue" font-size=14 font-weight=500 line-height="20px" color="#ffffff"
+          button press=local("surface-device-continue", "", "") disabled=(not device.canContinue) testId="device-setup-continue" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" opacity=(device.canContinue ? 1 : 0.64) box-shadow="0 1px 2px #0000000d"
+            text "Continue" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
         else
-          button press=command("shell:surface-device-complete", "", "", 0) disabled=(not device.canContinue) testId="device-setup-done" display="flex" flex-direction="row" align-items="center" justify-content="center" height=32 padding-left=11 padding-right=11 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" opacity=(device.canContinue ? 1 : 0.64) box-shadow="0 1px 2px #0000000d"
-            text device.doneLabel font-size=14 font-weight=500 line-height="20px" color="#ffffff"
-      button press=local("surface-setup-close", "", "") aria-label="Close" testId="device-setup-close" position="absolute" top=8 right=8 width=32 height=32 padding=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+          button press=command("shell:surface-device-complete", "", "", 0) disabled=(not device.canContinue) testId="device-setup-done" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" opacity=(device.canContinue ? 1 : 0.64) box-shadow="0 1px 2px #0000000d"
+            text device.doneLabel font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
+      button press=local("surface-setup-close", "", "") aria-label="Close" testId="device-setup-close" position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
         R4Icon(name="x", size=16, color="light-dark(#71717b, #818181)")
 
 // WizardSteps' cell: a 20pt numbered disc and the medium label; only earlier steps reopen.
@@ -550,10 +556,10 @@ component R4WizardStep
     local: action
   view
     // r5-shell: the dialog's first tabbable takes focus when it opens (Base UI Dialog), so Escape reaches the dialog, not the composer behind it.
-    button press=local("surface-device-step", "", `${number}`) autofocus=(number == 0) disabled=disabled flex=1 min-width=0 height=36 box-sizing="border-box" padding-left=10 padding-right=10 padding-top=8 padding-bottom=8 gap=8 border-radius=10 border-width=(current == number ? 1 : 0) border-style="solid" border-color="light-dark(#0000000d, #ffffff0d)" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" background-color=(current == number ? "light-dark(#ffffff, #111111)" : "#00000000") box-shadow=(current == number ? "0 1px 2px #0000000d" : "none") aria-label=`${title}, step ${number + 1}` testId=`device-step-${number}`
-      box width=20 height=20 border-radius=9999 flex-shrink=0 display="flex" align-items="center" justify-content="center" box-sizing="border-box" border-style="solid" border-width=1 border-color=(current > number ? "light-dark(#1b4ed8, #346bf1)" : (current == number ? "light-dark(#1b4ed84d, #346bf14d)" : "light-dark(#0000001a, #ffffff1a)")) background-color=(current > number ? "light-dark(#1b4ed8, #346bf1)" : (current == number ? "light-dark(#1d4ed81a, #316cf51a)" : "light-dark(#ffffff, #ffffff0d)"))
+    button press=local("surface-device-step", "", `${number}`) autofocus=(number == 0) disabled=disabled flex=1 min-width=0 height="2.25rem" box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.5rem" padding-bottom="0.5rem" gap="0.5rem" border-radius="0.625rem" border-width=(current == number ? 1 : 0) border-style="solid" border-color="light-dark(#0000000d, #ffffff0d)" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" background-color=(current == number ? "light-dark(#ffffff, #111111)" : "#00000000") box-shadow=(current == number ? "0 1px 2px #0000000d" : "none") aria-label=`${title}, step ${number + 1}` testId=`device-step-${number}`
+      box width="1.25rem" height="1.25rem" border-radius="624.9375rem" flex-shrink=0 display="flex" align-items="center" justify-content="center" box-sizing="border-box" border-style="solid" border-width=1 border-color=(current > number ? "light-dark(#1b4ed8, #346bf1)" : (current == number ? "light-dark(#1b4ed84d, #346bf14d)" : "light-dark(#0000001a, #ffffff1a)")) background-color=(current > number ? "light-dark(#1b4ed8, #346bf1)" : (current == number ? "light-dark(#1d4ed81a, #316cf51a)" : "light-dark(#ffffff, #ffffff0d)"))
         when current > number
           R4Icon(name="check", size=14, color="#ffffff")
         else
-          text `${number + 1}` font-size=14 line-height="20px" font-weight=500 color=(current == number ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#71717b, #818181)")
-      text title font-size=14 line-height="20px" font-weight=500 white-space="nowrap" color=(current == number ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+          text `${number + 1}` font-size="0.875rem" line-height="1.25rem" font-weight=500 color=(current == number ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#71717b, #818181)")
+      text title font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color=(current == number ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")

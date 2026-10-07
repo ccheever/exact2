@@ -146,16 +146,14 @@ mod platform {
     }
 }
 
-/// Decode at the plan's size. The whole file is read (it is bounded by
-/// `MAX_ENCODED_BYTES`) because the platform decoder takes a buffer.
+/// The whole file (it is bounded by `MAX_ENCODED_BYTES`): the platform
+/// decoder takes a buffer.
 #[cfg(target_os = "android")]
-#[allow(unsafe_code)]
-pub(super) fn decode<R: Read + Seek>(
+fn read_all<R: Read + Seek>(
     mut input: R,
     plan: &DecodePlan,
     cancelled: impl Fn() -> bool,
-) -> Result<Pixmap, Refusal> {
-    use platform::*;
+) -> Result<Vec<u8>, Refusal> {
     input
         .seek(SeekFrom::Start(0))
         .map_err(|_| Refusal::DecodeFailed)?;
@@ -167,7 +165,29 @@ pub(super) fn decode<R: Read + Seek>(
     if cancelled() {
         return Err(Refusal::Stale);
     }
-    let (w, h) = (plan.pixels.width, plan.pixels.height);
+    Ok(bytes)
+}
+
+/// Decode `bytes` at `w`×`h` into `pixels` (`len` bytes, rows `stride`
+/// apart); whether every row was written.
+///
+/// The platform decoder samples by a power of two in the DCT and scales the
+/// rest of the way itself (bilinear, Skia's vector code), as an image loader
+/// asks it to: cheaper than decoding at the power of two and resampling here
+/// (heavy's probe: -7% of every thread's instructions).
+///
+/// # Safety
+/// `pixels` is writable for `len` bytes, `len` ≥ `stride × h`, `stride` ≥ `4w`.
+#[cfg(target_os = "android")]
+#[allow(unsafe_code)]
+unsafe fn decode_into(
+    bytes: &[u8],
+    (w, h): (u32, u32),
+    pixels: *mut std::ffi::c_void,
+    stride: usize,
+    len: usize,
+) -> bool {
+    use platform::*;
     crate::android::section_begin(c"exact platform decode");
     struct End;
     impl Drop for End {
@@ -176,31 +196,67 @@ pub(super) fn decode<R: Read + Seek>(
         }
     }
     let _end = End;
-    let stride = w as usize * 4;
-    let mut out = vec![0u8; stride * h as usize];
     let mut decoder = std::ptr::null_mut();
-    // SAFETY: the buffer outlives the decoder, which is deleted on every path;
-    // the output holds `stride × h` bytes, as decodeImage is told.
-    let status = unsafe {
-        if AImageDecoder_createFromBuffer(bytes.as_ptr().cast(), bytes.len(), &mut decoder) != 0 {
+    // The buffer outlives the decoder, which is deleted on every path.
+    if AImageDecoder_createFromBuffer(bytes.as_ptr().cast(), bytes.len(), &mut decoder) != 0 {
+        return false;
+    }
+    let ok = AImageDecoder_setAndroidBitmapFormat(decoder, 1) == 0
+        && AImageDecoder_setTargetSize(decoder, w as i32, h as i32) == 0
+        && AImageDecoder_decodeImage(decoder, pixels, stride, len) == 0;
+    AImageDecoder_delete(decoder);
+    ok
+}
+
+/// Decode at the plan's size, onto the heap.
+#[cfg(target_os = "android")]
+#[allow(unsafe_code)]
+pub(super) fn decode<R: Read + Seek>(
+    input: R,
+    plan: &DecodePlan,
+    cancelled: impl Fn() -> bool,
+) -> Result<Pixmap, Refusal> {
+    let bytes = read_all(input, plan, cancelled)?;
+    let (w, h) = (plan.pixels.width, plan.pixels.height);
+    let stride = w as usize * 4;
+    let len = stride * h as usize;
+    // Not zeroed first: the decoder writes every byte of it, and zeroing a
+    // picture's megabytes cost a fifth of the decode threads' time (heavy).
+    let mut out: Vec<u8> = Vec::with_capacity(len);
+    // SAFETY: the output's capacity is `stride × h` bytes, as the decoder is
+    // told, and its length is set only after it has written all of them.
+    unsafe {
+        if !decode_into(&bytes, (w, h), out.as_mut_ptr().cast(), stride, len) {
             return Err(Refusal::DecodeFailed);
         }
-        let s = if AImageDecoder_setAndroidBitmapFormat(decoder, 1) != 0
-            || AImageDecoder_setTargetSize(decoder, w as i32, h as i32) != 0
-        {
-            -1
-        } else {
-            AImageDecoder_decodeImage(decoder, out.as_mut_ptr().cast(), stride, out.len())
-        };
-        AImageDecoder_delete(decoder);
-        s
-    };
-    if status != 0 {
-        return Err(Refusal::DecodeFailed);
+        out.set_len(len);
     }
     tiny_skia::IntSize::from_wh(w, h)
         .and_then(|size| Pixmap::from_vec(out, size))
         .ok_or(Refusal::DecodeFailed)
+}
+
+/// A picture's pixels for [`super::Bitmap`]: a platform-decoded one straight
+/// into a GPU buffer where a host's reader draws from those
+/// ([`super::hardware_pictures`]), anything else onto the heap.
+pub(super) fn decode_pixels<R: Read + Seek>(
+    input: R,
+    plan: &DecodePlan,
+    cancelled: impl Fn() -> bool,
+) -> Result<super::bitmap::Pixels, Refusal> {
+    #[cfg(target_os = "android")]
+    #[allow(unsafe_code)]
+    if plan.platform() && super::hardware::enabled() {
+        let bytes = read_all(input, plan, cancelled)?;
+        let size = (plan.pixels.width, plan.pixels.height);
+        // SAFETY: `filled` hands a buffer of `len` bytes, rows `stride` apart.
+        return super::hardware::Hardware::filled(size.0, size.1, |pixels, stride, len| unsafe {
+            decode_into(&bytes, size, pixels, stride, len)
+        })
+        .map(super::bitmap::Pixels::Hardware)
+        .ok_or(Refusal::DecodeFailed);
+    }
+    super::png_decode::decode_rows(input, plan, cancelled).map(Into::into)
 }
 
 /// No platform decoder on this target: JPEG is refused, as before.

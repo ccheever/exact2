@@ -1089,6 +1089,7 @@ impl<D: DataSource> Runner<D> {
                         exact_num::parse_f64(value).ok().map(Value::Number)
                     }
                     EventKind::Error => Some(Value::str(value)),
+                    EventKind::Fullscreenchange => Some(Value::Bool(value == "true")),
                     _ => None,
                 },
                 kind.name(),

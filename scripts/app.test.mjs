@@ -83,12 +83,11 @@ test.skipIf(!process.env.EXACT_ASSET_BAKE_TEST)('creating optional asset roots r
 
 import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
-import { basename, delimiter, dirname, resolve, sep } from 'node:path';
+import { basename, delimiter, dirname, resolve, sep, toNamespacedPath } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
-import { resolveApp, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
-import { hermesIos } from './app.mjs';
+import { resolveApp, buildBake, bakeTarget, HERMES_INSTALLER, hermesBundle, hermesLeanSysRoots, pendingBuildInputs } from './app.mjs';
+import { checkHermesBundles, hermesCrossTargets, hermesSetupTargets } from './exact.mjs';
 import { useXcode } from '../host/apple/devices.mjs';
-import { HERMES_IOS_ARCHIVES, provisionHermesIos } from '../host/apple/hermes.mjs';
 import { iosAssets, infoPlist, macInfoPlist, documentTypes, importedTypes, exportedTypes, macReleaseEntitlements, writeUsageStrings, designCompatible, COMPATIBLE_SDK } from '../host/apple/build.mjs';
 import { snapshotOf, materializeSnapshot, disposeSnapshot } from './deploy.mjs';
 
@@ -1038,6 +1037,7 @@ test('a build env keeps the pinned toolchain and the checked Bun ahead of ambien
   const pinned = /^channel\s*=\s*"([^"]+)"/m.exec(readFileSync(resolve(import.meta.dir, '../rust-toolchain.toml'), 'utf8'))[1];
   const previous = process.env.RUSTUP_TOOLCHAIN;
   try {
+    assert.equal(process.env.HERMES_LEAN_SYS_OFFLINE, '1');
     process.env.RUSTUP_TOOLCHAIN = 'stable'; // What `mise exec` exports.
     assert.equal(developmentBuildEnv().RUSTUP_TOOLCHAIN, undefined);
     for (const same of [pinned, `${pinned}-aarch64-apple-darwin`]) {
@@ -1051,37 +1051,70 @@ test('a build env keeps the pinned toolchain and the checked Bun ahead of ambien
     assert.ok(Bun.which('cargo', {PATH:env.PATH}), 'the build inherits Cargo after spreading Windows Path');
     assert.equal(Object.keys(env).filter(key => key.toLowerCase() === 'path').length, 1);
     assert.equal(env.EXACT_UPDATE_TRUST, process.env.EXACT_UPDATE_TRUST ?? 'development');
+    assert.equal(env.HERMES_LEAN_SYS_OFFLINE, '1');
   } finally { if (previous === undefined) delete process.env.RUSTUP_TOOLCHAIN; else process.env.RUSTUP_TOOLCHAIN = previous; }
 });
 
-// @ref LLP 1036.001 D5 — no CMake build here: the refusals and the no-op paths.
-test('lean iOS Hermes provisions into its per-pin cache, only from the pinned pristine source', () => {
+test('iOS Hermes preflight selects the pinned digest and exact installer command', () => {
   const home = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-hermes-home-')));
   try {
-    const env = { ...process.env, HOME: home }; delete env.EXACT_HERMES_IOS_DIR;
-    const { pin, root, cached } = hermesIos(env);
-    assert.equal(cached, true);
-    assert.equal(root, resolve(home, '.cache/exact/hermes', `${pin.slice(0, 12)}-lean-ios`));
-    // Without CMake, one message says what to install, before anything is fetched (shop F19).
-    assert.throws(() => provisionHermesIos('ios-simulator', { ...env, PATH: '/usr/bin:/bin' }), /needs CMake, which is not installed\. Install it \(brew install cmake\)/);
-    assert.equal(existsSync(resolve(home, '.cache/exact/hermes/hermes-src')), false);
-    // A stand-in CMake: the source at another commit is refused before any build.
-    const bin = resolve(home, 'bin'); mkdirSync(bin);
-    writeFileSync(resolve(bin, 'cmake'), '#!/bin/sh\nexit 0\n'); chmodSync(resolve(bin, 'cmake'), 0o755);
-    env.PATH = `${bin}:${env.PATH}`;
-    const source = resolve(home, '.cache/exact/hermes/hermes-src');
-    spawnSync('git', ['init', '-q', source]);
-    spawnSync('git', ['-C', source, '-c', 'user.name=t', '-c', 'user.email=t@t.invalid', 'commit', '-q', '--allow-empty', '-m', 'other']);
-    assert.throws(() => provisionHermesIos('ios-simulator', env), new RegExp(`is at [0-9a-f]{40}; js/build.rs pins ${pin}`));
-    // Complete archives are used as they are; the source is not consulted.
-    for (const archive of HERMES_IOS_ARCHIVES) { mkdirSync(dirname(resolve(root, 'ios', archive)), { recursive: true }); writeFileSync(resolve(root, 'ios', archive), ''); }
-    provisionHermesIos('ios', env);
-    // Archives an override names are provisioned elsewhere; js/build.rs refuses missing ones.
-    const elsewhere = resolve(home, 'elsewhere');
-    assert.deepEqual(hermesIos({ ...env, EXACT_HERMES_IOS_DIR: elsewhere }), { pin, root: elsewhere, cached: false });
-    provisionHermesIos('ios-simulator', { ...env, EXACT_HERMES_IOS_DIR: elsewhere });
-    assert.equal(existsSync(elsewhere), false);
+    const env = { HOME: home };
+    const simulator = hermesBundle('aarch64-apple-ios-sim', env);
+    const intelSimulator = hermesBundle('x86_64-apple-ios', env);
+    assert.equal(simulator.installed, false);
+    assert.equal(simulator.root, intelSimulator.root, 'both simulator triples select the universal bundle');
+    assert.equal(simulator.fix, `cargo run --manifest-path ${HERMES_INSTALLER} -- --target aarch64-apple-ios-sim`);
   } finally { rmSync(home, { recursive: true, force: true }); }
+});
+
+test('setup check uses the installer result and preserves its missing-bundle message', () => {
+  const calls = [], missingMessage = 'Hermes bundle installation or check failed: install with cargo run --manifest-path installer -- --target aarch64-apple-darwin';
+  const execute = (command, args, options) => {
+    calls.push({command, args, options});
+    return calls.length === 1
+      ? {status: 1, stdout: 'Checking pinned Hermes bundles', stderr: missingMessage}
+      : {status: 0, stdout: 'Verified every installed bundle', stderr: ''};
+  };
+  const env = {HOME:'/empty-cargo-home', CARGO_HOME:'/empty-cargo-home'};
+  const missing = checkHermesBundles(env, execute, 'darwin', 'arm64');
+  assert.equal(missing.ok, false);
+  assert.ok(missing.message.includes(missingMessage));
+  // The required check is the host bundle alone, locked and offline.
+  assert.ok(calls[0].args.includes('--check'));
+  assert.ok(calls[0].args.includes('--locked'));
+  assert.ok(calls[0].args.includes('--offline'));
+  assert.ok(!calls[0].args.includes('--target'), 'cross targets are separate, optional rows');
+  assert.equal(calls[0].options.env.HERMES_LEAN_SYS_OFFLINE, '1');
+  assert.doesNotMatch(missing.fix, /--check/);
+  const installed = checkHermesBundles(env, execute, 'darwin', 'arm64');
+  assert.equal(installed.ok, true);
+  assert.match(installed.message, /Verified every installed bundle/);
+});
+
+test('each Apple TypeScript destination checks its own Hermes bundle, device included', () => {
+  assert.deepEqual(hermesCrossTargets('darwin', 'arm64'), [
+    { target: 'aarch64-apple-ios-sim', need: 'iOS Simulator TypeScript' },
+    { target: 'aarch64-apple-ios', need: 'iOS device TypeScript' },
+    { target: 'aarch64-apple-tvos-sim', need: 'tvOS Simulator TypeScript' },
+  ]);
+  assert.equal(hermesCrossTargets('darwin', 'x64')[0].target, 'x86_64-apple-ios');
+  assert.deepEqual(hermesCrossTargets('linux', 'x64'), []);
+  assert.deepEqual(hermesSetupTargets('darwin', 'arm64'), ['aarch64-apple-ios-sim', 'aarch64-apple-tvos-sim']);
+  const calls = [];
+  const execute = (command, args) => { calls.push(args); return {status: 0, stdout: 'Verified', stderr: ''}; };
+  checkHermesBundles({}, execute, 'darwin', 'arm64', ['aarch64-apple-ios']);
+  assert.deepEqual(calls[0].slice(-3), ['--check', '--target', 'aarch64-apple-ios']);
+  const install = checkHermesBundles({}, execute, 'darwin', 'arm64', ['aarch64-apple-ios']).fix;
+  assert.match(install, /--locked/);
+  assert.doesNotMatch(install, /--offline|--check/);
+});
+
+test('bake receipts recognize the install-once Hermes cache and explicit installs', () => {
+  const home = resolve(tmpdir(), 'exact-hermes-receipt-home');
+  const receiptRoots = path => [...new Set(process.platform === 'win32' ? [path, toNamespacedPath(path)] : [path])];
+  assert.deepEqual(hermesLeanSysRoots({ HOME: home }), receiptRoots(resolve(home, '.cargo/hermes-lean-sys')));
+  const selected = resolve(home, 'selected engine');
+  assert.deepEqual(hermesLeanSysRoots({ HERMES_LEAN_SYS_DIR: selected }), receiptRoots(selected));
 });
 
 // Real actool: separate compiles into the same bundle silently replace Assets.car.

@@ -9,6 +9,7 @@ mod engine;
 mod height;
 mod hold;
 mod paint;
+mod path;
 mod presence;
 mod spring;
 mod transform_hold;

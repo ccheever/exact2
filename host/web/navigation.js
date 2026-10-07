@@ -774,7 +774,8 @@ export function pageReporter(agent, platform = globalThis) {
   // @ref LLP 1069.000 D3 — the root font size: the document element's
   // computed `font-size`, the browser's setting unless a page sets it; under
   // the agent the drive sets it on the element (`prefer root-font-size`).
-  const rootFontSize = () => agent ? facts["root-font-size"] : parseFloat(platform.getComputedStyle(platform.document.documentElement).fontSize) || 16;
+  // The app's own size (`appRootFontSize`) is set over it and read past.
+  const rootFontSize = () => agent ? facts["root-font-size"] : beneathApp(platform, () => parseFloat(platform.getComputedStyle(platform.document.documentElement).fontSize) || 16);
   const read = () => agent ? { ...facts } : { "visibility-state": platform.document.visibilityState === "hidden" ? "hidden" : "visible", online: platform.navigator.onLine !== false, "can-share": typeof platform.navigator.share === "function", "can-open-files": typeof platform.showOpenFilePicker === "function" };
   const bits = () => { const f = read(); return (f["visibility-state"] === "hidden" ? 1 : 0) | (f.online ? 0 : 2) | (f["can-share"] ? 4 : 0) | (f["can-open-files"] ? 8 : 0); };
   const prefer = (page) => {
@@ -791,6 +792,28 @@ export function pageReporter(agent, platform = globalThis) {
   };
   const onChange = (changed) => { if (agent) return; platform.document.addEventListener("visibilitychange", changed); platform.addEventListener("online", changed); platform.addEventListener("offline", changed); };
   return { bits, read: () => ({ ...read(), "root-font-size": rootFontSize() }), prefer, onChange, rootFontSize };
+}
+
+// @ref LLP 1069.000 D3 — the app's `setRootFontSize(px)`: `:root {
+// font-size: <px> !important }`, an author rule over the root element's own
+// size (the browser's setting, or the agent's `prefer root-font-size`), which
+// can change beneath it; `"medium"` removes the rule. The wasm runner checked
+// the value; the JS target checks it here.
+const APP_ROOT = "exact-root-font-size";
+export function appRootFontSize(value, say, platform = globalThis) {
+  const doc = platform.document;
+  let rule = doc.getElementById(APP_ROOT);
+  if (value === "medium") return void rule?.remove();
+  if (typeof value !== "number" || !(Math.fround(value) > 0) || !Number.isFinite(Math.fround(value))) return say?.(`setRootFontSize(${JSON.stringify(value) ?? ""}) refused: the root font size is a number of px above 0, or "medium"`);
+  if (!rule) { rule = doc.createElement("style"); rule.id = APP_ROOT; doc.head.append(rule); }
+  rule.textContent = `:root{font-size:${value}px!important}`;
+}
+// What `read` gives with the app's rule set aside: the host's own reading.
+function beneathApp(platform, read) {
+  const rule = platform.document.getElementById?.(APP_ROOT);
+  if (!rule) return read();
+  rule.disabled = true;
+  try { return read(); } finally { rule.disabled = false; }
 }
 
 // The page launch owns its seed; a new runner during development reuses it.

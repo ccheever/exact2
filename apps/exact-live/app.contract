@@ -59,6 +59,7 @@ shape GalleryState
 shape Viewport
   height: number
   width: number
+  pointer: string
 shape Message
   id: string
   sender: string
@@ -152,6 +153,9 @@ component ExactLive
   state draftTooLong = false
   resource history = history(count, revision, batch, echo, 0, true) as shape History
   derive wide = viewport.width >= 900
+  // No pointer is a TV's remote: text is read from across a room, 1.4 times as large.
+  derive tv = viewport.pointer == "none"
+  derive k = tv ? 1.4 : 1
   state fixtureEnabled = false
   mutation wave as shape Wave
   mutation fixture as shape Control
@@ -416,21 +420,22 @@ component ExactLive
 
   provide
     theme
+    k
   view
     main testId="exact-live" width="100%" height="100%" min-height=0 display="flex" flex-direction="column" overflow="hidden" box-sizing="border-box" viewport-fit="cover" interactive-widget="resizes-content" padding-top="env(safe-area-inset-top)" padding-left="env(safe-area-inset-left)" padding-right="env(safe-area-inset-right)" padding-bottom="env(safe-area-inset-bottom)" background-color=theme.page color=theme.ink
       column flex-shrink=0 padding=16 gap=12 border-bottom-width=1 border-color=theme.edge
         row align-items="center" gap=10
-          text "exact / live" font-size=22 font-weight=700 letter-spacing=-0.8 color=theme.accent
+          text "exact / live" font-size=(22 * k) font-weight=700 letter-spacing=-0.8 color=theme.accent
           when wide
-            text "FIELD NOTES  /  001" font-size=10 letter-spacing=1 color=theme.muted flex=1
+            text "FIELD NOTES  /  001" font-size=(10 * k) letter-spacing=1 color=theme.muted flex=1
           else
             box flex=1
           when running
             button press=pause testId="pause-live" min-height=44 padding=10 border-width=0 border-radius=8 background-color=theme.wash
-              text "Pause" font-size=12 color=theme.accent
+              text "Pause" font-size=(12 * k) color=theme.accent
           else
             button press=startLive testId="start-live" min-height=44 padding=10 border-width=0 border-radius=8 background-color=theme.accent
-              text "Go live" font-size=12 color=theme.page
+              text "Go live" font-size=(12 * k) color=theme.page
           button press=toggleInspector testId="toggle-load" aria-label="Workload controls" min-width=44 min-height=44 padding=10 border-width=0 border-radius=8 background-color=theme.card
             text "•••" color=theme.ink
         row align-items="center" gap=6
@@ -439,11 +444,11 @@ component ExactLive
           when not wide
             PaneButton(name="crew", label="Crew", selected=pane, choose=showPane)
           when wide
-            text (count == 0 ? "A six-scene launch" : `${history.materialized} supplied · ${history.changed} changed`) flex=1 font-size=11 color=theme.muted text-align="right"
+            text (count == 0 ? "A six-scene launch" : `${history.materialized} supplied · ${history.changed} changed`) flex=1 font-size=(11 * k) color=theme.muted text-align="right"
       when inspector
         scroll max-height=230 flex-shrink=0 background-color=theme.wash testId="workload-controls"
           column padding=14 gap=10
-            text "Explicit workload · not a frame-rate meter" font-size=14 font-weight=600
+            text "Explicit workload · not a frame-rate meter" font-size=(14 * k) font-weight=600
             row gap=6 flex-wrap="wrap"
               LoadButton(n=0, label="Curated", selected=count, choose=chooseLoad)
               LoadButton(n=100, label="100 messages", selected=count, choose=chooseLoad)
@@ -454,30 +459,30 @@ component ExactLive
               LoadButton(n=8, label="Change 8", selected=batch, choose=chooseBatch)
               LoadButton(n=32, label="Change 32", selected=batch, choose=chooseBatch)
               button press=startSelected disabled=(count == 0 or running) testId="start-selected" padding=8 border-width=0 border-radius=6 background-color=theme.card
-                text "Run selected load" font-size=12 color=theme.accent
-            text `${history.materialized} supplied · ${history.bodyBytes} UTF-8 body bytes · tick ${revision}/120 · requested 4 ticks/s` testId="live-stats" font-size=11 color=theme.muted
+                text "Run selected load" font-size=(12 * k) color=theme.accent
+            text `${history.materialized} supplied · ${history.bodyBytes} UTF-8 body bytes · tick ${revision}/120 · requested 4 ticks/s` testId="live-stats" font-size=(11 * k) color=theme.muted
             row gap=6 flex-wrap="wrap"
               LoadButton(n=0, label="Curated runbook", selected=bookBytes, choose=chooseBook)
               LoadButton(n=1048576, label="1MiB paragraph", selected=bookBytes, choose=chooseBook)
               LoadButton(n=4194304, label="4MiB paragraph", selected=bookBytes, choose=chooseBook)
-            text "Large runbooks retain the full source. Ordinary rich-text layout can block or exhaust memory, especially on phone. No cold-region guarantee here." font-size=11 color=theme.muted
+            text "Large runbooks retain the full source. Ordinary rich-text layout can block or exhaust memory, especially on phone. No cold-region guarantee here." font-size=(11 * k) color=theme.muted
             row gap=6 flex-wrap="wrap"
               button press=command("load", "", 100) testId="rundown-100" padding=8 border-width=0 border-radius=6
-                text "100 studies" font-size=12
+                text "100 studies" font-size=(12 * k)
               button press=command("load", "", 1000) testId="rundown-1000" padding=8 border-width=0 border-radius=6
-                text "1,000 studies" font-size=12
+                text "1,000 studies" font-size=(12 * k)
               button press=command("load", "", 25000) testId="rundown-25000" padding=8 border-width=0 border-radius=6
-                text "25,000 studies" font-size=12
+                text "25,000 studies" font-size=(12 * k)
               button press=resetScene testId="reset-scene" padding=8 border-width=0 border-radius=6
-                text "Reset scene" font-size=12
+                text "Reset scene" font-size=(12 * k)
             row gap=6 flex-wrap="wrap"
               button press=attachFixture disabled=fixtureEnabled testId="attach-fixture" padding=8 border-width=0 border-radius=6
-                text "Attach desktop fixture" font-size=12
+                text "Attach desktop fixture" font-size=(12 * k)
               button press=startJobs disabled=(not fixtureEnabled or pendingCount > 0 or pending(wave)) testId="start-jobs" padding=8 border-width=0 border-radius=6
-                text "Request 128 jobs" font-size=12
+                text "Request 128 jobs" font-size=(12 * k)
               button press=releaseJobs disabled=(waveId == 0 or pending(fixture)) testId="release-jobs" padding=8 border-width=0 border-radius=6
-                text "Release held jobs" font-size=12
-            text "Fixture uses desktop loopback; not phone networking. Pause stops future transcript ticks; existing requests continue. Reset scene retains the current job wave." font-size=11 color=theme.muted
+                text "Release held jobs" font-size=(12 * k)
+            text "Fixture uses desktop loopback; not phone networking. Pause stops future transcript ticks; existing requests continue. Reset scene retains the current job wave." font-size=(11 * k) color=theme.muted
       box position="relative" flex=1 min-height=0 width="100%" overflow="hidden"
         when wide
           row width="100%" height="100%" min-height=0 gap=0 testId="desktop-workspace"
@@ -486,7 +491,7 @@ component ExactLive
                 RunbookPanel(book=book, busy=pending(book), requested=bookBytes, narrow=readingNarrow, toggle=toggleReading)
               else
                 RundownPanel(gallery=gallery, rows=rows, command=command, reorder=dropRundown)
-            column width=360 height="100%" min-height=0 flex-shrink=0 border-left-width=1 border-color=theme.edge
+            column width=(360 * k) height="100%" min-height=0 flex-shrink=0 border-left-width=1 border-color=theme.edge
               CrewPanel(history=history, draft=draft, replying=replying, tooLong=draftTooLong, edit=editDraft, post=sendDraft, reply=replyTo, cancel=clearReply, stress=(count != 0))
         else
           column width="100%" height="100%" min-height=0 testId="phone-workspace"
@@ -498,39 +503,40 @@ component ExactLive
               else
                 RundownPanel(gallery=gallery, rows=rows, command=command, reorder=dropRundown)
               button press=toggleSheet testId="open-crew-sheet" height=44 flex-shrink=0 border-width=0 background-color=theme.wash
-                text "Open crew notes ↑" font-size=13 color=theme.accent
+                text "Open crew notes ↑" font-size=(13 * k) color=theme.accent
           when crewSheet and pane != "crew"
             column id="crew-sheet" testId="crew-sheet" position="absolute" left=0 right=0 bottom=0 height=sheetPx max-height="100%" min-height=120 box-sizing="border-box" overflow="hidden" background-color=theme.card border-radius=16 transition="height spring(300, 30, 1)" z-index=10
               row height=48 flex-shrink=0 align-items="center" gap=8 padding-left=12 padding-right=12
                 box heightDragFor="crew-sheet" heightrelease=snapSheet touch-action="none" flex=1 height=44 testId="crew-sheet-grip" aria-label="Resize crew notes"
-                  text "──  Crew notes" font-size=13 color=theme.muted
+                  text "──  Crew notes" font-size=(13 * k) color=theme.muted
                 button press=chooseSheet(180) min-height=44 padding=8 border-width=0 testId="crew-sheet-peek"
-                  text "Peek" font-size=11
+                  text "Peek" font-size=(11 * k)
                 button press=chooseSheet(360) min-height=44 padding=8 border-width=0 testId="crew-sheet-read"
-                  text "Read" font-size=11
+                  text "Read" font-size=(11 * k)
                 button press=chooseSheet(640) min-height=44 padding=8 border-width=0 testId="crew-sheet-full"
-                  text "Full" font-size=11
+                  text "Full" font-size=(11 * k)
                 button press=toggleSheet min-height=44 padding=8 border-width=0 testId="close-crew-sheet"
-                  text "Close" font-size=11
+                  text "Close" font-size=(11 * k)
               CrewPanel(history=history, draft=draft, replying=replying, tooLong=draftTooLong, edit=editDraft, post=sendDraft, reply=replyTo, cancel=clearReply, stress=(count != 0))
       column padding=10 flex-shrink=0 border-top-width=1 border-color=theme.edge background-color=theme.card
-        text (pending(wave) ? "Jobs · connecting to desktop fixture…" : waveId > 0 ? `Jobs · ${validCount} valid · ${pendingCount} pending · ${failedCount} failed of ${waveCount}` : waveMessage) testId="job-status" font-size=11 color=theme.muted
+        text (pending(wave) ? "Jobs · connecting to desktop fixture…" : waveId > 0 ? `Jobs · ${validCount} valid · ${pendingCount} pending · ${failedCount} failed of ${waveCount}` : waveMessage) testId="job-status" font-size=(11 * k) color=theme.muted
         when waveId > 0
           row gap=8 align-items="center" flex-wrap="wrap"
-            text (pending(jobLog) ? "Server · opening the event stream…" : `Server · ${jobLog.status} · received ${jobLog.received} · held ${jobLog.held} · finished ${jobLog.finished} of ${jobLog.count} · ${jobLog.entries}/${jobLog.seq} events`) testId="job-events" font-size=11 color=theme.muted
+            text (pending(jobLog) ? "Server · opening the event stream…" : `Server · ${jobLog.status} · received ${jobLog.received} · held ${jobLog.held} · finished ${jobLog.finished} of ${jobLog.count} · ${jobLog.entries}/${jobLog.seq} events`) testId="job-events" font-size=(11 * k) color=theme.muted
             button press=reconnectEvents disabled=(jobLog.status == "live") testId="reconnect-events" padding=4 border-width=0 border-radius=6
-              text "Reconnect" font-size=11
-          text `${jobLog.messages} messages · ${jobLog.coalesced} coalesced · ${jobLog.gaps} gaps · ${jobLog.reasks} re-asks · ${jobLog.last}` testId="job-stream" font-size=10 color=theme.muted
+              text "Reconnect" font-size=(11 * k)
+          text `${jobLog.messages} messages · ${jobLog.coalesced} coalesced · ${jobLog.gaps} gaps · ${jobLog.reasks} re-asks · ${jobLog.last}` testId="job-stream" font-size=(10 * k) color=theme.muted
           row gap=8 align-items="center" flex-wrap="wrap"
-            text (pending(jobFeed) ? "Socket · opening…" : `Socket · ${jobFeed.status} · ${jobFeed.entries}/${jobFeed.seq} frames · ${jobFeed.messages} messages · ${jobFeed.coalesced} coalesced · ${jobFeed.reasks} re-asks`) testId="job-frames" font-size=10 color=theme.muted
+            text (pending(jobFeed) ? "Socket · opening…" : `Socket · ${jobFeed.status} · ${jobFeed.entries}/${jobFeed.seq} frames · ${jobFeed.messages} messages · ${jobFeed.coalesced} coalesced · ${jobFeed.reasks} re-asks`) testId="job-frames" font-size=(10 * k) color=theme.muted
             button press=reconnectFrames disabled=(jobFeed.status == "live") testId="reconnect-frames" padding=4 border-width=0 border-radius=6
-              text "Reconnect" font-size=11
+              text "Reconnect" font-size=(11 * k)
         when fixtureMessage != ""
-          text fixtureMessage testId="fixture-status" font-size=10 color=theme.muted
+          text fixtureMessage testId="fixture-status" font-size=(10 * k) color=theme.muted
 
 component PaneButton
   inject
     theme: Theme
+    k: number
   props
     name: string
     label: string
@@ -538,11 +544,12 @@ component PaneButton
     choose: action
   view
     button press=choose(name) testId=`pane-${name}` aria-label=`${label}${selected == name ? ", selected" : ""}` min-height=44 padding=10 border-width=0 border-radius=7 background-color=(selected == name ? theme.wash : theme.page)
-      text label font-size=13 font-weight=600 color=(selected == name ? theme.accent : theme.muted)
+      text label font-size=(13 * k) font-weight=600 color=(selected == name ? theme.accent : theme.muted)
 
 component LoadButton
   inject
     theme: Theme
+    k: number
   props
     n: number
     label: string
@@ -550,11 +557,12 @@ component LoadButton
     choose: action
   view
     button press=choose(n) padding=8 min-height=44 border-width=0 border-radius=6 background-color=(selected == n ? theme.accent : theme.card)
-      text label font-size=12 color=(selected == n ? theme.card : theme.ink)
+      text label font-size=(12 * k) color=(selected == n ? theme.card : theme.ink)
 
 component RundownPanel
   inject
     theme: Theme
+    k: number
   props
     gallery: GalleryState
     rows: list<Photo>
@@ -567,12 +575,12 @@ component RundownPanel
     else
       column flex=1 min-height=0 width="100%" testId="rundown"
         column flex-shrink=0 padding=20 gap=8
-          text "OUTSIDE, TOGETHER" font-size=10 letter-spacing=2 color=theme.accent
-          text "A little room to wander." font-size=30 font-weight=600 letter-spacing=-0.7 color=theme.ink
-          text `${gallery.total} photographic scenes · one launch sequence` font-size=12 color=theme.muted
+          text "OUTSIDE, TOGETHER" font-size=(10 * k) letter-spacing=2 color=theme.accent
+          text "A little room to wander." font-size=(30 * k) font-weight=600 letter-spacing=-0.7 color=theme.ink
+          text `${gallery.total} photographic scenes · one launch sequence` font-size=(12 * k) color=theme.muted
           when gallery.reordering
             row gap=6 flex-wrap="wrap" align-items="center" testId="manual-move"
-              text gallery.previewLabel font-size=12 color=theme.accent flex=1 min-width=180
+              text gallery.previewLabel font-size=(12 * k) color=theme.accent flex=1 min-width=180
               ActionButton(id="move-earlier", label="Earlier", op="earlier", target="", n=gallery.dragToken, shortcut="", command=command)
               ActionButton(id="move-later", label="Later", op="later", target="", n=gallery.dragToken, shortcut="", command=command)
               ActionButton(id="place", label="Place", op="place", target="", n=gallery.dragToken, shortcut="", command=command)
@@ -584,11 +592,12 @@ component RundownPanel
                 image photo.asset aria-label=photo.alt width="100%" height="100%" object-fit="cover"
               ArrangeCard(photo=photo, gallery=gallery, command=command)
         when gallery.notice != ""
-          text gallery.notice testId="rundown-notice" flex-shrink=0 padding=10 font-size=11 color=theme.muted
+          text gallery.notice testId="rundown-notice" flex-shrink=0 padding=10 font-size=(11 * k) color=theme.muted
 
 component CrewPanel
   inject
     theme: Theme
+    k: number
   props
     history: History
     draft: string
@@ -603,37 +612,38 @@ component CrewPanel
     column width="100%" height="100%" flex=1 min-height=0 background-color=theme.card testId="crew-panel"
       column padding=16 gap=4 flex-shrink=0
         row align-items="center" gap=8
-          text "Crew notes" font-size=18 font-weight=600 color=theme.ink flex=1
-          text (stress ? "SYNTHETIC LIVE" : "LOCAL SCENE") font-size=9 letter-spacing=1 color=theme.accent
-        text (stress ? `${history.materialized} supplied · revision ${history.revision}` : "Maya, Jules, Ari, Noor & you") font-size=11 color=theme.muted
+          text "Crew notes" font-size=(18 * k) font-weight=600 color=theme.ink flex=1
+          text (stress ? "SYNTHETIC LIVE" : "LOCAL SCENE") font-size=(9 * k) letter-spacing=1 color=theme.accent
+        text (stress ? `${history.materialized} supplied · revision ${history.revision}` : "Maya, Jules, Ari, Noor & you") font-size=(11 * k) color=theme.muted
       list virtualized=true scrollFollowEnd=true testId="crew-transcript" flex=1 min-height=60 width="100%" overflow-x="hidden" overscroll-behavior="contain" background-color=theme.page
         each m in history.rows key=m.id
           column width="100%" box-sizing="border-box" padding-left=12 padding-right=12 padding-top=7 padding-bottom=7
             box swiperight=reply(m.id) testId=`crew-swipe-${m.id}` touch-action="pan-y" retainFocus=true transition="translate spring(300, 30, 1)" width="100%" padding=0 border-width=0 background-color="#00000000" text-align="left"
               column testId=`message-${m.id}` width="100%" align-items=(m.outgoing ? "flex-end" : "flex-start") gap=5
-                text m.sender font-size=11 font-weight=600 color=theme.muted
+                text m.sender font-size=(11 * k) font-weight=600 color=theme.muted
                 column max-width="95%" padding=11 gap=6 box-sizing="border-box" border-radius=10 background-color=(m.outgoing ? theme.wash : theme.card)
-                  text m.body font-size=14 line-height=1.45 white-space="pre-wrap" color=theme.ink
-                  text m.meta font-size=10 color=theme.muted
+                  text m.body font-size=(14 * k) line-height=1.45 white-space="pre-wrap" color=theme.ink
+                  text m.meta font-size=(10 * k) color=theme.muted
             button press=reply(m.id) retainFocus=true align-self="flex-end" padding=5 border-width=0 background-color="#00000000" aria-label=`Reply to ${m.sender}`
-              text "Reply" font-size=10 color=theme.accent
+              text "Reply" font-size=(10 * k) color=theme.accent
       column padding=12 gap=6 width="100%" box-sizing="border-box" flex-shrink=0
         when replying != ""
           row align-items="center" gap=8
-            text `Replying to ${replying}` font-size=11 color=theme.muted flex=1
+            text `Replying to ${replying}` font-size=(11 * k) color=theme.muted flex=1
             button press=cancel padding=6 border-width=0
-              text "Cancel" font-size=11
+              text "Cancel" font-size=(11 * k)
         row gap=8 align-items="center"
-          input appearance="none" value=draft input=edit testId="crew-input" aria-label="Write a local crew note" placeholder="Leave a note for this scene…" flex=1 min-width=0 min-height=44 padding=10 border-width=1 border-color=theme.edge border-radius=8 background-color=theme.page color=theme.ink font-size=14
+          input appearance="none" value=draft input=edit testId="crew-input" aria-label="Write a local crew note" placeholder="Leave a note for this scene…" flex=1 min-width=0 min-height=44 padding=10 border-width=1 border-color=theme.edge border-radius=8 background-color=theme.page color=theme.ink font-size=(14 * k)
           button press=post testId="send-note" padding=10 min-height=44 border-width=0 border-radius=8 background-color=theme.accent
-            text "Post" font-size=12 color=theme.card
-        text "Device-local · latest note retained" font-size=10 color=theme.muted
+            text "Post" font-size=(12 * k) color=theme.card
+        text "Device-local · latest note retained" font-size=(10 * k) color=theme.muted
         when tooLong
-          text "Keep the note within512 characters. Your previous draft is retained." testId="draft-error" font-size=11 color=theme.accent
+          text "Keep the note within512 characters. Your previous draft is retained." testId="draft-error" font-size=(11 * k) color=theme.accent
 
 component RunbookPanel
   inject
     theme: Theme
+    k: number
   props
     book: Runbook
     busy: bool
@@ -644,24 +654,25 @@ component RunbookPanel
     column flex=1 min-height=0 width="100%" testId="runbook-panel"
       row padding=16 gap=10 align-items="center" flex-shrink=0
         column flex=1 gap=4
-          text "THE RUNBOOK" font-size=10 letter-spacing=1 color=theme.accent
-          text "Make the handoff feel effortless." font-size=16 font-weight=600
+          text "THE RUNBOOK" font-size=(10 * k) letter-spacing=1 color=theme.accent
+          text "Make the handoff feel effortless." font-size=(16 * k) font-weight=600
         button press=toggle testId="reading-width" padding=8 min-height=44 border-width=0 border-radius=7 background-color=theme.wash
-          text (narrow ? "Roomy" : "Focused") font-size=12 color=theme.accent
+          text (narrow ? "Roomy" : "Focused") font-size=(12 * k) color=theme.accent
       when busy
         column padding=20 gap=8 testId="runbook-pending"
-          text "Preparing the full document…" font-size=18 font-weight=600
-          text `${requested} requested bytes` font-size=12 color=theme.muted
+          text "Preparing the full document…" font-size=(18 * k) font-weight=600
+          text `${requested} requested bytes` font-size=(12 * k) color=theme.muted
       else
-        scroll flex=1 min-height=0 width="100%" overflow-x="hidden" testId="runbook-scroll"
+        scroll flex=1 min-height=0 width="100%" overflow-x="hidden" aria-label="Runbook" testId="runbook-scroll"
           column padding=20 width="100%" max-width=(narrow ? 480 : 760) box-sizing="border-box" align-self="center" gap=8
             each block in book.blocks key=block.id
               Blocks(block=block)
-            text `${book.sourceBytes} actual UTF-8 source bytes` font-size=10 color=theme.muted padding-top=20 padding-bottom=20
+            text `${book.sourceBytes} actual UTF-8 source bytes` font-size=(10 * k) color=theme.muted padding-top=20 padding-bottom=20
 
 component Viewer
   inject
     theme: Theme
+    k: number
   props
     viewer: ViewerState
     gallery: GalleryState
@@ -711,34 +722,35 @@ component Viewer
       column padding=20 gap=14 align-items="center"
         row width="100%" gap=8 align-items="center" flex-wrap="wrap"
           ActionButton(id="close-viewer", label="Back to collection", op="close", target="", n=viewer.viewerToken, shortcut="Escape", command=command)
-          text `${viewer.photo.rank} / ${gallery.total}` font-size=12 color=theme.muted flex=1
+          text `${viewer.photo.rank} / ${gallery.total}` font-size=(12 * k) color=theme.muted flex=1
           button press=command("previous", "", viewer.viewerToken) testId="previous-photo" disabled=(not gallery.hasPrevious) aria-keyshortcuts="Meta+[ Control+[" padding=8 border-width=0 border-radius=6 background-color=theme.card
-            text "Previous" font-size=12 color=theme.ink
+            text "Previous" font-size=(12 * k) color=theme.ink
           button press=command("next", "", viewer.viewerToken) testId="next-photo" disabled=(not gallery.hasNext) aria-keyshortcuts="Meta+] Control+]" padding=8 border-width=0 border-radius=6 background-color=theme.card
-            text "Next" font-size=12 color=theme.ink
+            text "Next" font-size=(12 * k) color=theme.ink
         row width="100%" gap=8 align-items="center" flex-wrap="wrap"
           button press=chooseZoom(1) testId="viewer-zoom-fit" aria-label=`Fit${zoom == 1 ? ", selected" : ""}` padding=8 border-width=0 border-radius=6 background-color=(zoom == 1 ? theme.wash : theme.card)
-            text "Fit" font-size=12 color=theme.ink
+            text "Fit" font-size=(12 * k) color=theme.ink
           button press=chooseZoom(2) testId="viewer-zoom-detail" aria-label=`2×${zoom == 2 ? ", selected" : ""}` padding=8 border-width=0 border-radius=6 background-color=(zoom == 2 ? theme.wash : theme.card)
-            text "2×" font-size=12 color=theme.ink
+            text "2×" font-size=(12 * k) color=theme.ink
           button press=resetPhoto testId="viewer-reset" aria-label="Reset photo position and zoom" padding=8 border-width=0 border-radius=6 background-color=theme.card
-            text "Center and fit" font-size=12 color=theme.ink
+            text "Center and fit" font-size=(12 * k) color=theme.ink
         box testId="viewer-clip" width="100%" height=410 flex-shrink=0 position="relative" overflow="hidden" padding=0 border-width=0 box-sizing="border-box" border-radius=12 background-color="#172521"
           box id="viewer-transform" testId="viewer-transform" width="100%" height="100%" position="relative" padding=0 border-width=0 margin=0 box-sizing="border-box" translate=`${panX}px ${panY}px` scale=zoom transition="translate spring(300, 30, 1), scale spring(300, 30, 1)"
             image viewer.photo.asset aria-label=viewer.photo.alt position="absolute" left=0 top=0 width="100%" height="100%" object-fit="contain" testId="viewer-image"
             box transformDragFor="viewer-transform" transformgeometry=photoGeometry transformrelease=releasePhoto touch-action="none" position="absolute" left=0 top=0 width="100%" height="100%" testId="viewer-handle" aria-label=`Pan ${viewer.photo.title}`
         column width="100%" max-width=740 gap=7
           row gap=10 align-items="center"
-            text viewer.photo.title font-size=28 font-weight=600 color=theme.ink flex=1
+            text viewer.photo.title font-size=(28 * k) font-weight=600 color=theme.ink flex=1
             ActionButton(id="delete-photo", label="Remove study", op="delete", target=viewer.photo.id, n=0, shortcut="", command=command)
-          text viewer.photo.subtitle font-size=12 color=theme.muted
-          text viewer.photo.notes font-size=15 line-height=1.5 color=theme.ink
-          text "Generated photographic illustration · bundled locally" font-size=10 color=theme.muted
+          text viewer.photo.subtitle font-size=(12 * k) color=theme.muted
+          text viewer.photo.notes font-size=(15 * k) line-height=1.5 color=theme.ink
+          text "Generated photographic illustration · bundled locally" font-size=(10 * k) color=theme.muted
 
 
 component ArrangeCard
   inject
     theme: Theme
+    k: number
   props
     photo: Photo
     gallery: GalleryState
@@ -746,12 +758,12 @@ component ArrangeCard
   view
     row testId=`card-${photo.id}` gap=14 padding=12 border-width=1 border-style="solid" border-color=(gallery.liftedId == photo.id ? theme.accent : theme.edge) border-radius=10 background-color=theme.card align-items="flex-start" flex-wrap="wrap"
       column flex=1 min-width=180 gap=6
-        text `${photo.rank}. ${photo.title}` font-size=18 font-weight=600 color=theme.ink
-        text photo.notes font-size=13 line-height=1.4 color=theme.muted
-        text photo.subtitle font-size=10 color=theme.muted
+        text `${photo.rank}. ${photo.title}` font-size=(18 * k) font-weight=600 color=theme.ink
+        text photo.notes font-size=(13 * k) line-height=1.4 color=theme.muted
+        text photo.subtitle font-size=(10 * k) color=theme.muted
       row gap=6 flex-wrap="wrap"
         box reorderFor="rundown-arrange" disabled=gallery.reordering touch-action="none" testId=`arrange-grip-${photo.id}` aria-label=`Drag ${photo.title} to reorder` min-width=44 min-height=44 padding=8 box-sizing="border-box" border-radius=6 background-color=theme.wash
-          text "⋮⋮" font-size=18 color=theme.accent
+          text "⋮⋮" font-size=(18 * k) color=theme.accent
         when gallery.reordering and gallery.liftedId != photo.id
           ActionButton(id=`before-${photo.id}`, label="Preview here", op="before", target=photo.id, n=gallery.dragToken, shortcut="", command=command)
         else
@@ -762,6 +774,7 @@ component ArrangeCard
 component ActionButton
   inject
     theme: Theme
+    k: number
   props
     id: string
     label: string
@@ -772,30 +785,31 @@ component ActionButton
     command: action
   view
     button press=command(op, target, n) id=id testId=id aria-keyshortcuts=shortcut min-height=44 padding=8 border-width=0 border-radius=6 background-color=theme.wash
-      text label font-size=12 color=theme.accent
+      text label font-size=(12 * k) color=theme.accent
 
 
 component Blocks
   inject
     theme: Theme
+    k: number
   props
     block: Block
   view
     when block.kind == "heading"
       column width="100%" padding-top=22 padding-bottom=4 testId=`block-${block.id}`
         text aria-level=block.depth color=theme.ink line-height=`${block.depth == 1 ? 38 : block.depth == 2 ? 30 : block.depth == 3 ? 25 : 21}px`
-          Runs(runs=block.runs, size=(block.depth == 1 ? 31 : block.depth == 2 ? 23 : block.depth == 3 ? 18 : 15), weight=(block.depth > 3 ? 600 : 700))
+          Runs(runs=block.runs, size=(block.depth == 1 ? 31 : block.depth == 2 ? 23 : block.depth == 3 ? 18 : 15) * k, weight=(block.depth > 3 ? 600 : 700))
     else
       when block.kind == "paragraph"
         view width="100%" padding-top=6 padding-bottom=6 testId=`block-${block.id}`
           text color=theme.ink line-height=1.625
-            Runs(runs=block.runs, size=16, weight=400)
+            Runs(runs=block.runs, size=(16 * k), weight=400)
       else
         when block.kind == "item"
           row width="100%" box-sizing="border-box" padding-top=2 padding-bottom=2 padding-left=(4 + block.depth * 22) testId=`block-${block.id}`
-            text block.marker font-size=16 line-height=1.625 color=theme.muted width=26
+            text block.marker font-size=(16 * k) line-height=1.625 color=theme.muted width=26
             text flex=1 color=theme.ink line-height=1.625
-              Runs(runs=block.runs, size=16, weight=400)
+              Runs(runs=block.runs, size=(16 * k), weight=400)
         else
           when block.kind == "code"
             // `pre-wrap` and not a horizontal scroll: a code block inside a
@@ -803,14 +817,14 @@ component Blocks
             // reads the end of.
             view width="100%" padding-top=8 padding-bottom=8 testId=`block-${block.id}`
               view background-color=theme.wash border-radius=10 padding=14 width="100%" box-sizing="border-box"
-                text block.text font-family="ui-monospace" font-size=13 line-height="20px" color=theme.ink white-space="pre-wrap"
+                text block.text font-family="ui-monospace" font-size=(13 * k) line-height="20px" color=theme.ink white-space="pre-wrap"
           else
             when block.kind == "quote"
               row width="100%" padding-top=6 padding-bottom=6 testId=`block-${block.id}`
                 view width=3 background-color=theme.accent border-radius=2
                 view flex=1 padding-left=16
                   text color=theme.muted line-height=1.625
-                    Runs(runs=block.runs, size=16, weight=400)
+                    Runs(runs=block.runs, size=(16 * k), weight=400)
             else
               when block.kind == "rule"
                 view width="100%" height=1 background-color=theme.edge margin-top=22 margin-bottom=22 testId=`block-${block.id}`
@@ -821,20 +835,20 @@ component Blocks
                       view flex=1 padding=8
                         when block.header
                           text color=theme.ink line-height="20px"
-                            Runs(runs=c.runs, size=13, weight=700)
+                            Runs(runs=c.runs, size=(13 * k), weight=700)
                         else
                           text color=theme.ink line-height="20px"
-                            Runs(runs=c.runs, size=13, weight=400)
+                            Runs(runs=c.runs, size=(13 * k), weight=400)
                 else
                   when block.kind == "image"
                     column width="100%" padding-top=10 padding-bottom=10 gap=6 testId=`block-${block.id}`
                       image block.href width="100%" object-fit="contain" aria-label=block.text
                       when block.text != ""
-                        text block.text font-size=12 color=theme.muted
+                        text block.text font-size=(12 * k) color=theme.muted
                   else
                     // Raw HTML: shown, never interpreted.
                     view width="100%" padding-top=4 padding-bottom=4 testId=`block-${block.id}`
-                      text block.text font-family="ui-monospace" font-size=12 color=theme.muted
+                      text block.text font-family="ui-monospace" font-size=(12 * k) color=theme.muted
 
 // The styled spans of one paragraph, as the inline `text` children the
 // kernel measures as one paragraph and CoreText paints as one typeset run.

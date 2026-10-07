@@ -1,0 +1,22 @@
+[after-840] connected; rows: thread-alpha-2,thread-alpha-1
+[after-840] appearance-16 rootFontSize=16 {"toggle-sidebar":[91,12,28,28],"connection-settings":[8,584,32,32],"chat-header":[208,0,632,52],"composer":[245,268,558,70],"composer-toolbar":[229,350,590,48],"thread-alpha-1":[8,185,191,78],"settings-navigation":[0,0,209,620],"settings-search":[40,65.5,124,21],"settings-appearance":[8,136,192,32],"settings-header":[209,0,631,52],"setting-chat-width":[633,1244,160,28],"setting-interface-font-size":[649,1556,144,28]}
+[after-840] shot appearance-16
+[after-840] thread-16 rootFontSize=16 {"toggle-sidebar":[91,12,28,28],"connection-settings":[8,584,32,32],"chat-header":[208,0,632,52],"composer":[245,268.5,558,70],"composer-toolbar":[229,350.5,590,48],"thread-alpha-1":[8,185,191,78]}
+[after-840] shot thread-16
+[after-840] appearance-12 rootFontSize=12 {"toggle-sidebar":[91,15.5,21,21],"connection-settings":[6,593,24,24],"chat-header":[208,0,632,52],"composer":[261,285.5,526,52.5],"composer-toolbar":[249,347,550,36],"thread-alpha-1":[6,152,195,58.5],"settings-navigation":[0,0,209,620],"settings-search":[30,62.13,145,15.75],"settings-appearance":[6,115,196,24],"settings-header":[209,0,631,52],"setting-chat-width":[684.5,-118.25,120,21],"setting-interface-font-size":[696.5,89.75,108,21]}
+[after-840] shot appearance-12
+[after-840] keybindings-12 rootFontSize=12 {"toggle-sidebar":[91,15.5,21,21],"connection-settings":[6,593,24,24],"chat-header":[208,0,632,52],"composer":[261,285.5,526,52.5],"composer-toolbar":[249,347,550,36],"thread-alpha-1":[6,152,195,58.5],"settings-navigation":[0,0,209,620],"settings-search":[30,62.13,145,15.75],"settings-appearance":[6,115,196,24],"settings-header":[209,0,631,52],"keybinding-recorder":[680.25,159.5,116.5,18]}
+[after-840] keybindings-12 native keybinding-recorder: box {"x":680.25,"w":116.5,"y":159.5,"h":18} fonts 
+[after-840] shot keybindings-12
+[after-840] thread-12 rootFontSize=12 {"toggle-sidebar":[91,15.5,21,21],"connection-settings":[6,593,24,24],"chat-header":[208,0,632,52],"composer":[261,285.5,526,52.5],"composer-toolbar":[249,347,550,36],"thread-alpha-1":[6,152,195,58.5]}
+[after-840] thread-12 native composer: box {"h":52.5,"x":261,"y":285.5,"w":526} fonts 
+[after-840] shot thread-12
+[after-840] appearance-20 rootFontSize=20 {"toggle-sidebar":[91,8.5,35,35],"connection-settings":[10,575,40,40],"chat-header":[223,0,617,52],"composer":[269,251.5,525,87.5],"composer-toolbar":[249,354,565,60],"thread-alpha-1":[10,218,202,97.5],"settings-navigation":[0,0,224,620],"settings-search":[50,68.88,118,26.25],"settings-appearance":[10,157,203,40],"settings-header":[224,0,616,52],"setting-chat-width":[581.5,857.5,200,35],"setting-interface-font-size":[601.5,1452.75,180,35]}
+[after-840] shot appearance-20
+[after-840] keybindings-20 rootFontSize=20 {"toggle-sidebar":[91,8.5,35,35],"connection-settings":[10,575,40,40],"chat-header":[223,0,617,52],"composer":[269,251.5,525,87.5],"composer-toolbar":[249,354,565,60],"thread-alpha-1":[10,218,202,97.5],"settings-navigation":[0,0,224,620],"settings-search":[50,68.88,118,26.25],"settings-appearance":[10,157,203,40],"settings-header":[224,0,616,52],"keybinding-recorder":[573.75,355.75,195.5,30]}
+[after-840] keybindings-20 native keybinding-recorder: box {"h":30,"y":355.75,"x":573.75,"w":195.5} fonts 
+[after-840] shot keybindings-20
+[after-840] thread-20 rootFontSize=20 {"toggle-sidebar":[91,8.5,35,35],"connection-settings":[10,575,40,40],"chat-header":[223,0,617,52],"composer":[269,251.5,525,87.5],"composer-toolbar":[249,354,565,60],"thread-alpha-1":[10,218,202,97.5]}
+[after-840] thread-20 native composer: box {"w":525,"x":269,"y":251.5,"h":87.5} fonts 
+[after-840] shot thread-20
+[after-840] setRootFontSize refusals: 0

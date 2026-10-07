@@ -1031,18 +1031,18 @@ fn check_set_dynamic(
             let parsed = GridTracks::check(&value.css_text(id)?)
                 .ok_or(StyleValueError::BadGridTracks { style: id })?;
             if id == StyleId::GridTemplateColumns {
-                style.grid_template_columns = parsed;
+                style.rare.grid_template_columns = parsed;
             } else {
-                style.grid_template_rows = parsed;
+                style.rare.grid_template_rows = parsed;
             }
         }
         StyleId::GridColumn | StyleId::GridRow => {
             let parsed = GridPlacement::check(&value.css_text(id)?)
                 .ok_or(StyleValueError::BadGridPlacement { style: id })?;
             if id == StyleId::GridColumn {
-                style.grid_column = parsed;
+                style.rare.grid_column = parsed;
             } else {
-                style.grid_row = parsed;
+                style.rare.grid_row = parsed;
             }
         }
         StyleId::JustifyItems => {
@@ -1082,16 +1082,16 @@ fn check_decode(
             })?;
     }
     if mask.has(StyleId::GridTemplateColumns) {
-        style.grid_template_columns = reader.tracks_for_style()?;
+        style.rare.grid_template_columns = reader.tracks_for_style()?;
     }
     if mask.has(StyleId::GridTemplateRows) {
-        style.grid_template_rows = reader.tracks_for_style()?;
+        style.rare.grid_template_rows = reader.tracks_for_style()?;
     }
     if mask.has(StyleId::GridColumn) {
-        style.grid_column = reader.placement_for_style()?;
+        style.rare.grid_column = reader.placement_for_style()?;
     }
     if mask.has(StyleId::GridRow) {
-        style.grid_row = reader.placement_for_style()?;
+        style.rare.grid_row = reader.placement_for_style()?;
     }
     if mask.has(StyleId::JustifyItems) {
         let value = reader.u8()?;
@@ -1118,16 +1118,16 @@ fn check_encode(style: &StyleProps, mask: StyleMask, writer: &mut Writer) {
         writer.u8(style.grid_auto_flow as u8);
     }
     if mask.has(StyleId::GridTemplateColumns) {
-        writer.tracks(&style.grid_template_columns);
+        writer.tracks(&style.rare.grid_template_columns);
     }
     if mask.has(StyleId::GridTemplateRows) {
-        writer.tracks(&style.grid_template_rows);
+        writer.tracks(&style.rare.grid_template_rows);
     }
     if mask.has(StyleId::GridColumn) {
-        writer.placement(&style.grid_column);
+        writer.placement(&style.rare.grid_column);
     }
     if mask.has(StyleId::GridRow) {
-        writer.placement(&style.grid_row);
+        writer.placement(&style.rare.grid_row);
     }
     if mask.has(StyleId::JustifyItems) {
         writer.u8(style.justify_items as u8);

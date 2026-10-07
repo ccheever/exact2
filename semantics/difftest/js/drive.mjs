@@ -124,6 +124,9 @@ async function drive(code, c, hostSources) {
     getComputedStyle: () => ({ getPropertyValue: () => '' }),
     setTimeout, clearTimeout, queueMicrotask, performance, console: quiet, fetch: () => Promise.reject(new Error('no network in a drive')), URL, URLSearchParams, TextEncoder, TextDecoder,
     Event: class {}, CustomEvent: class {}, __exactRender: true,
+    // The render DOM has one element class: the runtime's `instanceof HTML…Element` is a tag check here.
+    ...Object.fromEntries([['HTMLInputElement', 'input'], ['HTMLTextAreaElement', 'textarea'], ['HTMLSelectElement', 'select'], ['HTMLOptionElement', 'option'],
+      ['HTMLButtonElement', 'button'], ['HTMLIFrameElement', 'iframe']].map(([name, tag]) => [name, { [Symbol.hasInstance]: el => el?.localName === tag }])),
   });
   ctx.globalThis = ctx; ctx.self = ctx; ctx.window = ctx;
   vm.runInContext(code, ctx, { filename: 'app.js' });

@@ -248,7 +248,7 @@ fn decorated(s: &StyleProps) -> bool {
         || s.background_image != Default::default()
         || !s.box_shadow.0.is_empty()
         || !s.filter.is_none()
-        || s.clip_path != Default::default()
+        || s.rare.clip_path != Default::default()
 }
 
 pub(crate) fn kind(arena: &NodeArena, slot: u32) -> Kind {

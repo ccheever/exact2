@@ -76,6 +76,7 @@ pub async fn load_gpu(
             label: Some("exact"),
             required_limits,
             required_features: adapter.features() & requested_features(),
+            memory_hints: memory_hints(),
             ..Default::default()
         })
         .await
@@ -86,6 +87,20 @@ pub async fn load_gpu(
         device,
         queue,
     })
+}
+
+/// How the device suballocates. On Android, small blocks: the default
+/// (`Performance`) reserves a 128 MiB device block and a 64 MiB host block
+/// for the device's own first buffers, which the phone's kernel driver
+/// allocates and clears before the device is usable (~55 ms of a cold start
+/// on an Adreno phone) and which then count against the app's graphics
+/// memory. `MemoryUsage` starts at 8 MiB and 4 MiB blocks.
+fn memory_hints() -> wgpu::MemoryHints {
+    if cfg!(target_os = "android") {
+        wgpu::MemoryHints::MemoryUsage
+    } else {
+        wgpu::MemoryHints::Performance
+    }
 }
 
 /// Optional features, each granted only where the adapter has it: timestamp

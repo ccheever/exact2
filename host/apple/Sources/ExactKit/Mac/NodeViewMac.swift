@@ -201,47 +201,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var text: TextEngine? { presenter?.session?.text }
     var canvases: Canvases? { presenter?.session?.canvases }
 
-    /// A node with focus, blur, or key handlers takes the focus (an input's
-    /// field does by itself): the web's rule that only a focusable element
-    /// hears these. A pressable is in the tab order the way a `<button>` is.
-    /// A paragraph takes the focus too, for selection, but plain text is
-    /// never a Tab stop on the web. An explicit `tabindex` makes any box
-    /// focusable, and a Tab stop only when ≥ 0 (LLP 1088 D7.3).
-    override var acceptsFirstResponder: Bool {
-        if formDisabled || inert || isHiddenOrHasHiddenAncestor || cssVisibilityHidden { return false }
-        if field != nil || textArea != nil { return false }
-        return props["semanticTag"] == "dialog" || isParagraph || explicitTabIndex != nil || tabbable || isRadio
-    }
     /// A native button's command is its own too (a confirmation's close row, LLP 1069.011.000 D9).
     var pressable: Bool { handlers.contains("press") || defaultLink != nil || (isButton && (props["commandfor"] != nil || props["popovertarget"] != nil)) }
-    var tabbable: Bool {
-        if let index = explicitTabIndex { return index >= 0 }
-        return kind == "button" || isNativeButton || canvases?.wantsInput(id) == true || pressable || !handlers.isDisjoint(with: Self.focusEvents)
-            || reorderKeys || radioTabStop // a grouped grip takes the keys (LLP 1094 D9); a radio group one stop (x2apps survey #2)
-    }
-    /// Sequential focus follows the web: a button is in the loop even when
-    /// macOS "Keyboard navigation" is off (that setting would otherwise
-    /// skip every non-field).
-    override var canBecomeKeyView: Bool { acceptsFirstResponder && tabbable }
-    override func becomeFirstResponder() -> Bool {
-        guard !formDisabled else { return false }
-        let ok = super.becomeFirstResponder()
-        if ok { presenter?.collections.pinsChanged(); presenter?.selection.focusEntered(self) }
-        if ok, handlers.contains("focus") { presenter?.focus(id) }
-        return ok
-    }
-    override func resignFirstResponder() -> Bool {
-        let ok = super.resignFirstResponder()
-        if ok { presenter?.selection.focusLeft() }
-        if ok { presenter?.collections.pinsChanged() }
-        if ok && !isSurfaceControl { inputCanvas?.canvasInput?.blur() }
-        if ok, handlers.contains("blur") { presenter?.blur(id) }
-        return ok
-    }
-    override func drawFocusRingMask() {
-        guard field == nil, pressable else { return }
-        roundedPath(in: bounds).fill()
-    }
+    /// Whether the focus here matches `:focus-visible`, so its ring shows (`FocusMac.swift`).
+    var focusVisible = false { didSet { if focusVisible != oldValue { noteFocusRingMaskChanged() } } }
     /// A key down's default action at a focused node; its `key` handlers
     /// heard it before AppKit delivered it (`Presenter.keyDown`, KeyEvents.swift).
     /// Space and Enter on a pressable fire `press`, as they do on a `<button>`.
@@ -467,6 +430,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // A frame change during live resize repaints at the new width
         // instead of stretching stale pixels.
         layerContentsRedrawPolicy = .duringViewResize
+        focusRingType = .exterior // a pressable's ring, outside its box (`FocusMac.swift`)
         if kind == "canvas" {
             let m = MetalView(frame: .zero)
             addSubview(m)
@@ -1201,6 +1165,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let changed = newSize != frame.size
         super.setFrameSize(newSize)
         guard changed else { return }
+        if focusVisible { noteFocusRingMaskChanged() } // the ring follows the box
         layerPaintCache = nil
         if hasBoxPaint || clipsToBounds || clipBox != nil { applyClipRadius() }
         if materialView != nil { applyMaterialRadius() }

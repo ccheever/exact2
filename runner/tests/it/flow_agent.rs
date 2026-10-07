@@ -35,7 +35,7 @@ fn layout_reports_resolved_and_skipped_paragraphs() {
     ball.top = Dimension::Points(0.);
     ball.mask.set(StyleId::Top);
     ball.wrap_flow = WrapFlow::Both;
-    ball.shape_outside = ShapeOutside::parse("circle()").unwrap();
+    ball.rare.shape_outside = ShapeOutside::parse("circle()").unwrap();
     for row in [
         StyleId::PositionType,
         StyleId::WrapFlow,

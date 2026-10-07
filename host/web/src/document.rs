@@ -361,7 +361,7 @@ fn isolation<S: Source>(src: &S, roots: &[ViewId]) -> SortedMap<ViewId, Child> {
 fn animations(style: &exact_kernel::StyleProps, keyframes: &mut SortedMap<String, String>) {
     if let Some(link) = crate::link::linked().animations {
         let press = css::press_composes(style);
-        for a in style.animation.0.iter().chain(&style.exit_animation.0) {
+        for a in style.animation.0.iter().chain(&style.rare.exit_animation.0) {
             let name = (link.name)(a, press);
             if keyframes.get(&name).is_none() {
                 let rule = format!("@keyframes {}{{{}}}", name, (link.body)(a, press));

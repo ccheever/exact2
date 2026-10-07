@@ -85,8 +85,8 @@ app's directory can't discover:
   nothing else creates it before a host build. Then edit, `contract build
   --json`, `test web`, drive with `agent web`, and finally the native hosts.
 - **Don't edit the generated parts.** The `[patch.crates-io]` table,
-  `rust-toolchain.toml` and `exact.mjs` are rewritten by `bun exact.mjs
-  update`.
+  `rust-toolchain.toml`, forced-offline `.cargo/config.toml`, and `exact.mjs`
+  are rewritten by `bun exact.mjs update`.
 
 The generated text sits between `<!-- exact:begin -->` and `<!-- exact:end -->`
 markers. `--update` rewrites only what is between the markers, and appends the
@@ -274,17 +274,15 @@ it. They were reviewed with the diary and are independent of this RFC.
     (`agent-launch.mjs`). It is needed for the web loop, which is how every
     app is driven.
   - on macOS, an Xcode `xcode-select -p`, not the Command Line Tools;
-  - Hermes, reported as two rows, in `js/build.rs`'s orders:
-    - **`hermesc`**, needed for any TypeScript app, the web included:
-      `EXACT_HERMESC`, else the machine cache's `hermesc`, else ibex's
-      `tools/hermes-vanilla`.
-    - **The macOS engine**, needed for TypeScript on native hosts:
-      `EXACT_HERMES_DIR`. Otherwise the machine cache, used only when there is
-      no sibling ibex at all and only with its pinned receipt. Otherwise the
-      sibling ibex's `ios/Frameworks-vanilla`.
-    
-    iOS's lean archives are built on demand by `build.mjs --ios` and are not
-    checked.
+  - the digest-pinned Ibex **host Hermes bundle**, including its paired
+    `hermesc`, lean archive and receipt. This row is required: `setup --check`
+    fails when it is absent, and `setup` runs the install-once bundle installer
+    for the host target;
+  - on macOS, optional rows for the exact iOS Simulator target and
+    `aarch64-apple-ios` device target. Each prints its complete installer
+    command. `host/apple/build.mjs` preflights that selected target and repeats
+    the command rather than acquiring during Cargo. tvOS TypeScript refuses
+    until E2's v4 bundles.
 
   Rows that depend on the app are reported as *needed for …*, not as
   failures: a Rust app needs no Hermes.
@@ -293,8 +291,11 @@ it. They were reviewed with the diary and are independent of this RFC.
   app, and a report printed afterwards can't help with that. It then writes
   the app and prints anything missing below its command list.
 
-Not taken: installing Xcode or Hermes from `setup`. Hermes provisioning is
-LLP 1036.001 D5's open question (Seth). This RFC only reports.
+`exact new` also writes the root's forced-offline Hermes Cargo configuration
+into the outside workspace and names the one-time installer in generated
+`AGENTS.md`. Its generated command runner exports the offline refusal too, so
+an older or edited workspace cannot turn an ordinary app build into engine
+acquisition. Setup does not install Xcode or the optional iOS bundles.
 
 ### D7. Say which apps to learn from
 

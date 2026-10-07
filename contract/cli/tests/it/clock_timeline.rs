@@ -36,7 +36,11 @@ fn clock(r: &Runner<NoData>, test_id: &str) -> Option<String> {
     let k = r.kernel();
     let node = k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap();
     assert!(node.style.mask.has(StyleId::Animation) || test_id == "alone");
-    node.style.animation_timeline.clock().map(str::to_owned)
+    node.style
+        .rare
+        .animation_timeline
+        .clock()
+        .map(str::to_owned)
 }
 
 #[test]
@@ -145,7 +149,7 @@ fn a_local_binding_of_the_name_shadows_the_timeline() {
     .unwrap();
     let k = r.kernel();
     let node = k.node_by_key(k.find_by_test_id("x")[0]).unwrap();
-    let t = &node.style.animation_timeline;
+    let t = &node.style.rare.animation_timeline;
     assert_eq!((t.clock(), t.name()), (None, Some("--drag")));
 }
 
