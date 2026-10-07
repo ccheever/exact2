@@ -1,6 +1,7 @@
 # JS target: a grouped list's authored rows are missing from the observed view
 
-**Status:** Open
+**Status:** Closed
+**Resolution:** The difftest's JS driver, not the runtime: it left out the rows of every role=list with data-scroll, so a grouped list's (which builds every row) went missing; it now leaves out only a list list.js windows (rows are listitem wrappers with data-listitemkey), as observe.rs leaves out a collection's. grouped-touch agrees; contract/corpus --js 51 agree, semantics corpus --js 290 agree, 0 diverge.
 **Systems:** host/web-js (grouped list, `list appearance="auto"`), semantics/difftest (JS driver)
 **Author:** Claude (Opus 5.5), from the semantics event-timing lane
 **Date:** 2026-10-07
