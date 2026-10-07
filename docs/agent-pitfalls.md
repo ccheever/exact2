@@ -281,6 +281,14 @@ guide's rules don't make obvious.
   from the call's arguments (the Contract's `wallTime.epochAtZero + now()`), as
   every source already receives it. (Signal clone build 34, 2026-10-05.)
 
+- **`new WebSocket(url)` in a data module sends under Bun and refuses on
+  every host.** Since 2026-10-07 the build refuses a direct use by file and
+  line (`WebSocket`, `XMLHttpRequest`, `EventSource`); an alias gets past the
+  build and throws `WebSocket is unavailable in data sources` on first use
+  (until then macOS said `undefined cannot be used as a constructor`). A
+  socket is read with `fetch("wss://…", { exactStream })` under `net.websocket`
+  and sends nothing (#126).
+
 - **A helper action does not see what its caller just assigned.** `sel = next`
   then `follow()`, with `follow` reading `sel`, would read the old `sel`: a call
   is its callee's statements in the caller's one commit, and every statement

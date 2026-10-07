@@ -785,6 +785,11 @@ call outside them fails. The capabilities are:
   executor (`crypto.getRandomValues` and `crypto.randomUUID` work inside an answer); the type check cannot see it, and only `logs` shows the refusal. Time
   and seeds are arguments: pass `now()` from the Contract (the
   [data-module reference](reference.md#generate-typescript-data-source-types) has the full list).
+- *A source cannot open its own socket or request.* `new WebSocket(url)`,
+  `XMLHttpRequest` and `EventSource` refuse on every host (`WebSocket is
+  unavailable in data sources`), and every build refuses a direct use by file
+  and line. Requests are `fetch`; a socket is read, never written, as
+  `fetch("wss://…", { exactStream })` under a `net.websocket` grant.
 - *There is no storage or network at build time.* The build bakes each
   resource's first value into the plan, and a storage call then is refused
   with `code: 'bake'`. An uncaught storage refusal leaves the resource unbaked;

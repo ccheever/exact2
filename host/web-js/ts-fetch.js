@@ -61,9 +61,9 @@ DateTimeFormat.prototype = Object.create(NativeFormat.prototype, {
 Object.setPrototypeOf(DateTimeFormat, NativeFormat);
 // A data module does no I/O of its own (LLP 1016.000 D3: a socket only
 // listens, opened by the runtime as a `fetch` with `exactStream`): the page's
-// XMLHttpRequest, WebSocket and EventSource refuse, as the wasm target's realm
-// refuses them (host/web/module-glue.js), so no frame is sent and no origin
-// is reached past the grants.
+// XMLHttpRequest, WebSocket and EventSource refuse, with the words Hermes and
+// the wasm target's realms use (js/src/prelude.js), so no frame is sent and
+// no origin is reached past the grants.
 const noIo = api => function () { throw new Error(`${api} is unavailable in data sources`); };
 const guarded = {
   Date: GuardedDate, Math: GuardedMath,

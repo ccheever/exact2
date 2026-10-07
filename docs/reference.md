@@ -391,7 +391,13 @@ page's (LLP 1027.000 D3), so an app that reads the clock fails in the web loop
 as it would on a device. The type check cannot see the difference, but every
 build refuses a direct use in a module `app.ts` reaches, by file and line
 (`logic.ts:2:28: Date.now() is unavailable in data sources; …`), so a test that
-runs the module under Bun, which has no such guard, cannot hide it. Development JS builds name a derive
+runs the module under Bun, which has no such guard, cannot hide it. Nor does a
+module do I/O of its own (LLP 1016.000 D3): `WebSocket`, `XMLHttpRequest` and
+`EventSource` are functions that refuse when called or constructed
+(`WebSocket is unavailable in data sources`), the same on every executor, and
+every build refuses a direct `new WebSocket(…)` by file and line as it refuses
+the clock; under Bun the same code opens a socket and sends. Requests are
+`fetch`, and a socket is read as a stream (below). Development JS builds name a derive
 whose value fails its type check and report failed resource/source dependencies
 that it read.
 ES2024's resizable `ArrayBuffer`, shared memory and the RegExp `v` flag are not
@@ -523,7 +529,8 @@ The promise never settles; each message, and the end, is mapped now (the
 mapper cannot await) and commits as the resource's answer. An `http:`/`https:`
 URL is read as server-sent events under `net.fetch`; a `ws:`/`wss:` URL is a
 receive-only WebSocket under `net.websocket` alone (no frame is ever sent, so a
-feed that waits for a subscribe frame cannot be read). An event is
+feed that waits for a subscribe frame cannot be read; the module's own
+`WebSocket` refuses, on every host). An event is
 `{type, data, lastEventId, coalesced}`; messages that arrive faster than they
 commit coalesce to the newest, counted in `coalesced`. The end is
 `{type: 'error', kind, message, status}`: `kind` is `Network` (the far side

@@ -192,8 +192,8 @@ async function typecheck() {
   writeFileSync(resolve(stage, '__exact_paths.json'), JSON.stringify({ app: realpathSync(appDir), mounts }));
   const real = realpathSync(stage);
   configure(real);
-  // The clock, randomness and timers, refused at build in the modules
-  // app.ts reaches, as the native bake's bundler refuses them
+  // The clock, randomness, timers and the browser's I/O constructors,
+  // refused at build in the modules app.ts reaches, as the native bake's bundler refuses them
   // (js/bake/src/typescript.mjs `ambientRefusals`). A graph that does not
   // bundle from the capture is refused, as the native bake refuses it.
   // Both run, and every diagnostic is reported, as the resident compiler joins them.

@@ -146,13 +146,9 @@ export async function prepare(payload, admitted, id = nextId++) {
     // A cell belongs to the answer that accepted the call. The adapter runs
     // later, when the operation is issued, which may be a background round.
     bindAnswerStorage(win, storage, () => context.owner);
-    // Disable accidental browser I/O before the module captures globals: a
-    // function, so `new WebSocket(url)` refuses by name too, as the JS target's
-    // ts-fetch.js does. The prelude refuses timers and the clock, by name, as
-    // Hermes does.
-    for (const key of ['XMLHttpRequest', 'WebSocket', 'EventSource']) {
-      Object.defineProperty(win, key, { value: function () { throw new Error(`${key} is unavailable in data sources`); }, configurable: false });
-    }
+    // The prelude refuses the browser's own I/O (XMLHttpRequest, WebSocket,
+    // EventSource), timers and the clock, by name, as Hermes does, before the
+    // module captures a global.
     // A LAN dev page has no `crypto.subtle`: the realm's SHA-256 digest is
     // the dev protocol's, as module integrity's is (LLP 1069.005 D1).
     if (!win.crypto.subtle && globalThis.exact.moduleDigest) win.__exact_digest = bytes => globalThis.exact.moduleDigest(bytes);

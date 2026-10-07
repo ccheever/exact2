@@ -707,8 +707,9 @@ test("the JS target refuses a data module's clock, randomness and timers as Herm
 });
 
 // LLP 1016.000 D3 on the JS target: a data module's own socket, request or
-// event source refuses with the wasm target's words (module-glue.js), in every
-// spelling, so no frame leaves past the grants (#126).
+// event source refuses with the prelude's words (js/src/prelude.js, which
+// Hermes and the wasm target's realms run), in every spelling, so no frame
+// leaves past the grants (#126).
 test("the JS target refuses a data module's own WebSocket, XMLHttpRequest and EventSource as the wasm target does", async () => {
   const { transformSync } = await import('rolldown/utils');
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-io-'));
@@ -745,6 +746,29 @@ globalThis.exact = { answer: (form, name) => { try { forms[form](name); return '
     delete globalThis.exact;
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+// The same in the realm the prelude makes, natively and on the wasm target:
+// `typeof` is "function", not "undefined", and every spelling refuses with the
+// JS target's words (#126).
+test("the prelude refuses a data module's own WebSocket, XMLHttpRequest and EventSource with the JS target's words", async () => {
+  const names = ['WebSocket', 'XMLHttpRequest', 'EventSource'], forms = ['bare', 'global', 'self', 'alias', 'call', 'reflect'];
+  const verdict = await realmVerdict(`
+const io = { WebSocket, XMLHttpRequest, EventSource };
+const forms = {
+  bare: name => ({ WebSocket: () => new WebSocket('ws://127.0.0.1:9/x'), XMLHttpRequest: () => new XMLHttpRequest(), EventSource: () => new EventSource('http://127.0.0.1:9/x') })[name](),
+  global: name => new globalThis[name]('ws://127.0.0.1:9/x'), self: name => new self[name]('ws://127.0.0.1:9/x'),
+  alias: name => new io[name]('ws://127.0.0.1:9/x'), call: name => globalThis[name]('ws://127.0.0.1:9/x'),
+  reflect: name => Reflect.construct(globalThis[name], ['ws://127.0.0.1:9/x']),
+};
+const seen = ${JSON.stringify(names)}.map(name => 'typeof ' + name + ': ' + typeof globalThis[name]);
+for (const name of ${JSON.stringify(names)}) for (const form of ${JSON.stringify(forms)}) {
+  try { forms[form](name); seen.push(form + ' ' + name + ': opened'); } catch (e) { seen.push(form + ' ' + name + ': ' + e.message); }
+}
+postMessage(seen);
+`);
+  expect(verdict).toEqual([...names.map(name => `typeof ${name}: function`),
+    ...names.flatMap(name => forms.map(form => `${form} ${name}: ${name} is unavailable in data sources`))]);
 });
 
 test('module-glue prepare accepts normalized formatting and exact-only grants', async () => {

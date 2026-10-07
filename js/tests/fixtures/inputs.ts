@@ -40,6 +40,16 @@ const calls: Record<string, () => unknown> = {
   frame: () => requestAnimationFrame(() => {}),
   performance: () => performance.now(),
 };
+// The browser's own I/O, refused by name as on the web (LLP 1016.000 D3).
+const io: Record<string, () => unknown> = {
+  kinds: () => [typeof WebSocket, typeof XMLHttpRequest, typeof EventSource].join(" "),
+  socket: () => new WebSocket("wss://fixture.exact.test/s"),
+  request: () => new XMLHttpRequest(),
+  "event-source": () => new EventSource("https://fixture.exact.test/e"),
+  "computed-socket": () => new (globalThis as any)["Web" + "Socket"]("wss://fixture.exact.test/s"),
+  "call-socket": () => (WebSocket as any)("wss://fixture.exact.test/s"),
+  "reflect-socket": () => Reflect.construct(WebSocket, ["wss://fixture.exact.test/s"]),
+};
 
 const atInit: Record<string, string> = {};
 for (const name of Object.keys(calls)) {
@@ -59,6 +69,7 @@ function answer(source: string, args: any[]): unknown {
   switch (source) {
     case "atInit": return atInit[args[0]];
     case "ambient": return calls[args[0]]();
+    case "io": try { return String(io[args[0]]()); } catch (e) { return (e as Error).name + ": " + (e as Error).message; }
     case "ambientLater": return fetch("https://fixture.exact.test/value").then(() => calls[args[0]]());
     case "explicit":
       console.log("explicit", args[0], args[1]);

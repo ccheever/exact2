@@ -19,14 +19,17 @@ export function assertCapturedModule(stage, id) {
   }
 }
 
-// Time and seeds are source arguments (LLP 1027.000): every executor refuses
-// the clock, randomness and timers when they are used, with these words
-// (js/src/prelude.js, host/web-js/ts-fetch.js). A direct use in the app's own
-// code is refused here too, at build, by file and line, so a test that runs
-// the module under Bun, which has no such guard, cannot hide it.
+// Time and seeds are source arguments (LLP 1027.000), and a module does no
+// I/O of its own (LLP 1016.000 D3): every executor refuses the clock,
+// randomness, timers and the browser's XMLHttpRequest, WebSocket and
+// EventSource when they are used, with these words (js/src/prelude.js,
+// host/web-js/ts-fetch.js). A direct use in the app's own code is refused
+// here too, at build, by file and line, so a test that runs the module under
+// Bun, which has no such guard (and a WebSocket that sends), cannot hide it.
 const ambient=(api)=>api+' is unavailable in data sources; pass time or a random seed as an argument';
 const timers=(api)=>api+' is unavailable in data sources: there are no timers; pass time as an argument';
 const TIMERS=['setTimeout','setInterval','requestAnimationFrame','requestIdleCallback'];
+const IO=['XMLHttpRequest','WebSocket','EventSource'];
 const GLOBALS=['globalThis','self','window','global'];
 // `x!`, `(x)` and `x?.y` as written, down to the expression they wrap.
 const bare=(node)=>{ while (node && ['TSNonNullExpression','ParenthesizedExpression','ChainExpression','TSAsExpression','TSSatisfiesExpression','TSTypeAssertion'].includes(node.type)) node=node.expression; return node; };
@@ -49,6 +52,10 @@ function refusal(node,local) {
     if (timer) return timers(timer+'()');
   }
   if (node.type==='NewExpression' && ambientGlobal(node.callee,'Date',local) && !node.arguments.length) return ambient('new Date()');
+  if (node.type==='NewExpression' || node.type==='CallExpression') {
+    const io=IO.find(name=>ambientGlobal(node.callee,name,local));
+    if (io) return io+' is unavailable in data sources';
+  }
   return null;
 }
 const VALUES=['FunctionDeclaration','VariableDeclaration','ClassDeclaration','ExpressionStatement','TSEnumDeclaration','TSImportEqualsDeclaration'];
@@ -98,11 +105,11 @@ function bound(ast) {
   walk(ast,false);
   return names;
 }
-/** The direct uses of the clock, randomness and timers in the captured
- * module `file`, as `path:line:col: why` with its path in the app: `parse`
- * is Rolldown's (a plugin's `this.parse`, or `parseAst`), given TypeScript.
- * An early warning a Bun test cannot give, not the guard: an alias still
- * reaches the runtime's refusal. */
+/** The direct uses of the clock, randomness, timers and the browser's I/O
+ * constructors in the captured module `file`, as `path:line:col: why` with
+ * its path in the app: `parse` is Rolldown's (a plugin's `this.parse`, or
+ * `parseAst`), given TypeScript. An early warning a Bun test cannot give,
+ * not the guard: an alias still reaches the runtime's refusal. */
 export function ambientRefusals(stage, file, code, parse) {
   if (!isAbsolute(file) || /\.d\.[cm]?ts$/.test(file) || !/\.[cm]?[jt]sx?$/.test(file)) return [];
   const lang=/\.[cm]?tsx?$/.test(file) ? (file.endsWith('x') ? 'tsx' : 'ts') : 'js';

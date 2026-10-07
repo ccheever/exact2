@@ -66,8 +66,11 @@ if (target !== '--wasm' && !game && !bakeOnly) {
   // The child's own message, not the tail of Bun's trace (a frame and its version line).
   const all = (js.stderr ?? '').trim().split('\n').filter((l) => !/^\s*(Compiling|Finished|Running)/.test(l));
   const warnings = all.filter((l) => /^warning: /.test(l)), lines = all.filter((l) => !/^\s*warning/.test(l));
-  // A type check's diagnostics are TypeScript's own lines (`app.ts(2,8): error TS…`).
-  const message = lines.filter((l) => /^(error|[A-Z]\w*Error|E[A-Z]+)\b:?/.test(l.trim()) || /\): error TS\d+:|^(?:tsconfig: |module outside captured app: |source links are not captured: )/.test(l) || /\bunoptimized$|\bnot on PATH\b/.test(l));
+  // A type check's diagnostics are TypeScript's own lines (`app.ts(2,8): error TS…`),
+  // and the build's refusals of the clock, timers and I/O by file and line
+  // (`app.ts:2:28: Date.now() is unavailable in data sources; …`).
+  const message = lines.filter((l) => /^(error|[A-Z]\w*Error|E[A-Z]+)\b:?/.test(l.trim()) || /\): error TS\d+:|^(?:tsconfig: |module outside captured app: |source links are not captured: )/.test(l) || /\bunoptimized$|\bnot on PATH\b/.test(l)
+    || /^\S+:\d+:\d+: .+ is unavailable in data sources\b/.test(l));
   const reason = (message.length ? message : lines.slice(-3)).join('\n');
   console.error(`${[...warnings, reason].join('\n')}\n${app.name}: the web build (the JS target) failed; the wasm target is internal (--wasm)`);
   process.exit(1);
