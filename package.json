@@ -10,7 +10,9 @@
     "playwright-core": "1.63.0",
     "rolldown": "1.2.9",
     "snapback4": "0.2.30",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "vscode-oniguruma": "2.0.1",
+    "vscode-textmate": "9.3.2"
   },
   "bin": {
     "exact": "scripts/exact.mjs"

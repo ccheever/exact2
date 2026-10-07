@@ -93,6 +93,10 @@ function checks(sha) {
     // `tree --ax` against Chrome's own tree (LLP 1080.002 §3), over the
     // wasm Caltrain dist conformance just built; a missing dist fails it.
     ['web-ax-test', 'env', [`EXACT_WEB_DIST=${resolve(STATE_DIR, 'conform-wasm', 'caltrain')}`, 'EXACT_AX_REQUIRED=1', 'bun', 'test', './host/web/tests/accessibility-tree.test.mjs']],
+    // The VS Code grammar under VS Code's own engine: a sample's scopes, and
+    // every .contract file with no invalid token and nothing left open
+    // (editors/vscode/README.md). Its word lists are checked by cargo test.
+    ['vscode-grammar', 'bun', ['test', './editors/vscode']],
     // The JS target in the other browser engines, with Chrome as its oracle.
     // These remain async-only; a missing Playwright browser is a named failure
     // whose log gives the exact outside-the-repo install command.

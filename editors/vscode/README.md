@@ -16,13 +16,26 @@ reinstall after changing the grammar. No generated package belongs in the repo.
 
 The hand-maintained TextMate grammar is `syntaxes/exact-contract.tmLanguage.json`.
 Its language sources are `contract/syntax/src/lexer.rs` and `parser.rs`; built-in
-tags and events come from `contract/lower/src/tags.rs` and
-`contract/analyze/src/lib.rs`. See LLP 1006 §2 and LLP 1017.000 P1/P9 for the
+tags, events and host commands come from `contract/lower/src/tags.rs`,
+`contract/analyze/src/lib.rs` (`HANDLERS`) and `contract/syntax/src/lib.rs`
+(`HOST_COMMANDS`), all three listed by `contract vocab --json`.
+
+Two tests keep it current:
+
+- `cargo test -p contract --test it vscode_grammar` compares the grammar's
+  tag, event and host-command lists with the compiler's tables, and names any
+  word missing or no longer the compiler's.
+- `bun test editors/vscode` tokenizes with VS Code's own engine
+  (`vscode-textmate` and `vscode-oniguruma`, root dev dependencies): a sample's
+  expected scopes, and every `.contract` file in the repository with no
+  `invalid` token and nothing left open at its end. See LLP 1006 §2 and LLP 1017.000 P1/P9 for the
 language and CSS names. Attribute names match structurally, including hyphens,
 so adding a CSS property needs no grammar update. The compiler validates names
 and values; highlighting is not validation.
 
-Includes declarations, routes, resources and mutations, actions with `let` locals, record constructors, component `provide` sections, styles,
-keyframes, HTML/SVG/native tags, events, types, authored tests, double-quoted
+Includes declarations (with `timeline`, `sound` and `color-profile`), routes,
+resources (with `with`) and mutations, actions with `let` locals, host commands,
+record constructors, component `provide` sections, styles, keyframes,
+HTML/SVG/native tags, events, types, authored tests, double-quoted
 strings, and backtick templates with nested interpolations. Single quotes are
 not Contract strings. There is no language server or semantic completion.
