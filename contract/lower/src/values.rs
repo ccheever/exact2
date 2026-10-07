@@ -948,6 +948,18 @@ pub(crate) fn check_prop_value(
                     span,
                 );
             }
+            // UIKit's detents go from shortest to tallest; the content's
+            // height changes, so only `large` is always above it.
+            let words: Vec<&str> = s.split(' ').filter(|w| !w.is_empty()).collect();
+            if words.contains(&"fit-content")
+                && !matches!(words[..], ["fit-content"] | ["fit-content", "large"])
+            {
+                return err(
+                    "lower-attr-value",
+                    format!("`navigationDetent` takes \"fit-content\" alone or as \"fit-content large\": a content height can pass any other detent, and UIKit's go from shortest to tallest; given \"{s}\""),
+                    span,
+                );
+            }
         }
     }
     if prop == PropId::FocusGuide && matches!(value, Expr::Str(s, _) if s != "auto") {

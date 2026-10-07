@@ -1,6 +1,6 @@
 //! LLP 1075.003 §9.11: `navigationDetent` takes UIKit's named detents, CSS's
 //! `fit-content` and positive point heights, space-separated; a literal with
-//! any other word is refused.
+//! any other word is refused, and `fit-content` goes alone or before `large`.
 
 #[test]
 fn the_detent_words_lower_and_others_are_refused() {
@@ -26,6 +26,10 @@ fn the_detent_words_lower_and_others_are_refused() {
         ("0", "0"),
         ("-40", "-40"),
         ("300px", "300px"),
+        ("fit-content 300", "fit-content 300"),
+        ("300 fit-content", "300 fit-content"),
+        ("fit-content medium", "fit-content medium"),
+        ("large fit-content", "large fit-content"),
     ] {
         let error = compile(value).unwrap_err().to_string();
         assert!(

@@ -1068,9 +1068,11 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   route under it is dimmed.
 - A sheet's heights are `navigationDetent`, space-separated words: `large`,
   `medium`, a point height or `fit-content` (the route's content height; a menu or
-  a short dialog). A literal with another word is refused. Under `fit-content` no
-  child may grow to fill the route (`flex-grow`, `height="100%"`), or the sheet
-  measures itself; iOS alone sizes a sheet (LLP 1075.003 §9.11).
+  a short dialog), which goes alone or as `"fit-content large"`. A literal with
+  another word is refused. Under `fit-content` no child may grow to fill the route
+  (`flex-grow`, `height="100%"`), or the sheet measures itself, and the route does
+  not pad `env(safe-area-inset-bottom)`: UIKit adds that band below the detent.
+  iOS alone sizes a sheet (LLP 1075.003 §9.11).
 - Without tabs, the routes are the root's own children, laid out the same way.
 - Tests reach a tab by `tap`, or deliver a location as `type <root> "/saved"` (LLP
   1038 D11), which calls the root's `navigate`. On the web a CLI drive goes back as

@@ -80,6 +80,7 @@ mod activation_tests;
 mod box_motion_tests;
 #[path = "layout.rs"]
 mod layout;
+use layout::content_size;
 #[path = "resize.rs"]
 mod resize;
 #[cfg(test)]
@@ -1347,49 +1348,6 @@ fn relative(frame: Frame, parent: Option<Frame>) -> (f32, f32, f32, f32) {
         Some(p) => (frame.x - p.x, frame.y - p.y, frame.width, frame.height),
         None => (frame.x, frame.y, frame.width, frame.height),
     }
-}
-
-/// Natural scrollable overflow, including padding and descendants. The
-/// presenter applies the CSS client-size minimum against its actual viewport;
-/// flooring here loses the extent a native container needs under its own insets.
-fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
-    extent(node, kernel, node.content)
-}
-
-/// A `fit-content` sheet's measure (LLP 1075.003 §9.11): the children's
-/// extent and the authored end padding, without Taffy's height, which may
-/// count end padding, a native container's bottom cover among it (the
-/// sheet's safe area, which UIKit adds below the detent itself).
-fn fitted_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
-    extent(node, kernel, (node.content.0, 0.0))
-}
-
-/// `from` floored by the direct children's extent plus the end padding.
-fn extent(node: &NodeRef<'_>, kernel: &Kernel, from: (f32, f32)) -> (f32, f32) {
-    // Taffy's block containers do not always count end-edge padding in
-    // `content_size` (its flex containers do); CSS's `scrollHeight` does.
-    // Floor with the direct children's extent plus the end padding.
-    let env = kernel.env();
-    let pad = |d: exact_kernel::Dimension, against: f32| match d.resolve(&env) {
-        exact_kernel::Dimension::Points(p) => p,
-        exact_kernel::Dimension::Percent(p) => against * p / 100.0,
-        exact_kernel::Dimension::Calc(p, x) => against * p / 100.0 + x,
-        exact_kernel::Dimension::Auto
-        | exact_kernel::Dimension::Env(..)
-        | exact_kernel::Dimension::Segment(..)
-        | exact_kernel::Dimension::Viewport(..)
-        | exact_kernel::Dimension::Compare(..) => 0.0,
-    };
-    let pad_right = pad(node.style.padding_right, node.frame.width);
-    let pad_bottom = pad(node.style.padding_bottom, node.frame.width);
-    let (mut w, mut h) = from;
-    for child in node.children() {
-        if let Some(c) = kernel.node(child) {
-            w = w.max(c.frame.x - node.frame.x + c.frame.width + pad_right);
-            h = h.max(c.frame.y - node.frame.y + c.frame.height + pad_bottom);
-        }
-    }
-    (w, h)
 }
 
 /// The presenter's kind for a node: its type, in the schema's names.

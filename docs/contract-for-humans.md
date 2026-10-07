@@ -1142,13 +1142,15 @@ A row with `navigationPresentation="modal"` is a sheet on iOS; `navigationDetent
 sets its resting heights, space-separated: `large` (the default), `medium`, a
 point height (`"300"`), or `fit-content`, the route's content height, which
 follows the content as rows arrive or text wraps. A point height and
-`fit-content` leave out the bottom safe area, which UIKit adds below, and stop at
-the sheet's tallest. With one height the sheet does not expand and shows no
-grabber; with several (`"fit-content large"`) it is dragged between them, the
-first to start. `fit-content` measures the route's children, not its box, so a
-child that grows to fill the route (`flex-grow`, `height="100%"`) or content
-pushed to its end measures the sheet back. macOS, the web and Linux show a modal
-route as authored and ignore the detent
+`fit-content` stop at the sheet's tallest and leave out the bottom safe area,
+which UIKit adds below; so under `viewport-fit="cover"` a route that pads
+`env(safe-area-inset-bottom)` gets it twice. With one height the sheet does not
+expand and shows no grabber; with several (`"300 large"`) it is dragged between
+them, the first to start. `fit-content` goes alone or as `"fit-content large"`.
+It measures the route's children, not its box, so a child that grows to fill
+the route (`flex-grow`, `height="100%"`) or content pushed to its end measures
+the sheet back. macOS, the web and Linux show a modal route as authored and
+ignore the detent
 ([LLP 1075.003](../llp/1075.003-native-platform-control-merged.plan.md) §9.11).
 
 `path("item", value)` checks the route and encodes its parameters. Always build

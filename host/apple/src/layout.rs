@@ -207,16 +207,18 @@ impl<D: DataSource> Host<D> {
             let parent = node.parent.and_then(|p| kernel.node(p)).map(|p| p.frame);
             let rel = relative(node.frame, parent);
             // A sheet sized to its route's content reads that extent too
-            // (LLP 1075.003 §9.11), whatever the route's overflow.
+            // (LLP 1075.003 §9.11). A route that scrolls itself keeps its
+            // scroll extent, which the sheet then reads.
+            let scrolls =
+                style::effective_overflow(&node) != (Overflow::Visible, Overflow::Visible);
             let fits = node
                 .props
                 .str(PropId::NavigationDetent)
                 .is_some_and(|d| d.split(' ').any(|w| w == "fit-content"));
-            let content = if fits {
-                Some(fitted_size(&node, kernel))
+            let content = if scrolls {
+                Some(content_size(&node, kernel))
             } else {
-                (style::effective_overflow(&node) != (Overflow::Visible, Overflow::Visible))
-                    .then(|| content_size(&node, kernel))
+                fits.then(|| fitted_size(&node, kernel))
             };
             // An ancestor hint may change without touching the editor. Pass
             // its effective value through native containment, or clear it to
@@ -272,6 +274,56 @@ impl<D: DataSource> Host<D> {
             self.collections_json = collections;
         }
         Ok(())
+    }
+}
+
+/// Natural scrollable overflow, including padding and descendants. The
+/// presenter applies the CSS client-size minimum against its actual viewport;
+/// flooring here loses the extent a native container needs under its own insets.
+pub(super) fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
+    extent(node, kernel, node.content)
+}
+
+/// A `fit-content` sheet's measure (LLP 1075.003 §9.11): the children's
+/// extent and the authored end padding, at least the authored vertical
+/// padding, without Taffy's height, which may count end padding, a native
+/// container's bottom cover among it (the sheet's safe area, which UIKit adds
+/// below the detent itself).
+fn fitted_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
+    let env = kernel.env();
+    let pads = padding(node.style.padding_top, node.frame.width, &env)
+        + padding(node.style.padding_bottom, node.frame.width, &env);
+    extent(node, kernel, (node.content.0, pads))
+}
+
+/// `from` floored by the direct children's extent plus the end padding.
+fn extent(node: &NodeRef<'_>, kernel: &Kernel, from: (f32, f32)) -> (f32, f32) {
+    // Taffy's block containers do not always count end-edge padding in
+    // `content_size` (its flex containers do); CSS's `scrollHeight` does.
+    // Floor with the direct children's extent plus the end padding.
+    let env = kernel.env();
+    let pad_right = padding(node.style.padding_right, node.frame.width, &env);
+    let pad_bottom = padding(node.style.padding_bottom, node.frame.width, &env);
+    let (mut w, mut h) = from;
+    for child in node.children() {
+        if let Some(c) = kernel.node(child) {
+            w = w.max(c.frame.x - node.frame.x + c.frame.width + pad_right);
+            h = h.max(c.frame.y - node.frame.y + c.frame.height + pad_bottom);
+        }
+    }
+    (w, h)
+}
+
+/// A padding row in points; a percentage is of the containing width.
+fn padding(d: exact_kernel::Dimension, against: f32, env: &exact_kernel::Env) -> f32 {
+    match d.resolve(env) {
+        exact_kernel::Dimension::Points(p) => p,
+        exact_kernel::Dimension::Percent(p) => against * p / 100.0,
+        exact_kernel::Dimension::Calc(p, x) => against * p / 100.0 + x,
+        exact_kernel::Dimension::Auto
+        | exact_kernel::Dimension::Env(..)
+        | exact_kernel::Dimension::Segment(..)
+        | exact_kernel::Dimension::Viewport(..) => 0.0,
     }
 }
 

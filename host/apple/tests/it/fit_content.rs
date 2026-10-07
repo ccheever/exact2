@@ -67,3 +67,32 @@ fn a_fit_content_route_reports_its_rows_and_not_its_box() {
     let top = host.set_covers(&[(sheet, Some(HostCover::Edges([56.0, 0.0, 34.0, 0.0])))]);
     assert_eq!(heights(&top, sheet), [56.0 + 16.0 + 4.0 * 44.0 + 16.0]);
 }
+
+#[test]
+fn an_empty_route_measures_its_padding_and_a_scrolling_one_its_scroll_extent() {
+    let src = r##"component Menu
+  view
+    column position="relative" width="100%" height="100%"
+      column testId="empty" navigationDetent="fit-content" position="absolute" top=0 right=0 bottom=0 left=0 padding-top=12 padding-bottom=20
+      column testId="scrolls" navigationDetent="fit-content large" overflow-y="auto" position="absolute" top=0 right=0 bottom=0 left=0 padding=16
+        row height=500 flex-shrink=0
+          text "Long"
+"##;
+    let plan = contract::compile(src).unwrap();
+    let (host, first) = Host::boot(
+        &plan.encode(),
+        NoData,
+        Box::new(MonospaceMeasurer::default()),
+        390.0,
+        300.0,
+    )
+    .unwrap();
+    // Laid out empty is measured, not unmeasured: the sheet does not open
+    // at its maximum for a menu with no rows.
+    assert_eq!(heights(&first, view(&host, "empty")), [32.0]);
+    // A route that scrolls itself keeps the extent its scroller needs.
+    assert_eq!(
+        heights(&first, view(&host, "scrolls")),
+        [16.0 + 500.0 + 16.0]
+    );
+}
