@@ -22,6 +22,8 @@ shape MobileWorkspace
   inspectorVisible: bool
   inspectorTargetWidth: number
   chatContentMaxWidth: number
+  chatHorizontalPadding: number
+  userBubbleMaxWidth: number
   ready: bool
   topRouteId: string
   workspaceRouteId: string

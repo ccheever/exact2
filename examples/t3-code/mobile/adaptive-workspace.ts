@@ -2,7 +2,7 @@
 // Adapted from pinned365aa87982 AdaptiveWorkspaceLayout.tsx and workspace-inspector-pane.tsx.
 // Pure geometry only: root retains preferences, search, route/inspector ownership and animations.
 import { deriveLayout, deriveWorkspacePaneLayout, deriveFileInspectorPaneLayout,
-  constrainAuxiliaryPaneWidth, CHAT_CONTENT_MAX_WIDTH, type WorkspaceAuxiliaryPaneRole } from './layout-mobile';
+  constrainAuxiliaryPaneWidth, deriveCenteredContentHorizontalPadding, CHAT_CONTENT_MAX_WIDTH, type WorkspaceAuxiliaryPaneRole } from './layout-mobile';
 
 export interface AdaptiveWorkspaceInput {
   readonly width: number;
@@ -34,6 +34,10 @@ export function adaptiveWorkspace(input: AdaptiveWorkspaceInput) {
   const inspectorSupported = input.inspectorRegistered && panes.auxiliaryPaneWidth !== null;
   const inspectorVisible = inspectorSupported && panes.auxiliaryPaneVisible && input.inspectorActive;
   const inspectorTargetWidth = inspectorVisible ? (panes.auxiliaryPaneWidth ?? 0) : 0;
+  const contentSettledWidth = layout.usesSplitView ? Math.max(0, panes.contentPaneWidth - inspectorTargetWidth) : input.width;
+  const chatContentMaxWidth = layout.usesSplitView ? CHAT_CONTENT_MAX_WIDTH : contentSettledWidth;
+  const chatHorizontalPadding = deriveCenteredContentHorizontalPadding({ viewportWidth: contentSettledWidth,
+    maxContentWidth: layout.usesSplitView ? CHAT_CONTENT_MAX_WIDTH : null, minimumPadding: layout.usesSplitView ? 20 : 16 });
   return {
     variant: layout.variant, usesSplitView: layout.usesSplitView, shellPadding: layout.shellPadding,
     sidebarMounted: layout.usesSplitView, sidebarVisible: panes.primarySidebarVisible,
@@ -43,12 +47,13 @@ export function adaptiveWorkspace(input: AdaptiveWorkspaceInput) {
     emptyWorkspaceDetail: layout.usesSplitView && input.pathname === '/',
     contentPaneWidth: panes.contentPaneWidth,
     // Settle once per pane change; clip/reveal around this box during motion.
-    contentSettledWidth: layout.usesSplitView ? Math.max(0, panes.contentPaneWidth - inspectorTargetWidth) : input.width,
+    contentSettledWidth,
     auxiliaryPaneRole, auxiliaryPaneSupported: panes.supportsAuxiliaryPane,
     auxiliaryPaneVisible: panes.auxiliaryPaneVisible, auxiliaryPaneWidth: panes.auxiliaryPaneWidth ?? 0,
     fileInspectorSupported: fileInspector.supported, fileInspectorWidth: fileInspector.width ?? 0,
     inspectorMounted: inspectorSupported, inspectorVisible, inspectorTargetWidth,
-    chatContentMaxWidth: CHAT_CONTENT_MAX_WIDTH,
+    chatContentMaxWidth, chatHorizontalPadding,
+    userBubbleMaxWidth: Math.max(0, contentSettledWidth - chatHorizontalPadding * 2) * 0.85,
   };
 }
 
