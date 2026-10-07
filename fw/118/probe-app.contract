@@ -1,0 +1,17 @@
+// Probe for #118: Intl.Locale's week info in the data runtime.
+shape Row
+  k: string
+  v: string
+
+component Probe
+  resource rows = probe() as shape list<Row> else empty()
+  view
+    main testId="root"
+      width="100%"
+      height="100%"
+      box-sizing="border-box"
+      padding=20
+      background-color="#ffffff"
+      text "new Intl.Locale(tag).getWeekInfo()" font-size=18 font-weight=600 color="#111111" testId="title"
+      each r in rows key=r.k
+        text `${r.k}  →  ${r.v}` testId=r.k font-size=15 color="#111111" font-family="monospace" margin-top=8
