@@ -730,6 +730,21 @@ impl TextEngine {
         self.paragraph_for(spec, width, key)
     }
 
+    /// [`TextEngine::paragraph`] for a text that replaces the one `owner`
+    /// (a field's node and which of its texts) showed before: the replaced
+    /// one is not kept ([`cache::Cache::superseding`]).
+    pub(crate) fn paragraph_replacing(
+        &mut self,
+        owner: (u32, u8),
+        spec: &Spec,
+        width: Option<f32>,
+    ) -> Rc<Paragraph> {
+        let key = self.paragraphs.identity(spec);
+        let p = self.paragraph_for(spec, width, key);
+        self.paragraphs.superseding(owner, key);
+        p
+    }
+
     fn identified_spec(
         &mut self,
         stamp: &ParagraphStamp,

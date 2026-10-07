@@ -242,6 +242,9 @@ pub(super) struct Cache {
     grown_bytes: usize,
     grown_identities: usize,
     unwalked: u32,
+    /// What each field's value and caret prefix showed last, and earlier
+    /// ones a paint still held ([`Cache::superseding`]).
+    superseded: HashMap<(u32, u8), Vec<(u64, u64)>>,
 }
 /// New identities since the last walk after which a paint's maintenance walks.
 pub(super) const WALK_IDENTITIES: usize = 64;
@@ -276,6 +279,7 @@ impl Default for Cache {
             grown_bytes: 0,
             grown_identities: 0,
             unwalked: 0,
+            superseded: HashMap::new(),
         }
     }
 }
@@ -626,6 +630,44 @@ impl Cache {
         }
         result
     }
+    /// `key` is now what `owner` (a text field's value, or its caret's
+    /// prefix) shows: the identities it showed before go once nothing holds
+    /// their paragraphs. Each keystroke makes a new text and none comes
+    /// back, so kept cold (as a list row's text is, for the scroll's return)
+    /// they only filled the cold budget: 130 typed characters left ~3 MB of
+    /// shaped prefixes.
+    pub fn superseding(&mut self, owner: (u32, u8), key: (u64, u64)) {
+        let old = self.superseded.entry(owner).or_default();
+        if old.last() == Some(&key) {
+            return;
+        }
+        old.retain(|k| *k != key);
+        old.push(key);
+        let mut waiting = Vec::new();
+        for k in old.drain(..old.len() - 1) {
+            let Some(bucket) = self.identities.get_mut(&k.0) else {
+                continue;
+            };
+            let Some(pos) = bucket.iter().position(|e| e.id == k.1) else {
+                continue;
+            };
+            for snapshot in bucket[pos].widths.values_mut() {
+                snapshot.cold = None;
+            }
+            if bucket[pos].pinned() {
+                // Still drawn by the paint being replaced: next time.
+                waiting.push(k);
+                continue;
+            }
+            bucket.remove(pos);
+            if bucket.is_empty() {
+                self.identities.remove(&k.0);
+            }
+        }
+        let old = self.superseded.entry(owner).or_default();
+        old.splice(0..0, waiting);
+    }
+
     /// Drop cold/transient ownership, preserving weak dedup for frame-owned ones.
     #[cfg(test)]
     pub fn clear(&mut self) {
