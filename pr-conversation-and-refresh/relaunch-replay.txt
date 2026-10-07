@@ -1,0 +1,13 @@
+# Cached detail across a relaunch
+
+The live session (agent mode, pid 79735) wrote three kept details into its preference file ($TMPDIR/exact-agent-79735-2/data/t3-code.json, prDetailSnapshots).
+The relaunch drive could not read it: in agent mode a native module's data directory is $TMPDIR/exact-agent-<pid>-<runtime> (ExactKit NativeModule.swift:526),
+per process, whatever --storage names, so the relaunched app (pid 95838) started with an empty file and showed the list-seeded ghost (image 01).
+The kept file was then replayed through the relaunch path (client.ts load -> adoptPrSnapshots, then the panel's first answer) with no host replies:
+
+kept: #144 on github.com/daehyeonmun2021/playground
+kept: #115 on github.com/daehyeonmun2021/playground
+kept: #116 on github.com/daehyeonmun2021/playground
+{"phase":"content","title":"Trim the input first","numberLabel":"#144","author":"daehyeonmun2021","files":"1 file","activityPending":true,"hostCallsBeforeThisAnswer":[]}
+
+Unit test: pages-pr-conversation.test.ts 'a relaunch shows the kept detail first (t3-code.json), then the live read replaces it'.
