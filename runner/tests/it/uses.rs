@@ -338,3 +338,17 @@ fn a_grouped_list_is_a_list_whose_appearance_is_auto() {
     assert!(grouped.has(Capability::GroupedLists));
     assert_eq!(grouped.to_string(), "grouped_lists");
 }
+
+#[test]
+fn svg_image_module_is_needed_for_documents_and_computed_sources_but_not_symbols() {
+    let images =
+        |s: &str| exact_runner::svg_images(&contract::compile(s).unwrap_or_else(|e| panic!("{e}")));
+    assert!(!images(
+        "component A\n  view\n    image \"symbol:sf/star\"\n"
+    ));
+    assert!(!images("component A\n  view\n    text \"hello\"\n"));
+    assert!(images("component A\n  view\n    image \"icon.svg\"\n"));
+    assert!(images(
+        "component A\n  state source = \"icon.svg\"\n  view\n    image source\n"
+    ));
+}

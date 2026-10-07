@@ -564,7 +564,11 @@ fn artifact_graph(
     };
     let loads: Vec<&str> = [
         ("canvas", makes(exact_kernel::NodeType::Canvas)),
-        ("svg", exact_runner::svg_islands(plan)),
+        // An image source can be dynamic and select an SVG document at runtime.
+        (
+            "svg",
+            exact_runner::svg_islands(plan) || exact_runner::svg_images(plan),
+        ),
         ("video", makes(exact_kernel::NodeType::Video)),
         ("web", makes(exact_kernel::NodeType::WebView)),
         ("sound", !plan.sounds.is_empty()),

@@ -5,7 +5,8 @@ import ObjectiveC
 
 enum RasterFailure: Error, CustomStringConvertible {
     case encodedLimit, headerLimit, dimensions, sourcePixels, overflow, tooLarge, decode, reservation
-    /// Bytes no decoder here reads (an SVG, text served as `image/png`).
+    case svgModule, invalidSvgDocument, svgDocumentLimit, unsupportedSvgFeature
+    /// Bytes no decoder here reads (text served as `image/png`).
     case format
     /// A source that names nothing: another scheme, an asset that is not there.
     case unresolved
@@ -21,6 +22,10 @@ enum RasterFailure: Error, CustomStringConvertible {
         case .decode: return "decode failed"
         case .reservation: return "actual exceeds reservation"
         case .format: return "not an image format this host decodes"
+        case .svgModule: return "SVG decoder module unavailable"
+        case .invalidSvgDocument: return "invalid SVG document"
+        case .svgDocumentLimit: return "SVG document exceeds limit"
+        case .unsupportedSvgFeature: return "unsupported SVG image feature"
         case .unresolved: return "the source names no file this host loads"
         }
     }
@@ -60,13 +65,15 @@ struct RasterMetadata: Equatable, Sendable {
     let orientation: Int
     let encodedBytes: Int
     let headerBytes: Int
+    /// A self-contained SVG document decoded by the optional module.
+    var svg = false
     /// More than 8 bits a channel, or float samples (LLP 1100 D4).
     var deep = false
     /// A PQ or HLG transfer, or a gain map, as the header says (LLP 1100 D4).
     var hdr = false
     /// The variant when nothing limits it. For an HDR source's SDR rendition
     /// the header's depth is a guess at ImageIO's, which it can't say.
-    var variant: UInt32 { deep ? RasterVariant.deep : RasterVariant.own8 }
+    var variant: UInt32 { svg ? RasterVariant.srgb8 : deep ? RasterVariant.deep : RasterVariant.own8 }
     var naturalSize: CGSize {
         (5...8).contains(orientation)
             ? CGSize(width: sourceHeight, height: sourceWidth)
@@ -87,6 +94,16 @@ struct RasterMetadata: Equatable, Sendable {
     static func read(prefix: Data, encodedBytes: Int) throws -> Self {
         guard encodedBytes > 0, encodedBytes <= encodedLimit else { throw RasterFailure.encodedLimit }
         guard !prefix.isEmpty, prefix.count <= headerLimit, prefix.count <= encodedBytes else { throw RasterFailure.headerLimit }
+        if looksLikeXML(prefix) {
+            guard prefix.count == encodedBytes else { throw RasterFailure.svgDocumentLimit }
+            guard let module = SvgRasterModule.imageDecoder else { throw RasterFailure.svgModule }
+            var width: UInt32 = 0, height: UInt32 = 0
+            let result = prefix.withUnsafeBytes { module.documentSize($0.bindMemory(to: UInt8.self).baseAddress, prefix.count, &width, &height) }
+            try svgResult(result)
+            var metadata = try validated(width: Int(width), height: Int(height), orientation: 1, encodedBytes: encodedBytes, headerBytes: prefix.count)
+            metadata.svg = true
+            return metadata
+        }
         // ImageIO reads WebP only whole; its size is in the first chunk, so a
         // prefix of a large WebP (the Bluesky CDN serves every image as one)
         // answers from the header itself.
@@ -211,6 +228,20 @@ private func exifOrientation(_ t: [UInt8]) -> Int? {
     return nil
 }
 
+/// Raster signatures exit on the first byte; XML sniffing needs no UTF-8
+/// conversion or String allocation, and stops within the bounded prefix.
+private func looksLikeXML(_ data: Data) -> Bool {
+    data.withUnsafeBytes { raw in
+        let b = raw.bindMemory(to: UInt8.self)
+        var i = b.count >= 3 && b[0] == 0xef && b[1] == 0xbb && b[2] == 0xbf ? 3 : 0
+        while i < min(b.count, 256) {
+            if ![9, 10, 13, 32].contains(b[i]) { return b[i] == 60 }
+            i += 1
+        }
+        return false
+    }
+}
+
 /// A WebP's canvas size from its RIFF header (`VP8 `, `VP8L` or `VP8X`),
 /// or nil when the prefix is not one.
 func webpSize(_ data: Data) -> (Int, Int)? {
@@ -253,23 +284,32 @@ struct RasterDecodePlan: Sendable {
         guard maxPixel > 0 else { throw RasterFailure.dimensions }
         self.variant = variant ?? metadata.variant
         guard let bytes = RasterVariant.bytesPerPixel(self.variant) else { throw RasterFailure.reservation }
+        guard !metadata.svg || self.variant == RasterVariant.srgb8 else { throw RasterFailure.reservation }
         bytesPerPixel = bytes
         let natural = metadata.naturalSize
         let longest = Int(max(natural.width, natural.height))
-        self.maxPixel = min(maxPixel, longest)
+        self.maxPixel = metadata.svg ? maxPixel : min(maxPixel, longest)
         // Keep the longest axis exact: floating ceil can add one pixel and
         // make a worker reconstruct a different reservation from this size.
         width = try Self.scaled(Int(natural.width), pixel: self.maxPixel, longest: longest)
         height = try Self.scaled(Int(natural.height), pixel: self.maxPixel, longest: longest)
         stride = try Self.aligned(try Self.product(width, bytes), to: 64)
         outputBytes = try Self.product(stride, height)
-        // Allow up to 128-bit staging pixels and page-aligned scanlines. ImageIO
-        // does not expose a contractual internal allocator ceiling.
-        let stagingStride = try Self.aligned(try Self.product(width, 16), to: 4096)
-        let staging = try Self.product(stagingStride, height)
-        let (scratch, overflow) = staging.addingReportingOverflow(64 * 1024)
-        guard !overflow else { throw RasterFailure.overflow }
-        scratchBytes = scratch
+        if metadata.svg {
+            // SVG paints directly into Core Graphics-owned storage. Reserve one
+            // output-sized allowance for makeImage's possible copy; no ImageIO
+            // thumbnail or separate RGBA conversion bitmap exists on this path.
+            let (scratch, overflow) = outputBytes.addingReportingOverflow(64 * 1024)
+            guard !overflow else { throw RasterFailure.overflow }
+            scratchBytes = scratch
+        } else {
+            // ImageIO does not expose a contractual internal allocator ceiling.
+            let stagingStride = try Self.aligned(try Self.product(width, 16), to: 4096)
+            let staging = try Self.product(stagingStride, height)
+            let (scratch, overflow) = staging.addingReportingOverflow(64 * 1024)
+            guard !overflow else { throw RasterFailure.overflow }
+            scratchBytes = scratch
+        }
         let (peak, peakOverflow) = outputBytes.addingReportingOverflow(scratchBytes)
         guard !peakOverflow, peak <= 32 * 1024 * 1024 else { throw RasterFailure.tooLarge }
     }
@@ -327,14 +367,29 @@ final class RasterImage: @unchecked Sendable {
                        charge: any RasterBackingCharge, sourceOwner: (any RasterSourceOwner)? = nil,
                        url: URL? = nil) throws -> RasterImage {
         guard bytes.count == metadata.encodedBytes, bytes.count <= RasterMetadata.encodedLimit else { throw RasterFailure.encodedLimit }
-        // A file can change between metadata inspection and worker admission.
-        // Recheck the actual bytes before asking ImageIO for any pixel buffer.
-        let actual = try RasterMetadata.read(prefix: bytes.prefix(RasterMetadata.headerLimit), encodedBytes: bytes.count)
-        guard actual == metadata else { throw RasterFailure.reservation }
+        // SVG validates its actual viewport in the render call, with the same
+        // parsed tree that paints it. Raster formats still recheck ImageIO facts.
+        if !metadata.svg {
+            let actual = try RasterMetadata.read(prefix: bytes.prefix(RasterMetadata.headerLimit), encodedBytes: bytes.count)
+            guard actual == metadata else { throw RasterFailure.reservation }
+        }
         let owner = RasterOwner(charge: charge, sourceOwner: sourceOwner)
         // This pool ends before the caller publishes the payload/completes its
         // permit. No ImageIO source, thumbnail, or CGContext enters the mailbox.
         return try autoreleasepool {
+            if metadata.svg {
+                guard let module = SvgRasterModule.imageDecoder else { throw RasterFailure.svgModule }
+                let info = CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue
+                guard let context = CGContext(data: nil, width: plan.width, height: plan.height, bitsPerComponent: 8,
+                    bytesPerRow: plan.stride, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: info),
+                    context.bytesPerRow == plan.stride, let pixels = context.data else { throw RasterFailure.decode }
+                let result = bytes.withUnsafeBytes { module.documentRender($0.bindMemory(to: UInt8.self).baseAddress, bytes.count,
+                    pixels.assumingMemoryBound(to: UInt8.self), UInt32(plan.width), UInt32(plan.height), plan.stride,
+                    UInt32(metadata.sourceWidth), UInt32(metadata.sourceHeight)) }
+                try svgResult(result)
+                guard let image = context.makeImage() else { throw RasterFailure.decode }
+                return RasterImage(image: owner.own(image), natural: metadata.naturalSize, bytes: plan.outputBytes, animation: nil)
+            }
             guard let source = CGImageSourceCreateWithData(bytes as CFData,
                 [kCGImageSourceShouldCache: false] as CFDictionary),
                 var thumbnail = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbnailOptions(plan, hdr: metadata.hdr)) else { throw RasterFailure.decode }
@@ -448,6 +503,16 @@ final class RasterImage: @unchecked Sendable {
             CGColorSpace.extendedITUR_2020: CGColorSpace.itur_2020, CGColorSpace.extendedLinearSRGB: CGColorSpace.linearSRGB,
             CGColorSpace.extendedLinearDisplayP3: CGColorSpace.linearDisplayP3]
         return standard[name].flatMap { CGColorSpace(name: $0) } ?? own
+    }
+}
+
+private func svgResult(_ result: Int32) throws {
+    switch result {
+    case 0: return
+    case 2: throw RasterFailure.svgDocumentLimit
+    case 3: throw RasterFailure.unsupportedSvgFeature
+    case 4: throw RasterFailure.reservation
+    default: throw RasterFailure.invalidSvgDocument
     }
 }
 

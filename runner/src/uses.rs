@@ -383,6 +383,17 @@ pub fn svg_islands(plan: &Plan) -> bool {
             .any(|node| NodeType::from_wire(node.node_type) == Some(NodeType::SvgMask))
 }
 
+/// Whether an image can select an SVG document. Native symbols never use the
+/// decoder; every other literal or computed source can resolve to SVG bytes.
+pub fn svg_images(plan: &Plan) -> bool {
+    plan.bindings.iter().any(|binding| {
+        binding.kind == BindingKind::Prop
+            && PropId::from_wire(binding.id) == Some(PropId::ImageSource)
+            && constant_str(plan, plan.code(binding.expr))
+                .is_none_or(|source| !source.starts_with("symbol:"))
+    })
+}
+
 /// Whether `plan` can show an SVG filter: a `filter` element, or `filter`
 /// bound on an SVG element. A host that draws a filtered picture on the GPU
 /// (Apple's `SvgFilterMetal`) makes its pipelines off the main thread at

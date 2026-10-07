@@ -728,7 +728,7 @@ final class RasterLoader {
             },
             "deferred": interests.values.filter { $0.admissionDeferred || $0.failure != nil || ($0.request != 0 && exact_raster_status(id, $0.request) == 2) }.count,
             "deferredAdmission": deferred.count,
-            "scope": "Exact-owned RGBA storage plus conservative thumbnail/conversion reservation; ImageIO internals excluded"]
+            "scope": "Exact-owned RGBA storage plus conservative decoder/conversion reservation; ImageIO and SVG parser/compositor internals excluded"]
     }
     /// What the agent sees of a picture's storage (LLP 1100 D12).
     private static func colorFacts(_ interest: Interest) -> [String: Any] {

@@ -20,16 +20,22 @@ final class SvgRasterModule {
     typealias Abi = @convention(c) () -> UInt32
     typealias Mask = @convention(c) (UnsafeMutablePointer<UInt8>?, Int, UInt8) -> Void
     typealias Filter = @convention(c) (UnsafePointer<Float>?, Int, UnsafeMutablePointer<UInt8>?, Int, Int, Float, Float, Float, Float) -> Int32
+    typealias DocumentSize = @convention(c) (UnsafePointer<UInt8>?, Int, UnsafeMutablePointer<UInt32>?, UnsafeMutablePointer<UInt32>?) -> Int32
+    typealias DocumentRender = @convention(c) (UnsafePointer<UInt8>?, Int, UnsafeMutablePointer<UInt8>?, UInt32, UInt32, Int, UInt32, UInt32) -> Int32
     /// The ABI this host speaks (`exact_svg_raster_abi`).
-    static let abi: UInt32 = 1
+    static let abi: UInt32 = 2
     let mask: Mask
     let filter: Filter
+    let documentSize: DocumentSize
+    let documentRender: DocumentRender
     /// Milliseconds the load took.
     let loadMs: Double
 
     private init(_ library: UnsafeMutableRawPointer, ms: Double) {
         mask = unsafeBitCast(dlsym(library, "exact_svg_raster_mask")!, to: Mask.self)
         filter = unsafeBitCast(dlsym(library, "exact_svg_raster_filter")!, to: Filter.self)
+        documentSize = unsafeBitCast(dlsym(library, "exact_svg_document_size")!, to: DocumentSize.self)
+        documentRender = unsafeBitCast(dlsym(library, "exact_svg_document_render")!, to: DocumentRender.self)
         loadMs = ms
     }
 
@@ -46,8 +52,6 @@ final class SvgRasterModule {
     private static var prewarming = false
     private static let prewarmed = DispatchSemaphore(value: 0)
     private static var waited = false
-    /// Milliseconds the prewarm's check of the file took (before `dlopen`).
-    private static var checkMs = 0.0
 
     /// Open the module on a background queue, once. The first open of a
     /// freshly installed file waits for the system's one-time check of it
@@ -60,15 +64,7 @@ final class SvgRasterModule {
     static func prewarm() {
         guard !prewarming else { return }
         prewarming = true
-        let path = path
         DispatchQueue.global(qos: .userInitiated).async {
-            let t0 = CFAbsoluteTimeGetCurrent()
-            let fd = open(path, O_RDONLY)
-            if fd >= 0 {
-                if let p = mmap(nil, 16384, PROT_READ | PROT_EXEC, MAP_PRIVATE, fd, 0), p != MAP_FAILED { munmap(p, 16384) }
-                close(fd)
-            }
-            checkMs = (CFAbsoluteTimeGetCurrent() - t0) * 1000
             _ = shared
             prewarmed.signal()
         }
@@ -87,15 +83,28 @@ final class SvgRasterModule {
         return shared
     }
 
+    /// The raster workers open it on first SVG image use, never on the UI thread.
+    static var imageDecoder: SvgRasterModule? { shared }
+
     /// The module, or `nil` (reported once, by name) when it cannot load.
     private static let shared: SvgRasterModule? = {
+        // Images can be the first consumer without an island prewarm. Keep
+        // the signature check outside dyld's lock on that worker path too.
+        let checkStart = CFAbsoluteTimeGetCurrent()
+        let fd = open(path, O_RDONLY)
+        if fd >= 0 {
+            if let p = mmap(nil, 16384, PROT_READ | PROT_EXEC, MAP_PRIVATE, fd, 0), p != MAP_FAILED { munmap(p, 16384) }
+            close(fd)
+        }
+        let checkMs = (CFAbsoluteTimeGetCurrent() - checkStart) * 1000
         let t0 = CFAbsoluteTimeGetCurrent()
         let off = !Thread.isMainThread
         guard let library = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
-            FileHandle.standardError.write(Data("exact svg: the island module is not loaded (\(String(cString: dlerror()))); masks and filters draw nothing\n".utf8))
+            FileHandle.standardError.write(Data("exact svg: the raster module is not loaded (\(String(cString: dlerror()))); SVG images, masks and filters cannot render\n".utf8))
             return nil
         }
         guard let abi = dlsym(library, "exact_svg_raster_abi"), dlsym(library, "exact_svg_raster_mask") != nil, dlsym(library, "exact_svg_raster_filter") != nil,
+              dlsym(library, "exact_svg_document_size") != nil, dlsym(library, "exact_svg_document_render") != nil,
               unsafeBitCast(abi, to: Abi.self)() == SvgRasterModule.abi else {
             FileHandle.standardError.write(Data("exact svg: \(path) is not an exact SVG island module of ABI \(SvgRasterModule.abi)\n".utf8))
             dlclose(library)

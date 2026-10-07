@@ -4,6 +4,44 @@ import CoreGraphics
 @testable import ExactKit
 
 final class RasterImageTests: XCTestCase {
+    func testSVGImageKeepsNaturalSizeAndPaintsNegativeViewBox() throws {
+        let bytes = Data("<svg xmlns='http://www.w3.org/2000/svg' width='110' height='130' viewBox='-5 -100 110 130' fill='#808080'><path d='M-5-100H105V30H-5Z'/></svg>".utf8)
+        let metadata = try RasterMetadata.read(prefix: bytes, encodedBytes: bytes.count)
+        XCTAssertTrue(metadata.svg)
+        XCTAssertEqual(metadata.naturalSize, CGSize(width: 110, height: 130))
+        let plan = try RasterDecodePlan(metadata: metadata, maxPixel: 13)
+        let image = try RasterImage.decode(bytes, metadata: metadata, plan: plan, charge: TestRasterCharge())
+        XCTAssertEqual(image.image.width, 11); XCTAssertEqual(image.image.height, 13)
+        let enlarged = try RasterDecodePlan(metadata: metadata, maxPixel: 390)
+        XCTAssertEqual(enlarged.width, 330); XCTAssertEqual(enlarged.height, 390)
+        let largeImage = try RasterImage.decode(bytes, metadata: metadata, plan: enlarged, charge: TestRasterCharge())
+        XCTAssertEqual(largeImage.image.width, 330); XCTAssertEqual(largeImage.image.height, 390)
+        XCTAssertEqual(largeImage.naturalSize, metadata.naturalSize)
+        let context = try XCTUnwrap(CGContext(data: nil, width: 11, height: 13, bitsPerComponent: 8,
+            bytesPerRow: 44, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.draw(image.image, in: CGRect(x: 0, y: 0, width: 11, height: 13))
+        let pixels = try XCTUnwrap(context.data).assumingMemoryBound(to: UInt8.self)
+        XCTAssertEqual(Array(UnsafeBufferPointer(start: pixels, count: 4)), [128, 128, 128, 255])
+        XCTAssertThrowsError(try RasterMetadata.read(prefix: bytes.prefix(40), encodedBytes: bytes.count))
+        let external = Data("<svg xmlns='http://www.w3.org/2000/svg'><image href='/etc/passwd'/></svg>".utf8)
+        XCTAssertThrowsError(try RasterMetadata.read(prefix: external, encodedBytes: external.count)) { error in
+            XCTAssertEqual(String(describing: error), "unsupported SVG image feature")
+        }
+    }
+
+    func testSVGSourceChangeIsRefusedAndReservationHasNoImageIOStaging() throws {
+        let bytes = Data("<svg xmlns='http://www.w3.org/2000/svg' width='5' height='7'/>".utf8)
+        let metadata = try RasterMetadata.read(prefix: bytes, encodedBytes: bytes.count)
+        let plan = try RasterDecodePlan(metadata: metadata, maxPixel: 70)
+        XCTAssertEqual(plan.peakBytes, 2 * plan.outputBytes + 64 * 1024)
+        let changed = Data("<svg xmlns='http://www.w3.org/2000/svg' width='6' height='7'/>".utf8)
+        XCTAssertThrowsError(try RasterImage.decode(changed, metadata: metadata, plan: plan, charge: TestRasterCharge())) { error in
+            XCTAssertEqual(String(describing: error), "actual exceeds reservation")
+        }
+        let bom = Data([0xef, 0xbb, 0xbf, 32, 10]) + bytes
+        XCTAssertTrue(try RasterMetadata.read(prefix: bom, encodedBytes: bom.count).svg)
+    }
+
     private func fixture(_ width: Int, _ height: Int, type: String = "public.png", orientation: Int = 1) throws -> Data {
         let ctx = try XCTUnwrap(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
             bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
@@ -89,7 +127,7 @@ final class RasterImageTests: XCTestCase {
     /// `error` names (LLP 1011 §4); a prefix too short to size stays the
     /// header limit.
     func testAWholeFileNoDecoderReadsIsItsFormat() throws {
-        for text in ["<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"24\" height=\"24\"><circle r=\"10\"/></svg>", "not an image"] {
+        for text in ["not an image", "{\"oops\":1}"] {
             let bytes = Data(text.utf8)
             XCTAssertThrowsError(try RasterMetadata.read(prefix: bytes, encodedBytes: bytes.count)) { error in
                 XCTAssertEqual(error as? RasterFailure, .format)

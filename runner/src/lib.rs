@@ -108,6 +108,6 @@ pub use runner::{
     QUEUE_BOUND, RESIZE_UNDELIVERED, TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
 };
 pub use store::{Store, StoreError, StoreWrite};
-pub use uses::{svg_filters, svg_islands, uses, Capability, Uses};
+pub use uses::{svg_filters, svg_images, svg_islands, uses, Capability, Uses};
 pub use viewport::{Contrast, Fold, Gamut, Hover, Pointer, Posture, Preferences, Viewport};
 pub use vm::Trap;

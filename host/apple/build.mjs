@@ -1434,6 +1434,11 @@ function test(args) {
     run('cargo', ['rustc', '--crate-type', 'staticlib', ...injectedProfiles(app), '--profile', HOST_DEV, '-p', crate, '--lib', ...(ios ? ['--target', iosTarget] : [])], { cwd: app.workspace, env: cargoEnv });
     const libDir = ios ? resolve(app.target, iosTarget, HOST_DEV) : resolve(app.target, HOST_DEV);
     const env = { ...process.env, EXACT_TESTS: '1', EXACT_LIB_DIR: libDir, EXACT_LIB: unit.name.replace(/-/g, '_'), EXACT_APP_COMPOSITION: 'embedded' };
+    // SVG image decoding uses the same loaded module in tests and app bundles.
+    run('cargo', ['build', '--profile', HOST_DEV, '-p', 'exact-svg-raster', '--manifest-path', resolve(root, 'Cargo.toml'),
+      ...(ios ? ['--target', iosTarget] : [])], { env: cargoEnv });
+    env.EXACT_SVG_DYLIB = resolve(libDir, 'libexact_svg_raster.dylib');
+    if (ios) env.TEST_RUNNER_EXACT_SVG_DYLIB = env.EXACT_SVG_DYLIB;
     // The filter kernels the Metal chain's tests run (no bundle to find them in).
     mkdirSync(paths.namespace, { recursive: true });
     env.EXACT_SVG_METALLIB = svgFilterLibrary(ios ? 'iphonesimulator' : 'macosx', ios ? '17.0' : '14.0', resolve(paths.namespace, svgFilterLibraryName), true);
@@ -1466,7 +1471,7 @@ function test(args) {
     runApple('xcrun', ['--sdk', 'iphonesimulator', 'swiftc', '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules',
       '-module-cache-path', resolve(fixtureDir, 'cache'), resolve(root, 'host/apple/modules/ExactNativeModule.swift'), resolve(fixtureDir, 'ExactDataKeys.swift'),
       ...fixture.modules.apple, '-target', iosTriple, '-o', env.TEST_RUNNER_EXACT_FIXTURE_MODULE]);
-    const classes = readdirSync(resolve(pkg, 'tests/ExactKitTests')).filter(f => f.endsWith('IOSTests.swift')).map(f => f.slice(0, -'.swift'.length));
+    const classes = readdirSync(resolve(pkg, 'tests/ExactKitTests')).filter(f => f.endsWith('IOSTests.swift') || f === 'RasterImageTests.swift').map(f => f.slice(0, -'.swift'.length));
     if (!classes.length) { console.log('host/apple: no *IOSTests to run'); return; }
     const pick = args.includes('--sim') ? args[args.indexOf('--sim') + 1] : process.env.EXACT_SIM;
     const before = simulators();

@@ -9,7 +9,79 @@
 
 /// The ABI this module speaks. A host that expects another refuses the
 /// module by name, as a missing symbol is refused.
-pub const ABI: u32 = 1;
+pub const ABI: u32 = 2;
+
+/// Read the natural viewport of a bounded SVG image document.
+///
+/// # Safety
+/// `bytes` is valid for `len` reads; `width` and `height` each for one write.
+#[no_mangle]
+pub unsafe extern "C" fn exact_svg_document_size(
+    bytes: *const u8,
+    len: usize,
+    width: *mut u32,
+    height: *mut u32,
+) -> i32 {
+    if bytes.is_null() || width.is_null() || height.is_null() || len > crate::document::SOURCE_LIMIT
+    {
+        return 2;
+    }
+    // SAFETY: the caller supplies all three buffers for this call.
+    match crate::document::size(unsafe { std::slice::from_raw_parts(bytes, len) }) {
+        Ok((w, h)) => {
+            unsafe {
+                *width = w;
+                *height = h;
+            }
+            0
+        }
+        Err(error) => error as i32,
+    }
+}
+
+/// Render an SVG document into the host's reserved BGRA8 output.
+///
+/// # Safety
+/// `bytes` is valid for `len` reads; `pixels` for `stride * height` writes.
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn exact_svg_document_render(
+    bytes: *const u8,
+    len: usize,
+    pixels: *mut u8,
+    width: u32,
+    height: u32,
+    stride: usize,
+    natural_width: u32,
+    natural_height: u32,
+) -> i32 {
+    let Some(output) = stride.checked_mul(height as usize) else {
+        return 2;
+    };
+    if bytes.is_null()
+        || pixels.is_null()
+        || len > crate::document::SOURCE_LIMIT
+        || output > 32 * 1024 * 1024
+    {
+        return 2;
+    }
+    // SAFETY: both slices are bounded above and owned by the caller.
+    let (bytes, pixels) = unsafe {
+        (
+            std::slice::from_raw_parts(bytes, len),
+            std::slice::from_raw_parts_mut(pixels, output),
+        )
+    };
+    crate::document::render(
+        bytes,
+        pixels,
+        width,
+        height,
+        stride,
+        (natural_width, natural_height),
+    )
+    .map_or_else(|error| error as i32, |()| 0)
+}
 
 /// The ABI version.
 #[no_mangle]
