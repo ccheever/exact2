@@ -19,8 +19,9 @@ pub type Resolve<'r> = &'r dyn Fn(exact_kernel::ViewId, &str) -> Option<exact_ke
 /// above the canvas's background and below its children. A container a
 /// button holds is a `<span>` ([`tag_for`]) whose box is still a block unless
 /// a row says otherwise, as a `<div>`'s is.
-pub(super) fn host_css(node: &NodeRef<'_>, css: String, tag: &str) -> String {
-    host_css_of(&node.facts(), css, tag)
+pub(super) fn host_css(kernel: &Kernel, node: &NodeRef<'_>, css: String, tag: &str) -> String {
+    let parent = node.parent.and_then(|p| kernel.node(p));
+    host_css_of(&node.facts(), parent.map(|p| p.facts()).as_ref(), css, tag)
 }
 
 /// Whether a text is its box's text content on the web, not an element box of
@@ -206,7 +207,12 @@ pub(super) fn touch_scoped(kernel: &Kernel, node: &NodeRef<'_>) -> bool {
 }
 
 /// [`host_css`], from a node's facts.
-pub fn host_css_of(node: &NodeFacts<'_>, mut css: String, tag: &str) -> String {
+pub fn host_css_of(
+    node: &NodeFacts<'_>,
+    parent: Option<&NodeFacts<'_>>,
+    mut css: String,
+    tag: &str,
+) -> String {
     if tag == "span" && !node.is_inline_run() && !css.split(';').any(|d| d.starts_with("display:"))
     {
         css.push_str("display:block;");
@@ -221,7 +227,7 @@ pub fn host_css_of(node: &NodeFacts<'_>, mut css: String, tag: &str) -> String {
         canvas_css(node, &mut css);
     }
     if is_progress(node) {
-        progress_css(node, &mut css);
+        progress_css(node, parent, &mut css);
     }
     // A root is a block formatting context in the kernel, as CSS's root
     // element is: its first child's top margin stays inside it. On the web a
@@ -329,16 +335,21 @@ fn is_progress(node: &NodeFacts<'_>) -> bool {
 }
 
 /// A progress's box sized as the kernel's measured leaf: 20 × 20 content,
-/// each axis CSS's where it is given. `contain: size` with a
-/// `contain-intrinsic-size` is that content, a flex item's automatic
-/// minimum included, and `justify-self: start` keeps an auto width at it
-/// in block flow, as a canvas's does. The base sheet's ring is positioned
-/// in it.
-fn progress_css(node: &NodeFacts<'_>, css: &mut String) {
-    if node.style.position_type == exact_kernel::PositionType::Static {
-        css.push_str("position:relative;");
+/// each axis CSS's where it is given. Size containment (`container-type:
+/// size`) with a `contain-intrinsic-size` is that content, a flex item's
+/// automatic minimum included, and lets the base sheet's ring fill the
+/// content box in container units. Like the kernel's form controls (`item_is_table`), it
+/// keeps that width in block flow, where a `div` would stretch
+/// (`justify-self: start`, as a canvas's), and stretches where the kernel
+/// does: in a flex or grid container, and between an absolute box's insets.
+fn progress_css(node: &NodeFacts<'_>, parent: Option<&NodeFacts<'_>>, css: &mut String) {
+    use exact_kernel::{Display, PositionType};
+    let position = node.style.position_type;
+    css.push_str("container-type:size;contain-intrinsic-size:20px 20px;");
+    let in_flow = matches!(position, PositionType::Static | PositionType::Relative);
+    if in_flow && parent.is_none_or(|p| p.style.display == Display::Block) {
+        css.push_str("justify-self:start;");
     }
-    css.push_str("contain:size;contain-intrinsic-size:20px 20px;justify-self:start;");
 }
 
 /// The element for a node: its type, refined by `semanticTag`. A `<button>`
@@ -1150,7 +1161,7 @@ mod name_tests {
                 is_root: false,
                 inline_run: false,
             };
-            let css = host_css_of(&facts, String::new(), tag);
+            let css = host_css_of(&facts, None, String::new(), tag);
             assert!(!css.contains("width:"), "{tag}: {css}");
             assert!(!css.contains("box-sizing:"), "{tag}: {css}");
         }
@@ -1164,7 +1175,12 @@ impl<D: exact_runner::DataSource> super::Host<D> {
         let kernel = self.runner.kernel();
         let m = self.mirror.get(&node.id);
         let (css, _) = crate::css::css_text(&css_style(kernel, node), &self.font_names);
-        let css = host_css(node, css, tag_for(node, m.is_some_and(|m| m.in_button)));
+        let css = host_css(
+            kernel,
+            node,
+            css,
+            tag_for(node, m.is_some_and(|m| m.in_button)),
+        );
         let css = folded_css(kernel, node, css, m.is_some_and(|m| m.handled));
         let handled = |c| self.mirror.get(&c).is_some_and(|m| m.handled);
         let css = blocks(css, holds_folded(kernel, node, &handled));
@@ -1313,12 +1329,29 @@ mod dataset_tests {
         assert_eq!(get("aria-busy"), Some("true"));
         assert_eq!(get("data-exact-progress"), Some(""));
         assert_eq!(get("type"), None, "{out:?}");
-        let css = super::host_css_of(&facts, String::new(), "div");
+        let css = super::host_css_of(&facts, None, String::new(), "div");
         assert!(
-            css.contains("contain:size;contain-intrinsic-size:20px 20px;"),
+            css.contains("container-type:size;contain-intrinsic-size:20px 20px;"),
             "{css}"
         );
-        assert!(css.contains("position:relative;"), "{css}");
+        assert!(css.contains("justify-self:start;"), "a block's: {css}");
+        // In a grid or a flex container it stretches as the kernel's does.
+        for display in [exact_kernel::Display::Grid, exact_kernel::Display::Flex] {
+            let grid = StyleProps {
+                display,
+                ..StyleProps::default()
+            };
+            let parent = NodeFacts {
+                id: 2,
+                node_type: NodeType::View,
+                style: &grid,
+                props: &PropList::default(),
+                is_root: false,
+                inline_run: false,
+            };
+            let css = super::host_css_of(&facts, Some(&parent), String::new(), "div");
+            assert!(!css.contains("justify-self"), "{display:?}: {css}");
+        }
         assert!(include_str!("../index.html").contains("[data-exact-progress]::before"));
     }
 
