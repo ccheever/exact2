@@ -45,6 +45,8 @@ extension ControlHost {
             let turns = !held && !owner.cssVisibilityHidden && Self.shown(owner)
             if turns != spinner.isAnimating { if turns { spinner.startAnimating() } else { spinner.stopAnimating() } }
         }
+        // One leaving with its exit holds too, under the agent's clock.
+        if held { for id in leaving { if let s = spinners[id], s.isAnimating { s.stopAnimating() } } }
     }
 
     /// Whether nothing from the node up hides it: `display: none` hides a

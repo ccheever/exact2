@@ -58,6 +58,13 @@ extension ControlHost {
                 if turns { spinner.startAnimation(nil); animating.insert(owner.id) } else { spinner.stopAnimation(nil); animating.remove(owner.id) }
             }
         }
+        // One leaving with its exit holds too, under the agent's clock.
+        if held {
+            for id in leaving where animating.contains(id) {
+                spinners[id]?.stopAnimation(nil)
+                animating.remove(id)
+            }
+        }
         animating.formIntersection(Set(spinners.keys))
     }
 
