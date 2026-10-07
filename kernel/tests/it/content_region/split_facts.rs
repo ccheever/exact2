@@ -418,7 +418,10 @@ fn append_sources(k: &mut Kernel, count: usize, flex: bool) {
     k.apply(0, 0, &ops).unwrap();
 }
 fn many_sources(count: usize, flex: bool) -> Kernel {
-    let mut k = fixture();
+    many_sources_with(count, flex, Box::<MonospaceMeasurer>::default())
+}
+fn many_sources_with(count: usize, flex: bool, measurer: Box<dyn TextMeasurer>) -> Kernel {
+    let mut k = fixture_with(measurer);
     append_sources(&mut k, count, flex);
     k
 }
@@ -477,8 +480,10 @@ fn canonical_source_overflow_refuses_193_without_omitting_a_paragraph() {
 fn scalar_overflow_is_separate_from_192_source_admission() {
     // This deliberately uses content-dependent flex widths; if it does not
     // exercise M768, retain that fixture failure before changing its shape.
+    // A height-bound measurer keeps a fact per height: under a height-free one
+    // (monospace) these 192 paragraphs fit in 768 facts.
     exhausted(
-        many_sources(192, true),
+        many_sources_with(192, true, Box::new(HeightBound)),
         "split scalar fact budget exhausted",
     );
 }
