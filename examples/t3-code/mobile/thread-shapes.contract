@@ -139,6 +139,7 @@ shape ThreadColors
   secondary: string
   muted: string
   iconSubtle: string
+  iconMuted: string
   border: string
   borderSubtle: string
   subtle: string
