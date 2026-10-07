@@ -5,10 +5,12 @@ import Foundation
 final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Sendable {
     typealias Completion = ([String: Any]) -> Void
     private struct Pending {
-        let completion: Completion
+        var completion: Completion
         let deadline: Date
         /// The app's trace id: a status read lists the traces still pending (r3-protocol-reader.ts).
         var trace: Int? = nil
+        /// The traces of shared reads that joined this one: pending as long as it is.
+        var joinedTraces: [Int] = []
     }
     let queue = DispatchQueue(label: "com.exact.t3code.transport")
     private let changed: (String) -> Void
@@ -26,6 +28,8 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     private var socket: URLSessionWebSocketTask?
     private var httpTasks: [Int: URLSessionDataTask] = [:]
     private var pending: [String: Pending] = [:]
+    /// Shared reads still pending, by method and payload (`share`): an identical read joins one.
+    private var sharedReads: [String: String] = [:]
     private let activity: T3ActivityReporter?
     private let activityID = UUID()
     private var activityScopes: [String: UUID] = [:]
@@ -234,7 +238,7 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     func status() -> [String: Any] {
         ["state": state, "origin": origin?.absoluteString ?? "", "environmentId": descriptor["environmentId"] as? String ?? "",
          "message": message, "descriptor": descriptor, "failureKind": failureKind, "traceId": failureTrace,
-         "traces": pending.values.compactMap { $0.trace }, "activeRouteId": routes.activeId, "homeOrigin": routes.home]
+         "traces": pending.values.flatMap { call in (call.trace.map { [$0] } ?? []) + call.joinedTraces }, "activeRouteId": routes.activeId, "homeOrigin": routes.home]
     }
     func setStatus(_ next: String, _ text: String) {
         let cleaned = clean(text)
@@ -502,16 +506,37 @@ final class T3Transport: NSObject, URLSessionWebSocketDelegate, @unchecked Senda
     }
 
     func nextID() -> String { serial += 1; return "\(generation)-\(serial)" }
+    /// A shared read's identity: the method and its payload, keys sorted.
+    static func shareKey(_ method: String, _ payload: Any?) -> String? {
+        guard let data = try? JSONSerialization.data(withJSONObject: payload ?? [String: Any](), options: [.sortedKeys, .fragmentsAllowed]),
+              let text = String(data: data, encoding: .utf8) else { return nil }
+        return method + "\n" + text
+    }
     func rpc(_ request: [String: Any], completion: @escaping Completion) throws {
         guard state == "connected" else { throw T3Failure(kind: "Disconnected", message: "The server is not connected.") }
         guard let method = request["method"] as? String, !method.isEmpty else { throw arguments("request requires a method.") }
         // No cap on pending requests: the reference's RPC client refuses none (a user's snooze
         // queued behind other reads still goes out), and each pending request ends at its deadline.
+        // A shared read (`share`, a data source's kept read) joins an identical one still pending, as
+        // the reference's query atoms share one request per input: an answer Exact asked again before
+        // the reply sends nothing new (round 5: vcs.refreshStatus four times a second).
+        let shareKey = request["share"] as? Bool == true ? Self.shareKey(method, request["payload"]) : nil
+        // A request that is not shared may write (a branch switch): no later read joins one sent before it.
+        if shareKey == nil { sharedReads.removeAll() }
+        if let shareKey, let id = sharedReads[shareKey], let joined = pending[id] {
+            pending[id]?.completion = { response in joined.completion(response); completion(response) }
+            if let trace = request["trace"] as? Int { pending[id]?.joinedTraces.append(trace) }
+            return
+        }
         let id = nextID(), wire = T3Wire.request(id: id, method: method, payload: request["payload"] ?? [:])
         let text = try T3Wire.encode(wire)
         // auto-balance: a request may ask for a shorter deadline (server.getHostResources waits 5 s).
         let wait = min(30, max(1, (request["timeout"] as? NSNumber)?.doubleValue ?? 30))
         pending[id] = Pending(completion: completion, deadline: Date().addingTimeInterval(wait), trace: request["trace"] as? Int)
+        if let shareKey {
+            sharedReads = sharedReads.filter { pending[$0.value] != nil } // ended reads leave
+            sharedReads[shareKey] = id
+        }
         send(text, epoch: generation)
     }
     private func subscribe(_ request: [String: Any], completion: @escaping Completion) throws {

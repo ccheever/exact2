@@ -5,9 +5,12 @@
 // git menu opens. While a toast is up, the window asks the strip and the details
 // card again every 500 ms (app.contract `shellTick`), and Exact lets the previous
 // answers go. The strip used to ask vcs.refreshStatus until a reply arrived, so a
-// slow reply (it can wait on a remote fetch) was asked for on every tick.
+// slow reply (it can wait on a remote fetch) was asked for on every tick. Now the
+// status comes from the stream, and a kept read is shared: the transport answers an
+// identical read still pending with the same reply (T3Transport `share`, tested in
+// macos/tests/transport). The fake below models that sharing.
 import { describe, expect, test } from 'bun:test';
-import { obj, str } from './domain';
+import { obj, str, type Obj } from './domain';
 import { ClientError, type Native } from './protocol';
 import { composerBranches } from './composer-controls-branch';
 import { noteNow } from './composer-controls';
@@ -23,28 +26,46 @@ class FetchError extends Error {
 }
 const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
-/** Replies to these server methods held until the answer that asked is let go; counts what was sent. */
-function holdReads(native: Fake, methods = ['vcs.refreshStatus']): { sent: (method?: string) => number; letGo: () => void } {
+/**
+ * Replies to these server methods held (the server is slow); each answer's wait ends when it is let go.
+ * Counts the requests that reach the server: a shared read joins an identical one still pending.
+ */
+function holdReads(native: Fake, methods = ['vcs.refreshStatus']): { sent: (method?: string) => number; letGo: () => void; reply: (method: string) => Promise<void> } {
   const later = native.later.bind(native);
-  const sent = new Map<string, number>();
-  let held: Array<(error: unknown) => void> = [];
+  const sent = new Map<string, number>(), onServer = new Map<string, Obj>();
+  // Each answer's wait: let go, it rejects; a reply reaches every wait still live on that request.
+  let held: Array<{ key: string; resolve: (value: unknown) => void; reject: (error: unknown) => void }> = [];
   native.later = async (input: unknown) => {
     const request = obj(input), method = str(request.method);
     if (request.op === 'request' && methods.includes(method)) {
-      sent.set(method, (sent.get(method) ?? 0) + 1);
-      return new Promise((_resolve, reject) => { held.push(reject); });
+      const key = `${method}\n${JSON.stringify(request.payload)}`;
+      if (!(request.share === true && onServer.has(key))) { sent.set(method, (sent.get(method) ?? 0) + 1); onServer.set(key, request); }
+      return new Promise((resolve, reject) => { held.push({ key, resolve, reject }); });
     }
     return later(input);
   };
-  return { sent: (method = 'vcs.refreshStatus') => sent.get(method) ?? 0, letGo: () => { const now = held; held = []; now.forEach(reject => reject(new FetchError())); } };
+  return {
+    sent: (method = 'vcs.refreshStatus') => sent.get(method) ?? 0,
+    letGo: () => { const now = held; held = []; now.forEach(wait => wait.reject(new FetchError())); },
+    // The server answers this method's pending requests; the live waits get the reply.
+    reply: async (method: string) => {
+      for (const [key, request] of [...onServer]) {
+        if (!key.startsWith(`${method}\n`)) continue;
+        onServer.delete(key);
+        const value = await later(request);
+        held.filter(wait => wait.key === key).forEach(wait => wait.resolve(value));
+        held = held.filter(wait => wait.key !== key);
+      }
+    },
+  };
 }
 /** The server's subscribeVcsStatus stream: a snapshot follows each subscribe. */
-function streamStatus(native: Fake, refName = 'main'): void {
+function streamStatus(native: Fake, refName = ''): void {
   const later = native.later.bind(native);
   native.later = async (input: unknown) => {
     const request = obj(input), reply = await later(input);
     if (request.op === 'subscribe' && request.key === VCS_STATUS_KEY) {
-      native.emit(VCS_STATUS_KEY, { _tag: 'snapshot', local: { isRepo: true, refName, hasPrimaryRemote: false, isDefaultRef: refName === 'main', hasWorkingTreeChanges: false,
+      native.emit(VCS_STATUS_KEY, { _tag: 'snapshot', local: { isRepo: true, refName: refName || native.branch, hasPrimaryRemote: false, isDefaultRef: false, hasWorkingTreeChanges: false,
         workingTree: { files: [], insertions: 0, deletions: 0 } }, remote: null });
     }
     return reply;
@@ -55,7 +76,7 @@ function streamStatus(native: Fake, refName = 'main'): void {
 function ask(client: Awaited<ReturnType<typeof connected>>['client'], native: Native, now: number, cardOpen = false) {
   noteNow(client, now);
   const settle = (work: Promise<unknown>) => work.catch(error => { if (!(error instanceof ClientError)) throw error; });
-  return [settle(shellDetails(client, letGoAware(native), cardOpen, '', false, now, 0, true)), settle(composerBranches(client, letGoAware(native), false, '', false, now))];
+  return [settle(shellDetails(client, letGoAware(native), cardOpen, '', false, now, 0, true)), settle(composerBranches(client, letGoAware(native), false, ''))];
 }
 
 describe('git status cadence', () => {
@@ -104,5 +125,39 @@ describe('git status cadence', () => {
     expect(strip).toMatchObject({ show: true, branchLabel: 'feature' });
     expect(held.sent()).toBe(0);
     expect(str(native.subs[VCS_STATUS_KEY])).not.toBe('');
+  });
+
+  test('after a switch the strip shows the switched ref until the stream reports again', async () => {
+    const { client, native, disk, command } = await connected();
+    streamStatus(native);
+    await shellDetails(client, native, false, '', false, 1_800_000_000_000, 0, true);
+    await client.refresh(native, disk);
+    expect((await composerBranches(client, native, false, '')).branchLabel).toBe('main');
+    await command('cc:branch', '', 'feature');
+    // The stream still holds the status it had before the switch: the switched name stays.
+    expect((await composerBranches(client, native, false, '')).branchLabel).toBe('feature');
+    // The stream subscribes again (branchStatusQuery.refresh()) and reports the checkout.
+    const subscribed = str(native.subs[VCS_STATUS_KEY]);
+    await shellDetails(client, native, false, '', false, 1_800_000_000_500, 0, true);
+    expect(str(native.subs[VCS_STATUS_KEY])).not.toBe(subscribed);
+    await client.refresh(native, disk);
+    expect((await composerBranches(client, native, false, '')).branchLabel).toBe('feature');
+  });
+
+  test('the picker leaves its loading state when the shared reply reaches the answer that joined it', async () => {
+    const { client, native } = await connected();
+    await composerBranches(client, native, false, ''); // the strip's status (no stream here: one read)
+    const held = holdReads(native, ['vcs.listRefs']);
+    const first = composerBranches(client, letGoAware(native), true, '');
+    await flush();
+    held.letGo(); // asked again on the next tick: the first answer is let go before the reply
+    const second = composerBranches(client, letGoAware(native), true, '');
+    await flush();
+    expect(held.sent('vcs.listRefs')).toBe(1); // the second joined the read still pending
+    await held.reply('vcs.listRefs');
+    expect((await first).show).toBe(false); // the let-go answer's view, which Exact drops
+    const view = await second;
+    expect(view.loading).toBe(false);
+    expect(view.refs.map(ref => ref.name)).toEqual(['main', 'feature', 'origin/main']);
   });
 });

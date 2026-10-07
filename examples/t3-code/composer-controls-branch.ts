@@ -17,12 +17,12 @@ import { checkoutItems, type CheckoutItem } from './r9-connect-checkout'; // lan
 import { NO_RUN_ON, stripRunOn } from './r4-git-env'; // lane r4-git: MobileRunContextSelector's "Run on"
 import { gitlessStrip } from './r12-threads-strip'; // lane r12-threads: the non-Git strip (BranchToolbar.logic.ts)
 import { autoBalanceState } from './auto-balance'; // auto-balance: the Run on menu's "Auto balance"
-import { letGo, sendRead, type SentRead } from './let-go';
+import { letGo } from './let-go';
 import { peekVcsStatus, restartVcsStatus, vcsStreamFollows } from './shell-vcs'; // the workspace status the card's stream holds
-import { composerNow } from './composer-controls';
 
 export type DraftContext = { envMode: string; branch: string; worktreePath: string };
-type Repo = { isRepo: boolean; refName: string; status?: Obj; checked: boolean; statusSent?: SentRead; refsSent?: SentRead; refs: Obj[]; total: number; refsQuery: string | null; error: string; nextCursor?: number | null; ends?: number; loadingMore?: boolean };
+// `switched`: the ref a switch checked out, kept while the stream still reports the status it had then.
+type Repo = { isRepo: boolean; refName: string; status?: Obj; checked: boolean; switched?: { name: string; status: Obj | null }; refs: Obj[]; total: number; refsQuery: string | null; error: string; nextCursor?: number | null; ends?: number; loadingMore?: boolean };
 const repos = new WeakMap<T3Client, Map<string, Repo>>();
 function repo(client: T3Client, cwd: string): Repo {
   let byCwd = repos.get(client);
@@ -78,41 +78,39 @@ export function previousWorktree(client: T3Client): { branch: string; worktreePa
 }
 
 /** Refreshes repository state the strip shows; the menu's refs load while the branch picker is open. */
-async function load(client: T3Client, native: Native, cwd: string, open: boolean, query: string, card: boolean, now: number): Promise<Repo> {
+async function load(client: T3Client, native: Native, cwd: string, open: boolean, query: string, card: boolean): Promise<Repo> {
   const entry = repo(client, cwd), access = client.restAccess(native);
   // BranchToolbarBranchSelector reads `vcsEnvironment.status`, the subscribeVcsStatus stream, and the
   // reference asks vcs.refreshStatus only on window focus and when a git menu opens (GitActionsControl).
   // So the strip and the card's branch row read the stream that follows this workspace (shell-vcs.ts).
   const streamed = peekVcsStatus(client, cwd);
-  if (streamed) {
+  if (streamed && entry.switched?.status === streamed) {
+    entry.refName = entry.switched.name; // the stream has not reported since the switch
+  } else if (streamed) {
+    entry.switched = undefined;
     entry.isRepo = streamed.isRepo === true; entry.refName = str(streamed.refName); entry.status = streamed; entry.error = ''; entry.checked = true; // r7-handoff: its pr feeds the strip's badge
   } else if (!entry.checked && !vcsStreamFollows(client, cwd)) {
-    // No stream follows this workspace yet: one read, which counts once sent (let-go.ts sendRead), so
-    // an answer let go before the reply (the reply can wait on a remote fetch) does not make the next
-    // one, 500 ms later, send another (round 5: four a second).
-    const sent = sendRead(entry.statusSent, 'status', now);
-    if (sent) {
-      entry.statusSent = sent;
-      try {
-        const status = await access.request('vcs.refreshStatus', { cwd });
-        entry.isRepo = status.isRepo === true; entry.refName = str(status.refName); entry.status = status; entry.error = '';
-      } catch (error) { if (letGo(error)) throw error; entry.isRepo = false; entry.error = error instanceof Error ? error.message : 'Could not read the repository.'; }
-      entry.checked = true;
-    }
+    // No stream follows this workspace yet: one read, shared with an identical one still pending, so an
+    // answer let go before the reply (the reply can wait on a remote fetch) does not make the next one,
+    // 500 ms later, send another (round 5: four a second).
+    try {
+      const status = await access.read('vcs.refreshStatus', { cwd });
+      entry.isRepo = status.isRepo === true; entry.refName = str(status.refName); entry.status = status; entry.error = '';
+    } catch (error) { if (letGo(error)) throw error; entry.isRepo = false; entry.error = error instanceof Error ? error.message : 'Could not read the repository.'; }
+    entry.checked = true;
   }
   const search = sanitizeNewRefName(query).slice(0, 256);
-  const list = (cursor?: number) => access.request('vcs.listRefs', { cwd, limit: REF_PAGE, ...(search ? { query: search } : {}), ...(cursor === undefined ? {} : { cursor }) });
+  // A shared read: the strip asked again before the reply joins the read still pending.
+  const list = (cursor?: number) => access.read('vcs.listRefs', { cwd, limit: REF_PAGE, ...(search ? { query: search } : {}), ...(cursor === undefined ? {} : { cursor }) });
   const isRepo = entry.checked ? entry.isRepo : true;
   if (open && isRepo && entry.refsQuery !== query) {
-    // The picker's refs: one read per query while it is open, however often the strip is asked again.
-    const sent = sendRead(entry.refsSent, `${client.generation}\n${query}`, now);
-    if (sent) { entry.refsSent = sent; Object.assign(entry, firstPage(await list(), scrollEnds(client.presentation, 'strip-refs'))); entry.refsQuery = query; }
+    Object.assign(entry, firstPage(await list(), scrollEnds(client.presentation, 'strip-refs'))); entry.refsQuery = query;
   } else if (open && isRepo) {
     // r5-composer: a scroll toward the list's end loads the next page (r5-composer-paging.ts).
     Object.assign(entry, await morePages({ refs: entry.refs, total: entry.total, nextCursor: entry.nextCursor ?? null, ends: entry.ends ?? 0, loadingMore: entry.loadingMore }, client.presentation, 'strip-refs', list));
   }
   // r5-composer: the workspace card's read (card) leaves the strip picker's open pages alone.
-  if (!open && !card) { entry.refsQuery = null; entry.refsSent = undefined; }
+  if (!open && !card) entry.refsQuery = null;
   return entry;
 }
 
@@ -127,15 +125,12 @@ export function refBadge(ref: Obj, cwd: string): string {
   return ref.isDefault === true ? 'default' : '';
 }
 
-/**
- * The resource behind the strip, and the auto-balance load the root's `balanceLoad` task sends (auto-balance.ts).
- * `now`: the window's wall time when its clock ticks (app.contract `shellClock`), for a read's resend.
- */
-export async function composerBranches(client: T3Client, native: Native | null | undefined, open: boolean, query: string, card = false, now = 0) {
-  return { ...await stripView(client, native, open, query, card, Math.max(now, composerNow(client))), balanceFetch: card ? '' : autoBalanceState(client).fetch };
+/** The resource behind the strip, and the auto-balance load the root's `balanceLoad` task sends (auto-balance.ts). */
+export async function composerBranches(client: T3Client, native: Native | null | undefined, open: boolean, query: string, card = false) {
+  return { ...await stripView(client, native, open, query, card), balanceFetch: card ? '' : autoBalanceState(client).fetch };
 }
 /** shouldShowComposerContextStrip with Git controls. */
-async function stripView(client: T3Client, native: Native | null | undefined, open: boolean, query: string, card: boolean, now: number) {
+async function stripView(client: T3Client, native: Native | null | undefined, open: boolean, query: string, card: boolean) {
   const hidden = { show: false, envMode: 'local', forceWorktree: false, envLabel: 'Current checkout', envIcon: 'folder', envLocked: false, previous: false, previousBranch: '',
     branchLabel: '', branch: '', loading: false, refs: [] as Array<{ name: string; badge: string; selected: boolean; index: number }>, status: '', creatable: '', enterOp: '', enterValue: '', checkout: [] as CheckoutItem[], ...NO_RUN_ON, ...NO_STRIP_PR, gitless: false };
   if (!native?.available || client.connection !== 'connected' || !client.ready || !client.projectId) return hidden;
@@ -144,7 +139,7 @@ async function stripView(client: T3Client, native: Native | null | undefined, op
   const cwd = cwdFor(client);
   if (!cwd) return hidden;
   let entry: Repo;
-  try { entry = await load(client, native, cwd, open, query, card, now); } catch { return hidden; }
+  try { entry = await load(client, native, cwd, open, query, card); } catch { return hidden; }
   // shouldShowComposerContextStrip without Git controls: only the machine selector, when it shows (lanes r12/r13-threads).
   // ChatView: before a checkout's status arrives, a never-seen checkout assumes Git.
   if (!(entry.checked ? entry.isRepo : true)) return card ? hidden : gitlessStrip(client, hidden, persist);
@@ -183,7 +178,7 @@ export function stripShortcuts(client: T3Client): { workspace: boolean; branch: 
   if (client.connection !== 'connected' || !client.ready || !client.projectId) return none;
   if (client.threadId && (client.local as { clientSettings?: Obj }).clientSettings?.persistComposerContextStrip !== true) return none;
   const cwd = cwdFor(client), entry = cwd ? repos.get(client)?.get(cwd) : undefined;
-  if (!entry?.isRepo) return none;
+  if (!entry || (entry.checked && !entry.isRepo)) return none; // a checkout whose status has not arrived is assumed Git
   return { workspace: !client.threadId, branch: true, previous: !!previousWorktree(client) };
 }
 
@@ -252,9 +247,11 @@ export async function selectBranch(client: T3Client, native: Native, storage: Fi
       : await access.request('vcs.switchRef', { cwd: checkoutCwd, refName: name }, true);
     const local = ref?.isRemote === true ? name.replace(/^[^/]+\//, '') : name;
     const switched = create ? str(result.refName, sanitizeNewRefName(name)) : ref?.isRemote === true ? str(result.refName, local) : local;
-    // runBranchAction: the refs and the status stream are read again (branchRefState.refresh(), branchStatusQuery.refresh()).
+    // runBranchAction: the refs and the status stream are read again (branchRefState.refresh(), branchStatusQuery.refresh());
+    // the switched name shows until the stream reports again.
     for (const path of [checkoutCwd, cwd]) {
-      const cached = repo(client, path); cached.checked = false; cached.statusSent = undefined; cached.refsQuery = null; cached.refsSent = undefined;
+      const cached = repo(client, path); cached.checked = false; cached.refsQuery = null;
+      cached.switched = { name: switched, status: peekVcsStatus(client, path) };
       restartVcsStatus(client, path);
     }
     entry.refName = switched;

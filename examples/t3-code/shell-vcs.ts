@@ -108,15 +108,13 @@ export async function watchVcsStatus(client: T3Client, native: Native, cwd: stri
 }
 /**
  * BranchToolbarBranchSelector's `branchStatusQuery.refresh()` after a branch action: the stream on
- * `cwd` subscribes again, and its last status is dropped, so the old branch does not show until
- * the new snapshot (the strip keeps the switched name meanwhile).
+ * `cwd` subscribes again. The last status stays until the new snapshot, as a refreshing query keeps
+ * its data (the strip shows the switched name meanwhile, composer-controls-branch.ts).
  */
 export function restartVcsStatus(client: T3Client, cwd: string): void {
   const state = states.get(client);
-  if (!state || !cwd) return;
-  state.recent.delete(cwd);
-  if (state.cwd !== cwd) return;
-  state.status = null; state.id = ''; state.tried = false; state.floor = state.maxSeen;
+  if (!state || !cwd || state.cwd !== cwd) return;
+  state.id = ''; state.tried = false; state.floor = state.maxSeen;
 }
 /** Whether the stream follows `cwd` now (its status may still be on its way). */
 export function vcsStreamFollows(client: T3Client, cwd: string): boolean { return !!cwd && states.get(client)?.cwd === cwd; }

@@ -17,20 +17,6 @@
 // back with the shell, as a send's does.
 import { ClientError, type Native } from './protocol';
 
-/**
- * A read whose result is kept (a workspace's status or refs) is sent once for its key, and again
- * only after RESEND_MS of wall time. Exact lets an answer go when it is asked again (every 500 ms
- * while a toast ticks), and its reply is dropped; a reply slower than the tick was otherwise asked
- * for on every tick (round 5: vcs.refreshStatus four times a second). Returns the mark to keep, or
- * null when this answer must not send.
- */
-export type SentRead = { key: string; at: number };
-export const RESEND_MS = 3000;
-export function sendRead(sent: SentRead | undefined, key: string, now: number): SentRead | null {
-  if (sent && sent.key === key && !(now > 0 && now - sent.at >= RESEND_MS)) return null;
-  return { key, at: Math.max(now, 0) };
-}
-
 /** The runtime's rejection of a let-go answer's native call, or the clone's 'superseded'. */
 export function letGo(error: unknown): boolean {
   if (error instanceof ClientError) return error.kind === 'superseded';

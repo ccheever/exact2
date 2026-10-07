@@ -63,7 +63,7 @@ export async function answer(source: string, args: unknown[], _store: unknown, _
     await autoBalancePrepare(client, native); // auto-balance.ts
     return snapshot(client, Number(args[0]) || 0);
   }
-  if (source === 'composerBranches') return composerBranches(client, native, args[0] === true, String(args[1] || ''), false, Number(args[3]) || 0); // args[3]: shellClock, the wall time while the window's clock ticks
+  if (source === 'composerBranches') return composerBranches(client, native, args[0] === true, String(args[1] || ''));
   if (source === 'refreshTimelineReads') {
     noteNow(client, Number(args[0]) || 0);
     await refreshTimelineReads(client, native);

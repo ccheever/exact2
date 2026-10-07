@@ -12,7 +12,7 @@ export async function gitDetails(client: T3Client, native: Native, input: { stat
   editor: string; envRow: boolean }) {
   const view = gitCardView(client, input.status, input.error, input.cwd, input.now, input.editor);
   // A failing ref read must not cost the card its other rows.
-  const branch = await cardBranchView(client, native, input.cwd, input.root, input.status?.isRepo === true, input.now).catch((): CardBranch => ({ ...HIDDEN_BRANCH }));
+  const branch = await cardBranchView(client, native, input.cwd, input.root, input.status?.isRepo === true).catch((): CardBranch => ({ ...HIDDEN_BRANCH }));
   await gitCardPrepare(client, native).catch(() => undefined);
   return { ...view, ...environmentView(client), branch };
 }

@@ -98,6 +98,31 @@ final class TerminalStreamTests: XCTestCase {
         XCTAssertEqual(failures, [], "no request is refused for the number pending")
     }
 
+    /// Round 5: a shared read joins an identical one still pending, as the reference's query atoms share
+    /// one request per input. One request reaches the server and every caller gets its reply. Another
+    /// payload, or a request that is not shared, is sent on its own.
+    func testSharedReadsJoinAnIdenticalPendingOne() throws {
+        let socket = try R3Socket()
+        socket.answer = { _ in [] } // the server holds every reply
+        let transport = connected(socket); defer { transport.destroy() }
+        let generation = perform(transport, ["op": "status"])["generation"] as! Int
+        let lock = NSLock()
+        var replies: [[String: Any]] = []
+        let note: ([String: Any]) -> Void = { reply in lock.lock(); replies.append(reply); lock.unlock() }
+        for _ in 0..<5 {
+            transport.perform(["op": "request", "method": "vcs.listRefs", "payload": ["cwd": "/repo", "limit": 50], "generation": generation, "share": true], completion: note)
+        }
+        transport.perform(["op": "request", "method": "vcs.listRefs", "payload": ["cwd": "/other", "limit": 50], "generation": generation, "share": true], completion: note)
+        transport.perform(["op": "request", "method": "vcs.listRefs", "payload": ["limit": 50, "cwd": "/repo"], "generation": generation], completion: note)
+        XCTAssertTrue(until(3) { socket.requests("vcs.listRefs").count >= 3 })
+        wait(0.3)
+        XCTAssertEqual(socket.requests("vcs.listRefs").count, 3, "five identical shared reads are one request")
+        let first = try XCTUnwrap(socket.requests("vcs.listRefs").first?["id"] as? String)
+        socket.send(["_tag": "Exit", "requestId": first, "exit": ["_tag": "Success", "value": ["refs": [] as [Any], "totalCount": 0]]])
+        XCTAssertTrue(until(3) { lock.lock(); defer { lock.unlock() }; return replies.filter { $0["ok"] as? Bool == true }.count == 5 },
+                      "every joined caller gets the reply: \(replies)")
+    }
+
     func testTerminalStreamsDoNotCountTowardTheSixteenAppStreamsAndEndWithTheSocket() throws {
         let socket = try R3Socket()
         socket.answer = { _ in [] }
