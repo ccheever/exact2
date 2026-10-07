@@ -1,0 +1,294 @@
+{
+  "schema_version": 1,
+  "started_at": "2026-10-07T01:50:16.951768+00:00",
+  "project_root": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-context-menu-gaps",
+  "recipe_sha256": "c57cd8c2238383af3bff26fc3bf4938dae96b88250659a08b2f0b16357970520",
+  "environment": {
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "python": "3.9.6 (default, Aug 25 2026, 21:26:21) \n[Clang 21.0.0 (clang-2100.3.34.2)]"
+  },
+  "source": {
+    "algorithm": "sha256",
+    "digest": "c4485a7d8248504b00c958cc68ba9b40519b2ca23e77bd10e1cc040faa7a2e0e",
+    "entries": [
+      {
+        "path": "examples/t3-code/context-menu-actions.test.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "676bff949f542a3c2b8de346b5b8a7ccfbff64df363c654fa8628e0e52229df4"
+      },
+      {
+        "path": "examples/t3-code/context-menu-actions.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "9b29eafa30784ac62d4221521782a9178c250737da9fec850bc5f24ad2f9fdbc"
+      },
+      {
+        "path": "examples/t3-code/context-menus.test.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "3e0e3542b8d0e40d22832a64a0bf83884a65c4793e02debc67e933bdd2a30a2d"
+      },
+      {
+        "path": "examples/t3-code/context-menus.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "604b36874d230d851286c0ca4ba9e3e1755ef6df8cdb7dc1d8694b314d90c2b0"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/contextmenu/file-menus.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "f2924664cff6660ef77ca10ae5717f4dbdda243b858341753c6974872b708909"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/contextmenu/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "9781e1d1620b01577bcbb890561d56a5659eecb88b96eff32f74b159418c4873"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/contextmenu/tab-input.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "7312063a8aa271c8d6a953eafea34b14755c8e6e4bde558a1644ee54b0aba069"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3ContextMenu.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "f8e6e2142e2975207c90533346fbcde1a7120074abf3e2ad63437165d1b66ffb"
+      },
+      {
+        "path": "examples/t3-code/pages-commands.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "0a3c4c2852a313328a1808b3e1c8266aea0e0849fcce982b004a07b32e1693fd"
+      },
+      {
+        "path": "examples/t3-code/pages-pr-detail.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "f38c72b1df44beaff18813786b12a827b5e721c647d61041b89827b77137f800"
+      },
+      {
+        "path": "examples/t3-code/pages-pr-detail.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "e23aea01a48d2dbbe90a78f449ed5247d340164b556b8e43671218d3c4f75b28"
+      },
+      {
+        "path": "examples/t3-code/pages-prs.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "1254f22cf5c868257cfeb3132c740df89cde0c789639fb748a1992ecce038be7"
+      },
+      {
+        "path": "examples/t3-code/pages-prs.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "0e7b39e1c430c39207194c23465c94eac1dfb2419c9da56dd2ce97cef283c150"
+      },
+      {
+        "path": "examples/t3-code/r4-surfaces-files.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "a642055728d04e8de5501f44dd48ea4228228fc568dadb72c84b038d29593b17"
+      },
+      {
+        "path": "examples/t3-code/r4-surfaces-files.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "f8abcf0db06f5dadc0da7ebcef0de132c786252fc64ea135f2b0772e6deee6f6"
+      },
+      {
+        "path": "examples/t3-code/r5-panels.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "e0f7d79fa04cb157ad13f4ba8d5938ee087e66904c929f085610542df52f52fb"
+      },
+      {
+        "path": "examples/t3-code/remote-open.test.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "c5f49df8d973d2d08c59d67ed9f282bbf9e9e02ccbd63b8dfbb278ac9a681765"
+      },
+      {
+        "path": "examples/t3-code/timeline-presentation.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "0a3ca62adaa329315605aaee16985dfd03f9c80da18b09a21d88f133194a5a4e"
+      }
+    ]
+  },
+  "checks": [
+    {
+      "name": "clone unit tests",
+      "required": true,
+      "argv": [
+        "/Users/daehyeonmun/.bun-1.4.2/bin/bun",
+        "test",
+        "examples/t3-code"
+      ],
+      "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-context-menu-gaps",
+      "timeout_seconds": 300,
+      "started_at": "2026-10-07T01:50:16.965569+00:00",
+      "exit_code": 0,
+      "stdout": "001.stdout.log",
+      "stderr": "001.stderr.log",
+      "status": "passed",
+      "finished_at": "2026-10-07T01:50:18.297125+00:00"
+    },
+    {
+      "name": "contextmenu AppKit XCTests (README recipe for one binary)",
+      "required": true,
+      "argv": [
+        "/bin/bash",
+        "examples/t3-code/.exact/implementation/20261005-t3code-macos-parity/evidence/20261007-context-menu-gaps/swift-contextmenu.sh"
+      ],
+      "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-context-menu-gaps",
+      "timeout_seconds": 900,
+      "started_at": "2026-10-07T01:50:18.297649+00:00",
+      "exit_code": 0,
+      "stdout": "002.stdout.log",
+      "stderr": "002.stderr.log",
+      "status": "passed",
+      "finished_at": "2026-10-07T01:51:10.225730+00:00"
+    },
+    {
+      "name": "macOS bundle builds (contract build, Swift, Rust; EXACT_APP_DIR=examples/t3-code, Bun 1.4.2 first on PATH)",
+      "required": true,
+      "argv": [
+        "/Users/daehyeonmun/.bun-1.4.2/bin/bun",
+        "host/apple/build.mjs",
+        "t3-code-macos",
+        "--bundle"
+      ],
+      "cwd": "/Users/daehyeonmun/orca/workspaces/exact2/t3-code-context-menu-gaps",
+      "timeout_seconds": 1500,
+      "started_at": "2026-10-07T01:51:10.226639+00:00",
+      "exit_code": 0,
+      "stdout": "003.stdout.log",
+      "stderr": "003.stderr.log",
+      "status": "passed",
+      "finished_at": "2026-10-07T01:52:29.725269+00:00"
+    }
+  ],
+  "status": "passed",
+  "source_after": {
+    "algorithm": "sha256",
+    "digest": "c4485a7d8248504b00c958cc68ba9b40519b2ca23e77bd10e1cc040faa7a2e0e",
+    "entries": [
+      {
+        "path": "examples/t3-code/context-menu-actions.test.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "676bff949f542a3c2b8de346b5b8a7ccfbff64df363c654fa8628e0e52229df4"
+      },
+      {
+        "path": "examples/t3-code/context-menu-actions.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "9b29eafa30784ac62d4221521782a9178c250737da9fec850bc5f24ad2f9fdbc"
+      },
+      {
+        "path": "examples/t3-code/context-menus.test.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "3e0e3542b8d0e40d22832a64a0bf83884a65c4793e02debc67e933bdd2a30a2d"
+      },
+      {
+        "path": "examples/t3-code/context-menus.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "604b36874d230d851286c0ca4ba9e3e1755ef6df8cdb7dc1d8694b314d90c2b0"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/contextmenu/file-menus.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "f2924664cff6660ef77ca10ae5717f4dbdda243b858341753c6974872b708909"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/contextmenu/main.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "9781e1d1620b01577bcbb890561d56a5659eecb88b96eff32f74b159418c4873"
+      },
+      {
+        "path": "examples/t3-code/macos/tests/contextmenu/tab-input.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "7312063a8aa271c8d6a953eafea34b14755c8e6e4bde558a1644ee54b0aba069"
+      },
+      {
+        "path": "examples/t3-code/modules/apple/T3ContextMenu.swift",
+        "kind": "file",
+        "executable": false,
+        "sha256": "f8e6e2142e2975207c90533346fbcde1a7120074abf3e2ad63437165d1b66ffb"
+      },
+      {
+        "path": "examples/t3-code/pages-commands.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "0a3c4c2852a313328a1808b3e1c8266aea0e0849fcce982b004a07b32e1693fd"
+      },
+      {
+        "path": "examples/t3-code/pages-pr-detail.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "f38c72b1df44beaff18813786b12a827b5e721c647d61041b89827b77137f800"
+      },
+      {
+        "path": "examples/t3-code/pages-pr-detail.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "e23aea01a48d2dbbe90a78f449ed5247d340164b556b8e43671218d3c4f75b28"
+      },
+      {
+        "path": "examples/t3-code/pages-prs.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "1254f22cf5c868257cfeb3132c740df89cde0c789639fb748a1992ecce038be7"
+      },
+      {
+        "path": "examples/t3-code/pages-prs.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "0e7b39e1c430c39207194c23465c94eac1dfb2419c9da56dd2ce97cef283c150"
+      },
+      {
+        "path": "examples/t3-code/r4-surfaces-files.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "a642055728d04e8de5501f44dd48ea4228228fc568dadb72c84b038d29593b17"
+      },
+      {
+        "path": "examples/t3-code/r4-surfaces-files.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "f8abcf0db06f5dadc0da7ebcef0de132c786252fc64ea135f2b0772e6deee6f6"
+      },
+      {
+        "path": "examples/t3-code/r5-panels.contract",
+        "kind": "file",
+        "executable": false,
+        "sha256": "e0f7d79fa04cb157ad13f4ba8d5938ee087e66904c929f085610542df52f52fb"
+      },
+      {
+        "path": "examples/t3-code/remote-open.test.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "c5f49df8d973d2d08c59d67ed9f282bbf9e9e02ccbd63b8dfbb278ac9a681765"
+      },
+      {
+        "path": "examples/t3-code/timeline-presentation.ts",
+        "kind": "file",
+        "executable": false,
+        "sha256": "0a3ca62adaa329315605aaee16985dfd03f9c80da18b09a21d88f133194a5a4e"
+      }
+    ]
+  },
+  "source_unchanged": true,
+  "finished_at": "2026-10-07T01:52:29.732668+00:00"
+}
