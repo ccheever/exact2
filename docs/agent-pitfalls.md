@@ -415,7 +415,7 @@ guide's rules don't make obvious.
   does nothing. Cause: with `touch-action` at `auto` a horizontal pan is the
   platform's, as in a browser, so the swipe never begins. Fix:
   `touch-action="pan-y"` on the swiped node, which leaves vertical scrolling to the
-  page. Messages also gives the bubble `transition="translate spring(300, 30, 1)"`,
+  page. Messages also gives the bubble `transition="translate -exact-spring(300, 30, 1)"`,
   which moves it with the finger; that does not arm the gesture. (Chat2 DIARY,
   which credited the transition, about 20 minutes; reproduced with `agent ios
   --touch platform`, 2026-10-04.) **Candidate diagnostic:** the compiler could
@@ -633,6 +633,16 @@ guide's rules don't make obvious.
   writes that must stay together in one `transaction` (SQLite) or one operation.
   (LLP 1097 D4.)
 
+- **A database stays locked after the answer that opened it failed.** An
+  answer that opens a database and fails, or that the runner let go, leaves its
+  chain running in the background; if that chain throws before `db.close()`,
+  the handle stays open and every later open finds the database busy. The host
+  does not close it for you, since an app may keep or share a handle across
+  answers. `logs` says `storage: app:/data/x.db is still open after a failure in
+  background work that opened it`. Fix: close in a finally,
+  `try { … } finally { await db.close(); }`. (LLP 1097 D7, Charlie,
+  2026-10-07.)
+
 ## Working on exact2 itself
 
 - **A bisect that shares another worktree's Cargo target directory builds
@@ -644,7 +654,7 @@ guide's rules don't make obvious.
 
 - **A platform feature looks missing, and you start building it.** Cause: the
   feature already exists under a name you did not search for. Haptics
-  (`haptic()`, `press-haptic`) were proposed as a new gap after they had
+  (`haptic()`, `-exact-press-haptic`) were proposed as a new gap after they had
   landed. Fix: before calling something missing, search
   `docs/contract-for-agents.md` and the LLP index (`ls llp/`, then `grep -ril
   <term> llp`). Name the LLP that lacks it when you report the gap. (Signal

@@ -176,6 +176,7 @@ public final class ExactView: UIView {
     public override func didMoveToWindow() {
         super.didMoveToWindow()
         if window != nil { reportScheme() }
+        session.tellPage() // `hasFocus` is this window's scene's (#114)
         session.rasters.setPaused(window == nil)
         session.canvases.lifecycle.refresh()
         if window == nil {

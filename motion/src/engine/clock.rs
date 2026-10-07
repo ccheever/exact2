@@ -1,6 +1,6 @@
 //! Clock timelines in the engine: animations that share a phase (LLP 1055.002).
 //!
-//! A node whose `animation-timeline` is `clock(Name)` plays its animations on
+//! A node whose `animation-timeline` is `-exact-clock(Name)` plays its animations on
 //! the clock as any node does, from a start chosen so that every animation on
 //! `Name` is in step (D4): the most recent cycle boundary on the timeline at
 //! or before the moment it starts. A timeline is one number, its origin, set

@@ -686,7 +686,8 @@ final class Presenter {
     var onHover: ((UInt32, Bool) -> Void)?
     var onFocus: ((UInt32) -> Void)?
     var onBlur: ((UInt32) -> Void)?
-    var onKey: ((UInt32, String) -> Void)?
+    /// A `key` or `keyup` (`KeyPress.up`) at a node (KeyEvents.swift).
+    var onKey: ((UInt32, KeyPress) -> Void)?
     var onClipboard: ((UInt32, UInt32, String) -> Void)?
     /// A `text`'s part of the selection changed: its text and source offsets.
     var onSelectionChange: ((UInt32, String, Int, Int) -> Void)?
@@ -861,7 +862,7 @@ final class Presenter {
     }
     func focus(_ id: UInt32) { send(id) { [self] in onFocus?(id) } }
     func blur(_ id: UInt32) { send(id) { [self] in onBlur?(id) } }
-    func key(_ id: UInt32, _ name: String) { send(id) { [self] in onKey?(id, name) } }
+    func key(_ id: UInt32, _ press: KeyPress) { send(id) { [self] in onKey?(id, press) } }
     func clipboard(_ id: UInt32, _ kind: UInt32, _ text: String) { send(id) { [self] in onClipboard?(id, kind, text) } }
     func selectionChange(_ id: UInt32, _ text: String, _ start: Int, _ end: Int) { send(id) { [self] in onSelectionChange?(id, text, start, end) } }
     func contextmenu(_ id: UInt32) { send(id) { [self] in onContextmenu?(id) } }

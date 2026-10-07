@@ -125,7 +125,7 @@ component ColorGallery
   view
     // On the web the document scrolls; natively the scroll view does.
     main viewport-fit="cover" display="flex" flex-direction="column" height=(host == "web" ? "auto" : "100%") min-height="100%" width="100%" position="relative" overflow=(host == "web" ? "visible" : "hidden") dynamic-range-limit=limit background-color="light-dark(#ffffff, #000000)" color="light-dark(#111827, #f3f4f6)"
-      scroll flex=(host == "web" ? 0 : 1) min-height=0 width="100%" overflow-x=(host == "web" ? "visible" : "hidden") overflow-y=(host == "web" ? "visible" : "scroll") testId="gallery" scroll=scrolled scroll-edge-effect="soft"
+      scroll flex=(host == "web" ? 0 : 1) min-height=0 width="100%" overflow-x=(host == "web" ? "visible" : "hidden") overflow-y=(host == "web" ? "visible" : "scroll") testId="gallery" scroll=scrolled -exact-scroll-edge-effect="soft"
         column class=Page padding-top=16
           box height="env(safe-area-inset-top)" flex-shrink=0
           text "Color Gallery" testId="title" font-size=26 font-weight=800 height=34

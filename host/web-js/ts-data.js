@@ -193,6 +193,24 @@ function queued(what, run) {
   });
 }
 let toldAgent = false;
+// The databases open now, each with the answer that opened it (LLP 1097 D7). The host does not
+// close a handle an app may keep or share (Charlie, 2026-10-07); one left open by background work
+// that failed is journaled instead, since the next open would find it locked.
+const openDatabases = new Set();
+let pendingAnswers = 0, owed = false; // `owed`: a failure skipped an owner-less handle for a pending answer
+// On a failure (an answer's own rejection, or a rejection nothing handled): each database opened by
+// an answer that has since settled or replied (its chain runs on in the background). One opened by
+// a continuation, after its answer's synchronous part, has no known owner here: it counts only
+// when no answer is still pending, so a live answer's handle is never taken for background work's.
+function leftOpen() {
+  for (const h of openDatabases) {
+    if (h.told) continue;
+    if (!h.call && pendingAnswers > 0) { owed = true; continue; } // checked again once none is pending
+    if (h.call && !h.call.settled) continue;
+    h.told = true;
+    journal.push(`t=${clock.now} storage: ${h.path} is still open after a failure in background work that opened it: if that work owns it, close it in a finally (finally { db.close() }), or the next open finds it locked (LLP 1097 D7)`);
+  }
+}
 function storageOf(grants) {
   const admitted = ['fs-read', 'fs-write', 'sqlite-open'].some(kind => hasGrant(grants, kind));
   let fs, sqlite;
@@ -220,7 +238,17 @@ function storageOf(grants) {
   const wrap = (o, convert, path) => Object.freeze(Object.fromEntries(Object.entries(convert).map(([m, then]) =>
     [m, (...args) => queued(`${m} ${path}`, () => o[m](...args)).then(then ? v => then(v, path) : undefined)])));
   const statement = (s, path) => wrap(s, { execute: null, query: null, close: null }, path);
-  const database = (d, path) => wrap(d, { execute: null, query: null, prepare: statement, transaction: null, close: null }, path);
+  const database = (d, path, call) => {
+    const handle = { path, call, told: false };
+    openDatabases.add(handle);
+    const db = wrap(d, { execute: null, query: null, prepare: statement, transaction: null, close: null }, path);
+    // A close counts once issued; one refused or failed leaves the database open, and tracked.
+    return Object.freeze({ ...db, close: (...args) => {
+      openDatabases.delete(handle);
+      // A failed close still rejects for the caller, so one left unhandled is still reported.
+      return db.close(...args).catch((e) => { openDatabases.add(handle); throw e; });
+    } });
+  };
   const methods = ['readFile', 'writeFile', 'atomicWriteFile', 'appendFile', 'readdir', 'mkdir', 'rm', 'stat', 'rename', 'copyFile', 'realpath'];
   return Object.freeze({
     fs: Object.freeze({ directories: Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' }),
@@ -229,7 +257,7 @@ function storageOf(grants) {
         const run = () => (isDocument(captured) ? documents() : files()).then(f => f[m](...captured));
         return (admitted ? queued(`${m}${typeof args[0] === 'string' ? ` ${args[0]}` : ''}`, run) : denied(`fs.${m}`, isDocument(captured))).catch(coded);
       }])) }),
-    sqlite: Object.freeze({ open: path => (admitted ? queued(`open ${path}`, () => databases().then(d => d.open(path))).then(d => database(d, path)) : denied('sqlite.open')).catch(coded) }),
+    sqlite: Object.freeze({ open: path => { const call = answering.call; return (admitted ? queued(`open ${path}`, () => databases().then(d => d.open(path))).then(d => database(d, path, call)) : denied('sqlite.open')).catch(coded); } }),
     work: promise => Promise.resolve(promise),
   });
 }
@@ -247,6 +275,7 @@ export function install(data, mixed = false, modules = null) {
   if (typeof addEventListener === 'function') addEventListener('unhandledrejection', e => {
     const r = e.reason;
     journal.push(`t=${clock.now} data: unhandled rejection: ${r && typeof r === 'object' && r.message !== undefined ? r.message : String(r)}`);
+    leftOpen();
   });
   // `modules` loads native.js (an app with a module artifact), after first
   // paint (rt.js `painted`), whether or not anything asks `later`.
@@ -276,11 +305,17 @@ export function install(data, mixed = false, modules = null) {
     asking = target ?? name; watching = name;
     const call = answering.call = { stream: null };
     let r;
-    try { r = source.answer(name, args.map((a, i) => named(a, params[i])), seen, storage, modules ? native : null); } finally { asking = ''; watching = null; answering.call = null; }
+    try { r = source.answer(name, args.map((a, i) => named(a, params[i])), seen, storage, modules ? native : null); } catch (e) { call.settled = true; throw e; } finally { asking = ''; watching = null; answering.call = null; }
     const target_ = target ?? name;
     const shaped = types ? v => checked(name, v, result) : v => v;
-    if (call.stream) return { stream: opener(call.stream, v => conv(shaped(v), result, target_)), store: seen.read };
-    if (r && typeof r.then === 'function') return { promise: r.then(v => conv(shaped(v), result, target_)), store: seen.read };
+    // A stream's answer has replied once it returns (LLP 1016.000): what runs on is background work.
+    if (call.stream) { call.settled = true; return { stream: opener(call.stream, v => conv(shaped(v), result, target_)), store: seen.read }; }
+    if (r && typeof r.then === 'function') {
+      pendingAnswers++;
+      const settle = () => { call.settled = true; pendingAnswers--; if (!pendingAnswers && owed) { owed = false; leftOpen(); } };
+      return { promise: r.then(v => (settle(), conv(shaped(v), result, target_)), e => { settle(); leftOpen(); throw e; }), store: seen.read };
+    }
+    call.settled = true;
     return { v: conv(shaped(r), result, target_), store: seen.read };
   };
   // Beside a Rust source (LLP 1027.002): a source this module does not

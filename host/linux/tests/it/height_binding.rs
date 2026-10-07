@@ -60,7 +60,7 @@ const APP: &str = r#"component App
         text "enable"
       button testId="clear" press=clear
         text "clear"
-      box id="panel" testId="panel" position="absolute" bottom=0 width=400 height=target max-height="100%" box-sizing="border-box" transition="height spring(300,30,1)"
+      box id="panel" testId="panel" position="absolute" bottom=0 width=400 height=target max-height="100%" box-sizing="border-box" transition="height -exact-spring(300,30,1)"
         when first
           box testId="first" heightDragFor=binding heightrelease=release height=32 touch-action="none"
             text "drag here"
@@ -408,8 +408,8 @@ fn invalidation_uses_same_receipt_transition_and_latest_target_before_cancelling
     for transition in ["none", "height 0ms linear"] {
         for target_px in [180, 360] {
             let source = APP
-                .replace("  state target = 180", "  state target = 180\n  state motion = \"height spring(300,30,1)\"")
-                .replace("transition=\"height spring(300,30,1)\"", "transition=motion")
+                .replace("  state target = 180", "  state target = 180\n  state motion = \"height -exact-spring(300,30,1)\"")
+                .replace("transition=\"height -exact-spring(300,30,1)\"", "transition=motion")
                 .replace("  action unbind\n    binding = \"\"",
                     &format!("  action unbind\n    binding = \"\"\n    motion = \"{transition}\"\n    target = {target_px}"));
             let mut h = boot(&source);

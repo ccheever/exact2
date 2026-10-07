@@ -818,15 +818,36 @@ extension Agent {
             else if let f = v.field { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
             else if v.canBecomeFirstResponder, !v.isFirstResponder { _ = v.becomeFirstResponder() }
             let focus = v.field != nil || v.textArea != nil || v.isFirstResponder || v.handlers.contains("press") ? v : nil
+            // The release's `keyup` handlers at the focus (#140): after the
+            // down, or when a held key comes up. A modifier's own keydown
+            // holds it and its keyup no longer does, as DOM's.
+            let phase = req["phase"] as? String, code = device.code, lone = KeyCodes.modifier(code)
+            let downHeld = lone ? KeyCodes.held(held, name, true) : held, upHeld = lone ? KeyCodes.held(held, name, false) : held
+            // A chord's modifiers are their own keys around it, as a keyboard's
+            // (KeyCodes.modifierPresses; Charlie, 2026-10-07): down in order
+            // before the shortcuts and the key, up in reverse after its keyup,
+            // each keyup without its own bit.
+            let presses = KeyCodes.modifierPresses(key)
+            let heardUp = { [weak presenter, weak focus] in
+                _ = presenter?.keyUp(at: focus, name, held: upHeld, code: code)
+                for (i, m) in presses.enumerated().reversed() {
+                    _ = presenter?.keyUp(at: focus, m.key, held: i > 0 ? presses[i - 1].held : "", code: KeyCodes.device(m.key)?.code ?? "")
+                }
+            }
+            defer {
+                if phase != "down" { heardUp() }
+                if phase == "down", let token = req["releaseKey"] as? String { keyReleases[token] = { heardUp(); return ["phase": "up", "delivery": "recognized"] } }
+            }
+            if phase != "up", req["repeat"] as? Bool != true { for m in presses { _ = presenter.keyDown(at: focus, m.key, held: m.held, code: KeyCodes.device(m.key)?.code ?? "") } }
             // The page's shortcuts first, as the web's capture listener and
             // macOS's `routeKey` hear them (gallery F18, ShortcutsIOS).
             #if os(iOS)
-            if req["phase"] as? String != "up", let node = presenter.shortcut(key: name, held: held, focus: focus ?? presenter.focusedNode) {
+            if phase != "up", let node = presenter.shortcut(key: name, held: held, focus: focus ?? presenter.focusedNode) {
                 presenter.press(node.id)
                 return ["typed": Int(v.id), "key": key, "shortcut": Int(node.id), "delivery": "recognized"]
             }
             #endif
-            if req["phase"] as? String != "up", !presenter.keyDown(at: focus, name, held: held), let focus {
+            if phase != "up", !presenter.keyDown(at: focus, name, held: downHeld, code: code, repeats: req["repeat"] as? Bool == true), let focus {
                 if let f = focus.textArea {
                     if name == "Enter" { f.insertText("\n") } else if name == "Backspace" { f.deleteBackward() }
                     else if Agent.caretKey(name, in: f) {} else if types { f.insertText(name) }

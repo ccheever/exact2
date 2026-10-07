@@ -141,9 +141,9 @@ impl Backend for ObservedRaster {
             let mut glyphs = 0;
             for (i, run) in p.layout_runs().enumerate() {
                 for g in run.glyphs {
-                    let a = g.physical((at.0, at.1 + p.baselines()[i]), 1.);
-                    let b = g.physical((origin.0, origin.1 + p.baselines()[i]), 1.);
-                    glyphs += usize::from(a.x != b.x || a.y != b.y || a.cache_key != b.cache_key);
+                    let a = g.pixel((at.0, at.1 + p.baselines()[i]), 1.);
+                    let b = g.pixel((origin.0, origin.1 + p.baselines()[i]), 1.);
+                    glyphs += usize::from(a != b);
                 }
             }
             eprintln!("same-paragraph text{index}: raw={raw:?} expected={e:?} glyph-placement/key-diffs={glyphs} RGBA-different-bytes={different}");

@@ -20,7 +20,7 @@ use std::fmt;
 pub enum Capability {
     /// `markup="markdown"` text: its source styled as pieces.
     Markdown,
-    /// Springs and holds: a `transition` that can be a `spring()`, and the
+    /// Springs and holds: a `transition` that can be a `-exact-spring()`, and the
     /// gestures that hold a value (a swipe, a height, transform or reorder
     /// drag). CSS plays every other transition.
     Motion,
@@ -51,7 +51,7 @@ pub enum Capability {
     /// `input type="file"` and `showPicker` (LLP 1069.002): a plan with a
     /// file input, or whose code runs the command.
     Picker,
-    /// Drag timelines (LLP 1057.003): `drag-timeline`, `animation-timeline`,
+    /// Drag timelines (LLP 1057.003): `-exact-drag-timeline`, `animation-timeline`,
     /// `animation-range` and `timeline-scope`, their grammar, lowering and
     /// name lookup. A timeline follows a held value, so it uses motion too.
     Timelines,
@@ -63,7 +63,7 @@ pub enum Capability {
     Effects,
     /// CSS animations (LLP 1055 D5): the `animation` shorthand's and
     /// `@keyframes`' grammars, for a plan that declares keyframes or binds
-    /// `animation` or `exit-animation`.
+    /// `animation` or `-exact-exit-animation`.
     Animations,
     /// `background-image`'s gradients (LLP 1066): its grammar, for a plan
     /// that binds the row.

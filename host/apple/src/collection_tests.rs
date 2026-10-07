@@ -423,13 +423,13 @@ mod exports {
 }
 
 /// Rows a list report measures move the rows after them; a row's
-/// `layout-transition` does not play that move (the list's offset keeps what
+/// `-exact-layout-transition` does not play that move (the list's offset keeps what
 /// shows still), as UIKit's self-sizing does not animate.
 #[test]
 fn rows_a_report_moves_do_not_play_their_layout_transition() {
     let source = SOURCE.replace(
         "text `${row}` testId=`row-${row}`",
-        "column layout-transition=\"300ms ease-in-out\"\n              text `${row}` testId=`row-${row}`",
+        "column -exact-layout-transition=\"300ms ease-in-out\"\n              text `${row}` testId=`row-${row}`",
     );
     let (mut bridge, _, _) = fixture(&source);
     let before = snapshot(&bridge);
@@ -456,7 +456,7 @@ fn rows_a_report_moves_do_not_play_their_layout_transition() {
 }
 
 /// Rows a list's data or its author moves still play their
-/// `layout-transition`: a row put first, two rows swapped (the count kept),
+/// `-exact-layout-transition`: a row put first, two rows swapped (the count kept),
 /// a row with no transition of its own growing, a row's box nudged in its
 /// wrapper, the list's padding swapped. Another list on the page, whose data did not change, keeps
 /// still throughout.
@@ -506,11 +506,11 @@ fn rows_the_data_moves_still_play_their_layout_transition() {
         text "pad"
       list virtualized=true height=200 width=240 padding-left=(padded ? 20 : 0) padding-right=(padded ? 0 : 20) testId="edited"
         each row in rows key=row
-          column height=(tall and row == 0 ? 80 : 20) width=200 position="relative" left=(nudged and row == 1 ? 20 : 0) layout-transition=(row == 0 ? "none" : "300ms ease-in-out")
+          column height=(tall and row == 0 ? 80 : 20) width=200 position="relative" left=(nudged and row == 1 ? 20 : 0) -exact-layout-transition=(row == 0 ? "none" : "300ms ease-in-out")
             text `${row}`
       list virtualized=true height=200 width=240 testId="other"
         each row in others key=row
-          column layout-transition="300ms ease-in-out"
+          column -exact-layout-transition="300ms ease-in-out"
             text `${row}`
 "#;
     let plan = contract::compile(source).unwrap().encode();

@@ -59,7 +59,7 @@ fn symbol_identity_and_inherited_font_cross_the_image_boundary() {
   view
     column font-size=(large ? 28 : 17) font-weight=(large ? 600 : 400)
       button "Change" press=change testId="change"
-      image (large ? "symbol:send" : "symbol:search") tint-color="light-dark(#007aff,#0a84ff)" testId="symbol"
+      image (large ? "symbol:send" : "symbol:search") -exact-tint-color="light-dark(#007aff,#0a84ff)" testId="symbol"
 "##).unwrap();
     let (mut host, first) = Host::boot(
         &plan.encode(),

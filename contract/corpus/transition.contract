@@ -8,4 +8,4 @@ component Fade
     column testId="root"
       button press=toggle aria-label="Toggle" testId="toggle"
         text "Toggle"
-      text "Hello" testId="hello" opacity=(shown ? 1 : 0) transition="ease-in-out 250ms opacity, spring(180, 12, 1) translate"
+      text "Hello" testId="hello" opacity=(shown ? 1 : 0) transition="ease-in-out 250ms opacity, -exact-spring(180, 12, 1) translate"

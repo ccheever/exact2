@@ -144,13 +144,12 @@ fn styled_paragraph_metrics_and_cpu_gpu_glyph_batches_agree() {
                 .paint_glyphs(palette)
                 .map(|(g, baseline, ink)| {
                     (
-                        g.glyph_id as u32,
-                        g.x + g.x_offset * g.font_size,
-                        baseline + g.y - g.y_offset * g.font_size,
-                        g.metadata,
+                        g.glyph_id,
+                        g.x,
+                        baseline + g.y,
+                        g.run(),
                         ink,
-                        g.cache_key_flags
-                            .contains(cosmic_text::CacheKeyFlags::FAKE_ITALIC),
+                        paragraph.lines().faces[g.face as usize].skew,
                     )
                 })
                 .collect();

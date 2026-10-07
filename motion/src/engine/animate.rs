@@ -270,7 +270,7 @@ impl Engine {
         })
     }
 
-    /// Play a node's `exit-animation` as it leaves (LLP 1063), from the
+    /// Play a node's `-exact-exit-animation` as it leaves (LLP 1063), from the
     /// current clock, after the animations it already plays: as a browser
     /// appends the exit to the element's `animation` list, those keep
     /// running and the exit composites over them. An exit naming keyframes

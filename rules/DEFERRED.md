@@ -494,7 +494,7 @@ reading. Nothing that isn't HTML is added by it.
   Unblocks native-looking corners, edge fades and text over imagery without an
   SVG island. Also admitted ("do all of them"), LLP 1077 §5: SF Symbol rendering
   modes, variable values and effects; vibrancy; press haptics; rolling numerals; the
-  scroll edge effect; iPad pointer effects; smart-invert opt-out. Still out:
+  scroll edge effect; iPad pointer effects; -exact-smart-invert opt-out. Still out:
   `mix-blend-mode` on boxes (LLP 1077 D9).
 - No virtualList v2 (cert wires, extent demand, proxy lanes). **Admitted 2026-09-14
   (Charlie: "ok do what you think"):** a straightforward windowed list with bounded
@@ -543,14 +543,14 @@ passed as an argument.
 are kernel style rows (`translate`, `scale`, `rotate`, `opacity`); a `transition`
 row on the node says how they get there; the web host emits it as CSS and does
 nothing per frame; every other host runs `exact-motion`, which is held to the
-browser by fixtures. One declared deviation, `spring()`, lowered to keyframes on
+browser by fixtures. One declared deviation, `-exact-spring()`, lowered to keyframes on
 the web. Gestures are in as follow-and-release: the platform recognizes, the
 engine holds a value and springs it back with the release velocity. The seekable
 clock is in, and it is the reason motion is testable: an agent advances time to
 `settle_time()` and reads; it never waits.
 
 **Expanded (Charlie, 2026-10-05, via the lead: approved LLP 1099's design,
-"move to code"):** `spring()` takes UIKit's parameterisations: duration and
+"move to code"):** `-exact-spring()` takes UIKit's parameterisations: duration and
 damping ratio, duration and bounce, response, and a labelled `velocity` and an
 end time on the physical spring, each lowered to the spring UIKit builds and
 cut where Core Animation cuts it. One implementation in `exact-motion`; the
@@ -636,9 +636,9 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   Take: other animated layout properties and decorative effects remain behind
   that consumer. The first increment accepts several numeric samples; automatic
   content-height measurement and host adoption remain unfinished.
-  **Expanded (Seth Webster, 2026-09-26, for grnl; LLP 1063):** `layout-transition`
+  **Expanded (Seth Webster, 2026-09-26, for grnl; LLP 1063):** `-exact-layout-transition`
   (a box's laid-out position and surface size, moved by the engine natively and by
-  a measured offset on the web) and `exit-animation` (a removed node stays, out of
+  a measured offset on the web) and `-exact-exit-animation` (a removed node stays, out of
   layout, until its keyframes end). Unblocks siblings that slide when content
   around them changes, and things that leave instead of vanishing. **Ruled
   (Charlie, 2026-09-27, "we can try (a) for now"; take waived):** both rows stay
@@ -646,8 +646,8 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   layout move without snapshots, so the web runs them by FLIP, the technique web
   libraries use; there is no browser oracle for them, and parity is held by one
   recorded timeline compared across hosts. If the emulation's bug rate stays
-  high, the fallback is dropping `layout-transition` and keeping
-  `exit-animation`. Still out: animating any other layout property, and laying
+  high, the fallback is dropping `-exact-layout-transition` and keeping
+  `-exact-exit-animation`. Still out: animating any other layout property, and laying
   out per frame.
 - **Decay and sequence drivers.** A spring carries release velocity; nothing
   else needs a driver. (`@keyframes` and repeat came off; see below.)
@@ -689,15 +689,15 @@ path exists after than before. Still refused: a drawing language in Contract
 `toBlob`), `ctx.filter`, and an app-visible `OffscreenCanvas`.
 **Expanded (Seth Webster, 2026-09-26, for grnl; LLP 1061–1064):** paint motion
 on boxes — `transition` and keyframes on `background-color`, `color`, borders,
-`tint-color` and `box-shadow`, `light-dark()` pairs moving with the appearance —
+`-exact-tint-color` and `box-shadow`, `light-dark()` pairs moving with the appearance —
 through the kernel seam and Apple mechanism SVG's colours use (LLP 1055.000 D6);
-press feedback (`press-scale`) and motion at a ProMotion panel's rate; the user's
+press feedback (`-exact-press-scale`) and motion at a ProMotion panel's rate; the user's
 motion and transparency preferences as `exactViewport` fields, which the app
 reads (still no engine policy, above). Unblocks grnl's design as drawn. Take:
 the branch's own `path` node, `marker` declaration and block keyframes syntax
 were removed at the merge for main's SVG and keyframes; nothing is off main's
 list. **Ratified (Charlie, 2026-09-27; take waived):** paint transitions as CSS
-names them. `press-scale` stays as a declared non-CSS host-feedback row (LLP
+names them. `-exact-press-scale` stays as a declared non-CSS host-feedback row (LLP
 1001): the press composes through CSS's `scale` property and never writes
 `transform`, and it is kept under reduced motion, as a native button's
 highlight is (a shrink is feedback, not motion).

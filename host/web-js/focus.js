@@ -6,23 +6,53 @@
 // rebuilt offered (`offerAll`), so none takes the focus later; a fresh boot's hidden or disabled
 // field may still take it when it is shown.
 const offered = new WeakSet();
-let pressed = null;
 
-/** The control a pointer's press is dispatching on (a click with `detail` > 0: a key's activation
- * keeps the focus where it is, as the wasm host's), for a moment after it: the commits it causes,
- * including a due `then` that runs first and one a view transition defers (shared.js), may hand
- * its focus to a field they mount. */
-const PRESS_MS = 1000;
-let pressedAt = 0;
+/** The press a pointer is dispatching (a click with `detail` > 0: a key's activation keeps the
+ * focus where it is, as the wasm host's): its own work may hand the pressed control's focus to a
+ * field it mounts — the dispatch's synchronous commits (a due `then` the event runs first among
+ * them) and a tree update it handed to a view transition (shared.js holds it and runs it `within`
+ * that press). Nothing else may: not after that work has run, not an unrelated commit meanwhile,
+ * and not once a later key, or a pointer on another control, supersedes the press, as the wasm
+ * host's `pointerTarget` lasts only through `press()` (Charlie, 2026-10-07: no wall-clock window). */
+const live = new Set(); // the presses whose work may still run (each held until it has)
+let dispatching = null; // the press whose synchronous dispatch is running
+let running = null; // the press a held tree update runs for
+const release = (token) => () => { if (--token.n === 0) live.delete(token); };
+// A key supersedes every live press; a pointer, each press of another control.
+const supersede = (ev) => {
+  for (const token of live) if (ev.type === 'keydown' || !token.el.contains?.(ev.target)) { token.dead = true; live.delete(token); }
+};
+let listening = false;
 export function press(el) {
-  pressed = el;
-  pressedAt = performance.now();
+  if (!listening && globalThis.document?.addEventListener) {
+    listening = true;
+    for (const kind of ['pointerdown', 'keydown']) document.addEventListener(kind, supersede, true);
+  }
+  const token = { el, n: 1, dead: false }, was = dispatching, done = release(token);
+  live.add(token);
+  dispatching = token;
+  return () => { dispatching = was; done(); };
+}
+/** The press whose work is running now, kept for a tree update that work deferred; null when no
+ * press's work is running (an unrelated commit holds nothing). */
+export function hold() {
+  const token = running ?? dispatching;
+  if (!token || token.dead) return null;
+  token.n++;
+  return { token, release: release(token) };
+}
+/** Run a deferred tree update with the press that deferred it, then let that press go. */
+export function within(held, f) {
+  if (!held) return f();
+  const was = running;
+  running = held.token;
+  try { return f(); } finally { running = was; held.release(); }
 }
 
 const rootOf = () => globalThis.document?.getElementById?.('exact-root');
 
 export function autofocus(root = rootOf()) {
-  const by = performance.now() - pressedAt <= PRESS_MS ? pressed : null;
+  const token = running ?? dispatching, by = token && !token.dead ? token.el : null;
   if (!root?.querySelectorAll) return;
   for (const el of root.querySelectorAll('[autofocus]')) {
     if (offered.has(el) || !el.getClientRects().length || el.closest('[inert]') || el.matches(':disabled') || getComputedStyle(el).visibility !== 'visible') continue;

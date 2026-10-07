@@ -209,7 +209,7 @@ pub struct Facts<'a> {
     pub parent_display: Option<Display>,
     /// A sibling is a text-flow exclusion (`flow::is_exclusion`).
     pub beside_exclusion: bool,
-    /// A child has a `layout-transition` row.
+    /// A child has a `-exact-layout-transition` row.
     pub holds_layout_transition: bool,
 }
 

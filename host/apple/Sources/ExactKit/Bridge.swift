@@ -380,11 +380,12 @@ final class Runtime {
             return read(exact_dispatch(rt, view, 9, n, now))
         }
     }
-    /// A key down at the view, by the web's key name.
-    func key(_ view: UInt32, _ name: String, now: Double) -> Batch {
+    /// A key down (kind 6) or up (43, #140) at the view: its chord by the
+    /// web's key name, then its code and repeat (`KeyPress.payload`).
+    func key(_ view: UInt32, _ payload: String, up: Bool = false, now: Double) -> Batch {
         return on {
-            let n = write(name)
-            return read(exact_dispatch(rt, view, 6, n, now))
+            let n = write(payload)
+            return read(exact_dispatch(rt, view, up ? 43 : 6, n, now))
         }
     }
     /// A `change`; a text field's carries its selection as the edit left
