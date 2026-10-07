@@ -1420,16 +1420,16 @@ component App
       testId="mobile-root"
       display="flex"
       flex-direction="row"
-      column id="sidebar-panel" role="tabpanel" width=workspace.sidebarContentWidth height="100%" flex-shrink=0 position="relative" overflow="hidden"
-        column navigationKey="t3-workspace-sidebar" position="absolute" inset=0 navigationScroll=(length(sidebarHome.items) > 0 ? "sidebar-list" : "") background-color=look.screen
+      column id="sidebar-panel" role="tabpanel" pointer-events="none" width=workspace.sidebarContentWidth height="100%" flex-shrink=0 position="relative" overflow="hidden"
+        column navigationKey="t3-workspace-sidebar" pointer-events="auto" position="absolute" inset=0 navigationScroll=(length(sidebarHome.items) > 0 ? "sidebar-list" : "") background-color=look.screen
           header
             text "T3 Code" role="heading" aria-level=2
           when workspace.sidebarMounted
             Home(listId="sidebar-list", items=sidebarHome.items, emptyTitle=sidebarHome.emptyTitle, emptyDetail=sidebarHome.emptyDetail, loading=sidebarHome.loading, addEnvironment=sidebarHome.addEnvironment, bottomClearance=sidebarChrome.bottomClearance, emptyClearance=sidebarChrome.emptyClearance, selectThread=chooseThread, toggleShelf=toggleHomeShelf, showMore=showMoreSidebar, addConnection=addEnvironment, colors=homeLook)
-            HomeChrome(configuration=sidebarChrome.configuration, event=sidebarChromeEvent)
-      column id="workspace-panel" role="tabpanel" position="relative" width=workspace.contentSettledWidth height="100%" flex-shrink=0 min-width=0
+            HomeChrome(configuration=sidebarChrome.configuration, event=sidebarChromeEvent, height=0)
+      column id="workspace-panel" role="tabpanel" pointer-events="none" position="relative" width=workspace.contentSettledWidth height="100%" flex-shrink=0 min-width=0
         each entry in stack(nav) key = entry.id
-          column navigationKey=`${entry.id}`
+          column navigationKey=`${entry.id}` pointer-events="auto"
             data-mobile-scheduled-editor=(entry.name == "settingsScheduledNew" or entry.name == "settingsScheduledEdit")
             data-mobile-form-sheet=(entry.name == "connections" or entry.name == "connect")
             data-mobile-scan-action=(entry.name == "connect" ? "scan-qr" : "")
@@ -1478,8 +1478,8 @@ component App
               scan=scan, permissionChanged=permissionChanged, receiveScan=receiveScan, addEnvironment=addEnvironment, back=back, toggle=toggle,
               detailAction=detailAction, setEnabled=setEnabled, changeRouting=changeRouting, reconnect=reconnect, remove=remove, save=save
             )
-      column id="inspector-panel" role="tabpanel" position="relative" width=workspace.inspectorContentWidth height="100%" flex-shrink=0 min-width=0
-        column navigationKey="t3-workspace-inspector" position="absolute" inset=0 background-color=reviewLook.sheet navigationScroll=(inspectorPresentation.showFiles ? "inspector-files" : inspectorPresentation.showChanges ? "inspector-changes" : "inspector-git")
+      column id="inspector-panel" role="tabpanel" pointer-events="none" position="relative" width=workspace.inspectorContentWidth height="100%" flex-shrink=0 min-width=0
+        column navigationKey="t3-workspace-inspector" pointer-events="auto" position="absolute" inset=0 background-color=reviewLook.sheet navigationScroll=(inspectorPresentation.showFiles ? "inspector-files" : inspectorPresentation.showChanges ? "inspector-changes" : "inspector-git")
           header
             text inspectorPresentation.title role="heading" aria-level=2
           MobileInspectorContent(gitColors=gitLook, state=inspectorState, data=inspectorPresentation, visible=workspace.inspectorVisible, gitBottomInset=(max(layout.safeBottom, 18) + 18), colors=reviewLook, toggleDirectory=toggleDirectory, openFile=openFile, refreshFiles=refreshFiles, reviewFile=reviewFile, gitAction=gitAction, refreshGit=refreshGit)
