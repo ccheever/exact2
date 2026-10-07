@@ -157,6 +157,19 @@ export function parseFlags(argv) {
 /** LLP 1027.000.000 D3: the date at the agent clock's zero, unless the drive names one. */
 export const AGENT_EPOCH = '2026-01-01T00:00:00Z';
 
+/** A page script that holds what a comparison of two pages must hold equal, on every carrier:
+ * `mediaClock: 'frozen'` plays media at rate 0 from its first load, so both pages read one
+ * position, not the wall clock's; `lineHeight` (cross-browser conformance's) gives the body a
+ * fixed line height in place of `normal`, whose value each engine takes from its own font
+ * metrics (plain HTML, 16px system-ui: Chrome and WebKit 18 px, Firefox 20 px). '' for neither. */
+export function parityScript({ mediaClock = 'wall', lineHeight = null } = {}) {
+  if (!['wall', 'frozen'].includes(mediaClock)) throw new Error(`mediaClock: ${mediaClock} (wall or frozen)`);
+  if (lineHeight != null && !/^\d+(\.\d+)?$/.test(String(lineHeight))) throw new Error(`lineHeight: ${lineHeight} is a unitless number`);
+  const media = mediaClock === 'frozen' ? `addEventListener('loadstart', e => { if (e.target instanceof HTMLMediaElement) { e.target.defaultPlaybackRate = 0; e.target.playbackRate = 0; } }, true);` : '';
+  const line = lineHeight != null ? `addEventListener('DOMContentLoaded', () => { const s = document.createElement('style'); s.textContent = 'body{line-height:${lineHeight}!important}'; document.head.append(s); });` : '';
+  return media + line;
+}
+
 /** The fault table's launch lines (LLP 1103 D3; the runner's `Faults::parse`): `<prefix>` or `<prefix>\t<times>`, or a reload's whole entry. Refused here, before any process starts, as the host would. */
 export function faultSpec(spec) {
   const lines = String(spec ?? '').split('\n').filter(l => l.trim());

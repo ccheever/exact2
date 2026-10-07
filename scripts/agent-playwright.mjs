@@ -24,6 +24,9 @@ const FIREFOX_PREFS = {
   'mousewheel.default.delta_multiplier_y': 100,
   'widget.gtk.overlay-scrollbars.enabled': true,
   'ui.prefersReducedTransparency': 0,
+  // TouchEvent for the synthetic held-touch path without Playwright's hasTouch,
+  // which would also make (pointer: coarse) true where Chrome's oracle is fine.
+  'dom.w3c_touch_events.enabled': 1,
 };
 
 function unavailable(name, error) {
@@ -189,7 +192,7 @@ export function playwrightPointer({ name, move, down, up, wait }) {
 
 /** Open Firefox or WebKit through Playwright. The page still owns Exact's
  * deterministic runner/motion clock; Playwright carries only browser IO. */
-export async function openPlaywrightWeb({ browser: name, plan, world, size, url: pageURL, app, webDist, onProcess, reuse, storage, facts: givenFacts }) {
+export async function openPlaywrightWeb({ browser: name, plan, world, size, url: pageURL, app, webDist, onProcess, reuse, storage, facts: givenFacts, parity = '' }) {
   if (!['firefox', 'webkit'].includes(name)) throw new Error(`browser: chrome, firefox or webkit, not ${name}`);
   const facts = givenFacts ?? launchFacts({});
   if (reuse) await reuse.close(); // Chrome reuse is intentionally not crossed with another engine.
@@ -207,7 +210,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
       ...(name === 'firefox' ? { firefoxUserPrefs: FIREFOX_PREFS } : {}) });
     onProcess?.(browserServer.process());
     browser = await playwright[name].connect(browserServer.wsEndpoint());
-    context = await browser.newContext({ viewport: { width: size[0], height: size[1] }, screen: { width: size[0], height: size[1] }, deviceScaleFactor: 1, hasTouch: true, colorScheme: 'light', reducedMotion: 'no-preference', contrast: 'no-preference' });
+    context = await browser.newContext({ viewport: { width: size[0], height: size[1] }, screen: { width: size[0], height: size[1] }, deviceScaleFactor: 1, hasTouch: false, colorScheme: 'light', reducedMotion: 'no-preference', contrast: 'no-preference' });
     page = await context.newPage();
   } catch (error) {
     await browser?.close().catch(() => {});
@@ -219,7 +222,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
   try {
     page.on('console', msg => hostLines.push(`console.${msg.type()}: ${msg.text()}`));
     page.on('pageerror', error => hostLines.push(`exception: ${error.stack ?? error.message}`));
-    await page.addInitScript(init);
+    await page.addInitScript(init + parity);
     if (world && !plan) {
       const encoded = worldFile(world).toString('base64');
       await page.addInitScript(value => { globalThis.exactWorldCarry = Uint8Array.from(atob(value), c => c.charCodeAt(0)); }, encoded);

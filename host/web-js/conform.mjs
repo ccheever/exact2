@@ -266,9 +266,13 @@ async function drive(t, report, fail, dir, ws, js) {
     // A plan's `// agent: timeZone=… epoch=…` line: the drive's facts, on both.
     const facts = Object.fromEntries([...(t.contract ? /^\/\/ agent: (.*)$/m.exec(readFileSync(t.contract, 'utf8'))?.[1] ?? '' : '').matchAll(/(\w+)=(\S+)/g)].map(([, k, v]) => [k, k === 'epoch' ? Number(v) : v]));
     if (crossBrowser) {
-      try { J = await open({ host: 'web', browser: crossBrowser, app: t.app, ...facts, url: js.url }); }
+      // Both engines hold media time and the default line height equal (agent-launch.mjs `parityScript`):
+      // `line-height: normal` is each engine's own font metric (Firefox 20 px where Chrome is 18 at 16px
+      // system-ui, in plain HTML), so the comparison measures what the page does, not the font's metric.
+      const parity = { mediaClock: 'frozen', lineHeight: '1.2' };
+      try { J = await open({ host: 'web', browser: crossBrowser, app: t.app, ...facts, url: js.url, ...parity }); }
       catch (e) { return fail(`${other}-open`, e.message.replace(/\s+/g, ' ').trim()); }
-      try { W = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, url: t.urls ? ws.url : js.url , mediaClock: 'frozen' }); }
+      try { W = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, url: t.urls ? ws.url : js.url, ...parity }); }
       catch (e) { return fail(`${reference}-open`, e.message.replace(/\s+/g, ' ').trim()); }
     } else {
       try { W = await open({ host: 'web', browser: 'chrome', app: t.app, ...facts, ...(t.contract ? { webDist: t.wasm, plan: t.plan } : { url: ws.url }) , mediaClock: 'frozen' }); }
