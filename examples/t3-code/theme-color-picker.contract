@@ -1,0 +1,264 @@
+// The theme editor's colour picker (T3 Code 1e2ecbd975 settings/ThemeColorPicker.tsx
+// ThemeColorPicker / ThemeColorPickerPanel, ui/color-picker.tsx ColorSaturationValuePlane and
+// ColorHueSlider). The swatch opens a 18rem popover: the row's label over "Choose a color" and
+// a round swatch, the saturation/brightness plane, the hue slider, and the HEX and RGB fields.
+//
+// The panel's HSV is this component's own state, as the reference keeps it in the panel: a
+// press on the plane or the slider moves its thumb at once, and every move after it while the
+// button is held (pointerdown/pointermove/pointerup, the pointer held by the control). Each
+// change goes to the draft as `live("color", role, hex, t)` (themelocal ops, theme-color-picker.ts),
+// stamped with the runner time `t`; while one is in flight a move only moves the thumb, and the
+// release always sends the last colour, as the reference batches commits to a frame and flushes
+// the last on release. The row echoes the stamp of the last op it applied (`row.seq`): once
+// nothing is in flight and the row's colour is not the panel's own (the draft changed it some
+// other way, or a typed value landed), the panel follows the row again (the reference resets its
+// HSV from an incoming value that is not its own echo; an echo keeps the hue of a grey).
+// The typed HEX and RGB fields send every keystroke; the draft parses them (handleHexChange,
+// handleRgbChange), and a blur shows the current colour again.
+//
+// Keys, as the reference: on the plane's two stops (saturation, brightness) the arrows step 2 %
+// (10 % with Shift), Home and End go to the ends; on the hue slider the arrows step 1° (10° with
+// Shift) and wrap. The plane's stops are invisible and focusable inside it, as the reference's
+// visually hidden range inputs; a press on the plane focuses saturation. Contract carries no
+// aria-valuenow / aria-valuetext (X49), so a stop's value is its aria-description.
+use CorePalette from "./settings-core.contract"
+use EditorRow from "./settings-appearance-editor-shapes.contract"
+use sbByte from "./settings-b-accent.contract"
+use Tip from "./shell-tip.contract"
+
+fn tcpClamp(n: number): number = min(1, max(0, n))
+// lib/color.ts hsvToHex, step for step (theme-color-picker.ts contractHsvToHex): the hue's sector
+// picks which of chroma, x and 0 each channel takes; each channel is round((part + (v − c)) × 255).
+fn tcpHue(h: number): number = ((h % 360) + 360) % 360
+fn tcpSector(h: number): number = floor(tcpHue(h) / 60)
+fn tcpX(h: number, s: number, v: number): number = v * s * (1 - max((tcpHue(h) / 60) % 2 - 1, 1 - (tcpHue(h) / 60) % 2))
+fn tcpPart(h: number, s: number, v: number, c: number): number = c == 0 ? v * s : (c == 1 ? tcpX(h, s, v) : 0)
+// Per channel, what each sector (0–5) gives: 0 chroma, 1 x, 2 zero.
+fn tcpRole(sector: number, a: number, b: number, c: number, d: number, e: number, f: number): number = sector == 0 ? a : (sector == 1 ? b : (sector == 2 ? c : (sector == 3 ? d : (sector == 4 ? e : f))))
+fn tcpR(h: number, s: number, v: number): number = round((tcpPart(h, s, v, tcpRole(tcpSector(h), 0, 1, 2, 2, 1, 0)) + (v - v * s)) * 255)
+fn tcpG(h: number, s: number, v: number): number = round((tcpPart(h, s, v, tcpRole(tcpSector(h), 1, 0, 0, 1, 2, 2)) + (v - v * s)) * 255)
+fn tcpB(h: number, s: number, v: number): number = round((tcpPart(h, s, v, tcpRole(tcpSector(h), 2, 2, 1, 0, 0, 1)) + (v - v * s)) * 255)
+fn tcpHex(h: number, s: number, v: number): string = `#${sbByte(tcpR(h, s, v))}${sbByte(tcpG(h, s, v))}${sbByte(tcpB(h, s, v))}`
+fn tcpRgb(h: number, s: number, v: number): string = `${tcpR(h, s, v)}, ${tcpG(h, s, v)}, ${tcpB(h, s, v)}`
+fn tcpArrow(k: string): bool = k == "ArrowRight" or k == "ArrowUp" or k == "ArrowLeft" or k == "ArrowDown"
+// ColorSaturationValuePlane's keys for one axis (theme-color-picker.ts planeKey).
+fn tcpAxisKey(cur: number, k: string, shift: bool): number = k == "Home" ? 0 : (k == "End" ? 1 : tcpClamp(cur + (k == "ArrowRight" or k == "ArrowUp" ? 1 : -1) * (shift ? 0.1 : 0.02)))
+
+component ThemeColorSwatch
+  inject
+    rem: number
+  props
+    row: EditorRow
+    pal: CorePalette
+    vh: number
+    live: action
+  state touched = false
+  state above = false
+  state h = 0
+  state s = 0
+  state v = 0
+  state drag = ""
+  state pid = 0
+  state sent = 0
+  state hexDraft = ""
+  state hexEditing = false
+  state rgbDraft = ""
+  state rgbEditing = false
+  state focusPart = ""
+  state mouse = false
+  // The panel's own HSV while it has one: a change of its own is in flight, or the row shows it.
+  derive own = touched and (sent > row.seq or tcpHex(h, s, v) == row.hex6)
+  derive ch = own ? h : row.h
+  derive cs = own ? s : row.s
+  derive cv = own ? v : row.v
+  derive hex = own ? tcpHex(h, s, v) : row.hex6
+  derive rgb = own ? tcpRgb(h, s, v) : row.rgb
+  derive hueColor = tcpHex(ch, 1, 1)
+  derive planeW = 16.5 * rem
+  derive planeH = 8 * rem
+  // A keyboard focus draws the ring (focus-visible); a press on the plane or the slider does not.
+  derive planeRing = not mouse and (focusPart == "s" or focusPart == "v")
+  derive hueRing = not mouse and focusPart == "hue"
+  // The trigger: each opening starts from the row's current value. The popover's first stop
+  // (saturation) takes the focus as it opens (Base UI's initial focus), with the ring only when the
+  // trigger was pressed from the keyboard. It opens below the swatch, 10 apart (side="bottom",
+  // sideOffset 10), or above it when the window has no room below, as Base UI's collision flip
+  // does (the host clamps a popover into the window but never flips it, LLP 1021 §5).
+  action open
+    let at = frame(`theme-editor-swatch-${row.id}`)
+    above = at.y + at.height + 0.625 * rem + 19.5 * rem > vh - 0.3125 * rem and at.y > vh / 2
+    touched = false
+    drag = ""
+    hexEditing = false
+    rgbEditing = false
+  action triggerDown
+    mouse = true
+  action triggerKey(k: string)
+    mouse = false
+  // Escape closes the popover (the host's), and the focus goes back to the trigger (Base UI's final focus).
+  // The popover is aria-modal so that no aria-keyshortcuts button outside it takes that Escape first
+  // (Settings' Back): Base UI's dismissal prevents the key, and the reference's Escape-to-go-back skips
+  // a prevented one (useEscapeToGoBack). On macOS aria-modal scopes only the shortcuts.
+  action popKey(k: string)
+    if k == "Escape"
+      focus(`theme-editor-swatch-${row.id}`)
+  // A press anywhere in the popover ends there (`press` plus `retainFocus`): without it the macOS host
+  // passes a click on a control without a press of its own (the plane, the slider) on to the page
+  // under the popover, so the editor's field or button beneath took it too (EXACT2-GAPS X50).
+  action popPress
+    mouse = true
+  // One colour to the draft; `force` sends even while an earlier one is in flight (a release, a key).
+  action push(hh: number, ss: number, vv: number, force: bool)
+    if force or not (sent > row.seq)
+      let t = now()
+      sent = t
+      live("color", row.role, tcpHex(hh, ss, vv), t)
+  action planeDown(e: PointerEvent)
+    if drag == "" and e.buttons == 1
+      let hh = ch
+      let ns = tcpClamp(e.offsetX / planeW)
+      let nv = 1 - tcpClamp(e.offsetY / planeH)
+      touched = true
+      h = hh
+      s = ns
+      v = nv
+      drag = "plane"
+      pid = e.pointerId
+      mouse = true
+      hexEditing = false
+      rgbEditing = false
+      focus(`theme-color-${row.id}-saturation`)
+      push(hh, ns, nv, false)
+  action planeMove(e: PointerEvent)
+    if drag == "plane" and e.pointerId == pid
+      let ns = tcpClamp(e.offsetX / planeW)
+      let nv = 1 - tcpClamp(e.offsetY / planeH)
+      s = ns
+      v = nv
+      push(h, ns, nv, false)
+  action planeUp(e: PointerEvent)
+    if drag == "plane" and e.pointerId == pid
+      let ns = tcpClamp(e.offsetX / planeW)
+      let nv = 1 - tcpClamp(e.offsetY / planeH)
+      s = ns
+      v = nv
+      drag = ""
+      push(h, ns, nv, true)
+  action hueDown(e: PointerEvent)
+    if drag == "" and e.buttons == 1
+      let nh = tcpClamp(e.offsetX / planeW) * 360
+      let ss = cs
+      let vv = cv
+      touched = true
+      h = nh
+      s = ss
+      v = vv
+      drag = "hue"
+      pid = e.pointerId
+      mouse = true
+      hexEditing = false
+      rgbEditing = false
+      focus(`theme-color-${row.id}-hue`)
+      push(nh, ss, vv, false)
+  action hueMove(e: PointerEvent)
+    if drag == "hue" and e.pointerId == pid
+      let nh = tcpClamp(e.offsetX / planeW) * 360
+      h = nh
+      push(nh, s, v, false)
+  action hueUp(e: PointerEvent)
+    if drag == "hue" and e.pointerId == pid
+      let nh = tcpClamp(e.offsetX / planeW) * 360
+      h = nh
+      drag = ""
+      push(nh, s, v, true)
+  action axisKey(axis: string, k: string, e: KeyboardEvent)
+    mouse = false
+    if tcpArrow(k) or k == "Home" or k == "End"
+      preventDefault()
+      let hh = ch
+      let ss = axis == "s" ? tcpAxisKey(cs, k, e.shiftKey) : cs
+      let vv = axis == "v" ? tcpAxisKey(cv, k, e.shiftKey) : cv
+      touched = true
+      h = hh
+      s = ss
+      v = vv
+      push(hh, ss, vv, true)
+  action hueKey(k: string, e: KeyboardEvent)
+    mouse = false
+    if tcpArrow(k)
+      preventDefault()
+      let nh = (ch + (k == "ArrowRight" or k == "ArrowUp" ? 1 : -1) * (e.shiftKey ? 10 : 1) + 360) % 360
+      let ss = cs
+      let vv = cv
+      touched = true
+      h = nh
+      s = ss
+      v = vv
+      push(nh, ss, vv, true)
+  action focusOn(part: string)
+    focusPart = part
+  action focusOff(part: string)
+    if focusPart == part
+      focusPart = ""
+  action hexFocus
+    hexEditing = true
+    hexDraft = hex
+    focusPart = "hex"
+  action hexInput(text: string)
+    let t = now()
+    hexDraft = text
+    hexEditing = true
+    sent = t
+    live("hex", row.role, text, t)
+  action rgbFocus
+    rgbEditing = true
+    rgbDraft = rgb
+    focusPart = "rgb"
+  action rgbInput(text: string)
+    let t = now()
+    rgbDraft = text
+    rgbEditing = true
+    sent = t
+    live("rgb", row.role, text, t)
+  // A blur shows the current colour again, whatever was left in the field.
+  action fieldBlur(part: string)
+    hexEditing = false
+    rgbEditing = false
+    if focusPart == part
+      focusPart = ""
+  view
+    box position="relative" flex-shrink=0
+      // The trigger and its tooltip (TooltipPopup side="top": "Choose <label> color").
+      Tip(label=`Choose ${row.label} color`, side="top", align="center", offset=28)
+        button press=open pointerdown=triggerDown key=triggerKey popovertarget=`theme-color-${row.id}` aria-label=`Choose ${row.label} color` width="1.5rem" height="1.5rem" padding=1 box-sizing="border-box" border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#27272a4d, #f5f5f54d)" background-color="#00000000" id=`theme-editor-swatch-${row.id}` testId=`theme-editor-swatch-${row.id}`
+          box width="1.25rem" height="1.25rem" border-radius="0.625rem" background-color=row.value
+      column id=`theme-color-${row.id}` popover="auto" key=popKey press=popPress retainFocus=true tabindex=-1 position="absolute" position-area=(above ? "top span-right" : "bottom span-right") margin-top=(above ? "0px" : "0.625rem") margin-bottom=(above ? "0.625rem" : "0px") user-select="none" width="18rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" overflow="hidden" role="dialog" aria-modal=true aria-label=`${row.label} color` testId=`theme-color-${row.id}-popover`
+        row align-items="center" justify-content="space-between" gap="0.5rem" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" border-bottom-width=1 border-bottom-style="solid" border-color=pal.divider
+          column flex=1 min-width=0
+            text row.label font-size="0.75rem" font-weight=600 line-height="1rem" color=pal.text line-clamp=1
+            text "Choose a color" font-size="0.6875rem" line-height="1rem" color=pal.muted
+          box width="1.75rem" height="1.75rem" flex-shrink=0 border-radius="0.875rem" background-color=hex box-shadow="0 1px 2px #0000000d" testId=`theme-color-${row.id}-current`
+        column gap="0.75rem" padding="0.75rem"
+          // ColorSaturationValuePlane: the hue under a white-to-clear (left to right) and a black-to-clear (bottom to top) gradient.
+          box id=`theme-color-${row.id}-plane` position="relative" width="16.5rem" height="8rem" flex-shrink=0 border-radius="0.625rem" overflow="hidden" background-color=hueColor cursor="crosshair" touch-action="none" pointerdown=planeDown pointermove=planeMove pointerup=planeUp box-shadow=(planeRing ? `0 0 0 2px ${pal.popover}, 0 0 0 4px ${pal.accent}` : "none") role="group" aria-label=`${row.label} saturation and brightness` testId=`theme-color-${row.id}-plane`
+            box position="absolute" left=0 top=0 right=0 bottom=0 pointer-events="none" background-image="linear-gradient(to right, #ffffff, #ffffff00)"
+            box position="absolute" left=0 top=0 right=0 bottom=0 pointer-events="none" background-image="linear-gradient(to top, #000000, #00000000)"
+            box id=`theme-color-${row.id}-saturation` tabindex=0 autofocus key=axisKey("s") focus=focusOn("s") blur=focusOff("s") role="slider" aria-label=`${row.label} saturation` aria-description=`${round(cs * 100)}%` position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId=`theme-color-${row.id}-saturation`
+            box id=`theme-color-${row.id}-brightness` tabindex=0 key=axisKey("v") focus=focusOn("v") blur=focusOff("v") role="slider" aria-label=`${row.label} brightness` aria-description=`${round(cv * 100)}%` position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId=`theme-color-${row.id}-brightness`
+            when planeRing
+              text `${focusPart == "s" ? "Saturation" : "Brightness"} ${round((focusPart == "s" ? cs : cv) * 100)}%` position="absolute" left="0.5rem" bottom="0.5rem" z-index=10 padding-left="0.375rem" padding-right="0.375rem" padding-top="0.125rem" padding-bottom="0.125rem" border-radius="0.25rem" background-color=pal.popover font-size="0.75rem" line-height="1rem" color=pal.text pointer-events="none" aria-hidden=true
+            box position="absolute" left=0 top=0 width="0.75rem" height="0.75rem" box-sizing="border-box" border-radius="0.375rem" border-width=2 border-style="solid" border-color="#ffffff" box-shadow="0 0 0 1px #00000066" pointer-events="none" translate=`${cs * 15.75 * rem}px ${(1 - cv) * 7.25 * rem}px` transition=(drag == "plane" ? "none" : "translate 80ms linear") testId=`theme-color-${row.id}-plane-thumb`
+          // ColorHueSlider: the hue bar and its thumb (a stop of its own).
+          box id=`theme-color-${row.id}-hue` tabindex=0 key=hueKey focus=focusOn("hue") blur=focusOff("hue") position="relative" width="16.5rem" height="1.5rem" flex-shrink=0 display="flex" align-items="center" border-radius="0.75rem" cursor="pointer" touch-action="none" pointerdown=hueDown pointermove=hueMove pointerup=hueUp box-shadow=(hueRing ? `0 0 0 2px ${pal.popover}, 0 0 0 4px ${pal.accent}` : "none") role="slider" aria-label=`${row.label} hue` aria-description=`${round(ch)}` testId=`theme-color-${row.id}-hue`
+            box width="100%" height="0.625rem" border-radius="0.3125rem" pointer-events="none" background-image="linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)" box-shadow="inset 0 0 0 1px #0000001f"
+            box position="absolute" left=0 top="0.25rem" width="1rem" height="1rem" box-sizing="border-box" border-radius="0.5rem" border-width=2 border-style="solid" border-color="#ffffff" background-color=hueColor box-shadow="0 0 0 1px #00000066" pointer-events="none" translate=`${ch / 360 * 15.5 * rem}px 0px` transition=(drag == "hue" ? "none" : "translate 80ms linear") testId=`theme-color-${row.id}-hue-thumb`
+          row gap="0.5rem" width="16.5rem"
+            column flex=1 min-width=0 gap="0.25rem"
+              text "HEX" padding-left="0.25rem" padding-right="0.25rem" font-size="0.625rem" font-weight=600 line-height="0.875rem" letter-spacing="0.0625rem" color=pal.muted aria-hidden=true
+              row align-items="center" gap="0.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=(focusPart == "hex" ? pal.accent : pal.input) background-color=pal.canvas
+                box width="0.875rem" height="0.875rem" flex-shrink=0 border-radius="0.4375rem" background-color=hex
+                input value=(hexEditing ? hexDraft : hex) input=hexInput focus=hexFocus blur=fieldBlur("hex") aria-label=`${row.label} picker hex value` spellcheck="false" autocorrect="off" flex=1 min-width=0 height="2rem" padding=0 border-width=0 background-color="#00000000" font-family="ui-monospace" font-size="0.75rem" color=pal.text testId=`theme-color-${row.id}-hex`
+            column flex=1.2 min-width=0 gap="0.25rem"
+              text "RGB" padding-left="0.25rem" padding-right="0.25rem" font-size="0.625rem" font-weight=600 line-height="0.875rem" letter-spacing="0.0625rem" color=pal.muted aria-hidden=true
+              row align-items="center" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=(focusPart == "rgb" ? pal.accent : pal.input) background-color=pal.canvas
+                input value=(rgbEditing ? rgbDraft : rgb) input=rgbInput focus=rgbFocus blur=fieldBlur("rgb") aria-label=`${row.label} picker RGB value` spellcheck="false" autocorrect="off" flex=1 min-width=0 height="2rem" padding=0 border-width=0 background-color="#00000000" font-family="ui-monospace" font-size="0.75rem" color=pal.text testId=`theme-color-${row.id}-rgb`

@@ -11,6 +11,7 @@ import { themeRoles } from './settings-appearance';
 import { sessionInputFor, sessionThemes, themeEditorStore } from './theme-editor-session';
 import { themeSavedNotice, type ThemeSaveContext } from './theme-editor-notices';
 import { pushToast } from './toast';
+import { pickerCommit, pickerFields, type PickerFields } from './theme-color-picker';
 
 type Mode = 'light' | 'dark';
 const LIGHT: Record<string, string> = { canvas: '#fcfcfc', chrome: '#fcfcfc', toolbar: '#fcfcfc', toolbarForeground: '#27272a', toolbarBorder: '#e4e4e7', toolbarControl: '#ffffff',
@@ -54,32 +55,38 @@ const luminance = (hex: string) => { const [r, g, b] = rgb(hex).map(v => { const
 const foregroundOn = (background: string) => luminance(background) < 0.179 ? '#fffaff' : '#241523';
 const toneOn = (selected: string, surface: string) => mixHex(selected, foregroundOn(surface) === '#fffaff' ? '#ffffff' : '#000000', 0.25);
 
-/** updateThemeColorFamily, over 6-digit hex. */
+/**
+ * updateThemeColorFamily, over hex. The chosen colour keeps its alpha in its own roles (the
+ * reference stores it); the roles derived from it read it composited over the canvas, or the
+ * sidebar for the selection, as the reference's `selectedOn` does.
+ */
 export function updateFamily(colors: Record<string, string>, role: string, input: string): Record<string, string> {
   const hex = toHex(input);
   if (!hex) throw new ClientError('Enter a color such as #1b4ed8.');
-  const value = hex.slice(0, 7);
-  const canvas = colors.canvas ?? '#fcfcfc', dark = luminance(canvas) < 0.179;
-  const status = () => { const surface = mixHex(canvas, value, dark ? 0.16 : 0.08); return { surface, foreground: toneOn(value, surface) }; };
+  const value = hex.length === 9 && hex.endsWith('ff') ? hex.slice(0, 7) : hex;
+  const selected = value.slice(0, 7), alphaHex = value.slice(7), alpha = alphaHex ? parseInt(alphaHex, 16) / 255 : 1;
+  const on = (background: string) => alpha < 1 ? mixHex(background, selected, alpha) : selected;
+  const canvas = colors.canvas ?? '#fcfcfc', dark = luminance(canvas) < 0.179, onCanvas = on(canvas);
+  const status = () => { const surface = mixHex(canvas, onCanvas, dark ? 0.16 : 0.08); return { surface, foreground: toneOn(selected, surface) }; };
   switch (role) {
     case 'canvas': return { ...colors, canvas: value, chrome: value, toolbar: value };
     case 'text': return { ...colors, text: value, toolbarForeground: value, toolbarControlForeground: value };
     case 'mutedForeground': return { ...colors, textMuted: value, mutedForeground: value, placeholder: value, secondaryLabel: value, iconMuted: value, sidebarMutedForeground: value };
     case 'border': return { ...colors, border: value, toolbarBorder: value, sidebarBorder: value };
-    case 'secondary': return { ...colors, secondary: value, secondaryForeground: foregroundOn(value), muted: value, toolbarControl: value };
-    case 'accentSurface': return { ...colors, accentSurface: value, accentSurfaceForeground: foregroundOn(value), toolbarControlHover: value };
-    case 'accent': { const updateSurface = mixHex(canvas, value, dark ? 0.32 : 0.16);
-      return { ...colors, accent: value, accentForeground: foregroundOn(value), focus: value, update: value, updateForeground: toneOn(value, updateSurface), updateSurface, terminalCursor: value }; }
-    case 'messageAction': { const fg = foregroundOn(value);
-      return { ...colors, messageAction: value, messageActionForeground: fg, messageActionHover: mixHex(value, fg === '#fffaff' ? '#000000' : '#ffffff', 0.12) }; }
-    case 'messageSurface': return { ...colors, messageSurface: value, messageForeground: foregroundOn(value) };
-    case 'codeBackground': return { ...colors, codeBackground: value, codeForeground: foregroundOn(value) };
-    case 'sidebar': return { ...colors, sidebar: value, sidebarForeground: foregroundOn(value) };
-    case 'sidebarRowSelected': { const sidebar = colors.sidebar ?? canvas;
-      return { ...colors, sidebarRowHover: mixHex(sidebar, value, 0.5), sidebarRowActive: mixHex(sidebar, value, 0.8), sidebarRowSelected: value }; }
-    case 'terminalBackground': { const fg = foregroundOn(value), terminalDark = luminance(value) < 0.179;
-      return { ...colors, terminalBackground: value, terminalForeground: fg, terminalSelection: mixHex(value, colors.accent ?? value, terminalDark ? 0.35 : 0.18),
-        terminalScrollbar: mixHex(value, fg, terminalDark ? 0.42 : 0.22), terminalScrollbarHover: mixHex(value, fg, terminalDark ? 0.55 : 0.32) }; }
+    case 'secondary': return { ...colors, secondary: value, secondaryForeground: foregroundOn(onCanvas), muted: value, toolbarControl: value };
+    case 'accentSurface': return { ...colors, accentSurface: value, accentSurfaceForeground: foregroundOn(onCanvas), toolbarControlHover: value };
+    case 'accent': { const updateSurface = mixHex(canvas, onCanvas, dark ? 0.32 : 0.16);
+      return { ...colors, accent: value, accentForeground: foregroundOn(onCanvas), focus: value, update: value, updateForeground: toneOn(selected, updateSurface), updateSurface, terminalCursor: value }; }
+    case 'messageAction': { const fg = foregroundOn(onCanvas);
+      return { ...colors, messageAction: value, messageActionForeground: fg, messageActionHover: mixHex(selected, fg === '#fffaff' ? '#000000' : '#ffffff', 0.12) + alphaHex }; }
+    case 'messageSurface': return { ...colors, messageSurface: value, messageForeground: foregroundOn(onCanvas) };
+    case 'codeBackground': return { ...colors, codeBackground: value, codeForeground: foregroundOn(onCanvas) };
+    case 'sidebar': return { ...colors, sidebar: value, sidebarForeground: foregroundOn(onCanvas) };
+    case 'sidebarRowSelected': { const sidebar = colors.sidebar ?? canvas, onSidebar = on(sidebar);
+      return { ...colors, sidebarRowHover: mixHex(sidebar, onSidebar, 0.5), sidebarRowActive: mixHex(sidebar, onSidebar, 0.8), sidebarRowSelected: value }; }
+    case 'terminalBackground': { const fg = foregroundOn(onCanvas), terminalDark = luminance(onCanvas) < 0.179;
+      return { ...colors, terminalBackground: value, terminalForeground: fg, terminalSelection: mixHex(onCanvas, colors.accent ?? selected, terminalDark ? 0.35 : 0.18),
+        terminalScrollbar: mixHex(onCanvas, fg, terminalDark ? 0.42 : 0.22), terminalScrollbarHover: mixHex(onCanvas, fg, terminalDark ? 0.55 : 0.32) }; }
     case 'error': { const s = status(); return { ...colors, error: value, errorForeground: s.foreground, errorSurface: s.surface }; }
     case 'warning': { const s = status(); return { ...colors, warning: value, warningForeground: s.foreground, warningSurface: s.surface }; }
     default: return { ...colors, [role]: value };
@@ -89,7 +96,9 @@ export function updateFamily(colors: Record<string, string>, role: string, input
 // ── The draft ────────────────────────────────────────────────────────────────
 // The draft belongs to the client's theme editor session (theme-editor-session.ts), which
 // the window's root state opens and closes; it outlives Settings (D16).
-export type Draft = { kind: string; subject: string; sessionId: number; editingId: string; name: string; appearance: Mode; advanced: boolean; filter: string; colors: Record<Mode, Record<string, string>> };
+export type Draft = { kind: string; subject: string; sessionId: number; editingId: string; name: string; appearance: Mode; advanced: boolean; filter: string; colors: Record<Mode, Record<string, string>>;
+  /** The runner time of the last colour-picker op applied, per `<appearance>:<role>` (themeLocal). */
+  pickerSeq: Record<string, number> };
 const drafts = new WeakMap<T3Client, Draft>();
 const customOf = (client: T3Client): CustomTheme[] => (client.local as unknown as { customThemes?: CustomTheme[] }).customThemes || [];
 /** A theme's full role set for one appearance: its own roles over the standard ones. */
@@ -117,7 +126,7 @@ export function syncDraft(client: T3Client, kind: string, subject: string, prefs
   const source = editingTheme?.id ?? seedTheme?.id ?? '';
   const draft: Draft = { kind, subject, sessionId: session.id, editingId: editingTheme?.custom ? editingTheme.id : '', appearance: session.initialAppearance,
     name: editingTheme ? editingTheme.label : session.seedName ?? '', advanced: false, filter: '',
-    colors: { light: rolesOf(source, 'light', custom), dark: rolesOf(source, 'dark', custom) } };
+    colors: { light: rolesOf(source, 'light', custom), dark: rolesOf(source, 'dark', custom) }, pickerSeq: {} };
   drafts.set(client, draft);
   return draft;
 }
@@ -130,21 +139,43 @@ export function previewTheme(client: T3Client): CustomTheme | null {
   return { id: '__theme-editor-draft', label: draft.name || 'Draft', appearance: draft.appearance, light: draft.colors.light, dark: draft.colors.dark };
 }
 
-export type EditorRow = { id: string; label: string; role: string; value: string };
+/** A family row: its value, the picker's starting point for it, and the last picker op applied (`seq`). */
+export type EditorRow = { id: string; label: string; role: string; value: string; seq: number } & PickerFields;
 export type EditorGroup = { id: string; title: string; rows: EditorRow[] };
-export type EditorView = { open: boolean; title: string; saveLabel: string; name: string; appearance: string; advanced: boolean; filter: string; rows: EditorRow[]; groups: EditorGroup[]; canSave: boolean; session: string; presets: string[] };
-/** ThemeColorPicker presets: Tailwind 500 hues and the neutral ends. */
-const PRESETS = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#10b981', '#14b8a6', '#06b6d4', '#0ea5e9', '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#d946ef', '#ec4899', '#f43f5e', '#78716c', '#71717b', '#27272a', '#0a0a0a', '#fafafa', '#fcfcfc', '#ffffff'];
+export type EditorView = { open: boolean; title: string; saveLabel: string; name: string; appearance: string; advanced: boolean; filter: string; rows: EditorRow[]; groups: EditorGroup[]; canSave: boolean; session: string };
 export function editorView(draft: Draft | null): EditorView {
-  if (!draft) return { open: false, title: '', saveLabel: '', name: '', appearance: 'light', advanced: false, filter: '', rows: [], groups: [], canSave: false, session: '', presets: PRESETS };
+  if (!draft) return { open: false, title: '', saveLabel: '', name: '', appearance: 'light', advanced: false, filter: '', rows: [], groups: [], canSave: false, session: '' };
   const colors = draft.colors[draft.appearance];
-  const row = ([id, label, role]: [string, string, string]): EditorRow => ({ id, label, role, value: colors[role] ?? STANDARD[draft.appearance][role] ?? '#000000' });
+  const row = ([id, label, role]: [string, string, string]): EditorRow => {
+    const value = colors[role] ?? STANDARD[draft.appearance][role] ?? '#000000';
+    return { id, label, role, value, seq: draft.pickerSeq[`${draft.appearance}:${role}`] ?? 0, ...pickerFields(value) };
+  };
   const filter = draft.filter.trim().toLowerCase();
   const groups = ROLE_GROUPS.map(group => ({ id: group.id, title: group.title, rows: group.families.filter(([, label]) => !filter || label.toLowerCase().includes(filter)).map(row) }))
     .filter(group => group.rows.length > 0);
   const name = draft.name.trim();
   return { open: true, title: draft.editingId ? 'Edit theme' : 'Create theme', saveLabel: draft.editingId ? 'Save theme' : 'Create theme', name: draft.name, appearance: draft.appearance,
-    advanced: draft.advanced, filter: draft.filter, rows: SIMPLE.map(row), groups, canSave: name.length <= 48, session: `session-${draft.sessionId}`, presets: PRESETS };
+    advanced: draft.advanced, filter: draft.filter, rows: SIMPLE.map(row), groups, canSave: name.length <= 48, session: `session-${draft.sessionId}` };
+}
+const isFamilyRole = (role: string) => ROLE_GROUPS.some(group => group.families.some(([, , familyRole]) => familyRole === role));
+
+/**
+ * `themelocal:<part>` (theme-color-picker.contract): the picker's `color` (the plane, the hue slider and
+ * their keys), `hex` and `rgb` (the typed fields, each keystroke) for one family. The control stamps
+ * each op with the runner time it sent it, so a late older op never overwrites a newer one, and the
+ * row echoes the time back (`seq`) so the control knows its last op has landed. Never an error: an
+ * incomplete field changes nothing, as the reference ignores it until it parses.
+ */
+export function themeLocal(client: T3Client, part: string, role: string, value: string, n: number): string {
+  const draft = drafts.get(client);
+  if (!draft || !isFamilyRole(role)) return '';
+  const key = `${draft.appearance}:${role}`;
+  if (n < (draft.pickerSeq[key] ?? -Infinity)) return '';
+  draft.pickerSeq[key] = n;
+  const colors = draft.colors[draft.appearance];
+  const next = pickerCommit(part, value, colors[role] ?? STANDARD[draft.appearance][role] ?? '#000000');
+  if (next) draft.colors[draft.appearance] = updateFamily(colors, role, next);
+  return '';
 }
 
 /** theme-draft commands: `name`, `appearance`, `advanced`, `filter`, or `color:<role>` with the value. */
@@ -157,7 +188,7 @@ export function editDraft(client: T3Client, part: string, value: string): void {
   if (part === 'filter') { draft.filter = value.slice(0, 64); return; }
   if (part.startsWith('color:')) {
     const role = part.slice(6);
-    if (!ROLE_GROUPS.some(group => group.families.some(([, , familyRole]) => familyRole === role))) throw new ClientError('That color is not part of a theme.');
+    if (!isFamilyRole(role)) throw new ClientError('That color is not part of a theme.');
     draft.colors[draft.appearance] = updateFamily(draft.colors[draft.appearance], role, value);
     return;
   }

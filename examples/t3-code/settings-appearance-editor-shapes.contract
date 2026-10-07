@@ -5,6 +5,13 @@ shape EditorRow
   label: string
   role: string
   value: string
+  seq: number
+  hex6: string
+  alpha: string
+  rgb: string
+  h: number
+  s: number
+  v: number
 shape EditorGroup
   id: string
   title: string
@@ -21,7 +28,6 @@ shape EditorView
   groups: list<EditorGroup>
   canSave: bool
   session: string
-  presets: list<string>
 
 shape ThemeExtension
   id: string
