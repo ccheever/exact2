@@ -513,6 +513,39 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     check(first === second && JSON.parse(first).calls.length > 0, `${host} native: two drives agree on every hatch call, counter, span and line: ${first === second ? first.slice(0, 200) : `${first}\n  then ${second}`}`);
   }
 
+  // The app and window scopes (LLP 1075.003.000.001 §2.1, §8 stage 2), in a
+  // session of their own: both are built as the hatches connect; a fact that
+  // changes is told to `app` once; a new size is told to `window`; the
+  // embedder's grants decide what each is handed.
+  {
+    const d = await open({ host });
+    try {
+      const scopes = async () => (await d.state()).hatches?.scopes ?? {};
+      const waited = async (what, test) => { for (let i = 0; i < 60; i++) { const sc = await scopes(); if (test(sc)) return sc; await d.clock('+50'); await sleep(50); } check(false, `${host} native: ${what}: ${JSON.stringify(await scopes())}`); return scopes(); };
+      let sc = await waited('the app and window hatches are built', (sc) => sc.app?.calls?.built === 1 && sc.window?.calls?.built === 1);
+      const lines = (await d.op({ op: 'logs', since: 0 })).lines;
+      check(lines.some((l) => /hatch app: built/.test(l)) && lines.some((l) => /hatch window: built/.test(l)), `${host} native: the app and window hatches are journaled: ${lines.filter((l) => /hatch (app|window)/.test(l)).join(' | ')}`);
+      const told = sc.module?.published ?? {};
+      // ExactMac's sessions own their windows and none the process; iOS's one session, and a page, own both.
+      check(told.scopes?.exclusive === true && told.scopes.hasWindow === true && told.app?.processOwner === (host !== 'macos') && told.app.hasApplication === (host !== 'macos'),
+        `${host} native: the embedder's grants decide what the hatches are handed: ${JSON.stringify(told)}`);
+      check(told.scopes?.frame?.[0] > 0 && told.app?.visibilityState === 'visible' && told.scopes.scheme === 'light', `${host} native: the window's frame and the app's facts reach the hatches: ${JSON.stringify(told)}`);
+      await d.prefer({ 'prefers-color-scheme': 'dark' });
+      sc = await waited('a changed fact is told to the app hatch', (sc) => sc.app?.calls?.changed >= 1 && sc.module?.published?.scopes?.scheme === 'dark');
+      check(sc.app?.calls?.changed === 1, `${host} native: one change is one call: ${JSON.stringify(sc.app)}`);
+      await d.prefer({ 'prefers-color-scheme': 'light' });
+      await waited('the fact changing back is told too', (sc) => sc.module?.published?.scopes?.scheme === 'light');
+      if (host !== 'ios') {
+        const [w, h] = told.scopes.frame;
+        await d.resize(w - 40, h - 40);
+        sc = await waited('a new size is told to the window hatch', (sc) => sc.window?.calls?.changed >= 1 && sc.module?.published?.scopes?.frame?.[0] === w - 40);
+        await d.resize(w, h);
+      }
+    } catch (error) {
+      check(false, `${host} native: the scopes drive stopped: ${error.stack ?? error.message}`);
+    } finally { await d.close(); }
+  }
+
   // The crash breadcrumb and the switch its line names (LLP 1075.003.000.001
   // §4.4, §2.6; Apple): a run that dies inside the badge's hatch is named by
   // the next launch, once; with `EXACT_HATCHES=off` the module's views and

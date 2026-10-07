@@ -371,6 +371,64 @@ export function ht(e) {
   });
 }
 
+// The app and window scopes on the web (@ref LLP 1075.003.000.001 §2.1):
+//
+//   export function app(a)          // when the page module connects, and when a fact changes:
+//                                   // { visibilityState, onLine, prefersColorScheme, prefersContrast,
+//                                   //   prefersReducedMotion, prefersReducedTransparency,
+//                                   //   processOwner, isNew, isLive }
+//   export function appEnded(a)     // the page is going
+//   export function window(w)       // the page's window, and when its size changes:
+//                                   // { window, document, exclusive, frame, isNew, isLive }
+//   export function windowEnded(w)
+//
+// The page is the app's own: `processOwner` and `exclusive` are true. Each
+// change is told once however many facts moved, after the task that moved them.
+function scopesOf(m) {
+  if (!["app", "appEnded", "window", "windowEnded"].some(n => typeof m[n] === "function") || typeof document === "undefined") return;
+  const media = q => typeof matchMedia === "function" && matchMedia(q).matches;
+  const QUERIES = ["(prefers-color-scheme: dark)", "(prefers-contrast: more)", "(prefers-contrast: less)", "(prefers-contrast: custom)", "(prefers-reduced-motion: reduce)", "(prefers-reduced-transparency: reduce)"];
+  const facts = () => ({
+    visibilityState: document.visibilityState ?? "visible", onLine: globalThis.navigator?.onLine !== false,
+    prefersColorScheme: media(QUERIES[0]) ? "dark" : "light",
+    prefersContrast: media(QUERIES[1]) ? "more" : media(QUERIES[2]) ? "less" : media(QUERIES[3]) ? "custom" : "no-preference",
+    prefersReducedMotion: media(QUERIES[4]), prefersReducedTransparency: media(QUERIES[5]),
+  });
+  const frame = () => [0, 0, globalThis.innerWidth ?? 0, globalThis.innerHeight ?? 0];
+  const call = (name, scope, moment, arg) => {
+    if (typeof m[name] !== "function") return;
+    say(`${scope}: ${moment}`);
+    const calls = (scopes[scope] ??= { calls: Object.create(null) }).calls;
+    calls[moment] = (calls[moment] ?? 0) + 1;
+    try { timed(scope, null, moment, () => m[name](arg)); } catch (error) { say(`${name} threw ${error?.message ?? error}`); }
+  };
+  const app = { ...facts(), processOwner: true, isNew: true, isLive: true };
+  const win = { window: globalThis, document, exclusive: true, frame: frame(), isNew: true, isLive: true };
+  call("app", "app", "built", app);
+  call("window", "window", "built", win);
+  let due = false, ended = false;
+  const changed = () => {
+    if (due || ended) return;
+    due = true;
+    queueMicrotask(() => {
+      due = false;
+      if (ended) return;
+      const now = facts(), size = frame();
+      if (Object.keys(now).some(k => now[k] !== app[k])) { Object.assign(app, now, { isNew: false }); call("app", "app", "changed", app); }
+      if (String(size) !== String(win.frame)) { win.frame = size; win.isNew = false; call("window", "window", "changed", win); }
+    });
+  };
+  document.addEventListener("visibilitychange", changed);
+  for (const type of ["online", "offline", "resize"]) globalThis.addEventListener?.(type, changed);
+  if (typeof matchMedia === "function") for (const q of QUERIES) matchMedia(q).addEventListener?.("change", changed);
+  globalThis.addEventListener?.("pagehide", () => {
+    if (ended) return;
+    ended = true;
+    call("windowEnded", "window", "ended", win); win.isLive = false;
+    call("appEnded", "app", "ended", app); app.isLive = false;
+  });
+}
+
 // The page module's container hatches (LLP 1075.003.000 §3.7), loaded after
 // first paint only for a page module that exports one (web-js/build.mjs):
 //
@@ -422,6 +480,7 @@ export function containers() {
         r.isLive = false;
       }
     };
+    scopesOf(m);
     globalThis.exact.onProject = project;
     project(document.getElementById("exact-root"));
   }, error => say(`no page module: ${error?.message ?? error}`));
