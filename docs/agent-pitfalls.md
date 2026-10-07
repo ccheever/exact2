@@ -471,6 +471,13 @@ guide's rules don't make obvious.
 
 ## Driving and testing
 
+- **A screenshot right after a state change shows a transition's start.** A
+  `transition` (a background colour, an opacity) is held by the driver's clock,
+  so the frame and the computed style still read the old value: the toggle
+  looks unchanged. Fix: `clock settle` (or `clock +N` past the transition)
+  before `screenshot`. (Authoring bench, LLP 1087, t5-pomodoro, 2026-10-07:
+  about 5 minutes and a probe script to find.)
+
 - **A test passes on the web and fails on iOS right after an input that saves.** An
   `expect` straight after `type` or `tap` reads what the input's mutation answered,
   but an input step only finishes the `then`s of answers already settled; it does not

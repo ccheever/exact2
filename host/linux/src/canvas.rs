@@ -37,8 +37,9 @@
 //!   only over `region` with those corner radii (a clip-free rounded image; `clip.rs`)
 //! - `26 ANIMATED id len utf8-path(padded to 4)` — after `IMAGE_DEF`: the picture is a GIF's or
 //!   WebP's first frame; a reader may draw that file's animated drawable in its place
-//! - `27 BACKDROP sigma x y w h radii×8` — blur what this recording drew so far (the row's
-//!   content beneath) by `sigma` (local units), within that rounded rect: a material's backdrop
+//! - `42 BACKDROP n (kind amount)×n x y w h radii×8` — filter what this recording drew so far
+//!   inside that rounded rect, in order: kind 0 blur (local units), 1 saturation (multiplier)
+//!   (replaces the radius-only op 27; an older reader must refuse the new op)
 //! - `28 NATIVE view kind x y w h radii×8 len utf8-json` — a platform element (`paint/native.rs`;
 //!   kind 0 video, 1 web view, 2 module) shown in that rounded rect: the reader draws the
 //!   platform view's own drawing there
@@ -85,8 +86,8 @@ const IMAGE_RRECT: u32 = 14;
 const DASH: u32 = 25;
 /// A picture's animated file: id, length, path.
 const ANIMATED: u32 = 26;
-/// A backdrop blur: sigma, then the rounded rect.
-const BACKDROP: u32 = 27;
+/// Ordered backdrop functions (kind, amount), then the rounded rect.
+const BACKDROP: u32 = 42;
 /// A platform element: view, kind, rounded rect, props.
 const NATIVE: u32 = 28;
 /// A row's recording: id, the id of the row it replaces (0 for none; the top
@@ -567,10 +568,15 @@ impl Backend for Recorder {
         self.shadow(shape, color, sigma, outer, ts)
     }
 
-    fn backdrop_blur(&mut self, shape: &Shape, sigma: f32, ts: Transform) {
+    fn backdrop_filter(
+        &mut self,
+        shape: &Shape,
+        filter: &exact_kernel::style::BackdropFilter,
+        ts: Transform,
+    ) {
         // What is beneath is what the reader already drew in this row; it
-        // blurs that, clipped to the shape (LLP 1053.000 D2).
-        if sigma <= 0.0 || shape.rect.2 <= 0.0 || shape.rect.3 <= 0.0 {
+        // filters that, clipped to the shape (LLP 1053.000 D2).
+        if filter.is_none() || shape.rect.2 <= 0.0 || shape.rect.3 <= 0.0 {
             return;
         }
         let bounds = clip::map(shape.rect, ts);
@@ -580,7 +586,15 @@ impl Backend for Recorder {
         self.need(bounds);
         self.transform(ts);
         self.ops.push(BACKDROP);
-        self.f(sigma);
+        self.ops.push(filter.0.len() as u32);
+        for op in &filter.0 {
+            let (kind, amount) = match op {
+                exact_kernel::style::BackdropOp::Blur(n) => (0, *n),
+                exact_kernel::style::BackdropOp::Saturate(n) => (1, *n),
+            };
+            self.ops.push(kind);
+            self.f(amount);
+        }
         self.rect_radii(shape);
     }
 

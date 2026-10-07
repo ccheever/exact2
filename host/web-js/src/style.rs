@@ -630,6 +630,7 @@ pub fn style_row(id: u16) -> Result<(String, String), String> {
             | StyleCodec::Filter
             | StyleCodec::BackgroundImage
             | StyleCodec::MaskImage
+            | StyleCodec::BackdropFilter
             | StyleCodec::BoxShadow
             | StyleCodec::TextShadow
             | StyleCodec::CornerShape
@@ -654,7 +655,6 @@ pub fn style_row(id: u16) -> Result<(String, String), String> {
             | StyleId::LineClamp
             | StyleId::PressScale
             | StyleId::FontVariantNumeric
-            | StyleId::BackdropBlur
     ) {
         return Err(format!(
             "a dynamic `{}` ({:?}) is not one declaration; not in the JS target",
@@ -687,7 +687,7 @@ fn css_property(id: StyleId) -> String {
         StyleId::TextColor => return "color".into(),
         StyleId::TintColor => return "--exact-tint".into(),
         StyleId::PositionType => return "position".into(),
-        StyleId::BackdropBlur => return "backdrop-filter".into(),
+        StyleId::BackdropFilter => return "backdrop-filter".into(),
         StyleId::SvgMask => return "mask".into(),
         StyleId::TextStrokeWidth => return "-webkit-text-stroke-width".into(),
         StyleId::TextStrokeColor => return "-webkit-text-stroke-color".into(),

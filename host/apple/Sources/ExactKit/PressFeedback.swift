@@ -264,7 +264,7 @@ extension NodeView {
     #else
     func applyTransform() {
         // A backdrop mirrors its box as the transform moves and scales it.
-        defer { if number("backdrop_blur") > 0 { applyBackdrop() } }
+        defer { if !backdropOperations.isEmpty { applyBackdrop() } }
         // Flying scaled whole in its clip (LLP 1013.000 D4.4): the flight's
         // scale only, about the layer's origin, the clip's top left.
         if let s = flightLook?.scale {

@@ -449,14 +449,18 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// Geometric autoscroll (D7): the target list's port, then each scroll
-    /// ancestor of it whose box holds the ghost's centre; the innermost one
-    /// that can still move toward an edge band, on its own axis, scrolls.
+    /// ancestor of it whose box holds the ghost's centre, or the contact once
+    /// the centre has gone past its edge (a tall ghost held by its top leaves
+    /// the scroller before the contact reaches the band; a centre past an
+    /// edge is in that edge's band); the innermost one that can still move
+    /// toward an edge band, on its own axis, scrolls.
     fn group_edge(&self) -> Option<(ViewId, bool, f32)> {
         let s = self
             .group
             .as_ref()
             .filter(|s| s.phase == Phase::Active && s.ghost)?;
         let c = centre(s);
+        let contact = (s.at.0 + s.grab.0, s.at.1 + s.grab.1);
         let target = self
             .host
             .runner()
@@ -480,7 +484,7 @@ impl<D: DataSource> Presenter<D> {
                 node.frame.height,
             );
             let shown = intersect(rect, (0., 0., self.viewport.0, self.viewport.1));
-            if !contains(shown, c) {
+            if !contains(shown, c) && !contains(shown, contact) {
                 continue;
             }
             let bounds = self.brush.scroll_bounds(

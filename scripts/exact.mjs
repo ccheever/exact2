@@ -463,6 +463,9 @@ export function sdkReport(env = process.env) {
     `Hermes bundle (${hermesTarget() ?? 'no host bundle'})`,
     host.ok ? 'verified by hermes-lean-sys' : host.message,
     'the pinned Ibex release', host.ok, host.fix,
+    // Only a native host's TypeScript data sources run Hermes; the web runs them in the browser
+    // (builders read a bare MISSING here as a blocker for a web-only app: bench diaries, 2026-10-07).
+    'TypeScript data sources on native hosts (macOS, iOS, Linux); not the web',
   ));
   for (const {target, need} of hermesCrossTargets()) {
     const cross = checkHermesBundles(env, spawnSync, process.platform, process.arch, [target]);

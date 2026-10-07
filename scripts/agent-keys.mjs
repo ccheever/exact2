@@ -174,6 +174,8 @@ export async function browserKey({id, opts, evaluate, ask, call, frame}) {
   const f = isWorld ? await ask({ op: 'focus', id, world: true }) : await evaluate(`(() => { const el = exact.views.get(${id}); el?.focus(); return {ok:document.activeElement === el}; })()`);
   if (f.error || !f.ok) throw new Error(f.error ?? `view ${id} could not take focus`);
   const reply = phase => ({ typed: id, key: opts.key, ...(phase != null ? { phase } : {}), delivery: 'platform' });
+  // A key's text goes with its down, as a keyboard's does: a held printable key types, and each
+  // auto-repeat types again (#140); a Control or Meta chord has none (`cdpKey`).
   // The chord's modifiers go down before the key and up after it (`modifierEdges`); a held
   // key's auto-repeat (`opts.repeat`, #140) finds them down already. A key that fails to go
   // down lets its modifiers go again, held or not.
@@ -183,7 +185,7 @@ export async function browserKey({id, opts, evaluate, ask, call, frame}) {
   const letGo = async () => { if (modsDown) { modsDown = false; await modifierEdges(call, mods, 'keyUp'); } };
   const edge = async phase => {
     if (pressing(phase)) { await modifierEdges(call, mods, 'keyDown'); modsDown = true; }
-    try { await call('Input.dispatchKeyEvent', { type: phase === 'down' ? 'keyDown' : 'keyUp', code, key, windowsVirtualKeyCode: vk, modifiers, location, ...(phase === 'down' && text === '\r' ? { text } : {}), ...(phase === 'down' && opts.repeat ? { autoRepeat: true } : {}) }); }
+    try { await call('Input.dispatchKeyEvent', { type: phase === 'down' ? 'keyDown' : 'keyUp', code, key, windowsVirtualKeyCode: vk, modifiers, location, ...(phase === 'down' && text ? { text } : {}), ...(phase === 'down' && opts.repeat ? { autoRepeat: true } : {}) }); }
     catch (error) { if (pressing(phase)) await letGo().catch(() => {}); throw error; }
     finally { if (phase === 'up') await letGo(); }
   };

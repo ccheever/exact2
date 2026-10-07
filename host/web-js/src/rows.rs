@@ -70,6 +70,11 @@ impl Em<'_> {
             return;
         }
         if let Some((name, value)) = crate::paint::binding(self.plan, kind, b) {
+            let f = if b.kind == BindingKind::Style && b.id == StyleId::BackdropFilter as u16 {
+                format!("()=>{}(({f})(),false)", self.uses.rt("backdropValue"))
+            } else {
+                f.to_string()
+            };
             let p = self.uses.rt("P");
             let _ = write!(
                 self.out,
@@ -158,6 +163,10 @@ impl Em<'_> {
                 "perspective",
                 Some("v=>v==null?v:/^\\s*[+-]?(0+\\.?0*|\\.0+)(px)?\\s*$/i.test(v)?\"none\":typeof v===\"number\"?`${v}px`:v".into()),
             ),
+            StyleId::BackdropFilter => {
+                let check = self.uses.rt("backdropValue");
+                one("backdrop-filter", Some(format!("v=>{check}(v)")))
+            }
             // @ref LLP 1093 §1 — the row's 0 is CSS `auto`, as css.rs writes
             // it. `setProperty("column-count", "0")` does not stick, so the
             // unit sample would journal the refusal and leave a class rule.
@@ -220,11 +229,6 @@ impl Em<'_> {
                 ]
             }
             StyleId::FontVariantNumeric => one("font-variant-numeric", None),
-            // `none` at 0, else one `blur()`, or the author's text.
-            StyleId::BackdropBlur => one(
-                "backdrop-filter",
-                Some("v=>typeof v===\"number\"?(v===0?\"none\":`blur(${v}px)`):v".into()),
-            ),
             // SVG's transform grammar, restated as CSS's (kernel TransformList).
             StyleId::Transform => {
                 let t = self.uses.rt("svgTransform");
@@ -619,6 +623,16 @@ pub(super) fn attributes(
     (attrs, content, css)
 }
 
+/// A pressed node's computed `transition`: an author's entries
+/// ([`crate::style::TRANSITION_ENTRIES`]), with `scale` moved to the
+/// `--exact-scale` the press composes with.
+pub(crate) fn pressed_transition_map() -> String {
+    format!(
+                    "v=>{{if(v==null)return v;{}const o=p.map(t=>t.replace(/^scale(?=\\s)/,\"--exact-scale\")),m=p.filter(t=>/^(scale|all)(\\s|$)/.test(t)).pop();if(m)o.push(\"scale 0s\",m.replace(/^(scale|all)/,\"--exact-scale\"));return o.join(\",\")||\"none\"}}",
+                    crate::style::TRANSITION_ENTRIES
+                )
+}
+
 #[cfg(test)]
 mod tests {
     #[test]
@@ -819,14 +833,4 @@ document.getElementById("out").textContent=JSON.stringify({{after2,after0,journa
         assert_eq!(computed["inline"], "auto", "{computed}");
         let _ = std::fs::remove_dir_all(&dir);
     }
-}
-
-/// A pressed node's computed `transition`: an author's entries
-/// ([`crate::style::TRANSITION_ENTRIES`]), with `scale` moved to the
-/// `--exact-scale` the press composes with.
-pub(crate) fn pressed_transition_map() -> String {
-    format!(
-                    "v=>{{if(v==null)return v;{}const o=p.map(t=>t.replace(/^scale(?=\\s)/,\"--exact-scale\")),m=p.filter(t=>/^(scale|all)(\\s|$)/.test(t)).pop();if(m)o.push(\"scale 0s\",m.replace(/^(scale|all)/,\"--exact-scale\"));return o.join(\",\")||\"none\"}}",
-                    crate::style::TRANSITION_ENTRIES
-                )
 }

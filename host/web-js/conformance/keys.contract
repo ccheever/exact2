@@ -69,7 +69,7 @@ component Keys
       button "Rename" press=rename testId="rename"
       text heard testId="heard"
       text ups testId="ups"
-      textarea value=draft input=write key=compose testId="area" height=60
+      textarea value=draft input=write key=compose testId="area" height=60 flex-shrink=0
       text sent testId="sent"
       column press=hit testId="pressable" padding=8
         text `pressed ${pressed}`
