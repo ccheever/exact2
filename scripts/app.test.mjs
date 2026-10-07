@@ -1449,3 +1449,24 @@ test('readManifest names the game.presentation rename instead of an unknown key'
     assert.throws(() => readManifest(dir, 'island'), (e) => !/not a known key/.test(e.message));
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('Swift under modules/apple is the app module even when it has no views', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync, realpathSync } = await import('node:fs');
+  const { resolve } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const { resolveApp } = await import('./app.mjs');
+  const dir = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-module-no-views-'))), saved = process.env.EXACT_APP_DIR;
+  try {
+    mkdirSync(resolve(dir, 'modules/apple'), { recursive: true });
+    writeFileSync(resolve(dir, 'app.contract'), 'component App\n  view\n    text "calls"\n');
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Calls', app: { id: 'com.exact.calls', name: 'Calls' }, rust: false, deploy: { store: { web: '0' } } }));
+    writeFileSync(resolve(dir, 'modules/apple/Calls.swift'), '');
+    process.env.EXACT_APP_DIR = dir;
+    const modules = resolveApp().modules;
+    assert.deepEqual(modules.tags, []);
+    assert.deepEqual(modules.apple, [resolve(dir, 'modules/apple/Calls.swift')], 'native.call and native.later need the module with no views');
+  } finally {
+    if (saved === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = saved;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
