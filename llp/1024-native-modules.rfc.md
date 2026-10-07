@@ -240,19 +240,6 @@ gate (`build.mjs:178`), not iframe’s always-copy. Loaded with
 **after the paint gate**. The host crate still `#![deny(unsafe_code)]`; the
 artifact owns the `unsafe` boundary, as GPU and WebArm do.
 
-**Opting into the first frame (Apple).** A factory declared with
-`creation: .beforeFirstPaint` (roster `"creation": "beforeFirstPaint"`) is
-made in the initial render, with built-in controls, so it is in the first
-frame. Time to first render includes its cost. The default,
-`.afterFirstPaint`, makes it after activation's frame commits. The build
-writes the probed roster's `beforeFirstPaint` tags to
-`exact-before-first-paint.json` in the bundle. Only when that file exists
-does the host load the artifact at the first module node's props, before the
-paint gate, and make the module instance with the first such view. The
-loaded roster decides which views are made early. An unprobed build writes
-no file. An iOS build probes the roster from a macOS build of the same
-sources, so a factory's `creation` must be the same on every platform.
-
 **Web.** One app-relative JS module (the executor of the same table, JS
 exports for the C names), loaded by an **injected `<script type="module">`
 after the paint stamp — never an `import()`**: `boot.mjs` counts the

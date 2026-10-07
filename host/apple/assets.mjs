@@ -114,11 +114,3 @@ function launchScreen(app, catalog) {
   writeFileSync(resolve(catalog, 'ExactLaunch.colorset', 'Contents.json'), JSON.stringify({ colors, info: { author: 'exact', version: 1 } }));
   return { UILaunchScreen: { UIColorName: 'ExactLaunch' } };
 }
-
-/** Writes the `beforeFirstPaint` tags to `dir`/exact-before-first-paint.json,
- * or removes the file when there are none. The file tells the Apple host to
- * load the module artifact before the first render. */
-export function placeBeforeFirstPaint(dir, tags) {
-  const listed = resolve(dir, 'exact-before-first-paint.json');
-  if (tags.length) writeFileSync(listed, JSON.stringify(tags)); else rmSync(listed, { force: true });
-}

@@ -11,8 +11,7 @@
 //
 //   0  u32 major            3
 //   4  u32 size             104 or more
-//   8  const char *roster   JSON: {"tag": {"snapshot": bool, "reuse": bool,
-//                          "creation"?: "beforeFirstPaint"}, …}
+//   8  const char *roster   JSON: {"tag": {"snapshot": bool}, …}
 //  16  create(module, tag, tagLen, props, propsLen, event, reply, ctx, nonce, err, errCap) → handle
 //  24  platform_view(handle) → NSView * / UIView *   (the module keeps ownership)
 //  32  set_props(handle, json, len, err, errCap) → 0 accepted, else refused
@@ -408,18 +407,19 @@ final class NativeViews {
         loadIfNeeded()
     }
 
-    /// True from activation until `activated` runs. The agent's settle counts
-    /// it as work in flight.
-    private(set) var activationQueued = false
+    /// True from activation until `activated` runs (or a stale session's turn
+    /// passes): the agent's settle counts it as work in flight.
+    var activationQueued: Bool { queuedActivations > 0 }
+    private var queuedActivations = 0
     /// Calls `activated` after activation's Core Animation commit, if `live()`
     /// still holds. A plain main-queue hop can run before that commit: the run
     /// loop drains queued blocks before its before-waiting and exit observers,
     /// where Core Animation commits (order 2000000). Exit covers a turn that
     /// never waits.
     func activateAfterCommit(_ live: @escaping () -> Bool) {
-        activationQueued = true
+        queuedActivations += 1
         let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue | CFRunLoopActivity.exit.rawValue, false, 2_000_001) { [weak self] _, _ in
-            DispatchQueue.main.async { [weak self] in guard let self else { return }; activationQueued = false; if live() { activated() } }
+            DispatchQueue.main.async { [weak self] in guard let self else { return }; queuedActivations -= 1; if live() { activated() } }
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
     }
@@ -505,18 +505,6 @@ final class NativeViews {
         hasAppModule = true
         let rt = session.runtime.rt
         session.runtime.on { exact_set_app_module(rt, nativeLaterCallback, nativeCallCallback, UnsafeMutableRawPointer(bitPattern: UInt(rt))) }
-        // The build writes this file when the roster has `beforeFirstPaint`
-        // tags. Only then may a view's first props load the artifact early.
-        listsEarly = Bundle.main.path(forResource: "exact-before-first-paint", ofType: "json") != nil
-    }
-
-    private var listsEarly = false
-
-    /// Whether `name` is made in the commit that mounts it, before the paint
-    /// gate opens. The loaded roster decides, not the build's list.
-    private func beforeFirstPaint(_ name: String) -> Bool {
-        guard instance != nil || listsEarly, case .success(let table) = NativeProcess.table ?? self.table() else { return false }
-        return table.roster[name]?["creation"] as? String == "beforeFirstPaint"
     }
 
     private var hasAppModule = false
@@ -683,8 +671,8 @@ final class NativeViews {
     var holds: ((NodeView) -> Bool)?
     var measured: ((String, TimeInterval) -> Void)?
     func release(_ owner: NodeView) {
-        guard let entry = entries[owner.id], entry.owner === owner, entry.handle == nil,
-              entry.state == "loading", !entry.name.isEmpty, gateOpen || beforeFirstPaint(entry.name) else { return }
+        guard gateOpen, let entry = entries[owner.id], entry.owner === owner, entry.handle == nil,
+              entry.state == "loading", !entry.name.isEmpty else { return }
         attach(entry)
     }
 
@@ -723,7 +711,7 @@ final class NativeViews {
         if entry.name.isEmpty, entry.state == "loading" {
             entry.name = owner.props["nativeViewModuleName"] ?? ""
             log("\(entry.name) #\(owner.id): loading")
-            if gateOpen || beforeFirstPaint(entry.name), canReuse(entry.name) || holds?(owner) != true { attach(entry) }
+            if gateOpen, canReuse(entry.name) || holds?(owner) != true { attach(entry) }
             return
         }
         guard let handle = entry.handle, case .success(let table)? = NativeProcess.table else { return }
