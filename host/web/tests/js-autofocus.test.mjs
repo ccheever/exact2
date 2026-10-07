@@ -107,6 +107,20 @@ test('pressing the same control again keeps the held press', () => {
   expect(document.activeElement).toBe(kept);
 });
 
+test('a key supersedes every live press, not only the newest', () => {
+  const start = field('start7');
+  start.focus();
+  const first = press(start);
+  const held = hold(); // the first press's update waits on a view transition
+  first();
+  press(start)(); // the same control pressed again
+  fire('keydown', start);
+  const name = field('after-two-presses');
+  within(held, () => { mounted = [name]; autofocus(root); });
+  expect(name.focused).toBe(0);
+  expect(document.activeElement).toBe(start);
+});
+
 test('a held update that throws still lets its press go', () => {
   const start = field('start6');
   start.focus();

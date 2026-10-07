@@ -992,9 +992,8 @@
       // A close counts once issued; one refused or failed leaves the database open, and tracked.
       close: function () {
         openDatabases.delete(handle);
-        var closing = storageCall(raw, "close", []);
-        closing.then(null, function () { openDatabases.add(handle); });
-        return closing;
+        // A failed close still rejects for the caller, so one left unhandled is still reported.
+        return storageCall(raw, "close", []).then(undefined, function (e) { openDatabases.add(handle); throw e; });
       },
     });
   }

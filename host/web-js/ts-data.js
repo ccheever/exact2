@@ -197,14 +197,16 @@ let toldAgent = false;
 // close a handle an app may keep or share (Charlie, 2026-10-07); one left open by background work
 // that failed is journaled instead, since the next open would find it locked.
 const openDatabases = new Set();
-let pendingAnswers = 0;
+let pendingAnswers = 0, owed = false; // `owed`: a failure skipped an owner-less handle for a pending answer
 // On a failure (an answer's own rejection, or a rejection nothing handled): each database opened by
 // an answer that has since settled or replied (its chain runs on in the background). One opened by
 // a continuation, after its answer's synchronous part, has no known owner here: it counts only
 // when no answer is still pending, so a live answer's handle is never taken for background work's.
 function leftOpen() {
   for (const h of openDatabases) {
-    if (h.told || !(h.call ? h.call.settled : pendingAnswers === 0)) continue;
+    if (h.told) continue;
+    if (!h.call && pendingAnswers > 0) { owed = true; continue; } // checked again once none is pending
+    if (h.call && !h.call.settled) continue;
     h.told = true;
     journal.push(`t=${clock.now} storage: ${h.path} is still open after a failure in background work that opened it: if that work owns it, close it in a finally (finally { db.close() }), or the next open finds it locked (LLP 1097 D7)`);
   }
@@ -243,9 +245,8 @@ function storageOf(grants) {
     // A close counts once issued; one refused or failed leaves the database open, and tracked.
     return Object.freeze({ ...db, close: (...args) => {
       openDatabases.delete(handle);
-      const closing = db.close(...args);
-      closing.catch(() => openDatabases.add(handle));
-      return closing;
+      // A failed close still rejects for the caller, so one left unhandled is still reported.
+      return db.close(...args).catch((e) => { openDatabases.add(handle); throw e; });
     } });
   };
   const methods = ['readFile', 'writeFile', 'atomicWriteFile', 'appendFile', 'readdir', 'mkdir', 'rm', 'stat', 'rename', 'copyFile', 'realpath'];
@@ -311,7 +312,7 @@ export function install(data, mixed = false, modules = null) {
     if (call.stream) { call.settled = true; return { stream: opener(call.stream, v => conv(shaped(v), result, target_)), store: seen.read }; }
     if (r && typeof r.then === 'function') {
       pendingAnswers++;
-      const settle = () => { call.settled = true; pendingAnswers--; };
+      const settle = () => { call.settled = true; pendingAnswers--; if (!pendingAnswers && owed) { owed = false; leftOpen(); } };
       return { promise: r.then(v => (settle(), conv(shaped(v), result, target_)), e => { settle(); leftOpen(); throw e; }), store: seen.read };
     }
     call.settled = true;

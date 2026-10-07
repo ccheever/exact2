@@ -14,19 +14,22 @@ const offered = new WeakSet();
  * that press). Nothing else may: not after that work has run, not an unrelated commit meanwhile,
  * and not once a later key, or a pointer on another control, supersedes the press, as the wasm
  * host's `pointerTarget` lasts only through `press()` (Charlie, 2026-10-07: no wall-clock window). */
-let current = null; // the newest press, until a later interaction supersedes it
+const live = new Set(); // the presses whose work may still run (each held until it has)
 let dispatching = null; // the press whose synchronous dispatch is running
 let running = null; // the press a held tree update runs for
-const release = (token) => () => { if (--token.n === 0 && current === token) current = null; };
-// A key always supersedes; a pointer does unless it presses the same control again.
-const supersede = (ev) => { if (current && (ev.type === 'keydown' || !current.el.contains?.(ev.target))) { current.dead = true; current = null; } };
+const release = (token) => () => { if (--token.n === 0) live.delete(token); };
+// A key supersedes every live press; a pointer, each press of another control.
+const supersede = (ev) => {
+  for (const token of live) if (ev.type === 'keydown' || !token.el.contains?.(ev.target)) { token.dead = true; live.delete(token); }
+};
 let listening = false;
 export function press(el) {
   if (!listening && globalThis.document?.addEventListener) {
     listening = true;
     for (const kind of ['pointerdown', 'keydown']) document.addEventListener(kind, supersede, true);
   }
-  const token = current = { el, n: 1, dead: false }, was = dispatching, done = release(token);
+  const token = { el, n: 1, dead: false }, was = dispatching, done = release(token);
+  live.add(token);
   dispatching = token;
   return () => { dispatching = was; done(); };
 }
