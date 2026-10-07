@@ -6,13 +6,16 @@
 // The panel's HSV is this component's own state, as the reference keeps it in the panel: a
 // press on the plane or the slider moves its thumb at once, and every move after it while the
 // button is held (pointerdown/pointermove/pointerup, the pointer held by the control). Each
-// change goes to the draft as `live("color", role, hex, t)` (themelocal ops, theme-color-picker.ts),
-// stamped with the runner time `t`; while one is in flight a move only moves the thumb, and the
-// release always sends the last colour, as the reference batches commits to a frame and flushes
-// the last on release. The row echoes the stamp of the last op it applied (`row.seq`): once
-// nothing is in flight and the row's colour is not the panel's own (the draft changed it some
-// other way, or a typed value landed), the panel follows the row again (the reference resets its
-// HSV from an incoming value that is not its own echo; an echo keeps the hue of a grey).
+// change goes to the draft as `live("color", "<session>|<role>", hex, t)` (themelocal ops,
+// settings-appearance-editor.ts themeLocal), stamped `t`, strictly increasing from the runner time.
+// One op is in flight at a time: a move while one is in flight only moves the thumb, the op's
+// landing sends the latest colour a drag has reached since (the tracker's `resize`), and a release
+// or a key always sends, as the reference commits once a frame and flushes the last on release.
+// The row echoes the stamp of the last op it applied (`row.seq`). The panel shows its own HSV while
+// a drag is on, an op is in flight, or the row shows the panel's colour; otherwise (the draft
+// changed it some other way, a typed value landed, the appearance switched) it follows the row
+// again, as the reference resets its HSV from a value that is not its own echo (an echo keeps
+// the hue of a grey).
 // The typed HEX and RGB fields send every keystroke; the draft parses them (handleHexChange,
 // handleRgbChange), and a blur shows the current colour again.
 //
@@ -49,6 +52,7 @@ component ThemeColorSwatch
     rem: number
   props
     row: EditorRow
+    session: string
     pal: CorePalette
     vh: number
     live: action
@@ -60,14 +64,16 @@ component ThemeColorSwatch
   state drag = ""
   state pid = 0
   state sent = 0
+  state sentHex = ""
   state hexDraft = ""
   state hexEditing = false
   state rgbDraft = ""
   state rgbEditing = false
   state focusPart = ""
   state mouse = false
-  // The panel's own HSV while it has one: a change of its own is in flight, or the row shows it.
-  derive own = touched and (sent > row.seq or tcpHex(h, s, v) == row.hex6)
+  derive inFlight = sent > row.seq
+  // The panel's own HSV while it has one: a drag is on, a change of its own is in flight, or the row shows it.
+  derive own = touched and (drag != "" or inFlight or tcpHex(h, s, v) == row.hex6)
   derive ch = own ? h : row.h
   derive cs = own ? s : row.s
   derive cv = own ? v : row.v
@@ -83,7 +89,9 @@ component ThemeColorSwatch
   // (saturation) takes the focus as it opens (Base UI's initial focus), with the ring only when the
   // trigger was pressed from the keyboard. It opens below the swatch, 10 apart (side="bottom",
   // sideOffset 10), or above it when the window has no room below, as Base UI's collision flip
-  // does (the host clamps a popover into the window but never flips it, LLP 1021 §5).
+  // does: the host clamps a popover into the window but has no `position-try` flip and no
+  // end alignment (`span-left`), EXACT2-GAPS X17 (#112), so the flip is computed here and the
+  // popover's left edge is the swatch's, pulled back into the window by the host's clamp.
   action open
     let at = frame(`theme-editor-swatch-${row.id}`)
     above = at.y + at.height + 0.625 * rem + 19.5 * rem > vh - 0.3125 * rem and at.y > vh / 2
@@ -91,6 +99,7 @@ component ThemeColorSwatch
     drag = ""
     hexEditing = false
     rgbEditing = false
+    focusPart = ""
   action triggerDown
     mouse = true
   action triggerKey(k: string)
@@ -109,10 +118,16 @@ component ThemeColorSwatch
     mouse = true
   // One colour to the draft; `force` sends even while an earlier one is in flight (a release, a key).
   action push(hh: number, ss: number, vv: number, force: bool)
-    if force or not (sent > row.seq)
-      let t = now()
+    if force or not inFlight
+      let t = max(now(), max(sent, row.seq) + 0.001)
+      let c = tcpHex(hh, ss, vv)
       sent = t
-      live("color", row.role, tcpHex(hh, ss, vv), t)
+      sentHex = c
+      live("color", `${session}|${row.role}`, c, t)
+  // The op in flight landed (the tracker in the plane is 1 wide again): a drag that has moved since sends where it is.
+  action landed(w: number, ht: number)
+    if w < 1.5 and drag != "" and tcpHex(h, s, v) != sentHex
+      push(h, s, v, false)
   action planeDown(e: PointerEvent)
     if drag == "" and e.buttons == 1
       let hh = ch
@@ -136,14 +151,11 @@ component ThemeColorSwatch
       s = ns
       v = nv
       push(h, ns, nv, false)
+  // A release (or a cancel) ends the drag where its last move left it, as stopDragging does, and always sends.
   action planeUp(e: PointerEvent)
     if drag == "plane" and e.pointerId == pid
-      let ns = tcpClamp(e.offsetX / planeW)
-      let nv = 1 - tcpClamp(e.offsetY / planeH)
-      s = ns
-      v = nv
       drag = ""
-      push(h, ns, nv, true)
+      push(h, s, v, true)
   action hueDown(e: PointerEvent)
     if drag == "" and e.buttons == 1
       let nh = tcpClamp(e.offsetX / planeW) * 360
@@ -167,10 +179,8 @@ component ThemeColorSwatch
       push(nh, s, v, false)
   action hueUp(e: PointerEvent)
     if drag == "hue" and e.pointerId == pid
-      let nh = tcpClamp(e.offsetX / planeW) * 360
-      h = nh
       drag = ""
-      push(nh, s, v, true)
+      push(h, s, v, true)
   action axisKey(axis: string, k: string, e: KeyboardEvent)
     mouse = false
     if tcpArrow(k) or k == "Home" or k == "End"
@@ -205,21 +215,21 @@ component ThemeColorSwatch
     hexDraft = hex
     focusPart = "hex"
   action hexInput(text: string)
-    let t = now()
+    let t = max(now(), max(sent, row.seq) + 0.001)
     hexDraft = text
     hexEditing = true
     sent = t
-    live("hex", row.role, text, t)
+    live("hex", `${session}|${row.role}`, text, t)
   action rgbFocus
     rgbEditing = true
     rgbDraft = rgb
     focusPart = "rgb"
   action rgbInput(text: string)
-    let t = now()
+    let t = max(now(), max(sent, row.seq) + 0.001)
     rgbDraft = text
     rgbEditing = true
     sent = t
-    live("rgb", row.role, text, t)
+    live("rgb", `${session}|${row.role}`, text, t)
   // A blur shows the current colour again, whatever was left in the field.
   action fieldBlur(part: string)
     hexEditing = false
@@ -243,6 +253,7 @@ component ThemeColorSwatch
           box id=`theme-color-${row.id}-plane` position="relative" width="16.5rem" height="8rem" flex-shrink=0 border-radius="0.625rem" overflow="hidden" background-color=hueColor cursor="crosshair" touch-action="none" pointerdown=planeDown pointermove=planeMove pointerup=planeUp box-shadow=(planeRing ? `0 0 0 2px ${pal.popover}, 0 0 0 4px ${pal.accent}` : "none") role="group" aria-label=`${row.label} saturation and brightness` testId=`theme-color-${row.id}-plane`
             box position="absolute" left=0 top=0 right=0 bottom=0 pointer-events="none" background-image="linear-gradient(to right, #ffffff, #ffffff00)"
             box position="absolute" left=0 top=0 right=0 bottom=0 pointer-events="none" background-image="linear-gradient(to top, #000000, #00000000)"
+            box position="absolute" left=0 top=0 width=(inFlight ? 2 : 1) height=1 opacity=0 pointer-events="none" inert=true aria-hidden=true resize=landed testId=`theme-color-${row.id}-landing`
             box id=`theme-color-${row.id}-saturation` tabindex=0 autofocus key=axisKey("s") focus=focusOn("s") blur=focusOff("s") role="slider" aria-label=`${row.label} saturation` aria-description=`${round(cs * 100)}%` position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId=`theme-color-${row.id}-saturation`
             box id=`theme-color-${row.id}-brightness` tabindex=0 key=axisKey("v") focus=focusOn("v") blur=focusOff("v") role="slider" aria-label=`${row.label} brightness` aria-description=`${round(cv * 100)}%` position="absolute" left=0 top=0 width=1 height=1 opacity=0 pointer-events="none" testId=`theme-color-${row.id}-brightness`
             when planeRing

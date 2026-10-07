@@ -1,14 +1,17 @@
 // The theme editor's colour picker. "picker color conversion" is ported from T3 Code 1e2ecbd975
-// lib/color.test.ts and "shared color controls in settings" from settings/colorPickers.test.tsx
-// (MIT, LICENSE-T3), original names; the React harness becomes the picker's rules
-// (theme-color-picker.ts, mirrored by theme-color-picker.contract) and its draft ops (themeLocal).
+// lib/color.test.ts with its original names, and "shared color controls in settings" from
+// settings/colorPickers.test.tsx (MIT, LICENSE-T3): the React harness becomes the picker's rules
+// (theme-color-picker.ts, which mirror theme-color-picker.contract, where the panel's state lives)
+// and its draft ops (themeLocal). The first two keep their names; the others are renamed to what they
+// check here, with the reference test they come from in a comment. The pointer batching, the second
+// pointer and the unmount flush are the Contract component's and are checked by the drives.
 import { describe, expect, it, test } from 'bun:test';
 import type { T3Client } from './client';
 import type { Obj } from './domain';
 import { decodeClientPrefs } from './settings-core';
 import type { CustomTheme } from './settings-themes';
-import { editDraft, editorView, previewTheme, syncDraft, themeEditorCommand, themeLocal, updateFamily } from './settings-appearance-editor';
-import { contractHsvToHex, hexToHsv, hsvToHex, huePoint, hueKey, pickerCommit, pickerFields, planeKey, planePoint, themePickerAlphaSuffix, themeRgbToHex, type HsvColor } from './theme-color-picker';
+import { currentDraft, editDraft, editorView, previewTheme, syncDraft, themeEditorCommand, themeLocal, updateFamily } from './settings-appearance-editor';
+import { contractHsvToHex, hexToHsv, hsvToHex, huePoint, hueKey, pickerCommit, pickerFields, pickerOwns, pickerStamp, planeKey, planePoint, themePickerAlphaSuffix, themeRgbToHex, type HsvColor } from './theme-color-picker';
 
 describe('picker color conversion', () => {
   it.each(['#000000', '#ffffff', '#808080', '#ff0000', '#00ff00', '#0000ff', '#2563eb'])('round trips %s through HSV without changing the persisted color', hex => {
@@ -99,7 +102,8 @@ describe('shared color controls in settings', () => {
     expect(percent(picker.hsv.s)).toBe(98);
     expect(picker.commits.at(-1)).toBe('#ff0505');
   });
-  it('persists independent native range changes through theme batching with alpha', () => {
+  // colorPickers.test.tsx "persists independent native range changes through theme batching with alpha"
+  it('keeps the alpha through independent saturation and brightness changes', () => {
     const value = '#ff000080', alpha = themePickerAlphaSuffix(value), picker = startAt(pickerFields(value).hex6);
     commitHsv(picker, { ...picker.hsv, s: 0.5 }, alpha);
     commitHsv(picker, { ...picker.hsv, v: 0.5 }, alpha);
@@ -108,13 +112,15 @@ describe('shared color controls in settings', () => {
     expect(picker.commits.at(-1)).toBe('#66333380');
     expect(percent(picker.hsv.s)).toBe(50);
   });
-  it('batches theme drag updates and flushes the final color with alpha on pointer release', () => {
+  // "batches theme drag updates and flushes the final color with alpha on pointer release"
+  it('a hue drag position commits its colour with the alpha', () => {
     const value = '#ff000080', picker = startAt(pickerFields(value).hex6);
     commitHsv(picker, { ...picker.hsv, h: huePoint(25, 100) });
     commitHsv(picker, { ...picker.hsv, h: huePoint(50, 100) });
     expect(pickerCommit('color', picker.commits.at(-1)!, value)).toBe('#00ffff80');
   });
-  it('clamps out-of-bounds drags and flushes theme changes on cancellation and unmount', () => {
+  // "clamps out-of-bounds drags and flushes theme changes on cancellation and unmount"
+  it('clamps out-of-bounds plane positions, keeping the alpha', () => {
     const value = '#ff000080', picker = startAt(pickerFields(value).hex6);
     commitHsv(picker, { ...picker.hsv, ...planePoint(-50, -50, 100, 100) });
     expect(pickerCommit('color', picker.commits.at(-1)!, value)).toBe('#ffffff80');
@@ -127,10 +133,31 @@ describe('shared color controls in settings', () => {
     key(picker, 'h', 'ArrowRight', true);
     commitHsv(picker, { ...picker.hsv, ...planePoint(0, 0, 100, 100) });
     expect(picker.commits.at(-1)).toBe('#ffffff');
-    const echoed = pickerFields('#ffffff');
-    expect(contractHsvToHex(picker.hsv.h, picker.hsv.s, picker.hsv.v)).toBe(echoed.hex6);
-    expect(Math.round(picker.hsv.h)).toBe(10);
-    expect(echoed.h).toBe(0);
+    const echoed = pickerFields('#ffffff'), ownHex = contractHsvToHex(picker.hsv.h, picker.hsv.s, picker.hsv.v);
+    expect(pickerOwns(true, false, 5, 5, ownHex, echoed.hex6)).toBe(true);
+    expect([Math.round(picker.hsv.h), echoed.h]).toEqual([10, 0]);
+  });
+});
+
+describe('the panel follows its own colour or the row (theme-color-picker.contract own, push)', () => {
+  test('a send waits for its landing, a drag keeps the marker, a change from elsewhere takes over', () => {
+    // Nothing touched yet: the row's value shows.
+    expect(pickerOwns(false, false, 0, 0, '#000000', '#1b4ed8')).toBe(false);
+    // A drag is on and its op is in flight: the panel shows its own colour, the row still the old one.
+    expect(pickerOwns(true, true, 2, 1, '#405180', '#1b4ed8')).toBe(true);
+    // The op landed but the pointer moved on (row = the sent colour, the panel a newer one): still its own while dragging.
+    expect(pickerOwns(true, true, 2, 2, '#364774', '#405180')).toBe(true);
+    // Released and landed: the row shows the panel's colour.
+    expect(pickerOwns(true, false, 3, 3, '#364774', '#364774')).toBe(true);
+    // Landed and the row differs (a typed value, the row's HEX field, Light/Dark switched): the row's value shows.
+    expect(pickerOwns(true, false, 3, 3, '#364774', '#0a0a0a')).toBe(false);
+  });
+  test('stamps rise strictly, above the last sent and the row, whatever the clock says', () => {
+    expect(pickerStamp(15000, 0, 0)).toBe(15000);
+    expect(pickerStamp(15000, 15000, 0)).toBeCloseTo(15000.001, 6);
+    expect(pickerStamp(15000, 15000.001, 14000)).toBeCloseTo(15000.002, 6);
+    // A remounted row (its `sent` back to 0) still stamps above what the draft applied.
+    expect(pickerStamp(15000, 0, 15000.004)).toBeCloseTo(15000.005, 6);
   });
 });
 
@@ -147,11 +174,11 @@ describe('ThemeColorPickerPanel fields', () => {
     expect(pickerCommit('color', '#00ffff', '#112233ff')).toBe('#00ffff');
     expect(pickerCommit('color', 'nope', '#112233')).toBeNull();
   });
-  test('a row starts the picker from its value: opaque hex, alpha, RGB and HSV', () => {
-    expect(pickerFields('#1B4ED8')).toEqual({ hex6: '#1b4ed8', alpha: '', rgb: '27, 78, 216', ...hexToHsv('#1b4ed8') });
-    expect(pickerFields('#ff000080')).toMatchObject({ hex6: '#ff0000', alpha: '80', rgb: '255, 0, 0', h: 0, s: 1, v: 1 });
-    expect(pickerFields('rgba(0, 0, 255, 0.5)')).toMatchObject({ hex6: '#0000ff', alpha: '80' });
-    expect(pickerFields('not a colour')).toMatchObject({ hex6: '#000000', alpha: '', rgb: '0, 0, 0' });
+  test('a row starts the picker from its value: opaque hex, RGB and HSV; the alpha stays with the draft', () => {
+    expect(pickerFields('#1B4ED8')).toEqual({ hex6: '#1b4ed8', rgb: '27, 78, 216', ...hexToHsv('#1b4ed8') });
+    expect(pickerFields('#ff000080')).toMatchObject({ hex6: '#ff0000', rgb: '255, 0, 0', h: 0, s: 1, v: 1 });
+    expect([themePickerAlphaSuffix('#ff000080'), themePickerAlphaSuffix('rgba(0, 0, 255, 0.5)'), themePickerAlphaSuffix('#0000ffff')]).toEqual(['80', '80', '']);
+    expect(pickerFields('not a colour')).toMatchObject({ hex6: '#000000', rgb: '0, 0, 0' });
   });
 });
 
@@ -163,52 +190,66 @@ describe('the picker in the theme editor', () => {
     const view = editorView(syncDraft(as(fake), kind, subject, prefs(fake), 'light'));
     return [...view.rows, ...view.groups.flatMap(group => group.rows)].find(entry => entry.role === role)!;
   };
+  /** One picker op for the open session's draft, as the control sends it (`<session>|<role>`). */
+  const op = (fake: ReturnType<typeof client>, part: string, role: string, value: string, n: number) =>
+    themeLocal(as(fake), part, `session-${currentDraft(as(fake))!.sessionId}|${role}`, value, n);
 
   test('a picker op changes the family, its preview and the row in step; a late older op is dropped', () => {
     const fake = client();
     syncDraft(as(fake), 'create', '#1', prefs(fake), 'light');
-    expect(themeLocal(as(fake), 'color', 'accent', '#00ffff', 20)).toBe('');
+    expect(op(fake, 'color', 'accent', '#00ffff', 20)).toBe('');
     let accent = row(fake, 'create', '#1', 'accent');
     expect([accent.value, accent.hex6, accent.rgb, accent.seq]).toEqual(['#00ffff', '#00ffff', '0, 255, 255', 20]);
     expect(previewTheme(as(fake))!.light!.focus).toBe('#00ffff');
-    themeLocal(as(fake), 'color', 'accent', '#ff00ff', 10);
+    op(fake, 'color', 'accent', '#ff00ff', 10);
     accent = row(fake, 'create', '#1', 'accent');
     expect([accent.value, accent.seq]).toEqual(['#00ffff', 20]);
     // A partial typed value changes nothing but still answers the op (the control stops waiting).
-    themeLocal(as(fake), 'hex', 'accent', '#12', 30);
-    themeLocal(as(fake), 'rgb', 'accent', '12, 34', 31);
+    op(fake, 'hex', 'accent', '#12', 30);
+    op(fake, 'rgb', 'accent', '12, 34', 31);
     accent = row(fake, 'create', '#1', 'accent');
     expect([accent.value, accent.seq]).toEqual(['#00ffff', 31]);
-    themeLocal(as(fake), 'rgb', 'accent', '12, 34, 56', 32);
+    op(fake, 'rgb', 'accent', '12, 34, 56', 32);
     expect(row(fake, 'create', '#1', 'accent').value).toBe('#0c2238');
-    themeLocal(as(fake), 'hex', 'accent', '#ABCDEF', 33);
+    op(fake, 'hex', 'accent', '#ABCDEF', 33);
     expect(row(fake, 'create', '#1', 'accent').value).toBe('#abcdef');
-    // Never an error: no draft, or a role that is not a family.
-    expect(themeLocal(as(fake), 'color', 'chrome', '#000000', 40)).toBe('');
-    expect(themeLocal(as(client()), 'color', 'accent', '#000000', 40)).toBe('');
+    // An op at or below the applied stamp is dropped.
+    op(fake, 'color', 'accent', '#ff00ff', 33);
+    expect(row(fake, 'create', '#1', 'accent').value).toBe('#abcdef');
+    // Never an error: no draft, a role that is not a family, or another session's op (which changes nothing).
+    expect(op(fake, 'color', 'chrome', '#000000', 40)).toBe('');
+    expect(themeLocal(as(client()), 'color', 'session-1|accent', '#000000', 40)).toBe('');
+    expect(themeLocal(as(fake), 'color', 'session-999|accent', '#000000', 41)).toBe('');
+    expect(themeLocal(as(fake), 'color', 'accent', '#000000', 42)).toBe('');
+    expect(row(fake, 'create', '#1', 'accent').value).toBe('#abcdef');
   });
 
-  test('switching rows and appearances starts each from its own value; the stamps are per appearance and role', () => {
+  test('switching rows and appearances starts each from its own value; one stamp per role spans both appearances', () => {
     const fake = client();
     syncDraft(as(fake), 'create', '#1', prefs(fake), 'light');
-    themeLocal(as(fake), 'color', 'canvas', '#202020', 50);
+    op(fake, 'color', 'canvas', '#202020', 50);
     expect([row(fake, 'create', '#1', 'canvas').seq, row(fake, 'create', '#1', 'accent').seq]).toEqual([50, 0]);
     expect(row(fake, 'create', '#1', 'accent').hex6).toBe('#1b4ed8');
     editDraft(as(fake), 'appearance', 'dark');
+    // The dark row shows its own value with the role's stamp, so an open panel, its op landed and its
+    // colour not the row's, follows the dark value instead of carrying the light one across.
     const dark = editorView(syncDraft(as(fake), 'create', '#1', prefs(fake), 'light')).rows.find(entry => entry.role === 'canvas')!;
-    expect([dark.value, dark.seq]).toEqual(['#0a0a0a', 0]);
-    themeLocal(as(fake), 'color', 'canvas', '#303030', 5);
+    expect([dark.value, dark.seq]).toEqual(['#0a0a0a', 50]);
+    expect(pickerOwns(true, false, 50, dark.seq, '#202020', dark.hex6)).toBe(false);
+    op(fake, 'color', 'canvas', '#303030', 51);
     expect(editorView(syncDraft(as(fake), 'create', '#1', prefs(fake), 'light')).rows[0]!.value).toBe('#303030');
+    editDraft(as(fake), 'appearance', 'light');
+    expect(row(fake, 'create', '#1', 'canvas').value).toBe('#202020');
   });
 
   test('a colour with alpha keeps it through the plane, the hue and RGB, and is saved with it', async () => {
     const fake = client();
     (fake.local.customThemes as CustomTheme[]).push({ id: 'glass', label: 'Glass', appearance: 'light', light: { accent: '#ff000080', canvas: '#ffffff' }, dark: null });
     syncDraft(as(fake), 'edit', 'glass#1', prefs(fake), 'light');
-    expect(row(fake, 'edit', 'glass#1', 'accent')).toMatchObject({ value: '#ff000080', hex6: '#ff0000', alpha: '80' });
-    themeLocal(as(fake), 'color', 'accent', '#00ffff', 1);
+    expect(row(fake, 'edit', 'glass#1', 'accent')).toMatchObject({ value: '#ff000080', hex6: '#ff0000', rgb: '255, 0, 0' });
+    op(fake, 'color', 'accent', '#00ffff', 1);
     expect(row(fake, 'edit', 'glass#1', 'accent').value).toBe('#00ffff80');
-    themeLocal(as(fake), 'rgb', 'accent', '0, 0, 255', 2);
+    op(fake, 'rgb', 'accent', '0, 0, 255', 2);
     expect(row(fake, 'edit', 'glass#1', 'accent').value).toBe('#0000ff80');
     await themeEditorCommand(as(fake), null, 'theme-editor-save', '', 'Glass');
     const saved = (fake.local.customThemes as CustomTheme[]).find(entry => entry.id === 'glass')!;
@@ -217,7 +258,7 @@ describe('the picker in the theme editor', () => {
     expect(saved.light!.accentForeground).toBe(updateFamily({ canvas: '#ffffff' }, 'accent', '#8080ff').accentForeground);
     // A typed HEX value replaces it whole, as the reference's handleHexChange does.
     syncDraft(as(fake), 'edit', 'glass#2', prefs(fake), 'light');
-    themeLocal(as(fake), 'hex', 'accent', '#00FF00', 3);
+    op(fake, 'hex', 'accent', '#00FF00', 3);
     expect(row(fake, 'edit', 'glass#2', 'accent').value).toBe('#00ff00');
   });
 
@@ -241,14 +282,14 @@ describe('the picker in the theme editor', () => {
     // Cancel: the editor closes and nothing is saved.
     syncDraft(as(fake), kind, subject, prefs(fake), 'light');
     if (advanced) editDraft(as(fake), 'advanced', 'true');
-    themeLocal(as(fake), 'color', advanced ? 'border' : 'accent', '#123456', 1);
+    op(fake, 'color', advanced ? 'border' : 'accent', '#123456', 1);
     expect(syncDraft(as(fake), '', '', prefs(fake), 'light')).toBeNull();
     expect([JSON.stringify(fake.local.customThemes), previewTheme(as(fake))]).toEqual([before, null]);
     // Save.
     syncDraft(as(fake), kind, `${subject}x`, prefs(fake), 'light');
     if (advanced) editDraft(as(fake), 'advanced', 'true');
-    themeLocal(as(fake), 'color', advanced ? 'border' : 'accent', '#123456', 2);
-    themeLocal(as(fake), 'rgb', 'canvas', '250, 240, 230', 3);
+    op(fake, 'color', advanced ? 'border' : 'accent', '#123456', 2);
+    op(fake, 'rgb', 'canvas', '250, 240, 230', 3);
     await themeEditorCommand(as(fake), null, 'theme-editor-save', '', kind === 'edit' ? 'Dusk' : 'Picked');
     const saved = (fake.local.customThemes as CustomTheme[]).find(entry => entry.label === (kind === 'edit' ? 'Dusk' : 'Picked'))!;
     expect([saved.light![advanced ? 'border' : 'accent'], saved.light!.canvas, saved.light!.chrome]).toEqual(['#123456', '#faf0e6', '#faf0e6']);

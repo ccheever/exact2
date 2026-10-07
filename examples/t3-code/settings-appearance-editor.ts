@@ -97,7 +97,7 @@ export function updateFamily(colors: Record<string, string>, role: string, input
 // The draft belongs to the client's theme editor session (theme-editor-session.ts), which
 // the window's root state opens and closes; it outlives Settings (D16).
 export type Draft = { kind: string; subject: string; sessionId: number; editingId: string; name: string; appearance: Mode; advanced: boolean; filter: string; colors: Record<Mode, Record<string, string>>;
-  /** The runner time of the last colour-picker op applied, per `<appearance>:<role>` (themeLocal). */
+  /** The stamp of the last colour-picker op applied, per role (themeLocal). */
   pickerSeq: Record<string, number> };
 const drafts = new WeakMap<T3Client, Draft>();
 const customOf = (client: T3Client): CustomTheme[] => (client.local as unknown as { customThemes?: CustomTheme[] }).customThemes || [];
@@ -148,7 +148,7 @@ export function editorView(draft: Draft | null): EditorView {
   const colors = draft.colors[draft.appearance];
   const row = ([id, label, role]: [string, string, string]): EditorRow => {
     const value = colors[role] ?? STANDARD[draft.appearance][role] ?? '#000000';
-    return { id, label, role, value, seq: draft.pickerSeq[`${draft.appearance}:${role}`] ?? 0, ...pickerFields(value) };
+    return { id, label, role, value, seq: draft.pickerSeq[role] ?? 0, ...pickerFields(value) };
   };
   const filter = draft.filter.trim().toLowerCase();
   const groups = ROLE_GROUPS.map(group => ({ id: group.id, title: group.title, rows: group.families.filter(([, label]) => !filter || label.toLowerCase().includes(filter)).map(row) }))
@@ -160,18 +160,19 @@ export function editorView(draft: Draft | null): EditorView {
 const isFamilyRole = (role: string) => ROLE_GROUPS.some(group => group.families.some(([, , familyRole]) => familyRole === role));
 
 /**
- * `themelocal:<part>` (theme-color-picker.contract): the picker's `color` (the plane, the hue slider and
- * their keys), `hex` and `rgb` (the typed fields, each keystroke) for one family. The control stamps
- * each op with the runner time it sent it, so a late older op never overwrites a newer one, and the
- * row echoes the time back (`seq`) so the control knows its last op has landed. Never an error: an
- * incomplete field changes nothing, as the reference ignores it until it parses.
+ * `themelocal:<part>` (theme-color-picker.contract) with the id `<session>|<role>`: the picker's `color`
+ * (the plane, the hue slider and their keys), `hex` and `rgb` (the typed fields, each keystroke) for
+ * one family of the session's draft. The control stamps each op, strictly increasing from the runner
+ * time, so a late older op never overwrites a newer one (and an op from a closed session reaches no
+ * other), and the row echoes the stamp back (`seq`) so the control knows its op has landed. Never an
+ * error: an incomplete field changes nothing, as the reference ignores it until it parses.
  */
-export function themeLocal(client: T3Client, part: string, role: string, value: string, n: number): string {
+export function themeLocal(client: T3Client, part: string, id: string, value: string, n: number): string {
   const draft = drafts.get(client);
-  if (!draft || !isFamilyRole(role)) return '';
-  const key = `${draft.appearance}:${role}`;
-  if (n < (draft.pickerSeq[key] ?? -Infinity)) return '';
-  draft.pickerSeq[key] = n;
+  const [session, role = ''] = id.split('|');
+  if (!draft || session !== `session-${draft.sessionId}` || !isFamilyRole(role)) return '';
+  if (n <= (draft.pickerSeq[role] ?? -Infinity)) return '';
+  draft.pickerSeq[role] = n;
   const colors = draft.colors[draft.appearance];
   const next = pickerCommit(part, value, colors[role] ?? STANDARD[draft.appearance][role] ?? '#000000');
   if (next) draft.colors[draft.appearance] = updateFamily(colors, role, next);

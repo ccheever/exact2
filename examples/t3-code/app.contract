@@ -922,8 +922,9 @@ component T3Code
       pendingModal = "theme-dialog"
       modalError = ""
       send changed = command("settings-core", `${row}:${part}|${settingsCore.scopeKey}`, value, 0)
-  action coreThemeLive(part: string, role: string, value: string, n: number) // the colour picker's draft ops (theme-color-picker.contract), never behind another command
-    send localChanged = command(`themelocal:${part}`, role, value, n)
+  mutation themeLive as shape Change refreshes data // the colour picker's own, so no other local op forgets its reply (the picker waits for it)
+  action coreThemeLive(part: string, id: string, value: string, n: number) // the colour picker's draft ops (theme-color-picker.contract), never behind another command
+    send themeLive = command(`themelocal:${part}`, id, value, n)
   state restEditor = ""
   state restSubject = ""
   state restLabel = ""

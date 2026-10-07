@@ -84,11 +84,20 @@ export function pickerCommit(part: string, text: string, current: string): strin
 }
 
 /** The picker's view of a row's value: what the panel shows before the user touches it. */
-export type PickerFields = { hex6: string; alpha: string; rgb: string; h: number; s: number; v: number };
+export type PickerFields = { hex6: string; rgb: string; h: number; s: number; v: number };
 export function pickerFields(value: string): PickerFields {
   const hex6 = normalizeThemePickerColor(value);
-  return { hex6, alpha: themePickerAlphaSuffix(value), rgb: themeRgbValue(hex6), ...hexToHsv(hex6) };
+  return { hex6, rgb: themeRgbValue(hex6), ...hexToHsv(hex6) };
 }
+
+/**
+ * theme-color-picker.contract's display and send rules, for tests: the panel shows its own HSV while
+ * a drag is on, its op is in flight (`sent` above the row's echoed `seq`) or the row shows its colour;
+ * a stamp is strictly above both the last one sent and the row's.
+ */
+export const pickerOwns = (touched: boolean, dragging: boolean, sent: number, seq: number, ownHex: string, rowHex6: string) =>
+  touched && (dragging || sent > seq || ownHex === rowHex6);
+export const pickerStamp = (now: number, sent: number, seq: number) => Math.max(now, Math.max(sent, seq) + 0.001);
 
 // ── The controls' rules, as theme-color-picker.contract computes them ─────────
 const clamp = (value: number) => Math.min(1, Math.max(0, value));
