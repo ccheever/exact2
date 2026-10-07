@@ -8,7 +8,7 @@ repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-invalid-pairing-url
 pr_url: null
-verified_commit: null
+verified_commit: fd638f9a4251d9ebd007eecfb4c58d9d539788ef
 ---
 
 # Welcome rejects an invalid pairing URL with its own inline error
@@ -97,8 +97,7 @@ No existing task explicitly tracks this mismatch.
 ## Next action
 
 Publish the verified task PR into `feat(example)/t3-code` with accessible
-before/after screenshots, then record its URL and delivery status. The implementation
-commit is recorded in the bookkeeping update after the commit exists.
+before/after screenshots, then record its URL and delivery status.
 
 ## Scope and exclusions
 
@@ -200,3 +199,7 @@ All 40 artifact checksums in the plan-local
 `evidence/20261007-invalid-pairing-url-validation/20261008-welcome-validation/complete-manifest/manifest.json`
 validate. Logs, recipes and manifests stay local. The PR supplies accessible links
 to the reviewed credential-free before/after and recovery screenshots.
+
+Verified implementation commit: `fd638f9a4251d9ebd007eecfb4c58d9d539788ef`.
+An exact `git archive` of that revision matched the passing source fingerprint and
+recipe. Local comparison: `target/pairing-validation/committed-source-compare.json`.
