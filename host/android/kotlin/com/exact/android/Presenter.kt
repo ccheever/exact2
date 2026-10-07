@@ -42,7 +42,30 @@ internal class Presenter(
     val root = Box(context)
         .apply { isFocusableInTouchMode = true }
     private val nodes = SparseArray<Node>()
-    private val navigation = NativeNavigation(context) { id -> dispatch(id, 0, null) }
+    private fun dispatchInteractive(id: Int, kind: Int, value: String?) {
+        if (closed) return
+        val node = nodes[id] ?: return
+        val event = when (kind) {
+            0 -> "press"
+            1, 24 -> "change"
+            2, 3 -> "hover"
+            4 -> "focus"
+            5 -> "blur"
+            6 -> "key"
+            7 -> "submit"
+            13 -> "scroll"
+            23, 25 -> "input"
+            else -> null
+        }
+        // SDK controls emit input/change and focus independently. Only deliver
+        // the authored channel, as the Apple control adapters do.
+        if (event != null && event !in node.handlers) return
+        when (kind) {
+            0, 1, 2, 4, 6, 7, 23, 24, 25 -> if (node.isInert()) return
+        }
+        dispatch(id, kind, value)
+    }
+    private val navigation = NativeNavigation(context) { id -> dispatchInteractive(id, 0, null) }
     private var navigationDirty = false
     private val navigationOwners = HashSet<Int>()
     private var pendingFocus: Any? = null
@@ -53,7 +76,7 @@ internal class Presenter(
         else navigationOwners.remove(n.key)
         if (navigationOwners.isNotEmpty() || nativeMounts.isNotEmpty()) navigationDirty = true
     }
-    private val controls = NativeControls(context, dispatch, intrinsic)
+    private val controls = NativeControls(context, ::dispatchInteractive, intrinsic)
     private val collections = NativeCollections(root, scale, { id ->
         nodes[id]?.let { n -> (n.control as? ScrollView)?.let { scroll ->
             n.collectionPort(scroll)
@@ -82,9 +105,9 @@ internal class Presenter(
             (0 until nodes.size()).map { nodes.valueAt(it) }.firstOrNull { it.props.optString("id") == requested.toString() }
         require(n != null) { "Android focus target '$requested' is absent" }
         val target = if (n.kind == "control") controls.action(n.key) else n.control ?: n.widget
-        require(target != null && n.props.optString("disabled") != "true" && n.props.optString("inert") != "true") { "Android focus target '$requested' is disabled" }
+        require(target != null && n.props.optString("disabled") != "true" && !n.isInert()) { "Android focus target '$requested' is disabled or inert" }
         target.post {
-            if (closed || nodes[n.key] !== n || !target.isShown || !target.isEnabled) return@post
+            if (closed || nodes[n.key] !== n || n.isInert() || !target.isShown || !target.isEnabled) return@post
             target.requestFocus()
             if (target is EditText && target.hasFocus()) context.getSystemService(InputMethodManager::class.java).showSoftInput(target, InputMethodManager.SHOW_IMPLICIT)
         }
@@ -130,6 +153,7 @@ internal class Presenter(
     private val flatParents = HashSet<Box>()
     private var focusedNode: Int? = null
     private var touchedNode: Int? = null
+    private var pointerGeneration = 0L
     private fun platformOwner(view: View?): Int? {
         var cursor = view
         while (cursor != null) {
@@ -142,25 +166,39 @@ internal class Presenter(
         focusedNode = platformOwner(current)
         collections.pins(focusedNode, touchedNode)
     }
-    init { root.viewTreeObserver.addOnGlobalFocusChangeListener(focusListener) }
-    private fun contact(node: Node, event: MotionEvent) {
+    init {
+        root.touchDispatch = ::pointerEvent
+        root.viewTreeObserver.addOnGlobalFocusChangeListener(focusListener)
+    }
+    /** Only the outer physical stream releases contact. A child's synthetic
+     * CANCEL when ScrollView takes the drag must not release that row's pin.
+     */
+    private fun pointerEvent(event: MotionEvent) {
+        if (closed) return
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                touchedNode = node.key
-                var ancestor: Node? = node
-                while (ancestor != null && ancestor.kind != "list") ancestor = ancestor.logicalParent
-                ancestor?.let { collections.intent(it.key, travel = true) }
+                pointerGeneration++
+                touchedNode = null
+                collections.pins(focusedNode, null)
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                val released = touchedNode
+                val released = pointerGeneration
                 root.post {
-                    if (!closed && touchedNode == released) {
+                    if (!closed && pointerGeneration == released) {
                         touchedNode = null
                         collections.pins(focusedNode, null)
                     }
                 }
             }
         }
+    }
+    /** Carrier observers run before delegation: each live descendant replaces
+     * its ancestor, so the deepest native target wins even for SDK controls.
+     */
+    private fun contact(node: Node, event: MotionEvent) {
+        if (closed || event.actionMasked != MotionEvent.ACTION_DOWN || nodes[node.key] !== node) return
+        touchedNode = node.key
+        if (node.kind == "list") collections.intent(node.key, travel = true)
         collections.pins(focusedNode, touchedNode)
     }
     private var semanticsGeometryDirty = false
@@ -194,7 +232,7 @@ internal class Presenter(
         if (closed) return null
         for (index in 0 until nodes.size()) {
             val node = nodes.valueAt(index)
-            if (node.props.optString("testId") == testId) return if (node.kind == "control") controls.action(node.key) else node.widget
+            if (node.props.optString("testId") == testId) return if (node.isInert()) null else if (node.kind == "control") controls.action(node.key) else node.widget
         }
         return null
     }
@@ -288,10 +326,19 @@ internal class Presenter(
         private var overflowX = "visible"
         private var overflowY = "visible"
         var alpha = 1f
+        var paintRank = 0L
         var logicalParent: Node? = null
         var rootAttached = false
         var logicalChildren = IntArray(0)
         var childrenReconciled = false
+        fun isInert(): Boolean {
+            var ancestor: Node? = this
+            while (ancestor != null) {
+                if (ancestor.props.optString("inert") == "true") return true
+                ancestor = ancestor.logicalParent
+            }
+            return false
+        }
         private var nativeRequested = false
         var flatParent: Box? = null
         private var leaf: FlatTextGroup.Leaf? = null
@@ -302,7 +349,7 @@ internal class Presenter(
         val nativeComponent = if (kind == "native") {
             checkNotNull(nativeFactory) { "NativeView requires the embedder's NativeViewFactory" }.create(
                 context, props.getString("nativeViewModuleName"), JSONObject(props.optString("nativeViewProps", "{}")),
-                { message -> dispatch(key, 9, message) }, { w, h -> intrinsic(key, w, h) })
+                { message -> dispatchInteractive(key, 9, message) }, { w, h -> intrinsic(key, w, h) })
         } else null
         val control: View? = when (kind) {
             "input", "textarea" -> EditText(context).apply {
@@ -315,7 +362,7 @@ internal class Presenter(
                     override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
                         if (!updating) {
                             editorChanged = true
-                            if ("input" in handlers) dispatch(key, 23, s.toString())
+                            if ("input" in handlers) dispatchInteractive(key, 23, s.toString())
                         }
                     }
                     override fun afterTextChanged(s: Editable?) {}
@@ -323,12 +370,12 @@ internal class Presenter(
                 setOnFocusChangeListener { _, focused ->
                     if (!updating && !focused && editorChanged) {
                         editorChanged = false
-                        if ("change" in handlers) dispatch(key, 1, this.text.toString())
+                        if ("change" in handlers) dispatchInteractive(key, 1, this.text.toString())
                     }
-                    if (!updating && (if (focused) "focus" else "blur") in handlers) dispatch(key, if (focused) 4 else 5, null)
+                    if (!updating && (if (focused) "focus" else "blur") in handlers) dispatchInteractive(key, if (focused) 4 else 5, null)
                 }
                 setOnEditorActionListener { _, _, _ ->
-                    if ("submit" in handlers) { dispatch(key, 7, null); true } else false
+                    if ("submit" in handlers) { dispatchInteractive(key, 7, null); true } else false
                 }
             }
             "image" -> ImageView(context).apply { scaleType = ImageView.ScaleType.FIT_CENTER }
@@ -338,12 +385,11 @@ internal class Presenter(
                 isFillViewport = false
                 clipToPadding = false
                 addView(childrenBox)
-                if (kind == "list") setOnTouchListener { _, event -> contact(this@Node, event); false }
                 setOnScrollChangeListener { _, x, y, oldX, oldY ->
                     scrolled(key, x / scale.toDouble(), y / scale.toDouble())
                     if (kind == "list" && (x != oldX || y != oldY)) collections.changed(key, true)
                     if ("scroll" in handlers && (x != oldX || y != oldY))
-                        dispatch(key, 13, "${x / scale},${y / scale}")
+                        dispatchInteractive(key, 13, "${x / scale},${y / scale}")
                 }
             }
             "text", "view", "button" -> null
@@ -363,7 +409,9 @@ internal class Presenter(
             actualBox?.let { return it }
             val box = Box(context)
             actualBox = box
+            box.paintRank = paintRank
             boxOwners[box] = this
+            box.touchDispatch = { event -> contact(this, event) }
             if (control != null) box.addView(control)
             if (kind == "text") box.paintText = { canvas ->
                 val width = (box.width - inset[0] - inset[2]).coerceAtLeast(0f)
@@ -399,14 +447,14 @@ internal class Presenter(
             // container gaining paint must first regain its platform carrier.
             if (kind == "view" && actualBox == null && flatParent != null) markParent(this)
         }
-        fun canFlatten(): Boolean = key >= 0 && kind == "text" && actualBox == null && !nativeRequested && handlers.isEmpty() &&
+        fun canFlatten(): Boolean = key >= 0 && kind == "text" && paintRank == 0L && actualBox == null && !nativeRequested && handlers.isEmpty() &&
             frame.width() > 0 && frame.height() > 0 && borderWidths.all { it == 0f } &&
             radii.all { it == radii[0] } &&
             overflowX == overflowY && (overflowX == "visible" || overflowX == "hidden") &&
             tx == 0f && ty == 0f && sx == 1f && angle == 0f && alpha == 1f &&
             lx == 0f && ly == 0f && lw == 1f && lh == 1f
         /** Structural draw-neutral nodes can lose their carrier, never their identity. */
-        fun canCollapse(): Boolean = kind == "view" && actualBox == null && !nativeRequested &&
+        fun canCollapse(): Boolean = kind == "view" && paintRank == 0L && actualBox == null && !nativeRequested &&
             handlers.isEmpty() && visible && control == null &&
             props.keys().asSequence().all { it == "testId" } &&
             Color.alpha(backgroundPair.toInt()) == 0 && Color.alpha((backgroundPair ushr 32).toInt()) == 0 &&
@@ -424,7 +472,7 @@ internal class Presenter(
             next.text = props.optString("text")
             next.label = props.optString("accessibilityLabel").ifEmpty { null }
             next.enabled = props.optString("disabled") != "true"
-            next.accessibilityHidden = props.optString("accessibilityElementsHidden") == "true"
+            next.accessibilityHidden = props.optString("inert") == "true" || props.optString("accessibilityElementsHidden") == "true"
             next.visible = visible && !hostHidden
             next.backgroundColor = backgroundColor
             next.textColor = textColor
@@ -596,14 +644,13 @@ internal class Presenter(
         private fun installEvents() {
             if (eventsInstalled) return
             widget.setOnClickListener(if ("press" in handlers) View.OnClickListener {
-                if ("press" in handlers) dispatch(key, 0, null)
+                if ("press" in handlers) dispatchInteractive(key, 0, null)
             } else null)
             widget.isClickable = kind == "button" || "press" in handlers
-            widget.setOnTouchListener { _, event -> contact(this, event); false }
             widget.setOnHoverListener { _, event ->
                 if ("hover" in handlers) when (event.actionMasked) {
-                    android.view.MotionEvent.ACTION_HOVER_ENTER -> dispatch(key, 2, null)
-                    android.view.MotionEvent.ACTION_HOVER_EXIT -> dispatch(key, 3, null)
+                    android.view.MotionEvent.ACTION_HOVER_ENTER -> dispatchInteractive(key, 2, null)
+                    android.view.MotionEvent.ACTION_HOVER_EXIT -> dispatchInteractive(key, 3, null)
                 }
                 false
             }
@@ -620,7 +667,7 @@ internal class Presenter(
                         android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> "ArrowRight"
                         else -> if (event.unicodeChar != 0) String(Character.toChars(event.unicodeChar)) else "Unidentified"
                     }
-                    dispatch(key, 6, name)
+                    dispatchInteractive(key, 6, name)
                 }
                 false
             }
@@ -641,7 +688,8 @@ internal class Presenter(
                 if (widget.contentDescription != description) widget.contentDescription = description
                 val enabled = props.optString("disabled") != "true"
                 if (widget.isEnabled != enabled) widget.isEnabled = enabled
-                val accessibility = if (props.optString("accessibilityElementsHidden") == "true") View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS else View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
+                box.inert = props.optString("inert") == "true"
+                val accessibility = if (box.inert || props.optString("accessibilityElementsHidden") == "true") View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS else View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
                 if (widget.importantForAccessibility != accessibility) widget.importantForAccessibility = accessibility
                 box.accessibilityText = props.optString("text")
                 val tag = props.optString("testId")
@@ -753,6 +801,30 @@ internal class Presenter(
         var logicalChildren = IntArray(0)
         var flatText: FlatTextGroup? = null
         var paintText: ((Canvas) -> Unit)? = null
+        var touchDispatch: ((MotionEvent) -> Unit)? = null
+        private var focusBeforeInert = FOCUS_BEFORE_DESCENDANTS
+        var inert = false
+            set(value) {
+                if (field == value) return
+                field = value
+                if (value) {
+                    focusBeforeInert = descendantFocusability
+                    descendantFocusability = FOCUS_BLOCK_DESCENDANTS
+                    findFocus()?.clearFocus()
+                } else descendantFocusability = focusBeforeInert
+            }
+        private fun inertInTree(): Boolean {
+            var ancestor: View? = this
+            while (ancestor != null) {
+                if ((ancestor as? Box)?.inert == true) return true
+                ancestor = ancestor.parent as? View
+            }
+            return false
+        }
+        override fun requestFocus(direction: Int, previouslyFocusedRect: Rect?): Boolean =
+            !inertInTree() && super.requestFocus(direction, previouslyFocusedRect)
+        override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean =
+            !inert && super.dispatchKeyEvent(event)
         var accessibilityClass = "android.view.View"
         var accessibilityText = ""
         val borderWidths = FloatArray(4)
@@ -770,7 +842,38 @@ internal class Presenter(
         private var outlineDirty = true
         private var borderDirty = true
         private val frames = HashMap<View, Rect>()
-        init { setWillNotDraw(false); clipChildren = false; clipToPadding = false; isSaveEnabled = false }
+        var paintRank = 0L
+            set(value) {
+                if (field == value) return
+                field = value
+                (parent as? Box)?.paintOrderChanged()
+            }
+        private var paintOrderDirty = true
+        private var paintOrder: IntArray? = null
+        init {
+            setWillNotDraw(false); clipChildren = false; clipToPadding = false; isSaveEnabled = false
+            setChildrenDrawingOrderEnabled(true)
+        }
+        private fun paintOrderChanged() { paintOrderDirty = true; invalidate() }
+        /** Android uses this same order for drawing and native pointer dispatch.
+         * Rebuild only after rank or containment changes, preserving tree order.
+         */
+        override fun getChildDrawingOrder(childrenCount: Int, drawingPosition: Int): Int {
+            if (paintOrderDirty) {
+                paintOrderDirty = false
+                val first = (getChildAt(0) as? Box)?.paintRank ?: 0L
+                val differs = (1 until childrenCount).any { ((getChildAt(it) as? Box)?.paintRank ?: 0L) != first }
+                paintOrder = if (!differs) null else (0 until childrenCount).sortedWith(
+                    compareBy<Int> { (getChildAt(it) as? Box)?.paintRank ?: 0L }.thenBy { it }).toIntArray()
+            }
+            return paintOrder?.get(drawingPosition) ?: drawingPosition
+        }
+        override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+            // Every inert carrier stops the native traversal before its children.
+            if (inert) return false
+            touchDispatch?.invoke(event)
+            return super.dispatchTouchEvent(event)
+        }
         fun setFillColor(color: Int) { fillColor = color; fillPaint?.color = color }
         private fun fillPaint() = fillPaint ?: android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
             .apply { color = fillColor }.also { fillPaint = it }
@@ -882,14 +985,17 @@ internal class Presenter(
                 finally { canvas.restoreToCount(saved) }
             } else flatText?.draw(canvas) ?: super.dispatchDraw(canvas)
         }
-        override fun getAccessibilityNodeProvider(): AccessibilityNodeProvider? = flatText ?: super.getAccessibilityNodeProvider()
-        override fun dispatchHoverEvent(event: MotionEvent): Boolean = flatText?.dispatchHoverEvent(event) == true || super.dispatchHoverEvent(event)
+        override fun getAccessibilityNodeProvider(): AccessibilityNodeProvider? =
+            if (inertInTree()) null else flatText ?: super.getAccessibilityNodeProvider()
+        override fun dispatchHoverEvent(event: MotionEvent): Boolean =
+            !inert && (flatText?.dispatchHoverEvent(event) == true || super.dispatchHoverEvent(event))
         override fun onInitializeAccessibilityNodeInfo(info: AccessibilityNodeInfo) {
             super.onInitializeAccessibilityNodeInfo(info)
             info.className = accessibilityClass
             if (accessibilityText.isNotEmpty()) info.text = accessibilityText
         }
-        override fun onViewRemoved(child: View) { super.onViewRemoved(child); frames.remove(child) }
+        override fun onViewAdded(child: View) { super.onViewAdded(child); paintOrderChanged() }
+        override fun onViewRemoved(child: View) { super.onViewRemoved(child); frames.remove(child); paintOrderChanged() }
     }
 
     private fun number(style: JSONObject, key: String, fallback: Float = 0f): Float = (style.opt(key) as? Number)?.toFloat() ?: fallback
@@ -1090,6 +1196,16 @@ internal class Presenter(
                 require(runs.length() == 0) { "Android styled inline paragraph paint is not implemented" }
                 node(id).invalidatePaint()
             }
+            "rank" -> nodes[id]?.let { n ->
+                val rank = op.getLong("rank")
+                if (n.paintRank != rank) {
+                    n.paintRank = rank
+                    n.nativeBox()?.paintRank = rank
+                    // Like Apple's flat leaves, only rank zero shares a plane.
+                    // Reconciliation promotes a changed flat/collapsed target.
+                    markParent(n)
+                }
+            }
             "collections" -> collections.snapshots(op.getJSONArray("items"))
             "title" -> title(op.optString("title", ""))
             "language" -> root.layoutDirection = if (op.optString("dir") == "rtl") View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
@@ -1124,7 +1240,9 @@ internal class Presenter(
         }
     }
     fun frame(id: Int, x: Float, y: Float, w: Float, h: Float) {
-        val n = node(id)
+        // The shared host also lays out kernel-only native-control contents.
+        // Like Apple, geometry needs an existing presentation target.
+        val n = nodes[id] ?: return
         val left = (x * scale).roundToInt(); val top = (y * scale).roundToInt()
         val width = (w * scale).roundToInt(); val height = (h * scale).roundToInt()
         n.frame.set(left, top, left + width, top + height)
@@ -1135,7 +1253,7 @@ internal class Presenter(
         layoutDirty = true
     }
     fun content(id: Int, width: Float, height: Float) {
-        val n = node(id)
+        val n = nodes[id] ?: return
         if (n.control is ScrollView) {
             n.childrenBox.contentWidth = (width * scale).roundToInt().coerceAtLeast(0)
             n.childrenBox.contentHeight = (height * scale).roundToInt().coerceAtLeast(0)
@@ -1144,7 +1262,7 @@ internal class Presenter(
         layoutDirty = true
     }
     fun present(id: Int, property: Int, x: Double, y: Double, w: Double, h: Double) {
-        val n = node(id)
+        val n = nodes[id] ?: return
         when (property) {
             1 -> { n.tx = x.toFloat() * scale; n.ty = y.toFloat() * scale }
             2 -> n.sx = x.toFloat()
@@ -1208,6 +1326,7 @@ internal class Presenter(
     fun close() {
         if (closed) return
         closed = true
+        root.touchDispatch = null
         if (root.viewTreeObserver.isAlive) root.viewTreeObserver.removeOnGlobalFocusChangeListener(focusListener)
         controls.close(); collections.close(); navigation.close()
         for (index in 0 until nodes.size()) nodes.valueAt(index).nativeComponent?.close()

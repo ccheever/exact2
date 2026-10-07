@@ -207,7 +207,9 @@ internal class NativeControls(
                 if (options != null && options.length() > 0) {
                     // HTML selects size to the widest option, even when another
                     // option is currently shown. A probe never mutates the live face.
-                    val probe = Button(context)
+                    val probe = Button(context).apply {
+                        layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT)
+                    }
                     for (i in 0 until options.length()) {
                         probe.text = options.getJSONObject(i).getString("label")
                         probe.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
@@ -238,6 +240,11 @@ internal class NativeControls(
             val labels = Array(choices.length()) { choices.getJSONObject(it).getString("label") }
             val selected = picked ?: if (menu.isNull("chosen")) null else menu.getInt("chosen")
             val adapter = object : ArrayAdapter<String>(context, android.R.layout.select_dialog_singlechoice, labels) {
+                override fun getView(position: Int, convertView: View?, parent: android.view.ViewGroup): View {
+                    val row = super.getView(position, convertView, parent)
+                    row.isEnabled = isEnabled(position)
+                    return row
+                }
                 override fun areAllItemsEnabled(): Boolean = false
                 override fun isEnabled(position: Int): Boolean = position in labels.indices && !choices.getJSONObject(position).getBoolean("disabled")
             }

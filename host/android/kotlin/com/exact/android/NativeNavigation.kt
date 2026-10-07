@@ -87,7 +87,7 @@ internal class NativeNavigation(private val context: Context, private val press:
         // Window/inline toolbars and ordinary tablists use SDK chrome too. A
         // header already projected into the navigation bar owns its descendants.
         for (node in nodes) {
-            if (node.id in projected || belowAny(node.id, hidden) || !visibleInTree(node)) continue
+            if (node.id in liveChrome || node.id in projected || belowAny(node.id, hidden) || !visibleInTree(node)) continue
             when (role(node)) {
                 "toolbar" -> {
                     if (node.props["toolbarPlacement"] == "keyboard") continue
@@ -100,7 +100,8 @@ internal class NativeNavigation(private val context: Context, private val press:
                 }
                 "tablist" -> {
                     require(node.props["accessibilityOrientation"] != "vertical") { "Android vertical native tabs are not implemented" }
-                    val tabs = node.children.asSequence().mapNotNull { this.nodes[it] }.toList().filter { role(it) == "tab" && "press" in it.handlers }
+                    val tabs = node.children.asSequence().mapNotNull { this.nodes[it] }.toList()
+                        .filter { role(it) == "tab" && "press" in it.handlers && visibleInTree(it) }
                     if (tabs.isEmpty()) continue
                     mounts.add(Mount(node.id, tabbar(node.id, tabs)))
                     liveChrome.add(node.id)

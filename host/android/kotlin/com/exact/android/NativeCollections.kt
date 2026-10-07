@@ -372,16 +372,23 @@ internal class NativeCollections(
         try {
             while (dirty.isNotEmpty() && reports < 2 && visits-- > 0) {
                 // Release an old pin before another collection acquires it.
+                val focusOwner = focus?.let(::owner)
+                val interactionOwner = interaction?.let(::owner)
                 val retiring = dirty.filter { id -> entries[id]?.facts?.let {
-                    (it.focus != null && owner(it.focus) != id) || (it.interaction != null && owner(it.interaction) != id)
+                    (it.focus != null && focusOwner != id) || (it.interaction != null && interactionOwner != id)
                 } == true }
                 val candidates = if (retiring.isEmpty()) dirty.toList() else retiring
                 val id = candidates.firstOrNull { lastVisited == null || it > lastVisited!! } ?: candidates.first()
                 lastVisited = id
                 dirty.remove(id)
                 val entry = entries[id] ?: continue
-                var next = facts(id, entry) ?: continue
-                if (retiring.isNotEmpty()) {
+                // A hidden former owner still has to release its pin before
+                // another collection acquires it. Cached port geometry is only
+                // used for retirement, with no hidden-row measurements.
+                var next = facts(id, entry) ?: entry.facts?.takeIf { id in retiring }?.copy(
+                    measurements = emptyList(), focus = focus?.takeIf { focusOwner == id },
+                    interaction = interaction?.takeIf { interactionOwner == id }) ?: continue
+                if (id in retiring) {
                     next = next.copy(focus = next.focus?.takeIf { it == entry.facts?.focus },
                         interaction = next.interaction?.takeIf { it == entry.facts?.interaction })
                     dirty.add(id)

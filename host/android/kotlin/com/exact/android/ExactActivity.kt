@@ -9,6 +9,8 @@ import android.view.View
 import android.view.WindowManager
 import android.view.WindowInsetsController
 import android.widget.ScrollView
+import android.window.OnBackInvokedCallback
+import android.window.OnBackInvokedDispatcher
 import com.exact.benchmark.BenchmarkTarget
 import com.exact.benchmark.ComparisonBenchmark
 import com.exact.benchmark.StartupProbe
@@ -16,6 +18,7 @@ import com.exact.benchmark.StartupProbe
 /** The app adapter over ExactView, equivalent to the Apple executable adapters. */
 class ExactActivity : Activity() {
     private lateinit var exact: ExactView
+    private var systemBack: OnBackInvokedCallback? = null
     private var benchmark: AndroidBenchmark? = null
     private var comparison: ComparisonBenchmark? = null
     private var startup: StartupProbe? = null
@@ -41,6 +44,11 @@ class ExactActivity : Activity() {
         require(initialRows == 1 || initialRows == 100 || initialRows == 1000)
         exact = ExactView(this, if (heavyList) "heavy-list" else if (initialRows == 100) null else "rows-$initialRows")
         exact.onTitle = { title = it }
+        if (Build.VERSION.SDK_INT >= 33) {
+            val callback = OnBackInvokedCallback { if (!exact.navigateBack()) finish() }
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, callback)
+            systemBack = callback
+        }
         val target = object : BenchmarkTarget {
             private var actionView: View? = null
             private var scroll: ScrollView? = null
@@ -124,5 +132,9 @@ class ExactActivity : Activity() {
     }
     override fun onStart() { super.onStart(); exact.setSessionVisible(true) }
     override fun onStop() { exact.setSessionVisible(false); super.onStop() }
-    override fun onDestroy() { benchmark?.close(); comparison?.close(); startup?.close(); exact.close(); super.onDestroy() }
+    override fun onDestroy() {
+        if (Build.VERSION.SDK_INT >= 33) systemBack?.let { onBackInvokedDispatcher.unregisterOnBackInvokedCallback(it) }
+        systemBack = null
+        benchmark?.close(); comparison?.close(); startup?.close(); exact.close(); super.onDestroy()
+    }
 }
