@@ -1,0 +1,51 @@
+adopt-main-fixes-r5 lane drive record (2026-10-07). Lane: reference server 1e2ecbd975 on 127.0.0.1:16741 behind a trace proxy on 16742
+(isolated HOME, CODEX_HOME, CLAUDE_CONFIG_DIR, XDG_*, T3CODE_HOME, telemetry off; codex = the reference's codexCollabMockPeer.mjs; claude stub exits 1).
+Before = t3-code-evidence-base @ 38352ceaf (its own scripts/agent.mjs); After = this branch.
+
+== BEFORE agent session
+[before] launch: welcome=true
+[before] sent "First lane thread": rows=1
+[before] sent "Second lane thread": rows=2
+[before] thread rows: 2 row-a03b622c-e836-4a9e-a630-14e7e810dec7,row-e1cfdca2-ef02-4b97-a55c-ae3caf4b1792
+[before] focus-true ERROR prefer: has-focus true: expected prefers-reduced-motion reduce|no-preference, prefers-reduced-transparency reduce|no-preference, prefers-contrast more|less|custom|no-preference, prefers-color-scheme dark|light, color-gamut srgb|p3|rec2020, dynamic-range standard|high, visibility-state visible|hidden, online true|false, can-share true|false, can-open-files true|false, root-font-size <px>, posture f
+[before] focus-false ERROR prefer: has-focus false: expected prefers-reduced-motion reduce|no-preference, prefers-reduced-transparency reduce|no-preference, prefers-contrast more|less|custom|no-preference, prefers-color-scheme dark|light, color-gamut srgb|p3|rec2020, dynamic-range standard|high, visibility-state visible|hidden, online true|false, can-share true|false, can-open-files true|false, root-font-size <px>, posture 
+[before] focus-back ERROR prefer: has-focus true: expected prefers-reduced-motion reduce|no-preference, prefers-reduced-transparency reduce|no-preference, prefers-contrast more|less|custom|no-preference, prefers-color-scheme dark|light, color-gamut srgb|p3|rec2020, dynamic-range standard|high, visibility-state visible|hidden, online true|false, can-share true|false, can-open-files true|false, root-font-size <px>, posture f
+[before] menu target: row-e1cfdca2-ef02-4b97-a55c-ae3caf4b1792
+[before] after right-click: no thread-menu nodes; popover=null
+[before] Edit menu: {"title":"Edit","items":["Undo ⌘Z","Redo ⇧⌘Z","—","Cut ⌘X","Copy ⌘C","Paste ⌘V","Paste as Text ⇧⌘V","Delete","—","Select All ⌘A","—","AutoFill","Start Dictation…","Emoji & Symbols ⌘ ","—","Speech","—","Toggle Diff ⌘D"]}
+[before] drawer: true menu=true
+
+== AFTER agent session
+[after] launch: welcome=true
+[after] sent "First lane thread": rows=4
+[after] sent "Second lane thread": rows=5
+[after] thread rows: 5 row-ddbde637-84cc-4de5-aef3-d9f2627ecec2,row-4cb303f9-8077-4b0e-b067-118677e6510a,row-436e939e-4fb6-4c1d-b4fb-470dddff3e89,row-baf7d9cb-b3d5-49fc-98ba-28616354bddb,row-a03b622c-e836-4a9e-a630-14e7e810dec7
+[after] has-focus true: device.hasFocus=true page={"visibilityState":"visible","hasFocus":true} shell.notifications="unavailable (agent)"
+[after] has-focus false: device.hasFocus=false page={"visibilityState":"visible","hasFocus":false} shell.notifications="unavailable (agent) (window inactive)"
+[after] has-focus back: device.hasFocus=true page={"visibilityState":"visible","hasFocus":true} shell.notifications="unavailable (agent)"
+[after] menu target: row-a03b622c-e836-4a9e-a630-14e7e810dec7
+[after] after right-click: thread-menu,thread-menu-new-thread-on-branch,thread-menu-pin,thread-menu-settle,thread-menu-snooze,thread-menu-rename,thread-menu-regenerate-title,thread-menu-mark-unread,thread-menu-filter-by-project,thread-menu-auto-settle,thread-menu-copy,thread-menu-project-settings,thread-menu-archive,thread-menu-delete,thread-menu-sub-snooze,thread-menu-snooze:hour,thread-menu-snooze:three-hours,thread-menu-snooze:tomorrow,thread-menu-snooze:next-week,thread-menu-snooze:custom,thread-menu-sub-auto-settle,thread-menu-auto-settle:enabled,thread-menu-auto-settle:disabled,thread-menu-sub-copy,thread-menu-copy-path,thread-menu-copy-branch,thread-menu-copy-thread-id; popover={"source":1838,"popover":1566,"phase":"open"}
+[after] copy submenu: thread-menu-sub-copy,thread-menu-copy-path,thread-menu-copy-branch,thread-menu-copy-thread-id
+[after] snoozed shelf: false (the drive asked for a testId the shelf does not have; image 03 shows "Snoozed (2)" and "Snoozed 1 thread, ⌘Z to undo")
+[after] Edit menu: {"title":"Edit","items":["Undo ⌘Z","Redo ⇧⌘Z","—","Cut ⌘X","Copy ⌘C","Paste ⌘V","Paste as Text ⇧⌘V","Delete","—","Select All ⌘A","—","Speech","—","AutoFill","Start Dictation…","Emoji & Symbols ⌘ "]}
+[after] drawer: true menu=true
+
+== Client activity reports and git refreshes seen by the trace proxy (client to server frames)
+11:43:34.288 before:pair vcs.refreshStatus
+11:43:34.332 before:pair vcs.refreshStatus
+11:43:34.349 before:pair vcs.refreshStatus
+11:43:34.542 before:pair vcs.refreshStatus
+11:43:34.543 before:pair vcs.refreshStatus
+11:43:34.554 before:pair reportClientActivity visible=True focused=False appState=active recentlyInteracted=True
+11:43:34.559 before:pair vcs.refreshStatus
+11:43:34.559 before:pair vcs.refreshStatus
+11:43:59.391 before:drawer reportClientActivity visible=True focused=False appState=active recentlyInteracted=True
+11:44:09.963 after:pair vcs.refreshStatus
+11:44:10.035 after:pair vcs.refreshStatus
+11:44:10.036 after:pair vcs.refreshStatus
+11:44:10.055 after:pair vcs.refreshStatus
+11:44:10.056 after:pair vcs.refreshStatus
+11:44:10.239 after:pair reportClientActivity visible=True focused=True appState=active recentlyInteracted=True
+11:44:35.153 after:focus-false reportClientActivity visible=True focused=False appState=active recentlyInteracted=True
+11:44:36.019 after:focus-back vcs.refreshStatus
+11:44:36.287 after:focus-back reportClientActivity visible=True focused=True appState=active recentlyInteracted=True
