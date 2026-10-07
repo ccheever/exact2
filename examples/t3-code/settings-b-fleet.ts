@@ -14,6 +14,7 @@ import type { T3Client } from './client';
 import { learnRoutes } from './connection-routes-ops';
 import { liveFleetEvent, liveFleetPass } from './live-streams';
 import { applyTerminalMetadataStreamEvent, type TerminalSummary, type TerminalMetadataStreamEvent } from './terminal-session';
+import { letGo } from './let-go';
 
 export type FleetPhase = 'available' | 'connecting' | 'reconnecting' | 'connected' | 'error' | 'unsupported';
 export interface FleetEntry {
@@ -99,7 +100,7 @@ export class EnvironmentFleet {
     for (const [key, saved] of wanted) {
       let entry = this.entries.get(key);
       if (!entry) { entry = fresh(key, str(saved.origin), str(saved.environmentId)); this.entries.set(key, entry); this.revision++; }
-      await this.syncOne(native, entry, epoch).catch(error => { entry!.error = error instanceof Error ? error.message : 'The environment failed.'; });
+      await this.syncOne(native, entry, epoch).catch(error => { if (letGo(error)) throw error; entry!.error = error instanceof Error ? error.message : 'The environment failed.'; });
     }
     // Lane environment-routes: each connected environment's reported addresses become learned routes.
     await learnRoutes(native, this, focused).catch(() => {});

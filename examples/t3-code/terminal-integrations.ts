@@ -10,6 +10,7 @@ import { ClientError } from './protocol';
 import { favoriteEditor } from './keyboard-dispatch';
 import { lastEditor } from './shell-details';
 import { resolvePathLinkTarget } from './terminal-links';
+import { letGo } from './let-go';
 
 
 export interface TerminalContextSelection { terminalId: string; terminalLabel: string; lineStart: number; lineEnd: number; text: string }
@@ -147,6 +148,7 @@ export async function terminalLinkAction(client: T3Client, native: Native, messa
       await client.restAccess(native).request('shell.openInEditor', { cwd: resolvePathLinkTarget(str(message.text), cwd), editor });
     }
   } catch (error) {
+    if (letGo(error)) throw error;
     const text = error instanceof Error ? error.message : target === 'system' ? 'Unable to open link' : 'Unable to open path';
     await client.call(native, { op: 'terminalSystemMessage', environmentId: str(message.environmentId) || client.environmentId,
       threadId, terminalId: str(message.terminalId), message: text }).catch(() => {

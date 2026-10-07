@@ -47,6 +47,22 @@ export function parseCommandBindings(value: unknown): CommandBinding[] {
   });
 }
 
+type CloseShortcutEvent = Pick<KeyboardEvent, "key" | "code" | "metaKey" | "ctrlKey" | "altKey" | "shiftKey" | "repeat" | "preventDefault">;
+
+/** terminalCloseShortcut.ts preventTerminalCloseShortcut: `bindings` are the app's winners for
+ * `terminalFocus: true, terminalOpen: true` (the native view sends them), so a match is a deliberate close. */
+export function preventTerminalCloseShortcut(event: CloseShortcutEvent, bindings: readonly CommandBinding[]): boolean {
+  if (bindings.find(({ keys }) => matchesChord(event, keys))?.command !== "terminal.close") return false;
+  event.preventDefault();
+  return true;
+}
+
+/** terminalCloseShortcut.ts preventRepeatedTerminalCloseShortcut: a held close never repeats into another close. */
+export function preventRepeatedTerminalCloseShortcut(event: CloseShortcutEvent, bindings: readonly CommandBinding[]): boolean {
+  if (!event.repeat) return false;
+  return preventTerminalCloseShortcut(event, bindings);
+}
+
 /** ThreadTerminalDrawer.handleBeforeKey: readline navigation/delete/clear owned by the terminal.
  * Physical names also preserve these shortcuts under a non-Latin keyboard layout on macOS. */
 export function terminalInputShortcutData(
@@ -248,13 +264,16 @@ class TerminalPage {
 
   private beforeKey(event: KeyboardEvent): boolean {
     if (this.auth) return event.key !== "Tab";
+    // A held ⌘W, or one while the close dialog is pending, is swallowed without another close.
+    if (preventRepeatedTerminalCloseShortcut(event, this.bindings) || (this.closePending && preventTerminalCloseShortcut(event, this.bindings))) {
+      event.stopPropagation();
+      return false;
+    }
     const binding = this.bindings.find(({ keys }) => matchesChord(event, keys));
     if (binding) {
       event.preventDefault();
       event.stopPropagation();
-      if (binding.command !== "terminal.close" || (!event.repeat && !this.closePending)) {
-        post({ type: "command", command: binding.command, chord: binding.chord, repeat: event.repeat });
-      }
+      post({ type: "command", command: binding.command, chord: binding.chord, repeat: event.repeat });
       return false;
     }
     // The old `chords` prop is the surface harness's passthrough seam, not a command dispatch.

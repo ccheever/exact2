@@ -15,6 +15,7 @@ import { contentsKey, currentSelection, diffFiles, reviewLinesOf, reviewSection 
 import { addReviewCommentChip, insertContext, localId, removeReviewCommentChip } from './composer-editor';
 import { ASSISTANT_CITATION_MAX_TEXT_LENGTH, createAssistantTextSelector, formatAssistantCitationHref, parseAssistantCitationHref } from './diff-citations';
 import { pushToast } from './toast';
+import { letGo } from './let-go';
 
 /** After a preview answers: read the per-file patches it asked for (the first four, then whatever was requested since). */
 export async function loadDiffFiles(client: T3Client, native: Native): Promise<void> {
@@ -148,6 +149,6 @@ async function citeSelection(client: T3Client, native: Native, rowId: string, va
   const href = formatAssistantCitationHref({ version: 1, environmentId: client.environmentId, threadId: client.threadId, messageId: citedMessageId(rowId), ...selector });
   if (!parseAssistantCitationHref(href)) throw new ClientError('Unable to cite this selection.');
   try { await insertContext(client, native, 'citation', href); }
-  catch { pushToast(client, { kind: 'warning', title: 'The composer is not ready', description: 'Try citing the selection after the connection or pending input is resolved.', hideCopy: true }); }
+  catch (error) { if (letGo(error)) throw error; pushToast(client, { kind: 'warning', title: 'The composer is not ready', description: 'Try citing the selection after the connection or pending input is resolved.', hideCopy: true }); }
   return '';
 }

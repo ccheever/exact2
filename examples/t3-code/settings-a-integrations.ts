@@ -4,6 +4,7 @@
 import type { T3Client } from './client';
 import { arr, obj, str, type Obj } from './domain';
 import { ClientError, type Native } from './protocol';
+import { letGo } from './let-go';
 
 export type DeviceTool = { kind: string; title: string; label: string; aria: string; known: boolean; running: string; required: string; installed: string;
   update: string; inspect: boolean; offset: number; error: string };
@@ -38,7 +39,7 @@ export async function deviceToolsCommand(client: T3Client, native: Native, input
   if (input.action === 'check') { await access.request('device.list', { inspectOnly: true }); return ''; }
   if (input.action === 'update' && (input.tool === 'hub' || input.tool === 'agent')) {
     try { await access.request('device.list', { updateTool: input.tool }, true); }
-    catch { throw new ClientError("Update failed. Check this host's network connection and try again."); }
+    catch (error) { if (letGo(error)) throw error; throw new ClientError("Update failed. Check this host's network connection and try again."); }
     return '';
   }
   throw new ClientError('Unsupported device tool action.');

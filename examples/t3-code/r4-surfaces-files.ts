@@ -24,6 +24,7 @@ import { crumbsMounting, loadBegin, loadEnd, missingFolders, noteReveal, revealS
 import { canUseMarkdownFileShellActions, loadSshAliases, openInEditorHere, openInView, remoteOpenFor } from './remote-open'; // remote Open (OpenInPicker)
 import { fileComment, fileCommentLines, fileCommentOpen, type FileLine } from './diff-file-comments'; // diff-review: line comments on the preview
 import { filesMediaView, NO_MEDIA, type MediaView } from './media-views'; // media-actions: image and video files with their menu
+import { letGo } from './let-go';
 
 export type TreeRow = { id: string; path: string; name: string; depth: number; directory: boolean; expanded: boolean; selected: boolean; token: string; ignored: boolean; guides: { id: string; left: number }[] };
 export type Crumb = { id: string; label: string; path: string; current: boolean; directory: boolean };
@@ -92,7 +93,7 @@ async function loadDirectory(client: T3Client, native: Native, path: string, ref
     const entries = arr(result.entries).map(toEntry).filter((entry): entry is Entry => !!entry && parentOf(entry.path) === path);
     state.dirs.set(path, sortEntries(entries)); state.errors.delete(path);
   } catch (error) {
-    if (filesState(client) === state) state.errors.set(path, message(error));
+    if (filesState(client) === state && !letGo(error)) state.errors.set(path, message(error));
   } finally { loadEnd(state, `dir:${path}`); }
 }
 export async function ensureTree(client: T3Client, native: Native): Promise<void> {
@@ -109,7 +110,7 @@ async function readFile(client: T3Client, native: Native, path: string): Promise
     if (filesState(client) !== state) return;
     state.reads.set(path, { contents: str(result.contents), byteLength: num(result.byteLength), truncated: result.truncated === true, error: '', notFile: false });
   } catch (error) {
-    if (filesState(client) !== state) return;
+    if (filesState(client) !== state || letGo(error)) return;
     const text = message(error);
     state.reads.set(path, { contents: '', byteLength: 0, truncated: false, error: text, notFile: /not a file|path_not_file|is a directory/i.test(text) });
   } finally { loadEnd(state, `read:${path}`); }
@@ -154,7 +155,7 @@ async function search(client: T3Client, native: Native, query: string): Promise<
     if (filesState(client) !== state || state.query !== query) return;
     state.search = { query: trimmed, entries: arr(result.entries).map(toEntry).filter((entry): entry is Entry => !!entry), truncated: result.truncated === true, error: '' };
   } catch (error) {
-    if (filesState(client) === state && state.query === query) state.search = { query: trimmed, entries: [], truncated: false, error: message(error) };
+    if (filesState(client) === state && state.query === query && !letGo(error)) state.search = { query: trimmed, entries: [], truncated: false, error: message(error) };
   } finally { loadEnd(state, 'search'); }
 }
 
@@ -187,6 +188,7 @@ export async function editFile(client: T3Client, native: Native, path: string, c
       await client.restAccess(native).request('projects.writeFile', { cwd, relativePath: path, contents: text }, true);
       edit.confirmed = revision; edit.error = '';
     } catch (error) {
+      if (letGo(error)) { edit.saving = false; throw error; }
       edit.error = message(error); edit.saving = false;
       pushToast(client, { kind: 'error', title: 'Failed to save file', description: edit.error, stacked: true });
       return;

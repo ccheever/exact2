@@ -544,8 +544,14 @@ component ComposerMenus
   // Select (BranchToolbarEnvModeSelector): a listbox 4pt below its trigger, as wide as its rows.
   // lane r13-threads: the non-Git strip's "Run on" is that Select at every width (SelectPopup side bottom, 4pt).
   derive wideWorkspace = which == "workspace" and (branches.gitless or data.composer.stripRight - data.composer.stripLeft >= 724)
-  // Menus open 4pt above their trigger (side top): the toolbar's measured
+  // Above the trigger (the flip, and the strip menus): 4pt over the toolbar's measured
   // window position, else the bottom-docked layout's fixed offsets.
+  // MenuPopup / SelectPopup default to side="bottom" and flip above only when the window has no
+  // room below: the draft hero's composer opens its traits, runtime and overflow menus 4pt under
+  // the trigger (28pt, 2pt into the 32pt toolbar; resting 24pt at 4pt), a docked composer above.
+  derive menuHeight = (which == "effort" ? data.composer.effortMenuHeight : which == "runtime" ? data.composer.runtimeMenuHeight : which == "more" ? (resting ? data.composer.restingMoreMenuHeight : data.composer.moreMenuHeight) : 0)
+  derive belowTop = data.composer.toolbarTop + (resting ? 28 : 30) + 4
+  derive below = menuHeight > 0 and data.composer.toolbarTop > 0 and belowTop + menuHeight + 5 <= viewport.height
   derive menuBottom = (strip ? viewport.height - (data.composer.stripTop + 4) + 4 : data.composer.toolbarTop > 0 ? viewport.height - data.composer.toolbarTop - (resting ? 4 : 2) + 4 : (resting ? 75 : 71))
   // The implement pill and the meter sit in the actions row (anchor "actions", inside the card's 1pt border).
   derive actionsEnd = left + 1 + data.composer.actionsX + (which == "implement" ? data.composer.implementX + data.composer.implementWidth : data.composer.meterX + data.composer.meterWidth)
@@ -589,7 +595,7 @@ component ComposerMenus
     when not gone
       // A button, so Escape binds as its command (a box with a shortcut is not one).
       button position="absolute" left=0 right=0 top=0 bottom=0 z-index=19 padding=0 border-width=0 border-radius=0 background-color="#00000000" press=close aria-label="Close options" aria-keyshortcuts="Escape" testId="dismiss-composer-options"
-      column position="absolute" left=x top=(wideWorkspace ? data.composer.stripTop + 33 : "auto") bottom=(wideWorkspace ? "auto" : menuBottom) width=width border-radius=10 box-shadow="0 16px 40px -18px #0000008c" z-index=30
+      column position="absolute" left=x top=(wideWorkspace ? data.composer.stripTop + 33 : (below ? belowTop : "auto")) bottom=(wideWorkspace or below ? "auto" : menuBottom) width=width border-radius=10 box-shadow="0 16px 40px -18px #0000008c" z-index=30
         column id="composer-menu" key=move(-1) width="100%" padding=(which == "branch" ? 0 : 4) gap=0 border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-sizing="border-box" role=(which == "runtime" or which == "branch" or wideWorkspace ? "listbox" : "menu") aria-label=(which == "more" ? "More composer controls" : which == "effort" ? data.composer.traitsLabel : which == "implement" ? "Implementation actions" : which == "workspace" ? "Workspace" : which == "branch" ? "Refs" : "Runtime mode") testId="composer-options"
           when which == "workspace"
             // lane r4-git: MobileRunContextSelector's "Run on" group, then a separator, when a draft can move machines.

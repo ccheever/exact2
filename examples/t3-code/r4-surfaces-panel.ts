@@ -14,7 +14,7 @@ import { selectDeviceTarget } from './r6-media-device';
 import type { T3Client } from './client';
 import { obj, str, type Obj } from './domain';
 import { ClientError, type Files, type Native } from './protocol';
-import { diffRequest, adoptDiff } from './diff';
+import { diffRequest, adoptDiff, diffNotGit } from './diff';
 import { fileIconToken } from './timeline-files';
 import { visiblePullRequests } from './shell-pr';
 import { filesView, filesLocal, ensureFile, ensureTree, reconcileFiles, emptyFiles, pendingPaths, type FilesView } from './r4-surfaces-files';
@@ -33,6 +33,7 @@ import { restoredEffects } from './r11-device-panels'; // lane r11-device: with 
 import { requestDiff } from './r11-device-diff';
 import { deviceTargetOf, restoreDeviceTarget, type DeviceTarget } from './r6-media-device';
 import type { PrTarget } from './r5-panels-pr';
+import { letGo } from './let-go';
 
 export type SurfaceKind = 'terminal' | 'diff' | 'files' | 'file' | 'pull-requests' | 'device' | 'pull-request' | 'attachment';
 export type Surface = { id: string; kind: SurfaceKind; path: string; line: number; reveal: number; pr?: PrTarget; attachment?: AttachmentMeta; device?: DeviceTarget; title?: string; terminal?: PanelTerminal };
@@ -113,7 +114,7 @@ export function availability(client: T3Client) {
     device: !!client.threadId,
     pullRequests: !!thread && capabilities(client).threadPullRequests === true && visiblePullRequests(thread.pullRequests).length > 0,
     pullRequest: !!threadPrTarget(client), // r5-panels: supportsPullRequests && threadPullRequestPanelTarget
-    diff: !!client.threadId && client.ready,
+    diff: !!client.threadId && client.ready && !diffNotGit(client), // ChatView: isServerThread && isGitRepo
   };
 }
 
@@ -128,7 +129,7 @@ async function showDiff(client: T3Client, native: Native): Promise<void> {
   try {
     const result = await requestDiff(client.config, request, (method, payload) => client.restAccess(native).request(method, payload)); // r11-device-diff.ts
     if (threadId === client.threadId && client.diffOpen) client.diffText = adoptDiff(client, request, result);
-  } catch (error) { if (threadId === client.threadId) client.diffError = error instanceof Error ? error.message : String(error); }
+  } catch (error) { if (threadId === client.threadId && !letGo(error)) client.diffError = error instanceof Error ? error.message : String(error); }
   finally { if (threadId === client.threadId) client.diffLoading = false; }
 }
 

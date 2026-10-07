@@ -18,6 +18,7 @@ import { isScratch, openRemoteScratch, scratchChoices, scratchRootOf } from './r
 import { pushToast } from './toast';
 import { AUTO_ENVIRONMENT, autoBalanceState, autoIndicator, chooseAutoEnvironment, draftSelection, moveDraftSelection, setDraftSelection, withAutoOption,
   type BalanceSelection } from './auto-balance'; // auto-balance
+import { letGo } from './let-go';
 
 const normalize = (value: unknown) => str(value).trim().replace(/\\/g, '/').replace(/\/+$/, '');
 /** deriveLogicalProjectKey for one grouping mode. */
@@ -90,6 +91,7 @@ export async function runOnEnvironment(client: T3Client, native: Native, environ
     // r12-threads (845ddd9354): the machine's "No project" folder is created now; a failure keeps the draft where it is.
     try { projectId = await openRemoteScratch(client, native, entry); }
     catch (error) {
+      if (letGo(error)) throw error;
       pushToast(client, { kind: 'error', title: 'Could not switch machine', description: error instanceof Error && error.message ? error.message : 'An error occurred.' });
       return { status: null, generation: -1 };
     }

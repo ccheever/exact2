@@ -10,6 +10,7 @@ import type { T3Client } from './client';
 import { favoriteSlugs, groupModels, instancePrefs, runModelPrefOp, MODEL_PREF_OPS } from './settings-b-models';
 import { DRIVERS, driverMeta, instanceEnabled, sameValue, versionLabel, providerSummary, versionAdvisory, checkedLabel,
   slugifyLabel, validateInstanceId, deriveAvailableInstanceId, type Driver, type DriverField } from './providers-meta';
+import { letGo } from './let-go';
 
 export interface ProviderHost {
   config: Obj; ready: boolean; writable: boolean; local: { favoriteModels: string[] };
@@ -295,7 +296,7 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
         const copied = await native.later({ op: 'copyText', text: command }) as Obj;
         if (copied?.ok !== true) throw new ClientError('Could not copy the command.');
         pushToast(toastOf(host), { kind: 'success', title: `${name} update command copied`, description: 'Run it in a terminal when you are ready to update.' });
-      } catch (error) { pushToast(toastOf(host), { kind: 'error', title: `Could not copy ${name} update command`, description: error instanceof Error ? error.message : '', stacked: true }); }
+      } catch (error) { if (letGo(error)) throw error; pushToast(toastOf(host), { kind: 'error', title: `Could not copy ${name} update command`, description: error instanceof Error ? error.message : '', stacked: true }); }
       return '';
     }
     const label = driverMeta(str(provider.driver))?.label || str(provider.driver);
@@ -303,7 +304,7 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
       await host.rpc(native, 'server.updateProvider', { provider: str(provider.driver), instanceId: id, ...(input.value ? { targetVersion: str(input.value) } : {}) }, true);
       await host.rpc(native, 'server.refreshProviders', {});
       await refreshConfig(host, native);
-    } catch (error) { pushToast(toastOf(host), { kind: 'error', title: `Could not update ${label}`, description: error instanceof Error ? error.message : 'The provider update command could not be started.', stacked: true }); }
+    } catch (error) { if (letGo(error)) throw error; pushToast(toastOf(host), { kind: 'error', title: `Could not update ${label}`, description: error instanceof Error ? error.message : 'The provider update command could not be started.', stacked: true }); }
     return '';
   }
   if (MODEL_PREF_OPS.includes(op)) {
@@ -357,6 +358,7 @@ async function providerOp(host: ProviderHost, native: Native, op: string, id: st
     if (row.driver === 'acpRegistry' && str(config.agentId)) {
       try { await host.rpc(native, 'server.uninstallAcpRegistryManagedBinary', { agentId: str(config.agentId) }, true); }
       catch (error) {
+        if (letGo(error)) throw error;
         await refreshConfig(host, native);
         pushToast(toastOf(host), { kind: 'warning', title: 'Provider deleted, but managed files remain', description: error instanceof Error ? error.message : 'Managed binary cleanup failed.' });
         return '';

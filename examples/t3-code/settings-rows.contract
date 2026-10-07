@@ -10,6 +10,7 @@ use ScopeChoice from "./settings-core.contract"
 use CorePalette from "./settings-core.contract"
 use SettingsGhost from "./settings-core.contract"
 use ProviderInstanceMark from "./icons.contract"
+use CcIcon from "./composer-controls.contract"
 use CnMachineIcon from "./settings-b-kit.contract"
 use InfoTip from "./settings-kit.contract"
 use AboutUpdateButton from "./settings-a-about.contract"
@@ -164,7 +165,8 @@ component CoreRowView
             when row.inheritance != ""
               box position="relative"
                 button popovertarget=`inherit-${section}-${row.id}` class=SettingsGhost width=20 height=20 border-radius=6 aria-label=`${row.inheritanceSummary}. Show where this value comes from` testId=`setting-inheritance-${row.id}`
-                  CoreIcon(name="layers", size=14, color=(row.inheritance == "overridden" or row.inheritance == "environment" ? pal.accent : pal.muted))
+                  // SettingInheritance: LayersIcon size-3, text-primary only when overridden, text-warning when mixed.
+                  CoreIcon(name="layers", size=12, color=(row.inheritance == "overridden" ? pal.accent : (row.inheritance == "mixed" ? "#fe9a00" : pal.muted)))
                 column id=`inherit-${section}-${row.id}` popover="auto" position="absolute" margin-top=4 width=310
                   column width="100%" padding=8 gap=2 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="dialog" testId=`setting-inheritance-${row.id}-popover`
                     row gap=6 align-items="center" padding-left=4 padding-bottom=4
@@ -206,9 +208,12 @@ component CoreRowView
               when row.label2 != ""
                 box position="relative"
                   button popovertarget=`effort-${section}-${row.id}` class=SettingsGhost gap=6 height=28 padding-left=10 padding-right=10 border-radius=8 disabled=(busy or row.inert) aria-label=row.label2 testId=`setting-${row.id}-effort`
+                    // TraitsPicker's trigger: a Fast or Ultrafast service tier draws the bolt before the label.
+                    when row.icon != ""
+                      CcIcon(name=(row.icon == "ultrafast" ? "ultrafast" : "zap"), size=16, color=pal.text, weight=2)
                     text row.label2 font-size=14 font-weight=500 line-height="20px" color=pal.muted
                     CoreIcon(name="chevron-down", size=14, color=pal.muted)
-                  CoreMenu(options=row.options2, pal=pal, width=160, checks=true, menuId=`effort-${section}-${row.id}`, choose=change(row.id, "effort"), testId=`setting-${row.id}-effort-menu`)
+                  TraitsMenu(options=row.options2, pal=pal, menuId=`effort-${section}-${row.id}`, choose=change(row.id, "effort"), testId=`setting-${row.id}-effort-menu`)
             when row.kind == "text-only"
               text row.label font-size=14 line-height="20px" color=pal.muted
             when row.kind == "mobile-beta"
@@ -300,6 +305,36 @@ component CoreMenu
                 text option.detail font-size=12 line-height="16px" color=pal.muted
             when checks and option.selected
               CoreIcon(name="check", size=14, color=pal.text)
+
+// TraitsPicker's menu: a labelled group per trait (Reasoning, Service Tier) split by a rule, radio
+// rows whose checked row is filled, a "Default" badge and the option's description under its label.
+component TraitsMenu
+  props
+    options: list<CoreOption>
+    pal: CorePalette
+    menuId: string
+    choose: action
+    testId: string
+  state hovered = ""
+  action hover(id: string, over: bool)
+    hovered = over ? id : (hovered == id ? "" : hovered)
+  view
+    column id=menuId popover="auto" position="absolute" margin-top=4 min-width=176
+      column width="100%" padding=4 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="menu" testId=testId
+        each option in options key=option.id
+          when option.icon == "section" or option.icon == "section-rule"
+            when option.icon == "section-rule"
+              box height=1 margin-left=8 margin-right=8 margin-top=4 margin-bottom=4 background-color=pal.cardBorder role="separator"
+            text option.label padding-left=8 padding-right=8 padding-top=6 padding-bottom=4 font-size=12 font-weight=500 line-height="16px" color=pal.muted
+          else
+            button press=choose(option.value) popovertarget=menuId popovertargetaction="hide" hover=hover(option.id) role="menuitemradio" aria-checked=option.selected class=SettingsGhost justify-content="flex-start" min-height=28 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 box-sizing="border-box" border-radius=6 background-color=(option.selected or hovered == option.id ? pal.highlight : "#00000000") testId=`${testId}-${option.id}`
+              column flex=1 min-width=0 gap=2 align-items="flex-start"
+                row gap=6 align-items="center"
+                  text option.label font-size=14 line-height="20px" color=pal.text white-space="nowrap"
+                  when option.icon == "default"
+                    text "Default" padding-left=4 padding-right=4 border-radius=4 border-width=1 border-style="solid" border-color=pal.input font-size=10 font-weight=500 line-height="14px" color=pal.text
+                when option.detail != ""
+                  text option.detail font-size=12 line-height="16px" white-space="nowrap" color=pal.muted
 
 // DraftInput / NumberField: edits stay local until Enter or the field is left.
 component CoreField

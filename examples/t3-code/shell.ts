@@ -5,6 +5,7 @@
 // right panel's surface chooser and the thread title's action menu.
 import type { T3Client } from './client';
 import { terminalAvailable, terminalOpen } from './terminal-drawer-view'; // terminal-drawer
+import type { DispatchContext } from './keyboard-dispatch'; // terminal-layout: terminal labels resolve with terminalFocus
 import { highlightPending } from './r12-render-highlight';
 import { toasts, dismissToast, type Toast, type ToastKind } from './toast';
 import { arr, obj, str, type Obj } from './domain';
@@ -12,6 +13,8 @@ import type { Files, Native } from './protocol';
 import { shortcutInput } from './keybinding-settings';
 import { shortcutLabel } from './keybinding-view';
 import { snoozePresets } from './sidebar-presentation';
+import { canSnooze, effectiveSnoozed } from './sidebar-model';
+import { diffNotGit } from './diff';
 import { threadNotifications, providerUpdates, nativeNotifyStatus, type NotifyStatus } from './shell-notify';
 import { slowRequests, tracking } from './shell-slow';
 import { settleLiveTraces } from './r3-protocol-reader'; // r13-slow: answered requests whose answer was let go end on the next shell read
@@ -141,8 +144,8 @@ export function toastViews(queue: Toast[], copied: ReadonlySet<number> = new Set
 }
 
 /** The last binding for a command, as formatShortcutLabel prints it (⌥⌘B). */
-export function commandShortcut(config: Obj, command: string): string {
-  const shortcut = effectiveShortcut(config, command); // r4-polish-shortcuts.ts: findEffectiveShortcutForCommand
+export function commandShortcut(config: Obj, command: string, context: Partial<DispatchContext> = {}): string {
+  const shortcut = effectiveShortcut(config, command, context); // r4-polish-shortcuts.ts: findEffectiveShortcutForCommand
   return shortcut ? shortcutLabel(shortcutInput(shortcut)) : '';
 }
 
@@ -157,7 +160,7 @@ export function surfaces(client: T3Client): ShellSurface[] {
     row('browser', 'Browser', 'earth', 'B', false, 'Only available in the desktop app.'),
     row('terminal', 'Terminal', 'square-terminal', 'T', terminalAvailable(client), 'Available when a project is open.'),
     row('files', 'Files', 'files', 'F', can.files, 'Available when a project is open.'),
-    row('diff', 'Diff', 'file-diff', 'D', !!client.threadId && client.ready, 'Available for Git repositories.'),
+    row('diff', 'Diff', 'file-diff', 'D', !!client.threadId && client.ready && !diffNotGit(client), 'Available for Git repositories.'),
     // r5-panels: ChatView pullRequestSurfaceAvailable (supportsPullRequests and a panel target); the detail panel opens beside the thread.
     row('pull-request', 'Pull request', 'git-pull-request-arrow', 'P', can.pullRequest && !!target, 'No pull request on this branch yet.'),
     row('pull-requests', 'Linked pull requests', 'link-2', 'L', can.pullRequests, 'No linked pull requests available.'),
@@ -175,8 +178,9 @@ export function titleMenu(client: T3Client, now: number): ShellMenuItem[] {
   if (!thread) return [{ ...item('project-settings', 'Project settings', 'settings', 'ui:project-settings', client.projectId) }];
   const caps = obj(obj(client.config.environment).capabilities);
   const id = str(thread.id), branch = str(thread.branch);
-  const settled = thread.settledOverride === 'settled' || (!!thread.settledAt && thread.settledOverride !== 'active');
-  const snoozed = !!thread.snoozedUntil;
+  // useThreadActionMenu: only an explicit settle offers Un-settle; a snooze that has woken or raised its hand reads as awake.
+  const settled = thread.settledOverride === 'settled';
+  const snoozed = effectiveSnoozed(thread, now);
   const running = !!thread.activeRunId || ['preparing', 'starting', 'running', 'waiting'].includes(str(thread.status));
   const regenerating = thread.titleRegeneration != null;
   const autoSettle = thread.autoSettleDisabledAt == null;
@@ -189,7 +193,7 @@ export function titleMenu(client: T3Client, now: number): ShellMenuItem[] {
     if (snoozed) items.push(item('unsnooze', 'Wake thread', 'clock', 'chat:unsnooze', id));
     else {
       const presets = snoozePresets(now, client.local.deviceSettings.timestampFormat);
-      items.push({ ...item('snooze', 'Snooze', 'clock', 'ui:submenu', 'snooze'), disabled: presets.length === 0 });
+      items.push({ ...item('snooze', 'Snooze', 'clock', 'ui:submenu', 'snooze'), disabled: !canSnooze(thread, now) });
       for (const preset of presets) items.push({ ...item(`snooze:${preset.id}`, `${preset.label} (${preset.wakeLabel})`, '', 'chat:snooze', id, preset.until), submenu: 'snooze' });
       items.push({ ...item('snooze:custom', 'Custom…', '', 'ui:custom-snooze', id), submenu: 'snooze', separated: true });
     }

@@ -7,6 +7,7 @@ import type { T3Client } from './client';
 import { obj, str, type Obj } from './domain';
 import type { Files } from './protocol';
 import { closedView, type PaletteView } from './palette';
+import { letGo } from './let-go';
 
 export type ChangeRequestLink = { host: string; repository: string; number: number; authority?: string };
 export type ResolvedLink = { host: string; repository: string; number: number; url: string };
@@ -230,6 +231,7 @@ export async function linkPullRequest(client: T3Client, access: Access, storage:
         linkedPullRequest: { projectId: str(legacy.id), repository: displayRepository(identity) ?? parsed.repository, number: parsed.number, url: resolved.link.url } }, 'Link pull request');
     }
   } catch (error) {
+    if (letGo(error)) throw error;
     state.error = error instanceof Error ? error.message : 'Could not link the pull request.';
     client.revision++;
     return false;

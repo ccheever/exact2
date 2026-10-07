@@ -15,6 +15,7 @@ import { arr, obj, str, type Obj } from './domain';
 import { ClientError, type Native } from './protocol';
 import { emptyR9Folding, r9Folding, r9FoldingValue, type R9DevFolding } from './r9-device-duo'; // lane r9-device
 import { PreviewMiniPlayerStore, previewMiniPlayerSourceKey, type PreviewMiniPlayerSource } from './previewMiniPlayerStore'; // the floating player's per-thread state
+import { letGo } from './let-go';
 
 export type DeviceTarget = { hostId: string; deviceId: string; platform: string; name: string };
 export type R6DeviceRail = {
@@ -180,7 +181,7 @@ export function menuPlace(client: T3Client, menu: string): { menuTop: number; me
 async function readDetail(client: T3Client, native: Native, store: Store, key: string, target: Obj): Promise<void> {
   store.detailKey = key;
   try { store.detail = obj(await client.restAccess(native).request('device.detail', target)); store.detailError = ''; }
-  catch (error) { store.detail = null; store.detailError = message(error, 'Could not read device settings.'); }
+  catch (error) { if (letGo(error)) throw error; store.detail = null; store.detailError = message(error, 'Could not read device settings.'); }
 }
 
 /** DevicePanel selectDevice: `device.open` for this thread, then the surface follows the device. */
@@ -197,7 +198,7 @@ export async function openDevice(client: T3Client, native: Native, state: Obj, k
     const result = obj(await client.restAccess(native).request('device.open', { threadId: client.threadId, hostId: str(device.hostId), deviceId: str(device.id), platform }, true));
     store.targets.set(panelKey, { hostId: str(result.hostId, str(device.hostId)), deviceId: str(result.deviceId, str(device.id)), platform, name: str(device.name) });
     store.detailKey = ''; store.menu = '';
-  } catch (error) { store.operationError = message(error, 'Could not open the device.'); }
+  } catch (error) { if (!letGo(error)) store.operationError = message(error, 'Could not open the device.'); }
   finally { store.pending = null; }
 }
 
@@ -211,7 +212,7 @@ export async function powerOff(client: T3Client, native: Native, state: Obj, pan
     await client.restAccess(native).request('device.close', { threadId: client.threadId, hostId: str(device.hostId), deviceId: str(device.id), shutdown: true }, true);
     store.targets.delete(panelKey);
     return true;
-  } catch (error) { store.operationError = message(error, 'Could not power off the device.'); return false; }
+  } catch (error) { if (letGo(error)) throw error; store.operationError = message(error, 'Could not power off the device.'); return false; }
 }
 
 /** useDeviceControls.act: one serialized `device.action`; its result is the confirmed detail. */
@@ -229,7 +230,7 @@ export async function actDevice(client: T3Client, native: Native, state: Obj, pa
   if (!device || store.acting || !store.detail) return false;
   store.acting = true; store.detailError = '';
   try { store.detail = obj(await client.restAccess(native).request('device.action', { hostId: str(device.hostId), deviceId: str(device.id), ...body }, true)); }
-  catch (error) { store.detailError = message(error, 'The device action failed.'); }
+  catch (error) { if (!letGo(error)) store.detailError = message(error, 'The device action failed.'); }
   finally { store.acting = false; }
   return true;
 }
@@ -266,7 +267,7 @@ export async function saveScreenshot(client: T3Client, native: Native, state: Ob
   try {
     const reply = obj(await client.restAccess(native).call({ op: 'r6DeviceScreenshot', platform: platformOf(str(device.platform)), deviceId: str(device.id), hostId: str(device.hostId), name: str(device.name) }));
     if (reply.ok !== true) store.screenshotError = str(reply.message, 'Screenshot capture failed. Try again.');
-  } catch (error) { store.screenshotError = message(error, 'Screenshot capture failed. Try again.'); }
+  } catch (error) { if (!letGo(error)) store.screenshotError = message(error, 'Screenshot capture failed. Try again.'); }
   finally { store.screenshotPending = false; }
 }
 

@@ -16,6 +16,7 @@
 import type { T3Client } from './client';
 import { obj, str, type Obj } from './domain';
 import type { Native } from './protocol';
+import { letGo } from './let-go';
 
 export const VCS_STATUS_KEY = 'shell-vcs-status';
 type VcsState = { cwd: string; id: string; status: Obj | null; error: string; floor: number; maxSeen: number; recent: Map<string, Obj>;
@@ -99,7 +100,7 @@ export async function watchVcsStatus(client: T3Client, native: Native, cwd: stri
       state.maxSeen = Math.max(state.maxSeen, serial);
       if (state.cwd === cwd && serial > state.floor && (!state.id || serial > subscriptionSerial(state.id))) state.id = id;
     } catch (error) {
-      if (state.cwd === cwd && !state.id) state.error = error instanceof Error ? error.message : 'Git status is unavailable.';
+      if (state.cwd === cwd && !state.id && !letGo(error)) state.error = error instanceof Error ? error.message : 'Git status is unavailable.';
     }
   }
   return { status: state.status, error: state.error };
