@@ -1,7 +1,7 @@
 use super::{RegionFrame, RegionGeometry, RegionOffset, OWNER, REGION_NODES};
 use crate::{
-    arena::NodeArena, layout::LayoutTree, style::taffy_style, Frame, LayoutError, NodeType, Offer,
-    TextMeasurer,
+    arena::NodeArena, id::IdMap, layout::LayoutTree, style::taffy_style, Frame, LayoutError,
+    NodeKey, NodeType, Offer, TextMeasurer,
 };
 use std::collections::HashMap;
 use taffy::prelude::NodeId;
@@ -149,6 +149,7 @@ impl Derived {
     ) -> Result<RegionGeometry, LayoutError> {
         let mut frames = Vec::with_capacity(self.slots.len());
         let mut offsets = Vec::with_capacity(self.slots.len());
+        let mut field_content = IdMap::default();
         let mut stack = vec![(root, 0., 0., OWNER, false)];
         while let Some((s, x, y, parent, hidden)) = stack.pop() {
             let hidden = hidden || arena.style(s).display == crate::Display::None;
@@ -189,6 +190,13 @@ impl Derived {
                     return Err(LayoutError::ContentRegion("mounted node limit"));
                 }
                 let ordinal = frames.len() as u32;
+                if let Some(content) = self
+                    .tree
+                    .field_content_rect(arena, s, self.nodes[&s])
+                    .filter(|_| !hidden)
+                {
+                    field_content.insert(arena.key(s), content);
+                }
                 frames.push(RegionFrame {
                     node: arena.key(s),
                     frame,
@@ -196,10 +204,6 @@ impl Derived {
                         l.scrollable_overflow_rect.right,
                         l.scrollable_overflow_rect.bottom,
                     ),
-                    field_content: self
-                        .tree
-                        .field_content_rect(arena, s, self.nodes[&s])
-                        .filter(|_| !hidden),
                     height_measured: self.tree.height_measured(self.nodes[&s]),
                 });
                 offsets.push(RegionOffset {
@@ -220,8 +224,17 @@ impl Derived {
                 }
             }
         }
-        Ok(RegionGeometry { frames, offsets })
+        Ok(RegionGeometry {
+            frames,
+            offsets,
+            field_content,
+        })
     }
+}
+
+pub(super) struct ShellGeometry {
+    pub frames: Vec<RegionFrame>,
+    pub field_content: IdMap<NodeKey, Frame>,
 }
 
 /// Compute using the existing shell tree, staging frames without arena writes.
@@ -233,7 +246,7 @@ pub(super) fn shell(
     root: u32,
     cut: u32,
     offer: Offer,
-) -> Result<Vec<RegionFrame>, LayoutError> {
+) -> Result<ShellGeometry, LayoutError> {
     let engine_root = arena
         .taffy(root)
         .ok_or_else(|| LayoutError::Engine("shell root absent".into()))?;
@@ -243,6 +256,7 @@ pub(super) fn shell(
     tree.cut_children(owner);
     tree.compute(engine_root, offer, arena, measurer)?;
     let mut frames = Vec::new();
+    let mut field_content = IdMap::default();
     let mut stack = vec![(root, 0., 0., false)];
     while let Some((s, x, y, hidden)) = stack.pop() {
         let hidden = hidden || arena.style(s).display == crate::Display::None;
@@ -273,6 +287,9 @@ pub(super) fn shell(
         {
             return Err(LayoutError::ContentRegion("nonfinite shell geometry"));
         }
+        if let Some(content) = tree.field_content_rect(arena, s, n).filter(|_| !hidden) {
+            field_content.insert(arena.key(s), content);
+        }
         frames.push(RegionFrame {
             node: arena.key(s),
             frame,
@@ -280,7 +297,6 @@ pub(super) fn shell(
                 l.scrollable_overflow_rect.right,
                 l.scrollable_overflow_rect.bottom,
             ),
-            field_content: tree.field_content_rect(arena, s, n).filter(|_| !hidden),
             height_measured: tree.height_measured(n),
         });
         if s != cut {
@@ -289,5 +305,49 @@ pub(super) fn shell(
             }
         }
     }
-    Ok(frames)
+    Ok(ShellGeometry {
+        frames,
+        field_content,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Kernel, MonospaceMeasurer, Op};
+
+    #[test]
+    fn region_without_fields_allocates_no_field_rect_storage() {
+        let mut kernel = Kernel::new(Box::new(MonospaceMeasurer::default()));
+        let mut ops: Vec<_> = (1..=REGION_NODES as u32)
+            .map(|id| Op::CreateView {
+                id,
+                node_type: NodeType::View,
+            })
+            .collect();
+        ops.push(Op::SetChildren {
+            id: 1,
+            children: (2..=REGION_NODES as u32).collect(),
+        });
+        ops.push(Op::AttachRoot { id: 1 });
+        kernel.apply(0, 0, &ops).unwrap();
+        let arena = kernel.arena();
+        let root = kernel.node(1).unwrap().key.index;
+        let mut derived = Derived::build(arena, root, None, None, true).unwrap();
+        derived
+            .compute(
+                arena,
+                &mut MonospaceMeasurer::default(),
+                Offer::definite(400., 300.),
+            )
+            .unwrap();
+        let geometry = derived.frames(arena, root, None, None).unwrap();
+        assert_eq!(geometry.frames.len(), REGION_NODES - 1);
+        assert!(geometry.field_content.is_empty());
+        assert_eq!(geometry.field_content.capacity(), 0);
+        assert_eq!(
+            geometry.project(Frame::default()).unwrap().len(),
+            REGION_NODES - 1
+        );
+    }
 }

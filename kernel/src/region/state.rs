@@ -265,7 +265,8 @@ impl RegionState {
             self.shell_catalog = Some(inputs.catalog);
         }
         // One common ordinary-shell path, including reservation saturation.
-        let shell_frames = super::tree::shell(arena, tree, measurer, root, b.owner.index, outer)?;
+        let shell_geometry = super::tree::shell(arena, tree, measurer, root, b.owner.index, outer)?;
+        let shell_frames = &shell_geometry.frames;
         let origin = shell_frames
             .iter()
             .find(|f| f.node == b.owner)
@@ -339,10 +340,10 @@ impl RegionState {
             RegionGeometry::default()
         };
         // Both policies share exactly one projection/validation/publication barrier.
-        let frames = selected
+        let geometry = selected
             .map(|p| p.geometry.as_ref())
-            .unwrap_or(&pending_geometry)
-            .project(origin)?;
+            .unwrap_or(&pending_geometry);
+        let frames = geometry.project(origin)?;
         let selection = match selected {
             Some(p) => RegionSelection::Accepted(p.clone()),
             None => RegionSelection::Pending(b.pending),
@@ -354,17 +355,25 @@ impl RegionState {
             .map(|f| f.node)
             .collect();
         arena.begin_layout_publication(root);
-        publish(arena, root, &shell_frames, true, &mut changed);
+        publish(
+            arena,
+            root,
+            shell_frames,
+            &shell_geometry.field_content,
+            true,
+            &mut changed,
+        );
         publish(
             arena,
             root,
             &frames,
+            &geometry.field_content,
             current || selected.is_none(),
             &mut changed,
         );
         // @ref LLP 1043.000 §3 D4 — resolve only after the selected projection.
         let (flow_changed, flow_skipped) =
-            crate::flow::resolve_region(arena, root, &shell_frames, &frames);
+            crate::flow::resolve_region(arena, root, shell_frames, &frames);
         if let Some(accepted) = next_accepted {
             self.accepted = Some(accepted);
             self.clear_candidate();
@@ -862,6 +871,7 @@ fn publish(
     arena: &mut NodeArena,
     root: u32,
     frames: &[RegionFrame],
+    field_content: &crate::id::IdMap<NodeKey, Frame>,
     current: bool,
     changed: &mut Vec<NodeKey>,
 ) {
@@ -878,7 +888,7 @@ fn publish(
         let hidden = arena.style(s).display == crate::Display::None;
         arena.set_frame(s, frame);
         arena.set_content(s, f.content);
-        if let Some(content) = f.field_content {
+        if let Some(&content) = field_content.get(&f.node) {
             arena.field_content.insert(s, content);
         } else {
             arena.field_content.remove(&s);

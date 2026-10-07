@@ -277,8 +277,6 @@ pub struct RegionFrame {
     pub frame: Frame,
     /// Local scrollable content extent from the same pass.
     pub content: (f32, f32),
-    /// Local native editor content box, from the same pass as the frame.
-    pub field_content: Option<Frame>,
     // LLP 1043.000 D3: proof from the engine that produced this frame.
     pub(crate) height_measured: bool,
 }
@@ -315,6 +313,9 @@ impl RegionOffset {
 pub(crate) struct RegionGeometry {
     frames: Vec<RegionFrame>,
     offsets: Vec<RegionOffset>,
+    // Local editor boxes belong to this immutable pass, not every retained node.
+    // An empty map allocates nothing for regions without native text fields.
+    field_content: crate::id::IdMap<NodeKey, Frame>,
 }
 impl RegionGeometry {
     fn validate(&self, origin: Frame) -> Result<(), LayoutError> {
@@ -343,7 +344,6 @@ impl RegionGeometry {
                 node: local.node,
                 frame: offset.project(local.frame, parent)?,
                 content: local.content,
-                field_content: local.field_content,
                 height_measured: local.height_measured,
             });
         }
@@ -402,6 +402,12 @@ impl RegionPublication {
     /// projection; these local coordinates remain immutable source geometry.
     pub fn frames(&self) -> &[RegionFrame] {
         &self.geometry.frames
+    }
+    /// Local native editor content box from this accepted layout pass. It stays
+    /// unchanged when frames are projected at another origin, and never reads
+    /// live arena styles or aliases a node whose slot was reused.
+    pub fn field_content_rect(&self, node: NodeKey) -> Option<Frame> {
+        self.geometry.field_content.get(&node).copied()
     }
     /// Default: all retained offers. Split profile: final paint owners only.
     pub fn artifacts(&self) -> &[RegionArtifact] {
@@ -524,12 +530,12 @@ mod split_storage_tests {
         assert!(facts.entries.capacity() * std::mem::size_of::<ScalarFact>() <= 36 * 1024);
         facts.sources.reserve_exact(SPLIT_PAINTS);
         assert_eq!(facts.sources.capacity(), 192);
-        assert_eq!(std::mem::size_of::<RegionFrame>(), 56);
+        assert_eq!(std::mem::size_of::<RegionFrame>(), 36);
         assert_eq!(std::mem::size_of::<RegionOffset>(), 16);
         assert_eq!(
             REGION_NODES
                 * (std::mem::size_of::<RegionFrame>() + std::mem::size_of::<RegionOffset>()),
-            294_912
+            212_992
         );
         let mut final_owners: Vec<RegionArtifact> = Vec::new();
         final_owners.reserve_exact(SPLIT_PAINTS);

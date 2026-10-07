@@ -106,6 +106,12 @@ fn region_row_and_shell_fields_publish_the_ordinary_content_rect() {
     assert_eq!(region.node(9).unwrap().field_content_rect(), expected);
     let current = ready(&mut region, 400.0, 1);
     assert!(current.current_frame(key(&region, 8)).is_some());
+    let RegionSelection::Accepted(publication) = current.selection else {
+        panic!("ready region must have accepted geometry")
+    };
+    assert_eq!(publication.field_content_rect(key(&region, 8)), expected);
+    assert_eq!(publication.field_content_rect(key(&region, 7)), None);
+    assert_eq!(publication.field_content_rect(key(&region, 9)), None);
     for id in [8, 9] {
         assert_eq!(region.node(id).unwrap().field_content_rect(), expected);
         let a = ordinary.node(id).unwrap().frame;
@@ -150,6 +156,11 @@ fn region_row_and_shell_fields_publish_the_ordinary_content_rect() {
         "retained editor geometry must not use the candidate's padding"
     );
     ready(&mut region, 300.0, 1);
+    assert_eq!(
+        publication.field_content_rect(key(&region, 8)),
+        expected,
+        "an older publication keeps its editor rectangle after candidate edits"
+    );
     assert_eq!(
         region.node(8).unwrap().field_content_rect(),
         Some(Frame {
