@@ -1,6 +1,6 @@
 # exact2 support needed for T3 Code parity
 
-Date: 2026-10-05; re-checked 2026-10-06 on the pin; X7, X24, X27 and X44 updated 2026-10-07 after main #173, #174, #164 and #177 (adopt-main-fixes-shell); X8, X14 and #135 updated 2026-10-07 after main #186, #183 and #184 (adopt-main-fixes-r3, main `cff90b364`). The clone now builds on exact2 main `c12832e82` (the pin); the items were first checked against main `d2cb661eb`. The reference app is T3 Code `f870c419fc` (HEAD `1e2ecbd975`).
+Date: 2026-10-05; re-checked 2026-10-06 on the pin; X7, X24, X27 and X44 updated 2026-10-07 after main #173, #174, #164 and #177 (adopt-main-fixes-shell); X8, X14 and #135 updated 2026-10-07 after main #186, #183 and #184 (adopt-main-fixes-r3, main `cff90b364`); X4, X5, X6, X10, X20, X23, X29, X36 and X37 updated 2026-10-07 after main #215, #201, #200, #208, #209, #210, #205, #204 and #199 (adopt-main-fixes-r4, main `463acda68`). The clone now builds on exact2 main `c12832e82` (the pin); the items were first checked against main `d2cb661eb`. The reference app is T3 Code `f870c419fc` (HEAD `1e2ecbd975`).
 The current state of every item on the pin is the table "Current state on the pin" below; what main fixed and which workaround was removed is "Already fixed on exact2 main".
 Each item lists the T3 feature it blocks, what we reviewed, the current state, why it does not work, and the exact2 support it needs.
 REF = `~/Documents/work/3.open-source/t3code`. X2 = exact2 main.
@@ -12,13 +12,13 @@ REF = `~/Documents/work/3.open-source/t3code`. X2 = exact2 main.
 | X1 | Embedded Chromium + CDP | Browser surface (preview browser, agent browser automation) | policy + build | none (not built) |
 | X2 | Developer Tools for the app UI | View › Toggle Developer Tools | policy (DEFERRED) | none |
 | X3 | App-settable root font size (`rem` base) (fixed on main #185, adopted) | Interface font size (12–20 px) | framework feature | none: `setRootFontSize` from app.contract `rootFont`; Contract lengths in `rem` (`font-size-map.json`) |
-| X4 | Helper executables and large resource trees in the bundle | Embedded local T3 server | build | archive in `assets/`, unpack at launch (planned) |
-| X5 | Custom URL scheme delivered to the app | `t3code://` deep links, provider sign-in return | host | none |
-| X6 | Module shutdown time at quit | Stop the embedded server cleanly | host | none |
+| X4 | Helper executables and large resource trees in the bundle (fixed on main #215: `host.macos.resources`) | Embedded local T3 server | build | none yet: no server is bundled; embedded-server-runtime uses `host.macos.resources` |
+| X5 | Custom URL scheme delivered to the app (#104 closed; main #201 only journals an unheard launch URL) | `t3code://` deep links, provider sign-in return | host | none |
+| X6 | Module shutdown time at quit (`destroy()` at quit fixed on main #200; no bounded hold) | Stop the embedded server cleanly | host | none: T3Ssh's own `willTerminate` observer removed (adopt-main-fixes-r4) |
 | X7 | ATS keys from `app.json` (fixed on main #173, adopted) | Rendered HTML / web views that load `http://` from host names | build | none: `app.json` `host.macos.appTransportSecurity` |
 | X8 | Pointer input for native views in the agent | Agent tests of terminal, browser, device views | agent API | none on main since #186; attended rows convert as their tasks re-drive them |
 | X9 | Root component across files; resources in child components | Large apps (`app.contract` near 1,500 lines) | contract | split views, keep state in root |
-| X10 | Text rendering parity | Ellipsis, wrap points, `text-wrap: balance`, placeholder colour, weight | kernel/host | none (visible difference) |
+| X10 | Text rendering parity (wrap points fixed on main #208) | `text-wrap: balance`, placeholder colour, weight | kernel/host | none (visible difference) |
 | X11 | Shadow and blur parity | Dialog/popover shadows, glass composer | host | opaque composer, faint shadows |
 | X12 | Textarea field sizing | Composer height with long chips | host | measured height |
 | X13 | Hover and key events during a pan | Sidebar row-action sweep | host | partial (r12) |
@@ -28,16 +28,16 @@ REF = `~/Documents/work/3.open-source/t3code`. X2 = exact2 main.
 | X17 | Popover side areas and `position-try` flips | Hover cards and tooltips that flip near edges | contract/host | `position-area` top/bottom; fixed placement for end-aligned and flipping layers |
 | X18 | SVG path `d` animation | Morphing icons | host | cross-fade |
 | X19 | Timers/clock in data sources | Debounces, cooldowns (450 ms, 10 s) | policy (LLP 1092 accepted, not built) | time passed as arguments, Contract tasks |
-| X20 | Rich-text editing with atomic inline nodes; caret/selection read and range replace; paste interception; undo groups | Composer (Tiptap): @ / $ menus, chips, history recall, large paste → file | framework feature (DEFERRED "no rich value type") | native NSTextView composer (`T3Composer*.swift`) |
+| X20 | Rich-text editing with atomic inline nodes; caret/selection read and range replace; undo groups (field paste/copy/cut fixed on main #209) | Composer (Tiptap): @ / $ menus, chips, history recall, large paste → file | framework feature (DEFERRED "no rich value type") | native NSTextView composer (`T3Composer*.swift`), its paste handling included |
 | X21 | Two-way WebSocket for data modules | WebSocket RPC to the T3 server, device input | framework feature (LLP 1016.000: receive-only) | Swift transport (`T3Transport.swift`, `T3Fleet.swift`) |
 | X22 | Reactive layout facts (size/position, text width) and row visibility | Composer overlay reservation, menu placement, timeline minimap | framework feature | `t3-frame`, `t3-anchor`, `t3-turn` hooks |
-| X23 | Scroll restore by key on a top-level list; `scroll-margin`; animated native scrollIntoView | Per-thread scroll position, minimap/citation jumps | framework feature | `R9Input.swift`, `T3TimelineTurns.swift` |
+| X23 | Scroll restore by key on a top-level list; `scroll-margin`; animated native scrollIntoView (plain-scroll anchoring fixed on main #210) | Per-thread scroll position, minimap/citation jumps | framework feature | `R9Input.swift`, `T3TimelineTurns.swift` |
 | X24 | Hover re-hit-test under a still pointer after layout (fixed on main #174, adopted) | Row under the pointer after ⌘Z / list change | host | none (the `t3-rehover` hook is gone) |
 | X25 | Keyboard: keyup / modifiers-held fact, `KeyboardEvent.code` and `repeat`, capture-phase handler, compositionend on a chord | ⌘ hold hints, ⌘Q hold, Send-button modifiers, key recorder, surface launcher | framework feature | `T3ComposerIntent`, `T3KeyRecorder`, `R8KeysLauncher`, `R9Input` |
 | X26 | App menu control: standard items (Paste as Text, Speech, Help), hide host Go/Develop, page zoom, submenus, menu at the pointer | Electron application menu, context menus | host | `T3Menus.swift`, `R8KeysMenus.swift`, `T3Sidebar.swift` |
 | X27 | Window chrome: title-row height and traffic-light inset; full-screen fact (frame restore fixed on main #164, adopted) | `hiddenInset` title bar, sidebar inset in full screen | host | `T3WindowChrome.swift`, `T3FullScreen.swift` |
 | X28 | Notification click → app action, Dock badge, window-focus fact | Thread notifications | policy (DEFERRED refuses actions/badges) | `T3Notifications.swift` |
-| X29 | `video` from `app:/` files; a PDF viewer element | Composer video preview, PDF attachments | framework feature | AVPlayerView, PDFView natively |
+| X29 | `video` from `app:/` files; a PDF viewer element (bundled PDF iframe fixed on main #205) | Composer video preview, PDF attachments | framework feature | AVPlayerView, PDFView natively |
 | X30 | TS can announce a topic / invalidate a resource; pixel readback; any-type file picker with bytes and image transcode | Wake reads, image accent colour, attachments | framework feature | `R10Connect`, `T3ImageAccent`, `T3ComposerAttach` |
 | X35 | A password `input` whose value stays out of every agent output ([#134](https://github.com/ccheever/exact2/issues/134), closed by main #167: the tree, `layout` and `type` reply mask the field; the app's state and data module stay outside that) | SSH Password Required dialog | host + agent | native `t3-ssh-password` secure field (`T3SshAuth.swift`, kept); the module reads it on Continue |
 | X43 | `aria-checked="mixed"` on a switch or checkbox ([#120](https://github.com/ccheever/exact2/issues/120), closed, not planned) | Scoped switches whose targets disagree (D15) | contract/host | the app draws the mixed thumb; the switch reports unchecked (kept) |
@@ -52,13 +52,13 @@ Each open item was reproduced for its upstream issue on exact2 `4c893fef6`, whic
 | ID | Issue | Current state on the pin | Workaround kept |
 |---|---|---|---|
 | X3 | [#102](https://github.com/ccheever/exact2/issues/102) (+ #136, #137) | Fixed on main (#185 `setRootFontSize`; #176 the web JS target keeps `rem`; #159 refuses a string on a number-only row), adopted 2026-10-07 (interface-font-size): the clone sets the root font size from the setting and sizes its Contract lengths in `rem` where the reference does. Contract `calc()` takes percent ± px only, so a length that adds a layout px value to a rem one multiplies the root size in (the top bars). | none |
-| X4 | [#103](https://github.com/ccheever/exact2/issues/103) | Open. `assets/` is still the only bundle tree, with mode 0644 and the path-segment rule. | archive plan (embedded server not built) |
-| X5 | [#104](https://github.com/ccheever/exact2/issues/104) | Open. A scheme URL reaches only a navigation root's `navigate`. | none |
-| X6 | [#105](https://github.com/ccheever/exact2/issues/105) | Open. No module quit hook; `destroy()` does not run at ⌘Q. | none |
+| X4 | [#103](https://github.com/ccheever/exact2/issues/103) | Closed by main #215 (adopt-main-fixes-r4 checked `463acda68`): `app.json` `host.macos.resources: [{from, to}]` copies a tree under `Contents` with modes, internal symlinks, any names and files above 64 MiB, hashed into the binary receipt and signed inside-out. Developer ID signing of the tree is unverified upstream. | none to remove (embedded server not built; embedded-server-runtime and portable-app-download use it) |
+| X5 | [#104](https://github.com/ccheever/exact2/issues/104) | Closed by main #201, which journals a launch URL that no navigation root hears; a scheme URL still reaches only a navigation root's `navigate` (checked on `463acda68`). | none |
+| X6 | [#105](https://github.com/ccheever/exact2/issues/105) | Closed by main #200: `applicationWillTerminate` destroys every session, so `destroy()` runs at ⌘Q, an Apple Event quit and last-window close. No bounded hold at quit (LLP 1069.010 Q4), no SIGTERM handling. | none: T3Ssh's `willTerminateNotification` observer removed (adopt-main-fixes-r4; live process check pending, the screen was locked) |
 | X7 | [#106](https://github.com/ccheever/exact2/issues/106) (+ #135) | Fixed on main (#173), adopted 2026-10-07 (adopt-main-fixes-shell): `app.json` sets `host.macos.appTransportSecurity.allowsArbitraryLoadsInWebContent`, and the bundle's rendered HTML loads `http://` from a named host. #135 (an `http:` sub-resource of the app's own `assets/` page) is fixed by main #184 (a bundled page is served at `http://exact.localhost`; loopback `http:` loads, a failed load is logged); nothing to adopt: no clone page is served from `assets/`. | none |
 | X8 | [#107](https://github.com/ccheever/exact2/issues/107) | Fixed by main #186 (merged 2026-10-07, adopt-main-fixes-r3): `tap … auxclick`, `clicks 1–3`, `wheel … at x y`, `modifiers` held through a contact or drag, and every agent mouse and wheel event goes through `NSApplication.sendEvent`, so module monitors see it. | partly adopted: the agent rows (terminal, device, panel, diff, tab middle click) are driven; with real input (`20261007-real-input-checks`) middle click, cursor shapes, drags out of the window and terminal double-click/right-click pass, but a real drag in the terminal selects nothing in either build (open, X8 file) |
 | X9 | [#108](https://github.com/ccheever/exact2/issues/108) | Open on main; fix built. `app.contract` holds every resource. | split views, root keeps state |
-| X10 | [#128](https://github.com/ccheever/exact2/issues/128) | Open (code-wrap breaks, placeholder colour, balance, smoothing). | none (visible difference) |
+| X10 | [#128](https://github.com/ccheever/exact2/issues/128) | Closed by main #208: macOS paragraphs break at Chrome's opportunities (no break after `/`). Still missing on `463acda68`: `text-wrap: balance`, a placeholder colour row, `-webkit-font-smoothing`. | none (visible difference) |
 | X11 | [#129](https://github.com/ccheever/exact2/issues/129) | Open. Backdrop blur sees only the parent's paint. | opaque composer |
 | X12 | [#130](https://github.com/ccheever/exact2/issues/130) | Open. | measured height |
 | X13 | not filed | Unverified on macOS (the web behavior is designed). | partial (r12 Escape) |
@@ -68,19 +68,21 @@ Each open item was reproduced for its upstream issue on exact2 `4c893fef6`, whic
 | X17 | [#112](https://github.com/ccheever/exact2/issues/112) | Partly fixed: `position-area` top, bottom and center work (`2c6b551ba`); no `position-try` flip, no `span-left` or side areas. | end-aligned and flipping menus keep fixed placement |
 | X18 | [#123](https://github.com/ccheever/exact2/issues/123) | Fixed by main #188 (SVG `d` transitions on macOS). Partly adopted (adopt-main-fixes-r3): five icons morph as T3 Code's morphicons does (per-subpath turn and drift on the snappy spring, `d` between same-structure polylines). | the code-block and welcome copy buttons still cross-fade: their return runs as keyframes (X19) and keyframed `d` is refused |
 | X19 | [#124](https://github.com/ccheever/exact2/issues/124) | Open on main; fix built. | time as arguments, Contract tasks |
-| X20 | [#125](https://github.com/ccheever/exact2/issues/125) | Open on main; fix built. | native NSTextView composer |
+| X20 | [#125](https://github.com/ccheever/exact2/issues/125) | Closed by main #209: a field's ⌘V/⌘C/⌘X fire `paste`/`copy`/`cut` first, cancelable. Not on main: `selectionchange` on a field, `setRangeText`, `beforeinput`, undo groups, atomic ranges (phase-1 fix built, not merged). | native NSTextView composer, its paste handling included (a Contract `paste` reaches only a Contract field) |
 | X21 | [#126](https://github.com/ccheever/exact2/issues/126) | Open on main; fix built. | Swift transport |
 | X22 | [#127](https://github.com/ccheever/exact2/issues/127) | Open on main; fix built. | `t3-frame`, `t3-anchor`, `t3-turn` hooks |
-| X23 | [#138](https://github.com/ccheever/exact2/issues/138) | Open. | `R9Input.swift`, `T3TimelineTurns.swift` |
+| X23 | [#138](https://github.com/ccheever/exact2/issues/138) | Closed by main #210: macOS and iOS anchor a plain `scroll` box (X23d). Not on main: restore by key, `scroll-padding`/`scroll-margin`, smooth native `scrollIntoView` and `scrollend`, `overflow-anchor: none`. | `R9Input.swift`, `T3TimelineTurns.swift` (no X23d workaround existed) |
 | X24 | [#139](https://github.com/ccheever/exact2/issues/139) | Fixed on main (#174), adopted 2026-10-07: the host hit-tests a resting pointer after layout and scrolling. | none (`t3-rehover`, R10Connect's passes and the thread lists' `data-frame` removed) |
 | X25 | [#140](https://github.com/ccheever/exact2/issues/140) | Open (keyup, `code`, `repeat`, held modifiers, capture phase; window shortcuts are heard before a focused field's key handler). Modifiers on keydown are fixed (`8a0afbeab`): Shift+F10 on draft rows and right-panel tabs is now Contract. | `T3ComposerIntent`, `T3KeyRecorder`, `R8KeysLauncher`, `R9Input`; the tab rename field's Escape in `RightPanelTabsInput.swift` |
 | X26 | [#141](https://github.com/ccheever/exact2/issues/141) | Open. | `T3Menus.swift`, `R8KeysMenus.swift`, `T3Sidebar.swift` |
 | X27 | [#113](https://github.com/ccheever/exact2/issues/113) | Partly fixed: main #164 restores the frame autosave after the final style (adopted 2026-10-07: `R8PointerWindowFrame.swift` deleted). Still missing: a title-row height and traffic-light inset setting (`env(titlebar-area-*)` or a manifest field) and a full-screen fact in the page. #113 is closed. Re-checked on main `cff90b364` (adopt-main-fixes-r3): still missing (`bc6bc35f4` adds `fullscreenchange` for a video element, not the window). | `T3WindowChrome.swift` (empty unified toolbar), `T3FullScreen.swift` (full-screen fact through `t3.status`) |
 | X28 | [#114](https://github.com/ccheever/exact2/issues/114) | Open (policy). | `T3Notifications.swift` |
-| X29 | [#115](https://github.com/ccheever/exact2/issues/115) | Open. | AVPlayerView, PDFView |
+| X29 | [#115](https://github.com/ccheever/exact2/issues/115) | Closed by main #205: a bundled PDF `iframe` shows WebKit's PDF view. Not on main: an `app:/` iframe and a PDF element with fit-to-width. | AVPlayerView, PDFView (WebKit's PDF view ignores `#toolbar=0&view=FitH` and has its own white surround, where T3 Code shows the page on Chromium's #282828 surface) |
 | X30 | [#116](https://github.com/ccheever/exact2/issues/116) | Open (policy). | `R10Connect`, `T3ImageAccent`, `T3ComposerAttach` |
 | X33 | [#132](https://github.com/ccheever/exact2/issues/132) | Closed; main #171 fixed part 1 (a button press keeps the selection). Parts 2 and 3 are not on main: no selection end rectangle, no `clearSelection()`. Re-checked on `cff90b364`: still missing. | none to remove: Cite's `retainFocus` is the reference's `onPointerDown` `preventDefault()`; after citing the selection stays (the reference clears it) |
 | X34 | [#133](https://github.com/ccheever/exact2/issues/133) | Closed; main #178 fixed the macOS agent's hover on inline runs. `frame()` of an inline run and inline runs in agent `layout` are still missing (re-checked on `cff90b364`). | none (no inline-link hover card is built) |
+| X36 | [#118](https://github.com/ccheever/exact2/issues/118) | Fixed by main #204: `Intl.Locale` and `getWeekInfo()` in every Hermes runtime, as Chrome answers them. | none: adopted (adopt-main-fixes-r4); `resolveWeekStartsOn` answers on macOS |
+| X37 | [#119](https://github.com/ccheever/exact2/issues/119) | Closed by main #199: `exact release` signs nested Mach-O files and bundles inside-out. Not on main: app-declared entitlements, a pre-seal hook. | none (portable-app-download not built) |
 | X35 | [#134](https://github.com/ccheever/exact2/issues/134) | Closed by main #167: a password field's value is masked in `tree`, `layout` and the `type` reply; `autocomplete` sets the AutoFill content type. The app's state slots and data module stay outside that (main's docs: "the app's own"). | native `t3-ssh-password` field (kept) |
 | X43 | [#120](https://github.com/ccheever/exact2/issues/120) | Closed, not planned. | the app's mixed thumb; the switch reports unchecked |
 | X47 | [#179](https://github.com/ccheever/exact2/issues/179) | Fixed by main #189, which is in this branch since the `cff90b364` merge (adopt-main-fixes-r3); no clone workaround to remove; real Tab presses draw the ring on the custom Settings nav buttons, which the base `4f523ef5c` does not (2026-10-07, `20261007-real-input-checks`). | none |
@@ -150,6 +152,8 @@ X1 ([#100](https://github.com/ccheever/exact2/issues/100)) and X2 ([#101](https:
 
 **Support needed.** An `app.json` field for helper executables and resource trees that keeps file modes and allows any file name, signed with the bundle. Needed only if the archive workaround fails or is too slow.
 
+**Since main #215 (2026-10-07).** `host.macos.resources: [{from, to}]` is that field; the archive plan is no longer needed. Not adopted yet (the embedded server is not built).
+
 ## X5. Custom URL scheme delivered to the app
 
 **T3 feature.** `t3code://` links: Codex sign-in hand-off and the provider sign-in return. The `t3 app <dir>` command opens a workspace.
@@ -158,6 +162,8 @@ X1 ([#100](https://github.com/ccheever/exact2/issues/100)) and X2 ([#101](https:
 
 **Support needed.** When no route takes a scheme URL, deliver it to a data source or the app module as an event.
 
+**Since main #201 (2026-10-07).** A launch URL that no navigation root hears is journaled; it is still not delivered.
+
 ## X6. Module shutdown time at quit
 
 **T3 feature.** At quit, the desktop app stops its server: SIGTERM, then SIGKILL after 2 s, and it waits up to 5 s.
@@ -165,6 +171,8 @@ X1 ([#100](https://github.com/ccheever/exact2/issues/100)) and X2 ([#101](https:
 **Reviewed.** On main there is no `applicationWillTerminate`; ⌘Q returns `.terminateNow` (`ExactMac/main.swift:400-413`). `destroy()` runs only from `Session.destroy` on `windowWillClose` (`ExactKit/Session.swift:1378-1398`); whether that runs at ⌘Q is unconfirmed. Governing: LLP 1069.010 Q4, D7.
 
 **Support needed.** A module hook at quit that can delay termination for a bounded time.
+
+**Since main #200 (2026-10-07).** `applicationWillTerminate` destroys every session, so `destroy()` runs at ⌘Q, an Apple Event quit and last-window close, synchronously and without a hold. The bounded hold is still missing.
 
 ## X7. ATS keys from `app.json`
 
@@ -195,8 +203,8 @@ X1 ([#100](https://github.com/ccheever/exact2/issues/100)) and X2 ([#101](https:
 ## X10. Text rendering parity
 
 Open differences against Chrome (handoff "Remaining gaps" #2):
-- truncation at word boundaries instead of per character (`text-overflow: ellipsis`);
-- code-line wrap break positions;
+- truncation at word boundaries instead of per character (`text-overflow: ellipsis`) — matched Chrome on `4c893fef6` already, not filed;
+- code-line wrap break positions — fixed on main #208 (2026-10-07);
 - no `text-wrap: balance`;
 - no placeholder colour;
 - text looks heavier than Chrome.
@@ -267,20 +275,33 @@ Fixes from main's second 2026-10-07 merge (`cff90b364`), task `20261007-adopt-ma
 | #135: a bundled iframe page loads loopback `http:` sub-resources (#184) | nothing (no clone page is served from `assets/`) | nothing to adopt |
 | #113 / X27, #132 / X33, #133 / X34: re-checked on `cff90b364` | — | still missing on main: a title-row height and traffic-light inset, a window full-screen fact (`bc6bc35f4`'s `fullscreenchange` is a video element's), a selection end rectangle and `clearSelection()`, `frame()` of an inline run |
 
+Fixes from main's third 2026-10-07 merge (`463acda68`), task `20261007-adopt-main-fixes-r4`:
+
+| Fixed on main | What the clone did | Now |
+|---|---|---|
+| #105 / X6: `destroy()` at quit and last-window close (#200) | T3Ssh observed `willTerminateNotification` to stop its tunnels and prompts (draft `20261006-native-module-termination`) | observer removed; `T3Module.destroy()` → `T3Ssh.destroy()`; the bounded hold is still missing |
+| #118 / X36: `Intl.Locale` and `getWeekInfo()` in Hermes (#204) | `resolveWeekStartsOn` answered `undefined` on macOS; its test accepted that | the test expects Chrome's week start for every tag |
+| #128 / X10: Chrome line breaks on macOS (#208) | nothing | nothing to remove; balance, placeholder colour and smoothing still missing |
+| #125 / X20: field paste/copy/cut (#209) | native composer | kept: a Contract `paste` reaches only a Contract field; caret events, `setRangeText`, `beforeinput`, undo groups and atomic ranges are not on main |
+| #138 / X23d: plain-scroll anchoring (#210) | nothing (the PR header fold is not built) | the fold row of `pr-handoffs-and-quick-actions` is unblocked |
+| #115 / X29: bundled PDF iframe (#205) | `PDFView` for the server's signed PDF URL | kept: WebKit's PDF view cannot be asked for the page alone on Chromium's surface; no PDF element on main |
+| #104 / X5 (#201), #103 / X4 (#215), #119 / X37 (#199) | nothing | recorded: #201 only journals an unheard launch URL; `host.macos.resources` and nested signing are for embedded-server-runtime and portable-app-download |
+| #192 (docs: gated tasks) | three mount polls (`every(250)` / `every(500)`) stood in for a debounce and two event bridges | gated tasks: the PR search applies 250 ms after the last keystroke; a terminal close confirm and a module-opened thread come at once |
+
 
 ## X20–X30 detail
 
 Source: a map of every clone hook and native component to the exact2 gap behind it, checked on main `d2cb661eb`.
-- **X20.** DEFERRED says "no rich value type" (`rules/DEFERRED.md:160`). LLP 1045's editor styles Markdown only. A textarea has no caret/selection events (`selectionchange` is on `text` only), and a macOS textarea fires no copy/cut/paste (`docs/contract-grammar.md:681-695`). Main added `KeyboardEvent` with `preventDefault()` (`8a0afbeab`, `f35b3eafc`), so Enter-to-send and menu keys no longer need native code.
+- **X20.** Since main #209 a field's ⌘V/⌘C/⌘X fire cancelable `paste`/`copy`/`cut` on macOS and iOS; everything else below is unchanged. DEFERRED says "no rich value type" (`rules/DEFERRED.md:160`). LLP 1045's editor styles Markdown only. A textarea has no caret/selection events (`selectionchange` is on `text` only), and a macOS textarea fires no copy/cut/paste (`docs/contract-grammar.md:681-695`). Main added `KeyboardEvent` with `preventDefault()` (`8a0afbeab`, `f35b3eafc`), so Enter-to-send and menu keys no longer need native code.
 - **X21.** "receive-only WebSocket … no frame is ever sent" (`docs/reference.md:405-408`).
 - **X22.** `frame()` now reads viewport space (`e73605835`), but works only in actions and is not reactive (`docs/contract-for-humans.md:1150-1156`).
-- **X23.** Main added `wheel`, ScrollEvent extents, scroll anchoring and `scrollIntoView(id, block, behavior)` (`2bfebe63e`, `09fc9b0d4`, `cef67560c`, `fbcc4ecb2`). Missing: restore by key for a top-level list (LLP 1070:261), offsets, and smooth landing on native hosts.
+- **X23.** Main added `wheel`, ScrollEvent extents, scroll anchoring and `scrollIntoView(id, block, behavior)` (`2bfebe63e`, `09fc9b0d4`, `cef67560c`, `fbcc4ecb2`). Missing: restore by key for a top-level list (LLP 1070:261), offsets, and smooth landing on native hosts. Since main #210 a plain `scroll` box anchors on macOS and iOS.
 - **X24.** Fixed on main (#174, `MouseChainMac.swift` `followPointer`): after a batch that moves boxes, or a scroll, the next display frame hit-tests the resting pointer. Adopted: the `t3-rehover` hook is removed.
 - **X25.** Shortcuts match `charactersIgnoringModifiers` (`Mac/ShortcutsMac.swift:50-64`; since #168 a non-Latin character falls back to the physical key); `aria-keyshortcuts` buttons hear chords before a focused element's `key` handler (`docs/contract-grammar.md:775-777`).
 - **X26.** The host menu bar is fixed (`Mac/DevMenuMac.swift:141-181`). App chords now win over host items (`9824f0e3a`). Submenus are out (LLP 1021:614).
 - **X27.** `viewport-fit=cover` has no title-row or traffic-light setting and the page has no full-screen fact. The frame autosave is restored after the final style since main #164 (`ExactMac/main.swift` `finishLaunching`); the app's frame record is removed.
 - **X28.** `showNotification` exists (`4754c6d9e`), but DEFERRED refuses notification actions and badges (`rules/DEFERRED.md:367-369`); no focus fact (`runner/src/page.rs:21-36`).
-- **X29.** `video` takes only http(s) or bundled assets (`Mac/NodeViewMac.swift:402-407`); `image` takes `app:/`.
+- **X29.** `video` takes only http(s) or bundled assets (`Mac/NodeViewMac.swift:402-407`); `image` takes `app:/`. Since main #205 a bundled PDF `iframe` shows WebKit's PDF view; there is no PDF element.
 - **X30.** TS `native` has only available/call/watch/later (`js/src/prelude.js:820-842`); Canvas readback is refused (LLP 1056:387); a file `input` needs a literal `accept`.
 
 ## Settings scope and the theme editor: declared differences

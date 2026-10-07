@@ -1,10 +1,10 @@
 ---
 name: 20261005-x06-module-quit-shutdown
 plan: 20261005-t3code-macos-parity
-status: draft
+status: closed-upstream
 kind: framework-gap
 blocks: [20261005-app-activation, 20261005-app-update-feed, 20261005-embedded-server-runtime, 20261005-managed-codex-chatgpt, 20261005-telemetry]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/105
 reproduced_on: null
 ---
 
@@ -81,3 +81,18 @@ In `20261005-this-machine-network-access`: run the Tailscale teardown row throug
 ## Status and next action
 Draft; not reproduced on the pinned `main`; not searched upstream; not published.
 Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's approval; publication only after approval). The first measurement belongs to the spike in `20261005-embedded-server-runtime`.
+
+## Merged upstream; partly fixed (2026-10-07, adopt-main-fixes-r4)
+
+[#105](https://github.com/ccheever/exact2/issues/105) was closed by main #200 (`6cd178efc`), in the feature
+branch since main `463acda68` ([20261007-adopt-main-fixes-r4](../tasks/20261007-adopt-main-fixes-r4.md)):
+`applicationWillTerminate` destroys every session synchronously, so a native module's `destroy()` runs at
+⌘Q, at an Apple Event quit and when the last window closes (before, it ran in 3 of 8 last-window closes and
+never at ⌘Q). Not on main: a hook that holds termination for a bounded time (`.terminateLater`; LLP
+1069.010 Q4 says no, a framework decision), and SIGTERM.
+
+Adoption for the existing modules: the clone's only termination workaround was T3Ssh's own
+`willTerminateNotification` observer ([native-module-termination](20261006-native-module-termination.md)),
+now removed; `T3Module.destroy()` reaches `T3Ssh.destroy()`. The other modules already relied on
+`destroy()`. The embedded server's stop needs the bounded hold and belongs to
+`20261005-embedded-server-runtime`, so X6 stays open for the hold.

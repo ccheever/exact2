@@ -158,11 +158,22 @@ final class SshAuthTests: XCTestCase {
         XCTAssertEqual(long.request(destination: "late", username: nil, prompt: "late", attempt: 1), .windowClosed)
     }
 
-    func testApplicationTerminationClosesPromptsWithoutWindowTeardown() {
+    func testDestroyClosesPromptsAndRefusesLaterRequests() {
+        // The module's destroy() is the only teardown: exact2 #200 runs it at quit and when the
+        // last window closes, so T3Ssh no longer watches willTerminateNotification itself.
         let ssh = T3Ssh(agent: true, promptsAvailable: true)
         NotificationCenter.default.post(name: NSApplication.willTerminateNotification, object: nil)
+        var outcome: T3SshPrompts.Outcome?
+        let group = DispatchGroup()
+        group.enter()
+        DispatchQueue.global().async { outcome = ssh.prompts.request(destination: "box", username: nil, prompt: "box", attempt: 1); group.leave() }
+        Thread.sleep(forTimeInterval: 0.05)
+        XCTAssertEqual((ssh.prompts.state()["request"] as? [String: Any])?["destination"] as? String, "box", "the notification alone closes nothing")
+        ssh.destroy()
+        XCTAssertEqual(group.wait(timeout: .now() + 2), .success)
+        XCTAssertEqual(outcome, .windowClosed)
         XCTAssertEqual(ssh.prompts.request(destination: "late", username: nil, prompt: "late", attempt: 1), .windowClosed)
-        ssh.destroy() // Session teardown may still follow the notification.
+        ssh.destroy() // idempotent: the window's teardown and the quit's may both run it
     }
 
     func testSecureFieldMasksForgetsAndRefusesCopy() throws {

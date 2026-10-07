@@ -135,7 +135,6 @@ component T3Code
   state prQuery = ""
   state prApplied = ""
   state prTyped = false
-  state prTypedAt = 0
   state prSelected = ""
   state prPanelOpen = true
   state prRefresh = 0
@@ -148,13 +147,11 @@ component T3Code
   action prType(value: string)
     prQuery = value
     prTyped = true
-    prTypedAt = now()
+  task prSearchSettle when utilityPage == "pull-requests" and prTyped and prApplied != prQuery key=prQuery // SEARCH_DEBOUNCE_MS: 250 ms after the last keystroke (exact2 #192)
+    after(250, prSettle)
   action prSettle
-    if utilityPage == "pull-requests" and prTyped and prApplied != prQuery and now() - prTypedAt >= 250
-      prApplied = prQuery
-      send localChanged = command("pageslocal:pr-query", "", prQuery, 0)
-  task prSearchClock mount
-    every(250, prSettle)
+    prApplied = prQuery
+    send localChanged = command("pageslocal:pr-query", "", prQuery, 0)
   action prControl(op: string, value: string)
     if op == "query"
       prQuery = value
@@ -1318,22 +1315,27 @@ component T3Code
   task shellTicks mount
     every(500, shellTick)
   action shellTick
-    if shell.panel.terminalClose.serial > terminalCloseHandled and confirmOp == ""
-      terminalCloseHandled = shell.panel.terminalClose.serial
-      confirmTitle = shell.panel.terminalClose.title
-      confirmBody = shell.panel.terminalClose.body
-      confirmDestructive = true
-      confirmOp = shell.panel.terminalClose.op
-      confirmTarget = shell.panel.terminalClose.target
-      confirmValue = ""
     if shell.toastCount > 0 or shell.ticking or commandPending
       shellClock = now()
-    if shell.openRequest != "" and shell.openRequest != shellOpenHandled and shell.openThreadId != "" and not commandPending
-      shellOpenHandled = shell.openRequest
-      draftOwner = "__unset__"
-      commandPending = true
-      send changed = command("select-thread", shell.openThreadId, "", 0)
-      jumpRequest = jumpRequest + 1
+  // Gated tasks (exact2 #192), not a 500 ms poll: a terminal close asks, and a thread the module opened is selected, at once.
+  task terminalCloseAsk when shell.panel.terminalClose.serial > terminalCloseHandled and confirmOp == "" key=shell.panel.terminalClose.serial
+    after(1, terminalCloseConfirm)
+  action terminalCloseConfirm
+    terminalCloseHandled = shell.panel.terminalClose.serial
+    confirmTitle = shell.panel.terminalClose.title
+    confirmBody = shell.panel.terminalClose.body
+    confirmDestructive = true
+    confirmOp = shell.panel.terminalClose.op
+    confirmTarget = shell.panel.terminalClose.target
+    confirmValue = ""
+  task shellOpen when shell.openRequest != "" and shell.openRequest != shellOpenHandled and shell.openThreadId != "" and not commandPending key=shell.openRequest
+    after(1, shellOpenThread)
+  action shellOpenThread
+    shellOpenHandled = shell.openRequest
+    draftOwner = "__unset__"
+    commandPending = true
+    send changed = command("select-thread", shell.openThreadId, "", 0)
+    jumpRequest = jumpRequest + 1
   action toastHovering(over: bool)
     toastHover = over
   action toastAct(id: number, op: string, target: string, value: string)

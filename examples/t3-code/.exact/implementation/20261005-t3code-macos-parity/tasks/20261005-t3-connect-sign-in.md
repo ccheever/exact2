@@ -76,7 +76,7 @@ Checked sources and time: planning pass 2026-10-05 against the local drafts in `
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
 | [X38](../issues/20261005-x38-t3-connect-clerk-sign-in.md) | Decision to build or close | scope decision; not in the library | blocking | `issue-open`, then the user decides |
-| [X5](../issues/20261005-x05-url-scheme-delivery.md) | URL scheme delivered to a module | `EXACT2-GAPS.md` X5 at `d2cb661eb`; not re-measured | blocking only if a scheme callback or the handoff is built | resolve upstream or drop |
+| [X5](../issues/20261005-x05-url-scheme-delivery.md) | URL scheme delivered to a module | #104 closed by main #201, which only journals a launch URL no navigation root hears; delivery to a module is still missing on `463acda68` ([adopt-main-fixes-r4](20261007-adopt-main-fixes-r4.md)) | blocking only if a scheme callback or the handoff is built | resolve upstream or drop |
 | [X1](../issues/20261005-x01-chromium-cdp-browser-surface.md) | Browser surface | blocked by policy | blocking only if the sign-in surface is a web view | choose the system browser flow, or wait |
 | [X21](../issues/20261005-x21-two-way-websocket.md) | Two-way WebSocket for data modules | `EXACT2-GAPS.md` X21; workaround is the Swift transport | nonblocking (the relay socket can use the Swift transport) | confirm at `prepare` |
 | [X39](../issues/20261005-x39-telemetry.md) | Relay tracing values in the public configuration | scope decision | nonblocking | none |

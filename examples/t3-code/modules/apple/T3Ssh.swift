@@ -30,7 +30,6 @@ final class T3Ssh: @unchecked Sendable {
     let prompts: T3SshPrompts
     private var secrets: [String: String] = [:] // authSecrets: by connection key, memory only
     private var askpass: String?
-    private var terminationObserver: NSObjectProtocol?
     private let targetsKey = "t3.ssh.targets"
     static let defaultRemotePort = 3773
     static let readyTimeout: TimeInterval = 20
@@ -40,11 +39,6 @@ final class T3Ssh: @unchecked Sendable {
         self.agent = agent
         let timeout = agent ? (ProcessInfo.processInfo.environment["T3_SSH_PROMPT_TIMEOUT_MS"].flatMap(Double.init).map { $0 / 1000 } ?? T3SshPrompts.defaultTimeout) : T3SshPrompts.defaultTimeout // agent-only expiry seam
         prompts = T3SshPrompts(available: promptsAvailable, timeout: timeout, changed: { changed("t3.ssh-prompt") })
-        // ExactMac can terminate before its deferred window teardown runs. Keep
-        // this app's SSH children owned through normal app termination as well.
-        terminationObserver = NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.destroy()
-        }
         // A saved SSH environment's transport retries its loopback origin; reopening the
         // tunnel in the background lets that retry land (DesktopSshEnvironment reconnect).
         if !agent { queue.async { [weak self] in self?.reopenSaved() } }
@@ -89,8 +83,9 @@ final class T3Ssh: @unchecked Sendable {
         }
     }
 
+    /// The module's teardown (T3Module.destroy): since exact2 #200 the host destroys every session
+    /// at quit and when the last window closes, so this runs on every orderly termination.
     func destroy() {
-        if let observer = terminationObserver { NotificationCenter.default.removeObserver(observer); terminationObserver = nil }
         prompts.closeAll(windowClosed: true) // "SSH authentication was cancelled because the app window closed."
         lock.lock(); alive = false; let all = Array(tunnels.values); tunnels.removeAll(); secrets.removeAll(); let helper = askpass; askpass = nil; lock.unlock()
         for process in all where process.isRunning { process.terminate() }
