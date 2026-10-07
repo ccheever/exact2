@@ -854,6 +854,12 @@ fn a_session_refreshes_once_and_only_as_its_own_principal() {
     let bearer = |token: &str| format!("authorization: Bearer {token}");
     let refresh = rae.call(json!({"op": "refresh"}))["fetch"].clone();
     assert_eq!(refresh["path"], "/auth/refresh");
+    // One at a time: a second would present the token the first retires.
+    let second = rae.module.call(&json!({"op": "refresh"}));
+    assert!(
+        second.as_ref().is_err_and(|e| e.starts_with("E_BUSY")),
+        "{second:?}"
+    );
     let reply = server.fetch_with(&bearer(&token), &refresh);
     let done = rae.call(
         json!({"op": "refreshed", "exchange": refresh["exchange"], "reply": reply, "now": now()}),
@@ -889,4 +895,11 @@ fn a_session_refreshes_once_and_only_as_its_own_principal() {
         json!({"op": "refreshed", "exchange": refresh["exchange"], "reply": reply, "now": now()}),
     );
     assert_eq!(dead["denied"]["code"], "E_AUTH", "{dead}");
+    // A refresh whose reply never comes is cancelled, and the next may go.
+    let lost = rae.call(json!({"op": "refresh"}))["fetch"].clone();
+    assert_eq!(
+        rae.call(json!({"op": "cancel", "exchange": lost["exchange"]})),
+        true
+    );
+    assert!(rae.call(json!({"op": "refresh"}))["fetch"].is_object());
 }

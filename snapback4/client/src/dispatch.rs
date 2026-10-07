@@ -122,7 +122,7 @@ pub fn dispatch(
             json!({"fetch": client.changes(core, wait)?.to_json()})
         }
         "changed" => json!(client.changed(core, exchange()?, reply("reply")?)?),
-        "refresh" => json!({"fetch": client.refresh().to_json()}),
+        "refresh" => json!({"fetch": client.refresh()?.to_json()}),
         "refreshed" => client.refreshed(exchange()?, reply("reply")?, now(true)?),
         _ => return core.call(request.clone()),
     };

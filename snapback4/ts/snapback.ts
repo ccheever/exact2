@@ -107,6 +107,7 @@ function nativeDevice(native: NativeModule): Device {
 export class Snapback {
   private closed = false;
   private cleaned = false;
+  private refreshing?: Promise<Refreshed>;
   private constructor(private device: Device, readonly options: Options, private opened: boolean) {}
 
   /** Every call goes through here: a closed client refuses, rather than
@@ -222,9 +223,17 @@ export class Snapback {
    * on. `E_AUTH` means the member signs in again; `offline` that the server
    * was not reached (the old token still works). */
   async refreshSession(now: number): Promise<Refreshed> {
-    const request = ok<{ fetch: Request }>(await this.call({ op: 'refresh' }));
-    const reply = await this.exchange(request.fetch);
-    return ok<Refreshed>(await this.call({ op: 'refreshed', exchange: request.fetch.exchange, reply, now: clock(now) }));
+    // One at a time: a caller while one is in flight shares its answer.
+    this.refreshing ??= (async () => {
+      const request = ok<{ fetch: Request }>(await this.call({ op: 'refresh' }));
+      const reply = await this.exchange(request.fetch);
+      try { return ok<Refreshed>(await this.call({ op: 'refreshed', exchange: request.fetch.exchange, reply, now: clock(now) })); }
+      catch (error) {
+        await this.call({ op: 'cancel', exchange: request.fetch.exchange }).catch(() => undefined);
+        throw error;
+      }
+    })().finally(() => { this.refreshing = undefined; });
+    return this.refreshing;
   }
 
   /** Close the partition. The client refuses every call from now on, and

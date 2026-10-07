@@ -712,6 +712,11 @@ impl Client {
         if owns {
             self.round = None;
         }
+        // A refresh whose reply will not come is let go the same way.
+        if self.refresh.as_deref() == Some(exchange) {
+            self.refresh = None;
+            return true;
+        }
         owns
     }
 
@@ -754,8 +759,15 @@ impl Client {
     /// [`Client::refreshed`]. The server retires the presented token before
     /// it answers, so the host keeps the session that comes back before it
     /// uses the link again; a reply lost on the way leaves the member to sign
-    /// in again, as Snapback's own client does.
-    pub fn refresh(&mut self) -> Fetch {
+    /// in again, as Snapback's own client does. One at a time: a second
+    /// would present the token the first retires, so it is refused until the
+    /// first is delivered or cancelled.
+    pub fn refresh(&mut self) -> Result<Fetch, String> {
+        if self.refresh.is_some() {
+            return Err(
+                "E_BUSY: a session refresh is in flight; deliver or cancel it first".into(),
+            );
+        }
         let mut fetch = Fetch {
             method: "POST",
             path: "/auth/refresh".into(),
@@ -765,7 +777,7 @@ impl Client {
         self.exchanges += 1;
         fetch.exchange = format!("{}.refresh{}", self.incarnation, self.exchanges);
         self.refresh = Some(fetch.exchange.clone());
-        fetch
+        Ok(fetch)
     }
 
     /// The refresh's answer: `{ok:true, session:{principal, kind, token,

@@ -30,6 +30,19 @@ if (!app) { console.error('usage: bun host/web-js/build.mjs <app> [--plan <app.p
 // An app outside this repo is where `EXACT_APP_DIR` says (scripts/app.mjs).
 const appDir = process.env.EXACT_APP_DIR ? resolve(process.env.EXACT_APP_DIR) : resolve(root, 'apps', app);
 const out = resolve(opt('--out') ?? `/tmp/exact-web-js-dist/${app}`);
+// Bun's runtime transpiler cache keys a module by its text and keeps the
+// imports this build's mount resolver gives it (below), so the same file at
+// another place (a second checkout, a moved mount) would resolve back into
+// the first. A build through mounts runs without that cache: it starts again
+// that way before it touches anything.
+if (process.env.BUN_RUNTIME_TRANSPILER_CACHE_PATH !== '0') {
+  let mounts = {};
+  try { mounts = JSON.parse(readFileSync(resolve(appDir, 'app.json'), 'utf8')).typescript?.sources ?? {}; } catch {}
+  if (Object.keys(mounts).length) {
+    const again = spawnSync(process.execPath, process.argv.slice(1), { stdio: 'inherit', env: { ...process.env, BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0' } });
+    process.exit(again.status ?? 1);
+  }
+}
 // `--production` (delivery, scripts/deploy.mjs): a release over a wasm bake's
 // baked plan (`--plan <dist>/app.plan`) — agent mode refused, and the bake's
 // origin files (the envelope, the web manifest, install and auth pages,
@@ -92,14 +105,6 @@ for (const [i, [a, aDir]] of tsMounts.entries()) for (const [b, bDir] of tsMount
     console.error(`error: typescript.sources.${a} and typescript.sources.${b} overlap; mount directories that do not contain each other`);
     process.exit(1);
   }
-}
-// Bun's runtime transpiler cache keys a module by its text and keeps the
-// imports this build's resolver gave it, so the same file at another place
-// (a second checkout, a moved mount) would resolve back into the first. A
-// build through mounts runs without that cache.
-if (tsMounts.length && process.env.BUN_RUNTIME_TRANSPILER_CACHE_PATH !== '0') {
-  const again = spawnSync(process.execPath, process.argv.slice(1), { stdio: 'inherit', env: { ...process.env, BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0' } });
-  process.exit(again.status ?? 1);
 }
 const appRoots = [...new Set([resolve(appDir), realpathSync(appDir)])];
 const within = (path, dir) => path === dir || path.startsWith(dir + sep);
