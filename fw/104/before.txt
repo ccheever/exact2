@@ -1,0 +1,6 @@
+epoch 1 · incarnation 1 · clock 0 ms · 2 nodes
+View#1 [root]
+  Text#2 [got] "received: none"
+t=0 boot: 2 nodes, epoch 1
+  app: 2026-10-07 10:39:35.364 ExactMac[280:121022893] ApplePersistence=NO
+{"screenshot":"/private/tmp/claude-501/-Users-daehyeonmun-Documents-work-0-projects-exact2/757dc7ec-2ea0-42a2-9546-f333365cf393/scratchpad/evidence-104/before.png","w":420,"clock":0,"incarnation":1,"epoch":1,"h":900}
