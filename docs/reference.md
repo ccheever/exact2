@@ -265,6 +265,23 @@ verifying that owner is no longer running. Failed packaging retains the previous
 complete product. `EXACT_MAC_BIN` remains an explicit diagnostic override, checked
 against the selected app's embedded identity before the driver launches it.
 
+An app can ship macOS helper executables and resource trees separately from
+its baked assets. Keep the tree in a dedicated directory beside `app.json`:
+
+```json
+{"host":{"macos":{"resources":[{"from":"server","to":"Resources/server"}]}}}
+```
+
+`mac --bundle` copies it to `Contents/Resources/server`, preserving file modes,
+names such as `node_modules/@scope`, and relative symlinks within the tree.
+These files have no bake size cap and are excluded from TypeScript capture and
+web assets. `from` cannot overlap source, asset or output roots; `to` must name
+a private subtree of `Resources/`, `Helpers/` or `Frameworks/`. Mach-O helpers
+and libraries are signed before the outer bundle; `exact release` signs them
+with its release identity. Resource changes require a new binary, not an asset
+update. Find `Resources/server` through `Bundle.main.resourceURL` from a native
+module. This field applies only to macOS bundles.
+
 ## Open the same development URL on Apple hosts
 
 Start `bun host/web/dev.mjs` and open a printed URL in your browser. Build

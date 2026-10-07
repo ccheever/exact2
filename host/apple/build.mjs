@@ -46,12 +46,11 @@ import { DOCUMENT_UTIS, ownDocumentType, HOST_DEV, checkModuleRoster, copyShader
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
 import { writeDataKeys } from './data-keys.mjs';
-import { appIcon, iosAssets } from './assets.mjs';
+import { appIcon, iosAssets, copyMacResources, signingOrder } from './assets.mjs';
 import { keptModules } from './modules.mjs';
 import { keptCrates } from './crates.mjs';
 export { appIcon, iosAssets };
 import { allows, deviceLaunchArgs, developmentLaunchEnvironment, identity, macIdentity, phone, profile, showSimulator, simulator, simulators, useXcode } from './devices.mjs';
-
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const run = (cmd, args, opts = {}) => {
   const r = spawnSync(cmd, args, { cwd: root, ...opts,
@@ -106,9 +105,7 @@ function startApple(cmd, args, log, opts = {}) {
     return true;
   } };
 }
-
 // ---------------------------------------------------------------- iOS: the bundle and the simulator
-
 /** The app's bundle identifier: the manifest's `app.id` (LLP 1030 D2 — derived once, in `scripts/app.mjs`), which was `com.exact.<crate>` before the manifest existed and still is for an app without one. */
 export const bundleId = (crate = 'caltrain-apple') => resolveApp(crate).id;
 /** The one Swift package (LLP 1031 D6): ExactKit and the four executables. */
@@ -147,12 +144,10 @@ export function svgFilterLibrary(sdkName, minimum, out, required = false) {
   return out;
 }
 export const svgFilterLibraryName = 'ExactSvgFilter.metallib';
-
 /** The Swift triple for an app's iOS build. */
 export const iosTripleFor = (app, device, tv = false) =>
   tv ? `arm64-apple-tvos${deploymentTargets(app).ios}${device ? '' : '-simulator'}` : device ? `arm64-apple-ios${deploymentTargets(app).ios}` : `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-ios${deploymentTargets(app).ios}-simulator`;
 export const macTriple = `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macosx`;
-
 /** App-owned Apple paths, shared by builder and launchers. @ref LLP 1036.000 §2 */
 export function appleArtifacts(app, { destination = 'macos', composition, trust = process.env.EXACT_UPDATE_TRUST ?? 'development', host = false } = {}) {
   if (!['macos', 'ios-simulator', 'ios', 'tvos-simulator', 'tvos'].includes(destination)) throw new Error(`unknown Apple destination ${destination}`);
@@ -1295,6 +1290,9 @@ async function main(args) {
       // GPU artifacts were signed before their digests entered the baked receipt.
       // Preserve those exact bytes, as the iOS bundle assembly does below.
       for (const file of [...loaded, ...(canvasGpuBuilt ? [canvasGpuLoadName] : []), ...(modulesBuilt ? [modulesLoadName] : [])]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
+      copyMacResources(app, contents, buildReceipt.binary.metadata.nativeResources ?? []);
+      const nativeRoots = (app.manifest.host?.macos?.resources ?? []).map(({to}) => resolve(contents, to));
+      for (const file of (nativeRoots.length ? signingOrder(bundle) : []).filter(file => nativeRoots.some(root => file === root || file.startsWith(root + '/')))) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', file], { stdio: 'ignore' });
       run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', bundle], { stdio: 'ignore' });
       const placed = bundleDestination;
       assertAppleIdentity(app, resolve(executables, 'ExactMac'), bakedCompat.id);

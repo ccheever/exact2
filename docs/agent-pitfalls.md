@@ -713,3 +713,19 @@ guide's rules don't make obvious.
   It recomputes `EXACT_ASSET_ROOTS` before each Cargo invocation; the bake watches
   that inventory for first creation and existing roots for content changes.
   Do not set this variable to a fixed hand-maintained list for direct Cargo.
+
+- **macOS helpers belong in a native resource tree, not `assets/`.** Assets are
+  baked update bytes with portable names and capture limits. To ship a helper
+  and its package tree, keep them in `server/` beside `app.json` and declare
+  `"host": { "macos": { "resources": [{ "from": "server", "to": "Resources/server" }] } }`.
+  `bun exact.mjs mac --bundle` copies the tree to `Contents/Resources/server`.
+  Executable modes, spaces, `@scope` names and relative links within the tree
+  survive; files above 64 MiB are allowed. Source and asset roots cannot be
+  used as native resource roots. Links must resolve inside the declared tree.
+  The tree is excluded from TypeScript capture and web assets. Its files,
+  modes and link targets are binary inputs, so changes require a new binary.
+  Snapshot-based delivery captures this tree, including ignored dependencies;
+  use `--dirty` when those files differ from the committed source. Mach-O helpers and libraries are signed in
+  the bundle, which changes their signature bytes; other files stay identical.
+  `exact release` signs these files with the release identity before sealing
+  the outer bundle. This field is macOS-only. (Issue #103, 2026-10-07.)
