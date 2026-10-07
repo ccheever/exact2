@@ -5,6 +5,8 @@ import { obj, type Obj } from './shared/domain';
 import type { Native, Files } from './shared/protocol';
 import { EnvironmentFleet } from './shared/settings-b-fleet';
 import { draftContext } from './shared/composer-controls-branch';
+import { mobileComposerTarget } from './composer-target';
+import { mobileComposerSettingsAction } from './composer-settings';
 import { mobileNewTaskFlowView as view, mobileNewTaskFlowAction as act, mobileNewTaskFlowOwns as owns, mobileNewTaskRoute } from './new-task-flow';
 
 async function fixture() {
@@ -43,6 +45,68 @@ test('explicit project selection keeps existing shared drafts and enables only t
   expect(draft.ready).toBe(true); expect(owns(draft.owner, 'draft', f.client)).toBe(true);
   expect(f.client.projectId).toBe('b'); expect(f.client.draft).toBe('B original'); expect(f.client.local.drafts['env:new:a']).toBe('A original');
   expect(f.snapshot('/new/draft', 'fresh', 'other-flow')).toMatchObject({ ready: false, nextLocation: '/new' });
+});
+
+test('settings preparation retains presentation owner without admitting stale or unready draft actions', async () => {
+  const f = await fixture(), chooser = f.snapshot('/new');
+  expect(chooser.draftOwner).toBe('');
+  await f.action(chooser.owner, 'project', '["env","a"]');
+  const draft = f.snapshot('/new/draft', 'draft'), contentOwner = mobileComposerTarget(f.client).owner;
+  expect(draft).toMatchObject({ ready: true, draftOwner: contentOwner });
+  expect(contentOwner).not.toBe('');
+  let writes = 0; f.files.fs.atomicWriteFile = async () => { writes++; };
+  for (const visit of ['model-1', 'model-2']) {
+    const opening = f.snapshot('/new/draft/settings', visit);
+    expect(opening).toMatchObject({ ready: false, needsPrepare: true, draftOwner: contentOwner });
+    expect(owns(opening.owner, 'draft', f.client)).toBe(false);
+    expect(owns(opening.owner, visit, f.client)).toBe(false);
+    expect((await f.action(opening.owner, 'draft', '', 'stale', 'draft')).message).toContain('route changed');
+    expect((await f.action(opening.owner, 'draft', '', 'unready', visit)).message).toContain('ready');
+    expect(writes).toBe(0);
+    expect(await f.action(opening.owner, 'prepare', '', '', visit)).toMatchObject({ message: '' });
+    expect(f.snapshot('/new/draft/settings', visit)).toMatchObject({ ready: true, draftOwner: contentOwner });
+    expect(owns(opening.owner, visit, f.client)).toBe(true);
+    const nested = f.snapshot('/new/draft/settings/runtime', `${visit}-runtime`);
+    expect(nested).toMatchObject({ ready: true, draftOwner: contentOwner });
+    expect(owns(nested.owner, visit, f.client)).toBe(false);
+    expect(f.snapshot('/new/draft/settings', visit)).toMatchObject({ ready: true, draftOwner: contentOwner });
+    await mobileComposerSettingsAction('cancel', '', '', f.native, f.files, f.client);
+    expect(f.snapshot('/new/draft', 'draft')).toMatchObject({ ready: true, draftOwner: contentOwner });
+    expect(owns(draft.owner, 'draft', f.client)).toBe(true);
+  }
+  expect(f.client.local.drafts['env:new:a']).toBe('A original');
+  expect(f.client.local.drafts['env:new:b']).toBe('B original'); expect(writes).toBe(0);
+});
+
+test('presentation owner disappears when selected draft proof is lost', async () => {
+  const changes: Array<(client: T3Client) => void> = [
+    client => { client.projectId = 'b'; }, client => { client.environmentId = 'elsewhere'; },
+    client => { client.generation++; }, client => { client.threadEpoch++; },
+    client => { client.threadId = 'thread'; }, client => { client.shell.projects = []; },
+    client => { client.shell.projects[0].archivedAt = '2026-10-07T00:00:00Z'; },
+  ];
+  for (const change of changes) {
+    const f = await fixture(), chooser = f.snapshot('/new'); await f.action(chooser.owner, 'project', '["env","a"]');
+    const draft = f.snapshot('/new/draft', 'draft'); expect(draft.draftOwner).not.toBe('');
+    change(f.client);
+    expect(f.snapshot('/new/draft/settings', 'model')).toMatchObject({ draftOwner: '', ready: false });
+    expect(owns(draft.owner, 'draft', f.client)).toBe(false);
+    expect((await f.action(draft.owner, 'draft', '', 'blocked', 'model')).message).toContain('ready');
+    expect(f.client.local.drafts['env:new:a']).toBe('A original');
+  }
+});
+
+test('inactive, replacement and unselected flows never inherit a presentation owner', async () => {
+  const f = await fixture(), chooser = f.snapshot('/new'); await f.action(chooser.owner, 'project', '["env","a"]');
+  const draft = f.snapshot('/new/draft', 'draft'); expect(draft.draftOwner).not.toBe('');
+  expect(view('flow', 'gone', '/', false, true, f.client, f.fleet)).toMatchObject({ draftOwner: '', ready: false });
+  expect(owns(draft.owner, 'draft', f.client)).toBe(false);
+  expect(f.snapshot('/new/draft', 'returned')).toMatchObject({ draftOwner: '', ready: false });
+  const replacement = f.snapshot('/new/draft/settings', 'model', 'replacement');
+  expect(replacement).toMatchObject({ draftOwner: '', ready: false });
+  expect(owns(replacement.owner, 'model', f.client)).toBe(false);
+  const unloaded = new T3Client();
+  expect(view('unloaded', 'draft', '/new/draft', true, true, unloaded, f.fleet)).toMatchObject({ status: 'loading', draftOwner: '', ready: false });
 });
 
 test('direct context query initializes the actual project once and does not undo later picks', async () => {
@@ -165,11 +229,11 @@ test('unprepared explicit identity and direct settings children cannot operate t
   const f = await fixture(), chooser = f.snapshot('/new'); await f.action(chooser.owner, 'project', '["env","a"]');
   const draft = f.snapshot('/new/draft'); expect(owns(draft.owner, 'visit', f.client)).toBe(true);
   const changed = f.snapshot('/new/draft?environmentId=env&projectId=b');
-  expect(changed.needsPrepare).toBe(true); expect(owns(changed.owner, 'visit', f.client)).toBe(false);
+  expect(changed.needsPrepare).toBe(true); expect(changed.draftOwner).toBe(draft.draftOwner); expect(owns(changed.owner, 'visit', f.client)).toBe(false);
   expect((await f.action(changed.owner, 'draft', '', 'wrong owner')).message).toContain('ready');
   expect(f.client.local.drafts['env:new:a']).toBe('A original');
   const settings = f.snapshot('/new/draft/settings/runtime', 'runtime');
-  expect(settings.needsPrepare).toBe(true); expect(owns(settings.owner, 'runtime', f.client)).toBe(false);
+  expect(settings.needsPrepare).toBe(true); expect(settings.draftOwner).toBe(draft.draftOwner); expect(owns(settings.owner, 'runtime', f.client)).toBe(false);
   await f.action(settings.owner, 'prepare', '', '', 'runtime');
   expect(f.snapshot('/new/draft/settings/runtime', 'runtime').ready).toBe(true);
 });

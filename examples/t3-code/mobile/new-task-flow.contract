@@ -5,6 +5,7 @@ shape NewTaskFlowSnapshot
   status: string
   title: string
   message: string
+  draftOwner: string
   ready: bool
   chooser: bool
   needsPrepare: bool
