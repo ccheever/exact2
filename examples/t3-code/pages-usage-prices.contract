@@ -11,6 +11,8 @@ use TipBubble from "./shell-tip.contract"
 use PgIcon from "./pages-icons.contract"
 
 component UsagePricesDialog
+  inject
+    rem: number
   props
     prices: UsagePrices
     scheme: string
@@ -21,7 +23,7 @@ component UsagePricesDialog
     column flex-shrink=0 padding-top="1.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="0.75rem" box-sizing="border-box" gap="0.5rem"
       text "Custom model prices" font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2 padding-right="1.5rem"
       text "Prices and mappings apply to all past and future usage on the environments you select." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
-    scroll max-height=(viewportHeight - 182) min-height=0 width="100%" testId="usage-prices-scroll"
+    scroll max-height=(viewportHeight - 11.375 * rem) min-height=0 width="100%" testId="usage-prices-scroll"
       column width="100%" padding-top="0.25rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="0.25rem" box-sizing="border-box" gap="1rem"
         row flex-wrap="wrap" align-items="center" justify-content="space-between" gap="0.5rem"
           row min-width=0 align-items="center" gap="0.5rem"
@@ -133,7 +135,7 @@ component UsagePricesApply
         text prices.selectionLabel font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" line-clamp=1 min-width=0
         UsageSchemeIcon(name="chevron-down", size=14, scheme=scheme, light="#27272a", dark="#f5f5f5")
       column id="usage-prices-apply" popover="auto" position="absolute" left=0 top=0 padding-top="0.25rem" testId="usage-prices-apply-layer"
-        column width=prices.menuWidth padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" testId="usage-prices-apply-menu"
+        column width=`${prices.menuWidth / 16}rem` padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" testId="usage-prices-apply-menu"
           CheckRow(label="All environments", status="", checked=prices.allChecked, press=op("usage-prices-env", "", ""), testId="usage-prices-apply-all")
           box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
           each target in prices.targets key=target.key

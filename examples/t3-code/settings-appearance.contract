@@ -105,6 +105,8 @@ component WireRow
       box height="30%" width="52%" border-radius="0.125rem" background-color="#7f7f7f40"
 
 component ThemeCardAction
+  inject
+    rem: number
   props
     icon: string
     label: string
@@ -125,4 +127,4 @@ component ThemeCardAction
       button press=press hover=hover focus=focusTip(true) blur=focusTip(false) aria-label=label disabled=busy class=SettingsGhost width="1.5rem" height="1.5rem" border-radius="0.375rem" background-color=(hovered ? pal.highlight : "#00000000") testId=actionId
         CoreIcon(name=icon, size=14, color=(destructive and hovered ? "light-dark(#e7000b, #ff6467)" : (hovered ? pal.text : pal.muted)))
       when hovered or focused
-        text tip position="absolute" bottom="1.75rem" left=(12 - (length(tip) * 6.3 + 18) / 2) width=(length(tip) * 6.3 + 18) z-index=60 padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover font-size="0.75rem" line-height="1.03125rem" color=pal.text white-space="nowrap" text-align="center" role="tooltip"
+        text tip position="absolute" bottom="1.75rem" left=((12 - (length(tip) * 6.3 + 18) / 2) * rem / 16) width=((length(tip) * 6.3 + 18) * rem / 16) z-index=60 padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover font-size="0.75rem" line-height="1.03125rem" color=pal.text white-space="nowrap" text-align="center" role="tooltip"

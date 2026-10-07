@@ -579,12 +579,27 @@ final class MenuTests: XCTestCase {
             XCTAssertEqual(pill.frame.height, 64)
         }
     }
+
+    /// QuitHoldOverlay's text-2xl px-8 py-4 follow the Interface font size (T3RootFont.swift).
+    func testPillFollowsTheInterfaceFontSize() {
+        defer { T3RootFont.set(16) }
+        T3RootFont.set(20)
+        let pill = T3QuitOverlay().makePill(mode: "hold", dark: false)
+        XCTAssertEqual(pill.frame.height, 80)
+        let label = pill.subviews.compactMap { $0 as? NSTextField }.first
+        XCTAssertEqual(label?.font?.pointSize, 30)
+        XCTAssertEqual(label?.frame.minX, 40)
+        T3RootFont.set(12)
+        XCTAssertEqual(T3QuitOverlay().makePill(mode: "hold", dark: false).frame.height, 48)
+        T3RootFont.set(Double.nan)
+        XCTAssertEqual(T3RootFont.size, 16)
+    }
 }
 
 let suite = XCTestSuite(name: "Menus")
 suite.addTest(QuitHoldTests.defaultTestSuite)
 suite.addTest(MenuTests.defaultTestSuite)
 suite.run()
-guard let run = suite.testRun, run.executionCount == 43 else { print("Menus: unexpected test count \(suite.testRun?.executionCount ?? 0)"); exit(1) }
+guard let run = suite.testRun, run.executionCount == 44 else { print("Menus: unexpected test count \(suite.testRun?.executionCount ?? 0)"); exit(1) }
 print("Menus: \(run.executionCount) tests, \(run.totalFailureCount) failures")
 exit(run.hasSucceeded ? 0 : 1)

@@ -35,6 +35,8 @@ shape Look
   terminalSize: number
   fontSans: string
   fontSize: number
+  // The Prompt font size in px (--font-size-prompt): the composer's text does not follow the root size.
+  promptSize: number
   codeFont: string
   codeSize: number
   wordWrap: bool

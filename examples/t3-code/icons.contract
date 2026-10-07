@@ -41,8 +41,8 @@ component ProjectMark
     surface: string
     size: number
   view
-    box width=`${size / 16}rem` height=`${size / 16}rem` border-radius=(size / 4) background-color=(muted ? "light-dark(#71717b19, #8181811a)" : surface) display="flex" align-items="center" justify-content="center" flex-shrink=0
-      text label font-family="ui-monospace" font-size=8.25 font-weight=700 color=(muted ? "light-dark(#71717bb3, #818181b3)" : ink)
+    box width=`${size / 16}rem` height=`${size / 16}rem` border-radius=`${size / 64}rem` background-color=(muted ? "light-dark(#71717b19, #8181811a)" : surface) display="flex" align-items="center" justify-content="center" flex-shrink=0
+      text label font-family="ui-monospace" font-size="0.515625rem" font-weight=700 color=(muted ? "light-dark(#71717bb3, #818181b3)" : ink)
 
 // ProviderInstanceIcon: the driver glyph with the account badge on a card
 // surface (bg-card, input border, shadow-sm), as the composer shows it.

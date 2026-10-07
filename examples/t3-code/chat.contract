@@ -16,6 +16,8 @@ use TipBubble from "./shell-tip.contract"
 // edge: thread details, terminal drawer (terminal-drawer: ⌘J's toggle) and right panel;
 // with the right panel open only the details toggle stays in this header.
 component ChatHeader
+  inject
+    rem: number
   props
     data: Snapshot
     shell: ShellView
@@ -33,7 +35,7 @@ component ChatHeader
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
   view
-    row width="100%" height=52 flex-shrink=0 align-items="center" padding-left=(data.sidebarOpen ? 1.25 * data.look.fontSize : data.controlsLeft + 2.5 * data.look.fontSize) padding-right="1.25rem" box-sizing="border-box" gap="0.75rem" position="relative" z-index=20 contextmenu=title("context", "") testId="chat-header"
+    row width="100%" height=52 flex-shrink=0 align-items="center" padding-left=(data.sidebarOpen ? 1.25 * rem : data.controlsLeft + 2.5 * rem) padding-right="1.25rem" box-sizing="border-box" gap="0.75rem" position="relative" z-index=20 contextmenu=title("context", "") testId="chat-header"
       when not data.sidebarOpen
         button press=toggleSidebar position="absolute" left=(data.controlsLeft + 1) top="0.75rem" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle sidebar" aria-keyshortcuts=keySidebar testId="toggle-sidebar"
           Icon(name="panel-left", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
@@ -153,6 +155,8 @@ component SettledBanner
 // overlay, inside that parent's bounds, where AppKit hit-tests it; a
 // 128pt box centres the ~108pt pill without covering the transcript's width.
 component ScrollToEnd
+  inject
+    rem: number
   props
     jump: action
     // The chat lane's end inset (a docked workspace card): the pill centres in the lane.
@@ -160,7 +164,7 @@ component ScrollToEnd
     // r4-composer: the composer overlay's clearance above the transcript's foot (r4-composer-overlay.ts).
     lift: number
   view
-    row position="absolute" left=`calc(50% - ${64 + inset / 2}px)` width="8rem" bottom=(6 + lift) justify-content="center"
+    row position="absolute" left=`calc(50% - ${64 + inset / 2}px)` width="8rem" bottom=(0.375 * rem + lift) justify-content="center"
       button press=jump aria-label="Scroll to end" testId="scroll-to-end" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" box-sizing="border-box" border-radius="0.75rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" box-shadow="0 1px 3px #0000001a, 0 1px 2px -1px #0000001a" display="flex" flex-direction="row" align-items="center" gap="0.25rem"
         Icon(name="chevron", size=14, color="light-dark(#27272a, #f5f5f5)")
         text "Scroll to end" font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)"

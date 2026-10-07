@@ -94,13 +94,15 @@ component SidebarOverlays
 // wide as the field and growing to fit names up to 18rem: the search row,
 // "All projects", then each project with its settings button.
 component SidebarScopeMenu
+  inject
+    rem: number
   props
     data: Snapshot
     width: number
     local: action
     run: action
   view
-    column position="absolute" left="0.5rem" top="6rem" z-index=31 min-width=(width - 104) max-width="18rem" max-height="23rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" backdrop-filter="blur(16px)" box-shadow="0 17px 42px -18px light-dark(#0000008c, #000000cc)" overflow="hidden" role="dialog" testId="scope-menu"
+    column position="absolute" left="0.5rem" top="6rem" z-index=31 min-width=(width - 6.5 * rem) max-width="18rem" max-height="23rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" backdrop-filter="blur(16px)" box-shadow="0 17px 42px -18px light-dark(#0000008c, #000000cc)" overflow="hidden" role="dialog" testId="scope-menu"
       column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" box-sizing="border-box"
         row height="2.0625rem" padding-bottom="0.375rem" box-sizing="border-box" align-items="flex-start" position="relative" border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#1b4ed8, #346bf1)"
           box position="absolute" left=0 top="0.375rem" width="1rem" height="1rem" pointer-events="none"
@@ -126,6 +128,8 @@ component SidebarScopeMenu
 // clock seeds the date and time an hour out; resolveCustomSnooze runs in the
 // client, which keeps the dialog open with its error for a past or empty time.
 component SidebarSnoozeDialog
+  inject
+    rem: number
   props
     data: Snapshot
     busy: bool
@@ -163,7 +167,7 @@ component SidebarSnoozeDialog
                     SidebarIcon(name="minus", size=16, color="light-dark(#27272a, #f5f5f5)")
                   // The host input does not center its text: the input fits the amount and centers in the field.
                   row flex=1 min-width=0 justify-content="center" align-items="center"
-                    input value=data.sidebar.dialogAmount input=local("dialog-field", "amount") inputmode="decimal" aria-label="Snooze for" testId="snooze-amount" width=(max(9, length(data.sidebar.dialogAmount) * 8.5 + 2)) height="1.25rem" line-height="1.25rem" padding=0 box-sizing="border-box" border-width=0 background-color="#00000000" text-align="center" font-variant-numeric="tabular-nums" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)"
+                    input value=data.sidebar.dialogAmount input=local("dialog-field", "amount") inputmode="decimal" aria-label="Snooze for" testId="snooze-amount" width=(max(9, length(data.sidebar.dialogAmount) * 8.5 + 2) * rem / 16) height="1.25rem" line-height="1.25rem" padding=0 box-sizing="border-box" border-width=0 background-color="#00000000" text-align="center" font-variant-numeric="tabular-nums" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)"
                   button press=local("dialog-step", "amount", "+1") aria-label="Increase duration" testId="snooze-increase" flex-shrink=0 padding-left="0.6875rem" padding-right="0.6875rem" border-width=0 border-radius="0.4375rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
                     SidebarIcon(name="plus", size=16, color="light-dark(#27272a, #f5f5f5)")
               column flex=1 min-width=0 gap="0.375rem"
@@ -183,6 +187,8 @@ component SidebarSnoozeDialog
 // ui/tooltip.tsx TooltipPopup for a sidebar row control, centered over the
 // control's top (x, y) with the shell's bubble. Hidden bubbles move off-screen.
 component SidebarControlTip
+  inject
+    rem: number
   props
     label: string
     x: number
@@ -191,7 +197,7 @@ component SidebarControlTip
     shown: bool
   view
     // `start`: shifted against the window's left edge (x is the bubble's left), else centered on x.
-    row position="absolute" left=(shown ? (start ? x : x - 160) : -4000) top=(y - 30.5) width="20rem" z-index=140 justify-content=(start ? "flex-start" : "center") pointer-events="none" aria-hidden=(not shown)
+    row position="absolute" left=(shown ? (start ? x : x - 10 * rem) : -4000) top=(y - 1.90625 * rem) width="20rem" z-index=140 justify-content=(start ? "flex-start" : "center") pointer-events="none" aria-hidden=(not shown)
       TipCard(label=label, shown=shown)
 
 // SidebarThreadTooltip in ThreadHoverCardPopup (glass, side right, align
@@ -270,13 +276,15 @@ component SidebarHoverCard
 // ThreadContextDragGhost: past the list edge the lifted thread rides the
 // pointer as a context chip (12pt off), "+N" for the rest of a selection.
 component SidebarDragGhost
+  inject
+    rem: number
   props
     t: Thread
     x: number
     y: number
     count: number
   view
-    row position="absolute" left=(x + 12) top=(y + 12) z-index=60 max-width="18rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.5rem" align-items="center" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" pointer-events="none" aria-hidden=true testId="sidebar-drag-ghost"
+    row position="absolute" left=(x + 0.75 * rem) top=(y + 0.75 * rem) z-index=60 max-width="18rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.5rem" align-items="center" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 10px 15px -3px #0000001a, 0 4px 6px -4px #0000001a" pointer-events="none" aria-hidden=true testId="sidebar-drag-ghost"
       SidebarIcon(name="messages-square", size=16, color="light-dark(#71717b, #818181)")
       text t.title font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f3f3f3)" line-clamp=1 min-width=0
       when count > 1

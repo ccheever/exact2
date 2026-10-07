@@ -312,7 +312,7 @@ component ImportScriptItem
       CnScriptIcon(icon=script.icon, size=16, color="light-dark(#71717b, #818181)")
       column flex=1 min-width=0 align-items="flex-start"
         text script.name font-size="0.875rem" font-weight=500 line-height="1.25rem" line-clamp=1 color="light-dark(#27272a, #f5f5f5)"
-        text script.command font-family="ui-monospace" font-size=14 line-height="20px" line-clamp=1 color="light-dark(#71717b, #818181)"
+        text script.command font-family="ui-monospace" font-size="0.875rem" line-height="1.25rem" line-clamp=1 color="light-dark(#71717b, #818181)"
 
 // ProjectActionsList row: icon, name, setup/preview badges, the command, the
 // shortcut, and the edit gear that appears on hover or focus.
@@ -338,7 +338,7 @@ component ProjectActionRow
             text "setup" font-size="0.625rem" line-height="0.875rem" padding-left="0.375rem" padding-right="0.375rem" padding-top=1 padding-bottom=1 border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff14)" flex-shrink=0 color="light-dark(#71717b, #818181)"
           when item.preview
             text "preview · desktop only" font-size="0.625rem" line-height="0.875rem" padding-left="0.375rem" padding-right="0.375rem" padding-top=1 padding-bottom=1 border-radius="0.25rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff14)" flex-shrink=0 color="light-dark(#71717b, #818181)"
-        text item.command font-family="ui-monospace" font-size=12 line-height="18px" line-clamp=1 color="light-dark(#70707acc, #818181cc)"
+        text item.command font-family="ui-monospace" font-size="0.75rem" line-height="1.125rem" line-clamp=1 color="light-dark(#70707acc, #818181cc)"
       row flex-shrink=0 gap="0.5rem" align-items="center"
         when item.shortcut != ""
           text item.shortcut font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId=`project-action-shortcut-${item.id}`

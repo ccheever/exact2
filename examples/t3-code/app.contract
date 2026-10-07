@@ -75,7 +75,7 @@ component T3Code
     after(20000, disconnectDelayElapsed)
   action disconnectDelayElapsed
     disconnectDelayKey = data.serverUpdate.unavailable
-  // Interface font size (appearanceFonts.ts applyAppearanceFontVariables): the root font size every rem follows, at launch once the preferences load and on every change.
+  // Interface font size (appearanceFonts.ts applyAppearanceFontVariables): the root font size every rem follows, set at launch and on every change; `rem` is provided for lengths computed in px at 16.
   task rootFont key=data.look.fontSize
     after(1, rootFontApply)
   action rootFontApply
@@ -606,7 +606,7 @@ component T3Code
   action finishDiffResize(vx: number, vy: number)
     diffUserWidth = diffWidth
   derive conversationWidth = viewport.width - (data.sidebarOpen ? sidebarWidth : 0) - ((data.diffOpen or rightPanel or shell.panel.open) and not narrowDiff ? diffWidth : 0)
-  derive composerLeft = (data.sidebarOpen ? sidebarWidth : 0) + (canvas.ready ? canvas.left : (conversationWidth - min(data.look.chatMax, conversationWidth - 40)) / 2) // the chat lane (chat-canvas-view.ts)
+  derive composerLeft = (data.sidebarOpen ? sidebarWidth : 0) + (canvas.ready ? canvas.left : (conversationWidth - min(data.look.chatMax, conversationWidth - 2.5 * data.look.fontSize)) / 2) // the chat lane (chat-canvas-view.ts)
   derive composerOwner = data.composerOwner // `${serverUrl}:${projectId}:${threadId}`; a draft Auto balance moved keeps its own (auto-balance-owner.ts)
   derive composerText = draftOwner == `${composerOwner}${data.requestKey}` ? draft : data.draft
   action closeOptions
@@ -1462,6 +1462,8 @@ component T3Code
       send terminalChanged = command(confirmOp == "terminallocal:close" ? "terminallocal:focus" : "terminalpanellocal:focus", confirmTarget, "", 0)
     else if not accept and confirmOp == "shelllocal:surface-close-confirmed" and shell.panel.terminal.open
       send terminalChanged = command("terminalpanellocal:focus", `${shell.panel.terminal.threadKey}|${shell.panel.terminal.terminalId}`, "", 0)
+  provide
+    rem = data.look.fontSize
   view
     main testId="t3-code" viewport-fit="cover" width="100%" height="100%" position="relative" display="flex" flex-direction="row" overflow="hidden" class=Canvas background-color=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas) font-family=(settingsCore.interfaceFont == "ui-serif" ? "ui-serif" : settingsCore.interfaceFont == "ui-rounded" ? "ui-rounded" : settingsCore.interfaceFont == "serif" ? "serif" : settingsCore.interfaceFont == "sans-serif" ? "sans-serif" : settingsCore.interfaceFont == "monospace" ? "monospace" : settingsCore.interfaceFont == "ui-monospace" ? "ui-monospace" : settingsCore.interfaceFont == "ui-sans-serif" ? "ui-sans-serif" : "system-ui") color=(settingsCore.palette.text == "" ? "light-dark(#27272a, #f5f5f5)" : settingsCore.palette.text)
       row width="100%" height="100%" min-width=0 position="relative" inert=sshPrompt.open testId="ssh-background"

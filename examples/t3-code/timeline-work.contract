@@ -215,6 +215,8 @@ fn shineMask(width: number): string = `linear-gradient(to right, #00000000 0%, #
 // LiveActivityRow: a fit-width line whose highlight sweeps while it is live;
 // a running tool sweeps its label only (.live-tool-shine).
 component LiveActivity
+  inject
+    rem: number
   props
     label: string
     icon: string
@@ -228,20 +230,22 @@ component LiveActivity
     row position="relative" min-height="1.5rem" max-width="100%" min-width=0 overflow="hidden" border-radius="0.5rem" align-items="center" aria-label=(failed ? "Tool call failed" : label)
       WorkLine(icon=icon, label=label, failed=failed, highlighted=false, tone="", answer="", strong=false, iconLight=iconLight, iconDark=iconDark)
       when active and not failed
-        box position="absolute" top=0 bottom=0 left="-4.5rem" width=(sweep + 144) pointer-events="none" mask-image=shineMask(sweep) animation=`tlFocus${sweep} 2.2s linear infinite` aria-hidden=true
+        box position="absolute" top=0 bottom=0 left="-4.5rem" width=((sweep + 144) * rem / 16) pointer-events="none" mask-image=shineMask(sweep) animation=`tlFocus${sweep} 2.2s linear infinite` aria-hidden=true
           box width="100%" height="100%" animation=`tlCounter${sweep} 2.2s linear infinite`
             row position="absolute" top=0 bottom=0 left="4.5rem" right="4.5rem" align-items="center" overflow="hidden"
               WorkLine(icon=icon, label=label, failed=false, highlighted=true, tone=(shimmer ? "" : "shine"), answer="", strong=false, iconLight=iconLight, iconDark=iconDark)
 
 // A header's label sweeping like a live row, with no icon slot ("Setting up worktree…").
 component LiveLabel
+  inject
+    rem: number
   props
     label: string
   derive sweep = shineWidth(label)
   view
     row position="relative" max-width="100%" min-width=0 overflow="hidden" align-items="center" aria-label=label
       text label font-size="0.875rem" line-height="1.421875rem" white-space="nowrap" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
-      box position="absolute" top=0 bottom=0 left="-4.5rem" width=(sweep + 144) pointer-events="none" mask-image=shineMask(sweep) animation=`tlFocus${sweep} 2.2s linear infinite` aria-hidden=true
+      box position="absolute" top=0 bottom=0 left="-4.5rem" width=((sweep + 144) * rem / 16) pointer-events="none" mask-image=shineMask(sweep) animation=`tlFocus${sweep} 2.2s linear infinite` aria-hidden=true
         box width="100%" height="100%" animation=`tlCounter${sweep} 2.2s linear infinite`
           row position="absolute" top=0 bottom=0 left="4.5rem" right="4.5rem" align-items="center" overflow="hidden"
             text label font-size="0.875rem" line-height="1.421875rem" white-space="nowrap" font-variant-numeric="tabular-nums" color="light-dark(#27272a, #f5f5f5)"
@@ -371,7 +375,7 @@ component SubagentRow
           when agent.body != "" and (agent.status == "event" or agent.status != "completed")
             text agent.result flex-shrink=0 font-size="0.625rem" line-height="0.875rem" color=(agent.failed ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #818181)")
         text (agent.body != "" ? agent.body : agent.result) line-clamp=1 font-size="0.6875rem" line-height="1.1171875rem" text-align="left" color=(agent.failed ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#71717b, #818181)")
-      text agent.output flex-shrink=0 font-family="ui-monospace" font-size=10 line-height="14px" color="light-dark(#71717bcc, #818181cc)"
+      text agent.output flex-shrink=0 font-family="ui-monospace" font-size="0.625rem" line-height="0.875rem" color="light-dark(#71717bcc, #818181cc)"
       when agent.targetId != ""
         Icon(name="right", size=14, color="light-dark(#71717b99, #81818199)")
 

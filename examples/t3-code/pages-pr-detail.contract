@@ -288,7 +288,7 @@ component PrdHeader
           PrdCopy(text=detail.checkoutCommand, ariaLabel="Copy checkout command", copied=detail.copiedCheckout, tone="light-dark(#71717b, #818181)", copy=copy, testId="pull-request-copy-checkout")
       row width="100%" min-height="1.25rem" margin-top="1rem" align-items="center" gap="0.5rem"
         row flex=1 min-width=0 align-items="center" gap="0.375rem"
-          text detail.baseBranch font-family="ui-monospace" font-size=12 line-height="16px" color="light-dark(#71717bb3, #828282b3)" white-space="nowrap" flex-shrink=0
+          text detail.baseBranch font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #828282b3)" white-space="nowrap" flex-shrink=0
           box width="0.875rem" height="0.875rem" aria-label="receives changes from" flex-shrink=0
             PgIcon(name="arrow-left", size=14, color="light-dark(#71717bb3, #828282b3)")
           PrdCopy(text=detail.headBranch, ariaLabel="Copy pull request branch", copied=detail.copiedBranch, tone="light-dark(#71717bb3, #828282b3)", copy=copy, testId="pull-request-copy-branch")
@@ -297,8 +297,8 @@ component PrdHeader
             PgIcon(name="file-diff", size=14, color="light-dark(#71717b, #818181)")
             text detail.files font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" white-space="nowrap"
           row align-items="baseline" gap="0.25rem"
-            text detail.additions font-family="ui-monospace" font-size=12 line-height="16px" color=(detail.diffScheme == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#009966, #00d492)")
-            text detail.deletions font-family="ui-monospace" font-size=12 line-height="16px" color=(detail.diffScheme == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")
+            text detail.additions font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=(detail.diffScheme == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#009966, #00d492)")
+            text detail.deletions font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=(detail.diffScheme == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")
 
 // A mono value that copies itself (the checkout command, the head branch);
 // PullRequestCopyableCode swaps it for a centred "Copied" for 1.6s.
@@ -315,7 +315,7 @@ component PrdCopy
     over = value
   view
     button press=copy("", text) hover=hover aria-label=ariaLabel testId=testId height="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" min-width=0 flex-shrink=1 position="relative"
-      text text font-family="ui-monospace" font-size=12 line-height="16px" color=tone line-clamp=1 min-width=0 animation=(copied == 0 ? "none" : (copied % 2 == 0 ? "prdHiddenA 1.6s linear forwards" : "prdHiddenB 1.6s linear forwards"))
+      text text font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=tone line-clamp=1 min-width=0 animation=(copied == 0 ? "none" : (copied % 2 == 0 ? "prdHiddenA 1.6s linear forwards" : "prdHiddenB 1.6s linear forwards"))
       when copied > 0
         row position="absolute" left="0.25rem" right="0.25rem" top="0.125rem" bottom="0.125rem" justify-content="center" align-items="center" animation=(copied % 2 == 0 ? "prdShownA 1.6s linear forwards" : "prdShownB 1.6s linear forwards") aria-hidden=true testId=`${testId}-copied`
           text "Copied" font-family=(testId == "pull-request-copy-checkout" ? "ui-monospace" : "system-ui") font-size="0.75rem" line-height="1rem" color=tone white-space="nowrap"

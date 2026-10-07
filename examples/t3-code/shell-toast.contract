@@ -16,6 +16,8 @@ use MorphPair from "./shell-morph.contract"
 use MorphChevron from "./shell-morph.contract"
 
 component ToastStack
+  inject
+    rem: number
   props
     toasts: list<ShellToast>
     width: number
@@ -26,7 +28,7 @@ component ToastStack
     hover: action
     act: action
   view
-    column position="absolute" top=(top - 6) right=(right - 6) width=(width + 6) z-index=100 role="region" aria-label="Notifications" testId="toast-region" hover=hover
+    column position="absolute" top=(top - 0.375 * rem) right=(right - 0.375 * rem) width=(width + 0.375 * rem) z-index=100 role="region" aria-label="Notifications" testId="toast-region" hover=hover
       when expanded
         column width="100%" gap="0.375rem"
           each toast in toasts key=toast.id
@@ -36,7 +38,7 @@ component ToastStack
         column position="relative" width="100%"
           each toast in toasts key=toast.id
             when toast.index == 2 or toast.index == 1
-              column position="absolute" top=(6 + 12 * toast.index) bottom=(-12 * toast.index) left=(18 * toast.index) right=(6 + 18 * toast.index) border-radius=(10 - toast.index) border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" pointer-events="none" testId=`toast-peek-${toast.index}`
+              column position="absolute" top=((6 + 12 * toast.index) * rem / 16) bottom=(-0.75 * rem * toast.index) left=(18 * toast.index * rem / 16) right=((6 + 18 * toast.index) * rem / 16) border-radius=((10 - toast.index) * rem / 16) border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 20px 25px -5px #00000040, 0 8px 10px -6px #00000040" pointer-events="none" testId=`toast-peek-${toast.index}`
           each toast in toasts key=toast.id
             when toast.index == 0
               ToastCard(toast=toast, still=still, act=act)

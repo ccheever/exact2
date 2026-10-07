@@ -12,6 +12,8 @@ fn sbK(h: number, n: number): number = n + h / 60 - 6 * floor((n + h / 60) / 6)
 fn sbChannel(h: number, s: number, v: number, n: number): number = floor((v - v * s * max(0, min(min(sbK(h, n), 4 - sbK(h, n)), 1))) * 255 + 0.5)
 
 component ProviderAccentPicker
+  inject
+    rem: number
   props
     editorId: string
     title: string
@@ -71,12 +73,12 @@ component ProviderAccentPicker
             box width="14rem" height="9rem" position="relative" overflow="hidden" background-color=hueColor pan=dragPlane panrelease=release(editorId, hex) touch-action="none" role="group" aria-label="Accent color saturation and brightness" testId="provider-accent-plane"
               box position="absolute" left=0 top=0 right=0 bottom=0 background-image="linear-gradient(to right, #ffffff, #ffffff00)"
               box position="absolute" left=0 top=0 right=0 bottom=0 background-image="linear-gradient(to top, #000000, #00000000)"
-              box position="absolute" left=(cs * 224 - 6) top=((1 - cv) * 144 - 6) width="0.75rem" height="0.75rem" box-sizing="border-box" border-radius="624.9375rem" border-width=2 border-style="solid" border-color="#ffffff" box-shadow="0 0 0 1px #0000004d, 0 1px 3px #0000004d" testId="provider-accent-plane-thumb"
+              box position="absolute" left=((cs * 224 - 6) * rem / 16) top=(((1 - cv) * 144 - 6) * rem / 16) width="0.75rem" height="0.75rem" box-sizing="border-box" border-radius="624.9375rem" border-width=2 border-style="solid" border-color="#ffffff" box-shadow="0 0 0 1px #0000004d, 0 1px 3px #0000004d" testId="provider-accent-plane-thumb"
             column padding="0.75rem" gap="0.75rem" box-sizing="border-box"
               box position="relative" width="12.5rem" height="1.5rem" display="flex" align-items="center" pan=dragHue panrelease=release(editorId, hex) touch-action="none" role="group" aria-label=`Accent color hue ${floor(ch)}` testId="provider-accent-hue"
                 box width="12.5rem" height="0.625rem" border-radius="624.9375rem" background-image="linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)" box-shadow="inset 0 0 0 1px #0000001f"
-                box position="absolute" left=(ch / 360 * 200 - 8) top="0.25rem" width="1rem" height="1rem" box-sizing="border-box" border-radius="624.9375rem" border-width=2 border-style="solid" border-color="#ffffff" background-color=hueColor box-shadow="0 0 0 1px #0000004d, 0 1px 3px #0000004d" testId="provider-accent-hue-thumb"
-              input value=(hexEditing ? hexDraft : hex) input=editHex submit=op("provider-accent", editorId, "", hexDraft, hexEditing) aria-label="Custom hex accent color" autocorrect="off" spellcheck="false" disabled=(not writable) testId="provider-accent-hex" box-sizing="border-box" width="12.5rem" height="1.875rem" padding-left="0.5625rem" padding-right="0.5625rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" font-family="ui-monospace" font-size=12 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
+                box position="absolute" left=((ch / 360 * 200 - 8) * rem / 16) top="0.25rem" width="1rem" height="1rem" box-sizing="border-box" border-radius="624.9375rem" border-width=2 border-style="solid" border-color="#ffffff" background-color=hueColor box-shadow="0 0 0 1px #0000004d, 0 1px 3px #0000004d" testId="provider-accent-hue-thumb"
+              input value=(hexEditing ? hexDraft : hex) input=editHex submit=op("provider-accent", editorId, "", hexDraft, hexEditing) aria-label="Custom hex accent color" autocorrect="off" spellcheck="false" disabled=(not writable) testId="provider-accent-hex" box-sizing="border-box" width="12.5rem" height="1.875rem" padding-left="0.5625rem" padding-right="0.5625rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" font-family="ui-monospace" font-size="0.75rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
           when accent != ""
             column padding="0.25rem" box-sizing="border-box" border-top-width=1 border-top-style="solid" border-color="light-dark(#e4e4e799, #ffffff0f)"
               // Never disabled: the press marks the command pending, and a button disabled by its

@@ -216,12 +216,15 @@ final class T3SshPasswordView: NSSecureTextField, NSTextFieldDelegate {
 final class T3SshPasswordField: ExactNativeInstance {
     private let field = T3SshPasswordView(frame: .zero)
     private var requestId = ""
+    private var rootFont: NSObjectProtocol?
+    deinit { if let rootFont { NotificationCenter.default.removeObserver(rootFont) } }
     init(props: [String: String], events: ExactNativeEvents) {
         super.init(events: events)
         field.owner = self
         field.delegate = field
         field.isBordered = false; field.drawsBackground = false; field.focusRingType = .none
-        field.font = NSFont.systemFont(ofSize: 14); field.lineBreakMode = .byClipping
+        field.font = NSFont.systemFont(ofSize: T3RootFont.rem(14)); field.lineBreakMode = .byClipping
+        rootFont = NotificationCenter.default.addObserver(forName: T3RootFont.changed, object: nil, queue: .main) { [weak field] _ in field?.font = NSFont.systemFont(ofSize: T3RootFont.rem(14)) }
         field.contentType = .password // autocomplete="current-password"
         apply(props)
     }

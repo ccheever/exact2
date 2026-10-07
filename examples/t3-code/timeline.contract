@@ -32,6 +32,8 @@ fn rowGap(kind: string, continues: bool, expanded: bool, actions: bool, attached
 fn workingTimer(seconds: number): string = seconds < 60 ? `${seconds}s` : trim(`${seconds >= 3600 ? toString(floor(seconds / 3600)) + "h " : ""}${floor(seconds % 3600 / 60) > 0 ? toString(floor(seconds % 3600 / 60)) + "m " : ""}${seconds % 60 > 0 ? toString(seconds % 60) + "s" : ""}`)
 
 component TimelineRow
+  inject
+    rem: number
   props
     documents: list<ChatDocument>
     message: Message
@@ -62,7 +64,7 @@ component TimelineRow
     column hover=hoverPart(message.hoverKey, "") width="100%" padding-top=(message.first ? lead : 0) padding-left="1.25rem" padding-right="1.25rem" box-sizing="border-box" align-items="center"
       when message.first and (hasMore or historyError != "")
         HistoryControl(lane=lane, hasMore=hasMore, loading=historyLoading, error=historyError, busy=busy, load=earlier)
-      column width="100%" max-width=lane min-width=0 box-sizing="border-box" padding-bottom=(message.last ? 12 + tail : 0) margin-bottom=`${rowGap(message.kind, message.continues, message.expanded, message.actionsId != "", message.kind == "checkpoint" and message.attached, message.meta) / 16}rem`
+      column width="100%" max-width=lane min-width=0 box-sizing="border-box" padding-bottom=(message.last ? 0.75 * rem + tail : 0) margin-bottom=`${rowGap(message.kind, message.continues, message.expanded, message.actionsId != "", message.kind == "checkpoint" and message.attached, message.meta) / 16}rem`
         when message.kind == "user"
           UserRow(message=message, documents=documents, command=command, local=local, hovering=hovered, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart, bubble=bubble, ink=ink, attachments=attachments, scheme=scheme)
         else
@@ -212,8 +214,8 @@ component ChangedFiles
           text `${message.fileCount} changed ${message.fileCount == 1 ? "file" : "files"}` font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
           when message.additions > 0 or message.deletions > 0
             row gap="0.25rem" align-items="center" aria-label=`${message.additions} additions, ${message.deletions} deletions`
-              text `+${message.additions}` font-family="ui-monospace" font-size=12 line-height="16px" font-weight=500 color=(diffScheme == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "#00bc7d")
-              text `-${message.deletions}` font-family="ui-monospace" font-size=12 line-height="16px" font-weight=500 color=(diffScheme == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")
+              text `+${message.additions}` font-family="ui-monospace" font-size="0.75rem" line-height="1rem" font-weight=500 color=(diffScheme == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "#00bc7d")
+              text `-${message.deletions}` font-family="ui-monospace" font-size="0.75rem" line-height="1rem" font-weight=500 color=(diffScheme == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")
         row flex-shrink=0 gap="0.25rem" align-items="center"
           when length(filter(message.files, (f) => f.kind == "directory")) > 0
             TimelineTip(label=(message.expanded ? "Collapse all folders" : "Expand all folders"), side="top", align="center", offset=28)
@@ -270,7 +272,7 @@ component TreeRow
           Icon(name="folder", size=14, color="light-dark(#71717bbf, #818181bf)")
         else
           TimelineIcon(name="folder-closed", size=14, color="light-dark(#71717bbf, #818181bf)")
-        text file.name flex=1 min-width=0 line-clamp=1 text-align="left" font-family="ui-monospace" font-size=11 line-height="16px" color=(hovered ? "light-dark(#27272ae6, #f5f5f5e6)" : "light-dark(#71717be6, #818181e6)")
+        text file.name flex=1 min-width=0 line-clamp=1 text-align="left" font-family="ui-monospace" font-size="0.6875rem" line-height="1rem" color=(hovered ? "light-dark(#27272ae6, #f5f5f5e6)" : "light-dark(#71717be6, #818181e6)")
         when file.additions > 0 or file.deletions > 0
           TreeStat(file=file, diffScheme=diffScheme)
     else
@@ -278,7 +280,7 @@ component TreeRow
         when file.spacer
           box width="0.875rem" height="0.875rem" flex-shrink=0
         FileTypeIcon(token=file.icon, size=14)
-        text file.name flex=1 min-width=0 line-clamp=1 text-align="left" font-family="ui-monospace" font-size=12 line-height="16px" color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#27272ad9, #f5f5f5d9)")
+        text file.name flex=1 min-width=0 line-clamp=1 text-align="left" font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#27272ad9, #f5f5f5d9)")
         TreeStat(file=file, diffScheme=diffScheme)
 
 component TreeStat
@@ -287,8 +289,8 @@ component TreeStat
     diffScheme: string
   view
     row flex-shrink=0 gap="0.5rem" align-items="center" aria-label=`${file.additions} additions, ${file.deletions} deletions`
-      text file.plus width="1.505rem" text-align="right" font-family="ui-monospace" font-size=10 line-height="14px" font-variant-numeric="tabular-nums" color=(diffScheme == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "#00bc7d")
-      text file.minus width="1.505rem" text-align="right" font-family="ui-monospace" font-size=10 line-height="14px" font-variant-numeric="tabular-nums" color=(diffScheme == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")
+      text file.plus width="1.505rem" text-align="right" font-family="ui-monospace" font-size="0.625rem" line-height="0.875rem" font-variant-numeric="tabular-nums" color=(diffScheme == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "#00bc7d")
+      text file.minus width="1.505rem" text-align="right" font-family="ui-monospace" font-size="0.625rem" line-height="0.875rem" font-variant-numeric="tabular-nums" color=(diffScheme == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")
 
 component TimelineContent
   props

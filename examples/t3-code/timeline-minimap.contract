@@ -22,6 +22,8 @@ fn minimapTop(index: number, count: number, height: number): number = count <= 1
 fn stripWidth(distance: number): number = distance == 0 ? 24 : distance == 1 ? 16 : distance == 2 ? 10 : 8
 
 component TimelineMinimap
+  inject
+    rem: number
   props
     items: list<MinimapItem>
     current: number
@@ -49,8 +51,8 @@ component TimelineMinimap
   view
     when count >= 2
       column position="absolute" top=0 left=0 width="4.5rem" height=(windowHeight - 52) pointer-events="none" justify-content="center" padding-left="0.75rem" box-sizing="border-box" opacity=(persistent or open ? 1 : 0) testId="timeline-minimap"
-        column position="relative" width=(open ? 352 : hitWidth) height=railHeight pointer-events=(hitWidth > 0 ? "auto" : "none")
-          MinimapStep(label="Previous turn", icon="chevron-up", target=(current > 0 ? current - 1 : -1), interactive=(hitWidth >= 14), top=(0 - 22), local=local)
+        column position="relative" width=(open ? 22 * rem : hitWidth) height=railHeight pointer-events=(hitWidth > 0 ? "auto" : "none")
+          MinimapStep(label="Previous turn", icon="chevron-up", target=(current > 0 ? current - 1 : -1), interactive=(hitWidth >= 14), top=(0 - 1.375 * rem), local=local)
           box position="absolute" left="0.75rem" top=0 width=1 height=railHeight background-color="light-dark(#e4e4e726, #ffffff03)"
           each item in items key=item.id
             box position="absolute" left=0 top=(minimapTop(item.index, count, railHeight) - 1) width=stripWidth(focusIndex < 0 ? 3 : max(item.index - focusIndex, focusIndex - item.index)) height=2 border-radius=1 background-color=(focusIndex == item.index ? "light-dark(#71717bbf, #818181bf)" : "light-dark(#71717b59, #81818159)") pointer-events="none"
@@ -64,7 +66,7 @@ component TimelineMinimap
                   text item.label font-size="0.875rem" font-weight=500 line-height="1.25rem" line-clamp=1 color="light-dark(#27272a, #f5f5f5)"
                   when item.excerpt != ""
                     text item.excerpt margin-top="0.25rem" font-size="0.875rem" line-height="1.25rem" line-clamp=3 color="light-dark(#71717b, #818181)"
-          MinimapStep(label="Next turn", icon="chevron", target=(current >= 0 and current < count - 1 ? current + 1 : -1), interactive=(hitWidth >= 14), top=(railHeight + 2), local=local)
+          MinimapStep(label="Next turn", icon="chevron", target=(current >= 0 and current < count - 1 ? current + 1 : -1), interactive=(hitWidth >= 14), top=(railHeight + 0.125 * rem), local=local)
 
 // TimelineMinimapNavigationButton: a 20pt chevron centred 4pt into the strip,
 // visible only while it is itself hovered.

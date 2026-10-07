@@ -102,7 +102,7 @@ component R7DevField
     submit: action
     testId: string
   view
-    input value=value input=input submit=submit placeholder=placeholder aria-label=label disabled=disabled autocorrect="off" spellcheck="false" testId=testId flex=1 min-width=0 height="1.875rem" padding-left="0.5625rem" padding-right="0.5625rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=r7devInput() background-color=r7devField() box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) font-family="ui-monospace" font-size=12 line-height="16px" color=r7devInk()
+    input value=value input=input submit=submit placeholder=placeholder aria-label=label disabled=disabled autocorrect="off" spellcheck="false" testId=testId flex=1 min-width=0 height="1.875rem" padding-left="0.5625rem" padding-right="0.5625rem" padding-top="0.375rem" padding-bottom="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=r7devInput() background-color=r7devField() box-shadow="0 1px 2px #0000000d" opacity=(disabled ? 0.64 : 1) font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=r7devInk()
 
 // Switch size sm: a 26 × 16 track, 12pt thumb.
 component R7DevSwitchControl
@@ -205,7 +205,7 @@ component R7DevToolsDrawer
               text tools.diagnostics white-space="pre-line" font-size="0.75rem" line-height="1rem" color=r7devMuted()
           R7DevSection(title="App", last=false)
             R7DevRow(label="Foreground")
-              text tools.foreground min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-family="ui-monospace" font-size=12 line-height="16px" color=r7devInk() testId="device-tools-foreground"
+              text tools.foreground min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=r7devInk() testId="device-tools-foreground"
             when tools.hasForeground
               row gap="0.375rem"
                 R7DevButton(label="Terminate", outline=true, disabled=tools.disabled, press=command("shell:surface-r6dev-tools-act", "terminate", "", 0), testId="device-tools-terminate")
@@ -268,8 +268,8 @@ component R7DevToolsDrawer
               scroll max-height="16rem"
                 column padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" hook="t3-media" data-media-kind="device-events" data-device-id=tools.logDevice data-device-host=tools.logHost testId="device-tools-events"
                   when tools.eventsEmpty
-                    text "No events yet." font-family="ui-monospace" font-size=11 line-height="17.875px" color=r7devMuted()
+                    text "No events yet." font-family="ui-monospace" font-size="0.6875rem" line-height="1.1171875rem" color=r7devMuted()
                   each entry in tools.events key=entry.id
                     row gap="0.5rem" min-width=0
-                      text entry.time flex-shrink=0 font-family="ui-monospace" font-size=11 line-height="17.875px" color=r7devMuted()
-                      text entry.summary min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-family="ui-monospace" font-size=11 line-height="17.875px" color=r7devInk()
+                      text entry.time flex-shrink=0 font-family="ui-monospace" font-size="0.6875rem" line-height="1.1171875rem" color=r7devMuted()
+                      text entry.summary min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-family="ui-monospace" font-size="0.6875rem" line-height="1.1171875rem" color=r7devInk()

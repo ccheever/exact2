@@ -254,7 +254,7 @@ final class R6MediaPreview: NSObject, WKNavigationDelegate, WKUIDelegate {
 
     private func fail(_ entry: Entry, _ message: String) {
         let label = NSTextField(labelWithString: message)
-        label.font = .systemFont(ofSize: 12)
+        label.font = .systemFont(ofSize: T3RootFont.rem(12))
         label.textColor = NSColor(srgbRed: 0x71 / 255, green: 0x71 / 255, blue: 0x7b / 255, alpha: 1)
         label.alignment = .center
         label.translatesAutoresizingMaskIntoConstraints = false

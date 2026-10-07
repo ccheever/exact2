@@ -69,6 +69,8 @@ component TimelineTimestamp
 // bubble's row reaches 360pt the other way, so a 320pt card shifted far in
 // (r8-pointer: the Send tooltip beside a right panel) never wraps early.
 component TipBubble
+  inject
+    rem: number
   props
     label: string
     side: string
@@ -78,10 +80,10 @@ component TipBubble
     shown: bool
   view
     when side == "top"
-      row position="absolute" bottom=offset left=(align == "start" ? 0 - inset : (align == "end" ? -360 : -160)) right=(align == "end" ? 0 - inset : (align == "start" ? -360 : -160)) justify-content=(align == "start" ? "flex-start" : align == "end" ? "flex-end" : "center") pointer-events="none" z-index=140
+      row position="absolute" bottom=offset left=(align == "start" ? 0 - inset : (align == "end" ? -22.5 * rem : -10 * rem)) right=(align == "end" ? 0 - inset : (align == "start" ? -22.5 * rem : -10 * rem)) justify-content=(align == "start" ? "flex-start" : align == "end" ? "flex-end" : "center") pointer-events="none" z-index=140
         TipCard(label=label, shown=shown)
     else
-      row position="absolute" top=offset left=(align == "start" ? 0 - inset : (align == "end" ? -360 : -160)) right=(align == "end" ? 0 - inset : (align == "start" ? -360 : -160)) justify-content=(align == "start" ? "flex-start" : align == "end" ? "flex-end" : "center") pointer-events="none" z-index=140
+      row position="absolute" top=offset left=(align == "start" ? 0 - inset : (align == "end" ? -22.5 * rem : -10 * rem)) right=(align == "end" ? 0 - inset : (align == "start" ? -22.5 * rem : -10 * rem)) justify-content=(align == "start" ? "flex-start" : align == "end" ? "flex-end" : "center") pointer-events="none" z-index=140
         TipCard(label=label, shown=shown)
 
 component TipCard

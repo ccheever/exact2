@@ -263,8 +263,8 @@ component PaletteRowView
     else
       when row.kind == "line"
         button press=run(row.op, row.arg, row.arg2) hover=hover(row.index) disabled=busy role="option" aria-selected=highlighted aria-label=`${row.arg}:${row.line}` testId=`palette-line-${row.index}` width="100%" height="1.75rem" padding-left="0.75rem" padding-right="0.75rem" gap="0.75rem" border-width=0 border-radius=0 display="flex" flex-direction="row" align-items="center" justify-content="flex-start" box-sizing="border-box" background-color=(highlighted ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
-          text row.line width="2.5rem" flex-shrink=0 text-align="right" font-family="ui-monospace" font-size=12 line-height="16px" color="light-dark(#71717bb3, #818181b3)"
-          text flex=1 min-width=0 font-family="ui-monospace" font-size=12 line-height="16px" color="light-dark(#27272a, #f5f5f5)" white-space="pre" overflow="hidden" text-overflow="ellipsis" text-align="left"
+          text row.line width="2.5rem" flex-shrink=0 text-align="right" font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #818181b3)"
+          text flex=1 min-width=0 font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f5f5f5)" white-space="pre" overflow="hidden" text-overflow="ellipsis" text-align="left"
             each part in row.matchParts key=part.id
               text part.text color=synColor(part.cls) font-style=synSlant(part.cls) background-color=(part.hit ? "light-dark(#1b4ed840, #346bf140)" : "#00000000")
       else
@@ -313,7 +313,7 @@ component PaletteToggle
   view
     button press=press aria-label=label aria-checked=on role="switch" testId=testId width="2.4375rem" height="1.5rem" padding=0 border-width=1 border-style="solid" border-color="#00000000" border-radius="0.5rem" box-sizing="border-box" background-color=(on ? "light-dark(#ffffff, #ffffff13)" : "#00000000") box-shadow=(on ? "0 1px 2px #0000001a" : "none") display="flex" flex-direction="row" align-items="center" justify-content="center"
       column align-items="center"
-        text glyph font-family="ui-monospace" font-size=14 line-height=(underline ? "16px" : "20px") font-weight=500 color=(on ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+        text glyph font-family="ui-monospace" font-size="0.875rem" line-height=(underline ? "1rem" : "1.25rem") font-weight=500 color=(on ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
         when underline
           box width="1.0625rem" height=2 border-radius=1 background-color=(on ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
 
@@ -360,6 +360,8 @@ component CommandPalette
         CommandPaletteBody(view=view, query=query, highlight=highlight, scroll=scroll, busy=busy, viewport=viewport, scheme="light", edit=edit, onKey=onKey, run=run, hover=hover, close=close, back=back, flag=flag)
 
 component CommandPaletteBody
+  inject
+    rem: number
   props
     view: PaletteView
     query: string
@@ -377,7 +379,7 @@ component CommandPaletteBody
     flag: action
   derive width = min(576, viewport.width - 32)
   derive top = viewport.width >= 640 ? floor(viewport.height * 0.1) : max(16, floor(viewport.height * 0.04))
-  derive maxHeight = min(420, viewport.height - top * 2)
+  derive maxHeight = min(26.25 * rem, viewport.height - top * 2)
   // Enter runs the highlighted row, else the hidden first-row highlight (Base UI autoHighlight "always").
   derive enterIndex = highlight >= 0 ? highlight : (view.autoHighlight and view.count > 0 ? 0 : -1)
   derive target = filter(view.rows, (r) => r.index == enterIndex)
@@ -386,9 +388,9 @@ component CommandPaletteBody
   derive tArg2 = enterIndex >= 0 ? join(map(target, (r) => r.arg2), "") : view.enterArg2
   derive hasContext = view.contextTitle != ""
   derive dark = scheme == "dark"
-  derive listMax = view.panel == "tall" ? min(544, viewport.height * 0.76) : min(448, viewport.height * 0.7)
+  derive listMax = view.panel == "tall" ? min(34 * rem, viewport.height * 0.76) : min(28 * rem, viewport.height * 0.7)
   // ScrollArea scrollFade: 24pt fades at an edge with more rows beyond it.
-  derive listRoom = min(listMax, maxHeight - 90 - (hasContext ? 60 : 0))
+  derive listRoom = min(listMax, maxHeight - (90 + (hasContext ? 60 : 0)) * rem / 16)
   derive fadePct = 2400 / max(1, min(view.listHeight, listRoom))
   derive fadeTop = view.panel != "fill" and scroll > 0
   derive fadeBottom = view.panel != "fill" and view.listHeight > listRoom + scroll + 1
@@ -436,7 +438,7 @@ component CommandPaletteBody
               when view.contextDescription != ""
                 text view.contextDescription font-size="0.75rem" line-height="1rem" color="light-dark(#71717bd9, #818181d9)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
       when length(view.rows) > 0
-        scroll scrollTop=scroll mask-image=listMask flex-grow=(view.panel == "fill" ? 1 : 0) flex-shrink=1 min-height=0 max-height=(view.panel == "fill" ? 420 : listMax) width="100%" box-sizing="border-box" testId="palette-list"
+        scroll scrollTop=scroll mask-image=listMask flex-grow=(view.panel == "fill" ? 1 : 0) flex-shrink=1 min-height=0 max-height=(view.panel == "fill" ? 26.25 * rem : listMax) width="100%" box-sizing="border-box" testId="palette-list"
           column padding=(view.panel == "fill" ? "0px" : "0.5rem") padding-top="0.5rem" padding-bottom="0.5rem" width="100%" box-sizing="border-box" role="listbox"
             each row in view.rows key=row.key
               PaletteRowView(reduced=viewport.prefersReducedMotion, row=row, highlighted=(row.index == highlight and row.index >= 0), busy=busy, dark=dark, run=run, hover=hover)

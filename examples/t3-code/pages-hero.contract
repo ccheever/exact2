@@ -139,11 +139,11 @@ component HeroMenu
 // desktop shell keeps a 52pt titlebar strip (WorkspacePageHeader) above an
 // Empty state centred in the rest.
 component PagesLanding
+  inject
+    rem: number
   props
     // desktop-shell-details: --workspace-controls-left (90 beside the traffic lights; 0.75rem in full screen).
     controlsLeft: number
-    // The root font size (Interface font size): rem in a length that also adds px (Contract calc takes percent ± px only).
-    rem: number
     home: PagesHome
     scheme: string
     sidebarOpen: bool

@@ -41,6 +41,8 @@ component TipCard2
 //   up from the bottom); Settings aligns to its start at 8pt, Pull Requests and
 //   Usage are centred at 60 and 60 or 96pt.
 component SidebarEdgeTips
+  inject
+    rem: number
   props
     width: number
     hoverId: string
@@ -48,13 +50,13 @@ component SidebarEdgeTips
     newThreadDetail: string
     pullRequests: bool
   view
-    row position="absolute" left=(width + 11) top=0 bottom=0 align-items="center" pointer-events="none" z-index=140
+    row position="absolute" left=(width + 0.6875 * rem) top=0 bottom=0 align-items="center" pointer-events="none" z-index=140
       TipCard(label="Drag to resize sidebar", shown=(hoverId == "sidebar-rail"))
-    row position="absolute" left=(width - 278) width="25rem" top=0 height="3.625rem" align-items="flex-end" justify-content="center" pointer-events="none" z-index=140
+    row position="absolute" left=(width - 17.375 * rem) width="25rem" top=0 height="3.625rem" align-items="flex-end" justify-content="center" pointer-events="none" z-index=140
       TipCard(label="Filter threads by project", shown=(hoverId == "sidebar-filter"))
-    row position="absolute" left=(width - 250) width="25rem" top=0 height="3.625rem" align-items="flex-end" justify-content="center" pointer-events="none" z-index=140
+    row position="absolute" left=(width - 15.625 * rem) width="25rem" top=0 height="3.625rem" align-items="flex-end" justify-content="center" pointer-events="none" z-index=140
       TipCard(label="Add project", shown=(hoverId == "sidebar-add-project"))
-    row position="absolute" left=(width - 222) width="25rem" top=0 height="3.625rem" align-items="flex-end" justify-content="center" pointer-events="none" z-index=140
+    row position="absolute" left=(width - 13.875 * rem) width="25rem" top=0 height="3.625rem" align-items="flex-end" justify-content="center" pointer-events="none" z-index=140
       TipCard2(label=newThread, detail=newThreadDetail, shown=(hoverId == "sidebar-new-thread"))
     row position="absolute" left="0.5rem" bottom="2.5rem" pointer-events="none" z-index=140
       TipCard(label="Settings", shown=(hoverId == "sidebar-settings"))

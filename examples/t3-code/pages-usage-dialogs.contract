@@ -67,6 +67,8 @@ component UsageDialogShell
 // the stats, the trend narrowed to this model, its mixes, and Set price for
 // tokens with no known price.
 component UsageModelDialog
+  inject
+    rem: number
   props
     detail: UsageModelDetail
     scheme: string
@@ -83,7 +85,7 @@ component UsageModelDialog
             DriverMark(driver=detail.driver, size=20, initials="")
         text detail.model font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2 min-width=0 testId="usage-model-title"
       text detail.description font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
-    scroll max-height=(viewportHeight - 118 - (detail.unpricedNote != "" ? 64 : 0)) min-height=0 width="100%" testId="usage-model-scroll"
+    scroll max-height=(viewportHeight - (118 + (detail.unpricedNote != "" ? 64 : 0)) * rem / 16) min-height=0 width="100%" testId="usage-model-scroll"
       column width="100%" padding-top="0.25rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom=(detail.unpricedNote != "" ? "0.25rem" : "1.5rem") box-sizing="border-box" gap="2rem"
         box width="100%" display="grid" grid-template-columns=(sm ? "repeat(4, minmax(0, 1fr))" : "repeat(2, minmax(0, 1fr))") column-gap="1.5rem" row-gap="1rem"
           each stat in detail.stats key=stat.key
