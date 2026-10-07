@@ -32,6 +32,8 @@ final class ElementHatches {
     private var calls: [String: [String: Int]] = [:]
     /// The words the plan marks that the module does not handle.
     private var unhandled: Set<String> = []
+    /// What hatches told the agent of what they made (HatchRegions.swift).
+    lazy var regions = HatchRegions(presenter)
 
     init(_ presenter: Presenter) { self.presenter = presenter }
 
@@ -99,6 +101,7 @@ final class ElementHatches {
     /// the node pool decides at the root whether the row parks, so a
     /// `reusable` hatch must have undone its additions by then (iOS).
     func begin(_ batch: Batch) {
+        regions.sweep()
         guard !nodes.isEmpty else { return }
         for op in batch.ops where op.op == .destroy { destroyed(op.id) }
     }
@@ -114,6 +117,7 @@ final class ElementHatches {
     func reset() {
         for id in nodes.keys.sorted() { destroyed(id) }
         nodes = [:]
+        regions.reset()
         // The window and the app end with them, and are built again after a reload (ScopeHatches.swift).
         presenter.session?.natives.scopesReset()
     }
@@ -133,7 +137,12 @@ final class ElementHatches {
         // In a list's row, the first of each moment is journaled; `state`
         // counts the rest, so a fling does not flood the journal.
         let quiet = entry.inList && (calls[word]?[event.name] ?? 0) > 1
+        // A development build notices a recognizer the call added and did not declare (§3.4).
+        let had = HatchDiagnostics.measuring && event != .ended ? Set((entry.node.gestureRecognizers ?? []).map(ObjectIdentifier.init)) : nil
         let reusable = presenter.session?.natives.elementHatch(entry.node, event: event.rawValue, platform: Self.platform(of: entry.node, presenter), quiet: quiet) ?? false
+        if let had { regions.undeclared(under: entry.node, by: "element \(word)") { had.contains(ObjectIdentifier($0)) } }
+        // What the node's hatch registered ends with it; a view lent to another node starts clean.
+        if event == .ended { regions.ended(node: id) }
         #if os(iOS) || os(tvOS)
         // The answer is the view's while it is still this node's: a click
         // inside the hatch (after the batch) can have replaced the node and
@@ -200,6 +209,7 @@ final class ElementHatches {
         reply["unhandled"] = unhandled.sorted().map { ["word": $0, "reason": "module"] }
         reply["refused"] = refused
         reply["inFlight"] = inFlight
+        regions.state(into: &reply)
         // What the last run left in its crash breadcrumb (§4.4), if anything.
         if !HatchBreadcrumb.lastEnds.isEmpty { reply["lastEnd"] = HatchBreadcrumb.lastEnds }
         return reply

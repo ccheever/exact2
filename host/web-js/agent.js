@@ -80,6 +80,23 @@ export function install(exact) {
   // The runner's tags (LLP 1035.002 D3): a commit is an epoch; a JS page
   // has one incarnation (a plan swap is a new page).
   const tags = () => ({ clock: exact.clock.now, epoch: exact.clock.epoch, incarnation: 1 });
+  // `tap <node>/<part>` (LLP 1075.003.000.001 §3.5): the aim (which changes nothing) and the landing; the driver delivers
+  // a real pointer event at the aimed point between them. The token binds the part's element: one replaced since is stale.
+  let PartAim = null, PartAims = 0;
+  const partTap = req => {
+    const node = views.get(req.id), el = node && exact.hatchRegions?.part(node, String(req.part));
+    if (!el) return { error: `part ${req.part}: view ${req.id} has no live part of that id` };
+    const b = el.getBoundingClientRect(), x = b.x + b.width / 2, y = b.y + b.height / 2, under = document.elementFromPoint(x, y), on = t => !!t && (t === el || el.contains(t));
+    if (req.aim) {
+      if (!on(under)) return { error: `part ${req.part}: ${under ? `covered by ${under.localName}${under.id ? '#' + under.id : ''}` : 'nothing is hit at its middle'}` };
+      const aim = PartAim = { token: `${req.id}/${req.part}/${++PartAims}`, el, hit: null }, nb = node.getBoundingClientRect();
+      document.addEventListener('pointerdown', ev => { if (PartAim === aim) aim.hit = ev.target; }, { capture: true, once: true });
+      return { aimed: { at: [Math.round((x - nb.x) * 100) / 100, Math.round((y - nb.y) * 100) / 100], token: aim.token }, ...tags() };
+    }
+    if (!PartAim || PartAim.token !== req.landed || PartAim.el !== el) return { error: `part ${req.part}: it changed between the aim and the delivery (a stale token)` };
+    const hit = PartAim.hit;
+    return { tapped: req.id, part: String(req.part), delivery: 'platform', landed: on(hit) ? 'part' : 'elsewhere', ...(on(hit) ? {} : { hit: hit ? { class: hit.localName } : null }), ...tags() };
+  };
   // An iframe's latest src load (glue.js `iframeLoading`): loading until the
   // load event of the src it has now.
   const loaded = new WeakMap();
@@ -223,6 +240,8 @@ export function install(exact) {
           nodes = req.shallow ? [hit] : nodes.filter(n => n === hit || views.get(hit.id).contains(views.get(n.id)));
           roots = [hit.id];
         }
+        // A hatch's regions and parts, under their node (LLP 1075.003.000.001 §3.4, §3.5; hatches.js).
+        if (exact.hatchRegions) nodes = nodes.map(n => { const o = exact.hatchRegions.of(views.get(n.id)); return o ? { ...n, ...o } : n; });
         return { nodes, roots, ...tags() };
       }
       case 'layout': {
@@ -243,6 +262,7 @@ export function install(exact) {
       }
       case 'focus': { const el = views.get(req.id); if (!el) return { error: `no view ${req.id}` }; el.focus(); if (req.select !== false) el.select?.(); return {}; }
       case 'tap':
+        if (req.part != null) return partTap(req);
         // A virtualized list's row brought into view by key (LLP 1070.000 §5; list.js).
         if (req.into) {
           if (!exact.lists) return { error: `view ${req.id} is not a mounted virtualized list` };

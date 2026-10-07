@@ -100,6 +100,39 @@ final class FixtureModule: ExactModule {
         }
     }
 
+    private func regionsAndParts(_ element: ExactElement, _ view: ExactPlatformView) {
+        let tag = 0x5EA1
+        #if os(macOS)
+        let seal = view.subviews.first { $0.tag == tag }
+        #else
+        let seal = view.viewWithTag(tag)
+        #endif
+        if element.data[.tone] == "busy" {
+            seal?.removeFromSuperview()
+            element.parts = []
+            return
+        }
+        guard seal == nil else { return }
+        // What the seal does when pressed is the hatch's own code: here it counts the press.
+        let pressed = { [weak self] in self?.context.diagnostics.count("seal.presses") ?? () }
+        #if os(macOS)
+        let made = SealView(frame: NSRect(x: 4, y: 4, width: 12, height: 12))
+        made.pressed = pressed
+        #else
+        let made = SealView(frame: CGRect(x: 4, y: 4, width: 12, height: 12))
+        made.pressed = pressed
+        made.tag = tag
+        made.backgroundColor = .white
+        made.isAccessibilityElement = true
+        made.accessibilityLabel = "Verified"
+        #endif
+        made.addGestureRecognizer(made.press)
+        view.addSubview(made)
+        element.owns(view: made, "seal: a white square the hatch draws on the badge")
+        element.owns(recognizer: made.press, "press: the seal's own click")
+        element.parts = [ExactPart(id: "seal", view: made, role: "button", label: "Verified")]
+    }
+
     /// Each badge's span, from its mount to its end.
     private var shown: [ObjectIdentifier: ExactSpan] = [:]
 
@@ -138,12 +171,18 @@ final class FixtureModule: ExactModule {
         // takes back; with `data-reuse` the hatch says so, and its row may be
         // reused (LLP 1075.003.000.000 §8).
         if element.hatch == .dot {
-            if element.isNew { element.view?.addGestureRecognizer(DotPress()) }
+            // Declared (LLP 1075.003.000.001 §3.4): the agent is told whose it is.
+            if element.isNew, let view = element.view { let press = DotPress(); view.addGestureRecognizer(press); element.owns(recognizer: press, "press: the dot's own recognizer") }
             element.reusable = element.data[.reuse] == "true"
             return
         }
         #endif
-        guard element.hatch == .badge, element.isNew, let view = element.view else { return }
+        guard element.hatch == .badge, let view = element.view else { return }
+        // Regions and parts (§3.4, §3.5): the badge draws a seal over itself
+        // and says so; with `data-tone` busy the seal goes, and its region
+        // stays a while as a tombstone.
+        regionsAndParts(element, view)
+        guard element.isNew else { return }
         #if os(iOS)
         view.addInteraction(UIContextMenuInteraction(delegate: badgeMenu))
         #else
@@ -539,5 +578,26 @@ final class PlainBox: ExactNativeInstance {
 /// validates through it.
 private final class ToolbarPress: NSObject {
     @objc func press() {}
+}
+#endif
+
+/// The badge's seal: a small view the fixture finds by its tag. Its own
+/// click recognizer tells the hatch when it is pressed: an ancestor's
+/// recognizer holds a plain `mouseDown` back, as it would a person's.
+#if os(macOS)
+final class SealView: NSView {
+    var pressed: (() -> Void)?
+    lazy var press = NSClickGestureRecognizer(target: self, action: #selector(didPress))
+    override var tag: Int { 0x5EA1 }
+    override func draw(_ dirtyRect: NSRect) { NSColor.white.setFill(); bounds.fill() }
+    // A click on a window that is not key still presses it, as it does Exact's own controls.
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    @objc func didPress() { pressed?() }
+}
+#else
+final class SealView: UIView {
+    var pressed: (() -> Void)?
+    lazy var press = UITapGestureRecognizer(target: self, action: #selector(didPress))
+    @objc func didPress() { pressed?() }
 }
 #endif

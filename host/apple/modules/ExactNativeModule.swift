@@ -291,6 +291,27 @@ public struct ExactData: Sendable {
     public subscript(_ key: ExactDataKey) -> String? { words[key.name] }
 }
 
+#if os(macOS)
+public typealias ExactPlatformView = NSView
+public typealias ExactPlatformRecognizer = NSGestureRecognizer
+#else
+public typealias ExactPlatformView = UIView
+public typealias ExactPlatformRecognizer = UIGestureRecognizer
+#endif
+
+/// A control a hatch drew, named for the agent (LLP 1075.003.000.001 §3.5):
+/// `tree` lists it under its node with the frame the host observes, and
+/// `tap <node>/<id>` reaches it as a real touch or pointer event at its
+/// place, never by calling it. What it does when touched is the hatch's own
+/// code, which acts on an authored node. `id` is unique within the node.
+public struct ExactPart {
+    public let id: String, role: String, label: String
+    public weak var view: ExactPlatformView?
+    public init(id: String, view: ExactPlatformView, role: String, label: String) {
+        self.id = id; self.view = view; self.role = role; self.label = label
+    }
+}
+
 /// The app, as its hatch hears of it (LLP 1075.003.000.001 §2.1): the facts
 /// Contract sees, by the web's names, and the platform application object for
 /// the one session the embedder gave the process to.
@@ -316,6 +337,13 @@ public final class ExactApp {
     /// True in the first `app` call of this handle; false when a fact changed.
     public internal(set) var isNew = true
     public internal(set) var isLive = true
+    weak var hatches: ExactHatches?
+
+    /// Say what this hatch set app-wide (§3.4): `owns(appearance: "tab bar
+    /// tint: label")`. `state.hatches` lists it; saying it again replaces it.
+    public func owns(appearance what: String, surface: Bool = false) {
+        hatches?.owns(scope: "app", node: 0, kind: 2, object: nil, what, surface: surface)
+    }
 
     func read(_ json: [String: Any]) {
         processOwner = json["processOwner"] as? Bool ?? false
@@ -351,6 +379,18 @@ public final class ExactWindow {
     /// True in the first `window` call of this handle; false on a size or safe-area change.
     public internal(set) var isNew = true
     public internal(set) var isLive = true
+    weak var hatches: ExactHatches?
+
+    /// Say what this hatch added to the window (§3.4), bound to the object:
+    /// `owns(recognizer: threeFinger, "three fingers held 0.8 s: dev menu",
+    /// surface: true)`. `surface` marks a hatch-only surface, one that
+    /// changes no Contract state and has no authored stand-in.
+    public func owns(view: ExactPlatformView, _ what: String, surface: Bool = false) {
+        hatches?.owns(scope: "window", node: 0, kind: 0, object: view, what, surface: surface)
+    }
+    public func owns(recognizer: ExactPlatformRecognizer, _ what: String, surface: Bool = false) {
+        hatches?.owns(scope: "window", node: 0, kind: 1, object: recognizer, what, surface: surface)
+    }
 
     func read(_ json: [String: Any]) {
         exclusive = json["exclusive"] as? Bool ?? false
@@ -439,6 +479,10 @@ final class ExactHatches {
     let inputFn: InputFn?
     /// One of 80 or more: the frame clock's two entries.
     let framesFn: ExactModuleContext.FramesFn?, afterFn: ExactModuleContext.AfterFn?
+    /// One of 96 or more: regions and parts (§3.4, §3.5).
+    typealias OwnsFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UInt32, UInt32, UnsafeMutableRawPointer?, UnsafePointer<UInt8>?, UInt32, UInt32) -> Int32
+    typealias PartsFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafePointer<UInt8>?, UInt32, UnsafePointer<UnsafeMutableRawPointer?>?, UInt32) -> Int32
+    let ownsFn: OwnsFn?, partsFn: PartsFn?
     #if os(iOS) || os(tvOS)
     var navigations: [ObjectIdentifier: ExactNavigation] = [:]
     var routes: [String: ExactRoute] = [:]
@@ -469,11 +513,26 @@ final class ExactHatches {
         let clock = table.load(as: UInt32.self) >= 80
         framesFn = clock ? table.load(fromByteOffset: 64, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: ExactModuleContext.FramesFn.self) } : nil
         afterFn = clock ? table.load(fromByteOffset: 72, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: ExactModuleContext.AfterFn.self) } : nil
+        let regions = table.load(as: UInt32.self) >= 96
+        ownsFn = regions ? table.load(fromByteOffset: 80, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: OwnsFn.self) } : nil
+        partsFn = regions ? table.load(fromByteOffset: 88, as: UnsafeRawPointer?.self).map { unsafeBitCast($0, to: PartsFn.self) } : nil
     }
 
     func log(_ line: String) {
         let bytes = Array(line.utf8)
         bytes.withUnsafeBufferPointer { logFn(host, $0.baseAddress, UInt32($0.count)) }
+    }
+
+    /// A region (§3.4): `what`, bound weakly to `object` (kind 0 a view, 1 a
+    /// recognizer) or to nothing (2, an appearance), for the scope named.
+    func owns(scope: String, node: UInt32, kind: UInt32, object: AnyObject?, _ what: String, surface: Bool) {
+        guard let ownsFn else { return }
+        let s = Array(scope.utf8), w = Array(what.utf8)
+        _ = s.withUnsafeBufferPointer { s in
+            w.withUnsafeBufferPointer { w in
+                ownsFn(host, s.baseAddress, UInt32(s.count), node, kind, object.map { Unmanaged.passUnretained($0).toOpaque() }, w.baseAddress, UInt32(w.count), surface ? 1 : 0)
+            }
+        }
     }
 
     func resolve(route: String, id: String) -> UInt32 {
@@ -533,6 +592,15 @@ public final class ExactRoute {
     weak var hatches: ExactHatches?
     init(key: String, controller: UIViewController, data: ExactData, hatches: ExactHatches) {
         self.key = key; self.controller = controller; self.data = data; isNew = true; self.hatches = hatches
+    }
+
+    /// Tell the agent what this hatch added to the route (§3.4): a title
+    /// view, a recognizer. It ends when the object goes or the route does.
+    public func owns(view: UIView, _ what: String, surface: Bool = false) {
+        if isLive { hatches?.owns(scope: "route \(key)", node: 0, kind: 0, object: view, what, surface: surface) }
+    }
+    public func owns(recognizer: UIGestureRecognizer, _ what: String, surface: Bool = false) {
+        if isLive { hatches?.owns(scope: "route \(key)", node: 0, kind: 1, object: recognizer, what, surface: surface) }
     }
 
     /// The live node the route holds under this HTML id, resolved now, as
@@ -666,6 +734,39 @@ public final class ExactElement {
         let what = hatch == nil ? "route \(key)" : "element \(key)"
         guard isLive, hatches.act(node, action) else { return hatches.log("\(what): \(name)() on #\(id.isEmpty ? String(node) : id) refused") }
     }
+
+    private var scopeName: String { hatch == nil ? "route \(key)" : "element \(key)" }
+
+    /// Tell the agent what this hatch added (LLP 1075.003.000.001 §3.4): a
+    /// sentence, bound weakly to the view or recognizer. `tree` shows it
+    /// under the node with what the host observes of the object (whether it
+    /// is live, its frame, its class), and its interior is counted as this
+    /// region's. It ends when the object goes or the node does.
+    public func owns(view: ExactPlatformView, _ what: String, surface: Bool = false) {
+        if isLive { hatches?.owns(scope: scopeName, node: node, kind: 0, object: view, what, surface: surface) }
+    }
+    public func owns(recognizer: ExactPlatformRecognizer, _ what: String, surface: Bool = false) {
+        if isLive { hatches?.owns(scope: scopeName, node: node, kind: 1, object: recognizer, what, surface: surface) }
+    }
+
+    /// The controls this hatch drew in the node (§3.5), at most 32. Setting
+    /// the list replaces it; one that breaks a bound is refused whole, by
+    /// name, in the journal, and the list stays as it was.
+    public var parts: [ExactPart] = [] {
+        didSet {
+            guard !settingParts, isLive, let hatches, let partsFn = hatches.partsFn else { return }
+            let rows = parts.map { ["id": $0.id, "role": $0.role, "label": $0.label] }
+            let json = (try? JSONSerialization.data(withJSONObject: rows)) ?? Data("[]".utf8)
+            var views: [UnsafeMutableRawPointer?] = parts.map { part in part.view.map { Unmanaged.passUnretained($0).toOpaque() } }
+            let refused = json.withUnsafeBytes { j in
+                views.withUnsafeMutableBufferPointer { v in
+                    partsFn(hatches.host, node, j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count), UnsafePointer(v.baseAddress), UInt32(v.count))
+                }
+            } != 0
+            if refused { settingParts = true; parts = oldValue; settingParts = false }
+        }
+    }
+    private var settingParts = false
 
     /// Replace an authored text field's whole value, as a person's typing
     /// would leave it (LLP 1075.003.000.001 §2.5): cut to the field's own
@@ -1165,6 +1266,7 @@ private let moduleApp: @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeM
           let fields = try? JSONSerialization.jsonObject(with: Data(bytes: json, count: Int(length))) as? [String: Any] else { return }
     let app = hatches.app ?? ExactApp()
     let isNew = hatches.app == nil
+    app.hatches = hatches
     app.read(fields)
     #if os(macOS)
     app.application = application.map { Unmanaged<NSApplication>.fromOpaque($0).takeUnretainedValue() }
@@ -1191,6 +1293,7 @@ private let moduleWindow: @convention(c) (UnsafeMutableRawPointer?, UInt32, Unsa
           let fields = try? JSONSerialization.jsonObject(with: Data(bytes: json, count: Int(length))) as? [String: Any] else { return }
     // A new surface is a new handle: one from before never reaches the next window.
     let handle = event == 0 ? ExactWindow() : (hatches.window ?? ExactWindow())
+    handle.hatches = hatches
     let isNew = event == 0 || hatches.window == nil
     handle.read(fields)
     #if os(macOS)

@@ -283,3 +283,51 @@ test('what a tick asks is drained at its instant, with the moments it causes, un
   stop();
   await settled();
 });
+
+test('regions and parts are bounded, bound to their elements, and end as tombstones', async () => {
+  const hatches = await import(resolve(dir, 'hatches.js'));
+  clock.now = 9000;
+  const el = (connected = true) => ({ isConnected: connected, localName: 'div', getBoundingClientRect: () => ({ x: 4, y: 4, width: 12, height: 12 }) });
+  let handle = null;
+  const n = node('owner');
+  n.onHatch = e => { handle = e; };
+  const end = await mount(hatches, n);
+  const of = () => globalThis.exact.hatchRegions.of(n), refused = () => globalThis.exact.hatchState().regionsRefused ?? 0;
+  const seal = el();
+  expect(handle.owns(seal, 'seal: drawn by the hatch')).toBe(true);
+  expect(of().owns).toEqual([{ by: 'element owner', kind: 'view', what: 'seal: drawn by the hatch', observed: { live: true, frame: { x: 4, y: 4, w: 12, h: 12 }, class: 'div' } }]);
+  // The same element again replaces its region; a sentence over 120 bytes, or none, is refused.
+  handle.owns(seal, 'seal, said again', { surface: true });
+  expect(of().owns.length).toBe(1);
+  expect(of().owns[0]).toMatchObject({ what: 'seal, said again', surface: true });
+  expect(handle.owns(el(), 'x'.repeat(121))).toBe(false);
+  expect(handle.owns(el(), '')).toBe(false);
+  expect(refused()).toBe(2);
+  // 32 regions a scope.
+  for (let i = 0; i < 40; i++) handle.owns(el(), `region ${i}`);
+  expect(of().owns.length).toBe(32);
+  expect(refused()).toBe(2 + 9);
+  // Parts: a list replaces the last; one that breaks a bound is refused whole and the last stays.
+  handle.parts = [{ id: 'seal', element: seal, role: 'button', label: 'Verified' }];
+  handle.parts = [{ id: 'a', element: seal }, { id: 'a', element: seal }];
+  handle.parts = Array.from({ length: 33 }, (_, i) => ({ id: `p${i}`, element: seal }));
+  handle.parts = [{ id: 'x'.repeat(65), element: seal }];
+  handle.parts = [{ id: 'long', element: seal, label: 'l'.repeat(121) }];
+  expect(of().parts).toEqual([{ id: 'seal', role: 'button', label: 'Verified', live: true, frame: { x: 4, y: 4, w: 12, h: 12 } }]);
+  expect(globalThis.exact.hatchRegions.part(n, 'seal')).toBe(seal);
+  expect(refused()).toBe(2 + 9 + 4);
+  expect(journal.some(l => /hatch element owner: parts refused: `a` is listed twice/.test(l))).toBe(true);
+  // The seal leaves the page: its region is a tombstone, the same at each read, for 5 s of session clock.
+  seal.isConnected = false;
+  const tomb = of().owns.find(o => o.what === 'seal, said again');
+  expect(tomb.observed).toEqual({ live: false, ended: 9000 });
+  expect(of().parts[0].live).toBe(false);
+  expect(globalThis.exact.hatchRegions.part(n, 'seal')).toBe(null);
+  clock.now = 9100;
+  expect(of().owns.find(o => o.what === 'seal, said again')).toEqual(tomb);
+  clock.now = 14000;
+  expect(of().owns.some(o => o.what === 'seal, said again')).toBe(false);
+  // The node's end takes what it registered.
+  end();
+  expect(globalThis.exact.hatchRegions.of(n)).toBe(null);
+});

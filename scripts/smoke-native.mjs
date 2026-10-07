@@ -535,6 +535,38 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
       check(sc.app?.calls?.changed === 1, `${host} native: one change is one call: ${JSON.stringify(sc.app)}`);
       await d.prefer({ 'prefers-color-scheme': 'light' });
       await waited('the fact changing back is told too', (sc) => sc.module?.published?.scopes?.scheme === 'light');
+      // Regions and parts (LLP 1075.003.000.001 §3.4, §3.5, §8 stage 3): the
+      // badge's hatch draws a seal and says so. `tree` shows the declaration
+      // beside what the host observes, and the part under its node; when the
+      // seal goes its region stays as a tombstone that every read sees alike.
+      {
+        const badge = () => d.tree().then((t) => byTestId(t, 'hatched-badge'));
+        let b = await badge();
+        const own = b?.owns?.[0], part = b?.parts?.[0];
+        check(b?.owns?.length === (host === 'web' ? 1 : 2) && own.by === 'element badge' && own.kind === 'view' && /^seal: /.test(own.what) && own.observed?.live === true && own.observed.frame?.w === 12 && own.observed.frame.h === 12 && !!own.observed.class,
+          `${host} native: tree shows a region's declaration and what the host observes of it: ${JSON.stringify(b?.owns)}`);
+        check(b?.parts?.length === 1 && part.id === 'seal' && part.role === 'button' && part.label === 'Verified' && part.live === true && part.frame?.w === 12,
+          `${host} native: tree lists a part under its node, by id, with its observed frame: ${JSON.stringify(b?.parts)}`);
+        const hs = (await d.state()).hatches;
+        check(hs?.owns?.some((o) => o.by === 'element badge' && o.kind === 'view'), `${host} native: state.hatches lists the regions: ${JSON.stringify(hs?.owns)}`);
+        // `tap <node>/<part>` reaches the seal as a real pointer event at its place (§3.5): it lands
+        // on the part, and the hatch's own code counts the press. A part that is not there is refused
+        // by name. The simulator's agent taps are not real touches, so there it is `unsupported`.
+        const tapped = await d.tap('hatched-badge/seal').catch((error) => ({ error: error.message }));
+        await settle(d);
+        const presses = (await d.state()).hatches?.scopes?.module?.counters?.['seal.presses'];
+        if (host === 'ios') check(tapped.delivery === 'unsupported' && presses === undefined, `${host} native: a part takes a real touch, so an agent tap is unsupported: ${JSON.stringify(tapped)}`);
+        else check(tapped.landed === 'part' && tapped.delivery === 'platform' && presses === 1, `${host} native: tap <node>/<part> lands a real pointer event on the part: ${JSON.stringify(tapped)}, ${presses} presses`);
+        const absent = await d.tap('hatched-badge/nope').catch((error) => ({ error: error.message }));
+        check(host === 'ios' ? absent.delivery === 'unsupported' : /part nope: view \d+ has no live part of that id/.test(absent.error ?? ''), `${host} native: a part that is not there is refused by name: ${JSON.stringify(absent)}`);
+        const moved = own.observed.frame;
+        // The badge's tone turns busy: its hatch takes the seal away.
+        await d.tap('compose-home'); await settle(d); await d.clock('settle');
+        b = await badge();
+        const tomb = b?.owns?.[0], again = (await badge())?.owns?.[0];
+        check(b?.owns?.length === (host === 'web' ? 1 : 2) && b.owns.every((o) => o.observed?.live === false) && tomb.observed?.live === false && typeof tomb.observed.ended === 'number' && !b.parts && again?.observed?.live === false && again.observed.ended === tomb.observed.ended && again.what === tomb.what && moved.w === 12,
+          `${host} native: a region whose view is gone stays as one tombstone, the same at each read: ${JSON.stringify(b?.owns)} parts ${JSON.stringify(b?.parts)}`);
+      }
       if (host !== 'ios') {
         const [w, h] = told.scopes.frame;
         await d.resize(w - 40, h - 40);

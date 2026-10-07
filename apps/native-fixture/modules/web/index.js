@@ -83,6 +83,24 @@ export function element(e) {
     if (!e.isNew && e.data.presses === '65') e.click();
   }
   if (e.hatch !== 'badge') return;
+  // Regions and parts (§3.4, §3.5): the badge draws a seal over itself and
+  // says so; with `data-tone` busy the seal goes, and its region stays a
+  // while as a tombstone.
+  let seal = e.element.querySelector('[data-fixture-seal]');
+  if (e.data.tone === 'busy') { seal?.remove(); e.parts = []; }
+  else if (!seal) {
+    seal = document.createElement('div');
+    seal.setAttribute('data-fixture-seal', '');
+    seal.setAttribute('role', 'button');
+    seal.setAttribute('aria-label', 'Verified');
+    // In the badge's own flow, at (4, 4): a hatch leaves the node's own box and position to Exact.
+    seal.style.cssText = 'width:12px;height:12px;margin:4px;background:#fff;flex:none';
+    // What the seal does when pressed is the hatch's own code: here it counts the press.
+    seal.addEventListener('click', () => globalThis.exact.diagnostics.count('seal.presses'));
+    e.element.append(seal);
+    e.owns(seal, 'seal: a white square the hatch draws on the badge');
+    e.parts = [{ id: 'seal', element: seal, role: 'button', label: 'Verified' }];
+  }
   e.diagnostics.log(`${moment}, tone ${e.data.tone}`);
   e.diagnostics.publish('tone', { tone: e.data.tone, moment });
   if (!e.isNew) return;

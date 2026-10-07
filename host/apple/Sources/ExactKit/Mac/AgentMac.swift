@@ -632,6 +632,9 @@ extension Agent {
         // `clicks n` is n, each with the count so far (a triple click selects a line).
         let count = req["clicks"] == nil ? (req["dblclick"] as? Bool == true ? 2 : 1) : req["clicks"] as? Int ?? 0
         guard (1...3).contains(count) else { return ["error": "tap: clicks is 1, 2 or 3"] }
+        // What the click will reach, by the window's own hit test: a part's landing reads it (AgentParts.swift).
+        PartLanding.view = win.contentView?.superview?.hitTest(p) ?? win.contentView?.hitTest(p)
+        PartLanding.delivered = true
         for clicks in 1...count {
             let t = ProcessInfo.processInfo.systemUptime
             let eventNumber = AgentMouseRelease.nextEventNumber()

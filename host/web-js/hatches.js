@@ -29,6 +29,7 @@ const publish = () => {
   if (!x || x.hatchState) return;
   x.hatchState = state; x.hatchPerf = { reply: perfReply, site: perfSite, window: perfWindow };
   x.hatchActs = { drains: () => A.drains, queued: () => Acts.length, command() { K.fires = K.acts = 0; } };
+  x.hatchRegions = { of: regionsOf, part: partOf };
   // What a page module reaches: its diagnostics and the frame clock (§2.4).
   x.diagnostics = diagnostics("module"); x.hatches = { ...hatchClock, diagnostics: x.diagnostics };
 };
@@ -206,7 +207,9 @@ function state() {
   const reply = { words, scopes: others, ...(globalThis.exact?.hatchWords ? { platform: globalThis.exact.hatchWords } : {}),
     unhandled: [...Unhandled].map(([word, reason]) => ({ word, reason })), refused: A.refused, inFlight: Acts.length,
     measuring: dev(), rejected: D.rejected, abandoned: D.abandoned, limited: D.limited };
-  return fit(reply, [[reply, "words"], [reply, "scopes"], [reply, "unhandled"]]);
+  sweepRegions();
+  if (Regions.length || Tombs.length || G.rejected) Object.assign(reply, { owns: [...Regions.map(regionJson), ...Tombs.map(tombJson)], surfaces: Regions.filter(r => r.surface).map(r => ({ by: r.scope, what: r.what })), regionsRefused: G.rejected });
+  return fit(reply, [[reply, "words"], [reply, "scopes"], [reply, "unhandled"], [reply, "owns"]]);
 }
 
 const quantile = (sorted, q) => sorted.length ? sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))] : 0;
@@ -388,6 +391,74 @@ const hatchClock = {
   now() { time(); return clock.now; },
 };
 
+// Regions and parts (@ref LLP 1075.003.000.001 §3.4, §3.5): what a hatch
+// tells the agent it cannot otherwise see. `e.owns(element, "what")` binds a
+// sentence, weakly, to an element the hatch made (`a.owns("what")` on the app
+// binds an appearance to nothing); `e.parts = [{ id, element, role, label }]`
+// names the controls it drew. `tree` shows both under the node, with what
+// the page observes of each element (live, its frame, its tag), and
+// `state.hatches` every region whatever its scope. A region whose element has
+// gone stays as a tombstone for 5 s of session clock, at most 16. Bounds: 32
+// regions a scope and 1,024 a page, a sentence of 120 bytes, 16 appearances,
+// 32 parts a node with ids of 64 bytes, unique in the node, and labels of
+// 120; past one the registration is refused by name, whole.
+const Regions = [], Tombs = [], Parts = new WeakMap(), PartNodes = new Set();
+const G = { rejected: 0 };
+const refused = (scope, why) => { G.rejected++; say(`${scope}: ${why}`); return false; };
+function owns(scope, node, target, what, options) {
+  what = String(what ?? "");
+  const size = enc.encode(what).length, kind = target && typeof target === "object" ? "view" : "appearance";
+  if (!size || size > 120) return refused(scope, `owns refused: its sentence is ${size} bytes, over 120`);
+  // An appearance is keyed by its sentence, and an element by itself: saying it again replaces it.
+  for (let i = Regions.length - 1; i >= 0; i--) if (kind === "appearance" ? Regions[i].kind === kind && Regions[i].what === what : Regions[i].ref?.deref() === target) Regions.splice(i, 1);
+  if (kind === "appearance" && Regions.filter(r => r.kind === kind).length >= 16) return refused(scope, "owns refused: 16 appearance regions a page");
+  if (Regions.filter(r => r.scope === scope && r.node === node).length >= 32) return refused(scope, "owns refused: 32 regions a scope");
+  if (Regions.length >= 1024) return refused(scope, "owns refused: 1,024 regions a page");
+  Regions.push({ scope, node, kind, what, surface: !!options?.surface, ref: kind === "view" ? new WeakRef(target) : null });
+  return true;
+}
+function setParts(scope, node, list) {
+  if (!Array.isArray(list)) return refused(scope, "parts refused: a list of { id, element, role, label }");
+  if (list.length > 32) return refused(scope, `parts refused: ${list.length} parts, over 32 a node`);
+  const ids = new Set();
+  for (const p of list) {
+    const id = String(p?.id ?? ""), n = enc.encode(id).length;
+    if (!n || n > 64) return refused(scope, `parts refused: an id of ${n} bytes (1 to 64)`);
+    if (ids.has(id)) return refused(scope, `parts refused: \`${id}\` is listed twice`);
+    if (enc.encode(String(p.label ?? "")).length > 120) return refused(scope, `parts refused: \`${id}\`'s label is over 120 bytes`);
+    ids.add(id);
+  }
+  if (list.length) { Parts.set(node, list.map(p => ({ id: String(p.id), role: String(p.role ?? ""), label: String(p.label ?? ""), ref: p.element ? new WeakRef(p.element) : null }))); PartNodes.add(new WeakRef(node)); }
+  else Parts.delete(node);
+  return true;
+}
+// What a scope registered goes with it.
+const regionsEnded = (scope, node) => { for (let i = Regions.length - 1; i >= 0; i--) if (Regions[i].scope === scope && Regions[i].node === node) Regions.splice(i, 1); if (node) Parts.delete(node); };
+const regionLive = r => r.kind === "appearance" || r.ref.deref()?.isConnected === true;
+// A region whose element is gone is retired here, before a read: with nothing
+// changed since, a second read sees the same tombstone.
+function sweepRegions() {
+  for (let i = 0; i < Regions.length; i++) if (!regionLive(Regions[i])) { const r = Regions.splice(i--, 1)[0]; Tombs.push({ scope: r.scope, node: r.node, kind: r.kind, what: r.what, ended: clock.now }); }
+  for (let i = Tombs.length - 1; i >= 0; i--) if (clock.now - Tombs[i].ended >= 5000) Tombs.splice(i, 1);
+  if (Tombs.length > 16) Tombs.splice(0, Tombs.length - 16);
+}
+const rect = el => { const b = el.getBoundingClientRect(), r = v => Math.round(v * 100) / 100; return { x: r(b.x), y: r(b.y), w: r(b.width), h: r(b.height) }; };
+const regionJson = r => {
+  const el = r.ref?.deref();
+  return { by: r.scope, kind: r.kind, what: r.what, ...(r.surface ? { surface: true } : {}), observed: { live: true, ...(el ? { frame: rect(el), class: el.localName } : {}) } };
+};
+const tombJson = t => ({ by: t.scope, kind: t.kind, what: t.what, observed: { live: false, ended: t.ended } });
+const partJson = p => { const el = p.ref?.deref(), live = el?.isConnected === true; return { id: p.id, role: p.role, label: p.label, live, ...(live ? { frame: rect(el) } : {}) }; };
+/** `tree`: a node's regions (and their tombstones) and parts, to lay over its row. */
+function regionsOf(node) {
+  if (!Regions.length && !Tombs.length && !Parts.has(node)) return null;
+  sweepRegions();
+  const owned = [...Regions.filter(r => r.node === node).map(regionJson), ...Tombs.filter(t => t.node === node).map(tombJson)], parts = Parts.get(node);
+  return owned.length || parts ? { ...(owned.length ? { owns: owned } : {}), ...(parts ? { parts: parts.map(partJson) } : {}) } : null;
+}
+/** The element a node's part `id` is bound to, if it is live. */
+const partOf = (node, id) => { const el = Parts.get(node)?.find(p => p.id === id)?.ref?.deref(); return el?.isConnected ? el : null; };
+
 // The words this platform handles, when the app's manifest gives words their
 // platforms (web-js/build.mjs; LLP 1075.003.000.001 §4.3): a word it leaves
 // out is shown and never called, journaled once and listed in `state`.
@@ -410,6 +481,9 @@ export function ht(e) {
   const h = {
     hatch: word, element: e, data: e.dataset, isNew: true, isLive: true,
     click() { ask(h, what, "click"); }, focus() { ask(h, what, "focus"); }, blur() { ask(h, what, "blur"); }, input(text) { ask(h, what, "input", text); },
+    owns(target, sentence, options) { return h.isLive && owns(`element ${word}`, e, target, sentence, options); },
+    get parts() { return (Parts.get(e) ?? []).map(p => ({ id: p.id, role: p.role, label: p.label, element: p.ref?.deref() ?? null })); },
+    set parts(list) { if (h.isLive) setParts(`element ${word}`, e, list); },
     diagnostics: diagnostics(`element ${word}`, spans),
   };
   // A throw is caught and journaled (LLP 1075.003.000.001 §4.4): this node's
@@ -466,6 +540,7 @@ export function ht(e) {
     h.isLive = false;
     if (told) { counted(word).live--; call("elementEnded", "ended"); }
     abandon(spans);
+    regionsEnded(`element ${word}`, e);
     h.data = { ...e.dataset };
     h.element = null;
   });
@@ -502,8 +577,8 @@ function scopesOf(m) {
     calls[moment] = (calls[moment] ?? 0) + 1;
     try { timed(scope, null, moment, () => m[name](arg)); } catch (error) { say(`${name} threw ${error?.message ?? error}`); }
   };
-  const app = { ...facts(), processOwner: true, isNew: true, isLive: true };
-  const win = { window: globalThis, document, exclusive: true, frame: frame(), isNew: true, isLive: true };
+  const app = { ...facts(), processOwner: true, isNew: true, isLive: true, owns: (sentence, options) => owns("app", null, null, sentence, options) };
+  const win = { window: globalThis, document, exclusive: true, frame: frame(), isNew: true, isLive: true, owns: (target, sentence, options) => owns("window", null, target, sentence, options) };
   call("app", "app", "built", app);
   call("window", "window", "built", win);
   let due = false, ended = false;
@@ -524,8 +599,8 @@ function scopesOf(m) {
   globalThis.addEventListener?.("pagehide", () => {
     if (ended) return;
     ended = true;
-    call("windowEnded", "window", "ended", win); win.isLive = false;
-    call("appEnded", "app", "ended", app); app.isLive = false;
+    call("windowEnded", "window", "ended", win); win.isLive = false; regionsEnded("window", null);
+    call("appEnded", "app", "ended", app); app.isLive = false; regionsEnded("app", null);
   });
 }
 
@@ -569,7 +644,8 @@ export function containers() {
             || element.closest("[data-exiting]")) continue;
           live.add(element);
           if (routes.has(element)) continue;
-          const r = { key: element.getAttribute("navigationKey"), data: element.dataset, element, navigation: nav, isNew: true, isLive: true };
+          const key = element.getAttribute("navigationKey");
+          const r = { key, data: element.dataset, element, navigation: nav, isNew: true, isLive: true, owns: (target, sentence, options) => owns(`route ${key}`, null, target, sentence, options) };
           routes.set(element, r);
           call("route", `route ${r.key}: built`, r);
         }
@@ -579,6 +655,7 @@ export function containers() {
         routes.delete(element);
         call("routeEnded", `route ${r.key}: ended`, r);
         r.isLive = false;
+        regionsEnded(`route ${r.key}`, null);
       }
     };
     scopesOf(m);

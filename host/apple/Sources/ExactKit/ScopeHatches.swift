@@ -90,6 +90,7 @@ extension NativeViews {
                 call(instance, event, application.map { Unmanaged.passUnretained($0).toOpaque() }, j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count))
             }
         }
+        if event == 2 { session?.presenter.elements.regions.ended(scope: "app") }
     }
 
     private func windowJSON(_ view: ExactView, _ window: FocusWindow) -> Data {
@@ -118,6 +119,7 @@ extension NativeViews {
                 call(instance, event, raw(scopes.windowExclusive ? window : nil), raw(scene), j.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count))
             }
         }
+        if event == 2 { session?.presenter.elements.regions.ended(scope: "window") }
     }
 
     /// As the hatches connect: `app`, then `window` for the surface there
