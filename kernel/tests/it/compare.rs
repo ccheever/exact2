@@ -276,6 +276,11 @@ fn forms_outside_the_grammar_are_refused_by_name() {
             "separated by commas",
         ),
         (deep.as_str(), "8 deep"),
+        ("(max(1px, env(safe-area-inset-bottom)))", "inside calc()"),
+        (
+            "calc(calc(env(safe-area-inset-top) + 3e38px) + 3e38px + min(1px, 2px))",
+            "finite",
+        ),
     ] {
         match text(StyleId::PaddingBottom, value) {
             Err(StyleValueError::BadComparison { style, reason }) => {

@@ -548,12 +548,16 @@ fn names_comparison(text: &str) -> bool {
 /// the whole text one function, or a `calc()` around one. `Ok(None)` when
 /// the text names no comparison (the other length grammars read it); `Err`
 /// with the reason when it names one wrongly. Points when nothing in it
-/// reads the environment; a bare inset or viewport length when the
-/// comparison has one argument; otherwise [`Dimension::Compare`].
+/// reads the environment; an inset's or a viewport length's own dimension
+/// when the comparisons in it fold away; otherwise [`Dimension::Compare`].
 pub fn parse(text: &str) -> Result<Option<Dimension>, &'static str> {
     let text = text.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']);
     if !names_comparison(text) {
         return Ok(None);
+    }
+    // CSS parenthesizes a sum only inside a math function.
+    if text.starts_with('(') {
+        return Err(refusal::TOP_SUM);
     }
     let mut p = Parser {
         s: text,
@@ -568,15 +572,13 @@ pub fn parse(text: &str) -> Result<Option<Dimension>, &'static str> {
         Some(b'+' | b'-' | b'*' | b'/') => return Err(refusal::TOP_SUM),
         Some(_) => return Err(refusal::SYNTAX),
     }
+    if matches!(&val, Val::Var(e) if !e.well_formed()) {
+        return Err(refusal::NONFINITE);
+    }
     Ok(Some(match val {
         Val::Points(p) => Dimension::Points(p),
         Val::Var(Expr::Term(Base::Inset(edge), plus)) => Dimension::Env(edge, plus),
         Val::Var(Expr::Term(Base::Viewport(unit, n), 0.0)) => Dimension::Viewport(unit, n),
-        Val::Var(e) => {
-            if !e.well_formed() {
-                return Err(refusal::NONFINITE);
-            }
-            Dimension::Compare(Comparison::intern(e))
-        }
+        Val::Var(e) => Dimension::Compare(Comparison::intern(e)),
     }))
 }
