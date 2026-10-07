@@ -1,0 +1,27 @@
+[package]
+name = "android-core-android"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Android core example: the shared Contract over the imperative native adapter"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "android_core_android"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-android = { path = "../../../host/android" }
+android-core-data = { path = "../data" }
+
+[build-dependencies]
+exact-android = { path = "../../../host/android" }
+exact-plan = { path = "../../../plan" }
+android-core-data = { path = "../data" }
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
+
+[[bin]]
+name = "bridge-bench"
+path = "src/bin/bridge-bench.rs"

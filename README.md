@@ -59,6 +59,53 @@ in the UI, and no app JavaScript runs before the first pixel.
 > repository, `exact2`, is a rebuild of an earlier one ("exact1"). Its design documents
 > are imported under `llp/research/` as research, never as authority.
 
+## Android Views prototype (C9)
+
+`host/android/` is an experimental imperative Android presenter. Its goal is to
+make Android Views and platform controls available to Exact apps, following the
+same host-component direction as React Native and the UIKit/AppKit hosts, while
+targeting native performance. Rust remains the app-state and CSS-layout owner;
+Android retains the platform view tree. This is an alternative to the Android
+Canvas painter experiments built over `host/linux`.
+
+The current prototype uses `EditText`, `ImageView` and vertical `ScrollView`.
+Buttons are custom view containers with platform ripples and accessibility
+semantics. Text uses the public Compose `Paragraph` API without a composition
+tree; text and backgrounds still draw through Android Canvas, with retained
+RenderNodes for eligible passive text. Native toolbars, navigation and general
+native component embedding are goals, not implemented features.
+
+One borrowed direct-buffer transaction crosses JNI for each event or active
+animation frame. Changed paint, geometry and transform values use binary records;
+cold tree and style operations retain the existing native dictionary vocabulary.
+Native scrolling without an authored handler stays in Android. The adapter
+reuses the existing Rust runner/kernel and the Apple host's portable bridge and
+request executor rather than introducing another layout engine.
+
+`apps/android-core` provides a counter, native text editing, eager scrollable
+lists, bulk paint changes and retained-subtree transforms, plus separate Views
+and Compose references. The rich-list case retains 1,000 cards with eight text
+leaves per card; it is not a virtualized or media-heavy list.
+
+```sh
+bun install --frozen-lockfile
+bun host/android/build.mjs android-core --run --serial <device>
+bun host/android/build.mjs android-core --compare --serial <device>
+```
+
+Set `ANDROID_HOME` and `JAVA_HOME`; the build requires JDK 17, Gradle 9.3.1,
+SDK platform 37.0, build tools 36.0.0 and NDK 28.2.13676358. `EXACT_GRADLE`
+can select the Gradle executable. APKs use Rust release, R8 and resource shrinking;
+local builds use a development signing key. Delivery and Rust replacement must
+be disabled in the Android app manifest.
+
+This draft does not implement virtualized collections, Canvas 2D, SVG, Markdown,
+WebViews, video, GPU/native module artifacts, delivery or Rust replacement.
+Advanced text/font cases fail explicitly. Its core publication currently keeps
+an outdated environment snapshot across layout, which can resend styles on the
+next paint-only update; that issue remains open rather than reverting the
+kernel's viewport update.
+
 ## Contents
 
 - [Three principles](#three-principles)

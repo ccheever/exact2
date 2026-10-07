@@ -134,6 +134,12 @@ impl<'a> NodeRef<'a> {
         read(self.arena.computed_source(self.slot, id))
     }
 
+    /// Retain this node's immutable interned authored style. Equal styles share
+    /// an allocation; computed inheritance is separate and later writes replace it.
+    pub fn shared_style(&self) -> std::rc::Rc<StyleProps> {
+        self.arena.shared_style(self.slot)
+    }
+
     /// The run style this node's text measures and paints with: its own text
     /// rows, else its paragraph's, else the initial values.
     pub fn text_style(&self) -> TextStyle {

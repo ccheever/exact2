@@ -1,0 +1,11 @@
+[package]
+name = "android-core-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The Android core example's immutable rows, baked into the shared Contract plan"
+publish = false
+
+[dependencies]
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }

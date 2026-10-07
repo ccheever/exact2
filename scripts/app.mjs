@@ -473,7 +473,7 @@ export function moduleDirectory(dir, platform) {
 /** The app `nameOrCrate` names (`caltrain`, `caltrain-web`, …; `EXACT_APP_DIR`'s basename when unset): its directory, cargo workspace, target directory, crate names, and manifest. */
 export function resolveApp(nameOrCrate) {
   const outside = process.env.EXACT_APP_DIR ? resolve(process.env.EXACT_APP_DIR) : null;
-  let name = nameOrCrate ? String(nameOrCrate).replace(/-(web|apple|ios|macos|linux|windows|gpu)$/, '') : outside ? basename(outside) : 'caltrain';
+  let name = nameOrCrate ? String(nameOrCrate).replace(/-(web|apple|ios|macos|linux|windows|android|gpu)$/, '') : outside ? basename(outside) : 'caltrain';
   let dir = outside ?? resolve(ROOT, 'apps', name);
   if (!outside && !existsSync(resolve(dir, 'app.contract')) && existsSync(resolve(ROOT, 'game/games', name, 'app.contract'))) dir = resolve(ROOT, 'game/games', name);
   if (!existsSync(resolve(dir, 'app.contract'))) throw new Error(`no app at ${dir} (no app.contract)${outside ? '' : '; set EXACT_APP_DIR for an app outside this repo'}`);
@@ -1179,6 +1179,7 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
         'package.json', 'bun.lock', 'node_modules/@sqlite.org/sqlite-wasm/package.json']) add(resolve(ROOT, path));
     }
   }
+  if(platform==='android')for(const path of ['host/android/kotlin','host/android/benchmark','host/android/jni','host/android/include','host/android/build.mjs','host/apple/include/exact.h','scripts/app.mjs','scripts/app.schema.json'])add(resolve(ROOT,path));
   const nativeResources = platform === 'macos' ? macResourceInventory(app) : [];
   const metadata={...(nativeResources.length ? {nativeResources} : {}),app:app.manifest.app,host:app.manifest.host?.[platform]??{},icons:app.manifest.icons??[],delivery:compat.delivery,store:compat.inputs.store,keys:compat.inputs.keys};
   const configuration={target,units:orderedBuild([...new Map(units.map(u=>[canonicalBuild(u),u])).values()]),builders:orderedBuild([...new Map(builders.map(u=>[canonicalBuild(u),u])).values()]),rustc:buildCommand('rustc',['-vV'],app,env).stdout,flags:{...Object.fromEntries(['RUSTFLAGS','CARGO_ENCODED_RUSTFLAGS','MACOSX_DEPLOYMENT_TARGET','IPHONEOS_DEPLOYMENT_TARGET'].map((k)=>[k,env[k]??null])),...(env.EXACT_WEB_LINK?{EXACT_WEB_LINK:env.EXACT_WEB_LINK}:{}),...(env.EXACT_WEB_SIZE?{EXACT_WEB_SIZE:env.EXACT_WEB_SIZE}:{})}};
@@ -1287,10 +1288,9 @@ export function buildBake(app, platform, target, options = {}) {
     env.EXACT_ASSET_ROOTS=['assets','deck',...(app.manifest.game ? [] : ['gpu/shaders'])].filter(root=>(root==='assets' && app.manifest.game && (app.manifest.game.assets === true || existsSync(resolve(app.dir,'art')))) || existsSync(resolve(app.dir,root))).join(',');
     // The app's own web artifact builds std for size; a GPU crate keeps the toolchain's std.
     const sized=platform==='web'&&!gpuPackage(pkg);
-    // An Apple app's crate is an rlib to Cargo, so `--workspace` builds type-check it without
-    // bundling its whole dependency graph into a 700 MB archive nobody reads. The archive the
-    // app links is asked for here, where it is built to be launched.
-    const archive=apple&&pkg.id===graph.root.id;
+    // Native carrier crates are rlibs to Cargo; --workspace type-checks them without
+    // bundling their graph into an archive. Build the runnable archive here.
+    const archive=(apple||platform==='android')&&pkg.id===graph.root.id;
     // What ships to an Apple device is optimized as one module: fat LTO makes the
     // stripped binary 4.8% smaller than thin and no slower to boot, for 16 s of a
     // production build (LLP 1036.000 §8). Said here and not in `[profile.release]`,
