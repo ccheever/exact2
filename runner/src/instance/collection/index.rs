@@ -101,6 +101,14 @@ pub(crate) struct SizeIndex {
     rebuilds: usize,
 }
 
+/// How far short of a fractional end a port at its end may report, in CSS
+/// pixels or points: a browser's scroll range is whole pixels, rounded from a
+/// fractional extent in Chrome (a 210.72 px extent in a 140 px port scrolls to
+/// 71) and floored in WebKit (it stops at 70); native geometry rounds through
+/// f32 and device pixels. A port less than this from the end is at it, on
+/// every host, whatever the extent; a reader a whole pixel up is not.
+pub(crate) const END_SLACK: f64 = 1.0;
+
 impl SizeIndex {
     /// Zero estimates are legal, but cannot bootstrap a visible row by geometry.
     /// Choose a positive estimate for unmeasured content; measured zeroes are fine.
@@ -526,13 +534,8 @@ impl SizeIndex {
         follow_end: bool,
     ) -> Result<Anchor, IndexError> {
         let offset = self.clamp_offset(offset, viewport)?;
-        // Browser scroll ranges round fractional CSS extents to whole pixels;
-        // native document geometry also rounds through f32. Admit up to half a
-        // logical pixel/point on every host, independent of extent (including
-        // small resident windows); never follow a reader beyond that tolerance.
-        let tolerance = 0.5;
         let follows_end =
-            follow_end && viewport > 0.0 && self.max_offset(viewport) - offset <= tolerance;
+            follow_end && viewport > 0.0 && self.max_offset(viewport) - offset < END_SLACK;
         // An end it follows wins: a short transcript is at both edges.
         let row = if offset <= 0.0 && !follows_end {
             None
