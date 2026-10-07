@@ -157,3 +157,4 @@ shape ThreadColors
   codeForeground: string
   userCodeBackground: string
   userCodeForeground: string
+  composerBackdrop: string

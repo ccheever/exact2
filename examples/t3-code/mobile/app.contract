@@ -1450,7 +1450,7 @@ component App
       MobileSidebarPanel(workspace=workspace, look=look, sidebarHome=sidebarHome, sidebarChrome=sidebarChrome, homeLook=homeLook, chooseThread=chooseThread, toggleHomeShelf=toggleHomeShelf, showMoreSidebar=showMoreSidebar, addEnvironment=addEnvironment, sidebarChromeEvent=sidebarChromeEvent)
       column id="workspace-panel" role="tabpanel" pointer-events="none" position="relative" width=workspace.contentSettledWidth height="100%" flex-shrink=0 min-width=0
         each entry in stack(nav) key = entry.id
-          column navigationKey=`${entry.id}` pointer-events="auto"
+          column id=`mobile-route-${entry.id}` navigationKey=`${entry.id}` pointer-events="auto"
             data-mobile-scheduled-editor=(entry.name == "settingsScheduledNew" or entry.name == "settingsScheduledEdit")
             data-mobile-form-sheet=(entry.name == "connections" or entry.name == "connect")
             data-mobile-scan-action=(entry.name == "connect" ? "scan-qr" : "")
