@@ -1,0 +1,16 @@
+// @ref llp/1106.009-mobile-settings.decision.md#unconfigured-account-routes
+use SettingsColors, SettingsTextRoles from "./settings.contract"
+shape NotificationsData
+  title: string
+  detail: string
+component SettingsNotifications
+  props
+    data: NotificationsData
+    colors: SettingsColors
+    roles: SettingsTextRoles
+    bottom: number
+  view
+    column flex=1 min-height=0 background-color=colors.sheet font-family="DM Sans"
+      scroll id="settings-notifications-scroll" flex=1 min-height=0
+        column padding-left=17.5 padding-right=17.5 padding-top=14 padding-bottom=bottom
+          text data.detail font-size=roles.body.size line-height=`${roles.body.line}px` color=colors.muted testId="notifications-unavailable"

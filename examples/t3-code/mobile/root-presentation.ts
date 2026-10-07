@@ -1,3 +1,4 @@
+import { mobileAccountSettings } from './settings-account';
 // Root adapters over mobile presentation and the shared client, upstream365aa87982.
 // @ref llp/1106.004-home-projection.decision.md#decision
 import { normalizeMobilePreferences, resolveMobileAppearance } from './settings-preferences';
@@ -43,7 +44,7 @@ export function settingsRoot(args: unknown[]) {
   const preferences = normalizeMobilePreferences(serialized);
   const appearance = resolveMobileAppearance(preferences, str(systemScheme));
   const scope = settingsScope(rows, selectionJSON, preferences.projectGroupingMode);
-  return { root: settingsRootView({ savedEnvironmentCount: arr(rows).length,
+  return { root: settingsRootView({ ...mobileAccountSettings(), savedEnvironmentCount: arr(rows).length,
     enabledRoutes: ['SettingsEnvironments', 'SettingsAppearance', 'SettingsKeyboard', 'SettingsFollowUp', 'SettingsOrganization', 'SettingsArchive', 'SettingsProviderAccounts', 'SettingsScheduledTasks', 'SettingsUsage', 'SettingsAbout', ...Object.keys(MOBILE_SERVER_ROUTES)],
     scope, preferences, scheme: appearance.scheme, themeId: appearance.themeId, safeBottom: Number(safeBottom) || 0 }),
     header: settingsHeaderConfiguration(str(routeKey), true, scope),
