@@ -7,7 +7,7 @@ delivery: draft
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-pr-conversation-and-refresh
-pr_url: PR_URL_PLACEHOLDER
+pr_url: https://github.com/ccheever/exact2/pull/247
 verified_commit: null
 ---
 
@@ -216,7 +216,7 @@ the window's time is not an instant (agent mode without an epoch). Provisional, 
 2026-10-06: on hold (user decision: tasks that need a sign-in waited). 2026-10-07: the user lifted the hold. Rows that need a real account are signed in by the user in person on the lane build; every other sign-in row uses lane fixtures.
 
 2026-10-08: implemented on `feat(example)/t3-code-pr-conversation-and-refresh`; unit tests, one live drive and one retry
-on the real-GitHub lane; draft PR.
+on the real-GitHub lane; draft PR #247.
 
 ## Attempts and evidence
 
