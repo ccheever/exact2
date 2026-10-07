@@ -295,7 +295,18 @@ for (const f of ['frames.js', 'motion-glue.js', 'group-glue.js', 'input-glue.js'
 cpSync(resolve(root, 'host/web/collection-glue.js'), resolve(gen, 'collection-glue.js'));
 // Animated images on the agent's clock, the web host's own (agent.js only).
 cpSync(resolve(root, 'host/web/image-glue.js'), resolve(gen, 'image-glue.js'));
-cpSync(resolve(root, 'host/web/navigation.js'), resolve(gen, 'navigation.js'));
+// navigation.js's grant admission (between its `grant admission: begin` and `end` lines) becomes a module of its own
+// here, which navigation.js re-exports: one module is one chunk, and the lazy admission (admission.js, the TypeScript
+// and Rust data chunks) is the only reader, so a page that admits nothing before a lazy chunk carries none of it. The
+// wasm host serves navigation.js whole (its boot graph is glue.js and navigation.js; scripts/boot.mjs).
+const grantSection = (() => {
+  const lines = readFileSync(resolve(root, 'host/web/navigation.js'), 'utf8').split('\n');
+  const begin = lines.findIndex(l => l.startsWith('// grant admission: begin')), end = lines.findIndex(l => l === '// grant admission: end');
+  if (begin < 0 || end < begin) throw new Error("host/web/navigation.js: no `// grant admission: begin` … `end` section");
+  const names = [...lines.slice(begin, end).join('\n').matchAll(/^export (?:function|const) (\w+)/gm)].map(m => m[1]);
+  writeFileSync(resolve(gen, 'navigation.js'), [...lines.slice(0, begin), `export { ${names.join(', ')} } from './grant-admission.js';`, ...lines.slice(end + 1)].join('\n'));
+  return lines.slice(begin, end + 1).join('\n') + '\n';
+})();
 // The agent adapter reads its own copies of the modules it shares with the
 // entry: a module lives in one chunk, so what only the agent reads from
 // navigation.js (the guest outline and taps, the environment) or names.js
@@ -307,7 +318,8 @@ const auth = /^\s*auth\.session\s/m.test(grants);
 if (ts) writeFileSync(resolve(gen, 'ts-data.js'), readFileSync(resolve(here, 'ts-data.js'), 'utf8').replace("'__APP_TS__'", JSON.stringify(resolve(appDir, 'app.ts')))
   .replace('__AUTH_IMPORT__', auth ? "import { install as signIn } from './auth.js';" : '')
   .replace('__AUTH_INSTALL__', auth ? `signIn(${JSON.stringify(grants)}, () => asking);` : ''));
-for (const f of ['auth-glue.js', 'storage-environment.js', 'http-body.js', 'grant-admission.js', 'faults.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
+for (const f of ['auth-glue.js', 'storage-environment.js', 'http-body.js', 'faults.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
+writeFileSync(resolve(gen, 'grant-admission.js'), grantSection); // the section navigation.js re-exports (above)
 writeFileSync(resolve(gen, 'admission.js'), readFileSync(resolve(here, 'admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'").replaceAll("'../web/faults.js'", "'./faults.js'"));
 cpSync(resolve(here, 'ts-fetch.js'), resolve(gen, 'ts-fetch.js'));
 cpSync(resolve(here, 'ts-stream.js'), resolve(gen, 'ts-stream.js'));

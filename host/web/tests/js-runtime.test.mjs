@@ -263,6 +263,14 @@ test('indexOf and split are the web methods, on the caller\'s list steps', async
 // replacing its older one), and otherwise asks permission once and posts
 // through the Notification API, now or at `showTrigger` while the page is
 // open; a tag's `closeNotification` takes away a shown or a waiting one.
+// `requestFullscreen` in a plan with no video or audio, where media.js is not installed
+// (`useMedia`): the same refusal media.js journals for an id that names no video.
+test('requestFullscreen without media refuses as media.js does', async () => {
+  const { Hosts, journal } = await import(resolve(dir, 'rt.js'));
+  Hosts.requestFullscreen('player');
+  expect(journal.at(-1).replace(/^t=\S+ /, '')).toBe('requestFullscreen: refused: no video with id "player"');
+});
+
 test('notifications: refused without the grant, listed under the agent, else posted by the Notification API', async () => {
   const { Hosts, clock, data, journal } = await import(resolve(dir, 'rt.js'));
   await import(resolve(dir, 'notify.js'));

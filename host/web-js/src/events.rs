@@ -44,3 +44,45 @@ pub(crate) fn binder(event: EventKind) -> Option<&'static str> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every event family `on`'s old switch handled has its binder; the
+    /// kinds that took its plain default still have none.
+    #[test]
+    fn every_special_event_has_its_binder() {
+        use EventKind::*;
+        for k in [
+            Press,
+            Change,
+            Input,
+            Hover,
+            Key,
+            Beforeunload,
+            Submit,
+            Message,
+            Scroll,
+            Refresh,
+            Dblclick,
+            Pointerdown,
+            Pointerup,
+            Pointermove,
+            Contextmenu,
+            Wheel,
+            Drop,
+            Blur,
+            Focus,
+            Copy,
+            Cut,
+            Paste,
+            Selectionchange,
+        ] {
+            assert!(binder(k).is_some(), "{k:?}");
+        }
+        for k in [Load, Cancel, Play, Pause, Timeupdate] {
+            assert!(binder(k).is_none(), "{k:?}");
+        }
+    }
+}
