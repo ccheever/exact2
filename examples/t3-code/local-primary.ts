@@ -14,7 +14,7 @@
 // before) is a duplicate: it is removed and its credential forgotten (decision U6, provisional).
 import { str, type Obj } from './domain';
 import { bridgeReply, type Native } from './protocol';
-import { unknownLocalBackend, type LocalBackendStatus } from './local-backend';
+import { readLocalBackend, unknownLocalBackend, type LocalBackendStatus } from './local-backend';
 
 /** PRIMARY_LOCAL_ENVIRONMENT_ID: the bootstrap's id and the fleet's name for the primary. */
 export const PRIMARY_LOCAL_ENVIRONMENT_ID = 'primary';
@@ -130,6 +130,14 @@ type Holder = { local: object };
 /** The saved switch (default on, as DesktopAppSettings). */
 export function localEnvironmentEnabled(owner: Holder): boolean { return (owner.local as { localEnvironmentEnabled?: boolean }).localEnvironmentEnabled !== false; }
 export function setLocalEnvironmentEnabled(owner: Holder, enabled: boolean): void { (owner.local as { localEnvironmentEnabled?: boolean }).localEnvironmentEnabled = enabled; }
+/** client.ts refresh: read the embedded server's status into the client and the primary; true when it changed (it redraws "This machine"). */
+export async function refreshLocal(client: Holder & { localBackend: LocalBackendStatus }, native: Native, source: LocalPrimary = primary): Promise<boolean> {
+  const status = await readLocalBackend(native);
+  const changed = JSON.stringify(status) !== JSON.stringify(client.localBackend);
+  if (changed) client.localBackend = status;
+  source.update(client.localBackend, localEnvironmentEnabled(client));
+  return changed;
+}
 /** load(): carry the saved switch (top level, as the reference's desktop-settings.json key). */
 export function adoptLocalPrefs(next: object, saved: Obj): void { (next as { localEnvironmentEnabled?: boolean }).localEnvironmentEnabled = saved.localEnvironmentEnabled !== false; }
 
