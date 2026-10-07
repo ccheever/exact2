@@ -6,8 +6,8 @@
 **Rulings (Charlie, on r7):**
 - On the web, a native control inherits the page's font and colour, as the common reset does (D4). `AGENTS.md`'s "the web is the standard" is amended to match. The other platforms keep their own control fonts.
 - D2's one static rule stands.
-- The `border-radius` exception stands (§5 Q5, for James to confirm).
-- The iOS native-button focus probe runs (§5 Q4).
+- The `border-radius` exception stands (§5 Q4, for James to confirm).
+- The iOS native-button focus probe ran: UIKit can't take focus from Exact's traversal, so iOS keeps Exact's ring (D6, §5 settled).
 - Charlie's lanes build LLP 1069.011.001 and this RFC as one program (§6).
 **Systems:**
 - Contract lowering (`contract/lower/src/controls.rs`, `fields.rs`, `tags.rs`, `class.rs`): the default, the admission rule, one `lower-appearance` error, the codemod.
@@ -233,11 +233,18 @@ Phase 1 probes the chrome across fonts from 11 to 34pt, two families and constra
 
 ### D6 — The OS draws a native control's focus; Exact draws the bare box's
 
-- **One focus owner per node.** A native field's or button's owner is the native view. Anything else's owner is the node. Every focus path uses that one mapping: Tab traversal, programmatic `focus()`/`blur()`, `autofocus`, `retainFocus`, collection pinning of a focused row, activation, and the routing of `focus`, `blur` and `key`. The node relays events from its owner. The agent's `tap` and focus operations address the node, as today.
+- **One focus owner per node.** A native field's owner is the native view. A native button's owner is the native view on macOS, tvOS and the web, and the node on iOS (below). Anything else's owner is the node. Every focus path uses that one mapping: Tab traversal, programmatic `focus()`/`blur()`, `autofocus`, `retainFocus`, collection pinning of a focused row, activation, and the routing of `focus`, `blur` and `key`. The node relays events from its owner. The agent's `tap` and focus operations address the node, as today.
 - **A focusable button doesn't need a handler of its own.** A `button` is focusable and shows a ring with no press handler of its own. That fixes the `pressable` gap at `NodeViewMac.swift:205` and the ring mask at `FocusMac.swift:50`.
 - **Native controls:**
   - **macOS:** the `NSButton` and the field accept first responder and stay in the key view loop whether or not Keyboard navigation is on, as the node does today (`FocusMac.swift:22-27`). The OS's setting doesn't decide whether Tab reaches a button. AppKit draws the ring (`focusRingType = .default`). A textarea's ring is the scroll view's `drawFocusRingMask` while the text view is first responder. r4's `fieldFocused` border in `boxPlan` and `showFieldFocus` go.
-  - **iOS:** a field shows the caret. A native button's ring is UIKit's focus effect, which UIKit draws only on a UIKit focus item that its focus system has focused. Exact's Tab moves first responder, and its focus search skips native buttons today (`FocusSearchIOS.swift:31-36`). So the build first probes whether Exact's traversal can hand UIKit focus to a `UIButton` (it joins the focus search, `canBecomeFocused`, and the focus system is moved to it) under a hardware keyboard and Full Keyboard Access. If it can, that is the path. If not, iOS keeps Exact's ring on a native button as a declared stand-in (§5 Q4).
+  - **iOS:** a field shows the caret. A native button keeps today's model (1069.011 D4): the node holds first responder, receives Tab, Return and Space, and Exact draws its ring, as a declared stand-in. A probe (2026-10-07, below) found UIKit can't take that focus:
+    - **No focus system:** on iPad, UIKit's focus system exists only while a text input is first responder. `UIFocusSystem.focusSystem(for:)` is nil while an Exact node holds first responder.
+    - **Requests are ignored:** `requestFocusUpdate(to:)`, `preferredFocusEnvironments` with `setNeedsFocusUpdate()`, and a forced `canBecomeFocused` never focused a `UIButton`.
+    - **Keys go to the node:** Return and Space reached the node, never `.primaryActionTriggered`.
+    - **Giving up first responder breaks the order:** UIKit's own Tab took over and skipped Exact's sequence.
+    - **Full Keyboard Access owns Tab:** it moves and draws its own cursor, so the OS already draws focus there.
+
+    The probe is a standalone UIKit app shaped like Exact's host, on an iPad Pro 11 simulator with iOS 27.0, driven by hardware-keyboard keys through XCUITest. One device check with a real keyboard stays owed before landing.
   - **tvOS:** the `UIButton` is the only focus stop. The node leaves the focus engine for a native button (`canBecomeFocused` false on the node, true on the button), so there are no double stops and no Exact ring over UIKit's lift.
   - **Web:** the UA's `:focus-visible` on the browser's own control.
 - **The bare box keeps today's ring on every host:**
@@ -317,7 +324,7 @@ Phase 1 probes the chrome across fonts from 11 to 34pt, two families and constra
   - Tab reaches every native and bare field and button on macOS and the web;
   - the OS ring shows on native controls and Exact's ring on bare ones;
   - `tabindex`, programmatic `focus()`/`blur()`, `retainFocus`, removing a focused control, and a cancelled key activation each run exactly once;
-  - a hardware-keyboard Tab on iPad (D6's probe);
+  - a hardware-keyboard Tab on a physical iPad across native and bare buttons and fields, with Exact's ring on each (D6), and Full Keyboard Access reaching them;
   - tvOS focus moves across a row of native buttons and a field, one stop each;
   - Linux's and the terminal's rings.
 - **Excluded controls:** checkbox, radio, range, file and date inputs, and the Markdown editor (load, edit, source mode), unchanged before and after on the web.
@@ -333,13 +340,13 @@ Phase 1 probes the chrome across fonts from 11 to 34pt, two families and constra
    Proposed: the second, because hosting SwiftUI for a text view brings its own focus and measurement paths. Apple's own apps rarely border multi-line text, so this is the field's look extended, not a platform control.
 2. **Field styles.** Should fields get a vocabulary like `buttonStyle` (macOS `borderShape` capsule, a plain borderless platform field)? Proposed: not now.
 3. **`select`** is a `Control` already drawn natively. Should D2–D4 cover it? Proposed: yes, as a follow-up.
-4. **iOS native-button focus (running).** The probe D6 describes is under way. If Exact's traversal can't drive UIKit's focus system reliably, iOS keeps Exact's ring on native buttons as a declared stand-in. Users without a hardware keyboard or Full Keyboard Access never see either.
-5. **The `border-radius` exception** (D2 rule 2) is James's D15. It keeps Lexy's rounded native buttons, at the price of one CSS deviation under `appearance="auto"`. Charlie agrees; James to confirm.
+4. **The `border-radius` exception** (D2 rule 2) is James's D15. It keeps Lexy's rounded native buttons, at the price of one CSS deviation under `appearance="auto"`. Charlie agrees; James to confirm.
 
 **Settled:**
 - r5 Q2: D2 makes most self-styled buttons bare with no edit, and the codemod covers the rest.
 - r5 Q3: native chrome around arbitrary children is not planned (D2).
 - r7 Q2: the web's control font. The page's, as the reset convention has it (D4, Charlie).
+- r7 Q3: iOS native-button focus. The probe found UIKit can't take focus from Exact's traversal, so iOS keeps Exact's ring as a stand-in (D6).
 
 ## 6. Cost and order
 
@@ -356,13 +363,13 @@ Charlie's lanes build LLP 1069.011.001 and this RFC as one program. The order le
 
    This needs nothing else from 1069.011.001.
 3. **Native buttons:** 1069.011.001 steps 2–5 (the iOS mappings and cache, web and Linux, macOS, invokers and the rest).
-4. **Buttons by default:** D1 and D2 for buttons, the codemod, button focus (D6 and the iOS probe's outcome), the terminal's button, and the rest of D9.
+4. **Buttons by default:** D1 and D2 for buttons, the codemod, button focus (D6), the terminal's button, and the rest of D9.
 
 | Part | Estimate |
 |---|---|
 | Lowering: the default, D2's ordered rule, one `lower-appearance`, `data-native`, r4's sheet and mark removed, the codemod and its dry run, tests | a lane-day |
 | Kernel: control text styles in `Env` and the non-inheriting rows, invalidation, the single-line baseline, the field side of `ControlMeasurer`, the provisional counter | a lane-day and a half |
-| Apple: native field chrome and the D3 mapping, secure and typed fields, the iOS textarea, D4's text style from the OS, focus ownership on iOS (the probe), tvOS and macOS, ring code removed | three lane-days |
+| Apple: native field chrome and the D3 mapping, secure and typed fields, the iOS textarea, D4's text style from the OS, focus ownership on tvOS and macOS (iOS stays as today), ring code removed | three lane-days |
 | Web: the `data-native` rule, the size-gap trace and fix, conformance and the plain-page comparison | a lane-day |
 | Painted hosts: Linux field and button looks and the button ring; the terminal's button look, measure and keys | a lane-day |
 | Fixture, hand-configured comparisons, screenshots on five hosts, geometry, focus and app drives, docs | a lane-day and a half |
@@ -390,5 +397,5 @@ About nine lane-days for this RFC. LLP 1069.011.001 is unestimated in its text; 
 - r8, 2026-10-06: Charlie's rulings on r7.
   - D4: on the web a native control inherits the page's font and colour, as the common reset does, and `AGENTS.md`'s rule is amended to allow it. Apple keeps the platform's control text style through `Env`.
   - D2 and the `border-radius` exception stand.
-  - The iOS focus probe runs.
+  - The iOS focus probe ran (2026-10-07): UIKit's focus system can't be driven from Exact's traversal, so a native iOS button keeps the node as focus owner and Exact's ring as a stand-in (D6).
   - One program builds 1069.011.001 and this RFC, fields first (§6).
