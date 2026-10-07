@@ -7,7 +7,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { open as openSession, render } from '../scripts/agent.mjs';
 import { cdpFailureContext, gameNonInput } from '../scripts/agent-launch.mjs';
 import { appleArtifacts } from '../host/apple/build.mjs';
-import { buildBake, resolveApp } from '../scripts/app.mjs';
+import { buildBake, executableName, resolveApp } from '../scripts/app.mjs';
 import { closeFilesystemReader } from '../scripts/filesystem.mjs';
 
 /** Some runtime-created stacks omit the informative Error message. */
@@ -175,7 +175,7 @@ export function artifactDigest(host, dist, artifacts) {
     } else if (host === 'linux') {
       for (const path of [artifacts.binary, artifacts.module]) manifest.push([basename(path), createHash('sha256').update(readFileSync(path)).digest('hex')]);
     } else {
-      const executable = resolve(artifacts.bundle, host === 'macos' ? 'Contents/MacOS/ExactMac' : 'ExactIOS');
+      const executable = resolve(artifacts.bundle, host === 'macos' ? 'Contents/MacOS' : '.', artifacts.executable);
       readFileSync(executable);
       walk(artifacts.bundle, 'bundle');
       // The driver launches the standalone product on macOS, loading its adjacent dylibs/assets.
@@ -592,7 +592,7 @@ export async function proof(meta, script) {
     const linuxTarget = host === 'linux' ? spawnSync('rustc', ['-vV'], {encoding:'utf8'}).stdout.match(/^host: (.+)$/m)?.[1] : null;
     const profile = process.env.EXACT_GAME_PROOF_PROFILE ?? 'gpu-dev';
     if (!['gpu-dev', 'release'].includes(profile)) throw new Error('EXACT_GAME_PROOF_PROFILE must be gpu-dev or release');
-    const artifacts = host === 'windows' ? {binary:resolve(appInfo.dir, `dist-windows/${appInfo.crate('windows')}.exe`), module:resolve(appInfo.dir, `dist-windows/${appInfo.crate('gpu').replaceAll('-','_')}.dll`)}
+    const artifacts = host === 'windows' ? {binary:resolve(appInfo.dir, 'dist-windows', `${executableName(appInfo)}.exe`), module:resolve(appInfo.dir, `dist-windows/${appInfo.crate('gpu').replaceAll('-','_')}.dll`)}
       : host === 'linux' ? {binary:resolve(appInfo.target, linuxTarget, `${profile}/${appInfo.crate('linux')}`), module:resolve(appInfo.target, linuxTarget, `${profile}/lib${appInfo.crate('gpu').replaceAll('-','_')}.${process.platform === 'darwin' ? 'dylib' : 'so'}`)} : host === 'web' ? null : appleArtifacts(appInfo, {destination:host === 'macos' ? 'macos' : device ? 'ios' : 'ios-simulator'});
     if (host === 'linux') process.env.EXACT_LINUX_BIN = artifacts.binary;
     if (host === 'windows') process.env.EXACT_WINDOWS_BIN = artifacts.binary;

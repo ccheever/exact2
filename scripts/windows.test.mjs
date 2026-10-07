@@ -739,16 +739,19 @@ test('a real filesystem helper missing-parent response preserves ENOENT', () => 
 
 test('packaged native freshness rejects changed source and copied binary bytes', () => {
   const root=mkdtempSync(resolve(tmpdir(),'exact-package-receipt-'));
-  const receipt=resolve(root,'build.json'), source=resolve(root,'source.rs'), binary=resolve(root,'game.exe'), gpu=resolve(root,'game.dll');
+  // Cargo's executable is the crate's; the package names it for the app, as Visual Studio would.
+  const app={id:'com.exact.game',displayName:'Game: Two',crate:()=>'game-windows'};
+  const receipt=resolve(root,'build.json'), source=resolve(root,'source.rs'), built=resolve(root,'cargo/game-windows.exe'), binary=resolve(root,'Game- Two.exe'), gpu=resolve(root,'game.dll');
   const digest=path=>createHash('sha256').update(readFileSync(path)).digest('hex');
   try {
-    expect(packagedBuildChanges(receipt,root)).toEqual(['missing compiler build receipt']);
-    for(const path of [source,binary,gpu]) writeFileSync(path,path);
-    writeFileSync(receipt,JSON.stringify({version:1,binary:{inputs:[{path:source,name:'source',sha256:digest(source)}],missing:[],directories:[]},products:[binary,gpu].map(path=>({path,sha256:digest(path)}))}));
-    expect(packagedBuildChanges(receipt,root)).toEqual([]);
-    writeFileSync(source,'changed'); expect(packagedBuildChanges(receipt,root)).toEqual(['source']);
-    writeFileSync(source,source); writeFileSync(gpu,'changed'); expect(packagedBuildChanges(receipt,root)).toEqual([gpu]);
-    rmSync(binary); expect(packagedBuildChanges(receipt,root)).toEqual([binary,gpu]);
+    expect(packagedBuildChanges(receipt,root,app)).toEqual(['missing compiler build receipt']);
+    mkdirSync(resolve(root,'cargo')); writeFileSync(built,'exe');
+    for(const path of [source,binary,gpu]) writeFileSync(path,path===binary?'exe':path);
+    writeFileSync(receipt,JSON.stringify({version:1,binary:{inputs:[{path:source,name:'source',sha256:digest(source)}],missing:[],directories:[]},products:[built,gpu].map(path=>({path,sha256:digest(path)}))}));
+    expect(packagedBuildChanges(receipt,root,app)).toEqual([]);
+    writeFileSync(source,'changed'); expect(packagedBuildChanges(receipt,root,app)).toEqual(['source']);
+    writeFileSync(source,source); writeFileSync(gpu,'changed'); expect(packagedBuildChanges(receipt,root,app)).toEqual([gpu]);
+    rmSync(binary); expect(packagedBuildChanges(receipt,root,app)).toEqual([binary,gpu]);
   } finally { rmSync(root,{recursive:true,force:true}); }
 });
 
@@ -761,9 +764,10 @@ test('packaged native freshness verifies executable-relative shader bytes', () =
     mkdirSync(resolve(root,'shaders')); writeFileSync(binary,'exe'); writeFileSync(shader,'shader');
     writeFileSync(receipt,JSON.stringify({version:1,binary:{inputs:[],missing:[],directories:[]},products:[{path:binary,sha256:digest('exe')}]}));
     writeFileSync(resolve(root,'compat.json'),JSON.stringify({embedded:{assets:[{name:'shaders/fog.wgsl',bytes:6,sha256:digest('shader')}]}}));
-    expect(packagedBuildChanges(receipt,root)).toEqual([]);
-    writeFileSync(shader,'edited'); expect(packagedBuildChanges(receipt,root)).toEqual([shader]);
-    rmSync(shader); expect(packagedBuildChanges(receipt,root)).toEqual([shader]);
+    const app={id:'com.exact.game',displayName:'game',crate:()=>'game-windows'};
+    expect(packagedBuildChanges(receipt,root,app)).toEqual([]);
+    writeFileSync(shader,'edited'); expect(packagedBuildChanges(receipt,root,app)).toEqual([shader]);
+    rmSync(shader); expect(packagedBuildChanges(receipt,root,app)).toEqual([shader]);
   } finally { rmSync(root,{recursive:true,force:true}); }
 });
 

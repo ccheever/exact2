@@ -7,7 +7,7 @@ import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { types as utilTypes } from 'node:util';
 import { filesystemLock } from './filesystem.mjs';
-import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, shaderWatchRoots, webDist } from './app.mjs';
+import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, windowsFile, shaderWatchRoots, webDist } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
@@ -272,7 +272,7 @@ export const depInfoChanges = bin => existsSync(bin) ? depInfoNewer(statSync(bin
 
 /** A packaged Windows game keeps compiler provenance in the private bake cache.
  * Require both unchanged source inputs and the exact copied executable/DLLs. */
-export function packagedBuildChanges(receipt, directory) {
+export function packagedBuildChanges(receipt, directory, app) {
   if (!existsSync(receipt)) return ['missing compiler build receipt'];
   const build = JSON.parse(readFileSync(receipt, 'utf8'));
   if (build.version !== 1 || !build.binary?.inputs || !build.products?.length) return ['invalid compiler build receipt'];
@@ -280,7 +280,7 @@ export function packagedBuildChanges(receipt, directory) {
   const products = build.products.filter(product => /\.(exe|dll)$/.test(product.path));
   if (!products.some(product => product.path.endsWith('.exe'))) changed.push('receipt has no executable');
   for (const product of products) {
-    const path = resolve(directory, basename(product.path));
+    const path = resolve(directory, windowsFile(app, product.path));
     try {
       if (createHash('sha256').update(readFileSync(path)).digest('hex') !== product.sha256) changed.push(path);
     } catch { changed.push(path); }

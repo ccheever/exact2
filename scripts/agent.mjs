@@ -52,7 +52,7 @@ export { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, t
 import { appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
 import { crashReports, developmentLaunchEnvironment, phone, phoneBridge, showSimulator, simulator } from '../host/apple/devices.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
-import { bakeOutput, bakeTarget, linuxBinary, linuxBuild, resolveApp, webDist as defaultWebDist } from './app.mjs';
+import { bakeOutput, bakeTarget, executableName, linuxBinary, linuxBuild, resolveApp, webDist as defaultWebDist } from './app.mjs';
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // A completed operation must release its deadline too, so an otherwise closed
@@ -581,14 +581,14 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
   const sample = host === 'host';
   const artifacts = portable ? null : appleArtifacts(a, { destination: device ? 'ios' : 'macos', host: sample });
   const deviceBundle = artifacts?.bundle;
-  const bin = windows ? (process.env.EXACT_WINDOWS_BIN ?? resolve(a.dir, `dist-windows/${a.crate('windows')}.exe`))
+  const bin = windows ? (process.env.EXACT_WINDOWS_BIN ?? resolve(a.dir, 'dist-windows', `${executableName(a)}.exe`))
     : linux ? (process.env.EXACT_LINUX_BIN ?? linuxBinary(a)) : (process.env.EXACT_MAC_BIN ?? artifacts.binary);
   if (!existsSync(device ? deviceBundle : bin)) throw new Error(device ? 'run bun host/apple/build.mjs --device first' : windows ? 'run bun host/windows/build.mjs first' : linux ? `run ${linuxBuild(a).join(' ')} first` : sample ? 'run bun host/apple/build.mjs --host first' : `run ${ownAppleBuild(a, 'mac') ?? `bun host/apple/build.mjs ${a.crate('apple')}`} first`);
-  if (!portable) assertAppleIdentity(a, device ? resolve(deviceBundle, 'ExactIOS') : bin);
+  if (!portable) assertAppleIdentity(a, device ? resolve(deviceBundle, artifacts.executable) : bin);
   if (windows && process.env.EXACT_WINDOWS_BIN) unchecked('windows', 'EXACT_WINDOWS_BIN');
   else if (windows) {
     const receipt = resolve(bakeOutput(a), `windows-${bakeTarget('windows')}.build.json`);
-    refuseStale('windows', bin, packagedBuildChanges(receipt, dirname(bin)), `bun host/windows/build.mjs ${a.crate('windows')}`);
+    refuseStale('windows', bin, packagedBuildChanges(receipt, dirname(bin), a), `bun host/windows/build.mjs ${a.crate('windows')}`);
   }
   else if (linux && process.env.EXACT_LINUX_BIN) unchecked('linux', 'EXACT_LINUX_BIN');
   else if (linux) refuseStale('linux', bin, depInfoChanges(bin), linuxBuild(a).join(' '));
@@ -749,7 +749,7 @@ async function openIOSOwned({ a, bundle, id, dev, plan, size, extra, session, ho
   const lines = jsonLines(socket, socket, hostLines);
   const exited = new Promise((r) => socket.on('close', async () => {
     const exit = closing ? null : await waitAtMost(consoleExited, 1000);
-    lines.fail(closing ? 'the app was closed' : hangup({ what: 'the app hung up', pid, exit, hostLines, reports: crashReports(hostFixture ? 'ExactHostIOS' : 'ExactIOS', launched) })); r();
+    lines.fail(closing ? 'the app was closed' : hangup({ what: 'the app hung up', pid, exit, hostLines, reports: crashReports(hostFixture ? 'ExactHostIOS' : executableName(a), launched) })); r();
   }));
   const close = async () => {
     closing = true;
@@ -901,7 +901,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     ?? (carrier.host === 'web' ? resolve(webDist ?? defaultWebDist(), 'app.plan') : null);
   // Without a plan of the drive's own, a native host runs its bake's: the maps a development bake left (LLP 1012.001.000 D6).
   const baked = () => { const a = resolveApp(app); const bin = host === 'windows'
-    ? process.env.EXACT_WINDOWS_BIN ?? resolve(a.dir, `dist-windows/${a.crate('windows')}.exe`)
+    ? process.env.EXACT_WINDOWS_BIN ?? resolve(a.dir, 'dist-windows', `${executableName(a)}.exe`)
     : process.env.EXACT_LINUX_BIN ?? linuxBinary(a); return bakedPlans(bin, bakeOutput(a)); };
   const sourceMaps = sourceMapReaders(mapLocator ? [mapLocator] : carrier.host !== 'web' ? baked() : []);
   const s = {
