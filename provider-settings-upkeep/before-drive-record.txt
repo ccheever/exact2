@@ -1,0 +1,9 @@
+2026-10-07T18:43:05.480Z shot launch-prompt
+2026-10-07T18:43:05.481Z fixture reset
+2026-10-07T18:43:12.806Z shot providers-list
+2026-10-07T18:43:15.731Z base advisory ids: ["provider-advisory","provider-advisory-details","provider-update-now","provider-copy-command"]
+2026-10-07T18:43:16.234Z shot popover-list-codex
+2026-10-07T18:43:18.909Z shot acp-editor-top
+2026-10-07T18:43:18.915Z base acp ids: ["provider-list-row-acpRegistry_gemini","settings-provider-acpRegistry_gemini","provider-enable-acpRegistry_gemini","provider-editor-acpRegistry_gemini","provider-account-acpRegistry_gemini","provider-account-description-acpRegistry_gemini"]
+2026-10-07T18:43:20.259Z shot acp-sessions
+2026-10-07T18:43:28.556Z shot wizard-acp
