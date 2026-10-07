@@ -181,6 +181,9 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
         // By value: a native host's JSON orders an object's keys as it likes.
         const canon = (v) => JSON.stringify(v, (_, x) => (x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.entries(x).sort(([a], [b]) => (a < b ? -1 : 1))) : x));
         check(canon(again.calls) === canon(perf.calls) && canon(again.counters) === canon(perf.counters), `${host} native: a perf hatches read changes nothing: ${canon(perf.calls)} then ${canon(again.calls)}`);
+        // A node's calls are timed by its plan site, and `perf <target>`'s row for that site names them (§3.1).
+        const site = (await s.perf('hatched-badge')).sites?.find((r) => r.site === built?.site);
+        check(Number.isInteger(built?.site) && site?.hatch?.calls === 2 && site.hatch.ms >= 0, `${host} native: a hatched node's calls are timed by its plan site, which perf <target> names: site ${built?.site}, ${JSON.stringify(site?.hatch)}`);
       }
       // What a hatch asks of an authored node (LLP 1075.003.000.001 §2.5, §8
       // stage 2): `input` replaces a field's value and Contract hears it, the

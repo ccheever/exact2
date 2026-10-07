@@ -93,11 +93,17 @@ pub enum Capability {
     /// with the platform's list; the web draws its authored nodes, so the web
     /// links nothing for it (LLP 1047.001 D2).
     GroupedLists,
+    /// The host's I/O: the requests a data source makes (fetch, sockets,
+    /// files, SQLite) and the kept secrets and answers it stores. A plan
+    /// uses it when a resource keeps its answer (a reader); an app's grants
+    /// link it too, which the bake reads (LLP 1047.001). The browser does
+    /// its own, so the web links nothing for it.
+    Io,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 24] = [
+    pub const ALL: [Capability; 25] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -122,6 +128,7 @@ impl Capability {
         Capability::Tabs,
         Capability::Notifications,
         Capability::GroupedLists,
+        Capability::Io,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -151,6 +158,7 @@ impl Capability {
             Capability::Tabs => "tabs",
             Capability::Notifications => "notifications",
             Capability::GroupedLists => "grouped_lists",
+            Capability::Io => "io",
         }
     }
 
@@ -220,6 +228,10 @@ pub fn uses(plan: &Plan) -> Uses {
     }
     if plan.router.is_some() {
         uses = uses.with(Capability::Router);
+    }
+    // A reader's last answer is kept in the host's store (LLP 1027 D4).
+    if plan.resources.iter().any(|r| r.reader) {
+        uses = uses.with(Capability::Io);
     }
     // A segment length is a value, not a row: any string of the plan's
     // naming one (a literal, a template's piece) can reach a dimension row,

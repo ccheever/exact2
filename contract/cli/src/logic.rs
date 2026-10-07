@@ -133,7 +133,7 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
     // A grouped list is its authored nodes on the web (LLP 1047.001 D2).
     let names: Vec<&str> = uses
         .iter()
-        .filter(|c| *c != Capability::GroupedLists)
+        .filter(|c| !matches!(c, Capability::GroupedLists | Capability::Io))
         .map(|c| c.name())
         .chain(["inspection"])
         // A colour row's text, literal or a template's piece, names one in
@@ -177,7 +177,8 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
             | Capability::Dataset
             | Capability::Tabs
             | Capability::Notifications
-            | Capability::GroupedLists => {}
+            | Capability::GroupedLists
+            | Capability::Io => {}
         }
     }
     entry
