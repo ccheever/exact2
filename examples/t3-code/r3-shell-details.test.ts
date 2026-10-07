@@ -1,4 +1,6 @@
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
+import { primaryAt, resetPrimary } from './local-primary-fixture';
+afterEach(resetPrimary);
 import { environmentIndicator, shellDetails } from './shell-details';
 import { lineageView, statusLabel, formatElapsed, liveSubagent, latestMergeBackRun } from './shell-lineage';
 import { adoptShellPrefs, inlineOpen, shellPrefs, toggleInline } from './shell-prefs';
@@ -125,6 +127,7 @@ describe('details source (upstream 429c625a85, d1034d62b2)', () => {
   const native: Native = { available: true, watch() {}, later: async () => ({}) };
   const make = (status: Obj, extra: Obj = {}) => {
     const calls: Obj[] = [];
+    if (!extra.origin) primaryAt('http://127.0.0.1:3773', 'env'); // the focused environment is this Mac's embedded server, unless the case names another
     const client = { ready: true, projectId: 'p1', threadId: 't1', environmentId: 'env', origin: 'http://127.0.0.1:3773', local: {}, draftKey: 'env:t1', generation: 1,
       config: { availableEditors: ['cursor'], environment: { label: 'Local' }, providers: [] }, projection: { thread: { id: 't1', lineage: {} }, runs: [], subagents: [], contextTransfers: [] },
       shell: { projects: [{ id: 'p1', workspaceRoot: '/work/project' }], threads: [shell('t1', { projectId: 'p1' })] },

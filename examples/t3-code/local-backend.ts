@@ -1,8 +1,9 @@
 // The embedded T3 server's state for TypeScript (20261005-embedded-server-runtime). The native
 // module runs one local backend per app (T3LocalBackend.swift); this reads its status
-// (`localBackendStatus`) and watches `t3.local`, so `20261005-local-primary-environment` can show
-// "This machine" from it. No UI here. The bearer stays native (memory only); TypeScript sees only
-// whether it is ready.
+// (`localBackendStatus`) and watches `t3.local`; local-primary.ts builds the primary environment
+// ("This machine") from it. The bearer stays native (memory only); TypeScript sees only whether it
+// is ready. Once the server answers, the status also carries its descriptor's environment id,
+// label and version, and `enabled` is the Local environment switch the backend started with.
 import { obj, str, num } from './domain';
 import { bridgeReply, type Native } from './protocol';
 
@@ -28,11 +29,18 @@ export interface LocalBackendStatus {
   failure: string;
   version: string;
   pid: number | null;
+  /** The Local environment switch (false: no server runs; t3-code.json `localEnvironmentEnabled`). */
+  enabled: boolean;
+  /** The running server's descriptor (`/.well-known/t3/environment`), once it answered. */
+  environmentId: string;
+  label: string;
+  serverVersion: string;
 }
 
 export const unknownLocalBackend = (): LocalBackendStatus => ({
   state: 'stopped', port: null, httpBaseUrl: '', wsBaseUrl: '', bearerReady: false, restartAttempt: 0,
   nextRestartMs: null, lastExit: '', install: null, refused: '', failure: '', version: '', pid: null,
+  enabled: true, environmentId: '', label: '', serverVersion: '',
 });
 
 const numberOrNull = (value: unknown): number | null => (typeof value === 'number' && Number.isFinite(value) ? value : null);
@@ -55,6 +63,10 @@ export function parseLocalBackendStatus(value: unknown): LocalBackendStatus {
     failure: str(raw.failure),
     version: str(raw.version),
     pid: numberOrNull(raw.pid),
+    enabled: raw.enabled !== false,
+    environmentId: str(raw.environmentId),
+    label: str(raw.label),
+    serverVersion: str(raw.serverVersion),
   };
 }
 

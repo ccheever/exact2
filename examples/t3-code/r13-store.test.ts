@@ -6,6 +6,10 @@
 //   virtual  — the agent's virtual clock, which counts from 0.
 // The window's time (app.contract: wallTime.epochAtZero + now()) is the only wall time in either case.
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { noPrimary, resetPrimary } from './local-primary-fixture';
+// The onboarding cases are the hosted rules (resolveHostedFirstRunDecision): no embedded server runs on this Mac.
+beforeEach(noPrimary);
+afterEach(resetPrimary);
 import type { T3Client } from './client';
 import './client';
 import type { Obj } from './domain';

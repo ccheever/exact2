@@ -4,7 +4,7 @@ plan: 20261005-t3code-macos-parity
 status: draft
 kind: framework-gap (unconfirmed)
 blocks: [20261005-local-primary-environment, 20261005-this-machine-network-access]
-upstream_url: null
+upstream_url: https://github.com/ccheever/exact2/issues/122
 reproduced_on: null
 ---
 
@@ -67,6 +67,8 @@ restart-in-place path with the relaunch, and their confirm-dialog rows check the
 `issue-close` verifies it.
 
 ## Status and next action
-Draft; not reproduced on the pinned `main`; not searched upstream; not published.
-Next: `issue-open` (reproduce, search for duplicates, prepare the report for the user's
-approval; publication only after approval).
+Filed upstream as [#122](https://github.com/ccheever/exact2/issues/122); closed after main #170, which only
+moves `reload()`'s log to stderr, so exact2 still has no process relaunch.
+2026-10-07: `20261005-local-primary-environment` ships the stopgap behind `applyLocalSetting` (`this-machine.ts`):
+off hands the focus to a saved environment and stops the embedded server; on starts it and connects; the window
+stays. Its "Relaunch after a setting change" row stays blocked until a relaunch exists and is adopted.

@@ -30,6 +30,8 @@ export class Fake implements Native {
     if (op === 'readPreferences') return this.ok({ text: '' });
     if (op === 'writePreferences' || op === 'devicePresentation' || op === 'unsubscribe') return this.ok({});
     if (op === 'status') return this.ok({ state: 'connected', origin: 'http://127.0.0.1:3773', environmentId: 'env1', message: '', descriptor: this.config.environment });
+    // The connected server is this Mac's embedded server: the primary environment (local-primary.ts).
+    if (op === 'localBackendStatus') return this.ok({ state: 'ready', enabled: true, httpBaseUrl: 'http://127.0.0.1:3773', wsBaseUrl: 'ws://127.0.0.1:3773', bearerReady: true, environmentId: 'env1', label: 'This Mac' });
     if (op === 'ids') return this.ok(Array.from({ length: Number(request.count) }, () => `id-${++this.serial}`));
     if (op === 'composerAttachPick') return this.ok({ files: this.picked });
     if (op === 'contextMenu') return this.ok({ clicked: this.menuPick });

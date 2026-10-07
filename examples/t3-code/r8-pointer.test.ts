@@ -2,6 +2,10 @@
 // ⌘] minor, at the logic level (the AppKit halves are macos/tests/sidebar and
 // macos/tests/r8-pointer).
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { noPrimary, resetPrimary } from './local-primary-fixture';
+// These cases are the hosted rules (resolveHostedFirstRunDecision): no embedded server runs on this Mac.
+beforeEach(noPrimary);
+afterEach(resetPrimary);
 import { setRuntimeClock } from './sidebar-state';
 import { T3Client } from './client';
 import { epochNow } from './r8-pointer-clock';
@@ -50,9 +54,10 @@ describe('D16: completion time is a real epoch', () => {
 describe('D14: a relaunch reconnects to the saved environment', () => {
   const loop = { origin: 'http://127.0.0.1:14922', environmentId: 'env-local', label: 'Fixture', enabled: true };
   const remote = { origin: 'https://box.example.com', environmentId: 'env-box', label: 'Box', enabled: true };
-  test('the last origin wins, then this machine, then the first saved; switched-off ones never', () => {
+  test('the last origin wins, then the first saved; switched-off ones never (a loopback saved one is not this machine)', () => {
     expect(relaunchTarget([remote, loop], 'https://box.example.com/')).toBe(remote);
-    expect(relaunchTarget([remote, loop], '')).toBe(loop);
+    expect(relaunchTarget([remote, loop], '')).toBe(remote);
+    expect(relaunchTarget([loop, remote], '')).toBe(loop);
     expect(relaunchTarget([{ ...loop, enabled: false }, remote], '')).toBe(remote);
     expect(relaunchTarget([{ ...loop, enabled: false }], 'http://127.0.0.1:14922')).toBeNull();
     expect(relaunchTarget([], '')).toBeNull();

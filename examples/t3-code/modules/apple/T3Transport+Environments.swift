@@ -32,7 +32,8 @@ extension T3Transport {
             for owner in T3SavedEnvironments.credentialOrigins(gone) + [saved.absoluteString] { try credentials.forget(origin: owner, environment: environment) }
             let focusedId = descriptor["environmentId"] as? String ?? ""
             // One entry per environment: its focus may be any of its routes.
-            let focused = focusedId == environment || (focusedId.isEmpty && (origin == saved || routes.environmentId == environment))
+            // A saved duplicate of the primary (same environment id) goes without touching the primary's connection.
+            let focused = !primary && (focusedId == environment || (focusedId.isEmpty && (origin == saved || routes.environmentId == environment)))
             if focused {
                 wantsConnection = false; reconnect?.cancel(); reconnect = nil; routes.stop()
                 retire(T3Failure(kind: "Disconnected", message: "Disconnected from the server.", uncertain: true))

@@ -261,16 +261,26 @@ Credentials stay in Keychain, scoped to the server origin and environment. The S
 module atomically saves the versioned `t3-code.json` preference file (selections,
 drafts, sidebar and page preferences, dismissed notices, pending operation identities)
 under Exact's app data directory. **Disconnect** keeps the credential; **Forget**
-removes it. On launch the client reconnects by itself to the last switched-on saved
-environment with its Keychain credential (`r8-pointer-reconnect.ts`), and the window keeps its frame across launches
-(the host's frame autosave, restored after the window's final style since exact2 #113). This client bundles no server, so
-every paired server, a loopback one included, is a saved environment under Environments in
-Settings › Connections with its switch and row menu (Icon, Copy trace ID, Remove from this
-device…), as the reference lists paired remote environments (lane r9-connect). Load balancing
-and GitHub sharing count environments as the reference's `loadBalancingEnvironments` does: the
-first saved loopback environment stands in for the reference's served primary ("This machine"),
-counts even while switched off and comes first, followed by every switched-on saved environment;
-both sections show from two (`r11-misc-connections.ts`). A pairing that
+removes it. The embedded server is the primary environment, "This machine"
+(20261005-local-primary-environment, `local-primary.ts`): the client connects to it with the
+bearer the server issued at start (memory only, never Keychain), never saves it and never
+remembers its origin (its port can change every launch; the transport keeps a focus token
+`primary` beside `t3.server.origin`). On launch the client reconnects by itself: to the primary
+when it was the last focus, else to the last switched-on saved environment with its Keychain
+credential, else to the primary while the Local environment switch is on (`r8-pointer-reconnect.ts`);
+while the server starts, the window shows the connecting state (the host opens the first window
+before the server is ready, exact2 #117). The window keeps its frame across launches
+(the host's frame autosave, restored after the window's final style since exact2 #113). Settings ›
+Connections shows "This machine" (`this-machine.ts`): the Local environment switch, which asks
+first and then stops or starts the embedded server in place (the reference relaunches the app,
+which exact2 cannot, #122), and the Version row. Every paired server, a loopback one included, is a
+saved environment under Environments with its switch and row menu (Icon, Copy trace ID, Remove
+from this device…); a saved one with the primary's environment id (the same T3 home paired before)
+is removed and its credential forgotten. Load balancing and GitHub sharing count environments as
+the reference's `loadBalancingEnvironments` does: this machine first, then every switched-on
+saved environment; both sections show from two (`r11-misc-connections.ts`). Every running thread
+of every connected environment keeps its detail stream (`keep-alive.ts`), so opening one shows it
+at once. A pairing that
 fails saves nothing: no row, no catalog entry, no remembered origin (the transport remembers an
 origin only once its socket opens), and a failed first connection falls back to the saved
 environment it replaced. A successful Add environment with nothing connected stays on
@@ -298,8 +308,7 @@ terminal. This is renderer evidence; the drawer and PTY session integrations bel
   iOS and Linux delivery.
 - Known in-app differences (round 11): during a row-action sweep the hover card or tooltip
   that was open at the press stays until release, and Escape does not cancel the sweep (the
-  reference closes the card and cancels); a switched-off loopback environment stays listed under Environments (it stands
-  in for the reference's unlisted primary); rendered HTML loads https and `http` hosts, named
+  reference closes the card and cancels); rendered HTML loads https and `http` hosts, named
   ones included (`app.json` allows arbitrary loads in web content, [#106](https://github.com/ccheever/exact2/issues/106)),
   and its token directory; the reference opens a thread's live device session as a
   floating player on load and this client does not; No project drafts cannot switch machine.

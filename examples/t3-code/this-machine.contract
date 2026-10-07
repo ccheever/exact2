@@ -1,0 +1,88 @@
+use R4Glyph from "./r4-git.contract"
+
+// Settings → Connections › This machine › Local environment's confirm
+// (LocalEnvironmentSetting.tsx AlertDialog; 20261005-local-primary-environment,
+// this-machine.ts): "Turn off local environment?" with the destructive "Restart
+// and turn off", or "Turn on local environment?" with "Restart and turn on".
+// While the change runs the confirm reads "Restarting…" beside a spinner, Cancel
+// and Escape do nothing, and the switch behind is disabled; a failure shows its
+// reason in red under the description and both buttons work again. Cancel takes
+// the focus when it opens (the first button, as the AlertDialog's; the switch
+// moves it there), Tab stays between the two buttons, Escape is Cancel's, and
+// closing gives the focus back to the switch. The popup measures
+// as ConfirmDialogHost (shell-panels.contract AppConfirm). The dialog closes
+// when the switch reads the new value; the reference relaunches the app there
+// (decision U4), which exact2 cannot (issue X45, exact2 #122): the stopgap
+// restarts the embedded server in place. Motion is the reference's: the
+// backdrop fades and the popup scales from 98 % and fades in 200 ms each way
+// (dialog-styles.ts; no reduced-motion variant, so it runs then too), and the
+// spinner turns only while motion is allowed (Spinner `motion-safe:`).
+
+keyframes tmSpin
+  from rotate=0
+  to rotate=360
+keyframes tmFadeIn
+  from opacity=0
+  to opacity=1
+keyframes tmFadeOut
+  from opacity=1
+  to opacity=0
+keyframes tmPopupIn
+  from opacity=0 scale=0.98
+  to opacity=1 scale=1
+keyframes tmPopupOut
+  from opacity=1 scale=1
+  to opacity=0 scale=0.98
+
+component LocalEnvironmentDialog
+  props
+    title: string
+    body: string
+    confirmLabel: string
+    destructive: bool
+    busy: bool
+    error: string
+    still: bool
+    cancel: action
+    confirm: action
+  // A failure is this dialog's only after its own confirm (the panel's error may be another form's).
+  state attempted = false
+  action close
+    if not busy
+      attempted = false
+      cancel()
+      focus("local-environment-switch")
+  action apply
+    if not busy
+      attempted = true
+      confirm()
+  // The modal keeps Tab and Shift+Tab between its two buttons (Base UI's focus trap); `aria-modal`
+  // alone does not on macOS (LLP 1080.003 §4).
+  action tabFromCancel(k: string)
+    if k == "Tab"
+      preventDefault()
+      focus("local-environment-confirm")
+  action tabFromConfirm(k: string)
+    if k == "Tab"
+      preventDefault()
+      focus("local-environment-cancel")
+  derive failure = attempted and not busy ? error : ""
+  view
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" animation="tmFadeIn 200ms ease-in-out" -exact-exit-animation="tmFadeOut 200ms ease-in-out" testId="local-environment-overlay"
+      column animation="tmPopupIn 200ms ease-in-out" -exact-exit-animation="tmPopupOut 200ms ease-in-out" width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfc, #0a0a0a)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-modal=true aria-label=title testId="local-environment-dialog"
+        column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
+          text title font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2 testId="local-environment-title"
+          text body font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #8f8f8f)" testId="local-environment-body"
+        when failure != ""
+          text failure padding-left="1.5rem" padding-right="1.5rem" padding-bottom="1rem" font-size="0.875rem" line-height="1.25rem" color="light-dark(#e7000b, #ff6467)" role="alert" testId="local-environment-error"
+        row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafab8, #ffffff06)"
+          button id="local-environment-cancel" press=close key=tabFromCancel disabled=busy autofocus=true aria-keyshortcuts="Escape" testId="local-environment-cancel" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 opacity=(busy ? 0.64 : 1) border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d"
+            text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+          button id="local-environment-confirm" press=apply key=tabFromConfirm disabled=busy testId="local-environment-confirm" display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.375rem" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 opacity=(busy ? 0.64 : 1) border-color=(destructive ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)") background-color=(destructive ? "light-dark(#fb2c36, #fb414a)" : "light-dark(#1b4ed8, #346bf1)") box-shadow="0 1px 2px #0000000d"
+            when busy
+              // Spinner (`motion-safe:visible-animate-spin`): still under reduced motion.
+              box width="0.875rem" height="0.875rem" display="flex" animation=(still ? "none" : "tmSpin 1s linear infinite") testId="local-environment-spinner"
+                R4Glyph(name="loader-circle", size=14, color="#ffffff")
+              text "Restarting…" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
+            else
+              text confirmLabel font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"

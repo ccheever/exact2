@@ -1,7 +1,9 @@
 // context-menu-gaps: what the Files tree row, pull request number and chat file-link menus send to
 // the module's `contextMenu` op and do with the pick (FileBrowserPanel showEntryContextMenu,
 // fileContextMenu.ts activate, pullRequestLinkContextMenu.ts, ChatMarkdown showFileContextMenu).
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
+import { primaryAt, resetPrimary } from './local-primary-fixture';
+afterEach(resetPrimary);
 import { obj, type Obj } from './domain';
 import type { Native } from './protocol';
 import { T3Client } from './client';
@@ -13,6 +15,7 @@ import { attachmentUrls, forgetMediaPreviewUrl, imagePreviewAction, imagePreview
 
 function fixture(config: Obj = {}) {
   resetRemoteEditorsForTests();
+  primaryAt('http://127.0.0.1:41857', 'env'); // the focused environment is this Mac's embedded server
   const owner = new T3Client();
   owner.origin = 'http://127.0.0.1:41857'; owner.generation = 0; owner.environmentId = 'env'; owner.projectId = 'p'; owner.threadId = 't';
   owner.shell.projects = [{ id: 'p', title: 'project', workspaceRoot: '/srv/project' }];

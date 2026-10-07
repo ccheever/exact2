@@ -6,6 +6,8 @@
 // clone's wiring: ChatView's automatic-environment state, the load, the Run on menu, Send, and
 // the multi-machine banner.
 import { afterEach, beforeEach, describe, expect, it, test } from 'bun:test';
+import { primaryAt, resetPrimary } from './local-primary-fixture';
+afterEach(resetPrimary);
 import { obj, type Obj } from './domain';
 import type { Native } from './protocol';
 import { T3Client } from './client';
@@ -213,14 +215,15 @@ describe('Auto balance (ChatView automaticEnvironment, useLoadBalancedEnvironmen
   afterEach(() => resetHostResources());
 
   test('a draft on a project three machines hold is automatic and checks machines until each one answers', async () => {
+    primaryAt('http://127.0.0.1:99', 'c');
     const { client, source, native, calls } = setup(undefined, { a: sample(0.5), b: sample(0.96), c: sample(0.1, NOW - 20_000) });
     const state = autoBalanceState(client, NOW, source);
     expect([state.offered, state.automatic, state.needs, state.pending, state.label]).toEqual([true, true, true, true, 'Checking machines…']);
-    expect(state.candidates).toEqual(['c', 'b', 'a']); // loopback machines lead (primary), then by label
+    expect(state.candidates).toEqual(['c', 'a', 'b']); // the primary (this Mac's embedded server) leads, then by label
     expect(state.fetch).not.toBe('');
     await loadHostResources(client, native, state.fetch, NOW, source);
     // One server.getHostResources per candidate, each with the 5 s deadline, over its own transport.
-    expect(calls.filter(call => call.method === 'server.getHostResources').map(call => [call.fleet ? String(call.fleet).split('\n')[1] : 'a', call.timeout])).toEqual([['c', 5], ['b', 5], ['a', 5]]);
+    expect(calls.filter(call => call.method === 'server.getHostResources').map(call => [call.fleet ? String(call.fleet).split('\n')[1] : 'a', call.timeout])).toEqual([['c', 5], ['a', 5], ['b', 5]]);
     // b is busy (0.96); c's sample is stale by its own clock, but receipt time is the client's: c is idle and wins,
     // and the draft moves there with its auto selection (setDraftThreadContext's projectRef).
     expect(client.environmentId).toBe('c');
@@ -303,16 +306,18 @@ describe('Auto balance (ChatView automaticEnvironment, useLoadBalancedEnvironmen
   });
 
   test('a draft with no provider chosen yet balances over the requested driver (Codex)', () => {
+    primaryAt('http://127.0.0.1:99', 'c');
     const { client, source } = setup();
     Object.assign(client, { providerId: '', modelId: '' });
-    expect(autoBalanceState(client, NOW, source).candidates).toEqual(['c', 'b', 'a']);
+    expect(autoBalanceState(client, NOW, source).candidates).toEqual(['c', 'a', 'b']);
   });
 
   test('a weight of 0 is never chosen and every failure reads "Auto balance unavailable"', async () => {
+    primaryAt('http://127.0.0.1:99', 'c');
     const { client, source, native } = setup(undefined, { a: new Error('timed out'), b: new Error('timed out'), c: sample(0.1) });
     noteBalancePrefs(client, { loadBalancingEnabled: true, loadBalancingWeights: { c: 0 }, githubRouting: {} });
     const state = autoBalanceState(client, NOW, source);
-    expect(state.candidates).toEqual(['b', 'a']);
+    expect(state.candidates).toEqual(['a', 'b']);
     await loadHostResources(client, native, state.fetch, NOW, source);
     const after = autoBalanceState(client, NOW, source);
     expect([after.needs, after.pending, after.failed, after.label]).toEqual([true, false, true, 'Auto balance unavailable']);

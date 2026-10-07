@@ -1,7 +1,7 @@
 // Lane r12-sidebar: the row-action sweep's Escape, the rows' keyboard context
 // menus, the Environments list without a switched-off primary, and the sidebar's
 // minimum width at the Interface font size (f870c419fc).
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
 import './client';
 import type { T3Client } from './client';
 import { initialShell, type Obj } from './domain';
@@ -14,6 +14,7 @@ import { environmentRows } from './r12-sidebar-connections';
 import { connectionsProjection, type ConnectionHost } from './connections';
 import { environmentKey, type FleetEntry } from './settings-b-fleet';
 import { brandProbeWidth, clampSidebarWidth, sidebarMinimumWidth } from './r12-sidebar-width';
+import { primaryAt, resetPrimary } from './local-primary-fixture';
 import { sidebarLaunchWidth } from './r4-polish-sidebar-width';
 
 const NOW = Date.parse('2026-10-05T12:00:00.000Z');
@@ -103,27 +104,29 @@ describe('keyboard context menus on sidebar rows (refkbd.mjs on the f870c41 refe
   });
 });
 
-describe('Environments without a switched-off primary (ConnectionsSettings savedEnvironments)', () => {
+describe('Environments never list the primary (ConnectionsSettings savedEnvironments)', () => {
   const A = 'http://127.0.0.1:15083', B = 'http://127.0.0.1:15084';
   const focusB = (): ConnectionHost => ({ connection: 'connected', origin: B, environmentId: 'env-b', statusMessage: 'Connected.', scopes: ['orchestration:read'],
     config: { environment: { label: 'Mac B', platform: { machine: 'laptop' } } } });
-  const live = (origin: string, environmentId: string): FleetEntry => ({ key: environmentKey(origin, environmentId), origin, environmentId, phase: 'connected', message: '',
-    traceId: '', generation: 1, synchronized: 1, lastEvent: 0, subscriptions: {}, config: {}, shell: initialShell(), scopes: [], error: '', requested: true });
+  const live = (origin: string, environmentId: string, primary = false): FleetEntry => ({ key: environmentKey(origin, environmentId), origin, environmentId, phase: 'connected', message: '',
+    traceId: '', generation: 1, synchronized: 1, lastEvent: 0, subscriptions: {}, config: {}, shell: initialShell(), scopes: [], error: '', requested: true, primary });
+  afterEach(resetPrimary);
 
-  test('A switched off with B on: only B is listed, while Load balancing still counts A as This machine', () => {
-    const saved = [{ origin: A, environmentId: 'env-a', label: 'Mac A', enabled: false }, { origin: B, environmentId: 'env-b', label: 'Mac B', enabled: true }];
-    const page = connectionsProjection(focusB(), saved, new Map([[environmentKey(B, 'env-b'), live(B, 'env-b')]]));
+  test('this machine and B: only B is listed under Environments, while Load balancing counts this machine first', () => {
+    primaryAt(A, 'env-a', 'Mac A');
+    const saved = [{ origin: B, environmentId: 'env-b', label: 'Mac B', enabled: true }];
+    const page = connectionsProjection(focusB(), saved, new Map([[environmentKey(B, 'env-b'), live(B, 'env-b')], [environmentKey(A, 'env-a'), live(A, 'env-a', true)]]));
     expect(page.environments.map(row => [row.label, row.first, row.enabled])).toEqual([['Mac B', true, true]]);
     expect(page.machines.map(machine => [machine.label, machine.subtitle])).toEqual([['Mac A', 'This machine'], ['Mac B', 'http://127.0.0.1:15084/']]);
   });
 
-  test('the primary stays listed while it is on, or while nothing else is on (so it can be switched back on)', () => {
+  test('every saved environment keeps its row and switch, a loopback one and a switched-off one included', () => {
     const rows = (a: boolean, b: boolean) => environmentRows([{ key: 'a', origin: A, enabled: a }, { key: 'b', origin: B, enabled: b }]).map(row => row.key);
     expect(rows(true, true)).toEqual(['a', 'b']);
-    expect(rows(false, true)).toEqual(['b']);
+    expect(rows(false, true)).toEqual(['a', 'b']);
     expect(rows(false, false)).toEqual(['a', 'b']);
-    // Remote machines only: no primary, every row stays.
-    expect(environmentRows([{ key: 'r', origin: 'https://one.example.com', enabled: false }, { key: 's', origin: 'https://two.example.com', enabled: true }]).map(row => row.key)).toEqual(['r', 's']);
+    // The primary never has a row.
+    expect(environmentRows([{ key: 'p', origin: A, enabled: true, primary: true }, { key: 's', origin: 'https://two.example.com', enabled: true }]).map(row => row.key)).toEqual(['s']);
   });
 });
 

@@ -3,7 +3,9 @@
 // (shouldShowEnvironmentIndicator, shouldShowComposerContextStrip; original names) and
 // packages/client-runtime/src/state/projectCommands.test.ts (openScratch; the store is this
 // client's shell, read again until the project is in it).
-import { describe, expect, test } from 'bun:test';
+import { afterEach, describe, expect, test } from 'bun:test';
+import { primaryAt, resetPrimary } from './local-primary-fixture';
+afterEach(resetPrimary);
 import type { T3Client } from './client';
 import { obj, type Obj } from './domain';
 import type { Native } from './protocol';
@@ -73,6 +75,7 @@ describe('the non-Git strip shows only where it runs (BranchToolbar.tsx, BranchT
     expect(strip.envOptions.map(option => [option.id, option.selected])).toEqual([['a', true]]);
   });
   test('a draft on this device alone has nothing to show; a non-Git project on two machines does', () => {
+    primaryAt('http://127.0.0.1:1', 'a'); // this device: the primary environment
     expect(gitlessStrip(plain('http://127.0.0.1:1'), hidden, false, new EnvironmentFleet())).toBe(hidden);
     const source = new EnvironmentFleet(), b = entry('b', { shell: { projects: [{ id: 'pb', workspaceRoot: '/notes' }], threads: [], sequence: 0 } as unknown as FleetEntry['shell'] });
     source.entries.set(b.key, b);

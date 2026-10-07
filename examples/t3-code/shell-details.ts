@@ -10,7 +10,7 @@ import { lineageView } from './shell-lineage';
 import { inlineOpen, shellPrefs } from './shell-prefs';
 import { refreshVcsOnFocus, watchVcsStatus } from './shell-vcs';
 import { draftContext, previousWorktree, stripWorkspace } from './composer-controls-branch';
-import { isLoopback } from './settings-b-fleet';
+import { focusedOnPrimary } from './local-primary';
 import { machineKind } from './connections';
 import { commandShortcut } from './shell';
 import { NO_SCRIPTS, cardScripts } from './r6-polish-scripts';
@@ -127,7 +127,7 @@ export async function shellDetails(client: T3Client, native: Native | null | und
   const creating = !thread && envMode === 'worktree' && !worktree;
   const previous = thread ? null : previousWorktree(client);
   const environment = obj(client.config.environment);
-  const env = environmentIndicator({ isPrimary: isLoopback(client.origin), available: environmentOptions(client).length, environmentId: client.environmentId,
+  const env = environmentIndicator({ isPrimary: focusedOnPrimary(client), available: environmentOptions(client).length, environmentId: client.environmentId,
     runtimeLabel: str(environment.label), savedLabel: '', machine: machineKind(client.config) });
   const balance = autoBalanceState(client); // auto-balance: the Run on row reads "Auto balance" (a scale) while the draft is automatic
   if (balance.automatic) Object.assign(env, { envLabel: balance.label, envKind: 'scale' });

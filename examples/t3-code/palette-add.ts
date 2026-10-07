@@ -6,6 +6,7 @@ import { arr, obj, str, type Obj } from './domain';
 import type { Native } from './protocol';
 import { closedView, filterGroups, flatten, row, type Group, type Item, type PaletteView } from './palette';
 import { letGo } from './let-go';
+import { focusedOnPrimary } from './local-primary';
 
 export const SOURCES = ['github', 'gitlab', 'forgejo', 'bitbucket', 'azure-devops'] as const;
 export const SOURCE_LABELS: Record<string, string> = { url: 'Git URL', github: 'GitHub', gitlab: 'GitLab', forgejo: 'Forgejo / Gitea', bitbucket: 'Bitbucket', 'azure-devops': 'Azure DevOps' };
@@ -210,7 +211,7 @@ export async function addProjectView(client: T3Client, native: Native | null | u
     return { ...base, addon: submenu ? 'back' : 'folder-plus', placeholder: submenu ? 'Enter path (e.g. ~/projects/my-app)' : 'Enter project path (e.g. ~/projects/my-app)', rows, count: rows.length,
       autoHighlight: false, popOnEmpty: leafPage === 'browse', enterLabel: context.highlighted ? 'Select' : '', enterOp: 'flow', enterArg: submitOp, enterArg2: resolved,
       accessory: label, accessoryKey: context.highlighted ? '⌘ Enter' : 'Enter', accessoryEnabled: !relativeBlocked && query.trim().length > 0, accessoryOp: 'flow', accessoryArg: submitOp, accessoryArg2: resolved,
-      inputPaddingRight: willCreate ? 152 : context.highlighted ? 120 : 96, footerAction: client.origin.includes('127.0.0.1') || client.origin.includes('localhost') ? 'Open in Finder' : '',
+      inputPaddingRight: willCreate ? 152 : context.highlighted ? 120 : 96, footerAction: focusedOnPrimary(client) ? 'Open in Finder' : '', // canOpenProjectFromFileManager: the primary environment only (local-primary.ts)
       contextLabel: confirming && clone ? 'Repository' : '', contextTitle: clone && confirming ? clone.title : '', contextDescription: clone && confirming ? clone.description : '', contextIcon: clone && confirming ? `source-${clone.source}` : '',
       empty: rows.length ? '' : relativeBlocked ? 'Relative paths require an active project.' : confirming ? 'Choose a destination path and press Enter to clone.'
         : willCreate ? 'Press Enter to create this folder and add it as a project.' : browse.error || '' };

@@ -1,14 +1,16 @@
 // Settings → Connections (ConnectionsSettings.tsx, EnvironmentRow.tsx,
 // EnvironmentIconPicker.tsx, LoadBalancingSettings.tsx, GitHubRoutingSettings.tsx).
-// This client bundles no server, so it has no primary environment: every server
-// it pairs with is a saved environment, listed under Environments with its own
-// switch and row menu (lane r9-connect; the reference's "This machine" section is
-// the desktop's bundled backend). Several stay connected at once: the focused one
-// is T3Client's connection, the rest are background transports
-// (settings-b-fleet.ts / T3Fleet.swift).
+// The primary environment is the embedded server ("This machine", local-primary.ts,
+// this-machine.ts): it has its own section and no row under Environments, and it
+// leads Load balancing and GitHub sharing. Every server this client pairs with is a
+// saved environment, listed under Environments with its own switch and row menu
+// (lane r9-connect). Several stay connected at once: the focused one is T3Client's
+// connection, the rest are background transports (settings-b-fleet.ts / T3Fleet.swift).
 import { obj, str, arr, type Obj } from './domain';
 import { ClientError, bridgeReply, parsePairing, type Native } from './protocol';
-import { fleet, environmentKey, isLoopback, phaseOf, trimOrigin, EnvironmentFleet, type FleetPhase, type FleetEntry } from './settings-b-fleet';
+import { fleet, environmentKey, phaseOf, trimOrigin, EnvironmentFleet, type FleetPhase, type FleetEntry } from './settings-b-fleet';
+import { isPrimaryEnvironment, primary, primaryEntry, primaryPhase, sessionScopes, withoutPrimaryDuplicates } from './local-primary';
+import { applyLocalSetting, thisMachine } from './this-machine';
 import { pushToast } from './toast';
 import { runSshOp, sshTargets, formatSshTarget, SSH_OPS, type SshTarget } from './settings-b-ssh';
 import type { T3Client } from './client';
@@ -102,13 +104,17 @@ export function summarizeRouting(entries: { label: string; permission: string }[
 }
 
 // ── Projection ────────────────────────────────────────────────────────────
-type Source = { key: string; origin: string; environmentId: string; label: string; machine: string; enabled: boolean;
-  phase: FleetPhase; error: string; traceId: string; config: Obj; scopes: string[]; focused: boolean; routes: ConnectionRoute[]; activeRouteId: string };
+export type Source = { key: string; origin: string; environmentId: string; label: string; machine: string; enabled: boolean;
+  phase: FleetPhase; error: string; traceId: string; config: Obj; scopes: string[]; focused: boolean; routes: ConnectionRoute[]; activeRouteId: string;
+  /** The primary environment (local-primary.ts): no row under Environments, first in Load balancing. */
+  primary: boolean };
 
-/** Every saved environment with its live facts: the focused one from T3Client, the rest from the fleet. */
+/** The primary first (once its server named itself), then every saved environment, with live facts: the focused one from T3Client, the rest from the fleet. */
 export function environmentSources(host: ConnectionHost, saved: Obj[], entries: Map<string, FleetEntry>, focusedFailure: Obj = {}): Source[] {
-  // One saved entry per environment: the focus (whose origin is the route in use) is matched by id.
-  const list = saved.filter(entry => str(entry.origin) && str(entry.environmentId));
+  // One saved entry per environment: the focus (whose origin is the route in use) is matched by id. A saved
+  // duplicate of the primary (decision U6) is left out; settings-b-fleet.ts removes it.
+  const local = primaryEntry();
+  const list = [...(local ? [local] : []), ...withoutPrimaryDuplicates(saved).filter(entry => str(entry.origin) && str(entry.environmentId))];
   if (host.environmentId && host.connection !== 'disconnected' && !list.some(entry => str(entry.environmentId) === host.environmentId)) {
     const environment = obj(host.config.environment);
     list.unshift({ origin: host.origin, environmentId: host.environmentId, label: str(environment.label), machine: str(obj(environment.platform).machine), enabled: true });
@@ -119,9 +125,12 @@ export function environmentSources(host: ConnectionHost, saved: Obj[], entries: 
     const facts = focused ? phaseOf({ state: host.connection, message: host.statusMessage, failureKind: str(focusedFailure.failureKind), traceId: str(focusedFailure.traceId) })
       : live ? { phase: live.phase, message: live.message, traceId: live.traceId } : { phase: 'available' as FleetPhase, message: '', traceId: '' };
     const config = focused ? host.config : live?.config ?? {};
-    return { key, origin, environmentId, label: str(obj(config.environment).label) || str(entry.label) || hostOf(origin), machine: str(entry.machine),
-      enabled: entry.enabled !== false, phase: facts.phase, error: facts.message, traceId: facts.traceId, config, scopes: focused ? host.scopes : live?.scopes ?? [], focused,
-      routes: savedRoutes(entry), activeRouteId: focused ? str(focusedFailure.activeRouteId) : live?.activeRouteId ?? '' };
+    const isPrimary = entry.primary === true || isPrimaryEnvironment(environmentId);
+    // The primary's phase follows its server first (installing and starting connect, a restart reconnects).
+    const shown = isPrimary ? primaryPhase(primary.status, { phase: facts.phase, message: facts.message }) : facts;
+    return { key, origin, environmentId, label: str(obj(config.environment).label) || str(entry.label) || (isPrimary ? 'This machine' : hostOf(origin)), machine: str(entry.machine),
+      enabled: entry.enabled !== false, phase: shown.phase, error: shown.message, traceId: facts.traceId, config, scopes: focused ? host.scopes : live?.scopes ?? [], focused,
+      routes: isPrimary ? [] : savedRoutes(entry), activeRouteId: focused ? str(focusedFailure.activeRouteId) : live?.activeRouteId ?? '', primary: isPrimary };
   });
 }
 
@@ -131,7 +140,13 @@ const transportLabel = (origin: string, ssh: Record<string, SshTarget>) => { con
 const sourceTransport = (source: Source, ssh: Record<string, SshTarget>) =>
   routesTransportLabel(source.routes, source.activeRouteId, source.phase === 'connected') ?? transportLabel(source.routes[0]?.origin || source.origin, ssh);
 
-function savedRow(source: Source, index: number, ssh: Record<string, SshTarget> = {}, probes: Map<string, Obj> = new Map()) {
+/** The icon menu's row while there is no primary (the shape is fixed; the menu is not shown). */
+const PLACEHOLDER: Source = { key: '', origin: '', environmentId: '', label: 'This machine', machine: 'desktop', enabled: false, phase: 'available', error: '', traceId: '',
+  config: {}, scopes: [], focused: false, routes: [], activeRouteId: '', primary: true };
+/** One Environments row's projection (and the This machine icon menu's). */
+export type SavedRowView = ReturnType<typeof savedRow>;
+export const placeholderRow = (): SavedRowView => savedRow(PLACEHOLDER, 0);
+export function savedRow(source: Source, index: number, ssh: Record<string, SshTarget> = {}, probes: Map<string, Obj> = new Map()) {
   // 22e9d35613: a probed descriptor names the protocol direction and whether the host can update itself.
   const outdated = outdatedRow(source.key, source.label, probes.get(source.key), jobFor(source.key));
   const unsupported = source.phase === 'unsupported' || outdated.blocked !== null, enabled = source.enabled && !unsupported, connected = source.phase === 'connected';
@@ -170,11 +185,12 @@ function savedRow(source: Source, index: number, ssh: Record<string, SshTarget> 
 }
 
 export function connectionsProjection(host: ConnectionHost, saved: Obj[], entries: Map<string, FleetEntry> = new Map(), prefsText = '{}', focusedFailure: Obj = {}, ssh: Record<string, SshTarget> = {}, probes: Map<string, Obj> = new Map()) {
-  // r9-connect: no primary environment (loadBalancingEnvironments without one): every machine is a saved one.
   // An environment is listed once it is saved (paired); the focus joins before the catalog catches up only
-  // once it connected, so a pairing that failed lists nothing, as connectPairing registers nothing.
+  // once it connected, so a pairing that failed lists nothing, as connectPairing registers nothing. The
+  // primary is listed whenever it exists (loadBalancingEnvironments puts it first).
   const savedIds = new Set(saved.map(entry => str(entry.environmentId)));
-  const listed = environmentSources(host, saved, entries, focusedFailure).filter(source => savedIds.has(source.environmentId) || source.phase === 'connected');
+  const sources = environmentSources(host, saved, entries, focusedFailure);
+  const listed = sources.filter(source => source.primary || savedIds.has(source.environmentId) || source.phase === 'connected');
   const prefs = decodePrefs(prefsText);
   // r11-misc: the reference's counting rule (the primary always counts, then switched-on saved ones).
   const machines = balanceSources(listed).map(({ source, primary }, index) => {
@@ -186,10 +202,12 @@ export function connectionsProjection(host: ConnectionHost, saved: Obj[], entrie
       weights: PREFERENCES.map(([value, label]) => ({ value: String(value), label, selected: value === weight })),
       routings: ROUTING.map(([value, label]) => ({ value, label, selected: value === routing })) };
   });
-  const rows = environmentRows(listed).map((source, index) => savedRow(source, index, ssh, probes)); // r12-sidebar: a switched-off primary has no row
+  const rows = environmentRows(listed).map((source, index) => savedRow(source, index, ssh, probes)); // the primary has no row (r12-sidebar-connections.ts)
+  const local = sources.find(source => source.primary);
   return {
-    connected: host.connection === 'connected', state: host.connection, adminAccess: host.scopes.includes('access:write'),
+    connected: host.connection === 'connected', state: host.connection, adminAccess: sessionScopes(host.environmentId, host.scopes).includes('access:write'),
     activeLabel: str(obj(host.config.environment).label) || hostOf(host.origin),
+    thisMachine: thisMachine(local, local ? savedRow(local, 0, ssh, probes) : null), // this-machine.ts: the "This machine" section
     environments: rows, updateCount: rows.filter(row => row.update === 'Update').length,
     machines: machines.length >= 2 ? machines : [],
     loadBalancing: prefs.loadBalancingEnabled,
@@ -365,11 +383,15 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
       fleet.forget(key);
       let result: Result = { status: null, generation: -1 };
       if (!enabled && focus.environmentId === environmentId && focus.connection !== 'disconnected') {
-        // Switching the focused environment off hands focus to another switched-on saved one (a loopback first).
+        // Switching the focused environment off hands focus to the primary when it is ready, else another switched-on saved one.
         let reply = await call(native, { op: 'disconnect', forget: false });
-        const others = saved.filter(entry => entry.enabled !== false && str(entry.environmentId) && str(entry.environmentId) !== environmentId);
-        const primary = others.find(entry => isLoopback(str(entry.origin))) ?? others[0];
-        if (primary) { fleet.forget(environmentKey(str(primary.origin), str(primary.environmentId))); reply = await call(native, { op: 'connect', origin: str(primary.origin), credential: '' }); }
+        const local = primary.connectable ? primaryEntry() : null;
+        const next = local ?? saved.find(entry => entry.enabled !== false && str(entry.environmentId) && str(entry.environmentId) !== environmentId);
+        if (next) {
+          fleet.forget(environmentKey(str(next.origin), str(next.environmentId)));
+          await native.later({ op: 'fleetStop', fleet: environmentKey(str(next.origin), str(next.environmentId)) }).catch(() => {});
+          reply = await call(native, { op: 'connect', origin: str(next.origin), ...(next.primary ? { primary: true } : { credential: '' }) });
+        }
         result = { status: obj(reply.value), generation: reply.generation };
       } else if (enabled && (focus.connection === 'disconnected' || focus.connection === 'error' || !focus.environmentId)) {
         const reply = await call(native, { op: 'connect', origin, credential: '' });
@@ -464,6 +486,12 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
       nativeUpdateDeps(native, client ?? null), `${target.label} update failed`)));
     return { status: null, generation: -1 };
   }
+  if (op === 'local-environment') {
+    // "This machine" › Local environment, after its confirm dialog (this-machine.ts); the reason of a failure shows in the dialog.
+    if (!client) throw new ClientError('Open this app on macOS to change this setting.');
+    if (value !== 'on' && value !== 'off') throw new ClientError("Couldn't change this setting.");
+    return applyLocalSetting(client, native, { localEnvironmentEnabled: value === 'on' });
+  }
   if (op === 'load-balancing') {
     await writePrefs(native, prefs => { prefs.loadBalancingEnabled = value === 'true'; });
     return { status: null, generation: -1 };
@@ -492,4 +520,4 @@ export async function runConnectionOp(native: Native, op: string, id: string, va
 }
 export const CONNECTION_OPS = ['environment-add', 'welcome-pair', 'environment-switch', 'environment-enabled', 'environment-forget', 'environment-trace', 'environment-icon',
   'environment-update', 'environment-update-outdated', 'environment-update-all', 'environment-ssh-add', 'environment-ssh-pick', 'load-balancing', 'load-weight', 'github-routing', 'environment-run-on',
-  'environment-route-add', 'environment-route-move', 'environment-route-remove'];
+  'environment-route-add', 'environment-route-move', 'environment-route-remove', 'local-environment'];

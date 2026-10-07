@@ -497,6 +497,29 @@ describe('answer cancellation', () => {
     expect(client.shell.threads.map(row => row.id)).toContain('late');
     expect(native.events).toEqual([]);
   });
+  test('a reconnect synchronizes once: the reset the inbox reports at the new generation\'s start lost nothing of it', async () => {
+    const { client, native, disk } = await opened();
+    expect(client.thread).not.toBeNull();
+    // T3Transport.start: a new generation empties the inbox (floor = latest); its first read from 0 says reset.
+    const floor = native.eventSequence, original = native.later.bind(native);
+    native.generation++; native.subscriptions = {};
+    native.later = async input => {
+      const request = obj(input);
+      if (request.op === 'events') {
+        const page = obj(obj(await original(input)).value);
+        return native.good({ ...page, reset: Number(request.after) < floor });
+      }
+      return original(input);
+    };
+    native.calls = [];
+    await client.refresh(native, disk.files);
+    const http = native.calls.filter(call => call.op === 'http').map(call => str(call.path));
+    // The shell and the open thread stay; before, the spurious reset refetched both (a second synchronize).
+    expect(http.filter(path => path === '/api/orchestration/shell' || path.includes('/bounded'))).toEqual([]);
+    expect(native.calls.filter(call => call.op === 'subscribe').map(call => call.key).sort()).toEqual(['config', 'shell', 'thread']);
+    expect(client.thread).not.toBeNull();
+    expect(client.ready).toBe(true);
+  });
   test('an empty overflow reset is acknowledged before resnapshot and completion markers are drained', async () => {
     const { client, native, disk } = await connected();
     const original = native.later.bind(native);
