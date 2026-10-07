@@ -120,6 +120,7 @@ fn error_json(error: &DataError) -> Json {
         DataError::UnknownSource(m) => ("UnknownSource", m),
         DataError::BadArguments(m) => ("BadArguments", m),
         DataError::DeferredAtBake(m) => ("DeferredAtBake", m),
+        DataError::Failed(m) => ("Failed", m),
         DataError::Unavailable(m) | DataError::Interface(m) => ("Unavailable", m),
     };
     json!({"kind": kind, "message": message})
@@ -131,6 +132,7 @@ fn error_from(error: &Json) -> DataError {
         Some("UnknownSource") => DataError::UnknownSource(message),
         Some("BadArguments") => DataError::BadArguments(message),
         Some("DeferredAtBake") => DataError::DeferredAtBake(message),
+        Some("Failed") => DataError::Failed(message),
         _ => DataError::Unavailable(message),
     }
 }

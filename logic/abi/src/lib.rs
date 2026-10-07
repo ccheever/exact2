@@ -285,6 +285,7 @@ fn encode_result(w: &mut Writer, result: Result<Answer, DataError>) {
                 DataError::BadArguments(s) => (3, s),
                 DataError::Unavailable(s)
                 | DataError::Interface(s)
+                | DataError::Failed(s)
                 | DataError::DeferredAtBake(s) => (4, s),
             };
             w.u8(tag);

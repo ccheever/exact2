@@ -182,6 +182,10 @@ pub(super) fn failed_now(name: &str, why: &str) -> String {
     text!("resource {} failed: {}", name, why)
 }
 
+pub(super) fn send_failed_now(name: &str, why: &str) -> String {
+    text!("send {} failed: {}; it ends unsent", name, why)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

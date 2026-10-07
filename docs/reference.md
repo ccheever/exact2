@@ -391,7 +391,12 @@ page's (LLP 1027.000 D3), so an app that reads the clock fails in the web loop
 as it would on a device. The type check cannot see the difference, but every
 build refuses a direct use in a module `app.ts` reaches, by file and line
 (`logic.ts:2:28: Date.now() is unavailable in data sources; …`), so a test that
-runs the module under Bun, which has no such guard, cannot hide it. Development JS builds name a derive
+runs the module under Bun, which has no such guard, cannot hide it. A use the
+build cannot see (`globalThis['set' + 'Timeout']`) is refused when it runs, and
+the answer fails as any answer that throws, rejects or answers outside its shape
+does, the same on every host: the input that asked lands, the resource keeps its
+value (else its placeholder), `failed(resource)` is true, a `send` ends unsent,
+and the logs name the refusal (LLP 1027.000 D3). Development JS builds name a derive
 whose value fails its type check and report failed resource/source dependencies
 that it read.
 ES2024's resizable `ArrayBuffer`, shared memory and the RegExp `v` flag are not

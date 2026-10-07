@@ -599,6 +599,12 @@ pub enum DataError {
     /// answer now. A resource asked this fails; it does not refuse the
     /// commit (LLP 1071 §7, Charlie's ruling of 2026-09-29).
     Interface(String),
+    /// The source's own code ran and gave no answer: a TypeScript answer
+    /// threw, rejected or answered outside its shape (a refused ambient
+    /// read among them). A resource asked this fails and a send ends
+    /// unsent, as after a failed reply, on every host; it does not refuse
+    /// the commit (LLP 1027.000 D3, amended 2026-10-07).
+    Failed(String),
 }
 
 #[cfg(test)]

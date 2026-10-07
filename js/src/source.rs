@@ -119,6 +119,7 @@ impl DataSource for Module {
         // its disposable engine can only record ordinary host requests.
         self.unload();
         self.directories = None;
+        self.host.validating = true;
         self.activate()
     }
 

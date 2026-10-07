@@ -30,14 +30,25 @@ const TIMERS=['setTimeout','setInterval','requestAnimationFrame','requestIdleCal
 const GLOBALS=['globalThis','self','window','global'];
 // `x!`, `(x)` and `x?.y` as written, down to the expression they wrap.
 const bare=(node)=>{ while (node && ['TSNonNullExpression','ParenthesizedExpression','ChainExpression','TSAsExpression','TSSatisfiesExpression','TSTypeAssertion'].includes(node.type)) node=node.expression; return node; };
+// A member's property name as written: `o.name`, or `o['name']` and
+// o[`name`] with nothing computed in them. Anything else (`'n' + 'ow'`) is
+// the runtime's to refuse.
+const named=(node)=>{
+  if (node?.type!=='MemberExpression') return undefined;
+  const p=node.property;
+  if (!node.computed) return p?.name;
+  if (p?.type==='Literal' && typeof p.value==='string') return p.value;
+  if (p?.type==='TemplateLiteral' && !p.expressions.length) return p.quasis[0]?.value?.cooked;
+  return undefined;
+};
 // The global `name`: the bare identifier, or a global object's property.
 const ambientGlobal=(node,name,local)=>{
   node=bare(node);
   if (node?.type==='Identifier') return node.name===name && !local.has(name);
-  return node?.type==='MemberExpression' && !node.computed && node.property?.name===name
+  return named(node)===name
     && bare(node.object)?.type==='Identifier' && GLOBALS.includes(bare(node.object).name) && !local.has(bare(node.object).name);
 };
-const member=(node,object,property,local)=>{ node=bare(node); return node?.type==='MemberExpression' && !node.computed && node.property?.name===property && ambientGlobal(node.object,object,local); };
+const member=(node,object,property,local)=>{ node=bare(node); return named(node)===property && ambientGlobal(node.object,object,local); };
 function refusal(node,local) {
   if (node.type==='CallExpression') {
     const callee=node.callee;

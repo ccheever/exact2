@@ -2,7 +2,7 @@
 #![cfg(exact_js_engine)]
 
 use exact_js::Module;
-use exact_kernel::Kernel;
+use exact_kernel::{Kernel, PropId};
 use exact_plan::{Plan, Value};
 use exact_runner::{Answer, DataError, DataSource, Outcome, Response, Runner, Store};
 
@@ -92,6 +92,15 @@ fn module() -> Module {
     let mut module = Module::loaded(HBC.to_vec(), APP, GRANTS).expect("input fixture loads");
     // Functional fixtures carry no wall-clock budget; it is not a stable
     // gate on a shared test machine. Budget tests set their own.
+    module.set_budget_ms(f64::INFINITY);
+    module.bind(&plan());
+    module
+}
+
+/// The bake's module, as `js/bake` makes it: a session's runner takes an
+/// answer's failure as its resource's, the bake refuses it.
+fn baking() -> Module {
+    let mut module = Module::inspect(HBC.to_vec()).expect("input fixture inspects");
     module.set_budget_ms(f64::INFINITY);
     module.bind(&plan());
     module
@@ -200,11 +209,11 @@ fn explicit_dates_and_seeds_repeat_across_calls_modules_and_async_interleaving()
 fn bake_refuses_ambient_reads_and_keeps_explicit_inputs_as_compiled_data() {
     for &(form, api) in FORMS {
         let source = SRC.replace("explicit(elapsedMs, seed)", &format!("ambient(\"{form}\")"));
-        let error = contract::bake(contract::compile(&source).unwrap(), module()).unwrap_err();
+        let error = contract::bake(contract::compile(&source).unwrap(), baking()).unwrap_err();
         diagnostic(&error.to_string(), api);
     }
-    let a = contract::bake(plan(), module()).unwrap();
-    let b = contract::bake(plan(), module()).unwrap();
+    let a = contract::bake(plan(), baking()).unwrap();
+    let b = contract::bake(plan(), baking()).unwrap();
     assert_eq!(a.encode(), b.encode());
     assert!(
         a.resources[0].initial.len > 0,
@@ -287,6 +296,98 @@ fn runner_cache_refresh_clock_and_reload_observe_only_the_declared_inputs() {
         runner.data().take_logs().is_empty(),
         "the runner drained the module"
     );
+}
+
+/// Through the runner, in a session: an answer refused for an ambient read
+/// fails its resource and the commit that asked stands, whether it threw or
+/// its promise rejected before the executor returned (issue #124; LLP
+/// 1027.000 D3, amended 2026-10-07). The web takes both so.
+#[test]
+fn a_refused_read_fails_its_resource_and_the_commit_that_asked_stands() {
+    let status = |r: &Runner<Module>| {
+        let k = r.kernel();
+        let key = k.find_by_test_id("status")[0];
+        k.node_by_key(key)
+            .unwrap()
+            .props
+            .str(PropId::Text)
+            .map(str::to_string)
+    };
+    for source in ["ambient", "ambientAsync"] {
+        let src = SRC
+            .replace(
+                "as shape string\n  mutation",
+                &format!("as shape string\n  resource drawn = {source}(form) as shape string\n  mutation"),
+            )
+            .replace(
+                "  action tick\n",
+                &format!("  action pick(v: string)\n    form = v\n  action post\n    send result = {source}(form)\n  action tick\n"),
+            )
+            .replace(
+                "    text value testId=\"value\"\n",
+                "    main\n      text value testId=\"value\"\n      text (failed(drawn) ? \"failed\" : \"ok\") testId=\"status\"\n",
+            );
+        let plan = contract::compile(&src).expect("the fixture compiles");
+        let mut m = module();
+        m.bind(&plan);
+        let mut runner =
+            Runner::boot(plan, m, Kernel::with_monospace(), Default::default(), "/").unwrap();
+        for (form, api) in [
+            ("alias-now", "Date.now()"),
+            ("computed-timeout", "setTimeout()"),
+        ] {
+            runner
+                .act("pick", vec![Value::str(form)])
+                .unwrap_or_else(|e| panic!("{source} {form}: the commit stands: {e:?}"));
+            assert_eq!(runner.slot("form"), Some(&Value::str(form)), "{source}");
+            assert_eq!(
+                status(&runner).as_deref(),
+                Some("failed"),
+                "{source} {form}"
+            );
+            assert!(
+                runner
+                    .journal()
+                    .any(|l| l.contains("resource drawn failed: ") && l.contains(api)),
+                "{source} {form}"
+            );
+            // A send's ends unsent; its action's commit stands too.
+            runner
+                .act("post", vec![])
+                .unwrap_or_else(|e| panic!("{source} {form}: the send's commit stands: {e:?}"));
+            assert_eq!(runner.slot("result"), Some(&Value::NONE), "{source}");
+            assert!(!runner.has_pending(), "{source} {form}");
+            assert!(
+                runner.journal().any(|l| l.contains("send result failed: ")
+                    && l.contains(api)
+                    && l.ends_with("it ends unsent")),
+                "{source} {form}"
+            );
+        }
+    }
+}
+
+/// The failure is a session's: the bake and a replacement's validation still
+/// refuse it, so a build and an update fail visibly and the running session
+/// is kept.
+#[test]
+fn a_session_fails_where_the_bake_and_a_candidates_validation_refuse() {
+    let args = [Value::str("computed-timeout")];
+    let mut store = Store::new(GRANTS, vec![]);
+    let session = module().answer(&mut store, "ambient", &args);
+    assert!(
+        matches!(session, Err(DataError::Failed(ref m)) if m.contains("setTimeout()")),
+        "{session:?}"
+    );
+    let mut candidate = module();
+    candidate.activate_for_validation().unwrap();
+    let validated = candidate.answer(&mut store, "ambient", &args);
+    assert!(
+        matches!(validated, Err(DataError::Unavailable(_))),
+        "{validated:?}"
+    );
+    let baked = baking().answer(&mut store, "ambient", &args);
+    assert!(matches!(baked, Err(DataError::Unavailable(_))), "{baked:?}");
 }
 
 #[test]

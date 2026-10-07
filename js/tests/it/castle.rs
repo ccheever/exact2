@@ -183,7 +183,7 @@ fn independent_fetch_is_explicit_bounded_and_keeps_each_invocation() {
             )
             .unwrap_err();
         assert!(
-            matches!(&error, DataError::Unavailable(message) if message.contains("maxResponseBytes")),
+            matches!(&error, DataError::Failed(message) if message.contains("maxResponseBytes")),
             "{error:?}"
         );
         assert_eq!(m.in_flight(), 0);
@@ -479,9 +479,11 @@ fn an_answer_may_await_two_fetches_in_a_row() {
 fn refusals_thrown_before_and_after_a_fetch_and_an_answer_pending_on_nothing() {
     let mut m = module();
     let mut s = store();
+    // Asked in a session, the module's own failure is its target's, not a
+    // refusal of the commit (LLP 1027.000 D3, amended 2026-10-07).
     assert!(matches!(
         m.answer(&mut s, "refused", &[]),
-        Err(DataError::Unavailable(ref e)) if e == "refused on purpose"
+        Err(DataError::Failed(ref e)) if e == "refused on purpose"
     ));
     later(m.answer(&mut s, "refusedLater", &[]).unwrap());
     assert!(matches!(
@@ -490,7 +492,7 @@ fn refusals_thrown_before_and_after_a_fetch_and_an_answer_pending_on_nothing() {
     ));
     assert!(matches!(
         m.answer(&mut s, "stuck", &[]),
-        Err(DataError::Unavailable(ref e)) if e.contains("pending on nothing")
+        Err(DataError::Failed(ref e)) if e.contains("pending on nothing")
     ));
     // A reply for nothing in flight, and a fetching source at bake.
     assert!(matches!(

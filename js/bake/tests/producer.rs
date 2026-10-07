@@ -511,10 +511,16 @@ fn bake_defers_uncaught_storage_but_keeps_source_errors_fatal() {
         "bake deferral creates no fabricated request"
     );
     live.data().load().unwrap();
-    let error = live.data_ready().unwrap_err();
+    // A runtime storage refusal remains a failure: the resource's, as on the
+    // web, not a refusal of the commit that asked (LLP 1027.000 D3).
+    live.data_ready().expect("the commit stands");
+    assert_eq!(live.resource("message"), Some(&Value::str("")));
+    let journal: Vec<_> = live.journal().collect();
     assert!(
-        format!("{error:?}").contains("Unavailable"),
-        "runtime storage refusal remains a failure: {error:?}"
+        journal
+            .iter()
+            .any(|l| l.contains("resource message failed: ") && l.contains("storage")),
+        "{journal:?}"
     );
     f.write(
         "app.contract",
@@ -1076,6 +1082,19 @@ fn the_clock_in_a_data_module_is_refused_at_build_by_file_and_line() {
             "logic.ts:4:24: setTimeout() is unavailable in data sources: there are no timers"
         ),
         "{error}"
+    );
+    // A property named by a literal (`globalThis['setTimeout']`, Date[`now`]);
+    // one the module computes (`'set' + 'Timeout'`) is the runtime's to refuse.
+    f.write("logic.ts", "export const prefix = 'old: ';\nexport const a = () => globalThis['setTimeout'](() => {}, 1);\nexport const b = () => Date[`now`]() + Math['random']();\n");
+    let error = producer.bake(&f.0, None).err().unwrap();
+    assert!(error.contains("logic.ts:2:24: setTimeout()"), "{error}");
+    assert!(error.contains("logic.ts:3:24: Date.now()"), "{error}");
+    assert!(error.contains("logic.ts:3:40: Math.random()"), "{error}");
+    f.write("logic.ts", "export const prefix = 'old: ';\nexport const a = () => (globalThis as any)['set' + 'Timeout'](() => {}, 1);\n");
+    assert!(
+        producer.bake(&f.0, None).is_ok(),
+        "{:?}",
+        producer.bake(&f.0, None).err()
     );
     // An angle-bracket assertion, a `declare`d class and a type-only
     // namespace are erased: the global runs.

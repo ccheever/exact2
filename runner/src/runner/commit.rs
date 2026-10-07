@@ -652,6 +652,7 @@ impl<D: DataSource> Runner<D> {
         // queue instead, every send in order, its head asked once the source
         // is ready (LLP 1092 D2).
         let mut unsent: Vec<(usize, String, Vec<Value>)> = Vec::new();
+        let mut failed_now: Vec<usize> = Vec::new();
         for (m, source, sargs) in &outcome.sends {
             let m = *m as usize;
             let queue = self.plan.mutations[m].queue;
@@ -677,6 +678,21 @@ impl<D: DataSource> Runner<D> {
                 }
                 Ok(super::queue::Asked::Later(request)) => {
                     later.push((m, source.clone(), sargs.clone(), request))
+                }
+                // A TypeScript answer that failed now ends the send unsent,
+                // as a failed reply ends one (`release_failed`, the web's
+                // `reply`): its slot as it was, its `then` unarmed, an older
+                // send's reply no longer wanted, and the commit stands (LLP
+                // 1027.000 D3, amended 2026-10-07).
+                Err(RunnerError::Data {
+                    resource,
+                    error: DataError::Failed(why),
+                }) => {
+                    self.log(super::lines::send_failed_now(&resource, &why));
+                    let (older, rest) = later.into_iter().partition(|l| l.0 == m);
+                    later = rest;
+                    self.discard_later(&older);
+                    failed_now.push(m);
                 }
                 Err(e) => {
                     self.discard_later(&later);
@@ -811,7 +827,7 @@ impl<D: DataSource> Runner<D> {
         for (rows, slot, _) in &row_undo {
             self.row_writes.record(frames, rows, *slot);
         }
-        for m in &assigned {
+        for m in assigned.iter().chain(&failed_now) {
             self.forget(Target::Mutation(*m));
         }
         for (m, source, args, request) in later {
