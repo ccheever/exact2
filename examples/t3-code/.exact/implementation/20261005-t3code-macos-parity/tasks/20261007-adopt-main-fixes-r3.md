@@ -2,7 +2,7 @@
 name: 20261007-adopt-main-fixes-r3
 plan: 20261005-t3code-macos-parity
 implementation: implemented
-verification: unverified
+verification: passed
 delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
@@ -135,3 +135,34 @@ AFTER  orca probe: ok=false, AX reads stayed blocked
 ```
 
 Next drive (needs the coordinator's allowance): send with `tap send-message`; open the palette with its toolbar trigger; read terminal state from `presentation.terminals`; then the same script on the base for BEFORE.
+
+## Final round (2026-10-07, console-reported)
+
+The final round's drives ran after the follow-up above, Before on `t3-code-evidence-base` at `4f523ef5c`
+and After on this branch, under the drive lock. Their outputs were deleted with the task worktree, so the
+results below are the console's report, without images (restored by
+[20261007-real-input-checks](20261007-real-input-checks.md)).
+
+| Row | Before | After |
+| --- | --- | --- |
+| X14, 15 turns with draft edits (fake provider) | 13 of 15 turns reached the provider (turns 4 and 8 never arrived); runner journal "lands first" 0, "forget request" 7 | 15 of 15; "lands first" 21, "forget request" 4. Nothing pending in either |
+| Morphs (maximize/minimize, table expand, provider lock, table in dark at 840×620) | cross-fade | morph |
+| Steer/queue morph | not filmed: needs a held ⌘/⌃ (X25, #140) | not filmed (same) — filmed with real input in real-input-checks |
+| Toast copy | not filmed: no toast with copy reachable in the lane without outside effects | same |
+| Terminal: drag select, double/triple click, right-click, scrollbar thumb, wheel, drawer resize | only the drag ran (the base driver refuses `clicks … at` and right-click `at`) | all worked; drawer 280 → 406 |
+| Theme editor: header drag, edge clamp, resize grip, drag from a button | identical in both | moved (−300, −150), clamped to x 8, 416×348 → 536×428, a drag from a button left it in place |
+| Diff Shift-click range | "+12" only | "+10 to +12" |
+| Diff drag over line numbers | "+12" | "+12" (reference behaviour unchecked) |
+| Diff pinned header | does not stay pinned (X32, #131) | same |
+| Device stream (iPhone 17 simulator): 3D orbit drag, flat swipe | both drove | both drove |
+| Cite | the base driver refused a double-click at a point | Cite appeared; the composer got a "Fake" chip |
+| Agent middle click at 840×620, dark | both tabs stayed | Files closed, Diff stayed |
+
+## Real input (2026-10-07, real-input-checks)
+
+The "Real middle click / real Tab" rows blocked above ran with real input in
+[20261007-real-input-checks](20261007-real-input-checks.md): a real middle click on Files closes Diff on
+the base (the wrong-tab bug) and Files on this branch; real Tab presses draw #189's focus ring only on this
+branch; the steer/queue swap under a held ⌘ cross-fades on the base and morphs here. A real pointer drag in
+the terminal selects nothing in either build (the agent's drag does): an open finding of that task, not of
+this one.

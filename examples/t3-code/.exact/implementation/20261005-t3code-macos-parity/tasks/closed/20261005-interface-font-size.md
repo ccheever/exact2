@@ -214,6 +214,17 @@ server (port 16521, lane homes) with project Alpha and two threads. One image pe
 
 At 16 every probed box equals the before build's. No `setRootFontSize … refused` line in any log.
 
+## Real input (2026-10-07, real-input-checks)
+
+The two rows above that waited for a real hand ran in [20261007-real-input-checks](../20261007-real-input-checks.md)
+on a normally launched lane bundle copy (own bundle id, paired with a lane server): Settings › Appearance ›
+Interface font size set to 20 with real clicks on the dropdown, the UI scaled at once; a real held ⌘Q (the
+clone's default quit mode), a relaunch of the same copy: `t3-code.json` holds `fontSizeInterface: 20` and
+the UI comes back at 20. On the base (`4f523ef5c`) the same steps save 20 and change only the preview line.
+Seen once on this branch: the relaunch showed "Environment disconnected" for about 30 s and the 20 px layout
+arrived with the connection (the snapshot answer waits for the transport's `status`); the base reconnected
+within 8 s. Image: https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/real-input-checks/01-interface-font-size-relaunch.png
+
 ## Next action
 
 PR #206 review and merge.
