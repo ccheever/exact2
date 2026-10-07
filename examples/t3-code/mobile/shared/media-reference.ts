@@ -1,0 +1,69 @@
+// GAP 001: bake cannot capture parent imports. Remove this copy when ancestor mounts work.
+// Unchanged body from examples/t3-code/media-reference.ts at 887b2491b182f851b11253655f6aa84fe2a26708.
+// media-actions: the authored location of a piece of media (T3 Code 1e2ecbd975, MIT; see
+// LICENSE-T3): packages/client-runtime/src/mediaReference.ts, with the two helpers it imports
+// (packages/shared/src/path.ts isWindowsAbsolutePath, markdownLinks.ts safeDecodeURIComponent).
+// No imports, so every media module can use it.
+
+/** The authored media location, never the temporary URL used to load its bytes. */
+export type MediaReference =
+  | { readonly kind: 'file'; readonly path: string; readonly relativePath?: string }
+  | { readonly kind: 'url'; readonly url: string };
+
+export const isWindowsDrivePath = (value: string): boolean => /^[a-zA-Z]:([/\\]|$)/.test(value);
+export const isUncPath = (value: string): boolean => value.startsWith('\\\\');
+export const isWindowsAbsolutePath = (value: string): boolean => isUncPath(value) || isWindowsDrivePath(value);
+
+export function safeDecodeURIComponent(value: string): string {
+  try { return decodeURIComponent(value); } catch { return value; }
+}
+
+function absolutePathParts(path: string) {
+  const windows = isWindowsAbsolutePath(path) || path.startsWith('//');
+  const normalized = windows ? path.replace(/\\/g, '/') : path;
+  const prefix = windows ? /^(?:[a-z]:\/|\/\/[^/]+\/[^/]+(?:\/|$))/i.exec(normalized)?.[0] : normalized.startsWith('/') ? '/' : undefined;
+  if (!prefix) return undefined;
+  const segments: string[] = [];
+  for (const segment of normalized.slice(prefix.length).split('/')) {
+    if (!segment || segment === '.') continue;
+    if (segment === '..') segments.pop();
+    else segments.push(segment);
+  }
+  const root = prefix.replace(/\/$/, '');
+  return { root: windows ? root.toLowerCase() : root, segments, windows };
+}
+
+/** Compares paths lexically for the copy menu; it does not resolve filesystem symlinks. */
+export function mediaFileReference(path: string, workspaceRoot?: string | null): Extract<MediaReference, { kind: 'file' }> {
+  const target = absolutePathParts(path);
+  const workspace = workspaceRoot ? absolutePathParts(workspaceRoot) : undefined;
+  if (!target || !workspace || target.windows !== workspace.windows || target.root !== workspace.root
+    || target.segments.length <= workspace.segments.length
+    || !workspace.segments.every((segment, index) => workspace.windows ? segment.toLowerCase() === target.segments[index]?.toLowerCase() : segment === target.segments[index])) {
+    return { kind: 'file', path };
+  }
+  return { kind: 'file', path, relativePath: target.segments.slice(workspace.segments.length).join('/') };
+}
+
+/** Pass the authored source, not a generated URL used by the media player. */
+export function mediaUrlReference(url: string): Extract<MediaReference, { kind: 'url' }> | undefined {
+  if (!/^(?:https?:\/\/|\/\/)/i.test(url)) return undefined;
+  try {
+    const parsed = new URL(url.startsWith('//') ? `https:${url}` : url);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? { kind: 'url', url } : undefined;
+  } catch { return undefined; }
+}
+
+/** Local paths are already decoded; URL filename escapes are decoded exactly once. */
+export function mediaReferenceFileName(reference: MediaReference): string | undefined {
+  if (reference.kind === 'file') {
+    const windows = isWindowsAbsolutePath(reference.path) || reference.path.startsWith('//');
+    return reference.path.split(windows ? /[\\/]/ : '/').pop() || undefined;
+  }
+  let basename: string | undefined;
+  try {
+    const url = reference.url;
+    basename = new URL(url.startsWith('//') ? `https:${url}` : url).pathname.split('/').pop();
+  } catch { return undefined; }
+  return basename ? safeDecodeURIComponent(basename) : undefined;
+}

@@ -1,0 +1,160 @@
+// ThreadFeed and pending approvals at upstream365aa87982; actions delegate to the shared command seam.
+// @ref llp/1106.002-design-system-parity.spec.md#typography-and-font-assets
+use ThreadSnapshot, ThreadRow, ThreadActivity, ThreadMedia, ThreadColors from "./thread-shapes.contract"
+use ThreadMarkdown from "./thread-markdown.contract"
+component ThreadFeed
+  props
+    data: ThreadSnapshot
+    horizontalPadding: number
+    userBubbleMaxWidth: number
+    bottomClearance: number
+    action: action
+    openMedia: action
+    colors: ThreadColors
+  view
+    when length(data.rows) == 0
+      column flex=1 min-height=0 align-items="center" justify-content="center" padding-left=(horizontalPadding + 24) padding-right=(horizontalPadding + 24) padding-bottom=bottomClearance
+        column max-width=320 align-items="center" gap=7
+          text data.emptyTitle text-align="center" font-family="DM Sans" font-size=18 line-height="23px" font-weight=700 color=colors.foreground
+          text data.emptyDetail text-align="center" font-family="DM Sans" font-size=14 line-height="21px" color=colors.secondary
+    else
+      list id="thread-feed" flex=1 min-height=0 virtualized=true estimated-item-height=180 scrollFollowEnd=true
+        padding-left=horizontalPadding padding-right=horizontalPadding testId="thread-feed"
+        each row in data.rows key=row.id
+          column padding-top=(row.first ? 12 : 0) padding-bottom=(row.last ? bottomClearance : 0) font-family="DM Sans"
+            when row.first and (data.hasMore or length(data.historyError) > 0)
+              column align-items="center" gap=5.25 margin-bottom=10.5 padding-left=7 padding-right=7
+                when data.hasMore
+                  button press=action("chatlocal:history", "", "") disabled=data.historyLoading
+                    min-height=31.5 border-radius=9999 border-width=1 border-style="solid" border-color=colors.border
+                    background-color=colors.subtle padding-left=14 padding-right=14 padding-top=7 padding-bottom=7
+                    aria-label="Load earlier activity" testId="thread-history"
+                    row align-items="center" gap=7
+                      t3-symbol symbol-name="chevron.up" point-size=12 symbol-weight="regular" symbol-tint=colors.primary width=12 height=12
+                      text (data.historyLoading ? "Loading earlier activity…" : "Load earlier activity") font-size=14 line-height="19px" font-weight=500 color=colors.foreground
+                when length(data.historyError) > 0
+                  text data.historyError text-align="center" font-size=13 line-height="17px" color=colors.iconSubtle
+            ThreadMessage(row=row, userBubbleMaxWidth=userBubbleMaxWidth, action=action, openMedia=openMedia, colors=colors)
+
+component ThreadMessage
+  props
+    row: ThreadRow
+    userBubbleMaxWidth: number
+    action: action
+    openMedia: action
+    colors: ThreadColors
+  view
+    column margin-bottom=(row.user or row.showMeta ? 17.5 : 3.5) testId=`thread-row-${row.id}`
+      when row.user
+        column align-items="flex-end"
+          when length(row.attribution) > 0
+            text row.attribution margin-bottom=3.5 padding-right=3.5 font-size=12 line-height="16px" font-weight=500 color=colors.muted opacity=0.6
+          column min-width=0 max-width=userBubbleMaxWidth width=(length(row.media) > 0 ? userBubbleMaxWidth : "auto") gap=7 border-radius=20 padding-left=12.25 padding-right=12.25 padding-top=8.75 padding-bottom=8.75 background-color=colors.userBubble
+            each media in row.media key=media.id
+              ThreadAttachment(media=media, user=row.user, openMedia=openMedia, colors=colors)
+            when length(trim(row.body)) > 0
+              ThreadMarkdown(blocks=row.blocks, user=true, action=action, colors=colors)
+          row margin-top=3.5 align-items="center" justify-content="flex-end" gap=3.5 padding-right=1.75
+            when length(row.intent) > 0
+              text row.intent font-size=12 line-height="16px" font-weight=500 color=colors.secondary
+            text row.timestamp font-size=13 line-height="17px" font-weight=500 color=colors.secondary
+            when length(trim(row.body)) > 0
+              ThreadCopy(row=row, action=action, colors=colors)
+      else when row.kind == "assistant" or row.kind == "plan" or row.kind == "meta"
+        column padding-left=3.5 padding-right=3.5
+          when row.kind == "plan"
+            text row.title font-size=18 line-height="23px" font-weight=700 color=colors.foreground margin-bottom=7
+          ThreadMarkdown(blocks=row.blocks, user=false, action=action, colors=colors)
+          each media in row.media key=media.id
+            ThreadAttachment(media=media, user=row.user, openMedia=openMedia, colors=colors)
+          when row.showMeta
+            row margin-top=3.5 align-items="center" gap=3.5
+              ThreadCopy(row=row, action=action, colors=colors)
+              text row.timestamp font-size=13 line-height="17px" font-weight=500 color=colors.secondary
+      else
+        column
+          when length(row.toggleOp) > 0
+            button press=action(row.toggleOp, row.toggleId, "") padding-left=7 padding-right=7 padding-top=0 padding-bottom=0 min-height=28 text-align="left"
+              aria-expanded=row.expanded aria-label=row.title
+              row align-items="center" gap=7
+                text row.title flex-shrink=1 min-width=0 line-clamp=1 text-overflow="ellipsis" font-size=14 line-height="19px" font-weight=500 color=(row.failed ? colors.dangerForeground : colors.muted)
+                t3-symbol symbol-name=(row.expanded ? "chevron.down" : "chevron.right") point-size=10 symbol-weight="regular" symbol-tint=colors.iconSubtle width=10 height=10
+          else when length(row.title) > 0
+            text row.title min-height=28 padding-left=7 font-size=14 line-height="19px" color=(row.failed ? colors.dangerForeground : colors.muted)
+          when length(row.body) > 0
+            ThreadMarkdown(blocks=row.blocks, user=false, action=action, colors=colors)
+          each activity in row.activities key=activity.id
+            ThreadToolRow(activity=activity, action=action, colors=colors)
+
+component ThreadToolRow
+  props
+    activity: ThreadActivity
+    action: action
+    colors: ThreadColors
+  view
+    column padding-left=7 padding-right=7
+      button press=action("chatlocal:item-detail", activity.id, (activity.expanded ? "closed" : "open"))
+        disabled=(not activity.expandable) padding=0 text-align="left" min-height=28
+        aria-expanded=activity.expanded aria-label=activity.label
+        row align-items="center" gap=7
+          t3-symbol symbol-name=activity.symbol point-size=14 symbol-weight="regular" symbol-tint=colors.iconSubtle width=14 height=14 flex-shrink=0
+          text activity.label flex=1 min-width=0 font-size=14 line-height="19px" color=(activity.failed ? colors.dangerForeground : colors.muted) line-clamp=1 text-overflow="ellipsis"
+          when activity.expandable
+            t3-symbol symbol-name=(activity.expanded ? "chevron.down" : "chevron.right") point-size=10 symbol-weight="regular" symbol-tint=colors.iconSubtle width=10 height=10
+      when activity.expanded
+        column margin-left=21 padding=7 border-radius=7 background-color=colors.subtle gap=7
+          when length(activity.body) > 0
+            text activity.body font-family="Menlo" font-size=12 line-height="18px" white-space="pre-wrap" color=colors.foreground
+          when length(activity.output) > 0
+            text activity.output font-family="Menlo" font-size=12 line-height="18px" white-space="pre-wrap" color=colors.foreground
+          when length(activity.result) > 0
+            text activity.result font-size=13 line-height="17px" color=colors.muted
+          when length(activity.detail) > 0
+            text activity.detail font-size=13 line-height="17px" color=colors.dangerForeground
+
+component ThreadCopy
+  props
+    row: ThreadRow
+    action: action
+    colors: ThreadColors
+  view
+    button press=action("chatlocal:copy", row.id, "") width=28 height=28 padding=0 aria-label="Copy message"
+      column width=28 height=28 align-items="center" justify-content="center"
+        t3-symbol symbol-name=(row.copied ? "checkmark" : "doc.on.doc") point-size=13 symbol-weight="regular" symbol-tint=colors.iconSubtle width=13 height=13
+
+component ThreadAttachment
+  props
+    media: ThreadMedia
+    user: bool
+    openMedia: action
+    colors: ThreadColors
+  view
+    button press=openMedia(media.id) padding=0 text-align="left" aria-label=media.name
+      when media.kind == "image" and length(media.url) > 0
+        image media.url width="100%" aspect-ratio=1.3 object-fit="cover" border-radius=(user ? 14 : 18) aria-label=media.name
+      else
+        row align-items="center" gap=7 padding=7 border-radius=14 background-color=colors.subtle
+          t3-symbol symbol-name=(media.kind == "video" ? "play.rectangle" : media.kind == "image" ? "photo" : "doc") point-size=18 symbol-weight="regular" symbol-tint=colors.iconSubtle width=18 height=18
+          text media.name flex-shrink=1 min-width=0 font-size=14 line-height="19px" color=colors.foreground line-clamp=1 text-overflow="ellipsis"
+
+component ThreadApprovals
+  props
+    data: ThreadSnapshot
+    action: action
+    colors: ThreadColors
+  view
+    column gap=8.75 padding=12
+      each approval in data.approvals key=approval.id
+        column gap=8.75 border-radius=20 border-width=1 border-style="solid" border-color=colors.border background-color=colors.subtle padding=14
+          text "Approval needed" font-size=12 line-height="16px" font-weight=700 text-transform="uppercase" letter-spacing=1.1 color=colors.secondary
+          text approval.title font-size=18 line-height="23px" font-weight=700 color=colors.foreground
+          when length(approval.detail) > 0
+            text approval.detail font-size=14 line-height="21px" color=colors.secondary
+          when length(approval.reason) > 0
+            text approval.reason font-size=14 line-height="19px" color=colors.secondary
+          row flex-wrap="wrap" gap=8.75
+            each option in approval.options key=option.id
+              button press=action("approval", approval.id, option.id) disabled=approval.disabled
+                padding-left=14 padding-right=14 padding-top=8.75 padding-bottom=8.75 border-radius=9999
+                background-color=(option.tone == "primary" ? colors.primary : option.tone == "danger" ? colors.danger : colors.subtle)
+                text option.label font-size=14 line-height="19px" font-weight=700 color=(option.tone == "primary" ? colors.primaryForeground : option.tone == "danger" ? colors.dangerForeground : colors.foreground)

@@ -1,0 +1,127 @@
+// Strict response shapes for mobile/thread.ts; root resources may import them directly.
+// @ref llp/1106.000-mobile-app-layout.decision.md#shared-typescript
+shape ThreadCodeToken
+  id: string
+  text: string
+  color: string
+  weight: number
+  slant: string
+shape ThreadBlock
+  id: string
+  kind: string
+  text: string
+  language: string
+  tokens: list<ThreadCodeToken>
+shape ThreadMedia
+  id: string
+  name: string
+  kind: string
+  url: string
+shape ThreadActivity
+  id: string
+  label: string
+  body: string
+  output: string
+  result: string
+  detail: string
+  failed: bool
+  expandable: bool
+  expanded: bool
+  reasoning: bool
+  loading: bool
+  symbol: string
+  timestamp: string
+shape ThreadRow
+  id: string
+  kind: string
+  title: string
+  body: string
+  blocks: list<ThreadBlock>
+  user: bool
+  timestamp: string
+  showMeta: bool
+  streaming: bool
+  attribution: string
+  intent: string
+  copied: bool
+  expanded: bool
+  toggleOp: string
+  toggleId: string
+  failed: bool
+  live: bool
+  activities: list<ThreadActivity>
+  media: list<ThreadMedia>
+  first: bool
+  last: bool
+shape ThreadApprovalOption
+  id: string
+  label: string
+  tone: string
+  warning: string
+shape ThreadApproval
+  id: string
+  title: string
+  detail: string
+  disabled: bool
+  reason: string
+  options: list<ThreadApprovalOption>
+shape ThreadComposerState
+  draft: string
+  placeholder: string
+  canSend: bool
+  canStop: bool
+  showStop: bool
+  canOperate: bool
+  showReadOnlyNotice: bool
+  sendLabel: string
+  sendSymbol: string
+  blockedReason: string
+  modelLabel: string
+  providerDriver: string
+  providerIconURL: string
+  modelUnavailable: bool
+  running: bool
+  queueCount: number
+shape ThreadSnapshot
+  revision: number
+  environmentId: string
+  threadId: string
+  title: string
+  loaded: bool
+  loading: bool
+  rows: list<ThreadRow>
+  emptyTitle: string
+  emptyDetail: string
+  error: string
+  uncertain: bool
+  hasMore: bool
+  historyLoading: bool
+  historyError: string
+  readsNeeded: bool
+  approvals: list<ThreadApproval>
+  composer: ThreadComposerState
+shape ThreadPreparation
+  revision: number
+  pending: bool
+shape ThreadColors
+  screen: string
+  foreground: string
+  secondary: string
+  muted: string
+  iconSubtle: string
+  border: string
+  borderSubtle: string
+  subtle: string
+  userBubble: string
+  userForeground: string
+  primary: string
+  primaryForeground: string
+  danger: string
+  dangerForeground: string
+  composerSurface: string
+  composerBorder: string
+  placeholder: string
+  codeBackground: string
+  codeForeground: string
+  userCodeBackground: string
+  userCodeForeground: string
