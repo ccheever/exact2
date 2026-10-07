@@ -1,13 +1,13 @@
 ---
 name: 20261005-provider-sign-in-and-install
 plan: 20261005-t3code-macos-parity
-implementation: blocked
-verification: unverified
-delivery: none
+implementation: implemented
+verification: verified-with-unverified-rows
+delivery: draft
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
+base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-provider-sign-in-and-install
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/238
 verified_commit: null
 ---
 
@@ -102,16 +102,121 @@ Required environment: Xcode 27.0, pinned Bun and Hermes, reference oracle build,
 
 ## Progress
 
-2026-10-06: on hold (user decision). Tasks that need a sign-in (GitHub, provider accounts, T3 Connect) do not start until the user lifts the hold. Work in progress is kept unpushed on the local branch `feat(example)/t3-code-provider-sign-in-and-install` (`d58ebcb39`, "wip … on hold").
+2026-10-06: on hold (user decision: tasks that need a sign-in waited). Work stopped during design;
+no source file was changed. 2026-10-07: the user lifted the hold, and work resumes on this branch,
+merged with `feat(example)/t3-code`. Rows that need a real account are signed in by the user in
+person on the lane build; every other sign-in row uses lane fixtures.
 
-Planned. No branch.
+2026-10-07/08: implemented in [PR #238](https://github.com/ccheever/exact2/pull/238) (draft), all
+eight scope items. What was built and where:
+- **Streams and commands** (`provider-setup.ts`): one store per host and generation; the
+  `providerPage` and `providerWizard` sources subscribe `provider.auth.subscribe` /
+  `provider.install.subscribe` for the shown instance and unsubscribe the rest (owners `page` and
+  `wizard`); `_retryDue` resubscribes; a stream failure is the row's error with "Retry setup
+  status". Local `setup:` ops (no `commandPending`) run `provider.auth.start/respond/complete/
+  cancel/logout` and `provider.install.start/cancel/remove`; a press is coalesced by its state
+  token, as the reference's `pendingRef`. `mutation providerAuthChanged … queue refreshes
+  providerPage, providerWizard` in `app.contract` (in-place edits; still 1,500 lines).
+- **Account row** (`provider-auth.ts`, `providers-setup.contract`), **Runtime row**
+  (`provider-install.ts`), **mounting rules** and the removed-target message (`providers.ts`),
+  **entry points** (`provider-status-message.ts`, `provider-picker-setup.ts`, `chat.contract`,
+  `model-picker.contract`), **ACP wizard step 2** (`providers-wizard.contract`), **native seam**
+  (the clone's port of `ElectronShell.openExternal`, `remoteEditorsOpen`; consent is recorded
+  first; no Swift changed), **RedactedText** (`redacted-text.ts`/`.contract`, `filter: blur(4px)`;
+  Source Control's page-wide flag replaced by per-item reveal).
+- `AppConfirm` is `aria-modal`, so Escape closes the confirm without also closing Settings;
+  Settings is inert while a provider dialog is open (found on the attended row: Tab from the
+  confirm's last button walked into the Settings page).
+- Deviation kept: terminal-type sign-in methods are not offered (scope of
+  `20261005-sign-in-terminals`). The Runtime row's bar has `role="progressbar"` with its
+  percentage as `aria-description`: Contract has no progress value (local draft
+  [X49](../issues/20261007-x49-progress-value-accessibility.md)).
+
+Attended row (2026-10-07/08, real input through `orca computer` under the real-input lock, lane
+copy `T3 Code (Lane PSI).app` with its own bundle id, lane server `t3` 0.0.46-nightly on port
+16612 with isolated `T3CODE_HOME`, `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, XDG dirs):
+- **Antigravity runtime, real download** (876 MB unpacked): Install → Cancel installation
+  mid-download → Retry installation → installed ("Reinstall Antigravity") → Remove (confirm) →
+  Install again → installed. Tab reaches Remove → Reinstall → Sign in in order; Return on Remove
+  opens the confirm; Escape closes it, sends nothing and refocuses Remove.
+- **Codex:** signed in by the user (`codex login` in Terminal with the lane `CODEX_HOME`; the
+  instance uses the existing CLI, since the managed ChatGPT path is
+  `20261005-managed-codex-chatgpt`). The row reads "Authenticated · ChatGPT Pro 20x
+  Subscription"; the user's own `~/.codex/auth.json` is unchanged.
+- **Claude:** signed in by the user (`claude auth login` with the lane `CLAUDE_CONFIG_DIR`);
+  `claude auth status` reports `loggedIn: true` (claude.ai, max); the row reads "Authenticated".
+  The lane login writes its own Keychain item (`Claude Code-credentials-752055b3`, the suffix is
+  the hash of the lane config dir); the user's items were not addressed by it.
+- **Cursor:** the in-app Sign in opened Cursor's page and the user signed in; the server returned
+  403 `plan_required` on the user's free account; the reference returns the same. Successful
+  sign-in remains unverified. User clarification 2026-10-08: test again with a Cursor Pro
+  account when one is available.
+- **Antigravity Google sign-in, Gemini CLI (ACP):** the user chose not to sign in (both
+  instances disabled in the lane). The first Gemini enable hit the client's 30 s request timeout
+  while the server downloaded the agent; a retry after the download succeeded.
+- **Sign out / Change account with a real account:** not run. The only signed-in providers are
+  Codex and Claude, whose lane logins are kept for the local-primary-environment E2E rows and the
+  real-GitHub lane; both use the existing CLI, which has no in-app Account row. The fixture drive
+  covers both (one `provider.auth.logout` on Confirm only).
+
+Lane credentials kept for reuse (paths only): Codex `target/lane/att/codex/auth.json`
+(`CODEX_HOME=target/lane/att/codex`, `cli_auth_credentials_store = "file"`); Claude
+`CLAUDE_CONFIG_DIR=target/lane/att/claude` with the Keychain item above (account `$USER`); the
+lane T3 home `target/lane/att/t3home`; `target/lane/att/serve.sh` restarts the server (all under
+the `t3-code-provider-sign-in-and-install` worktree, uncommitted).
+
+Findings to resume from (observed 2026-10-06 on the old base, before this branch merged 678 feature-branch commits; re-check each):
+- Base: `bun test examples/t3-code` 1200 pass, 0 fail; the macOS bundle builds
+  (`EXACT_APP_DIR=$PWD/examples/t3-code bun host/apple/build.mjs t3-code-macos`, exit 0).
+- No `target/t3-ui-parity/` lane kit exists in any checkout; the provider-setup fixture
+  (decision U2/U23) is still unapproved apparatus. Bun tests with a fake native
+  (`composer-controls-fixture.ts` style) can script the auth/install streams instead.
+- Planned registration points: stream events in `client.ts` drain (one `provider-auth:` /
+  `provider-install:` key line, as `DEVICE_STATE_KEY`), a local `setup:` op prefix in
+  `client.ts` `command()` (local ops do not set `commandPending`, so a waiting flow does
+  not disable the page), one `providerSetup` action in `app.contract` sending
+  `localChanged`, subscriptions started from the `providerPage`/`providerWizard` sources
+  in `app.ts` (subscribe when the editor or wizard step shows, unsubscribe otherwise), one
+  `providerOpenUrl` branch in `T3Module.swift` (agent mode records the URL).
+- `presentation.ts` `providerBanner` has its own message logic; replace it with a port of
+  `getProviderStatusMessage` / `hasProviderSetup`. The banner (`chat.contract` AlertStack)
+  and the model picker (`model-picker.contract`) need an open-setup action prop.
+- X42 is supported on main (issues/README.md), so `RedactedText` can use
+  `filter="blur(4px)"`. X35 is #134 (agent tree prints a password input's value).
+- The reference's generic Account row does not call `server.refreshProviders` after
+  success; only `CodexSetupSection.tsx:295-296` does.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 (2026-10-07) | `eafc72bff` on `7d3a9d654` | `bun test examples/t3-code` 2372 pass / 1 skip / 0 fail (base 2312 pass); strict `tsc` clean; contract build; `cargo test -p t3-code-macos --lib` 11 pass; caps within | 23 before/after pairs (PR #238), fixture RPC log | attended row |
+| 2 (2026-10-08) | `e0d05cbea` (inert fix `b77b01ea5`; merged `f90277989`) | `bun test examples/t3-code` 2372 pass / 1 skip / 0 fail; strict `tsc` clean; contract build 2622 slots, 45 resources, 59284 nodes (`app.contract` 1,500 lines); `cargo test -p t3-code-macos --lib` 11 pass; caps within; five checks: build, test (3348 pass / 0 fail / 33 ignored, 94 binaries), clippy, fmt, boot green; macOS bundle built; Tab from the confirm no longer enters Settings | attended notes above; PR #238 | rows below |
+
+Acceptance rows: Account row phases, Consent before open, Paste redirect and stale flow, Sign out and
+change account, Credentials form, Runtime row, Entry points, ACP wizard step, Redacted email,
+Ported tests, Keyboard/Escape/reduced motion and Gates pass (fixture drives against the lane server
+behind the uncommitted `target/t3-ui-parity/provider-setup-fixture.mjs`, which logs every RPC; the
+real Antigravity runtime with real input). Rows not run, with the reason:
+- **Subscription trace** and **Oracle pixel pairs:** user decision 2026-10-06: oracle/trace tools
+  are not built. The RPC facts come from the fixture proxy's log; the UI is compared with the
+  reference source.
+- **Real sign-in (attended):** Codex and Claude signed in; Cursor awaits verification with a Pro account
+  (the free-account attempt returned 403 `plan_required`); Antigravity Google and the ACP agent (Gemini
+  CLI): the user chose not to sign in. Sign out / Change account with a real account: skipped to
+  keep the Codex and Claude lane logins (fixture-verified).
+- `ProviderSettingsPanel.environment.test.tsx:584` (URL-auth action) belongs to
+  `20261005-provider-settings-upkeep`.
+
+Findings outside this task: Tab from a dialog's last button reaches the app's zero-size shortcut
+buttons (`settings-shortcuts.contract` `keyboard-dispatch`), in every dialog, not only these.
 
 ## Next action
 
-Starts when the user lifts the sign-in hold: `prepare` from `feat(example)/t3-code`, covering sign-in rows with lane fixtures (fake provider, seeded data). Resume from the unpushed WIP branch.
+Review and merge PR #238 into `feat(example)/t3-code`. The remaining verification and each
+item's disposition are tracked in [provider sign-in verification follow-up](20261008-provider-sign-in-verification-followup.md).
+The app-wide focus finding has its own [dialog shortcut focus task](20261008-dialog-shortcut-focus.md).
+Cursor remains unverified until tested with a Pro account; Google/ACP and real-account
+sign-out/change also remain unverified. Publishing [X49](../issues/20261007-x49-progress-value-accessibility.md)
+upstream still needs the user's approval. Merging this implementation does not complete
+these follow-ups.

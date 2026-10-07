@@ -7,13 +7,13 @@ import { providerLock, matchesLock } from './composer-controls-commands';
 import { applyPickerPrefs } from './settings-b-models'; // settings-b: hidden models and saved order
 import { fanoutSelections } from './r3-composer-controls-fanout';
 import type { T3Client } from './client';
+import { pickerReady, pickerOptions, pickerSetupEntries, shouldOfferModelPickerSetup } from './provider-picker-setup'; // provider-sign-in-and-install
 
 type Badge = (provider: Obj | undefined, providers: Obj[]) => { providerBadge: string; providerBadgeColor: string };
 type Item = { id: string; name: string; shortName: string; subProvider: string; providerId: string; providerName: string;
   driver: string; favorite: boolean; legacy: boolean; isNew: boolean; order: number };
 
-/** isProviderInstancePickerReady: enabled, available and ready. */
-export const pickerReady = (provider: Obj) => provider.enabled === true && provider.availability !== 'unavailable' && provider.status === 'ready';
+export { pickerReady };
 
 const normalize = (value: string) => value.trim().toLowerCase();
 function subsequence(value: string, query: string): number | null {
@@ -89,7 +89,10 @@ export function pickerCatalog(client: { config: Obj; local: { favoriteModels: st
       providerName: str(provider.displayName, str(provider.driver)), driver: str(provider.driver), favorite: keys.has(`${providerId}:${id}`),
       legacy: model.isLegacy === true, isNew: model.badge === 'new', order };
   }));
-  const selected = requested || (client.local.favoriteModels.length > 0 ? 'favorites' : client.providerId);
+  // An active instance that needs setup opens selected, so its footer offers the setup (ModelPickerContent:245-264).
+  const active = providers.find(provider => provider.instanceId === client.providerId);
+  const activeNeedsSetup = !!active && shouldOfferModelPickerSetup(active, pickerOptions(active));
+  const selected = requested || (activeNeedsSetup || client.local.favoriteModels.length === 0 ? client.providerId : 'favorites');
   const searching = normalize(query) !== '';
   const original = (item: Item) => (instanceOrder.get(item.providerId) ?? 0) * 10000 + item.order;
   let list: Item[];
@@ -124,12 +127,15 @@ export function pickerCatalog(client: { config: Obj; local: { favoriteModels: st
   // Locked-out instances follow the compatible ones, disabled.
   const enabled = providers.filter(provider => provider.enabled === true);
   const railOrder = lock ? [...enabled.filter(provider => matchesLock(provider, lock)), ...enabled.filter(provider => !matchesLock(provider, lock))] : enabled;
+  // An instance that needs setup stays selectable though it is not ready (selectableUnavailableInstanceIds).
   const rail = railOrder.map((provider, index) => ({ id: str(provider.instanceId), index: index + 1,
     name: str(provider.displayName, str(provider.driver)), driver: str(provider.driver), ready: pickerReady(provider) && matchesLock(provider, lock),
+    selectable: (pickerReady(provider) || shouldOfferModelPickerSetup(provider, pickerOptions(provider))) && matchesLock(provider, lock),
     selected: str(provider.instanceId) === selected, ...badge(provider, enabled) }));
   const at = rail.findIndex(entry => entry.selected);
   return { searching, provider: selected, favoritesSelected: selected === 'favorites', count: rows.length, legacyCount: legacy.length,
     restCount: rest.length + (restLegacy ? 1 : 0), restLegacyCount: restLegacy,
     highlight: -1, highlightKind: '', highlightId: '', highlightProvider: '', models: rows, providers: rail,
-    railIndex: selected === 'favorites' ? 0 : at < 0 ? -1 : at + 1 };
+    railIndex: selected === 'favorites' ? 0 : at < 0 ? -1 : at + 1,
+    setup: pickerSetupEntries(enabled.filter(provider => matchesLock(provider, lock)), selected, searching, list.length) };
 }

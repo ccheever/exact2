@@ -284,6 +284,10 @@ shape Snapshot
   providerBannerTitle: string
   providerBannerMessage: string
   providerBannerWarning: bool
+  // provider-sign-in-and-install (provider-status-message.ts): role, dismiss label and the instance "Open provider setup" opens.
+  providerBannerAlert: bool
+  providerBannerDismiss: string
+  providerBannerSetup: string
   serverUrl: string
   // auto-balance (auto-balance-owner.ts): the open draft's identity; a draft Auto balance moved keeps its earlier one.
   composerOwner: string

@@ -38,7 +38,7 @@ import { WORKTREE_SETUP_KEY, worktreeSetupEvent } from './timeline-worktree';
 import { GIT_ACTION_KEY, gitActionEvent } from './r4-git-actions';
 import { TERMINAL_METADATA_KEY, terminalMetadataEvent } from './terminal-drawer-view'; // terminal-drawer
 import { adoptTerminalContexts } from './terminal-integrations';
-import { providerAuthEvent } from './provider-auth-terminal';
+import { providerSetupEvent } from './provider-setup'; // provider-sign-in-and-install: the auth and install streams
 import { adoptTerminalPrefs } from './terminal-ui-state'; // terminal-drawer
 import { obj, str, num, arr, initialShell, applyShell, threadSnapshot, applyThread, mergeHistory,
   readyCheckpoint, type Obj, type Shell, type ThreadState } from './domain';
@@ -478,7 +478,7 @@ export class T3Client {
         if (key === VCS_STATUS_KEY) { vcsStatusEvent(this, entry); continue; } // shell-vcs.ts: the workspace card's git status
         if (key === GIT_ACTION_KEY) { gitActionEvent(this, entry); continue; } // r4-git-actions.ts: the card's git.runStackedAction stream
         if (key === DEVICE_STATE_KEY) { deviceStateEvent(this, entry); continue; } // r4-surfaces-device.ts: the device hub state
-        if (providerAuthEvent(this, entry) || keepAliveEvent(this, entry)) continue; // keep-alive.ts: running threads' detail streams, the primary's lifecycle
+        if (providerSetupEvent(this, entry) || keepAliveEvent(this, entry)) continue; // keep-alive.ts: running threads' detail streams, the primary's lifecycle
         if (LIVE_KEYS.includes(key)) { liveEvent(this, entry); continue; } // live-streams.ts: scheduled tasks and project clones
         if (key === TERMINAL_METADATA_KEY) { terminalMetadataEvent(this, entry); continue; } // terminal-drawer-view.ts: terminal labels and sessions
         if (!this.subscriptions[key] || str(entry.subscriptionId) !== this.subscriptions[key]) continue;

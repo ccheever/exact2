@@ -78,6 +78,12 @@ the example's native module. The blocker is applying an arbitrary runtime-select
 which is distinct from X10's text-rendering differences. No upstream duplicate search or
 publication was performed during this local audit.
 
+## Provider setup addition, 2026-10-07
+
+| Issue | Capability | Kind | Blocks | Status |
+| --- | --- | --- | --- | --- |
+| [X49](20261007-x49-progress-value-accessibility.md) | A progress value for assistive technology (`progress`, `aria-valuenow`) | framework-gap | [provider-sign-in-and-install](../tasks/20261005-provider-sign-in-and-install.md) (nonblocking: the status text carries the numbers) | reproduced with `contract vocab` on the feature branch's framework (main `7fa3fa5b7`); no upstream match by title; draft, not published |
+
 ## Upstream issues (filed 2026-10-06)
 
 Each was reproduced on exact2 `4c893fef6` before filing. Not filed: X13 (unverified on macOS; the web behavior is designed), X42 (already supported on main), X38–X41 (product scope, not framework gaps).

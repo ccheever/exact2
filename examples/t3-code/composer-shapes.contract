@@ -279,9 +279,16 @@ shape PickerRail
   name: string
   driver: string
   ready: bool
+  // provider-sign-in-and-install: an instance that needs setup is selectable though not ready.
+  selectable: bool
   selected: bool
   providerBadge: string
   providerBadgeColor: string
+// ModelPickerContent's setup footer entry: the status message and "Set up X" / "Open provider setup".
+shape PickerSetup
+  id: string
+  message: string
+  label: string
 shape PickerCatalog
   searching: bool
   provider: string
@@ -297,3 +304,4 @@ shape PickerCatalog
   models: list<PickerRow>
   providers: list<PickerRail>
   railIndex: number
+  setup: list<PickerSetup>

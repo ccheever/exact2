@@ -204,11 +204,11 @@ export function keybindingPayload(bindings: Obj[], input: Record<string, string>
   return { command, key, ...(when ? { when } : {}), ...(replace ? { replace } : {}) };
 }
 
-/** Per-client view toggles that are not settings: discovery rescans and account reveal. */
-export const restView = new WeakMap<T3Client, { rescan: number; reveal: boolean }>();
+/** Per-client view toggles that are not settings: discovery rescans (an account's reveal is RedactedText's own state). */
+export const restView = new WeakMap<T3Client, { rescan: number }>();
 export function viewState(client: T3Client) {
   let state = restView.get(client);
-  if (!state) { state = { rescan: 0, reveal: false }; restView.set(client, state); }
+  if (!state) { state = { rescan: 0 }; restView.set(client, state); }
   return state;
 }
 
@@ -218,7 +218,6 @@ export async function restLocal(client: T3Client, native: Native, storage: Files
   if (op.startsWith('diag-')) return telemetryLocal(client, op, value); // settings-a-telemetry.ts
   // The collection removal dialog's checkboxes: device-local, never gated on a pending write.
   if (op === 'theme-pick') { const bar = value.lastIndexOf('|'); toggleRemovalPick(client, value.slice(0, bar), value.slice(bar + 1)); return ''; }
-  if (op === 'reveal-account') { viewState(client).reveal = !viewState(client).reveal; return ''; }
   // thread.copyReference: the PR link, else the thread ID, with the reference's toasts (thread-reference.ts).
   if (op === 'copy-thread') return copyThreadReference(client, native);
   throw new ClientError(`Unknown settings action: ${op}`);

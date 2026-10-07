@@ -201,9 +201,9 @@ component ChatColumn
         // Until the branch strip renders under the draft composer, this spacer reserves its 32pt.
         box flex=1 min-height=0 padding-top=(branches.show ? "0.75rem" : "2.75rem")
       when viewport.prefersColorScheme == "dark"
-        AlertStack(data=data, dismissed=dismissedProviderBanner, busy=commandPending, dismissProvider=dismissProviderBanner, command=command)
+        AlertStack(data=data, dismissed=dismissedProviderBanner, busy=commandPending, dismissProvider=dismissProviderBanner, command=command, openSetup=openProviderSettings)
       else
-        AlertStack(data=data, dismissed=dismissedProviderBanner, busy=commandPending, dismissProvider=dismissProviderBanner, command=command)
+        AlertStack(data=data, dismissed=dismissedProviderBanner, busy=commandPending, dismissProvider=dismissProviderBanner, command=command, openSetup=openProviderSettings)
       // One subtree per scheme: light-dark() inside the card's SVG glyphs does not re-resolve on a scheme flip.
       // resolveThreadDetailsCardLayout: the card folds to the height above a player resized into it, and leaves when
       // no readable height (160pt) is left.

@@ -2,6 +2,7 @@
 // ProjectDefaultsSettings.tsx, BranchNamingSettings.tsx,
 // SourceControlWritingSettings.tsx, IntegrationsSettings.tsx). Scoped rows show
 // where their value comes from (SettingInheritance) and a reset arrow.
+use RedactedText from "./redacted-text.contract"
 use SelectOption from "./settings-kit.contract"
 use SettingsSwitch from "./settings-kit.contract"
 use SettingsSelect from "./settings-kit.contract"
@@ -66,6 +67,8 @@ shape DiscoveryRow
   account: bool
   enabled: bool
   details: bool
+  accountValue: string
+  accountPlaceholder: string
 shape FetchInterval
   seconds: string
   canReset: bool
@@ -83,7 +86,6 @@ shape SourceControlPage
   scanError: string
   vcs: list<DiscoveryRow>
   providers: list<DiscoveryRow>
-  account: string
   fetches: list<FetchInterval>
   bitbucket: list<BitbucketView>
 shape DeviceTool
@@ -247,13 +249,11 @@ component DiscoveryItem
   props
     item: DiscoveryRow
     first: bool
-    account: string
     fetches: list<FetchInterval>
     forms: list<BitbucketView>
     busy: bool
     rest: action
     restInput: action
-    reveal: action
   state open = false
   action toggleOpen
     open = not open
@@ -273,9 +273,9 @@ component DiscoveryItem
           row gap="0.25rem" align-items="center" flex-wrap="wrap"
             text item.summary font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)"
             when item.account
-              text "as" font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)"
-              button press=reveal aria-label="Toggle source control account visibility" testId=`reveal-account-${item.kind}` height="1.0625rem" padding-left="0.125rem" padding-right="0.125rem" border-width=0 border-radius="0.375rem" background-color=(account == "" ? "light-dark(#27272a14, #f5f5f514)" : "#00000000")
-                text (account == "" ? "••••••••••" : account) font-family="monospace" font-size="0.6875rem" line-height="1.03125rem" color="light-dark(#71717b, #818181)"
+              text "as" font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" aria-hidden=true
+              // RedactedAccount (SourceControlSettings.tsx:160-168): each item reveals its own account.
+              RedactedText(value=item.accountValue, placeholder=item.accountPlaceholder, label="Toggle source control account visibility", revealTip="Click to reveal account", hideTip="Click to hide account", testId=`reveal-account-${item.kind}`)
         row flex-shrink=0 align-items="center" gap="0.5rem"
           when item.details
             button press=toggleOpen aria-expanded=open aria-label=`Toggle ${item.label} details` testId=`discovery-details-${item.kind}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
@@ -284,7 +284,7 @@ component DiscoveryItem
               else
                 LucideChevronDown(size=14, color="light-dark(#71717b, #818181)")
           when not item.comingSoon
-            SettingsSwitch(checked=item.enabled, label=`${item.label} availability`, disabled=true, switchId=`discovery-switch-${item.kind}`, toggle=reveal)
+            SettingsSwitch(checked=item.enabled, label=`${item.label} availability`, disabled=true, switchId=`discovery-switch-${item.kind}`, toggle=toggleOpen)
       when open and item.kind == "bitbucket"
         each form in forms key=form.key
           BitbucketForm(form=form, busy=busy, rest=rest)
@@ -350,14 +350,14 @@ component SourceControlPanel
                 LucideRefreshCw(size=14, color="light-dark(#71717b, #818181)")
             Card()
               each item in data.vcs key=item.kind
-                DiscoveryItem(item=item, first=(item.kind == "git"), account=data.account, fetches=data.fetches, forms=data.bitbucket, busy=busy, rest=rest, restInput=restInput, reveal=restLocal("reveal-account", ""))
+                DiscoveryItem(item=item, first=(item.kind == "git"), fetches=data.fetches, forms=data.bitbucket, busy=busy, rest=rest, restInput=restInput)
         when length(data.providers) > 0
           column width="100%" gap="0.625rem" testId="source-control-providers"
             row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"
               SectionTitle(title="Source Control Providers")
             Card()
               each item in data.providers key=item.kind
-                DiscoveryItem(item=item, first=(item.kind == "github"), account=data.account, fetches=data.fetches, forms=data.bitbucket, busy=busy, rest=rest, restInput=restInput, reveal=restLocal("reveal-account", ""))
+                DiscoveryItem(item=item, first=(item.kind == "github"), fetches=data.fetches, forms=data.bitbucket, busy=busy, rest=rest, restInput=restInput)
         when data.scanned and length(data.vcs) == 0 and length(data.providers) == 0
           column width="100%" gap="0.625rem"
             row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center"

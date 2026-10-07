@@ -4,6 +4,7 @@
 // Rows carry their inheritance chain; writes are server.updateSettings patches
 // with the reference's project-override replacement semantics.
 // 1e2ecbd975 (5318d054a5): Integrations › Devices adds the Simulator support row (device-support.ts).
+import { redactedValue } from './redacted-text'; // provider-sign-in-and-install: RedactedAccount
 import { arr, obj, str, num, type Json, type Obj } from './domain';
 import type { T3Client } from './client';
 import { providerAvailable, type Native } from './protocol';
@@ -181,7 +182,8 @@ export function discoveryRows(result: Obj) {
   const vcs = arr(result.versionControlSystems).map(item => {
     const ready = item.implemented === true, available = str(item.status) === 'available';
     return { kind: str(item.kind), label: str(item.label), version: option(item.version), comingSoon: !ready, badge: '', dot: !ready ? 'muted' : available ? 'success' : 'warning',
-      summary: !ready ? `Support for ${str(item.label)} is coming soon.` : !available ? `Not available on this server: ${str(item.installHint)}` : 'Available', account: false, enabled: ready && available, details: str(item.kind) === 'git' };
+      summary: !ready ? `Support for ${str(item.label)} is coming soon.` : !available ? `Not available on this server: ${str(item.installHint)}` : 'Available', account: false, enabled: ready && available, details: str(item.kind) === 'git',
+      accountValue: '', accountPlaceholder: '' };
   });
   const providers = arr(result.sourceControlProviders).map(item => {
     const auth = obj(item.auth), available = str(item.status) === 'available', status = str(auth.status);
@@ -190,7 +192,9 @@ export function discoveryRows(result: Obj) {
       : status === 'unauthenticated' ? `${str(item.label)} is not authenticated on this server. Sign in or configure credentials using the ${str(item.executable)} tool on the server host to enable change request features.`
       : `Could not verify ${str(item.label)}. ${option(auth.detail) || str(item.installHint)}`;
     return { kind: str(item.kind), label: str(item.label), version: option(item.version), comingSoon: false, badge: status === 'unauthenticated' && available ? 'Not authenticated' : '',
-      dot: !available || status !== 'authenticated' ? 'warning' : 'success', summary, account: available && status === 'authenticated' && option(auth.account) !== '', enabled: available && status === 'authenticated', details: str(item.kind) === 'bitbucket' };
+      dot: !available || status !== 'authenticated' ? 'warning' : 'success', summary, account: available && status === 'authenticated' && option(auth.account) !== '', enabled: available && status === 'authenticated', details: str(item.kind) === 'bitbucket',
+      // RedactedAccount (SourceControlSettings.tsx:160-168): each item reveals its own account.
+      ...(({ value, placeholder }) => ({ accountValue: value, accountPlaceholder: placeholder }))(redactedValue(available && status === 'authenticated' ? option(auth.account) : '')) };
   });
   return { vcs, providers };
 }
@@ -220,9 +224,9 @@ function scopeError(client: T3Client, native: Native | null | undefined, environ
 }
 function environmentLabel(client: T3Client): string { return str(obj(client.config.environment).label, 'Environment'); }
 
-export async function sourceControlPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean, rescan: number, reveal: boolean) {
+export async function sourceControlPage(client: T3Client, native: Native | null | undefined, environmentId: string, projectId: string, active: boolean, rescan: number) {
   const empty = { available: false, error: '', project: projectId !== '', scope: `${environmentId}:${projectId}`, repositories: [] as ScopedRow[], text: [] as ScopedRow[],
-    scanned: false, scanError: '', vcs: [] as ReturnType<typeof discoveryRows>['vcs'], providers: [] as ReturnType<typeof discoveryRows>['providers'], account: '', fetches: [fetchInterval({})], bitbucket: [] as BitbucketView[] };
+    scanned: false, scanError: '', vcs: [] as ReturnType<typeof discoveryRows>['vcs'], providers: [] as ReturnType<typeof discoveryRows>['providers'], fetches: [fetchInterval({})], bitbucket: [] as BitbucketView[] };
   if (!active) return empty;
   const error = scopeError(client, native, environmentId, projectId);
   if (error || !native) return { ...empty, error };
@@ -241,9 +245,7 @@ export async function sourceControlPage(client: T3Client, native: Native | null 
       discoveries.set(client, cached);
     }
     const found = discoveryRows(cached.value);
-    // The authenticated account stays out of the view until the user reveals it.
-    const account = reveal ? arr(cached.value.sourceControlProviders).map(item => { const a = obj(obj(item.auth).account); return typeof obj(item.auth).account === 'string' ? str(obj(item.auth).account) : str(a.value); }).find(Boolean) || '' : '';
-    return { ...empty, available: true, ...rows, scanned: true, scanError: cached.error, ...found, account, fetches: [fetchInterval(settings)], bitbucket: [bitbucketView(settings, client.environmentId, rescan)] };
+    return { ...empty, available: true, ...rows, scanned: true, scanError: cached.error, ...found, fetches: [fetchInterval(settings)], bitbucket: [bitbucketView(settings, client.environmentId, rescan)] };
   } catch (failure) { return { ...empty, error: failure instanceof Error ? failure.message : 'Could not load settings.' }; }
 }
 

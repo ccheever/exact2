@@ -27,6 +27,7 @@ import { sidebarMinimumWidth, workspaceControlsLeft } from './r12-sidebar-width'
 import { adoptHostLocale } from './timestamp-format'; // desktop-shell-details: the Mac's locale, from the status presentation (T3Locale.swift)
 import { serverUpdateView } from './server-update-notices'; // server-update-banner
 import { composerOwner } from './auto-balance-owner'; // auto-balance
+import { providerBanner } from './provider-status-message'; // provider-sign-in-and-install: the banner and its setup button
 
 const modes: Record<string, string> = {
   'approval-required': 'Ask for approval', 'auto-accept-edits': 'Auto-accept edits',
@@ -80,28 +81,8 @@ export function providerBadge(provider: Obj | undefined, providers: Obj[]) {
   return {providerBadge:initials.toUpperCase(),providerBadgeColor:color};
 }
 
-/** ServerProvider advisory semantics from T3's ProviderStatusBanner. */
-export function providerBanner(provider: Obj | undefined) {
-  const empty = { providerBannerKey: '', providerBannerTitle: '', providerBannerMessage: '', providerBannerWarning: false };
-  if (!provider || provider.status === 'disabled') return empty;
-  const auth = str(obj(provider.auth).status), advisory = obj(provider.compatibilityAdvisory);
-  const unauthenticated = provider.status === 'error' && auth === 'unauthenticated';
-  const incompatible = !unauthenticated && (advisory.status === 'broken'
-    || provider.status === 'ready' && advisory.status === 'unsupported');
-  if (!incompatible && (provider.status === 'ready'
-    || provider.driver === 'antigravity' && provider.installed && provider.status === 'warning' && auth === 'unknown')) return empty;
-  const name = str(provider.displayName, str(provider.driver, 'Provider'));
-  const status = incompatible ? str(advisory.status) : str(provider.status);
-  const message = incompatible ? str(advisory.message) : str(provider.message,
-    unauthenticated ? 'Sign in via the CLI to authenticate again.' : `${name} provider is unavailable.`);
-  return {
-    providerBannerKey: [str(provider.instanceId), status, incompatible ? str(provider.version) : auth, message].join('\u0000'),
-    providerBannerTitle: unauthenticated ? `${name} is unauthenticated` : incompatible
-      ? `${name} ${str(provider.version)} is ${advisory.status === 'broken' ? 'known to be broken' : 'unsupported'}` : `${name} provider status`,
-    providerBannerMessage: message,
-    providerBannerWarning: advisory.status !== 'broken' && (provider.status === 'warning' || incompatible),
-  };
-}
+/** ProviderStatusBanner (provider-status-message.ts): the composer instance's banner. */
+export { providerBanner };
 
 /** T3's timeline rows (timeline-presentation.ts transcriptRows). */
 export function transcriptPresentation(client: T3Client): Message[] { return [...subagentLead(client), ...transcriptRows(client)]; }

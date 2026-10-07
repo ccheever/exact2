@@ -1,7 +1,10 @@
 // Settings → Providers: T3's ProviderSettingsPanel projected for Contract, and
 // the provider-instance writes it offers. Every write reads fresh server
 // settings first and changes only the selected instance (atomic mutation).
-import { providerAuthOp, providerAuthView } from './provider-auth-terminal';
+import { setupOf } from './provider-setup'; // provider-sign-in-and-install: the Account and Runtime rows
+import { providerAccount, providerWizardAuth } from './provider-auth';
+import { providerRuntime, configuredBinaryPath } from './provider-install';
+import { redactedValue } from './redacted-text';
 import { obj, str, arr, num, type Obj } from './domain';
 import { ClientError, type Native } from './protocol';
 import { pushToast } from './toast';
@@ -88,6 +91,42 @@ function envRows(instanceId: string, instance: Obj, dedicated: Set<string>): Obj
   return draft ?? published.map(variable => ({ name: str(variable.name), value: str(variable.value), sensitive: variable.sensitive === true, ...(variable.valueRedacted === true ? { valueRedacted: true } : {}) }));
 }
 
+const environmentLabelOf = (host: ProviderHost) => str(obj(host.config.environment).label, 'this environment');
+/**
+ * ProviderSettingsPanel's `setup` slot for the editor (ProviderSettingsPanel.tsx:1066-1118):
+ * Antigravity gets ProviderSetupSection (Environment, then Runtime and Account); a provider
+ * that can sign in in-app (or an installed ACP agent) gets the Account row; Cursor with an
+ * API key keeps its note. A read-only session gets the Antigravity rows' "Setup unavailable"
+ * and nothing else. Managed Codex is CodexSetupSection (20261005-managed-codex-chatgpt);
+ * until it lands the generic Account row stands in for it.
+ */
+function setupKind(host: ProviderHost, row: Row, provider: Obj | undefined): '' | 'antigravity' | 'account' | 'cursor' {
+  if (row.driver === 'antigravity') return 'antigravity';
+  const setup = obj(provider?.setup);
+  if (host.writable && provider && (setup.canAuthenticate === true || (provider.driver === 'acpRegistry' && provider.installed === true))) return 'account';
+  if (host.writable && row.driver === 'cursor' && provider && setup.canAuthenticate === false) return 'cursor';
+  return '';
+}
+function setupView(host: ProviderHost, row: Row, provider: Obj | undefined) {
+  const kind = setupKind(host, row, provider), environmentLabel = environmentLabelOf(host), entry = setupOf(host, row.id);
+  const mode = kind !== 'antigravity' ? '' : !host.writable ? 'unavailable' : !provider || provider.setup === undefined || provider.setup === null ? 'update' : 'actions';
+  const live = provider ?? {};
+  return {
+    kind, environmentLabel, mode, showEnable: kind === 'antigravity' && !instanceEnabled(row.instance) && host.writable,
+    runtime: mode === 'actions' ? [providerRuntime(live, entry, environmentLabel, configuredBinaryPath(row.instance.config), instanceEnabled(row.instance))] : [],
+    account: kind === 'account' || mode === 'actions' ? [providerAccount(row.id, live, entry, environmentLabel)] : [],
+    cursorNote: kind === 'cursor' ? "Using CURSOR_API_KEY. Remove it from this provider's environment to use browser sign-in." : '',
+  };
+}
+/** The wizard's Sign in step's stream: the ACP instance this opening created. */
+export const wizardSetupStreams = (_host: ProviderHost, open: boolean, serial: number) => ({ auth: open && acpCreated?.serial === serial ? [acpCreated.instanceId] : [], install: [] as string[] });
+/** The streams the selected editor's setup rows show (ProviderSetupActions: auth and install; the Account row: auth). */
+export function providerSetupStreams(host: ProviderHost, selectedId: string): { auth: string[]; install: string[] } {
+  const editor = providerPage(host, selectedId, 0).editors[0];
+  if (!editor) return { auth: [], install: [] };
+  return { auth: editor.setup.account.length ? [editor.id] : [], install: editor.setup.runtime.length ? [editor.id] : [] };
+}
+
 function editorFor(host: ProviderHost, row: Row, live: Obj[]) {
   const meta = driverMeta(row.driver), provider = live.find(candidate => candidate.instanceId === row.id);
   const status = rowStatus(row, provider), config = obj(row.instance.config);
@@ -105,17 +144,19 @@ function editorFor(host: ProviderHost, row: Row, live: Obj[]) {
   const hiddenCount = display.filter(entry => !entry.model.isCustom && hiddenSet.has(entry.model.slug)).length;
   const builtIn = display.filter(entry => !entry.model.isCustom);
   return {
-    id: row.id, key: row.id, driver: row.driver, title: displayName, auth: providerAuthView(host, row.id, provider),
+    id: row.id, key: row.id, driver: row.driver, title: displayName, setup: setupView(host, row, provider),
     nameRows: [{ key: `${row.id}:${str(row.instance.displayName)}` }], // the accent picker keeps its popover open across commits
     modelBlocks: [{ key: `${row.id}:${hash(JSON.stringify(config.customModels ?? null))}` }],
     displayName: str(row.instance.displayName), placeholder: meta?.label || 'Instance label', accent: str(row.instance.accentColor), ...accentHsv(str(row.instance.accentColor)),
     version: versionLabel(provider?.version), advisory: advisory ? (advisory.warning ? 'warning' : 'update') : '', advisoryTitle: advisory?.title || '',
     advisoryDetail: advisory?.detail || '', advisoryCommand: advisory?.command || '', ...providerUpdateAction(provider, advisory),
-    statusLead: status.authenticated && status.authEmail ? `Authenticated as ${status.authEmail}${status.authLabel ? ` · ${status.authLabel}` : ''}` : status.summary.headline,
+    // ProviderInstanceCard editorStatusNode: "Authenticated as" <redacted email> "· label", else the headline.
+    statusLead: status.authenticated && status.authEmail ? 'Authenticated as' : status.summary.headline,
+    statusEmail: status.authenticated ? redactedValue(status.authEmail).value : '', statusEmailPlaceholder: status.authenticated ? redactedValue(status.authEmail).placeholder : '',
+    statusLabel: status.authenticated && status.authEmail && status.authLabel ? `· ${status.authLabel}` : '',
     statusDetail: status.inlineDetail ? `· ${status.inlineDetail}` : '', dot: status.needsAttention ? status.statusKey : '',
     canDelete: !row.isDefault, canReset: row.isDefault && row.isDirty, known: meta !== undefined,
-    showSetup: (meta?.env.length || 0) > 0 || (row.driver === 'cursor' && obj(provider?.setup).canAuthenticate === false),
-    setupNote: row.driver === 'cursor' && obj(provider?.setup).canAuthenticate === false ? "Using CURSOR_API_KEY. Remove it from this provider's environment to use browser sign-in." : '',
+    showSetup: (meta?.env.length || 0) > 0 || setupKind(host, row, provider) !== '',
     envFields: (meta?.env || []).map(field => {
       const variable = arr(row.instance.environment).find(entry => entry.name === field.key);
       const redacted = variable?.valueRedacted === true;
@@ -163,11 +204,17 @@ export function healthInterval(settings: Obj): { seconds: number; preset: number
   return { seconds: Math.round(millis / 1000), preset, base };
 }
 
-/** The Providers route's whole projection. */
-export function providerPage(host: ProviderHost, selectedId: string, nowMs: number) {
+/**
+ * The Providers route's whole projection. `selection` is the row the user chose, or
+ * `target:<id>` for the instance a setup entry point opened (the route's targetInstanceId):
+ * a removed target shows no editor instead of another account.
+ */
+export function providerPage(host: ProviderHost, selection: string, nowMs: number) {
   if (!host.ready) return { available: false, writable: false, message: 'Connect an environment to set up its providers.', checked: '', selectedId: '', rows: [], editors: [], emptyEditor: '', healthSeconds: '300', healthDown: '270', healthUp: '330', healthCustom: false, cursorUsage: false, macos: false, hubs: [] };
+  const target = selection.startsWith('target:') ? selection.slice(7) : '', selectedId = target || selection;
   const settings = settingsOf(host), live = liveProviders(host), rows = providerRows(settings, live, selectedId);
-  const selected = rows.find(row => row.id === selectedId) ?? rows[0];
+  const targetMissing = target !== '' && !rows.some(row => row.id === target);
+  const selected = rows.find(row => row.id === selectedId) ?? (targetMissing ? undefined : rows[0]);
   const latest = live.reduce((value, provider) => str(provider.checkedAt) > value ? str(provider.checkedAt) : value, '');
   const health = healthInterval(settings);
   return {
@@ -182,7 +229,7 @@ export function providerPage(host: ProviderHost, selectedId: string, nowMs: numb
         status: `${status.summary.headline}${status.needsAttention && status.inlineDetail ? ` · ${status.inlineDetail}` : ''}`,
         dot: status.needsAttention ? status.statusKey : '', accent: str(row.instance.accentColor), badge: str(row.instance.accentColor) ? initials(name) : '' };
     }),
-    editors: selected ? [editorFor(host, selected, live)] : [], emptyEditor: selected ? '' : 'No providers configured.',
+    editors: selected ? [editorFor(host, selected, live)] : [], emptyEditor: selected ? '' : targetMissing ? 'This provider instance is no longer available on this device.' : 'No providers configured.',
     healthSeconds: String(health.seconds), healthDown: String(Math.max(0, health.seconds - 30)), healthUp: String(health.seconds + 30), healthCustom: health.seconds !== health.preset, cursorUsage: settings.cursorKeychainUsageEnabled === true,
     macos: str(obj(obj(host.config.environment).platform).os) === 'darwin' || !str(obj(obj(host.config.environment).platform).os),
     hubs: Object.entries(obj(settings.usageLimitSources)).map(([id, entry], index) => {
@@ -199,6 +246,8 @@ function existingIds(settings: Obj): Set<string> {
 }
 // The ACP Registry agent the wizard prepared, for this wizard opening only.
 let acpPrepared: { serial: number; agent: AcpAgent } | null = null;
+// The ACP instance this wizard opening created: its Sign in step (ProviderWizardAuthenticationStep).
+let acpCreated: { serial: number; instanceId: string } | null = null;
 let acpLastAgents: AcpAgent[] = [];
 let wizardSerial = -1;
 function wizardIdentity(settings: Obj, driverId: string, labelSet: boolean, label: string, idSet: boolean, id: string) {
@@ -212,10 +261,12 @@ function wizardIdentity(settings: Obj, driverId: string, labelSet: boolean, labe
 
 /** The Add provider wizard's derived identity and the selected driver's config fields. */
 export function providerWizard(host: ProviderHost, open: boolean, serial: number, driverId: string, labelSet: boolean, label: string, idSet: boolean, id: string) {
-  if (serial !== wizardSerial) { wizardSerial = serial; acpPrepared = null; }
+  if (serial !== wizardSerial) { wizardSerial = serial; acpPrepared = null; acpCreated = null; }
   const identity = wizardIdentity(settingsOf(host), driverId, labelSet, label, idSet, id);
   const prepared = identity.meta.id === 'acpRegistry' && acpPrepared?.serial === serial ? acpPrepared.agent : null;
+  const created = open && acpCreated?.serial === serial ? acpCreated.instanceId : '';
   return {
+    created, auth: created ? [providerWizardAuth(created, liveProviders(host).find(provider => provider.instanceId === created), setupOf(host, created), environmentLabelOf(host))] : [],
     sessions: open ? [{ key: `wizard:${serial}` }] : [], prepared: prepared ? [prepared] : [],
     drivers: DRIVERS.filter(driver => driver.id !== 'acpRegistry').map(driver => ({ id: driver.id, label: driver.label, selected: driver.id === identity.meta.id })),
     driver: identity.meta.id, driverLabel: identity.meta.label, label: identity.shownLabel, instanceId: identity.instanceId, idError: identity.error,
@@ -258,7 +309,6 @@ const toastOf = (host: ProviderHost) => host as unknown as T3Client;
 
 /** One provider-settings write. `value` is the JSON the Contract action built through app.ts. */
 export async function runProviderOp(host: ProviderHost, native: Native, op: string, id: string, value: string): Promise<string> {
-  if (op.startsWith('provider-auth-')) { await providerAuthOp(host, native, op, id, value); return ''; }
   try { return await providerOp(host, native, op, id, value); }
   catch (error) {
     if (!TOASTED.includes(op) || !(error instanceof ClientError) || ['client', 'stale', 'superseded'].includes(error.kind)) throw error;
@@ -470,11 +520,12 @@ async function createInstance(host: ProviderHost, native: Native, op: string, id
   await host.rpc(native, 'server.updateSettings', { patch: {}, providerInstanceMutation: { operation: 'create', instanceId, instance } }, true);
   await refreshConfig(host, native);
   // An ACP Registry instance continues to its sign-in step instead (AddProviderInstanceDialog).
+  if (driver === 'acpRegistry' && op === 'provider-add') acpCreated = { serial: wizardSerial, instanceId };
   if (driver !== 'acpRegistry') pushToast(toastOf(host), { kind: 'success', title: 'Provider instance added', description: `${meta.label} instance '${instanceId}' was added.` });
   return '';
 }
 
-export const PROVIDER_OPS = ['provider-auth-start', 'provider-auth-cancel', 'provider-auth-event', 'provider-create', 'provider-add', 'provider-name', 'provider-display', 'provider-enabled', 'provider-remove', 'provider-reset',
+export const PROVIDER_OPS = ['provider-create', 'provider-add', 'provider-name', 'provider-display', 'provider-enabled', 'provider-remove', 'provider-reset',
   'provider-accent', 'provider-field', 'provider-env-field', 'provider-env-add', 'provider-env-name', 'provider-env-value', 'provider-env-sensitive', 'provider-env-remove', 'provider-model-add',
   'provider-model-remove', 'provider-model-rename', 'provider-hub-add', 'provider-hub-remove', 'provider-chatgpt', 'provider-refresh', 'provider-health', 'provider-cursor-usage', 'acp-prepare', 'provider-update', 'provider-copy-command', ...MODEL_PREF_OPS];
 export type { Driver };

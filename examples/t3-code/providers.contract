@@ -11,6 +11,10 @@ use PvIcon from "./provider-icons.contract"
 use CnTooltip from "./settings-b-kit.contract"
 use ProviderAccentPicker from "./settings-b-accent.contract"
 use DriverMark from "./provider-icons.contract"
+use ProviderSetupView from "./providers-setup.contract"
+use ProviderAccountRow from "./providers-setup.contract"
+use ProviderAntigravitySetup from "./providers-setup.contract"
+use RedactedText from "./redacted-text.contract"
 
 shape ProviderOption
   value: string
@@ -53,27 +57,10 @@ shape ProviderModelRow
   pickerTip: string
 shape ProviderBlockKey
   key: string
-shape ProviderAuthMethod
-  id: string
-  name: string
-shape ProviderAuth
-  disabled: bool
-  multiple: bool
-  methodId: string
-  available: bool
-  active: bool
-  terminal: bool
-  flow: string
-  output: string
-  offset: number
-  message: string
-  error: string
-  label: string
-  methods: list<ProviderAuthMethod>
 shape ProviderEditorData
   id: string
   key: string
-  auth: ProviderAuth
+  setup: ProviderSetupView
   nameRows: list<ProviderBlockKey>
   modelBlocks: list<ProviderBlockKey>
   driver: string
@@ -92,13 +79,15 @@ shape ProviderEditorData
   advisoryAction: string
   advisoryTarget: string
   statusLead: string
+  statusEmail: string
+  statusEmailPlaceholder: string
+  statusLabel: string
   statusDetail: string
   dot: string
   canDelete: bool
   canReset: bool
   known: bool
   showSetup: bool
-  setupNote: string
   envFields: list<ProviderFieldRow>
   fields: list<ProviderFieldRow>
   variables: list<ProviderVariable>
@@ -153,6 +142,7 @@ component ProvidersPanel
     width: number
     height: number
     busy: bool
+    setupBusy: bool
     error: string
     select: action
     op: action
@@ -218,7 +208,7 @@ component ProvidersPanel
               scroll flex-grow=1 flex-shrink=1 flex-basis=(wide ? "0%" : "auto") min-width=0 width=(wide ? "auto" : "100%") height=(wide ? "100%" : "auto") testId="provider-editor-scroll"
                 column width="100%" padding="1rem" gap="1.5rem" box-sizing="border-box"
                   each editor in page.editors key=editor.key
-                    ProviderEditor(editor=editor, scheme=scheme, rowWide=((wide ? width - 275 : width - 2) - 66 >= 512), busy=busy, writable=page.writable, error=error, op=op, accent=accent, ui=ui)
+                    ProviderEditor(editor=editor, scheme=scheme, rowWide=((wide ? width - 275 : width - 2) - 66 >= 512), busy=busy, setupBusy=setupBusy, writable=page.writable, error=error, op=op, accent=accent, ui=ui)
                   when length(page.editors) == 0
                     text page.emptyEditor font-size="0.875rem" line-height="1.25rem" padding="0.5rem" color="light-dark(#71717b, #818181)"
         column width="100%" gap="0.625rem"
@@ -265,14 +255,13 @@ component ProviderEditor
     editor: ProviderEditorData
     rowWide: bool
     busy: bool
+    setupBusy: bool
     writable: bool
     error: string
     op: action
     accent: action
     ui: action
   state advisoryOpen = false
-  action authEvent(message: string)
-    op("provider-auth-event", editor.id, "", message, true)
   action toggleAdvisory
     advisoryOpen = not advisoryOpen
   view
@@ -319,37 +308,20 @@ component ProviderEditor
             ProviderNameRow(editor=editor, rowWide=rowWide, busy=busy, writable=writable, op=op, accent=accent)
         when error != ""
           text error font-size="0.75rem" line-height="1rem" role="alert" padding-left="1rem" color="light-dark(#e7000b, #ff6467)" testId="provider-editor-error"
-      when editor.auth.available
-        column width="100%" gap="0.625rem"
-          PvSectionTitle(title="Account")
-          PvGroup()
-            column width="100%" padding="1rem" box-sizing="border-box" gap="0.625rem"
-              row width="100%" align-items="center" gap="0.5rem"
-                text editor.auth.message flex=1 font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
-                when editor.auth.active
-                  button press=op("provider-auth-cancel", editor.id, "", "", true) class=PvGhost disabled=(busy or not writable) testId="provider-auth-cancel"
-                    text "Cancel" font-size="0.75rem"
-                else
-                  when editor.auth.multiple
-                    each method in editor.auth.methods key=method.id
-                      button press=op("provider-auth-start", editor.id, "", method.id, true) class=PvGhost disabled=(busy or not writable or editor.auth.disabled) testId=`provider-auth-${method.id}`
-                        text method.name font-size="0.75rem"
-                  else
-                    button press=op("provider-auth-start", editor.id, "", editor.auth.methodId, true) class=PvGhost disabled=(busy or not writable or editor.auth.disabled) testId="provider-auth-start"
-                      text editor.auth.label font-size="0.75rem"
-              when editor.auth.terminal
-                each key in [editor.auth.flow] key=key
-                  t3-terminal scheme=scheme auth-instance=editor.id auth-flow=editor.auth.flow auth-output=editor.auth.output auth-offset=editor.auth.offset read-only=(not writable) terminal-font-size=13 focus-request=1 message=authEvent aria-label="Provider sign-in terminal" testId="provider-auth-terminal" height="16rem" width="100%" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" overflow="hidden"
-              when editor.auth.error != ""
-                text editor.auth.error font-size="0.75rem" line-height="1rem" role="alert" color="light-dark(#e7000b, #ff6467)" testId="provider-auth-error"
+      // ProviderInstanceCard's Setup section: the `setup` slot (ProviderSettingsPanel.tsx:1066-1118), then the env fields.
       when editor.showSetup
         column width="100%" gap="0.625rem"
           PvSectionTitle(title="Setup")
           PvGroup()
-            when editor.setupNote != ""
-              PvRow(title="Cursor account", description=editor.setupNote, status="", wide=rowWide, divided=false)
+            when editor.setup.kind == "antigravity"
+              ProviderAntigravitySetup(setup=editor.setup, instanceId=editor.id, scheme=scheme, wide=rowWide, busy=setupBusy, op=op, ui=ui)
+            when editor.setup.kind == "account"
+              each account in editor.setup.account key=account.key
+                ProviderAccountRow(account=account, scheme=scheme, wide=rowWide, divided=false, busy=setupBusy, op=op, askSignOut=ui("setup-logout", editor.id))
+            when editor.setup.cursorNote != ""
+              PvRow(title="Cursor account", description=editor.setup.cursorNote, status="", wide=rowWide, divided=false)
             each field in editor.envFields key=field.rowKey
-              ProviderSecretField(field=field, instance=editor.id, wide=rowWide, writable=writable, op=op)
+              ProviderSecretField(field=field, instance=editor.id, wide=rowWide, divided=(editor.setup.kind != ""), writable=writable, op=op)
       when length(editor.fields) > 0 or not editor.known
         column width="100%" gap="0.625rem" opacity=(writable ? 1 : 0.5)
           PvSectionTitle(title="Runtime")
@@ -406,6 +378,10 @@ component ProviderNameRow
               when editor.dot != ""
                 box width="0.375rem" height="0.375rem" border-radius="624.9375rem" background-color=(editor.dot == "error" ? "light-dark(#e7000b, #ff6467)" : "#fe9a00")
               text editor.statusLead font-size="0.75rem" line-height="1rem" min-width=0 color="light-dark(#71717b, #818181)"
+              when editor.statusEmail != ""
+                RedactedText(value=editor.statusEmail, placeholder=editor.statusEmailPlaceholder, label="Toggle account email visibility", revealTip="Click to reveal email", hideTip="Click to hide email", testId=`provider-status-email-${editor.id}`)
+              when editor.statusLabel != ""
+                text editor.statusLabel font-size="0.75rem" line-height="1rem" min-width=0 color="light-dark(#71717b, #818181)"
               when editor.statusDetail != ""
                 text editor.statusDetail font-size="0.75rem" line-height="1rem" min-width=0 flex-shrink=1 color="light-dark(#71717b, #818181)"
           row gap="0.5rem" align-items="center" justify-content="flex-end" width=(rowWide ? "auto" : "100%") opacity=(writable ? 1 : 0.5)
@@ -443,6 +419,7 @@ component ProviderSecretField
     field: ProviderFieldRow
     instance: string
     wide: bool
+    divided: bool
     writable: bool
     op: action
   state draft = ""
@@ -452,7 +429,7 @@ component ProviderSecretField
     edited = true
   derive value = edited ? draft : field.value
   view
-    PvRow(title=field.label, description=field.description, status="", wide=wide, divided=false)
+    PvRow(title=field.label, description=field.description, status="", wide=wide, divided=divided)
       row gap="0.5rem" align-items="center" width=(wide ? "14rem" : "100%")
         input value=value input=edit blur=op("provider-env-field", instance, field.key, value, edited) submit=op("provider-env-field", instance, field.key, value, edited) placeholder=field.placeholder aria-label=field.label type="password" class=PvField flex=1 min-width=0 disabled=(not writable) testId=`provider-env-${field.key}`
         when field.clearable
