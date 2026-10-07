@@ -1,0 +1,24 @@
+## #144 Timeline (macOS accessibility tree, agent `tree --ax`)
+- Trim tabs as well
+- +1
+- -1
+- 2730c72
+- 22m ago
+- daehyeon-mun
+- Approved, before the latest commits
+- 23m ago
+- Approved: trimming first reads well.
+- daehyeonmun2021
+- Pull request opened
+- 23m ago
+- Trim the input first
+- c2ee86f
+- 5d ago
+- +1
+- -0
+
+## #144 Reviewers (macOS accessibility tree, agent `tree --ax`)
+- daehyeon-mun, Approved earlier changes
+
+## #115 Reviewers (macOS accessibility tree, agent `tree --ax`)
+- daehyeonmun2021, Changes requested
