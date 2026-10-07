@@ -10,6 +10,7 @@ use Surface from "./shapes.contract"
 use Control from "./shapes.contract"
 use Overlay from "./shapes.contract"
 use WelcomeWizard from "./pages-welcome.contract"
+use FirstLaunch from "./first-launch.contract"
 use WelcomeView from "./pages-welcome.contract"
 use RevertDialog from "./timeline.contract"
 use ImagePreviewHost from "./timeline-attachments.contract"
@@ -92,7 +93,10 @@ component WelcomeLayer
     providerUi: action
     welcomeFinish: action
   view
-    when welcome.show
+    // The first launch's runtime unpack (first-launch.contract) comes before the wizard.
+    when welcome.setup.show
+      FirstLaunch(view=welcome.setup, reduced=viewport.prefersReducedMotion, act=welcomeImport)
+    else when welcome.show
       when viewport.prefersColorScheme == "dark"
         WelcomeWizard(view=welcome, scheme="dark", viewportHeight=viewport.height, step=welcomeStep, busy=commandPending, error=modalError, link=welcomeLink, pairOpen=welcomePairOpen, helpOpen=welcomeHelpOpen, go=welcomeGo, local=welcomeImport, editLink=welcomeEditLink, pair=welcomePair, togglePair=welcomeTogglePair, toggleHelp=welcomeToggleHelp, copy=prCopy, setup=welcomeSetup, chatgpt=providerUi("open", "chatgpt"), finish=welcomeFinish)
       else

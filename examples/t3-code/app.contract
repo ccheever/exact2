@@ -592,7 +592,7 @@ component T3Code
     foldHold = false
   derive canRest = data.composerCollapseOnScroll and data.threadId != "" and not composerFocused and not includes(composerText, "\n") and length(data.approvals) == 0 and length(data.questions) == 0 and not data.settled
   derive resting = data.composerResting and canRest
-  derive modal = connecting or projectsOpen or paletteOpen or settingsOpen or providerDialog != "" or restEditor != "" or welcome.show
+  derive modal = connecting or projectsOpen or paletteOpen or settingsOpen or providerDialog != "" or restEditor != "" or welcome.show or welcome.setup.show
   resource sidebarLaunch = sidebarLaunchWidth(viewport.width, data.revision) as shape number // threadSidebarWidth.ts (r4-polish-sidebar-width.ts): no stored width sizes the sidebar once at load
   derive sidebarWidth = draggedWidth == 0 and sidebarLaunch > 0 ? sidebarLaunch : min(max(max(208, data.sidebarMinWidth), draggedWidth > 0 ? draggedWidth : data.sidebarWidth), max(max(208, data.sidebarMinWidth), viewport.width - 640)) // a stored width: at least the minimum (13rem, or the brand at the Interface font size: r12-sidebar-width.ts), leaving 40rem of main content
   derive narrowDiff = viewport.width <= 980

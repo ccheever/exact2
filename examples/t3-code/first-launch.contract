@@ -1,0 +1,38 @@
+// The first-launch view (20261005-portable-app-download item 3; first-launch.ts): while the first
+// launch unpacks the embedded server's runtime, the window shows "Setting up T3 Code…", the stage
+// and a progress bar; a failed unpack shows its reason with Retry and Quit. New UI: the reference
+// has nothing to unpack. The values are the ticket's design check: a centered column at most
+// 360 wide (22.5rem), 12 between rows, the app's text and surface tokens, a 4-high bar whose top
+// does not move between stages (the stage line keeps one line's height), 32-high buttons.
+
+shape FirstLaunchView
+  show: bool
+  failed: bool
+  title: string
+  status: string
+  percent: number
+  error: string
+
+component FirstLaunch
+  props
+    view: FirstLaunchView
+    reduced: bool
+    act: action
+  view
+    column position="absolute" left=0 top=0 right=0 bottom=0 z-index=60 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc, #0a0a0a)" role=(view.failed ? "alertdialog" : "dialog") aria-modal=true aria-label=view.title testId="first-launch"
+      column width="100%" max-width="22.5rem" gap="0.75rem" box-sizing="border-box" testId="first-launch-column"
+        text view.title width="100%" font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=1 testId="first-launch-title"
+        when view.failed
+          text view.error width="100%" font-size="0.875rem" line-height="1.25rem" color="light-dark(#e7000b, #ff6467)" role="alert" testId="first-launch-error"
+          row gap="0.5rem" padding-top="0.25rem"
+            button id="first-launch-retry" press=act("setup-retry", "", "") autofocus=true testId="first-launch-retry" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" box-shadow="0 1px 2px #0000000d"
+              text "Retry" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
+            button id="first-launch-quit" press=act("setup-quit", "", "") testId="first-launch-quit" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d"
+              text "Quit" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+        else
+          // The live region: its text changes only at a stage change and every 25 % (first-launch.ts).
+          text view.status width="100%" height="1.25rem" font-size="0.875rem" line-height="1.25rem" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #9a9a9a)" role="status" aria-live="polite" testId="first-launch-status"
+          box width="100%" height="0.25rem" border-radius="0.125rem" overflow="hidden" background-color="light-dark(#27272a14, #f5f5f514)" role="progressbar" aria-label="Setting up T3 Code" aria-description=`${view.percent}%` testId="first-launch-progress"
+            // The fill is the track's width moved left by what is left to do (exact2 transitions
+            // translate, not width). Reduced motion: it steps with each report, without the slide.
+            box width="100%" height="100%" translate=`${view.percent - 100}% 0` background-color="light-dark(#18181b, #f5f5f5)" transition=(reduced ? "none" : "translate 160ms linear") testId="first-launch-fill"

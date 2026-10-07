@@ -65,6 +65,11 @@ final class T3LocalRuntime {
     var progress: (String, Double) -> Void = { _, _ in }
     var tarPath = "/usr/bin/tar"
     var runVersion: (URL) -> String? = T3LocalRuntime.versionOutput
+    /// Bytes free on the volume that holds `<T3 home>/runtime/versions` (tests replace it).
+    var freeSpace: (URL) -> Int64? = T3LocalRuntime.availableCapacity
+    /// Development only (`T3_LOCAL_UNPACK_DELAY_MS`, 20261005-portable-app-download): holds the
+    /// first-launch view at each stage (checking, unpacking at 0 %, at 50 %) so it can be looked at.
+    var stageHold: TimeInterval = 0
 
     init(home: URL, bundleDir: URL?) {
         self.home = home; self.bundleDir = bundleDir
@@ -108,6 +113,7 @@ final class T3LocalRuntime {
         }
 
         progress("verify", 0)
+        hold()
         guard let size = (try? FileManager.default.attributesOfItem(atPath: archive.path)[.size]) as? Int, size == pin.size else {
             return .failed("The bundled \(pin.asset) is not \(pin.size) bytes.")
         }
@@ -123,8 +129,16 @@ final class T3LocalRuntime {
             try? FileManager.default.removeItem(at: staging)
             return .failed(reason)
         }
+        if let error = Self.spaceShortfall(needed: manifest.bytes, free: freeSpace(versions), folder: versions) { return fail(error) }
         progress("extract", 0)
-        if let error = extract(archive, into: staging, entries: manifest.entries.count) { return fail(error) }
+        hold()
+        if let error = extract(archive, into: staging, entries: manifest.entries.count) {
+            // Measured once the partial tree is gone: a full disk is said as such, not as tar's write error.
+            try? FileManager.default.removeItem(at: staging)
+            return .failed(Self.spaceShortfall(needed: manifest.bytes, free: freeSpace(versions), folder: versions) ?? error)
+        }
+        progress("extract", 0.5)
+        hold()
         if let error = Self.check(staging, against: manifest, progress: { self.progress("extract", 0.5 + $0 / 2) }) { return fail(error) }
         let entry = staging.appendingPathComponent("t3")
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: entry.path),
@@ -160,8 +174,29 @@ final class T3LocalRuntime {
             if seen - lastReport >= 64 { lastReport = seen; progress("extract", min(0.5, Double(seen) / Double(max(entries, 1)) / 2)) }
         }
         process.waitUntilExit()
-        guard process.terminationStatus == 0 else { return "tar exited \(process.terminationStatus): \(String(decoding: tail, as: UTF8.self))" }
+        guard process.terminationStatus == 0 else { return Self.tarFailure(status: process.terminationStatus, output: String(decoding: tail, as: UTF8.self)) }
         return nil
+    }
+
+    private func hold() { if stageHold > 0 { Thread.sleep(forTimeInterval: stageHold) } }
+
+    /// tar's listing (`x <path>`) and its errors share stderr: the reason is the last `tar:` line.
+    static func tarFailure(status: Int32, output: String) -> String {
+        let line = output.split(separator: "\n").last { $0.hasPrefix("tar: ") }.map { String($0.dropFirst(5)) }
+        return "The server files could not be unpacked (tar exited \(status))" + (line.map { ": \($0)" } ?? ".")
+    }
+
+    /// The unpacked tree needs `needed` bytes in `folder`; nil when that much is free (or unknown).
+    static func spaceShortfall(needed: Int, free: Int64?, folder: URL) -> String? {
+        guard let free, free < Int64(needed) else { return nil }
+        let mb = { (bytes: Int64) in ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file) }
+        return "There is not enough disk space to set up T3 Code: it needs \(mb(Int64(needed))) in \(folder.path), and \(mb(max(0, free))) is free."
+    }
+
+    static func availableCapacity(_ url: URL) -> Int64? {
+        let values = try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey, .volumeAvailableCapacityKey])
+        if let important = values?.volumeAvailableCapacityForImportantUsage, important > 0 { return important }
+        return values?.volumeAvailableCapacity.map(Int64.init)
     }
 
     static func sha256(_ url: URL, total: Int = 0, progress: (Double) -> Void = { _ in }) -> String? {

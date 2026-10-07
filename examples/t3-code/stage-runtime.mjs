@@ -34,7 +34,8 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 export const runtimeDir = join(here, "server-runtime");
-export const cacheDir = join(here, ".runtime-cache");
+// T3_RUNTIME_CACHE moves the download cache (package-app.mjs keeps one beside its export).
+export const cacheDir = process.env.T3_RUNTIME_CACHE ? process.env.T3_RUNTIME_CACHE : join(here, ".runtime-cache");
 
 /** `sha256sum` lines (`<hex>  <file>`, a leading `*` for binary mode): cliRelease.ts parseChecksums. */
 export function parseChecksums(text) {

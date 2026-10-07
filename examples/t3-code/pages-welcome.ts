@@ -25,6 +25,7 @@ import { letGo } from './let-go';
 import { isFirstRunWorkspaceProvenanceAuthoritative, isFreshFirstRunWorkspace, resolveFirstRunDecision, resolveHostedFirstRunDecision } from './first-run';
 import { focusedOnPrimary, isPrimaryEnvironment, primary, withoutPrimaryDuplicates } from './local-primary';
 import { primaryWelcome } from './local-lifecycle';
+import { firstLaunchLocal, firstLaunchView } from './first-launch';
 import type { Shell } from './domain';
 const terminals = new WeakMap<T3Client, Map<string, OnboardingTerminal>>();
 function setupTerminal(client: T3Client, native: Native, environmentId: string): OnboardingTerminal {
@@ -212,6 +213,8 @@ export async function welcomeView(client: T3Client, native: Native | null | unde
     scanning: false, scanError: '', candidates: [] as { key: string; title: string; path: string; detail: string; selected: boolean }[],
     candidateCount: 0, selectedCount: 0, selectionLabel: '', truncated: false, importLabel: 'Import 0 projects', importing: false, emptyScan: false,
     commandCopied: state.copied,
+    // The first launch's runtime unpack covers the window until the server can start (first-launch.ts).
+    setup: firstLaunchView(client.localBackend),
   };
   if (!native?.available) return view;
   let saved: Obj[] = [], catalogReady = false;
@@ -296,6 +299,7 @@ export type WelcomeView = Awaited<ReturnType<typeof welcomeView>>;
 
 /** The wizard's own actions. Returns the project to open a new thread in, when finishing lands in one. */
 export async function welcomeLocal(client: T3Client, native: Native, op: string, id: string, value: string): Promise<string> {
+  if (op === 'setup-retry' || op === 'setup-quit') return firstLaunchLocal(client, native, op);
   const state = stateOf(client);
   if (op.startsWith('terminal-')) {
     const terminal = setupTerminal(client, native, id);

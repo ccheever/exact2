@@ -227,6 +227,8 @@ final class T3LocalBackend: @unchecked Sendable {
     private var pidFile: URL?
     private var dataRoot: URL?
     private var policy: T3LocalPolicy?
+    /// The packaged build (distribution.json); only a development build honors the unpack hold.
+    private var packaged = false
     private let auth: T3LocalAuth
     private let session: URLSession
     /// The Local environment switch's waits for a start (`setEnabled(true)`): each gets nil once ready, else the reason.
@@ -334,10 +336,10 @@ final class T3LocalBackend: @unchecked Sendable {
     }
 
     private func begin(dataRoot: URL) {
-        let env = environment()
-        let policy = T3LocalPolicy.resolve(env: env, packaged: T3LocalPolicy.packaged(resources: resources()),
+        let env = environment(), packaged = T3LocalPolicy.packaged(resources: resources())
+        let policy = T3LocalPolicy.resolve(env: env, packaged: packaged,
                                            home: NSHomeDirectory(), accountHome: String(cString: getpwuid(getuid()).pointee.pw_dir))
-        lock.lock(); self.dataRoot = dataRoot; self.policy = policy; lock.unlock()
+        lock.lock(); self.dataRoot = dataRoot; self.policy = policy; self.packaged = packaged; lock.unlock()
         guard case .allowed = policy else {
             if case let .refused(reason) = policy { publish { $0["state"] = "refused"; $0["refused"] = reason } }
             return
@@ -377,16 +379,20 @@ final class T3LocalBackend: @unchecked Sendable {
             versionDir = runtimeDir; version = (T3LocalRuntime.versionOutput(runtimeDir.appendingPathComponent("t3")) ?? "").replacingOccurrences(of: "t3 v", with: "")
         } else {
             let runtime = T3LocalRuntime(home: home, bundleDir: resources()?.appendingPathComponent("t3-runtime", isDirectory: true))
+            lock.lock(); let packaged = self.packaged; lock.unlock()
+            if !packaged, let hold = env["T3_LOCAL_UNPACK_DELAY_MS"].flatMap(Double.init), hold > 0 { runtime.stageHold = min(hold, 60_000) / 1000 }
             var lastPublished = -1.0
             runtime.progress = { [weak self] phase, fraction in
                 guard fraction - lastPublished >= 0.02 || fraction == 0 || fraction == 1 else { return }
                 lastPublished = fraction
                 self?.publish { $0["state"] = "installing"; $0["install"] = ["phase": phase, "fraction": (fraction * 100).rounded() / 100] }
             }
+            let started = Date()
             switch runtime.ensure() {
             case let .ready(dir, pinned, installed):
                 versionDir = dir; version = pinned
-                if installed { log("installed runtime \(pinned) into \(dir.path)") }
+                // The unpack's size and time (portable-app-download records them).
+                if installed { log("installed runtime \(pinned) into \(dir.path) in \(String(format: "%.2f", Date().timeIntervalSince(started))) s") }
             case let .missing(reason):
                 publish { $0["state"] = "runtime-missing"; $0["install"] = ["reason": reason] }
                 return (reason, false)
@@ -454,6 +460,24 @@ final class T3LocalBackend: @unchecked Sendable {
                 }
                 manager.start()
             }
+        }
+    }
+
+    /// The first-launch view's Retry (20261005-portable-app-download): a runtime install that failed
+    /// runs again (the lock and the `.staging-*` cleanup make it start clean), then the server starts.
+    /// `done(nil)` once the install passed, else the reason; a server that already exists is left alone.
+    func retryInstall(done: @escaping (String?) -> Void) {
+        installQueue.async { [self] in
+            lock.lock(); let existing = manager; let state = status["state"] as? String; lock.unlock()
+            guard existing == nil, state == "failed" else { return done(nil) }
+            publish { $0["state"] = "installing"; $0["install"] = ["phase": "verify", "fraction": 0.0] }
+            if let failure = prepare() {
+                if failure.fatal { fatal("bootstrap", failure.message) }
+                return done(failure.message)
+            }
+            lock.lock(); let manager = self.manager; let wanted = !listeners.isEmpty; lock.unlock()
+            if wanted, let manager { queue.async { manager.start() } }
+            done(nil)
         }
     }
 

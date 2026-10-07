@@ -7,6 +7,7 @@
 use PgIcon from "./pages-icons.contract"
 use ProviderMark from "./icons.contract"
 use DriverMark from "./provider-icons.contract"
+use FirstLaunchView from "./first-launch.contract"
 
 // CommandBlock's MorphIcon (f2cc80a7a4): Copy becomes Check for the hook's
 // 1.5s; two names let a second copy restart it.
@@ -89,6 +90,7 @@ shape WelcomeView
   importing: bool
   emptyScan: bool
   commandCopied: number
+  setup: FirstLaunchView
 
 // T3Wordmark (h-4) and "Code" in the muted 2xl beside it.
 component WelcomeIdentity

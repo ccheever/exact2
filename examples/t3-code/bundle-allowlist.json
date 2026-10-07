@@ -1,0 +1,18 @@
+{
+  "minimumOS": "14.0",
+  "bundleId": "com.exact.t3code.macos",
+  "files": [
+    "Contents/Info.plist",
+    "Contents/_CodeSignature/CodeResources",
+    "Contents/MacOS/T3 Code (Exact)",
+    "Contents/MacOS/libexact_*.dylib",
+    "Contents/Resources/AppIcon.icns",
+    "Contents/Resources/receipt.json",
+    "Contents/Resources/distribution.json",
+    "Contents/Resources/assets/**",
+    "Contents/Resources/t3-runtime/runtime-pin.json",
+    "Contents/Resources/t3-runtime/runtime-manifest.json",
+    "Contents/Resources/t3-runtime/t3-*-darwin-arm64.tar.gz"
+  ],
+  "allow": []
+}
