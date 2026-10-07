@@ -7,7 +7,7 @@ delivery: none
 repository: https://github.com/ccheever/exact2
 base_branch: feat(example)/t3-code
 branch: feat(example)/t3-code-adopt-main-fixes-r4
-pr_url: null
+pr_url: https://github.com/ccheever/exact2/pull/218
 verified_commit: null
 ---
 
@@ -156,7 +156,7 @@ Image: `https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/adopt
 
 ## Next action
 
-Review the PR. With the screen unlocked, one live session per build for the SSH row (the lane and
+Review the PR ([#218](https://github.com/ccheever/exact2/pull/218)). With the screen unlocked, one live session per build for the SSH row (the lane and
 `live.sh`-style launch are described above: ⌘W on the last window, then an Apple Event quit, the process list
 before and after; delete the lane domains after) and the X10 pair at 840×620 with the toasts dismissed; then
 move `20261006-native-module-termination` to `issues/closed/` as `adopted`.
