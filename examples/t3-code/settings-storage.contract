@@ -41,13 +41,13 @@ component StoragePanel
     rest: action
     restInput: action
   view
-    column width="100%" gap=32 testId="storage-settings"
+    column width="100%" gap="2rem" testId="storage-settings"
       when data.error != ""
         SettingsNotice(message=data.error, warning=true)
       when data.notice != ""
         SettingsNotice(message=data.notice, warning=false)
       when error != ""
-        text error font-size=12 line-height="18px" color="light-dark(#dc2626, #f87171)" role="alert" testId="storage-error" padding-left=16
+        text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#dc2626, #f87171)" role="alert" testId="storage-error" padding-left="1rem"
       when data.available
         SettingsSection(title="Worktrees", sectionId="storage-worktrees")
           when data.project
@@ -64,6 +64,8 @@ component StoragePanel
 
 // A switch, or RetentionControl: [−][N days][+] when on, "Off" when off.
 component StorageControl
+  inject
+    rem: number
   props
     rule: StorageRuleView
     busy: bool
@@ -73,15 +75,15 @@ component StorageControl
   action edit(next: string)
     draft = next
   view
-    row align-items="center" gap=12
+    row align-items="center" gap="0.75rem"
       when rule.retention and rule.enabled
-        row role="group" align-items="center" height=28 box-sizing="border-box" border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" box-shadow="0 1px 2px #0000000a"
-          button press=rest("storage", `key=${rule.key}&value=${rule.decrease}`) disabled=busy aria-label=`Decrease ${rule.label}` testId=`storage-decrease-${rule.key}` width=34 height=26 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+        row role="group" align-items="center" height="1.75rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" box-shadow="0 1px 2px #0000000a"
+          button press=rest("storage", `key=${rule.key}&value=${rule.decrease}`) disabled=busy aria-label=`Decrease ${rule.label}` testId=`storage-decrease-${rule.key}` width="2.125rem" height="1.625rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
             LucideMinus(size=16, color="light-dark(#27272a, #f5f5f5)")
-          input value=draft input=edit change=restInput("storage", `key=${rule.key}&value=`) disabled=busy aria-label=`${rule.label} in days` testId=`storage-days-${rule.key}` width=(length(draft) * 8 + 19) height=26 padding-left=9 padding-right=0 padding-top=0 padding-bottom=0 position="relative" top=4.5 line-height="26px" border-width=0 background-color="#00000000" font-size=14 text-align="right" color="light-dark(#27272a, #f5f5f5)"
-          text "days" font-size=12 line-height="16px" padding-right=8 color="light-dark(#27272a, #f5f5f5)" aria-hidden=true
-          button press=rest("storage", `key=${rule.key}&value=${rule.increase}`) disabled=busy aria-label=`Increase ${rule.label}` testId=`storage-increase-${rule.key}` width=34 height=26 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+          input value=draft input=edit change=restInput("storage", `key=${rule.key}&value=`) disabled=busy aria-label=`${rule.label} in days` testId=`storage-days-${rule.key}` width=((length(draft) * 8 + 19) * rem / 16) height="1.625rem" padding-left="0.5625rem" padding-right=0 padding-top=0 padding-bottom=0 position="relative" top="0.28125rem" line-height="1.625rem" border-width=0 background-color="#00000000" font-size="0.875rem" text-align="right" color="light-dark(#27272a, #f5f5f5)"
+          text "days" font-size="0.75rem" line-height="1rem" padding-right="0.5rem" color="light-dark(#27272a, #f5f5f5)" aria-hidden=true
+          button press=rest("storage", `key=${rule.key}&value=${rule.increase}`) disabled=busy aria-label=`Increase ${rule.label}` testId=`storage-increase-${rule.key}` width="2.125rem" height="1.625rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
             LucidePlus(size=16, color="light-dark(#27272a, #f5f5f5)")
       when rule.retention and not rule.enabled
-        text "Off" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+        text "Off" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
       SettingsSwitch(checked=rule.enabled, label=rule.label, disabled=busy, switchId=`storage-toggle-${rule.key}`, toggle=rest("storage", `key=${rule.key}&value=${rule.retention ? (rule.enabled ? "null" : "8") : (rule.enabled ? "false" : "true")}`))

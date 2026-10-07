@@ -266,6 +266,8 @@ describe('appearance', () => {
     expect(rows.map(row => row.title)).toEqual(['Contrast', 'Glass opacity', 'Environment identification', 'Diff colors', 'Composer context', 'Chat width', 'Panel animations', 'Interface font', 'Monospace font', 'Word wrap']);
     expect(rows.find(row => row.id === 'setting-glass-opacity')!.label).toBe('60%');
     expect(rows.filter(row => row.kind === 'font').map(row => [row.info, row.amount])).toEqual([['preview-prompt', 16], ['preview-code-terminal', 13]]);
+    // PromptFontPreview is the composer at the Prompt font size, whatever the Interface font size.
+    expect(appearanceSections(decodeClientPrefs({ fontSizeInterface: 12 }), true).flatMap(section => section.rows).filter(row => row.kind === 'font').map(row => [row.amount, row.previewSize])).toEqual([[12, 14], [13, 13]]);
     const advanced = appearanceSections(decodeClientPrefs({ typographyAdvanced: true, fontSizeTerminal: 14 }), true).at(-1)!.rows;
     expect(advanced.map(row => [row.title, row.info])).toEqual([['Interface font', ''], ['Prompt font', 'preview-prompt'], ['Code font', 'preview-code'], ['Terminal font', 'preview-terminal'], ['Font smoothing', ''], ['Word wrap', '']]);
     expect(advanced.find(row => row.id === 'terminal-font')!.amount).toBe(14);

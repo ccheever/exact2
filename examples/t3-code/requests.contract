@@ -15,7 +15,7 @@ component ReqIcon
     size: number
     color: string
   view
-    svg width=size height=size viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
       when name == "shield"
         path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"
       when name == "ellipsis"
@@ -94,24 +94,24 @@ component ApprovalBanner
   action closeMenu
     menuOpen = false
   view
-    column position="relative" margin-left=22 margin-right=22 margin-bottom=-17 padding-left=11 padding-right=11 padding-top=(stacked ? 12 : 11) padding-bottom=29 gap=12 box-sizing="border-box" border-top-left-radius=(stacked ? 0 : 18) border-top-right-radius=(stacked ? 0 : 18) border-style="solid" border-top-width=(stacked ? 0 : 1) border-left-width=1 border-right-width=1 border-bottom-width=0 border-color="light-dark(#ffdda9, #603e0a)" background-color="light-dark(#fef6ea, #231b0f)" box-shadow="0 12px 28px -18px light-dark(#00000066, #000000bf)" role="group" aria-label=approval.label testId="pending-approval"
-      row width="100%" gap=8 align-items="flex-start"
-        box width=24 height=18 padding-top=2 flex-shrink=0 box-sizing="border-box" display="flex" justify-content="center"
+    column position="relative" margin-left="1.375rem" margin-right="1.375rem" margin-bottom="-1.0625rem" padding-left="0.6875rem" padding-right="0.6875rem" padding-top=(stacked ? "0.75rem" : "0.6875rem") padding-bottom="1.8125rem" gap="0.75rem" box-sizing="border-box" border-top-left-radius=(stacked ? "0px" : "1.125rem") border-top-right-radius=(stacked ? "0px" : "1.125rem") border-style="solid" border-top-width=(stacked ? 0 : 1) border-left-width=1 border-right-width=1 border-bottom-width=0 border-color="light-dark(#ffdda9, #603e0a)" background-color="light-dark(#fef6ea, #231b0f)" box-shadow="0 12px 28px -18px light-dark(#00000066, #000000bf)" role="group" aria-label=approval.label testId="pending-approval"
+      row width="100%" gap="0.5rem" align-items="flex-start"
+        box width="1.5rem" height="1.125rem" padding-top="0.125rem" flex-shrink=0 box-sizing="border-box" display="flex" justify-content="center"
           ReqIcon(name="shield", size=16, color="#fe9a00")
-        column flex=1 min-width=0 gap=4
-          row width="100%" min-width=0 gap=8 align-items="center"
-            text approval.label font-size=11 font-weight=500 line-height="16px" color="#fe9a00" flex-shrink=0
+        column flex=1 min-width=0 gap="0.25rem"
+          row width="100%" min-width=0 gap="0.5rem" align-items="center"
+            text approval.label font-size="0.6875rem" font-weight=500 line-height="1rem" color="#fe9a00" flex-shrink=0
             when approval.appName != ""
-              text approval.appName font-size=11 line-height="16px" color="light-dark(#71717a, #818181)" min-width=0 line-clamp=1
+              text approval.appName font-size="0.6875rem" line-height="1rem" color="light-dark(#71717a, #818181)" min-width=0 line-clamp=1
             when approval.count != ""
               box flex=1
-              text approval.count font-size=11 line-height="16px" font-variant-numeric="tabular-nums" color="light-dark(#71717a, #818181)" flex-shrink=0
-          scroll max-height=80 width="100%" min-width=0 testId=`approval-detail-${approval.id}`
-            text approval.detail font-size=12 line-height="16px" letter-spacing=(approval.mono ? -0.2 : 0) font-family=(approval.mono ? "ui-monospace" : "system-ui") white-space=(approval.mono ? "pre" : "pre-wrap") overflow-wrap="break-word" color="light-dark(#27272a, #f5f5f5)" aria-label="Command"
+              text approval.count font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717a, #818181)" flex-shrink=0
+          scroll max-height="5rem" width="100%" min-width=0 testId=`approval-detail-${approval.id}`
+            text approval.detail font-size="0.75rem" line-height="1rem" letter-spacing=(approval.mono ? "-0.2px" : "0px") font-family=(approval.mono ? "ui-monospace" : "system-ui") white-space=(approval.mono ? "pre" : "pre-wrap") overflow-wrap="break-word" color="light-dark(#27272a, #f5f5f5)" aria-label="Command"
         when not compact
           ApprovalActions(approval=approval, command=command, busy=busy, menuOpen=menuOpen, toggleMenu=toggleMenu, closeMenu=closeMenu)
       when compact
-        row width="100%" padding-left=32 box-sizing="border-box" justify-content="flex-end"
+        row width="100%" padding-left="2rem" box-sizing="border-box" justify-content="flex-end"
           ApprovalActions(approval=approval, command=command, busy=busy, menuOpen=menuOpen, toggleMenu=toggleMenu, closeMenu=closeMenu)
 
 // Accept and decline stay visible; every other advertised decision is in the menu.
@@ -124,15 +124,15 @@ component ApprovalActions
     toggleMenu: action
     closeMenu: action
   view
-    row gap=6 align-items="center" align-self="center" flex-shrink=0 flex-wrap="wrap" justify-content="flex-end" position="relative"
+    row gap="0.375rem" align-items="center" align-self="center" flex-shrink=0 flex-wrap="wrap" justify-content="flex-end" position="relative"
       each option in approval.options key=option.id
         ApprovalButton(option=option, approvalId=approval.id, disabled=(busy or approval.responding or not approval.live), choose=command("approval", approval.id, option.id, 0))
       when length(approval.more) > 0
-        button press=toggleMenu disabled=(busy or approval.responding) testId=`approval-more-${approval.id}` aria-label="More approval options" aria-expanded=menuOpen width=24 height=24 padding=0 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #3a3328)" background-color=(menuOpen ? "light-dark(#f4f4f5, #3a3328)" : "light-dark(#ffffff, #292116)") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+        button press=toggleMenu disabled=(busy or approval.responding) testId=`approval-more-${approval.id}` aria-label="More approval options" aria-expanded=menuOpen width="1.5rem" height="1.5rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #3a3328)" background-color=(menuOpen ? "light-dark(#f4f4f5, #3a3328)" : "light-dark(#ffffff, #292116)") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
           ReqIcon(name="ellipsis", size=14, color="light-dark(#71717a, #818181)")
       when menuOpen
-        box position="absolute" left=-3000 right=-3000 top=-3000 bottom=-3000 z-index=29 press=closeMenu aria-label="Close approval options" aria-keyshortcuts="Escape" testId="approval-menu-dismiss"
-        column position="absolute" right=0 bottom=28 width=227 padding=4 gap=4 box-sizing="border-box" border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#e9e9ea, #292929)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" z-index=30 role="menu" aria-label="More approval options" testId=`approval-menu-${approval.id}`
+        box position="absolute" left="-187.5rem" right="-187.5rem" top="-187.5rem" bottom="-187.5rem" z-index=29 press=closeMenu aria-label="Close approval options" aria-keyshortcuts="Escape" testId="approval-menu-dismiss"
+        column position="absolute" right=0 bottom="1.75rem" width="14.1875rem" padding="0.25rem" gap="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e9e9ea, #292929)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" z-index=30 role="menu" aria-label="More approval options" testId=`approval-menu-${approval.id}`
           each option in approval.more key=option.id
             MenuChoice(label=option.label, warning=option.warning, testId=`approval-${approval.id}-${option.id}`, disabled=(busy or approval.responding), choose=command("approval", approval.id, option.id, 0))
 
@@ -154,10 +154,10 @@ component MenuChoice
       // composer-fidelity G15: an option with a warning carries it as aria-description and a tooltip above it.
       when warning != ""
         TipBubble(label=warning, side="top", align="center", offset=32, inset=0, shown=(hovering or focused))
-      button press=choose hover=setHover focus=setFocus(true) blur=setFocus(false) disabled=disabled role="menuitem" testId=testId aria-label=label aria-description=warning width="100%" min-height=28 padding-left=7 padding-right=7 padding-top=4 padding-bottom=4 gap=6 box-sizing="border-box" border-radius=8 border-width=0 background-color=(hovering ? "light-dark(#f4f4f5, #1c1c1c)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+      button press=choose hover=setHover focus=setFocus(true) blur=setFocus(false) disabled=disabled role="menuitem" testId=testId aria-label=label aria-description=warning width="100%" min-height="1.75rem" padding-left="0.4375rem" padding-right="0.4375rem" padding-top="0.25rem" padding-bottom="0.25rem" gap="0.375rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(hovering ? "light-dark(#f4f4f5, #1c1c1c)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
         when warning != ""
           ReqIcon(name="triangle-alert", size=12, color="#fe9a00")
-        text label font-size=12 font-weight=500 line-height="16px" text-align="center" color=(hovering ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#27272a, #f5f5f5)")
+        text label font-size="0.75rem" font-weight=500 line-height="1rem" text-align="center" color=(hovering ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#27272a, #f5f5f5)")
 
 // One question at a time; the composer is its custom answer (pendingUserInput.ts).
 component QuestionBanner
@@ -170,28 +170,28 @@ component QuestionBanner
   action toggle
     collapsed = collapsed == q.id ? "" : q.id
   view
-    column margin-left=22 margin-right=22 margin-bottom=-17 padding-left=3 padding-right=3 padding-top=(stacked ? 4 : 3) padding-bottom=21 box-sizing="border-box" border-top-left-radius=(stacked ? 0 : 18) border-top-right-radius=(stacked ? 0 : 18) border-style="solid" border-top-width=(stacked ? 0 : 1) border-left-width=1 border-right-width=1 border-bottom-width=0 border-color="light-dark(#eaeaea, #1c1c1c)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 12px 28px -18px light-dark(#00000066, #000000bf)" testId="pending-question"
-      row width="100%" height=24 align-items="center"
-        button press=toggle testId=`question-toggle-${q.id}` aria-label=(collapsed == q.id ? "Show the question and its options" : "Hide the question and its options") title=(collapsed == q.id ? "Show the question and its options" : "Hide the question and its options") aria-expanded=(collapsed != q.id) flex=1 min-width=0 height=24 padding=0 gap=4 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
-          box width=24 height=24 flex-shrink=0
-          row flex=1 min-width=0 gap=4 align-items="center"
-            text q.header font-size=12 font-weight=500 line-height="16px" color="light-dark(#71717a, #818181)" flex-shrink=0
+    column margin-left="1.375rem" margin-right="1.375rem" margin-bottom="-1.0625rem" padding-left="0.1875rem" padding-right="0.1875rem" padding-top=(stacked ? "0.25rem" : "0.1875rem") padding-bottom="1.3125rem" box-sizing="border-box" border-top-left-radius=(stacked ? "0px" : "1.125rem") border-top-right-radius=(stacked ? "0px" : "1.125rem") border-style="solid" border-top-width=(stacked ? 0 : 1) border-left-width=1 border-right-width=1 border-bottom-width=0 border-color="light-dark(#eaeaea, #1c1c1c)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 12px 28px -18px light-dark(#00000066, #000000bf)" testId="pending-question"
+      row width="100%" height="1.5rem" align-items="center"
+        button press=toggle testId=`question-toggle-${q.id}` aria-label=(collapsed == q.id ? "Show the question and its options" : "Hide the question and its options") title=(collapsed == q.id ? "Show the question and its options" : "Hide the question and its options") aria-expanded=(collapsed != q.id) flex=1 min-width=0 height="1.5rem" padding=0 gap="0.25rem" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+          box width="1.5rem" height="1.5rem" flex-shrink=0
+          row flex=1 min-width=0 gap="0.25rem" align-items="center"
+            text q.header font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717a, #818181)" flex-shrink=0
             when collapsed == q.id
-              text q.question font-size=12 line-height="16px" color="light-dark(#71717a, #818181)" flex=1 min-width=0 line-clamp=1
+              text q.question font-size="0.75rem" line-height="1rem" color="light-dark(#71717a, #818181)" flex=1 min-width=0 line-clamp=1
           when q.position != ""
-            text q.position font-size=10 font-weight=500 line-height="14px" font-variant-numeric="tabular-nums" color="light-dark(#71717a, #818181)" flex-shrink=0
-          box width=24 height=24 flex-shrink=0 display="flex" align-items="center" justify-content="center" rotate=(collapsed == q.id ? 180 : 0)
+            text q.position font-size="0.625rem" font-weight=500 line-height="0.875rem" font-variant-numeric="tabular-nums" color="light-dark(#71717a, #818181)" flex-shrink=0
+          box width="1.5rem" height="1.5rem" flex-shrink=0 display="flex" align-items="center" justify-content="center" rotate=(collapsed == q.id ? 180 : 0)
             ReqIcon(name="chevron-down", size=14, color="light-dark(#71717a, #818181)")
         when q.dismissible
-          button press=command("dismiss-question", q.requestId, "", 0) disabled=q.responding testId=`dismiss-question-${q.requestId}` aria-label="Dismiss question without answering" title="Dismiss question without answering" width=24 height=24 padding=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+          button press=command("dismiss-question", q.requestId, "", 0) disabled=q.responding testId=`dismiss-question-${q.requestId}` aria-label="Dismiss question without answering" title="Dismiss question without answering" width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
             ReqIcon(name="x", size=14, color="light-dark(#71717a, #818181)")
       when collapsed != q.id
         scroll max-height=maximumHeight width="100%" testId=`question-body-${q.id}`
-          column width="100%" padding-left=28 padding-right=4 padding-bottom=4 box-sizing="border-box" overflow-wrap="anywhere"
-            text q.question font-size=14 line-height="20px" color="light-dark(#47474a, #d3d3d3)" white-space="pre-wrap"
+          column width="100%" padding-left="1.75rem" padding-right="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" overflow-wrap="anywhere"
+            text q.question font-size="0.875rem" line-height="1.25rem" color="light-dark(#47474a, #d3d3d3)" white-space="pre-wrap"
             when q.multiSelect
-              text "Select one or more options." font-size=12 line-height="16px" margin-top=4 color="light-dark(#71717a, #818181)"
-            column width="100%" margin-top=8 gap=2
+              text "Select one or more options." font-size="0.75rem" line-height="1rem" margin-top="0.25rem" color="light-dark(#71717a, #818181)"
+            column width="100%" margin-top="0.5rem" gap="0.125rem"
               each option in q.options key=option.id
                 QuestionChoice(option=option, questionId=q.id, multi=q.multiSelect, disabled=(q.responding or not q.live), command=command)
 
@@ -208,17 +208,17 @@ component QuestionChoice
   view
     // Digits 1–9 choose an option while focus is outside an editor (the host
     // never sends an unmodified shortcut to a text field), as the reference does.
-    button press=command((multi ? "choice" : "pick-option"), questionId, option.id, 0) hover=setHover disabled=disabled opacity=(disabled ? 0.5 : 1) testId=`choice-${questionId}-${option.id}` aria-label=`${option.label} ${option.description} ${option.shortcut}` aria-keyshortcuts=(disabled ? "" : option.shortcut) width="100%" padding-top=8 padding-bottom=8 padding-left=10 padding-right=10 gap=8 box-sizing="border-box" border-radius=8 border-width=0 background-color=(option.selected ? "light-dark(#fcfcfc, #141414)" : hovering ? "light-dark(#fdfdfd, #121212)" : "#00000000") display="flex" flex-direction="row" align-items="center"
-      column flex=1 min-width=0 gap=2 align-items="flex-start"
-        text option.label font-size=14 font-weight=500 line-height="20px" text-align="left" color=(option.selected ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#47474a, #d3d3d3)")
+    button press=command((multi ? "choice" : "pick-option"), questionId, option.id, 0) hover=setHover disabled=disabled opacity=(disabled ? 0.5 : 1) testId=`choice-${questionId}-${option.id}` aria-label=`${option.label} ${option.description} ${option.shortcut}` aria-keyshortcuts=(disabled ? "" : option.shortcut) width="100%" padding-top="0.5rem" padding-bottom="0.5rem" padding-left="0.625rem" padding-right="0.625rem" gap="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(option.selected ? "light-dark(#fcfcfc, #141414)" : hovering ? "light-dark(#fdfdfd, #121212)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      column flex=1 min-width=0 gap="0.125rem" align-items="flex-start"
+        text option.label font-size="0.875rem" font-weight=500 line-height="1.25rem" text-align="left" color=(option.selected ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#47474a, #d3d3d3)")
         when option.description != ""
-          text option.description font-size=11 line-height="16px" text-align="left" color="light-dark(#71717a, #818181)"
+          text option.description font-size="0.6875rem" line-height="1rem" text-align="left" color="light-dark(#71717a, #818181)"
       when option.selected
         ReqIcon(name="check", size=14, color="light-dark(#1b4ed8, #346bf1)")
       else
         when option.shortcut != ""
-          box width=20 height=20 flex-shrink=0 display="flex" align-items="center" justify-content="center"
-            text option.shortcut font-size=10 font-weight=500 line-height="14px" font-family="ui-monospace" font-variant-numeric="tabular-nums" color="light-dark(#71717a, #818181)"
+          box width="1.25rem" height="1.25rem" flex-shrink=0 display="flex" align-items="center" justify-content="center"
+            text option.shortcut font-size="0.625rem" font-weight=500 line-height="0.875rem" font-family="ui-monospace" font-variant-numeric="tabular-nums" color="light-dark(#71717a, #818181)"
 
 // While an approval is pending the composer is a read-only single line with
 // no controls (ChatComposer isComposerApprovalState): 1 + 16 + 32 + 16 + 1.
@@ -226,10 +226,10 @@ component ApprovalComposer
   props
     placeholder: string
   view
-    column width="100%" border-radius=22 border-style="solid" border-width=1 border-color="light-dark(#00000014, #ffffff0d)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 12px 28px -18px light-dark(#00000066, #00000000), inset 0 1px 0 0 light-dark(#00000000, #ffffff08)" box-sizing="border-box" padding=16 testId="composer-surface" position="relative"
-      box width="100%" height=32 position="relative"
-        textarea value="" readonly=true aria-label="Message" testId="composer-readonly" width="100%" height=32 font-size=14 line-height="22.75px" padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false"
-        text placeholder position="absolute" left=0 top=0.5 right=0 font-size=14 line-height="22.75px" line-clamp=1 color="light-dark(#71717abf, #818181bf)" aria-hidden=true testId="composer-placeholder"
+    column width="100%" border-radius="1.375rem" border-style="solid" border-width=1 border-color="light-dark(#00000014, #ffffff0d)" background-color="light-dark(#fefefe, #101010)" box-shadow="0 12px 28px -18px light-dark(#00000066, #00000000), inset 0 1px 0 0 light-dark(#00000000, #ffffff08)" box-sizing="border-box" padding="1rem" testId="composer-surface" position="relative"
+      box width="100%" height="2rem" position="relative"
+        textarea value="" readonly=true aria-label="Message" testId="composer-readonly" width="100%" height="2rem" font-size="0.875rem" line-height="1.421875rem" padding=0 border-width=0 box-sizing="border-box" background-color="#00000000" color="light-dark(#27272a, #f5f5f5)" autocorrect="off" spellcheck="false"
+        text placeholder position="absolute" left=0 top=0.5 right=0 font-size="0.875rem" line-height="1.421875rem" line-clamp=1 color="light-dark(#71717abf, #818181bf)" aria-hidden=true testId="composer-placeholder"
 
 // Stop, Previous and Submit/Next replace the composer's send cluster while a
 // question is pending (ComposerPrimaryActions pendingAction, compact labels).
@@ -253,20 +253,20 @@ component QuestionActions
     busy: bool
   view
     each q in data.questions key=q.id
-      row position="absolute" right=14 bottom=14 height=38 padding-left=8 padding-right=3 padding-top=3 padding-bottom=3 box-sizing="border-box" gap=6 align-items="center" background-color="light-dark(#fefefe, #101010)" testId="question-actions"
+      row position="absolute" right="0.875rem" bottom="0.875rem" height="2.375rem" padding-left="0.5rem" padding-right="0.1875rem" padding-top="0.1875rem" padding-bottom="0.1875rem" box-sizing="border-box" gap="0.375rem" align-items="center" background-color="light-dark(#fefefe, #101010)" testId="question-actions"
         // Attach files sits outside the pending actions (gap-2), which space their own buttons 6pt apart.
         when data.composer.attach
-          box display="flex" margin-right=2 flex-shrink=0
+          box display="flex" margin-right="0.125rem" flex-shrink=0
             AttachButton(disabled=(busy or q.responding), press=command("cclocal:attach", "", "", 0))
         when data.canStop
-          button press=command("stop", "", "", 0) disabled=busy testId="stop" aria-label="Stop generation" width=28 height=28 padding=0 border-radius=14 border-width=0 background-color="light-dark(#fb2c36e6, #fc414ae6)" box-shadow="0 1px 2px 0 #fb2c363d, inset 0 1px 0 0 #ffffff29" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
-            svg width=12 height=12 viewBox="0 0 12 12" fill="#ffffff" aria-hidden=true
+          button press=command("stop", "", "", 0) disabled=busy testId="stop" aria-label="Stop generation" width="1.75rem" height="1.75rem" padding=0 border-radius="0.875rem" border-width=0 background-color="light-dark(#fb2c36e6, #fc414ae6)" box-shadow="0 1px 2px 0 #fb2c363d, inset 0 1px 0 0 #ffffff29" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+            svg width="0.75rem" height="0.75rem" viewBox="0 0 12 12" fill="#ffffff" aria-hidden=true
               rect x=2 y=2 width=8 height=8 rx=1.5
         when q.index > 0
-          button press=command("previous-question", q.requestId, "", 0) disabled=q.responding testId="previous-question" aria-label="Previous question" width=28 height=28 padding=0 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #262626)" background-color="light-dark(#ffffff, #161616)" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+          button press=command("previous-question", q.requestId, "", 0) disabled=q.responding testId="previous-question" aria-label="Previous question" width="1.75rem" height="1.75rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #262626)" background-color="light-dark(#ffffff, #161616)" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
             ReqIcon(name="chevron-left", size=14, color="light-dark(#27272a, #f5f5f5)")
-        button press=command("advance-question", q.requestId, "", 0) disabled=(busy or q.responding or (q.last ? not q.complete : not q.canAdvance)) opacity=(busy or q.responding or (q.last ? not q.complete : not q.canAdvance) ? 0.64 : 1) testId=`submit-answers-${q.requestId}` aria-label=q.action height=28 padding-left=12 padding-right=12 box-sizing="border-box" border-radius=14 border-width=0 background-color="light-dark(#1b4ed8, #346bf1)" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
-          text q.action font-size=14 font-weight=500 line-height="20px" color="#ffffff"
+        button press=command("advance-question", q.requestId, "", 0) disabled=(busy or q.responding or (q.last ? not q.complete : not q.canAdvance)) opacity=(busy or q.responding or (q.last ? not q.complete : not q.canAdvance) ? 0.64 : 1) testId=`submit-answers-${q.requestId}` aria-label=q.action height="1.75rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" border-radius="0.875rem" border-width=0 background-color="light-dark(#1b4ed8, #346bf1)" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+          text q.action font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
 
 // composer-fidelity G15: a primary approval decision (ComposerPendingApprovalActions): an option with a
 // warning shows the triangle, carries the warning as aria-description, and shows it in a tooltip above.
@@ -286,7 +286,7 @@ component ApprovalButton
     box position="relative" display="flex" flex-direction="row" flex-shrink=0
       when option.warning != ""
         TipBubble(label=option.warning, side="top", align="center", offset=28, inset=0, shown=(over or focused))
-      button press=choose hover=hover focus=mark(true) blur=mark(false) disabled=disabled opacity=(disabled ? 0.64 : 1) testId=`approval-${approvalId}-${option.id}` aria-label=option.label aria-description=option.warning height=24 padding-left=7 padding-right=7 gap=4 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color=(option.id == "accept" ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #3a3328)") background-color=(option.id == "accept" ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#ffffff, #292116)") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+      button press=choose hover=hover focus=mark(true) blur=mark(false) disabled=disabled opacity=(disabled ? 0.64 : 1) testId=`approval-${approvalId}-${option.id}` aria-label=option.label aria-description=option.warning height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" gap="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color=(option.id == "accept" ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #3a3328)") background-color=(option.id == "accept" ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#ffffff, #292116)") display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
         when option.warning != ""
           ReqIcon(name="triangle-alert", size=12, color=(option.id == "accept" ? "#ffffff" : "#fe9a00"))
-        text option.label font-size=12 font-weight=500 line-height="16px" max-width=160 line-clamp=1 color=(option.id == "accept" ? "#ffffff" : "light-dark(#27272a, #f5f5f5)")
+        text option.label font-size="0.75rem" font-weight=500 line-height="1rem" max-width="10rem" line-clamp=1 color=(option.id == "accept" ? "#ffffff" : "light-dark(#27272a, #f5f5f5)")

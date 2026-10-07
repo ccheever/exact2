@@ -74,18 +74,18 @@ shape KeybindingPage
   whenView: WhenEditorView
 
 style KbMuted
-  font-size=12 line-height="12px" color="light-dark(#71717bb3, #828282b3)"
+  font-size="0.75rem" line-height="0.75rem" color="light-dark(#71717bb3, #828282b3)"
 style KbIcon
   cursor="pointer"
-  display="flex" align-items="center" justify-content="center" box-sizing="border-box" width=24 height=24 padding=0 border-width=0 border-radius=8 background-color="#00000000" flex-shrink=0
+  display="flex" align-items="center" justify-content="center" box-sizing="border-box" width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" flex-shrink=0
 style KbCompact
   cursor="pointer"
-  display="flex" flex-direction="row" align-items="center" justify-content="center" gap=4 box-sizing="border-box" height=28 padding-left=7 padding-right=7 border-radius=6 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" flex-shrink=0
+  display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.25rem" box-sizing="border-box" height="1.75rem" padding-left="0.4375rem" padding-right="0.4375rem" border-radius="0.375rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" flex-shrink=0
 style KbCapture
-  box-sizing="border-box" width=176 height=28 padding-left=9 padding-right=9 border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-family="monospace" font-size=13 color="light-dark(#27272a, #f5f5f5)"
+  box-sizing="border-box" width="11rem" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" font-family="monospace" font-size="0.8125rem" color="light-dark(#27272a, #f5f5f5)"
 style KbPrimary
   cursor="pointer"
-  display="flex" flex-direction="row" align-items="center" justify-content="center" box-sizing="border-box" height=28 padding-left=9 padding-right=9 border-radius=8 border-width=0 background-color="light-dark(#1b4ed8, #346bf1)" flex-shrink=0
+  display="flex" flex-direction="row" align-items="center" justify-content="center" box-sizing="border-box" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-width=0 background-color="light-dark(#1b4ed8, #346bf1)" flex-shrink=0
 
 component KeybindingsPanel
   props
@@ -114,47 +114,47 @@ component KeybindingsPanel
     rest: action
     openFile: action
   view
-    column width="100%" gap=10 testId="keybindings-settings"
-      row min-height=28 padding-left=16 padding-right=16 align-items="center" justify-content="space-between" gap=16 box-sizing="border-box"
-        text "Keybindings" font-size=14 font-weight=400 line-height="20px" color="light-dark(#262629b3, #f5f5f5b3)" role="heading" aria-level=2
-        row align-items="center" gap=6 min-height=28
+    column width="100%" gap="0.625rem" testId="keybindings-settings"
+      row min-height="1.75rem" padding-left="1rem" padding-right="1rem" align-items="center" justify-content="space-between" gap="1rem" box-sizing="border-box"
+        text "Keybindings" font-size="0.875rem" font-weight=400 line-height="1.25rem" color="light-dark(#262629b3, #f5f5f5b3)" role="heading" aria-level=2
+        row align-items="center" gap="0.375rem" min-height="1.75rem"
           when not searchOpen
-            text data.count font-size=11 line-height="16px" color="light-dark(#71717b, #818181)" testId="keybindings-count"
+            text data.count font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="keybindings-count"
             button press=searchToggle(true) class=KbIcon aria-label="Search keybindings" testId="open-keybindings-search"
               LucideSearch(size=14, color="light-dark(#71717b, #818181)")
           when searchOpen
-            row width=176 height=28 align-items="center" gap=6 box-sizing="border-box" padding-left=9 padding-right=9 border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)"
+            row width="11rem" height="1.75rem" align-items="center" gap="0.375rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)"
               LucideSearch(size=12, color="light-dark(#71717b, #818181)")
-              input value=query input=search key=searchKey blur=searchToggle(false) placeholder="Search keybindings" aria-label="Search keybindings" id="keybindings-filter" testId="keybindings-filter" flex=1 min-width=0 height=24 padding=0 position="relative" top=3.5 line-height="24px" border-width=0 background-color="#00000000" font-size=13 color="light-dark(#27272a, #f5f5f5)"
+              input value=query input=search key=searchKey blur=searchToggle(false) placeholder="Search keybindings" aria-label="Search keybindings" id="keybindings-filter" testId="keybindings-filter" flex=1 min-width=0 height="1.5rem" padding=0 position="relative" top="0.21875rem" line-height="1.5rem" border-width=0 background-color="#00000000" font-size="0.8125rem" color="light-dark(#27272a, #f5f5f5)"
           button press=add disabled=(busy or not data.writable) class=KbIcon aria-label="Add keybinding" id="add-keybinding" testId="add-keybinding" opacity=(busy or not data.writable ? 0.64 : 1)
             LucidePlus(size=14, color="light-dark(#71717b, #818181)")
           button press=openFile disabled=(busy or data.path == "") class=KbIcon aria-label="Open keybindings.json" testId="open-keybindings-file" opacity=(data.path == "" ? 0.64 : 1)
             LucideFileBraces(size=14, color="light-dark(#71717b, #818181)")
       when error != ""
-        text error font-size=12 line-height="18px" color="light-dark(#dc2626, #f87171)" role="alert" testId="keybinding-error" padding-left=16
-      column width="100%" box-sizing="border-box" border-radius=14 border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff09)" background-color="light-dark(#ffffff66, #11111166)" box-shadow="0 1px 2px #0000000d"
+        text error font-size="0.75rem" line-height="1.125rem" color="light-dark(#dc2626, #f87171)" role="alert" testId="keybinding-error" padding-left="1rem"
+      column width="100%" box-sizing="border-box" border-radius="0.875rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e899, #ffffff09)" background-color="light-dark(#ffffff66, #11111166)" box-shadow="0 1px 2px #0000000d"
         when data.error != ""
           SettingsNotice(message=data.error, warning=true)
         when adding
-          row width="100%" box-sizing="border-box" padding-top=12 padding-bottom=12 padding-left=16 padding-right=16 gap=32 align-items="center" background-color="light-dark(#f4f4f526, #ffffff05)" testId="new-keybinding-row"
-            column flex=1 min-width=0 gap=4
-              text "New keybinding" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
-              row height=24 align-items="center" gap=6
+          row width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" background-color="light-dark(#f4f4f526, #ffffff05)" testId="new-keybinding-row"
+            column flex=1 min-width=0 gap="0.25rem"
+              text "New keybinding" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+              row height="1.5rem" align-items="center" gap="0.375rem"
                 text "When" class=KbMuted
                 WhenButton(label=data.draftCommandLabel, expression=draftWhen, rowId="new", command=draftCommand, key=draftKey, edit=edit)
-            row flex-shrink=0 align-items="center" gap=8 flex-wrap="wrap" justify-content="flex-end"
+            row flex-shrink=0 align-items="center" gap="0.5rem" flex-wrap="wrap" justify-content="flex-end"
               SettingsSelect(selectId="new-keybinding-command", label="Command", valueLabel=(draftCommand == "" ? "Command" : data.draftCommandLabel), width=224, disabled=busy, options=data.commands, choose=chooseCommand)
               when data.draftConflict != ""
                 Warning(label=data.draftConflict)
               CaptureField(label=data.draftCommandLabel, value=draftKey, original="", recording=(recording and draftRow == "new"), setKey=setKey, record=record("new", draftCommand, draftKey, draftWhen), capture=capture)
               button press=rest("keybinding", `action=save&command=${encodeURIComponent(draftCommand)}&key=${encodeURIComponent(draftKey)}&when=${encodeURIComponent(draftWhen)}`) disabled=(busy or draftCommand == "" or draftKey == "" or not data.draftValid) class=KbPrimary testId="save-new-keybinding" opacity=(busy or draftCommand == "" or draftKey == "" or not data.draftValid ? 0.64 : 1)
-                text (busy ? "Saving" : "Save") font-size=14 font-weight=500 line-height="20px" color="#ffffff"
-              button press=cancelAdd disabled=busy class=KbIcon width=28 height=28 aria-label="Cancel new keybinding" testId="cancel-new-keybinding"
+                text (busy ? "Saving" : "Save") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
+              button press=cancelAdd disabled=busy class=KbIcon width="1.75rem" height="1.75rem" aria-label="Cancel new keybinding" testId="cancel-new-keybinding"
                 LucideX(size=14, color="light-dark(#71717b, #818181)")
         each binding in data.rows key=binding.id
           KeybindingRow(row=binding, editing=(draftRow == binding.id), draftKey=draftKey, draftWhen=draftWhen, recording=(recording and draftRow == binding.id), conflict=(draftRow == binding.id ? data.draftConflict : binding.conflict), valid=data.draftValid, busy=busy, edit=edit, setKey=setKey, record=record, capture=capture, rest=rest)
         when data.available and length(data.rows) == 0 and not adding
-          text "No keybindings match your search." font-size=14 line-height="20px" color="light-dark(#71717b, #818181)" text-align="center" padding-top=48 padding-bottom=48 width="100%" testId="keybindings-empty"
+          text "No keybindings match your search." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" text-align="center" padding-top="3rem" padding-bottom="3rem" width="100%" testId="keybindings-empty"
       WhenEditor(view=data.whenView, expression=draftWhen, setWhen=setWhen)
 
 component KeybindingRow
@@ -177,20 +177,20 @@ component KeybindingRow
     hovered = over
   derive dirty = editing and (draftKey != row.key or draftWhen != row.condition)
   view
-    row hover=hover width="100%" box-sizing="border-box" padding-top=12 padding-bottom=12 padding-left=16 padding-right=16 gap=32 align-items="center" testId=`keybinding-row-${row.id}`
-      column flex=1 min-width=0 gap=4
-        row min-height=20 align-items="center" gap=8
-          text row.label font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3 aria-description=row.command
+    row hover=hover width="100%" box-sizing="border-box" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" gap="2rem" align-items="center" testId=`keybinding-row-${row.id}`
+      column flex=1 min-width=0 gap="0.25rem"
+        row min-height="1.25rem" align-items="center" gap="0.5rem"
+          text row.label font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3 aria-description=row.command
           when row.source != "Default"
-            text row.source font-size=11 font-weight=500 line-height="16px" padding-left=5 padding-right=5 border-radius=6 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" color="light-dark(#27272a, #f5f5f5)" testId=`keybinding-source-${row.id}`
-        row height=24 align-items="center" gap=6
+            text row.source font-size="0.6875rem" font-weight=500 line-height="1rem" padding-left="0.3125rem" padding-right="0.3125rem" border-radius="0.375rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" color="light-dark(#27272a, #f5f5f5)" testId=`keybinding-source-${row.id}`
+        row height="1.5rem" align-items="center" gap="0.375rem"
           text "When" class=KbMuted
           WhenButton(label=row.label, expression=(editing ? draftWhen : row.condition), rowId=row.id, command=row.command, key=(editing ? draftKey : row.key), edit=edit)
-      row flex-shrink=0 align-items="center" justify-content="flex-end" gap=6 flex-wrap="wrap"
+      row flex-shrink=0 align-items="center" justify-content="flex-end" gap="0.375rem" flex-wrap="wrap"
         when conflict != ""
           Warning(label=conflict)
         when row.canReset or row.canRemove
-          button popovertarget=`keybinding-menu-${row.id}` disabled=busy class=KbIcon width=28 height=28 aria-label=`Actions for ${row.label}` testId=`keybinding-actions-${row.id}` opacity=(hovered or editing ? 1 : 0)
+          button popovertarget=`keybinding-menu-${row.id}` disabled=busy class=KbIcon width="1.75rem" height="1.75rem" aria-label=`Actions for ${row.label}` testId=`keybinding-actions-${row.id}` opacity=(hovered or editing ? 1 : 0)
             LucideEllipsis(size=14, color="light-dark(#71717b, #818181)")
           SkPopup(menuId=`keybinding-menu-${row.id}`, label=`Actions for ${row.label}`, width=160, list=false, endAlign=28)
             when row.canReset
@@ -199,11 +199,11 @@ component KeybindingRow
               SkMenuItem(label="Remove", menuId=`keybinding-menu-${row.id}`, itemId=`remove-keybinding-${row.id}`, selected=false, check=false, destructive=true, disabled=busy, choose=rest("keybinding", `action=remove&previous=${encodeURIComponent(row.id)}`))
         when dirty
           button press=rest("keybinding", `action=save&previous=${encodeURIComponent(row.id)}&command=${encodeURIComponent(row.command)}&key=${encodeURIComponent(draftKey)}&when=${encodeURIComponent(draftWhen)}`) disabled=(busy or draftKey == "" or not valid) class=KbPrimary testId=`save-keybinding-${row.id}` opacity=(busy or draftKey == "" or not valid ? 0.64 : 1)
-            text (busy ? "Saving" : "Save") font-size=14 font-weight=500 line-height="20px" color="#ffffff"
+            text (busy ? "Saving" : "Save") font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
         when not dirty and not recording and row.key != ""
-          button press=record(row.id, row.command, row.key, row.condition) aria-label=`Edit shortcut for ${row.label}: ${row.aria}` testId=`edit-keybinding-${row.id}` display="flex" flex-direction="row" align-items="center" gap=4 box-sizing="border-box" height=28 padding-left=6 padding-right=6 margin-right=-6 border-radius=8 border-style="solid" border-width=1 border-color=(hovered ? "light-dark(#e4e4e7b3, #ffffff12)" : "#00000000") background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+          button press=record(row.id, row.command, row.key, row.condition) aria-label=`Edit shortcut for ${row.label}: ${row.aria}` testId=`edit-keybinding-${row.id}` display="flex" flex-direction="row" align-items="center" gap="0.25rem" box-sizing="border-box" height="1.75rem" padding-left="0.375rem" padding-right="0.375rem" margin-right="-0.375rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color=(hovered ? "light-dark(#e4e4e7b3, #ffffff12)" : "#00000000") background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
             each pill in row.pills key=pill.id
-              text pill.text font-size=12 font-weight=500 line-height="16px" min-width=20 height=20 padding-left=4 padding-right=4 box-sizing="border-box" border-radius=4 text-align="center" display="flex" align-items="center" justify-content="center" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#71717b, #818181)"
+              text pill.text font-size="0.75rem" font-weight=500 line-height="1rem" min-width="1.25rem" height="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" text-align="center" display="flex" align-items="center" justify-content="center" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#71717b, #818181)"
         when dirty or recording or row.key == ""
           CaptureField(label=row.label, value=draftKey, original=row.key, recording=recording, setKey=setKey, record=record(row.id, row.command, draftKey, draftWhen), capture=capture)
 
@@ -223,16 +223,16 @@ component CaptureField
   view
     when recording
       row class=KbCapture align-items="center" testId="keybinding-recording"
-        t3-key-recorder prompt="Press shortcut" change=capture(original) aria-label=`Keybinding for ${label}` testId="keybinding-recorder" flex=1 min-width=0 height=24
+        t3-key-recorder prompt="Press shortcut" change=capture(original) aria-label=`Keybinding for ${label}` testId="keybinding-recorder" flex=1 min-width=0 height="1.5rem"
     else
       button press=record aria-label=`Keybinding for ${label}` class=KbCapture display="flex" flex-direction="row" align-items="center" testId=`keybinding-capture-${label}`
-        text (value == "" ? "Unassigned" : value) font-family="monospace" font-size=13 line-height="20px" line-clamp=1 color=(value == "" ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
+        text (value == "" ? "Unassigned" : value) font-family="monospace" font-size="0.8125rem" line-height="1.25rem" line-clamp=1 color=(value == "" ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)")
 
 component Warning
   props
     label: string
   view
-    box width=20 height=20 display="flex" align-items="center" justify-content="center" border-radius=4 aria-label=label role="img" testId="keybinding-conflict"
+    box width="1.25rem" height="1.25rem" display="flex" align-items="center" justify-content="center" border-radius="0.25rem" aria-label=label role="img" testId="keybinding-conflict"
       LucideTriangleAlert(size=14, color="#fe9a00")
 
 // WhenClauseControl: "Always" or the expression, opening the builder popover.
@@ -245,59 +245,61 @@ component WhenButton
     key: string
     edit: action
   view
-    button press=edit(rowId, command, key, expression) popovertarget="keybinding-when-editor" aria-label=`Edit when clause for ${label}` testId=`edit-when-${rowId}` display="flex" flex-direction="row" align-items="center" gap=4 box-sizing="border-box" height=20 padding-left=5 padding-right=5 border-radius=6 border-width=0 background-color="#00000000" min-width=0 flex-shrink=1
-      text (expression == "" ? "Always" : expression) font-family="monospace" font-size=11 font-weight=500 line-height="16.5px" color=(expression == "" ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)") line-clamp=1
+    button press=edit(rowId, command, key, expression) popovertarget="keybinding-when-editor" aria-label=`Edit when clause for ${label}` testId=`edit-when-${rowId}` display="flex" flex-direction="row" align-items="center" gap="0.25rem" box-sizing="border-box" height="1.25rem" padding-left="0.3125rem" padding-right="0.3125rem" border-radius="0.375rem" border-width=0 background-color="#00000000" min-width=0 flex-shrink=1
+      text (expression == "" ? "Always" : expression) font-family="monospace" font-size="0.6875rem" font-weight=500 line-height="1.03125rem" color=(expression == "" ? "light-dark(#71717b, #818181)" : "light-dark(#27272a, #f5f5f5)") line-clamp=1
       box opacity=0.6
         LucideChevronDown(size=14, color="light-dark(#71717b, #818181)")
 
 component WhenEditor
+  inject
+    rem: number
   props
     view: WhenEditorView
     expression: string
     setWhen: action
   view
-    column id="keybinding-when-editor" popover="auto" position="absolute" width=544 padding=16 gap=12 box-sizing="border-box" border-radius=12 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #181818)" box-shadow="0 8px 24px #00000026" aria-label="When" testId="keybinding-when-editor"
-      row align-items="flex-start" justify-content="space-between" gap=12
-        text "When" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
-        row gap=8 flex-shrink=0
+    column id="keybinding-when-editor" popover="auto" position="absolute" width="34rem" padding="1rem" gap="0.75rem" box-sizing="border-box" border-radius="0.75rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #181818)" box-shadow="0 8px 24px #00000026" aria-label="When" testId="keybinding-when-editor"
+      row align-items="flex-start" justify-content="space-between" gap="0.75rem"
+        text "When" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+        row gap="0.5rem" flex-shrink=0
           button press=setWhen(view.addRootCondition) class=KbCompact testId="when-add-condition"
             LucidePlus(size=14, color="light-dark(#71717b, #818181)")
-            text "Condition" font-size=12 font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+            text "Condition" font-size="0.75rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
           button press=setWhen(view.addRootGroup) class=KbCompact testId="when-add-group"
             LucidePlus(size=14, color="light-dark(#71717b, #818181)")
-            text "Group" font-size=12 font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-      column gap=6
-        row height=28 align-items="center" gap=6 box-sizing="border-box" padding-left=9 padding-right=6 border-radius=8 border-style="solid" border-width=1 border-color=(view.error != "" ? "light-dark(#dc262666, #f8717166)" : "light-dark(#d4d4d8, #ffffff14)") background-color="light-dark(#fcfcfc, #ffffff07)"
-          input value=expression input=setWhen placeholder="Always" aria-label="When expression" testId="when-expression" flex=1 min-width=0 height=24 padding=0 border-width=0 background-color="#00000000" font-family="monospace" font-size=12 color="light-dark(#27272a, #f5f5f5)"
+            text "Group" font-size="0.75rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+      column gap="0.375rem"
+        row height="1.75rem" align-items="center" gap="0.375rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.375rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color=(view.error != "" ? "light-dark(#dc262666, #f8717166)" : "light-dark(#d4d4d8, #ffffff14)") background-color="light-dark(#fcfcfc, #ffffff07)"
+          input value=expression input=setWhen placeholder="Always" aria-label="When expression" testId="when-expression" flex=1 min-width=0 height="1.5rem" padding=0 border-width=0 background-color="#00000000" font-family="monospace" font-size="0.75rem" color="light-dark(#27272a, #f5f5f5)"
           when view.unknown != ""
             Warning(label=view.unknown)
         when view.error != ""
-          row gap=6 align-items="center"
+          row gap="0.375rem" align-items="center"
             LucideCircleX(size=14, color="light-dark(#dc2626, #f87171)")
-            text view.error font-size=11 line-height="16px" color="light-dark(#dc2626, #f87171)" testId="when-error"
+            text view.error font-size="0.6875rem" line-height="1rem" color="light-dark(#dc2626, #f87171)" testId="when-error"
       when length(view.lines) == 0 and view.error == ""
-        row gap=8 padding=12 border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7cc, #ffffff1f)" background-color="light-dark(#f4f4f526, #ffffff05)"
+        row gap="0.5rem" padding="0.75rem" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7cc, #ffffff1f)" background-color="light-dark(#f4f4f526, #ffffff05)"
           button press=setWhen(view.addRootCondition) class=KbCompact background-color="light-dark(#1b4ed8, #346bf1)" border-width=0
             LucidePlus(size=14, color="#ffffff")
-            text "Condition" font-size=12 font-weight=500 color="#ffffff"
+            text "Condition" font-size="0.75rem" font-weight=500 color="#ffffff"
           button press=setWhen(view.addRootGroup) class=KbCompact
             LucidePlus(size=14, color="light-dark(#71717b, #818181)")
-            text "Group" font-size=12 font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+            text "Group" font-size="0.75rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
       each line in view.lines key=line.id
-        row align-items="center" gap=8 margin-left=(line.depth * 16) box-sizing="border-box" padding=(line.kind == "condition" ? 8 : 4) border-radius=8 border-style="solid" border-width=(line.kind == "condition" ? 1 : 0) border-color="light-dark(#e4e4e7b3, #ffffff12)" testId=`when-line-${line.id}`
+        row align-items="center" gap="0.5rem" margin-left=(line.depth * rem) box-sizing="border-box" padding=(line.kind == "condition" ? "0.5rem" : "0.25rem") border-radius="0.5rem" border-style="solid" border-width=(line.kind == "condition" ? 1 : 0) border-color="light-dark(#e4e4e7b3, #ffffff12)" testId=`when-line-${line.id}`
           when line.kind == "group"
             SettingsSelect(selectId=`when-operator-${line.id}`, label="Operator", valueLabel=line.operator, width=96, disabled=false, options=line.operators, choose=setWhen)
             button press=setWhen(line.addCondition) class=KbCompact testId=`when-line-condition-${line.id}`
               LucidePlus(size=14, color="light-dark(#71717b, #818181)")
-              text "Condition" font-size=12 font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+              text "Condition" font-size="0.75rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
             button press=setWhen(line.addGroup) class=KbCompact testId=`when-line-group-${line.id}`
               LucidePlus(size=14, color="light-dark(#71717b, #818181)")
-              text "Group" font-size=12 font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+              text "Group" font-size="0.75rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
           when line.kind != "group"
-            button press=setWhen(line.negate) role="switch" aria-checked=line.negated aria-label=(line.kind == "not" ? "Negate group" : `Negate ${line.label}`) class=KbCompact min-width=40 background-color=(line.negated ? "light-dark(#f4f4f5, #ffffff14)" : "light-dark(#ffffff, #ffffff07)") testId=`when-negate-${line.id}`
-              text "Not" font-size=12 font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+            button press=setWhen(line.negate) role="switch" aria-checked=line.negated aria-label=(line.kind == "not" ? "Negate group" : `Negate ${line.label}`) class=KbCompact min-width="2.5rem" background-color=(line.negated ? "light-dark(#f4f4f5, #ffffff14)" : "light-dark(#ffffff, #ffffff07)") testId=`when-negate-${line.id}`
+              text "Not" font-size="0.75rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
           when line.kind == "condition"
             SettingsSelect(selectId=`when-variable-${line.id}`, label="Condition", valueLabel=line.label, width=280, disabled=false, options=line.options, choose=setWhen)
           box flex=1
-          button press=setWhen(line.remove) aria-label=line.removeLabel class=KbIcon width=28 height=28 testId=`when-remove-${line.id}`
+          button press=setWhen(line.remove) aria-label=line.removeLabel class=KbIcon width="1.75rem" height="1.75rem" testId=`when-remove-${line.id}`
             LucideMinus(size=14, color="light-dark(#27272a, #f5f5f5)")

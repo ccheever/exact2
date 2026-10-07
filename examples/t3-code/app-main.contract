@@ -48,6 +48,8 @@ use ThreadDetailsInline from "./shell-details.contract"
 
 // The conversation column: header, transcript (or the empty thread), composer stack and alerts.
 component ChatColumn
+  inject
+    rem: number
   props
     pageCover: bool
     viewport: Viewport
@@ -129,8 +131,8 @@ component ChatColumn
   // the canvas first answers, chat is centred.
   derive laneInset = canvas.ready ? canvas.insetEnd : 0
   derive overlaid = length(data.messages) > 0
-  derive stackWidth = canvas.ready ? canvas.width : max(0, min(data.look.chatMax, conversationWidth - 40))
-  derive stackLeft = canvas.ready ? canvas.left : 20 + max(0, conversationWidth - 40 - stackWidth) / 2
+  derive stackWidth = canvas.ready ? canvas.width : max(0, min(data.look.chatMax, conversationWidth - 2.5 * rem))
+  derive stackLeft = canvas.ready ? canvas.left : 1.25 * rem + max(0, conversationWidth - 2.5 * rem - stackWidth) / 2
   view
     column flex=1 min-width=0 min-height=0 height="100%" position="relative" inert=pageCover hook="t3-frame" data-frame="chat"
       when viewport.prefersColorScheme == "dark"
@@ -148,10 +150,10 @@ component ChatColumn
         column flex=1 min-height=0 width="100%" position="relative"
           list virtualized=true scrollFollowEnd=(not foldHold) reachend=releaseFold scrollTop=(1000000 + jumpRequest) id="transcript" testId="transcript" hook="t3-transcript" data-timeline-owner=composerOwner data-timeline-rest=(canRest ? "yes" : "no") flex=1 min-height=0 width="100%" padding-right=laneInset box-sizing="border-box" overflow-x="hidden"
             each message in data.messages key=message.id
-              TimelineRow(message=message, hovered=(rowHover == message.hoverKey), part=(rowHover == message.hoverKey ? partHover : ""), hoverPart=hoverPart, command=command, local=chatLocal, documents=markdown.documents, lane=data.look.chatMax, bubble=data.look.message, ink=(data.look.themed ? data.look.text : "light-dark(#27272a, #f5f5f5)"), now=timelineNow, hasMore=data.hasMore, historyLoading=data.historyLoading, historyError=data.historyError, busy=commandPending, earlier=earlier, attachments=attachmentUrls.items, diffScheme=data.look.diff, tail=data.transcriptTail, lead=((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "" ? 16 : 24), scheme=viewport.prefersColorScheme)
+              TimelineRow(message=message, hovered=(rowHover == message.hoverKey), part=(rowHover == message.hoverKey ? partHover : ""), hoverPart=hoverPart, command=command, local=chatLocal, documents=markdown.documents, lane=data.look.chatMax, bubble=data.look.message, ink=(data.look.themed ? data.look.text : "light-dark(#27272a, #f5f5f5)"), now=timelineNow, hasMore=data.hasMore, historyLoading=data.historyLoading, historyError=data.historyError, busy=commandPending, earlier=earlier, attachments=attachmentUrls.items, diffScheme=data.look.diff, tail=data.transcriptTail, lead=(((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "" ? 16 : 24) * rem / 16), scheme=viewport.prefersColorScheme)
           when not ((data.providerBannerKey != "" and data.providerBannerKey != dismissedProviderBanner) or data.error != "")
             TimelineFade(canvas=(settingsCore.palette.canvas == "" ? "light-dark(#fcfcfc, #0a0a0a)" : settingsCore.palette.canvas))
-          TimelineMinimap(items=data.minimap, current=data.minimapCurrent, gutter=((conversationWidth - min(data.look.chatMax, conversationWidth - 40)) / 2), windowHeight=viewport.height, local=chatLocal)
+          TimelineMinimap(items=data.minimap, current=data.minimapCurrent, gutter=((conversationWidth - min(data.look.chatMax, conversationWidth - 2.5 * rem)) / 2), windowHeight=viewport.height, local=chatLocal)
           // composer-editor: over the transcript, so leaving the end (a fold opening there) moves nothing.
           when data.transcriptAway
             ScrollToEnd(jump=scrollToEnd, inset=laneInset, lift=data.scrollLift)
@@ -159,11 +161,11 @@ component ChatColumn
       // measures it for the transcript's end reservation): absolute at the chat's foot over the lane alone, so the
       // transcript beside it still takes the pointer and the wheel; an empty thread keeps it in flow under the hero.
       // The banners sit above the card; the drawer layer paints after both, over the banners, clipped at the card.
-      column position=(overlaid ? "absolute" : "relative") left=(overlaid ? stackLeft : 0) bottom=0 width=(overlaid ? stackWidth : "100%") padding-left=(overlaid ? 0 : 20) padding-right=(overlaid ? 0 : 20 + laneInset) flex-shrink=0 align-items="center" box-sizing="border-box" hook="t3-frame" data-frame="overlay" testId="composer-overlay"
-        column padding-top=(overlaid ? 0 : 12) width="100%" max-width=data.look.chatMax position="relative" box-sizing="border-box"
+      column position=(overlaid ? "absolute" : "relative") left=(overlaid ? stackLeft : 0) bottom=0 width=(overlaid ? stackWidth : "100%") padding-left=(overlaid ? "0px" : "1.25rem") padding-right=(overlaid ? 0 : 1.25 * rem + laneInset) flex-shrink=0 align-items="center" box-sizing="border-box" hook="t3-frame" data-frame="overlay" testId="composer-overlay"
+        column padding-top=(overlaid ? "0px" : "0.75rem") width="100%" max-width=data.look.chatMax position="relative" box-sizing="border-box"
           // The banners share a row with the stash's shoulder tab.
           row width="100%" align-items="flex-end" hook="t3-frame" data-frame="shoulder"
-            column flex=1 min-width=0 margin-right=(editor.stash.count > 0 and (editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)) ? -18 : 0) hook="t3-frame" data-frame="dock"
+            column flex=1 min-width=0 margin-right=(editor.stash.count > 0 and (editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)) ? "-1.125rem" : "0px") hook="t3-frame" data-frame="dock"
               when editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)
                 when viewport.prefersColorScheme == "dark"
                   ComposerDock(data=data, busy=commandPending, command=command, keyed=composerKey, drop=composerDrop, urls=attachmentUrls.items, exiting=noticeExit, still=viewport.prefersReducedMotion, dismiss=noticeDismiss)
@@ -171,9 +173,9 @@ component ChatColumn
                   ComposerDock(data=data, busy=commandPending, command=command, keyed=composerKey, drop=composerDrop, urls=attachmentUrls.items, exiting=noticeExit, still=viewport.prefersReducedMotion, dismiss=noticeDismiss)
             when editor.stash.count > 0 and (editor.drawer.placed or not (editor.menu.open or editor.stash.menuOpen)) and data.requestMode != "approval" and not data.composer.subagent
               StashBadge(stash=editor.stash, op=editorOp)
-          RequestBanner(data=data, command=command, busy=commandPending, scheme=viewport.prefersColorScheme, compact=(min(data.look.chatMax, conversationWidth - 40) - 68 <= 560), maximumHeight=min(384, viewport.height * 0.4))
+          RequestBanner(data=data, command=command, busy=commandPending, scheme=viewport.prefersColorScheme, compact=(min(data.look.chatMax, conversationWidth - 2.5 * rem) - 4.25 * rem <= 35 * rem), maximumHeight=min(384, viewport.height * 0.4))
         // A resting card keeps the transcript's reservation instead of the stack's height (resolveComposerTimelineInset).
-        column padding-bottom=(resting ? 52 : 20) justify-content="flex-end" flex-shrink=0 align-items="center" width="100%" box-sizing="border-box" hook="t3-frame" data-frame="stack"
+        column padding-bottom=(resting ? "3.25rem" : "1.25rem") justify-content="flex-end" flex-shrink=0 align-items="center" width="100%" box-sizing="border-box" hook="t3-frame" data-frame="stack"
           column width="100%" max-width=data.look.chatMax position="relative"
             when data.requestMode == "approval" or data.composer.subagent
               when data.composer.subagent
@@ -197,7 +199,7 @@ component ChatColumn
       when length(data.messages) == 0 and data.connected and data.projectId != ""
         // Reference stack: the composer plus a 52pt strip zone under it, centred in the column.
         // Until the branch strip renders under the draft composer, this spacer reserves its 32pt.
-        box flex=1 min-height=0 padding-top=(branches.show ? 12 : 44)
+        box flex=1 min-height=0 padding-top=(branches.show ? "0.75rem" : "2.75rem")
       when viewport.prefersColorScheme == "dark"
         AlertStack(data=data, dismissed=dismissedProviderBanner, busy=commandPending, dismissProvider=dismissProviderBanner, command=command)
       else
@@ -309,7 +311,7 @@ component PagesCover
               PrList(controlsLeft=data.controlsLeft, page=prList, scheme="light", query=(prTyped ? prQuery : prList.query), sidebarOpen=data.sidebarOpen, keySidebar=settings.keySidebar, narrow=(prListWidth < 512), compact=(prListWidth < 428), panelOpen=(prSelected != "" and prPanelOpen), viewportWidth=viewport.width, listLeft=(data.sidebarOpen ? sidebarWidth : 0), listWidth=prListWidth, toggleSidebar=toggleSidebar, togglePanel=prTogglePanel, search=prType, control=prControl, select=prSelect, reload=prReload, addProject=paletteShow("command", "add-project"))
               when prSelected != "" and prPanelOpen
                 PrPanel(detail=prDetail, documents=prMarkdown.documents, scheme="light", width=prPanelWidth, tab=prTab, setTab=prSetTab, close=prClose, reload=prReload, act=prAct, copy=prCopy, local=chatLocal)
-            button press=prTogglePanel disabled=(prSelected == "") position="absolute" right=13 top=12 width=28 height=28 padding=0 border-radius=10 border-width=0 background-color=(prSelected != "" and prPanelOpen ? "light-dark(#27272a0d, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle right panel" testId="pull-requests-toggle-panel"
+            button press=prTogglePanel disabled=(prSelected == "") position="absolute" right="0.8125rem" top="0.75rem" width="1.75rem" height="1.75rem" padding=0 border-radius="0.625rem" border-width=0 background-color=(prSelected != "" and prPanelOpen ? "light-dark(#27272a0d, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle right panel" testId="pull-requests-toggle-panel"
               PgIcon(name="panel-right", size=16, color="light-dark(#71717b, #818181)")
         when utilityPage == ""
           when viewport.prefersColorScheme == "dark"

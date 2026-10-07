@@ -1,0 +1,83 @@
+{
+ "font_size": {
+  "value": 14,
+  "source": "dynamic"
+ },
+ "line_height": {
+  "value": "22.75px",
+  "source": "dynamic"
+ },
+ "native": {
+  "firstResponder": false,
+  "view": "NodeView",
+  "sheet": false,
+  "editor": "TextArea",
+  "subviews": {
+   "entries": [
+    {
+     "depth": 0,
+     "frame": {
+      "x": 329,
+      "y": 361.5,
+      "w": 878,
+      "h": 87.5
+     },
+     "kind": "view",
+     "class": "NodeView",
+     "alpha": 1,
+     "node": 149,
+     "hidden": false,
+     "layer": {
+      "zPosition": 0,
+      "masksToBounds": false
+     }
+    },
+    {
+     "frame": {
+      "y": 361.5,
+      "h": 87.5,
+      "x": 329,
+      "w": 878
+     },
+     "owner": 149,
+     "alpha": 1,
+     "depth": 1,
+     "layer": {
+      "zPosition": 0,
+      "masksToBounds": false
+     },
+     "class": "T3ComposerUnderlay",
+     "hidden": false,
+     "role": "platform",
+     "kind": "view"
+    },
+    {
+     "layer": {
+      "masksToBounds": false,
+      "zPosition": 0
+     },
+     "children": 2,
+     "alpha": 1,
+     "owner": 149,
+     "opaque": "platform",
+     "role": "editor",
+     "frame": {
+      "x": 329,
+      "y": 361.5,
+      "h": 87.5,
+      "w": 878
+     },
+     "kind": "view",
+     "depth": 1,
+     "hidden": false,
+     "class": "NSScrollView"
+    }
+   ],
+   "complete": true,
+   "depth": 2,
+   "root": "view",
+   "limit": 12,
+   "count": 3
+  }
+ }
+}

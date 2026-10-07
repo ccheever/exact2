@@ -38,30 +38,30 @@ component ScopeSentence
     closeMenu: action
     choose: action
   view
-    row flex-wrap="wrap" align-items="center" column-gap=6 row-gap=4 padding-left=16 padding-right=16 width="100%" box-sizing="border-box" position="relative" z-index=(startsWith(menu, "scope/") ? 50 : 1) testId="settings-scope-sentence"
-      row align-items="center" gap=6 min-width=0
-        text "Applying settings for" font-size=16 line-height="24px" color=pal.muted flex-shrink=0
+    row flex-wrap="wrap" align-items="center" column-gap="0.375rem" row-gap="0.25rem" padding-left="1rem" padding-right="1rem" width="100%" box-sizing="border-box" position="relative" z-index=(startsWith(menu, "scope/") ? 50 : 1) testId="settings-scope-sentence"
+      row align-items="center" gap="0.375rem" min-width=0
+        text "Applying settings for" font-size="1rem" line-height="1.5rem" color=pal.muted flex-shrink=0
         box position="relative"
-          button popovertarget="settings-scope-project-menu" class=SettingsGhost gap=6 padding=0 height=24 aria-label=`Project scope: ${projectLabel}` testId="settings-scope-project"
+          button popovertarget="settings-scope-project-menu" class=SettingsGhost gap="0.375rem" padding=0 height="1.5rem" aria-label=`Project scope: ${projectLabel}` testId="settings-scope-project"
             when projectMark != ""
               CoreMark(label=projectMark, ink=projectInk, surface=projectSurface)
             // Keyed by its label: a reused one-line text kept drawing the old string clipped to the new width.
             each keyed in projectKeyed key=keyed.id
               column position="relative"
-                text keyed.label font-size=16 font-weight=500 line-height="24px" color=pal.text line-clamp=1 max-width=288
+                text keyed.label font-size="1rem" font-weight=500 line-height="1.5rem" color=pal.text line-clamp=1 max-width="18rem"
                 svg position="absolute" left=0 right=0 bottom=1 height=2 width="100%" viewBox="0 0 400 2" preserveAspectRatio="none" aria-hidden=true
                   path d="M0 1H400" stroke=pal.text stroke-opacity=0.3 stroke-width=1.5 stroke-dasharray="1.5 2.5"
             CoreIcon(name="chevron-down", size=14, color=pal.muted)
           ScopeMenu(pal=pal, choices=projects, project=true, menuId="settings-scope-project-menu", choose=choose)
-      row align-items="center" gap=6 min-width=0
-        text connective font-size=16 line-height="24px" color=pal.muted flex-shrink=0
+      row align-items="center" gap="0.375rem" min-width=0
+        text connective font-size="1rem" line-height="1.5rem" color=pal.muted flex-shrink=0
         box position="relative"
-          button popovertarget="settings-scope-environment-menu" class=SettingsGhost gap=6 padding=0 height=24 aria-label=`Environment scope: ${environmentLabel}` testId="settings-scope-environment"
+          button popovertarget="settings-scope-environment-menu" class=SettingsGhost gap="0.375rem" padding=0 height="1.5rem" aria-label=`Environment scope: ${environmentLabel}` testId="settings-scope-environment"
             when environmentIcon != ""
               CnMachineIcon(kind=environmentIcon, size=14, color=pal.text)
             each keyed in environmentKeyed key=keyed.id
               column position="relative"
-                text keyed.label font-size=16 font-weight=500 line-height="24px" color=pal.text line-clamp=1 max-width=288
+                text keyed.label font-size="1rem" font-weight=500 line-height="1.5rem" color=pal.text line-clamp=1 max-width="18rem"
                 svg position="absolute" left=0 right=0 bottom=1 height=2 width="100%" viewBox="0 0 400 2" preserveAspectRatio="none" aria-hidden=true
                   path d="M0 1H400" stroke=pal.text stroke-opacity=0.3 stroke-width=1.5 stroke-dasharray="1.5 2.5"
             CoreIcon(name="chevron-down", size=14, color=pal.muted)
@@ -78,25 +78,25 @@ component ScopeMenu
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
   view
-    column id=menuId popover="auto" position="absolute" margin-top=4 min-width=176
-      column width="100%" padding=4 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="menu" testId=(project ? "settings-scope-project-menu" : "settings-scope-environment-menu")
+    column id=menuId popover="auto" position="absolute" margin-top="0.25rem" min-width="11rem"
+      column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="menu" testId=(project ? "settings-scope-project-menu" : "settings-scope-environment-menu")
         each choice in choices key=choice.id
           column width="100%"
-            button press=choose(project, choice.id, choice.member) popovertarget=menuId popovertargetaction="hide" hover=hover(choice.id) role="menuitemradio" aria-checked=choice.selected class=SettingsGhost justify-content="flex-start" width="100%" height=28 padding-left=8 padding-right=8 gap=8 border-radius=6 background-color=(hovered == choice.id or (hovered == "" and choice.selected) ? pal.highlight : "#00000000") testId=`settings-scope-choice-${project ? "project" : "environment"}-${choice.id == "" ? "all" : choice.id}`
+            button press=choose(project, choice.id, choice.member) popovertarget=menuId popovertargetaction="hide" hover=hover(choice.id) role="menuitemradio" aria-checked=choice.selected class=SettingsGhost justify-content="flex-start" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" border-radius="0.375rem" background-color=(hovered == choice.id or (hovered == "" and choice.selected) ? pal.highlight : "#00000000") testId=`settings-scope-choice-${project ? "project" : "environment"}-${choice.id == "" ? "all" : choice.id}`
               when project and choice.mark != ""
                 CoreMark(label=choice.mark, ink=choice.ink, surface=choice.surface)
               when not project and choice.mark != ""
                 CnMachineIcon(kind=choice.mark, size=14, color=pal.text)
               when not project and choice.id == ""
                 CoreIcon(name="layers", size=14, color=pal.text)
-              text choice.label font-size=14 line-height="20px" color=pal.text flex=1 min-width=0 line-clamp=1 white-space="nowrap"
+              text choice.label font-size="0.875rem" line-height="1.25rem" color=pal.text flex=1 min-width=0 line-clamp=1 white-space="nowrap"
               when choice.offline
-                text "Offline" font-size=12 color=pal.muted flex-shrink=0
-              box width=14 height=14 flex-shrink=0
+                text "Offline" font-size="0.75rem" color=pal.muted flex-shrink=0
+              box width="0.875rem" height="0.875rem" flex-shrink=0
                 when choice.selected
                   CoreIcon(name="check", size=14, color=pal.text)
             when choice.id == ""
-              box height=1 margin-top=4 margin-bottom=4 margin-left=8 margin-right=8 background-color=pal.divider flex-shrink=0
+              box height=1 margin-top="0.25rem" margin-bottom="0.25rem" margin-left="0.5rem" margin-right="0.5rem" background-color=pal.divider flex-shrink=0
 
 // SettingsSection list. Each section header, its card (rounded-xl border bg-card/40 shadow-xs/5)
 // and divided rows; Legacy features folds behind its trigger.
@@ -115,24 +115,24 @@ component CoreSections
     slide: action
     navigate: action
   view
-    column gap=32 width="100%"
+    column gap="2rem" width="100%"
       each section in sections key=section.id
-        column gap=10 width="100%" position="relative" z-index=(startsWith(menu, `${section.id}/`) ? 50 : 1) id=section.id testId=`settings-section-${section.id}`
+        column gap="0.625rem" width="100%" position="relative" z-index=(startsWith(menu, `${section.id}/`) ? 50 : 1) id=section.id testId=`settings-section-${section.id}`
           when section.collapsible
-            button press=toggleLegacy class=SettingsGhost justify-content="flex-start" gap=8 min-height=32 padding-left=16 padding-right=16 width="100%" aria-expanded=legacyOpen testId=`settings-section-toggle-${section.id}`
-              text section.title font-size=14 line-height="20px" color=pal.heading
+            button press=toggleLegacy class=SettingsGhost justify-content="flex-start" gap="0.5rem" min-height="2rem" padding-left="1rem" padding-right="1rem" width="100%" aria-expanded=legacyOpen testId=`settings-section-toggle-${section.id}`
+              text section.title font-size="0.875rem" line-height="1.25rem" color=pal.heading
               box rotate=(legacyOpen ? "90deg" : "0deg")
                 CoreIcon(name="chevron-right", size=16, color=pal.muted)
           else
-            row min-height=28 align-items="center" justify-content="space-between" padding-left=16 padding-right=16
-              text section.title font-size=14 line-height="20px" color=pal.heading
+            row min-height="1.75rem" align-items="center" justify-content="space-between" padding-left="1rem" padding-right="1rem"
+              text section.title font-size="0.875rem" line-height="1.25rem" color=pal.heading
               when section.id == "typography"
-                row gap=8 align-items="center"
-                  text "Advanced" font-size=14 line-height="20px" color=pal.muted
-                  button press=change("typography-advanced", "typographyAdvanced", section.toggle ? "false" : "true") role="switch" aria-checked=section.toggle aria-label="Advanced Show advanced typography settings" disabled=busy class=SettingsGhost justify-content="flex-start" width=30 height=18 padding=2 border-radius=9 background-color=(section.toggle ? pal.accent : pal.switchOff) testId="setting-typography-advanced"
-                    box width=14 height=14 border-radius=7 background-color=pal.thumb margin-left=(section.toggle ? 12 : 0) box-shadow="0 1px 3px #0000000d"
+                row gap="0.5rem" align-items="center"
+                  text "Advanced" font-size="0.875rem" line-height="1.25rem" color=pal.muted
+                  button press=change("typography-advanced", "typographyAdvanced", section.toggle ? "false" : "true") role="switch" aria-checked=section.toggle aria-label="Advanced Show advanced typography settings" disabled=busy class=SettingsGhost justify-content="flex-start" width="1.875rem" height="1.125rem" padding="0.125rem" border-radius="0.5625rem" background-color=(section.toggle ? pal.accent : pal.switchOff) testId="setting-typography-advanced"
+                    box width="0.875rem" height="0.875rem" border-radius="0.4375rem" background-color=pal.thumb margin-left=(section.toggle ? "0.75rem" : "0px") box-shadow="0 1px 3px #0000000d"
           when not section.collapsible or legacyOpen
-            column width="100%" border-radius=12 border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.card box-shadow="0 1px 2px #0000000d" box-sizing="border-box"
+            column width="100%" border-radius="0.75rem" border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.card box-shadow="0 1px 2px #0000000d" box-sizing="border-box"
               each row in section.rows key=row.id
                 CoreRowView(reduced=reduced, row=row, section=section.id, pal=pal, busy=busy, menu=menu, openMenu=openMenu, closeMenu=closeMenu, change=change, slide=slide, navigate=navigate)
 
@@ -150,79 +150,79 @@ component CoreRowView
     slide: action
     navigate: action
   view
-    column width="100%" padding-top=12 padding-bottom=(startsWith(row.info, "preview-") ? 4 : 12) padding-left=16 padding-right=16 gap=12 box-sizing="border-box" border-top-width=(row.divider ? 1 : 0) border-top-style="solid" border-color=pal.divider position="relative" z-index=(startsWith(menu, `${section}/${row.id}`) ? 50 : 1) id=row.id testId=`setting-row-${row.id}`
-      row width="100%" gap=32 align-items="center"
-        column flex=1 min-width=0 gap=4
-          row min-height=20 align-items="center" gap=6
+    column width="100%" padding-top="0.75rem" padding-bottom=(startsWith(row.info, "preview-") ? "0.25rem" : "0.75rem") padding-left="1rem" padding-right="1rem" gap="0.75rem" box-sizing="border-box" border-top-width=(row.divider ? 1 : 0) border-top-style="solid" border-color=pal.divider position="relative" z-index=(startsWith(menu, `${section}/${row.id}`) ? 50 : 1) id=row.id testId=`setting-row-${row.id}`
+      row width="100%" gap="2rem" align-items="center"
+        column flex=1 min-width=0 gap="0.25rem"
+          row min-height="1.25rem" align-items="center" gap="0.375rem"
             when row.kind == "version"
-              text "Version" font-size=14 font-weight=500 line-height="20px" color=pal.text
-              text row.value font-family="ui-monospace" font-size=12 line-height="16px" color=pal.text
+              text "Version" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text
+              text row.value font-family="ui-monospace" font-size="0.75rem" line-height="1rem" color=pal.text
             else
-              text row.title font-size=14 font-weight=500 line-height="20px" color=pal.text
+              text row.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text
             when row.info != "" and not startsWith(row.info, "preview")
               InfoTip(label="Background policy details", tip=row.info, tipId=`setting-info-${row.id}`, textWidth=264, surface=pal.popover, border=pal.popoverBorder, ink=pal.text)
                 CoreIcon(name="info", size=14, color=pal.muted)
             when row.inheritance != ""
               box position="relative"
-                button popovertarget=`inherit-${section}-${row.id}` class=SettingsGhost width=20 height=20 border-radius=6 aria-label=`${row.inheritanceSummary}. Show where this value comes from` testId=`setting-inheritance-${row.id}`
+                button popovertarget=`inherit-${section}-${row.id}` class=SettingsGhost width="1.25rem" height="1.25rem" border-radius="0.375rem" aria-label=`${row.inheritanceSummary}. Show where this value comes from` testId=`setting-inheritance-${row.id}`
                   // SettingInheritance: LayersIcon size-3, text-primary only when overridden, text-warning when mixed.
                   CoreIcon(name="layers", size=12, color=(row.inheritance == "overridden" ? pal.accent : (row.inheritance == "mixed" ? "#fe9a00" : pal.muted)))
-                column id=`inherit-${section}-${row.id}` popover="auto" position="absolute" margin-top=4 width=310
-                  column width="100%" padding=8 gap=2 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="dialog" testId=`setting-inheritance-${row.id}-popover`
-                    row gap=6 align-items="center" padding-left=4 padding-bottom=4
+                column id=`inherit-${section}-${row.id}` popover="auto" position="absolute" margin-top="0.25rem" width="19.375rem"
+                  column width="100%" padding="0.5rem" gap="0.125rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="dialog" testId=`setting-inheritance-${row.id}-popover`
+                    row gap="0.375rem" align-items="center" padding-left="0.25rem" padding-bottom="0.25rem"
                       CoreIcon(name="laptop", size=14, color=pal.muted)
-                      text row.layerTitle font-size=12 font-weight=500 line-height="16px" color=pal.muted
+                      text row.layerTitle font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.muted
                     each layer in row.layers key=layer.id
-                      row height=28 padding-left=8 padding-right=8 gap=8 align-items="center" border-radius=6 background-color=(layer.selected ? pal.highlight : "#00000000") testId=`setting-inheritance-${row.id}-${layer.id}`
-                        text layer.label font-size=14 line-height="20px" color=pal.text flex=1
-                        text layer.detail font-size=14 line-height="20px" color=(layer.selected ? pal.text : pal.muted)
+                      row height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" align-items="center" border-radius="0.375rem" background-color=(layer.selected ? pal.highlight : "#00000000") testId=`setting-inheritance-${row.id}-${layer.id}`
+                        text layer.label font-size="0.875rem" line-height="1.25rem" color=pal.text flex=1
+                        text layer.detail font-size="0.875rem" line-height="1.25rem" color=(layer.selected ? pal.text : pal.muted)
                         when layer.selected
                           CoreIcon(name="check", size=14, color=pal.accent)
             when row.resettable
-              button press=change(row.id, "reset", row.target) class=SettingsGhost width=20 height=20 border-radius=6 disabled=busy aria-label=`Reset ${row.resetLabel} to default` testId=`setting-reset-${row.id}`
+              button press=change(row.id, "reset", row.target) class=SettingsGhost width="1.25rem" height="1.25rem" border-radius="0.375rem" disabled=busy aria-label=`Reset ${row.resetLabel} to default` testId=`setting-reset-${row.id}`
                 CoreIcon(name="undo-2", size=12, color=pal.muted)
           when row.description != ""
-            text row.description font-size=12 line-height="18px" color=pal.description max-width=576 testId=`setting-description-${row.id}`
+            text row.description font-size="0.75rem" line-height="1.125rem" color=pal.description max-width="36rem" testId=`setting-description-${row.id}`
           when row.status != ""
-            text row.status font-size=12 line-height="16px" color=pal.muted padding-top=2 testId=`setting-status-${row.id}`
+            text row.status font-size="0.75rem" line-height="1rem" color=pal.muted padding-top="0.125rem" testId=`setting-status-${row.id}`
         when row.kind == "version"
-          row flex-shrink=0 min-width=160 align-items="center" justify-content="flex-end"
+          row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end"
             AboutUpdateButton(row=row, pal=pal, busy=busy, change=change)
         when row.kind != "version" and row.kind != "none"
-          row flex-shrink=0 min-width=160 align-items="center" justify-content="flex-end" gap=8 opacity=(row.inert ? 0.5 : 1) position="relative"
+          row flex-shrink=0 min-width="10rem" align-items="center" justify-content="flex-end" gap="0.5rem" opacity=(row.inert ? 0.5 : 1) position="relative"
             when row.kind == "switch"
               // D15: a mixed switch turns the setting on for every selected target.
               ScopedSwitch(checked=row.checked, mixed=row.mixed, label=row.title, disabled=(busy or row.inert or row.disabled), faded=row.disabled, on=pal.accent, off=pal.switchOff, thumb=pal.thumb, reduced=reduced, switchId=`setting-${row.id}`, press=change(row.id, row.target, row.mixed or not row.checked ? "true" : "false"))
             when row.kind == "select"
               CoreSelect(rowId=row.id, section=section, value=row.label, icon=row.icon, width=row.width, menuWidth=row.menuWidth, options=row.options, pal=pal, disabled=(busy or row.inert or row.disabled), dim=(row.inert or row.disabled), menu=menu, openMenu=openMenu, choose=change(row.id, row.target))
               when row.value2 == "configure"
-                button press=change(row.id, row.target, "advanced") disabled=(busy or row.inert) aria-label="Configure advanced background activity" class=SettingsGhost width=28 height=28 border-radius=8 border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" testId=`setting-${row.id}-configure`
+                button press=change(row.id, row.target, "advanced") disabled=(busy or row.inert) aria-label="Configure advanced background activity" class=SettingsGhost width="1.75rem" height="1.75rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" testId=`setting-${row.id}-configure`
                   CoreIcon(name="settings", size=16, color=pal.text)
             when row.kind == "model"
               box position="relative"
-                button popovertarget=`model-${section}-${row.id}` class=SettingsGhost gap=6 height=28 padding-left=10 padding-right=10 border-radius=8 disabled=(busy or row.inert) aria-label=row.label id=`setting-${row.id}` testId=`setting-${row.id}-model`
+                button popovertarget=`model-${section}-${row.id}` class=SettingsGhost gap="0.375rem" height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" disabled=(busy or row.inert) aria-label=row.label id=`setting-${row.id}` testId=`setting-${row.id}-model`
                   ProviderInstanceMark(driver=row.driver, size=16, color=pal.muted, badge=row.badge, accent=row.badgeColor)
-                  text row.label font-size=14 font-weight=500 line-height="20px" color=pal.muted line-clamp=1
+                  text row.label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.muted line-clamp=1
                   CoreIcon(name="chevron-down", size=14, color=pal.muted)
                 CoreMenu(options=row.options, pal=pal, width=256, checks=true, menuId=`model-${section}-${row.id}`, choose=change(row.id, ""), testId=`setting-${row.id}-model-menu`)
               when row.label2 != ""
                 box position="relative"
-                  button popovertarget=`effort-${section}-${row.id}` class=SettingsGhost gap=6 height=28 padding-left=10 padding-right=10 border-radius=8 disabled=(busy or row.inert) aria-label=row.label2 testId=`setting-${row.id}-effort`
+                  button popovertarget=`effort-${section}-${row.id}` class=SettingsGhost gap="0.375rem" height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" disabled=(busy or row.inert) aria-label=row.label2 testId=`setting-${row.id}-effort`
                     // TraitsPicker's trigger: a Fast or Ultrafast service tier draws the bolt before the label.
                     when row.icon != ""
                       CcIcon(name=(row.icon == "ultrafast" ? "ultrafast" : "zap"), size=16, color=pal.text, weight=2)
-                    text row.label2 font-size=14 font-weight=500 line-height="20px" color=pal.muted
+                    text row.label2 font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.muted
                     CoreIcon(name="chevron-down", size=14, color=pal.muted)
                   TraitsMenu(options=row.options2, pal=pal, menuId=`effort-${section}-${row.id}`, choose=change(row.id, "effort"), testId=`setting-${row.id}-effort-menu`)
             when row.kind == "text-only"
-              text row.label font-size=14 line-height="20px" color=pal.muted
+              text row.label font-size="0.875rem" line-height="1.25rem" color=pal.muted
             when row.kind == "mobile-beta"
               MobileBetaControl(row=row, pal=pal, busy=busy, change=change)
             when row.kind == "number" or row.kind == "text"
               CoreField(value=row.value, rowId=row.id, width=row.width, placeholder=row.placeholder, numeric=(row.kind == "number"), label=row.title, pal=pal, disabled=(busy or row.inert), commit=change(row.id, row.target))
             when row.kind == "link"
-              button press=navigate(row.target) class=SettingsGhost height=28 padding-left=10 padding-right=10 border-radius=8 border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" id=`setting-${row.id}` testId=`setting-${row.id}-link`
-                text row.label font-size=14 font-weight=500 line-height="20px" color=pal.text
+              button press=navigate(row.target) class=SettingsGhost height="1.75rem" padding-left="0.625rem" padding-right="0.625rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow="0 1px 2px #0000000d" id=`setting-${row.id}` testId=`setting-${row.id}-link`
+                text row.label font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text
             when row.kind == "slider"
               when row.info == "preview"
                 PanelPreview(duration=row.amount, pal=pal)
@@ -231,13 +231,14 @@ component CoreRowView
               FontFamilyPicker(rowId=row.id, label=`${row.title} family`, value=row.label, families=row.options, pal=pal, disabled=busy, choose=change(row.id, row.target))
               CoreSelect(rowId=`${row.id}-size`, section=section, value=row.label2, icon="", width=144, menuWidth=0, options=row.options2, pal=pal, disabled=busy, dim=false, menu=menu, openMenu=openMenu, choose=change(row.id, row.suffix))
       when row.info == "preview-prompt"
-        FontPromptPreview(family=row.driver, size=row.amount, pal=pal)
+        FontPromptPreview(family=row.driver, size=row.previewSize, pal=pal)
       when row.info == "preview-code" or row.info == "preview-code-terminal"
         FontCodePreview(family=row.driver, size=row.amount, pal=pal)
       when row.info == "preview-code-terminal" or row.info == "preview-terminal"
         FontTerminalPreview(family=row.driver, size=row.amount, pal=pal)
 
 // SelectTrigger size sm + SelectPopup align end (alignItemWithTrigger=false).
+// The select's widths are px at the root size 16 and lay out in rem (w-36, min-w-40), as the reference's.
 component CoreSelect
   props
     rowId: string
@@ -267,15 +268,15 @@ component SelectFace
     pal: CorePalette
     dim: bool
   view
-    row justify-content="space-between" align-items="center" gap=8 min-width=(width > 0 ? width : 0) max-width=(width > 0 ? width : 400) height=28 padding-left=9 padding-right=5 border-radius=10 border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow=(dim ? "none" : "0 1px 2px #0000000d") box-sizing="border-box" opacity=(dim ? 0.64 : 1)
-      row gap=6 align-items="center" min-width=0 flex=1
+    row justify-content="space-between" align-items="center" gap="0.5rem" min-width=(width > 0 ? `${width / 16}rem` : "0px") max-width=(width > 0 ? `${width / 16}rem` : "25rem") height="1.75rem" padding-left="0.5625rem" padding-right="0.3125rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field box-shadow=(dim ? "none" : "0 1px 2px #0000000d") box-sizing="border-box" opacity=(dim ? 0.64 : 1)
+      row gap="0.375rem" align-items="center" min-width=0 flex=1
         when icon == "dots-red-green" or icon == "dots-blue-orange"
-          row gap=4 flex-shrink=0
-            box width=8 height=8 border-radius=4 background-color=(icon == "dots-red-green" ? "light-dark(#ef4444, #f87171)" : "light-dark(#3b82f6, #60a5fa)")
-            box width=8 height=8 border-radius=4 background-color=(icon == "dots-red-green" ? "light-dark(#22c55e, #4ade80)" : "light-dark(#f97316, #fb923c)")
+          row gap="0.25rem" flex-shrink=0
+            box width="0.5rem" height="0.5rem" border-radius="0.25rem" background-color=(icon == "dots-red-green" ? "light-dark(#ef4444, #f87171)" : "light-dark(#3b82f6, #60a5fa)")
+            box width="0.5rem" height="0.5rem" border-radius="0.25rem" background-color=(icon == "dots-red-green" ? "light-dark(#22c55e, #4ade80)" : "light-dark(#f97316, #fb923c)")
         when icon != "" and icon != "dots-red-green" and icon != "dots-blue-orange" and icon != "checks"
           CoreIcon(name=icon, size=14, color=pal.muted)
-        text value font-size=14 line-height="20px" color=pal.text line-clamp=1 white-space="nowrap" text-overflow="ellipsis" flex-shrink=1 min-width=0
+        text value font-size="0.875rem" line-height="1.25rem" color=pal.text line-clamp=1 white-space="nowrap" text-overflow="ellipsis" flex-shrink=1 min-width=0
       box opacity=0.5 flex-shrink=0
         CoreIcon(name="chevron-down", size=12, color=pal.text)
 
@@ -292,17 +293,17 @@ component CoreMenu
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
   view
-    column id=menuId popover="auto" position="absolute" margin-top=4 min-width=(width > 0 ? width : 160) width=(width > 200 ? width : "auto")
-      column width="100%" padding=4 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="listbox" testId=testId
+    column id=menuId popover="auto" position="absolute" margin-top="0.25rem" min-width=(width > 0 ? `${width / 16}rem` : "10rem") width=(width > 200 ? `${width / 16}rem` : "auto")
+      column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="listbox" testId=testId
         each option in options key=option.id
-          button press=choose(option.value) popovertarget=menuId popovertargetaction="hide" hover=hover(option.id) role="option" aria-selected=option.selected disabled=option.disabled class=SettingsGhost justify-content="flex-start" align-items=(option.detail != "" ? "flex-start" : "center") width="100%" min-height=28 padding-top=4 padding-bottom=4 padding-left=8 padding-right=8 gap=8 border-radius=6 opacity=(option.disabled ? 0.64 : 1) background-color=(hovered == option.id or (hovered == "" and option.selected) ? pal.highlight : "#00000000") testId=`${testId}-${option.id}`
-            column flex=1 min-width=0 gap=2 align-items="flex-start"
-              row gap=6 align-items="center"
+          button press=choose(option.value) popovertarget=menuId popovertargetaction="hide" hover=hover(option.id) role="option" aria-selected=option.selected disabled=option.disabled class=SettingsGhost justify-content="flex-start" align-items=(option.detail != "" ? "flex-start" : "center") width="100%" min-height="1.75rem" padding-top="0.25rem" padding-bottom="0.25rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" border-radius="0.375rem" opacity=(option.disabled ? 0.64 : 1) background-color=(hovered == option.id or (hovered == "" and option.selected) ? pal.highlight : "#00000000") testId=`${testId}-${option.id}`
+            column flex=1 min-width=0 gap="0.125rem" align-items="flex-start"
+              row gap="0.375rem" align-items="center"
                 when option.icon != "" and option.icon != "codex" and option.icon != "claudeAgent"
                   CoreIcon(name=option.icon, size=14, color=pal.muted)
-                text option.label font-size=14 font-weight=(option.detail != "" and option.icon != "codex" ? 500 : 400) line-height="20px" color=pal.text white-space="nowrap"
+                text option.label font-size="0.875rem" font-weight=(option.detail != "" and option.icon != "codex" ? 500 : 400) line-height="1.25rem" color=pal.text white-space="nowrap"
               when option.detail != ""
-                text option.detail font-size=12 line-height="16px" color=pal.muted
+                text option.detail font-size="0.75rem" line-height="1rem" color=pal.muted
             when checks and option.selected
               CoreIcon(name="check", size=14, color=pal.text)
 
@@ -319,22 +320,22 @@ component TraitsMenu
   action hover(id: string, over: bool)
     hovered = over ? id : (hovered == id ? "" : hovered)
   view
-    column id=menuId popover="auto" position="absolute" margin-top=4 min-width=176
-      column width="100%" padding=4 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="menu" testId=testId
+    column id=menuId popover="auto" position="absolute" margin-top="0.25rem" min-width="11rem"
+      column width="100%" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.popoverBorder background-color=pal.popover box-shadow="0 16px 40px -18px #0000008c" role="menu" testId=testId
         each option in options key=option.id
           when option.icon == "section" or option.icon == "section-rule"
             when option.icon == "section-rule"
-              box height=1 margin-left=8 margin-right=8 margin-top=4 margin-bottom=4 background-color=pal.cardBorder role="separator"
-            text option.label padding-left=8 padding-right=8 padding-top=6 padding-bottom=4 font-size=12 font-weight=500 line-height="16px" color=pal.muted
+              box height=1 margin-left="0.5rem" margin-right="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color=pal.cardBorder role="separator"
+            text option.label padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.25rem" font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.muted
           else
-            button press=choose(option.value) popovertarget=menuId popovertargetaction="hide" hover=hover(option.id) role="menuitemradio" aria-checked=option.selected class=SettingsGhost justify-content="flex-start" min-height=28 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 box-sizing="border-box" border-radius=6 background-color=(option.selected or hovered == option.id ? pal.highlight : "#00000000") testId=`${testId}-${option.id}`
-              column flex=1 min-width=0 gap=2 align-items="flex-start"
-                row gap=6 align-items="center"
-                  text option.label font-size=14 line-height="20px" color=pal.text white-space="nowrap"
+            button press=choose(option.value) popovertarget=menuId popovertargetaction="hide" hover=hover(option.id) role="menuitemradio" aria-checked=option.selected class=SettingsGhost justify-content="flex-start" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.375rem" background-color=(option.selected or hovered == option.id ? pal.highlight : "#00000000") testId=`${testId}-${option.id}`
+              column flex=1 min-width=0 gap="0.125rem" align-items="flex-start"
+                row gap="0.375rem" align-items="center"
+                  text option.label font-size="0.875rem" line-height="1.25rem" color=pal.text white-space="nowrap"
                   when option.icon == "default"
-                    text "Default" padding-left=4 padding-right=4 border-radius=4 border-width=1 border-style="solid" border-color=pal.input font-size=10 font-weight=500 line-height="14px" color=pal.text
+                    text "Default" padding-left="0.25rem" padding-right="0.25rem" border-radius="0.25rem" border-width=1 border-style="solid" border-color=pal.input font-size="0.625rem" font-weight=500 line-height="0.875rem" color=pal.text
                 when option.detail != ""
-                  text option.detail font-size=12 line-height="16px" white-space="nowrap" color=pal.muted
+                  text option.detail font-size="0.75rem" line-height="1rem" white-space="nowrap" color=pal.muted
 
 // DraftInput / NumberField: edits stay local until Enter or the field is left.
 component CoreField
@@ -352,7 +353,7 @@ component CoreField
   action edit(next: string)
     draft = next
   view
-    input value=draft input=edit change=commit placeholder=placeholder aria-label=label disabled=disabled inputmode=(numeric ? "numeric" : "text") spellcheck="false" width=width height=28 box-sizing="border-box" padding-left=9 padding-right=9 padding-top=3 padding-bottom=3 line-height="20px" border-radius=10 border-width=1 border-style="solid" border-color=pal.input background-color=pal.field font-size=14 color=pal.text box-shadow="0 1px 2px #0000000d" id=`setting-${rowId}` testId=`setting-${rowId}`
+    input value=draft input=edit change=commit placeholder=placeholder aria-label=label disabled=disabled inputmode=(numeric ? "numeric" : "text") spellcheck="false" width=`${width / 16}rem` height="1.75rem" box-sizing="border-box" padding-left="0.5625rem" padding-right="0.5625rem" padding-top="0.1875rem" padding-bottom="0.1875rem" line-height="1.25rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color=pal.input background-color=pal.field font-size="0.875rem" color=pal.text box-shadow="0 1px 2px #0000000d" id=`setting-${rowId}` testId=`setting-${rowId}`
 
 // The .settings-slider track is drawn here (NSSlider ignores accent-color): a 6-point rounded
 // track in muted 22% with a 55% border ring, the primary fill to the thumb's centre
@@ -361,6 +362,8 @@ component CoreField
 // and `change` snaps to the setting's increment and commits on release.
 fn sliderSnap(value: number, low: number, high: number, step: number): number = max(low, min(high, low + floor((value - low) / step + 0.5) * step))
 component CoreSlider
+  inject
+    rem: number
   props
     row: CoreRow
     pal: CorePalette
@@ -383,17 +386,17 @@ component CoreSlider
         preventDefault()
   derive shown = liveFrom != "" and liveFrom == row.value ? live : row.amount
   derive label = sliderSnap(shown, row.min, row.max, row.step)
-  derive trackWidth = row.width - 12 - (row.suffix == " ms" ? 64 : 48)
+  derive trackWidth = (row.width - 12 - (row.suffix == " ms" ? 64 : 48)) * rem / 16
   derive ratio = row.max > row.min ? max(0, min(1, (shown - row.min) / (row.max - row.min))) : 0
   view
-    row width=row.width gap=12 align-items="center"
-      text `${label}${row.suffix}` font-family="ui-monospace" font-size=12 font-weight=500 line-height="16px" color=pal.text font-variant-numeric="tabular-nums" text-align="center" min-width=(row.suffix == " ms" ? 64 : 48) padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 border-radius=6 background-color=pal.output box-sizing="border-box" role="status" testId=`setting-${row.id}-value`
-      box position="relative" width=trackWidth height=24 flex-shrink=0 opacity=(disabled ? 0.64 : 1)
-        box position="absolute" left=0 top=9 width=trackWidth height=6 border-radius=3 background-color="light-dark(#71717b38, #81818138)"
-        box position="absolute" left=0 top=9 width=(ratio * (trackWidth - 16) + 8) height=6 border-radius=3 background-color=pal.accent testId=`setting-${row.id}-fill`
-        box position="absolute" left=0 top=9 width=trackWidth height=6 border-radius=3 border-width=1 border-style="solid" border-color="light-dark(#e4e4e78c, #ffffff0d)" box-sizing="border-box"
-        box position="absolute" left=(ratio * (trackWidth - 16)) top=4 width=16 height=16 border-radius=8 border-width=2 border-style="solid" border-color=pal.accent background-color=pal.canvas box-sizing="border-box" box-shadow="0 1px 2px #0000001f"
-        input type="range" min=row.min max=row.max step="any" value=`${shown}` input=track change=release key=navigate disabled=disabled aria-label=row.title position="absolute" left=0 top=0 width=trackWidth height=24 margin=0 opacity=0 id=`setting-${row.id}` testId=`setting-${row.id}`
+    row width=`${row.width / 16}rem` gap="0.75rem" align-items="center"
+      text `${label}${row.suffix}` font-family="ui-monospace" font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.text font-variant-numeric="tabular-nums" text-align="center" min-width=(row.suffix == " ms" ? "4rem" : "3rem") padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" border-radius="0.375rem" background-color=pal.output box-sizing="border-box" role="status" testId=`setting-${row.id}-value`
+      box position="relative" width=trackWidth height="1.5rem" flex-shrink=0 opacity=(disabled ? 0.64 : 1)
+        box position="absolute" left=0 top="0.5625rem" width=trackWidth height="0.375rem" border-radius="0.1875rem" background-color="light-dark(#71717b38, #81818138)"
+        box position="absolute" left=0 top="0.5625rem" width=(ratio * (trackWidth - rem) + 0.5 * rem) height="0.375rem" border-radius="0.1875rem" background-color=pal.accent testId=`setting-${row.id}-fill`
+        box position="absolute" left=0 top="0.5625rem" width=trackWidth height="0.375rem" border-radius="0.1875rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e78c, #ffffff0d)" box-sizing="border-box"
+        box position="absolute" left=(ratio * (trackWidth - rem)) top="0.25rem" width="1rem" height="1rem" border-radius="0.5rem" border-width=2 border-style="solid" border-color=pal.accent background-color=pal.canvas box-sizing="border-box" box-shadow="0 1px 2px #0000001f"
+        input type="range" min=row.min max=row.max step="any" value=`${shown}` input=track change=release key=navigate disabled=disabled aria-label=row.title position="absolute" left=0 top=0 width=trackWidth height="1.5rem" margin=0 opacity=0 id=`setting-${row.id}` testId=`setting-${row.id}`
 
 // SettingsFontPreviews: the composer sample in the interface font and a diff in the code font.
 component FontPromptPreview
@@ -402,13 +405,13 @@ component FontPromptPreview
     size: number
     pal: CorePalette
   view
-    row width="100%" flex-wrap="wrap" align-items="center" column-gap=5 row-gap=4 padding-top=12 padding-bottom=12 padding-left=16 padding-right=16 border-radius=12 border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.thumb box-sizing="border-box" font-family=(family == "system-ui" ? "system-ui" : family == "ui-sans-serif" ? "ui-sans-serif" : family == "sans-serif" ? "sans-serif" : family == "ui-serif" ? "ui-serif" : family == "serif" ? "serif" : family == "ui-monospace" ? "ui-monospace" : family == "monospace" ? "monospace" : "ui-rounded") aria-label="Prompt font preview" testId="prompt-font-preview"
+    row width="100%" flex-wrap="wrap" align-items="center" column-gap="0.3125rem" row-gap="0.25rem" padding-top="0.75rem" padding-bottom="0.75rem" padding-left="1rem" padding-right="1rem" border-radius="0.75rem" border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.thumb box-sizing="border-box" font-family=(family == "system-ui" ? "system-ui" : family == "ui-sans-serif" ? "ui-sans-serif" : family == "sans-serif" ? "sans-serif" : family == "ui-serif" ? "ui-serif" : family == "serif" ? "serif" : family == "ui-monospace" ? "ui-monospace" : family == "monospace" ? "monospace" : "ui-rounded") aria-label="Prompt font preview" testId="prompt-font-preview"
       text "Use" font-size=size line-height=`${size * 1.5}px` color=pal.text
-      FontChip(label="Frontend Design", ink="light-dark(#7c3aed, #a78bfa)", surface="light-dark(#f5f3ff, #a78bfa1f)", pal=pal)
+      FontChip(label="Frontend Design", ink="light-dark(#7c3aed, #a78bfa)", surface="light-dark(#f5f3ff, #a78bfa1f)", pal=pal, size=size)
       text "to fix the flaky test in" font-size=size line-height=`${size * 1.5}px` color=pal.text
-      FontChip(label="surface.test.ts", ink="light-dark(#2563eb, #60a5fa)", surface="light-dark(#eff6ff, #60a5fa1f)", pal=pal)
+      FontChip(label="surface.test.ts", ink="light-dark(#2563eb, #60a5fa)", surface="light-dark(#eff6ff, #60a5fa1f)", pal=pal, size=size)
       text "and align the header with" font-size=size line-height=`${size * 1.5}px` color=pal.text
-      FontChip(label="SettingsPanels.tsx", ink="light-dark(#0891b2, #22d3ee)", surface="light-dark(#ecfeff, #22d3ee1f)", pal=pal)
+      FontChip(label="SettingsPanels.tsx", ink="light-dark(#0891b2, #22d3ee)", surface="light-dark(#ecfeff, #22d3ee1f)", pal=pal, size=size)
       text "before shipping." font-size=size line-height=`${size * 1.5}px` color=pal.text
 component FontChip
   props
@@ -416,22 +419,24 @@ component FontChip
     ink: string
     surface: string
     pal: CorePalette
+    // The prompt size: the chips are the composer's, drawn at the prompt's px size (em), not the root's.
+    size: number
   view
-    row height=22 padding-left=6 padding-right=6 gap=4 align-items="center" border-radius=6 border-width=1 border-style="solid" border-color=pal.cardBorder background-color=surface box-sizing="border-box"
-      box width=8 height=8 border-radius=2 background-color=ink
-      text label font-size=14 line-height="20px" color=pal.text
+    row height=(size * 22 / 14) padding-left=(size * 6 / 14) padding-right=(size * 6 / 14) gap=(size * 4 / 14) align-items="center" border-radius=(size * 6 / 14) border-width=1 border-style="solid" border-color=pal.cardBorder background-color=surface box-sizing="border-box"
+      box width=(size * 8 / 14) height=(size * 8 / 14) border-radius=(size * 2 / 14) background-color=ink
+      text label font-size=size line-height=`${size * 20 / 14}px` color=pal.text
 component FontCodePreview
   props
     family: string
     size: number
     pal: CorePalette
   view
-    column width="100%" gap=0 padding-bottom=8 font-family=(family == "system-ui" ? "system-ui" : family == "ui-sans-serif" ? "ui-sans-serif" : family == "sans-serif" ? "sans-serif" : family == "ui-serif" ? "ui-serif" : family == "serif" ? "serif" : family == "ui-monospace" ? "ui-monospace" : family == "monospace" ? "monospace" : "ui-rounded") aria-label="Code font preview" testId="code-font-preview"
-      row height=40 align-items="center" gap=8 padding-left=16 padding-right=16
-        box width=16 height=16 border-radius=8 border-width=2 border-style="solid" border-color="light-dark(#3b82f6, #60a5fa)" box-sizing="border-box"
-        text "src/formatUser.ts" font-family="system-ui" font-size=14 line-height="20px" color=pal.text flex=1
-        text "−1" font-size=14 color="light-dark(#dc2626, #f87171)"
-        text "+1" font-size=14 color="light-dark(#16a34a, #4ade80)"
+    column width="100%" gap=0 padding-bottom="0.5rem" font-family=(family == "system-ui" ? "system-ui" : family == "ui-sans-serif" ? "ui-sans-serif" : family == "sans-serif" ? "sans-serif" : family == "ui-serif" ? "ui-serif" : family == "serif" ? "serif" : family == "ui-monospace" ? "ui-monospace" : family == "monospace" ? "monospace" : "ui-rounded") aria-label="Code font preview" testId="code-font-preview"
+      row height="2.5rem" align-items="center" gap="0.5rem" padding-left="1rem" padding-right="1rem"
+        box width="1rem" height="1rem" border-radius="0.5rem" border-width=2 border-style="solid" border-color="light-dark(#3b82f6, #60a5fa)" box-sizing="border-box"
+        text "src/formatUser.ts" font-family="system-ui" font-size="0.875rem" line-height="1.25rem" color=pal.text flex=1
+        text "−1" font-size="0.875rem" color="light-dark(#dc2626, #f87171)"
+        text "+1" font-size="0.875rem" color="light-dark(#16a34a, #4ade80)"
       CodeLine(number="1", code="export function formatUser(user: User) {", kind="", size=size, pal=pal)
       CodeLine(number="2", code="  return user.name.toUpperCase();", kind="del", size=size, pal=pal)
       CodeLine(number="2", code="  return `${user.name} <${user.email}>`; // 0O 1lI", kind="add", size=size, pal=pal)
@@ -444,8 +449,8 @@ component CodeLine
     size: number
     pal: CorePalette
   view
-    row width="100%" height=(size * 1.54) align-items="center" gap=16 padding-left=24 border-left-width=(kind == "" ? 0 : 3) border-left-style="solid" border-color=(kind == "del" ? "light-dark(#ef4444, #f87171)" : "light-dark(#22c55e, #4ade80)") background-color=(kind == "del" ? "light-dark(#fee2e2, #7f1d1d40)" : (kind == "add" ? "light-dark(#dcfce7, #14532d40)" : "#00000000")) box-sizing="border-box"
-      text number font-size=size color=(kind == "" ? pal.muted : (kind == "del" ? "light-dark(#dc2626, #f87171)" : "light-dark(#16a34a, #4ade80)")) min-width=16 text-align="right"
+    row width="100%" height=(size * 1.54) align-items="center" gap="1rem" padding-left="1.5rem" border-left-width=(kind == "" ? 0 : 3) border-left-style="solid" border-color=(kind == "del" ? "light-dark(#ef4444, #f87171)" : "light-dark(#22c55e, #4ade80)") background-color=(kind == "del" ? "light-dark(#fee2e2, #7f1d1d40)" : (kind == "add" ? "light-dark(#dcfce7, #14532d40)" : "#00000000")) box-sizing="border-box"
+      text number font-size=size color=(kind == "" ? pal.muted : (kind == "del" ? "light-dark(#dc2626, #f87171)" : "light-dark(#16a34a, #4ade80)")) min-width="1rem" text-align="right"
       text code font-size=size line-height=`${size * 1.54}px` color=pal.text white-space="pre"
 
 // TerminalFontPreview: the dev-server transcript, kept to its last lines as the terminal is.
@@ -455,7 +460,7 @@ component FontTerminalPreview
     size: number
     pal: CorePalette
   view
-    column width="100%" height=208 margin-top=4 margin-bottom=8 overflow="hidden" justify-content="flex-end" padding-top=1 padding-bottom=1 padding-left=4 padding-right=4 border-radius=8 border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.canvas box-sizing="border-box" font-family=(family == "system-ui" ? "system-ui" : family == "ui-sans-serif" ? "ui-sans-serif" : family == "sans-serif" ? "sans-serif" : family == "ui-serif" ? "ui-serif" : family == "serif" ? "serif" : family == "ui-monospace" ? "ui-monospace" : family == "monospace" ? "monospace" : "ui-rounded") aria-label="Terminal font preview" testId="terminal-font-preview"
+    column width="100%" height="13rem" margin-top="0.25rem" margin-bottom="0.5rem" overflow="hidden" justify-content="flex-end" padding-top=1 padding-bottom=1 padding-left="0.25rem" padding-right="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.canvas box-sizing="border-box" font-family=(family == "system-ui" ? "system-ui" : family == "ui-sans-serif" ? "ui-sans-serif" : family == "sans-serif" ? "sans-serif" : family == "ui-serif" ? "ui-serif" : family == "serif" ? "serif" : family == "ui-monospace" ? "ui-monospace" : family == "monospace" ? "monospace" : "ui-rounded") aria-label="Terminal font preview" testId="terminal-font-preview"
       column width="100%" height=(floor(204 / (size * 1.38)) * size * 1.38) flex-shrink=0 overflow="hidden" justify-content="flex-end"
         TermPrompt(tail="vpr dev", size=size, pal=pal)
         TermLine(a="", b="", c="", d="", size=size, pal=pal)
@@ -529,13 +534,13 @@ component PanelPreview
   action replay
     open = not open
   view
-    button press=replay aria-label="Replay panel animation preview" class=SettingsGhost justify-content="flex-start" align-items="stretch" width=112 height=40 padding=4 border-radius=8 border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.canvas overflow="hidden" box-shadow="0 1px 2px #0000000d" testId="panel-animation-preview"
-      box height="100%" width=(open ? 16 : 0) border-radius=6 background-color=pal.sidebar flex-shrink=0 transition=`width ${duration}ms ease-out`
-      column flex=1 min-width=0 padding-left=4 padding-right=4
-        column flex=1 gap=4 padding-top=4
+    button press=replay aria-label="Replay panel animation preview" class=SettingsGhost justify-content="flex-start" align-items="stretch" width="7rem" height="2.5rem" padding="0.25rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color=pal.cardBorder background-color=pal.canvas overflow="hidden" box-shadow="0 1px 2px #0000000d" testId="panel-animation-preview"
+      box height="100%" width=(open ? "1rem" : "0px") border-radius="0.375rem" background-color=pal.sidebar flex-shrink=0 transition=`width ${duration}ms ease-out`
+      column flex=1 min-width=0 padding-left="0.25rem" padding-right="0.25rem"
+        column flex=1 gap="0.25rem" padding-top="0.25rem"
           box height=2 width="100%" border-radius=1 background-color=pal.line
           box height=2 width="80%" border-radius=1 background-color=pal.line opacity=0.8
           box height=2 width="60%" border-radius=1 background-color=pal.line opacity=0.6
-        row height=(open ? 8 : 0) align-items="center" padding-left=8 padding-right=8 border-top-width=(open ? 1 : 0) border-top-style="solid" border-color=pal.cardBorder background-color=pal.highlight overflow="hidden" transition=`height ${duration}ms ease-out`
+        row height=(open ? "0.5rem" : "0px") align-items="center" padding-left="0.5rem" padding-right="0.5rem" border-top-width=(open ? 1 : 0) border-top-style="solid" border-color=pal.cardBorder background-color=pal.highlight overflow="hidden" transition=`height ${duration}ms ease-out`
           box height=1 width="66%" background-color=pal.line
-      box height="100%" width=(open ? 20 : 0) border-radius=6 background-color=pal.output flex-shrink=0 transition=`width ${duration}ms ease-out`
+      box height="100%" width=(open ? "1.25rem" : "0px") border-radius="0.375rem" background-color=pal.output flex-shrink=0 transition=`width ${duration}ms ease-out`
