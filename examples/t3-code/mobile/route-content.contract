@@ -1,3 +1,4 @@
+use MobileWorkingControl, WorkingControlData from "./working-control.contract"
 use MobileQueueView, MobileQueueSnapshot from "./queue.contract"
 use GitColors, MobileGitSnapshot, MobileGitOverview, MobileGitCommit, MobileGitConfirm from "./git-overview.contract"
 use MobileGitBranchesSnapshot, MobileGitBranches from "./git-branches.contract"
@@ -47,6 +48,10 @@ use Environments, EnvironmentRow, GitHubRoutingSettings, GitHubRoutingRow from "
 // Presentation only. The root supplies all state, resource values and actions.
 component MobileRouteContent
   props
+    workingControl: WorkingControlData
+    threadHeaderConfiguration: string
+    threadHeaderAction: action
+    terminalMountReady: bool
     queueData: MobileQueueSnapshot
     gitLook: GitColors
     gitData: MobileGitSnapshot
@@ -178,7 +183,6 @@ component MobileRouteContent
     devicesMenu: action
     openBrowser: action
     openDevices: action
-    openTerminal: action
     terminalAction: action
     terminalMenu: action
     terminalEvent: action
@@ -253,6 +257,24 @@ component MobileRouteContent
     reconnect: action
     remove: action
     save: action
+  action workingAgents(owner: string)
+    if focused and owner == workingControl.owner
+      blur()
+      openAgents()
+  action workingBrowser(owner: string)
+    if focused and owner == workingControl.owner
+      blur()
+      openBrowser()
+  action workingDevices(owner: string)
+    if focused and owner == workingControl.owner
+      blur()
+      openDevices()
+  action workingQueue(owner: string)
+    if focused and owner == workingControl.owner
+      threadAction("queue-open", "", "")
+  action workingReconnect(owner: string)
+    if focused and owner == workingControl.owner
+      threadAction("reconnect", "", "")
   action editGitMessage(value: string)
     gitField("message", value)
   action editGitBranch(value: string)
@@ -268,7 +290,9 @@ component MobileRouteContent
           t3-symbol symbol-name="square.and.pencil" point-size=20 symbol-tint=homeLook.foreground width=20 height=20
         text "" role="heading" aria-level=2
     else when routeName != "threadDevices" and routeName != "settingsAuth" and routeName != "settingsWaitlist" and routeName != "connectOnboarding"
-      MobileRootHeader(routeName=(routeName == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "" ? "thread" : routeName), title=(routeName == "threadQueue" ? "Queued" : routeName == "gitOverview" ? gitData.branchLabel : routeName == "gitCommit" ? "Commit changes" : routeName == "gitConfirm" ? "Confirm Git action" : routeName == "gitBranches" ? "Branches & worktrees" : routeName == "settingsThreads" ? "Thread behavior" : routeName == "settingsProjectOverview" ? "Project overview" : routeName == "settingsNotifications" ? "Notifications" : routeName == "settingsAbout" ? "About T3 Code" : routeName == "settingsClientStorage" ? "Client Storage" : routeName == "settingsDiagnostics" ? "Diagnostics" : routeName == "settingsOpenSourceLicenses" ? "Open source licenses" : routeName == "settingsOpenSourceLicense" ? "License notice" : routeName == "settingsLegal" ? "Legal" : routeName == "threadMedia" or routeName == "threadDraftMedia" or routeName == "newTaskMedia" ? mediaData.name : routeName == "connect" ? "Add environment" : routeName == "home" ? "T3 Code" : routeName == "environmentDetail" ? detail.title : routeName == "threadBrowser" ? browserData.title : routeName == "threadDevices" ? devicesData.title : routeName == "threadTerminal" ? "Terminal" : routeName == "threadTerminalCapture" ? "Visible terminal output" : routeName == "threadReview" ? "Review changes" : routeName == "threadReviewComment" ? "Leave a comment" : routeName == "threadFiles" ? (workspace.fileInspectorSupported and filesData.error == "" ? threadData.title : filesData.title) : routeName == "threadFile" ? fileData.title : routeName == "thread" ? threadData.title : routeName == "settingsScheduledTasks" ? "Scheduled Tasks" : routeName == "settingsScheduledNew" ? "New scheduled task" : routeName == "settingsScheduledEdit" ? "Edit scheduled task" : routeName == "settingsScheduledModel" ? "Model" : routeName == "settingsScheduledBranch" ? "Base branch" : routeName == "settingsUsage" ? "Usage" : routeName == "settingsUsageAccount" ? automationData.account.label : routeName == "settings" ? "Settings" : routeName == "settingsServer" ? serverSettings.title : routeName == "settingsProviders" ? "Provider accounts" : routeName == "settingsAppearance" ? "Appearance" : routeName == "settingsChoice" ? settingsChoice.title : routeName == "archive" ? "Archived threads" : routeName == "threadAgents" ? "Agents" : routeName == "newTask" ? "Choose project" : routeName == "newTaskEnvironments" ? "Environment" : routeName == "newTaskBranches" ? "Branch" : routeName == "threadModel" or routeName == "newTaskModel" ? "Model" : routeName == "threadRuntime" or routeName == "newTaskRuntime" ? "Runtime" : routeName == "threadModelFilter" or routeName == "newTaskModelFilter" ? "Providers" : routeName == "threadModelOption" or routeName == "newTaskModelOption" ? "Model options" : routeName == "newTaskDraft" ? "New task" : "Environments"), scannerOpen=scannerOpen, documentMenu=documentMenu.configuration, automationBusy=automationChangedPending, scheduledCanCreate=automationData.scheduled.canCreate, browserMenuConfiguration=browserMenus.selection, iconColor=threadLook.foreground, previewColors=previewLook, browserCount=browserData.count, devicesCount=devicesData.count, sidebarAvailable=workspace.usesSplitView, sidebarVisible=workspace.sidebarVisible, back=back, scan=scan, addEnvironment=addEnvironment, documentAction=documentAction, automationAction=automationAction, browserMenu=browserMenu, terminalMenu=terminalMenu, openBrowser=openBrowser, openDevices=openDevices, openTerminal=openTerminal, openReview=openReview, openFiles=openFiles, openAgents=openAgents, toggleSidebar=toggleSidebar, inspectorAvailable=workspace.fileInspectorSupported, inspectorVisible=workspace.inspectorVisible, toggleInspector=toggleInspector, openGit=openGit)
+      MobileRootHeader(routeName=(routeName == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "" ? "thread" : routeName), title=(routeName == "threadQueue" ? "Queued" : routeName == "gitOverview" ? gitData.branchLabel : routeName == "gitCommit" ? "Commit changes" : routeName == "gitConfirm" ? "Confirm Git action" : routeName == "gitBranches" ? "Branches & worktrees" : routeName == "settingsThreads" ? "Thread behavior" : routeName == "settingsProjectOverview" ? "Project overview" : routeName == "settingsNotifications" ? "Notifications" : routeName == "settingsAbout" ? "About T3 Code" : routeName == "settingsClientStorage" ? "Client Storage" : routeName == "settingsDiagnostics" ? "Diagnostics" : routeName == "settingsOpenSourceLicenses" ? "Open source licenses" : routeName == "settingsOpenSourceLicense" ? "License notice" : routeName == "settingsLegal" ? "Legal" : routeName == "threadMedia" or routeName == "threadDraftMedia" or routeName == "newTaskMedia" ? mediaData.name : routeName == "connect" ? "Add environment" : routeName == "home" ? "T3 Code" : routeName == "environmentDetail" ? detail.title : routeName == "threadBrowser" ? browserData.title : routeName == "threadDevices" ? devicesData.title : routeName == "threadTerminal" ? "Terminal" : routeName == "threadTerminalCapture" ? "Visible terminal output" : routeName == "threadReview" ? "Review changes" : routeName == "threadReviewComment" ? "Leave a comment" : routeName == "threadFiles" ? (workspace.fileInspectorSupported and filesData.error == "" ? threadData.title : filesData.title) : routeName == "threadFile" ? fileData.title : routeName == "thread" ? threadData.title : routeName == "settingsScheduledTasks" ? "Scheduled Tasks" : routeName == "settingsScheduledNew" ? "New scheduled task" : routeName == "settingsScheduledEdit" ? "Edit scheduled task" : routeName == "settingsScheduledModel" ? "Model" : routeName == "settingsScheduledBranch" ? "Base branch" : routeName == "settingsUsage" ? "Usage" : routeName == "settingsUsageAccount" ? automationData.account.label : routeName == "settings" ? "Settings" : routeName == "settingsServer" ? serverSettings.title : routeName == "settingsProviders" ? "Provider accounts" : routeName == "settingsAppearance" ? "Appearance" : routeName == "settingsChoice" ? settingsChoice.title : routeName == "archive" ? "Archived threads" : routeName == "threadAgents" ? "Agents" : routeName == "newTask" ? "Choose project" : routeName == "newTaskEnvironments" ? "Environment" : routeName == "newTaskBranches" ? "Branch" : routeName == "threadModel" or routeName == "newTaskModel" ? "Model" : routeName == "threadRuntime" or routeName == "newTaskRuntime" ? "Runtime" : routeName == "threadModelFilter" or routeName == "newTaskModelFilter" ? "Providers" : routeName == "threadModelOption" or routeName == "newTaskModelOption" ? "Model options" : routeName == "newTaskDraft" ? "New task" : "Environments"), scannerOpen=scannerOpen, documentMenu=documentMenu.configuration, automationBusy=automationChangedPending, scheduledCanCreate=automationData.scheduled.canCreate, browserMenuConfiguration=browserMenus.selection, iconColor=threadLook.foreground, sidebarAvailable=workspace.usesSplitView, sidebarVisible=workspace.sidebarVisible, back=back, scan=scan, addEnvironment=addEnvironment, documentAction=documentAction, automationAction=automationAction, browserMenu=browserMenu, terminalMenu=terminalMenu, toggleSidebar=toggleSidebar, inspectorAvailable=workspace.fileInspectorSupported, inspectorVisible=workspace.inspectorVisible, toggleInspector=toggleInspector)
+    when focused and threadHeaderConfiguration != "" and (routeName == "thread" or (routeName == "threadFiles" and workspace.fileInspectorSupported and filesData.error == ""))
+      t3-thread-header configuration=threadHeaderConfiguration change=threadHeaderAction width=0 height=0 aria-hidden=true
     when routeName == "home" and workspace.emptyWorkspaceDetail
       column flex=1 align-items="center" justify-content="center" padding=40 gap=12
         t3-symbol symbol-name="sidebar.left" point-size=34 symbol-tint=homeLook.iconSubtle width=34 height=34
@@ -281,10 +305,11 @@ component MobileRouteContent
       HomeChrome(configuration=chrome.configuration, event=homeEvent, height=(layout.liquidGlass ? chrome.toolbarContentInset + layout.safeBottom : 0))
     else when routeName == "thread" or (routeName == "threadFiles" and workspace.fileInspectorSupported and filesData.error == "")
       column flex=1 min-height=0 width="100%" max-width=workspace.chatContentMaxWidth align-self="center"
-        ThreadFeed(data=threadData, horizontalPadding=16, userBubbleMaxWidth=max(0, (min(workspace.contentSettledWidth, workspace.chatContentMaxWidth) - 32) * 0.85), bottomClearance=14, action=threadAction, openMedia=openMedia, colors=threadLook)
+        ThreadFeed(data=threadData, horizontalPadding=16, userBubbleMaxWidth=max(0, (min(workspace.contentSettledWidth, workspace.chatContentMaxWidth) - 32) * 0.85), bottomClearance=(workingControl.visible ? 62 : 14), action=threadAction, openMedia=openMedia, colors=threadLook)
         ThreadApprovals(data=threadData, action=threadAction, colors=threadLook)
         ComposerAttachmentStrip(data=composerAttachments, open=openDraftMedia, remove=removeAttachment, colors=threadLook)
-        ThreadComposer(voiceDisabled=(data.busy or changedPending or taskChangedPending or (threadData.composer.editing and not threadData.composer.canCancel)), voice=voiceData, voiceOwner=(focused ? voiceFocus.owner : ""), voiceColors=voiceLook, voiceAction=voiceAction, enterBehavior=appearance.enterBehavior, data=threadData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=(composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)), contentMaxWidth=min(workspace.contentSettledWidth, workspace.chatContentMaxWidth), focusChanged=composerFocus, editDraft=editDraft, action=threadAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
+        MobileWorkingControl(data=workingControl, colors=threadLook, maxWidth=min(workspace.contentSettledWidth, workspace.chatContentMaxWidth), openAgents=workingAgents, openBrowser=workingBrowser, openDevices=workingDevices, openQueue=workingQueue, reconnect=workingReconnect)
+        ThreadComposer(showQueue=false, voiceDisabled=(data.busy or changedPending or taskChangedPending or (threadData.composer.editing and not threadData.composer.canCancel)), voice=voiceData, voiceOwner=(focused ? voiceFocus.owner : ""), voiceColors=voiceLook, voiceAction=voiceAction, enterBehavior=appearance.enterBehavior, data=threadData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=(composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)), contentMaxWidth=min(workspace.contentSettledWidth, workspace.chatContentMaxWidth), focusChanged=composerFocus, editDraft=editDraft, action=threadAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
     else when routeName == "threadQueue"
       MobileQueueView(data=queueData, colors=gitLook, bottomInset=(max(layout.safeBottom, 16) + 8), action=threadAction)
     else when routeName == "gitOverview"
@@ -300,7 +325,8 @@ component MobileRouteContent
     else when routeName == "threadDevices" and focused
       MobileDevices(data=devicesData, colors=previewLook, active=true, safeAreaTop=layout.safeTop, action=devicesAction, close=back, menuConfiguration=devicesMenus.options, menuEvent=devicesMenu)
     else when routeName == "threadTerminal"
-      MobileTerminal(data=terminalData, event=terminalEvent, action=terminalAction)
+      when focused
+        MobileTerminal(mountReady=terminalMountReady, data=terminalData, event=terminalEvent, action=terminalAction)
     else when routeName == "threadTerminalCapture"
       MobileTerminalCaptureView(data=terminalCapture, colors=terminalData.colors, select=selectTerminalLine, attach=attachTerminalOutput)
     else when routeName == "threadReview"
@@ -427,7 +453,7 @@ component MobileRouteContent
       NewTaskHero(data=newTaskData, chooseProject=chooseNewProject, chooseEnvironment=chooseNewEnvironment, colors=composerLook)
       NewTaskWorkspace(data=newTaskData, action=taskAction, chooseBranch=chooseNewBranch, colors=composerLook)
       ComposerAttachmentStrip(data=composerAttachments, open=openDraftMedia, remove=removeAttachment, colors=threadLook)
-      ThreadComposer(voiceDisabled=(data.busy or changedPending or taskChangedPending), voice=voiceData, voiceOwner=(focused ? voiceFocus.owner : ""), voiceColors=voiceLook, voiceAction=voiceAction, enterBehavior=appearance.enterBehavior, data=newTaskData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=(composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)), contentMaxWidth=min(workspace.contentSettledWidth, workspace.chatContentMaxWidth), focusChanged=composerFocus, editDraft=editNewDraft, action=taskAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
+      ThreadComposer(showQueue=true, voiceDisabled=(data.busy or changedPending or taskChangedPending), voice=voiceData, voiceOwner=(focused ? voiceFocus.owner : ""), voiceColors=voiceLook, voiceAction=voiceAction, enterBehavior=appearance.enterBehavior, data=newTaskData.composer, expanded=composerExpanded, dark=appearance.scheme == "dark", bottomInset=(composerExpanded or composerFocused ? 0 : max(layout.safeBottom, 12)), contentMaxWidth=min(workspace.contentSettledWidth, workspace.chatContentMaxWidth), focusChanged=composerFocus, editDraft=editNewDraft, action=taskAction, pickAttachments=pickAttachments, openModelSettings=openModelSettings, colors=threadLook)
     else when routeName == "newTask"
       input value=newTaskQuery input=editNewQuery placeholder="Search projects" margin=16 aria-label="Search projects"
       NewTaskProjects(data=newTaskData, action=taskAction, colors=composerLook)

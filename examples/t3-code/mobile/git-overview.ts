@@ -1,3 +1,4 @@
+import { resolveQuickAction } from './thread-header-model';
 // Pinned365aa87982 GitOverviewSheet/GitCommitSheet/GitConfirmSheet (MIT, LICENSE-T3).
 // Shared status reducer/action stream remain the sole transport and mutation owners.
 // @ref llp/1106.011-responsive-workspace.decision.md#navigation-and-data-ownership
@@ -79,7 +80,7 @@ export async function mobileGitAuthorize(owner: string, nativeInput: Native | nu
   const session = await client.http(native, '/api/auth/session');
   assertCurrent();
   if (serial > state.authCompleted) {
-    const allowed = mobileSessionGrants(session, 'source-control:read');
+    const allowed = mobileSessionGrants(session, 'orchestration:read');
     const canWrite = mobileSessionGrants(session, 'source-control:write');
     const operate = mobileSessionGrants(session, 'orchestration:operate');
     const downgraded = state.allowed && !allowed || state.write && !canWrite || state.operate && !operate;
@@ -94,7 +95,7 @@ export async function mobileGitAuthorize(owner: string, nativeInput: Native | nu
   }
   return { native, assertCurrent };
 }
-function currentStatus(client: T3Client, state: Access) {
+export function mobileGitCurrentStatus(client: T3Client, state = mobileGitAccess(client)) {
   if (!state.allowed) return null;
   const stream = peekVcsStatus(client, workspaceOf(client).cwd);
   if (stream && stream !== state.stream) { state.stream = stream; state.status = stream; }
@@ -104,7 +105,7 @@ function confirmationIdentity(status: Obj | null) {
   return JSON.stringify([status?.refName ?? null, status?.isDefaultRef === true]);
 }
 export function mobileGitSnapshot(now = 0, client: T3Client = mobileClient) {
-  const state = mobileGitAccess(client), status = currentStatus(client, state), cwd = workspaceOf(client).cwd;
+  const state = mobileGitAccess(client), status = mobileGitCurrentStatus(client, state), cwd = workspaceOf(client).cwd;
   const card = gitCardView(client, status, state.error, cwd, now), git = gitState(client);
   const busy = state.acting || card.progress, typed = mobileGitStatus(status), repo = status?.isRepo !== false;
   const files = state.allowed ? workingFiles(status).map(file => ({ ...file, included: !git.excluded.has(file.path) })) : [];
@@ -195,7 +196,7 @@ export async function mobileGitAction(owner: string, op: string, id: string, val
   if (state.acting) return { message: 'Git action in progress.', destination, dismiss, data: mobileGitSnapshot(now, client) };
   // Local selection carries the captured owner but does not need a new network permission read.
   if (['close', 'files-edit', 'file', 'files-reset'].includes(op)) {
-    if (op === 'file' && !workingFiles(currentStatus(client, state)).some(file => file.path === id)) throw new ClientError('That changed file is no longer available.');
+    if (op === 'file' && !workingFiles(mobileGitCurrentStatus(client, state)).some(file => file.path === id)) throw new ClientError('That changed file is no longer available.');
     if (op === 'files-reset') gitState(client).excluded.clear();
     else if (nativeInput) await gitLocal(client, reviewNative(client, nativeInput, owner), op === 'close' ? 'dialog-close' : op, id, value);
     client.revision++; return { message: '', destination, dismiss, data: mobileGitSnapshot(now, client) };
@@ -208,8 +209,8 @@ export async function mobileGitAction(owner: string, op: string, id: string, val
   }
   state.acting = true;
   try {
-    const writes = op === 'reconcile' || op === 'commit' || op === 'confirm' || op === 'select' && ['push', 'pull'].includes(id)
-      || op === 'select' && id === 'pr' && obj(currentStatus(client, state)?.pr).state !== 'open';
+    const writes = op === 'quick' || op === 'reconcile' || op === 'commit' || op === 'confirm' || op === 'select' && ['push', 'pull'].includes(id)
+      || op === 'select' && id === 'pr' && obj(mobileGitCurrentStatus(client, state)?.pr).state !== 'open';
     const feature = op === 'reconcile' || (op === 'commit' || op === 'confirm') && id === 'feature';
     // Linked PRs are orchestration shell metadata, not host Git reads. Opening
     // a currently linked HTTP(S) URL needs no source-control mutation/read grant.
@@ -217,7 +218,7 @@ export async function mobileGitAction(owner: string, op: string, id: string, val
     const { native, assertCurrent } = op === 'link'
       ? { native: reviewNative(client, letGoAware(mobileNative(nativeInput!)), owner), assertCurrent: () => assertReviewOwner(client, owner) }
       : await mobileGitAuthorize(owner, nativeInput, client, writes, feature);
-    if (op !== 'link') state.error = ''; const status = currentStatus(client, state), git = gitState(client), cwd = workspaceOf(client).cwd;
+    if (op !== 'link') state.error = ''; const status = mobileGitCurrentStatus(client, state), git = gitState(client), cwd = workspaceOf(client).cwd;
     gitCardView(client, status, '', cwd, now);
     if (op === 'reconcile') {
       if (!canReconcile(client)) throw new ClientError('That completed Git action belongs to another workspace.');
@@ -241,6 +242,15 @@ export async function mobileGitAction(owner: string, op: string, id: string, val
       const parsed = new URL(url); if (!['https:', 'http:'].includes(parsed.protocol) || parsed.username || parsed.password) throw new ClientError('This pull request URL cannot be opened.');
       const reply = await client.restAccess(native).call({ op: 'mobileOpenURL', url: parsed.href });
       if (reply.opened !== true) throw new ClientError('The pull request could not be opened.');
+    } else if (op === 'quick') {
+      const action = resolveQuickAction(mobileGitStatus(status), !!git.run?.running, status?.isDefaultRef === true, status?.hasPrimaryRemote === true);
+      if (!state.write || status?.isRepo === false || action.disabled || action.kind !== 'run_action' || !action.action || action.action !== id)
+        throw new ClientError('That Git action changed. Open the menu again.');
+      const includesCommit = ['commit', 'commit_push', 'commit_push_pr'].includes(action.action);
+      git.pending = { action: action.action, branchName: str(status?.refName), includesCommit, commitMessage: '', filePaths: [] };
+      if (requiresDefaultBranchConfirmation(action.action, status?.isDefaultRef === true)) {
+        state.confirmation = confirmationIdentity(status); git.dialog = 'confirm'; destination = 'confirm';
+      } else { streamOwners.set(client, streamOwner(client)); await gitCommand(client, native, 'confirm', cwd, 'continue'); }
     } else if (op === 'select' && id === 'commit') {
       if (!state.write || !status?.hasWorkingTreeChanges) throw new ClientError('This commit is unavailable.');
       git.dialog = 'commit'; git.editing = false; git.excluded.clear(); destination = 'commit';

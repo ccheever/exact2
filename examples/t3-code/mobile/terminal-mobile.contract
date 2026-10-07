@@ -56,6 +56,7 @@ shape MobileTerminalCapture
   canAttach: bool
 component MobileTerminal
   props
+    mountReady: bool
     data: MobileTerminalSnapshot
     event: action
     action: action
@@ -63,7 +64,7 @@ component MobileTerminal
     column flex=1 min-height=0 background-color=data.colors.background color=data.colors.foreground
       when data.subtitle != ""
         text data.subtitle padding-left=16 padding-bottom=8 font-size=13 color=data.colors.mutedForeground
-      when data.ready
+      when data.ready and mountReady
         t3-mobile-terminal terminal-source=data.sourceJSON change=event flex=1 min-height=0 aria-label="Terminal" testId="terminal-surface"
         row padding-left=16 padding-right=16 padding-top=8 padding-bottom=8 align-items="center" justify-content="space-between"
           button press=action("capture", "") aria-label="Attach visible output" testId="terminal-capture"
