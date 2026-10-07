@@ -197,6 +197,6 @@ follow-up task:
 
 ## Next action
 
-Review of draft PR #250. The editable prompt preview task (its own PR) replaces the static prompt sample and is
+Review of draft PR #250. #257 (editable prompt preview) replaces the static prompt sample and is
 expected to conflict in `settings-rows.contract`. One more live session would close the
 shared-caller and reference-dark rows.
