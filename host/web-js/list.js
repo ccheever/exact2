@@ -521,7 +521,10 @@ class Collection {
     if (r.size === 0) this.zeros.add(key); else this.zeros.delete(key);
   }
   feedback(f, byView, fill) {
-    const within = this.travelWithin(f, byView, fill);
+    // A new end padding is no travel (inset.rs): the anchor is taken on the old range.
+    const trailing = this.trailingNext ?? this.index.trailing;
+    this.trailingNext = null;
+    const within = trailing === this.index.trailing ? this.travelWithin(f, byView, fill) : undefined;
     if (within !== undefined) return [false, within];
     const changedWidth = !this.geometry || this.geometry.cross !== f.cross;
     // Arrange's preview (reorder.js, loaded with the motion piece) ends with
@@ -541,7 +544,8 @@ class Collection {
     const height = this.geometry ? this.geometry.port_main : f.port_main;
     this.leaveEndIfMoved(fill.velocity ?? 0);
     const extent = this.index.total;
-    const anchor = this.restoring(f) ?? this.index.anchor(this.anchorOffset(f.offset), height, this.follows());
+    const anchor = this.restoring(f) ?? this.reportAnchor(f.offset, height, trailing);
+    this.index.trailing = trailing;
     this.geometry = { ...f, measurements: [] };
     this.correction = null;
     if (changedWidth) this.invalidateEstimates();
@@ -556,6 +560,14 @@ class Collection {
     const changed = JSON.stringify(previous) !== JSON.stringify(now);
     if (changed) this.revision++;
     return [changed, this.edge()];
+  }
+  /** inset.rs `report_anchor`: on the old range, or on the new one when only that follows the end. */
+  reportAnchor(offset, port, trailing) {
+    let a = this.index.anchor(this.anchorOffset(offset), port, this.follows());
+    const moved = trailing !== this.index.trailing;
+    this.index.trailing = trailing;
+    if (moved && this.follows() && !a.follows) { const b = this.index.anchor(this.anchorOffset(offset), port, this.follows()); if (b.follows) a = b; }
+    return a;
   }
   travelWithin(f, byView, fill) {
     const g = this.geometry;
@@ -773,7 +785,7 @@ function report(bytes, f, fill) {
   fill = { velocity: fill?.velocity ?? 0, limit: Number.isInteger(fill?.limit) ? fill.limit : null, ancestorMoving: !!fill?.ancestorMoving };
   const c = Lists.get(f.view);
   // The list's resolved padding after its rows, which the browser half reads.
-  if (c && Number.isFinite(f.trailing)) c.index.trailing = Math.max(0, f.trailing);
+  if (c && Number.isFinite(f.trailing)) c.trailingNext = Math.max(0, f.trailing);
   const byView = c?.prepare(f);
   if (!byView) return true;
   const cats = [f.focus_view != null, f.interaction_view != null];

@@ -340,6 +340,10 @@ impl SizeIndex {
         };
     }
 
+    pub(crate) fn trailing(&self) -> f64 {
+        self.trailing
+    }
+
     /// First row whose bottom is strictly after `offset`; zero-height prefixes
     /// are skipped in O(log N). At/past total height there is no containing row.
     pub(crate) fn row_at(&self, offset: f64) -> Result<Option<usize>, IndexError> {

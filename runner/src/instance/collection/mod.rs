@@ -2,6 +2,7 @@
 //! @ref LLP 1010 §6 / LLP 1041 §8. No historical instance or row-state cache.
 mod api;
 mod index;
+mod inset;
 mod into_view;
 mod nest;
 mod rekey;
@@ -193,6 +194,8 @@ pub(crate) struct Collection {
     /// What a retiring row may be rebound to another item under (LLP 1078):
     /// `None` when no row of this list can be.
     reuse: Option<Rc<reuse::Reuse>>,
+    /// The end padding the next report brings ([`Collection::set_end_padding`]).
+    trailing_next: Option<f64>,
 }
 fn index_error(e: index::IndexError) -> InstanceError {
     InstanceError::Collection(e.to_string())
@@ -242,14 +245,6 @@ impl Collection {
 
     pub(super) fn follow_end(&mut self, enabled: bool) {
         self.follow_end = enabled;
-    }
-    /// The list's resolved padding after its last row on each axis, `[bottom,
-    /// right]`, from the layout a report follows (@ref LLP 1010 §6.9).
-    fn set_end_padding(&mut self, [bottom, right]: [f64; 2]) {
-        self.index.set_trailing(match self.axis {
-            ListAxis::Vertical => bottom,
-            ListAxis::Horizontal => right,
-        });
     }
     fn invalidate_height_estimates(&mut self) -> Result<(), InstanceError> {
         // A confirmed zero cannot remain the estimate of invalidated content:
@@ -467,6 +462,7 @@ impl Collection {
             end_travel: 0,
             end_sent: f64::NAN,
             reuse,
+            trailing_next: None,
         });
         this.update_data(u, frames, true)?;
         Ok(Some(this))
@@ -1229,9 +1225,15 @@ impl Collection {
         {
             return Err(InstanceError::InvalidCollectionFeedback);
         }
-        if let Some(edge) = self.travel_within(u, &feedback, by_view, fill)? {
-            self.reveal_shown(u);
-            return Ok((false, edge));
+        // @ref LLP 1010 §6.9 — a new end padding (a rotation's safe area)
+        // is no travel: the anchor is taken on the old range and restored
+        // on the new, so a followed end follows it.
+        let trailing = self.trailing_next.take().unwrap_or(self.index.trailing());
+        if trailing == self.index.trailing() {
+            if let Some(edge) = self.travel_within(u, &feedback, by_view, fill)? {
+                self.reveal_shown(u);
+                return Ok((false, edge));
+            }
         }
         let changed_width = self
             .geometry
@@ -1298,15 +1300,9 @@ impl Collection {
         let extent = self.index.total_height();
         let anchor = Some(match self.restoring(&feedback) {
             Some(anchor) => anchor,
-            None => self
-                .index
-                .capture_anchor(
-                    self.anchor_offset(feedback.offset),
-                    anchor_height,
-                    self.follows(),
-                )
-                .map_err(index_error)?,
+            None => self.report_anchor(feedback.offset, anchor_height, trailing)?,
         });
+        self.index.set_trailing(trailing);
         self.set_geometry(CollectionFeedback {
             measurements: Vec::new(),
             ..feedback.clone()

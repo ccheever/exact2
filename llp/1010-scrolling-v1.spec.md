@@ -1052,7 +1052,13 @@ end stopped short of it, and a clamped `scrollIntoView` with it. Now:
   layout (`Kernel::resolved_padding`) before every report (`Runner::
   collection_feedback_filled`, `Tree::set_collection_end_padding`), so
   `env()`, a host's cover (LLP 1075.003 §3.5) and a computed value are
-  followed at no cost but that read. The size index's range runs that far
+  followed at no cost but that read. A report takes a new padding in itself
+  (`collection/inset.rs`): its anchor is taken on the range the reader was
+  in, so a followed end whose padding grew (a rotation's safe area; the host
+  left the port at the old end) moves to the new end, and one whose padding
+  shrank (the host clamped the port to the new end) still follows (Grok's
+  second review: r1 took the anchor on the new range and dropped the
+  follow). The size index's range runs that far
   past the rows (`SizeIndex::max_offset`, `scroll_extent`): the clamp, the
   followed end, a kept row, an inner list's kept position, the opening at
   the end and `scrollIntoView`'s clamp all take it. Rows and spacers are
@@ -1088,7 +1094,7 @@ still refuses reorder facts for a list with main-axis padding
 (`reorder_facts_current`), so a padded list does not reorder there.
 
 Tests: `collection_inset.rs` (row 0 below the padding, the true end kept
-with `reachend`, a followed end, `scroll-start="end"`, `scrollIntoView`
+with `reachend`, a followed end, one whose padding grows and shrinks, `scroll-start="end"`, `scrollIntoView`
 start and its clamp, through a host that reports from the first row's
 start), `collection_bounds.rs` and `collection_axis.rs` (the forms taken and
 refused), `trailing_padding_extends_the_range_past_the_rows` (index), the

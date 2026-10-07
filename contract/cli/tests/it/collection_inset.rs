@@ -66,9 +66,19 @@ fn layout(r: &mut Runner<Data>) {
 fn list(r: &Runner<Data>) -> CollectionSnapshot {
     r.collections().into_iter().next().unwrap()
 }
-/// The farthest a padded scroller's `scrollTop` goes.
+/// The farthest a padded scroller's `scrollTop` goes, under a padding after
+/// the rows of `end`.
+fn max_top_with(c: &CollectionSnapshot, end: f64) -> f64 {
+    (TOP + c.total_extent + end - PORT).max(0.0)
+}
 fn max_top(c: &CollectionSnapshot) -> f64 {
-    (TOP + c.total_extent + END - PORT).max(0.0)
+    max_top_with(c, END)
+}
+/// The padding after the rows as laid out now.
+fn end_of(r: &Runner<Data>) -> f64 {
+    let k = r.kernel();
+    let node = k.node(list(r).view).unwrap();
+    k.resolved_padding(node.key).unwrap().3 as f64
 }
 /// A host: its `scrollTop` (`top`) counts from the padding's top, as a
 /// browser's does; it reports the offset from the first row's start, moves
@@ -81,8 +91,10 @@ fn host(r: &mut Runner<Data>, mut top: f64) -> f64 {
         layout(r);
         let c = list(r);
         if let Some(correction) = c.correction {
-            top = (correction.offset + TOP).clamp(0.0, max_top(&c));
+            top = correction.offset + TOP;
         }
+        // A scroll view keeps its offset inside its range.
+        top = top.clamp(0.0, max_top_with(&c, end_of(r)));
         sequence = sequence.max(c.scroll_sequence) + 1;
         let changed = r
             .collection_feedback(CollectionFeedback {
@@ -210,4 +222,38 @@ fn scroll_into_view_start_puts_the_row_at_the_top_edge() {
         exact_runner::agent::state(&r).contains("\"status\":\"done\""),
         "the request settled"
     );
+}
+
+/// The padding after the rows changes under a followed end (a rotation's
+/// safe area): grown, the host's port is where the old end was and the list
+/// moves it to the new one; shrunk, the host clamps it to the new end, and
+/// the list still follows.
+#[test]
+fn a_followed_end_follows_the_padding_as_it_changes() {
+    let mut r = boot(&APP.replace("reachend=onEnd", "scrollFollowEnd=true"));
+    host(&mut r, 0.0);
+    let end = max_top(&list(&r));
+    host(&mut r, end);
+    r.kernel_mut()
+        .set_env(Env::new(47.0, 0.0, 60.0, 0.0))
+        .unwrap();
+    let top = host(&mut r, end);
+    assert_eq!(end_of(&r), END + 26.0);
+    assert_eq!(
+        top,
+        max_top_with(&list(&r), END + 26.0),
+        "moved to the grown end"
+    );
+    r.kernel_mut()
+        .set_env(Env::new(47.0, 0.0, 0.0, 0.0))
+        .unwrap();
+    let top = host(&mut r, top);
+    assert_eq!(
+        top,
+        max_top_with(&list(&r), 49.0),
+        "clamped to the shrunk end"
+    );
+    r.act("more", vec![Value::Number(5.0)]).unwrap();
+    let top = host(&mut r, top);
+    assert_eq!(top, max_top_with(&list(&r), 49.0), "and still following it");
 }

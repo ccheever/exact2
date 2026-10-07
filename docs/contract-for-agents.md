@@ -724,7 +724,8 @@ room under a header laid over the list, or over a tab bar
 number, an `env()` length or its `calc()`, or a computed number, not a
 percentage; the end that `reachend`, `scrollFollowEnd` and `scroll-start="end"`
 reach is past it, and on iOS the pull-to-refresh spinner draws below
-`padding-top`. `reorderdrop` belongs only on a vertical `list virtualized=true`
+`padding-top` (a padding-bottom taller than the port, and a centred
+`scrollIntoView` near the top, have limits: LLP 1010 §6.9). `reorderdrop` belongs only on a vertical `list virtualized=true`
 (each row's handle names it with `reorderFor`); the compiler refuses it on any
 other element, where no host could drag. Lists that share a `reorderGroup`
 (each with a `reorderdrop`, an `id` and string keys) exchange rows: the drop
