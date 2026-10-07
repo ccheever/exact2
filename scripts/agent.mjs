@@ -619,8 +619,8 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
     // here matches on a builder (LLP 1015 §5). The environment still wins.
     env.EXACT_PAINTER ??= 'cpu';
     if (windows) env.EXACT_GPU_RENDER ??= '1';
-    env.EXACT_FONTS ??= resolve(ROOT, 'scripts/fixtures/fonts/assets');
-    env.EXACT_FONT ??= 'DejaVu Sans';
+    env.EXACT_FONTS ??= android ? '/system/fonts' : resolve(ROOT, 'scripts/fixtures/fonts/assets'); // a phone draws with its own faces
+    if (!android) env.EXACT_FONT ??= 'DejaVu Sans';
   }
   Object.assign(env, extra);
   const bridge = device ? await phoneBridge() : null, droid = android ? androidDeploy(a, bin, { ...env, ...extra }) : null;

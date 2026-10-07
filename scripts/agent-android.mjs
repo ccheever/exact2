@@ -11,13 +11,14 @@
 //
 // The NDK comes from ANDROID_NDK_HOME, else the newest under the SDK's ndk/
 // (ANDROID_HOME, else ~/Library/Android/sdk or ~/Android/Sdk); ANDROID_SERIAL
-// picks a device. The painter is the CPU one unless EXACT_PAINTER says
+// picks a device. Fonts are the phone's (/system/fonts) unless the drive names
+// EXACT_FONTS. The painter is the CPU one unless EXACT_PAINTER says
 // otherwise: the GPU painter needs a real GPU's Vulkan (an emulator's
 // SwiftShader crashes it).
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, resolve } from 'node:path';
+import { basename, dirname, resolve } from 'node:path';
 import { HOST_DEV, linuxBuild, resolveApp } from './app.mjs';
 
 export const ANDROID_TARGET = 'aarch64-linux-android';
@@ -75,26 +76,28 @@ export function androidDeploy(app, bin, env) {
     const r = spawnSync(tool, ['-s', serial, ...args], { encoding: 'utf8' });
     if (r.status !== 0) throw new Error(`adb ${what}: ${(r.stderr || r.stdout || r.error?.message || '').trim()}`);
   };
-  // Earlier drives' run directories more than an hour old go; HOME stays.
-  run(['shell', `mkdir -p ${quote(home)} ${quote(dir)} && find ${quote(base)} -maxdepth 1 -name 'run-*' -mmin +60 -exec rm -rf {} + ; true`], 'prepare');
+  // A drive removes its own run directory when its process ends (below); one a killed adb orphaned
+  // goes after a day. HOME stays.
+  run(['shell', `mkdir -p ${quote(home)} ${quote(dir)} && find ${quote(base)} -maxdepth 1 -name 'run-*' -mmin +1440 -exec rm -rf {} + ; true`], 'prepare');
   run(['push', bin, `${dir}/${exe}`], 'push the binary');
   run(['shell', `chmod 755 ${quote(`${dir}/${exe}`)}`], 'chmod');
   if (existsSync(resolve(app.dir, 'assets'))) run(['push', resolve(app.dir, 'assets'), `${dir}/`], 'push the assets');
   const vars = Object.fromEntries(Object.entries(env).filter(([k]) => k.startsWith('EXACT_')));
-  if (!process.env.EXACT_FONT) delete vars.EXACT_FONT; // the desktop carriers' pinned DejaVu; a phone draws with its own faces
-  // A local plan (`--plan`) is read on the device: copied there, or the baked plan would boot instead.
+  // A local plan (`--plan`) is read on the device: copied there with the replacement Rust module the host
+  // reads beside it (`rust/`, host/linux/src/delivery.rs), or the baked plan or logic would run instead.
   if (vars.EXACT_PLAN && existsSync(vars.EXACT_PLAN)) {
-    run(['push', resolve(vars.EXACT_PLAN), `${dir}/agent.plan`], 'push the plan');
-    vars.EXACT_PLAN = `${dir}/agent.plan`;
+    const plan = resolve(vars.EXACT_PLAN), rust = resolve(dirname(plan), 'rust');
+    run(['push', plan, `${dir}/${basename(plan)}`], 'push the plan');
+    if (existsSync(rust)) run(['push', rust, `${dir}/`], 'push the plan\'s Rust module');
+    vars.EXACT_PLAN = `${dir}/${basename(plan)}`;
   }
-  Object.assign(vars, { HOME: home, EXACT_ASSETS: dir, EXACT_NATIVE_LIBS: dir,
-    EXACT_FONTS: env.EXACT_ANDROID_FONTS ?? '/system/fonts', EXACT_PAINTER: env.EXACT_PAINTER ?? 'cpu' });
+  Object.assign(vars, { HOME: home, EXACT_ASSETS: dir, EXACT_NATIVE_LIBS: dir, EXACT_PAINTER: env.EXACT_PAINTER ?? 'cpu' });
   const assignments = Object.entries(vars).map(([k, v]) => `${k}=${quote(v)}`).join(' ');
   const shot = `${dir}/agent-shot.png`;
   return {
     serial, dir, shot,
     spawn: (args = []) => spawn(tool, ['-s', serial, 'shell', '-T',
-      `cd ${quote(dir)} && exec env ${assignments} ${[`./${exe}`, ...args].map(quote).join(' ')}`], { stdio: ['pipe', 'pipe', 'pipe'] }),
+      `cd ${quote(dir)} && env ${assignments} ${[`./${exe}`, ...args].map(quote).join(' ')}; s=$?; cd / && rm -rf ${quote(dir)}; exit $s`], { stdio: ['pipe', 'pipe', 'pipe'] }),
     pull(path) {
       const r = spawnSync(tool, ['-s', serial, 'pull', shot, resolve(path)], { encoding: 'utf8' });
       if (r.status !== 0) throw new Error(`adb pull the screenshot: ${(r.stderr || r.stdout).trim()}`);
