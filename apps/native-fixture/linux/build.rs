@@ -36,7 +36,16 @@ fn main() {
     // The app's hatches (LLP 1075.003.000.001 §5): `modules/linux/*.rs`,
     // included here with the typed key of the words this platform handles.
     // The entry names only their type; the host makes the value.
-    let hatches = contract::native::rust_hatches(&app_dir, &manifest, platform)
+    // The words are the target's own: an Android build of this crate (LLP
+    // 1107) handles what app.json gives `android`.
+    let hatch_platform = if target.contains("android") {
+        "android"
+    } else if target.contains("windows") {
+        "windows"
+    } else {
+        platform
+    };
+    let hatches = contract::native::rust_hatches(&app_dir, &manifest, hatch_platform)
         .unwrap_or_else(|e| panic!("hatches: {e}"));
     let run = match hatches {
         Some(_) => {

@@ -90,7 +90,7 @@ pub fn hatch_rows(manifest: &Manifest) -> Result<Vec<(String, u16)>, String> {
 /// A painting host's hatches for an app's own crate (LLP 1075.003.000.001
 /// §5): Rust for its generated entry, or `None` when the app has no
 /// `modules/linux/*.rs`. The text is the typed `HatchKey`, with only the
-/// words `platform` (`linux` or `windows`) handles, so module code that
+/// words `platform` (`linux`, `windows` or `android`) handles, so module code that
 /// names another platform's word does not compile; then a module `hatches`
 /// that includes each file, in name order. The files name their one type
 /// once (`pub type ExactHatches = App;`), and the entry hands the host
@@ -100,7 +100,14 @@ pub fn rust_hatches(
     manifest: &Manifest,
     platform: &str,
 ) -> Result<Option<String>, String> {
-    let directory = app_root.join("modules/linux");
+    // A painting host's own directory when the app has one (`modules/android`,
+    // `modules/windows`), else the presenter's, `modules/linux`.
+    let own = app_root.join("modules").join(platform);
+    let directory = if own.is_dir() {
+        own
+    } else {
+        app_root.join("modules/linux")
+    };
     let mut files: Vec<_> = std::fs::read_dir(&directory)
         .into_iter()
         .flatten()
