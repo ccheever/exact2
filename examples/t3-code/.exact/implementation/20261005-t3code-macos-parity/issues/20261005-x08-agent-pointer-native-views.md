@@ -118,3 +118,23 @@ Each pointer row is now an agent row, proved first in AppKit with the agent's ev
 - Live drive: not yet run successfully for these rows (see the task record); the tab middle click was driven live.
 
 Still not agent rows, with reasons: Korean 2-Set and IME (input method, not pointer), ⌘C/⌘V (shared real pasteboard), following a link (opens the user's browser or editor), a drag outside the window and back (`agent-drag.mjs` refuses points outside the viewport), cursor shapes (no cursor readback), sign-in terminal links (user hold on sign-in tasks).
+
+## Real input (2026-10-07, real-input-checks)
+
+The rows above marked "not agent rows" that a real hand can cover ran with real input (Orca computer use and
+HID events, lane bundle copies, base `4f523ef5c` against the branch) in
+[20261007-real-input-checks](../tasks/20261007-real-input-checks.md):
+
+| Row | Result |
+| --- | --- |
+| Right-panel tab middle click | base closes the wrong tab (Diff); branch closes Files — pass |
+| Cursor shapes | terminal I-beam, drawer edge up-down resize, chat arrow, theme editor header open hand, grip crosshair, in both builds — pass |
+| A drag out of the window and back | theme editor header released outside the window: the panel follows and stays inside it, both builds — pass |
+| Terminal double-click, right-click | word selected with the Add to chat / Copy popup; Add to chat / Copy / Paste menu — pass |
+| Terminal drag selection | **fails with a real pointer in both builds** (the agent's drag selects): open, cause not found (QUEUE.md) |
+| Sidebar rail drag and double-click reset | pass (branch) |
+
+Still not covered, with reasons: following a link (opens the user's browser or editor), sign-in terminal
+links (user hold), ⌘C/⌘V into the shared pasteboard (the user's clipboard; only an empty-clipboard check
+ran), IME and Korean 2-Set (input method, not pointer). X8 stays `closed-upstream` and open in the plan
+until the terminal's real-pointer drag selects.
