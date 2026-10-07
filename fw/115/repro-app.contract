@@ -1,0 +1,13 @@
+// Pdf115: a bundled PDF and a bundled HTML page in iframes (#115).
+shape Greeting
+  text: string
+
+component Pdf115
+  resource greeting = greeting("Pdf115") as shape Greeting
+  view
+    main testId="root" padding=16 display="flex" flex-direction="column" gap=8
+      background-color="#ffffff"
+      text "PDF (assets/doc.pdf)" testId="pdf-label"
+      iframe src="assets/doc.pdf" width=320 height=220 testId="pdf-asset"
+      text "HTML (assets/page.html)" testId="html-label"
+      iframe src="assets/page.html" width=320 height=60 testId="html-asset"
