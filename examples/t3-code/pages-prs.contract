@@ -142,6 +142,8 @@ component PrList
   props
     // desktop-shell-details: --workspace-controls-left (90 beside the traffic lights; 0.75rem in full screen).
     controlsLeft: number
+    // The root font size (Interface font size): rem in a length that also adds px (Contract calc takes percent ± px only).
+    rem: number
     page: PrListView
     scheme: string
     query: string
@@ -173,40 +175,40 @@ component PrList
   derive providerRight = not narrow ? contentLeft + contentWidth - 32 - 8 : (filtersRight + 8 + providerWidth <= contentLeft + contentWidth ? filtersRight + 8 + providerWidth : contentLeft + providerWidth)
   view
     column flex=1 min-width=0 height="100%" background-color="light-dark(#fcfcfc, #0a0a0a)" testId="pull-requests-page"
-      row height=52 flex-shrink=0 width="100%" padding-left=(sidebarOpen ? 20 : controlsLeft + 40) padding-right=20 box-sizing="border-box" align-items="center" position="relative"
+      row height=52 flex-shrink=0 width="100%" padding-left=(sidebarOpen ? 1.25 * rem : controlsLeft + 2.5 * rem) padding-right="1.25rem" box-sizing="border-box" align-items="center" position="relative"
         when not sidebarOpen
-          button press=toggleSidebar position="absolute" left=(controlsLeft + 1) top=12 width=28 height=28 padding=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle sidebar" aria-keyshortcuts=keySidebar testId="toggle-sidebar"
+          button press=toggleSidebar position="absolute" left=(controlsLeft + 1) top="0.75rem" width="1.75rem" height="1.75rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" aria-label="Toggle sidebar" aria-keyshortcuts=keySidebar testId="toggle-sidebar"
             Icon(name="panel-left", size=16, color="light-dark(#27272acc, #f5f5f5cc)")
-        text "Pull Requests" font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=1 line-clamp=1
+        text "Pull Requests" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=1 line-clamp=1
       scroll flex=1 min-height=0 width="100%" testId="pull-requests-scroll"
-        column width="100%" min-height="100%" padding-left=30 padding-right=30 padding-top=24 padding-bottom=48 box-sizing="border-box" gap=16
+        column width="100%" min-height="100%" padding-left="1.875rem" padding-right="1.875rem" padding-top="1.5rem" padding-bottom="3rem" box-sizing="border-box" gap="1rem"
           // r5-shell: the reference wraps the controls in a 35pt block (34pt row + 1pt).
-          row width="100%" flex-wrap="wrap" align-items="center" gap=8 padding-bottom=1 box-sizing="border-box"
-            row height=34 flex-grow=1 flex-shrink=1 flex-basis=(narrow ? "100%" : 0) min-width=0 box-sizing="border-box" padding-left=10 padding-right=10 gap=8 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" box-shadow="0 1px 2px #0000000d" align-items="center"
+          row width="100%" flex-wrap="wrap" align-items="center" gap="0.5rem" padding-bottom=1 box-sizing="border-box"
+            row height="2.125rem" flex-grow=1 flex-shrink=1 flex-basis=(narrow ? "100%" : "0px") min-width=0 box-sizing="border-box" padding-left="0.625rem" padding-right="0.625rem" gap="0.5rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff07)" box-shadow="0 1px 2px #0000000d" align-items="center"
               PgIcon(name="search", size=16, color="light-dark(#27272a, #f5f5f5)")
-              input value=query input=search submit=search(query) placeholder="Search pull requests, or label:bug" aria-label="Search pull requests" autocorrect="off" spellcheck="false" testId="pull-requests-search" flex=1 min-width=0 height=20 padding=0 border-width=0 background-color="#00000000" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
+              input value=query input=search submit=search(query) placeholder="Search pull requests, or label:bug" aria-label="Search pull requests" autocorrect="off" spellcheck="false" testId="pull-requests-search" flex=1 min-width=0 height="1.25rem" padding=0 border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
             PrSortMenu(page=page, scheme=scheme, control=control)
             PrFiltersMenu(page=page, scheme=scheme, tail=(viewportWidth - filtersRight), control=control)
             PrHostMenu(page=page, scheme=scheme, tail=(viewportWidth - providerRight), control=control)
             PrToolButton(icon="refresh-cw", label="", ariaLabel="Refresh pull requests", badge="", busy=page.loading, press=reload, testId="pull-requests-refresh")
           when length(page.groups) > 0
-            column width="100%" gap=12 role="list" aria-label="Pull requests"
+            column width="100%" gap="0.75rem" role="list" aria-label="Pull requests"
               each group in page.groups key=group.key
-                column width="100%" gap=2
-                  row height=16 padding-left=12 padding-right=12 padding-bottom=4 gap=8 align-items="center"
+                column width="100%" gap="0.125rem"
+                  row height="1rem" padding-left="0.75rem" padding-right="0.75rem" padding-bottom="0.25rem" gap="0.5rem" align-items="center"
                     PgIcon(name=prGroupIcon(group.key), size=14, color="light-dark(#71717bb3, #828282b3)")
-                    text group.label font-size=12 line-height="16px" font-weight=500 color="light-dark(#71717bb3, #828282b3)" role="heading" aria-level=2 flex-shrink=0
-                    text `${group.count}` font-size=12 line-height="16px" font-weight=500 font-variant-numeric="tabular-nums" color="light-dark(#72727c80, #81818180)" flex-shrink=0
-                    box flex=1 min-width=8 height=1 background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+                    text group.label font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717bb3, #828282b3)" role="heading" aria-level=2 flex-shrink=0
+                    text `${group.count}` font-size="0.75rem" line-height="1rem" font-weight=500 font-variant-numeric="tabular-nums" color="light-dark(#72727c80, #81818180)" flex-shrink=0
+                    box flex=1 min-width="0.5rem" height=1 background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
                   each row in group.rows key=row.key
                     PrRowButton(row=row, scheme=scheme, compact=compact, select=select, diff=page.diffScheme)
               when length(page.errors) > 0
-                column width="100%" gap=4 padding-left=12 padding-right=12
+                column width="100%" gap="0.25rem" padding-left="0.75rem" padding-right="0.75rem"
                   each note in page.errors key=note.key
-                    text note.text font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+                    text note.text font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
               when page.truncated
-                row width="100%" justify-content="center" padding-top=12 padding-bottom=12
-                  text "Narrow your search to find more pull requests." font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+                row width="100%" justify-content="center" padding-top="0.75rem" padding-bottom="0.75rem"
+                  text "Narrow your search to find more pull requests." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
           else
             when page.empty != ""
               PrEmptyState(available=page.available, error=page.error, title=page.empty, detail=page.emptyDetail, action=page.emptyAction, loading=page.loading, scheme=scheme, reload=reload, control=control, addProject=addProject)
@@ -227,12 +229,12 @@ component PrToolButton
   action hover(value: bool)
     over = value
   view
-    button press=press hover=hover disabled=busy aria-label=ariaLabel testId=testId height=32 min-width=32 padding-left=(label == "" ? 0 : 10) padding-right=(label == "" ? 0 : 11) box-sizing="border-box" gap=6 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(over ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" opacity=(busy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+    button press=press hover=hover disabled=busy aria-label=ariaLabel testId=testId height="2rem" min-width="2rem" padding-left=(label == "" ? "0px" : "0.625rem") padding-right=(label == "" ? "0px" : "0.6875rem") box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color=(over ? "light-dark(#f4f4f580, #ffffff0d)" : "light-dark(#ffffff, #ffffff07)") box-shadow="0 1px 2px #0000000d" opacity=(busy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
       PgIcon(name=icon, size=16, color="light-dark(#71717b, #818181)")
       when label != ""
-        text label font-size=14 line-height="20px" font-weight=500 white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
+        text label font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color="light-dark(#27272a, #f5f5f5)"
       when badge != ""
-        text badge padding-left=6 padding-right=6 border-radius=9999 background-color="light-dark(#f4f4f5, #ffffff0f)" font-size=12 line-height="16px" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
+        text badge padding-left="0.375rem" padding-right="0.375rem" border-radius="624.9375rem" background-color="light-dark(#f4f4f5, #ffffff0f)" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
 
 // The popup every list menu shares (MenuPopup: dropdown glass, rounded-lg).
 component PrMenuBox
@@ -242,7 +244,7 @@ component PrMenuBox
     label: string
   slot
   view
-    column width=width padding=4 box-sizing="border-box" border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" aria-label=label flex-shrink=0
+    column width=width padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#27272a1a, #f5f5f51a)" background-color="light-dark(#ffffffd5, #111111d5)" box-shadow=(scheme == "dark" ? "0 18px 44px -18px #000000cc" : "0 16px 40px -18px #0000008c") role="menu" aria-label=label flex-shrink=0
       children
 
 // MenuRadioItem with the option's glyph; the chosen row is tinted (CompactFilterMenu) or ticked (submenus).
@@ -261,14 +263,14 @@ component PrMenuItem
   action hover(value: bool)
     over = value
   view
-    button press=press popovertarget=menuId popovertargetaction="hide" hover=hover disabled=disabled role="menuitemradio" aria-checked=selected testId=testId width="100%" min-height=28 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 box-sizing="border-box" gap=8 border-radius=6 border-width=0 background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : selected and not tick ? "light-dark(#27272a14, #f2f2f214)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+    button press=press popovertarget=menuId popovertargetaction="hide" hover=hover disabled=disabled role="menuitemradio" aria-checked=selected testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over and not disabled ? "light-dark(#f4f4f5, #ffffff0a)" : selected and not tick ? "light-dark(#27272a14, #f2f2f214)" : "#00000000") opacity=(disabled ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
       when icon != ""
         PgIcon(name=icon, size=14, color="light-dark(#27272a, #f5f5f5)")
-      text label font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left" white-space="nowrap"
+      text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left" white-space="nowrap"
       when detail != ""
-        text detail font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" flex-shrink=0 white-space="nowrap"
+        text detail font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" flex-shrink=0 white-space="nowrap"
       when tick
-        box width=16 height=16 display="flex" align-items="center" justify-content="center" flex-shrink=0
+        box width="1rem" height="1rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
           when selected
             PgIcon(name="check", size=16, color="light-dark(#27272a, #f5f5f5)")
 
@@ -279,10 +281,10 @@ component PrSortMenu
     control: action
   view
     column position="relative" flex-shrink=0
-      button popovertarget="pr-sort-menu" aria-label=`Sort pull requests: ${page.sortLabel}` testId="pull-requests-sort" height=32 padding-left=10 padding-right=11 box-sizing="border-box" gap=6 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center"
+      button popovertarget="pr-sort-menu" aria-label=`Sort pull requests: ${page.sortLabel}` testId="pull-requests-sort" height="2rem" padding-left="0.625rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center"
         PgIcon(name="arrow-down-up", size=16, color="light-dark(#71717b, #818181)")
-        text "Sort" font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-      column id="pr-sort-menu" popover="auto" position="absolute" padding-top=4 testId="pr-sort-layer"
+        text "Sort" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+      column id="pr-sort-menu" popover="auto" position="absolute" padding-top="0.25rem" testId="pr-sort-layer"
         PrMenuBox(scheme=scheme, width=160, label=`Sort pull requests: ${page.sortLabel}`)
           PrMenuItem(menuId="pr-sort-menu", icon="list-checks", label="Merge readiness", detail="", selected=(page.sort == "ready"), tick=false, disabled=false, press=control("sort", "ready"), testId="pr-sort-ready")
           PrMenuItem(menuId="pr-sort-menu", icon="user-lock", label="Blocked on me", detail="", selected=(page.sort == "blocked"), tick=false, disabled=false, press=control("sort", "blocked"), testId="pr-sort-blocked")
@@ -301,11 +303,11 @@ component PrHostMenu
     control: action
   view
     column position="relative" flex-shrink=0
-      button popovertarget="pr-host-menu" aria-label=`Filter by provider: ${page.hostLabel}` testId="pull-requests-provider" height=32 min-width=32 padding-left=(page.providerIconOnly ? 0 : 10) padding-right=(page.providerIconOnly ? 0 : 11) box-sizing="border-box" gap=6 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center"
+      button popovertarget="pr-host-menu" aria-label=`Filter by provider: ${page.hostLabel}` testId="pull-requests-provider" height="2rem" min-width="2rem" padding-left=(page.providerIconOnly ? "0px" : "0.625rem") padding-right=(page.providerIconOnly ? "0px" : "0.6875rem") box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center" justify-content="center"
         PgIcon(name="plug-2", size=16, color="light-dark(#71717b, #818181)")
         when not page.providerIconOnly
-          text "All" font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-      row id="pr-host-menu" popover="auto" position="absolute" padding-top=4 align-items="flex-start" testId="pr-host-layer"
+          text "All" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+      row id="pr-host-menu" popover="auto" position="absolute" padding-top="0.25rem" align-items="flex-start" testId="pr-host-layer"
         PrMenuBox(scheme=scheme, width=160, label=`Filter by provider: ${page.hostLabel}`)
           each host in page.hosts key=host.value
             PrHostItem(host=host, control=control)
@@ -319,14 +321,14 @@ component PrHostItem
   action hover(value: bool)
     over = value
   view
-    button press=control("host", host.value) popovertarget="pr-host-menu" popovertargetaction="hide" hover=hover disabled=(host.unavailable != "") role="menuitemradio" aria-checked=host.selected testId=`pr-host-${host.label}` width="100%" min-height=28 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 box-sizing="border-box" gap=8 border-radius=6 border-width=0 background-color=(over and host.unavailable == "" ? "light-dark(#f4f4f5, #ffffff0a)" : host.selected ? "light-dark(#27272a14, #f2f2f214)" : "#00000000") opacity=(host.unavailable != "" ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+    button press=control("host", host.value) popovertarget="pr-host-menu" popovertargetaction="hide" hover=hover disabled=(host.unavailable != "") role="menuitemradio" aria-checked=host.selected testId=`pr-host-${host.label}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over and host.unavailable == "" ? "light-dark(#f4f4f5, #ffffff0a)" : host.selected ? "light-dark(#27272a14, #f2f2f214)" : "#00000000") opacity=(host.unavailable != "" ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
       when host.value == ""
         PgIcon(name="plug-2", size=14, color="light-dark(#27272a, #f5f5f5)")
       else
         BrandGitHub(size=14)
-      text host.label font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left" white-space="nowrap"
+      text host.label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left" white-space="nowrap"
       when host.unavailable != ""
-        text "· Unavailable" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" flex-shrink=0
+        text "· Unavailable" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" flex-shrink=0
 
 // PullRequestFiltersMenu: end-aligned under its trigger; a submenu opens to its left.
 component PrFiltersMenu
@@ -342,27 +344,27 @@ component PrFiltersMenu
   derive subTop = sub == "involvement" ? 28 : sub == "author" ? 65 : sub == "labels" ? 93 : sub == "draft" ? 121 : sub == "review" ? 149 : sub == "checks" ? 177 : sub == "project" ? 214 : 0
   view
     column position="relative" flex-shrink=0
-      button popovertarget="pr-filters-menu" press=open("") aria-label="Filters" testId="pull-requests-filters" height=32 padding-left=10 padding-right=11 box-sizing="border-box" gap=6 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center"
+      button popovertarget="pr-filters-menu" press=open("") aria-label="Filters" testId="pull-requests-filters" height="2rem" padding-left="0.625rem" padding-right="0.6875rem" box-sizing="border-box" gap="0.375rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)" box-shadow="0 1px 2px #0000000d" display="flex" flex-direction="row" align-items="center"
         PgIcon(name="list-filter", size=16, color="light-dark(#71717b, #818181)")
-        text "Filters" font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+        text "Filters" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
         when page.filterBadge != ""
-          text page.filterBadge padding-left=6 padding-right=6 border-radius=9999 background-color="light-dark(#f4f4f5, #ffffff0f)" font-size=12 line-height="16px" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
-      column id="pr-filters-menu" popover="auto" position="absolute" padding-top=4 testId="pr-filters-layer"
+          text page.filterBadge padding-left="0.375rem" padding-right="0.375rem" border-radius="624.9375rem" background-color="light-dark(#f4f4f5, #ffffff0f)" font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
+      column id="pr-filters-menu" popover="auto" position="absolute" padding-top="0.25rem" testId="pr-filters-layer"
         row align-items="flex-start"
           when sub != ""
-            column margin-top=subTop margin-right=-3
+            column margin-top=subTop margin-right="-0.1875rem"
               PrMenuBox(scheme=scheme, width=subWidth, label=sub)
                 PrFilterSub(page=page, sub=sub, control=control)
           PrMenuBox(scheme=scheme, width=184, label="Filters")
             PrSubTrigger(icon=page.stateIcon, label="State", value=page.stateLabel, open=(sub == "state"), press=open("state"), testId="pr-filter-state")
             PrSubTrigger(icon=page.involvementIcon, label="Involvement", value=page.involvementLabel, open=(sub == "involvement"), press=open("involvement"), testId="pr-filter-involvement")
-            box width="calc(100% - 16px)" height=1 margin-left=8 margin-top=4 margin-bottom=4 background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+            box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
             PrSubTrigger(icon="user-round", label="Author", value=page.authorLabel, open=(sub == "author"), press=open("author"), testId="pr-filter-author")
             PrSubTrigger(icon="tag", label="Labels", value=page.labelsLabel, open=(sub == "labels"), press=open("labels"), testId="pr-filter-labels")
             PrSubTrigger(icon=page.draftIcon, label="Draft", value=page.draftLabel, open=(sub == "draft"), press=open("draft"), testId="pr-filter-draft")
             PrSubTrigger(icon=page.reviewIcon, label="Review", value=page.reviewLabel, open=(sub == "review"), press=open("review"), testId="pr-filter-review")
             PrSubTrigger(icon=page.checksIcon, label="Checks", value=page.checksLabel, open=(sub == "checks"), press=open("checks"), testId="pr-filter-checks")
-            box width="calc(100% - 16px)" height=1 margin-left=8 margin-top=4 margin-bottom=4 background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
+            box width="calc(100% - 16px)" height=1 margin-left="0.5rem" margin-top="0.25rem" margin-bottom="0.25rem" background-color="light-dark(#e4e4e7, #ffffff0f)" role="separator"
             PrSubTrigger(icon="layers", label="Project", value=page.projectLabel, open=(sub == "project"), press=open("project"), testId="pr-filter-project")
           box width=tail height=1 flex-shrink=0
 
@@ -379,10 +381,10 @@ component PrSubTrigger
   action hover(value: bool)
     over = value
   view
-    button press=press hover=hover role="menuitem" aria-expanded=open aria-label=`${label} ${value}` testId=testId width="100%" min-height=28 padding-left=8 padding-right=6 padding-top=4 padding-bottom=4 box-sizing="border-box" gap=8 border-radius=6 border-width=0 background-color=(over or open ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+    button press=press hover=hover role="menuitem" aria-expanded=open aria-label=`${label} ${value}` testId=testId width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.375rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over or open ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
       PgIcon(name=icon, size=14, color="light-dark(#71717b, #818181)")
-      text label font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 text-align="left" white-space="nowrap"
-      text value font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" max-width=128 line-clamp=1 flex-shrink=0
+      text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 text-align="left" white-space="nowrap"
+      text value font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" max-width="8rem" line-clamp=1 flex-shrink=0
       PgIcon(name="chevron-right", size=16, color="light-dark(#71717b, #818181)")
 
 // The open submenu: a labelled radio group, the author list or the label checkboxes.
@@ -394,7 +396,7 @@ component PrFilterSub
   view
     column width="100%"
       when sub != "author" and sub != "labels"
-        text (sub == "state" ? "State" : sub == "involvement" ? "Involvement" : sub == "draft" ? "Draft" : sub == "review" ? "Review" : sub == "checks" ? "Checks" : "Project") padding-left=8 padding-right=8 padding-top=6 padding-bottom=6 font-size=12 line-height="16px" font-weight=500 color="light-dark(#71717b, #818181)"
+        text (sub == "state" ? "State" : sub == "involvement" ? "Involvement" : sub == "draft" ? "Draft" : sub == "review" ? "Review" : sub == "checks" ? "Checks" : "Project") padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
       when sub == "state"
         PrMenuItem(menuId="pr-filters-menu", icon="layers", label="All", detail="", selected=(page.state == "all"), tick=true, disabled=false, press=control("state", "all"), testId="pr-state-all")
         PrMenuItem(menuId="pr-filters-menu", icon="git-pull-request-arrow", label="Open", detail="", selected=(page.state == "open"), tick=true, disabled=false, press=control("state", "open"), testId="pr-state-open")
@@ -427,12 +429,12 @@ component PrFilterSub
         each person in page.authors key=person.key
           PrAuthorItem(person=person, control=control)
         when length(page.authors) == 0
-          text "No authors found" padding=8 font-size=14 line-height="20px" color="light-dark(#71717b, #818181)" opacity=0.64
+          text "No authors found" padding="0.5rem" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" opacity=0.64
       when sub == "labels"
         each label in page.labelFacets key=label.key
           PrLabelItem(label=label, control=control)
         when length(page.labelFacets) == 0
-          text "No labels in this view" padding=8 font-size=14 line-height="20px" color="light-dark(#71717b, #818181)" opacity=0.64
+          text "No labels in this view" padding="0.5rem" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" opacity=0.64
 
 component PrAuthorItem
   props
@@ -442,11 +444,11 @@ component PrAuthorItem
   action hover(value: bool)
     over = value
   view
-    button press=control("author", person.login) popovertarget="pr-filters-menu" popovertargetaction="hide" hover=hover role="menuitemradio" aria-checked=person.selected testId=`pr-author-${person.key}` width="100%" min-height=28 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 box-sizing="border-box" gap=8 border-radius=6 border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+    button press=control("author", person.login) popovertarget="pr-filters-menu" popovertargetaction="hide" hover=hover role="menuitemradio" aria-checked=person.selected testId=`pr-author-${person.key}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
       PrAvatar(avatar=person.avatar, initial=person.initial, size=16)
-      text person.login font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left"
-      text person.detail font-size=12 line-height="16px" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" flex-shrink=0 white-space="nowrap"
-      box width=16 height=16 display="flex" align-items="center" justify-content="center" flex-shrink=0
+      text person.login font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left"
+      text person.detail font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" flex-shrink=0 white-space="nowrap"
+      box width="1rem" height="1rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
         when person.selected
           PgIcon(name="check", size=16, color="light-dark(#27272a, #f5f5f5)")
 
@@ -459,13 +461,13 @@ component PrLabelItem
   action hover(value: bool)
     over = value
   view
-    button press=control("label", label.name) hover=hover role="menuitemcheckbox" aria-checked=label.selected testId=`pr-label-${label.key}` width="100%" min-height=28 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 box-sizing="border-box" gap=8 border-radius=6 border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
-      box width=16 height=16 display="flex" align-items="center" justify-content="center" flex-shrink=0
+    button press=control("label", label.name) hover=hover role="menuitemcheckbox" aria-checked=label.selected testId=`pr-label-${label.key}` width="100%" min-height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" gap="0.5rem" border-radius="0.375rem" border-width=0 background-color=(over ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      box width="1rem" height="1rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
         when label.selected
           PgIcon(name="check", size=16, color="light-dark(#27272a, #f5f5f5)")
-      box width=10 height=10 border-radius=9999 flex-shrink=0 background-color=(label.color == "" ? "light-dark(#71717b, #818181)" : label.color)
-      text label.name font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left"
-      text `${label.count}` font-size=12 line-height="16px" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" flex-shrink=0
+      box width="0.625rem" height="0.625rem" border-radius="624.9375rem" flex-shrink=0 background-color=(label.color == "" ? "light-dark(#71717b, #818181)" : label.color)
+      text label.name font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 line-clamp=1 text-align="left"
+      text `${label.count}` font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" flex-shrink=0
 
 // PullRequestActorAvatar: the host's picture in a circle, or the initial.
 component PrAvatar
@@ -474,11 +476,11 @@ component PrAvatar
     initial: string
     size: number
   view
-    box width=size height=size border-radius=9999 overflow="hidden" flex-shrink=0 background-color="light-dark(#fafafa, #ffffff08)" display="flex" align-items="center" justify-content="center"
+    box width=`${size / 16}rem` height=`${size / 16}rem` border-radius="624.9375rem" overflow="hidden" flex-shrink=0 background-color="light-dark(#fafafa, #ffffff08)" display="flex" align-items="center" justify-content="center"
       when avatar != ""
-        image avatar width=size height=size object-fit="cover" aria-hidden=true
+        image avatar width=`${size / 16}rem` height=`${size / 16}rem` object-fit="cover" aria-hidden=true
       else
-        text initial font-size=(size > 14 ? 10 : 8) line-height="14px" font-weight=500 color="light-dark(#71717b, #818181)"
+        text initial font-size=(size > 14 ? "0.625rem" : "0.5rem") line-height="0.875rem" font-weight=500 color="light-dark(#71717b, #818181)"
 
 // PullRequestRow: the lifecycle glyph (with the conflict badge on its corner),
 // "#n title" with the checks and review glyphs, the diff stat, then author,
@@ -494,51 +496,51 @@ component PrRowButton
   action hover(value: bool)
     over = value
   view
-    button press=select(row.ref) hover=hover aria-label=`${row.stateLabel} #${row.number} ${row.title}` testId=`pr-row-${row.number}` width="100%" height=56 padding-left=12 padding-right=12 padding-top=10 padding-bottom=10 box-sizing="border-box" gap=8 border-radius=8 border-width=0 background-color=(row.selected ? "light-dark(#f4f4f5, #ffffff0a)" : over ? "light-dark(#f4f4f599, #ffffff06)" : "#00000000") display="flex" flex-direction="row" align-items="center"
-      column width=16 flex-shrink=0 align-self="flex-start" margin-top=3 position="relative" aria-label=row.stateLabel
+    button press=select(row.ref) hover=hover aria-label=`${row.stateLabel} #${row.number} ${row.title}` testId=`pr-row-${row.number}` width="100%" height="3.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.625rem" padding-bottom="0.625rem" box-sizing="border-box" gap="0.5rem" border-radius="0.5rem" border-width=0 background-color=(row.selected ? "light-dark(#f4f4f5, #ffffff0a)" : over ? "light-dark(#f4f4f599, #ffffff06)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      column width="1rem" flex-shrink=0 align-self="flex-start" margin-top="0.1875rem" position="relative" aria-label=row.stateLabel
         PgIcon(name=prStateIcon(row.state), size=16, color=prStateTone(row.state))
         when row.conflict != ""
-          box position="absolute" left=8 top=8 width=12 height=12 aria-label=row.conflict
+          box position="absolute" left="0.5rem" top="0.5rem" width="0.75rem" height="0.75rem" aria-label=row.conflict
             box position="absolute" left=0 top=0
               PgGlyph(name="triangle-fill-filled", size=12, color="light-dark(#fcfcfc, #0a0a0a)", weight=2.5)
             box position="absolute" left=0 top=0
               PgGlyph(name="triangle-alert", size=12, color="light-dark(#e40014, #fb414a)", weight=2.5)
       column flex=1 min-width=0
-        row height=20 min-width=0 align-items="center" gap=6
+        row height="1.25rem" min-width=0 align-items="center" gap="0.375rem"
           text `#${row.number}` font-family="ui-monospace" font-size=12 line-height="16px" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)" flex-shrink=0
-          text row.title font-size=14 line-height="20px" color="light-dark(#262626, #f5f5f5)" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" flex-shrink=1
+          text row.title font-size="0.875rem" line-height="1.25rem" color="light-dark(#262626, #f5f5f5)" min-width=0 white-space="nowrap" overflow="hidden" text-overflow="ellipsis" flex-shrink=1
           when row.checks != "" or row.review != ""
-            row flex-shrink=0 align-items="center" gap=4
+            row flex-shrink=0 align-items="center" gap="0.25rem"
               when row.checks != ""
-                box width=14 height=14 aria-label=row.checksLabel
+                box width="0.875rem" height="0.875rem" aria-label=row.checksLabel
                   PgIcon(name=prChecksIcon(row.checks), size=14, color=prChecksTone(row.checks))
               when row.review != ""
-                box width=14 height=14 aria-label=row.reviewLabel
+                box width="0.875rem" height="0.875rem" aria-label=row.reviewLabel
                   PgIcon(name=prReviewIcon(row.review), size=14, color=prReviewTone(row.review))
           box flex=1 min-width=0
           when row.additions != ""
-            row flex-shrink=0 align-items="baseline" gap=4
+            row flex-shrink=0 align-items="baseline" gap="0.25rem"
               text row.additions font-family="ui-monospace" font-size=11 line-height="16px" font-variant-numeric="tabular-nums" color=(diff == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "light-dark(#009966, #00d492)")
               text row.deletions font-family="ui-monospace" font-size=11 line-height="16px" font-variant-numeric="tabular-nums" color=(diff == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")
-        row height=16 min-width=0 align-items="center" gap=6 overflow="hidden"
-          row align-items="center" gap=4 min-width=14 max-width=160 flex-shrink=1
+        row height="1rem" min-width=0 align-items="center" gap="0.375rem" overflow="hidden"
+          row align-items="center" gap="0.25rem" min-width="0.875rem" max-width="10rem" flex-shrink=1
             PrAvatar(avatar=row.avatar, initial=row.initial, size=14)
             when not compact
-              text row.author font-size=11 line-height="16px" color="light-dark(#71717b, #818181)" line-clamp=1 min-width=0
-          text row.repository font-size=11 line-height="16px" color="light-dark(#71717b, #818181)" line-clamp=1 min-width=0 flex-shrink=1
+              text row.author font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)" line-clamp=1 min-width=0
+          text row.repository font-size="0.6875rem" line-height="1rem" color="light-dark(#71717b, #818181)" line-clamp=1 min-width=0 flex-shrink=1
           when length(row.labels) > 0
-            row min-width=0 align-items="center" gap=4 flex-shrink=1
+            row min-width=0 align-items="center" gap="0.25rem" flex-shrink=1
               each chip in (compact ? row.firstLabel : row.labels) key=chip.key
-                text chip.name height=16 padding-left=3 padding-right=3 box-sizing="border-box" border-radius=4 background-color=chip.background font-size=10 line-height="16px" color=chip.ink max-width=160 line-clamp=1 min-width=0
+                text chip.name height="1rem" padding-left="0.1875rem" padding-right="0.1875rem" box-sizing="border-box" border-radius="0.25rem" background-color=chip.background font-size="0.625rem" line-height="1rem" color=chip.ink max-width="10rem" line-clamp=1 min-width=0
               when compact and row.moreLabels > 0
-                text `+${row.moreLabels}` font-size=10 line-height="16px" color="light-dark(#71717b, #818181)" flex-shrink=0
+                text `+${row.moreLabels}` font-size="0.625rem" line-height="1rem" color="light-dark(#71717b, #818181)" flex-shrink=0
           box flex=1 min-width=0
-          text row.age font-size=11 line-height="16px" font-variant-numeric="tabular-nums" white-space="nowrap" color="light-dark(#71717b, #818181)" flex-shrink=0
+          text row.age font-size="0.6875rem" line-height="1rem" font-variant-numeric="tabular-nums" white-space="nowrap" color="light-dark(#71717b, #818181)" flex-shrink=0
 
 // PullRequestListGhost: seven placeholder rows while the first answer is out.
 component PrGhost
   view
-    column width="100%" gap=2 aria-label="Loading pull requests" role="status" testId="pull-requests-loading"
+    column width="100%" gap="0.125rem" aria-label="Loading pull requests" role="status" testId="pull-requests-loading"
       PrGhostRow(wide=true)
       PrGhostRow(wide=false)
       PrGhostRow(wide=true)
@@ -551,10 +553,10 @@ component PrGhostRow
   props
     wide: bool
   view
-    row width="100%" height=56 padding-left=12 padding-right=12 box-sizing="border-box" gap=8 align-items="center"
-      box width=16 height=16 border-radius=9999 background-color="light-dark(#e4e4e799, #ffffff0a)"
-      column flex=1 gap=6
-        box width=(wide ? "62%" : "48%") height=12 border-radius=4 background-color="light-dark(#e4e4e799, #ffffff0a)"
-        box width="28%" height=10 border-radius=4 background-color="light-dark(#e4e4e766, #ffffff07)"
+    row width="100%" height="3.5rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" gap="0.5rem" align-items="center"
+      box width="1rem" height="1rem" border-radius="624.9375rem" background-color="light-dark(#e4e4e799, #ffffff0a)"
+      column flex=1 gap="0.375rem"
+        box width=(wide ? "62%" : "48%") height="0.75rem" border-radius="0.25rem" background-color="light-dark(#e4e4e799, #ffffff0a)"
+        box width="28%" height="0.625rem" border-radius="0.25rem" background-color="light-dark(#e4e4e766, #ffffff07)"
 
 // PullRequestListEmptyState and PullRequestsUnavailableState: r5-shell-prs.contract.

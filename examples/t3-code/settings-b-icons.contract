@@ -51,14 +51,14 @@ shape SbPicker
 
 style SbOverlay
   position="absolute" left=0 right=0 top=0 bottom=0 display="flex" align-items="center" justify-content="center"
-  background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" padding=16 box-sizing="border-box" z-index=40
+  background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" padding="1rem" box-sizing="border-box" z-index=40
 style SbField
-  box-sizing="border-box" width="100%" height=32 padding-left=11 padding-right=11 padding-top=5 padding-bottom=5 border-radius=10 border-style="solid" border-width=1
-  border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
+  box-sizing="border-box" width="100%" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" padding-top="0.3125rem" padding-bottom="0.3125rem" border-radius="0.625rem" border-style="solid" border-width=1
+  border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
 style SbOutline
   cursor="pointer"
-  display="flex" flex-direction="row" align-items="center" justify-content="center" gap=8 box-sizing="border-box" height=32 padding-left=11 padding-right=11
-  border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" box-shadow="0 1px 2px #0000000d" flex-shrink=0
+  display="flex" flex-direction="row" align-items="center" justify-content="center" gap="0.5rem" box-sizing="border-box" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem"
+  border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" box-shadow="0 1px 2px #0000000d" flex-shrink=0
 
 // ToggleGroup variant="segmented": one 24pt toggle.
 component SbToggle
@@ -67,8 +67,8 @@ component SbToggle
     selected: bool
     choose: action
   view
-    button press=choose aria-label=label aria-checked=selected role="radio" testId=`project-icon-mode-${label}` display="flex" flex-direction="row" align-items="center" justify-content="center" height=24 padding-left=10 padding-right=10 box-sizing="border-box" border-radius=8 border-width=1 border-style="solid" border-color="#00000000" background-color=(selected ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(selected ? "0 1px 2px #0000001a" : "none")
-      text label font-size=14 line-height="20px" font-weight=500 white-space="nowrap" color=(selected ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #9a9a9a)")
+    button press=choose aria-label=label aria-checked=selected role="radio" testId=`project-icon-mode-${label}` display="flex" flex-direction="row" align-items="center" justify-content="center" height="1.5rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="#00000000" background-color=(selected ? "light-dark(#fcfcfc, #ffffff0f)" : "#00000000") box-shadow=(selected ? "0 1px 2px #0000001a" : "none")
+      text label font-size="0.875rem" line-height="1.25rem" font-weight=500 white-space="nowrap" color=(selected ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #9a9a9a)")
 
 // The dialog opens on the project's current override (the picker's one seed).
 component ProjectIconDialog
@@ -128,61 +128,61 @@ component ProjectIconEditor
   derive payload = mode == "monogram" ? `kind=monogram&text=${encodeURIComponent(picker.monogram)}&color=${color}` : (mode == "lucide" ? `kind=lucide&name=${iconName}&color=${color}` : `kind=emoji&emoji=${encodeURIComponent(shownEmoji)}`)
   view
     column class=SbOverlay testId="project-icon-overlay"
-      column width="100%" max-width=512 box-sizing="border-box" border-radius=18 border-style="solid" border-width=1 border-color="light-dark(#2727291a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") position="relative" role="dialog" aria-label="Choose project icon" testId="project-icon-dialog"
-        column padding-top=24 padding-left=24 padding-right=24 padding-bottom=12 gap=8
-          text "Choose project icon" font-size=20 line-height="20px" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
-          text "Choose an icon, emoji, or monogram." font-size=14 line-height="20px" color="light-dark(#71717b, #9a9a9a)"
-        column padding-top=4 padding-left=24 padding-right=24 padding-bottom=24 gap=16
-          row align-self="flex-start" padding=2 gap=2 border-radius=10 background-color="light-dark(#d4d4d866, #ffffff08)" role="radiogroup" aria-label="Icon type" testId="project-icon-mode"
+      column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727291a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") position="relative" role="dialog" aria-label="Choose project icon" testId="project-icon-dialog"
+        column padding-top="1.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="0.75rem" gap="0.5rem"
+          text "Choose project icon" font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+          text "Choose an icon, emoji, or monogram." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #9a9a9a)"
+        column padding-top="0.25rem" padding-left="1.5rem" padding-right="1.5rem" padding-bottom="1.5rem" gap="1rem"
+          row align-self="flex-start" padding="0.125rem" gap="0.125rem" border-radius="0.625rem" background-color="light-dark(#d4d4d866, #ffffff08)" role="radiogroup" aria-label="Icon type" testId="project-icon-mode"
             SbToggle(label="Icons", selected=(mode == "lucide"), choose=chooseMode("lucide"))
             SbToggle(label="Emoji", selected=(mode == "emoji"), choose=chooseMode("emoji"))
             SbToggle(label="Monogram", selected=(mode == "monogram"), choose=chooseMode("monogram"))
           when mode != "emoji"
             column
-              text "Color" font-size=12 line-height="16px" font-weight=500 margin-bottom=8 color="light-dark(#71717b, #9a9a9a)"
-              row flex-wrap="wrap" gap=6 role="group" aria-label="Icon color" testId="project-icon-colors"
+              text "Color" font-size="0.75rem" line-height="1rem" font-weight=500 margin-bottom="0.5rem" color="light-dark(#71717b, #9a9a9a)"
+              row flex-wrap="wrap" gap="0.375rem" role="group" aria-label="Icon color" testId="project-icon-colors"
                 each option in picker.colors key=option.value
-                  button press=chooseColor(option.value) aria-label=option.label aria-checked=(color == option.value) role="radio" testId=`project-icon-color-${option.value}` width=24 height=24 padding=0 box-sizing="border-box" border-radius=12 border-width=1 border-style="solid" border-color=(color == option.value ? "light-dark(#27272aa3, #f5f5f5a3)" : "#00000000") background-color="#00000000" display="flex" align-items="center" justify-content="center"
-                    box width=16 height=16 border-radius=8 background-color=option.swatch
+                  button press=chooseColor(option.value) aria-label=option.label aria-checked=(color == option.value) role="radio" testId=`project-icon-color-${option.value}` width="1.5rem" height="1.5rem" padding=0 box-sizing="border-box" border-radius="0.75rem" border-width=1 border-style="solid" border-color=(color == option.value ? "light-dark(#27272aa3, #f5f5f5a3)" : "#00000000") background-color="#00000000" display="flex" align-items="center" justify-content="center"
+                    box width="1rem" height="1rem" border-radius="0.5rem" background-color=option.swatch
           when mode == "lucide"
             input value=query input=set("query") placeholder="Search all Lucide icons" aria-label="Search Lucide icons" autocorrect="off" spellcheck="false" class=SbField testId="project-icon-search"
-            column max-height=256 overflow-y="scroll" testId="project-icon-grid-scroll"
-              row flex-wrap="wrap" gap=4 padding=2 testId="project-icon-grid"
+            column max-height="16rem" overflow-y="scroll" testId="project-icon-grid-scroll"
+              row flex-wrap="wrap" gap="0.25rem" padding="0.125rem" testId="project-icon-grid"
                 each item in picker.icons key=item.name
-                  button press=chooseIcon(item.name) hover=hover(item.name) aria-label=item.label aria-checked=(iconName == item.name) role="radio" testId=`project-icon-${item.name}` width=42.1 height=42.1 padding=0 box-sizing="border-box" border-radius=8 border-width=1 border-style="solid" border-color=(iconName == item.name ? "light-dark(#e4e4e7, #ffffff14)" : "#00000000") background-color=(iconName == item.name or hovered == item.name ? "light-dark(#f4f4f5, #ffffff0f)" : "#00000000") display="flex" align-items="center" justify-content="center"
+                  button press=chooseIcon(item.name) hover=hover(item.name) aria-label=item.label aria-checked=(iconName == item.name) role="radio" testId=`project-icon-${item.name}` width="2.63125rem" height="2.63125rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(iconName == item.name ? "light-dark(#e4e4e7, #ffffff14)" : "#00000000") background-color=(iconName == item.name or hovered == item.name ? "light-dark(#f4f4f5, #ffffff0f)" : "#00000000") display="flex" align-items="center" justify-content="center"
                     // An svg's light-dark() does not follow a scheme flip: one subtree per scheme.
                     when dark
-                      svg width=20 height=20 viewBox="0 0 24 24" color=inkDark fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
+                      svg width="1.25rem" height="1.25rem" viewBox="0 0 24 24" color=inkDark fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
                         path d=item.d
                     else
-                      svg width=20 height=20 viewBox="0 0 24 24" color=inkLight fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
+                      svg width="1.25rem" height="1.25rem" viewBox="0 0 24 24" color=inkLight fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
                         path d=item.d
             when picker.iconsEmpty
-              text "No icons found." font-size=14 line-height="20px" text-align="center" padding-top=32 padding-bottom=32 color="light-dark(#71717b, #9a9a9a)" testId="project-icon-empty"
+              text "No icons found." font-size="0.875rem" line-height="1.25rem" text-align="center" padding-top="2rem" padding-bottom="2rem" color="light-dark(#71717b, #9a9a9a)" testId="project-icon-empty"
           when mode == "monogram"
-            row gap=16 align-items="center" padding-top=8 padding-bottom=8
+            row gap="1rem" align-items="center" padding-top="0.5rem" padding-bottom="0.5rem"
               MonogramTile(text=(picker.monogramValid ? picker.monogram : seed.letters), width=picker.monogramWidth, ink=ink, surface=surface, size=48)
-              column flex=1 min-width=0 gap=8
-                text "Letters" font-size=14 line-height="17px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+              column flex=1 min-width=0 gap="0.5rem"
+                text "Letters" font-size="0.875rem" line-height="1.0625rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
                 input value=letters input=set("letters") aria-label="Letters" autocorrect="off" spellcheck="false" class=SbField border-color=(picker.monogramValid ? "light-dark(#d4d4d8, #ffffff14)" : "light-dark(#fb2c36, #ff6467)") box-shadow=(picker.monogramValid ? "none" : "0 0 0 3px light-dark(#fb2c3629, #ff646733)") testId="project-monogram"
-                text "One or two letters or numbers." font-size=12 line-height="16px" color="light-dark(#71717b, #9a9a9a)"
+                text "One or two letters or numbers." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #9a9a9a)"
           when mode == "emoji"
-            column max-height=256 overflow-y="scroll"
-              row flex-wrap="wrap" gap=4 padding=2 testId="project-emoji-grid"
+            column max-height="16rem" overflow-y="scroll"
+              row flex-wrap="wrap" gap="0.25rem" padding="0.125rem" testId="project-emoji-grid"
                 each option in picker.emojis key=option.emoji
-                  button press=chooseEmoji(option.emoji) hover=hover(option.emoji) aria-label=option.label aria-checked=(shownEmoji == option.emoji) role="radio" testId=`project-emoji-${option.label}` width=42.1 height=42.1 padding=0 box-sizing="border-box" border-radius=8 border-width=1 border-style="solid" border-color=(shownEmoji == option.emoji ? "light-dark(#e4e4e7, #ffffff14)" : "#00000000") background-color=(shownEmoji == option.emoji or hovered == option.emoji ? "light-dark(#f4f4f5, #ffffff0f)" : "#00000000") display="flex" align-items="center" justify-content="center"
-                    text option.emoji font-size=20 line-height="28px"
+                  button press=chooseEmoji(option.emoji) hover=hover(option.emoji) aria-label=option.label aria-checked=(shownEmoji == option.emoji) role="radio" testId=`project-emoji-${option.label}` width="2.63125rem" height="2.63125rem" padding=0 box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color=(shownEmoji == option.emoji ? "light-dark(#e4e4e7, #ffffff14)" : "#00000000") background-color=(shownEmoji == option.emoji or hovered == option.emoji ? "light-dark(#f4f4f5, #ffffff0f)" : "#00000000") display="flex" align-items="center" justify-content="center"
+                    text option.emoji font-size="1.25rem" line-height="1.75rem"
             column
-              text "Or paste any emoji" font-size=12 line-height="16px" font-weight=500 margin-bottom=8 color="light-dark(#71717b, #9a9a9a)"
+              text "Or paste any emoji" font-size="0.75rem" line-height="1rem" font-weight=500 margin-bottom="0.5rem" color="light-dark(#71717b, #9a9a9a)"
               input value=custom input=set("emoji") placeholder="Paste an emoji" aria-label="Custom emoji" autocorrect="off" spellcheck="false" class=SbField testId="project-emoji-custom"
           when error != ""
-            text error font-size=14 line-height="20px" role="alert" color="light-dark(#e7000b, #ff6467)" testId="project-icon-error"
-        row padding-left=24 padding-right=24 padding-top=16 padding-bottom=16 gap=8 align-items="center" justify-content="flex-end" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafab8, #ffffff05)" border-bottom-left-radius=17 border-bottom-right-radius=17
+            text error font-size="0.875rem" line-height="1.25rem" role="alert" color="light-dark(#e7000b, #ff6467)" testId="project-icon-error"
+        row padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" gap="0.5rem" align-items="center" justify-content="flex-end" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafab8, #ffffff05)" border-bottom-left-radius="1.0625rem" border-bottom-right-radius="1.0625rem"
           button press=close aria-keyshortcuts="Escape" class=SbOutline testId="project-icon-cancel"
-            text "Cancel" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
-          button press=raw("sb:project-icon-set", scope, payload) disabled=(not canSave) display="flex" flex-direction="row" align-items="center" justify-content="center" box-sizing="border-box" height=32 padding-left=11 padding-right=11 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" opacity=(canSave ? 1 : 0.64) testId="project-icon-save"
-            text "Save icon" font-size=14 font-weight=500 line-height="20px" color="#ffffff"
-        button press=close class=SbOutline width=32 height=32 padding-left=0 padding-right=0 border-width=0 box-shadow="none" background-color="#00000000" position="absolute" top=8 right=8 aria-label="Close" testId="project-icon-close"
+            text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+          button press=raw("sb:project-icon-set", scope, payload) disabled=(not canSave) display="flex" flex-direction="row" align-items="center" justify-content="center" box-sizing="border-box" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" opacity=(canSave ? 1 : 0.64) testId="project-icon-save"
+            text "Save icon" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
+        button press=close class=SbOutline width="2rem" height="2rem" padding-left=0 padding-right=0 border-width=0 box-shadow="none" background-color="#00000000" position="absolute" top="0.5rem" right="0.5rem" aria-label="Close" testId="project-icon-close"
           CnGlyph(name="x", size=16, color="light-dark(#71717b, #9a9a9a)")
 
 // ProjectFaviconPickerDialog: CommandDialog over the project's image files.
@@ -211,43 +211,43 @@ component ProjectFaviconDialog
   derive chosen = join(map(filter(picker.files, (f) => f.index == highlight), (f) => f.path), "")
   view
     box position="absolute" left=0 top=0 right=0 bottom=0 z-index=60 background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" press=close aria-label="Close" aria-keyshortcuts="Escape" testId="project-favicon-backdrop"
-    column position="absolute" left=floor((vw - width) / 2) top=top width=width max-height=min(544, vh * 0.76) z-index=61 box-sizing="border-box" border-radius=18 border-style="solid" border-width=1 border-color="light-dark(#2727291a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" role="dialog" aria-label="Choose project icon" testId="project-favicon-picker"
-      row padding-left=8 padding-right=8 padding-top=6 padding-bottom=6 flex-shrink=0 box-sizing="border-box"
-        box position="relative" width="100%" height=36 border-radius=10 box-sizing="border-box"
-          box position="absolute" left=10 top=10 width=16 height=16 display="flex"
+    column position="absolute" left=floor((vw - width) / 2) top=top width=width max-height=min(544, vh * 0.76) z-index=61 box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727291a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" role="dialog" aria-label="Choose project icon" testId="project-favicon-picker"
+      row padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" flex-shrink=0 box-sizing="border-box"
+        box position="relative" width="100%" height="2.25rem" border-radius="0.625rem" box-sizing="border-box"
+          box position="absolute" left="0.625rem" top="0.625rem" width="1rem" height="1rem" display="flex"
             when dark
               PaletteIcon(name="search", size=16, color="#9a9a9a")
             else
               PaletteIcon(name="search", size=16, color="#71717b")
-          input value=query input=set("query") key=onKey submit=raw("sb:project-favicon-set", data.iconScope, `path=${encodeURIComponent(chosen)}`) placeholder="Search image files…" aria-label="Search image files…" role="combobox" aria-expanded=true autocorrect="off" spellcheck="false" testId="project-favicon-search" width="100%" height=36 padding-left=33 padding-right=11 padding-top=8 padding-bottom=8 border-width=0 background-color="#00000000" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" box-sizing="border-box"
-      column flex-shrink=1 min-height=0 overflow-y="scroll" padding=8 box-sizing="border-box" border-top-left-radius=14 border-top-right-radius=14 role="listbox" testId="project-favicon-list"
+          input value=query input=set("query") key=onKey submit=raw("sb:project-favicon-set", data.iconScope, `path=${encodeURIComponent(chosen)}`) placeholder="Search image files…" aria-label="Search image files…" role="combobox" aria-expanded=true autocorrect="off" spellcheck="false" testId="project-favicon-search" width="100%" height="2.25rem" padding-left="2.0625rem" padding-right="0.6875rem" padding-top="0.5rem" padding-bottom="0.5rem" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" box-sizing="border-box"
+      column flex-shrink=1 min-height=0 overflow-y="scroll" padding="0.5rem" box-sizing="border-box" border-top-left-radius="0.875rem" border-top-right-radius="0.875rem" role="listbox" testId="project-favicon-list"
         when length(picker.files) == 0
-          text picker.fileEmpty font-size=14 line-height="20px" text-align="center" padding-top=24 padding-bottom=24 color="light-dark(#71717b, #9a9a9a)" testId="project-favicon-empty"
+          text picker.fileEmpty font-size="0.875rem" line-height="1.25rem" text-align="center" padding-top="1.5rem" padding-bottom="1.5rem" color="light-dark(#71717b, #9a9a9a)" testId="project-favicon-empty"
         else
-          text picker.fileGroup font-size=12 line-height="16px" font-weight=500 padding-left=8 padding-right=8 padding-top=6 padding-bottom=6 color="light-dark(#71717b, #9a9a9a)" role="presentation"
+          text picker.fileGroup font-size="0.75rem" line-height="1rem" font-weight=500 padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" color="light-dark(#71717b, #9a9a9a)" role="presentation"
           each file in picker.files key=file.path
-            button press=raw("sb:project-favicon-set", data.iconScope, `path=${encodeURIComponent(file.path)}`) hover=point(file.index) disabled=busy role="option" aria-selected=(file.index == highlight) aria-label=`${file.name} ${file.path}` testId=`project-favicon-${file.path}` width="100%" min-height=48 padding-left=8 padding-right=8 padding-top=6 padding-bottom=6 gap=8 border-width=0 border-radius=6 display="flex" flex-direction="row" align-items="center" justify-content="flex-start" box-sizing="border-box" background-color=(file.index == highlight ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+            button press=raw("sb:project-favicon-set", data.iconScope, `path=${encodeURIComponent(file.path)}`) hover=point(file.index) disabled=busy role="option" aria-selected=(file.index == highlight) aria-label=`${file.name} ${file.path}` testId=`project-favicon-${file.path}` width="100%" min-height="3rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" gap="0.5rem" border-width=0 border-radius="0.375rem" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" box-sizing="border-box" background-color=(file.index == highlight ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
               FileTypeIcon(token=file.token, size=16)
               column flex=1 min-width=0 align-items="flex-start"
-                text file.name font-size=14 line-height="20px" color=(file.index == highlight ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#27272a, #f5f5f5)") line-clamp=1
-                text file.path font-size=12 line-height="16px" color="light-dark(#71717bb3, #9a9a9ab3)" line-clamp=1
+                text file.name font-size="0.875rem" line-height="1.25rem" color=(file.index == highlight ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#27272a, #f5f5f5)") line-clamp=1
+                text file.path font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #9a9a9ab3)" line-clamp=1
       // CommandFooter: the key hints, then the trailing "Open in Finder" (CommandFooterAction, ghost-muted xs).
-      row height=40 padding-left=16 padding-right=16 gap=8 align-items="center" justify-content="space-between" flex-shrink=0 box-sizing="border-box" background-color="light-dark(#27272a06, #f5f5f506)" testId="project-favicon-footer"
-        row gap=12 align-items="center"
-          row gap=4 align-items="center"
+      row height="2.5rem" padding-left="1rem" padding-right="1rem" gap="0.5rem" align-items="center" justify-content="space-between" flex-shrink=0 box-sizing="border-box" background-color="light-dark(#27272a06, #f5f5f506)" testId="project-favicon-footer"
+        row gap="0.75rem" align-items="center"
+          row gap="0.25rem" align-items="center"
             SbKbd(label="", icon="arrow-up", dark=dark)
             SbKbd(label="", icon="arrow-down", dark=dark)
-            text "Navigate" font-size=14 line-height="20px" font-weight=500 color="light-dark(#71717b, #9a9a9a)"
-          row gap=4 align-items="center"
+            text "Navigate" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b, #9a9a9a)"
+          row gap="0.25rem" align-items="center"
             SbKbd(label="Enter", icon="", dark=dark)
-            text "Select icon" font-size=14 line-height="20px" font-weight=500 color="light-dark(#71717b, #9a9a9a)"
-          row gap=4 align-items="center"
+            text "Select icon" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b, #9a9a9a)"
+          row gap="0.25rem" align-items="center"
             SbKbd(label="Esc", icon="", dark=dark)
-            text "Close" font-size=14 line-height="20px" font-weight=500 color="light-dark(#71717b, #9a9a9a)"
+            text "Close" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b, #9a9a9a)"
         when data.iconPickExternal != ""
           // Disabled while the panel is open (the command stays pending until it answers).
-          button press=raw("sb:project-favicon-pick", data.iconScope, `cwd=${encodeURIComponent(data.iconCwd)}`) disabled=busy aria-label=data.iconPickExternal testId="project-favicon-pick-external" height=24 padding-left=8 padding-right=8 border-width=0 border-radius=6 background-color="#00000000" opacity=(busy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
-            text data.iconPickExternal font-size=12 line-height="16px" font-weight=500 color="light-dark(#71717b, #9a9a9a)"
+          button press=raw("sb:project-favicon-pick", data.iconScope, `cwd=${encodeURIComponent(data.iconCwd)}`) disabled=busy aria-label=data.iconPickExternal testId="project-favicon-pick-external" height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" border-width=0 border-radius="0.375rem" background-color="#00000000" opacity=(busy ? 0.64 : 1) display="flex" flex-direction="row" align-items="center"
+            text data.iconPickExternal font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #9a9a9a)"
 
 // Kbd: h-5 min-w-5 rounded px-1, foreground/8%; its glyph per scheme (an svg's light-dark() does not follow a flip).
 component SbKbd
@@ -256,11 +256,11 @@ component SbKbd
     icon: string
     dark: bool
   view
-    box height=20 min-width=20 padding-left=4 padding-right=4 border-radius=4 box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="light-dark(#27272a14, #f5f5f514)"
+    box height="1.25rem" min-width="1.25rem" padding-left="0.25rem" padding-right="0.25rem" border-radius="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="light-dark(#27272a14, #f5f5f514)"
       when icon != ""
         when dark
           PaletteIcon(name=icon, size=12, color="#f5f5f5")
         else
           PaletteIcon(name=icon, size=12, color="#27272a")
       else
-        text label font-size=12 line-height="16px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+        text label font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"

@@ -75,6 +75,11 @@ component T3Code
     after(20000, disconnectDelayElapsed)
   action disconnectDelayElapsed
     disconnectDelayKey = data.serverUpdate.unavailable
+  // Interface font size (appearanceFonts.ts applyAppearanceFontVariables): the root font size every rem follows, at launch once the preferences load and on every change.
+  task rootFont key=data.look.fontSize
+    after(1, rootFontApply)
+  action rootFontApply
+    setRootFontSize(data.look.fontSize)
   // auto-balance (auto-balance.ts; X19, X21): an unresolved Auto draft asks its machines' host resources, at the window's time.
   mutation balanceLoaded as shape Change refreshes data
   task balanceLoad when branches.balanceFetch != "" key=branches.balanceFetch

@@ -116,7 +116,7 @@ component PaletteIcon
     color: string
   derive geometry = name == "search" ? "m21 21-4.34-4.34M3 11a8 8 0 1 0 16 0a8 8 0 1 0 -16 0" : name == "arrow-left" ? "m12 19-7-7 7-7M19 12H5" : name == "square-pen" ? "M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.375 2.625a1 1 0 0 1 3 3l-9.013 9.014a2 2 0 0 1-.853.505l-2.873.84a.5.5 0 0 1-.62-.62l.84-2.873a2 2 0 0 1 .506-.852z" : name == "chevron-right" ? "m9 18 6-6-6-6" : name == "file-search" ? "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2zM14 2v5a1 1 0 0 0 1 1h5M9 14.5a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0 -5 0M13.3 16.3 15 18" : name == "text-search" ? "M21 5H3M10 12H3M10 19H3M14 15a3 3 0 1 0 6 0a3 3 0 1 0 -6 0m7 4-1.9-1.9" : name == "folder-git" ? "M18 19a5 5 0 0 1-5-5v8M9 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v5M11 12a2 2 0 1 0 4 0a2 2 0 1 0 -4 0M18 19a2 2 0 1 0 4 0a2 2 0 1 0 -4 0" : name == "folder-plus" ? "M12 10v6M9 13h6M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" : name == "palette" ? "M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z" : name == "monitor" ? "M4 3h16a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2ZM8 21h8M12 17v4" : name == "sun" ? "M8 12a4 4 0 1 0 8 0a4 4 0 1 0 -8 0M12 2v2M12 20v2m-7.07-17.07 1.41 1.41m11.32 11.32 1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41" : name == "moon" ? "M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401" : name == "pull-request" ? "M2 6a3 3 0 1 0 6 0a3 3 0 1 0 -6 0M5 9v12M16 18a3 3 0 1 0 6 0a3 3 0 1 0 -6 0m-1-9-3-3 3-3M12 6h5a2 2 0 0 1 2 2v7" : name == "pull-request-link" ? "M9 17H7A5 5 0 0 1 7 7h2M15 7h2a5 5 0 1 1 0 10h-2M8 12h8" : name == "chart" ? "M5 21v-6M12 21V3M19 21V9" : name == "settings" ? "M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915M9 12a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" : name == "folder" ? "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" : name == "message-square" ? "M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z" : name == "link" or name == "source-url" ? "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" : name == "rotate-ccw" ? "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5" : name == "corner-left-up" ? "M14 9 9 4 4 9M20 20h-7a4 4 0 0 1-4-4V4" : name == "file" ? "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2zM14 2v5a1 1 0 0 0 1 1h5" : name == "arrow-up" ? "m5 12 7-7 7 7M12 19V5" : name == "arrow-down" ? "M12 5v14m7-7-7 7-7-7" : name == "check" ? "M20 6 9 17l-5-5" : name == "message-square-dashed" ? "M12 19h.01M12 3h.01M16 19h.01M16 3h.01M2 13h.01M2 17v4.286a.71.71 0 0 0 1.212.502l2.202-2.202A2 2 0 0 1 6.828 19H8M2 5a2 2 0 0 1 2-2M2 9h.01M20 3a2 2 0 0 1 2 2M22 13h.01M22 17a2 2 0 0 1-2 2M22 9h.01M8 3h.01" : ""
   view
-    svg width=size height=size viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
       path d=geometry
       when name == "palette"
         circle cx=13.5 cy=6.5 r=0.5 fill="currentColor"
@@ -137,7 +137,7 @@ component PaletteGlyph
       ProjectMark(label=project, muted=false, ink=ink, surface=surface, size=16)
     else
       when name == "source-github"
-        svg width=16 height=16 viewBox="0 0 16 16" color=(dark ? "#818181" : "#71717b") fill="none" flex-shrink=0 aria-hidden=true
+        svg width="1rem" height="1rem" viewBox="0 0 16 16" color=(dark ? "#818181" : "#71717b") fill="none" flex-shrink=0 aria-hidden=true
           path fill-rule="evenodd" clip-rule="evenodd" fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8C0 11.54 2.29 14.53 5.47 15.59C5.87 15.66 6.02 15.42 6.02 15.21C6.02 15.02 6.01 14.39 6.01 13.72C4 14.09 3.48 13.23 3.32 12.78C3.23 12.55 2.84 11.84 2.5 11.65C2.22 11.5 1.82 11.13 2.49 11.12C3.12 11.11 3.57 11.7 3.72 11.94C4.44 13.15 5.59 12.81 6.05 12.6C6.12 12.08 6.33 11.73 6.56 11.53C4.78 11.33 2.92 10.64 2.92 7.58C2.92 6.71 3.23 5.99 3.74 5.43C3.66 5.23 3.38 4.41 3.82 3.31C3.82 3.31 4.49 3.1 6.02 4.13C6.66 3.95 7.34 3.86 8.02 3.86C8.7 3.86 9.38 3.95 10.02 4.13C11.55 3.09 12.22 3.31 12.22 3.31C12.66 4.41 12.38 5.23 12.3 5.43C12.81 5.99 13.12 6.7 13.12 7.58C13.12 10.65 11.25 11.33 9.47 11.53C9.76 11.78 10.01 12.26 10.01 13.01C10.01 14.08 10 14.94 10 15.21C10 15.42 10.15 15.67 10.55 15.59C13.71 14.53 16 11.53 16 8C16 3.58 12.42 0 8 0Z"
       else
         when name == "source-gitlab"
@@ -164,8 +164,8 @@ component PaletteOrb
     orb: ThemeOrb
     id: string
   view
-    box width=12 height=12 border-radius=6 overflow="hidden" flex-shrink=0 box-shadow=(orb.mode == "dark" ? "inset 0 0 0 1px #ffffff24" : "inset 0 0 0 1px #0000001a")
-      svg width=12 height=12 viewBox="0 0 56 56" aria-hidden=true
+    box width="0.75rem" height="0.75rem" border-radius="0.375rem" overflow="hidden" flex-shrink=0 box-shadow=(orb.mode == "dark" ? "inset 0 0 0 1px #ffffff24" : "inset 0 0 0 1px #0000001a")
+      svg width="0.75rem" height="0.75rem" viewBox="0 0 56 56" aria-hidden=true
         defs
           radialGradient id=`p-accent-${id}` cx=orb.ax cy=orb.ay r=orb.ar gradientUnits="userSpaceOnUse"
             stop offset=0 stop-color=orb.accent
@@ -187,53 +187,53 @@ component PaletteText
     dark: bool
   view
     column flex=1 min-width=0 align-items="flex-start"
-      row min-width=0 max-width="100%" gap=6 align-items="center"
+      row min-width=0 max-width="100%" gap="0.375rem" align-items="center"
         when length(row.titleParts) > 0
-          text font-size=14 line-height="20px" color="light-dark(#71717b, #818181)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
+          text font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
             each part in row.titleParts key=part.id
               text part.text font-weight=(part.hit ? 600 : 400) color=(part.hit ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
         else
           when row.bold != ""
-            text font-size=14 line-height="20px" color=(highlighted ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#27272a, #f5f5f5)") white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
+            text font-size="0.875rem" line-height="1.25rem" color=(highlighted ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#27272a, #f5f5f5)") white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
               text row.prefix
               text row.bold font-weight=600
           else
-            text row.title font-size=14 line-height="20px" color=(highlighted ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#27272a, #f5f5f5)") white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
+            text row.title font-size="0.875rem" line-height="1.25rem" color=(highlighted ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#27272a, #f5f5f5)") white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
       when row.matchLabel != ""
-        text width="100%" font-size=12 line-height="16px" color="light-dark(#71717bd9, #818181d9)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+        text width="100%" font-size="0.75rem" line-height="1rem" color="light-dark(#71717bd9, #818181d9)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
           text `${row.matchLabel} ` color=(row.matchLabel == "You:" ? "light-dark(#1447e6, #50a2ff)" : "light-dark(#007a55, #00d492)")
           each part in row.matchParts key=part.id
             text part.text font-weight=(part.hit ? 600 : 400) color=(part.hit ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717bd9, #818181d9)")
       when row.icon == "project"
-        row gap=4 align-items="center" min-width=0 max-width="100%" height=16
-          text row.env font-size=12 line-height="16px" color="light-dark(#71717bb3, #818181b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" flex-shrink=1 min-width=0
-          text "·" font-size=12 line-height="16px" color="light-dark(#71717b80, #81818180)" flex-shrink=0
-          text row.description font-size=12 line-height="16px" color="light-dark(#71717bb3, #818181b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" flex-shrink=1 min-width=0
+        row gap="0.25rem" align-items="center" min-width=0 max-width="100%" height="1rem"
+          text row.env font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #818181b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" flex-shrink=1 min-width=0
+          text "·" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b80, #81818180)" flex-shrink=0
+          text row.description font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #818181b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" flex-shrink=1 min-width=0
       when row.env != "" and row.icon != "project"
-        row gap=4 align-items="center" min-width=0 max-width="100%" height=18
+        row gap="0.25rem" align-items="center" min-width=0 max-width="100%" height="1.125rem"
           when row.project != ""
             ProjectMark(label=row.project, muted=false, ink=row.projectInk, surface=row.projectSurface, size=12)
-          text row.description font-size=12 line-height="16px" color="light-dark(#71717bb3, #818181b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" flex-shrink=1 min-width=0
-          text "·" font-size=12 line-height="16px" color="light-dark(#71717b80, #81818180)" flex-shrink=0
-          text row.env font-size=12 line-height="16px" color="light-dark(#71717bb3, #818181b3)" flex-shrink=0
+          text row.description font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #818181b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" flex-shrink=1 min-width=0
+          text "·" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b80, #81818180)" flex-shrink=0
+          text row.env font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #818181b3)" flex-shrink=0
           when row.branch != ""
-            text "·" font-size=12 line-height="16px" color="light-dark(#71717b80, #81818180)" flex-shrink=0
-            text row.branch font-size=12 line-height="16px" color="light-dark(#71717bb3, #818181b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
+            text "·" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b80, #81818180)" flex-shrink=0
+            text row.branch font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #818181b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
           when row.provider != ""
-            text "·" font-size=12 line-height="16px" color="light-dark(#71717b80, #81818180)" flex-shrink=0
+            text "·" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b80, #81818180)" flex-shrink=0
             box opacity=0.7 display="flex"
               ProviderMark(driver=row.provider, size=12, color=(dark ? "#818181" : "#71717b"))
           when row.current
-            text "·" font-size=12 line-height="16px" color="light-dark(#71717b80, #81818180)" flex-shrink=0
-            text "Current thread" font-size=12 line-height="16px" color="light-dark(#71717bb3, #818181b3)" flex-shrink=0
+            text "·" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b80, #81818180)" flex-shrink=0
+            text "Current thread" font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #818181b3)" flex-shrink=0
       when row.env == ""
         when length(row.titleParts) > 0
-          text font-size=12 line-height="16px" color="light-dark(#71717bb3, #818181b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
+          text font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #818181b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
             each part in row.matchParts key=part.id
               text part.text font-weight=(part.hit ? 600 : 400) color=(part.hit ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
         else
           when row.description != ""
-            text row.description font-size=12 line-height="16px" color="light-dark(#71717bb3, #818181b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 max-width="100%"
+            text row.description font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #818181b3)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 max-width="100%"
 
 component PaletteRowView
   props
@@ -246,58 +246,58 @@ component PaletteRowView
     hover: action
   view
     when row.headerGap and row.header == ""
-      box height=6 flex-shrink=0
+      box height="0.375rem" flex-shrink=0
     when row.header != ""
-      text row.header font-size=12 line-height="16px" font-weight=500 padding-left=8 padding-right=8 padding-top=6 padding-bottom=6 margin-top=(row.headerGap ? 6 : 0) color="light-dark(#71717b, #818181)" role="presentation"
+      text row.header font-size="0.75rem" line-height="1rem" font-weight=500 padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" margin-top=(row.headerGap ? "0.375rem" : "0px") color="light-dark(#71717b, #818181)" role="presentation"
     when row.kind == "file-header" and row.headerGap
-      box height=8 flex-shrink=0
+      box height="0.5rem" flex-shrink=0
     when row.kind == "file-header"
       // ProjectContentSearchDialog: a sticky 32pt file header on the card colour, then its match count.
-      row height=32 gap=8 padding-left=12 padding-right=12 align-items="center" width="100%" box-sizing="border-box" background-color="light-dark(#fffffff2, #1b1b1bf2)"
+      row height="2rem" gap="0.5rem" padding-left="0.75rem" padding-right="0.75rem" align-items="center" width="100%" box-sizing="border-box" background-color="light-dark(#fffffff2, #1b1b1bf2)"
         DiffGlyph(name=(row.icon == "file-md" ? "markdown" : "file"), size=14, color=(row.icon == "file-md" ? (dark ? "#5ecc71" : "#199f43") : (dark ? "#818181" : "#71717b")))
-        text row.title font-size=12 line-height="16px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" flex-shrink=0
+        text row.title font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" flex-shrink=0
         when row.description != ""
-          text row.description font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
+          text row.description font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
         box flex=1
-        text row.badge font-size=10 line-height="14px" padding-left=6 padding-right=6 padding-top=2 padding-bottom=2 border-radius=999 background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#71717b, #818181)"
+        text row.badge font-size="0.625rem" line-height="0.875rem" padding-left="0.375rem" padding-right="0.375rem" padding-top="0.125rem" padding-bottom="0.125rem" border-radius="62.4375rem" background-color="light-dark(#fafafa, #ffffff08)" color="light-dark(#71717b, #818181)"
     else
       when row.kind == "line"
-        button press=run(row.op, row.arg, row.arg2) hover=hover(row.index) disabled=busy role="option" aria-selected=highlighted aria-label=`${row.arg}:${row.line}` testId=`palette-line-${row.index}` width="100%" height=28 padding-left=12 padding-right=12 gap=12 border-width=0 border-radius=0 display="flex" flex-direction="row" align-items="center" justify-content="flex-start" box-sizing="border-box" background-color=(highlighted ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
-          text row.line width=40 flex-shrink=0 text-align="right" font-family="ui-monospace" font-size=12 line-height="16px" color="light-dark(#71717bb3, #818181b3)"
+        button press=run(row.op, row.arg, row.arg2) hover=hover(row.index) disabled=busy role="option" aria-selected=highlighted aria-label=`${row.arg}:${row.line}` testId=`palette-line-${row.index}` width="100%" height="1.75rem" padding-left="0.75rem" padding-right="0.75rem" gap="0.75rem" border-width=0 border-radius=0 display="flex" flex-direction="row" align-items="center" justify-content="flex-start" box-sizing="border-box" background-color=(highlighted ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+          text row.line width="2.5rem" flex-shrink=0 text-align="right" font-family="ui-monospace" font-size=12 line-height="16px" color="light-dark(#71717bb3, #818181b3)"
           text flex=1 min-width=0 font-family="ui-monospace" font-size=12 line-height="16px" color="light-dark(#27272a, #f5f5f5)" white-space="pre" overflow="hidden" text-overflow="ellipsis" text-align="left"
             each part in row.matchParts key=part.id
               text part.text color=synColor(part.cls) font-style=synSlant(part.cls) background-color=(part.hit ? "light-dark(#1b4ed840, #346bf140)" : "#00000000")
       else
         when row.kind == "disabled"
-          row min-height=(row.description != "" ? 48 : 32) width="100%" padding-left=8 padding-right=8 padding-top=6 padding-bottom=6 gap=8 border-radius=6 align-items="center" box-sizing="border-box" testId=`palette-row-${row.key}`
-            box opacity=0.64 display="flex" flex-direction="row" align-items="center" gap=8 flex=1 min-width=0
+          row min-height=(row.description != "" ? "3rem" : "2rem") width="100%" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" gap="0.5rem" border-radius="0.375rem" align-items="center" box-sizing="border-box" testId=`palette-row-${row.key}`
+            box opacity=0.64 display="flex" flex-direction="row" align-items="center" gap="0.5rem" flex=1 min-width=0
               PaletteGlyph(name=row.icon, project=row.project, ink=row.projectInk, surface=row.projectSurface, dark=dark)
               PaletteText(row=row, highlighted=false, dark=dark)
             when row.badge != ""
-              button press=run("settings", row.badgeOp, "") aria-label=row.badge testId=`palette-setup-${row.key}` opacity=0.64 height=20 padding-left=5 padding-right=5 border-radius=6 border-width=1 border-style="solid" border-color="light-dark(#fe9a0052, #fe9a0052)" background-color="light-dark(#ff9a0029, #ff9a0029)" display="flex" flex-direction="row" align-items="center" flex-shrink=0
-                text row.badge font-size=11 line-height="15.7px" font-weight=500 color="light-dark(#bb4d00, #ffb900)"
+              button press=run("settings", row.badgeOp, "") aria-label=row.badge testId=`palette-setup-${row.key}` opacity=0.64 height="1.25rem" padding-left="0.3125rem" padding-right="0.3125rem" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#fe9a0052, #fe9a0052)" background-color="light-dark(#ff9a0029, #ff9a0029)" display="flex" flex-direction="row" align-items="center" flex-shrink=0
+                text row.badge font-size="0.6875rem" line-height="0.98125rem" font-weight=500 color="light-dark(#bb4d00, #ffb900)"
         else
-          button press=run(row.op, row.arg, row.arg2) hover=hover(row.index) disabled=busy role="option" aria-selected=highlighted aria-label=(row.bold != "" ? `${row.prefix}${row.bold}` : row.title) testId=`palette-row-${row.key}` width="100%" min-height=32 padding-left=8 padding-right=8 padding-top=6 padding-bottom=6 gap=8 border-width=0 border-radius=6 display="flex" flex-direction="row" align-items="center" justify-content="flex-start" box-sizing="border-box" background-color=(highlighted ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+          button press=run(row.op, row.arg, row.arg2) hover=hover(row.index) disabled=busy role="option" aria-selected=highlighted aria-label=(row.bold != "" ? `${row.prefix}${row.bold}` : row.title) testId=`palette-row-${row.key}` width="100%" min-height="2rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" gap="0.5rem" border-width=0 border-radius="0.375rem" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" box-sizing="border-box" background-color=(highlighted ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
             PaletteGlyph(name=row.icon, project=row.project, ink=row.projectInk, surface=row.projectSurface, dark=dark)
             PaletteText(row=row, highlighted=highlighted, dark=dark)
             when row.trailing == "Current"
-              text "Current" font-size=12 line-height="16px" color="light-dark(#71717bb3, #818181b3)" flex-shrink=0
+              text "Current" font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #818181b3)" flex-shrink=0
             when length(row.orbs) > 0
-              row gap=4 flex-shrink=0 align-items="center"
+              row gap="0.25rem" flex-shrink=0 align-items="center"
                 each orb in row.orbs key=orb.mode
                   PaletteOrb(orb=orb, id=`${row.key}-${orb.mode}`)
             when row.checkbox
-              box width=16 height=16 border-radius=4 border-width=1 border-style="solid" box-sizing="border-box" flex-shrink=0 display="flex" align-items="center" justify-content="center" border-color=(row.checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff26)") background-color=(row.checked ? "light-dark(#1b4ed8, #346bf1)" : "#00000000") aria-hidden=true
+              box width="1rem" height="1rem" border-radius="0.25rem" border-width=1 border-style="solid" box-sizing="border-box" flex-shrink=0 display="flex" align-items="center" justify-content="center" border-color=(row.checked ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff26)") background-color=(row.checked ? "light-dark(#1b4ed8, #346bf1)" : "#00000000") aria-hidden=true
                 when row.checked
                   PaletteIcon(name="check", size=12, color="#ffffff")
             when row.terminalCount > 0
               TerminalProcessIndicator(label="Terminal process running", tooltip="Terminal process running", size=12, reduced=reduced, id=`palette-terminal-status-${row.key}`)
             when row.timestamp != ""
-              text row.timestamp min-width=48 flex-shrink=0 text-align="right" font-size=12 line-height="16px" color="light-dark(#71717bb3, #818181b3)"
+              text row.timestamp min-width="3rem" flex-shrink=0 text-align="right" font-size="0.75rem" line-height="1rem" color="light-dark(#71717bb3, #818181b3)"
             when row.shortcut != ""
-              text row.shortcut font-size=12 line-height="16px" font-weight=500 letter-spacing=1.2 color="light-dark(#71717b, #818181)" flex-shrink=0
+              text row.shortcut font-size="0.75rem" line-height="1rem" font-weight=500 letter-spacing="0.075rem" color="light-dark(#71717b, #818181)" flex-shrink=0
             when row.kind == "submenu" or row.trailing == "chevron"
-              box margin-right=-2 display="flex" flex-shrink=0
+              box margin-right="-0.125rem" display="flex" flex-shrink=0
                 PaletteIcon(name="chevron-right", size=16, color=(dark ? "#818181b3" : "#71717bb3"))
 
 // Kbd: h-5 min-w-5 rounded px-1, foreground/8% in the footer.
@@ -311,11 +311,11 @@ component PaletteToggle
     testId: string
     press: action
   view
-    button press=press aria-label=label aria-checked=on role="switch" testId=testId width=39 height=24 padding=0 border-width=1 border-style="solid" border-color="#00000000" border-radius=8 box-sizing="border-box" background-color=(on ? "light-dark(#ffffff, #ffffff13)" : "#00000000") box-shadow=(on ? "0 1px 2px #0000001a" : "none") display="flex" flex-direction="row" align-items="center" justify-content="center"
+    button press=press aria-label=label aria-checked=on role="switch" testId=testId width="2.4375rem" height="1.5rem" padding=0 border-width=1 border-style="solid" border-color="#00000000" border-radius="0.5rem" box-sizing="border-box" background-color=(on ? "light-dark(#ffffff, #ffffff13)" : "#00000000") box-shadow=(on ? "0 1px 2px #0000001a" : "none") display="flex" flex-direction="row" align-items="center" justify-content="center"
       column align-items="center"
         text glyph font-family="ui-monospace" font-size=14 line-height=(underline ? "16px" : "20px") font-weight=500 color=(on ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
         when underline
-          box width=17 height=2 border-radius=1 background-color=(on ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+          box width="1.0625rem" height=2 border-radius=1 background-color=(on ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
 
 component PaletteKbd
   props
@@ -323,11 +323,11 @@ component PaletteKbd
     icon: string
     dark: bool
   view
-    box height=20 min-width=20 padding-left=4 padding-right=4 border-radius=4 box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="light-dark(#27272a14, #f5f5f514)"
+    box height="1.25rem" min-width="1.25rem" padding-left="0.25rem" padding-right="0.25rem" border-radius="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content="center" background-color="light-dark(#27272a14, #f5f5f514)"
       when icon != ""
         PaletteIcon(name=icon, size=12, color=(dark ? "#f5f5f5" : "#27272a"))
       else
-        text label font-size=12 line-height="16px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+        text label font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
 
 component CommandPalette
   props
@@ -397,74 +397,74 @@ component CommandPaletteBody
     box position="absolute" left=0 top=0 right=0 bottom=0 z-index=60 background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" press=close aria-label=(view.escapeLabel == "Back" ? "Back" : "Close") testId="palette-backdrop"
     // Escape: the host binds key shortcuts on buttons only.
     button press=close aria-keyshortcuts="Escape" aria-label=(view.escapeLabel == "Back" ? "Back" : "Close") testId="palette-escape" position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000" z-index=60
-    column retainFocus=true position="absolute" left=floor((viewport.width - width) / 2) top=top width=width max-height=maxHeight min-height=(view.panel == "fill" ? maxHeight : 0) z-index=61 box-sizing="border-box" border-radius=18 border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(scheme == "dark" ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" role="dialog" aria-label=view.label testId=view.testId
-      row padding-left=8 padding-right=8 padding-top=6 padding-bottom=6 flex-shrink=0 box-sizing="border-box"
-        box position="relative" width="100%" height=36 border-radius=10 box-sizing="border-box"
+    column retainFocus=true position="absolute" left=floor((viewport.width - width) / 2) top=top width=width max-height=maxHeight min-height=(view.panel == "fill" ? maxHeight : 0) z-index=61 box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(scheme == "dark" ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" role="dialog" aria-label=view.label testId=view.testId
+      row padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" flex-shrink=0 box-sizing="border-box"
+        box position="relative" width="100%" height="2.25rem" border-radius="0.625rem" box-sizing="border-box"
           when view.addon == "back"
-            button press=back aria-label="Back" testId="palette-back" position="absolute" left=9 top=10 width=16 height=16 padding=0 border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center" z-index=2
+            button press=back aria-label="Back" testId="palette-back" position="absolute" left="0.5625rem" top="0.625rem" width="1rem" height="1rem" padding=0 border-width=0 background-color="#00000000" display="flex" align-items="center" justify-content="center" z-index=2
               PaletteIcon(name="arrow-left", size=16, color=(dark ? "#f5f5f5" : "#27272a"))
           else
-            box position="absolute" left=11 top=10 display="flex" z-index=2
+            box position="absolute" left="0.6875rem" top="0.625rem" display="flex" z-index=2
               PaletteIcon(name=(view.addon == "folder-plus" ? "folder-plus" : "search"), size=16, color=(view.addon == "folder-plus" ? (dark ? "#f5f5f5" : "#27272a") : (dark ? "#818181" : "#71717b")))
           when query == ""
-            text view.placeholder position="absolute" left=33 top=0 right=view.inputPaddingRight font-size=14 line-height="36px" color="light-dark(#71717b, #818181)" line-clamp=1 aria-hidden=true
+            text view.placeholder position="absolute" left="2.0625rem" top=0 right=view.inputPaddingRight font-size="0.875rem" line-height="2.25rem" color="light-dark(#71717b, #818181)" line-clamp=1 aria-hidden=true
           // py-2 in the reference; the native field sets its text 1pt higher than Chrome in the same box, so 9/7.
-          input id="palette-input" testId="palette-input" value=query input=edit key=onKey submit=run(tOp, tArg, tArg2) autofocus=true role="combobox" aria-label=view.placeholder aria-expanded=true autocorrect="off" spellcheck="false" disabled=(view.placeholder == "" ) width="100%" height=36 padding-left=31 padding-right=view.inputPaddingRight padding-top=9 padding-bottom=7 border-width=0 background-color="#00000000" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" box-sizing="border-box"
+          input id="palette-input" testId="palette-input" value=query input=edit key=onKey submit=run(tOp, tArg, tArg2) autofocus=true role="combobox" aria-label=view.placeholder aria-expanded=true autocorrect="off" spellcheck="false" disabled=(view.placeholder == "" ) width="100%" height="2.25rem" padding-left="1.9375rem" padding-right=view.inputPaddingRight padding-top="0.5625rem" padding-bottom="0.4375rem" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" box-sizing="border-box"
           when view.accessory != ""
-            button press=run(view.accessoryOp, view.accessoryArg, view.accessoryArg2) disabled=(busy or not view.accessoryEnabled) aria-label=`${view.accessory} (${view.accessoryKey})` testId="palette-accessory" position="absolute" right=2 top=6 height=24 padding-left=7 padding-right=7 gap=4 border-radius=8 box-sizing="border-box" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" display="flex" flex-direction="row" align-items="center" opacity=(busy or not view.accessoryEnabled ? 0.64 : 1) z-index=2
-              text view.accessory font-size=12 line-height="16px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-              box height=20 padding-left=4 padding-right=4 border-radius=4 box-sizing="border-box" display="flex" flex-direction="row" align-items="center" background-color="light-dark(#27272a08, #ffffff08)"
-                text view.accessoryKey font-size=12 line-height="16px" font-weight=500 color="light-dark(#71717b, #818181)"
+            button press=run(view.accessoryOp, view.accessoryArg, view.accessoryArg2) disabled=(busy or not view.accessoryEnabled) aria-label=`${view.accessory} (${view.accessoryKey})` testId="palette-accessory" position="absolute" right="0.125rem" top="0.375rem" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" gap="0.25rem" border-radius="0.5rem" box-sizing="border-box" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #ffffff08)" display="flex" flex-direction="row" align-items="center" opacity=(busy or not view.accessoryEnabled ? 0.64 : 1) z-index=2
+              text view.accessory font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+              box height="1.25rem" padding-left="0.25rem" padding-right="0.25rem" border-radius="0.25rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" background-color="light-dark(#27272a08, #ffffff08)"
+                text view.accessoryKey font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
           when view.toggles
             // The segmented Match case / whole word / regex toggles (ui/toggle.tsx, variant segmented).
-            row position="absolute" right=2 top=3 height=30 padding=2 gap=2 border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa4d, #ffffff02)" box-sizing="border-box" align-items="center" z-index=2
+            row position="absolute" right="0.125rem" top="0.1875rem" height="1.875rem" padding="0.125rem" gap="0.125rem" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#fafafa4d, #ffffff02)" box-sizing="border-box" align-items="center" z-index=2
               PaletteToggle(label="Match case", glyph="Aa", underline=false, on=view.matchCase, dark=dark, testId="palette-match-case", press=flag("case"))
               PaletteToggle(label="Match whole word", glyph="ab", underline=true, on=view.wholeWord, dark=dark, testId="palette-whole-word", press=flag("word"))
               PaletteToggle(label="Use regular expression", glyph=".*", underline=false, on=view.regex, dark=dark, testId="palette-regex", press=flag("regex"))
       when view.summary != ""
-        row height=36 flex-shrink=0 padding-left=12 padding-right=12 align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" box-sizing="border-box"
-          text view.summary font-size=12 line-height="16px" color=(view.summary == "Invalid regular expression" ? "light-dark(#e7000b, #ff6467)" : "light-dark(#71717b, #818181)") testId="palette-summary"
+        row height="2.25rem" flex-shrink=0 padding-left="0.75rem" padding-right="0.75rem" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" box-sizing="border-box"
+          text view.summary font-size="0.75rem" line-height="1rem" color=(view.summary == "Invalid regular expression" ? "light-dark(#e7000b, #ff6467)" : "light-dark(#71717b, #818181)") testId="palette-summary"
       when hasContext
-        column padding-left=8 padding-right=8 padding-top=8 flex-shrink=0 box-sizing="border-box"
+        column padding-left="0.5rem" padding-right="0.5rem" padding-top="0.5rem" flex-shrink=0 box-sizing="border-box"
           when view.contextLabel != ""
-            text view.contextLabel font-size=12 line-height="16px" font-weight=500 padding-left=8 padding-right=8 padding-top=6 padding-bottom=6 color="light-dark(#71717b, #818181)"
-          row min-height=32 gap=8 padding-left=8 padding-right=8 padding-top=6 padding-bottom=6 align-items="center" box-sizing="border-box" testId="palette-context"
+            text view.contextLabel font-size="0.75rem" line-height="1rem" font-weight=500 padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" color="light-dark(#71717b, #818181)"
+          row min-height="2rem" gap="0.5rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.375rem" padding-bottom="0.375rem" align-items="center" box-sizing="border-box" testId="palette-context"
             when view.contextIcon != ""
               PaletteGlyph(name=view.contextIcon, project="", ink="#00000000", surface="#00000000", dark=dark)
             column flex=1 min-width=0
-              text view.contextTitle font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
+              text view.contextTitle font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
               when view.contextDescription != ""
-                text view.contextDescription font-size=12 line-height="16px" color="light-dark(#71717bd9, #818181d9)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+                text view.contextDescription font-size="0.75rem" line-height="1rem" color="light-dark(#71717bd9, #818181d9)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
       when length(view.rows) > 0
         scroll scrollTop=scroll mask-image=listMask flex-grow=(view.panel == "fill" ? 1 : 0) flex-shrink=1 min-height=0 max-height=(view.panel == "fill" ? 420 : listMax) width="100%" box-sizing="border-box" testId="palette-list"
-          column padding=(view.panel == "fill" ? 0 : 8) padding-top=8 padding-bottom=8 width="100%" box-sizing="border-box" role="listbox"
+          column padding=(view.panel == "fill" ? "0px" : "0.5rem") padding-top="0.5rem" padding-bottom="0.5rem" width="100%" box-sizing="border-box" role="listbox"
             each row in view.rows key=row.key
               PaletteRowView(reduced=viewport.prefersReducedMotion, row=row, highlighted=(row.index == highlight and row.index >= 0), busy=busy, dark=dark, run=run, hover=hover)
       else
         when view.empty != ""
           // The fill panel (content search) keeps its height and centres the hint.
-          column flex-grow=(view.panel == "fill" ? 1 : 0) flex-shrink=0 justify-content="center" padding-top=40 padding-bottom=40 padding-left=24 padding-right=24 box-sizing="border-box"
-            text view.empty text-align="center" font-size=14 line-height="20px" color="light-dark(#71717b, #818181)" testId="palette-empty"
-      row flex-shrink=0 padding-left=16 padding-right=16 padding-top=10 padding-bottom=10 gap=8 align-items="center" justify-content="space-between" background-color="light-dark(#27272a06, #f5f5f506)" box-sizing="border-box" testId="palette-footer"
-        row gap=12 align-items="center"
-          row gap=4 align-items="center"
+          column flex-grow=(view.panel == "fill" ? 1 : 0) flex-shrink=0 justify-content="center" padding-top="2.5rem" padding-bottom="2.5rem" padding-left="1.5rem" padding-right="1.5rem" box-sizing="border-box"
+            text view.empty text-align="center" font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)" testId="palette-empty"
+      row flex-shrink=0 padding-left="1rem" padding-right="1rem" padding-top="0.625rem" padding-bottom="0.625rem" gap="0.5rem" align-items="center" justify-content="space-between" background-color="light-dark(#27272a06, #f5f5f506)" box-sizing="border-box" testId="palette-footer"
+        row gap="0.75rem" align-items="center"
+          row gap="0.25rem" align-items="center"
             PaletteKbd(label="", icon="arrow-up", dark=dark)
             PaletteKbd(label="", icon="arrow-down", dark=dark)
-            text "Navigate" font-size=14 line-height="20px" font-weight=500 color="light-dark(#71717b, #818181)"
+            text "Navigate" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b, #818181)"
           when view.enterLabel != ""
-            row gap=4 align-items="center"
+            row gap="0.25rem" align-items="center"
               PaletteKbd(label="Enter", icon="", dark=dark)
-              text view.enterLabel font-size=14 line-height="20px" font-weight=500 color="light-dark(#71717b, #818181)"
+              text view.enterLabel font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b, #818181)"
           when view.backHint
-            row gap=4 align-items="center"
+            row gap="0.25rem" align-items="center"
               PaletteKbd(label="Backspace", icon="", dark=dark)
-              text "Back" font-size=14 line-height="20px" font-weight=500 color="light-dark(#71717b, #818181)"
-          row gap=4 align-items="center"
+              text "Back" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b, #818181)"
+          row gap="0.25rem" align-items="center"
             PaletteKbd(label="Esc", icon="", dark=dark)
-            text view.escapeLabel font-size=14 line-height="20px" font-weight=500 color="light-dark(#71717b, #818181)"
+            text view.escapeLabel font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#71717b, #818181)"
         when view.footerAction != ""
-          button press=run("finder", query, "") aria-label=view.footerAction testId="palette-footer-action" height=24 padding-left=8 padding-right=8 border-width=0 border-radius=6 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
-            text view.footerAction font-size=12 line-height="16px" font-weight=500 color="light-dark(#71717b, #818181)"
+          button press=run("finder", query, "") aria-label=view.footerAction testId="palette-footer-action" height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" border-width=0 border-radius="0.375rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+            text view.footerAction font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
 
 // Link pull request (reference pullRequest/LinkPullRequestDialog.tsx on ui/dialog.tsx): the
 // palette's link-pr page drawn as a centred dialog. palette-linkpr.ts resolves the typed
@@ -487,24 +487,24 @@ component PaletteDialog
   view
     box position="absolute" left=0 top=0 right=0 bottom=0 z-index=60 background-color="light-dark(#fcfcfc99, #0a0a0aa3)" backdrop-filter="blur(4px)" press=close aria-label="Close" testId="palette-backdrop"
     button press=close aria-keyshortcuts="Escape" aria-label="Close" testId="palette-escape" position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" opacity=0 padding=0 border-width=0 background-color="#00000000" z-index=60
-    column position="absolute" left=floor((viewport.width - width) / 2) top=max(16, floor((viewport.height - height) / 2 + 0.5)) width=width z-index=61 box-sizing="border-box" border-radius=18 border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" role="dialog" aria-label=view.label testId=view.testId
-      column gap=8 padding-left=24 padding-right=24 padding-top=24 padding-bottom=12 box-sizing="border-box"
-        text view.label font-size=20 line-height="20px" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2 padding-right=24
-        text view.contextDescription font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
-      column gap=16 padding-left=24 padding-right=24 padding-top=4 padding-bottom=24 box-sizing="border-box"
-        box position="relative" width="100%" height=32 border-radius=10 border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#fcfcfc, #ffffff07)" box-shadow=(dark ? "0 0 0 2px #346bf13d" : "0 0 0 2px #1b4ed83d") box-sizing="border-box"
+    column position="absolute" left=floor((viewport.width - width) / 2) top=max(16, floor((viewport.height - height) / 2 + 0.5)) width=width z-index=61 box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#27272a1a, #ffffff14)" background-color="light-dark(#fcfcfccc, #0a0a0acc)" backdrop-filter="blur(12px)" box-shadow=(dark ? "inset 0 1px 0 #ffffff0a, 0 24px 72px -20px #000000e6" : "0 24px 64px -24px #000000a6") overflow="hidden" role="dialog" aria-label=view.label testId=view.testId
+      column gap="0.5rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="1.5rem" padding-bottom="0.75rem" box-sizing="border-box"
+        text view.label font-size="1.25rem" line-height="1.25rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2 padding-right="1.5rem"
+        text view.contextDescription font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+      column gap="1rem" padding-left="1.5rem" padding-right="1.5rem" padding-top="0.25rem" padding-bottom="1.5rem" box-sizing="border-box"
+        box position="relative" width="100%" height="2rem" border-radius="0.625rem" border-width=1 border-style="solid" border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#fcfcfc, #ffffff07)" box-shadow=(dark ? "0 0 0 2px #346bf13d" : "0 0 0 2px #1b4ed83d") box-sizing="border-box"
           when query == ""
-            text view.placeholder position="absolute" left=11 top=0 right=11 font-size=14 line-height="30px" color="light-dark(#71717b, #818181)" line-clamp=1 aria-hidden=true
-          input id="palette-input" testId="palette-input" value=query input=edit key=onKey submit=run(view.enterOp, view.enterArg, view.enterArg2) autofocus=true aria-label=view.placeholder autocorrect="off" spellcheck="false" width="100%" height=30 padding-left=9 padding-right=9 padding-top=6 padding-bottom=4 border-width=0 background-color="#00000000" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" box-sizing="border-box"
+            text view.placeholder position="absolute" left="0.6875rem" top=0 right="0.6875rem" font-size="0.875rem" line-height="1.875rem" color="light-dark(#71717b, #818181)" line-clamp=1 aria-hidden=true
+          input id="palette-input" testId="palette-input" value=query input=edit key=onKey submit=run(view.enterOp, view.enterArg, view.enterArg2) autofocus=true aria-label=view.placeholder autocorrect="off" spellcheck="false" width="100%" height="1.875rem" padding-left="0.5625rem" padding-right="0.5625rem" padding-top="0.375rem" padding-bottom="0.25rem" border-width=0 background-color="#00000000" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" box-sizing="border-box"
         when view.contextTitle != ""
-          text view.contextTitle font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" testId="link-pr-preview"
+          text view.contextTitle font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" testId="link-pr-preview"
         when view.empty != ""
-          text view.empty font-size=12 line-height="16px" color="light-dark(#fb2c36, #fb414a)" role="alert" testId="link-pr-error"
-      row gap=8 justify-content="flex-end" align-items="center" padding-left=24 padding-right=24 padding-top=16 padding-bottom=16 box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#f9f9f9b8, #ffffff06)"
-        button press=close disabled=busy testId="link-pr-cancel" display="flex" flex-direction="row" align-items="center" justify-content="center" height=28 padding-left=9 padding-right=9 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
-          text "Cancel" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
-        button press=run(view.accessoryOp, view.accessoryArg, view.accessoryArg2) disabled=(busy or not view.accessoryEnabled) testId="link-pr-submit" display="flex" flex-direction="row" align-items="center" justify-content="center" height=28 padding-left=9 padding-right=9 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" opacity=(busy or not view.accessoryEnabled ? 0.64 : 1)
-          text view.accessory font-size=14 font-weight=500 line-height="20px" color="#ffffff"
-      button press=close aria-label="Close" testId="link-pr-close" position="absolute" top=8 right=8 width=32 height=32 padding=0 border-width=0 border-radius=8 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
-        svg width=16 height=16 viewBox="0 0 24 24" color=(dark ? "#818181" : "#71717b") fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
+          text view.empty font-size="0.75rem" line-height="1rem" color="light-dark(#fb2c36, #fb414a)" role="alert" testId="link-pr-error"
+      row gap="0.5rem" justify-content="flex-end" align-items="center" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#f9f9f9b8, #ffffff06)"
+        button press=close disabled=busy testId="link-pr-cancel" display="flex" flex-direction="row" align-items="center" justify-content="center" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
+          text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+        button press=run(view.accessoryOp, view.accessoryArg, view.accessoryArg2) disabled=(busy or not view.accessoryEnabled) testId="link-pr-submit" display="flex" flex-direction="row" align-items="center" justify-content="center" height="1.75rem" padding-left="0.5625rem" padding-right="0.5625rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#1b4ed8, #346bf1)" background-color="light-dark(#1b4ed8, #346bf1)" opacity=(busy or not view.accessoryEnabled ? 0.64 : 1)
+          text view.accessory font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
+      button press=close aria-label="Close" testId="link-pr-close" position="absolute" top="0.5rem" right="0.5rem" width="2rem" height="2rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+        svg width="1rem" height="1rem" viewBox="0 0 24 24" color=(dark ? "#818181" : "#71717b") fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" aria-hidden=true
           path d="M18 6 6 18M6 6l12 12"

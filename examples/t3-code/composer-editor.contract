@@ -79,7 +79,7 @@ component EditorMenuIcon
     size: number
   view
     when name == "messages-square" or name == "folder" or name == "blocks" or name == "user-round" or name == "settings" or name == "package" or name == "git-pull-request" or name == "git-pull-request-draft" or name == "git-merge" or name == "git-pull-request-closed"
-      svg width=size height=size viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+      svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
         when name == "messages-square"
           path d="M16 10a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 14.286V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"
           path d="M20 9a2 2 0 0 1 2 2v10.286a.71.71 0 0 1-1.212.502l-2.202-2.202A2 2 0 0 0 17.172 19H10a2 2 0 0 1-2-2v-1"
@@ -108,7 +108,7 @@ component EditorMenuIcon
           when name == "git-pull-request-closed"
             path d="M6 9v12m15-18-6 6m6 0-6-6m3 8.5V15"
     else
-      svg width=size height=size viewBox="0 0 16 16" color=color fill="currentColor" flex-shrink=0 aria-hidden=true
+      svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 16 16" color=color fill="currentColor" flex-shrink=0 aria-hidden=true
         when name == "pierre-markdown"
           path d="M1 12V4h2l2 2.5L7 4h2v8H7V7.5l-2 2-2-2V12zm9-3 3 3.5L16 9h-2V4h-2v5z"
         when name == "pierre-typescript" or name == "pierre-javascript" or name == "pierre-bash" or name == "pierre-python" or name == "pierre-go" or name == "pierre-react"
@@ -147,12 +147,12 @@ component ComposerCommandMenu
       highlight = index
       highlightKey = menu.searchKey
   view
-    column width=(layered ? "100%" : "calc(100% - 44px)") margin-left=(layered ? 0 : 22) margin-right=(layered ? 0 : 22) margin-bottom=(layered ? 0 : -17) padding-bottom=17 box-sizing="border-box" position="relative" border-top-left-radius=18 border-top-right-radius=18 border-style="solid" border-width=1 border-bottom-width=0 border-color="light-dark(#27272a14, #ffffff0d)" background-color="light-dark(#ffffffcc, #111111cc)" backdrop-filter=(layered ? "none" : (dark ? "blur(16px)" : "blur(12px)")) box-shadow="0 12px 28px -18px light-dark(#00000066, #000000bf)" testId="composer-command-menu"
+    column width=(layered ? "100%" : "calc(100% - 44px)") margin-left=(layered ? "0px" : "1.375rem") margin-right=(layered ? "0px" : "1.375rem") margin-bottom=(layered ? "0px" : "-1.0625rem") padding-bottom="1.0625rem" box-sizing="border-box" position="relative" border-top-left-radius="1.125rem" border-top-right-radius="1.125rem" border-style="solid" border-width=1 border-bottom-width=0 border-color="light-dark(#27272a14, #ffffff0d)" background-color="light-dark(#ffffffcc, #111111cc)" backdrop-filter=(layered ? "none" : (dark ? "blur(16px)" : "blur(12px)")) box-shadow="0 12px 28px -18px light-dark(#00000066, #000000bf)" testId="composer-command-menu"
       // Dark surfaces shade the 10pt above the seam (bg-composer-seam-above).
       when dark
-        box position="absolute" left=0 right=0 bottom=17 height=10 pointer-events="none" background-image="linear-gradient(to top, #0000002e, #00000000)" aria-hidden=true
+        box position="absolute" left=0 right=0 bottom="1.0625rem" height="0.625rem" pointer-events="none" background-image="linear-gradient(to top, #0000002e, #00000000)" aria-hidden=true
       when menu.count > 0
-        column max-height=listMax overflow-y="scroll" padding=8 box-sizing="border-box" width="100%" role="listbox" aria-label=menu.listLabel testId="composer-command-list"
+        column max-height=listMax overflow-y="scroll" padding="0.5rem" box-sizing="border-box" width="100%" role="listbox" aria-label=menu.listLabel testId="composer-command-list"
           button hook="t3-composer-key" data-anchor="ArrowDown" press=move(1) position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true testId="composer-menu-down"
             text "composer-menu-down" font-size=1
           button hook="t3-composer-key" data-anchor="ArrowUp" press=move(-1) position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true testId="composer-menu-up"
@@ -161,32 +161,32 @@ component ComposerCommandMenu
             when row.index == active
               button hook="t3-composer-key" data-anchor="Enter" press=op("pick", row.id, "") position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true testId="composer-menu-enter"
                 text "composer-menu-enter" font-size=1
-            button press=op("pick", row.id, "") hover=hovered(row.index) role="option" aria-selected=(row.index == active) aria-label=`${row.prefix}${row.label} ${row.description}` testId=`composer-suggestion-${row.index}` width="100%" height=28 flex-shrink=0 padding-top=6 padding-bottom=6 padding-left=8 padding-right=8 box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap=8 border-width=0 border-radius=6 background-color=(row.index == active ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
+            button press=op("pick", row.id, "") hover=hovered(row.index) role="option" aria-selected=(row.index == active) aria-label=`${row.prefix}${row.label} ${row.description}` testId=`composer-suggestion-${row.index}` width="100%" height="1.75rem" flex-shrink=0 padding-top="0.375rem" padding-bottom="0.375rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content="flex-start" gap="0.5rem" border-width=0 border-radius="0.375rem" background-color=(row.index == active ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000")
               when row.icon != "" and dark
                 EditorMenuIcon(name=row.icon, color=row.iconDark, size=16)
               when row.icon != "" and not dark
                 EditorMenuIcon(name=row.icon, color=row.iconLight, size=16)
-              row flex=1 min-width=0 gap=8 align-items="center"
+              row flex=1 min-width=0 gap="0.5rem" align-items="center"
                 row max-width="45%" min-width=0 flex-shrink=0
                   when row.prefix != ""
-                    text row.prefix font-size=12 font-weight=500 line-height="16px" color="light-dark(#71717a, #818181)" white-space="nowrap" flex-shrink=0
-                  text row.label font-size=12 font-weight=500 line-height="16px" color=(row.index == active ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#262626, #f5f5f5)") line-clamp=1 min-width=0
-                text row.description flex=1 min-width=0 font-size=12 line-height="16px" color="light-dark(#71717a, #818181)" line-clamp=1 text-align="left"
+                    text row.prefix font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717a, #818181)" white-space="nowrap" flex-shrink=0
+                  text row.label font-size="0.75rem" font-weight=500 line-height="1rem" color=(row.index == active ? "light-dark(#18181b, #f5f5f5)" : "light-dark(#262626, #f5f5f5)") line-clamp=1 min-width=0
+                text row.description flex=1 min-width=0 font-size="0.75rem" line-height="1rem" color="light-dark(#71717a, #818181)" line-clamp=1 text-align="left"
                 when row.badge != ""
-                  row height=18 min-width=18 padding-left=3 padding-right=3 gap=4 margin-left="auto" align-items="center" justify-content="center" border-radius=4 background-color="light-dark(#f4f4f5, #ffffff0f)" flex-shrink=0
+                  row height="1.125rem" min-width="1.125rem" padding-left="0.1875rem" padding-right="0.1875rem" gap="0.25rem" margin-left="auto" align-items="center" justify-content="center" border-radius="0.25rem" background-color="light-dark(#f4f4f5, #ffffff0f)" flex-shrink=0
                     box opacity=0.8 display="flex"
                       EditorMenuIcon(name=row.badgeIcon, color="light-dark(#18181b, #f5f5f5)", size=12)
-                    text row.badge font-size=12 font-weight=500 line-height="16px" color="light-dark(#18181b, #f5f5f5)" white-space="nowrap"
+                    text row.badge font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#18181b, #f5f5f5)" white-space="nowrap"
       else
-        column padding-top=14 padding-bottom=28 padding-left=20 padding-right=20 box-sizing="border-box" width="100%" role="status" testId="composer-command-empty"
-          text menu.emptyText font-size=12 line-height="16px" color="light-dark(#71717a, #818181)"
+        column padding-top="0.875rem" padding-bottom="1.75rem" padding-left="1.25rem" padding-right="1.25rem" box-sizing="border-box" width="100%" role="status" testId="composer-command-empty"
+          text menu.emptyText font-size="0.75rem" line-height="1rem" color="light-dark(#71717a, #818181)"
 
 // ComposerPromptLengthValidation: px-4 pb-2 text-xs destructive (#fb2c36 / #fb414a served), role=alert.
 component PromptLengthValidation
   props
     message: string
   view
-    text message role="alert" padding-left=16 padding-right=16 padding-bottom=8 font-size=12 line-height="16px" color="light-dark(#fb2c36, #fb414a)" testId="composer-prompt-length"
+    text message role="alert" padding-left="1rem" padding-right="1rem" padding-bottom="0.5rem" font-size="0.75rem" line-height="1rem" color="light-dark(#fb2c36, #fb414a)" testId="composer-prompt-length"
 
 component StashGlyph
   props
@@ -194,7 +194,7 @@ component StashGlyph
     size: number
     color: string
   view
-    svg width=size height=size viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
+    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" color=color fill="none" stroke="currentColor" stroke-width=2 stroke-linecap="round" stroke-linejoin="round" flex-shrink=0 aria-hidden=true
       when name == "bookmark"
         path d="M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z"
       when name == "file-text"
@@ -223,18 +223,18 @@ component StashBadge
   action hover(value: bool)
     over = value
   view
-    row flex-shrink=0 padding-right=22 box-sizing="border-box" margin-bottom=(stash.count > 0 ? -17 : 0) position="relative"
+    row flex-shrink=0 padding-right="1.375rem" box-sizing="border-box" margin-bottom=(stash.count > 0 ? "-1.0625rem" : "0px") position="relative"
       when stash.count > 0
-        column padding-top=5 padding-bottom=22 padding-left=4 padding-right=4 box-sizing="border-box" border-top-left-radius=18 border-top-right-radius=18 border-style="solid" border-width=1 border-bottom-width=0 border-color="light-dark(#27272a14, #ffffff0d)" background-color="light-dark(#ffffffcc, #111111cc)" box-shadow="0 12px 28px -18px light-dark(#00000066, #000000bf)"
-          button press=op("stash-menu", "", "toggle") hover=hover aria-label=`Stashed prompts: ${stash.count}. Open stash.` aria-expanded=false testId="composer-stash-badge" height=24 padding=0 border-width=0 border-radius=8 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap=0
-            box width=24 height=24 display="flex" align-items="center" justify-content="center" flex-shrink=0
+        column padding-top="0.3125rem" padding-bottom="1.375rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-top-left-radius="1.125rem" border-top-right-radius="1.125rem" border-style="solid" border-width=1 border-bottom-width=0 border-color="light-dark(#27272a14, #ffffff0d)" background-color="light-dark(#ffffffcc, #111111cc)" box-shadow="0 12px 28px -18px light-dark(#00000066, #000000bf)"
+          button press=op("stash-menu", "", "toggle") hover=hover aria-label=`Stashed prompts: ${stash.count}. Open stash.` aria-expanded=false testId="composer-stash-badge" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap=0
+            box width="1.5rem" height="1.5rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
               StashGlyph(name="bookmark", size=12, color=(over ? "light-dark(#262626, #f5f5f5)" : "light-dark(#71717a, #818181)"))
-            text "Stash" font-size=12 line-height="16px" color=(over ? "light-dark(#262626, #f5f5f5)" : "light-dark(#71717a, #818181)") padding-right=4
-            box width=24 height=24 display="flex" align-items="center" justify-content="center" position="relative" flex-shrink=0
-              text `${stash.count}` font-size=12 font-weight=500 line-height="16px" color="light-dark(#71717a, #818181)"
+            text "Stash" font-size="0.75rem" line-height="1rem" color=(over ? "light-dark(#262626, #f5f5f5)" : "light-dark(#71717a, #818181)") padding-right="0.25rem"
+            box width="1.5rem" height="1.5rem" display="flex" align-items="center" justify-content="center" position="relative" flex-shrink=0
+              text `${stash.count}` font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717a, #818181)"
               when stash.pulse > 0
-                box position="absolute" left=0 top=0 width=24 height=24 display="flex" align-items="center" justify-content="center" opacity=0 animation=(stash.pulse % 2 == 0 ? "cePulseA 1.2s linear forwards" : "cePulseB 1.2s linear forwards") aria-hidden=true
-                  text `${stash.count}` font-size=12 font-weight=500 line-height="16px" color="light-dark(#18181b, #fafafa)"
+                box position="absolute" left=0 top=0 width="1.5rem" height="1.5rem" display="flex" align-items="center" justify-content="center" opacity=0 animation=(stash.pulse % 2 == 0 ? "cePulseA 1.2s linear forwards" : "cePulseB 1.2s linear forwards") aria-hidden=true
+                  text `${stash.count}` font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#18181b, #fafafa)"
 
 // ComposerStashMenu: the attached drawer listing stashed prompts. ↑ ↓ ↩ and
 // ⌘⌫ are key buttons the native editor presses; Escape closes.
@@ -251,16 +251,16 @@ component StashMenu
     if over
       highlight = index
   view
-    column width=(layered ? "100%" : "calc(100% - 44px)") margin-left=(layered ? 0 : 22) margin-right=(layered ? 0 : 22) margin-bottom=(layered ? 0 : -17) padding-top=4 padding-left=4 padding-right=4 padding-bottom=21 box-sizing="border-box" border-top-left-radius=18 border-top-right-radius=18 border-style="solid" border-width=1 border-bottom-width=0 border-color="light-dark(#27272a14, #ffffff0d)" background-color="light-dark(#ffffffcc, #111111cc)" box-shadow="0 12px 28px -18px light-dark(#00000066, #000000bf)" testId="composer-stash-menu"
-      button press=op("stash-menu", "", "close") aria-label="Close stash" aria-expanded=true aria-keyshortcuts="Escape" testId="composer-stash-close" width="100%" height=24 padding=0 border-width=0 border-radius=8 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap=0
-        box width=24 height=24 display="flex" align-items="center" justify-content="center" flex-shrink=0
+    column width=(layered ? "100%" : "calc(100% - 44px)") margin-left=(layered ? "0px" : "1.375rem") margin-right=(layered ? "0px" : "1.375rem") margin-bottom=(layered ? "0px" : "-1.0625rem") padding-top="0.25rem" padding-left="0.25rem" padding-right="0.25rem" padding-bottom="1.3125rem" box-sizing="border-box" border-top-left-radius="1.125rem" border-top-right-radius="1.125rem" border-style="solid" border-width=1 border-bottom-width=0 border-color="light-dark(#27272a14, #ffffff0d)" background-color="light-dark(#ffffffcc, #111111cc)" box-shadow="0 12px 28px -18px light-dark(#00000066, #000000bf)" testId="composer-stash-menu"
+      button press=op("stash-menu", "", "close") aria-label="Close stash" aria-expanded=true aria-keyshortcuts="Escape" testId="composer-stash-close" width="100%" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap=0
+        box width="1.5rem" height="1.5rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
           StashGlyph(name="bookmark", size=12, color="light-dark(#71717a, #818181)")
-        text "Stash" flex=1 font-size=12 line-height="16px" color="light-dark(#71717a, #818181)" text-align="left"
-        box width=24 height=24 display="flex" align-items="center" justify-content="center" flex-shrink=0
-          text `${stash.count}` font-size=12 font-weight=500 line-height="16px" color="light-dark(#71717a, #818181)"
-        box width=24 height=24 margin-left=4 display="flex" align-items="center" justify-content="center" flex-shrink=0
+        text "Stash" flex=1 font-size="0.75rem" line-height="1rem" color="light-dark(#71717a, #818181)" text-align="left"
+        box width="1.5rem" height="1.5rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
+          text `${stash.count}` font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#71717a, #818181)"
+        box width="1.5rem" height="1.5rem" margin-left="0.25rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
           StashGlyph(name="chevron-down", size=14, color="light-dark(#71717a, #818181)")
-      column width="100%" gap=1 max-height=200 overflow-y="scroll" role="list" aria-label="Stashed prompts" testId="composer-stash-list"
+      column width="100%" gap=1 max-height="12.5rem" overflow-y="scroll" role="list" aria-label="Stashed prompts" testId="composer-stash-list"
         button hook="t3-composer-key" data-anchor="stash-ArrowDown" press=move(1) position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true testId="composer-stash-down"
           text "composer-stash-down" font-size=1
         button hook="t3-composer-key" data-anchor="stash-ArrowUp" press=move(-1) position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true testId="composer-stash-up"
@@ -271,14 +271,14 @@ component StashMenu
               text "composer-stash-enter" font-size=1
             button hook="t3-composer-key" data-anchor="stash-Delete" press=op("stash-delete", entry.id, "") position="absolute" left=0 top=0 width=1 height=1 overflow="hidden" padding=0 border-width=0 opacity=0 aria-hidden=true testId="composer-stash-delete-key"
               text "composer-stash-delete-key" font-size=1
-          row width="100%" height=24 flex-shrink=0 align-items="center" border-radius=6 background-color=(entry.index == active ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") role="listitem" hover=hovered(entry.index)
-            box width=24 height=24 display="flex" align-items="center" justify-content="center" flex-shrink=0
+          row width="100%" height="1.5rem" flex-shrink=0 align-items="center" border-radius="0.375rem" background-color=(entry.index == active ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") role="listitem" hover=hovered(entry.index)
+            box width="1.5rem" height="1.5rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
               StashGlyph(name="file-text", size=12, color="light-dark(#71717a, #818181)")
-            button press=op("stash-restore", entry.id, "") aria-label=entry.label testId=`composer-stash-restore-${entry.index}` flex=1 min-width=0 height=24 padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="flex-start"
-              text entry.snippet font-size=12 line-height="16px" color="light-dark(#27272acc, #f5f5f5cc)" line-clamp=1 min-width=0 text-align="left"
-            row gap=4 align-items="center" flex-shrink=0 padding-left=4
-              text entry.age font-size=12 line-height="16px" color="light-dark(#71717a, #818181)" white-space="nowrap"
-              button press=op("stash-delete", entry.id, "") aria-label="Delete stashed prompt" testId=`composer-stash-delete-${entry.index}` width=24 height=24 padding=0 border-width=0 border-radius=8 background-color="#00000000" display="flex" align-items="center" justify-content="center"
+            button press=op("stash-restore", entry.id, "") aria-label=entry.label testId=`composer-stash-restore-${entry.index}` flex=1 min-width=0 height="1.5rem" padding=0 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="flex-start"
+              text entry.snippet font-size="0.75rem" line-height="1rem" color="light-dark(#27272acc, #f5f5f5cc)" line-clamp=1 min-width=0 text-align="left"
+            row gap="0.25rem" align-items="center" flex-shrink=0 padding-left="0.25rem"
+              text entry.age font-size="0.75rem" line-height="1rem" color="light-dark(#71717a, #818181)" white-space="nowrap"
+              button press=op("stash-delete", entry.id, "") aria-label="Delete stashed prompt" testId=`composer-stash-delete-${entry.index}` width="1.5rem" height="1.5rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" display="flex" align-items="center" justify-content="center"
                 StashGlyph(name="x", size=14, color="light-dark(#71717a, #818181)")
 
 // Everything the prompt editor attaches above the composer card: ⌘S; the key
@@ -318,8 +318,8 @@ component ComposerDrawerLayer
     op: action
   view
     when editor.drawer.placed and (editor.menu.open or editor.stash.menuOpen)
-      column position="absolute" left=(editor.drawer.left + 22) width=(editor.drawer.width - 44) bottom=editor.drawer.bottom overflow="hidden" border-top-left-radius=18 border-top-right-radius=18 backdrop-filter=(dark ? "blur(16px)" : "blur(12px)") testId="composer-drawer-layer"
-        column width="100%" margin-bottom=-17 flex-shrink=0
+      column position="absolute" left=(editor.drawer.left + 22) width=(editor.drawer.width - 44) bottom=editor.drawer.bottom overflow="hidden" border-top-left-radius="1.125rem" border-top-right-radius="1.125rem" backdrop-filter=(dark ? "blur(16px)" : "blur(12px)") testId="composer-drawer-layer"
+        column width="100%" margin-bottom="-1.0625rem" flex-shrink=0
           when editor.menu.open
             ComposerCommandMenu(menu=editor.menu, dark=dark, listMax=editor.drawer.listMax, layered=true, op=op)
           else
@@ -338,12 +338,12 @@ component ImageDraftTile
     remove: action
     ask: action
   view
-    column position="relative" width=64 height=64 flex-shrink=0 box-sizing="border-box" overflow="hidden" border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7cc, #ffffff0d)" background-color="light-dark(#fcfcfc, #0a0a0a)" aria-label=name testId=`image-draft-${id}`
+    column position="relative" width="4rem" height="4rem" flex-shrink=0 box-sizing="border-box" overflow="hidden" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7cc, #ffffff0d)" background-color="light-dark(#fcfcfc, #0a0a0a)" aria-label=name testId=`image-draft-${id}`
       box hook="t3-snapshot-tile" data-snapshot-id=id position="absolute" top=0 left=0 right=0 bottom=0 testId=`snapshot-thumbnail-${id}`
-      row position="absolute" top=4 right=4
+      row position="absolute" top="0.25rem" right="0.25rem"
         when referenced
-          button press=ask("ui:confirm", id, "remove-snapshot", `Remove ${name} from the message?`, "It is referenced in your text; removing it also removes every reference.", true) disabled=disabled aria-label=`Remove ${name}` testId=`remove-snapshot-${id}` width=24 height=24 padding=0 border-radius=8 border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center"
+          button press=ask("ui:confirm", id, "remove-snapshot", `Remove ${name} from the message?`, "It is referenced in your text; removing it also removes every reference.", true) disabled=disabled aria-label=`Remove ${name}` testId=`remove-snapshot-${id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center"
             StashGlyph(name="x", size=14, color="#ffffff")
         else
-          button press=remove(id) disabled=disabled aria-label=`Remove ${name}` testId=`remove-snapshot-${id}` width=24 height=24 padding=0 border-radius=8 border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center"
+          button press=remove(id) disabled=disabled aria-label=`Remove ${name}` testId=`remove-snapshot-${id}` width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 box-shadow="0 1px 2px #0000000d, 0 0 0 1px #ffffff33" background-color="#000000a6" display="flex" align-items="center" justify-content="center"
             StashGlyph(name="x", size=14, color="#ffffff")

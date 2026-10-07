@@ -282,7 +282,7 @@ component CoreIcon
     size: number
     color: string
   view
-    svg width=size height=size viewBox="0 0 24 24" fill="none" color=color flex-shrink=0 aria-hidden=true
+    svg width=`${size / 16}rem` height=`${size / 16}rem` viewBox="0 0 24 24" fill="none" color=color flex-shrink=0 aria-hidden=true
       path d=coreIconPath(name) stroke=color stroke-width=2 stroke-linecap="round" stroke-linejoin="round"
 
 component CoreMark
@@ -291,7 +291,7 @@ component CoreMark
     ink: string
     surface: string
   view
-    box width=14 height=14 border-radius=3.5 background-color=surface display="flex" align-items="center" justify-content="center" flex-shrink=0
+    box width="0.875rem" height="0.875rem" border-radius="0.21875rem" background-color=surface display="flex" align-items="center" justify-content="center" flex-shrink=0
       text label font-family="ui-monospace" font-size=7 font-weight=700 color=ink
 
 // SettingsSidebarNav: search (role combobox, `/` focuses it), the section list or ranked
@@ -321,53 +321,55 @@ component SettingsNav
     column width=width height="100%" flex-shrink=0 position="relative" background-color=pal.sidebar border-right-width=1 border-right-style="solid" border-color=pal.sidebarBorder testId="settings-navigation"
       when artwork
         NightlyBackdrop()
-      row height=52 flex-shrink=0 padding-left=controlsLeft padding-right=8 gap=12 align-items="center" position="relative"
-        button press=toggle class=SettingsGhost width=28 height=28 padding=6 aria-label="Toggle sidebar" testId="settings-toggle-sidebar"
+      row height=52 flex-shrink=0 padding-left=controlsLeft padding-right="0.5rem" gap="0.75rem" align-items="center" position="relative"
+        button press=toggle class=SettingsGhost width="1.75rem" height="1.75rem" padding="0.375rem" aria-label="Toggle sidebar" testId="settings-toggle-sidebar"
           CoreIcon(name="panel-left-close", size=16, color=(artwork ? "#d8daed" : pal.sidebarMuted))
-        button press=back aria-label="Go to threads" class=SettingsGhost padding=0 gap=4 testId="settings-go-to-threads"
+        button press=back aria-label="Go to threads" class=SettingsGhost padding=0 gap="0.25rem" testId="settings-go-to-threads"
           Wordmark()
-          text "Code" font-size=14 font-weight=500 letter-spacing=-0.35 color=(artwork ? "#c4c3d2" : pal.sidebarText)
-      column flex=1 min-height=0 padding=8 gap=8 position="relative"
-        row height=32 flex-shrink=0 padding-left=8 padding-right=8 gap=8 border-radius=6 align-items="center" box-sizing="border-box"
+          text "Code" font-size="0.875rem" font-weight=500 letter-spacing=-0.35 color=(artwork ? "#c4c3d2" : pal.sidebarText)
+      column flex=1 min-height=0 padding="0.5rem" gap="0.5rem" position="relative"
+        row height="2rem" flex-shrink=0 padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" border-radius="0.375rem" align-items="center" box-sizing="border-box"
           CoreIcon(name="search", size=16, color=pal.sidebarMuted)
           // The host paints no placeholder colour: "Search" is drawn under the transparent field
           // in the reference's placeholder:text-muted-foreground (sidebar muted) while it is empty.
-          box flex=1 min-width=0 height=21 position="relative"
+          box flex=1 min-width=0 height="1.3125rem" position="relative"
             when query == ""
-              text "Search" font-size=14 font-weight=500 line-height="21px" color=pal.sidebarMuted white-space="nowrap" position="absolute" left=0 top=0 testId="settings-search-placeholder"
-            input value=query input=edit key=onKey placeholder="" aria-label="Search settings" role="combobox" aria-expanded=(nav.searching and nav.count > 0) id="settings-search" testId="settings-search" font-size=14 font-weight=500 line-height="21px" position="absolute" left=0 top=0 width="100%" height=21 border-width=0 padding=0 background-color="#00000000" color=pal.sidebarText
+              text "Search" font-size="0.875rem" font-weight=500 line-height="1.3125rem" color=pal.sidebarMuted white-space="nowrap" position="absolute" left=0 top=0 testId="settings-search-placeholder"
+            input value=query input=edit key=onKey placeholder="" aria-label="Search settings" role="combobox" aria-expanded=(nav.searching and nav.count > 0) id="settings-search" testId="settings-search" font-size="0.875rem" font-weight=500 line-height="1.3125rem" position="absolute" left=0 top=0 width="100%" height="1.3125rem" border-width=0 padding=0 background-color="#00000000" color=pal.sidebarText
           when query != ""
-            button press=clear class=SettingsGhost width=20 height=20 min-height=20 padding=4 border-radius=6 aria-label="Clear settings search" testId="clear-settings-search"
+            button press=clear class=SettingsGhost width="1.25rem" height="1.25rem" min-height="1.25rem" padding="0.25rem" border-radius="0.375rem" aria-label="Clear settings search" testId="clear-settings-search"
               CoreIcon(name="x", size=12, color=pal.sidebarMuted)
           else
-            box height=20 min-width=20 padding-left=4 padding-right=4 box-sizing="border-box" border-radius=4 background-color=pal.kbd display="flex" align-items="center" justify-content="center"
-              text "/" font-size=12 font-weight=500 line-height="16px" color=pal.muted
+            box height="1.25rem" min-width="1.25rem" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box" border-radius="0.25rem" background-color=pal.kbd display="flex" align-items="center" justify-content="center"
+              text "/" font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.muted
         when nav.searching and nav.count == 0
-          text "No settings found" role="status" font-size=12 color=pal.sidebarMuted text-align="center" padding-top=24 padding-bottom=24 testId="settings-search-empty"
+          text "No settings found" role="status" font-size="0.75rem" color=pal.sidebarMuted text-align="center" padding-top="1.5rem" padding-bottom="1.5rem" testId="settings-search-empty"
         scroll flex=1 min-height=0 width="100%" testId="settings-navigation-scroll"
-          column gap=4 width="100%" role=(nav.searching ? "listbox" : "list") aria-label=(nav.searching ? "Settings search results" : "Settings sections")
+          column gap="0.25rem" width="100%" role=(nav.searching ? "listbox" : "list") aria-label=(nav.searching ? "Settings search results" : "Settings sections")
             each item in nav.items key=item.id
               when nav.searching
-                button press=pick(item.route, item.target, item.scope, item.id) hover=hover(item.id) role="option" aria-selected=(item.id == hovered or (hovered == "" and item.active)) class=SettingsGhost justify-content="flex-start" align-items="flex-start" width="100%" min-height=52 padding=8 gap=8 border-radius=10 background-color=((item.id == hovered or (hovered == "" and item.active)) ? pal.rowActive : "#00000000") testId=`settings-${item.id}`
-                  box padding-top=2
+                button press=pick(item.route, item.target, item.scope, item.id) hover=hover(item.id) role="option" aria-selected=(item.id == hovered or (hovered == "" and item.active)) class=SettingsGhost justify-content="flex-start" align-items="flex-start" width="100%" min-height="3.25rem" padding="0.5rem" gap="0.5rem" border-radius="0.625rem" background-color=((item.id == hovered or (hovered == "" and item.active)) ? pal.rowActive : "#00000000") testId=`settings-${item.id}`
+                  box padding-top="0.125rem"
                     CoreIcon(name=item.icon, size=14, color=((item.id == hovered or (hovered == "" and item.active)) ? pal.sidebarText : pal.sidebarIcon))
                   column flex=1 min-width=0 gap=0 align-items="flex-start"
-                    text item.title font-size=14 font-weight=500 line-height="20px" color=pal.sidebarText line-clamp=1
-                    text item.section font-size=11 font-weight=500 line-height="16px" color=pal.sectionMuted line-clamp=1
+                    text item.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.sidebarText line-clamp=1
+                    text item.section font-size="0.6875rem" font-weight=500 line-height="1rem" color=pal.sectionMuted line-clamp=1
               else
-                button press=pick(item.route, "", "", item.id) hover=hover(item.id) aria-selected=(route == item.route or (item.route == "general" and route == "open-source-licenses")) class=SettingsGhost justify-content="flex-start" width="100%" height=32 padding-left=10 padding-right=10 gap=8 border-radius=8 background-color=(route == item.route or (item.route == "general" and route == "open-source-licenses") ? pal.rowActive : (item.id == hovered ? pal.rowHover : "#00000000")) testId=`settings-${item.id}`
+                button press=pick(item.route, "", "", item.id) hover=hover(item.id) aria-selected=(route == item.route or (item.route == "general" and route == "open-source-licenses")) class=SettingsGhost justify-content="flex-start" width="100%" height="2rem" padding-left="0.625rem" padding-right="0.625rem" gap="0.5rem" border-radius="0.5rem" background-color=(route == item.route or (item.route == "general" and route == "open-source-licenses") ? pal.rowActive : (item.id == hovered ? pal.rowHover : "#00000000")) testId=`settings-${item.id}`
                   CoreIcon(name=item.icon, size=16, color=(route == item.route or (item.route == "general" and route == "open-source-licenses") ? pal.sidebarText : pal.sidebarIcon))
-                  text item.title font-size=14 font-weight=500 line-height="20px" color=(route == item.route or (item.route == "general" and route == "open-source-licenses") ? pal.sidebarText : pal.sidebarMuted) line-clamp=1
-      column padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 flex-shrink=0
-        button press=back hover=hover("back") aria-label="Back" aria-keyshortcuts=(menuOpen or query != "" ? "" : "Escape") class=SettingsGhost justify-content="flex-start" width="100%" height=32 padding-left=10 padding-right=10 gap=8 border-radius=8 background-color=(hovered == "back" ? pal.rowHover : "#00000000") testId="close-settings"
+                  text item.title font-size="0.875rem" font-weight=500 line-height="1.25rem" color=(route == item.route or (item.route == "general" and route == "open-source-licenses") ? pal.sidebarText : pal.sidebarMuted) line-clamp=1
+      column padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" flex-shrink=0
+        button press=back hover=hover("back") aria-label="Back" aria-keyshortcuts=(menuOpen or query != "" ? "" : "Escape") class=SettingsGhost justify-content="flex-start" width="100%" height="2rem" padding-left="0.625rem" padding-right="0.625rem" gap="0.5rem" border-radius="0.5rem" background-color=(hovered == "back" ? pal.rowHover : "#00000000") testId="close-settings"
           CoreIcon(name="arrow-left", size=16, color=pal.sidebarIcon)
-          text "Back" font-size=14 font-weight=500 line-height="20px" color=pal.sidebarMuted
+          text "Back" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.sidebarMuted
       button press=onKey("/") aria-keyshortcuts="/" aria-label="Focus settings search" position="absolute" width=1 height=1 opacity=0 left=0 top=0 testId="settings-search-shortcut"
 
 // WorkspacePageHeader + SettingsBreadcrumb; Restore device defaults on General only.
 component SettingsTopBar
   props
     controlsLeft: number
+    // The root font size (Interface font size): rem in a length that also adds px (Contract calc takes percent ± px only).
+    rem: number
     route: string
     crumb: string
     pal: CorePalette
@@ -377,22 +379,22 @@ component SettingsTopBar
     toggle: action
     restore: action
   view
-    row height=52 min-height=52 flex-shrink=0 align-items="center" gap=12 padding-left=(navOpen ? 20 : controlsLeft) padding-right=20 box-sizing="border-box" width="100%" testId="settings-header"
+    row height=52 min-height=52 flex-shrink=0 align-items="center" gap="0.75rem" padding-left=(navOpen ? 1.25 * rem : controlsLeft) padding-right="1.25rem" box-sizing="border-box" width="100%" testId="settings-header"
       when not navOpen
-        button press=toggle class=SettingsGhost width=28 height=28 padding=6 aria-label="Toggle sidebar" testId="settings-header-toggle-sidebar"
+        button press=toggle class=SettingsGhost width="1.75rem" height="1.75rem" padding="0.375rem" aria-label="Toggle sidebar" testId="settings-header-toggle-sidebar"
           CoreIcon(name="panel-left-close", size=16, color=pal.muted)
-      row role="navigation" aria-label="Settings breadcrumb" gap=12 align-items="center" min-width=0
+      row role="navigation" aria-label="Settings breadcrumb" gap="0.75rem" align-items="center" min-width=0
         when crumb != "Settings"
-          text "Settings" font-size=14 font-weight=500 line-height="20px" color=pal.muted flex-shrink=0
-          text "/" font-size=14 font-weight=500 line-height="20px" color=pal.muted flex-shrink=0 aria-hidden=true
-        text crumb font-size=14 font-weight=500 line-height="20px" color=pal.text line-clamp=1 testId="settings-breadcrumb-current"
+          text "Settings" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.muted flex-shrink=0
+          text "/" font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.muted flex-shrink=0 aria-hidden=true
+        text crumb font-size="0.875rem" font-weight=500 line-height="1.25rem" color=pal.text line-clamp=1 testId="settings-breadcrumb-current"
       box flex=1
       when route == "general"
         // Ghost xs: px 7, the icon's -mx-0.5 inside mx-1, gap 1; disabled:opacity-64 dims icon and label.
-        button press=restore class=SettingsGhost height=24 min-height=24 padding-left=5 padding-right=7 gap=2 border-radius=8 disabled=(busy or not restorable) opacity=(restorable ? 1 : 0.64) aria-label="Restore device defaults" testId="restore-device-defaults"
-          svg width=14 height=14 viewBox="0 0 24 24" fill="none" flex-shrink=0 aria-hidden=true
+        button press=restore class=SettingsGhost height="1.5rem" min-height="1.5rem" padding-left="0.3125rem" padding-right="0.4375rem" gap="0.125rem" border-radius="0.5rem" disabled=(busy or not restorable) opacity=(restorable ? 1 : 0.64) aria-label="Restore device defaults" testId="restore-device-defaults"
+          svg width="0.875rem" height="0.875rem" viewBox="0 0 24 24" fill="none" flex-shrink=0 aria-hidden=true
             path d=coreIconPath("rotate-ccw") stroke=pal.muted stroke-width=2 stroke-linecap="round" stroke-linejoin="round"
-          text "Restore device defaults" font-size=12 font-weight=500 line-height="16px" color=pal.text
+          text "Restore device defaults" font-size="0.75rem" font-weight=500 line-height="1rem" color=pal.text
 
 style SettingsGhost
   cursor="pointer"

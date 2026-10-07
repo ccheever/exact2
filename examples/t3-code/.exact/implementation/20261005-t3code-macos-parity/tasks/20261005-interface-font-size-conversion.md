@@ -1,12 +1,12 @@
 ---
 name: 20261005-interface-font-size-conversion
 plan: 20261005-t3code-macos-parity
-implementation: planned
-verification: unverified
-delivery: none
+implementation: partial
+verification: partially-verified
+delivery: pr-open
 repository: https://github.com/ccheever/exact2
-base_branch: daehyeon/t3-code
-branch: null
+base_branch: 'feat(example)/t3-code'
+branch: 'feat(example)/t3-code-interface-font-size'
 pr_url: null
 verified_commit: null
 ---
@@ -53,8 +53,8 @@ Line numbers are from the mc-orch tree on 2026-10-05; find code by symbol.
 
 | Kind | Readable task/issue/decision | Remote reference | Required condition | Resolution evidence |
 | --- | --- | --- | --- | --- |
-| merged task PR | [20261005-interface-font-size](20261005-interface-font-size.md) | pending | Merged (root size works; the map exists) | pending |
-| resolved framework issue | [X3](../issues/20261005-x03-root-font-size.md) | none yet | Fixed on `main` and merged into the integration branch, or waived by the user | pending |
+| merged task PR | [20261005-interface-font-size](closed/20261005-interface-font-size.md) | pending | Merged (root size works; the map exists) | pending |
+| resolved framework issue | [X3](../issues/closed/20261005-x03-root-font-size.md) | none yet | Fixed on `main` and merged into the integration branch, or waived by the user | resolved: #102 closed by main #185; the branch merged main `cff90b364` |
 | merged task PR | [20261005-hot-file-split](closed/20261005-hot-file-split.md) | pending | Merged | pending |
 | merged task PR | [20261005-clone-on-exact2-main](20261005-clone-on-exact2-main.md) | pending | Merged | pending |
 
@@ -66,7 +66,7 @@ Checked sources and time: {{at prepare}}.
 
 | Issue / reference | Capability and target | Evidence / affected revision | Impact | Next action |
 | --- | --- | --- | --- | --- |
-| [X3](../issues/20261005-x03-root-font-size.md) | App-settable root font size | `EXACT2-GAPS.md` X3 | blocking if reproduced | resolved through `20261005-interface-font-size` |
+| [X3](../issues/closed/20261005-x03-root-font-size.md) | App-settable root font size | `EXACT2-GAPS.md` X3 | blocking if reproduced | resolved through `20261005-interface-font-size` |
 
 ## Implementation notes
 
@@ -89,15 +89,66 @@ Task-owned source paths: the area's `*.contract` files; `font-size-map.json` sta
 
 ## Progress
 
-Planned.
+2026-10-07: built in the same PR as the foundation task (the user asked for both in one PR; not split per area).
+
+- **Contract lengths.** Every literal length in the 145 Contract files (11,749 values in 122 files) follows the
+  reference's split: font-size, line-height, letter-spacing, sizes and min/max, gap, padding, margin, positions,
+  radius and flex-basis are N/16 `rem`; borders, shadows, blur, stroke and svg geometry, popover offsets, 1–2 px
+  hairlines and dots, the 52 px top bars, table minimum widths and monospace text (it follows the Code font size) stay
+  px. Icon sizes (`width=size`) are `` `${size / 16}rem` ``; a ternary of literals converts each literal. A proposal
+  script did the edit (not committed), each rule from the reference; `font-size-map.json` lists every file. At 16
+  every value is the same number of px.
+- **JS layout converted.** Chat width setting (46rem / 72rem), the lane's `ps-5` and `min-w-[40rem]`
+  (`chatLaneMetrics`), the sidebar minimum width (already per size), the composer's measured menu widths and heights
+  and the send tooltip (`atRootFontSize`), the settings select widths (w-36, min-w-40), the top bars' start inset
+  (1.25rem, or the traffic lights + 2.5rem), the timeline row gap.
+- **Pending areas** (the map's `pendingArea` and every `px` entry with why "bound expression"): sizes computed in
+  TypeScript outside the composer (other menus and tooltips from text-width estimates, the timeline minimap, toasts,
+  device frames, settings editors and pickers, diff and file-tree indentation), and native module text
+  (`T3KeyRecorder` 13, `T3SshAuth` 14, `R6MediaPreview` 12, `R7DeviceTools` 10, `T3Menus` 24). The composer follows
+  the Prompt font size (px), as the reference's.
+- Seen in the drive: at 12 the prompt preview in Settings › Appearance wraps its rem chips under px prompt text
+  (the preview's own px setting); at 20 the workspace card no longer fits beside the 40rem lane at 1280 and closes,
+  which follows from the reference's rem lane.
 
 ## Attempts and evidence
 
 | Attempt | Revision/fingerprint | Checks and outcomes | Evidence | Remaining blocker |
 | --- | --- | --- | --- | --- |
-| none | — | — | — | — |
+| 1 (2026-10-07) | as [the foundation's attempt 1](closed/20261005-interface-font-size.md#attempts-and-evidence) | same checks; at 16 every probed box equals the before build; 12 and 20 scale by ×0.75 / ×1.25 | the foundation's evidence section (five before/after images) | the pending areas above |
+
+Rows not run: matrix and oracle pairs (no oracle, user 2026-10-06), `layout <id> native` on native views, long labels at
+840×620, the attended slider row.
+
+### Evidence (before/after)
+
+Before is the untouched feature-branch tip `4f523ef5c` (`t3-code-evidence-base`), after is this branch; the same
+drive (`evidence/20261007-interface-font-size/drive.mjs.txt`) at 1280×840, light, an isolated lane server (port 16521,
+lane homes) with project Alpha and two threads. One image per scenario:
+
+- Settings › Appearance at 16 (default), unchanged: https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/interface-font-size/01-settings-appearance-16-before-after.png
+- Settings › Appearance at 12: https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/interface-font-size/02-settings-appearance-12-before-after.png
+- Settings › Appearance at 20: https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/interface-font-size/03-settings-appearance-20-before-after.png
+- A thread with the sidebar and composer at 20: https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/interface-font-size/04-thread-20-before-after.png
+- A thread with the sidebar and composer at 12: https://raw.githubusercontent.com/ccheever/exact2/t3-code-evidence/interface-font-size/05-thread-12-before-after.png
+
+`layout` per size (`evidence/20261007-interface-font-size/{before,after}-record.txt`; boxes x, y, w, h):
+
+| | before at 12 / 16 / 20 | after at 12 | after at 16 | after at 20 |
+|---|---|---|---|---|
+| `state` root font size | 16 / 16 / 16 | 12 | 16 | 20 |
+| sidebar thread row `thread-alpha-1` | 239×78 at every size | 243×58.5 | 239×78 | 235×97.5 |
+| sidebar toggle `toggle-sidebar` | 28×28 | 21×21 | 28×28 | 35×35 |
+| settings button `connection-settings` | 32×32 | 24×24 | 32×32 | 40×40 |
+| composer toolbar | 678×48 | 550×36 | 678×48 | 918×60 |
+| Settings nav row `settings-appearance` | 240×32 | 244×24 | 240×32 | 236×40 |
+| font size select | 144×28 | 108×21 | 144×28 | 180×35 |
+| chat header (52 px top bar, px) | 1024×52 | 1024×52 | 1024×52 | 1024×52 |
+| settings header (52 px, px) | 1023×52 | 1023×52 | 1023×52 | 1023×52 |
+
+At 16 every probed box equals the before build's. No `setRootFontSize … refused` line in either log.
 
 ## Next action
 
-After `20261005-interface-font-size` merges: `prepare` splits this ticket per area (plan
-revision), then `implement` the first area.
+Convert the pending areas, each at its source by the root size (as `atRootFontSize` does for the composer), and give
+the native modules a size prop; then this task can close.

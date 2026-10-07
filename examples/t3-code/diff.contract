@@ -78,28 +78,28 @@ component DiffPanelBody
       // r4-surfaces: the shared tab bar (every open surface, "+", the layout controls; the details toggle in a sheet); DiffPanel already rebuilds per scheme.
       R4PanelHeader(panel=shell.panel, surfaces=shell.surfaces, sheet=sheet, maximized=maximized, detailsOpen=detailsOpen, keyThreadPanel=shell.keyThreadPanel, keyRightPanel=shell.keyRightPanel, terminalAvailable=shell.terminalAvailable, terminalOpen=shell.terminalOpen, keyTerminal=shell.keyTerminal, still=false, ui=ui, details=details, local=local, scheme="")
       // A sheet's toolbar sits 6pt lower over the same content top (served reference at 840).
-      column margin-top=(sheet ? 6 : 0)
+      column margin-top=(sheet ? "0.375rem" : "0px")
         DiffToolbar(data=data, command=command)
-      row flex=1 min-height=0 width="100%" margin-top=(sheet ? 6 : 12)
+      row flex=1 min-height=0 width="100%" margin-top=(sheet ? "0.375rem" : "0.75rem")
         column flex=1 min-width=0 min-height=0
           when data.diffError != ""
-            text data.diffError font-size=11 line-height="16px" padding-left=12 padding-right=12 padding-bottom=8 color="light-dark(#fb2c36cc, #fb414acc)" testId="diff-error"
+            text data.diffError font-size="0.6875rem" line-height="1rem" padding-left="0.75rem" padding-right="0.75rem" padding-bottom="0.5rem" color="light-dark(#fb2c36cc, #fb414acc)" testId="diff-error"
           when data.diffTruncated
-            text "This preview exceeds the size limit. Changes shown are incomplete." font-size=11 line-height="16px" padding-left=12 padding-right=12 padding-top=6 padding-bottom=6 flex-shrink=0 background-color="light-dark(#f4f4f566, #1c1c1c66)" color="light-dark(#71717a, #818181)"
+            text "This preview exceeds the size limit. Changes shown are incomplete." font-size="0.6875rem" line-height="1rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.375rem" padding-bottom="0.375rem" flex-shrink=0 background-color="light-dark(#f4f4f566, #1c1c1c66)" color="light-dark(#71717a, #818181)"
           when data.diffLoading and length(data.diffItems) == 0
-            column flex=1 padding-top=4 gap=8 role="status" aria-label=data.diffLoadingLabel testId="diff-loading"
-              row height=32 padding-left=8 padding-right=12 gap=8 align-items="center"
-                box width=10 height=10 border-radius=3 background-color="light-dark(#e4e4e7, #1c1c1c)"
-                box width=20 height=20 border-radius=6 background-color="light-dark(#e4e4e7, #1c1c1c)"
-                box width="45%" height=12 border-radius=6 background-color="light-dark(#e4e4e7, #1c1c1c)"
-              column padding-left=12 padding-right=12 gap=8
-                box width="66%" height=10 border-radius=5 background-color="light-dark(#f0f0f1, #161616)"
-                box width="80%" height=10 border-radius=5 background-color="light-dark(#f0f0f1, #161616)"
-                box width="60%" height=10 border-radius=5 background-color="light-dark(#f0f0f1, #161616)"
+            column flex=1 padding-top="0.25rem" gap="0.5rem" role="status" aria-label=data.diffLoadingLabel testId="diff-loading"
+              row height="2rem" padding-left="0.5rem" padding-right="0.75rem" gap="0.5rem" align-items="center"
+                box width="0.625rem" height="0.625rem" border-radius="0.1875rem" background-color="light-dark(#e4e4e7, #1c1c1c)"
+                box width="1.25rem" height="1.25rem" border-radius="0.375rem" background-color="light-dark(#e4e4e7, #1c1c1c)"
+                box width="45%" height="0.75rem" border-radius="0.375rem" background-color="light-dark(#e4e4e7, #1c1c1c)"
+              column padding-left="0.75rem" padding-right="0.75rem" gap="0.5rem"
+                box width="66%" height="0.625rem" border-radius="0.3125rem" background-color="light-dark(#f0f0f1, #161616)"
+                box width="80%" height="0.625rem" border-radius="0.3125rem" background-color="light-dark(#f0f0f1, #161616)"
+                box width="60%" height="0.625rem" border-radius="0.3125rem" background-color="light-dark(#f0f0f1, #161616)"
           else
             when data.diffEmpty and data.diffError == ""
-              column flex=1 align-items="center" justify-content="center" padding-left=12 padding-right=12
-                text data.diffEmptyLabel font-size=12 line-height="16px" text-align="center" color="light-dark(#71717ab3, #818181b3)" testId="diff-empty"
+              column flex=1 align-items="center" justify-content="center" padding-left="0.75rem" padding-right="0.75rem"
+                text data.diffEmptyLabel font-size="0.75rem" line-height="1rem" text-align="center" color="light-dark(#71717ab3, #818181b3)" testId="diff-empty"
             else
               // DiffFileLoadingBoundary: nearing the end of a large diff asks for four more files (diff-review.ts).
               list virtualized=true id="diff-list" reachend=command("diffreview", "next", "", 0) flex=1 min-height=0 width="100%" testId="diff-content"
@@ -109,10 +109,10 @@ component DiffPanelBody
           DiffTree(data=data, command=command, scheme=data.look.diff)
       // The rail sits inside the panel and above its body: an overflowing child is not hit-testable natively.
       when not sheet and not maximized
-        box position="absolute" top=0 bottom=0 left=0 width=6 z-index=28 cursor="col-resize" touch-action="none" pan=resize panrelease=finishResize hover=hover("resize") role="separator" aria-orientation="vertical" aria-label="Resize diff panel" testId="diff-resize"
+        box position="absolute" top=0 bottom=0 left=0 width="0.375rem" z-index=28 cursor="col-resize" touch-action="none" pan=resize panrelease=finishResize hover=hover("resize") role="separator" aria-orientation="vertical" aria-label="Resize diff panel" testId="diff-resize"
           box position="absolute" top=0 bottom=0 left=0 width=1 pointer-events="none" background-color=(hovered == "resize" ? "light-dark(#e4e4e7, #ffffff1a)" : "#00000000")
       when data.diffMenu != ""
-        box position="absolute" left=-3000 right=-3000 top=-3000 bottom=-3000 z-index=29 press=command("diff-view", "menu", "", 0) aria-label="Close diff scope menu" aria-keyshortcuts="Escape"
+        box position="absolute" left="-187.5rem" right="-187.5rem" top="-187.5rem" bottom="-187.5rem" z-index=29 press=command("diff-view", "menu", "", 0) aria-label="Close diff scope menu" aria-keyshortcuts="Escape"
         DiffScopeMenu(data=data, command=command)
 
 // One "Add panel surface" row: 28pt, 16pt glyph at 80%, label, letter key.
@@ -124,38 +124,38 @@ component AddSurfaceItem
   action hover(over: bool)
     hovered = over
   view
-    button press=choose popovertarget="diff-add-surface" popovertargetaction="hide" hover=hover disabled=(not surface.available) role="menuitem" aria-label=`${surface.label} ${surface.shortcut}` testId=`add-surface-${surface.id}` display="flex" flex-direction="row" align-items="center" gap=8 width="100%" height=28 padding-left=8 padding-right=8 box-sizing="border-box" border-width=0 border-radius=6 opacity=(surface.available ? 1 : 0.64) background-color=(hovered and surface.available ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
-      box width=16 height=16 flex-shrink=0 opacity=0.8
+    button press=choose popovertarget="diff-add-surface" popovertargetaction="hide" hover=hover disabled=(not surface.available) role="menuitem" aria-label=`${surface.label} ${surface.shortcut}` testId=`add-surface-${surface.id}` display="flex" flex-direction="row" align-items="center" gap="0.5rem" width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-width=0 border-radius="0.375rem" opacity=(surface.available ? 1 : 0.64) background-color=(hovered and surface.available ? "light-dark(#27272914, #f5f5f514)" : "#00000000")
+      box width="1rem" height="1rem" flex-shrink=0 opacity=0.8
         ShellIcon(name=surface.icon, size=16, color="light-dark(#71717b, #818181)")
-      text surface.label flex=1 min-width=0 white-space="nowrap" text-align="left" font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
-      text surface.shortcut flex-shrink=0 font-size=12 font-weight=500 line-height="16px" letter-spacing=1.2 color="light-dark(#71717b, #818181)"
+      text surface.label flex=1 min-width=0 white-space="nowrap" text-align="left" font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+      text surface.shortcut flex-shrink=0 font-size="0.75rem" font-weight=500 line-height="1rem" letter-spacing="0.075rem" color="light-dark(#71717b, #818181)"
 
 component DiffToolbar
   props
     data: Snapshot
     command: action
   view
-    row height=28 flex-shrink=0 padding-left=8 padding-right=8 box-sizing="border-box" align-items="center" gap=4
-      button press=command("diff-view", "menu", "scope", 0) aria-label=`Diff scope: ${data.diffScopeLabel}` aria-expanded=(data.diffMenu != "") testId="diff-scope" height=24 padding-left=7 padding-right=7 gap=4 border-radius=8 border-width=0 background-color="light-dark(#fafafa, #111111)" display="flex" flex-direction="row" align-items="center" min-width=0 flex-shrink=1
-        text data.diffScopeLabel font-size=12 font-weight=500 line-height="16px" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
+    row height="1.75rem" flex-shrink=0 padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" align-items="center" gap="0.25rem"
+      button press=command("diff-view", "menu", "scope", 0) aria-label=`Diff scope: ${data.diffScopeLabel}` aria-expanded=(data.diffMenu != "") testId="diff-scope" height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" gap="0.25rem" border-radius="0.5rem" border-width=0 background-color="light-dark(#fafafa, #111111)" display="flex" flex-direction="row" align-items="center" min-width=0 flex-shrink=1
+        text data.diffScopeLabel font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272a, #f5f5f5)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0
         ReqIcon(name="chevron-down", size=14, color="light-dark(#27272a, #f5f5f5)")
       box flex=1
       // DiffPanel header: the stat shows with files to count, refresh with a git workspace, expand-all and the tree with files.
       when length(data.diffFiles) > 0 or data.diffAdditions + data.diffDeletions > 0
-        row gap=4 align-items="center" flex-shrink=0 margin-right=4 role="group" aria-label=`${data.diffAdditions} additions, ${data.diffDeletions} deletions`
+        row gap="0.25rem" align-items="center" flex-shrink=0 margin-right="0.25rem" role="group" aria-label=`${data.diffAdditions} additions, ${data.diffDeletions} deletions`
           text `+${data.diffAdditions}` font-family="ui-monospace" font-size=11 letter-spacing=-0.17 line-height="16px" color=diffInk(data.look.diff, "add-count")
           text `-${data.diffDeletions}` font-family="ui-monospace" font-size=11 letter-spacing=-0.17 line-height="16px" color=diffInk(data.look.diff, "del-count")
       when data.diffCanRefresh
         DiffTool(icon="refresh", label=(data.diffLoading ? "Refreshing diff" : "Refresh diff"), pressed=false, toggle=false, radius=8, testId="diff-refresh", choose=command("diff-refresh", "", "", 0))
       when length(data.diffFiles) > 0
         DiffTool(icon=(data.diffAllCollapsed ? "unfold" : "fold"), label=(data.diffAllCollapsed ? "Expand all files" : "Collapse all files"), pressed=false, toggle=false, radius=8, testId="diff-expand-all", choose=command("diff-view", (data.diffAllCollapsed ? "expand-all" : "collapse-all"), "", 0))
-      row padding=2 gap=2 border-radius=10 background-color="light-dark(#e6e6e8, #121212)" role="group" aria-label="Diff layout" flex-shrink=0
-        button press=command("diff-view", "layout", "stacked", 0) aria-label="Stacked diff view" testId="diff-stacked" width=32 height=24 padding=0 border-radius=8 border-width=0 background-color=(data.diffLayout == "stacked" ? "light-dark(#fcfcfc, #202020)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+      row padding="0.125rem" gap="0.125rem" border-radius="0.625rem" background-color="light-dark(#e6e6e8, #121212)" role="group" aria-label="Diff layout" flex-shrink=0
+        button press=command("diff-view", "layout", "stacked", 0) aria-label="Stacked diff view" testId="diff-stacked" width="2rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(data.diffLayout == "stacked" ? "light-dark(#fcfcfc, #202020)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
           when data.diffLayout == "stacked"
             DiffGlyph(name="stacked", size=14, color="light-dark(#27272a, #f5f5f5)")
           else
             DiffGlyph(name="stacked", size=14, color="light-dark(#71717a, #818181)")
-        button press=command("diff-view", "layout", "split", 0) aria-label="Split diff view" testId="diff-split" width=32 height=24 padding=0 border-radius=8 border-width=0 background-color=(data.diffLayout == "split" ? "light-dark(#fcfcfc, #202020)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+        button press=command("diff-view", "layout", "split", 0) aria-label="Split diff view" testId="diff-split" width="2rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(data.diffLayout == "split" ? "light-dark(#fcfcfc, #202020)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
           when data.diffLayout == "split"
             DiffGlyph(name="split", size=14, color="light-dark(#27272a, #f5f5f5)")
           else
@@ -178,7 +178,7 @@ component DiffTool
   action setHover(over: bool)
     hovering = over
   view
-    button press=choose hover=setHover aria-label=label testId=testId width=28 height=28 padding=0 flex-shrink=0 border-radius=radius border-width=0 background-color=(pressed or hovering ? "light-dark(#f4f4f5, #141414)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+    button press=choose hover=setHover aria-label=label testId=testId width="1.75rem" height="1.75rem" padding=0 flex-shrink=0 border-radius=radius border-width=0 background-color=(pressed or hovering ? "light-dark(#f4f4f5, #141414)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
       when toggle
         DiffGlyph(name=icon, size=14, color="light-dark(#27272a, #f5f5f5)")
       else
@@ -189,14 +189,14 @@ component DiffScopeMenu
     data: Snapshot
     command: action
   view
-    column position="absolute" left=8 top=81.5 width=160 padding=4 box-sizing="border-box" border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#e9e9ea, #292929)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" z-index=30 role="menu" aria-label=`Diff scope: ${data.diffScopeLabel}` testId="diff-scope-menu"
+    column position="absolute" left="0.5rem" top="5.09375rem" width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e9e9ea, #292929)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" z-index=30 role="menu" aria-label=`Diff scope: ${data.diffScopeLabel}` testId="diff-scope-menu"
       DiffMenuItem(label="Changes", time="", selected=(data.diffScope == "branch"), submenu=false, testId="diff-scope-branch", choose=command("diff-scope", "", "branch", 0))
       DiffMenuItem(label="Uncommitted", time="", selected=(data.diffScope == "unstaged"), submenu=false, testId="diff-scope-unstaged", choose=command("diff-scope", "", "unstaged", 0))
       when length(data.diffTurns) > 0
         DiffMenuItem(label="Latest turn", time="", selected=data.diffLatestSelected, submenu=false, testId="diff-scope-latest", choose=command("diff-scope", "", "latest", 0))
         DiffMenuItem(label="Turn", time="", selected=(data.diffMenu == "turns"), submenu=true, testId="diff-scope-turns", choose=command("diff-view", "menu", "turns", 0))
       when data.diffMenu == "turns"
-        column position="absolute" left=155 top=84 width=160 padding=4 box-sizing="border-box" border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#e9e9ea, #292929)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Turn" testId="diff-turn-menu"
+        column position="absolute" left="9.6875rem" top="5.25rem" width="10rem" padding="0.25rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#e9e9ea, #292929)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 16px 40px -18px #0000008c" role="menu" aria-label="Turn" testId="diff-turn-menu"
           each turn in data.diffTurns key=turn.id
             DiffMenuItem(label=turn.label, time=turn.time, selected=turn.selected, submenu=false, testId=`diff-${turn.id}`, choose=command("diff-scope", "", turn.id, 0))
 
@@ -212,10 +212,10 @@ component DiffMenuItem
   action setHover(over: bool)
     hovering = over
   view
-    button press=choose hover=setHover role="menuitemradio" aria-checked=selected testId=testId aria-label=label width="100%" height=28 padding-left=8 padding-right=8 gap=8 box-sizing="border-box" border-radius=6 border-width=0 background-color=(selected ? "light-dark(#27272a14, #f5f5f514)" : hovering ? "light-dark(#f4f4f5, #1c1c1c)" : "#00000000") display="flex" flex-direction="row" align-items="center"
-      text label font-size=14 line-height="20px" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 text-align="left" line-clamp=1
+    button press=choose hover=setHover role="menuitemradio" aria-checked=selected testId=testId aria-label=label width="100%" height="1.75rem" padding-left="0.5rem" padding-right="0.5rem" gap="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color=(selected ? "light-dark(#27272a14, #f5f5f514)" : hovering ? "light-dark(#f4f4f5, #1c1c1c)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      text label font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" flex=1 min-width=0 text-align="left" line-clamp=1
       when time != ""
-        text time font-size=12 line-height="16px" color="light-dark(#71717a, #818181)" flex-shrink=0
+        text time font-size="0.75rem" line-height="1rem" color="light-dark(#71717a, #818181)" flex-shrink=0
       when submenu
         ReqIcon(name="chevron-right", size=14, color="light-dark(#71717a, #818181)")
 
@@ -240,12 +240,12 @@ component DiffRow
       when item.kind == "file"
         DiffFileHeader(item=item, command=command, scheme=scheme)
       when item.kind == "pad"
-        box width="100%" height=8
+        box width="100%" height="0.5rem"
       when item.kind == "ghost"
         // DiffFileHeaderSkeleton under DiffFileLoadingBoundary.
-        row width="100%" height=32 padding-left=8 padding-right=12 gap=8 box-sizing="border-box" align-items="center" border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#e4e4e766, #19191966)" role="status" aria-label="Loading diff…" testId=`diff-ghost-${item.id}`
-          box width=16 height=16 border-radius=4 background-color="light-dark(#e4e4e7, #1c1c1c)"
-          box width="45%" height=12 border-radius=6 background-color="light-dark(#e4e4e7, #1c1c1c)"
+        row width="100%" height="2rem" padding-left="0.5rem" padding-right="0.75rem" gap="0.5rem" box-sizing="border-box" align-items="center" border-bottom-style="solid" border-bottom-width=1 border-color="light-dark(#e4e4e766, #19191966)" role="status" aria-label="Loading diff…" testId=`diff-ghost-${item.id}`
+          box width="1rem" height="1rem" border-radius="0.25rem" background-color="light-dark(#e4e4e7, #1c1c1c)"
+          box width="45%" height="0.75rem" border-radius="0.375rem" background-color="light-dark(#e4e4e7, #1c1c1c)"
       when item.kind == "gap"
         DiffGap(item=item, command=command)
       when item.kind == "note"
@@ -270,12 +270,12 @@ component DiffGap
     hovering = over
   view
     when item.expandable
-      button press=command("diffreview", "expand", item.path, item.line) hover=hover aria-label=`Expand ${item.label}` testId=`diff-gap-${item.path}-${item.line}` width="100%" height=32 padding-left=12 padding-right=12 gap=6 box-sizing="border-box" border-width=0 background-color=(hovering ? "light-dark(#e9e9ea, #1c1c1c)" : "light-dark(#f0f0f0, #161616)") display="flex" flex-direction="row" align-items="center"
+      button press=command("diffreview", "expand", item.path, item.line) hover=hover aria-label=`Expand ${item.label}` testId=`diff-gap-${item.path}-${item.line}` width="100%" height="2rem" padding-left="0.75rem" padding-right="0.75rem" gap="0.375rem" box-sizing="border-box" border-width=0 background-color=(hovering ? "light-dark(#e9e9ea, #1c1c1c)" : "light-dark(#f0f0f0, #161616)") display="flex" flex-direction="row" align-items="center"
         DiffGlyph(name="unfold", size=14, color="light-dark(#71717a, #818181)")
-        text item.label font-size=12 line-height="16px" color="light-dark(#71717a, #818181)"
+        text item.label font-size="0.75rem" line-height="1rem" color="light-dark(#71717a, #818181)"
     else
-      row width="100%" height=32 padding-left=12 padding-right=12 box-sizing="border-box" align-items="center" background-color="light-dark(#f0f0f0, #161616)" testId=`diff-gap-${item.path}-${item.line}`
-        text item.label font-size=12 line-height="16px" color="light-dark(#71717a, #818181)"
+      row width="100%" height="2rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" align-items="center" background-color="light-dark(#f0f0f0, #161616)" testId=`diff-gap-${item.path}-${item.line}`
+        text item.label font-size="0.75rem" line-height="1rem" color="light-dark(#71717a, #818181)"
 
 component DiffFileHeader
   props
@@ -286,23 +286,23 @@ component DiffFileHeader
   action setHover(over: bool)
     hovering = over
   view
-    row width="100%" min-height=32 padding-top=6 padding-bottom=6 padding-left=8 padding-right=12 box-sizing="border-box" align-items="center" gap=8 hover=setHover position="relative" background-color="light-dark(#fcfcfc, #0a0a0a)" testId=`diff-file-${item.path}`
+    row width="100%" min-height="2rem" padding-top="0.375rem" padding-bottom="0.375rem" padding-left="0.5rem" padding-right="0.75rem" box-sizing="border-box" align-items="center" gap="0.5rem" hover=setHover position="relative" background-color="light-dark(#fcfcfc, #0a0a0a)" testId=`diff-file-${item.path}`
       when hovering
-        box position="absolute" left=0 top=0 bottom=0 width=3 background-color="light-dark(#0a0a0a3d, #fafafa3d)"
+        box position="absolute" left=0 top=0 bottom=0 width="0.1875rem" background-color="light-dark(#0a0a0a3d, #fafafa3d)"
       // A header whose patch has not arrived keeps the collapsed geometry, its chevron off (DiffPanel renderHeaderPrefix).
-      button press=command("diff-view", "file", item.path, 0) disabled=item.unavailable aria-label=`${item.expanded ? "Collapse" : "Expand"} ${item.path}` aria-expanded=item.expanded testId=`diff-toggle-${item.path}` width=20 height=20 margin-left=-2 padding=0 border-radius=4 border-width=0 opacity=(item.unavailable ? 0.5 : 1) background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+      button press=command("diff-view", "file", item.path, 0) disabled=item.unavailable aria-label=`${item.expanded ? "Collapse" : "Expand"} ${item.path}` aria-expanded=item.expanded testId=`diff-toggle-${item.path}` width="1.25rem" height="1.25rem" margin-left="-0.125rem" padding=0 border-radius="0.25rem" border-width=0 opacity=(item.unavailable ? 0.5 : 1) background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
         ReqIcon(name=(item.expanded ? "chevron-down" : "chevron-right"), size=16, color=(item.status == "deleted" ? diffInk(scheme, "del") : item.status == "added" ? diffInk(scheme, "add") : "#009fff"))
       DiffGlyph(name=item.status, size=16, color=(item.status == "deleted" ? diffInk(scheme, "del") : item.status == "added" ? diffInk(scheme, "add") : "#009fff"))
       button press=command("diff-view", "file", item.path, 0) disabled=item.unavailable aria-label=item.path flex-shrink=1 min-width=0 padding=0 border-width=0 background-color="#00000000"
-        text item.name font-size=12 line-height="16px" color="light-dark(#27272a, #f5f5f5)" line-clamp=1
-      button press=command("diff-view", "copy", item.path, 0) aria-label="Copy file path" testId=`diff-copy-${item.path}` width=20 height=20 padding=0 border-radius=4 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+        text item.name font-size="0.75rem" line-height="1rem" color="light-dark(#27272a, #f5f5f5)" line-clamp=1
+      button press=command("diff-view", "copy", item.path, 0) aria-label="Copy file path" testId=`diff-copy-${item.path}` width="1.25rem" height="1.25rem" padding=0 border-radius="0.25rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
         DiffGlyph(name="copy", size=12, color="light-dark(#71717a, #818181)")
       // DiffFileStatus: Retry after a failed read; "Partial diff preview" for a file past the per-file cap.
       when item.error or item.partial
-        button press=command("diffreview", (item.error ? "retry" : "partial"), item.path, 0) aria-label=(item.error ? "Retry loading diff" : "Partial diff preview") title=(item.error ? "Retry loading diff" : "This file is too large to show in full. Counts include all changes.") testId=`diff-status-${item.path}` width=16 height=16 padding=0 border-radius=4 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
+        button press=command("diffreview", (item.error ? "retry" : "partial"), item.path, 0) aria-label=(item.error ? "Retry loading diff" : "Partial diff preview") title=(item.error ? "Retry loading diff" : "This file is too large to show in full. Counts include all changes.") testId=`diff-status-${item.path}` width="1rem" height="1rem" padding=0 border-radius="0.25rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center" flex-shrink=0
           DiffGlyph(name=(item.error ? "rotate-cw" : "info"), size=12, color="light-dark(#71717a, #818181)")
       box flex=1
-      row gap=8 align-items="center" flex-shrink=0
+      row gap="0.5rem" align-items="center" flex-shrink=0
         when item.deletions > 0
           text `-${item.deletions}` font-family="ui-monospace" font-size=11 letter-spacing=-0.17 line-height="11px" font-variant-numeric="tabular-nums" color=diffInk(scheme, "del")
         when item.additions > 0
@@ -341,10 +341,10 @@ component DiffCell
       box width=((gutter - 2) * size / 13 + 2) flex-shrink=0 position="relative" padding-right=(7.83 * size / 13 + 2) box-sizing="border-box" press=pick testId=`diff-line-${path}-${side}-${line}` aria-label=(line > 0 ? `Select line ${line}` : "") background-color=(selected ? "light-dark(#fde68a, #4a3d14)" : tone == "deletion" ? diffInk(scheme, "del-gutter") : tone == "addition" ? diffInk(scheme, "add-gutter") : "#00000000")
         // Additions carry a solid bar; deletions a 1pt-striped one (@pierre/diffs bars).
         when tone == "addition"
-          box position="absolute" left=0 top=0 bottom=0 width=4 background-color=diffInk(scheme, "add")
+          box position="absolute" left=0 top=0 bottom=0 width="0.25rem" background-color=diffInk(scheme, "add")
         when tone == "deletion"
-          box position="absolute" left=0 top=0 bottom=0 width=4 overflow="hidden" background-color=diffInk(scheme, "del-bar")
-            svg width=4 height=400 aria-hidden=true
+          box position="absolute" left=0 top=0 bottom=0 width="0.25rem" overflow="hidden" background-color=diffInk(scheme, "del-bar")
+            svg width="0.25rem" height="25rem" aria-hidden=true
               defs
                 pattern id="diff-deletion-stripes" patternUnits="userSpaceOnUse" width=4 height=2
                   rect x=0 y=0 width=4 height=1 fill=diffInk(scheme, "del")
@@ -354,5 +354,5 @@ component DiffCell
         each segment in segments key=segment.id
           text segment.text color=synColor(segment.syntax) font-style=synSlant(segment.syntax)
       when line > 0 and not open
-        button press=comment aria-label=`Comment on line ${line}` testId=`diff-comment-${path}-${side}-${line}` position="absolute" left=4 top=2 width=16 height=16 padding=0 border-radius=4 border-width=0 opacity=(hovering ? 1 : 0) background-color="light-dark(#1b4ed8, #346bf1)" display="flex" flex-direction="row" align-items="center" justify-content="center"
+        button press=comment aria-label=`Comment on line ${line}` testId=`diff-comment-${path}-${side}-${line}` position="absolute" left="0.25rem" top="0.125rem" width="1rem" height="1rem" padding=0 border-radius="0.25rem" border-width=0 opacity=(hovering ? 1 : 0) background-color="light-dark(#1b4ed8, #346bf1)" display="flex" flex-direction="row" align-items="center" justify-content="center"
           DiffGlyph(name="plus", size=12, color="#ffffff")

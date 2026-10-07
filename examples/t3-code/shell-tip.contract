@@ -57,8 +57,8 @@ component TimelineTimestamp
   action scrollDismiss
     dismissed = not dismissed
   view
-    box position=(visible ? "relative" : "absolute") opacity=(visible ? 1 : 0) pointer-events=(visible ? "auto" : "none") margin-right=4 hover=hoverTimestamp testId=`work-timestamp-${id}` aria-label=label flex-shrink=0 display="flex" flex-direction="row" align-items="center" border-radius=4
-      text timestamp font-size=12 line-height="16px" white-space="nowrap" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
+    box position=(visible ? "relative" : "absolute") opacity=(visible ? 1 : 0) pointer-events=(visible ? "auto" : "none") margin-right="0.25rem" hover=hoverTimestamp testId=`work-timestamp-${id}` aria-label=label flex-shrink=0 display="flex" flex-direction="row" align-items="center" border-radius="0.25rem"
+      text timestamp font-size="0.75rem" line-height="1rem" white-space="nowrap" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
       box position="absolute" width=0 height=0 padding=0 border-width=0 pointer-events="none" aria-hidden=true tabindex=-1 hook="t3-timeline-tip" press=scrollDismiss
       when label != ""
         TipBubble(label=label, side="top", align="center", offset=20, inset=0, shown=(over and not dismissed))
@@ -89,5 +89,5 @@ component TipCard
     label: string
     shown: bool
   view
-    column max-width=320 padding-left=8 padding-right=8 padding-top=4 padding-bottom=4 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" opacity=(shown ? 1 : 0) transition=(shown ? "opacity 150ms ease 600ms" : "opacity 0ms") pointer-events="none" role="tooltip" aria-hidden=(not shown) testId="tooltip"
-      text label font-size=12 line-height="16.5px" white-space="pre-line" color="light-dark(#27272a, #f5f5f5)"
+    column max-width="20rem" padding-left="0.5rem" padding-right="0.5rem" padding-top="0.25rem" padding-bottom="0.25rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#ffffff, #111111)" box-shadow="0 4px 6px -1px #0000000d, 0 2px 4px -2px #0000000d" opacity=(shown ? 1 : 0) transition=(shown ? "opacity 150ms ease 600ms" : "opacity 0ms") pointer-events="none" role="tooltip" aria-hidden=(not shown) testId="tooltip"
+      text label font-size="0.75rem" line-height="1.03125rem" white-space="pre-line" color="light-dark(#27272a, #f5f5f5)"

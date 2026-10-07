@@ -8,6 +8,7 @@
 // is the Interface font size setting (appearanceFonts.ts applyAppearanceFontVariables).
 // The mark's widths are the reference's, measured per size in Chrome on macOS
 // (lanes/r12-sidebar/tools/refbrand.mjs); 16 px gives 196.78, under the floor.
+import { clampInterfaceFontSize } from './appearance-fonts';
 export const SIDEBAR_FLOOR_WIDTH = 13 * 16;
 export const MACOS_TRAFFIC_LIGHTS_INSET = 90;
 /**
@@ -20,10 +21,6 @@ export function workspaceControlsLeft(fontSize: unknown, fullScreen: unknown = f
 /** SidebarBrandMark's width (T3 wordmark at 1cap, gap-1, "Code" in text-sm) per Interface font size, 12–20 px. */
 const BRAND_MARK: Record<number, number> = { 12: 41.15625, 13: 44.328125, 14: 47.515625, 15: 50.625, 16: 53.78125, 17: 56.875, 18: 60.015625, 19: 63.03125, 20: 66.1875 };
 
-export function clampInterfaceFontSize(size: unknown): number {
-  const n = typeof size === 'number' && Number.isFinite(size) ? Math.round(size) : 16;
-  return Math.min(20, Math.max(12, n));
-}
 /** The brand probe's border-box width on the macOS desktop at an Interface font size (windowed or full screen). */
 export function brandProbeWidth(fontSize: unknown, fullScreen: unknown = false): number {
   const rem = clampInterfaceFontSize(fontSize);

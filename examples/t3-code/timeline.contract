@@ -25,6 +25,7 @@ use RowTip from "./r8-pointer-tips.contract"
 use WorktreeSetupCard from "./timeline-worktree.contract"
 
 // The bottom padding each row kind keeps (TimelineRowContent and WorkLogBlock).
+// The gap under a row in px at the root size 16; the row lays it out in rem (Interface font size).
 fn rowGap(kind: string, continues: bool, expanded: bool, actions: bool, attached: bool, meta: bool): number = kind == "fork" ? 8 : kind == "user" or actions or attached ? 16 : kind == "entry" or kind == "live" or kind == "group" or kind == "thinking" ? (continues or expanded ? 0 : 8) : kind == "details" ? (continues ? 0 : 4) : kind == "work" or kind == "working" ? 6 : kind == "assistant" ? (meta ? 0 : 8) : kind == "plan" ? 0 : kind == "checkpoint" ? 0 : kind == "compaction" or kind == "meta" ? 16 : kind == "subagents" ? 0 : 8
 
 // MessagesTimeline formatWorkingTimer: whole seconds, then formatDuration's "1m 5s".
@@ -58,40 +59,40 @@ component TimelineRow
     part: string
     hoverPart: action
   view
-    column hover=hoverPart(message.hoverKey, "") width="100%" padding-top=(message.first ? lead : 0) padding-left=20 padding-right=20 box-sizing="border-box" align-items="center"
+    column hover=hoverPart(message.hoverKey, "") width="100%" padding-top=(message.first ? lead : 0) padding-left="1.25rem" padding-right="1.25rem" box-sizing="border-box" align-items="center"
       when message.first and (hasMore or historyError != "")
         HistoryControl(lane=lane, hasMore=hasMore, loading=historyLoading, error=historyError, busy=busy, load=earlier)
-      column width="100%" max-width=lane min-width=0 box-sizing="border-box" padding-bottom=((message.last ? 12 + tail : 0) + rowGap(message.kind, message.continues, message.expanded, message.actionsId != "", message.kind == "checkpoint" and message.attached, message.meta))
+      column width="100%" max-width=lane min-width=0 box-sizing="border-box" padding-bottom=(message.last ? 12 + tail : 0) margin-bottom=`${rowGap(message.kind, message.continues, message.expanded, message.actionsId != "", message.kind == "checkpoint" and message.attached, message.meta) / 16}rem`
         when message.kind == "user"
           UserRow(message=message, documents=documents, command=command, local=local, hovering=hovered, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart, bubble=bubble, ink=ink, attachments=attachments, scheme=scheme)
         else
           when message.kind == "checkpoint"
             when message.fileCount > 0
-              column width="100%" padding-left=4 padding-right=4 padding-top=(message.attached ? 16 : 0) box-sizing="border-box"
+              column width="100%" padding-left="0.25rem" padding-right="0.25rem" padding-top=(message.attached ? "1rem" : "0px") box-sizing="border-box"
                 ChangedFiles(message=message, command=command, local=local, diffScheme=diffScheme)
                 RowActions(message=message, command=command, local=local, visible=hovered, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart)
           else
             when message.kind == "fork"
-              row width="100%" align-items="center" gap=8 padding-top=8 padding-bottom=8 box-sizing="border-box"
+              row width="100%" align-items="center" gap="0.5rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box"
                 box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff0b)"
                 // TimelineSystemDivider: a fork, or a subagent's "Subagent of · parent" with the bot glyph; the pill's action is its tooltip.
                 TimelineTip(label=message.actionLabel, side="top", align="center", offset=30)
-                  button press=command("select-thread", message.targetId, "", 0) disabled=(message.targetId == "") aria-label=message.actionLabel testId=`source-${message.id}` height=26 padding-left=10 padding-right=10 box-sizing="border-box" border-radius=13 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0b)" background-color="light-dark(#fcfcfc, #0a0a0a)" display="flex" flex-direction="row" align-items="center" gap=6 min-width=0
+                  button press=command("select-thread", message.targetId, "", 0) disabled=(message.targetId == "") aria-label=message.actionLabel testId=`source-${message.id}` height="1.625rem" padding-left="0.625rem" padding-right="0.625rem" box-sizing="border-box" border-radius="0.8125rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7b3, #ffffff0b)" background-color="light-dark(#fcfcfc, #0a0a0a)" display="flex" flex-direction="row" align-items="center" gap="0.375rem" min-width=0
                     TimelineIcon(name=(message.icon == "bot" ? "bot" : "fork"), size=12, color="light-dark(#71717b, #818181)")
                     when message.title != "" and message.detail != ""
-                      text message.title flex-shrink=0 font-size=11 font-weight=500 line-height="16px" color="light-dark(#71717b, #818181)"
-                      text `· ${message.detail}` min-width=0 max-width=320 font-size=11 line-height="16px" opacity=0.7 color="light-dark(#71717b, #818181)" line-clamp=1
+                      text message.title flex-shrink=0 font-size="0.6875rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)"
+                      text `· ${message.detail}` min-width=0 max-width="20rem" font-size="0.6875rem" line-height="1rem" opacity=0.7 color="light-dark(#71717b, #818181)" line-clamp=1
                     else
-                      text message.body font-size=11 font-weight=500 line-height="16px" color="light-dark(#71717b, #818181)" line-clamp=1
+                      text message.body font-size="0.6875rem" font-weight=500 line-height="1rem" color="light-dark(#71717b, #818181)" line-clamp=1
                 box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff0b)"
             else
               when message.kind == "meta"
-                column width="100%" padding-left=4 padding-right=4 box-sizing="border-box"
+                column width="100%" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box"
                   RowActions(message=message, command=command, local=local, visible=hovered, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart)
               else
                 TimelineContent(message=message, documents=documents, hovering=hovered, part=part, hoverPart=hoverPart, local=local, command=command, now=now, scheme=scheme, attachments=attachments)
                 when message.actionsId != "" and message.kind != "checkpoint"
-                  column width="100%" padding-left=4 padding-right=4 box-sizing="border-box"
+                  column width="100%" padding-left="0.25rem" padding-right="0.25rem" box-sizing="border-box"
                     RowActions(message=message, command=command, local=local, visible=hovered, hover=hoverPart(message.hoverKey, ""), part=part, hoverPart=hoverPart)
 
 // A sent message: attribution and intent above an 18pt bubble, then the
@@ -114,49 +115,49 @@ component UserRow
   action toggleBody
     expanded = not expanded
   view
-    column hook="t3-turn" data-turn=message.id width="100%" align-items="flex-end" gap=4
+    column hook="t3-turn" data-turn=message.id width="100%" align-items="flex-end" gap="0.25rem"
       when message.attribution != ""
         when message.attribution == "agent" and message.targetId != ""
-          button press=command("select-thread", message.targetId, "", 0) aria-label="Open sending thread" margin-right=4 padding=0 border-width=0 background-color="#00000000"
-            text "Sent by another agent" font-size=11 line-height="15px" color="light-dark(#71717bb3, #818181b3)"
+          button press=command("select-thread", message.targetId, "", 0) aria-label="Open sending thread" margin-right="0.25rem" padding=0 border-width=0 background-color="#00000000"
+            text "Sent by another agent" font-size="0.6875rem" line-height="0.9375rem" color="light-dark(#71717bb3, #818181b3)"
         else
           when message.attribution == "automation" and message.detail != ""
-            button press=command("open-scheduled-task", message.detail, "", 0) aria-label="Sent by automation" margin-right=4 padding=0 border-width=0 background-color="#00000000"
-              text "Sent by automation" font-size=11 line-height="15px" color="light-dark(#71717bb3, #818181b3)"
+            button press=command("open-scheduled-task", message.detail, "", 0) aria-label="Sent by automation" margin-right="0.25rem" padding=0 border-width=0 background-color="#00000000"
+              text "Sent by automation" font-size="0.6875rem" line-height="0.9375rem" color="light-dark(#71717bb3, #818181b3)"
           else
-            text (message.attribution == "agent" ? "Sent by another agent" : "Sent by automation") margin-right=4 font-size=11 line-height="15px" color="light-dark(#71717bb3, #818181b3)"
+            text (message.attribution == "agent" ? "Sent by another agent" : "Sent by automation") margin-right="0.25rem" font-size="0.6875rem" line-height="0.9375rem" color="light-dark(#71717bb3, #818181b3)"
       when message.intent != ""
-        row margin-right=4 justify-content="flex-end"
+        row margin-right="0.25rem" justify-content="flex-end"
           TimelineTip(label=message.intentTip, side="top", align="center", offset=20)
-            row gap=4 align-items="center" justify-content="flex-end" aria-label=message.intentTip aria-description=message.intentTip
+            row gap="0.25rem" align-items="center" justify-content="flex-end" aria-label=message.intentTip aria-description=message.intentTip
               when message.intent == "Steer"
                 TimelineIcon(name="redo", size=12, color="light-dark(#71717b, #818181)")
-              text message.intent font-size=12 line-height="12px" color="light-dark(#71717b, #818181)"
-      column max-width="80%" padding=12 border-radius=18 background-color=bubble box-sizing="border-box"
+              text message.intent font-size="0.75rem" line-height="0.75rem" color="light-dark(#71717b, #818181)"
+      column max-width="80%" padding="0.75rem" border-radius="1.125rem" background-color=bubble box-sizing="border-box"
         when length(message.images) > 0 or length(message.attachFiles) > 0
           MessageAttachments(messageId=message.id, images=message.images, files=message.attachFiles, urls=attachments, local=local)
         // CollapsibleUserMessageBody: past 600 characters or 8 lines the body
         // clips to 11rem under a 1.75rem fade until "Show full message".
-        column max-height=(message.collapsible and not expanded ? 176 : 1000000) overflow=(message.collapsible and not expanded ? "hidden" : "visible") mask-image=(message.collapsible and not expanded ? "linear-gradient(to bottom, #000000 0%, #000000 84%, #00000000 100%)" : "none")
+        column max-height=(message.collapsible and not expanded ? "11rem" : "62500rem") overflow=(message.collapsible and not expanded ? "hidden" : "visible") mask-image=(message.collapsible and not expanded ? "linear-gradient(to bottom, #000000 0%, #000000 84%, #00000000 100%)" : "none")
           when message.body != ""
             when length(filter(documents, (doc) => doc.id == message.id)) > 0
               each document in filter(documents, (doc) => doc.id == message.id) key=document.id
                 UserMarkdown(document=document, local=local, code=message.code, diagrams=message.diagrams, ink=ink, scheme=scheme, copiedText=message.codeCopied, copiedNonce=message.codeCopyNonce, env=message.md, urls=attachments)
             else
-              text message.body font-size=14 line-height="22.75px" white-space="pre-wrap" overflow-wrap="anywhere" color=ink
+              text message.body font-size="0.875rem" line-height="1.421875rem" white-space="pre-wrap" overflow-wrap="anywhere" color=ink
         when message.collapsible
-          row margin-top=6 justify-content="flex-end"
+          row margin-top="0.375rem" justify-content="flex-end"
             ShowMoreButton(expanded=expanded, press=toggleBody, testId=`show-full-${message.id}`)
       when message.status != ""
-        row margin-right=4 gap=6 align-items="center"
-          text message.status font-size=10 font-weight=500 line-height="14px" padding-left=6 padding-right=6 padding-top=2 padding-bottom=2 border-radius=999 border-width=1 border-style="solid" border-color="light-dark(#fb2c3640, #fb414a40)" background-color="light-dark(#fb2c3614, #fb414a14)" color="light-dark(#fb2c36, #fb414a)"
-      row width="100%" max-width="80%" height=24 padding-right=4 box-sizing="border-box" justify-content="flex-end" align-items="center" gap=8 opacity=(hovering ? 1 : 0)
+        row margin-right="0.25rem" gap="0.375rem" align-items="center"
+          text message.status font-size="0.625rem" font-weight=500 line-height="0.875rem" padding-left="0.375rem" padding-right="0.375rem" padding-top="0.125rem" padding-bottom="0.125rem" border-radius="62.4375rem" border-width=1 border-style="solid" border-color="light-dark(#fb2c3640, #fb414a40)" background-color="light-dark(#fb2c3614, #fb414a14)" color="light-dark(#fb2c36, #fb414a)"
+      row width="100%" max-width="80%" height="1.5rem" padding-right="0.25rem" box-sizing="border-box" justify-content="flex-end" align-items="center" gap="0.5rem" opacity=(hovering ? 1 : 0)
         RowTip(label=message.timeTip, side="top", align="center", offset=24, shown=(part == "time"), hover=hoverPart(message.hoverKey, "time"))
-          text message.timestamp font-size=12 line-height="16px" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
-        row gap=2 align-items="center"
+          text message.timestamp font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
+        row gap="0.125rem" align-items="center"
           when message.revert >= 0
             RowTip(label="Edit from here", side="top", align="center", offset=28, shown=(part == "edit"), hover=hoverPart(message.hoverKey, "edit"))
-              button press=local("revert", message.id, toString(message.revert)) testId=`edit-from-${message.id}` aria-label="Edit from here" focus=hover(true) blur=hover(false) width=24 height=24 padding=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+              button press=local("revert", message.id, toString(message.revert)) testId=`edit-from-${message.id}` aria-label="Edit from here" focus=hover(true) blur=hover(false) width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
                 Icon(name="undo", size=12, color="light-dark(#71717b, #818181)")
           RowTip(label="Copy message", side="top", align="center", offset=28, shown=(part == "copy"), hover=hoverPart(message.hoverKey, "copy"))
             CopyButton(id=message.id, copied=message.copied, failed=message.copyFailed, local=local, hover=hover)
@@ -170,8 +171,8 @@ component ShowMoreButton
   action hover(over: bool)
     hovered = over
   view
-    button press=press hover=hover aria-expanded=expanded testId=testId height=24 padding-left=8 padding-right=8 box-sizing="border-box" border-radius=8 border-width=0 background-color=(hovered ? "light-dark(#27272a0d, #ffffff0d)" : "#00000000") display="flex" flex-direction="row" align-items="center"
-      text (expanded ? "Show less" : "Show full message") font-size=12 font-weight=500 line-height="16px" color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+    button press=press hover=hover aria-expanded=expanded testId=testId height="1.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(hovered ? "light-dark(#27272a0d, #ffffff0d)" : "#00000000") display="flex" flex-direction="row" align-items="center"
+      text (expanded ? "Show less" : "Show full message") font-size="0.75rem" font-weight=500 line-height="1rem" color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
 
 // Fork, copy and the answer's wall-clock time; hidden until the row is hovered
 // or one of its controls is focused, and always occupying its 24pt line.
@@ -185,15 +186,15 @@ component RowActions
     part: string
     hoverPart: action
   view
-    row width="100%" height=24 margin-top=6 gap=8 align-items="center" opacity=(visible or message.copied > 0 ? 1 : 0)
+    row width="100%" height="1.5rem" margin-top="0.375rem" gap="0.5rem" align-items="center" opacity=(visible or message.copied > 0 ? 1 : 0)
       when message.actionsFork
         RowTip(label="Fork from this response", side="top", align="center", offset=28, shown=(part == "fork"), hover=hoverPart(message.hoverKey, "fork"))
-          button press=command("fork-message", message.actionsId, "", 0) testId=`fork-${message.actionsId}` aria-label="Fork from this response" focus=hover(true) blur=hover(false) width=24 height=24 padding=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
+          button press=command("fork-message", message.actionsId, "", 0) testId=`fork-${message.actionsId}` aria-label="Fork from this response" focus=hover(true) blur=hover(false) width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" justify-content="center"
             Icon(name="fork", size=12, color="light-dark(#71717b, #818181)")
       RowTip(label="Copy message", side="top", align="center", offset=28, shown=(part == "copy"), hover=hoverPart(message.hoverKey, "copy"))
         CopyButton(id=message.actionsId, copied=message.copied, failed=message.copyFailed, local=local, hover=hover)
       RowTip(label=message.actionsTimeTip, side="top", align="center", offset=24, shown=(part == "time"), hover=hoverPart(message.hoverKey, "time"))
-        text message.actionsTime font-size=12 line-height="16px" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
+        text message.actionsTime font-size="0.75rem" line-height="1rem" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
 
 // ChangedFilesCard: the turn's files as a tree of compacted folders (all
 // collapsed until "Expand all folders"), each file opening the turn diff at it.
@@ -205,21 +206,21 @@ component ChangedFiles
     // Appearance → Diff colors (look.diff): DiffStatLabel's text-diff-addition / text-diff-deletion.
     diffScheme: string
   view
-    column width="100%" border-radius=10 background-color="light-dark(#fafafa, #ffffff04)" testId=`checkpoint-${message.id}`
-      row width="100%" height=40 padding-left=12 padding-right=12 padding-top=8 padding-bottom=8 box-sizing="border-box" gap=8 align-items="center" justify-content="space-between"
-        row flex=1 min-width=0 gap=12 align-items="center"
-          text `${message.fileCount} changed ${message.fileCount == 1 ? "file" : "files"}` font-size=12 line-height="16px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+    column width="100%" border-radius="0.625rem" background-color="light-dark(#fafafa, #ffffff04)" testId=`checkpoint-${message.id}`
+      row width="100%" height="2.5rem" padding-left="0.75rem" padding-right="0.75rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" gap="0.5rem" align-items="center" justify-content="space-between"
+        row flex=1 min-width=0 gap="0.75rem" align-items="center"
+          text `${message.fileCount} changed ${message.fileCount == 1 ? "file" : "files"}` font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
           when message.additions > 0 or message.deletions > 0
-            row gap=4 align-items="center" aria-label=`${message.additions} additions, ${message.deletions} deletions`
+            row gap="0.25rem" align-items="center" aria-label=`${message.additions} additions, ${message.deletions} deletions`
               text `+${message.additions}` font-family="ui-monospace" font-size=12 line-height="16px" font-weight=500 color=(diffScheme == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "#00bc7d")
               text `-${message.deletions}` font-family="ui-monospace" font-size=12 line-height="16px" font-weight=500 color=(diffScheme == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")
-        row flex-shrink=0 gap=4 align-items="center"
+        row flex-shrink=0 gap="0.25rem" align-items="center"
           when length(filter(message.files, (f) => f.kind == "directory")) > 0
             TimelineTip(label=(message.expanded ? "Collapse all folders" : "Expand all folders"), side="top", align="center", offset=28)
               TreeIconButton(label=(message.expanded ? "Collapse all folders" : "Expand all folders"), icon=(message.expanded ? "chevrons-down-up" : "chevrons-up-down"), press=local("tree-all", (message.runId != "" ? message.runId : message.checkpointId), ""), testId=`tree-all-${message.id}`)
           TimelineTip(label="Open the full diff", side="top", align="center", offset=28)
             OpenDiffButton(message=message, command=command)
-      column width="100%" padding=8 box-sizing="border-box"
+      column width="100%" padding="0.5rem" box-sizing="border-box"
         each file in message.files key=file.id
           TreeRow(file=file, message=message, command=command, local=local, diffScheme=diffScheme)
 
@@ -233,7 +234,7 @@ component TreeIconButton
   action hover(over: bool)
     hovered = over
   view
-    button press=press hover=hover aria-label=label testId=testId width=24 height=24 padding=0 border-radius=8 border-width=0 background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
+    button press=press hover=hover aria-label=label testId=testId width="1.5rem" height="1.5rem" padding=0 border-radius="0.5rem" border-width=0 background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" justify-content="center"
       TimelineIcon(name=icon, size=12, color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
 
 component OpenDiffButton
@@ -244,9 +245,9 @@ component OpenDiffButton
   action hover(over: bool)
     hovered = over
   view
-    button press=command("checkpoint-diff", message.targetId, "", message.checkpointOrdinal) hover=hover disabled=(message.checkpointOrdinal < 0) testId=`checkpoint-diff-${message.checkpointOrdinal}` aria-label="Open diff" height=24 padding-left=6 padding-right=8 box-sizing="border-box" border-radius=8 border-width=0 background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" gap=2 flex-shrink=0
+    button press=command("checkpoint-diff", message.targetId, "", message.checkpointOrdinal) hover=hover disabled=(message.checkpointOrdinal < 0) testId=`checkpoint-diff-${message.checkpointOrdinal}` aria-label="Open diff" height="1.5rem" padding-left="0.375rem" padding-right="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color=(hovered ? "light-dark(#f4f4f5, #ffffff0a)" : "#00000000") display="flex" flex-direction="row" align-items="center" gap="0.125rem" flex-shrink=0
       Icon(name="file-diff", size=12, color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
-      text "Open diff" font-size=12 line-height="16px" font-weight=500 color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
+      text "Open diff" font-size="0.75rem" line-height="1rem" font-weight=500 color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)")
 
 // A folder (chevron, open or closed folder, compacted name) or a file (its
 // Pierre icon and name); both carry their own +/- in 4ch columns.
@@ -262,8 +263,8 @@ component TreeRow
     hovered = over
   view
     when file.kind == "directory"
-      button press=local("tree-dir", (message.runId != "" ? message.runId : message.checkpointId), file.path) hover=hover aria-expanded=file.expanded aria-label=file.name testId=`tree-dir-${file.path}` width="100%" height=28 padding-left=(8 + file.depth * 14) padding-right=8 box-sizing="border-box" border-radius=6 border-width=0 background-color=(hovered ? "light-dark(#f4f4f599, #ffffff06)" : "#00000000") display="flex" flex-direction="row" align-items="center" gap=8
-        box width=14 height=14 flex-shrink=0 rotate=(file.expanded ? 90 : 0)
+      button press=local("tree-dir", (message.runId != "" ? message.runId : message.checkpointId), file.path) hover=hover aria-expanded=file.expanded aria-label=file.name testId=`tree-dir-${file.path}` width="100%" height="1.75rem" padding-left=(8 + file.depth * 14) padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color=(hovered ? "light-dark(#f4f4f599, #ffffff06)" : "#00000000") display="flex" flex-direction="row" align-items="center" gap="0.5rem"
+        box width="0.875rem" height="0.875rem" flex-shrink=0 rotate=(file.expanded ? 90 : 0)
           Icon(name="right", size=14, color=(hovered ? "light-dark(#27272acc, #f5f5f5cc)" : "light-dark(#71717bb3, #818181b3)"))
         when file.expanded
           Icon(name="folder", size=14, color="light-dark(#71717bbf, #818181bf)")
@@ -273,9 +274,9 @@ component TreeRow
         when file.additions > 0 or file.deletions > 0
           TreeStat(file=file, diffScheme=diffScheme)
     else
-      button press=command("checkpoint-diff", file.path, "", message.checkpointOrdinal) hover=hover disabled=(message.checkpointOrdinal < 0) aria-label=file.path testId=`tree-file-${file.path}` width="100%" height=28 padding-left=(8 + file.depth * 14) padding-right=8 box-sizing="border-box" border-radius=6 border-width=0 background-color=(hovered ? "light-dark(#f4f4f599, #ffffff06)" : "#00000000") display="flex" flex-direction="row" align-items="center" gap=8
+      button press=command("checkpoint-diff", file.path, "", message.checkpointOrdinal) hover=hover disabled=(message.checkpointOrdinal < 0) aria-label=file.path testId=`tree-file-${file.path}` width="100%" height="1.75rem" padding-left=(8 + file.depth * 14) padding-right="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-width=0 background-color=(hovered ? "light-dark(#f4f4f599, #ffffff06)" : "#00000000") display="flex" flex-direction="row" align-items="center" gap="0.5rem"
         when file.spacer
-          box width=14 height=14 flex-shrink=0
+          box width="0.875rem" height="0.875rem" flex-shrink=0
         FileTypeIcon(token=file.icon, size=14)
         text file.name flex=1 min-width=0 line-clamp=1 text-align="left" font-family="ui-monospace" font-size=12 line-height="16px" color=(hovered ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#27272ad9, #f5f5f5d9)")
         TreeStat(file=file, diffScheme=diffScheme)
@@ -285,9 +286,9 @@ component TreeStat
     file: CheckpointFile
     diffScheme: string
   view
-    row flex-shrink=0 gap=8 align-items="center" aria-label=`${file.additions} additions, ${file.deletions} deletions`
-      text file.plus width=24.08 text-align="right" font-family="ui-monospace" font-size=10 line-height="14px" font-variant-numeric="tabular-nums" color=(diffScheme == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "#00bc7d")
-      text file.minus width=24.08 text-align="right" font-family="ui-monospace" font-size=10 line-height="14px" font-variant-numeric="tabular-nums" color=(diffScheme == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")
+    row flex-shrink=0 gap="0.5rem" align-items="center" aria-label=`${file.additions} additions, ${file.deletions} deletions`
+      text file.plus width="1.505rem" text-align="right" font-family="ui-monospace" font-size=10 line-height="14px" font-variant-numeric="tabular-nums" color=(diffScheme == "blue-orange" ? "light-dark(#155dfc, #51a2ff)" : "#00bc7d")
+      text file.minus width="1.505rem" text-align="right" font-family="ui-monospace" font-size=10 line-height="14px" font-variant-numeric="tabular-nums" color=(diffScheme == "blue-orange" ? "light-dark(#f54900, #ff8904)" : "light-dark(#fb2c36, #fb414a)")
 
 component TimelineContent
   props
@@ -309,7 +310,7 @@ component TimelineContent
     column width="100%"
       when message.kind == "assistant"
         // r5-composer: the answer registers as a citation's jump target (T3TimelineTurns.swift, `cite:` rows).
-        column hook="t3-turn" data-turn=`cite:${message.id}` width="100%" padding-left=4 padding-right=4 padding-top=2 padding-bottom=2 box-sizing="border-box"
+        column hook="t3-turn" data-turn=`cite:${message.id}` width="100%" padding-left="0.25rem" padding-right="0.25rem" padding-top="0.125rem" padding-bottom="0.125rem" box-sizing="border-box"
           each document in filter(documents, (doc) => doc.id == message.id) key=document.id
             AnswerMarkdown(document=document, local=local, code=message.code, diagrams=message.diagrams, scheme=scheme, copiedText=message.codeCopied, copiedNonce=message.codeCopyNonce, env=message.md, source=message.id, cite=citeQuote, urls=attachments)
       else
@@ -318,38 +319,38 @@ component TimelineContent
         else
           when message.kind == "work"
             column width="100%"
-              row width="100%" padding-top=4 padding-bottom=8 padding-right=2 box-sizing="border-box" gap=4 align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)"
-                button press=local("fold", message.groupId, "") testId=`activity-${message.id}` aria-expanded=message.expanded padding-left=4 padding-right=4 padding-top=0 padding-bottom=0 border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap=4
-                  text message.title font-size=14 line-height="22.75px" color=(hovering ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)") line-clamp=1 font-variant-numeric="tabular-nums"
+              row width="100%" padding-top="0.25rem" padding-bottom="0.5rem" padding-right="0.125rem" box-sizing="border-box" gap="0.25rem" align-items="center" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)"
+                button press=local("fold", message.groupId, "") testId=`activity-${message.id}` aria-expanded=message.expanded padding-left="0.25rem" padding-right="0.25rem" padding-top=0 padding-bottom=0 border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center" gap="0.25rem"
+                  text message.title font-size="0.875rem" line-height="1.421875rem" color=(hovering ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)") line-clamp=1 font-variant-numeric="tabular-nums"
                   Icon(name=(message.expanded ? "chevron" : "right"), size=14, color=(hovering ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b, #818181)"))
                 box flex=1 min-width=0
                 RowTip(label=(hovering ? message.timeTip : ""), side="top", align="center", offset=20, shown=(part == "time"), hover=hoverPart(message.hoverKey, "time"))
-                  text message.timestamp font-size=12 line-height="16px" margin-right=4 color="light-dark(#71717b, #818181)" opacity=(hovering ? 1 : 0)
+                  text message.timestamp font-size="0.75rem" line-height="1rem" margin-right="0.25rem" color="light-dark(#71717b, #818181)" opacity=(hovering ? 1 : 0)
           else
             when message.kind == "working"
-              column width="100%" padding-top=4 padding-bottom=8 box-sizing="border-box" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)"
-                row height=24 min-width=0 padding-left=4 padding-right=4 align-items="center" gap=8
+              column width="100%" padding-top="0.25rem" padding-bottom="0.5rem" box-sizing="border-box" border-bottom-width=1 border-bottom-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)"
+                row height="1.5rem" min-width=0 padding-left="0.25rem" padding-right="0.25rem" align-items="center" gap="0.5rem"
                   // "Setting up worktree…" sweeps like a live row while the worktree is prepared.
                   when message.live
                     LiveLabel(label=message.title)
                   else
-                    text (message.startedMs > 0 ? `Working for ${workingTimer(max(0, floor((now - message.startedMs) / 1000)))}` : "Working...") testId="working-timer" font-size=14 line-height="22.75px" white-space="nowrap" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
+                    text (message.startedMs > 0 ? `Working for ${workingTimer(max(0, floor((now - message.startedMs) / 1000)))}` : "Working...") testId="working-timer" font-size="0.875rem" line-height="1.421875rem" white-space="nowrap" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
             else
               when message.kind == "thinking"
                 when message.title == ""
                   // ThinkingTimelineRow keeps the activity row's height while a worktree is prepared.
-                  box width="100%" height=24
+                  box width="100%" height="1.5rem"
                 else
                   // After a failed tool the row stands in for the run's tool calls and discloses them.
                   when message.groupId != ""
-                    button press=local("group", message.groupId, "") testId=`thinking-${message.groupId}` aria-label="Thinking" aria-expanded=message.expanded width="100%" min-height=24 padding=0 padding-left=2 padding-right=2 box-sizing="border-box" border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+                    button press=local("group", message.groupId, "") testId=`thinking-${message.groupId}` aria-label="Thinking" aria-expanded=message.expanded width="100%" min-height="1.5rem" padding=0 padding-left="0.125rem" padding-right="0.125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
                       LiveActivity(label="Thinking", icon="brain", failed=false, active=true, shimmer=true, iconLight="", iconDark="")
                   else
-                    row width="100%" padding-left=2 padding-right=2 box-sizing="border-box" align-items="center"
+                    row width="100%" padding-left="0.125rem" padding-right="0.125rem" box-sizing="border-box" align-items="center"
                       LiveActivity(label="Thinking", icon="brain", failed=false, active=true, shimmer=true, iconLight="", iconDark="")
               else
                 when message.kind == "live"
-                  button press=local("group", message.groupId, "") testId=`live-${message.id}` aria-label=(message.failed ? `${message.title}, tool call failed` : message.title) aria-expanded=message.expanded width="100%" min-height=24 padding=0 padding-left=2 padding-right=2 box-sizing="border-box" border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+                  button press=local("group", message.groupId, "") testId=`live-${message.id}` aria-label=(message.failed ? `${message.title}, tool call failed` : message.title) aria-expanded=message.expanded width="100%" min-height="1.5rem" padding=0 padding-left="0.125rem" padding-right="0.125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
                     // Keyed by its label: a reused one-line text would keep drawing the old string.
                     each keyed in message.activities key=keyed.id
                       LiveActivity(label=keyed.label, icon=message.icon, failed=message.failed, active=message.live, shimmer=false, iconLight=keyed.iconLight, iconDark=keyed.iconDark)
@@ -361,22 +362,22 @@ component TimelineContent
                       WorkEntries(message=message, command=command)
                     else
                       when message.kind == "attempt"
-                        button press=local("attempt", message.groupId, "") testId=`attempt-${message.groupId}` aria-expanded=message.expanded width="100%" padding-left=10 padding-right=10 padding-top=8 padding-bottom=8 box-sizing="border-box" border-radius=8 border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" background-color="light-dark(#fafafa33, #ffffff02)" display="flex" flex-direction="row" align-items="center" gap=8
+                        button press=local("attempt", message.groupId, "") testId=`attempt-${message.groupId}` aria-expanded=message.expanded width="100%" padding-left="0.625rem" padding-right="0.625rem" padding-top="0.5rem" padding-bottom="0.5rem" box-sizing="border-box" border-radius="0.5rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e799, #ffffff09)" background-color="light-dark(#fafafa33, #ffffff02)" display="flex" flex-direction="row" align-items="center" gap="0.5rem"
                           Icon(name=(message.expanded ? "chevron" : "right"), size=14, color="light-dark(#71717b, #818181)")
-                          text message.title font-size=12 font-weight=500 line-height="16px" color="light-dark(#27272acc, #f5f5f5cc)"
-                          text message.detail font-size=11 line-height="15px" color="light-dark(#71717b, #818181)"
+                          text message.title font-size="0.75rem" font-weight=500 line-height="1rem" color="light-dark(#27272acc, #f5f5f5cc)"
+                          text message.detail font-size="0.6875rem" line-height="0.9375rem" color="light-dark(#71717b, #818181)"
                       else
                         when message.kind == "compaction"
-                          row width="100%" align-items="center" gap=12 padding-top=4 padding-bottom=4 role="separator" aria-label=message.title
+                          row width="100%" align-items="center" gap="0.75rem" padding-top="0.25rem" padding-bottom="0.25rem" role="separator" aria-label=message.title
                             box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff0b)"
                             each keyed in message.activities key=keyed.id
                               when message.live
                                 LiveActivity(label=keyed.label, icon="minimize", failed=false, active=true, shimmer=true, iconLight="", iconDark="")
                               else
                                 // ContextCompactionRow: text-xs with a size-3 Minimize2 icon, gap-1.5.
-                                row gap=6 align-items="center" flex-shrink=0
+                                row gap="0.375rem" align-items="center" flex-shrink=0
                                   TimelineIcon(name="minimize", size=12, color="light-dark(#71717b, #818181)")
-                                  text keyed.label font-size=12 line-height="16px" white-space="nowrap" color="light-dark(#71717b, #818181)"
+                                  text keyed.label font-size="0.75rem" line-height="1rem" white-space="nowrap" color="light-dark(#71717b, #818181)"
                             box flex=1 height=1 background-color="light-dark(#e4e4e7b3, #ffffff0b)"
                         else
                           when message.kind == "event"
@@ -391,10 +392,10 @@ component TimelineContent
                                 each setup in message.setup key=setup.id
                                   WorktreeSetupCard(setup=setup, now=now, local=local)
                               else
-                                row width="100%" align-items="center" gap=12 padding-top=20 padding-bottom=20
+                                row width="100%" align-items="center" gap="0.75rem" padding-top="1.25rem" padding-bottom="1.25rem"
                                   box flex=1 height=1 background-color="light-dark(#e4e4e7, #ffffff0f)"
                                   Icon(name="compacted", size=12, color="light-dark(#71717b, #818181)")
-                                  text message.title font-size=12 color="light-dark(#71717b, #818181)"
+                                  text message.title font-size="0.75rem" color="light-dark(#71717b, #818181)"
                                   box flex=1 height=1 background-color="light-dark(#e4e4e7, #ffffff0f)"
 
 // WorkGroupHeader: the group's summary icon and sentence, hover time.
@@ -408,13 +409,13 @@ component WorkGroupHeader
     over = value ? id : (over == id ? "" : over)
   derive hovering = over != ""
   view
-    button hover=hover("row") press=local("group", message.groupId, "") testId=`group-${message.id}` aria-label=(message.failed ? `${message.title}, tool call failed` : message.title) aria-expanded=message.expanded width="100%" min-height=28 padding=2 box-sizing="border-box" border-radius=8 border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
+    button hover=hover("row") press=local("group", message.groupId, "") testId=`group-${message.id}` aria-label=(message.failed ? `${message.title}, tool call failed` : message.title) aria-expanded=message.expanded width="100%" min-height="1.75rem" padding="0.125rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" align-items="center"
       each keyed in message.activities key=keyed.id
         WorkLine(icon=message.icon, label=keyed.label, failed=false, highlighted=false, tone="", answer="", strong=false, iconLight="", iconDark="")
       // TimelineRowTimestamp: the full date in a tooltip once the time shows.
-      box position=(hovering ? "relative" : "absolute") opacity=(hovering ? 1 : 0) flex-shrink=0 margin-right=4
+      box position=(hovering ? "relative" : "absolute") opacity=(hovering ? 1 : 0) flex-shrink=0 margin-right="0.25rem"
         RowTip(label=(hovering ? message.timeTip : ""), side="top", align="center", offset=20, shown=(over == "time"), hover=hover("time"))
-          text message.timestamp font-size=12 line-height="16px" white-space="nowrap" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
+          text message.timestamp font-size="0.75rem" line-height="1rem" white-space="nowrap" font-variant-numeric="tabular-nums" color="light-dark(#71717b, #818181)"
 
 // A work group's entries: standalone rows, or an expanded group's list capped
 // at 18rem with its own scroll (ExpandedWorkGroupEntries).
@@ -424,7 +425,7 @@ component WorkEntries
     command: action
   view
     when message.kind == "details"
-      scroll width="100%" max-height=288 overflow-x="hidden" aria-label="Tool calls"
+      scroll width="100%" max-height="18rem" overflow-x="hidden" aria-label="Tool calls"
         column width="100%"
           each entry in message.activities key=`${entry.id}\t${entry.label}`
             WorkEntry(entry=entry, grouped=true, command=command, code=message.code, codeSize=message.md.codeSize)
@@ -447,19 +448,19 @@ component HistoryControl
   action setHover(over: bool)
     hovering = over
   view
-    column width="100%" max-width=lane padding-bottom=8 gap=6 box-sizing="border-box"
+    column width="100%" max-width=lane padding-bottom="0.5rem" gap="0.375rem" box-sizing="border-box"
       when hasMore
-        button hover=setHover press=load disabled=(busy or loading) aria-label="Load earlier turns" testId="load-earlier" width="100%" padding-top=6 padding-bottom=6 border-width=0 background-color="#00000000" display="flex" flex-direction="row" justify-content="center"
-          text (loading ? "Loading earlier turns…" : "Load earlier turns") font-size=12 line-height="16px" color=(hovering and not loading ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b99, #81818199)")
+        button hover=setHover press=load disabled=(busy or loading) aria-label="Load earlier turns" testId="load-earlier" width="100%" padding-top="0.375rem" padding-bottom="0.375rem" border-width=0 background-color="#00000000" display="flex" flex-direction="row" justify-content="center"
+          text (loading ? "Loading earlier turns…" : "Load earlier turns") font-size="0.75rem" line-height="1rem" color=(hovering and not loading ? "light-dark(#27272a, #f5f5f5)" : "light-dark(#71717b99, #81818199)")
       when error != ""
-        text error role="status" testId="history-error" width="100%" text-align="center" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+        text error role="status" testId="history-error" width="100%" text-align="center" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
 
 // .topbar-scroll-fade: rows fade out over the first 24pt below the header.
 component TimelineFade
   props
     canvas: string
   view
-    box position="absolute" top=0 left=0 right=0 height=24 pointer-events="none" background-color=canvas mask-image="linear-gradient(to bottom, #000000 0%, #000000e6 10%, #000000b3 24%, #0000006b 42%, #0000002e 62%, #0000000a 82%, #00000000 100%)" aria-hidden=true
+    box position="absolute" top=0 left=0 right=0 height="1.5rem" pointer-events="none" background-color=canvas mask-image="linear-gradient(to bottom, #000000 0%, #000000e6 10%, #000000b3 24%, #0000006b 42%, #0000002e 62%, #0000000a 82%, #00000000 100%)" aria-hidden=true
 
 // ChatView's "Edit from here?" AlertDialog: rewind the conversation to before
 // the message, keeping or reverting the files the later turns changed.
@@ -468,15 +469,15 @@ component RevertDialog
     busy: bool
     answer: action
   view
-    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding=16 box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" testId="revert-overlay"
-      column width="100%" max-width=512 box-sizing="border-box" border-radius=18 border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-label="Edit from here?" testId="revert-dialog"
-        column gap=8 padding=24 box-sizing="border-box"
-          text "Edit from here?" font-size=20 font-weight=600 line-height="20px" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
-          text "Rewind chat to before this message. Your prompt and attachments return to the composer." font-size=14 line-height="20px" color="light-dark(#71717b, #818181)"
-        row gap=8 justify-content="flex-end" padding-left=24 padding-right=24 padding-top=16 padding-bottom=16 box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#f9f9f9b8, #ffffff06)"
-          button press=answer("cancel") disabled=busy aria-keyshortcuts="Escape" testId="revert-cancel" display="flex" flex-direction="row" align-items="center" justify-content="center" height=32 padding-left=11 padding-right=11 box-sizing="border-box" border-radius=8 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
-            text "Cancel" font-size=14 font-weight=500 line-height="20px" color="light-dark(#27272a, #f5f5f5)"
-          button press=answer("files") disabled=busy testId="revert-files" display="flex" flex-direction="row" align-items="center" justify-content="center" height=32 padding-left=12 padding-right=12 box-sizing="border-box" border-radius=8 border-width=0 opacity=(busy ? 0.64 : 1) background-color="#dc2626"
-            text "Revert files too" font-size=14 font-weight=500 line-height="20px" color="#ffffff"
-          button press=answer("keep") disabled=busy testId="revert-keep" display="flex" flex-direction="row" align-items="center" justify-content="center" height=32 padding-left=12 padding-right=12 box-sizing="border-box" border-radius=8 border-width=0 opacity=(busy ? 0.64 : 1) background-color="light-dark(#1b4ed8, #346bf1)"
-            text "Revert and keep changes" font-size=14 font-weight=500 line-height="20px" color="#ffffff"
+    column position="absolute" left=0 right=0 top=0 bottom=0 z-index=40 display="flex" align-items="center" justify-content="center" padding="1rem" box-sizing="border-box" background-color="light-dark(#fcfcfc99, #090909a3)" testId="revert-overlay"
+      column width="100%" max-width="32rem" box-sizing="border-box" border-radius="1.125rem" border-style="solid" border-width=1 border-color="light-dark(#2727271a, #ffffff14)" background-color="light-dark(#fcfcfc, #0b0b0b)" box-shadow="0 24px 64px -24px #000000a6" overflow="hidden" role="alertdialog" aria-label="Edit from here?" testId="revert-dialog"
+        column gap="0.5rem" padding="1.5rem" box-sizing="border-box"
+          text "Edit from here?" font-size="1.25rem" font-weight=600 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=2
+          text "Rewind chat to before this message. Your prompt and attachments return to the composer." font-size="0.875rem" line-height="1.25rem" color="light-dark(#71717b, #818181)"
+        row gap="0.5rem" justify-content="flex-end" padding-left="1.5rem" padding-right="1.5rem" padding-top="1rem" padding-bottom="1rem" box-sizing="border-box" border-top-style="solid" border-top-width=1 border-color="light-dark(#e4e4e7, #ffffff0f)" background-color="light-dark(#f9f9f9b8, #ffffff06)"
+          button press=answer("cancel") disabled=busy aria-keyshortcuts="Escape" testId="revert-cancel" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.6875rem" padding-right="0.6875rem" box-sizing="border-box" border-radius="0.5rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#ffffff, #ffffff07)"
+            text "Cancel" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="light-dark(#27272a, #f5f5f5)"
+          button press=answer("files") disabled=busy testId="revert-files" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 opacity=(busy ? 0.64 : 1) background-color="#dc2626"
+            text "Revert files too" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"
+          button press=answer("keep") disabled=busy testId="revert-keep" display="flex" flex-direction="row" align-items="center" justify-content="center" height="2rem" padding-left="0.75rem" padding-right="0.75rem" box-sizing="border-box" border-radius="0.5rem" border-width=0 opacity=(busy ? 0.64 : 1) background-color="light-dark(#1b4ed8, #346bf1)"
+            text "Revert and keep changes" font-size="0.875rem" font-weight=500 line-height="1.25rem" color="#ffffff"

@@ -169,15 +169,15 @@ component ProvidersPanel
   derive cardHeight = max(512, min(704, height - 176))
   derive health = healthEdited ? healthDraft : page.healthSeconds
   view
-    column width="100%" gap=32 testId="providers-settings"
+    column width="100%" gap="2rem" testId="providers-settings"
       when not page.available
-        text page.message font-size=14 line-height="20px" padding=32 color="light-dark(#71717b, #818181)" testId="providers-unavailable"
+        text page.message font-size="0.875rem" line-height="1.25rem" padding="2rem" color="light-dark(#71717b, #818181)" testId="providers-unavailable"
       else
-        column width="100%" gap=10
+        column width="100%" gap="0.625rem"
           PvSectionTitle(title="Providers")
             button press=op("provider-refresh", "", "", "", true) class=PvGhost disabled=busy aria-label="Refresh provider status" testId="refresh-providers"
               PvIcon(name="refresh", size=14, color="light-dark(#71717b, #818181)")
-              text (busy ? "Refreshing providers" : page.checked) font-size=12 line-height="16px" font-weight=500 color="light-dark(#71717b, #818181)"
+              text (busy ? "Refreshing providers" : page.checked) font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
             button press=ui("open", "add") class=PvIconButton aria-label="Add provider" disabled=(busy or not page.writable) testId="add-provider" id="add-provider"
               PvIcon(name="plus", size=14, color="light-dark(#71717b, #818181)")
           when not page.writable
@@ -185,60 +185,60 @@ component ProvidersPanel
               PvRow(title="Limited permissions", description=page.message, status="", wide=(width - 34 >= 512), divided=false)
           PvGroup()
             row width="100%" flex-direction=(wide ? "row" : "column") height=(wide ? cardHeight : "auto") testId="providers-card"
-              scroll flex-shrink=0 width=(wide ? 272 : "100%") height=(wide ? "100%" : "auto") box-sizing="border-box" border-style="solid" border-color="light-dark(#e4e4e899, #ffffff0a)" border-top-width=0 border-left-width=0 border-right-width=(wide ? 1 : 0) border-bottom-width=(wide ? 0 : 1) background-color="light-dark(#f5f5f51a, #ffffff00)" testId="provider-list"
+              scroll flex-shrink=0 width=(wide ? "17rem" : "100%") height=(wide ? "100%" : "auto") box-sizing="border-box" border-style="solid" border-color="light-dark(#e4e4e899, #ffffff0a)" border-top-width=0 border-left-width=0 border-right-width=(wide ? 1 : 0) border-bottom-width=(wide ? 0 : 1) background-color="light-dark(#f5f5f51a, #ffffff00)" testId="provider-list"
                 column width="100%"
                   each row in page.rows key=row.id
-                    row width="100%" min-height=72 box-sizing="border-box" padding-left=16 padding-right=16 padding-top=12 padding-bottom=12 gap=12 align-items="center" border-top-style="solid" border-top-width=(row.first ? 0 : 1) border-color="light-dark(#e3e3e780, #ffffff08)" background-color=(row.selected ? "light-dark(#fbfbfb73, #ffffff03)" : "#00000000") testId=`provider-list-row-${row.id}`
-                      button press=select(row.id) aria-label=`Select ${row.name}` aria-selected=row.selected testId=`settings-provider-${row.id}` flex=1 min-width=0 display="flex" flex-direction="row" align-items="flex-start" justify-content="flex-start" gap=12 padding=0 border-width=0 border-radius=8 background-color="#00000000" opacity=(not row.enabled and not row.selected ? 0.6 : 1)
-                        box width=20 height=20 position="relative" display="flex" align-items="center" justify-content="center" flex-shrink=0
+                    row width="100%" min-height="4.5rem" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem" gap="0.75rem" align-items="center" border-top-style="solid" border-top-width=(row.first ? 0 : 1) border-color="light-dark(#e3e3e780, #ffffff08)" background-color=(row.selected ? "light-dark(#fbfbfb73, #ffffff03)" : "#00000000") testId=`provider-list-row-${row.id}`
+                      button press=select(row.id) aria-label=`Select ${row.name}` aria-selected=row.selected testId=`settings-provider-${row.id}` flex=1 min-width=0 display="flex" flex-direction="row" align-items="flex-start" justify-content="flex-start" gap="0.75rem" padding=0 border-width=0 border-radius="0.5rem" background-color="#00000000" opacity=(not row.enabled and not row.selected ? 0.6 : 1)
+                        box width="1.25rem" height="1.25rem" position="relative" display="flex" align-items="center" justify-content="center" flex-shrink=0
                           DriverMark(driver=row.driver, size=16, initials=row.badge)
                           when row.accent != ""
-                            box position="absolute" right=-2 bottom=-2 min-width=12 height=12 padding-left=2 padding-right=2 box-sizing="border-box" border-radius=9999 background-color=row.accent display="flex" align-items="center" justify-content="center"
-                              text row.badge font-size=7 font-weight=600 line-height=1 color="#ffffff"
+                            box position="absolute" right="-0.125rem" bottom="-0.125rem" min-width="0.75rem" height="0.75rem" padding-left="0.125rem" padding-right="0.125rem" box-sizing="border-box" border-radius="624.9375rem" background-color=row.accent display="flex" align-items="center" justify-content="center"
+                              text row.badge font-size="0.4375rem" font-weight=600 line-height=1 color="#ffffff"
                         column flex=1 min-width=0 align-items="flex-start"
-                          row width="100%" min-width=0 gap=8 align-items="center"
-                            text row.name font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 flex-shrink=1
+                          row width="100%" min-width=0 gap="0.5rem" align-items="center"
+                            text row.name font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" white-space="nowrap" overflow="hidden" text-overflow="ellipsis" min-width=0 flex-shrink=1
                             when row.version != ""
-                              text row.version font-family="ui-monospace" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" max-width=96 line-clamp=1 flex-shrink=0
+                              text row.version font-family="ui-monospace" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" max-width="6rem" line-clamp=1 flex-shrink=0
                             when row.advisory == "warning"
                               box aria-label=row.advisoryTitle role="img" flex-shrink=0
                                 PvIcon(name="warning", size=14, color="#fe9a00")
                             when row.advisory == "update"
                               box aria-label="Update available" role="img" flex-shrink=0
                                 PvIcon(name="update", size=14, color="light-dark(#71717b, #818181)")
-                          row margin-top=2 gap=6 align-items="flex-start" width="100%"
+                          row margin-top="0.125rem" gap="0.375rem" align-items="flex-start" width="100%"
                             when row.dot != ""
-                              box height=17 display="flex" align-items="center" flex-shrink=0
-                                box width=6 height=6 border-radius=9999 background-color=(row.dot == "error" ? "light-dark(#e7000b, #ff6467)" : "#fe9a00")
-                            text row.status font-size=12 line-height="18px" color="light-dark(#70707acc, #818181cc)" line-clamp=2 text-align="left"
-                      box height=20 display="flex" align-items="center" flex-shrink=0
-                        button press=op("provider-enabled", row.id, "", (row.enabled ? "false" : "true"), true) role="switch" aria-checked=row.enabled aria-label=`Enable ${row.name}` disabled=(busy or not page.writable) testId=`provider-enable-${row.id}` width=30 height=18 padding=2 border-width=0 border-radius=9999 box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(row.enabled ? "flex-end" : "flex-start") flex-shrink=0 background-color=(row.enabled ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)")
-                          box width=14 height=14 border-radius=9999 background-color="light-dark(#fcfcfc, #0a0a0a)"
+                              box height="1.0625rem" display="flex" align-items="center" flex-shrink=0
+                                box width="0.375rem" height="0.375rem" border-radius="624.9375rem" background-color=(row.dot == "error" ? "light-dark(#e7000b, #ff6467)" : "#fe9a00")
+                            text row.status font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)" line-clamp=2 text-align="left"
+                      box height="1.25rem" display="flex" align-items="center" flex-shrink=0
+                        button press=op("provider-enabled", row.id, "", (row.enabled ? "false" : "true"), true) role="switch" aria-checked=row.enabled aria-label=`Enable ${row.name}` disabled=(busy or not page.writable) testId=`provider-enable-${row.id}` width="1.875rem" height="1.125rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(row.enabled ? "flex-end" : "flex-start") flex-shrink=0 background-color=(row.enabled ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)")
+                          box width="0.875rem" height="0.875rem" border-radius="624.9375rem" background-color="light-dark(#fcfcfc, #0a0a0a)"
               scroll flex-grow=1 flex-shrink=1 flex-basis=(wide ? "0%" : "auto") min-width=0 width=(wide ? "auto" : "100%") height=(wide ? "100%" : "auto") testId="provider-editor-scroll"
-                column width="100%" padding=16 gap=24 box-sizing="border-box"
+                column width="100%" padding="1rem" gap="1.5rem" box-sizing="border-box"
                   each editor in page.editors key=editor.key
                     ProviderEditor(editor=editor, scheme=scheme, rowWide=((wide ? width - 275 : width - 2) - 66 >= 512), busy=busy, writable=page.writable, error=error, op=op, accent=accent, ui=ui)
                   when length(page.editors) == 0
-                    text page.emptyEditor font-size=14 line-height="20px" padding=8 color="light-dark(#71717b, #818181)"
-        column width="100%" gap=10
+                    text page.emptyEditor font-size="0.875rem" line-height="1.25rem" padding="0.5rem" color="light-dark(#71717b, #818181)"
+        column width="100%" gap="0.625rem"
           PvSectionTitle(title="Usage providers")
             when page.writable
-              button press=ui("open", "hub") class=PvOutline height=24 padding-left=7 padding-right=7 gap=4 disabled=busy testId="add-usage-hub"
+              button press=ui("open", "hub") class=PvOutline height="1.5rem" padding-left="0.4375rem" padding-right="0.4375rem" gap="0.25rem" disabled=busy testId="add-usage-hub"
                 PvIcon(name="plus", size=12, color="light-dark(#27272a, #f5f5f5)")
-                text "Add hub" font-size=12 line-height="16px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+                text "Add hub" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
           PvGroup()
             when page.macos
               PvRow(title="Cursor account usage", description="Read your existing Cursor CLI login from macOS Keychain to show account history and monthly limits. macOS may ask you to allow access.", status="", wide=(width - 34 >= 512), divided=false)
-                button press=op("provider-cursor-usage", "", "", (page.cursorUsage ? "false" : "true"), true) role="switch" aria-checked=page.cursorUsage aria-label="Cursor account usage" disabled=(busy or not page.writable) testId="cursor-account-usage" width=30 height=18 padding=2 border-width=0 border-radius=9999 box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(page.cursorUsage ? "flex-end" : "flex-start") background-color=(page.cursorUsage ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)")
-                  box width=14 height=14 border-radius=9999 background-color="light-dark(#fcfcfc, #0a0a0a)"
+                button press=op("provider-cursor-usage", "", "", (page.cursorUsage ? "false" : "true"), true) role="switch" aria-checked=page.cursorUsage aria-label="Cursor account usage" disabled=(busy or not page.writable) testId="cursor-account-usage" width="1.875rem" height="1.125rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(page.cursorUsage ? "flex-end" : "flex-start") background-color=(page.cursorUsage ? "light-dark(#1b4ed8, #346bf1)" : "light-dark(#d4d4d8, #ffffff14)")
+                  box width="0.875rem" height="0.875rem" border-radius="624.9375rem" background-color="light-dark(#fcfcfc, #0a0a0a)"
             when length(page.hubs) == 0
               PvRow(title="No hubs configured.", description="", status="", wide=(width - 34 >= 512), divided=page.macos)
             each hub in page.hubs key=hub.id
               PvRow(title=hub.label, description=hub.description, status="", wide=(width - 34 >= 512), divided=(page.macos or not hub.first))
                 when page.writable
-                  button press=ui("hub-remove", hub.id) class=PvGhost height=24 disabled=busy testId=`remove-usage-hub-${hub.id}`
-                    text "Remove" font-size=12 line-height="16px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-        column width="100%" gap=10
+                  button press=ui("hub-remove", hub.id) class=PvGhost height="1.5rem" disabled=busy testId=`remove-usage-hub-${hub.id}`
+                    text "Remove" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+        column width="100%" gap="0.625rem"
           PvSectionTitle(title="Advanced")
           PvGroup()
             PvRow(title="Health check interval", description="Refresh provider status, versions, and models in the background. Set to 0 to disable.", status=(policyOpen ? "This interval is configured here, then the shared Background activity policy decides whether provider probes may run when the timer fires. Custom intervals appear as Advanced in General settings." : ""), wide=(width - 34 >= 512), divided=false)
@@ -247,14 +247,14 @@ component ProvidersPanel
               when page.healthCustom
                 button press=op("provider-health", "", "", "reset", true) class=PvMicro aria-label="Reset provider health check interval to default" disabled=(busy or not page.writable) testId="reset-provider-health"
                   PvIcon(name="undo", size=12, color="light-dark(#71717b, #818181)")
-              row gap=8 align-items="center" flex-shrink=0 opacity=(page.writable ? 1 : 0.5)
-                row width=128 height=28 box-sizing="border-box" border-radius=10 border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" align-items="center" role="group"
-                  button press=op("provider-health", "", "", page.healthDown, true) class=PvMicro width=34 height=26 aria-label="Decrease provider health check interval" disabled=(busy or not page.writable) testId="health-decrease"
+              row gap="0.5rem" align-items="center" flex-shrink=0 opacity=(page.writable ? 1 : 0.5)
+                row width="8rem" height="1.75rem" box-sizing="border-box" border-radius="0.625rem" border-style="solid" border-width=1 border-color="light-dark(#d4d4d8, #ffffff14)" background-color="light-dark(#fcfcfc, #ffffff08)" align-items="center" role="group"
+                  button press=op("provider-health", "", "", page.healthDown, true) class=PvMicro width="2.125rem" height="1.625rem" aria-label="Decrease provider health check interval" disabled=(busy or not page.writable) testId="health-decrease"
                     PvIcon(name="minus", size=14, color="light-dark(#71717b, #818181)")
-                  input value=health input=editHealth submit=op("provider-health", "", "", health, healthEdited) blur=op("provider-health", "", "", health, healthEdited) aria-label="Provider health check interval in seconds" disabled=(busy or not page.writable) testId="health-interval" flex=1 min-width=0 height=18 padding=0 border-width=0 background-color="#00000000" text-align="center" font-size=14 color="light-dark(#27272a, #f5f5f5)"
-                  button press=op("provider-health", "", "", page.healthUp, true) class=PvMicro width=34 height=26 aria-label="Increase provider health check interval" disabled=(busy or not page.writable) testId="health-increase"
+                  input value=health input=editHealth submit=op("provider-health", "", "", health, healthEdited) blur=op("provider-health", "", "", health, healthEdited) aria-label="Provider health check interval in seconds" disabled=(busy or not page.writable) testId="health-interval" flex=1 min-width=0 height="1.125rem" padding=0 border-width=0 background-color="#00000000" text-align="center" font-size="0.875rem" color="light-dark(#27272a, #f5f5f5)"
+                  button press=op("provider-health", "", "", page.healthUp, true) class=PvMicro width="2.125rem" height="1.625rem" aria-label="Increase provider health check interval" disabled=(busy or not page.writable) testId="health-increase"
                     PvIcon(name="plus", size=14, color="light-dark(#71717b, #818181)")
-                text "seconds" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+                text "seconds" font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
 
 // The selected instance's editor (ProviderInstanceCard mode="editor"). Its
 // drafts are row state: they reset whenever the instance's saved value changes.
@@ -275,17 +275,17 @@ component ProviderEditor
   action toggleAdvisory
     advisoryOpen = not advisoryOpen
   view
-    column width="100%" gap=24 testId=`provider-editor-${editor.id}`
-      column width="100%" gap=10
-        row min-height=28 padding-left=16 padding-right=16 gap=16 align-items="flex-start" justify-content="space-between" box-sizing="border-box" width="100%"
-          row min-height=28 gap=8 align-items="center" min-width=0
-            box width=20 height=20 display="flex" align-items="center" justify-content="center" flex-shrink=0
+    column width="100%" gap="1.5rem" testId=`provider-editor-${editor.id}`
+      column width="100%" gap="0.625rem"
+        row min-height="1.75rem" padding-left="1rem" padding-right="1rem" gap="1rem" align-items="flex-start" justify-content="space-between" box-sizing="border-box" width="100%"
+          row min-height="1.75rem" gap="0.5rem" align-items="center" min-width=0
+            box width="1.25rem" height="1.25rem" display="flex" align-items="center" justify-content="center" flex-shrink=0
               DriverMark(driver=editor.driver, size=16, initials=editor.title)
-            text editor.title font-size=14 line-height="20px" color="light-dark(#27272ab3, #f5f5f5b3)" role="heading" aria-level=2 line-clamp=1
-          row min-height=28 gap=6 align-items="center" justify-content="flex-end" flex-shrink=0
+            text editor.title font-size="0.875rem" line-height="1.25rem" color="light-dark(#27272ab3, #f5f5f5b3)" role="heading" aria-level=2 line-clamp=1
+          row min-height="1.75rem" gap="0.375rem" align-items="center" justify-content="flex-end" flex-shrink=0
             when editor.version != ""
               text editor.version font-family="ui-monospace" font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" testId="provider-editor-version"
-            row gap=4 align-items="center" opacity=(writable ? 1 : 0.5)
+            row gap="0.25rem" align-items="center" opacity=(writable ? 1 : 0.5)
               when editor.advisory != ""
                 button press=toggleAdvisory class=PvIconButton aria-label=`${editor.advisoryTitle} — view details` aria-expanded=advisoryOpen testId="provider-advisory"
                   PvIcon(name=(editor.advisory == "warning" ? "warning" : "update"), size=14, color=(editor.advisory == "warning" ? "#fe9a00" : "light-dark(#71717b, #818181)"))
@@ -296,20 +296,20 @@ component ProviderEditor
                 button press=op("provider-remove", editor.id, "", "", true) class=PvIconButton aria-label=`Delete instance ${editor.id}` disabled=(busy or not writable) testId="delete-provider-instance"
                   PvIcon(name="trash", size=14, color="light-dark(#71717b, #818181)")
         when advisoryOpen and editor.advisory != ""
-          column width="100%" box-sizing="border-box" padding=12 gap=4 border-radius=12 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #171717)" testId="provider-advisory-details"
-            text editor.advisoryTitle font-size=14 line-height="17px" font-weight=600 color="light-dark(#27272a, #f5f5f5)"
-            text editor.advisoryDetail font-size=12 line-height="16px" color=(editor.advisory == "warning" ? "light-dark(#e17100, #fdb022)" : "light-dark(#71717b, #818181)")
+          column width="100%" box-sizing="border-box" padding="0.75rem" gap="0.25rem" border-radius="0.75rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7, #ffffff14)" background-color="light-dark(#ffffff, #171717)" testId="provider-advisory-details"
+            text editor.advisoryTitle font-size="0.875rem" line-height="1.0625rem" font-weight=600 color="light-dark(#27272a, #f5f5f5)"
+            text editor.advisoryDetail font-size="0.75rem" line-height="1rem" color=(editor.advisory == "warning" ? "light-dark(#e17100, #fdb022)" : "light-dark(#71717b, #818181)")
             when editor.advisoryAction != ""
-              button press=op("provider-update", editor.id, "", editor.advisoryTarget, true) class=PvOutline width="100%" height=24 margin-top=8 disabled=(busy or not writable) testId="provider-update-now"
+              button press=op("provider-update", editor.id, "", editor.advisoryTarget, true) class=PvOutline width="100%" height="1.5rem" margin-top="0.5rem" disabled=(busy or not writable) testId="provider-update-now"
                 PvIcon(name="download", size=14, color="light-dark(#27272a, #f5f5f5)")
-                text (busy ? "Updating" : editor.advisoryAction) font-size=12 line-height="16px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+                text (busy ? "Updating" : editor.advisoryAction) font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
             when editor.advisoryAction != "" and editor.advisoryCommand != ""
-              row width="100%" gap=8 align-items="center" margin-top=4
+              row width="100%" gap="0.5rem" align-items="center" margin-top="0.25rem"
                 box flex=1 height=1 background-color="light-dark(#e4e4e7, #ffffff14)"
-                text "OR, UPDATE MANUALLY USING" font-size=9 line-height="12px" font-weight=500 color="light-dark(#71717b, #818181)"
+                text "OR, UPDATE MANUALLY USING" font-size="0.5625rem" line-height="0.75rem" font-weight=500 color="light-dark(#71717b, #818181)"
                 box flex=1 height=1 background-color="light-dark(#e4e4e7, #ffffff14)"
             when editor.advisoryCommand != ""
-              row width="100%" min-width=0 gap=4 align-items="center" margin-top=4 padding-top=2 padding-bottom=2 padding-right=2 padding-left=8 box-sizing="border-box" border-radius=6 border-style="solid" border-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)" background-color="light-dark(#f4f4f566, #ffffff0a)"
+              row width="100%" min-width=0 gap="0.25rem" align-items="center" margin-top="0.25rem" padding-top="0.125rem" padding-bottom="0.125rem" padding-right="0.125rem" padding-left="0.5rem" box-sizing="border-box" border-radius="0.375rem" border-style="solid" border-width=1 border-color="light-dark(#e4e4e7b3, #ffffff12)" background-color="light-dark(#f4f4f566, #ffffff0a)"
                 text editor.advisoryCommand font-family="ui-monospace" font-size=11 line-height="16px" flex=1 min-width=0 line-clamp=1 color="light-dark(#27272a, #f5f5f5)" testId="provider-update-command"
                 button press=op("provider-copy-command", editor.id, "", "", true) class=PvIconButton aria-label="Copy update command" disabled=busy testId="provider-copy-command"
                   PvIcon(name="copy", size=12, color="light-dark(#71717b, #818181)")
@@ -317,32 +317,32 @@ component ProviderEditor
           each nameRow in editor.nameRows key=nameRow.key
             ProviderNameRow(editor=editor, rowWide=rowWide, busy=busy, writable=writable, op=op, accent=accent)
         when error != ""
-          text error font-size=12 line-height="16px" role="alert" padding-left=16 color="light-dark(#e7000b, #ff6467)" testId="provider-editor-error"
+          text error font-size="0.75rem" line-height="1rem" role="alert" padding-left="1rem" color="light-dark(#e7000b, #ff6467)" testId="provider-editor-error"
       when editor.auth.available
-        column width="100%" gap=10
+        column width="100%" gap="0.625rem"
           PvSectionTitle(title="Account")
           PvGroup()
-            column width="100%" padding=16 box-sizing="border-box" gap=10
-              row width="100%" align-items="center" gap=8
-                text editor.auth.message flex=1 font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+            column width="100%" padding="1rem" box-sizing="border-box" gap="0.625rem"
+              row width="100%" align-items="center" gap="0.5rem"
+                text editor.auth.message flex=1 font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
                 when editor.auth.active
                   button press=op("provider-auth-cancel", editor.id, "", "", true) class=PvGhost disabled=(busy or not writable) testId="provider-auth-cancel"
-                    text "Cancel" font-size=12
+                    text "Cancel" font-size="0.75rem"
                 else
                   when editor.auth.multiple
                     each method in editor.auth.methods key=method.id
                       button press=op("provider-auth-start", editor.id, "", method.id, true) class=PvGhost disabled=(busy or not writable or editor.auth.disabled) testId=`provider-auth-${method.id}`
-                        text method.name font-size=12
+                        text method.name font-size="0.75rem"
                   else
                     button press=op("provider-auth-start", editor.id, "", editor.auth.methodId, true) class=PvGhost disabled=(busy or not writable or editor.auth.disabled) testId="provider-auth-start"
-                      text editor.auth.label font-size=12
+                      text editor.auth.label font-size="0.75rem"
               when editor.auth.terminal
                 each key in [editor.auth.flow] key=key
-                  t3-terminal scheme=scheme auth-instance=editor.id auth-flow=editor.auth.flow auth-output=editor.auth.output auth-offset=editor.auth.offset read-only=(not writable) terminal-font-size=13 focus-request=1 message=authEvent aria-label="Provider sign-in terminal" testId="provider-auth-terminal" height=256 width="100%" border-radius=6 border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" overflow="hidden"
+                  t3-terminal scheme=scheme auth-instance=editor.id auth-flow=editor.auth.flow auth-output=editor.auth.output auth-offset=editor.auth.offset read-only=(not writable) terminal-font-size=13 focus-request=1 message=authEvent aria-label="Provider sign-in terminal" testId="provider-auth-terminal" height="16rem" width="100%" border-radius="0.375rem" border-width=1 border-style="solid" border-color="light-dark(#e4e4e7, #ffffff0f)" overflow="hidden"
               when editor.auth.error != ""
-                text editor.auth.error font-size=12 line-height="16px" role="alert" color="light-dark(#e7000b, #ff6467)" testId="provider-auth-error"
+                text editor.auth.error font-size="0.75rem" line-height="1rem" role="alert" color="light-dark(#e7000b, #ff6467)" testId="provider-auth-error"
       when editor.showSetup
-        column width="100%" gap=10
+        column width="100%" gap="0.625rem"
           PvSectionTitle(title="Setup")
           PvGroup()
             when editor.setupNote != ""
@@ -350,31 +350,31 @@ component ProviderEditor
             each field in editor.envFields key=field.rowKey
               ProviderSecretField(field=field, instance=editor.id, wide=rowWide, writable=writable, op=op)
       when length(editor.fields) > 0 or not editor.known
-        column width="100%" gap=10 opacity=(writable ? 1 : 0.5)
+        column width="100%" gap="0.625rem" opacity=(writable ? 1 : 0.5)
           PvSectionTitle(title="Runtime")
           PvGroup()
             when not editor.known
               PvRow(title="Driver", description=`This instance uses ${editor.driver}, which is not available in this build. Its configuration is preserved.`, status="", wide=rowWide, divided=false)
             each field in editor.fields key=field.rowKey
               ProviderConfigField(field=field, instance=editor.id, first=field.first, wide=rowWide, writable=writable, op=op)
-      column width="100%" gap=10 opacity=(writable ? 1 : 0.5)
+      column width="100%" gap="0.625rem" opacity=(writable ? 1 : 0.5)
         PvSectionTitle(title="Environment")
         PvGroup()
-          column width="100%" box-sizing="border-box" padding-left=16 padding-right=16 padding-top=12 padding-bottom=(editor.hasVariables ? 4 : 12)
-            row width="100%" flex-direction=(rowWide ? "row" : "column") gap=(rowWide ? 32 : 12) align-items=(rowWide ? "center" : "stretch")
-              column flex-grow=(rowWide ? 1 : 0) flex-shrink=1 min-width=0 gap=4
-                row min-height=20 align-items="center"
-                  text "Variables" font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
-                text "API keys, base URLs, and other per-instance CLI settings." font-size=12 line-height="18px" color="light-dark(#70707acc, #818181cc)"
+          column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom=(editor.hasVariables ? "0.25rem" : "0.75rem")
+            row width="100%" flex-direction=(rowWide ? "row" : "column") gap=(rowWide ? "2rem" : "0.75rem") align-items=(rowWide ? "center" : "stretch")
+              column flex-grow=(rowWide ? 1 : 0) flex-shrink=1 min-width=0 gap="0.25rem"
+                row min-height="1.25rem" align-items="center"
+                  text "Variables" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+                text "API keys, base URLs, and other per-instance CLI settings." font-size="0.75rem" line-height="1.125rem" color="light-dark(#70707acc, #818181cc)"
               row justify-content="flex-end"
                 button press=op("provider-env-add", editor.id, "", "", true) class=PvOutline disabled=(busy or not writable) testId="add-provider-variable"
                   PvIcon(name="plus", size=12, color="light-dark(#71717b, #818181)")
-                  text "Add variable" font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+                  text "Add variable" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
             when editor.hasVariables
-              column width="100%" gap=8 margin-top=12 padding-bottom=8
+              column width="100%" gap="0.5rem" margin-top="0.75rem" padding-bottom="0.5rem"
                 each variable in editor.variables key=variable.rowKey
                   ProviderVariableRow(variable=variable, instance=editor.id, writable=writable, op=op)
-                text "Sensitive values are stored separately and never returned to the app." font-size=12 line-height="16px" color="light-dark(#71717b, #818181)"
+                text "Sensitive values are stored separately and never returned to the app." font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)"
       when editor.known
         each block in editor.modelBlocks key=block.key
           ProviderModels(editor=editor, busy=busy, writable=writable, op=op)
@@ -395,21 +395,21 @@ component ProviderNameRow
     nameEdited = true
   derive name = nameEdited ? nameDraft : editor.displayName
   view
-    column width="100%" box-sizing="border-box" padding-left=16 padding-right=16 padding-top=12 padding-bottom=12
-      column width="100%" gap=(rowWide ? 0 : 12)
-        row width="100%" flex-direction=(rowWide ? "row" : "column") gap=(rowWide ? 32 : 12) align-items=(rowWide ? "center" : "stretch")
-          column flex-grow=(rowWide ? 1 : 0) flex-shrink=1 min-width=0 gap=4
-            row min-height=20 align-items="center"
-              text "Display name" font-size=14 line-height="20px" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
-            row width="100%" min-width=0 padding-top=2 gap=6 flex-wrap="wrap" align-items="baseline" testId="provider-editor-status"
+    column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem"
+      column width="100%" gap=(rowWide ? "0px" : "0.75rem")
+        row width="100%" flex-direction=(rowWide ? "row" : "column") gap=(rowWide ? "2rem" : "0.75rem") align-items=(rowWide ? "center" : "stretch")
+          column flex-grow=(rowWide ? 1 : 0) flex-shrink=1 min-width=0 gap="0.25rem"
+            row min-height="1.25rem" align-items="center"
+              text "Display name" font-size="0.875rem" line-height="1.25rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)" role="heading" aria-level=3
+            row width="100%" min-width=0 padding-top="0.125rem" gap="0.375rem" flex-wrap="wrap" align-items="baseline" testId="provider-editor-status"
               when editor.dot != ""
-                box width=6 height=6 border-radius=9999 background-color=(editor.dot == "error" ? "light-dark(#e7000b, #ff6467)" : "#fe9a00")
-              text editor.statusLead font-size=12 line-height="16px" min-width=0 color="light-dark(#71717b, #818181)"
+                box width="0.375rem" height="0.375rem" border-radius="624.9375rem" background-color=(editor.dot == "error" ? "light-dark(#e7000b, #ff6467)" : "#fe9a00")
+              text editor.statusLead font-size="0.75rem" line-height="1rem" min-width=0 color="light-dark(#71717b, #818181)"
               when editor.statusDetail != ""
-                text editor.statusDetail font-size=12 line-height="16px" min-width=0 flex-shrink=1 color="light-dark(#71717b, #818181)"
-          row gap=8 align-items="center" justify-content="flex-end" width=(rowWide ? "auto" : "100%") opacity=(writable ? 1 : 0.5)
+                text editor.statusDetail font-size="0.75rem" line-height="1rem" min-width=0 flex-shrink=1 color="light-dark(#71717b, #818181)"
+          row gap="0.5rem" align-items="center" justify-content="flex-end" width=(rowWide ? "auto" : "100%") opacity=(writable ? 1 : 0.5)
             ProviderAccentPicker(editorId=editor.id, title=editor.title, accent=editor.accent, h0=editor.accentH, s0=editor.accentS, v0=editor.accentV, writable=writable, busy=busy, op=op, release=accent)
-            input value=name input=editName blur=op("provider-display", editor.id, "", name, nameEdited) submit=op("provider-display", editor.id, "", name, nameEdited) placeholder=editor.placeholder aria-label="Display name" class=PvField width=(rowWide ? 224 : "auto") flex-grow=(rowWide ? 0 : 1) flex-shrink=(rowWide ? 0 : 1) min-width=0 disabled=(not writable) testId="provider-display-name"
+            input value=name input=editName blur=op("provider-display", editor.id, "", name, nameEdited) submit=op("provider-display", editor.id, "", name, nameEdited) placeholder=editor.placeholder aria-label="Display name" class=PvField width=(rowWide ? "14rem" : "auto") flex-grow=(rowWide ? 0 : 1) flex-shrink=(rowWide ? 0 : 1) min-width=0 disabled=(not writable) testId="provider-display-name"
 
 // One driver setting (ProviderSettingsForm): commits on blur or Return.
 component ProviderConfigField
@@ -429,12 +429,12 @@ component ProviderConfigField
   view
     PvRow(title=field.label, description=field.description, status="", wide=wide, divided=(not first))
       when field.control == "select"
-        row gap=4 flex-wrap="wrap" justify-content="flex-end" role="radiogroup" aria-label=field.label
+        row gap="0.25rem" flex-wrap="wrap" justify-content="flex-end" role="radiogroup" aria-label=field.label
           each option in field.options key=option.value
-            button press=op("provider-field", instance, field.key, option.value, true) role="radio" aria-checked=option.selected class=PvOutline height=28 disabled=(not writable) background-color=(option.selected ? "light-dark(#1b4ed814, #346bf126)" : "light-dark(#ffffff, #ffffff08)") testId=`provider-field-${field.key}-${option.value}`
-              text option.label font-size=13 font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+            button press=op("provider-field", instance, field.key, option.value, true) role="radio" aria-checked=option.selected class=PvOutline height="1.75rem" disabled=(not writable) background-color=(option.selected ? "light-dark(#1b4ed814, #346bf126)" : "light-dark(#ffffff, #ffffff08)") testId=`provider-field-${field.key}-${option.value}`
+              text option.label font-size="0.8125rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
       else
-        input value=value input=edit blur=op("provider-field", instance, field.key, value, edited) submit=op("provider-field", instance, field.key, value, edited) placeholder=field.placeholder aria-label=field.label type=(field.control == "password" ? "password" : "text") autocorrect="off" spellcheck="false" class=PvField width=(wide ? 224 : "auto") flex-grow=(wide ? 0 : 1) flex-shrink=(wide ? 0 : 1) min-width=0 disabled=(not writable) testId=`provider-field-${field.key}`
+        input value=value input=edit blur=op("provider-field", instance, field.key, value, edited) submit=op("provider-field", instance, field.key, value, edited) placeholder=field.placeholder aria-label=field.label type=(field.control == "password" ? "password" : "text") autocorrect="off" spellcheck="false" class=PvField width=(wide ? "14rem" : "auto") flex-grow=(wide ? 0 : 1) flex-shrink=(wide ? 0 : 1) min-width=0 disabled=(not writable) testId=`provider-field-${field.key}`
 
 // A dedicated environment secret (Cursor API key).
 component ProviderSecretField
@@ -452,10 +452,10 @@ component ProviderSecretField
   derive value = edited ? draft : field.value
   view
     PvRow(title=field.label, description=field.description, status="", wide=wide, divided=false)
-      row gap=8 align-items="center" width=(wide ? 224 : "100%")
+      row gap="0.5rem" align-items="center" width=(wide ? "14rem" : "100%")
         input value=value input=edit blur=op("provider-env-field", instance, field.key, value, edited) submit=op("provider-env-field", instance, field.key, value, edited) placeholder=field.placeholder aria-label=field.label type="password" class=PvField flex=1 min-width=0 disabled=(not writable) testId=`provider-env-${field.key}`
         when field.clearable
-          button press=op("provider-env-field", instance, field.key, "", true) class=PvIconButton width=28 height=28 aria-label=`Clear ${field.label}` disabled=(not writable) testId=`clear-provider-env-${field.key}`
+          button press=op("provider-env-field", instance, field.key, "", true) class=PvIconButton width="1.75rem" height="1.75rem" aria-label=`Clear ${field.label}` disabled=(not writable) testId=`clear-provider-env-${field.key}`
             PvIcon(name="x", size=14, color="light-dark(#e7000b, #ff6467)")
 
 // One environment variable row: NAME = value, sensitivity lock, remove.
@@ -478,13 +478,13 @@ component ProviderVariableRow
   derive name = nameEdited ? nameDraft : variable.name
   derive value = valueEdited ? valueDraft : variable.value
   view
-    row width="100%" min-width=0 gap=6 align-items="center" flex-wrap="wrap" testId=`provider-variable-${variable.index}`
-      input value=name input=editName blur=op("provider-env-name", instance, `${variable.index}`, name, nameEdited) submit=op("provider-env-name", instance, `${variable.index}`, name, nameEdited) placeholder="VARIABLE_NAME" aria-label=`Environment variable name ${variable.index + 1}` autocorrect="off" spellcheck="false" class=PvField width=176 flex-shrink=0 font-family="ui-monospace" font-size=13 disabled=(not writable) testId=`provider-variable-name-${variable.index}`
-      text "=" font-size=12 color="light-dark(#71717b, #818181)" aria-hidden=true
+    row width="100%" min-width=0 gap="0.375rem" align-items="center" flex-wrap="wrap" testId=`provider-variable-${variable.index}`
+      input value=name input=editName blur=op("provider-env-name", instance, `${variable.index}`, name, nameEdited) submit=op("provider-env-name", instance, `${variable.index}`, name, nameEdited) placeholder="VARIABLE_NAME" aria-label=`Environment variable name ${variable.index + 1}` autocorrect="off" spellcheck="false" class=PvField width="11rem" flex-shrink=0 font-family="ui-monospace" font-size=13 disabled=(not writable) testId=`provider-variable-name-${variable.index}`
+      text "=" font-size="0.75rem" color="light-dark(#71717b, #818181)" aria-hidden=true
       input value=value input=editValue blur=op("provider-env-value", instance, `${variable.index}`, value, valueEdited) submit=op("provider-env-value", instance, `${variable.index}`, value, valueEdited) placeholder=(variable.redacted ? "Stored secret, enter a new value to replace" : "value") type=(variable.sensitive ? "password" : "text") aria-label=`Environment variable value ${variable.index + 1}` autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 font-family="ui-monospace" font-size=13 disabled=(not writable) testId=`provider-variable-value-${variable.index}`
       button press=op("provider-env-sensitive", instance, `${variable.index}`, (variable.sensitive ? "false" : "true"), true) class=PvMicro aria-selected=variable.sensitive aria-label=`Mark environment variable ${variable.label} as sensitive` disabled=(not writable) testId=`provider-variable-sensitive-${variable.index}`
         // f2cc80a7 MorphIcon LockOpen↔Lock: the shackle closes; drawn as a quick cross-fade of the two glyphs.
-        box width=12 height=12 position="relative" flex-shrink=0
+        box width="0.75rem" height="0.75rem" position="relative" flex-shrink=0
           box position="absolute" left=0 top=0 opacity=(variable.sensitive ? 1 : 0) transition="opacity 180ms ease"
             PvIcon(name="lock", size=12, color="light-dark(#71717b, #818181)")
           box position="absolute" left=0 top=0 opacity=(variable.sensitive ? 0 : 1) transition="opacity 180ms ease"
@@ -517,43 +517,43 @@ component ProviderModels
   action editRename(value: string)
     renameDraft = value
   view
-    column width="100%" gap=10 opacity=(writable ? 1 : 0.5)
+    column width="100%" gap="0.625rem" opacity=(writable ? 1 : 0.5)
       PvSectionTitle(title="Models")
       PvGroup()
-        column width="100%" box-sizing="border-box" padding-left=16 padding-right=16 padding-top=12 padding-bottom=12
-          text "Favorites, visibility, and ordering are saved on this device. Custom models are saved on the selected environment." font-size=12 line-height="16px" margin-bottom=12 color="light-dark(#71717b, #818181)"
-          row width="100%" gap=8 align-items="center" justify-content="space-between" flex-wrap="wrap"
-            row gap=8 align-items="center"
+        column width="100%" box-sizing="border-box" padding-left="1rem" padding-right="1rem" padding-top="0.75rem" padding-bottom="0.75rem"
+          text "Favorites, visibility, and ordering are saved on this device. Custom models are saved on the selected environment." font-size="0.75rem" line-height="1rem" margin-bottom="0.75rem" color="light-dark(#71717b, #818181)"
+          row width="100%" gap="0.5rem" align-items="center" justify-content="space-between" flex-wrap="wrap"
+            row gap="0.5rem" align-items="center"
               when editor.bulkLabel != ""
                 button press=op("provider-model-bulk", editor.id, "", "", true) class=PvGhost disabled=busy testId="provider-model-bulk"
-                  text editor.bulkLabel font-size=12 line-height="16px" font-weight=500 color="light-dark(#71717b, #818181)"
-              text editor.modelSummary font-size=12 line-height="16px" color="light-dark(#71717b, #818181)" testId="provider-model-count"
+                  text editor.bulkLabel font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
+              text editor.modelSummary font-size="0.75rem" line-height="1rem" color="light-dark(#71717b, #818181)" testId="provider-model-count"
             when editor.canAddModel and not adding
               button press=startAdd class=PvGhost disabled=(busy or not writable) testId="add-custom-model"
                 PvIcon(name="plus", size=12, color="light-dark(#71717b, #818181)")
-                text "Add custom model" font-size=12 line-height="16px" font-weight=500 color="light-dark(#71717b, #818181)"
-          column width="100%" margin-top=8 gap=0 testId="provider-model-list"
+                text "Add custom model" font-size="0.75rem" line-height="1rem" font-weight=500 color="light-dark(#71717b, #818181)"
+          column width="100%" margin-top="0.5rem" gap=0 testId="provider-model-list"
             when length(editor.models) == 0
-              text "No models reported for this provider yet." font-size=12 line-height="16px" padding-top=8 padding-bottom=8 color="light-dark(#71717b, #818181)"
+              text "No models reported for this provider yet." font-size="0.75rem" line-height="1rem" padding-top="0.5rem" padding-bottom="0.5rem" color="light-dark(#71717b, #818181)"
             each model in editor.models key=model.rowKey
               column width="100%"
                 when model.groupLabel != ""
-                  text model.groupLabel font-size=11 line-height="16px" padding-bottom=6 padding-top=(model.firstGroup ? 4 : 20) color="light-dark(#71717b, #818181)"
+                  text model.groupLabel font-size="0.6875rem" line-height="1rem" padding-bottom="0.375rem" padding-top=(model.firstGroup ? "0.25rem" : "1.25rem") color="light-dark(#71717b, #818181)"
                 ProviderModelLine(model=model, instanceId=editor.id, busy=busy, writable=writable, op=op, rename=startRename)
                 when renaming == model.slug
-                  row width="100%" gap=8 align-items="center" padding-top=6 padding-bottom=8 padding-left=28
+                  row width="100%" gap="0.5rem" align-items="center" padding-top="0.375rem" padding-bottom="0.5rem" padding-left="1.75rem"
                     input value=renameDraft input=editRename submit=op("provider-model-rename", editor.id, model.slug, renameDraft, true) placeholder=model.slug aria-label="Display name" class=PvField flex=1 min-width=0 testId="provider-model-rename-input"
                     button press=op("provider-model-rename", editor.id, model.slug, renameDraft, true) class=PvOutline disabled=busy testId="provider-model-rename-save"
-                      text "Save" font-size=14 font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-                    button press=startRename(model.slug, model.name) class=PvGhost height=28 testId="provider-model-rename-cancel"
-                      text "Cancel" font-size=14 font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+                      text "Save" font-size="0.875rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+                    button press=startRename(model.slug, model.name) class=PvGhost height="1.75rem" testId="provider-model-rename-cancel"
+                      text "Cancel" font-size="0.875rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
           when adding
-            row width="100%" margin-top=12 gap=8 align-items="center"
+            row width="100%" margin-top="0.75rem" gap="0.5rem" align-items="center"
               input value=slug input=editSlug submit=op("provider-model-add", editor.id, slug, "", true) placeholder=editor.modelPlaceholder aria-label="Custom model slug" autocorrect="off" spellcheck="false" class=PvField flex=1 min-width=0 testId="custom-model-slug"
               button press=op("provider-model-add", editor.id, slug, "", true) class=PvOutline disabled=busy testId="custom-model-add"
-                text "Add" font-size=14 font-weight=500 color="light-dark(#27272a, #f5f5f5)"
-              button press=cancelAdd class=PvGhost height=28 aria-keyshortcuts="Escape" testId="custom-model-cancel"
-                text "Cancel" font-size=14 font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+                text "Add" font-size="0.875rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
+              button press=cancelAdd class=PvGhost height="1.75rem" aria-keyshortcuts="Escape" testId="custom-model-cancel"
+                text "Cancel" font-size="0.875rem" font-weight=500 color="light-dark(#27272a, #f5f5f5)"
 
 // One ProviderModelsSection row: star, name/slug/custom, capabilities, the
 // move arrows (not for hidden rows), custom edit/remove, and the picker switch.
@@ -572,20 +572,20 @@ component ProviderModelLine
   action hoverRow(inside: bool)
     over = inside
   view
-    row width="100%" height=28 gap=8 padding-left=8 padding-right=8 box-sizing="border-box" align-items="center" border-radius=8 opacity=(model.hidden ? 0.5 : 1) background-color=(over ? "light-dark(#f4f4f54d, #ffffff08)" : "#00000000") hover=hoverRow testId=`provider-model-${model.slug}`
+    row width="100%" height="1.75rem" gap="0.5rem" padding-left="0.5rem" padding-right="0.5rem" box-sizing="border-box" align-items="center" border-radius="0.5rem" opacity=(model.hidden ? 0.5 : 1) background-color=(over ? "light-dark(#f4f4f54d, #ffffff08)" : "#00000000") hover=hoverRow testId=`provider-model-${model.slug}`
       box position="relative" hover=hover("star")
         button press=op("favorite-model", instanceId, model.slug, "", true) class=PvMicro aria-label=`${model.favorite ? "Remove" : "Add"} ${model.name} ${model.favorite ? "from" : "to"} favorites` testId=`provider-model-favorite-${model.slug}`
           PvIcon(name=(model.favorite ? "star-filled" : "star"), size=12, color=(model.favorite ? "#fe9a00" : "light-dark(#71717b, #818181)"))
         when tip == "star"
           CnTooltip(tip=(model.favorite ? "Remove from favorites" : "Add to favorites"), tipId=`provider-model-star-tip-${model.slug}`, above=24)
-      row flex=1 min-width=0 gap=8 align-items="baseline"
-        text model.name font-size=12 line-height="16px" color=(model.hidden ? "light-dark(#71717b, #818181)" : "light-dark(#27272ae6, #f5f5f5e6)") line-clamp=1 min-width=0
+      row flex=1 min-width=0 gap="0.5rem" align-items="baseline"
+        text model.name font-size="0.75rem" line-height="1rem" color=(model.hidden ? "light-dark(#71717b, #818181)" : "light-dark(#27272ae6, #f5f5f5e6)") line-clamp=1 min-width=0
         when model.showSlug
           text model.slug font-family="ui-monospace" font-size=11 line-height="16px" color="light-dark(#71717bb3, #828282b3)" line-clamp=1 min-width=0
         when model.custom
-          text "custom" font-size=11 line-height="16px" color="light-dark(#71717bb3, #828282b3)"
-      text model.capabilities font-size=11 line-height="16px" color="light-dark(#71717bb3, #828282b3)"
-      row gap=2 align-items="center" justify-content="flex-end" flex-shrink=0 min-width=88
+          text "custom" font-size="0.6875rem" line-height="1rem" color="light-dark(#71717bb3, #828282b3)"
+      text model.capabilities font-size="0.6875rem" line-height="1rem" color="light-dark(#71717bb3, #828282b3)"
+      row gap="0.125rem" align-items="center" justify-content="flex-end" flex-shrink=0 min-width="5.5rem"
         when model.moves
           box position="relative" hover=hover("up")
             button press=op("provider-model-move", instanceId, model.slug, "up", true) class=PvMicro disabled=(busy or not model.canUp) opacity=(model.canUp ? 1 : 0.64) aria-label=`Move ${model.name} up` testId=`provider-model-up-${model.slug}`
@@ -609,7 +609,7 @@ component ProviderModelLine
             when tip == "remove"
               CnTooltip(tip="Remove custom model", tipId=`provider-model-remove-tip-${model.slug}`, above=24)
       box position="relative" hover=hover("switch")
-        button press=op("provider-model-hide", instanceId, model.slug, (model.hidden ? "false" : "true"), true) role="switch" aria-checked=(not model.hidden) aria-label=`Show ${model.name} in the model picker` disabled=(busy or model.custom) testId=`provider-model-visible-${model.slug}` width=26 height=16 padding=2 border-width=0 border-radius=9999 box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(model.hidden ? "flex-start" : "flex-end") flex-shrink=0 opacity=(model.custom ? 0.64 : 1) background-color=(model.hidden ? "light-dark(#d4d4d8, #ffffff14)" : "light-dark(#1b4ed8, #346bf1)")
-          box width=12 height=12 border-radius=9999 background-color="light-dark(#fcfcfc, #0a0a0a)"
+        button press=op("provider-model-hide", instanceId, model.slug, (model.hidden ? "false" : "true"), true) role="switch" aria-checked=(not model.hidden) aria-label=`Show ${model.name} in the model picker` disabled=(busy or model.custom) testId=`provider-model-visible-${model.slug}` width="1.625rem" height="1rem" padding="0.125rem" border-width=0 border-radius="624.9375rem" box-sizing="border-box" display="flex" flex-direction="row" align-items="center" justify-content=(model.hidden ? "flex-start" : "flex-end") flex-shrink=0 opacity=(model.custom ? 0.64 : 1) background-color=(model.hidden ? "light-dark(#d4d4d8, #ffffff14)" : "light-dark(#1b4ed8, #346bf1)")
+          box width="0.75rem" height="0.75rem" border-radius="624.9375rem" background-color="light-dark(#fcfcfc, #0a0a0a)"
         when tip == "switch"
           CnTooltip(tip=model.pickerTip, tipId=`provider-model-switch-tip-${model.slug}`, above=20)
