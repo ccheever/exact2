@@ -48,7 +48,7 @@ public enum ExactEnv {
     /// or its library reads one.
     public static let environment: [String: String] = {
         var environment = ProcessInfo.processInfo.environment
-        let agent = environment.keys.filter { $0 == "EXACT_AGENT" || $0.hasPrefix("EXACT_AGENT_") }.sorted()
+        let agent = environment.keys.filter { $0 == "EXACT_AGENT" || $0 == "EXACT_HATCHES" || $0.hasPrefix("EXACT_AGENT_") }.sorted()
         guard !agent.isEmpty, productionBake else { return environment }
         FileHandle.standardError.write(Data("exact: a production build ignores \(agent.joined(separator: ", ")) (LLP 1069.007 D2)\n".utf8))
         for key in agent { environment[key] = nil; unsetenv(key) }

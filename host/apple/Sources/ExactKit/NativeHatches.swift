@@ -150,10 +150,26 @@ extension NativeViews {
         }
     }
 
-    /// One hatch call, timed by the session's store (LLP 1075.003.000.001 §3.1).
+    /// One hatch call: under the crash breadcrumb, production included (§4.4),
+    /// and timed by the session's store in a development build (§3.1).
     private func timed<T>(_ scope: String, _ moment: String, counts: Bool = true, _ body: () -> T) -> T {
+        if let crumbSlot { HatchBreadcrumb.shared?.push(crumbSlot, name: scope, moment: moment, incarnation: hatchIncarnation) }
+        defer { if let crumbSlot { HatchBreadcrumb.shared?.pop(crumbSlot) } }
         guard let store = session?.hatchDiagnostics else { return body() }
         return store.timed(scope, moment, counts: counts, body)
+    }
+
+    /// This session's slot in the process's breadcrumb, taken as its hatches
+    /// first connect; what earlier runs left is said by the first to connect.
+    private func takeBreadcrumb() {
+        hatchIncarnation &+= 1
+        guard crumbSlot == nil, let crumbs = HatchBreadcrumb.shared else { return }
+        crumbSlot = crumbs.take(label: session?.label ?? "")
+        if crumbSlot == nil { session?.log("hatch: 8 sessions hold the crash breadcrumb's slots; this one runs without one") }
+        if !HatchBreadcrumb.reported {
+            HatchBreadcrumb.reported = true
+            for line in HatchBreadcrumb.lastEnds { session?.log(line) }
+        }
     }
 
     /// `tabContainer`: a container the app owns for these stacks, or nil.
@@ -215,6 +231,7 @@ extension NativeViews {
                       _ module: UnsafeMutableRawPointer) {
         // A new module is a new incarnation: its counts start at nothing.
         session?.hatchDiagnostics.reset()
+        takeBreadcrumb()
         connect(module, hatchHostTable)
         hatchCalls = (navigation, route)
         tabCalls = tabs

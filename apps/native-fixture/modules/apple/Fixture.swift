@@ -44,6 +44,10 @@ final class FixtureModule: ExactModule {
         // counter a moment, and for the badge a line, a span from its mount
         // to its end and a snapshot of its last tone.
         let moment = element.isNew ? "built" : "changed"
+        // The smoke's stand-in for a crash in hatch code (LLP 1075.003.000.001
+        // §4.4): the process dies inside this call, with no report to dismiss,
+        // and the next launch's journal says where.
+        if element.hatch == .badge, ProcessInfo.processInfo.environment["EXACT_FIXTURE_DIE"] == "badge" { kill(getpid(), SIGKILL) }
         element.diagnostics.count(moment)
         if element.hatch == .badge {
             let tone = element.data[.tone] ?? ""

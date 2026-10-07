@@ -349,6 +349,12 @@ final class NativeViews {
     weak var session: ExactSession? { didSet { hatchDiagnostics.attach(session) } }
     /// What Exact times of each hatch call and what hatch code records (LLP 1075.003.000.001 §3.1–3.2).
     let hatchDiagnostics = HatchDiagnostics()
+    /// This session's slot in the crash breadcrumb (§4.4), and the count of
+    /// times its hatches have connected: a record's incarnation.
+    var crumbSlot: Int?, hatchIncarnation: UInt32 = 0
+    /// `EXACT_HATCHES=off` (a development build only, §2.6): the module loads
+    /// and its views and calls work; no hatch is connected or called.
+    static let hatchesOff = !ExactEnv.productionBake && ExactEnv.environment["EXACT_HATCHES"] == "off"
     private var entries: [UInt32: NativeEntry] = [:]
     private var gateOpen = false
     private var waits: [UInt32: NativeWait] = [:]
@@ -361,7 +367,10 @@ final class NativeViews {
     /// Parked instances by tag, oldest first.
     fileprivate var parked: [String: [NativeEntry]] = [:]
     fileprivate var observers: [NSObjectProtocol] = []
-    deinit { for o in observers { NotificationCenter.default.removeObserver(o) } }
+    deinit {
+        for o in observers { NotificationCenter.default.removeObserver(o) }
+        if let crumbSlot { HatchBreadcrumb.shared?.free(crumbSlot) }
+    }
     #endif
     private static let kinds = ["press", "change", "hover", "focus", "blur", "key", "submit", "load", "message"]
 
@@ -492,7 +501,8 @@ final class NativeViews {
         }
         instance = made
         log("module instance made (agent \(ExactEnv.agentMode))")
-        if let connect = table.connect, let navigation = table.navigationHatch, let route = table.routeHatch {
+        if Self.hatchesOff { log("hatches: off (EXACT_HATCHES=off); no hatch is connected or called") }
+        if !Self.hatchesOff, let connect = table.connect, let navigation = table.navigationHatch, let route = table.routeHatch {
             let tabs = table.tabsHatch.flatMap { tabs in table.tabContainerHatch.map { (tabs, $0) } }
             connectHatches(connect, navigation, route, tabs, table.elementHatch, table.toolbarHatch, made)
         }

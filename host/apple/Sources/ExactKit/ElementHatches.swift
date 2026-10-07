@@ -196,6 +196,8 @@ final class ElementHatches {
         var reply = diagnostics?.state(words: out) ?? ["words": out]
         if let handled = presenter.session?.natives.handledHatches { reply["platform"] = handled.sorted() }
         reply["unhandled"] = unhandled.sorted().map { ["word": $0, "reason": "module"] }
+        // What the last run left in its crash breadcrumb (§4.4), if anything.
+        if !HatchBreadcrumb.lastEnds.isEmpty { reply["lastEnd"] = HatchBreadcrumb.lastEnds }
         return reply
     }
 

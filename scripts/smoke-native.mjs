@@ -494,6 +494,47 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     check(first === second && JSON.parse(first).calls.length > 0, `${host} native: two drives agree on every hatch call, counter, span and line: ${first === second ? first.slice(0, 200) : `${first}\n  then ${second}`}`);
   }
 
+  // The crash breadcrumb and the switch its line names (LLP 1075.003.000.001
+  // §4.4, §2.6; Apple): a run that dies inside the badge's hatch is named by
+  // the next launch, once; with `EXACT_HATCHES=off` the module's views and
+  // calls work and no hatch is connected.
+  if (host === 'macos') {
+    // The journal, once a line matching `pattern` is in it (or as it stands after 5 s).
+    const journal = async (d, pattern) => {
+      for (let i = 0; ; i++) {
+        const lines = (await d.op({ op: 'logs', since: 0 })).lines;
+        if (i === 50 || lines.some((l) => pattern.test(l))) return lines;
+        await d.clock('+50'); await sleep(50);
+      }
+    };
+    try {
+      const dying = await open({ host, env: { EXACT_FIXTURE_DIE: 'badge' } }).catch(() => null);
+      // It dies as its hatches connect, after first pixel: wait for the driver to lose it.
+      if (dying) { for (let i = 0; i < 50; i++) { try { await dying.clock('+50'); await sleep(100); } catch { break; } } await dying.close().catch(() => {}); }
+      const next = await open({ host });
+      try {
+        const lines = await journal(next, /hatch: connected/), said = lines.filter((l) => /the last run ended while inside hatch/.test(l));
+        check(said.length === 1 && /ended while inside hatch element badge \(built, call \d+\).*EXACT_HATCHES=off/.test(said[0]), `${host} native: the launch after a death inside a hatch names it: ${said.join(' | ') || lines.filter((l) => /hatch/.test(l)).slice(0, 4).join(' | ')}`);
+        check((await next.state()).hatches?.lastEnd?.length === 1, `${host} native: state.hatches carries the last run's end`);
+      } finally { await next.close(); }
+      const third = await open({ host });
+      try {
+        check(!(await journal(third, /hatch: connected/)).some((l) => /the last run ended/.test(l)), `${host} native: a breadcrumb is read once`);
+      } finally { await third.close(); }
+      const off = await open({ host, env: { EXACT_HATCHES: 'off' } });
+      try {
+        await until(off, 'the module loads with hatches off', (t) => module(t, 'box')?.state === 'ready');
+        const lines = await journal(off, /hatches: off/), st = await off.state();
+        check(lines.some((l) => /hatches: off \(EXACT_HATCHES=off\)/.test(l)) && !lines.some((l) => /hatch (element|toolbar|navigation|route|tabs)/.test(l)) && Object.values(st.hatches?.words ?? {}).every((w) => Object.keys(w.calls ?? {}).length === 0),
+          `${host} native: EXACT_HATCHES=off connects no hatch and calls none: ${lines.filter((l) => / hatch/.test(l)).join(' | ')} ${JSON.stringify(st.hatches?.words)}`);
+        await off.tap('bump'); await off.clock('+50');
+        check((await off.state()).slots.count === 1 && module(await off.tree(), 'box')?.state === 'ready', `${host} native: with hatches off the app and its module's views work`);
+      } finally { await off.close(); }
+    } catch (error) {
+      check(false, `${host} native: the breadcrumb drive stopped: ${error.stack ?? error.message}`);
+    }
+  }
+
   // The failure family's load failures: a session each.
   const failing = async (name, options, pattern, cleanup = () => {}) => {
     const f = await open({ host, ...options });
